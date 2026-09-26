@@ -35,9 +35,12 @@ import { calculateStockSummary, resolveNormMaterialId } from '../utils/inventory
 import { compareDateValues, naturalCompare } from '../utils/sortUtils';
 import { createEntityId } from '../utils/idUtils';
 import { normalizeUnit } from '../utils/unitUtils';
+import { canonicalWorkCategoryId, normalizeLinkText } from '../utils/linkageIntegrity';
 import { assertSafeExcelImportFile, parseExcelNumberRecord, parseExcelStringArray, sameStringSet } from '../utils/excelImportUtils';
 import { QuickSortBar } from './QuickSortBar';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
+import { ExcelActionMenu } from './ExcelActionMenu';
+import { QuickEditGridModal, type QuickGridColumn, type QuickGridRow } from './QuickEditGridModal';
 import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
 import { computeMaterialNeeds } from '../utils/materialNeedEngine';
 import { UserRole, canEditWarehouseData, canDeleteBusinessData, canImportData, canManageMaterialNorms } from '../utils/securityUtils';
@@ -125,6 +128,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [warehouseCatalogSortBy, setWarehouseCatalogSortBy] = useState<WarehouseCatalogSortKey>('name');
   const [warehouseCatalogSortOrder, setWarehouseCatalogSortOrder] = useState<'asc' | 'desc'>('asc');
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
+  const [showQuickEdit, setShowQuickEdit] = useState(false);
+  const [quickEditMode, setQuickEditMode] = useState<'norms' | 'in' | 'out' | 'stock'>('norms');
   const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
   const [materialNeedStructureGroupIds, setMaterialNeedStructureGroupIds] = useState<string[]>([]);
   const [materialNeedFloorIds, setMaterialNeedFloorIds] = useState<string[]>([]);
@@ -405,13 +410,31 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         let outCount = 0;
         let normsUpdatedCount = 0;
         let normsAddedCount = 0;
-        let volumesUpdatedCount = 0;
-        let volumesAddedCount = 0;
 
         let newInventory = [...inventory];
         const importedInventoryRows: InventoryItem[] = [];
         let newNorms = [...materialNorms];
-        let newWorkVolumes = workVolumes ? [...workVolumes] : [];
+        const validMaterialIds = new Set<string>([
+          ...materialNorms.map((norm) => resolveNormMaterialId(norm)),
+          ...inventory.map((item) => String(item.materialId || '').trim()).filter(Boolean),
+        ]);
+        const validNormIds = new Set<string>(materialNorms.map((norm) => norm.id));
+        const validRoomIds = new Set<string>(roomProgressList.map((room) => room.id));
+        const validFloorIds = new Set<string>(floorPlans.map((floor) => floor.id));
+        const validTeamIds = new Set<string>(teams.map((team) => team.id));
+        const validWorkCategoryIds = new Set<string>((workVolumes || []).flatMap((work) => [work.id, canonicalWorkCategoryId(work)]).filter(Boolean));
+        const validStructureGroupIds = new Set<string>(normalizedStructureConfig.groups.map((group) => group.id));
+        const assertKnownReference = (
+          rawValue: unknown,
+          existingValue: unknown,
+          validIds: Set<string>,
+          label: string,
+          rowNumber: number,
+        ) => {
+          const id = String(rawValue ?? '').trim();
+          if (!id || id === String(existingValue ?? '').trim()) return;
+          if (!validIds.has(id)) throw new Error(`Dòng ${rowNumber}: ${label} không tồn tại trong dự án hiện tại: ${id}.`);
+        };
 
         // 1. Sheet "Nhập kho"
         const inSheetName = workbook.SheetNames.find(
@@ -453,16 +476,26 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             const rawSourceNormId = row['__sourceNormId'] || row['sourceNormId'];
             const rawSourceIssueKey = row['__sourceIssueKey'] || row['sourceIssueKey'];
 
-            const existingIdx = rawId ? newInventory.findIndex(i => i.id === String(rawId).trim()) : -1;
+            const rawIdStr = String(rawId || '').trim();
+            const existingIdx = rawIdStr ? newInventory.findIndex(i => i.id === rawIdStr) : -1;
+            if (rawIdStr && existingIdx < 0) throw new Error(`Dòng ${rIdx + 2}: Mã Phiếu không tồn tại trong dự án hiện tại: ${rawIdStr}. Hãy để trống ID cho phiếu mới.`);
             
             const existingItem = existingIdx >= 0 ? newInventory[existingIdx] : undefined;
+            if (existingItem && existingItem.type !== 'in') throw new Error(`Dòng ${rIdx + 2}: Mã Phiếu ${rawIdStr} không phải phiếu Nhập kho.`);
             const preservesExistingIdentity = Boolean(existingItem
               && (existingItem.itemKind === 'equipment' ? 'equipment' : 'material') === importedItemKind
               && existingItem.materialName.trim().toLocaleLowerCase('vi-VN') === materialNameStr.toLocaleLowerCase('vi-VN')
               && (normalizeUnit(existingItem.unit) || existingItem.unit) === (normalizeUnit(unitStr) || unitStr));
+            assertKnownReference(rawMaterialId, existingItem?.materialId, validMaterialIds, '__materialId', rIdx + 2);
+            assertKnownReference(rawSourceStructureGroupId, existingItem?.sourceStructureGroupId, validStructureGroupIds, '__sourceStructureGroupId', rIdx + 2);
+            assertKnownReference(rawSourceRoomId, existingItem?.sourceRoomId, validRoomIds, '__sourceRoomId', rIdx + 2);
+            assertKnownReference(rawSourceFloorId, existingItem?.sourceFloorId, validFloorIds, '__sourceFloorId', rIdx + 2);
+            assertKnownReference(rawSourceTeamId, existingItem?.sourceTeamId, validTeamIds, '__sourceTeamId', rIdx + 2);
+            assertKnownReference(rawSourceWorkCategoryId, existingItem?.sourceWorkCategoryId, validWorkCategoryIds, '__sourceWorkCategoryId', rIdx + 2);
+            assertKnownReference(rawSourceNormId, existingItem?.sourceNormId, validNormIds, '__sourceNormId', rIdx + 2);
 
             const invItem: InventoryItem = {
-              id: existingIdx >= 0 ? newInventory[existingIdx].id : (rawId ? String(rawId).trim() : createEntityId('INV-IN')),
+              id: existingIdx >= 0 ? newInventory[existingIdx].id : createEntityId('INV-IN'),
               type: 'in',
               itemKind: importedItemKind,
               materialId: importedItemKind === 'material' ? (rawMaterialId ? String(rawMaterialId).trim() : (preservesExistingIdentity ? existingItem?.materialId : undefined)) : undefined,
@@ -540,16 +573,26 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             const rawSourceNormId = row['__sourceNormId'] || row['sourceNormId'];
             const rawSourceIssueKey = row['__sourceIssueKey'] || row['sourceIssueKey'];
 
-            const existingIdx = rawId ? newInventory.findIndex(i => i.id === String(rawId).trim()) : -1;
+            const rawIdStr = String(rawId || '').trim();
+            const existingIdx = rawIdStr ? newInventory.findIndex(i => i.id === rawIdStr) : -1;
+            if (rawIdStr && existingIdx < 0) throw new Error(`Dòng ${rIdx + 2}: Mã Phiếu không tồn tại trong dự án hiện tại: ${rawIdStr}. Hãy để trống ID cho phiếu mới.`);
             
             const existingItem = existingIdx >= 0 ? newInventory[existingIdx] : undefined;
+            if (existingItem && existingItem.type !== 'out') throw new Error(`Dòng ${rIdx + 2}: Mã Phiếu ${rawIdStr} không phải phiếu Xuất kho.`);
             const preservesExistingIdentity = Boolean(existingItem
               && (existingItem.itemKind === 'equipment' ? 'equipment' : 'material') === importedItemKind
               && existingItem.materialName.trim().toLocaleLowerCase('vi-VN') === materialNameStr.toLocaleLowerCase('vi-VN')
               && (normalizeUnit(existingItem.unit) || existingItem.unit) === (normalizeUnit(unitStr) || unitStr));
+            assertKnownReference(rawMaterialId, existingItem?.materialId, validMaterialIds, '__materialId', rIdx + 2);
+            assertKnownReference(rawSourceStructureGroupId, existingItem?.sourceStructureGroupId, validStructureGroupIds, '__sourceStructureGroupId', rIdx + 2);
+            assertKnownReference(rawSourceRoomId, existingItem?.sourceRoomId, validRoomIds, '__sourceRoomId', rIdx + 2);
+            assertKnownReference(rawSourceFloorId, existingItem?.sourceFloorId, validFloorIds, '__sourceFloorId', rIdx + 2);
+            assertKnownReference(rawSourceTeamId, existingItem?.sourceTeamId, validTeamIds, '__sourceTeamId', rIdx + 2);
+            assertKnownReference(rawSourceWorkCategoryId, existingItem?.sourceWorkCategoryId, validWorkCategoryIds, '__sourceWorkCategoryId', rIdx + 2);
+            assertKnownReference(rawSourceNormId, existingItem?.sourceNormId, validNormIds, '__sourceNormId', rIdx + 2);
 
             const invItem: InventoryItem = {
-              id: existingIdx >= 0 ? newInventory[existingIdx].id : (rawId ? String(rawId).trim() : createEntityId('INV-OUT')),
+              id: existingIdx >= 0 ? newInventory[existingIdx].id : createEntityId('INV-OUT'),
               type: 'out',
               itemKind: importedItemKind,
               materialId: importedItemKind === 'material' ? (rawMaterialId ? String(rawMaterialId).trim() : (preservesExistingIdentity ? existingItem?.materialId : undefined)) : undefined,
@@ -632,7 +675,15 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   return sameStringSet(existingNames, importedWorkCategories);
                 });
             const existingNorm = existingIdx >= 0 ? newNorms[existingIdx] : undefined;
-            const importedNormId = existingNorm?.id || rawIdStr || createEntityId('NORM');
+            if (rawIdStr && !existingNorm) throw new Error(`Dòng ${rIdx + 2}: __normId không tồn tại trong dự án hiện tại: ${rawIdStr}. Hãy để trống ID cho định mức mới.`);
+            const unknownCategoryIds = (importedWorkCategoryIds || []).filter((id) => !validWorkCategoryIds.has(id));
+            if (unknownCategoryIds.length) throw new Error(`Dòng ${rIdx + 2}: __workCategoryIds không tồn tại: ${unknownCategoryIds.join(', ')}.`);
+            const unknownNormMapIds = importedWorkCategoryNormsById
+              ? Object.keys(importedWorkCategoryNormsById).filter((id) => !validWorkCategoryIds.has(id))
+              : [];
+            if (unknownNormMapIds.length) throw new Error(`Dòng ${rIdx + 2}: __workCategoryNormsById chứa ID không tồn tại: ${unknownNormMapIds.join(', ')}.`);
+            assertKnownReference(rawMaterialId, existingNorm?.materialId, validMaterialIds, '__materialId', rIdx + 2);
+            const importedNormId = existingNorm?.id || createEntityId('NORM');
             const importedMaterialId = rawMaterialId
               ? String(rawMaterialId).trim()
               : (existingNorm?.materialId || resolveNormMaterialId({ id: importedNormId, materialName: materialNameStr, unit: normalizedImportedUnit }));
@@ -669,71 +720,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           });
         }
 
-        // 4. Sheet "Hạng Mục Thi Công"
-        const volumeSheetName = workbook.SheetNames.find(
-          name => {
-            const n = name.toLowerCase();
-            return n.includes('khoi luong') || n.includes('khối lượng') || n.includes('hang muc') || n.includes('hạng mục');
-          }
-        );
+        // Sheet "Hạng Mục Thi Công (Chỉ xem)" is intentionally reference-only.
+        // Hạng mục/Khối lượng has one authoritative editing surface: WorkVolumeTab.
+        // Do not mutate WorkVolume from Kho/Định mức Excel.
 
-        if (volumeSheetName && workVolumes) {
-          const sheet = workbook.Sheets[volumeSheetName];
-          const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
-          
-          jsonData.forEach((row, rIdx) => {
-            const titleRaw = row['Tên Hạng Mục Công Việc'] || row['Tên Hạng Mục Thi Công'] || row['Hạng Mục Công Việc'] || row['Tên Hạng Mục'] || row['Hạng mục'] || row['title'];
-            if (!titleRaw) return;
-
-            const titleStr = String(titleRaw).trim();
-            const floorStr = String(row['Tầng / Khu Vực'] || row['Tầng'] || row['floor'] || 'Tầng 1').trim();
-            const categoryStr = String(row['Nhóm Hạng Mục'] || row['Phân Loại'] || row['category'] || 'khung_tran').trim() as any;
-            const unitStr = String(row['Đơn Vị Tính'] || row['Đơn Vị'] || row['unit'] || 'm2').trim();
-            const plannedNum = parseExcelNumber(row['KL Định Mức'] || row['KL Kế Hoạch'] || row['planned'] || 0);
-            const unitPriceNum = parseExcelNumber(row['Đơn Giá (VNĐ)'] || row['Đơn Giá'] || row['unitPrice'] || 0);
-            const rawVolId = row['__workCategoryId'] || row['__recordId'] || row['Mã Hạng Mục'] || row['id'];
-            const rawRecordId = row['__recordId'] || row['id'];
-            const rawFloorId = row['__floorId'] || row['floorId'];
-            const importedFloorIds = parseExcelStringArray(row['__floorIds'] || row['floorIds'])
-              || (rawFloorId ? [String(rawFloorId).trim()] : undefined);
-            const dueDate = formatExcelDate(row['Ngày Hạn Định'] || row['Hạn Định'] || row['dueDate']);
-            const rawVolIdStr = rawVolId ? String(rawVolId).trim() : '';
-            const rawRecordIdStr = rawRecordId ? String(rawRecordId).trim() : '';
-            const existingIdx = rawVolIdStr || rawRecordIdStr
-              ? newWorkVolumes.findIndex(w => (w.workCategoryId && w.workCategoryId === rawVolIdStr) || w.id === rawRecordIdStr || w.id === rawVolIdStr)
-              : newWorkVolumes.findIndex(w => w.title.toLocaleLowerCase('vi-VN') === titleStr.toLocaleLowerCase('vi-VN') && w.floor.toLocaleLowerCase('vi-VN') === floorStr.toLocaleLowerCase('vi-VN'));
-            const existingVolume = existingIdx >= 0 ? newWorkVolumes[existingIdx] : undefined;
-            const recordId = existingVolume?.id || rawRecordIdStr || rawVolIdStr || createEntityId('HM');
-
-            const volumeData: WorkVolume = {
-              ...(existingVolume || {} as WorkVolume),
-              id: recordId,
-              workCategoryId: existingVolume?.workCategoryId || rawVolIdStr || recordId,
-              title: titleStr,
-              floor: floorStr,
-              floorId: rawFloorId ? String(rawFloorId).trim() : (importedFloorIds?.[0] || existingVolume?.floorId),
-              floorIds: importedFloorIds || existingVolume?.floorIds,
-              category: categoryStr,
-              unit: normalizeUnit(unitStr) || unitStr,
-              planned: plannedNum,
-              // actual/status are derived by App.handleImportWorkVolumes and never imported as master data.
-              actual: existingVolume?.actual || 0,
-              unitPrice: unitPriceNum,
-              status: existingVolume?.status || 'Chưa thi công',
-              dueDate: dueDate || existingVolume?.dueDate,
-            };
-
-            if (existingIdx >= 0) {
-              newWorkVolumes[existingIdx] = volumeData;
-              volumesUpdatedCount++;
-            } else {
-              newWorkVolumes.push(volumeData);
-              volumesAddedCount++;
-            }
-          });
-        }
-
-        const totalItemsFound = inCount + outCount + normsUpdatedCount + normsAddedCount + volumesUpdatedCount + volumesAddedCount;
+        const totalItemsFound = inCount + outCount + normsUpdatedCount + normsAddedCount;
 
         if (totalItemsFound === 0) {
           alert(
@@ -743,7 +734,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             `  - Nhập kho: chứa chữ 'nhap' hoặc 'nhập'\n` +
             `  - Xuất kho: chứa chữ 'xuat' hoặc 'xuất'\n` +
             `  - Định Mức Vật Tư: chứa chữ 'dinh muc' hoặc 'định mức'\n` +
-            `  - Hạng Mục Thi Công: chứa chữ 'khoi luong', 'khối lượng', 'hang muc' hoặc 'hạng mục'\n\n` +
+            `  - Hạng Mục Thi Công (Chỉ xem): bảng tham chiếu, không nhập ngược từ module Kho/Định mức\n\n` +
             `Vui lòng kiểm tra lại tên Sheet và đảm bảo có đúng tiêu đề cột dữ liệu.`
           );
           return;
@@ -755,7 +746,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           `📥 NHẬP KHO: ${inCount} phiếu nhập\n` +
           `📤 XUẤT KHO: ${outCount} phiếu xuất\n` +
           `📋 ĐỊNH MỨC VẬT TƯ: ${normsUpdatedCount} cập nhật, ${normsAddedCount} mới\n` +
-          `🏗️ HẠNG MỤC THI CÔNG: ${volumesUpdatedCount} cập nhật, ${volumesAddedCount} mới\n\n` +
+          `🏗️ HẠNG MỤC THI CÔNG: chỉ tham chiếu, không sửa từ file này\n\n` +
           `Bạn có đồng ý áp dụng các thay đổi này vào hệ thống không?`;
 
         const confirmUpdate = await confirmAsync(confirmMsg);
@@ -766,10 +757,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           if (onImportNorms && (normsUpdatedCount > 0 || normsAddedCount > 0)) {
             onImportNorms(newNorms);
           }
-          if (onImportWorkVolumes && workVolumes && (volumesUpdatedCount > 0 || volumesAddedCount > 0)) {
-            onImportWorkVolumes(newWorkVolumes);
-          }
-          alert('🎉 Đã cập nhật thành công dữ liệu kho, nhập/xuất, định mức và hạng mục!');
+          alert('🎉 Đã cập nhật thành công dữ liệu kho/định mức. Hạng mục thi công chỉ được chỉnh tại mục Khối lượng.');
         }
       } catch (err: any) {
         alert(`❌ Lỗi đọc hoặc xử lý tệp Excel: ${err.message}`);
@@ -1426,6 +1414,192 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     }
   };
 
+  const warehouseQuickNormRows = useMemo<QuickGridRow[]>(() => materialNorms.map((norm) => ({
+    __rowKey: norm.id,
+    __normId: norm.id,
+    materialName: norm.materialName,
+    category: norm.category,
+    unit: norm.unit,
+    workCategories: (norm.workCategories?.length ? norm.workCategories : (norm.workCategory ? [norm.workCategory] : [])).join('; '),
+    unitNorm: norm.unitNormPerM2 ?? '',
+    quotaQuantity: norm.quotaQuantity ?? 0,
+    notes: norm.notes || '',
+  })), [materialNorms]);
+
+  const warehouseQuickInventoryRows = useMemo<QuickGridRow[]>(() => inventory.map((item) => {
+    const floor = item.sourceFloorId ? floorPlans.find((entry) => entry.id === item.sourceFloorId) : undefined;
+    const room = item.sourceRoomId ? roomProgressList.find((entry) => entry.id === item.sourceRoomId) : undefined;
+    const team = item.sourceTeamId ? teams.find((entry) => entry.id === item.sourceTeamId) : undefined;
+    const work = item.sourceWorkCategoryId ? (workVolumes || []).find((entry) => (entry.workCategoryId || entry.id) === item.sourceWorkCategoryId || entry.id === item.sourceWorkCategoryId) : undefined;
+    const groupId = item.sourceStructureGroupId || (floor ? resolveFloorStructureGroupId(floor, normalizedStructureConfig) : '');
+    return {
+      __rowKey: item.id,
+      __recordId: item.id,
+      __type: item.type,
+      date: item.date,
+      materialName: item.materialName,
+      unit: item.unit,
+      quantity: item.quantity,
+      category: materialNorms.find((norm) => resolveNormMaterialId(norm) === item.materialId || (norm.materialName === item.materialName && norm.unit === item.unit))?.category || '',
+      structureGroup: groupId ? normalizedStructureConfig.groups.find((group) => group.id === groupId)?.name || '' : '',
+      floorName: floor?.floorName || '',
+      roomName: room?.roomName || '',
+      teamName: team?.name || '',
+      workCategory: work?.title || '',
+      location: item.location || '',
+      handler: item.handler || '',
+      notes: item.notes || '',
+    };
+  }), [inventory, floorPlans, roomProgressList, teams, workVolumes, materialNorms, normalizedStructureConfig]);
+
+  const warehouseQuickStockRows = useMemo<QuickGridRow[]>(() => stockSummaries.map((item, index) => ({
+    __rowKey: `stock-${item.materialId || item.materialName}-${index}`,
+    materialName: item.materialName,
+    category: item.category,
+    unit: item.unit,
+    totalIn: item.totalIn,
+    totalOut: item.totalOut,
+    currentStock: item.currentStock,
+    normQuantity: item.normQuantity,
+    remainingNeed: item.remainingNeed,
+  })), [stockSummaries]);
+
+  const warehouseMaterialOptions = useMemo(() => Array.from(new Set([
+    ...materialNorms.map((norm) => norm.materialName),
+    ...inventory.map((item) => item.materialName),
+  ].filter(Boolean))), [materialNorms, inventory]);
+  const warehouseFloorOptions = useMemo(() => floorPlans.map((floor) => floor.floorName), [floorPlans]);
+  const warehouseTeamOptions = useMemo(() => teams.map((team) => team.name), [teams]);
+  const warehouseWorkOptions = useMemo(() => (workVolumes || []).map((work) => work.title), [workVolumes]);
+  const warehouseRoomOptions = useMemo(() => roomProgressList.map((room) => room.roomName), [roomProgressList]);
+
+  const warehouseQuickColumns = useMemo<QuickGridColumn[]>(() => {
+    if (quickEditMode === 'norms') return [
+      { key: 'materialName', label: 'Tên vật tư', editable: hasNormManageAccess, required: true, width: 220 },
+      { key: 'category', label: 'Nhóm', editable: hasNormManageAccess, required: true, width: 150 },
+      { key: 'unit', label: 'ĐVT', editable: hasNormManageAccess, required: true, width: 90 },
+      { key: 'workCategories', label: 'Liên kết hạng mục thi công', editable: hasNormManageAccess, width: 260 },
+      { key: 'unitNorm', label: 'Định mức / ĐVT', editable: hasNormManageAccess, type: 'number', width: 130, validate: (value) => Number(value || 0) < 0 ? 'Không được âm' : null },
+      { key: 'quotaQuantity', label: 'Khối lượng định mức', editable: hasNormManageAccess, type: 'number', width: 150, validate: (value) => Number(value || 0) < 0 ? 'Không được âm' : null },
+      { key: 'notes', label: 'Ghi chú / Tiêu chuẩn kỹ thuật', editable: hasNormManageAccess, width: 300 },
+    ];
+    if (quickEditMode === 'stock') return [
+      { key: 'materialName', label: 'Tên vật tư', editable: false, width: 220 },
+      { key: 'category', label: 'Nhóm', editable: false, width: 150 },
+      { key: 'unit', label: 'ĐVT', editable: false, width: 90 },
+      { key: 'totalIn', label: 'Tổng nhập', editable: false, type: 'number', width: 110 },
+      { key: 'totalOut', label: 'Tổng xuất', editable: false, type: 'number', width: 110 },
+      { key: 'currentStock', label: 'Tồn kho', editable: false, type: 'number', width: 110 },
+      { key: 'normQuantity', label: 'Nhu cầu định mức', editable: false, type: 'number', width: 135 },
+      { key: 'remainingNeed', label: 'Còn cần', editable: false, type: 'number', width: 110 },
+    ];
+    const base: QuickGridColumn[] = [
+      { key: 'date', label: 'Ngày', editable: hasImportAccess, type: 'date', required: true, width: 135 },
+      { key: 'materialName', label: 'Tên vật tư', editable: hasImportAccess, type: 'select', options: warehouseMaterialOptions, required: true, width: 220 },
+      { key: 'unit', label: 'ĐVT', editable: hasImportAccess, required: true, width: 90 },
+      { key: 'quantity', label: 'Số lượng', editable: hasImportAccess, type: 'number', required: true, width: 110, validate: (value) => Number(value) <= 0 ? 'Phải lớn hơn 0' : null },
+    ];
+    if (quickEditMode === 'out') {
+      base.push(
+        { key: 'structureGroup', label: normalizedStructureConfig.label || 'Khu/Khối', editable: hasImportAccess, type: 'select', options: normalizedStructureConfig.groups.map((group) => group.name), width: 150 },
+        { key: 'floorName', label: 'Tầng', editable: hasImportAccess, type: 'select', options: warehouseFloorOptions, width: 150 },
+        { key: 'roomName', label: 'Căn / Phòng', editable: hasImportAccess, type: 'select', options: warehouseRoomOptions, width: 170 },
+        { key: 'teamName', label: 'Đội thi công', editable: hasImportAccess, type: 'select', options: warehouseTeamOptions, width: 180 },
+        { key: 'workCategory', label: 'Hạng mục thi công', editable: hasImportAccess, type: 'select', options: warehouseWorkOptions, width: 230 },
+      );
+    } else {
+      base.push({ key: 'location', label: 'Vị trí kho', editable: hasImportAccess, width: 170 });
+    }
+    base.push(
+      { key: 'handler', label: 'Người thực hiện', editable: hasImportAccess, width: 170 },
+      { key: 'notes', label: 'Ghi chú', editable: hasImportAccess, width: 260 },
+    );
+    return base;
+  }, [quickEditMode, hasNormManageAccess, hasImportAccess, warehouseMaterialOptions, warehouseFloorOptions, warehouseRoomOptions, warehouseTeamOptions, warehouseWorkOptions, normalizedStructureConfig]);
+
+  const warehouseActiveQuickRows = quickEditMode === 'norms'
+    ? warehouseQuickNormRows
+    : quickEditMode === 'stock'
+      ? warehouseQuickStockRows
+      : warehouseQuickInventoryRows.filter((row) => row.__type === quickEditMode);
+
+  const saveWarehouseQuickRows = async (rows: QuickGridRow[], dirtyCellKeys: Set<string>) => {
+    if (quickEditMode === 'stock') return;
+    const dirtyRowKeys = new Set(Array.from(dirtyCellKeys).map((key) => key.split('::')[0]));
+    const dirtyRows = rows.filter((row) => dirtyRowKeys.has(row.__rowKey));
+    if (!dirtyRows.length) return;
+
+    if (quickEditMode === 'norms') {
+      if (!hasNormManageAccess || !onImportNorms) return;
+      const byId = new Map<string, MaterialNorm>(materialNorms.map((norm) => [norm.id, norm] as const));
+      dirtyRows.forEach((row) => {
+        const existing = byId.get(String(row.__normId || row.__rowKey));
+        const id = existing?.id || createEntityId('norm');
+        const workNames = String(row.workCategories || '').split(/[;\n]+/).map((item) => item.trim()).filter(Boolean);
+        const workIds = workNames.map((name) => (workVolumes || []).find((work) => normalizeLinkText(work.title) === normalizeLinkText(name)))
+          .filter((work): work is WorkVolume => Boolean(work))
+          .map((work) => canonicalWorkCategoryId(work));
+        byId.set(id, {
+          ...(existing || {} as MaterialNorm),
+          id,
+          materialId: existing?.materialId || createEntityId('material'),
+          materialName: String(row.materialName || '').trim(),
+          category: String(row.category || '').trim(),
+          unit: normalizeUnit(String(row.unit || '').trim()) || String(row.unit || '').trim(),
+          workCategory: workNames[0],
+          workCategoryId: workIds[0],
+          workCategories: workNames.length ? workNames : undefined,
+          workCategoryIds: workIds.length ? Array.from(new Set(workIds)) : undefined,
+          quotaQuantity: Math.max(0, Number(row.quotaQuantity || 0)),
+          unitNormPerM2: Math.max(0, Number(row.unitNorm || 0)),
+          normBasisUnit: existing?.normBasisUnit || 'm²',
+          notes: String(row.notes || '').trim() || undefined,
+        });
+      });
+      const confirmed = await confirmAsync(`Lưu ${dirtyRows.length} thay đổi Danh mục & Định mức vật tư?`);
+      if (!confirmed) return false;
+      onImportNorms(Array.from(byId.values()));
+      return;
+    }
+
+    if (!hasImportAccess || !onImportInventory) return;
+    const upserts: InventoryItem[] = dirtyRows.map((row) => {
+      const existing = inventory.find((item) => item.id === String(row.__recordId || row.__rowKey));
+      const materialNameValue = String(row.materialName || '').trim();
+      const norm = materialNorms.find((item) => item.materialName === materialNameValue && normalizeUnit(item.unit) === normalizeUnit(String(row.unit || '')));
+      const floor = floorPlans.find((item) => item.floorName === String(row.floorName || ''));
+      const room = roomProgressList.find((item) => item.roomName === String(row.roomName || '') && (!floor || item.floorId === floor.id));
+      const team = teams.find((item) => item.name === String(row.teamName || ''));
+      const work = (workVolumes || []).find((item) => item.title === String(row.workCategory || ''));
+      const group = normalizedStructureConfig.groups.find((item) => item.name === String(row.structureGroup || ''));
+      const type = quickEditMode as TransactionType;
+      const id = existing?.id || createEntityId(type === 'in' ? 'INV-IN' : 'INV-OUT');
+      return {
+        ...(existing || {} as InventoryItem),
+        id,
+        type,
+        itemKind: existing?.itemKind || 'material',
+        materialId: norm ? resolveNormMaterialId(norm) : existing?.materialId,
+        materialName: materialNameValue,
+        unit: normalizeUnit(String(row.unit || '').trim()) || String(row.unit || '').trim(),
+        quantity: Math.max(0, Number(row.quantity || 0)),
+        date: String(row.date || '').trim(),
+        location: type === 'in' ? String(row.location || existing?.location || 'Kho chính').trim() : String(existing?.location || 'Công trình'),
+        handler: String(row.handler || existing?.handler || defaultHandler || '').trim(),
+        notes: String(row.notes || '').trim() || undefined,
+        issuePurpose: type === 'out' ? (existing?.issuePurpose || 'project-work') : existing?.issuePurpose,
+        sourceStructureGroupId: type === 'out' ? (group?.id || (floor ? resolveFloorStructureGroupId(floor, normalizedStructureConfig) : existing?.sourceStructureGroupId)) : existing?.sourceStructureGroupId,
+        sourceFloorId: type === 'out' ? (floor?.id || existing?.sourceFloorId) : existing?.sourceFloorId,
+        sourceRoomId: type === 'out' ? (room?.id || existing?.sourceRoomId) : existing?.sourceRoomId,
+        sourceTeamId: type === 'out' ? (team?.id || existing?.sourceTeamId) : existing?.sourceTeamId,
+        sourceWorkCategoryId: type === 'out' ? (work ? canonicalWorkCategoryId(work) : existing?.sourceWorkCategoryId) : existing?.sourceWorkCategoryId,
+      };
+    });
+    const confirmed = await confirmAsync(`Lưu ${upserts.length} phiếu ${quickEditMode === 'in' ? 'Nhập kho' : 'Xuất kho'}? Tồn kho sẽ được tính lại từ sổ giao dịch.`);
+    if (!confirmed) return false;
+    await onImportInventory(upserts);
+  };
+
   return (
     <div className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
       {/* Title & Action Row */}
@@ -1600,39 +1774,92 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 Tải Excel &amp; Nhập dữ liệu Xuất &amp; Nhập kho
               </h3>
               <p className="text-[11px] text-slate-500 leading-snug mt-0.5">
-                Mẫu Excel gồm các trang: <strong>Nhập kho</strong>, <strong>Xuất kho</strong>, <strong>Định Mức Vật Tư</strong> (có cột Tên Hạng Mục Thi Công) &amp; <strong>Tồn Kho</strong>. Chỉnh sửa và tải lên để cập nhật hàng loạt.
+                Mẫu Excel gồm các trang: <strong>Nhập kho</strong>, <strong>Xuất kho</strong>, <strong>Định Mức Vật Tư</strong> (có cột Tên Hạng Mục Thi Công) &amp; <strong>Hạng Mục Thi Công</strong> &amp; <strong>Tồn Kho</strong>. Tồn Kho chỉ đọc; chỉnh dữ liệu nguồn rồi tải lên để cập nhật hàng loạt.
               </p>
             </div>
           </div>
           <span className="text-[9px] font-extrabold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md uppercase shrink-0">
-            4 TRANG
+            5 TRANG
           </span>
         </div>
 
-        <div className={`grid gap-2 pt-0.5 ${hasImportAccess ? 'grid-cols-2' : 'grid-cols-1'}`}>
+        <div className="flex flex-wrap items-center gap-2 pt-0.5">
           <button
             type="button"
-            onClick={() => exportWarehouseUpdateTemplate(materialNorms, workVolumes || [], inventory, undefined, {
+            onClick={() => { setQuickEditMode('norms'); setShowQuickEdit(true); }}
+            className="flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-extrabold py-2 px-3 rounded-xl transition-all text-xs active:scale-95 cursor-pointer"
+          >
+            ▦ <span>Bảng chỉnh nhanh</span>
+          </button>
+          <ExcelActionMenu
+            onExportEdit={() => exportWarehouseUpdateTemplate(materialNorms, workVolumes || [], inventory, undefined, {
               floorPlans,
               roomProgressList,
               teams,
               structureConfig: normalizedStructureConfig,
             })}
-            className="flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold py-2 px-3 rounded-xl transition-all text-xs active:scale-95 cursor-pointer"
-          >
-            <Download className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>Tải Excel để chỉnh sửa</span>
-          </button>
-
-          {hasImportAccess && (
-            <label className="flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-xl cursor-pointer transition-all shadow-3xs active:scale-95 text-xs text-center">
-              <Upload className="w-4 h-4 text-white shrink-0" />
-              <span>Nhập lại từ Excel</span>
-              <input type="file" accept=".xlsx, .xls" onChange={handleFileChangeExcel} className="hidden" />
-            </label>
-          )}
+            onImportFile={hasImportAccess ? handleFileChangeExcel : undefined}
+            onDownloadTemplate={() => exportWarehouseUpdateTemplate(materialNorms, workVolumes || [], [], undefined, {
+              floorPlans,
+              roomProgressList,
+              teams,
+              structureConfig: normalizedStructureConfig,
+            })}
+            exportLabel="Xuất dữ liệu Kho để chỉnh sửa"
+            importLabel="Nhập dữ liệu Kho đã chỉnh sửa"
+            templateLabel="Tải mẫu Kho / Định mức"
+          />
         </div>
       </div>
+
+      <QuickEditGridModal
+        open={showQuickEdit}
+        title="Bảng chỉnh nhanh · Kho vật tư"
+        subtitle={quickEditMode === 'stock' ? 'Tồn kho là số tính từ Tổng nhập - Tổng xuất và luôn chỉ đọc.' : 'Chỉnh trực tiếp theo cột/dòng; dữ liệu chỉ ghi khi bấm Lưu.'}
+        tabs={[
+          { key: 'norms', label: 'Danh mục & Định mức' },
+          { key: 'in', label: 'Nhập kho' },
+          { key: 'out', label: 'Xuất kho' },
+          { key: 'stock', label: 'Tồn kho 🔒' },
+        ]}
+        activeTab={quickEditMode}
+        onTabChange={(key) => setQuickEditMode(key as 'norms' | 'in' | 'out' | 'stock')}
+        columns={warehouseQuickColumns}
+        rows={warehouseActiveQuickRows}
+        canEdit={quickEditMode === 'stock' ? false : quickEditMode === 'norms' ? hasNormManageAccess : hasImportAccess}
+        canAddRows={quickEditMode === 'norms' ? hasNormManageAccess : quickEditMode === 'in' || quickEditMode === 'out' ? hasImportAccess : false}
+        createEmptyRow={(index) => quickEditMode === 'norms' ? ({
+          __rowKey: `new-norm-${Date.now()}-${index}`,
+          __new: true,
+          __normId: '',
+          materialName: '',
+          category: '',
+          unit: '',
+          workCategories: '',
+          unitNorm: 0,
+          quotaQuantity: 0,
+          notes: '',
+        }) : ({
+          __rowKey: `new-${quickEditMode}-${Date.now()}-${index}`,
+          __new: true,
+          __recordId: '',
+          __type: quickEditMode,
+          date: new Date().toISOString().slice(0, 10),
+          materialName: warehouseMaterialOptions[0] || '',
+          unit: materialNorms.find((norm) => norm.materialName === warehouseMaterialOptions[0])?.unit || '',
+          quantity: 1,
+          structureGroup: '',
+          floorName: '',
+          roomName: '',
+          teamName: '',
+          workCategory: '',
+          location: quickEditMode === 'in' ? 'Kho chính' : '',
+          handler: defaultHandler,
+          notes: '',
+        })}
+        onClose={() => setShowQuickEdit(false)}
+        onSave={saveWarehouseQuickRows}
+      />
 
       {/* Gợi ý vật tư tổng hợp */}
       <section className="mb-4 rounded-2xl border border-indigo-200 bg-indigo-50/50 p-4 shadow-sm">

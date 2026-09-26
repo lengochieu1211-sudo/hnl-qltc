@@ -111,9 +111,10 @@ assert(!featureSheet.includes('rounded-full border border-slate-200 bg-white'), 
 
 const warehouse = read('src/components/WarehouseTab.tsx');
 
-assert(warehouse.includes("${hasImportAccess ? 'grid-cols-2' : 'grid-cols-1'}"), 'Warehouse Excel actions must collapse to one column when import is not allowed');
+assert(warehouse.includes('<ExcelActionMenu'), 'Warehouse must use the shared single Excel action menu');
+assert(warehouse.includes('onImportFile={hasImportAccess ? handleFileChangeExcel : undefined}'), 'Warehouse Excel menu must hide import when the current role cannot import');
 assert(!warehouse.includes('<span>Chỉ ADMIN được nhập</span>'), 'Warehouse must hide unavailable bulk-import action instead of rendering a disabled ADMIN-only placeholder');
-assert(warehouse.includes('<span>Tải Excel để chỉnh sửa</span>'), 'Warehouse download action keeps one consistent user-facing label across roles');
+assert(warehouse.includes('exportLabel="Xuất dữ liệu Kho để chỉnh sửa"'), 'Warehouse Excel export must keep the agreed editing-oriented label');
 assert(warehouse.includes('aria-controls="material-need-details"'), 'Material Need row trigger missing');
 assert(warehouse.includes('role="button"'), 'Material Need heading row must be tappable');
 assert(warehouse.includes('Gợi ý vật tư tổng hợp'), 'Material Need summary card missing');
@@ -270,8 +271,10 @@ assert(globalThemeCss.includes('.hnl-home-dashboard') && globalThemeCss.includes
 
 assert(!defectUi.includes('text-[9px] font-bold text-slate-500">Tên cấp Khu/Khối</div>'), 'Floor manager must not repeat the Khu/Khối level name in a separate card');
 assert(photoAttachmentUiForPc.includes('compactViewerButton?: boolean;') && photoAttachmentUiForPc.includes('Mở ảnh hiện trường toàn màn hình'), 'Crew field-photo button must open the shared full-screen viewer directly without expanding thumbnails');
-assert(workVolumeUi.includes('<Download className="w-3.5 h-3.5" /> Tải Excel để chỉnh sửa'), 'Work Volume download action keeps one consistent label across roles');
-assert(workVolumeUi.includes('{hasStructureManageAccess && ('), 'Work Volume must hide ADMIN-only import/create actions from Engineer/Viewer');
+assert(workVolumeUi.includes('<ExcelActionMenu'), 'Work Volume must use the shared single Excel action menu');
+assert(workVolumeUi.includes('onImportFile={hasStructureManageAccess ? handleImportExcelWorkVolumes : undefined}'), 'Work Volume Excel menu must hide import from roles without structure-manage permission');
+assert(workVolumeUi.includes('exportLabel="Xuất hạng mục để chỉnh sửa"'), 'Work Volume Excel export must keep the agreed editing-oriented label');
+assert(workVolumeUi.includes('{hasStructureManageAccess && ('), 'Work Volume must hide ADMIN-only create actions from Engineer/Viewer');
 
 const multiProjectAccessUi = read('src/components/MultiProjectAccessPanel.tsx');
 const securityModalUi = read('src/components/SecurityModal.tsx');

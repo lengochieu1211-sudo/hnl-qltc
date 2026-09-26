@@ -654,12 +654,14 @@ export function exportCrewRecordsToExcel(crewRecords: CrewRecord[], teams: TeamI
     return (a.teamName || '').localeCompare(b.teamName || '');
   });
 
-  const data = sortedCrewRecords.map((item, idx) => {
+  const mainData = sortedCrewRecords.map((item, idx) => {
     const team = teams.find(t => isTeamMatch(item.teamName, t, item.teamId));
     return {
       'STT': idx + 1,
       '__recordId': item.id,
       '__teamId': item.teamId || team?.id || '',
+      '__floorId': item.floorId || '',
+      '__structureGroupId': item.structureGroupId || '',
       'Ngày Ghi Nhận': item.date ? formatDateDDMMYYYY(item.date) : '',
       'Tên Đội Thi Công': item.teamName,
       'Trưởng Nhóm / Đội Trưởng': item.leaderName,
@@ -674,9 +676,100 @@ export function exportCrewRecordsToExcel(crewRecords: CrewRecord[], teams: TeamI
     };
   });
 
-  const ws = XLSX.utils.json_to_sheet(data);
-  autoFitColumns(ws);
-  XLSX.utils.book_append_sheet(wb, ws, 'Nhat Ky Quan So');
+  const mainHeaders = [
+    'STT', '__recordId', '__teamId', '__floorId', '__structureGroupId',
+    'Ngày Ghi Nhận', 'Tên Đội Thi Công', 'Trưởng Nhóm / Đội Trưởng',
+    'Quân Số (Người)', 'Ca Sáng (Người)', 'Ca Chiều (Người)', 'Ca Tối (Người)',
+    'Ca Làm Việc', 'Vị Trí Làm Việc (Tầng)', 'Nhiệm Vụ / Hạng Mục', 'Ghi Chú',
+  ];
+  const wsMain = mainData.length > 0
+    ? XLSX.utils.json_to_sheet(mainData, { header: mainHeaders })
+    : XLSX.utils.aoa_to_sheet([mainHeaders]);
+  autoFitColumns(wsMain);
+  wsMain['!cols'] = (wsMain['!cols'] || []).map((col, index) =>
+    [1, 2, 3, 4].includes(index) ? { ...col, hidden: true } : col
+  );
+  wsMain['!autofilter'] = { ref: `A1:P${Math.max(2, mainData.length + 1)}` };
+  XLSX.utils.book_append_sheet(wb, wsMain, 'Nhat Ky Quan So');
+
+  const detailData = sortedCrewRecords.flatMap((record) => {
+    const floorWorks = record.floorWorks || [];
+    if (floorWorks.length === 0) {
+      return [{
+        '__recordId': record.id,
+        '__floorId': record.floorId || '',
+        'Ngày Ghi Nhận': record.date ? formatDateDDMMYYYY(record.date) : '',
+        'Tên Đội Thi Công': record.teamName,
+        'Tầng / Khu Vực': record.floorName || '',
+        'Hạng Mục Chính': '',
+        'Hạng Mục Phụ / Công Đoạn': record.taskDescription || '',
+      }];
+    }
+    return floorWorks.flatMap((floorWork) => {
+      const categories = floorWork.categories || [];
+      if (categories.length === 0) {
+        return [{
+          '__recordId': record.id,
+          '__floorId': floorWork.floorId || '',
+          'Ngày Ghi Nhận': record.date ? formatDateDDMMYYYY(record.date) : '',
+          'Tên Đội Thi Công': record.teamName,
+          'Tầng / Khu Vực': floorWork.floorName || '',
+          'Hạng Mục Chính': '',
+          'Hạng Mục Phụ / Công Đoạn': '',
+        }];
+      }
+      return categories.map((category) => ({
+        '__recordId': record.id,
+        '__floorId': floorWork.floorId || '',
+        'Ngày Ghi Nhận': record.date ? formatDateDDMMYYYY(record.date) : '',
+        'Tên Đội Thi Công': record.teamName,
+        'Tầng / Khu Vực': floorWork.floorName || '',
+        'Hạng Mục Chính': category.categoryName || '',
+        'Hạng Mục Phụ / Công Đoạn': (category.subItems || []).join('; '),
+      }));
+    });
+  });
+  const detailHeaders = [
+    '__recordId', '__floorId', 'Ngày Ghi Nhận', 'Tên Đội Thi Công',
+    'Tầng / Khu Vực', 'Hạng Mục Chính', 'Hạng Mục Phụ / Công Đoạn',
+  ];
+  const wsDetail = detailData.length > 0
+    ? XLSX.utils.json_to_sheet(detailData, { header: detailHeaders })
+    : XLSX.utils.aoa_to_sheet([detailHeaders]);
+  autoFitColumns(wsDetail);
+  wsDetail['!cols'] = (wsDetail['!cols'] || []).map((col, index) =>
+    [0, 1].includes(index) ? { ...col, hidden: true } : col
+  );
+  wsDetail['!autofilter'] = { ref: `A1:G${Math.max(2, detailData.length + 1)}` };
+  XLSX.utils.book_append_sheet(wb, wsDetail, 'Chi Tiet Cong Viec');
+
+  const teamData = teams.map((team) => ({
+    '__teamId': team.id,
+    'Tên Đội Thi Công': team.name,
+    'Trưởng Nhóm / Đội Trưởng': team.leader,
+    'Quân số định biên': team.defaultCount,
+    'Số Điện Thoại': team.phone || '',
+    'Ghi Chú': team.notes || '',
+  }));
+  const teamHeaders = ['__teamId', 'Tên Đội Thi Công', 'Trưởng Nhóm / Đội Trưởng', 'Quân số định biên', 'Số Điện Thoại', 'Ghi Chú'];
+  const wsTeams = teamData.length > 0
+    ? XLSX.utils.json_to_sheet(teamData, { header: teamHeaders })
+    : XLSX.utils.aoa_to_sheet([teamHeaders]);
+  autoFitColumns(wsTeams);
+  if (wsTeams['!cols']?.[0]) wsTeams['!cols'][0] = { ...wsTeams['!cols'][0], hidden: true };
+  wsTeams['!autofilter'] = { ref: `A1:F${Math.max(2, teamData.length + 1)}` };
+  XLSX.utils.book_append_sheet(wb, wsTeams, 'Danh Muc Doi');
+
+  const wsGuide = XLSX.utils.aoa_to_sheet([
+    ['HNL QLTC - Nhật ký quân số'],
+    ['1', 'Nhat Ky Quan So: chỉnh ngày, đội, quân số theo ca và ghi chú.'],
+    ['2', 'Chi Tiet Cong Viec: chỉnh Tầng, Hạng Mục Chính và Hạng Mục Phụ/Công Đoạn của đúng __recordId.'],
+    ['3', 'Các cột __recordId/__teamId/__floorId là khóa kỹ thuật; không xóa nếu muốn cập nhật đúng bản ghi hiện có.'],
+    ['4', 'Ảnh hiện trường không nằm trong Excel và không bị thay đổi khi nhập lại nhật ký.'],
+    ['5', 'Nhập lại luôn có bước kiểm tra trước khi ghi.'],
+  ]);
+  wsGuide['!cols'] = [{ wch: 8 }, { wch: 105 }];
+  XLSX.utils.book_append_sheet(wb, wsGuide, 'Huong Dan');
 
   const safeName = (projectName || 'Cong_Trinh').replace(/[^a-zA-Z0-9_ -]/g, '');
   return saveWorkbookFile(wb, `Nhat_Ky_Quan_So_${safeName}_${Date.now()}.xlsx`);
@@ -731,8 +824,20 @@ export function exportWorkVolumesTemplate(workVolumes?: WorkVolume[], projectNam
     return row;
   });
 
-  const ws = XLSX.utils.json_to_sheet(data);
+  const workVolumeHeaders = [
+    'STT', '__recordId', '__workCategoryId', '__floorId', '__floorIds',
+    'Tên Hạng Mục Công Việc', 'Tầng / Khu Vực', 'Nhóm Hạng Mục', 'Đơn Vị Tính',
+    'KL Định Mức', 'KL Thực Tế (chỉ xem - không import)',
+    ...(canViewFinancials ? ['Đơn Giá (VNĐ)'] : []),
+    'Ngày Hạn Định',
+  ];
+  const ws = data.length > 0
+    ? XLSX.utils.json_to_sheet(data, { header: workVolumeHeaders })
+    : XLSX.utils.aoa_to_sheet([workVolumeHeaders]);
   autoFitColumns(ws);
+  ws['!cols'] = (ws['!cols'] || []).map((col, index) =>
+    [1, 2, 3, 4].includes(index) ? { ...col, hidden: true } : col
+  );
   XLSX.utils.book_append_sheet(wb, ws, 'Khoi Luong Thi Cong');
   const safeName = (projectName || 'Cong_Trinh').replace(/[^a-zA-Z0-9_ -]/g, '');
   return saveWorkbookFile(wb, `Khoi_Luong_Thi_Cong_${safeName}.xlsx`);
@@ -1009,6 +1114,7 @@ export function exportWarehouseUpdateTemplate(
   const inSource = inItems.map((item, idx) => ({
     'STT': idx + 1,
     'Mã Phiếu': item.id,
+    '__itemKind': item.itemKind === 'equipment' ? 'equipment' : 'material',
     '__materialId': item.materialId || '',
     '__sourceType': item.sourceType || '',
     '__issuePurpose': item.issuePurpose || '',
@@ -1019,7 +1125,8 @@ export function exportWarehouseUpdateTemplate(
     '__sourceWorkCategoryId': item.sourceWorkCategoryId || '',
     '__sourceNormId': item.sourceNormId || '',
     '__sourceIssueKey': item.sourceIssueKey || '',
-    'Tên Vật Tư': item.materialName,
+    'Loại Hàng': item.itemKind === 'equipment' ? 'Thiết bị' : 'Vật tư',
+    'Tên Vật Tư / Thiết Bị': item.materialName,
     'Đơn Vị Tính': item.unit,
     'Số Lượng': item.quantity,
     'Vị Trí Kho': item.location || 'Kho chính',
@@ -1027,8 +1134,21 @@ export function exportWarehouseUpdateTemplate(
     'Ngày Thực Hiện': item.date ? formatDateDDMMYYYY(item.date) : '',
     'Ghi Chú': item.notes || '',
   }));
-  const wsIn = XLSX.utils.json_to_sheet(inSource);
+  const inHeaders = [
+    'STT', 'Mã Phiếu', '__itemKind', '__materialId', '__sourceType', '__issuePurpose',
+    '__sourceStructureGroupId', '__sourceRoomId', '__sourceFloorId', '__sourceTeamId',
+    '__sourceWorkCategoryId', '__sourceNormId', '__sourceIssueKey',
+    'Loại Hàng', 'Tên Vật Tư / Thiết Bị', 'Đơn Vị Tính', 'Số Lượng',
+    'Vị Trí Kho', 'Người Thực Hiện', 'Ngày Thực Hiện', 'Ghi Chú',
+  ];
+  const wsIn = inSource.length > 0
+    ? XLSX.utils.json_to_sheet(inSource, { header: inHeaders })
+    : XLSX.utils.aoa_to_sheet([inHeaders]);
   autoFitColumns(wsIn);
+  wsIn['!cols'] = (wsIn['!cols'] || []).map((col, index) =>
+    index >= 2 && index <= 12 ? { ...col, hidden: true } : col
+  );
+  wsIn['!autofilter'] = { ref: `A1:U${Math.max(2, inSource.length + 1)}` };
   XLSX.utils.book_append_sheet(wb, wsIn, 'Nhập Kho');
 
   // 2. Sheet "Xuất Kho"
@@ -1073,8 +1193,23 @@ export function exportWarehouseUpdateTemplate(
       'Ghi Chú': item.notes || '',
     };
   });
-  const wsOut = XLSX.utils.json_to_sheet(outSource);
+  const outHeaders = [
+    'STT', 'Mã Phiếu', '__itemKind', '__materialId', '__sourceType', '__issuePurpose',
+    '__sourceStructureGroupId', '__sourceRoomId', '__sourceFloorId', '__sourceTeamId',
+    '__sourceWorkCategoryId', '__sourceNormId', '__sourceIssueKey',
+    'Mục đích xuất', exportStructure.label || 'Khu / Khối', 'Tầng', 'Căn / Phòng',
+    'Đội thi công', 'Hạng mục thi công', 'Loại Hàng', 'Tên Vật Tư / Thiết Bị',
+    'Đơn Vị Tính', 'Số Lượng', 'Vị Trí Kho / Hạng Mục', 'Người Thực Hiện',
+    'Ngày Thực Hiện', 'Ghi Chú',
+  ];
+  const wsOut = outSource.length > 0
+    ? XLSX.utils.json_to_sheet(outSource, { header: outHeaders })
+    : XLSX.utils.aoa_to_sheet([outHeaders]);
   autoFitColumns(wsOut);
+  wsOut['!cols'] = (wsOut['!cols'] || []).map((col, index) =>
+    index >= 2 && index <= 12 ? { ...col, hidden: true } : col
+  );
+  wsOut['!autofilter'] = { ref: `A1:AA${Math.max(2, outSource.length + 1)}` };
   XLSX.utils.book_append_sheet(wb, wsOut, 'Xuất Kho');
 
   // 3. Sheet "Định Mức Vật Tư"
@@ -1098,11 +1233,23 @@ export function exportWarehouseUpdateTemplate(
     };
   });
 
-  const wsNorms = XLSX.utils.json_to_sheet(templateNormData);
+  const normHeaders = [
+    'STT', '__normId', '__materialId', '__workCategoryId', '__workCategoryIds',
+    '__workCategoryNormsById', 'Chủng Loại', 'Tên Hạng Mục Thi Công', 'Tên Vật Tư',
+    'Đơn Vị Tính', 'Số Lượng Định Mức', 'Định Mức Hao Phí / m2',
+    'ĐVT Khối Lượng Nguồn', 'Ghi Chú',
+  ];
+  const wsNorms = templateNormData.length > 0
+    ? XLSX.utils.json_to_sheet(templateNormData, { header: normHeaders })
+    : XLSX.utils.aoa_to_sheet([normHeaders]);
   autoFitColumns(wsNorms);
+  wsNorms['!cols'] = (wsNorms['!cols'] || []).map((col, index) =>
+    index >= 1 && index <= 5 ? { ...col, hidden: true } : col
+  );
+  wsNorms['!autofilter'] = { ref: `A1:N${Math.max(2, templateNormData.length + 1)}` };
   XLSX.utils.book_append_sheet(wb, wsNorms, 'Định Mức Vật Tư');
 
-  // 4. Sheet "Hạng Mục Thi Công" — authoritative IDs/floor scope round-trip.
+  // 4. Sheet "Hạng Mục Thi Công (Chỉ xem)" — reference-only here; edit it in WorkVolume.
   const workVolumeData = (workVolumes || []).map((item, idx) => ({
     'STT': idx + 1,
     '__recordId': item.id,
@@ -1118,9 +1265,19 @@ export function exportWarehouseUpdateTemplate(
     'Đơn Giá (VNĐ)': item.unitPrice || 0,
     'Ngày Hạn Định': item.dueDate ? formatDateDDMMYYYY(item.dueDate) : '',
   }));
-  const wsWorkVolumes = XLSX.utils.json_to_sheet(workVolumeData);
+  const referenceWorkHeaders = [
+    'STT', '__recordId', '__workCategoryId', '__floorId', '__floorIds',
+    'Tên Hạng Mục Công Việc', 'Tầng / Khu Vực', 'Nhóm Hạng Mục', 'Đơn Vị Tính',
+    'KL Định Mức', 'KL Thực Tế (chỉ xem - không import)', 'Đơn Giá (VNĐ)', 'Ngày Hạn Định',
+  ];
+  const wsWorkVolumes = workVolumeData.length > 0
+    ? XLSX.utils.json_to_sheet(workVolumeData, { header: referenceWorkHeaders })
+    : XLSX.utils.aoa_to_sheet([referenceWorkHeaders]);
   autoFitColumns(wsWorkVolumes);
-  XLSX.utils.book_append_sheet(wb, wsWorkVolumes, 'Hạng Mục Thi Công');
+  wsWorkVolumes['!cols'] = (wsWorkVolumes['!cols'] || []).map((col, index) =>
+    [1, 2, 3, 4].includes(index) ? { ...col, hidden: true } : col
+  );
+  XLSX.utils.book_append_sheet(wb, wsWorkVolumes, 'Hạng Mục Thi Công (Chỉ xem)');
 
   // 5. Sheet "Tồn Kho Hiện Tại" (Calculated using unified calculateStockSummary)
   const stockSummaries = calculateStockSummary(inventory || [], materialNorms || []);
@@ -1140,8 +1297,18 @@ export function exportWarehouseUpdateTemplate(
     'Trạng Thái Tồn Kho': s.status
   }));
 
-  const wsStock = XLSX.utils.json_to_sheet(stockData);
+  const stockHeaders = [
+    'STT', '__itemKind', '__materialId', 'Loại Hàng', 'Chủng Loại',
+    'Tên Vật Tư / Thiết Bị', 'Đơn Vị Tính', 'Tổng Nhập Kho', 'Tổng Xuất Kho',
+    'Tồn Kho Thực Tế', 'Nhu Cầu Định Mức', 'Nhu Cầu Còn Lại', 'Trạng Thái Tồn Kho',
+  ];
+  const wsStock = stockData.length > 0
+    ? XLSX.utils.json_to_sheet(stockData, { header: stockHeaders })
+    : XLSX.utils.aoa_to_sheet([stockHeaders]);
   autoFitColumns(wsStock);
+  wsStock['!cols'] = (wsStock['!cols'] || []).map((col, index) =>
+    [1, 2].includes(index) ? { ...col, hidden: true } : col
+  );
   XLSX.utils.book_append_sheet(wb, wsStock, 'Tồn Kho Hiện Tại');
 
   const safeName = (projectName || 'Cong_Trinh').replace(/[^a-zA-Z0-9_ -]/g, '');

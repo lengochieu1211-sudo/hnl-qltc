@@ -31,8 +31,8 @@ import {
   PackageSearch
 } from 'lucide-react';
 import { CrewRecord, FloorPlan, TeamInfo, RoomProgressItem, DefectItem, CrewFloorWork, CrewFloorCategoryWork, AcceptanceStatus, RoomInspectionResult, WorkVolume, InventoryItem, MaterialNorm } from '../types';
-import { formatDateDDMMYYYY } from '../utils/dateFormatter';
-import { exportTeamStatisticsToExcel } from '../utils/excelExport';
+import { formatDateDDMMYYYY, formatExcelDate } from '../utils/dateFormatter';
+import { exportCrewRecordsToExcel, exportTeamStatisticsToExcel } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
 import { formatDecimal, evaluateMathExpression, useFormatSettings, parseExcelNumber } from '../utils/numberUtils';
 import { isTeamMatch, getTeamCategoriesForRoom, calculateTeamStatistics, isTeamWorkCompletedInRoom, FloorGroupDetail, getSubItemGroupWeight } from '../utils/teamUtils';
@@ -43,6 +43,8 @@ import { deleteEntityPhotos } from '../utils/photoStorage';
 import { saveWorkbookFile } from '../utils/fileExport';
 import { createEntityId } from '../utils/idUtils';
 import { QuickSortBar } from './QuickSortBar';
+import { ExcelActionMenu } from './ExcelActionMenu';
+import { QuickEditGridModal, type QuickGridColumn, type QuickGridRow } from './QuickEditGridModal';
 import { UserRole, canEditCrewData, canDeleteBusinessData, canDeleteCrewRecord, canManageTeams, canImportData } from '../utils/securityUtils';
 import { findWorsenedTeamNameConflict, normalizeTeamDirectoryName, resolveUniqueTeamByDirectoryName } from '../utils/teamDirectoryIntegrity';
 import { canonicalWorkCategoryId, isActiveRecord, normalizeLinkText, resolveWorkVolumeRef, workVolumeAppliesToFloor } from '../utils/linkageIntegrity';
@@ -263,7 +265,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const selectedStructureGroupId = 'all';
 
   const floorById = useMemo(
-    () => new Map(floorPlans.map((floor) => [floor.id, floor] as const)),
+    () => new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.id, floor] as const)),
     [floorPlans],
   );
 
@@ -480,6 +482,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [showCopyDatePicker, setShowCopyDatePicker] = useState(false);
   const [copyDatePickerValue, setCopyDatePickerValue] = useState('');
   const [showCrewReportShare, setShowCrewReportShare] = useState(false);
+  const [showQuickEdit, setShowQuickEdit] = useState(false);
+  const [quickEditMode, setQuickEditMode] = useState<'logs' | 'teams'>('logs');
 
   useEffect(() => {
     if (!canOperate) {
@@ -1243,9 +1247,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     }
   };
 
-  const handleExportTeamsTemplate = () => {
+  const handleExportTeamsTemplate = (templateOnly = false) => {
     const wb = XLSX.utils.book_new();
-    const sourceData = teams.length > 0 ? teams : [
+    const sourceData = !templateOnly && teams.length > 0 ? teams : [
       {
         name: 'Đội Thạch Cao Hà Nội',
         leader: 'Đội trưởng Hùng',
@@ -1299,6 +1303,170 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       inventory: structureScopedInventory,
       materialNorms,
     });
+  };
+
+  const handleExportCrewLogsEdit = () => {
+    exportCrewRecordsToExcel(structureScopedCrewRecords, teams, projectName || 'Công Trình');
+  };
+
+  const handleDownloadCrewLogTemplate = () => {
+    exportCrewRecordsToExcel([], teams, projectName || 'Công Trình');
+  };
+
+  const handleImportCrewLogsExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canOperate) { e.target.value = ''; return; }
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try { assertSafeExcelImportFile(file); } catch (error) {
+      alert(`❌ ${error instanceof Error ? error.message : 'Tệp Excel không hợp lệ.'}`);
+      e.target.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const data = new Uint8Array(event.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const mainName = workbook.SheetNames.find((name) => name.toLocaleLowerCase('vi-VN').includes('nhat ky')) || workbook.SheetNames[0];
+        const mainRows = XLSX.utils.sheet_to_json<any>(workbook.Sheets[mainName]);
+        if (!mainRows.length) throw new Error('Sheet Nhật ký quân số không có dữ liệu.');
+
+        const detailName = workbook.SheetNames.find((name) => name.toLocaleLowerCase('vi-VN').includes('chi tiet cong viec'));
+        const detailRows = detailName ? XLSX.utils.sheet_to_json<any>(workbook.Sheets[detailName]) : [];
+        const floorByName = new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.floorName.trim().toLocaleLowerCase('vi-VN'), floor] as const));
+        const mainRecordIds = new Set<string>(mainRows.map((row: any) => String(row['__recordId'] || '').trim()).filter(Boolean));
+        detailRows.forEach((row: any, detailIndex: number) => {
+          const detailRecordId = String(row['__recordId'] || '').trim();
+          if (detailRecordId && !mainRecordIds.has(detailRecordId) && !crewRecords.some((record) => record.id === detailRecordId)) {
+            throw new Error(`Dòng chi tiết ${detailIndex + 2}: __recordId không tồn tại trong dự án hiện tại: ${detailRecordId}.`);
+          }
+          const detailFloorId = String(row['__floorId'] || '').trim();
+          if (detailFloorId && !floorPlans.some((floor) => floor.id === detailFloorId)) {
+            throw new Error(`Dòng chi tiết ${detailIndex + 2}: __floorId không tồn tại trong dự án hiện tại: ${detailFloorId}.`);
+          }
+        });
+        const detailByRecord = new Map<string, any[]>();
+        const detailByDateTeam = new Map<string, any[]>();
+        detailRows.forEach((row: any) => {
+          const recordId = String(row['__recordId'] || '').trim();
+          const date = formatExcelDate(row['Ngày Ghi Nhận'] || row['Ngày'] || '');
+          const teamName = String(row['Tên Đội Thi Công'] || row['Đội Thi Công'] || '').trim();
+          if (recordId) detailByRecord.set(recordId, [...(detailByRecord.get(recordId) || []), row]);
+          if (date && teamName) {
+            const key = `${date}::${normalizeTeamDirectoryName(teamName)}`;
+            detailByDateTeam.set(key, [...(detailByDateTeam.get(key) || []), row]);
+          }
+        });
+
+        const prepared: Array<{ existing?: CrewRecord; record: CrewRecord }> = [];
+        const seenExistingIds = new Set<string>();
+
+        mainRows.forEach((row: any, rowIndex: number) => {
+          const recordId = String(row['__recordId'] || '').trim();
+          const date = formatExcelDate(row['Ngày Ghi Nhận'] || row['Ngày'] || row['date']);
+          const teamIdRaw = String(row['__teamId'] || '').trim();
+          const teamNameRaw = String(row['Tên Đội Thi Công'] || row['Đội Thi Công'] || row['teamName'] || '').trim();
+          if (!date || !teamNameRaw) throw new Error(`Dòng ${rowIndex + 2}: thiếu Ngày hoặc Tên Đội Thi Công.`);
+
+          const teamById = teamIdRaw ? teams.find((team) => team.id === teamIdRaw) : undefined;
+          if (teamIdRaw && !teamById) throw new Error(`Dòng ${rowIndex + 2}: __teamId không tồn tại trong dự án hiện tại: ${teamIdRaw}.`);
+          const teamByName = resolveUniqueTeamByDirectoryName(teams, teamNameRaw);
+          const linkedTeam = teamById || teamByName;
+
+          let existing = recordId ? crewRecords.find((record) => record.id === recordId) : undefined;
+          if (recordId && !existing) throw new Error(`Dòng ${rowIndex + 2}: __recordId không tồn tại trong dự án hiện tại: ${recordId}. Hãy để trống ID cho Nhật ký mới.`);
+          if (!existing && !recordId) {
+            const matches = crewRecords.filter((record) =>
+              record.date === date && normalizeTeamDirectoryName(record.teamName) === normalizeTeamDirectoryName(teamNameRaw)
+            );
+            if (matches.length > 1) throw new Error(`Dòng ${rowIndex + 2}: Nhật ký ${date} / ${teamNameRaw} bị mơ hồ; hãy dùng file xuất từ ứng dụng có __recordId.`);
+            existing = matches[0];
+          }
+          if (existing && seenExistingIds.has(existing.id)) throw new Error(`Dòng ${rowIndex + 2}: __recordId ${existing.id} xuất hiện nhiều lần.`);
+          if (existing) seenExistingIds.add(existing.id);
+
+          const morning = Math.max(0, parseExcelNumber(row['Ca Sáng (Người)'] ?? row['Sáng'] ?? existing?.morningCount ?? 0));
+          const afternoon = Math.max(0, parseExcelNumber(row['Ca Chiều (Người)'] ?? row['Chiều'] ?? existing?.afternoonCount ?? 0));
+          const evening = Math.max(0, parseExcelNumber(row['Ca Tối (Người)'] ?? row['Tối'] ?? existing?.eveningCount ?? 0));
+          const detailKey = `${date}::${normalizeTeamDirectoryName(teamNameRaw)}`;
+          const workRows = recordId ? (detailByRecord.get(recordId) || detailByDateTeam.get(detailKey) || []) : (detailByDateTeam.get(detailKey) || []);
+
+          const floorWorksById = new Map<string, CrewFloorWork>();
+          workRows.forEach((detail: any) => {
+            const floorIdRaw = String(detail['__floorId'] || '').trim();
+            const floorNameRaw = String(detail['Tầng / Khu Vực'] || detail['Tầng'] || '').trim();
+            const floorById = floorIdRaw ? floorPlans.find((item) => item.id === floorIdRaw) : undefined;
+            if (floorIdRaw && !floorById) throw new Error(`Chi tiết Nhật ký tham chiếu __floorId không tồn tại: ${floorIdRaw}.`);
+            const floor = floorById || floorByName.get(floorNameRaw.toLocaleLowerCase('vi-VN'));
+            if (!floor) return;
+            const categoryName = String(detail['Hạng Mục Chính'] || detail['Hạng Mục Thi Công'] || '').trim();
+            const subItems = String(detail['Hạng Mục Phụ / Công Đoạn'] || detail['Công Đoạn'] || '')
+              .split(/[;\n]+/).map((item) => item.trim()).filter(Boolean);
+            const current = floorWorksById.get(floor.id) || { floorId: floor.id, floorName: floor.floorName, categories: [] };
+            if (categoryName) {
+              const category = current.categories.find((item) => normalizeLinkText(item.categoryName) === normalizeLinkText(categoryName));
+              if (category) category.subItems = Array.from(new Set([...category.subItems, ...subItems]));
+              else current.categories.push({ categoryName, subItems });
+            }
+            floorWorksById.set(floor.id, current);
+          });
+
+          const floorWorks = floorWorksById.size ? Array.from(floorWorksById.values()) : (existing?.floorWorks || []);
+          const firstFloor = floorWorks[0];
+          const floorName = floorWorks.length ? floorWorks.map((item) => item.floorName).join(', ') : String(row['Vị Trí Làm Việc (Tầng)'] || existing?.floorName || '');
+          const taskDescription = floorWorks.length
+            ? floorWorks.map((fw) => `[${fw.floorName}]: ` + fw.categories.map((category) => `${category.categoryName} (${category.subItems.join(', ')})`).join('; ')).join(' | ')
+            : String(row['Nhiệm Vụ / Hạng Mục'] || existing?.taskDescription || '');
+
+          const record: CrewRecord = {
+            ...(existing || {} as CrewRecord),
+            id: existing?.id || createEntityId('crew'),
+            date,
+            teamId: linkedTeam?.id || existing?.teamId,
+            teamName: linkedTeam?.name || teamNameRaw,
+            leaderName: String(row['Trưởng Nhóm / Đội Trưởng'] || linkedTeam?.leader || existing?.leaderName || '').trim(),
+            workerCount: Math.max(morning, afternoon, evening),
+            morningCount: morning,
+            afternoonCount: afternoon,
+            eveningCount: evening,
+            floorId: firstFloor?.floorId || existing?.floorId,
+            floorName,
+            structureGroupId: firstFloor && normalizedStructureConfig.enabled
+              ? resolveFloorStructureGroupId(floorPlans.find((floor) => floor.id === firstFloor.floorId), normalizedStructureConfig)
+              : existing?.structureGroupId,
+            floorWorks,
+            taskDescription,
+            shift: [morning > 0 ? 'Sáng' : '', afternoon > 0 ? 'Chiều' : '', evening > 0 ? 'Tối' : ''].filter(Boolean).join(', ') || 'Nghỉ',
+            notes: String(row['Ghi Chú'] ?? existing?.notes ?? '').trim() || undefined,
+            updatedAt: existing?.updatedAt,
+          };
+          prepared.push({ existing, record });
+        });
+
+        const updatedCount = prepared.filter((item) => item.existing).length;
+        const addedCount = prepared.length - updatedCount;
+        const confirmed = await confirmAsync(
+          `Kiểm tra Nhật ký Excel hoàn tất:\n\n• Cập nhật: ${updatedCount}\n• Thêm mới: ${addedCount}\n• Ảnh hiện trường: giữ nguyên\n\nTiếp tục ghi dữ liệu?`
+        );
+        if (!confirmed) return;
+
+        prepared.forEach(({ existing, record }) => {
+          if (existing) {
+            const { id, ...updates } = record;
+            onUpdateCrewRecord(existing.id, updates);
+          } else {
+            onAddCrewRecord(record);
+          }
+        });
+        alert(`🎉 Nhập Nhật ký quân số thành công: ${updatedCount} cập nhật, ${addedCount} thêm mới.`);
+      } catch (error: any) {
+        alert(`❌ Nhập Nhật ký Excel bị hủy trước khi ghi dữ liệu:\n${error?.message || String(error)}`);
+      } finally {
+        e.target.value = '';
+      }
+    };
+    reader.readAsArrayBuffer(file);
   };
 
   const handleImportExcelTeams = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1427,6 +1595,175 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     reader.readAsArrayBuffer(file);
     e.target.value = '';
   };
+
+  const crewQuickRows = useMemo<QuickGridRow[]>(() => crewRecords.flatMap((record) => {
+    const counts = getCrewShiftCounts(record);
+    const floorWorks = record.floorWorks?.length
+      ? record.floorWorks
+      : [{ floorId: record.floorId || '', floorName: record.floorName || '', categories: [{ categoryName: '', subItems: [] }] }];
+    return floorWorks.flatMap((floorWork, floorIndex) => {
+      const categories = floorWork.categories?.length ? floorWork.categories : [{ categoryName: '', subItems: [] }];
+      return categories.map((category, categoryIndex) => ({
+        __rowKey: `${record.id}--${floorIndex}--${categoryIndex}`,
+        __recordId: record.id,
+        date: record.date,
+        teamName: record.teamName,
+        morning: counts.morning,
+        afternoon: counts.afternoon,
+        evening: counts.evening,
+        floorName: floorWork.floorName || record.floorName || '',
+        categoryName: category.categoryName || '',
+        subItems: (category.subItems || []).join('; '),
+      }));
+    });
+  }), [crewRecords]);
+
+  const teamQuickRows = useMemo<QuickGridRow[]>(() => teams.map((team) => ({
+    __rowKey: team.id,
+    __teamId: team.id,
+    name: team.name,
+    leader: team.leader,
+    defaultCount: team.defaultCount,
+    phone: team.phone || '',
+    notes: team.notes || '',
+  })), [teams]);
+
+  const crewTeamOptions = useMemo(() => Array.from(new Set([
+    ...teams.map((team) => team.name),
+    ...crewRecords.map((record) => record.teamName),
+  ].filter(Boolean))), [teams, crewRecords]);
+  const crewFloorOptions = useMemo(() => Array.from(new Set([
+    ...floorPlans.map((floor) => floor.floorName),
+    ...crewRecords.flatMap((record) => (record.floorWorks || []).map((work) => work.floorName)),
+  ].filter(Boolean))), [floorPlans, crewRecords]);
+  const crewCategoryOptions = useMemo(() => Array.from(new Set([
+    ...activeWorkVolumeCatalog.map((item) => item.title),
+    ...crewRecords.flatMap((record) => (record.floorWorks || []).flatMap((work) => (work.categories || []).map((category) => category.categoryName))),
+  ].filter(Boolean))), [activeWorkVolumeCatalog, crewRecords]);
+
+  const crewQuickColumns = useMemo<QuickGridColumn[]>(() => [
+    { key: 'date', label: 'Ngày', type: 'date', editable: canOperate, required: true, width: 135 },
+    { key: 'teamName', label: 'Đội thi công', type: 'select', options: crewTeamOptions, editable: canOperate, required: true, width: 180 },
+    { key: 'morning', label: 'Ca sáng', type: 'number', editable: canOperate, width: 95, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
+    { key: 'afternoon', label: 'Ca chiều', type: 'number', editable: canOperate, width: 95, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
+    { key: 'evening', label: 'Ca tối', type: 'number', editable: canOperate, width: 95, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
+    { key: 'floorName', label: 'Tầng', type: 'select', options: crewFloorOptions, editable: canOperate, required: true, width: 150 },
+    { key: 'categoryName', label: 'Hạng mục chính', type: 'select', options: crewCategoryOptions, editable: canOperate, width: 220 },
+    { key: 'subItems', label: 'Hạng mục phụ / Công đoạn', editable: canOperate, width: 260 },
+  ], [canOperate, crewTeamOptions, crewFloorOptions, crewCategoryOptions]);
+
+  const teamQuickColumns = useMemo<QuickGridColumn[]>(() => [
+    { key: 'name', label: 'Tên đội', editable: canManageTeamDirectory, required: true, width: 200 },
+    { key: 'leader', label: 'Trưởng nhóm', editable: canManageTeamDirectory, required: true, width: 190 },
+    { key: 'defaultCount', label: 'Quân số định biên', editable: canManageTeamDirectory, type: 'number', required: true, width: 135, validate: (value) => Number(value) <= 0 ? 'Phải lớn hơn 0' : null },
+    { key: 'phone', label: 'Số điện thoại', editable: canManageTeamDirectory, width: 150 },
+    { key: 'notes', label: 'Mô tả / Ghi chú', editable: canManageTeamDirectory, width: 280 },
+  ], [canManageTeamDirectory]);
+
+  const saveQuickCrewRows = async (rows: QuickGridRow[], dirtyCellKeys: Set<string>) => {
+    if (!canOperate) return;
+    const dirtyRowKeys = new Set(Array.from(dirtyCellKeys).map((key) => key.split('::')[0]));
+    const dirtyRows = rows.filter((row) => dirtyRowKeys.has(row.__rowKey));
+    const grouped = new Map<string, QuickGridRow[]>();
+    dirtyRows.forEach((row) => {
+      const key = String(row.__recordId || row.__rowKey);
+      grouped.set(key, [...(grouped.get(key) || []), row]);
+    });
+
+    const floorByName = new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.floorName.trim().toLocaleLowerCase('vi-VN'), floor] as const));
+    const prepared: Array<{ existing?: CrewRecord; record: CrewRecord }> = [];
+
+    for (const [recordKey, changedGroup] of grouped) {
+      const existing = crewRecords.find((record) => record.id === recordKey);
+      const allRowsForRecord = rows.filter((row) => String(row.__recordId || row.__rowKey) === recordKey);
+      const sourceRows = allRowsForRecord.length ? allRowsForRecord : changedGroup;
+      const pickShared = (key: string, fallback: unknown) => {
+        const changed = changedGroup.filter((row) => dirtyCellKeys.has(`${row.__rowKey}::${key}`));
+        const values = Array.from(new Set(changed.map((row) => String(row[key] ?? ''))));
+        if (values.length > 1) throw new Error(`Nhật ký ${existing?.date || ''} / ${existing?.teamName || ''}: cột ${key} có nhiều giá trị khác nhau.`);
+        return changed.length ? changed[changed.length - 1][key] : fallback;
+      };
+
+      const date = String(pickShared('date', existing?.date || sourceRows[0]?.date || selectedDate) || '').trim();
+      const teamNameValue = String(pickShared('teamName', existing?.teamName || sourceRows[0]?.teamName || '') || '').trim();
+      const team = resolveUniqueTeamByDirectoryName(teams, teamNameValue);
+      const morning = Math.max(0, Number(pickShared('morning', existing ? getCrewShiftCounts(existing).morning : 0) || 0));
+      const afternoon = Math.max(0, Number(pickShared('afternoon', existing ? getCrewShiftCounts(existing).afternoon : 0) || 0));
+      const evening = Math.max(0, Number(pickShared('evening', existing ? getCrewShiftCounts(existing).evening : 0) || 0));
+
+      const floorWorksById = new Map<string, CrewFloorWork>();
+      sourceRows.forEach((row) => {
+        const floorNameValue = String(row.floorName || '').trim();
+        const floor = floorByName.get(floorNameValue.toLocaleLowerCase('vi-VN'));
+        if (!floor) throw new Error(`Không tìm thấy tầng “${floorNameValue}”.`);
+        const categoryName = String(row.categoryName || '').trim();
+        const subItems = String(row.subItems || '').split(/[;\n]+/).map((item) => item.trim()).filter(Boolean);
+        const current = floorWorksById.get(floor.id) || { floorId: floor.id, floorName: floor.floorName, categories: [] };
+        if (categoryName) {
+          const existingCategory = current.categories.find((item) => normalizeLinkText(item.categoryName) === normalizeLinkText(categoryName));
+          if (existingCategory) existingCategory.subItems = Array.from(new Set([...existingCategory.subItems, ...subItems]));
+          else current.categories.push({ categoryName, subItems });
+        }
+        floorWorksById.set(floor.id, current);
+      });
+      const floorWorks = Array.from(floorWorksById.values());
+      const firstFloor = floorWorks[0];
+      const taskDescriptionValue = floorWorks.map((fw) => `[${fw.floorName}]: ` + fw.categories.map((category) => `${category.categoryName} (${category.subItems.join(', ')})`).join('; ')).join(' | ');
+      const record: CrewRecord = {
+        ...(existing || {} as CrewRecord),
+        id: existing?.id || createEntityId('crew'),
+        date,
+        teamId: team?.id || existing?.teamId,
+        teamName: team?.name || teamNameValue,
+        leaderName: team?.leader || existing?.leaderName || '',
+        workerCount: Math.max(morning, afternoon, evening),
+        morningCount: morning,
+        afternoonCount: afternoon,
+        eveningCount: evening,
+        floorId: firstFloor?.floorId || existing?.floorId,
+        floorName: floorWorks.map((fw) => fw.floorName).join(', ') || existing?.floorName,
+        structureGroupId: firstFloor && normalizedStructureConfig.enabled
+          ? resolveFloorStructureGroupId(floorPlans.find((floor) => floor.id === firstFloor.floorId), normalizedStructureConfig)
+          : existing?.structureGroupId,
+        floorWorks,
+        taskDescription: taskDescriptionValue || existing?.taskDescription || '',
+        shift: [morning > 0 ? 'Sáng' : '', afternoon > 0 ? 'Chiều' : '', evening > 0 ? 'Tối' : ''].filter(Boolean).join(', ') || 'Nghỉ',
+        notes: existing?.notes,
+        updatedAt: existing?.updatedAt,
+      };
+      prepared.push({ existing, record });
+    }
+
+    const confirmed = await confirmAsync(`Bảng chỉnh nhanh sẽ lưu ${prepared.length} Nhật ký. Ảnh hiện trường và ID bản ghi được giữ nguyên. Tiếp tục?`);
+    if (!confirmed) return false;
+    prepared.forEach(({ existing, record }) => {
+      if (existing) {
+        const { id, ...updates } = record;
+        onUpdateCrewRecord(existing.id, updates);
+      } else {
+        onAddCrewRecord(record);
+      }
+    });
+  };
+
+  const saveQuickTeamRows = async (rows: QuickGridRow[]) => {
+    if (!canManageTeamDirectory) return;
+    const nextTeams = rows.map((row) => ({
+      id: String(row.__teamId || '').trim() || createEntityId('team'),
+      name: String(row.name || '').trim(),
+      leader: String(row.leader || '').trim(),
+      defaultCount: Math.max(1, Number(row.defaultCount || 0)),
+      phone: String(row.phone || '').trim() || undefined,
+      notes: String(row.notes || '').trim() || undefined,
+    } as TeamInfo));
+    if (findWorsenedTeamNameConflict(teams, nextTeams)) throw new Error('Tên đội bị trùng/không rõ liên kết. Hãy đổi tên đội trước khi lưu.');
+    const confirmed = await confirmAsync(`Lưu ${nextTeams.length} dòng Danh mục đội? Nhật ký cũ vẫn giữ teamId hiện tại.`);
+    if (!confirmed) return false;
+    if (!updateTeamsAndParent(nextTeams)) throw new Error('Không thể cập nhật Danh mục đội.');
+  };
+
+  const activeQuickRows = quickEditMode === 'logs' ? crewQuickRows : teamQuickRows;
+  const activeQuickColumns = quickEditMode === 'logs' ? crewQuickColumns : teamQuickColumns;
 
   return (
     <div className="pb-24 pt-4 px-4 w-full max-w-6xl mx-auto bg-slate-50 min-h-screen text-slate-800" id="crew-tab-container">
@@ -1604,6 +1941,24 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             )}
             </>
           )}
+
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => { setQuickEditMode('logs'); setShowQuickEdit(true); }}
+              className="text-xs font-extrabold text-indigo-700 bg-white border border-indigo-200 hover:bg-indigo-50 px-3 py-2 rounded-xl shadow-2xs"
+            >
+              ▦ Bảng chỉnh nhanh
+            </button>
+            <ExcelActionMenu
+              onExportEdit={handleExportCrewLogsEdit}
+              onImportFile={canOperate ? handleImportCrewLogsExcel : undefined}
+              onDownloadTemplate={handleDownloadCrewLogTemplate}
+              exportLabel="Xuất Nhật ký để chỉnh sửa"
+              importLabel="Nhập Nhật ký đã chỉnh sửa"
+              templateLabel="Tải mẫu Nhật ký"
+            />
+          </div>
 
           <div className="mb-4">
             <button
@@ -1864,29 +2219,27 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   title="Tải báo cáo Excel thống kê căn, tầng, khối lượng và defect của tất cả các đội thi công"
                 >
                   <Download className="w-4 h-4 shrink-0" />
-                  <span className="truncate">Xuất báo cáo Excel</span>
+                  <span className="truncate">Thống kê tất cả đội</span>
                 </button>
 
-                {canManageTeamDirectory && <button
+                <button
                   type="button"
-                  onClick={handleExportTeamsTemplate}
-                  className="h-10 px-3 flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold rounded-xl border border-slate-200 text-xs shadow-2xs transition-all active:scale-95"
-                  title="Tải mẫu Excel danh bạ đội thi công"
+                  onClick={() => { setQuickEditMode('teams'); setShowQuickEdit(true); }}
+                  className="h-10 px-3 flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl border border-indigo-200 text-xs shadow-2xs transition-all active:scale-95"
                 >
-                  <FileSpreadsheet className="w-4 h-4 text-slate-500 shrink-0" />
-                  <span className="truncate">Tải Excel để chỉnh sửa</span>
-                </button>}
+                  ▦ <span className="truncate">Bảng chỉnh nhanh</span>
+                </button>
 
-                {canImportTeams && <label className="h-10 px-3 flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold rounded-xl border border-slate-200 text-xs shadow-2xs cursor-pointer transition-all active:scale-95">
-                  <Upload className="w-4 h-4 text-slate-500 shrink-0" />
-                  <span className="truncate">Nhập lại từ Excel</span>
-                  <input
-                    type="file"
-                    accept=".xlsx, .xls"
-                    onChange={handleImportExcelTeams}
-                    className="hidden"
+                <div className="h-10 flex items-center">
+                  <ExcelActionMenu
+                    onExportEdit={() => handleExportTeamsTemplate(false)}
+                    onImportFile={canImportTeams ? handleImportExcelTeams : undefined}
+                    onDownloadTemplate={() => handleExportTeamsTemplate(true)}
+                    exportLabel="Xuất danh mục đội để chỉnh sửa"
+                    importLabel="Nhập danh mục đội đã chỉnh sửa"
+                    templateLabel="Tải mẫu danh mục đội"
                   />
-                </label>}
+                </div>
               </div>
             </div>
           </div>
@@ -3670,6 +4023,42 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           </div>
         );
       })()}
+
+      <QuickEditGridModal
+        open={showQuickEdit}
+        title={quickEditMode === 'logs' ? 'Bảng chỉnh nhanh · Nhật ký quân số' : 'Bảng chỉnh nhanh · Danh mục đội'}
+        subtitle={quickEditMode === 'logs'
+          ? 'Một Nhật ký có thể có nhiều dòng Tầng/Hạng mục. Quân số theo ca dùng chung theo record và chỉ ghi khi bấm Lưu.'
+          : 'Đổi tên/đội trưởng/quân số định biên/điện thoại trực tiếp; teamId được giữ nguyên.'}
+        columns={activeQuickColumns}
+        rows={activeQuickRows}
+        canEdit={quickEditMode === 'logs' ? canOperate : canManageTeamDirectory}
+        canAddRows={quickEditMode === 'logs' ? canOperate : canManageTeamDirectory}
+        createEmptyRow={(index) => quickEditMode === 'logs' ? ({
+          __rowKey: `new-crew-${Date.now()}-${index}`,
+          __new: true,
+          __recordId: '',
+          date: selectedDate,
+          teamName: teams[0]?.name || '',
+          morning: 0,
+          afternoon: 0,
+          evening: 0,
+          floorName: floorPlans[0]?.floorName || '',
+          categoryName: activeWorkVolumeCatalog[0]?.title || '',
+          subItems: '',
+        }) : ({
+          __rowKey: `new-team-${Date.now()}-${index}`,
+          __new: true,
+          __teamId: '',
+          name: '',
+          leader: '',
+          defaultCount: 1,
+          phone: '',
+          notes: '',
+        })}
+        onClose={() => setShowQuickEdit(false)}
+        onSave={quickEditMode === 'logs' ? saveQuickCrewRows : (rows) => saveQuickTeamRows(rows)}
+      />
 
       <CrewReportShareModal
         isOpen={showCrewReportShare}

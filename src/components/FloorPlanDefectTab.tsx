@@ -59,7 +59,7 @@ import {
   ArrowUpDown,
   GripVertical
 } from 'lucide-react';
-import { FloorPlan, DefectItem, DefectCategory, DefectSeverity, DefectStatus, RoomProgressItem, RoomSubItem, Point2D, ChecklistItem, TeamInfo, MaterialNorm, InventoryItem, WorkVolume } from '../types';
+import { FloorPlan, DefectItem, DefectCategory, DefectSeverity, DefectStatus, RoomProgressItem, RoomSubItem, Point2D, ChecklistItem, TeamInfo, MaterialNorm, InventoryItem, WorkVolume, AcceptanceStatus, RoomInspectionResult } from '../types';
 import {
   getFloorStructureGroupName,
   getStructureGroupName,
@@ -87,8 +87,11 @@ import { saveWorkbookFile } from '../utils/fileExport';
 import { describePdfError, loadPdfDocument, renderPdfDocumentPageToImage } from '../utils/pdfToImage';
 import { getImageQualityProfile } from '../utils/imageQualitySettings';
 import { detectPdfRoomCandidatesFromDocument, DEFAULT_PDF_ROOM_NAME_PATTERN, PdfRoomCandidate } from '../utils/pdfRoomDetection';
+import { detectRoomsFromDxf, type DxfRoomCandidate } from '../utils/dxfRoomDetection';
 import { QuickSortBar } from './QuickSortBar';
 import { MoveOrderControls } from './MoveOrderControls';
+import { ExcelActionMenu } from './ExcelActionMenu';
+import { QuickEditGridModal, type QuickGridColumn, type QuickGridRow } from './QuickEditGridModal';
 import { UserRole, canManageFloorPlanStructure, canEditDefectData, canDeleteBusinessData } from '../utils/securityUtils';
 import { appendRuntimeDiagnostic } from '../lib/runtimeDiagnostics';
 import { getCurrentRealFirebaseUser } from '../lib/firebase';
@@ -358,6 +361,7 @@ interface FloorPlanDefectTabProps {
   onDeleteMultipleDefects?: (ids: string[]) => void;
   onSaveRoomProgress: (room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }) => void;
   onBatchSaveRooms?: (rooms: RoomProgressItem[]) => void;
+  onApplyRoomExcelImport?: (rooms: RoomProgressItem[], deleteIds: string[]) => void;
   onCreateMultipleRoomProgress?: (rooms: RoomProgressItem[]) => void;
   onDeleteRoomProgress: (id: string) => void;
   onDeleteMultipleRoomProgress?: (ids: string[]) => void;
@@ -398,6 +402,20 @@ interface PendingSmartPdfImport {
   pageNumber: number;
   pageCount: number;
   rooms: PdfRoomCandidate[];
+}
+
+interface PendingDxfReviewCandidate extends DxfRoomCandidate {
+  workCategoryId?: string;
+  workCategoryName?: string;
+}
+
+interface PendingDxfRoomImport {
+  floorId: string;
+  floorName: string;
+  fileName: string;
+  unitLabel: string;
+  warnings: string[];
+  candidates: PendingDxfReviewCandidate[];
 }
 
 
@@ -636,6 +654,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   onDeleteMultipleDefects,
   onSaveRoomProgress,
   onBatchSaveRooms,
+  onApplyRoomExcelImport,
   onCreateMultipleRoomProgress,
   onDeleteRoomProgress,
   onDeleteMultipleRoomProgress,
@@ -2141,9 +2160,15 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   // Download excel template or current room data for Room Highlights
-  const downloadHighlightTemplate = () => {
+  const downloadHighlightTemplate = (scope: 'current' | 'all' | 'template' = 'current') => {
     const wb = XLSX.utils.book_new();
-    const roomsToExport = floorRooms;
+    const roomsToExport = scope === 'template' ? [] : scope === 'all' ? roomProgressList : floorRooms;
+    const floorByIdForExcel = new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.id, floor] as const));
+    const getExcelFloor = (room: RoomProgressItem) => floorByIdForExcel.get(room.floorId);
+    const getExcelGroupName = (room: RoomProgressItem) => {
+      const floor = getExcelFloor(room);
+      return floor ? getStructureGroupName(resolveFloorStructureGroupId(floor, normalizedStructureConfig), normalizedStructureConfig) : '';
+    };
     const teamNameById = new Map(
       teams
         .filter((team) => team.id && team.name?.trim())
@@ -2246,7 +2271,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     });
 
     const roomHeaders = [
-      'STT', '__recordId', 'Tên Căn / Phòng',
+      'STT', '__recordId', '__floorId', normalizedStructureConfig.label || 'Khu/Khối', 'Tầng', 'Tên Căn / Phòng',
       'Hạng Mục Thi Công Chính', '__workCategoryId',
       'Đội Thi Công Căn / Phòng', '__teamId',
       'Khối Lượng Căn / Phòng', 'Đơn Vị Căn / Phòng',
@@ -2257,6 +2282,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const roomData = roomsToExport.map((r, index) => ({
       'STT': index + 1,
       '__recordId': r.id || '',
+      '__floorId': r.floorId || '',
+      [normalizedStructureConfig.label || 'Khu/Khối']: getExcelGroupName(r),
+      'Tầng': getExcelFloor(r)?.floorName || r.floorName || '',
       'Tên Căn / Phòng': r.roomName,
       'Hạng Mục Thi Công Chính': r.workCategory || '',
       '__workCategoryId': resolveExcelCategoryId(r.workCategoryId, r.workCategory),
@@ -2277,17 +2305,17 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }));
     const roomSheet = XLSX.utils.json_to_sheet(roomData, { header: roomHeaders });
     roomSheet['!cols'] = [
-      { wch: 6 }, { wch: 24, hidden: true }, { wch: 26 }, { wch: 24 }, { wch: 24, hidden: true },
+      { wch: 6 }, { wch: 24, hidden: true }, { wch: 24, hidden: true }, { wch: 16 }, { wch: 16 }, { wch: 26 }, { wch: 24 }, { wch: 24, hidden: true },
       { wch: 22 }, { wch: 24, hidden: true }, { wch: 18 }, { wch: 14 },
       { wch: 13 }, { wch: 13 }, { wch: 15 }, { wch: 15 },
       { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 22 }, { wch: 32 }
     ];
-    roomSheet['!autofilter'] = { ref: `A1:S${Math.max(2, roomData.length + 1)}` };
+    roomSheet['!autofilter'] = { ref: `A1:V${Math.max(2, roomData.length + 1)}` };
     roomSheet['!rows'] = [{ hpt: 24 }];
     XLSX.utils.book_append_sheet(wb, roomSheet, 'Can_Phong');
 
     const subItemHeaders = [
-      'STT', '__recordId', 'Tên Căn / Phòng', '__subItemId',
+      'STT', '__recordId', '__floorId', normalizedStructureConfig.label || 'Khu/Khối', 'Tầng', 'Tên Căn / Phòng', '__subItemId',
       'Hạng Mục Thi Công', '__workCategoryId', 'Công Đoạn / Nội Dung',
       'Trạng Thái Thi Công', 'Nghiệm Thu Hạng Mục', 'Hạn Hoàn Thành',
       'Đội Thi Công', '__teamId', 'Khối Lượng', 'Đơn Vị', 'Trọng Số Tiến Độ'
@@ -2296,6 +2324,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       (room.subItems || []).map((subItem, subIndex) => ({
         'STT': `${roomIndex + 1}.${subIndex + 1}`,
         '__recordId': room.id || '',
+        '__floorId': room.floorId || '',
+        [normalizedStructureConfig.label || 'Khu/Khối']: getExcelGroupName(room),
+        'Tầng': getExcelFloor(room)?.floorName || room.floorName || '',
         'Tên Căn / Phòng': room.roomName,
         '__subItemId': subItem.id || '',
         'Hạng Mục Thi Công': subItem.category || room.workCategory || '',
@@ -2316,11 +2347,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     );
     const subItemSheet = XLSX.utils.json_to_sheet(subItemData, { header: subItemHeaders });
     subItemSheet['!cols'] = [
-      { wch: 8 }, { wch: 24, hidden: true }, { wch: 26 }, { wch: 24, hidden: true },
+      { wch: 8 }, { wch: 24, hidden: true }, { wch: 24, hidden: true }, { wch: 16 }, { wch: 16 }, { wch: 26 }, { wch: 24, hidden: true },
       { wch: 24 }, { wch: 24, hidden: true }, { wch: 28 }, { wch: 20 }, { wch: 22 },
       { wch: 16 }, { wch: 22 }, { wch: 24, hidden: true }, { wch: 14 }, { wch: 12 }, { wch: 18 }
     ];
-    subItemSheet['!autofilter'] = { ref: `A1:O${Math.max(2, subItemData.length + 1)}` };
+    subItemSheet['!autofilter'] = { ref: `A1:R${Math.max(2, subItemData.length + 1)}` };
     subItemSheet['!rows'] = [{ hpt: 24 }];
     XLSX.utils.book_append_sheet(wb, subItemSheet, 'Hang_Muc_Thi_Cong');
 
@@ -2360,8 +2391,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     const guideSheet = XLSX.utils.aoa_to_sheet([
       ['HNL QLTC - Mẫu Excel Nghiệm thu Căn / Phòng'],
-      ['1', 'Sheet Can_Phong: chỉnh thông tin cấp Căn / Phòng.'],
-      ['2', 'Sheet Hang_Muc_Thi_Cong: mỗi dòng là một hạng mục/công đoạn của đúng Căn / Phòng.'],
+      ['1', 'Sheet Can_Phong: chỉnh thông tin cấp Căn / Phòng của một hoặc nhiều tầng.'],
+      ['2', 'Sheet Hang_Muc_Thi_Cong: mỗi dòng là một hạng mục/công đoạn của đúng Căn / Phòng; __floorId giữ liên kết tầng.'],
       ['3', 'Có thể đổi Trạng thái, Nghiệm thu, Hạn hoàn thành, Đội thi công, Khối lượng và Đơn vị rồi Nhập Excel lại.'],
       ['4', 'Các cột kỹ thuật __recordId, __subItemId, __teamId, __workCategoryId được ẩn để bảng dễ đọc nhưng vẫn được giữ nguyên khi Nhập Excel lại.'],
       ['5', 'Sheet Danh_Muc_Doi chỉ để tham chiếu đội đã khai báo; nhập lại sẽ liên kết theo __teamId hoặc tên đội trùng khớp.'],
@@ -2386,7 +2417,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     return saveWorkbookFile(
       wb,
-      `Danh_Sach_Phong_${activeFloor ? activeFloor.floorName.replace(/\s+/g, '_') : 'MatBang'}.xlsx`
+      scope === 'template'
+        ? 'Mau_Can_Phong_Hang_Muc_HNL_QLTC.xlsx'
+        : scope === 'all'
+          ? `Can_Phong_Hang_Muc_Toan_Du_An_${Date.now()}.xlsx`
+          : `Danh_Sach_Phong_${activeFloor ? activeFloor.floorName.replace(/\s+/g, '_') : 'MatBang'}.xlsx`
     );
   };
 
@@ -2446,6 +2481,33 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           return;
         }
 
+        const excelFloorById = new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.id, floor] as const));
+        const excelFloorsByName = new Map<string, FloorPlan[]>();
+        floorPlans.forEach((floor) => {
+          const key = floor.floorName.trim().toLocaleLowerCase('vi-VN');
+          excelFloorsByName.set(key, [...(excelFloorsByName.get(key) || []), floor]);
+        });
+        const resolveExcelTargetFloor = (row: any): FloorPlan => {
+          const rawFloorId = String(row['__floorId'] ?? row['floorId'] ?? '').trim();
+          if (rawFloorId) {
+            const byId = excelFloorById.get(rawFloorId);
+            if (!byId) throw new Error(`Excel tham chiếu __floorId không tồn tại: ${rawFloorId}`);
+            return byId;
+          }
+          const rawFloorName = String(row['Tầng'] ?? row['Tầng / Khu Vực'] ?? row['floorName'] ?? '').trim();
+          if (rawFloorName) {
+            const matches = excelFloorsByName.get(rawFloorName.toLocaleLowerCase('vi-VN')) || [];
+            if (matches.length === 1) return matches[0];
+            if (matches.length > 1) throw new Error(`Tên tầng “${rawFloorName}” bị trùng; hãy dùng file xuất từ HNL có __floorId.`);
+            throw new Error(`Không tìm thấy tầng “${rawFloorName}” trong dự án hiện tại.`);
+          }
+          if (!activeFloor) throw new Error('Không xác định được tầng đích cho dòng Excel.');
+          return activeFloor;
+        };
+        const targetFloorIds = new Set<string>(jsonData.map((row: any) => resolveExcelTargetFloor(row).id));
+        const multiFloorImport = targetFloorIds.size > 1;
+        const singleTargetFloor = targetFloorIds.size === 1 ? excelFloorById.get(Array.from(targetFloorIds)[0]) : undefined;
+
         const preflightRoomConflicts = jsonData.filter((row: any) => {
           const frameStatus = String(row['Trạng Thái Khung Xương'] ?? row['frameStatus'] ?? '').trim();
           const boardStatus = String(row['Trạng Thái Bắn Tấm'] ?? row['boardStatus'] ?? '').trim();
@@ -2481,20 +2543,30 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           }
         }
 
-        const currentFloorRooms = roomProgressList.filter(r => r.floorId === activeFloor?.id);
+        const currentFloorRooms = singleTargetFloor
+          ? roomProgressList.filter((room) => room.floorId === singleTargetFloor.id)
+          : [];
 
         let existingMatchCount = 0;
         let newCount = 0;
         jsonData.forEach((row: any) => {
           const rawName = row[nameMatchKey];
-          if (rawName) {
-            const nameStr = String(rawName).trim();
-            if (nameStr) {
-              const found = currentFloorRooms.find(r => r.roomName.toLowerCase() === nameStr.toLowerCase());
-              if (found) existingMatchCount++;
-              else newCount++;
-            }
+          if (!rawName) return;
+          const nameStr = String(rawName).trim();
+          if (!nameStr) return;
+          const targetFloor = resolveExcelTargetFloor(row);
+          const rawRecordId = String(row['__recordId'] || row['Mã Định Danh'] || row['id'] || '').trim();
+          const foundById = rawRecordId ? roomProgressList.find((room) => room.id === rawRecordId) : undefined;
+          if (rawRecordId && !foundById) {
+            throw new Error(`Căn “${nameStr}” tham chiếu __recordId không tồn tại trong dự án hiện tại: ${rawRecordId}. Hãy để trống ID cho dòng mới.`);
           }
+          if (foundById && foundById.floorId !== targetFloor.id) {
+            throw new Error(`Căn “${nameStr}” có __recordId thuộc tầng khác. Hệ thống từ chối tự chuyển floorId qua Excel.`);
+          }
+          const found = foundById || roomProgressList.find((room) =>
+            room.floorId === targetFloor.id && room.roomName.toLocaleLowerCase('vi-VN') === nameStr.toLocaleLowerCase('vi-VN')
+          );
+          if (found) existingMatchCount++; else newCount++;
         });
 
         if (existingMatchCount === 0 && newCount === 0) {
@@ -2502,41 +2574,52 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           return;
         }
 
-        // Ask Step 1: Merge or choose replace/cancel
-        const wantMerge = await confirmAsync(
-          `📂 Phát hiện ${jsonData.length} phòng trong tệp Excel (${existingMatchCount} phòng trùng tên đã có sẵn, ${newCount} phòng mới).\n\n` +
-          `• Bấm "Đồng ý" để CẬP NHẬT thông tin các phòng cũ & THÊM MỚI các phòng chưa có.\n` +
-          `• Bấm "Hủy" để mở tùy chọn THAY THẾ TOÀN BỘ hoặc HỦY THAO TÁC.`
-        );
-
         let importMode: 'merge' | 'replace' = 'merge';
-
-        if (!wantMerge) {
-          const wantReplace = await confirmAsync(
-            `⚠️ Bạn có chắc chắn muốn XÓA TOÀN BỘ ${currentFloorRooms.length} căn/phòng hiện tại trên mặt bằng "${activeFloor?.floorName}" và THAY THẾ HOÀN TOÀN bằng dữ liệu mới từ file Excel không?\n\n` +
-            `• Bấm "Đồng ý" để XÓA TOÀN BỘ & NẠP LẠI MỚI.\n` +
-            `• Bấm "Hủy" để DỪNG THAO TÁC VÀ GIỮ NGUYÊN DỮ LIỆU CŨ.`
+        if (multiFloorImport) {
+          const confirmedMultiFloor = await confirmAsync(
+            `📂 File Excel chứa ${jsonData.length} Căn / Phòng trên ${targetFloorIds.size} tầng.\n\n` +
+            `• Cập nhật: ${existingMatchCount}\n• Thêm mới: ${newCount}\n\n` +
+            'Import nhiều tầng luôn dùng chế độ HỢP NHẤT an toàn; không xóa các Căn / Phòng không có trong file. Tiếp tục?'
           );
-
-          if (!wantReplace) {
+          if (!confirmedMultiFloor) {
             e.target.value = '';
             return;
           }
-
-          importMode = 'replace';
+        } else {
+          const targetFloorName = singleTargetFloor?.floorName || activeFloor?.floorName || 'Mặt bằng';
+          const wantMerge = await confirmAsync(
+            `📂 Phát hiện ${jsonData.length} phòng trong tệp Excel (${existingMatchCount} phòng hiện có, ${newCount} phòng mới) · ${targetFloorName}.\n\n` +
+            `• Bấm "Đồng ý" để CẬP NHẬT & THÊM MỚI.\n` +
+            `• Bấm "Hủy" để mở tùy chọn THAY THẾ TOÀN BỘ hoặc HỦY.`
+          );
+          if (!wantMerge) {
+            const wantReplace = await confirmAsync(
+              `⚠️ Bạn có chắc chắn muốn XÓA TOÀN BỘ ${currentFloorRooms.length} căn/phòng hiện tại trên "${targetFloorName}" và THAY THẾ bằng file Excel?\n\n` +
+              'Thao tác này chỉ áp dụng cho đúng một tầng đang được file tham chiếu.'
+            );
+            if (!wantReplace) {
+              e.target.value = '';
+              return;
+            }
+            importMode = 'replace';
+          }
         }
 
-        const excelTeamById = new Map(teams.filter((team) => team.id).map((team) => [team.id, team] as const));
-        const excelTeamByName = new Map(
+        const excelTeamById = new Map<string, TeamInfo>(teams.filter((team) => team.id).map((team) => [team.id, team] as const));
+        const excelTeamByName = new Map<string, TeamInfo>(
           teams
             .filter((team) => team.name?.trim())
             .map((team) => [team.name.trim().toLocaleLowerCase('vi-VN'), team] as const)
         );
-        const resolveExcelTeamLink = (rawId: unknown, rawName: unknown) => {
+        const resolveExcelTeamLink = (rawId: unknown, rawName: unknown, existingTeamId?: string) => {
           const id = String(rawId ?? '').trim();
           const name = String(rawName ?? '').trim();
           const byId = id ? excelTeamById.get(id) : undefined;
           if (byId) return { teamId: byId.id, assignedTeam: byId.name.trim() };
+          if (id) {
+            if (existingTeamId && id === existingTeamId) return { teamId: id, assignedTeam: name };
+            throw new Error(`Excel tham chiếu __teamId không tồn tại trong dự án hiện tại: ${id}.`);
+          }
           const byName = name ? excelTeamByName.get(name.toLocaleLowerCase('vi-VN')) : undefined;
           if (byName) return { teamId: byName.id, assignedTeam: byName.name.trim() };
           return { teamId: undefined as string | undefined, assignedTeam: name };
@@ -2553,14 +2636,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           if (item.workCategoryId) excelCategoryById.set(String(item.workCategoryId), entry);
           excelCategoryByName.set(name.toLocaleLowerCase('vi-VN'), entry);
         });
-        const resolveExcelCategory = (rawId: unknown, rawName: unknown) => {
+        const resolveExcelCategory = (rawId: unknown, rawName: unknown, existingCategoryId?: string) => {
           const id = String(rawId ?? '').trim();
           const name = String(rawName ?? '').trim();
           const byId = id ? excelCategoryById.get(id) : undefined;
           if (byId) return byId;
+          if (id) {
+            if (existingCategoryId && id === existingCategoryId) return { id, name };
+            throw new Error(`Excel tham chiếu __workCategoryId không tồn tại trong dự án hiện tại: ${id}.`);
+          }
           const byName = name ? excelCategoryByName.get(name.toLocaleLowerCase('vi-VN')) : undefined;
           if (byName) return byName;
-          return { id, name };
+          return { id: '', name };
         };
         const hasExcelValue = (value: unknown) => value !== undefined && value !== null && String(value).trim() !== '';
 
@@ -2569,6 +2656,21 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         let normalizedInspectionCount = 0;
         let missingTeamWarningCount = 0;
         const processedRoomIds = new Set<string>();
+        const processedRoomNames = new Set<string>();
+        const workbookRoomIds = new Set<string>(
+          jsonData.map((row: any) => String(row['__recordId'] || row['Mã Định Danh'] || row['id'] || '').trim()).filter(Boolean)
+        );
+        detailJsonData.forEach((detailRow: any, detailIndex: number) => {
+          const detailFloorId = String(detailRow['__floorId'] ?? detailRow['floorId'] ?? '').trim();
+          if (detailFloorId && !excelFloorById.has(detailFloorId)) {
+            throw new Error(`Dòng chi tiết ${detailIndex + 2}: __floorId không tồn tại trong dự án hiện tại: ${detailFloorId}.`);
+          }
+          const detailRoomId = String(detailRow['__recordId'] ?? detailRow['roomId'] ?? '').trim();
+          if (detailRoomId && !workbookRoomIds.has(detailRoomId) && !roomProgressList.some((room) => room.id === detailRoomId)) {
+            throw new Error(`Dòng chi tiết ${detailIndex + 2}: __recordId Căn / Phòng không tồn tại: ${detailRoomId}.`);
+          }
+        });
+        const preparedRooms: RoomProgressItem[] = [];
 
         jsonData.forEach((row: any) => {
           const rawRecordId = String(row['__recordId'] || row['Mã Định Danh'] || row['id'] || '').trim();
@@ -2577,6 +2679,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
           const nameStr = String(rawName).trim();
           if (!nameStr) return;
+          const targetFloor = resolveExcelTargetFloor(row);
+          const targetFloorRooms = roomProgressList.filter((room) => room.floorId === targetFloor.id);
 
           const rawX = parseExcelNumber(row['Tọa độ X (%)'] || row['x'] || 20);
           const rawY = parseExcelNumber(row['Tọa độ Y (%)'] || row['y'] || 20);
@@ -2618,40 +2722,49 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           let existingRoomObj: any = null;
           
           // Match by __recordId or name
-          const match = currentFloorRooms.find(r => (rawRecordId && r.id === rawRecordId) || r.roomName.toLowerCase() === nameStr.toLowerCase());
+          const idMatch = rawRecordId ? roomProgressList.find((room) => room.id === rawRecordId) : undefined;
+          if (rawRecordId && !idMatch) {
+            throw new Error(`Căn “${nameStr}” tham chiếu __recordId không tồn tại trong dự án hiện tại: ${rawRecordId}. Hãy để trống ID cho dòng mới.`);
+          }
+          if (idMatch && idMatch.floorId !== targetFloor.id) {
+            throw new Error(`Căn “${nameStr}” có __recordId thuộc tầng khác; không được tự đổi floorId qua Excel.`);
+          }
+          const match = idMatch || targetFloorRooms.find((room) => room.roomName.toLocaleLowerCase('vi-VN') === nameStr.toLocaleLowerCase('vi-VN'));
           if (match) {
             existingId = match.id;
             existingRoomObj = match;
             updatedCount++;
           } else {
-            // Reuse an imported record ID only when it does not belong to a room on
-            // another floor. This prevents an Excel file from silently moving/overwriting
-            // a different floor's room through the global ID update path.
-            const idUsedElsewhere = rawRecordId
-              ? roomProgressList.some((room) => room.id === rawRecordId && room.floorId !== activeFloor?.id)
-              : false;
-            existingId = rawRecordId && !idUsedElsewhere ? rawRecordId : undefined;
             importedCount++;
           }
 
           const targetId = existingId || createEntityId('ROOM');
+          if (processedRoomIds.has(targetId)) throw new Error(`__recordId ${targetId} xuất hiện nhiều lần trong file Excel.`);
+          const roomNameKey = `${targetFloor.id}::${nameStr.toLocaleLowerCase('vi-VN')}`;
+          if (processedRoomNames.has(roomNameKey)) throw new Error(`Tên Căn / Phòng “${nameStr}” bị trùng trong cùng tầng của file Excel.`);
           processedRoomIds.add(targetId);
+          processedRoomNames.add(roomNameKey);
 
           const roomTeamRaw = row['Đội Thi Công Căn / Phòng'] ?? row['assignedTeam'] ?? '';
           const roomTeamIdRaw = row['__teamId'] ?? row['teamId'] ?? '';
-          const roomTeamLink = resolveExcelTeamLink(roomTeamIdRaw, roomTeamRaw);
+          const roomTeamLink = resolveExcelTeamLink(roomTeamIdRaw, roomTeamRaw, existingRoomObj?.teamId);
           const roomCategoryRaw = row['Hạng Mục Thi Công Chính'] ?? row['workCategory'] ?? '';
           const roomCategoryIdRaw = row['__workCategoryId'] ?? row['workCategoryId'] ?? '';
-          const roomCategoryLink = resolveExcelCategory(roomCategoryIdRaw, roomCategoryRaw);
+          const roomCategoryLink = resolveExcelCategory(roomCategoryIdRaw, roomCategoryRaw, existingRoomObj?.workCategoryId);
           const roomVolumeRaw = row['Khối Lượng Căn / Phòng'] ?? row['workVolume'];
           const roomUnitRaw = String(row['Đơn Vị Căn / Phòng'] ?? row['volumeUnit'] ?? '').trim();
 
           const detailRowsForRoom = detailJsonData.filter((detailRow: any) => {
             const detailRoomId = String(detailRow['__recordId'] ?? detailRow['roomId'] ?? '').trim();
             const detailRoomName = String(detailRow['Tên Căn / Phòng'] ?? detailRow['roomName'] ?? '').trim();
+            const detailFloorId = String(detailRow['__floorId'] ?? detailRow['floorId'] ?? '').trim();
+            if (detailFloorId && detailFloorId !== targetFloor.id) return false;
             const idMatches = Boolean(detailRoomId) && [rawRecordId, existingId, targetId].filter(Boolean).includes(detailRoomId);
-            const nameMatches = Boolean(detailRoomName) && detailRoomName.toLocaleLowerCase('vi-VN') === nameStr.toLocaleLowerCase('vi-VN');
-            return idMatches || nameMatches;
+            if (detailRoomId) return idMatches;
+            const nameMatches = Boolean(detailRoomName)
+              && detailRoomName.toLocaleLowerCase('vi-VN') === nameStr.toLocaleLowerCase('vi-VN')
+              && (!detailFloorId || detailFloorId === targetFloor.id);
+            return nameMatches;
           });
 
           const importedSubItems: RoomSubItem[] | undefined = detailRowsForRoom.length > 0
@@ -2664,13 +2777,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     (rawSubItemId && subItem.id === rawSubItemId) ||
                     (!rawSubItemId && subItem.name.trim().toLocaleLowerCase('vi-VN') === itemName.toLocaleLowerCase('vi-VN'))
                   );
+                  if (rawSubItemId && !existingSubItem) {
+                    throw new Error(`Hạng mục “${itemName}” tham chiếu __subItemId không tồn tại trong Căn / Phòng hiện tại: ${rawSubItemId}. Hãy để trống ID cho dòng mới.`);
+                  }
                   const categoryLink = resolveExcelCategory(
-                    detailRow['__workCategoryId'] ?? detailRow['workCategoryId'] ?? existingSubItem?.workCategoryId,
-                    detailRow['Hạng Mục Thi Công'] ?? detailRow['category'] ?? existingSubItem?.category ?? existingRoomObj?.workCategory
+                    detailRow['__workCategoryId'] ?? detailRow['workCategoryId'] ?? '',
+                    detailRow['Hạng Mục Thi Công'] ?? detailRow['category'] ?? existingSubItem?.category ?? existingRoomObj?.workCategory,
+                    existingSubItem?.workCategoryId
                   );
                   const teamLink = resolveExcelTeamLink(
                     detailRow['__teamId'] ?? detailRow['teamId'] ?? '',
-                    detailRow['Đội Thi Công'] ?? detailRow['assignedTeam'] ?? ''
+                    detailRow['Đội Thi Công'] ?? detailRow['assignedTeam'] ?? '',
+                    existingSubItem?.teamId
                   );
                   const rawStatus = String(detailRow['Trạng Thái Thi Công'] ?? detailRow['status'] ?? '').trim();
                   const rawInspection = String(detailRow['Nghiệm Thu Hạng Mục'] ?? detailRow['inspectionStatus'] ?? '').trim();
@@ -2720,12 +2838,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           const safeW = Math.min(100 - safeX, Math.max(5, rawW));
           const safeH = Math.min(100 - safeY, Math.max(5, rawH));
 
-          onSaveRoomProgress({
+          preparedRooms.push({
             ...(existingRoomObj || {}),
             id: targetId,
             createdAt: existingRoomObj?.createdAt || Date.now(),
-            floorId: activeFloor?.id || 'fp-1',
-            floorName: activeFloor?.floorName || 'Mặt bằng',
+            floorId: targetFloor.id,
+            floorName: targetFloor.floorName,
             roomName: nameStr,
             x: safeX,
             y: safeY,
@@ -2745,25 +2863,22 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             workVolume: hasExcelValue(roomVolumeRaw) ? parseExcelNumber(roomVolumeRaw) : existingRoomObj?.workVolume,
             volumeUnit: roomUnitRaw || existingRoomObj?.volumeUnit,
             subItems: importedSubItems,
-          });
+          } as RoomProgressItem);
         });
 
-        // In replace mode, delete only obsolete rooms not present in the Excel file
-        if (importMode === 'replace') {
-          const obsoleteRooms = currentFloorRooms.filter(r => !processedRoomIds.has(r.id));
-          if (obsoleteRooms.length > 0) {
-            if (onDeleteMultipleRoomProgress) {
-              onDeleteMultipleRoomProgress(obsoleteRooms.map(r => r.id));
-            } else {
-              obsoleteRooms.forEach(r => onDeleteRoomProgress(r.id));
-            }
-          }
+        const obsoleteRoomIds = importMode === 'replace' && singleTargetFloor
+          ? currentFloorRooms.filter((room) => !processedRoomIds.has(room.id)).map((room) => room.id)
+          : [];
+        if (!onApplyRoomExcelImport) {
+          throw new Error('Phiên bản ứng dụng chưa hỗ trợ ghi Excel Mặt bằng nguyên tử; hệ thống đã hủy trước khi ghi.');
         }
+        onApplyRoomExcelImport(preparedRooms, obsoleteRoomIds);
 
         alert(
           `🎉 Nhập dữ liệu Mặt bằng từ Excel thành công!\n\n` +
           `• Đã cập nhật/chỉnh sửa: ${updatedCount} phòng/căn\n` +
           `• Đã tạo mới/thêm mới: ${importedCount} phòng/căn\n` +
+          `• Phạm vi tầng: ${targetFloorIds.size}\n` +
           `• Tự sửa nghiệm thu không hợp lệ: ${normalizedInspectionCount} trường hợp\n` +
           `• Hạng mục vẫn chưa gán đội: ${missingTeamWarningCount} dòng`
         );
@@ -2811,6 +2926,224 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   const floorDefects = defects.filter((d) => d.floorId === activeFloor?.id);
   const floorRooms = roomProgressList.filter((r) => r.floorId === activeFloor?.id);
+  const [showQuickEdit, setShowQuickEdit] = useState(false);
+  const [quickEditMode, setQuickEditMode] = useState<'rooms' | 'defects'>('rooms');
+  const [pendingDxfImport, setPendingDxfImport] = useState<PendingDxfRoomImport | null>(null);
+
+  const quickFloorById = React.useMemo(() => new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.id, floor] as const)), [floorPlans]);
+  const quickRoomById = React.useMemo(() => new Map<string, RoomProgressItem>(roomProgressList.map((room) => [room.id, room] as const)), [roomProgressList]);
+  const quickTeamByName = React.useMemo(() => new Map<string, TeamInfo>(
+    teams.filter((team) => team.name?.trim()).map((team) => [team.name.trim().toLocaleLowerCase('vi-VN'), team] as const)
+  ), [teams]);
+
+  const floorQuickRows = React.useMemo<QuickGridRow[]>(() => roomProgressList.flatMap((room) => {
+    const floor = quickFloorById.get(room.floorId);
+    const groupName = floor
+      ? getStructureGroupName(resolveFloorStructureGroupId(floor, normalizedStructureConfig), normalizedStructureConfig)
+      : '';
+    const subItems = room.subItems?.length ? room.subItems : [undefined];
+    const roomDefectCount = defects.filter((defect) => defect.roomId === room.id && !defect.deletedAt).length;
+    return subItems.map((subItem, subIndex) => ({
+      __rowKey: `${room.id}--${subItem?.id || `legacy-${subIndex}`}`,
+      __recordId: room.id,
+      __subItemId: subItem?.id || '',
+      structureGroup: groupName,
+      floorName: floor?.floorName || room.floorName || '',
+      roomName: room.roomName,
+      mainCategory: room.workCategory || '',
+      mainVolume: room.workVolume ?? '',
+      subItemName: subItem?.name || '',
+      subTeamName: subItem?.assignedTeam || (subItem?.teamId ? teams.find((team) => team.id === subItem.teamId)?.name : '') || room.assignedTeam || '',
+      progress: subItem?.status || room.frameStatus,
+      inspection: subItem?.inspectionStatus || room.inspectionStatus || 'Chưa nghiệm thu',
+      targetDate: subItem?.targetDate || room.targetBoardDate || room.targetFrameDate || '',
+      defectCount: roomDefectCount,
+    }));
+  }), [roomProgressList, defects, quickFloorById, normalizedStructureConfig, teams]);
+
+  const defectQuickRows = React.useMemo<QuickGridRow[]>(() => defects.filter((defect) => !defect.deletedAt).map((defect) => {
+    const floor = quickFloorById.get(defect.floorId);
+    const room = defect.roomId ? quickRoomById.get(defect.roomId) : undefined;
+    const groupName = floor
+      ? getStructureGroupName(resolveFloorStructureGroupId(floor, normalizedStructureConfig), normalizedStructureConfig)
+      : '';
+    return {
+      __rowKey: defect.id,
+      __defectId: defect.id,
+      structureGroup: groupName,
+      floorName: floor?.floorName || defect.floorName,
+      roomName: room?.roomName || defect.positionDetail || '',
+      defectCode: getDefectShortCode(defect),
+      description: defect.description,
+      category: defect.category,
+      dueDate: defect.dueDate || '',
+      assignedTo: defect.assignedTo || '',
+      completedAt: defect.completedAt || '',
+      status: defect.status,
+    };
+  }), [defects, quickFloorById, quickRoomById, normalizedStructureConfig]);
+
+  const quickWorkCategoryOptions = React.useMemo(() => Array.from(new Set([
+    ...workVolumes.map((item) => item.title),
+    ...roomProgressList.map((room) => room.workCategory || ''),
+  ].filter(Boolean))), [workVolumes, roomProgressList]);
+  const quickTeamOptions = React.useMemo(() => Array.from(new Set([
+    ...teams.map((team) => team.name),
+    ...roomProgressList.flatMap((room) => [
+      room.assignedTeam || '',
+      ...(room.subItems || []).map((subItem) => subItem.assignedTeam || ''),
+    ]),
+    ...defects.map((defect) => defect.assignedTo || ''),
+  ].filter(Boolean))), [teams, roomProgressList, defects]);
+
+  const roomQuickColumns = React.useMemo<QuickGridColumn[]>(() => [
+    { key: 'structureGroup', label: normalizedStructureConfig.label || 'Khu/Khối', editable: false, width: 145 },
+    { key: 'floorName', label: 'Tầng', editable: false, width: 125 },
+    { key: 'roomName', label: 'Căn / Phòng', editable: canManageStructure, required: true, width: 155 },
+    { key: 'mainCategory', label: 'Hạng mục chính', editable: canManageStructure, type: 'select', options: quickWorkCategoryOptions, width: 230 },
+    { key: 'mainVolume', label: 'KL Hạng mục chính', editable: canManageStructure, type: 'number', width: 145, validate: (value) => Number(value || 0) < 0 ? 'Không được âm' : null },
+    { key: 'subItemName', label: 'Hạng mục phụ / Công đoạn', editable: canManageStructure, width: 230 },
+    { key: 'subTeamName', label: 'Đội thi công HM phụ', editable: canManageStructure, type: 'select', options: quickTeamOptions, width: 190 },
+    { key: 'progress', label: 'Tiến độ', editable: canManageStructure, type: 'select', options: ['Chưa làm', 'Đang làm', 'Đã hoàn thành'], width: 135 },
+    {
+      key: 'inspection',
+      label: 'Nghiệm thu',
+      editable: canManageStructure,
+      type: 'select',
+      options: ['Chưa nghiệm thu', 'Đạt nghiệm thu', 'Chưa đạt (Cần sửa)'],
+      width: 160,
+      validate: (value, row) => value === 'Đạt nghiệm thu' && row.progress !== 'Đã hoàn thành'
+        ? 'Chỉ Đạt nghiệm thu khi Tiến độ = Đã hoàn thành'
+        : null,
+    },
+    { key: 'targetDate', label: 'Hạn xong', editable: canManageStructure, type: 'date', width: 135 },
+    { key: 'defectCount', label: 'Defect', editable: false, type: 'number', width: 85 },
+  ], [canManageStructure, normalizedStructureConfig.label, quickWorkCategoryOptions, quickTeamOptions]);
+
+  const defectQuickColumns = React.useMemo<QuickGridColumn[]>(() => [
+    { key: 'structureGroup', label: normalizedStructureConfig.label || 'Khu/Khối', editable: false, width: 145 },
+    { key: 'floorName', label: 'Tầng', editable: false, width: 125 },
+    { key: 'roomName', label: 'Căn / Phòng', editable: false, width: 155 },
+    { key: 'defectCode', label: 'Defect', editable: false, width: 100 },
+    { key: 'description', label: 'Nội dung defect', editable: canEditDefects, required: true, width: 300 },
+    { key: 'category', label: 'Nhóm lỗi', editable: canEditDefects, type: 'select', options: DEFECT_CATEGORIES, width: 185 },
+    { key: 'dueDate', label: 'Deadline defect', editable: canEditDefects, type: 'date', width: 145 },
+    { key: 'assignedTo', label: 'Đội phụ trách defect', editable: canEditDefects, type: 'select', options: quickTeamOptions, width: 190 },
+    { key: 'completedAt', label: 'Ngày hoàn thành thực tế defect', editable: canEditDefects, type: 'date', width: 190 },
+    { key: 'status', label: 'Trạng thái defect', editable: canEditDefects, type: 'select', options: ['Mới phát hiện', 'Đang sửa', 'Đã khắc phục', 'Đã nghiệm thu'], width: 155 },
+  ], [canEditDefects, normalizedStructureConfig.label, quickTeamOptions]);
+
+  const saveRoomQuickRows = async (rows: QuickGridRow[], dirtyCellKeys: Set<string>) => {
+    if (!canManageStructure) return;
+    const dirtyRowKeys = new Set(Array.from(dirtyCellKeys).map((key) => key.split('::')[0]));
+    const dirtyRows = rows.filter((row) => dirtyRowKeys.has(row.__rowKey));
+    const dirtyRoomIds = Array.from(new Set(dirtyRows.map((row) => String(row.__recordId || '')).filter(Boolean)));
+    const changedRooms: RoomProgressItem[] = [];
+
+    dirtyRoomIds.forEach((roomId) => {
+      const existing = roomProgressList.find((room) => room.id === roomId);
+      if (!existing) return;
+      const allRows = rows.filter((row) => String(row.__recordId || '') === roomId);
+      const changedForRoom = dirtyRows.filter((row) => String(row.__recordId || '') === roomId);
+      const next: RoomProgressItem = { ...existing, subItems: existing.subItems ? existing.subItems.map((item) => ({ ...item })) : [] };
+
+      const pickShared = (key: string, fallback: unknown) => {
+        const changed = changedForRoom.filter((row) => dirtyCellKeys.has(`${row.__rowKey}::${key}`));
+        const values = Array.from(new Set(changed.map((row) => String(row[key] ?? ''))));
+        if (values.length > 1) throw new Error(`Căn ${existing.roomName}: cột ${key} có nhiều giá trị khác nhau giữa các dòng hạng mục phụ.`);
+        return changed.length ? changed[changed.length - 1][key] : fallback;
+      };
+
+      next.roomName = String(pickShared('roomName', existing.roomName) || '').trim();
+      const mainCategory = String(pickShared('mainCategory', existing.workCategory || '') || '').trim();
+      const mainCategoryRecord = workVolumes.find((item) => item.title === mainCategory);
+      next.workCategory = mainCategory || undefined;
+      next.workCategoryId = mainCategoryRecord ? (mainCategoryRecord.workCategoryId || mainCategoryRecord.id) : existing.workCategoryId;
+      const mainVolumeValue = pickShared('mainVolume', existing.workVolume ?? '');
+      if (mainVolumeValue !== '' && mainVolumeValue !== undefined) {
+        next.workVolume = Math.max(0, Number(mainVolumeValue || 0));
+        if (mainCategory) {
+          next.categoryVolumes = { ...(existing.categoryVolumes || {}), [mainCategory]: next.workVolume };
+          next.categoryVolumeUnits = { ...(existing.categoryVolumeUnits || {}), [mainCategory]: existing.volumeUnit || 'm²' };
+        }
+      }
+
+      allRows.forEach((row) => {
+        const subId = String(row.__subItemId || '').trim();
+        const rowDirty = Array.from(dirtyCellKeys).some((key) => key.startsWith(`${row.__rowKey}::`));
+        if (!rowDirty) return;
+        let sub = subId ? next.subItems?.find((item) => item.id === subId) : undefined;
+        const name = String(row.subItemName || '').trim();
+        if (!sub && !name) return;
+        if (!sub) {
+          sub = {
+            id: createEntityId('sub-custom'),
+            name,
+            category: mainCategory || undefined,
+            workCategoryId: mainCategoryRecord ? (mainCategoryRecord.workCategoryId || mainCategoryRecord.id) : undefined,
+            status: 'Chưa làm',
+            inspectionStatus: 'Chưa nghiệm thu',
+          };
+          next.subItems = [...(next.subItems || []), sub];
+        }
+        sub.name = name || sub.name;
+        const teamName = String(row.subTeamName || '').trim();
+        const team = quickTeamByName.get(teamName.toLocaleLowerCase('vi-VN'));
+        sub.assignedTeam = team?.name || teamName || undefined;
+        sub.teamId = team?.id || (teamName ? undefined : sub.teamId);
+        sub.status = String(row.progress || sub.status || 'Chưa làm') as AcceptanceStatus;
+        sub.inspectionStatus = String(row.inspection || sub.inspectionStatus || 'Chưa nghiệm thu') as RoomInspectionResult;
+        if (sub.inspectionStatus === 'Đạt nghiệm thu' && sub.status !== 'Đã hoàn thành') {
+          throw new Error(`Căn ${next.roomName} / ${sub.name}: không thể Đạt nghiệm thu khi chưa hoàn thành.`);
+        }
+        sub.targetDate = String(row.targetDate || '').trim() || undefined;
+      });
+
+      const operational = next.subItems || [];
+      next.inspectionStatus = operational.length > 0
+        ? operational.every((item) => item.inspectionStatus === 'Đạt nghiệm thu')
+          ? 'Đạt nghiệm thu'
+          : operational.some((item) => item.inspectionStatus === 'Chưa đạt (Cần sửa)')
+            ? 'Chưa đạt (Cần sửa)'
+            : 'Chưa nghiệm thu'
+        : next.inspectionStatus;
+      next.updatedAt = Date.now();
+      changedRooms.push(next);
+    });
+
+    const confirmed = await confirmAsync(`Lưu thay đổi cho ${changedRooms.length} Căn / Phòng trên nhiều tầng? ID Căn, highlight, Defect và lịch sử được giữ nguyên.`);
+    if (!confirmed) return false;
+    if (onBatchSaveRooms) onBatchSaveRooms(changedRooms);
+    else changedRooms.forEach((room) => onSaveRoomProgress(room));
+  };
+
+  const saveDefectQuickRows = async (rows: QuickGridRow[], dirtyCellKeys: Set<string>) => {
+    if (!canEditDefects) return;
+    if (!onUpdateDefect) throw new Error('Phiên bản ứng dụng chưa hỗ trợ cập nhật Defect hàng loạt.');
+    const dirtyRowKeys = new Set(Array.from(dirtyCellKeys).map((key) => key.split('::')[0]));
+    const changedRows = rows.filter((row) => dirtyRowKeys.has(row.__rowKey));
+    const nextDefects = changedRows.map((row) => {
+      const existing = defects.find((defect) => defect.id === String(row.__defectId || row.__rowKey));
+      if (!existing) throw new Error(`Không tìm thấy Defect ${String(row.__defectId || row.__rowKey)}.`);
+      const assignedTo = String(row.assignedTo || '').trim();
+      const team = quickTeamByName.get(assignedTo.toLocaleLowerCase('vi-VN'));
+      return {
+        ...existing,
+        description: String(row.description || '').trim(),
+        category: String(row.category || existing.category) as DefectCategory,
+        dueDate: String(row.dueDate || '').trim() || undefined,
+        assignedTo,
+        teamId: team?.id || (assignedTo ? undefined : existing.teamId),
+        completedAt: String(row.completedAt || '').trim() || undefined,
+        status: String(row.status || existing.status) as DefectStatus,
+        updatedAt: Date.now(),
+      } as DefectItem;
+    });
+    const confirmed = await confirmAsync(`Lưu ${nextDefects.length} Defect đã chỉnh trong bảng? Ảnh trước/sau sửa và defectId được giữ nguyên.`);
+    if (!confirmed) return false;
+    nextDefects.forEach((defect) => onUpdateDefect(defect));
+  };
+
   const mapFloorDefects = floorDefects.filter((d) => mapLayers.resolvedDefects || !(d.status === 'Đã nghiệm thu' || d.status === 'Đã khắc phục'));
 
   // Generate a collision-safe default name for quick room creation.
@@ -2822,6 +3155,171 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     while (existingNames.has(`căn / phòng ${index}`.toLocaleLowerCase('vi-VN'))) index += 1;
     return `Căn / Phòng ${index}`;
   };
+  const normalizeDxfCatalogName = (value: unknown) =>
+    String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('vi-VN');
+
+  const handleDxfRoomFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file || !canManageStructure) return;
+    if (!activeFloor) {
+      alert('Chưa có tầng đang chọn để nhận diện DXF.');
+      return;
+    }
+    if (!/\.dxf$/i.test(file.name)) {
+      alert('Chỉ chấp nhận tệp AutoCAD DXF (.dxf).');
+      return;
+    }
+    if (file.size <= 0 || file.size > 20 * 1024 * 1024) {
+      alert('DXF rỗng hoặc vượt giới hạn 20 MB. Hãy tách bản vẽ theo tầng trước khi nhập.');
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      const result = detectRoomsFromDxf(text);
+      const currentFloorRooms = roomProgressList.filter((room) => room.floorId === activeFloor.id);
+      const existingNames = new Set(currentFloorRooms.map((room) => normalizeDxfCatalogName(room.roomName)));
+      const catalogByExactName = new Map<string, WorkVolume[]>();
+      workVolumes.forEach((work) => {
+        const key = normalizeDxfCatalogName(work.title);
+        if (!key) return;
+        catalogByExactName.set(key, [...(catalogByExactName.get(key) || []), work]);
+      });
+
+      const candidates: PendingDxfReviewCandidate[] = result.candidates.map((candidate) => {
+        const exactMatches = catalogByExactName.get(normalizeDxfCatalogName(candidate.layer)) || [];
+        const mappedWork = exactMatches.length === 1 ? exactMatches[0] : undefined;
+        const nameConflict = existingNames.has(normalizeDxfCatalogName(candidate.roomName));
+        return {
+          ...candidate,
+          selected: candidate.hasDetectedName && !nameConflict,
+          workCategoryId: mappedWork ? (mappedWork.workCategoryId || mappedWork.id) : undefined,
+          workCategoryName: mappedWork?.title,
+        };
+      });
+
+      setPendingDxfImport({
+        floorId: activeFloor.id,
+        floorName: activeFloor.floorName,
+        fileName: file.name,
+        unitLabel: result.unitLabel,
+        warnings: [
+          ...result.warnings,
+          ...(candidates.some((candidate) => !candidate.hasDetectedName)
+            ? ['Có vùng chưa tìm thấy TEXT/MTEXT bên trong. Các dòng này mặc định chưa chọn; hãy đặt tên rồi chọn nếu đúng Căn / Phòng.']
+            : []),
+          ...(candidates.some((candidate) => existingNames.has(normalizeDxfCatalogName(candidate.roomName)))
+            ? ['Có tên Căn / Phòng đã tồn tại trên tầng. Các dòng trùng tên mặc định chưa chọn để tránh ghi đè highlight hiện có.']
+            : []),
+        ],
+        candidates,
+      });
+    } catch (error) {
+      alert(`❌ Không thể nhận diện DXF:\n${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  const updatePendingDxfCandidate = (candidateId: string, updates: Partial<PendingDxfReviewCandidate>) => {
+    setPendingDxfImport((current) => current ? {
+      ...current,
+      candidates: current.candidates.map((candidate) => candidate.id === candidateId ? { ...candidate, ...updates } : candidate),
+    } : current);
+  };
+
+  const applyPendingDxfRooms = async () => {
+    if (!pendingDxfImport || !canManageStructure) return;
+    const floor = floorPlans.find((item) => item.id === pendingDxfImport.floorId);
+    if (!floor) {
+      alert('Tầng đích không còn tồn tại. Hãy chọn lại DXF.');
+      setPendingDxfImport(null);
+      return;
+    }
+    const selected = pendingDxfImport.candidates.filter((candidate) => candidate.selected);
+    if (!selected.length) {
+      alert('Chưa chọn Căn / Phòng DXF nào để tạo.');
+      return;
+    }
+
+    const existingNames = new Set(
+      roomProgressList
+        .filter((room) => room.floorId === floor.id)
+        .map((room) => normalizeDxfCatalogName(room.roomName))
+    );
+    const selectedNames = new Set<string>();
+    for (const candidate of selected) {
+      const name = candidate.roomName.trim();
+      const key = normalizeDxfCatalogName(name);
+      if (!name) {
+        alert('Có dòng DXF chưa có tên Căn / Phòng.');
+        return;
+      }
+      if (existingNames.has(key)) {
+        alert(`Căn / Phòng “${name}” đã tồn tại trên ${floor.floorName}. Hệ thống không ghi đè highlight qua DXF.`);
+        return;
+      }
+      if (selectedNames.has(key)) {
+        alert(`Tên “${name}” bị trùng trong các dòng DXF đang chọn.`);
+        return;
+      }
+      selectedNames.add(key);
+    }
+
+    const now = Date.now();
+    const newRooms: RoomProgressItem[] = selected.map((candidate, index) => {
+      const work = candidate.workCategoryId
+        ? workVolumes.find((item) => (item.workCategoryId || item.id) === candidate.workCategoryId || item.id === candidate.workCategoryId)
+        : undefined;
+      const mappedArea = work && Number.isFinite(candidate.areaM2) ? Number(candidate.areaM2) : undefined;
+      return {
+        id: createEntityId('ROOM'),
+        floorId: floor.id,
+        floorName: floor.floorName,
+        roomName: candidate.roomName.trim(),
+        workCategory: work?.title,
+        workCategoryId: work ? (work.workCategoryId || work.id) : undefined,
+        categoryVolumes: work && mappedArea !== undefined ? { [work.title]: mappedArea } : undefined,
+        categoryVolumeUnits: work && mappedArea !== undefined ? { [work.title]: 'm²' } : undefined,
+        workVolume: mappedArea,
+        volumeUnit: mappedArea !== undefined ? 'm²' : undefined,
+        x: Math.min(100, Math.max(0, candidate.x)),
+        y: Math.min(100, Math.max(0, candidate.y)),
+        width: Math.min(100, Math.max(0.1, candidate.width)),
+        height: Math.min(100, Math.max(0.1, candidate.height)),
+        points: candidate.points.map((point) => ({
+          x: Math.min(100, Math.max(0, point.x)),
+          y: Math.min(100, Math.max(0, point.y)),
+        })),
+        isPolyline: false,
+        frameStatus: 'Chưa làm',
+        boardStatus: 'Chưa làm',
+        frameInspectionStatus: 'Chưa nghiệm thu',
+        boardInspectionStatus: 'Chưa nghiệm thu',
+        inspectionStatus: 'Chưa nghiệm thu',
+        inspectorName: inspectorName || undefined,
+        notes: `Nhận diện từ DXF · ${candidate.source} · Layer: ${candidate.layer || '(không tên)'}${candidate.areaM2 !== undefined ? ` · Diện tích: ${formatDecimal(candidate.areaM2)} m²` : ''}`,
+        createdAt: now + index,
+        updatedAt: now + index,
+      };
+    });
+
+    const confirmed = await confirmAsync(
+      `Tạo ${newRooms.length} Căn / Phòng từ DXF trên “${floor.floorName}”?\n\n` +
+      '• HATCH/Polyline → polygon highlight\n' +
+      '• TEXT/MTEXT → tên Căn / Phòng\n' +
+      '• Diện tích chỉ ghi m² khi DXF có đơn vị hợp lệ và đã gán Hạng mục\n' +
+      '• Không ghi đè Căn / Phòng đã tồn tại'
+    );
+    if (!confirmed) return;
+
+    if (onCreateMultipleRoomProgress) onCreateMultipleRoomProgress(newRooms);
+    else newRooms.forEach((room) => onSaveRoomProgress(room));
+    setPendingDxfImport(null);
+    alert(`✅ Đã tạo ${newRooms.length} Căn / Phòng từ DXF trên ${floor.floorName}.`);
+  };
+
+
   const [draggingRoomsPreview, setDraggingRoomsPreview] = useState<Record<string, RoomProgressItem> | null>(null);
   const draggingRoomsPreviewRef = useRef<Record<string, RoomProgressItem> | null>(null);
 
@@ -7888,23 +8386,31 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <div className="flex flex-wrap items-center gap-1.5 shrink-0">
                 <button
                   type="button"
-                  onClick={downloadHighlightTemplate}
-                  className="text-[11px] font-extrabold text-indigo-700 hover:text-indigo-900 bg-white hover:bg-slate-50 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-slate-200 transition-all active:scale-95 shadow-2xs"
-                  title="Tải tệp mẫu Excel để nhập danh sách hàng loạt"
+                  onClick={() => { setQuickEditMode('rooms'); setShowQuickEdit(true); }}
+                  className="text-[11px] font-extrabold text-indigo-700 hover:text-indigo-900 bg-white hover:bg-indigo-50 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-indigo-200 transition-all active:scale-95 shadow-2xs"
+                  title="Chỉnh Căn/Hạng mục/Defect nhiều tầng theo bảng cột và dòng"
                 >
-                  <Download className="w-3.5 h-3.5" /> Mẫu Excel
+                  ▦ Bảng chỉnh nhanh
                 </button>
+                <ExcelActionMenu
+                  onExportEdit={() => downloadHighlightTemplate('all')}
+                  onImportFile={canManageStructure ? handleImportExcelHighlights : undefined}
+                  onDownloadTemplate={() => downloadHighlightTemplate('template')}
+                  exportLabel="Xuất Căn / Hạng mục để chỉnh sửa"
+                  importLabel="Nhập Excel đã chỉnh sửa"
+                  templateLabel="Tải mẫu Căn / Hạng mục"
+                />
+                {canManageStructure && (
+                  <label
+                    className="text-[11px] font-extrabold text-violet-700 hover:text-violet-900 bg-white hover:bg-violet-50 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-violet-200 cursor-pointer transition-all active:scale-95 shadow-2xs"
+                    title="Nhận diện HATCH/Polyline + TEXT/MTEXT từ DXF và kiểm tra trước khi tạo Căn / Phòng"
+                  >
+                    <FileType className="w-3.5 h-3.5" /> Nhận diện CAD/DXF
+                    <input type="file" accept=".dxf" onChange={handleDxfRoomFile} className="hidden" />
+                  </label>
+                )}
                 {canManageStructure && (
                   <>
-                    <label className="text-[11px] font-extrabold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-emerald-200 cursor-pointer transition-all active:scale-95 shadow-2xs">
-                      <Upload className="w-3.5 h-3.5" /> Nhập Excel
-                      <input
-                        type="file"
-                        accept=".xlsx, .xls"
-                        onChange={handleImportExcelHighlights}
-                        className="hidden"
-                      />
-                    </label>
                     <button
                       type="button"
                       onClick={async () => {
@@ -8627,6 +9133,137 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       )}
 
       {/* Room Highlight Modal */}
+      {pendingDxfImport && (
+        <div className="fixed inset-0 z-[190] bg-slate-950/60 backdrop-blur-[1px] flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white w-full sm:max-w-6xl rounded-t-3xl sm:rounded-2xl max-h-[96dvh] overflow-hidden flex flex-col shadow-2xl border border-slate-200">
+            <div className="px-4 py-3 border-b border-slate-200 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-black text-slate-900 text-sm">Kiểm tra nhận diện CAD/DXF</h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {pendingDxfImport.fileName} · {pendingDxfImport.floorName} · Đơn vị: {pendingDxfImport.unitLabel}
+                </p>
+              </div>
+              <button type="button" onClick={() => setPendingDxfImport(null)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-600">Đóng</button>
+            </div>
+
+            {pendingDxfImport.warnings.length > 0 && (
+              <div className="mx-4 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10.5px] text-amber-800 space-y-1">
+                {pendingDxfImport.warnings.map((warning, index) => <div key={index}>⚠ {warning}</div>)}
+              </div>
+            )}
+
+            <div className="flex-1 overflow-auto p-4">
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="min-w-[1120px] w-full text-[11px] border-collapse">
+                  <thead className="sticky top-0 z-10 bg-slate-100 text-slate-700">
+                    <tr>
+                      <th className="p-2 border-b text-center">Chọn</th>
+                      <th className="p-2 border-b text-left">Căn / Phòng</th>
+                      <th className="p-2 border-b text-left">Nguồn</th>
+                      <th className="p-2 border-b text-left">Layer CAD</th>
+                      <th className="p-2 border-b text-right">Diện tích</th>
+                      <th className="p-2 border-b text-left">Hạng mục thi công</th>
+                      <th className="p-2 border-b text-left">Nhận diện tên</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingDxfImport.candidates.map((candidate) => {
+                      const existing = roomProgressList.find((room) =>
+                        room.floorId === pendingDxfImport.floorId
+                        && normalizeDxfCatalogName(room.roomName) === normalizeDxfCatalogName(candidate.roomName)
+                      );
+                      return (
+                        <tr key={candidate.id} className={existing ? 'bg-amber-50/70' : candidate.selected ? 'bg-sky-50/50' : 'bg-white'}>
+                          <td className="p-2 border-b text-center">
+                            <input
+                              type="checkbox"
+                              checked={candidate.selected && !existing}
+                              disabled={Boolean(existing)}
+                              onChange={(event) => updatePendingDxfCandidate(candidate.id, { selected: event.target.checked })}
+                              className="w-4 h-4 rounded border-slate-300 text-indigo-600"
+                            />
+                          </td>
+                          <td className="p-2 border-b">
+                            <input
+                              value={candidate.roomName}
+                              onChange={(event) => updatePendingDxfCandidate(candidate.id, { roomName: event.target.value, selected: false })}
+                              className="w-full min-w-[140px] rounded-lg border border-slate-300 bg-white px-2 py-1.5 font-bold"
+                            />
+                            {existing && <div className="text-[9px] text-amber-700 font-bold mt-1">Đã tồn tại · không ghi đè</div>}
+                          </td>
+                          <td className="p-2 border-b font-semibold text-slate-600">{candidate.source}</td>
+                          <td className="p-2 border-b text-slate-600">{candidate.layer || '—'}</td>
+                          <td className="p-2 border-b text-right font-bold">
+                            {candidate.areaM2 !== undefined
+                              ? `${formatDecimal(candidate.areaM2)} m²`
+                              : `${formatDecimal(candidate.areaDrawingUnits)} ${candidate.drawingUnitLabel}²`}
+                          </td>
+                          <td className="p-2 border-b">
+                            <select
+                              value={candidate.workCategoryId || ''}
+                              onChange={(event) => {
+                                const work = workVolumes.find((item) => (item.workCategoryId || item.id) === event.target.value || item.id === event.target.value);
+                                updatePendingDxfCandidate(candidate.id, {
+                                  workCategoryId: work ? (work.workCategoryId || work.id) : undefined,
+                                  workCategoryName: work?.title,
+                                });
+                              }}
+                              className="w-full min-w-[220px] rounded-lg border border-slate-300 bg-white px-2 py-1.5"
+                            >
+                              <option value="">-- Chỉ tạo vùng, không nhập KL --</option>
+                              {workVolumes.map((work) => {
+                                const value = work.workCategoryId || work.id;
+                                return <option key={work.id} value={value}>{work.title}</option>;
+                              })}
+                            </select>
+                            {candidate.workCategoryName && candidate.layer && normalizeDxfCatalogName(candidate.workCategoryName) === normalizeDxfCatalogName(candidate.layer) && (
+                              <div className="text-[9px] text-emerald-700 font-bold mt-1">Tự map chính xác theo tên Layer</div>
+                            )}
+                          </td>
+                          <td className="p-2 border-b">
+                            {candidate.hasDetectedName
+                              ? <span className="text-emerald-700 font-bold">{candidate.textType || 'TEXT'} · {Math.round(candidate.confidence * 100)}%</span>
+                              : <span className="text-amber-700 font-bold">Chưa có TEXT/MTEXT</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="px-4 py-3 border-t border-slate-200 bg-white flex flex-wrap items-center gap-2">
+              <div className="mr-auto text-[11px] text-slate-600">
+                <strong>{pendingDxfImport.candidates.filter((candidate) => candidate.selected).length}</strong> / {pendingDxfImport.candidates.length} vùng được chọn
+              </div>
+              <button type="button" onClick={() => setPendingDxfImport(null)} className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-600">Hủy</button>
+              <button type="button" onClick={applyPendingDxfRooms} className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-black">Tạo Căn / Phòng từ DXF</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <QuickEditGridModal
+        open={showQuickEdit}
+        title="Bảng chỉnh nhanh · Mặt bằng"
+        subtitle={quickEditMode === 'rooms'
+          ? 'Chỉnh Căn/Hạng mục của nhiều tầng cùng lúc. Khu/Khối và Tầng chỉ đọc để bảo vệ liên kết floorId.'
+          : 'Defect được chỉnh theo defectId; ảnh trước/sau sửa không bị thay đổi.'}
+        tabs={[
+          { key: 'rooms', label: 'Căn & Hạng mục' },
+          { key: 'defects', label: 'Defect' },
+        ]}
+        activeTab={quickEditMode}
+        onTabChange={(key) => setQuickEditMode(key as 'rooms' | 'defects')}
+        columns={quickEditMode === 'rooms' ? roomQuickColumns : defectQuickColumns}
+        rows={quickEditMode === 'rooms' ? floorQuickRows : defectQuickRows}
+        canEdit={quickEditMode === 'rooms' ? canManageStructure : canEditDefects}
+        canAddRows={false}
+        onClose={() => setShowQuickEdit(false)}
+        onSave={quickEditMode === 'rooms' ? saveRoomQuickRows : saveDefectQuickRows}
+      />
+
       <RoomHighlightModal
         isOpen={isRoomModalOpen}
         onClose={() => {
