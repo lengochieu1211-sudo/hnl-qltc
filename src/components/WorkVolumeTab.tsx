@@ -44,6 +44,8 @@ import {
 } from '../utils/structureGroupUtils';
 
 import { QuickSortBar } from './QuickSortBar';
+import { ExcelActionMenu } from './ExcelActionMenu';
+import { QuickEditGridModal, type QuickGridColumn, type QuickGridRow } from './QuickEditGridModal';
 
 interface WorkVolumeTabProps {
   workVolumes: WorkVolume[];
@@ -131,6 +133,117 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   const [showDetailFloorPicker, setShowDetailFloorPicker] = useState(false);
   const [showDetailRoomPicker, setShowDetailRoomPicker] = useState(false);
   const [showDetailTeamPicker, setShowDetailTeamPicker] = useState(false);
+  const [showQuickEdit, setShowQuickEdit] = useState(false);
+
+  const quickEditFloorNameToId = useMemo(() => {
+    const map = new Map<string, string>();
+    floorPlans.forEach((floor) => {
+      const key = String(floor.floorName || '').trim().toLocaleLowerCase('vi-VN');
+      if (key && !map.has(key)) map.set(key, floor.id);
+    });
+    return map;
+  }, [floorPlans]);
+
+  const resolveQuickEditFloorIds = (raw: unknown): string[] => {
+    const names = String(raw || '').split(/[,;\n]+/).map((item) => item.trim()).filter(Boolean);
+    return Array.from(new Set(names.map((name) => quickEditFloorNameToId.get(name.toLocaleLowerCase('vi-VN'))).filter((id): id is string => Boolean(id))));
+  };
+
+  const quickEditRows = useMemo<QuickGridRow[]>(() => workVolumes.map((item) => {
+    const ids = Array.from(new Set([...(item.floorIds || []), item.floorId || ''].filter(Boolean)));
+    const floors = ids.map((id) => floorPlans.find((floor) => floor.id === id)).filter((floor): floor is FloorPlan => Boolean(floor));
+    const groupNames = Array.from(new Set(floors.map((floor) =>
+      getStructureGroupName(resolveFloorStructureGroupId(floor, normalizedStructureConfig), normalizedStructureConfig)
+    ).filter(Boolean)));
+    return {
+      __rowKey: item.id,
+      __recordId: item.id,
+      title: item.title,
+      structureGroups: groupNames.join(', '),
+      floors: floors.length ? floors.map((floor) => floor.floorName).join(', ') : item.floor,
+      category: item.category,
+      planned: item.planned,
+      actual: item.actual,
+      unit: item.unit,
+      unitPrice: hasFinancialAccess ? item.unitPrice : '',
+      dueDate: item.dueDate || '',
+    };
+  }), [workVolumes, floorPlans, normalizedStructureConfig, hasFinancialAccess]);
+
+  const quickEditColumns = useMemo<QuickGridColumn[]>(() => {
+    const columns: QuickGridColumn[] = [
+      { key: 'title', label: 'Hạng mục thi công', editable: hasStructureManageAccess, required: true, width: 230 },
+      { key: 'structureGroups', label: normalizedStructureConfig.label || 'Khu/Khối', editable: false, width: 150 },
+      {
+        key: 'floors',
+        label: 'Tầng / Vị trí',
+        editable: hasStructureManageAccess,
+        required: true,
+        width: 190,
+        validate: (value) => {
+          const names = String(value || '').split(/[,;\n]+/).map((item) => item.trim()).filter(Boolean);
+          const missing = names.filter((name) => !quickEditFloorNameToId.has(name.toLocaleLowerCase('vi-VN')));
+          return missing.length ? `Không tìm thấy tầng: ${missing.join(', ')}` : null;
+        },
+      },
+      { key: 'category', label: 'Nhóm hạng mục', editable: hasStructureManageAccess, required: true, width: 160 },
+      { key: 'planned', label: 'Khối lượng định mức', editable: hasStructureManageAccess, type: 'number', required: true, width: 150, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
+      { key: 'actual', label: 'Khối lượng đã làm', editable: false, type: 'number', width: 150 },
+      { key: 'unit', label: 'Đơn vị', editable: hasStructureManageAccess, required: true, width: 100 },
+    ];
+    if (hasFinancialAccess) columns.push({ key: 'unitPrice', label: 'Đơn giá', editable: hasStructureManageAccess, type: 'number', width: 130, validate: (value) => Number(value) < 0 ? 'Không được âm' : null });
+    columns.push({ key: 'dueDate', label: 'Hạn hoàn thành', editable: hasStructureManageAccess, type: 'date', width: 145 });
+    return columns;
+  }, [hasStructureManageAccess, hasFinancialAccess, normalizedStructureConfig.label, quickEditFloorNameToId]);
+
+  const saveQuickEditRows = async (rows: QuickGridRow[], dirtyCellKeys: Set<string>) => {
+    if (!hasStructureManageAccess) return;
+    const dirtyRowKeys = new Set(Array.from(dirtyCellKeys).map((key) => key.split('::')[0]));
+    const changedRows = rows.filter((row) => dirtyRowKeys.has(row.__rowKey));
+    if (!changedRows.length) return;
+
+    const upserts: WorkVolume[] = changedRows.map((row) => {
+      const existing = workVolumes.find((item) => item.id === String(row.__recordId || row.__rowKey));
+      const floorIds = resolveQuickEditFloorIds(row.floors);
+      if (!floorIds.length) throw new Error(`Hạng mục “${String(row.title || '')}” chưa có tầng hợp lệ.`);
+      const recordId = existing?.id || createEntityId('HM');
+      return {
+        ...(existing || {} as WorkVolume),
+        id: recordId,
+        workCategoryId: existing?.workCategoryId || recordId,
+        title: String(row.title || '').trim(),
+        floorIds,
+        floorId: floorIds[0],
+        floor: floorIds.map((id) => floorPlans.find((floor) => floor.id === id)?.floorName).filter(Boolean).join(', '),
+        category: String(row.category || existing?.category || 'khung_tran').trim(),
+        planned: Math.max(0, Number(row.planned || 0)),
+        actual: Number(existing?.actual || 0),
+        unit: normalizeUnit(String(row.unit || existing?.unit || 'm²')) || String(row.unit || existing?.unit || 'm²'),
+        unitPrice: hasFinancialAccess ? Math.max(0, Number(row.unitPrice ?? existing?.unitPrice ?? 0)) : Number(existing?.unitPrice || 0),
+        status: existing?.status || 'Chưa thi công',
+        dueDate: String(row.dueDate || '').trim() || undefined,
+      };
+    });
+
+    const nextCatalogById = new Map(workVolumes.map((item) => [item.id, item] as const));
+    upserts.forEach((item) => nextCatalogById.set(item.id, item));
+    const issues = validateWorkVolumeCatalog(Array.from(nextCatalogById.values()));
+    if (issues.length) throw new Error(issues.map((issue) => issue.message).join('\n'));
+
+    const confirmed = await confirmAsync(
+      `Bảng chỉnh nhanh đã kiểm tra ${upserts.length} hạng mục.\n\n` +
+      'Khối lượng đã làm là dữ liệu chỉ đọc và không bị ghi đè. Tiếp tục lưu thay đổi?'
+    );
+    if (!confirmed) return;
+
+    if (onImportWorkVolumes) {
+      if (!onImportWorkVolumes(upserts)) throw new Error('Dữ liệu hạng mục đã thay đổi trên thiết bị khác; hệ thống đã hủy ghi.');
+    } else if (onSaveWorkVolume) {
+      upserts.forEach((item) => onSaveWorkVolume(item));
+    } else {
+      throw new Error('Phiên bản ứng dụng chưa có handler lưu hạng mục hàng loạt.');
+    }
+  };
 
   // Role changes can happen without remounting this tab. Never leave an ADMIN-only
   // modal/selection open after switching to EDITOR/VIEWER in the same browser session.
@@ -563,23 +676,22 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         <div className="flex items-center gap-1.5 flex-wrap justify-end">
           <button
             type="button"
-            onClick={() => exportWorkVolumesTemplate(workVolumes, projectName, hasFinancialAccess)}
-            className="text-xs font-bold text-indigo-700 hover:text-indigo-900 bg-white hover:bg-slate-50 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-slate-200 transition-all active:scale-95 shadow-2xs cursor-pointer"
-            title={hasStructureManageAccess ? 'Tải tệp Excel chứa dữ liệu hiện tại để chỉnh sửa' : 'Tải tệp Excel để chỉnh sửa ngoại tuyến (không kèm đơn giá)'}
+            onClick={() => setShowQuickEdit(true)}
+            className="text-xs font-extrabold text-indigo-700 hover:text-indigo-900 bg-white hover:bg-slate-50 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-indigo-200 transition-all active:scale-95 shadow-2xs cursor-pointer"
+            title="Mở bảng cột/dòng để chỉnh nhanh trực tiếp, không cần tải Excel"
           >
-            <Download className="w-3.5 h-3.5" /> Tải Excel để chỉnh sửa
+            ▦ Bảng chỉnh nhanh
           </button>
+          <ExcelActionMenu
+            onExportEdit={() => exportWorkVolumesTemplate(workVolumes, projectName, hasFinancialAccess)}
+            onImportFile={hasStructureManageAccess ? handleImportExcelWorkVolumes : undefined}
+            onDownloadTemplate={() => exportWorkVolumesTemplate([], projectName, hasFinancialAccess)}
+            exportLabel="Xuất hạng mục để chỉnh sửa"
+            importLabel="Nhập hạng mục đã chỉnh sửa"
+            templateLabel="Tải mẫu hạng mục"
+          />
           {hasStructureManageAccess && (
             <>
-              <label className="text-xs font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-emerald-200 cursor-pointer transition-all active:scale-95 shadow-2xs">
-                <Upload className="w-3.5 h-3.5" /> Nhập lại từ Excel
-                <input
-                  type="file"
-                  accept=".xlsx, .xls"
-                  onChange={handleImportExcelWorkVolumes}
-                  className="hidden"
-                />
-              </label>
               <button
                 onClick={async () => {
                   setTitle('');
@@ -986,6 +1098,32 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           </div>
         )}
       </div>
+
+      <QuickEditGridModal
+        open={showQuickEdit}
+        title="Bảng chỉnh nhanh · Khối lượng"
+        subtitle="Khu/Khối tự đồng bộ từ các tầng đã gán. KL đã làm là dữ liệu thực tế chỉ đọc."
+        columns={quickEditColumns}
+        rows={quickEditRows}
+        canEdit={hasStructureManageAccess}
+        canAddRows={hasStructureManageAccess}
+        createEmptyRow={(index) => ({
+          __rowKey: `new-work-${Date.now()}-${index}`,
+          __new: true,
+          __recordId: '',
+          title: '',
+          structureGroups: '',
+          floors: floorPlans[0]?.floorName || '',
+          category: availableCategories[0] || 'khung_tran',
+          planned: 0,
+          actual: 0,
+          unit: 'm²',
+          unitPrice: 0,
+          dueDate: '',
+        })}
+        onClose={() => setShowQuickEdit(false)}
+        onSave={saveQuickEditRows}
+      />
 
       {/* Add / Edit Work Volume Modal */}
       {hasStructureManageAccess && (showAddForm || editingVolume !== null) && (
