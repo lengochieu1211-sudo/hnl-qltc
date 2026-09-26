@@ -25,6 +25,10 @@ const FLOOR_PLAN_CACHE_REVISIONS_PER_FLOOR = 2;
 const FLOOR_PLAN_CACHE_DEFAULT_SOFT_LIMIT_BYTES = 96 * 1024 * 1024;
 const FLOOR_PLAN_CACHE_MIN_SOFT_LIMIT_BYTES = 32 * 1024 * 1024;
 const FLOOR_PLAN_CACHE_MAX_SOFT_LIMIT_BYTES = 160 * 1024 * 1024;
+const FLOOR_PLAN_CACHE_POINTER_INDEX_TTL_MS = 30_000;
+const FLOOR_PLAN_CACHE_TOUCH_INTERVAL_MS = 60_000;
+const verifiedFloorPlanCacheKeys = new Set<string>();
+const floorPlanCachePointerIndexes = new Map<string, { builtAt: number; byPointer: Map<string, string> }>();
 
 interface FloorPlanImageOutboxRecord {
   projectId: string;
@@ -220,6 +224,33 @@ function floorPlanCacheKey(projectId: string, floorPlanId: string, revision: num
   return `${floorPlanCachePrefixFor(projectId, floorPlanId)}${Math.max(0, Number(revision || 0))}`;
 }
 
+function floorPlanStoragePointerIndexKey(provider: string, path: string): string {
+  return `${String(provider || '').trim().toLowerCase()}|${String(path || '').trim()}`;
+}
+
+async function getFloorPlanCachePointerIndex(projectId: string): Promise<Map<string, string>> {
+  const now = Date.now();
+  const cached = floorPlanCachePointerIndexes.get(projectId);
+  if (cached && now - cached.builtAt <= FLOOR_PLAN_CACHE_POINTER_INDEX_TTL_MS) return cached.byPointer;
+
+  const byPointer = new Map<string, string>();
+  const prefix = floorPlanCachePrefixFor(projectId);
+  const keys = (await localforage.keys()).filter((key) => key.startsWith(prefix));
+  for (const key of keys) {
+    const record = await localforage.getItem<FloorPlanImageCacheRecord>(key).catch(() => null);
+    if (!record?.blob || !(record.blob instanceof Blob) || record.blob.size <= 0) continue;
+    const path = String(record.storagePath || '').trim();
+    if (!path) continue;
+    const provider = String(record.storageProvider || '').trim();
+    byPointer.set(floorPlanStoragePointerIndexKey(provider, path), key);
+    // Compatibility index lets a legacy row with a missing provider reuse a verified
+    // immutable cache copy without another full IndexedDB scan.
+    byPointer.set(floorPlanStoragePointerIndexKey('', path), key);
+  }
+  floorPlanCachePointerIndexes.set(projectId, { builtAt: now, byPointer });
+  return byPointer;
+}
+
 function resolveFloorPlanCloudRevision(plan: FloorPlan): number {
   return Math.max(0, Number(plan.imageCloudRevision || plan.imageRevision || (plan as any).imageOutboxRevision || plan.updatedAt || 0));
 }
@@ -269,12 +300,22 @@ async function readFloorPlanCacheRecord(
     if (record) await localforage.removeItem(key).catch(() => {});
     return null;
   }
-  if (!(await validateFloorPlanCacheBlob(record.blob))) {
-    await localforage.removeItem(key).catch(() => {});
-    return null;
+  if (!verifiedFloorPlanCacheKeys.has(key)) {
+    if (!(await validateFloorPlanCacheBlob(record.blob))) {
+      verifiedFloorPlanCacheKeys.delete(key);
+      floorPlanCachePointerIndexes.delete(projectId);
+      await localforage.removeItem(key).catch(() => {});
+      return null;
+    }
+    verifiedFloorPlanCacheKeys.add(key);
   }
-  const touched = { ...record, bytes: record.blob.size, lastAccessedAt: Date.now() };
-  await localforage.setItem(key, touched).catch(() => {});
+  const now = Date.now();
+  const touched = { ...record, bytes: record.blob.size, lastAccessedAt: now };
+  // Do not rewrite IndexedDB on every shared-floor lookup. One large typical-floor
+  // asset can be opened by dozens of floors, so touching once/minute is sufficient.
+  if (now - Number(record.lastAccessedAt || 0) >= FLOOR_PLAN_CACHE_TOUCH_INTERVAL_MS) {
+    await localforage.setItem(key, touched).catch(() => {});
+  }
   return touched;
 }
 
@@ -308,17 +349,18 @@ async function readFloorPlanCacheRecordByStoragePointer(
   const path = String(pointer.path || plan.storagePath || '').trim();
   if (!projectId || !path) return null;
   const provider = String(pointer.provider || plan.storageProvider || '').trim();
-  const prefix = floorPlanCachePrefixFor(projectId);
-  const keys = await localforage.keys();
-  for (const key of keys) {
-    if (!key.startsWith(prefix)) continue;
-    const record = await localforage.getItem<FloorPlanImageCacheRecord>(key).catch(() => null);
-    if (!record?.blob || String(record.storagePath || '').trim() !== path) continue;
-    if (provider && record.storageProvider && String(record.storageProvider) !== provider) continue;
-    const verified = await readFloorPlanCacheRecord(record.projectId, record.floorPlanId, Number(record.revision || 0));
-    if (verified) return verified;
+  const index = await getFloorPlanCachePointerIndex(projectId);
+  const key = index.get(floorPlanStoragePointerIndexKey(provider, path))
+    || index.get(floorPlanStoragePointerIndexKey('', path));
+  if (!key) return null;
+  const record = await localforage.getItem<FloorPlanImageCacheRecord>(key).catch(() => null);
+  if (!record?.blob) {
+    floorPlanCachePointerIndexes.delete(projectId);
+    return null;
   }
-  return null;
+  const verified = await readFloorPlanCacheRecord(record.projectId, record.floorPlanId, Number(record.revision || 0));
+  if (!verified) floorPlanCachePointerIndexes.delete(projectId);
+  return verified;
 }
 
 async function pruneFloorPlanImageCache(projectId: string, floorPlanId: string, keepKey: string): Promise<void> {
@@ -378,6 +420,10 @@ async function cacheFloorPlanBlob(projectId: string, plan: FloorPlan, revision: 
   };
   const key = floorPlanCacheKey(projectId, plan.id, revision);
   await localforage.setItem(key, record);
+  verifiedFloorPlanCacheKeys.add(key);
+  // Rebuild the lightweight pointer index lazily after a write/prune. Subsequent
+  // shared-floor lookups reuse that single index instead of rescanning IndexedDB.
+  floorPlanCachePointerIndexes.delete(projectId);
   await pruneFloorPlanImageCache(projectId, plan.id, key).catch(() => {});
   return record;
 }
