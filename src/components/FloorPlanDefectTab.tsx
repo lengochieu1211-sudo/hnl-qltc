@@ -1233,6 +1233,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [managedSelectedFloorIds, setManagedSelectedFloorIds] = useState<string[]>([]);
   const [managedTargetStructureGroupId, setManagedTargetStructureGroupId] = useState<string>('');
   const [managedDuplicateCopies, setManagedDuplicateCopies] = useState<number>(1);
+  const [collapsedManagedStructureGroupIds, setCollapsedManagedStructureGroupIds] = useState<string[]>([]);
 
   useEffect(() => {
     // Never carry hidden bulk-delete targets across Khu/Khối filters.
@@ -1240,6 +1241,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setSelectedFloorIdsForBulk([]);
     setIsSelectingMultipleFloors(false);
   }, [selectedStructureGroupId]);
+
+  useEffect(() => {
+    const validGroupIds = new Set(normalizedStructureConfig.groups.map((group) => group.id));
+    setCollapsedManagedStructureGroupIds((current) => current.filter((groupId) => validGroupIds.has(groupId)));
+  }, [normalizedStructureConfig.groups]);
   const [copiedRoomsState, setCopiedRoomsState] = useState<RoomProgressItem[]>([]);
   const [copyNotification, setCopyNotification] = useState<string | null>(null);
   const lastPointerMapPosRef = useRef<{ x: number; y: number }>({ x: 50, y: 50 });
@@ -1410,6 +1416,61 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const next = [...flattened, ...floorPlansInSavedOrder.filter((floor) => !included.has(floor.id))];
     if (onReorderFloorPlans) persistFloorOrder(next);
     else onMoveFloorPlan?.(floorId, direction === 'up' ? 'left' : 'right');
+  };
+
+  const moveSelectedFloorsWithinGroups = (direction: 'up' | 'down' | 'top' | 'bottom') => {
+    if (!onReorderFloorPlans || managedSelectedFloorIds.length === 0) return;
+    const selectedSet = new Set(managedSelectedFloorIds);
+    const reorderGroup = (items: FloorPlan[]) => {
+      const next = [...items];
+      if (direction === 'top') {
+        return [
+          ...next.filter((floor) => selectedSet.has(floor.id)),
+          ...next.filter((floor) => !selectedSet.has(floor.id)),
+        ];
+      }
+      if (direction === 'bottom') {
+        return [
+          ...next.filter((floor) => !selectedSet.has(floor.id)),
+          ...next.filter((floor) => selectedSet.has(floor.id)),
+        ];
+      }
+      if (direction === 'up') {
+        for (let index = 1; index < next.length; index += 1) {
+          if (selectedSet.has(next[index].id) && !selectedSet.has(next[index - 1].id)) {
+            [next[index - 1], next[index]] = [next[index], next[index - 1]];
+          }
+        }
+        return next;
+      }
+      for (let index = next.length - 2; index >= 0; index -= 1) {
+        if (selectedSet.has(next[index].id) && !selectedSet.has(next[index + 1].id)) {
+          [next[index], next[index + 1]] = [next[index + 1], next[index]];
+        }
+      }
+      return next;
+    };
+
+    const next = normalizedStructureConfig.enabled
+      ? normalizedStructureConfig.groups.flatMap((group) => reorderGroup(getSavedFloorsForGroup(group.id)))
+      : reorderGroup(floorPlansInSavedOrder);
+    const included = new Set(next.map((floor) => floor.id));
+    const complete = [...next, ...floorPlansInSavedOrder.filter((floor) => !included.has(floor.id))];
+    persistFloorOrder(complete);
+  };
+
+  const toggleManagedStructureGroupCollapsed = (groupId: string) => {
+    setCollapsedManagedStructureGroupIds((current) =>
+      current.includes(groupId) ? current.filter((id) => id !== groupId) : [...current, groupId]
+    );
+  };
+
+  const collapseAllManagedStructureGroups = () => {
+    setCollapsedManagedStructureGroupIds(normalizedStructureConfig.groups.map((group) => group.id));
+  };
+
+  const expandAllManagedStructureGroups = () => {
+    setCollapsedManagedStructureGroupIds([]);
   };
 
   const changeFloorStructureGroupStable = (floorId: string, nextGroupId: string) => {
@@ -9871,7 +9932,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div className="text-xs font-extrabold text-indigo-950">Thao tác tầng đã chọn</div>
-                  <div className="text-[10px] text-indigo-700">Đánh dấu checkbox ở từng tầng hoặc chọn cả Khu/Khối, sau đó Đổi Khu/Khối / Thay bản vẽ / Nhân bản / Xóa.</div>
+                  <div className="text-[10px] text-indigo-700">Đánh dấu checkbox ở từng tầng hoặc chọn cả Khu/Khối, sau đó Di chuyển thứ tự / Đổi Khu/Khối / Thay bản vẽ / Nhân bản / Xóa.</div>
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
                   <button
@@ -9918,6 +9979,49 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         Đổi Khu/Khối
                       </button>
                     </>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] font-extrabold text-slate-600">Di chuyển thứ tự:</span>
+                  <button
+                    type="button"
+                    disabled={managedSelectedFloorIds.length === 0 || !onReorderFloorPlans || floorSortBy !== 'none'}
+                    onClick={() => moveSelectedFloorsWithinGroups('top')}
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                    title="Đưa các tầng đã chọn lên đầu trong Khu/Khối hiện tại"
+                  >
+                    <ChevronsUp className="inline h-3.5 w-3.5 mr-1" />Đầu
+                  </button>
+                  <button
+                    type="button"
+                    disabled={managedSelectedFloorIds.length === 0 || !onReorderFloorPlans || floorSortBy !== 'none'}
+                    onClick={() => moveSelectedFloorsWithinGroups('up')}
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                    title="Di chuyển các tầng đã chọn lên 1 bậc, giữ nguyên thứ tự nội bộ"
+                  >
+                    <ArrowUp className="inline h-3.5 w-3.5 mr-1" />Lên
+                  </button>
+                  <button
+                    type="button"
+                    disabled={managedSelectedFloorIds.length === 0 || !onReorderFloorPlans || floorSortBy !== 'none'}
+                    onClick={() => moveSelectedFloorsWithinGroups('down')}
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                    title="Di chuyển các tầng đã chọn xuống 1 bậc, giữ nguyên thứ tự nội bộ"
+                  >
+                    <ArrowDown className="inline h-3.5 w-3.5 mr-1" />Xuống
+                  </button>
+                  <button
+                    type="button"
+                    disabled={managedSelectedFloorIds.length === 0 || !onReorderFloorPlans || floorSortBy !== 'none'}
+                    onClick={() => moveSelectedFloorsWithinGroups('bottom')}
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                    title="Đưa các tầng đã chọn xuống cuối trong Khu/Khối hiện tại"
+                  >
+                    <ChevronsDown className="inline h-3.5 w-3.5 mr-1" />Cuối
+                  </button>
+                  {floorSortBy !== 'none' && managedSelectedFloorIds.length > 0 && (
+                    <span className="text-[9px] font-semibold text-amber-700">Bấm “Thứ tự đã lưu” để bật di chuyển thủ công.</span>
                   )}
                 </div>
 
@@ -10005,6 +10109,30 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               </div>
             )}
 
+            {normalizedStructureConfig.enabled && normalizedStructureConfig.groups.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                <div className="text-[10px] font-extrabold text-slate-700">Hiển thị Khu/Khối & Tầng</div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={collapseAllManagedStructureGroups}
+                    disabled={normalizedStructureConfig.groups.every((group) => collapsedManagedStructureGroupIds.includes(group.id))}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+                  >
+                    <ChevronsUp className="inline h-3.5 w-3.5 mr-1" />Thu gọn tất cả
+                  </button>
+                  <button
+                    type="button"
+                    onClick={expandAllManagedStructureGroups}
+                    disabled={collapsedManagedStructureGroupIds.length === 0}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+                  >
+                    <ChevronsDown className="inline h-3.5 w-3.5 mr-1" />Mở tất cả
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* List of Floor Plans */}
             <div className="space-y-2.5">
               {managementFloorPlans.map((fp, index) => {
@@ -10023,6 +10151,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   ? managementFloorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === currentGroupId)
                   : managementFloorPlans;
                 const currentGroupIndex = currentGroupFloors.findIndex((floor) => floor.id === fp.id);
+                const isCurrentGroupCollapsed = normalizedStructureConfig.enabled && collapsedManagedStructureGroupIds.includes(currentGroupId);
+                if (isCurrentGroupCollapsed && !showGroupHeader) return null;
 
                 return (
                   <div key={fp.id} className="space-y-2.5">
@@ -10048,13 +10178,22 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               />
                               <span>Chọn tất cả</span>
                             </label>
-                          <div className="min-w-0 truncate text-xs font-extrabold text-indigo-900" title={getStructureGroupName(currentGroupId, normalizedStructureConfig)}>
-                            {getStructureGroupName(currentGroupId, normalizedStructureConfig)}
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => toggleManagedStructureGroupCollapsed(currentGroupId)}
+                            className="min-w-0 flex items-center gap-1 truncate text-left text-xs font-extrabold text-indigo-900 hover:text-indigo-700"
+                            title={isCurrentGroupCollapsed ? 'Mở các tầng trong Khu/Khối' : 'Thu gọn các tầng trong Khu/Khối'}
+                          >
+                            {isCurrentGroupCollapsed
+                              ? <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                              : <ChevronUp className="h-3.5 w-3.5 shrink-0" />}
+                            <span className="truncate">{getStructureGroupName(currentGroupId, normalizedStructureConfig)}</span>
+                          </button>
                         </div>
                         <div className="text-[10px] font-bold text-indigo-600">{currentGroupFloors.length} tầng</div>
                       </div>
                     )}
+                  {!isCurrentGroupCollapsed && (
                   <div
                     className={`p-3 rounded-2xl border transition-all grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2.5 min-w-0 ${
                       isSelected
@@ -10254,6 +10393,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       </button>
                     </div>
                   </div>
+                  )}
                   </div>
                 );
               })}

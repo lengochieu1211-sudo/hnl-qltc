@@ -142,6 +142,11 @@ check(ui.includes('Áp dụng cho ${preflight.readyIds.length} tầng'), 'Bulk f
 check(ui.includes('skippedPendingNames'), 'Bulk floor UI must name/track targets skipped because they are truly pending.');
 check(ui.includes('openFloorPlanApplyScopeForManagedSelection'), 'Selected-floor management must expose the existing safe bulk drawing replacement flow.');
 check(ui.includes('Thay bản vẽ'), 'Selected-floor management is missing the bulk replace drawing action.');
+check(ui.includes('moveSelectedFloorsWithinGroups'), 'Selected-floor management must support stable bulk floor order movement.');
+check(ui.includes("moveSelectedFloorsWithinGroups('top')") && ui.includes("moveSelectedFloorsWithinGroups('bottom')"), 'Bulk floor movement must support top/bottom jumps for large floor lists.');
+check(ui.includes('collapsedManagedStructureGroupIds'), 'Floor manager must keep collapsible Khu/Khối state as UI-only state.');
+check(ui.includes('Thu gọn tất cả') && ui.includes('Mở tất cả'), 'Floor manager must provide collapse/expand all controls for large projects.');
+check(ui.includes('toggleManagedStructureGroupCollapsed(currentGroupId)'), 'Each Khu/Khối header must be independently collapsible.');
 check(ui.includes('Dùng chung bản vẽ ·'), 'Floor management must show which floors share one immutable drawing asset.');
 check(ui.includes('🖼️ Bản vẽ riêng'), 'Floor management must identify independent drawings.');
 check(ui.includes('loading="lazy"') && ui.includes('decoding="async"'), 'Floor management thumbnails must avoid eager decoding every plan image.');
