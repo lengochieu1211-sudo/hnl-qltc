@@ -30,6 +30,7 @@ check(sync.includes('isFloorPlanAutoCacheNetworkSuitable'), 'Smart background fl
 check(sync.includes('isFloorPlanCloudBinaryReady'), 'Background cache must distinguish authoritative Cloud-ready drawings from stale clone pointers.');
 check(sync.includes('FLOOR_PLAN_CACHE_POINTER_INDEX_TTL_MS'), 'Shared floor-plan cache must index immutable storage pointers instead of rescanning IndexedDB per floor.');
 check(sync.includes('FLOOR_PLAN_CACHE_TOUCH_INTERVAL_MS'), 'Shared floor-plan cache must throttle IndexedDB last-access writes.');
+check(sync.includes('plan.storageProvider || inferredProvider || BINARY_STORAGE_PROVIDER'), 'Legacy duplicated storagePath rows must remain readable through the configured binary provider without rewriting Firestore.');
 const bulkApplyStart = sync.indexOf('export async function applyFloorPlanImageToMultipleFloors');
 const bulkApplyEnd = sync.indexOf('\nasync function downloadFallback', bulkApplyStart);
 const bulkApply = sync.slice(bulkApplyStart, bulkApplyEnd);
