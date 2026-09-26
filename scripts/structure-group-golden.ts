@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { moveFloorsToStructureGroup, normalizeStructureGroupConfig, resolveFloorStructureGroupId } from '../src/utils/structureGroupUtils';
+import { buildFloorDuplicateNames, moveFloorsToStructureGroup, normalizeStructureGroupConfig, resolveFloorStructureGroupId } from '../src/utils/structureGroupUtils';
 
 const config = normalizeStructureGroupConfig({
   enabled: true,
@@ -28,6 +28,13 @@ assert.equal(bulkMoved.find((floor) => floor.id === 'f-c')?.structureGroupId, 't
 assert.equal(bulkMoved[1], bulkSource[1], 'unselected floor object must remain untouched');
 assert.ok(Number(bulkMoved.find((floor) => floor.id === 'f-a')?.order) < Number(bulkMoved.find((floor) => floor.id === 'f-c')?.order), 'selected floors must preserve prior relative order');
 assert.ok(Number(bulkMoved.find((floor) => floor.id === 'f-a')?.order) > Number(bulkMoved.find((floor) => floor.id === 'f-b')?.order), 'moved floors must append after existing destination floors');
+
+assert.deepEqual(
+  buildFloorDuplicateNames('Tầng 5', 3, ['Tầng 5', 'Tầng 5 (Bản sao)']),
+  ['Tầng 5 (Bản sao 2)', 'Tầng 5 (Bản sao 3)', 'Tầng 5 (Bản sao 4)'],
+  'bulk duplicate names must stay unique and deterministic',
+);
+assert.equal(buildFloorDuplicateNames('Tầng 2', 99).length, 20, 'duplicate copies must be safety-capped at 20 per source floor');
 
 const exportSource = readFileSync(new URL('../src/components/ExportPdfModal.tsx', import.meta.url), 'utf8');
 assert.ok(exportSource.includes('const roomScopeOptions = baseRoomScopeOptions.slice().sort'), 'report room options must cascade from floor scope, not selected team');
@@ -63,6 +70,12 @@ assert.ok(floorPlanSource.includes("visibleFloorPlans.map((floor) =>"), 'floor p
 assert.ok(floorPlanSource.includes("changeFloorStructureGroupStable"), 'moving a floor to another Khu/Khối must preserve a stable persisted order');
 assert.ok(floorPlanSource.includes("changeFloorStructureGroupStable(fp.id, event.target.value)"), 'management Khu/Khối reassignment must use stable move helper');
 assert.ok(floorPlanSource.includes('moveSelectedFloorsToStructureGroupStable'), 'floor manager must support bulk Khu/Khối move without rewriting linked business IDs');
+assert.ok(floorPlanSource.includes('Thao tác tầng đã chọn'), 'floor manager must expose one unified checkbox-driven action bar');
+assert.equal(floorPlanSource.includes('Chuyển nhiều tầng giữa Khu/Khối'), false, 'separate legacy bulk-move panel must be removed');
+assert.ok(floorPlanSource.includes('Số bản / tầng'), 'bulk floor duplicate must let the user choose how many copies per selected floor');
+assert.ok(floorPlanSource.includes('duplicateManagedFloors'), 'bulk duplicate must use the guarded selected-floor flow');
+assert.ok(floorPlanSource.includes('deleteManagedFloors'), 'bulk delete must use the guarded selected-floor flow');
+assert.ok(floorPlanSource.includes('Không thể xóa toàn bộ mặt bằng. Dự án cần duy trì ít nhất 1 tầng.'), 'bulk delete must fail closed when every floor is selected');
 assert.ok(floorPlanSource.includes('onBulkMoveFloorPlansToStructureGroup(selectedInSavedOrder.map((floor) => floor.id), nextGroupId)'), 'bulk Khu/Khối move must use the dedicated minimal App handler when available');
 assert.ok(floorPlanSource.includes('Chọn tất cả ${currentGroupFloors.length} tầng trong'), 'bulk Khu/Khối move must support selecting every floor inside one group');
 assert.ok(floorPlanSource.includes('<span>Chọn tất cả</span>'), 'multi-select Khu/Khối UI must visibly label select-all per group');
