@@ -499,7 +499,7 @@ export function detectRoomsFromDxf(input: string): DxfRoomDetectionResult {
   const candidates = shapes.map((shape, index): DxfRoomCandidate => {
     const centroid = polygonCentroid(shape.points);
     const looksLikeMeasurement = (value: string) =>
-      /(?:m2|m²|㎡|sq\.?\s*m|sqm)\b/i.test(value.replace(/\s+/g, ''));
+      /(?:m2|m²|㎡|sqm|sq\.?m)/i.test(value.replace(/\s+/g, ''));
     const insideTexts = texts
       .filter((text) =>
         pointInPolygon(text, shape.points)
