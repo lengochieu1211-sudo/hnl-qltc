@@ -38,7 +38,6 @@ import {
   ZoomOut,
   RotateCcw,
   RotateCw,
-  FileType,
   Move,
   MousePointer,
   Maximize2,
@@ -412,6 +411,8 @@ interface PendingDxfReviewCandidate extends DxfRoomCandidate {
 interface PendingDxfRoomImport {
   floorId: string;
   floorName: string;
+  structureGroupId?: string;
+  createFloor?: boolean;
   fileName: string;
   unitLabel: string;
   warnings: string[];
@@ -880,6 +881,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [smartPdfMinAreaPercent, setSmartPdfMinAreaPercent] = useState(0.12);
   const [smartPdfMaxAreaPercent, setSmartPdfMaxAreaPercent] = useState(35);
   const [smartPdfNamePattern, setSmartPdfNamePattern] = useState(DEFAULT_PDF_ROOM_NAME_PATTERN);
+  const isSmartPdfNamePatternValid = React.useMemo(() => {
+    const source = smartPdfNamePattern.trim();
+    if (!source) return true;
+    try {
+      new RegExp(source, 'iu');
+      return true;
+    } catch {
+      return false;
+    }
+  }, [smartPdfNamePattern]);
   const [smartPdfCenterSearchMarginPercent, setSmartPdfCenterSearchMarginPercent] = useState(10);
   const [smartPdfHideOriginalAnnotations, setSmartPdfHideOriginalAnnotations] = useState(true);
   const [smartPdfAllowNumericOnlyNames, setSmartPdfAllowNumericOnlyNames] = useState(false);
@@ -3158,67 +3169,57 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const normalizeDxfCatalogName = (value: unknown) =>
     String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('vi-VN');
 
-  const handleDxfRoomFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const input = event.currentTarget;
-    const file = input.files?.[0];
-    input.value = '';
-    if (!file || !canManageStructure) return;
-    if (!activeFloor) {
-      alert('Chưa có tầng đang chọn để nhận diện DXF.');
-      return;
-    }
-    if (!/\.dxf$/i.test(file.name)) {
-      alert('Chỉ chấp nhận tệp AutoCAD DXF (.dxf).');
-      return;
-    }
+  const prepareDxfRoomImport = async (
+    file: File,
+    target: { floorId: string; floorName: string; structureGroupId?: string; createFloor?: boolean }
+  ) => {
+    if (!canManageStructure) return;
+    if (!/\.dxf$/i.test(file.name)) throw new Error('Chỉ chấp nhận tệp AutoCAD DXF (.dxf).');
     if (file.size <= 0 || file.size > 20 * 1024 * 1024) {
-      alert('DXF rỗng hoặc vượt giới hạn 20 MB. Hãy tách bản vẽ theo tầng trước khi nhập.');
-      return;
+      throw new Error('DXF rỗng hoặc vượt giới hạn 20 MB. Hãy tách bản vẽ theo tầng trước khi nhập.');
     }
 
-    try {
-      const text = await file.text();
-      const result = detectRoomsFromDxf(text);
-      const currentFloorRooms = roomProgressList.filter((room) => room.floorId === activeFloor.id);
-      const existingNames = new Set(currentFloorRooms.map((room) => normalizeDxfCatalogName(room.roomName)));
-      const catalogByExactName = new Map<string, WorkVolume[]>();
-      workVolumes.forEach((work) => {
-        const key = normalizeDxfCatalogName(work.title);
-        if (!key) return;
-        catalogByExactName.set(key, [...(catalogByExactName.get(key) || []), work]);
-      });
+    const text = await file.text();
+    const result = detectRoomsFromDxf(text);
+    const currentFloorRooms = roomProgressList.filter((room) => room.floorId === target.floorId);
+    const existingNames = new Set(currentFloorRooms.map((room) => normalizeDxfCatalogName(room.roomName)));
+    const catalogByExactName = new Map<string, WorkVolume[]>();
+    workVolumes.forEach((work) => {
+      const key = normalizeDxfCatalogName(work.title);
+      if (!key) return;
+      catalogByExactName.set(key, [...(catalogByExactName.get(key) || []), work]);
+    });
 
-      const candidates: PendingDxfReviewCandidate[] = result.candidates.map((candidate) => {
-        const exactMatches = catalogByExactName.get(normalizeDxfCatalogName(candidate.layer)) || [];
-        const mappedWork = exactMatches.length === 1 ? exactMatches[0] : undefined;
-        const nameConflict = existingNames.has(normalizeDxfCatalogName(candidate.roomName));
-        return {
-          ...candidate,
-          selected: candidate.hasDetectedName && !nameConflict,
-          workCategoryId: mappedWork ? (mappedWork.workCategoryId || mappedWork.id) : undefined,
-          workCategoryName: mappedWork?.title,
-        };
-      });
+    const candidates: PendingDxfReviewCandidate[] = result.candidates.map((candidate) => {
+      const exactMatches = catalogByExactName.get(normalizeDxfCatalogName(candidate.layer)) || [];
+      const mappedWork = exactMatches.length === 1 ? exactMatches[0] : undefined;
+      const nameConflict = existingNames.has(normalizeDxfCatalogName(candidate.roomName));
+      return {
+        ...candidate,
+        selected: candidate.hasDetectedName && !nameConflict,
+        workCategoryId: mappedWork ? (mappedWork.workCategoryId || mappedWork.id) : undefined,
+        workCategoryName: mappedWork?.title,
+      };
+    });
 
-      setPendingDxfImport({
-        floorId: activeFloor.id,
-        floorName: activeFloor.floorName,
-        fileName: file.name,
-        unitLabel: result.unitLabel,
-        warnings: [
-          ...result.warnings,
-          ...(candidates.some((candidate) => !candidate.hasDetectedName)
-            ? ['Có vùng chưa tìm thấy TEXT/MTEXT bên trong. Các dòng này mặc định chưa chọn; hãy đặt tên rồi chọn nếu đúng Căn / Phòng.']
-            : []),
-          ...(candidates.some((candidate) => existingNames.has(normalizeDxfCatalogName(candidate.roomName)))
-            ? ['Có tên Căn / Phòng đã tồn tại trên tầng. Các dòng trùng tên mặc định chưa chọn để tránh ghi đè highlight hiện có.']
-            : []),
-        ],
-        candidates,
-      });
-    } catch (error) {
-      alert(`❌ Không thể nhận diện DXF:\n${error instanceof Error ? error.message : String(error)}`);
-    }
+    setPendingDxfImport({
+      floorId: target.floorId,
+      floorName: target.floorName,
+      structureGroupId: target.structureGroupId,
+      createFloor: Boolean(target.createFloor),
+      fileName: file.name,
+      unitLabel: result.unitLabel,
+      warnings: [
+        ...result.warnings,
+        ...(candidates.some((candidate) => !candidate.hasDetectedName)
+          ? ['Có vùng chưa tìm thấy TEXT/MTEXT bên trong. Các dòng này mặc định chưa chọn; hãy đặt tên rồi chọn nếu đúng Căn / Phòng.']
+          : []),
+        ...(candidates.some((candidate) => existingNames.has(normalizeDxfCatalogName(candidate.roomName)))
+          ? ['Có tên Căn / Phòng đã tồn tại trên tầng. Các dòng trùng tên mặc định chưa chọn để tránh ghi đè highlight hiện có.']
+          : []),
+      ],
+      candidates,
+    });
   };
 
   const updatePendingDxfCandidate = (candidateId: string, updates: Partial<PendingDxfReviewCandidate>) => {
@@ -3230,7 +3231,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   const applyPendingDxfRooms = async () => {
     if (!pendingDxfImport || !canManageStructure) return;
-    const floor = floorPlans.find((item) => item.id === pendingDxfImport.floorId);
+    const existingFloor = floorPlans.find((item) => item.id === pendingDxfImport.floorId);
+    const floor: FloorPlan | null = existingFloor || (pendingDxfImport.createFloor ? {
+      id: pendingDxfImport.floorId,
+      floorName: pendingDxfImport.floorName,
+      structureGroupId: pendingDxfImport.structureGroupId,
+      imageUrl: '',
+      uploadedAt: new Date().toISOString().split('T')[0],
+    } : null);
     if (!floor) {
       alert('Tầng đích không còn tồn tại. Hãy chọn lại DXF.');
       setPendingDxfImport(null);
@@ -3291,7 +3299,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           x: Math.min(100, Math.max(0, point.x)),
           y: Math.min(100, Math.max(0, point.y)),
         })),
-        isPolyline: false,
+        isPolyline: candidate.points.length >= 3,
         frameStatus: 'Chưa làm',
         boardStatus: 'Chưa làm',
         frameInspectionStatus: 'Chưa nghiệm thu',
@@ -3305,7 +3313,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     });
 
     const confirmed = await confirmAsync(
-      `Tạo ${newRooms.length} Căn / Phòng từ DXF trên “${floor.floorName}”?\n\n` +
+      `${pendingDxfImport.createFloor ? 'Tạo tầng và ' : 'Tạo '}${newRooms.length} Căn / Phòng từ DXF trên “${floor.floorName}”?\n\n` +
       '• HATCH/Polyline → polygon highlight\n' +
       '• TEXT/MTEXT → tên Căn / Phòng\n' +
       '• Diện tích chỉ ghi m² khi DXF có đơn vị hợp lệ và đã gán Hạng mục\n' +
@@ -3313,10 +3321,30 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     );
     if (!confirmed) return;
 
+    if (pendingDxfImport.createFloor && !existingFloor) onAddFloorPlan(floor);
     if (onCreateMultipleRoomProgress) onCreateMultipleRoomProgress(newRooms);
     else newRooms.forEach((room) => onSaveRoomProgress(room));
+    setSelectedFloorId(floor.id);
     setPendingDxfImport(null);
-    alert(`✅ Đã tạo ${newRooms.length} Căn / Phòng từ DXF trên ${floor.floorName}.`);
+    setNewFloorName('');
+    alert(`✅ Đã ${pendingDxfImport.createFloor ? 'tạo tầng và ' : 'tạo '}${newRooms.length} Căn / Phòng từ DXF trên ${floor.floorName}.`);
+  };
+
+  const createPendingDxfFloorOnly = () => {
+    if (!pendingDxfImport?.createFloor || !canManageStructure) return;
+    if (!floorPlans.some((item) => item.id === pendingDxfImport.floorId)) {
+      onAddFloorPlan({
+        id: pendingDxfImport.floorId,
+        floorName: pendingDxfImport.floorName,
+        structureGroupId: pendingDxfImport.structureGroupId,
+        imageUrl: '',
+        uploadedAt: new Date().toISOString().split('T')[0],
+      });
+    }
+    setSelectedFloorId(pendingDxfImport.floorId);
+    setPendingDxfImport(null);
+    setNewFloorName('');
+    alert(`✅ Đã tạo tầng “${pendingDxfImport.floorName}”. Không tạo Căn / Phòng tự động.`);
   };
 
 
@@ -5329,14 +5357,30 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     try {
       setIsUploadingPlan(true);
       const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+      const isDxf = /\.dxf$/i.test(file.name);
       const savedFloorName = newFloorName.trim();
       if (isFloorNameTaken(savedFloorName)) {
         alert(`Tên mặt bằng “${savedFloorName}” đã tồn tại. Vui lòng dùng tên khác trước khi tải bản vẽ.`);
         return;
       }
-      const newFloorId = createEntityId('fp');
+      const newFloorId = createEntityId(isDxf ? 'fp-dxf' : 'fp');
+
+      if (isDxf) {
+        await prepareDxfRoomImport(file, {
+          floorId: newFloorId,
+          floorName: savedFloorName,
+          structureGroupId: normalizedStructureConfig.enabled ? newFloorStructureGroupId : undefined,
+          createFloor: true,
+        });
+        setShowAddFloorModal(false);
+        return;
+      }
 
       if (isPdf) {
+        if (smartPdfDetectionEnabled && !isSmartPdfNamePatternValid) {
+          alert('Quy tắc tên Căn / Phòng không phải biểu thức chính quy hợp lệ. Hãy sửa hoặc bấm “Khôi phục mặc định”.');
+          return;
+        }
         const pdf = await loadPdfDocument(file);
         try {
           const pageCount = Math.max(1, Number(pdf.numPages || 1));
@@ -5417,7 +5461,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     } catch (err: any) {
       console.error('Floor plan upload error:', err);
       const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-      alert(isPdf ? describePdfError(err) : (err?.message || 'Không thể đọc tệp mặt bằng.'));
+      const isDxf = /\.dxf$/i.test(file.name);
+      alert(isDxf
+        ? `❌ Không thể nhận diện DXF:\n${err instanceof Error ? err.message : String(err)}`
+        : isPdf
+          ? describePdfError(err)
+          : (err?.message || 'Không thể đọc tệp mặt bằng.'));
     } finally {
       setIsDetectingPdfRooms(false);
       setIsUploadingPlan(false);
@@ -8383,11 +8432,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <Building2 className="w-4 h-4 text-indigo-600" />
                 Nghiệm thu từng Căn / Phòng ({floorRooms.length})
               </h3>
-              <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+              <div className="flex w-full sm:w-auto flex-wrap items-center justify-end gap-1.5">
                 <button
                   type="button"
                   onClick={() => { setQuickEditMode('rooms'); setShowQuickEdit(true); }}
-                  className="text-[11px] font-extrabold text-indigo-700 hover:text-indigo-900 bg-white hover:bg-indigo-50 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-indigo-200 transition-all active:scale-95 shadow-2xs"
+                  className="shrink-0 whitespace-nowrap text-[11px] font-extrabold text-indigo-700 hover:text-indigo-900 bg-white hover:bg-indigo-50 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-indigo-200 transition-all active:scale-95 shadow-2xs"
                   title="Chỉnh Căn/Hạng mục/Defect nhiều tầng theo bảng cột và dòng"
                 >
                   ▦ Bảng chỉnh nhanh
@@ -8401,15 +8450,6 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   templateLabel="Tải mẫu Căn / Hạng mục"
                 />
                 {canManageStructure && (
-                  <label
-                    className="text-[11px] font-extrabold text-violet-700 hover:text-violet-900 bg-white hover:bg-violet-50 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-violet-200 cursor-pointer transition-all active:scale-95 shadow-2xs"
-                    title="Nhận diện HATCH/Polyline + TEXT/MTEXT từ DXF và kiểm tra trước khi tạo Căn / Phòng"
-                  >
-                    <FileType className="w-3.5 h-3.5" /> Nhận diện CAD/DXF
-                    <input type="file" accept=".dxf" onChange={handleDxfRoomFile} className="hidden" />
-                  </label>
-                )}
-                {canManageStructure && (
                   <>
                     <button
                       type="button"
@@ -8418,7 +8458,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         setNewRoomClickPos({ x: 30, y: 30 });
                         setIsRoomModalOpen(true);
                       }}
-                      className="text-xs font-extrabold text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-2.5 py-1 rounded-lg flex items-center gap-1 border border-indigo-200 transition-all active:scale-95 cursor-pointer"
+                      className="shrink-0 whitespace-nowrap text-xs font-extrabold text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-2.5 py-1 rounded-lg flex items-center gap-1 border border-indigo-200 transition-all active:scale-95 cursor-pointer"
                     >
                       <Plus className="w-3.5 h-3.5" /> Thêm Căn / Phòng
                     </button>
@@ -9238,7 +9278,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <strong>{pendingDxfImport.candidates.filter((candidate) => candidate.selected).length}</strong> / {pendingDxfImport.candidates.length} vùng được chọn
               </div>
               <button type="button" onClick={() => setPendingDxfImport(null)} className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-600">Hủy</button>
-              <button type="button" onClick={applyPendingDxfRooms} className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-black">Tạo Căn / Phòng từ DXF</button>
+              {pendingDxfImport.createFloor && (
+                <button type="button" onClick={createPendingDxfFloorOnly} className="px-3 py-2 rounded-xl border border-indigo-200 bg-indigo-50 text-xs font-bold text-indigo-700">
+                  Chỉ tạo tầng
+                </button>
+              )}
+              <button type="button" onClick={applyPendingDxfRooms} className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-black">
+                {pendingDxfImport.createFloor ? 'Tạo tầng + Căn / Phòng' : 'Tạo Căn / Phòng từ DXF'}
+              </button>
             </div>
           </div>
         </div>
@@ -9448,16 +9495,32 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           Cho phép tên chỉ gồm số (VD: 101, 102). Tắt mặc định để tránh nhận nhầm kích thước CAD như 1200/3000.
                         </label>
 
-                        <label className="col-span-2 text-[10px] font-bold text-slate-600">
-                          Quy tắc tên Căn / Phòng (nâng cao)
+                        <div className="col-span-2 text-[10px] font-bold text-slate-600">
+                          <span className="flex items-center justify-between gap-2">
+                            <span>Quy tắc tên Căn / Phòng (nâng cao)</span>
+                            <button
+                              type="button"
+                              onClick={() => setSmartPdfNamePattern(DEFAULT_PDF_ROOM_NAME_PATTERN)}
+                              className="shrink-0 text-[9px] font-extrabold text-indigo-700 hover:text-indigo-900"
+                            >
+                              Khôi phục mặc định
+                            </button>
+                          </span>
                           <input
                             type="text"
                             value={smartPdfNamePattern}
                             onChange={(e) => setSmartPdfNamePattern(e.target.value)}
-                            className="w-full mt-1 border border-slate-200 rounded-lg px-2 py-1.5 font-mono text-[9.5px]"
+                            spellCheck={false}
+                            autoCorrect="off"
+                            autoCapitalize="none"
+                            dir="ltr"
+                            aria-invalid={!isSmartPdfNamePatternValid}
+                            className={`w-full mt-1 border rounded-lg px-2 py-1.5 font-mono text-[9.5px] ${isSmartPdfNamePatternValid ? 'border-slate-200' : 'border-rose-400 bg-rose-50 text-rose-700'}`}
                           />
-                          <span className="block text-[9px] text-slate-400 mt-1">Để mặc định nếu không rõ. Nhận tốt A101, A-101, P.101, WC-01, Căn 101, Phòng 01...</span>
-                        </label>
+                          {isSmartPdfNamePatternValid
+                            ? <span className="block text-[9px] text-slate-400 mt-1">Mặc định nhận tốt A101, A-101, P.101, WC-01, Căn 101, Phòng 01...</span>
+                            : <span className="block text-[9px] text-rose-600 mt-1 font-bold">Biểu thức không hợp lệ. Hãy sửa hoặc khôi phục mặc định trước khi nhận diện PDF.</span>}
+                        </div>
                       </div>
                     )}
                   </>
@@ -9465,15 +9528,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-700 font-bold mb-1">Chọn bản vẽ (PDF/JPG/PNG/WebP)</label>
+                <label className="block text-slate-700 font-bold mb-1">Chọn bản vẽ (PDF/JPG/PNG/WebP/DXF)</label>
                 <input
                   type="file"
-                  accept=".pdf,application/pdf,image/jpeg,image/png,image/webp"
+                  accept=".pdf,.dxf,application/pdf,application/dxf,application/x-dxf,image/jpeg,image/png,image/webp"
                   onChange={handlePlanFileChange}
                   disabled={isUploadingPlan || !newFloorName.trim()}
                   className="w-full text-xs text-slate-500 file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                 />
-                {isUploadingPlan && <p className="text-blue-600 text-[11px] mt-1">Đang xử lý bản vẽ theo chất lượng ảnh đã chọn...</p>}
+                <p className="text-slate-500 text-[10px] mt-1 leading-relaxed">
+                  DXF sẽ nhận diện HATCH/Polyline + TEXT/MTEXT và mở màn hình kiểm tra trước khi tạo tầng/Căn. DXF không tạo ảnh nền; có thể tải ảnh/PDF mặt bằng sau.
+                </p>
+                {isUploadingPlan && <p className="text-blue-600 text-[11px] mt-1">Đang xử lý bản vẽ...</p>}
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
