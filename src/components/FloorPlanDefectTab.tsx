@@ -2143,9 +2143,15 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   // Download excel template or current room data for Room Highlights
-  const downloadHighlightTemplate = () => {
+  const downloadHighlightTemplate = (scope: 'current' | 'all' | 'template' = 'current') => {
     const wb = XLSX.utils.book_new();
-    const roomsToExport = floorRooms;
+    const roomsToExport = scope === 'template' ? [] : scope === 'all' ? roomProgressList : floorRooms;
+    const floorByIdForExcel = new Map(floorPlans.map((floor) => [floor.id, floor] as const));
+    const getExcelFloor = (room: RoomProgressItem) => floorByIdForExcel.get(room.floorId);
+    const getExcelGroupName = (room: RoomProgressItem) => {
+      const floor = getExcelFloor(room);
+      return floor ? getStructureGroupName(resolveFloorStructureGroupId(floor, normalizedStructureConfig), normalizedStructureConfig) : '';
+    };
     const teamNameById = new Map(
       teams
         .filter((team) => team.id && team.name?.trim())
@@ -2248,7 +2254,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     });
 
     const roomHeaders = [
-      'STT', '__recordId', 'Tên Căn / Phòng',
+      'STT', '__recordId', '__floorId', normalizedStructureConfig.label || 'Khu/Khối', 'Tầng', 'Tên Căn / Phòng',
       'Hạng Mục Thi Công Chính', '__workCategoryId',
       'Đội Thi Công Căn / Phòng', '__teamId',
       'Khối Lượng Căn / Phòng', 'Đơn Vị Căn / Phòng',
@@ -2259,6 +2265,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const roomData = roomsToExport.map((r, index) => ({
       'STT': index + 1,
       '__recordId': r.id || '',
+      '__floorId': r.floorId || '',
+      [normalizedStructureConfig.label || 'Khu/Khối']: getExcelGroupName(r),
+      'Tầng': getExcelFloor(r)?.floorName || r.floorName || '',
       'Tên Căn / Phòng': r.roomName,
       'Hạng Mục Thi Công Chính': r.workCategory || '',
       '__workCategoryId': resolveExcelCategoryId(r.workCategoryId, r.workCategory),
@@ -2279,17 +2288,17 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }));
     const roomSheet = XLSX.utils.json_to_sheet(roomData, { header: roomHeaders });
     roomSheet['!cols'] = [
-      { wch: 6 }, { wch: 24, hidden: true }, { wch: 26 }, { wch: 24 }, { wch: 24, hidden: true },
+      { wch: 6 }, { wch: 24, hidden: true }, { wch: 24, hidden: true }, { wch: 16 }, { wch: 16 }, { wch: 26 }, { wch: 24 }, { wch: 24, hidden: true },
       { wch: 22 }, { wch: 24, hidden: true }, { wch: 18 }, { wch: 14 },
       { wch: 13 }, { wch: 13 }, { wch: 15 }, { wch: 15 },
       { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 22 }, { wch: 32 }
     ];
-    roomSheet['!autofilter'] = { ref: `A1:S${Math.max(2, roomData.length + 1)}` };
+    roomSheet['!autofilter'] = { ref: `A1:V${Math.max(2, roomData.length + 1)}` };
     roomSheet['!rows'] = [{ hpt: 24 }];
     XLSX.utils.book_append_sheet(wb, roomSheet, 'Can_Phong');
 
     const subItemHeaders = [
-      'STT', '__recordId', 'Tên Căn / Phòng', '__subItemId',
+      'STT', '__recordId', '__floorId', normalizedStructureConfig.label || 'Khu/Khối', 'Tầng', 'Tên Căn / Phòng', '__subItemId',
       'Hạng Mục Thi Công', '__workCategoryId', 'Công Đoạn / Nội Dung',
       'Trạng Thái Thi Công', 'Nghiệm Thu Hạng Mục', 'Hạn Hoàn Thành',
       'Đội Thi Công', '__teamId', 'Khối Lượng', 'Đơn Vị', 'Trọng Số Tiến Độ'
@@ -2298,6 +2307,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       (room.subItems || []).map((subItem, subIndex) => ({
         'STT': `${roomIndex + 1}.${subIndex + 1}`,
         '__recordId': room.id || '',
+        '__floorId': room.floorId || '',
+        [normalizedStructureConfig.label || 'Khu/Khối']: getExcelGroupName(room),
+        'Tầng': getExcelFloor(room)?.floorName || room.floorName || '',
         'Tên Căn / Phòng': room.roomName,
         '__subItemId': subItem.id || '',
         'Hạng Mục Thi Công': subItem.category || room.workCategory || '',
@@ -2318,11 +2330,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     );
     const subItemSheet = XLSX.utils.json_to_sheet(subItemData, { header: subItemHeaders });
     subItemSheet['!cols'] = [
-      { wch: 8 }, { wch: 24, hidden: true }, { wch: 26 }, { wch: 24, hidden: true },
+      { wch: 8 }, { wch: 24, hidden: true }, { wch: 24, hidden: true }, { wch: 16 }, { wch: 16 }, { wch: 26 }, { wch: 24, hidden: true },
       { wch: 24 }, { wch: 24, hidden: true }, { wch: 28 }, { wch: 20 }, { wch: 22 },
       { wch: 16 }, { wch: 22 }, { wch: 24, hidden: true }, { wch: 14 }, { wch: 12 }, { wch: 18 }
     ];
-    subItemSheet['!autofilter'] = { ref: `A1:O${Math.max(2, subItemData.length + 1)}` };
+    subItemSheet['!autofilter'] = { ref: `A1:R${Math.max(2, subItemData.length + 1)}` };
     subItemSheet['!rows'] = [{ hpt: 24 }];
     XLSX.utils.book_append_sheet(wb, subItemSheet, 'Hang_Muc_Thi_Cong');
 
@@ -2362,8 +2374,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     const guideSheet = XLSX.utils.aoa_to_sheet([
       ['HNL QLTC - Mẫu Excel Nghiệm thu Căn / Phòng'],
-      ['1', 'Sheet Can_Phong: chỉnh thông tin cấp Căn / Phòng.'],
-      ['2', 'Sheet Hang_Muc_Thi_Cong: mỗi dòng là một hạng mục/công đoạn của đúng Căn / Phòng.'],
+      ['1', 'Sheet Can_Phong: chỉnh thông tin cấp Căn / Phòng của một hoặc nhiều tầng.'],
+      ['2', 'Sheet Hang_Muc_Thi_Cong: mỗi dòng là một hạng mục/công đoạn của đúng Căn / Phòng; __floorId giữ liên kết tầng.'],
       ['3', 'Có thể đổi Trạng thái, Nghiệm thu, Hạn hoàn thành, Đội thi công, Khối lượng và Đơn vị rồi Nhập Excel lại.'],
       ['4', 'Các cột kỹ thuật __recordId, __subItemId, __teamId, __workCategoryId được ẩn để bảng dễ đọc nhưng vẫn được giữ nguyên khi Nhập Excel lại.'],
       ['5', 'Sheet Danh_Muc_Doi chỉ để tham chiếu đội đã khai báo; nhập lại sẽ liên kết theo __teamId hoặc tên đội trùng khớp.'],
@@ -2388,7 +2400,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     return saveWorkbookFile(
       wb,
-      `Danh_Sach_Phong_${activeFloor ? activeFloor.floorName.replace(/\s+/g, '_') : 'MatBang'}.xlsx`
+      scope === 'template'
+        ? 'Mau_Can_Phong_Hang_Muc_HNL_QLTC.xlsx'
+        : scope === 'all'
+          ? `Can_Phong_Hang_Muc_Toan_Du_An_${Date.now()}.xlsx`
+          : `Danh_Sach_Phong_${activeFloor ? activeFloor.floorName.replace(/\s+/g, '_') : 'MatBang'}.xlsx`
     );
   };
 
