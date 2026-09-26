@@ -6135,12 +6135,16 @@ function AuthenticatedApp() {
         imageCloudSyncedAt: sourceCloudReady ? sourcePlan.imageCloudSyncedAt : undefined,
         imageAssetId: sharedAssetId,
         imageAssetOwnerFloorId: sharedAssetOwnerFloorId,
-        imageUploadState: sourceCloudReady ? 'ready' : undefined,
-        imagePendingByUid: null,
-        imageOutboxRevision: sourceCloudReady ? sourceCloudRevision : undefined,
         imageRevision: sourceCloudReady ? sourceCloudRevision : now,
         updatedAt: now,
       };
+      // Upload-state markers are persisted runtime metadata but are intentionally not
+      // part of the public FloorPlan business type. Set them explicitly without
+      // widening the schema/type surface.
+      const newPlanRuntime = newPlan as FloorPlan & Record<string, any>;
+      newPlanRuntime.imageUploadState = sourceCloudReady ? 'ready' : undefined;
+      newPlanRuntime.imagePendingByUid = null;
+      newPlanRuntime.imageOutboxRevision = sourceCloudReady ? sourceCloudRevision : undefined;
 
       // Safe duplicate: copy geometry, categories, quantities and assignments, but
       // reset all actual construction / inspection results. A new floor must never
