@@ -9,6 +9,24 @@ export interface PdfRenderOptions { pageNumber?: number; maxDimension?: number; 
 
 const readPdfBytes = async (file: File): Promise<Uint8Array> => new Uint8Array(await file.arrayBuffer());
 
+const blobToDataUrl = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onloadend = () => resolve(String(reader.result || ''));
+  reader.onerror = () => reject(reader.error || new Error('Không chuyển được trang PDF sang ảnh.'));
+  reader.readAsDataURL(blob);
+});
+
+const canvasToJpegBlob = (canvas: HTMLCanvasElement, quality: number): Promise<Blob> => new Promise((resolve, reject) => {
+  try {
+    canvas.toBlob((blob) => {
+      if (blob && blob.size > 0) resolve(blob);
+      else reject(new Error('PDF_CANVAS_ENCODE_FAILED'));
+    }, 'image/jpeg', quality);
+  } catch (error) {
+    reject(error);
+  }
+});
+
 /** Load a PDF once so upload + room detection can reuse the same document on mobile. */
 export const loadPdfDocument = async (file: File): Promise<any> =>
   pdfjsLib.getDocument({ data: await readPdfBytes(file) }).promise;
@@ -38,7 +56,10 @@ export async function renderPdfDocumentPageToImage(pdf: any, options: PdfRenderO
   const mobileLike = typeof window !== 'undefined' && (
     window.matchMedia?.('(max-width: 768px)').matches || /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '')
   );
-  const maxPixels = mobileLike ? 14_000_000 : 28_000_000;
+  // Keep peak RGBA allocation bounded. 14 MP on Android is ~56 MB for the canvas
+  // alone, before PDF.js surfaces and JPEG/Base64 copies. 6.5 MP keeps plan text useful
+  // while avoiding the common WebView OOM/freeze range.
+  const maxPixels = mobileLike ? 6_500_000 : 18_000_000;
   const projectedPixels = Math.max(1, viewport.width * viewport.height);
   if (projectedPixels > maxPixels) {
     scale *= Math.sqrt(maxPixels / projectedPixels);
@@ -58,7 +79,14 @@ export async function renderPdfDocumentPageToImage(pdf: any, options: PdfRenderO
       canvas,
       ...(options.hideAnnotations && pdfjsLib.AnnotationMode ? { annotationMode: pdfjsLib.AnnotationMode.DISABLE } : {}),
     }).promise;
-    return canvas.toDataURL('image/jpeg', quality);
+
+    // Encode to Blob first, release the large RGBA canvas, then create the much smaller
+    // transport Data URL. canvas.toDataURL() kept both allocations alive together and
+    // was a frequent peak-memory failure on Android/embedded WebView.
+    const jpegBlob = await canvasToJpegBlob(canvas, quality);
+    canvas.width = 1;
+    canvas.height = 1;
+    return await blobToDataUrl(jpegBlob);
   } finally {
     canvas.width = 1;
     canvas.height = 1;
@@ -80,5 +108,7 @@ export function describePdfError(err: any): string {
   const message = String(err?.message || err || '');
   if (/PasswordException/i.test(name) || /password/i.test(message)) return 'PDF đang được bảo vệ bằng mật khẩu. Hãy bỏ mật khẩu hoặc xuất lại PDF không khóa rồi thử lại.';
   if (/InvalidPDFException/i.test(name) || /Invalid PDF/i.test(message)) return 'Tệp PDF không hợp lệ hoặc đã bị lỗi.';
+  if (/memory|allocation|out of memory|Array buffer|canvas/i.test(message)) return 'PDF quá nặng đối với bộ nhớ của thiết bị. Hãy xuất lại PDF nhẹ hơn hoặc giảm khổ/độ phân giải rồi thử lại.';
+  if (/worker|fake worker|module script/i.test(message)) return 'Bộ đọc PDF trên trình duyệt/WebView chưa khởi động được. Hãy cập nhật Chrome/WebView rồi thử lại; ảnh JPG/PNG vẫn có thể dùng bình thường.';
   return 'Không thể đọc PDF trên thiết bị này. Hãy thử lại với PDF khác hoặc xuất PDF về phiên bản tiêu chuẩn.';
 }
