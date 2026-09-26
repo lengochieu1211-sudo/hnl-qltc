@@ -1176,7 +1176,7 @@ export function exportWarehouseUpdateTemplate(
   autoFitColumns(wsNorms);
   XLSX.utils.book_append_sheet(wb, wsNorms, 'Định Mức Vật Tư');
 
-  // 4. Sheet "Hạng Mục Thi Công" — authoritative IDs/floor scope round-trip.
+  // 4. Sheet "Hạng Mục Thi Công (Chỉ xem)" — reference-only here; edit it in WorkVolume.
   const workVolumeData = (workVolumes || []).map((item, idx) => ({
     'STT': idx + 1,
     '__recordId': item.id,
@@ -1194,7 +1194,7 @@ export function exportWarehouseUpdateTemplate(
   }));
   const wsWorkVolumes = XLSX.utils.json_to_sheet(workVolumeData);
   autoFitColumns(wsWorkVolumes);
-  XLSX.utils.book_append_sheet(wb, wsWorkVolumes, 'Hạng Mục Thi Công');
+  XLSX.utils.book_append_sheet(wb, wsWorkVolumes, 'Hạng Mục Thi Công (Chỉ xem)');
 
   // 5. Sheet "Tồn Kho Hiện Tại" (Calculated using unified calculateStockSummary)
   const stockSummaries = calculateStockSummary(inventory || [], materialNorms || []);
