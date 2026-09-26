@@ -410,13 +410,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         let outCount = 0;
         let normsUpdatedCount = 0;
         let normsAddedCount = 0;
-        let volumesUpdatedCount = 0;
-        let volumesAddedCount = 0;
 
         let newInventory = [...inventory];
         const importedInventoryRows: InventoryItem[] = [];
         let newNorms = [...materialNorms];
-        let newWorkVolumes = workVolumes ? [...workVolumes] : [];
 
         // 1. Sheet "Nhập kho"
         const inSheetName = workbook.SheetNames.find(
@@ -674,71 +671,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           });
         }
 
-        // 4. Sheet "Hạng Mục Thi Công"
-        const volumeSheetName = workbook.SheetNames.find(
-          name => {
-            const n = name.toLowerCase();
-            return n.includes('khoi luong') || n.includes('khối lượng') || n.includes('hang muc') || n.includes('hạng mục');
-          }
-        );
+        // Sheet "Hạng Mục Thi Công (Chỉ xem)" is intentionally reference-only.
+        // Hạng mục/Khối lượng has one authoritative editing surface: WorkVolumeTab.
+        // Do not mutate WorkVolume from Kho/Định mức Excel.
 
-        if (volumeSheetName && workVolumes) {
-          const sheet = workbook.Sheets[volumeSheetName];
-          const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
-          
-          jsonData.forEach((row, rIdx) => {
-            const titleRaw = row['Tên Hạng Mục Công Việc'] || row['Tên Hạng Mục Thi Công'] || row['Hạng Mục Công Việc'] || row['Tên Hạng Mục'] || row['Hạng mục'] || row['title'];
-            if (!titleRaw) return;
-
-            const titleStr = String(titleRaw).trim();
-            const floorStr = String(row['Tầng / Khu Vực'] || row['Tầng'] || row['floor'] || 'Tầng 1').trim();
-            const categoryStr = String(row['Nhóm Hạng Mục'] || row['Phân Loại'] || row['category'] || 'khung_tran').trim() as any;
-            const unitStr = String(row['Đơn Vị Tính'] || row['Đơn Vị'] || row['unit'] || 'm2').trim();
-            const plannedNum = parseExcelNumber(row['KL Định Mức'] || row['KL Kế Hoạch'] || row['planned'] || 0);
-            const unitPriceNum = parseExcelNumber(row['Đơn Giá (VNĐ)'] || row['Đơn Giá'] || row['unitPrice'] || 0);
-            const rawVolId = row['__workCategoryId'] || row['__recordId'] || row['Mã Hạng Mục'] || row['id'];
-            const rawRecordId = row['__recordId'] || row['id'];
-            const rawFloorId = row['__floorId'] || row['floorId'];
-            const importedFloorIds = parseExcelStringArray(row['__floorIds'] || row['floorIds'])
-              || (rawFloorId ? [String(rawFloorId).trim()] : undefined);
-            const dueDate = formatExcelDate(row['Ngày Hạn Định'] || row['Hạn Định'] || row['dueDate']);
-            const rawVolIdStr = rawVolId ? String(rawVolId).trim() : '';
-            const rawRecordIdStr = rawRecordId ? String(rawRecordId).trim() : '';
-            const existingIdx = rawVolIdStr || rawRecordIdStr
-              ? newWorkVolumes.findIndex(w => (w.workCategoryId && w.workCategoryId === rawVolIdStr) || w.id === rawRecordIdStr || w.id === rawVolIdStr)
-              : newWorkVolumes.findIndex(w => w.title.toLocaleLowerCase('vi-VN') === titleStr.toLocaleLowerCase('vi-VN') && w.floor.toLocaleLowerCase('vi-VN') === floorStr.toLocaleLowerCase('vi-VN'));
-            const existingVolume = existingIdx >= 0 ? newWorkVolumes[existingIdx] : undefined;
-            const recordId = existingVolume?.id || rawRecordIdStr || rawVolIdStr || createEntityId('HM');
-
-            const volumeData: WorkVolume = {
-              ...(existingVolume || {} as WorkVolume),
-              id: recordId,
-              workCategoryId: existingVolume?.workCategoryId || rawVolIdStr || recordId,
-              title: titleStr,
-              floor: floorStr,
-              floorId: rawFloorId ? String(rawFloorId).trim() : (importedFloorIds?.[0] || existingVolume?.floorId),
-              floorIds: importedFloorIds || existingVolume?.floorIds,
-              category: categoryStr,
-              unit: normalizeUnit(unitStr) || unitStr,
-              planned: plannedNum,
-              // actual/status are derived by App.handleImportWorkVolumes and never imported as master data.
-              actual: existingVolume?.actual || 0,
-              unitPrice: unitPriceNum,
-              status: existingVolume?.status || 'Chưa thi công',
-              dueDate: dueDate || existingVolume?.dueDate,
-            };
-
-            if (existingIdx >= 0) {
-              newWorkVolumes[existingIdx] = volumeData;
-              volumesUpdatedCount++;
-            } else {
-              newWorkVolumes.push(volumeData);
-              volumesAddedCount++;
-            }
-          });
-        }
-
-        const totalItemsFound = inCount + outCount + normsUpdatedCount + normsAddedCount + volumesUpdatedCount + volumesAddedCount;
+        const totalItemsFound = inCount + outCount + normsUpdatedCount + normsAddedCount;
 
         if (totalItemsFound === 0) {
           alert(
@@ -748,7 +685,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             `  - Nhập kho: chứa chữ 'nhap' hoặc 'nhập'\n` +
             `  - Xuất kho: chứa chữ 'xuat' hoặc 'xuất'\n` +
             `  - Định Mức Vật Tư: chứa chữ 'dinh muc' hoặc 'định mức'\n` +
-            `  - Hạng Mục Thi Công: chứa chữ 'khoi luong', 'khối lượng', 'hang muc' hoặc 'hạng mục'\n\n` +
+            `  - Hạng Mục Thi Công (Chỉ xem): bảng tham chiếu, không nhập ngược từ module Kho/Định mức\n\n` +
             `Vui lòng kiểm tra lại tên Sheet và đảm bảo có đúng tiêu đề cột dữ liệu.`
           );
           return;
@@ -760,7 +697,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           `📥 NHẬP KHO: ${inCount} phiếu nhập\n` +
           `📤 XUẤT KHO: ${outCount} phiếu xuất\n` +
           `📋 ĐỊNH MỨC VẬT TƯ: ${normsUpdatedCount} cập nhật, ${normsAddedCount} mới\n` +
-          `🏗️ HẠNG MỤC THI CÔNG: ${volumesUpdatedCount} cập nhật, ${volumesAddedCount} mới\n\n` +
+          `🏗️ HẠNG MỤC THI CÔNG: chỉ tham chiếu, không sửa từ file này\n\n` +
           `Bạn có đồng ý áp dụng các thay đổi này vào hệ thống không?`;
 
         const confirmUpdate = await confirmAsync(confirmMsg);
@@ -771,10 +708,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           if (onImportNorms && (normsUpdatedCount > 0 || normsAddedCount > 0)) {
             onImportNorms(newNorms);
           }
-          if (onImportWorkVolumes && workVolumes && (volumesUpdatedCount > 0 || volumesAddedCount > 0)) {
-            onImportWorkVolumes(newWorkVolumes);
-          }
-          alert('🎉 Đã cập nhật thành công dữ liệu kho, nhập/xuất, định mức và hạng mục!');
+          alert('🎉 Đã cập nhật thành công dữ liệu kho/định mức. Hạng mục thi công chỉ được chỉnh tại mục Khối lượng.');
         }
       } catch (err: any) {
         alert(`❌ Lỗi đọc hoặc xử lý tệp Excel: ${err.message}`);
