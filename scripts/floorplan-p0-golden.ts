@@ -36,7 +36,7 @@ check(bulkApply.includes('imageAssetId: assetId') && bulkApply.includes('imageAs
 check(bulkApply.includes("FLOOR_PLAN_BULK_TARGET_PENDING"), 'Bulk apply must fail closed when a target has a pending replacement.');
 check(sync.includes('inspectFloorPlanBulkTargets'), 'Bulk apply must preflight legacy vs true pending targets.');
 check(sync.includes('getFloorPlanImageOutboxSnapshot(projectId)'), 'Bulk preflight must inspect durable local outbox evidence.');
-check(sync.includes('getDocFromServer'), 'Ambiguous pending markers must be checked against the authoritative server row.');
+check(sync.includes('getDocFromServer'), 'Ambiguous pending markers must be checked against the authoritative server row.');\ncheck(sync.includes('const serverPlan = { ...serverSnap.data(), id: plan.id } as FloorPlan;'), 'Server preflight must classify the authoritative row without inheriting stale local pending markers.');\ncheck(!sync.includes('const serverPlan = { ...plan, ...serverSnap.data(), id: plan.id } as FloorPlan;'), 'Server preflight must not merge stale local pending metadata back into the authoritative row.');
 check(
   classifyFloorPlanBulkTarget({ imageUrl: 'https://legacy.example/plan.jpg', imageRevision: 100, imageCloudRevision: 0 }).status === 'legacy-overwrite-safe',
   'Legacy revision-only rows must be replaceable in an explicit bulk operation.',
