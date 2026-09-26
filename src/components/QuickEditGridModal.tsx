@@ -33,6 +33,9 @@ interface QuickEditGridModalProps {
   onSave: (rows: QuickGridRow[], dirtyCellKeys: Set<string>) => void | Promise<void>;
   saveLabel?: string;
   emptyText?: string;
+  tabs?: Array<{ key: string; label: string }>;
+  activeTab?: string;
+  onTabChange?: (key: string) => void;
 }
 
 const normalizeCell = (value: unknown) => value === null || value === undefined ? '' : String(value);
@@ -51,6 +54,9 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
   onSave,
   saveLabel = 'Lưu thay đổi',
   emptyText = 'Chưa có dữ liệu.',
+  tabs,
+  activeTab,
+  onTabChange,
 }) => {
   const [draftRows, setDraftRows] = useState<QuickGridRow[]>([]);
   const [dirtyCellKeys, setDirtyCellKeys] = useState<Set<string>>(new Set());
@@ -222,6 +228,21 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
           </div>
           <button type="button" onClick={onClose} className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50">Đóng</button>
         </div>
+
+        {tabs && tabs.length > 0 && (
+          <div className="px-3 sm:px-4 py-2 border-b border-slate-200 bg-white flex gap-1.5 overflow-x-auto">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => onTabChange?.(tab.key)}
+                className={`shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-extrabold border transition ${activeTab === tab.key ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="px-3 sm:px-4 py-2 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center gap-2">
           <input
