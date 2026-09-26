@@ -8,6 +8,7 @@ const crew = fs.readFileSync('src/components/CrewTabBase.tsx', 'utf8');
 const warehouse = fs.readFileSync('src/components/WarehouseTab.tsx', 'utf8');
 const volume = fs.readFileSync('src/components/WorkVolumeTab.tsx', 'utf8');
 const dxf = fs.readFileSync('src/utils/dxfRoomDetection.ts', 'utf8');
+const pdfRoomDetection = fs.readFileSync('src/utils/pdfRoomDetection.ts', 'utf8');
 
 assert.match(quick, /Ctrl\+C \/ Ctrl\+V vùng ô từ Excel/, 'Quick grid must advertise spreadsheet paste');
 assert.match(quick, /handlePaste/, 'Quick grid must support multi-cell paste');
@@ -29,6 +30,9 @@ assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /XLSX\.utils\.
 assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /'__itemKind': item\.itemKind === 'equipment'/, 'Warehouse inbound round-trip must preserve material-vs-equipment identity');
 assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /XLSX\.utils\.aoa_to_sheet\(\[inHeaders\]\)/, 'Warehouse blank inbound template must retain headers');
 assert.doesNotMatch(excel, /Xuất báo cáo Excel/, 'Excel edit menu must not duplicate reporting');
+assert.match(excel, /className="relative shrink-0"/, 'Excel action trigger must not be squeezed/cropped in mobile flex rows');
+assert.match(excel, /whitespace-nowrap/, 'Excel action trigger must keep its compact label intact on mobile');
+assert.match(excel, /FileSpreadsheet/, 'Excel action trigger must use the standard spreadsheet icon instead of a text glyph');
 
 assert.match(floor, /Căn & Hạng mục/, 'Floor quick edit must separate room/work rows');
 assert.match(floor, /Deadline defect/, 'Defect quick edit must expose deadline');
@@ -39,8 +43,16 @@ assert.match(floor, /không được tự đổi floorId qua Excel/, 'Excel impo
 assert.match(floor, /__recordId không tồn tại trong dự án hiện tại/, 'Room Excel import must reject stale technical room IDs instead of falling back to names');
 assert.match(floor, /onApplyRoomExcelImport\(preparedRooms, obsoleteRoomIds\)/, 'Room Excel import must preflight every row then apply one atomic App-state transaction');
 assert.match(floor, /__subItemId không tồn tại/, 'Room detail Excel import must reject stale technical sub-item IDs');
-assert.match(floor, /Nhận diện CAD\/DXF/, 'Floor UI must expose CAD/DXF recognition');
-assert.match(floor, /Tạo Căn \/ Phòng từ DXF/, 'DXF import must have explicit review/apply step');
+assert.match(floor, /PDF\/JPG\/PNG\/WebP\/DXF/, 'Add-floor drawing picker must include DXF beside PDF/images');
+assert.match(floor, /createFloor: true/, 'DXF selected from add-floor flow must create the requested new floor only after review');
+assert.doesNotMatch(floor, /<FileType[^>]*\/> Nhận diện CAD\/DXF/, 'Room toolbar must not expose a separate CAD/DXF button');
+assert.match(floor, /Chỉ tạo tầng/, 'DXF review must let the user create the floor without auto-creating rooms');
+assert.match(floor, /Tạo tầng \+ Căn \/ Phòng/, 'DXF review must support creating the floor and detected rooms together');
+assert.match(floor, /isPolyline: candidate\.points\.length >= 3/, 'DXF polygon geometry must remain polygonal instead of degrading to a rectangle');
+assert.match(floor, /Khôi phục mặc định/, 'Advanced PDF name regex must provide a safe reset action');
+assert.match(floor, /aria-invalid=\{!isSmartPdfNamePatternValid\}/, 'Advanced PDF name regex must surface invalid syntax before detection');
+assert.doesNotMatch(pdfRoomDetection, /\(\?=\.\*/, 'Default room-name regex should avoid the hard-to-read lookahead form reported on mobile');
+assert.match(floor, /Tạo Căn \/ Phòng từ DXF/, 'DXF import must retain an explicit review/apply path');
 assert.match(floor, /Không ghi đè Căn \/ Phòng đã tồn tại/, 'DXF import must protect existing room highlights');
 
 assert.match(crew, /Xuất Nhật ký để chỉnh sửa/, 'Crew must export journal for editing');
