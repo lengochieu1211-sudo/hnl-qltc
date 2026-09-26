@@ -265,7 +265,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const selectedStructureGroupId = 'all';
 
   const floorById = useMemo(
-    () => new Map(floorPlans.map((floor) => [floor.id, floor] as const)),
+    () => new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.id, floor] as const)),
     [floorPlans],
   );
 
@@ -1334,7 +1334,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
         const detailName = workbook.SheetNames.find((name) => name.toLocaleLowerCase('vi-VN').includes('chi tiet cong viec'));
         const detailRows = detailName ? XLSX.utils.sheet_to_json<any>(workbook.Sheets[detailName]) : [];
-        const floorByName = new Map(floorPlans.map((floor) => [floor.floorName.trim().toLocaleLowerCase('vi-VN'), floor] as const));
+        const floorByName = new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.floorName.trim().toLocaleLowerCase('vi-VN'), floor] as const));
         const detailByRecord = new Map<string, any[]>();
         const detailByDateTeam = new Map<string, any[]>();
         detailRows.forEach((row: any) => {
@@ -1656,7 +1656,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       grouped.set(key, [...(grouped.get(key) || []), row]);
     });
 
-    const floorByName = new Map(floorPlans.map((floor) => [floor.floorName.trim().toLocaleLowerCase('vi-VN'), floor] as const));
+    const floorByName = new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.floorName.trim().toLocaleLowerCase('vi-VN'), floor] as const));
     const prepared: Array<{ existing?: CrewRecord; record: CrewRecord }> = [];
 
     for (const [recordKey, changedGroup] of grouped) {

@@ -245,7 +245,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
 
   if (!open) return null;
 
-  const changedRows = new Set(Array.from(dirtyCellKeys).map((key) => key.split('::')[0])).size;
+  const changedRows = new Set<string>([...dirtyCellKeys].map((key: string) => key.split('::')[0])).size;
 
   return (
     <div className="fixed inset-0 z-[180] bg-slate-950/55 backdrop-blur-[1px] flex items-stretch sm:p-3">

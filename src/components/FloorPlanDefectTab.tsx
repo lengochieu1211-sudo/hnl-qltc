@@ -2161,7 +2161,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const downloadHighlightTemplate = (scope: 'current' | 'all' | 'template' = 'current') => {
     const wb = XLSX.utils.book_new();
     const roomsToExport = scope === 'template' ? [] : scope === 'all' ? roomProgressList : floorRooms;
-    const floorByIdForExcel = new Map(floorPlans.map((floor) => [floor.id, floor] as const));
+    const floorByIdForExcel = new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.id, floor] as const));
     const getExcelFloor = (room: RoomProgressItem) => floorByIdForExcel.get(room.floorId);
     const getExcelGroupName = (room: RoomProgressItem) => {
       const floor = getExcelFloor(room);
@@ -2479,7 +2479,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           return;
         }
 
-        const excelFloorById = new Map(floorPlans.map((floor) => [floor.id, floor] as const));
+        const excelFloorById = new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.id, floor] as const));
         const excelFloorsByName = new Map<string, FloorPlan[]>();
         floorPlans.forEach((floor) => {
           const key = floor.floorName.trim().toLocaleLowerCase('vi-VN');
@@ -2502,7 +2502,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           if (!activeFloor) throw new Error('Không xác định được tầng đích cho dòng Excel.');
           return activeFloor;
         };
-        const targetFloorIds = new Set(jsonData.map((row: any) => resolveExcelTargetFloor(row).id));
+        const targetFloorIds = new Set<string>(jsonData.map((row: any) => resolveExcelTargetFloor(row).id));
         const multiFloorImport = targetFloorIds.size > 1;
         const singleTargetFloor = targetFloorIds.size === 1 ? excelFloorById.get(Array.from(targetFloorIds)[0]) : undefined;
 
@@ -2900,9 +2900,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [quickEditMode, setQuickEditMode] = useState<'rooms' | 'defects'>('rooms');
   const [pendingDxfImport, setPendingDxfImport] = useState<PendingDxfRoomImport | null>(null);
 
-  const quickFloorById = React.useMemo(() => new Map(floorPlans.map((floor) => [floor.id, floor] as const)), [floorPlans]);
-  const quickRoomById = React.useMemo(() => new Map(roomProgressList.map((room) => [room.id, room] as const)), [roomProgressList]);
-  const quickTeamByName = React.useMemo(() => new Map(
+  const quickFloorById = React.useMemo(() => new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.id, floor] as const)), [floorPlans]);
+  const quickRoomById = React.useMemo(() => new Map<string, RoomProgressItem>(roomProgressList.map((room) => [room.id, room] as const)), [roomProgressList]);
+  const quickTeamByName = React.useMemo(() => new Map<string, TeamInfo>(
     teams.filter((team) => team.name?.trim()).map((team) => [team.name.trim().toLocaleLowerCase('vi-VN'), team] as const)
   ), [teams]);
 
