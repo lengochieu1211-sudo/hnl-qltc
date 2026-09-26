@@ -5807,7 +5807,7 @@ function AuthenticatedApp() {
     if (targets.length !== uniqueIds.length) throw new Error('FLOOR_PLAN_BULK_TARGET_NOT_FOUND');
     const result = await inspectFloorPlanBulkTargets(activeProjectIdRef.current, targets);
     appendRuntimeDiagnostic({
-      level: result.blocked.length > 0 ? 'warning' : 'info',
+      level: result.blocked.length > 0 ? 'warn' : 'info',
       area: 'floor-plan-image',
       projectId: activeProjectIdRef.current,
       code: 'BULK_PREFLIGHT',
