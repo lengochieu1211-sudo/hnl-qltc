@@ -9495,7 +9495,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           Cho phép tên chỉ gồm số (VD: 101, 102). Tắt mặc định để tránh nhận nhầm kích thước CAD như 1200/3000.
                         </label>
 
-                        <label className="col-span-2 text-[10px] font-bold text-slate-600">
+                        <div className="col-span-2 text-[10px] font-bold text-slate-600">
                           <span className="flex items-center justify-between gap-2">
                             <span>Quy tắc tên Căn / Phòng (nâng cao)</span>
                             <button
@@ -9520,7 +9520,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           {isSmartPdfNamePatternValid
                             ? <span className="block text-[9px] text-slate-400 mt-1">Mặc định nhận tốt A101, A-101, P.101, WC-01, Căn 101, Phòng 01...</span>
                             : <span className="block text-[9px] text-rose-600 mt-1 font-bold">Biểu thức không hợp lệ. Hãy sửa hoặc khôi phục mặc định trước khi nhận diện PDF.</span>}
-                        </label>
+                        </div>
                       </div>
                     )}
                   </>
