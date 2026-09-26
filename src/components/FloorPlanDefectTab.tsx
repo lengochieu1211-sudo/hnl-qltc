@@ -2464,6 +2464,33 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           return;
         }
 
+        const excelFloorById = new Map(floorPlans.map((floor) => [floor.id, floor] as const));
+        const excelFloorsByName = new Map<string, FloorPlan[]>();
+        floorPlans.forEach((floor) => {
+          const key = floor.floorName.trim().toLocaleLowerCase('vi-VN');
+          excelFloorsByName.set(key, [...(excelFloorsByName.get(key) || []), floor]);
+        });
+        const resolveExcelTargetFloor = (row: any): FloorPlan => {
+          const rawFloorId = String(row['__floorId'] ?? row['floorId'] ?? '').trim();
+          if (rawFloorId) {
+            const byId = excelFloorById.get(rawFloorId);
+            if (!byId) throw new Error(`Excel tham chiếu __floorId không tồn tại: ${rawFloorId}`);
+            return byId;
+          }
+          const rawFloorName = String(row['Tầng'] ?? row['Tầng / Khu Vực'] ?? row['floorName'] ?? '').trim();
+          if (rawFloorName) {
+            const matches = excelFloorsByName.get(rawFloorName.toLocaleLowerCase('vi-VN')) || [];
+            if (matches.length === 1) return matches[0];
+            if (matches.length > 1) throw new Error(`Tên tầng “${rawFloorName}” bị trùng; hãy dùng file xuất từ HNL có __floorId.`);
+            throw new Error(`Không tìm thấy tầng “${rawFloorName}” trong dự án hiện tại.`);
+          }
+          if (!activeFloor) throw new Error('Không xác định được tầng đích cho dòng Excel.');
+          return activeFloor;
+        };
+        const targetFloorIds = new Set(jsonData.map((row: any) => resolveExcelTargetFloor(row).id));
+        const multiFloorImport = targetFloorIds.size > 1;
+        const singleTargetFloor = targetFloorIds.size === 1 ? excelFloorById.get(Array.from(targetFloorIds)[0]) : undefined;
+
         const preflightRoomConflicts = jsonData.filter((row: any) => {
           const frameStatus = String(row['Trạng Thái Khung Xương'] ?? row['frameStatus'] ?? '').trim();
           const boardStatus = String(row['Trạng Thái Bắn Tấm'] ?? row['boardStatus'] ?? '').trim();
@@ -2499,20 +2526,27 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           }
         }
 
-        const currentFloorRooms = roomProgressList.filter(r => r.floorId === activeFloor?.id);
+        const currentFloorRooms = singleTargetFloor
+          ? roomProgressList.filter((room) => room.floorId === singleTargetFloor.id)
+          : [];
 
         let existingMatchCount = 0;
         let newCount = 0;
         jsonData.forEach((row: any) => {
           const rawName = row[nameMatchKey];
-          if (rawName) {
-            const nameStr = String(rawName).trim();
-            if (nameStr) {
-              const found = currentFloorRooms.find(r => r.roomName.toLowerCase() === nameStr.toLowerCase());
-              if (found) existingMatchCount++;
-              else newCount++;
-            }
+          if (!rawName) return;
+          const nameStr = String(rawName).trim();
+          if (!nameStr) return;
+          const targetFloor = resolveExcelTargetFloor(row);
+          const rawRecordId = String(row['__recordId'] || row['Mã Định Danh'] || row['id'] || '').trim();
+          const foundById = rawRecordId ? roomProgressList.find((room) => room.id === rawRecordId) : undefined;
+          if (foundById && foundById.floorId !== targetFloor.id) {
+            throw new Error(`Căn “${nameStr}” có __recordId thuộc tầng khác. Hệ thống từ chối tự chuyển floorId qua Excel.`);
           }
+          const found = foundById || roomProgressList.find((room) =>
+            room.floorId === targetFloor.id && room.roomName.toLocaleLowerCase('vi-VN') === nameStr.toLocaleLowerCase('vi-VN')
+          );
+          if (found) existingMatchCount++; else newCount++;
         });
 
         if (existingMatchCount === 0 && newCount === 0) {
@@ -2520,28 +2554,35 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           return;
         }
 
-        // Ask Step 1: Merge or choose replace/cancel
-        const wantMerge = await confirmAsync(
-          `📂 Phát hiện ${jsonData.length} phòng trong tệp Excel (${existingMatchCount} phòng trùng tên đã có sẵn, ${newCount} phòng mới).\n\n` +
-          `• Bấm "Đồng ý" để CẬP NHẬT thông tin các phòng cũ & THÊM MỚI các phòng chưa có.\n` +
-          `• Bấm "Hủy" để mở tùy chọn THAY THẾ TOÀN BỘ hoặc HỦY THAO TÁC.`
-        );
-
         let importMode: 'merge' | 'replace' = 'merge';
-
-        if (!wantMerge) {
-          const wantReplace = await confirmAsync(
-            `⚠️ Bạn có chắc chắn muốn XÓA TOÀN BỘ ${currentFloorRooms.length} căn/phòng hiện tại trên mặt bằng "${activeFloor?.floorName}" và THAY THẾ HOÀN TOÀN bằng dữ liệu mới từ file Excel không?\n\n` +
-            `• Bấm "Đồng ý" để XÓA TOÀN BỘ & NẠP LẠI MỚI.\n` +
-            `• Bấm "Hủy" để DỪNG THAO TÁC VÀ GIỮ NGUYÊN DỮ LIỆU CŨ.`
+        if (multiFloorImport) {
+          const confirmedMultiFloor = await confirmAsync(
+            `📂 File Excel chứa ${jsonData.length} Căn / Phòng trên ${targetFloorIds.size} tầng.\n\n` +
+            `• Cập nhật: ${existingMatchCount}\n• Thêm mới: ${newCount}\n\n` +
+            'Import nhiều tầng luôn dùng chế độ HỢP NHẤT an toàn; không xóa các Căn / Phòng không có trong file. Tiếp tục?'
           );
-
-          if (!wantReplace) {
+          if (!confirmedMultiFloor) {
             e.target.value = '';
             return;
           }
-
-          importMode = 'replace';
+        } else {
+          const targetFloorName = singleTargetFloor?.floorName || activeFloor?.floorName || 'Mặt bằng';
+          const wantMerge = await confirmAsync(
+            `📂 Phát hiện ${jsonData.length} phòng trong tệp Excel (${existingMatchCount} phòng hiện có, ${newCount} phòng mới) · ${targetFloorName}.\n\n` +
+            `• Bấm "Đồng ý" để CẬP NHẬT & THÊM MỚI.\n` +
+            `• Bấm "Hủy" để mở tùy chọn THAY THẾ TOÀN BỘ hoặc HỦY.`
+          );
+          if (!wantMerge) {
+            const wantReplace = await confirmAsync(
+              `⚠️ Bạn có chắc chắn muốn XÓA TOÀN BỘ ${currentFloorRooms.length} căn/phòng hiện tại trên "${targetFloorName}" và THAY THẾ bằng file Excel?\n\n` +
+              'Thao tác này chỉ áp dụng cho đúng một tầng đang được file tham chiếu.'
+            );
+            if (!wantReplace) {
+              e.target.value = '';
+              return;
+            }
+            importMode = 'replace';
+          }
         }
 
         const excelTeamById = new Map(teams.filter((team) => team.id).map((team) => [team.id, team] as const));
@@ -2595,6 +2636,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
           const nameStr = String(rawName).trim();
           if (!nameStr) return;
+          const targetFloor = resolveExcelTargetFloor(row);
+          const targetFloorRooms = roomProgressList.filter((room) => room.floorId === targetFloor.id);
 
           const rawX = parseExcelNumber(row['Tọa độ X (%)'] || row['x'] || 20);
           const rawY = parseExcelNumber(row['Tọa độ Y (%)'] || row['y'] || 20);
@@ -2636,7 +2679,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           let existingRoomObj: any = null;
           
           // Match by __recordId or name
-          const match = currentFloorRooms.find(r => (rawRecordId && r.id === rawRecordId) || r.roomName.toLowerCase() === nameStr.toLowerCase());
+          const idMatch = rawRecordId ? roomProgressList.find((room) => room.id === rawRecordId) : undefined;
+          if (idMatch && idMatch.floorId !== targetFloor.id) {
+            throw new Error(`Căn “${nameStr}” có __recordId thuộc tầng khác; không được tự đổi floorId qua Excel.`);
+          }
+          const match = idMatch || targetFloorRooms.find((room) => room.roomName.toLocaleLowerCase('vi-VN') === nameStr.toLocaleLowerCase('vi-VN'));
           if (match) {
             existingId = match.id;
             existingRoomObj = match;
@@ -2646,7 +2693,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             // another floor. This prevents an Excel file from silently moving/overwriting
             // a different floor's room through the global ID update path.
             const idUsedElsewhere = rawRecordId
-              ? roomProgressList.some((room) => room.id === rawRecordId && room.floorId !== activeFloor?.id)
+              ? roomProgressList.some((room) => room.id === rawRecordId && room.floorId !== targetFloor.id)
               : false;
             existingId = rawRecordId && !idUsedElsewhere ? rawRecordId : undefined;
             importedCount++;
@@ -2667,8 +2714,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           const detailRowsForRoom = detailJsonData.filter((detailRow: any) => {
             const detailRoomId = String(detailRow['__recordId'] ?? detailRow['roomId'] ?? '').trim();
             const detailRoomName = String(detailRow['Tên Căn / Phòng'] ?? detailRow['roomName'] ?? '').trim();
+            const detailFloorId = String(detailRow['__floorId'] ?? detailRow['floorId'] ?? '').trim();
+            if (detailFloorId && detailFloorId !== targetFloor.id) return false;
             const idMatches = Boolean(detailRoomId) && [rawRecordId, existingId, targetId].filter(Boolean).includes(detailRoomId);
-            const nameMatches = Boolean(detailRoomName) && detailRoomName.toLocaleLowerCase('vi-VN') === nameStr.toLocaleLowerCase('vi-VN');
+            const nameMatches = Boolean(detailRoomName)
+              && detailRoomName.toLocaleLowerCase('vi-VN') === nameStr.toLocaleLowerCase('vi-VN')
+              && (!detailFloorId || detailFloorId === targetFloor.id);
             return idMatches || nameMatches;
           });
 
@@ -2742,8 +2793,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             ...(existingRoomObj || {}),
             id: targetId,
             createdAt: existingRoomObj?.createdAt || Date.now(),
-            floorId: activeFloor?.id || 'fp-1',
-            floorName: activeFloor?.floorName || 'Mặt bằng',
+            floorId: targetFloor.id,
+            floorName: targetFloor.floorName,
             roomName: nameStr,
             x: safeX,
             y: safeY,
@@ -2767,7 +2818,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         });
 
         // In replace mode, delete only obsolete rooms not present in the Excel file
-        if (importMode === 'replace') {
+        if (importMode === 'replace' && singleTargetFloor) {
           const obsoleteRooms = currentFloorRooms.filter(r => !processedRoomIds.has(r.id));
           if (obsoleteRooms.length > 0) {
             if (onDeleteMultipleRoomProgress) {
@@ -2782,6 +2833,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           `🎉 Nhập dữ liệu Mặt bằng từ Excel thành công!\n\n` +
           `• Đã cập nhật/chỉnh sửa: ${updatedCount} phòng/căn\n` +
           `• Đã tạo mới/thêm mới: ${importedCount} phòng/căn\n` +
+          `• Phạm vi tầng: ${targetFloorIds.size}\n` +
           `• Tự sửa nghiệm thu không hợp lệ: ${normalizedInspectionCount} trường hợp\n` +
           `• Hạng mục vẫn chưa gán đội: ${missingTeamWarningCount} dòng`
         );
