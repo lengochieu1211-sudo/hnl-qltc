@@ -95,6 +95,8 @@ export interface FloorPlanOfflineCacheResult {
 export interface FloorPlanOfflineCacheOptions {
   priorityFloorPlanId?: string;
   shouldContinue?: () => boolean;
+  maxItems?: number;
+  yieldMs?: number;
 }
 
 export interface FloorPlanBulkApplyResult {
@@ -1030,8 +1032,22 @@ export async function cacheFloorPlansForOffline(
   onProgress?: (progress: { completed: number; total: number; floorPlanId: string; status: 'cached' | 'downloaded' | 'failed' | 'skipped' }) => void,
   options: FloorPlanOfflineCacheOptions = {},
 ): Promise<FloorPlanOfflineCacheResult> {
+  const outboxRows = await getFloorPlanImageOutboxSnapshot(projectId).catch(() => []);
+  const latestOutboxByFloorId = new Map<string, number>();
+  outboxRows.forEach((row) => {
+    latestOutboxByFloorId.set(row.floorPlanId, Math.max(latestOutboxByFloorId.get(row.floorPlanId) || 0, Number(row.revision || 0)));
+  });
   const rawCandidates = (plans || []).filter((plan) => {
     if (!plan?.id) return false;
+    const safety = classifyFloorPlanBulkTarget(
+      plan as any,
+      latestOutboxByFloorId.get(plan.id) || 0,
+      BINARY_STORAGE_PROVIDER,
+    );
+    // Offline preparation must never cache an older pointer under a newer pending
+    // revision. Legacy revision-only rows remain eligible; durable/ambiguous pending
+    // work stays fail-closed until the upload/server state is resolved.
+    if (safety.status === 'blocked-pending' || safety.status === 'needs-server-check') return false;
     const revision = resolveFloorPlanCloudRevision(plan);
     const pointer = parseStoragePointer(plan);
     return revision > 0 && Boolean(pointer.path || parseDriveFileId(plan) || plan.storageProvider === 'firestore-fallback');
@@ -1041,12 +1057,24 @@ export async function cacheFloorPlansForOffline(
     ? [...rawCandidates].sort((a, b) => Number(b.id === priorityFloorPlanId) - Number(a.id === priorityFloorPlanId))
     : rawCandidates;
   const result: FloorPlanOfflineCacheResult = { total: candidates.length, cached: 0, downloaded: 0, skipped: 0, failed: 0, bytes: 0, paused: false };
+  const maxItems = Number.isFinite(Number(options.maxItems)) ? Math.max(1, Math.floor(Number(options.maxItems))) : Number.POSITIVE_INFINITY;
+  const yieldMs = Number.isFinite(Number(options.yieldMs)) ? Math.max(0, Math.floor(Number(options.yieldMs))) : 0;
+  const yieldToUi = async () => {
+    if (yieldMs <= 0) return;
+    await new Promise<void>((resolve) => window.setTimeout(resolve, yieldMs));
+  };
   let completed = 0;
+  let processed = 0;
   for (const plan of candidates) {
+    if (processed >= maxItems) {
+      result.paused = true;
+      break;
+    }
     if (options.shouldContinue && !options.shouldContinue()) {
       result.paused = true;
       break;
     }
+    processed += 1;
     const revision = resolveFloorPlanCloudRevision(plan);
     try {
       const existing = await readFloorPlanCacheRecord(projectId, plan.id, revision);
@@ -1057,12 +1085,14 @@ export async function cacheFloorPlansForOffline(
         result.bytes += reusableCache.blob.size;
         completed += 1;
         onProgress?.({ completed, total: candidates.length, floorPlanId: plan.id, status: 'cached' });
+        await yieldToUi();
         continue;
       }
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         result.failed += 1;
         completed += 1;
         onProgress?.({ completed, total: candidates.length, floorPlanId: plan.id, status: 'failed' });
+        await yieldToUi();
         continue;
       }
       const downloaded = await downloadFloorPlanBlobFromCloud(projectId, plan);
@@ -1070,17 +1100,20 @@ export async function cacheFloorPlansForOffline(
         result.failed += 1;
         completed += 1;
         onProgress?.({ completed, total: candidates.length, floorPlanId: plan.id, status: 'failed' });
+        await yieldToUi();
         continue;
       }
       result.downloaded += 1;
       result.bytes += downloaded.blob.size;
       completed += 1;
       onProgress?.({ completed, total: candidates.length, floorPlanId: plan.id, status: 'downloaded' });
+      await yieldToUi();
     } catch (err) {
       result.failed += 1;
       completed += 1;
       onProgress?.({ completed, total: candidates.length, floorPlanId: plan.id, status: 'failed' });
       console.warn('[Floor Plan Image] offline cache warning:', plan.floorName, err);
+      await yieldToUi();
     }
   }
   const ineligible = Math.max(0, (plans || []).length - rawCandidates.length);
