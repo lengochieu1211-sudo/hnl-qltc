@@ -340,6 +340,12 @@ interface FloorPlanDefectTabProps {
   onUpdateFloorPlan?: (id: string, updates: Partial<FloorPlan>) => void;
   onUpdateFloorPlanImage?: (id: string, imageUrl: string) => void | Promise<void>;
   onUpdateFloorPlanImages?: (ids: string[], imageUrl: string) => number | Promise<number>;
+  onInspectFloorPlanBulkTargets?: (ids: string[]) => Promise<{
+    readyIds: string[];
+    blocked: Array<{ id: string; floorName: string; reason: string }>;
+    legacySafeIds: string[];
+    cloudVerifiedIds: string[];
+  }>;
   onRenameFloorPlan?: (id: string, newName: string) => void;
   onDeleteFloorPlan?: (id: string) => void;
   onDeleteMultipleFloorPlans?: (ids: string[]) => void;
@@ -617,6 +623,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   onUpdateFloorPlan,
   onUpdateFloorPlanImage,
   onUpdateFloorPlanImages,
+  onInspectFloorPlanBulkTargets,
   onRenameFloorPlan,
   onDeleteFloorPlan,
   onDeleteMultipleFloorPlans,
@@ -3822,17 +3829,49 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }
 
     try {
+      let effectiveTargetIds = targetIds;
+      let skippedPendingNames: string[] = [];
+      let legacySafeCount = 0;
+
+      if (targetIds.length > 1 && onInspectFloorPlanBulkTargets) {
+        const preflight = await onInspectFloorPlanBulkTargets(targetIds);
+        legacySafeCount = preflight.legacySafeIds.length;
+        if (preflight.blocked.length > 0) {
+          skippedPendingNames = preflight.blocked.map((row) => row.floorName);
+          if (preflight.readyIds.length === 0) {
+            alert(`Không có tầng nào sẵn sàng để áp dụng. ${preflight.blocked.length} tầng đang có bản vẽ chờ đồng bộ:\n- ${skippedPendingNames.slice(0, 8).join('\n- ')}${skippedPendingNames.length > 8 ? `\n… và ${skippedPendingNames.length - 8} tầng khác` : ''}\n\nHãy đồng bộ các tầng này xong rồi thử lại.`);
+            return;
+          }
+
+          const confirmed = await confirmAsync(
+            `Có ${preflight.blocked.length}/${targetIds.length} tầng đang có bản vẽ chờ đồng bộ thật nên phải giữ nguyên:\n\n• ${skippedPendingNames.slice(0, 8).join('\n• ')}${skippedPendingNames.length > 8 ? `\n• … và ${skippedPendingNames.length - 8} tầng khác` : ''}\n\nCó thể áp dụng bản vẽ mới cho ${preflight.readyIds.length} tầng đã sẵn sàng và bỏ qua các tầng trên. Defect, Căn/Phòng, highlight, tiến độ và checklist không bị sao chép/chỉnh sửa.`,
+            {
+              title: 'Một số tầng đang chờ đồng bộ',
+              confirmLabel: `Áp dụng cho ${preflight.readyIds.length} tầng`,
+            },
+          );
+          if (!confirmed) return;
+          effectiveTargetIds = preflight.readyIds;
+        }
+      }
+
       beginFloorPlanFileProcessing(file);
       const planUrl = await renderFloorPlanFile(file);
       if (!planUrl) return;
 
-      if (targetIds.length > 1) {
+      if (effectiveTargetIds.length > 1) {
         if (!onUpdateFloorPlanImages) throw new Error('FLOOR_PLAN_BULK_HANDLER_UNAVAILABLE');
-        const applied = await onUpdateFloorPlanImages(targetIds, planUrl);
-        alert(`🎉 Đã áp dụng 1 bản vẽ chung cho ${applied} tầng. Defect, Căn/Phòng và tiến độ từng tầng vẫn giữ riêng.`);
-      } else if (onUpdateFloorPlanImage) {
-        await onUpdateFloorPlanImage(targetIds[0], planUrl);
-        alert('🎉 Đã cập nhật thành công bản vẽ mới cho tầng!');
+        const applied = await onUpdateFloorPlanImages(effectiveTargetIds, planUrl);
+        const suffix = skippedPendingNames.length > 0
+          ? ` Bỏ qua ${skippedPendingNames.length} tầng đang đồng bộ.`
+          : legacySafeCount > 0
+            ? ` Đã nhận diện an toàn ${legacySafeCount} tầng legacy.`
+            : '';
+        alert(`🎉 Đã áp dụng 1 bản vẽ chung cho ${applied} tầng.${suffix} Defect, Căn/Phòng và tiến độ từng tầng vẫn giữ riêng.`);
+      } else if (effectiveTargetIds.length === 1 && onUpdateFloorPlanImage) {
+        await onUpdateFloorPlanImage(effectiveTargetIds[0], planUrl);
+        const suffix = skippedPendingNames.length > 0 ? ` Bỏ qua ${skippedPendingNames.length} tầng đang đồng bộ.` : '';
+        alert(`🎉 Đã cập nhật bản vẽ cho 1 tầng.${suffix}`);
       }
       resetFloorPlanApplyScope();
     } catch (err) {
@@ -3841,7 +3880,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       if (message.includes('FLOOR_PLAN_BULK_REQUIRES_ONLINE')) {
         alert('Áp dụng cùng một bản vẽ cho nhiều tầng cần có mạng để tạo 1 asset dùng chung an toàn. Hãy kết nối mạng rồi thử lại.');
       } else if (message.includes('FLOOR_PLAN_BULK_TARGET_PENDING')) {
-        alert('Có tầng đang chờ tải bản vẽ lên Cloud/R2. Hãy chờ đồng bộ xong rồi áp dụng hàng loạt để tránh ghi đè nhầm revision.');
+        const pendingNames = message.split(':').slice(1).join(':').split('|').map((name) => name.trim()).filter(Boolean);
+        alert(`Có tầng đang chờ tải bản vẽ lên Cloud/R2${pendingNames.length ? `: ${pendingNames.join(', ')}` : ''}. Hãy chờ đồng bộ xong rồi thử lại; hệ thống không ghi đè revision đang chờ.`);
       } else if (message.includes('FLOOR_PLAN_ADMIN_REQUIRED') || message.includes('FLOOR_PLAN_ROLE_VERIFICATION_UNAVAILABLE')) {
         alert('Không xác minh được quyền ADMIN để thay mặt bằng. Hãy kiểm tra kết nối/quyền dự án rồi thử lại.');
       } else {

@@ -194,7 +194,7 @@ import { refreshProjectPhotoMetadataFromCloud, subscribeProjectPhotosRealtime, s
 import { appendRuntimeDiagnostic } from './lib/runtimeDiagnostics';
 import { isPrimaryDriveReady, PRIMARY_DRIVE_OWNER_EMAIL, uploadProjectBackupToPrimaryDrive } from './lib/primaryDriveBridge';
 import { subscribeConversationReadState, subscribeConversationSummary } from './lib/chatService';
-import { applyFloorPlanImageToMultipleFloors, cacheFloorPlansForOffline, floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, isFloorPlanAutoCacheNetworkSuitable, loadFloorPlanImageFromCloud, resolveFloorPlanImageForDisplay, stageFloorPlanImageOutbox, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
+import { applyFloorPlanImageToMultipleFloors, inspectFloorPlanBulkTargets, cacheFloorPlansForOffline, floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, isFloorPlanAutoCacheNetworkSuitable, loadFloorPlanImageFromCloud, resolveFloorPlanImageForDisplay, stageFloorPlanImageOutbox, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
 import { DEFAULT_TRASH_SETTINGS, TrashOperation, TrashSettings, TrashCollectionKey, deleteTrashOperationFromCloud, estimateTrashBytes, getTrashCollectionLabel, normalizeTrashSettings, sanitizeTrashSnapshot, saveTrashOperationToCloud, subscribeProjectTrash } from './lib/trash';
 import { commitWarehouseTransactionAtomic, updateWarehouseTransactionAtomic, softDeleteWarehouseTransactionAtomic } from './lib/warehouseTransactions';
 import { drainBinaryPurgeRetryQueues, purgeTrashOperationBinaries } from './lib/cloudBinaryPurge';
@@ -5800,6 +5800,22 @@ function AuthenticatedApp() {
     }));
   };
 
+  const handleInspectFloorPlanBulkTargets = async (ids: string[]) => {
+    const uniqueIds = Array.from(new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean)));
+    const idSet = new Set(uniqueIds);
+    const targets = floorPlans.filter((plan) => idSet.has(plan.id));
+    if (targets.length !== uniqueIds.length) throw new Error('FLOOR_PLAN_BULK_TARGET_NOT_FOUND');
+    const result = await inspectFloorPlanBulkTargets(activeProjectIdRef.current, targets);
+    appendRuntimeDiagnostic({
+      level: result.blocked.length > 0 ? 'warn' : 'info',
+      area: 'floor-plan-image',
+      projectId: activeProjectIdRef.current,
+      code: 'BULK_PREFLIGHT',
+      message: `selected=${uniqueIds.length}; ready=${result.readyIds.length}; blocked=${result.blocked.length}; legacy=${result.legacySafeIds.length}; cloudVerified=${result.cloudVerifiedIds.length}`,
+    });
+    return result;
+  };
+
   const handleUpdateFloorPlanImages = async (ids: string[], imageUrl: string): Promise<number> => {
     if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) throw new Error('FLOOR_PLAN_ADMIN_REQUIRED');
     const uniqueIds = Array.from(new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean)));
@@ -6960,6 +6976,7 @@ function AuthenticatedApp() {
               onUpdateFloorPlan={handleUpdateFloorPlan}
               onUpdateFloorPlanImage={handleUpdateFloorPlanImage}
               onUpdateFloorPlanImages={handleUpdateFloorPlanImages}
+              onInspectFloorPlanBulkTargets={handleInspectFloorPlanBulkTargets}
               onRenameFloorPlan={handleRenameFloorPlan}
               onDeleteFloorPlan={handleDeleteFloorPlan}
               onDeleteMultipleFloorPlans={handleDeleteMultipleFloorPlans}

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { classifyFloorPlanBulkTarget } from '../src/utils/floorPlanBulkSafety';
 
 const read = (path: string) => fs.readFileSync(path, 'utf8');
 const check = (condition: unknown, message: string) => { if (!condition) throw new Error(message); };
@@ -33,6 +34,29 @@ check((bulkApply.match(/uploadFloorPlanBinaryToCloud\(/g) || []).length === 1, '
 check(bulkApply.includes("batch.set(doc(db, 'projects', projectId, 'floor_plans', plan.id)"), 'Bulk floor-plan apply must atomically publish per-floor metadata.');
 check(bulkApply.includes('imageAssetId: assetId') && bulkApply.includes('imageAssetOwnerFloorId: ownerPlan.id'), 'Shared asset identity must be recorded on every target floor.');
 check(bulkApply.includes("FLOOR_PLAN_BULK_TARGET_PENDING"), 'Bulk apply must fail closed when a target has a pending replacement.');
+check(sync.includes('inspectFloorPlanBulkTargets'), 'Bulk apply must preflight legacy vs true pending targets.');
+check(sync.includes('getFloorPlanImageOutboxSnapshot(projectId)'), 'Bulk preflight must inspect durable local outbox evidence.');
+check(sync.includes('getDocFromServer'), 'Ambiguous pending markers must be checked against the authoritative server row.');
+check(
+  classifyFloorPlanBulkTarget({ imageUrl: 'https://legacy.example/plan.jpg', imageRevision: 100, imageCloudRevision: 0 }).status === 'legacy-overwrite-safe',
+  'Legacy revision-only rows must be replaceable in an explicit bulk operation.',
+);
+check(
+  classifyFloorPlanBulkTarget({ imageUrl: 'data:image/png;base64,AA==', imageRevision: 100, imageCloudRevision: 0 }).status === 'blocked-pending',
+  'A real local binary replacement must remain fail-closed.',
+);
+check(
+  classifyFloorPlanBulkTarget({ imageUrl: 'https://legacy.example/plan.jpg', imageRevision: 100, imageCloudRevision: 0, imageUploadState: 'pending', imagePendingByUid: 'uid-a' }).status === 'blocked-pending',
+  'An owned pending replacement must remain fail-closed.',
+);
+check(
+  classifyFloorPlanBulkTarget({ imageUrl: 'cloud-floorplan:r2:path', imageRevision: 100, imageCloudRevision: 100, imageUploadState: 'pending', storageProvider: 'r2', storagePath: 'path' }).status === 'ready',
+  'A stale pending marker must not block an already cloud-stable R2 revision.',
+);
+check(
+  classifyFloorPlanBulkTarget({ imageUrl: 'https://legacy.example/plan.jpg', imageRevision: 100, imageCloudRevision: 0, imageUploadState: 'pending' }).status === 'needs-server-check',
+  'Ambiguous pending metadata must be server-verified instead of guessed.',
+);
 
 // P0 atomic-publish invariant: floor-plan objects must be immutable once their path is
 // published in Firestore. Reusing /original.ext lets an older/newer in-flight upload
@@ -92,6 +116,9 @@ check(ui.includes('Thêm / Thay bản vẽ mặt bằng'), 'Floor-plan apply sco
 check(ui.includes("floorPlanApplyMode === 'multiple'"), 'Floor-plan apply scope must support multiple floors.');
 check(ui.includes('Chọn nhanh khoảng tầng') && ui.includes('Chọn tất cả'), 'Bulk floor picker must support range/all selection.');
 check(ui.includes('1 file Cloud/R2 dùng chung'), 'Bulk floor UI must explain the single shared binary behavior.');
+check(ui.includes('Áp dụng cho ${preflight.readyIds.length} tầng'), 'Bulk floor UI must allow an explicit safe-subset apply when true pending targets exist.');
+check(ui.includes('skippedPendingNames'), 'Bulk floor UI must name/track targets skipped because they are truly pending.');
+check(app.includes('onInspectFloorPlanBulkTargets={handleInspectFloorPlanBulkTargets}'), 'App must expose bulk preflight to the floor-plan UI.');
 check(ui.includes('Defect, Căn/Phòng, highlight, tiến độ, checklist'), 'Bulk floor UI must warn that business data remains per-floor.');
 check(ui.includes('getSuggestedNewFloorStructureGroupId'), 'Add-floor flows must prefill the currently relevant Khu/Khối instead of reusing a stale/default selection.');
 check(ui.includes('setNewFloorStructureGroupId(getSuggestedNewFloorStructureGroupId())'), 'Manage-floor add actions must apply the stable Khu/Khối prefill.');
