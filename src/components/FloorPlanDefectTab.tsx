@@ -89,6 +89,8 @@ import { getImageQualityProfile } from '../utils/imageQualitySettings';
 import { detectPdfRoomCandidatesFromDocument, DEFAULT_PDF_ROOM_NAME_PATTERN, PdfRoomCandidate } from '../utils/pdfRoomDetection';
 import { QuickSortBar } from './QuickSortBar';
 import { MoveOrderControls } from './MoveOrderControls';
+import { ExcelActionMenu } from './ExcelActionMenu';
+import { QuickEditGridModal, type QuickGridColumn, type QuickGridRow } from './QuickEditGridModal';
 import { UserRole, canManageFloorPlanStructure, canEditDefectData, canDeleteBusinessData } from '../utils/securityUtils';
 import { appendRuntimeDiagnostic } from '../lib/runtimeDiagnostics';
 import { getCurrentRealFirebaseUser } from '../lib/firebase';
@@ -2811,6 +2813,223 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   const floorDefects = defects.filter((d) => d.floorId === activeFloor?.id);
   const floorRooms = roomProgressList.filter((r) => r.floorId === activeFloor?.id);
+  const [showQuickEdit, setShowQuickEdit] = useState(false);
+  const [quickEditMode, setQuickEditMode] = useState<'rooms' | 'defects'>('rooms');
+
+  const quickFloorById = React.useMemo(() => new Map(floorPlans.map((floor) => [floor.id, floor] as const)), [floorPlans]);
+  const quickRoomById = React.useMemo(() => new Map(roomProgressList.map((room) => [room.id, room] as const)), [roomProgressList]);
+  const quickTeamByName = React.useMemo(() => new Map(
+    teams.filter((team) => team.name?.trim()).map((team) => [team.name.trim().toLocaleLowerCase('vi-VN'), team] as const)
+  ), [teams]);
+
+  const floorQuickRows = React.useMemo<QuickGridRow[]>(() => roomProgressList.flatMap((room) => {
+    const floor = quickFloorById.get(room.floorId);
+    const groupName = floor
+      ? getStructureGroupName(resolveFloorStructureGroupId(floor, normalizedStructureConfig), normalizedStructureConfig)
+      : '';
+    const subItems = room.subItems?.length ? room.subItems : [undefined];
+    const roomDefectCount = defects.filter((defect) => defect.roomId === room.id && !defect.deletedAt).length;
+    return subItems.map((subItem, subIndex) => ({
+      __rowKey: `${room.id}--${subItem?.id || `legacy-${subIndex}`}`,
+      __recordId: room.id,
+      __subItemId: subItem?.id || '',
+      structureGroup: groupName,
+      floorName: floor?.floorName || room.floorName || '',
+      roomName: room.roomName,
+      mainCategory: room.workCategory || '',
+      mainVolume: room.workVolume ?? '',
+      subItemName: subItem?.name || '',
+      subTeamName: subItem?.assignedTeam || (subItem?.teamId ? teams.find((team) => team.id === subItem.teamId)?.name : '') || room.assignedTeam || '',
+      progress: subItem?.status || room.frameStatus,
+      inspection: subItem?.inspectionStatus || room.inspectionStatus || 'Chưa nghiệm thu',
+      targetDate: subItem?.targetDate || room.targetBoardDate || room.targetFrameDate || '',
+      defectCount: roomDefectCount,
+    }));
+  }), [roomProgressList, defects, quickFloorById, normalizedStructureConfig, teams]);
+
+  const defectQuickRows = React.useMemo<QuickGridRow[]>(() => defects.filter((defect) => !defect.deletedAt).map((defect) => {
+    const floor = quickFloorById.get(defect.floorId);
+    const room = defect.roomId ? quickRoomById.get(defect.roomId) : undefined;
+    const groupName = floor
+      ? getStructureGroupName(resolveFloorStructureGroupId(floor, normalizedStructureConfig), normalizedStructureConfig)
+      : '';
+    return {
+      __rowKey: defect.id,
+      __defectId: defect.id,
+      structureGroup: groupName,
+      floorName: floor?.floorName || defect.floorName,
+      roomName: room?.roomName || defect.positionDetail || '',
+      defectCode: getDefectShortCode(defect),
+      description: defect.description,
+      category: defect.category,
+      dueDate: defect.dueDate || '',
+      assignedTo: defect.assignedTo || '',
+      completedAt: defect.completedAt || '',
+      status: defect.status,
+    };
+  }), [defects, quickFloorById, quickRoomById, normalizedStructureConfig]);
+
+  const quickWorkCategoryOptions = React.useMemo(() => Array.from(new Set([
+    ...workVolumes.map((item) => item.title),
+    ...roomProgressList.map((room) => room.workCategory || ''),
+  ].filter(Boolean))), [workVolumes, roomProgressList]);
+  const quickTeamOptions = React.useMemo(() => Array.from(new Set([
+    ...teams.map((team) => team.name),
+    ...roomProgressList.flatMap((room) => [
+      room.assignedTeam || '',
+      ...(room.subItems || []).map((subItem) => subItem.assignedTeam || ''),
+    ]),
+    ...defects.map((defect) => defect.assignedTo || ''),
+  ].filter(Boolean))), [teams, roomProgressList, defects]);
+
+  const roomQuickColumns = React.useMemo<QuickGridColumn[]>(() => [
+    { key: 'structureGroup', label: normalizedStructureConfig.label || 'Khu/Khối', editable: false, width: 145 },
+    { key: 'floorName', label: 'Tầng', editable: false, width: 125 },
+    { key: 'roomName', label: 'Căn / Phòng', editable: canManageStructure, required: true, width: 155 },
+    { key: 'mainCategory', label: 'Hạng mục chính', editable: canManageStructure, type: 'select', options: quickWorkCategoryOptions, width: 230 },
+    { key: 'mainVolume', label: 'KL Hạng mục chính', editable: canManageStructure, type: 'number', width: 145, validate: (value) => Number(value || 0) < 0 ? 'Không được âm' : null },
+    { key: 'subItemName', label: 'Hạng mục phụ / Công đoạn', editable: canManageStructure, width: 230 },
+    { key: 'subTeamName', label: 'Đội thi công HM phụ', editable: canManageStructure, type: 'select', options: quickTeamOptions, width: 190 },
+    { key: 'progress', label: 'Tiến độ', editable: canManageStructure, type: 'select', options: ['Chưa làm', 'Đang làm', 'Đã hoàn thành'], width: 135 },
+    {
+      key: 'inspection',
+      label: 'Nghiệm thu',
+      editable: canManageStructure,
+      type: 'select',
+      options: ['Chưa nghiệm thu', 'Đạt nghiệm thu', 'Chưa đạt (Cần sửa)'],
+      width: 160,
+      validate: (value, row) => value === 'Đạt nghiệm thu' && row.progress !== 'Đã hoàn thành'
+        ? 'Chỉ Đạt nghiệm thu khi Tiến độ = Đã hoàn thành'
+        : null,
+    },
+    { key: 'targetDate', label: 'Hạn xong', editable: canManageStructure, type: 'date', width: 135 },
+    { key: 'defectCount', label: 'Defect', editable: false, type: 'number', width: 85 },
+  ], [canManageStructure, normalizedStructureConfig.label, quickWorkCategoryOptions, quickTeamOptions]);
+
+  const defectQuickColumns = React.useMemo<QuickGridColumn[]>(() => [
+    { key: 'structureGroup', label: normalizedStructureConfig.label || 'Khu/Khối', editable: false, width: 145 },
+    { key: 'floorName', label: 'Tầng', editable: false, width: 125 },
+    { key: 'roomName', label: 'Căn / Phòng', editable: false, width: 155 },
+    { key: 'defectCode', label: 'Defect', editable: false, width: 100 },
+    { key: 'description', label: 'Nội dung defect', editable: canEditDefects, required: true, width: 300 },
+    { key: 'category', label: 'Nhóm lỗi', editable: canEditDefects, type: 'select', options: DEFECT_CATEGORIES, width: 185 },
+    { key: 'dueDate', label: 'Deadline defect', editable: canEditDefects, type: 'date', width: 145 },
+    { key: 'assignedTo', label: 'Đội phụ trách defect', editable: canEditDefects, type: 'select', options: quickTeamOptions, width: 190 },
+    { key: 'completedAt', label: 'Ngày hoàn thành thực tế defect', editable: canEditDefects, type: 'date', width: 190 },
+    { key: 'status', label: 'Trạng thái defect', editable: canEditDefects, type: 'select', options: ['Mới phát hiện', 'Đang sửa', 'Đã khắc phục', 'Đã nghiệm thu'], width: 155 },
+  ], [canEditDefects, normalizedStructureConfig.label, quickTeamOptions]);
+
+  const saveRoomQuickRows = async (rows: QuickGridRow[], dirtyCellKeys: Set<string>) => {
+    if (!canManageStructure) return;
+    const dirtyRowKeys = new Set(Array.from(dirtyCellKeys).map((key) => key.split('::')[0]));
+    const dirtyRows = rows.filter((row) => dirtyRowKeys.has(row.__rowKey));
+    const dirtyRoomIds = Array.from(new Set(dirtyRows.map((row) => String(row.__recordId || '')).filter(Boolean)));
+    const changedRooms: RoomProgressItem[] = [];
+
+    dirtyRoomIds.forEach((roomId) => {
+      const existing = roomProgressList.find((room) => room.id === roomId);
+      if (!existing) return;
+      const allRows = rows.filter((row) => String(row.__recordId || '') === roomId);
+      const changedForRoom = dirtyRows.filter((row) => String(row.__recordId || '') === roomId);
+      const next: RoomProgressItem = { ...existing, subItems: existing.subItems ? existing.subItems.map((item) => ({ ...item })) : [] };
+
+      const pickShared = (key: string, fallback: unknown) => {
+        const changed = changedForRoom.filter((row) => dirtyCellKeys.has(`${row.__rowKey}::${key}`));
+        const values = Array.from(new Set(changed.map((row) => String(row[key] ?? ''))));
+        if (values.length > 1) throw new Error(`Căn ${existing.roomName}: cột ${key} có nhiều giá trị khác nhau giữa các dòng hạng mục phụ.`);
+        return changed.length ? changed[changed.length - 1][key] : fallback;
+      };
+
+      next.roomName = String(pickShared('roomName', existing.roomName) || '').trim();
+      const mainCategory = String(pickShared('mainCategory', existing.workCategory || '') || '').trim();
+      const mainCategoryRecord = workVolumes.find((item) => item.title === mainCategory);
+      next.workCategory = mainCategory || undefined;
+      next.workCategoryId = mainCategoryRecord ? (mainCategoryRecord.workCategoryId || mainCategoryRecord.id) : existing.workCategoryId;
+      const mainVolumeValue = pickShared('mainVolume', existing.workVolume ?? '');
+      if (mainVolumeValue !== '' && mainVolumeValue !== undefined) {
+        next.workVolume = Math.max(0, Number(mainVolumeValue || 0));
+        if (mainCategory) {
+          next.categoryVolumes = { ...(existing.categoryVolumes || {}), [mainCategory]: next.workVolume };
+          next.categoryVolumeUnits = { ...(existing.categoryVolumeUnits || {}), [mainCategory]: existing.volumeUnit || 'm²' };
+        }
+      }
+
+      allRows.forEach((row) => {
+        const subId = String(row.__subItemId || '').trim();
+        const rowDirty = Array.from(dirtyCellKeys).some((key) => key.startsWith(`${row.__rowKey}::`));
+        if (!rowDirty) return;
+        let sub = subId ? next.subItems?.find((item) => item.id === subId) : undefined;
+        const name = String(row.subItemName || '').trim();
+        if (!sub && !name) return;
+        if (!sub) {
+          sub = {
+            id: createEntityId('sub-custom'),
+            name,
+            category: mainCategory || undefined,
+            workCategoryId: mainCategoryRecord ? (mainCategoryRecord.workCategoryId || mainCategoryRecord.id) : undefined,
+            status: 'Chưa làm',
+            inspectionStatus: 'Chưa nghiệm thu',
+          };
+          next.subItems = [...(next.subItems || []), sub];
+        }
+        sub.name = name || sub.name;
+        const teamName = String(row.subTeamName || '').trim();
+        const team = quickTeamByName.get(teamName.toLocaleLowerCase('vi-VN'));
+        sub.assignedTeam = team?.name || teamName || undefined;
+        sub.teamId = team?.id || (teamName ? undefined : sub.teamId);
+        sub.status = String(row.progress || sub.status || 'Chưa làm') as AcceptanceStatus;
+        sub.inspectionStatus = String(row.inspection || sub.inspectionStatus || 'Chưa nghiệm thu') as RoomInspectionResult;
+        if (sub.inspectionStatus === 'Đạt nghiệm thu' && sub.status !== 'Đã hoàn thành') {
+          throw new Error(`Căn ${next.roomName} / ${sub.name}: không thể Đạt nghiệm thu khi chưa hoàn thành.`);
+        }
+        sub.targetDate = String(row.targetDate || '').trim() || undefined;
+      });
+
+      const operational = next.subItems || [];
+      next.inspectionStatus = operational.length > 0
+        ? operational.every((item) => item.inspectionStatus === 'Đạt nghiệm thu')
+          ? 'Đạt nghiệm thu'
+          : operational.some((item) => item.inspectionStatus === 'Chưa đạt (Cần sửa)')
+            ? 'Chưa đạt (Cần sửa)'
+            : 'Chưa nghiệm thu'
+        : next.inspectionStatus;
+      next.updatedAt = Date.now();
+      changedRooms.push(next);
+    });
+
+    const confirmed = await confirmAsync(`Lưu thay đổi cho ${changedRooms.length} Căn / Phòng trên nhiều tầng? ID Căn, highlight, Defect và lịch sử được giữ nguyên.`);
+    if (!confirmed) return;
+    if (onBatchSaveRooms) onBatchSaveRooms(changedRooms);
+    else changedRooms.forEach((room) => onSaveRoomProgress(room));
+  };
+
+  const saveDefectQuickRows = async (rows: QuickGridRow[], dirtyCellKeys: Set<string>) => {
+    if (!canEditDefects) return;
+    if (!onUpdateDefect) throw new Error('Phiên bản ứng dụng chưa hỗ trợ cập nhật Defect hàng loạt.');
+    const dirtyRowKeys = new Set(Array.from(dirtyCellKeys).map((key) => key.split('::')[0]));
+    const changedRows = rows.filter((row) => dirtyRowKeys.has(row.__rowKey));
+    const nextDefects = changedRows.map((row) => {
+      const existing = defects.find((defect) => defect.id === String(row.__defectId || row.__rowKey));
+      if (!existing) throw new Error(`Không tìm thấy Defect ${String(row.__defectId || row.__rowKey)}.`);
+      const assignedTo = String(row.assignedTo || '').trim();
+      const team = quickTeamByName.get(assignedTo.toLocaleLowerCase('vi-VN'));
+      return {
+        ...existing,
+        description: String(row.description || '').trim(),
+        category: String(row.category || existing.category) as DefectCategory,
+        dueDate: String(row.dueDate || '').trim() || undefined,
+        assignedTo,
+        teamId: team?.id || (assignedTo ? undefined : existing.teamId),
+        completedAt: String(row.completedAt || '').trim() || undefined,
+        status: String(row.status || existing.status) as DefectStatus,
+        updatedAt: Date.now(),
+      } as DefectItem;
+    });
+    const confirmed = await confirmAsync(`Lưu ${nextDefects.length} Defect đã chỉnh trong bảng? Ảnh trước/sau sửa và defectId được giữ nguyên.`);
+    if (!confirmed) return;
+    nextDefects.forEach((defect) => onUpdateDefect(defect));
+  };
+
   const mapFloorDefects = floorDefects.filter((d) => mapLayers.resolvedDefects || !(d.status === 'Đã nghiệm thu' || d.status === 'Đã khắc phục'));
 
   // Generate a collision-safe default name for quick room creation.
@@ -7888,23 +8107,22 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <div className="flex flex-wrap items-center gap-1.5 shrink-0">
                 <button
                   type="button"
-                  onClick={downloadHighlightTemplate}
-                  className="text-[11px] font-extrabold text-indigo-700 hover:text-indigo-900 bg-white hover:bg-slate-50 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-slate-200 transition-all active:scale-95 shadow-2xs"
-                  title="Tải tệp mẫu Excel để nhập danh sách hàng loạt"
+                  onClick={() => { setQuickEditMode('rooms'); setShowQuickEdit(true); }}
+                  className="text-[11px] font-extrabold text-indigo-700 hover:text-indigo-900 bg-white hover:bg-indigo-50 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-indigo-200 transition-all active:scale-95 shadow-2xs"
+                  title="Chỉnh Căn/Hạng mục/Defect nhiều tầng theo bảng cột và dòng"
                 >
-                  <Download className="w-3.5 h-3.5" /> Mẫu Excel
+                  ▦ Bảng chỉnh nhanh
                 </button>
+                <ExcelActionMenu
+                  onExportEdit={() => downloadHighlightTemplate('all')}
+                  onImportFile={canManageStructure ? handleImportExcelHighlights : undefined}
+                  onDownloadTemplate={() => downloadHighlightTemplate('template')}
+                  exportLabel="Xuất Căn / Hạng mục để chỉnh sửa"
+                  importLabel="Nhập Excel đã chỉnh sửa"
+                  templateLabel="Tải mẫu Căn / Hạng mục"
+                />
                 {canManageStructure && (
                   <>
-                    <label className="text-[11px] font-extrabold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-emerald-200 cursor-pointer transition-all active:scale-95 shadow-2xs">
-                      <Upload className="w-3.5 h-3.5" /> Nhập Excel
-                      <input
-                        type="file"
-                        accept=".xlsx, .xls"
-                        onChange={handleImportExcelHighlights}
-                        className="hidden"
-                      />
-                    </label>
                     <button
                       type="button"
                       onClick={async () => {
@@ -8627,6 +8845,26 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       )}
 
       {/* Room Highlight Modal */}
+      <QuickEditGridModal
+        open={showQuickEdit}
+        title="Bảng chỉnh nhanh · Mặt bằng"
+        subtitle={quickEditMode === 'rooms'
+          ? 'Chỉnh Căn/Hạng mục của nhiều tầng cùng lúc. Khu/Khối và Tầng chỉ đọc để bảo vệ liên kết floorId.'
+          : 'Defect được chỉnh theo defectId; ảnh trước/sau sửa không bị thay đổi.'}
+        tabs={[
+          { key: 'rooms', label: 'Căn & Hạng mục' },
+          { key: 'defects', label: 'Defect' },
+        ]}
+        activeTab={quickEditMode}
+        onTabChange={(key) => setQuickEditMode(key as 'rooms' | 'defects')}
+        columns={quickEditMode === 'rooms' ? roomQuickColumns : defectQuickColumns}
+        rows={quickEditMode === 'rooms' ? floorQuickRows : defectQuickRows}
+        canEdit={quickEditMode === 'rooms' ? canManageStructure : canEditDefects}
+        canAddRows={false}
+        onClose={() => setShowQuickEdit(false)}
+        onSave={quickEditMode === 'rooms' ? saveRoomQuickRows : saveDefectQuickRows}
+      />
+
       <RoomHighlightModal
         isOpen={isRoomModalOpen}
         onClose={() => {
