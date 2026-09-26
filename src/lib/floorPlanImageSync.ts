@@ -897,7 +897,10 @@ function parseDriveFileId(plan: FloorPlan): string {
 function parseStoragePointer(plan: FloorPlan): { provider: string; path: string } {
   const raw = String(plan.cloudFileId || '');
   const inferredProvider = raw.startsWith('r2:') ? 'r2' : raw.startsWith('storage:') ? 'firebase-storage' : '';
-  if (plan.storagePath) return { provider: String(plan.storageProvider || inferredProvider), path: String(plan.storagePath) };
+  // Legacy duplicated floors could retain the immutable storagePath while losing
+  // storageProvider. For read/display only, infer the currently configured binary
+  // provider so those rows can still resolve the shared object without a Firestore write.
+  if (plan.storagePath) return { provider: String(plan.storageProvider || inferredProvider || BINARY_STORAGE_PROVIDER), path: String(plan.storagePath) };
   if (raw.startsWith('r2:')) return { provider: 'r2', path: raw.slice(3) };
   if (raw.startsWith('storage:')) return { provider: 'firebase-storage', path: raw.slice('storage:'.length) };
   return { provider: '', path: '' };
