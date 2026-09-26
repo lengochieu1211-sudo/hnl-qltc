@@ -654,12 +654,14 @@ export function exportCrewRecordsToExcel(crewRecords: CrewRecord[], teams: TeamI
     return (a.teamName || '').localeCompare(b.teamName || '');
   });
 
-  const data = sortedCrewRecords.map((item, idx) => {
+  const mainData = sortedCrewRecords.map((item, idx) => {
     const team = teams.find(t => isTeamMatch(item.teamName, t, item.teamId));
     return {
       'STT': idx + 1,
       '__recordId': item.id,
       '__teamId': item.teamId || team?.id || '',
+      '__floorId': item.floorId || '',
+      '__structureGroupId': item.structureGroupId || '',
       'Ngày Ghi Nhận': item.date ? formatDateDDMMYYYY(item.date) : '',
       'Tên Đội Thi Công': item.teamName,
       'Trưởng Nhóm / Đội Trưởng': item.leaderName,
@@ -674,9 +676,81 @@ export function exportCrewRecordsToExcel(crewRecords: CrewRecord[], teams: TeamI
     };
   });
 
-  const ws = XLSX.utils.json_to_sheet(data);
-  autoFitColumns(ws);
-  XLSX.utils.book_append_sheet(wb, ws, 'Nhat Ky Quan So');
+  const wsMain = XLSX.utils.json_to_sheet(mainData);
+  autoFitColumns(wsMain);
+  wsMain['!cols'] = (wsMain['!cols'] || []).map((col, index) =>
+    [1, 2, 3, 4].includes(index) ? { ...col, hidden: true } : col
+  );
+  wsMain['!autofilter'] = { ref: `A1:O${Math.max(2, mainData.length + 1)}` };
+  XLSX.utils.book_append_sheet(wb, wsMain, 'Nhat Ky Quan So');
+
+  const detailData = sortedCrewRecords.flatMap((record) => {
+    const floorWorks = record.floorWorks || [];
+    if (floorWorks.length === 0) {
+      return [{
+        '__recordId': record.id,
+        '__floorId': record.floorId || '',
+        'Ngày Ghi Nhận': record.date ? formatDateDDMMYYYY(record.date) : '',
+        'Tên Đội Thi Công': record.teamName,
+        'Tầng / Khu Vực': record.floorName || '',
+        'Hạng Mục Chính': '',
+        'Hạng Mục Phụ / Công Đoạn': record.taskDescription || '',
+      }];
+    }
+    return floorWorks.flatMap((floorWork) => {
+      const categories = floorWork.categories || [];
+      if (categories.length === 0) {
+        return [{
+          '__recordId': record.id,
+          '__floorId': floorWork.floorId || '',
+          'Ngày Ghi Nhận': record.date ? formatDateDDMMYYYY(record.date) : '',
+          'Tên Đội Thi Công': record.teamName,
+          'Tầng / Khu Vực': floorWork.floorName || '',
+          'Hạng Mục Chính': '',
+          'Hạng Mục Phụ / Công Đoạn': '',
+        }];
+      }
+      return categories.map((category) => ({
+        '__recordId': record.id,
+        '__floorId': floorWork.floorId || '',
+        'Ngày Ghi Nhận': record.date ? formatDateDDMMYYYY(record.date) : '',
+        'Tên Đội Thi Công': record.teamName,
+        'Tầng / Khu Vực': floorWork.floorName || '',
+        'Hạng Mục Chính': category.categoryName || '',
+        'Hạng Mục Phụ / Công Đoạn': (category.subItems || []).join('; '),
+      }));
+    });
+  });
+  const wsDetail = XLSX.utils.json_to_sheet(detailData);
+  autoFitColumns(wsDetail);
+  wsDetail['!cols'] = (wsDetail['!cols'] || []).map((col, index) =>
+    [0, 1].includes(index) ? { ...col, hidden: true } : col
+  );
+  XLSX.utils.book_append_sheet(wb, wsDetail, 'Chi Tiet Cong Viec');
+
+  const teamData = teams.map((team) => ({
+    '__teamId': team.id,
+    'Tên Đội Thi Công': team.name,
+    'Trưởng Nhóm / Đội Trưởng': team.leader,
+    'Quân số định biên': team.defaultCount,
+    'Số Điện Thoại': team.phone || '',
+    'Ghi Chú': team.notes || '',
+  }));
+  const wsTeams = XLSX.utils.json_to_sheet(teamData);
+  autoFitColumns(wsTeams);
+  if (wsTeams['!cols']?.[0]) wsTeams['!cols'][0] = { ...wsTeams['!cols'][0], hidden: true };
+  XLSX.utils.book_append_sheet(wb, wsTeams, 'Danh Muc Doi');
+
+  const wsGuide = XLSX.utils.aoa_to_sheet([
+    ['HNL QLTC - Nhật ký quân số'],
+    ['1', 'Nhat Ky Quan So: chỉnh ngày, đội, quân số theo ca và ghi chú.'],
+    ['2', 'Chi Tiet Cong Viec: chỉnh Tầng, Hạng Mục Chính và Hạng Mục Phụ/Công Đoạn của đúng __recordId.'],
+    ['3', 'Các cột __recordId/__teamId/__floorId là khóa kỹ thuật; không xóa nếu muốn cập nhật đúng bản ghi hiện có.'],
+    ['4', 'Ảnh hiện trường không nằm trong Excel và không bị thay đổi khi nhập lại nhật ký.'],
+    ['5', 'Nhập lại luôn có bước kiểm tra trước khi ghi.'],
+  ]);
+  wsGuide['!cols'] = [{ wch: 8 }, { wch: 105 }];
+  XLSX.utils.book_append_sheet(wb, wsGuide, 'Huong Dan');
 
   const safeName = (projectName || 'Cong_Trinh').replace(/[^a-zA-Z0-9_ -]/g, '');
   return saveWorkbookFile(wb, `Nhat_Ky_Quan_So_${safeName}_${Date.now()}.xlsx`);
