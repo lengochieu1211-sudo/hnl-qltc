@@ -530,5 +530,4 @@ export async function detectPdfRoomCandidates(file: File, options: PdfRoomDetect
   }
 }
 
-export const DEFAULT_PDF_ROOM_NAME_PATTERN = '^(?:(?:Căn|Phòng|P\\.?|Room|WC|Khu|Zone)\\s*[-_. ]?[A-Za-zÀ-ỹ0-9]+|[A-Za-zÀ-ỹ0-9]*[A-Za-zÀ-ỹ][A-Za-zÀ-ỹ0-9]*)(?:[\\s._/#-]+[A-Za-zÀ-ỹ0-9]+){0,3}
-;
+export const DEFAULT_PDF_ROOM_NAME_PATTERN = '^(?:(?:Căn|Phòng|P\\.?|Room|WC|Khu|Zone)\\s*[-_. ]?[A-Za-zÀ-ỹ0-9]+|[A-Za-zÀ-ỹ0-9]*[A-Za-zÀ-ỹ][A-Za-zÀ-ỹ0-9]*)(?:[\\s._/#-]+[A-Za-zÀ-ỹ0-9]+){0,3}$';
