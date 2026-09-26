@@ -166,8 +166,9 @@ export function isFloorPlanCloudBinaryReady(plan: FloorPlan): boolean {
   const imageRevision = Math.max(0, Number(plan.imageRevision || 0));
   const cloudRevision = Math.max(0, Number(plan.imageCloudRevision || 0));
   if (cloudRevision <= 0 || cloudRevision < imageRevision) return false;
-  if (String((plan as any).imageUploadState || '').trim().toLowerCase() === 'pending') return false;
 
+  // Cloud revision is authoritative. A stale historical imageUploadState='pending'
+  // must not turn an already published immutable binary back into pending work.
   const pointer = parseStoragePointer(plan);
   const provider = String(pointer.provider || '').trim().toLowerCase();
   if (pointer.path && (provider === 'r2' || provider === 'firebase-storage')) return true;
