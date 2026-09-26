@@ -44,6 +44,30 @@ assert.equal(matrix.dates[0].totalDailyHeadcount, 13, 'daily total must sum grou
 const shareModalSource = readFileSync(new URL('../src/components/CrewReportShareModal.tsx', import.meta.url), 'utf8');
 assert.equal(shareModalSource.includes('TEAM_CHUNK'), false, 'crew share must not split one project every four teams');
 assert.ok(
+  shareModalSource.includes('const [hideUnreportedTeams, setHideUnreportedTeams] = useState(false);')
+  && shareModalSource.includes('const [hideZeroTeams, setHideZeroTeams] = useState(false);')
+  && shareModalSource.includes('const [hideUnreportedDates, setHideUnreportedDates] = useState(false);')
+  && shareModalSource.includes('const [hideZeroDates, setHideZeroDates] = useState(false);'),
+  'crew report hide filters must default to OFF so opening a report never hides data implicitly',
+);
+assert.ok(
+  shareModalSource.includes('Ẩn đội chưa báo')
+  && shareModalSource.includes('Ẩn đội quân số = 0')
+  && shareModalSource.includes('Ẩn ngày chưa báo')
+  && shareModalSource.includes('Ẩn ngày quân số = 0'),
+  'crew report must expose explicit hide-team and hide-date options',
+);
+assert.ok(
+  shareModalSource.includes('if (hideUnreportedTeams && stat.reported === 0) return false;')
+  && shareModalSource.includes('if (hideZeroTeams && stat.reported > 0 && stat.headcount === 0) return false;'),
+  'team filters must distinguish never-reported teams from reported-zero teams',
+);
+assert.ok(
+  shareModalSource.includes('if (hideUnreportedDates && stat.reported === 0) return false;')
+  && shareModalSource.includes('if (hideZeroDates && stat.reported > 0 && stat.headcount === 0) return false;'),
+  'date filters must distinguish unreported dates from reported-zero dates',
+);
+assert.ok(
   shareModalSource.includes('const x = teamStartX + teamIndex * teamWidth + metricIndex * metricWidth;'),
   'crew share total row must align from teamStartX',
 );
