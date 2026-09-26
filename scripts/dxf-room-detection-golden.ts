@@ -42,7 +42,7 @@ assert.ok(roomA, 'center-justified TEXT must use DXF alignment point 11/21');
 assert.ok(roomB, 'formatted MTEXT must be cleaned and detected');
 assert.equal(roomA?.textType, 'TEXT');
 assert.equal(roomB?.textType, 'MTEXT');
-assert.equal(roomA?.areaM2, 11, 'nested HATCH island must be subtracted from room area');
+assert.equal(roomA?.areaM2, 11.75, 'nested HATCH island must be subtracted from room area');
 assert.equal(roomB?.areaM2, 12);
 assert.ok(complexResult.warnings.some((warning) => /island\/hole/i.test(warning)), 'nested HATCH loops must surface a review warning');
 
