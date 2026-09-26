@@ -194,7 +194,7 @@ import { refreshProjectPhotoMetadataFromCloud, subscribeProjectPhotosRealtime, s
 import { appendRuntimeDiagnostic } from './lib/runtimeDiagnostics';
 import { isPrimaryDriveReady, PRIMARY_DRIVE_OWNER_EMAIL, uploadProjectBackupToPrimaryDrive } from './lib/primaryDriveBridge';
 import { subscribeConversationReadState, subscribeConversationSummary } from './lib/chatService';
-import { applyFloorPlanImageToMultipleFloors, inspectFloorPlanBulkTargets, cacheFloorPlansForOffline, floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, isFloorPlanAutoCacheNetworkSuitable, loadFloorPlanImageFromCloud, resolveFloorPlanImageForDisplay, stageFloorPlanImageOutbox, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
+import { applyFloorPlanImageToMultipleFloors, inspectFloorPlanBulkTargets, cacheFloorPlansForOffline, floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, isFloorPlanAutoCacheNetworkSuitable, isFloorPlanCloudBinaryReady, loadFloorPlanImageFromCloud, resolveFloorPlanImageForDisplay, stageFloorPlanImageOutbox, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
 import { DEFAULT_TRASH_SETTINGS, TrashOperation, TrashSettings, TrashCollectionKey, deleteTrashOperationFromCloud, estimateTrashBytes, getTrashCollectionLabel, normalizeTrashSettings, sanitizeTrashSnapshot, saveTrashOperationToCloud, subscribeProjectTrash } from './lib/trash';
 import { commitWarehouseTransactionAtomic, updateWarehouseTransactionAtomic, softDeleteWarehouseTransactionAtomic } from './lib/warehouseTransactions';
 import { drainBinaryPurgeRetryQueues, purgeTrashOperationBinaries } from './lib/cloudBinaryPurge';
@@ -2335,10 +2335,10 @@ function AuthenticatedApp() {
     if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || !projectRoleAllowed || projectRoleSource !== 'cloud' || switchingProjectRef.current) return;
     if (!activeProjectId || floorPlans.length === 0 || floorPlanSmartCacheInFlightRef.current) return;
 
-    const cloudReadyPlans = floorPlans.filter((plan) => {
-      const revision = Number(plan.imageCloudRevision || plan.imageRevision || 0);
-      return revision > 0 && Boolean(plan.storagePath || plan.driveFileId || plan.cloudFileId || plan.storageProvider);
-    });
+    // Prefetch only binaries that are actually Cloud-stable. Legacy cloned floors can
+    // carry a stale storagePath while imageCloudRevision=0; retrying those every minute
+    // creates needless IndexedDB/R2 work and can make WebView/EXE feel periodically stuck.
+    const cloudReadyPlans = floorPlans.filter((plan) => isFloorPlanCloudBinaryReady(plan));
     if (cloudReadyPlans.length === 0) return;
 
     const signature = cloudReadyPlans
@@ -3214,6 +3214,11 @@ function AuthenticatedApp() {
     if (!isHydrated || isLoadingProject || isRestoring || isInitializing) return;
     if (!isOnline || projectRoleSource === 'offline-cache') return;
     if (switchingProjectRef.current || !cloudUserKey || cloudInitialReady) return;
+    // The realtime role listener already proved this existing project is Cloud-authorized.
+    // Do not fire a second role fetch/bootstrap-version bump while the 9 business
+    // listeners are still delivering their initial snapshot; on slower/mobile projects
+    // that could detach/re-attach all listeners and bill the same initial rows twice.
+    if (projectRoleSource === 'cloud' && projectRoleAllowed) return;
 
     const user = getCurrentRealFirebaseUser();
     if (!user || !activeProjectId) return;
@@ -3283,7 +3288,8 @@ function AuthenticatedApp() {
     present,
     lastUpdatedAt,
     isOnline,
-    projectRoleSource
+    projectRoleSource,
+    projectRoleAllowed
   ]);
 
   // Firebase Realtime Subcollection-Based Multi-Device Sync Listener
@@ -6093,26 +6099,52 @@ function AuthenticatedApp() {
         ? resolveFloorStructureGroupId(sourcePlan, normalizedStructure)
         : sourcePlan.structureGroupId;
 
+      const sourceCloudReady = isFloorPlanCloudBinaryReady(sourcePlan);
+      const sourceImageUrl = String(sourcePlan.imageUrl || '');
+      const sourceHasLocalBinary = sourceImageUrl.startsWith('data:image/') || sourceImageUrl.startsWith('blob:');
+      const sourceCloudRevision = Math.max(0, Number(sourcePlan.imageCloudRevision || 0));
+      const sourceProvider = String(sourcePlan.storageProvider || '').trim();
+      const sourceStoragePath = String(sourcePlan.storagePath || '').trim();
+      const sharedAssetId = sourceCloudReady
+        ? (sourcePlan.imageAssetId || (sourceProvider && sourceStoragePath ? `floor-plan-asset:${sourceProvider}:${sourceStoragePath}` : null))
+        : null;
+      const sharedAssetOwnerFloorId = sourceCloudReady
+        ? (sourcePlan.imageAssetOwnerFloorId || sourcePlan.id)
+        : null;
+
       const newPlan: FloorPlan = {
         ...sourcePlan,
         id: newId,
         floorName: newFloorName,
         ...(duplicateStructureGroupId ? { structureGroupId: duplicateStructureGroupId } : {}),
         uploadedAt: new Date().toISOString().split('T')[0],
-        // The copied Base64/blob URL may be reused locally, but cloud identifiers belong
-        // to the source floor and must never be reused under a new floorId. Reset cloud
-        // metadata so the normal image-sync effect uploads a fresh file for the clone.
-        driveFileId: undefined,
-        driveUrl: undefined,
-        cloudFileId: undefined,
-        storageProvider: undefined,
-        imageCloudRevision: 0,
-        imageCloudSyncedAt: undefined,
-        imageAssetId: null,
-        imageAssetOwnerFloorId: null,
-        imageRevision: now,
+        // A cloud-ready immutable drawing is safe to share between duplicated floors.
+        // This is the same pointer model used by bulk apply: no duplicate upload, no
+        // fake pending revision, and every floor still keeps its own business data.
+        imageUrl: sourceCloudReady || sourceHasLocalBinary ? sourcePlan.imageUrl : '',
+        driveFileId: sourceCloudReady ? sourcePlan.driveFileId : undefined,
+        driveUrl: sourceCloudReady ? sourcePlan.driveUrl : undefined,
+        cloudFileId: sourceCloudReady ? sourcePlan.cloudFileId : undefined,
+        storageProvider: sourceCloudReady ? sourcePlan.storageProvider : undefined,
+        storagePath: sourceCloudReady ? sourcePlan.storagePath : undefined,
+        thumbnailPath: sourceCloudReady ? sourcePlan.thumbnailPath : undefined,
+        storageMd5Hash: sourceCloudReady ? sourcePlan.storageMd5Hash : undefined,
+        storageEtag: sourceCloudReady ? sourcePlan.storageEtag : undefined,
+        imageFileSize: sourceCloudReady ? sourcePlan.imageFileSize : (sourceHasLocalBinary ? sourcePlan.imageFileSize : undefined),
+        imageCloudRevision: sourceCloudReady ? sourceCloudRevision : 0,
+        imageCloudSyncedAt: sourceCloudReady ? sourcePlan.imageCloudSyncedAt : undefined,
+        imageAssetId: sharedAssetId,
+        imageAssetOwnerFloorId: sharedAssetOwnerFloorId,
+        imageRevision: sourceCloudReady ? sourceCloudRevision : now,
         updatedAt: now,
       };
+      // Upload-state markers are persisted runtime metadata but are intentionally not
+      // part of the public FloorPlan business type. Set them explicitly without
+      // widening the schema/type surface.
+      const newPlanRuntime = newPlan as FloorPlan & Record<string, any>;
+      newPlanRuntime.imageUploadState = sourceCloudReady ? 'ready' : undefined;
+      newPlanRuntime.imagePendingByUid = null;
+      newPlanRuntime.imageOutboxRevision = sourceCloudReady ? sourceCloudRevision : undefined;
 
       // Safe duplicate: copy geometry, categories, quantities and assignments, but
       // reset all actual construction / inspection results. A new floor must never

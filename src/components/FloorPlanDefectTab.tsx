@@ -84,7 +84,7 @@ import { PhotoAttachment, deleteEntityPhotos, getEntityPhotos, getPhotoDataUrl, 
 import { safeSetLocalStorageItem } from '../utils/storage';
 import { getAsyncItem, removeAsyncItem } from '../utils/asyncStorage';
 import { saveWorkbookFile } from '../utils/fileExport';
-import { convertPdfToImage, describePdfError, getPdfDocumentInfo, loadPdfDocument, renderPdfDocumentPageToImage } from '../utils/pdfToImage';
+import { describePdfError, loadPdfDocument, renderPdfDocumentPageToImage } from '../utils/pdfToImage';
 import { getImageQualityProfile } from '../utils/imageQualitySettings';
 import { detectPdfRoomCandidatesFromDocument, DEFAULT_PDF_ROOM_NAME_PATTERN, PdfRoomCandidate } from '../utils/pdfRoomDetection';
 import { QuickSortBar } from './QuickSortBar';
@@ -1325,6 +1325,44 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const included = new Set(grouped.map((floor) => floor.id));
     return [...grouped, ...floorPlansInSavedOrder.filter((floor) => !included.has(floor.id))];
   }, [floorPlansInSavedOrder, normalizedStructureConfig]);
+
+  // Pure in-memory grouping: showing shared/independent drawings must never add a
+  // Firestore read. Prefer the explicit immutable asset id, with storagePath as a
+  // compatibility key for legacy duplicated floors created before assetId existed.
+  const floorPlanAssetGroups = React.useMemo(() => {
+    const groups = new Map<string, FloorPlan[]>();
+    const keyFor = (plan: FloorPlan) => {
+      const assetId = String(plan.imageAssetId || '').trim();
+      if (assetId) return `asset:${assetId}`;
+      const storagePath = String(plan.storagePath || '').trim();
+      if (storagePath) return `storage:${storagePath}`;
+      const cloudFileId = String(plan.cloudFileId || plan.driveFileId || '').trim();
+      if (cloudFileId) return `cloud:${cloudFileId}`;
+      return `floor:${plan.id}`;
+    };
+    floorPlans.forEach((plan) => {
+      const key = keyFor(plan);
+      const rows = groups.get(key) || [];
+      rows.push(plan);
+      groups.set(key, rows);
+    });
+    return { groups, keyFor };
+  }, [floorPlans]);
+
+  const getFloorPlanAssetGroupInfo = React.useCallback((plan: FloorPlan) => {
+    const key = floorPlanAssetGroups.keyFor(plan);
+    const rows = floorPlanAssetGroups.groups.get(key) || [plan];
+    const hasCloudPointer = Boolean(
+      String(plan.imageAssetId || '').trim()
+      || String(plan.storagePath || '').trim()
+      || String(plan.cloudFileId || plan.driveFileId || '').trim()
+    );
+    return {
+      shared: hasCloudPointer && rows.length > 1,
+      count: rows.length,
+      floorNames: rows.map((row) => row.floorName),
+    };
+  }, [floorPlanAssetGroups]);
 
   const getSavedFloorsForGroup = (groupId: string) =>
     floorPlansInSavedOrder.filter((floor) =>
@@ -3697,14 +3735,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'vi', { numeric: true, sensitivity: 'base' }));
   }, [floorRooms, resolveOperationalCategoryName]);
 
-  const choosePdfPageNumber = async (file: File): Promise<number | null> => {
-    const info = await getPdfDocumentInfo(file);
-    if (info.pageCount <= 1) return 1;
-    const raw = window.prompt(`PDF có ${info.pageCount} trang. Nhập số trang muốn dùng làm mặt bằng (1-${info.pageCount}):`, '1');
+  const choosePdfPageNumber = (pageCount: number): number | null => {
+    if (pageCount <= 1) return 1;
+    const raw = window.prompt(`PDF có ${pageCount} trang. Nhập số trang muốn dùng làm mặt bằng (1-${pageCount}):`, '1');
     if (raw === null) return null;
     const pageNumber = Math.trunc(Number(raw));
-    if (!Number.isFinite(pageNumber) || pageNumber < 1 || pageNumber > info.pageCount) {
-      alert(`Số trang không hợp lệ. Vui lòng chọn từ 1 đến ${info.pageCount}.`);
+    if (!Number.isFinite(pageNumber) || pageNumber < 1 || pageNumber > pageCount) {
+      alert(`Số trang không hợp lệ. Vui lòng chọn từ 1 đến ${pageCount}.`);
       return null;
     }
     return pageNumber;
@@ -3713,10 +3750,17 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const renderFloorPlanFile = async (file: File): Promise<string | null> => {
     const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
     if (isPdf) {
-      const pageNumber = await choosePdfPageNumber(file);
-      if (pageNumber === null) return null;
-      const profile = getImageQualityProfile('floorPlan');
-      return convertPdfToImage(file, { pageNumber, maxDimension: profile.maxDimension, quality: profile.quality });
+      // Load the PDF exactly once. The old flow opened it once for page-count and again
+      // for rendering, doubling PDF.js decode/worker memory on Android WebView.
+      const pdf = await loadPdfDocument(file);
+      try {
+        const pageNumber = choosePdfPageNumber(Math.max(1, Number(pdf?.numPages || 1)));
+        if (pageNumber === null) return null;
+        const profile = getImageQualityProfile('floorPlan');
+        return await renderPdfDocumentPageToImage(pdf, { pageNumber, maxDimension: profile.maxDimension, quality: profile.quality });
+      } finally {
+        try { await pdf.destroy?.(); } catch {}
+      }
     }
     if (!(file.type || '').startsWith('image/') && !/\.(jpe?g|png|webp)$/i.test(file.name || '')) {
       throw new Error('Chỉ hỗ trợ PDF, JPG, PNG hoặc WebP.');
@@ -3764,6 +3808,21 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setFloorPlanApplySelectedIds([floorPlanId]);
     setFloorPlanRangeStartId(floorPlanId);
     setFloorPlanRangeEndId(floorPlanId);
+    setShowFloorPlanApplyScopeModal(true);
+  };
+
+  const openFloorPlanApplyScopeForManagedSelection = (floorIds: string[]) => {
+    if (!canManageStructure) return;
+    const requested = new Set(floorIds);
+    const orderedIds = orderedFloorPlansForApply.filter((plan) => requested.has(plan.id)).map((plan) => plan.id);
+    if (orderedIds.length === 0) return;
+    const firstId = orderedIds[0];
+    setUpdatingFloorPlanId(firstId);
+    setFloorPlanApplyMode(orderedIds.length > 1 ? 'multiple' : 'single');
+    setFloorPlanApplySelectedIds(orderedIds);
+    setFloorPlanRangeStartId(firstId);
+    setFloorPlanRangeEndId(orderedIds[orderedIds.length - 1]);
+    setShowManageFloorsModal(false);
     setShowFloorPlanApplyScopeModal(true);
   };
 
@@ -3876,6 +3935,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       resetFloorPlanApplyScope();
     } catch (err) {
       console.error('Update floor plan drawing error:', err);
+      appendRuntimeDiagnostic({
+        level: 'warn',
+        area: 'floor-plan-import',
+        projectId: currentProjectId,
+        code: 'FLOOR_PLAN_FILE_READ_FAILED',
+        message: `${file.name}: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`.slice(0, 700),
+      });
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes('FLOOR_PLAN_BULK_REQUIRES_ONLINE')) {
         alert('Áp dụng cùng một bản vẽ cho nhiều tầng cần có mạng để tạo 1 asset dùng chung an toàn. Hãy kết nối mạng rồi thử lại.');
@@ -9492,7 +9558,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           />
                           <div className="min-w-0 flex-1">
                             <div className="text-xs font-extrabold text-slate-800 truncate">{getFloorPlanScopeLabel(plan)}</div>
-                            <div className="text-[9px] text-slate-500">{plan.id === updatingFloorPlanId ? 'Tầng bắt đầu thao tác · ' : ''}{plan.imageAssetId ? 'đang dùng asset Cloud' : 'bản vẽ độc lập/legacy'}</div>
+                            <div className="text-[9px] text-slate-500">
+                              {plan.id === updatingFloorPlanId ? 'Tầng bắt đầu thao tác · ' : ''}
+                              {getFloorPlanAssetGroupInfo(plan).shared
+                                ? `Dùng chung bản vẽ · ${getFloorPlanAssetGroupInfo(plan).count} tầng`
+                                : 'Bản vẽ riêng'}
+                            </div>
                           </div>
                         </label>
                       );
@@ -9800,7 +9871,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div className="text-xs font-extrabold text-indigo-950">Thao tác tầng đã chọn</div>
-                  <div className="text-[10px] text-indigo-700">Đánh dấu checkbox ở từng tầng hoặc chọn cả Khu/Khối, sau đó Đổi Khu/Khối / Nhân bản / Xóa.</div>
+                  <div className="text-[10px] text-indigo-700">Đánh dấu checkbox ở từng tầng hoặc chọn cả Khu/Khối, sau đó Đổi Khu/Khối / Thay bản vẽ / Nhân bản / Xóa.</div>
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
                   <button
@@ -9863,6 +9934,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-center text-xs font-extrabold text-slate-800 disabled:opacity-40"
                     />
                   </label>
+                  <button
+                    type="button"
+                    disabled={managedSelectedFloorIds.length === 0}
+                    onClick={() => openFloorPlanApplyScopeForManagedSelection(managedSelectedFloorIds)}
+                    className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-extrabold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
+                    title="Thay ảnh/PDF mặt bằng cho các tầng đang chọn"
+                  >
+                    <Upload className="inline h-3.5 w-3.5 mr-1" />
+                    Thay bản vẽ
+                  </button>
                   <button
                     type="button"
                     disabled={managedSelectedFloorIds.length === 0 || !onDuplicateFloorPlan}
@@ -10020,6 +10101,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           <img
                             src={fp.imageUrl}
                             alt={fp.floorName}
+                            loading="lazy"
+                            decoding="async"
                             className="relative z-10 w-full h-full object-cover"
                             onError={(event) => { event.currentTarget.style.display = 'none'; }}
                           />
@@ -10078,6 +10161,17 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               <span>•</span>
                               <span className="font-bold text-indigo-600">{getFloorStructureGroupName(fp, normalizedStructureConfig)}</span>
                             </>
+                          )}
+                          <span>•</span>
+                          {getFloorPlanAssetGroupInfo(fp).shared ? (
+                            <span
+                              className="font-bold text-emerald-700"
+                              title={`Dùng chung với: ${getFloorPlanAssetGroupInfo(fp).floorNames.join(', ')}`}
+                            >
+                              🔗 Dùng chung bản vẽ · {getFloorPlanAssetGroupInfo(fp).count} tầng
+                            </span>
+                          ) : (
+                            <span className="font-bold text-slate-500">🖼️ Bản vẽ riêng</span>
                           )}
                         </div>
                       </div>

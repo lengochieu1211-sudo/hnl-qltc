@@ -27,6 +27,10 @@ check(sync.includes('getFloorPlanImageCacheSnapshot'), 'Floor-plan cache diagnos
 check(sync.includes('readFloorPlanCacheRecordByStoragePointer'), 'Shared typical-floor asset cache reuse is missing.');
 check(sync.includes('applyFloorPlanImageToMultipleFloors'), 'Multi-floor shared drawing apply operation is missing.');
 check(sync.includes('isFloorPlanAutoCacheNetworkSuitable'), 'Smart background floor-plan cache network guard is missing.');
+check(sync.includes('isFloorPlanCloudBinaryReady'), 'Background cache must distinguish authoritative Cloud-ready drawings from stale clone pointers.');
+check(sync.includes('FLOOR_PLAN_CACHE_POINTER_INDEX_TTL_MS'), 'Shared floor-plan cache must index immutable storage pointers instead of rescanning IndexedDB per floor.');
+check(sync.includes('FLOOR_PLAN_CACHE_TOUCH_INTERVAL_MS'), 'Shared floor-plan cache must throttle IndexedDB last-access writes.');
+check(sync.includes('plan.storageProvider || inferredProvider || BINARY_STORAGE_PROVIDER'), 'Legacy duplicated storagePath rows must remain readable through the configured binary provider without rewriting Firestore.');
 const bulkApplyStart = sync.indexOf('export async function applyFloorPlanImageToMultipleFloors');
 const bulkApplyEnd = sync.indexOf('\nasync function downloadFallback', bulkApplyStart);
 const bulkApply = sync.slice(bulkApplyStart, bulkApplyEnd);
@@ -100,6 +104,13 @@ check(app.includes('const handleUpdateFloorPlanImages = async'), 'App multi-floo
 check(app.includes('applyFloorPlanImageToMultipleFloors(projectId, targets, imageUrl)'), 'App must use the one-upload multi-floor operation.');
 check(app.includes('const stableStructureGroupId = normalizedStructure.enabled'), 'New floor creation must stamp an explicit stable Khu/Khối membership.');
 check(app.includes('const duplicateStructureGroupId = normalizedStructure.enabled'), 'Duplicated floors must stamp the resolved source Khu/Khối explicitly.');
+check(app.includes('const sourceCloudReady = isFloorPlanCloudBinaryReady(sourcePlan);'), 'Duplicate floor must detect whether the source drawing is truly Cloud-ready.');
+check(app.includes('imageAssetOwnerFloorId: sharedAssetOwnerFloorId'), 'Cloud-ready duplicate floors must preserve shared immutable asset ownership.');
+check(app.includes('imageRevision: sourceCloudReady ? sourceCloudRevision : now'), 'Cloud-ready duplicate floors must not manufacture a new pending image revision.');
+check(app.includes('storagePath: sourceCloudReady ? sourcePlan.storagePath : undefined'), 'Non-ready duplicates must clear stale storage pointers instead of creating MISSING_BINARY rows.');
+check(app.includes('floorPlans.filter((plan) => isFloorPlanCloudBinaryReady(plan))'), 'Smart cache must exclude stale legacy clone pointers from periodic prefetch.');
+check(app.includes("if (projectRoleSource === 'cloud' && projectRoleAllowed) return;"), 'Cloud-verified projects must not run a second bootstrap role fetch that can restart all Firestore listeners.');
+check(app.includes('projectRoleSource,\n    projectRoleAllowed\n  ]);'), 'Firestore bootstrap guard must react to resolved Cloud authorization.');
 const bulkMetadataStart = bulkApply.indexOf('const metadata: Partial<FloorPlan>');
 const bulkMetadataEnd = bulkApply.indexOf('metadataByFloorId[plan.id]', bulkMetadataStart);
 const bulkMetadata = bulkApply.slice(bulkMetadataStart, bulkMetadataEnd);
@@ -120,6 +131,11 @@ check(ui.includes('Chọn nhanh khoảng tầng') && ui.includes('Chọn tất c
 check(ui.includes('1 file Cloud/R2 dùng chung'), 'Bulk floor UI must explain the single shared binary behavior.');
 check(ui.includes('Áp dụng cho ${preflight.readyIds.length} tầng'), 'Bulk floor UI must allow an explicit safe-subset apply when true pending targets exist.');
 check(ui.includes('skippedPendingNames'), 'Bulk floor UI must name/track targets skipped because they are truly pending.');
+check(ui.includes('openFloorPlanApplyScopeForManagedSelection'), 'Selected-floor management must expose the existing safe bulk drawing replacement flow.');
+check(ui.includes('Thay bản vẽ'), 'Selected-floor management is missing the bulk replace drawing action.');
+check(ui.includes('Dùng chung bản vẽ ·'), 'Floor management must show which floors share one immutable drawing asset.');
+check(ui.includes('🖼️ Bản vẽ riêng'), 'Floor management must identify independent drawings.');
+check(ui.includes('loading="lazy"') && ui.includes('decoding="async"'), 'Floor management thumbnails must avoid eager decoding every plan image.');
 check(app.includes('onInspectFloorPlanBulkTargets={handleInspectFloorPlanBulkTargets}'), 'App must expose bulk preflight to the floor-plan UI.');
 check(ui.includes('Defect, Căn/Phòng, highlight, tiến độ, checklist'), 'Bulk floor UI must warn that business data remains per-floor.');
 check(ui.includes('getSuggestedNewFloorStructureGroupId'), 'Add-floor flows must prefill the currently relevant Khu/Khối instead of reusing a stale/default selection.');
@@ -144,6 +160,15 @@ check(ui.includes('placement.roomAtPosTeam || defect.assignedTo'), 'Defect reloc
 check(ui.includes('...linkage,') && ui.includes('floorId: activeFloor.id') && ui.includes('floorName: activeFloor.floorName'), 'Defect relocation must persist coordinates/floor and recomputed room/team linkage.');
 check(ui.includes("Defect đang khóa vị trí. Mở khóa trước khi di chuyển ghim."), 'Locked Defect relocation must fail closed.');
 
+
+
+const pdf = read('src/utils/pdfToImage.ts');
+check(pdf.includes('mobileLike ? 6_500_000 : 18_000_000'), 'PDF rendering must keep Android/Desktop canvas pixel allocations bounded.');
+check(pdf.includes('canvasToJpegBlob(canvas, quality)'), 'PDF rendering must encode Blob-first instead of retaining a giant canvas Data URL allocation.');
+check(pdf.includes('canvas.width = 1;') && pdf.includes('blobToDataUrl(jpegBlob)'), 'PDF rendering must release the large canvas before Base64 transport conversion.');
+check(!ui.includes('getPdfDocumentInfo(file)') && !ui.includes('convertPdfToImage(file'), 'Floor-plan PDF import must not load the same PDF twice for page count + rendering.');
+check(ui.includes('const pdf = await loadPdfDocument(file);') && ui.includes('renderPdfDocumentPageToImage(pdf'), 'Floor-plan PDF import must reuse one loaded PDF document.');
+check(ui.includes("code: 'FLOOR_PLAN_FILE_READ_FAILED'"), 'PDF/image import failures must be visible in Runtime Diagnostics.');
 
 const config = read('src/components/GoogleConfigTab.tsx');
 const offlineMirrorCard = read('src/components/ProjectOfflineMirrorCard.tsx');
