@@ -46,6 +46,7 @@ import {
 import { QuickSortBar } from './QuickSortBar';
 import { ExcelActionMenu } from './ExcelActionMenu';
 import { QuickEditGridModal, type QuickGridColumn, type QuickGridRow } from './QuickEditGridModal';
+import { CrossProjectTemplateImportModal, type TemplateProjectOption, type TemplateSourceSnapshot, type TemplateSelection } from './CrossProjectTemplateImportModal';
 
 interface WorkVolumeTabProps {
   workVolumes: WorkVolume[];
@@ -53,6 +54,9 @@ interface WorkVolumeTabProps {
   roomProgressList?: RoomProgressItem[];
   structureConfig: ProjectStructureConfig;
   projectName?: string;
+  projectId?: string;
+  templateProjects?: TemplateProjectOption[];
+  onLoadTemplateProject?: (projectId: string) => Promise<TemplateSourceSnapshot>;
   userRole?: UserRole;
   onAddWorkVolume: (item: Omit<WorkVolume, 'id'>) => void;
   onSaveWorkVolume?: (item: Omit<WorkVolume, 'id'> & { id?: string }) => void;
@@ -74,6 +78,9 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   roomProgressList = [],
   structureConfig,
   projectName,
+  projectId = '',
+  templateProjects = [],
+  onLoadTemplateProject,
   userRole,
   onAddWorkVolume,
   onSaveWorkVolume,
@@ -134,6 +141,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   const [showDetailRoomPicker, setShowDetailRoomPicker] = useState(false);
   const [showDetailTeamPicker, setShowDetailTeamPicker] = useState(false);
   const [showQuickEdit, setShowQuickEdit] = useState(false);
+  const [showTemplateImport, setShowTemplateImport] = useState(false);
 
   const quickEditFloorNameToId = useMemo(() => {
     const map = new Map<string, string>();
@@ -724,6 +732,16 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           </div>
           {hasStructureManageAccess && (
             <>
+              {onLoadTemplateProject && templateProjects.some((project) => project.id !== projectId) && (
+                <button
+                  type="button"
+                  onClick={() => setShowTemplateImport(true)}
+                  className="flex items-center gap-1 bg-white hover:bg-indigo-50 text-indigo-700 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-indigo-200 shadow-xs active:scale-95 transition-all"
+                  title="Chọn một hoặc nhiều hạng mục từ các công trình khác"
+                >
+                  Lấy từ công trình/mẫu
+                </button>
+              )}
               <button
                 onClick={async () => {
                   setTitle('');
@@ -747,6 +765,64 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           )}
         </div>
       </div>
+
+      {onLoadTemplateProject && (
+        <CrossProjectTemplateImportModal<WorkVolume>
+          open={showTemplateImport}
+          title="Lấy Hạng mục thi công từ công trình khác"
+          entityLabel="Hạng mục thi công"
+          currentProjectId={projectId}
+          projects={templateProjects}
+          loadProject={onLoadTemplateProject}
+          getItems={(snapshot) => snapshot.workVolumes || []}
+          getItemId={(item) => item.id}
+          getItemLabel={(item) => item.title}
+          getItemDetail={(item) => `${item.category || '—'} · ${item.unit || '—'}`}
+          onClose={() => setShowTemplateImport(false)}
+          onImport={async (selected: TemplateSelection<WorkVolume>[]) => {
+            if (!onImportWorkVolumes) throw new Error('Phiên bản hiện tại chưa hỗ trợ nhập Hạng mục atomic.');
+            const existingKeys = new Set(workVolumes.map((item) => `${item.title.trim().toLocaleLowerCase('vi-VN')}::${normalizeUnit(item.unit)}`));
+            const seen = new Set<string>();
+            const imports: WorkVolume[] = [];
+            const skipped: string[] = [];
+            selected.forEach(({ item, projectName: sourceName }) => {
+              const key = `${String(item.title || '').trim().toLocaleLowerCase('vi-VN')}::${normalizeUnit(item.unit)}`;
+              if (!item.title?.trim() || existingKeys.has(key) || seen.has(key)) {
+                skipped.push(`${item.title || '(không tên)'} — ${sourceName}`);
+                return;
+              }
+              seen.add(key);
+              const id = createEntityId('HM');
+              imports.push({
+                id,
+                workCategoryId: id,
+                title: item.title.trim(),
+                floor: '',
+                floorId: undefined,
+                floorIds: [],
+                category: item.category || 'khung_tran',
+                unit: normalizeUnit(item.unit) || item.unit || 'm²',
+                planned: 0,
+                actual: 0,
+                unitPrice: 0,
+                status: 'Chưa thi công',
+                dueDate: undefined,
+                subItems: Array.isArray(item.subItems) ? [...item.subItems] : undefined,
+              });
+            });
+            if (!imports.length) throw new Error('Không có Hạng mục mới hợp lệ để nhập. Các mục trùng tên + ĐVT đã được bỏ qua.');
+            const issues = validateWorkVolumeCatalog([...workVolumes, ...imports]);
+            if (issues.length) throw new Error(issues.map((issue) => issue.message).join('\n'));
+            const confirmed = await confirmAsync(
+              `Nhập ${imports.length} Hạng mục vào công trình hiện tại?
+
+Khối lượng, thực tế, đơn giá, tầng và hạn hoàn thành được đặt lại để không mang dữ liệu công trình nguồn.${skipped.length ? `\n\nBỏ qua ${skipped.length} mục trùng.` : ''}`
+            );
+            if (!confirmed) return;
+            if (!onImportWorkVolumes(imports)) throw new Error('Catalog thay đổi trong lúc nhập; chưa ghi dữ liệu.');
+          }}
+        />
+      )}
 
       {/* Contract & Progress Overview Dashboard */}
       <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-blue-950 text-white rounded-2xl p-4 shadow-lg space-y-3">
