@@ -46,6 +46,7 @@ import {
 import { QuickSortBar } from './QuickSortBar';
 import { ExcelActionMenu } from './ExcelActionMenu';
 import { QuickEditGridModal, type QuickGridColumn, type QuickGridRow } from './QuickEditGridModal';
+import { CatalogTemplatePickerModal } from './CatalogTemplatePickerModal';
 
 interface WorkVolumeTabProps {
   workVolumes: WorkVolume[];
@@ -53,6 +54,7 @@ interface WorkVolumeTabProps {
   roomProgressList?: RoomProgressItem[];
   structureConfig: ProjectStructureConfig;
   projectName?: string;
+  currentProjectId?: string;
   userRole?: UserRole;
   onAddWorkVolume: (item: Omit<WorkVolume, 'id'>) => void;
   onSaveWorkVolume?: (item: Omit<WorkVolume, 'id'> & { id?: string }) => void;
@@ -74,6 +76,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   roomProgressList = [],
   structureConfig,
   projectName,
+  currentProjectId,
   userRole,
   onAddWorkVolume,
   onSaveWorkVolume,
@@ -119,6 +122,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   const [deletingVolumeTarget, setDeletingVolumeTarget] = useState<WorkVolume | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [isImportFromRoomsOpen, setIsImportFromRoomsOpen] = useState(false);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [selectedRoomIdsForImport, setSelectedRoomIdsForImport] = useState<string[]>([]);
   const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
   const [detailVolumeTarget, setDetailVolumeTarget] = useState<WorkVolume | null>(null);
@@ -725,6 +729,13 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           {hasStructureManageAccess && (
             <>
               <button
+                onClick={() => setShowTemplatePicker(true)}
+                className="flex items-center gap-1 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all"
+              >
+                <Copy className="w-4 h-4" />
+                Lấy từ công trình khác
+              </button>
+              <button
                 onClick={async () => {
                   setTitle('');
                   setSelectedFloors([floorOptions[0] || 'Tầng 1']);
@@ -1130,6 +1141,50 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           </div>
         )}
       </div>
+
+      <CatalogTemplatePickerModal
+        open={showTemplatePicker}
+        onClose={() => setShowTemplatePicker(false)}
+        currentProjectId={currentProjectId}
+        kind="workVolumes"
+        title="Lấy Hạng mục thi công từ công trình khác"
+        onImport={async (rows) => {
+          if (!hasStructureManageAccess || !onImportWorkVolumes) return;
+          const existingKeys = new Set(workVolumes.map((item) => `${item.title.trim().toLocaleLowerCase('vi-VN')}|${normalizeUnit(item.unit) || item.unit}`));
+          const imported: WorkVolume[] = [];
+          for (const row of rows) {
+            const source = row.item as WorkVolume;
+            const key = `${String(source.title || '').trim().toLocaleLowerCase('vi-VN')}|${normalizeUnit(source.unit) || source.unit}`;
+            if (!source.title || existingKeys.has(key)) continue;
+            const matchingFloorIds = (source.floorIds || [])
+              .map((sourceId) => {
+                const sourceName = String((source as any).floorNamesById?.[sourceId] || '').trim();
+                return sourceName ? floorPlans.find((floor) => floor.floorName.trim().toLocaleLowerCase('vi-VN') === sourceName.toLocaleLowerCase('vi-VN'))?.id : undefined;
+              })
+              .filter((id): id is string => Boolean(id));
+            const fallbackFloor = floorPlans[0];
+            const id = createEntityId('work-template');
+            imported.push({
+              ...source,
+              id,
+              workCategoryId: id,
+              floorIds: matchingFloorIds.length ? matchingFloorIds : (fallbackFloor ? [fallbackFloor.id] : []),
+              floor: matchingFloorIds.length
+                ? matchingFloorIds.map((floorId) => floorPlans.find((floor) => floor.id === floorId)?.floorName).filter(Boolean).join(', ')
+                : (fallbackFloor?.floorName || ''),
+              planned: 0,
+              actual: 0,
+              unitPrice: 0,
+              status: 'Chưa thi công',
+              dueDate: undefined,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            } as WorkVolume);
+            existingKeys.add(key);
+          }
+          if (imported.length) onImportWorkVolumes(imported);
+        }}
+      />
 
       <QuickEditGridModal
         open={showQuickEdit}
