@@ -1437,6 +1437,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         __rowKey: `${norm.id}--${workCategoryId}`,
         __normId: norm.id,
         __workCategoryId: workCategoryId,
+        __normMasterRow: index === 0,
         materialName: norm.materialName,
         category: norm.category,
         unit: norm.unit,
@@ -1454,6 +1455,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       __rowKey: `${norm.id}--general`,
       __normId: norm.id,
       __workCategoryId: '',
+      __normMasterRow: true,
       materialName: norm.materialName,
       category: norm.category,
       unit: norm.unit,
@@ -1514,10 +1516,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const warehouseRoomOptions = useMemo(() => roomProgressList.map((room) => room.roomName), [roomProgressList]);
 
   const warehouseQuickColumns = useMemo<QuickGridColumn[]>(() => {
-    if (quickEditMode === 'norms') return [
-      { key: 'materialName', label: 'Tên vật tư', editable: hasNormManageAccess, required: true, width: 220 },
-      { key: 'category', label: 'Nhóm', editable: hasNormManageAccess, required: true, width: 150 },
-      { key: 'unit', label: 'ĐVT', editable: hasNormManageAccess, required: true, width: 90 },
+    if (quickEditMode === 'norms') {
+      const canEditSharedNormField = (row: QuickGridRow) =>
+        hasNormManageAccess && Boolean(row.__normMasterRow || row.__new);
+      return [
+      { key: 'materialName', label: 'Tên vật tư', editable: canEditSharedNormField, required: true, width: 220 },
+      { key: 'category', label: 'Nhóm', editable: canEditSharedNormField, required: true, width: 150 },
+      { key: 'unit', label: 'ĐVT', editable: canEditSharedNormField, required: true, width: 90 },
       {
         key: 'workCategory',
         label: 'Hạng mục thi công',
@@ -1534,11 +1539,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         },
       },
       { key: 'specificNorm', label: 'ĐM riêng hạng mục', editable: hasNormManageAccess, type: 'number', width: 145, validate: (value) => String(value ?? '').trim() && Number(value) < 0 ? 'Không được âm' : null },
-      { key: 'generalNorm', label: 'ĐM chung', editable: hasNormManageAccess, type: 'number', width: 120, validate: (value) => String(value ?? '').trim() && Number(value) < 0 ? 'Không được âm' : null },
+      { key: 'generalNorm', label: 'ĐM chung', editable: canEditSharedNormField, type: 'number', width: 120, validate: (value) => String(value ?? '').trim() && Number(value) < 0 ? 'Không được âm' : null },
       { key: 'normSource', label: 'Nguồn định mức', editable: false, width: 155 },
-      { key: 'quotaQuantity', label: 'Khối lượng định mức', editable: hasNormManageAccess, type: 'number', width: 150, validate: (value) => Number(value || 0) < 0 ? 'Không được âm' : null },
-      { key: 'notes', label: 'Ghi chú / Tiêu chuẩn kỹ thuật', editable: hasNormManageAccess, width: 300 },
+      { key: 'quotaQuantity', label: 'Khối lượng định mức', editable: canEditSharedNormField, type: 'number', width: 150, validate: (value) => Number(value || 0) < 0 ? 'Không được âm' : null },
+      { key: 'notes', label: 'Ghi chú / Tiêu chuẩn kỹ thuật', editable: canEditSharedNormField, width: 300 },
     ];
+    }
     if (quickEditMode === 'stock') return [
       { key: 'materialName', label: 'Tên vật tư', editable: false, width: 220 },
       { key: 'category', label: 'Nhóm', editable: false, width: 150 },
@@ -1999,6 +2005,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           __new: true,
           __normId: '',
           __workCategoryId: '',
+          __normMasterRow: true,
           materialName: '',
           category: '',
           unit: '',

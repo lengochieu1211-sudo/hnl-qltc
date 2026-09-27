@@ -21,6 +21,8 @@ assert.match(quick, /Có thay đổi chưa lưu trong bảng hiện tại/, 'Qui
 assert.match(quick, /Bỏ thay đổi/, 'Quick grid must support discard');
 assert.match(quick, /Hoàn tác/, 'Quick grid must support undo');
 assert.match(quick, /tabs && tabs\.length/, 'Quick grid must support module-specific table tabs');
+assert.match(quick, /editable\?: boolean \| \(\(row: QuickGridRow\) => boolean\)/, 'Quick grid must support row-aware editability for expanded shared records');
+assert.match(quick, /isColumnEditableForRow/, 'Quick grid edit/add/paste paths must honor row-aware editability');
 
 assert.match(excel, /Xuất Excel để chỉnh sửa/, 'Excel menu must be editing-oriented');
 assert.match(excel, /Nhập Excel đã chỉnh sửa/, 'Excel menu must contain round-trip import');
@@ -97,6 +99,8 @@ assert.match(warehouse, /workCategoryNormsById/, 'Warehouse norm quick edit must
 assert.match(warehouse, /providedNormId && !byId\.has\(providedNormId\)/, 'Warehouse norm quick edit must fail closed for a stale technical norm ID');
 assert.match(warehouse, /matchingExisting = !providedNormId/, 'New category rows must reuse an existing material norm when material name + unit already match');
 assert.match(warehouse, /dirtyFields\.has\('specificNorm'\)/, 'Warehouse norm save must isolate category-specific edits to dirty fields');
+assert.match(warehouse, /__normMasterRow: index === 0/, 'Expanded norm rows must mark one master row for shared material fields');
+assert.match(warehouse, /canEditSharedNormField/, 'Only the norm master row may edit shared material fields; category rows remain identity-safe');
 assert.match(warehouse, /ĐM riêng chỉ cập nhật Hạng mục tương ứng/, 'Warehouse norm confirmation must state that one category edit does not alter other categories or the general norm');
 assert.match(warehouse, /grid grid-cols-2 gap-2 pt-0\.5 sm:grid-cols-\[160px_160px\]/, 'Warehouse bulk-edit actions must use equal-width mobile and desktop columns');
 

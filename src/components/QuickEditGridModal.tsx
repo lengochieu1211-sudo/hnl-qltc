@@ -12,7 +12,7 @@ export interface QuickGridRow {
 export interface QuickGridColumn {
   key: string;
   label: string;
-  editable?: boolean;
+  editable?: boolean | ((row: QuickGridRow) => boolean);
   type?: 'text' | 'number' | 'date' | 'select';
   options?: Array<string | { value: string; label: string }>;
   width?: number;
@@ -41,6 +41,8 @@ interface QuickEditGridModalProps {
 
 const normalizeCell = (value: unknown) => value === null || value === undefined ? '' : String(value);
 const cellKey = (rowKey: string, columnKey: string) => `${rowKey}::${columnKey}`;
+const isColumnEditableForRow = (column: QuickGridColumn, row: QuickGridRow) =>
+  typeof column.editable === 'function' ? column.editable(row) : column.editable !== false;
 
 export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
   open,
@@ -94,7 +96,8 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
   };
 
   const setCell = (rowKey: string, column: QuickGridColumn, rawValue: string, recordUndo = true) => {
-    if (!canEdit || column.editable === false) return;
+    const targetRow = draftRows.find((row) => row.__rowKey === rowKey);
+    if (!targetRow || !canEdit || !isColumnEditableForRow(column, targetRow)) return;
     if (recordUndo) pushUndo();
     let nextValue: QuickGridCellValue = rawValue;
     if (column.type === 'number') {
@@ -188,7 +191,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
       const additions = Array.from({ length: count }, (_, index) => createEmptyRow(prev.length + index));
       setDirtyCellKeys((dirtyPrev) => {
         const dirty = new Set(dirtyPrev);
-        additions.forEach((row) => columns.filter((column) => column.editable !== false).forEach((column) => {
+        additions.forEach((row) => columns.filter((column) => isColumnEditableForRow(column, row)).forEach((column) => {
           dirty.add(cellKey(row.__rowKey, column.key));
         }));
         return dirty;
@@ -215,7 +218,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
       if (!row) return;
       cells.forEach((rawValue, colOffset) => {
         const column = columns[startColumn + colOffset];
-        if (!column || column.editable === false) return;
+        if (!column || !isColumnEditableForRow(column, row)) return;
         let value: QuickGridCellValue = rawValue;
         if (column.type === 'number') {
           const normalized = rawValue.trim().replace(',', '.');
@@ -309,7 +312,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
                   <td className="sticky left-0 z-10 bg-slate-50 border-r border-b border-slate-200 px-2 py-1.5 text-center font-bold text-slate-400">{rowIndex + 1}</td>
                   {columns.map((column) => {
                     const key = cellKey(row.__rowKey, column.key);
-                    const editable = canEdit && column.editable !== false;
+                    const editable = canEdit && isColumnEditableForRow(column, row);
                     const changed = dirtyCellKeys.has(key);
                     const error = validation.get(key);
                     const value = row[column.key] as QuickGridCellValue;
@@ -318,7 +321,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
                       <td
                         key={column.key}
                         className={`border-r border-b border-slate-200 p-0 align-middle ${error ? 'bg-rose-100' : changed ? 'bg-sky-100' : editable ? 'bg-white' : 'bg-slate-100'}`}
-                        title={error || (column.editable === false ? 'Chỉ đọc' : '')}
+                        title={error || (!editable ? 'Chỉ đọc' : '')}
                         onFocus={() => { activeCellRef.current = { rowKey: row.__rowKey, columnKey: column.key }; }}
                       >
                         {column.type === 'select' && editable ? (
