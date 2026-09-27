@@ -303,6 +303,8 @@ assert(!navSource.includes('APP_VERSION') && !navSource.includes('HNL QLTC · Tr
 assert(navSource.includes("label: 'Trang chủ'"), 'Visible Home navigation label must be Vietnamese: Trang chủ');
 assert(homeDashboardUi.includes('Báo cáo quân số nhiều dự án'), 'Trang chủ must expose multi-project manpower reporting');
 assert(homeDashboardUi.includes('fetchProjectCrewReportData'), 'Trang chủ must load only targeted manpower/team data for other projects');
+assert(appSource.includes('getVerifiedCachedHomeProjects') && appSource.includes('getCachedVerifiedProjectRole(project.id, identity)'), 'Trang chủ must render only identity-bound verified cached projects before realtime discovery');
+assert(homeDashboardUi.includes('crewReportSessionCache') && homeDashboardUi.includes('setReportProjects(activeProjectId ? [activeFallback, ...cachedRemoteProjects]'), 'Trang chủ must show active-project manpower immediately and reuse same-session remote manpower while refreshing');
 assert(homeDashboardUi.includes('Chia sẻ báo cáo quân số'), 'Trang chủ manpower report must expose the agreed share-report action');
 assert(homeDashboardUi.includes('buildCrewReportMatrices') && homeDashboardUi.includes('colSpan={4}') && homeDashboardUi.includes('Tổng QS/ngày') && homeDashboardUi.includes('TỔNG'), 'Trang chủ manpower report must render date rows, team column groups, daily totals and a final column-total row');
 assert(homeDashboardUi.includes('relative isolate max-h-[440px] overflow-auto overscroll-contain') && homeDashboardUi.includes('<tr className="h-8">') && homeDashboardUi.includes('sticky top-[31px]'), 'Trang chủ crew table sticky header must stay contained and overlap by 1px so no scroll seam can show through');
