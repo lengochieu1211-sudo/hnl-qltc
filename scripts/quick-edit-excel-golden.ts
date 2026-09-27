@@ -80,9 +80,13 @@ assert.match(crew, /Danh sách Tầng bên dưới chỉ hiện trong/, 'Crew en
 assert.match(crew, /key: 'structureGroup'/, 'Crew quick edit must include a Khu/Khối column');
 assert.match(crew, /Tầng không thuộc Khu\/Khối này/, 'Crew quick edit must reject floor/group mismatches');
 assert.match(crew, /grid grid-cols-2 gap-2 sm:grid-cols-\[160px_160px\] sm:justify-start/, 'Crew bulk-edit actions must use equal-width mobile and desktop columns');
+assert.ok(
+  crew.indexOf('Chia sẻ báo cáo quân số') < crew.indexOf("setQuickEditMode('logs')"),
+  'Crew share-report action must appear above the Quick Edit + Excel pair'
+);
 assert.match(crew, /sm:grid-cols-\[160px_160px\][\s\S]*fillWidth[\s\S]*reportLabel="Thống kê tất cả đội"/, 'Team directory Quick Edit + Excel pair must be balanced on desktop');
 
-assert.match(warehouse, /Danh mục & Định mức/, 'Warehouse quick edit must have material/norm table');
+assert.match(warehouse, /Định mức theo Hạng mục/, 'Warehouse quick edit must expose the safe per-work-category norm table');
 assert.match(warehouse, /Nhập kho/, 'Warehouse quick edit must have inbound ledger table');
 assert.match(warehouse, /Xuất kho/, 'Warehouse quick edit must have outbound ledger table');
 assert.match(warehouse, /Tồn kho 🔒/, 'Warehouse stock must be visibly read-only');
@@ -90,10 +94,15 @@ assert.match(warehouse, /quickEditMode === 'stock' \? false/, 'Stock quick table
 assert.match(warehouse, /Mã Phiếu không tồn tại trong dự án hiện tại/, 'Warehouse Excel import must reject stale transaction IDs');
 assert.match(warehouse, /assertKnownReference/, 'Warehouse Excel import must validate technical linkage IDs before writing');
 assert.match(warehouse, /key: 'workCategory'[\s\S]*type: 'select'[\s\S]*options: warehouseWorkOptions/, 'Warehouse norm quick edit must select work categories from the authoritative catalog');
-assert.match(warehouse, /key: 'specificNorm'/, 'Warehouse norm quick edit must expose per-work-category norm');
-assert.match(warehouse, /key: 'generalNorm'/, 'Warehouse norm quick edit must retain the general fallback norm');
+assert.match(warehouse, /key: 'specificNorm'.*editable: hasNormManageAccess/, 'Warehouse norm quick edit must expose editable per-work-category norm');
+assert.match(warehouse, /key: 'materialName'.*editable: false/, 'Per-category norm rows must not rename the shared material');
+assert.match(warehouse, /key: 'category'.*editable: false/, 'Per-category norm rows must not change the shared material group');
+assert.match(warehouse, /key: 'unit'.*editable: false/, 'Per-category norm rows must not change the shared material unit');
+assert.match(warehouse, /key: 'generalNorm'.*editable: false/, 'Per-category norm rows must show but not independently edit the shared general norm');
 assert.match(warehouse, /workCategoryNormsById/, 'Warehouse norm quick edit must persist per-work-category norms in the existing ID map');
-assert.match(warehouse, /Định mức riêng theo Hạng mục sẽ được ưu tiên/, 'Warehouse quick edit must document specific-over-general norm precedence');
+assert.match(warehouse, /Tên vật tư, materialId, Nhóm, ĐVT và ĐM chung được giữ nguyên/, 'Per-category save must explicitly preserve shared material identity and general norm');
+assert.match(warehouse, /Bảng Định mức theo Hạng mục không tạo vật tư mới/, 'Per-category quick edit must fail closed instead of creating a new material');
+assert.match(warehouse, /canAddRows=\{quickEditMode === 'norms' \? false/, 'Per-category norm table must not create unbound material rows');
 assert.match(warehouse, /grid grid-cols-2 gap-2 pt-0\.5 sm:grid-cols-\[160px_160px\]/, 'Warehouse bulk-edit actions must use equal-width mobile and desktop columns');
 
 assert.match(volume, /Khối lượng đã làm/, 'WorkVolume quick table must show actual volume');

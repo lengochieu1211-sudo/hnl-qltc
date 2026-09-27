@@ -2006,7 +2006,17 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </>
           )}
 
-          <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-[160px_160px] sm:justify-start">
+          <div className="mb-3">
+            <button
+              type="button"
+              onClick={() => setShowCrewReportShare(true)}
+              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 text-xs font-extrabold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
+            >
+              <FileText className="h-4 w-4" /> Chia sẻ báo cáo quân số
+            </button>
+          </div>
+
+          <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-[160px_160px] sm:justify-start">
             <button
               type="button"
               onClick={() => { setQuickEditMode('logs'); setShowQuickEdit(true); }}
@@ -2023,16 +2033,6 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               importLabel="Nhập Nhật ký đã chỉnh sửa"
               templateLabel="Tải mẫu Nhật ký"
             />
-          </div>
-
-          <div className="mb-4">
-            <button
-              type="button"
-              onClick={() => setShowCrewReportShare(true)}
-              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 text-xs font-extrabold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
-            >
-              <FileText className="h-4 w-4" /> Chia sẻ báo cáo quân số
-            </button>
           </div>
 
           {/* Daily Records List */}
