@@ -295,7 +295,7 @@ assert(homeDashboardUi.includes('Tổng quan công trường') && !homeDashboard
 assert(homeDashboardUi.includes('Mở thẳng dự án này khi khởi động'), 'Home must expose an explicit quick-start project preference');
 assert(homeDashboardUi.includes('Chưa tải được dữ liệu quân số'), 'Home must clearly mark unavailable project manpower data without inventing metrics');
 assert(!homeDashboardUi.includes('Firebase / R2 / projectId / RBAC không thay đổi.'), 'Home must not expose implementation/audit notes to end users');
-assert(appSource.includes("useState<TabType>('home')"), 'Home must be the default navigation destination');
+assert(appSource.includes("useState<TabType>(getRememberedTab)") && appSource.includes("return remembered && PRIMARY_TAB_IDS.includes(remembered) ? remembered : 'home'"), 'Home remains the safe default while an existing session may resume its last primary tab');
 assert(appSource.includes("new URLSearchParams(window.location.search).get('app') === 'desktop'") && appSource.includes("isDesktopRuntime ? 'pl-[84px]' : 'lg:pl-[84px]'") && appSource.includes('forceDesktopRail={isDesktopRuntime}'), 'Windows EXE runtime must reserve the left rail even when its viewport becomes narrower than the browser desktop breakpoint');
 assert(navSource.includes("'home' | 'warehouse'"), 'Navigation type must include Home');
 assert(navSource.includes('forceDesktopRail') && navSource.includes("forceDesktopRail ? 'flex' : 'hidden lg:flex'") && navSource.includes("forceDesktopRail ? 'hidden' : 'lg:hidden'") && navSource.includes('bg-white text-slate-700'), 'Windows EXE must keep the desktop left rail at narrow widths while browser/mobile keeps responsive bottom navigation');
