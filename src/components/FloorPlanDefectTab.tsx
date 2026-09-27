@@ -3366,7 +3366,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           x: Math.min(100, Math.max(0, point.x)),
           y: Math.min(100, Math.max(0, point.y)),
         })),
-        isPolyline: candidate.points.length >= 3,
+        // DXF room candidates are closed HATCH/LWPOLYLINE boundaries. Keep them as
+        // polygon semantics so rendering + Defect hit-testing use the actual geometry.
+        isPolyline: false,
         frameStatus: 'Chưa làm',
         boardStatus: 'Chưa làm',
         frameInspectionStatus: 'Chưa nghiệm thu',
