@@ -7068,6 +7068,7 @@ function AuthenticatedApp() {
               roomProgressList={roomProgressList}
               structureConfig={structureConfig}
               projectName={projectName}
+              currentProjectId={activeProjectId}
               userRole={currentUserRole}
               onAddWorkVolume={handleAddWorkVolume}
               onSaveWorkVolume={handleSaveWorkVolume}
@@ -7497,6 +7498,7 @@ function AuthenticatedApp() {
           isOpen={isMaterialNormOpen}
           userRole={currentUserRole}
           roleResolved={isProjectRoleResolved}
+          currentProjectId={activeProjectId}
           onClose={() => setIsMaterialNormOpen(false)}
           materialNorms={computedMaterialNorms}
           onAddNorm={handleAddNorm}
