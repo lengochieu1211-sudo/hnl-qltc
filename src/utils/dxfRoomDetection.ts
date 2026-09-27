@@ -29,6 +29,8 @@ export interface DxfRoomDetectionResult {
   unitLabel: string;
   warnings: string[];
   extents?: { minX: number; minY: number; maxX: number; maxY: number };
+  /** Rendered CAD background from DXF linework/text using the exact same extents as room highlights. */
+  floorPlanSvgDataUrl?: string;
 }
 
 interface DxfPair {
@@ -269,6 +271,71 @@ const readLwPolyline = (entityPairs: DxfPair[]): DxfPoint[] => {
     }
   });
   return points.length >= 3 ? points : [];
+};
+
+
+const readLwPolylineAny = (entityPairs: DxfPair[]): DxfPoint[] => {
+  const points: DxfPoint[] = [];
+  let x: number | undefined;
+  entityPairs.forEach((pair) => {
+    if (pair.code === 10) {
+      const value = Number(pair.value);
+      x = Number.isFinite(value) ? value : undefined;
+    } else if (pair.code === 20 && x !== undefined) {
+      const y = Number(pair.value);
+      if (Number.isFinite(y)) points.push({ x, y });
+      x = undefined;
+    }
+  });
+  return points;
+};
+
+const escapeSvgText = (value: string) =>
+  String(value || '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;',
+  }[char] || char));
+
+const buildDxfFloorPlanSvgDataUrl = (
+  entities: Array<{ type: string; pairs: DxfPair[] }>,
+  texts: RawText[],
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number,
+) => {
+  const spanX = Math.max(Number.EPSILON, maxX - minX);
+  const spanY = Math.max(Number.EPSILON, maxY - minY);
+  const map = (point: DxfPoint) => ({
+    x: ((point.x - minX) / spanX) * 1000,
+    y: ((maxY - point.y) / spanY) * 1000,
+  });
+  const linework: string[] = [];
+  entities.forEach((entity) => {
+    if (entity.type === 'LINE') {
+      const x1 = getNumber(entity.pairs, 10, NaN);
+      const y1 = getNumber(entity.pairs, 20, NaN);
+      const x2 = getNumber(entity.pairs, 11, NaN);
+      const y2 = getNumber(entity.pairs, 21, NaN);
+      if (![x1, y1, x2, y2].every(Number.isFinite)) return;
+      const a = map({ x: x1, y: y1 });
+      const b = map({ x: x2, y: y2 });
+      linework.push(\`<line x1="\${a.x.toFixed(2)}" y1="\${a.y.toFixed(2)}" x2="\${b.x.toFixed(2)}" y2="\${b.y.toFixed(2)}"/>\`);
+      return;
+    }
+    if (entity.type === 'LWPOLYLINE') {
+      const points = readLwPolylineAny(entity.pairs);
+      if (points.length < 2) return;
+      const closed = (getNumber(entity.pairs, 70, 0) & 1) === 1;
+      const mapped = points.map(map).map((point) => \`\${point.x.toFixed(2)},\${point.y.toFixed(2)}\`).join(' ');
+      linework.push(closed ? \`<polygon points="\${mapped}"/>\` : \`<polyline points="\${mapped}"/>\`);
+    }
+  });
+  const textNodes = texts.slice(0, 1200).map((row) => {
+    const p = map(row);
+    return \`<text x="\${p.x.toFixed(2)}" y="\${p.y.toFixed(2)}">\${escapeSvgText(row.text)}</text>\`;
+  });
+  const svg = \`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" preserveAspectRatio="none"><rect width="1000" height="1000" fill="white"/><g fill="none" stroke="#334155" stroke-width="1.15" vector-effect="non-scaling-stroke">\${linework.join('')}</g><g fill="#475569" font-family="Arial,sans-serif" font-size="10">\${textNodes.join('')}</g></svg>\`;
+  return \`data:image/svg+xml;charset=utf-8,\${encodeURIComponent(svg)}\`;
 };
 
 const readHatchBoundaryPath = (pathPairs: DxfPair[]): DxfPoint[] => {
@@ -560,5 +627,6 @@ export function detectRoomsFromDxf(input: string): DxfRoomDetectionResult {
     unitLabel: unit.label,
     warnings,
     extents: { minX, minY, maxX, maxY },
+    floorPlanSvgDataUrl: buildDxfFloorPlanSvgDataUrl(entities, texts, minX, minY, maxX, maxY),
   };
 }
