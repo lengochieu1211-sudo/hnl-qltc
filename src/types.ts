@@ -274,6 +274,8 @@ export interface RoomProgressItem {
   height: number; // Chiều cao vùng highlight (0-100%)
   points?: Point2D[]; // Các điểm tọa độ vẽ tự do (polygon freehand)
   isPolyline?: boolean; // Nếu true: Vẽ đường thẳng / đường gấp khúc hở, ngược lại vẽ Đa giác khép kín
+  /** Optional immutable CAD source geometry used to re-align highlights when a drawing background changes. */
+  cadSource?: { format: 'DXF'; rawPoints: Point2D[]; extents?: { minX: number; minY: number; maxX: number; maxY: number }; layer?: string; source?: 'HATCH' | 'LWPOLYLINE' };
   frameStatus: AcceptanceStatus; // Thi công Khung trần
   boardStatus: AcceptanceStatus; // Thi công Bắn tấm
   frameInspectionStatus?: RoomInspectionResult; // Nghiệm thu Khung trần riêng
