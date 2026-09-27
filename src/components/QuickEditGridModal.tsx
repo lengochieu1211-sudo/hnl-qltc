@@ -355,7 +355,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
       existingDeletes.forEach((row) => byKey.set(row.__rowKey, { ...row }));
       return Array.from(byKey.values());
     });
-    setDirtyCellKeys((prev) => new Set(Array.from(prev).filter((key) => !deleteKeys.has(key.split('::')[0]))));
+    setDirtyCellKeys((prev) => new Set<string>(Array.from(prev as Set<string>).filter((key: string) => !deleteKeys.has(key.split('::')[0]))));
     setSelectedRowKeys(new Set());
     activeCellRef.current = null;
   };
@@ -372,7 +372,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
 
     pushUndo();
     let nextRows = cloneRows(draftRows);
-    let nextDirty = new Set(dirtyCellKeys);
+    let nextDirty: Set<string> = new Set<string>(dirtyCellKeys);
     matrix.forEach((cells, rowOffset) => {
       const row = nextRows[startRow + rowOffset];
       if (!row) return;
@@ -416,7 +416,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
   if (!open) return null;
 
   const changedRows = new Set<string>([
-    ...Array.from(dirtyCellKeys).map((key) => key.split('::')[0]),
+    ...Array.from(dirtyCellKeys as Set<string>).map((key: string) => key.split('::')[0]),
     ...deletedRows.map((row) => row.__rowKey),
   ]).size;
   const selectableVisibleRows = filteredRows.filter((row) => !getRowDeleteBlockReason?.(row, draftRows));
