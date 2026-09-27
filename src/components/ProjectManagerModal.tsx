@@ -21,6 +21,7 @@ import {
   onAuthUserChanged,
   subscribeProjectSharedSettings,
   saveProjectSharedSettings,
+  fetchProjectSharedSettingsSnapshot,
   subscribeCurrentUserProjectsRealtime,
   refreshCurrentUserProjectDiscovery,
   saveProjectMetadataToCloud,
@@ -195,6 +196,15 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const [isCreating, setIsCreating] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [duplicateFromCurrent, setDuplicateFromCurrent] = useState(false);
+  const [templateSourceProjectId, setTemplateSourceProjectId] = useState<string>(() => activeProjectId || getActiveProjectId());
+  const [templateCopyOptions, setTemplateCopyOptions] = useState({ structure: true, workVolumes: true, materialNorms: true, teams: true, checklist: true });
+
+  useEffect(() => {
+    if (!duplicateFromCurrent) return;
+    if (!projects.some((project) => project.id === templateSourceProjectId)) {
+      setTemplateSourceProjectId(activeId || getActiveProjectId());
+    }
+  }, [projects, activeId, duplicateFromCurrent, templateSourceProjectId]);
 
   // Rename state
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
@@ -2583,9 +2593,21 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         updatedAt: now,
       };
 
-      const sourceContractor = duplicateFromCurrent ? String(fullAppData?.contractorName || '') : '';
-      const sourceInspector = duplicateFromCurrent ? String(fullAppData?.inspectorName || '') : '';
-      const sourceLocation = duplicateFromCurrent ? String(fullAppData?.projectLocation || '') : '';
+      let templateSourceData: any = duplicateFromCurrent ? fullAppData : null;
+      let templateSourceStructure: any = undefined;
+      const selectedTemplateProjectId = duplicateFromCurrent ? (templateSourceProjectId || activeId) : '';
+      if (duplicateFromCurrent && selectedTemplateProjectId) {
+        if (selectedTemplateProjectId !== activeId) {
+          const sourceRecord = await fetchProjectFromCloud(selectedTemplateProjectId, { serverOnly: true });
+          if (!sourceRecord) throw new Error('Không đọc được dự án nguồn để tạo mẫu.');
+          templateSourceData = getCloudPayload(sourceRecord);
+        }
+        const sourceShared = await fetchProjectSharedSettingsSnapshot(selectedTemplateProjectId, true).catch(() => null);
+        templateSourceStructure = sourceShared?.structure;
+      }
+      const sourceContractor = duplicateFromCurrent ? String(templateSourceData?.contractorName || '') : '';
+      const sourceInspector = duplicateFromCurrent ? String(templateSourceData?.inspectorName || '') : '';
+      const sourceLocation = duplicateFromCurrent ? String(templateSourceData?.projectLocation || '') : '';
       let hadQuotaIssue = false;
 
       if (FIREBASE_ONLY_RUNTIME) {
@@ -2595,7 +2617,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         // stock/transactions, volumes, floor plans, defects, manpower and media are NOT
         // cloned accidentally, and no business array is written to localforage.
         if (duplicateFromCurrent) {
-          if (!fullAppData) throw new Error('Thiếu dữ liệu dự án đang mở để sao chép mẫu.');
+          if (!templateSourceData) throw new Error('Thiếu dữ liệu dự án nguồn để sao chép mẫu.');
           const resetLifecycle = (item: any) => ({
             ...item,
             revision: 1,
@@ -2606,10 +2628,11 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             deletedByUid: null,
             deletedBy: null,
           });
-          const templateFloorPlans = (Array.isArray(fullAppData.floorPlans) ? fullAppData.floorPlans : []).map((plan: any) => ({
+          const templateFloorPlans = (Array.isArray(templateSourceData.floorPlans) ? templateSourceData.floorPlans : []).map((plan: any) => ({
             id: plan.id,
             floorName: plan.floorName,
             order: plan.order,
+            structureGroupId: templateCopyOptions.structure ? plan.structureGroupId : undefined,
             imageUrl: '',
             uploadedAt: '',
             revision: 1,
@@ -2620,7 +2643,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             deletedByUid: null,
             deletedBy: null,
           }));
-          const templateRooms = (Array.isArray(fullAppData.roomProgressList) ? fullAppData.roomProgressList : []).map((room: any) => resetLifecycle({
+          const templateRooms = (Array.isArray(templateSourceData.roomProgressList) ? templateSourceData.roomProgressList : []).map((room: any) => resetLifecycle({
             ...room,
             frameStatus: 'Chưa làm',
             boardStatus: 'Chưa làm',
@@ -2629,8 +2652,8 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             inspectionStatus: 'Chưa nghiệm thu',
             inspectorName: '',
             notes: '',
-            assignedTeam: '',
-            teamId: '',
+            assignedTeam: templateCopyOptions.teams ? (room.assignedTeam || '') : '',
+            teamId: templateCopyOptions.teams ? (room.teamId || '') : '',
             targetFrameDate: undefined,
             targetBoardDate: undefined,
             subItems: Array.isArray(room.subItems) ? room.subItems.map((sub: any) => ({
@@ -2638,35 +2661,46 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               status: 'Chưa làm',
               inspectionStatus: 'Chưa nghiệm thu',
               targetDate: undefined,
-              assignedTeam: '',
-              teamId: '',
+              assignedTeam: templateCopyOptions.teams ? (sub.assignedTeam || '') : '',
+              teamId: templateCopyOptions.teams ? (sub.teamId || '') : '',
             })) : [],
           }));
-          const templateChecklist = (Array.isArray(fullAppData.checklist) ? fullAppData.checklist : []).map((item: any) => resetLifecycle({
+          const templateChecklist = (Array.isArray(templateSourceData.checklist) ? templateSourceData.checklist : []).map((item: any) => resetLifecycle({
             ...item,
             status: 'pending',
             dueDate: undefined,
             notes: '',
             inspectedBy: '',
             inspectedAt: undefined,
-            teamId: '',
+            teamId: templateCopyOptions.teams ? (item.teamId || '') : '',
+          }));
+          const templateWorkVolumes = (Array.isArray(templateSourceData.workVolumes) ? templateSourceData.workVolumes : []).map((work: any) => resetLifecycle({
+            ...work,
+            planned: 0,
+            actual: 0,
+            unitPrice: 0,
+            status: 'Chưa thi công',
+            dueDate: undefined,
+          }));
+          const templateTeams = (Array.isArray(templateSourceData.teams) ? templateSourceData.teams : []).map((team: any) => resetLifecycle({
+            ...team,
           }));
           const templatePayload = {
             projectName: trimmedName,
             contractorName: sourceContractor,
             inspectorName: sourceInspector,
             projectLocation: sourceLocation,
-            materialNorms: (Array.isArray(fullAppData.materialNorms) ? fullAppData.materialNorms : []).map(resetLifecycle),
+            materialNorms: templateCopyOptions.materialNorms ? (Array.isArray(templateSourceData.materialNorms) ? templateSourceData.materialNorms : []).map(resetLifecycle) : [],
             inventory: [],
-            workVolumes: [],
+            workVolumes: templateCopyOptions.workVolumes ? templateWorkVolumes : [],
             // Preserve floor IDs/names so copied room references remain valid, but do
             // not copy any floor-plan binary/Storage/Drive pointer into the new project.
-            floorPlans: templateFloorPlans,
+            floorPlans: templateCopyOptions.structure ? templateFloorPlans : [],
             defects: [],
-            roomProgressList: templateRooms,
-            checklist: templateChecklist,
+            roomProgressList: templateCopyOptions.structure ? templateRooms : [],
+            checklist: templateCopyOptions.checklist ? templateChecklist : [],
             crewRecords: [],
-            teams: [],
+            teams: templateCopyOptions.teams ? templateTeams : [],
             updatedAt: now,
           };
           await saveProjectToCloud({
@@ -2678,6 +2712,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             syncCode: newProjectId.slice(0, 8).toUpperCase(),
             payload: templatePayload,
           });
+          if (templateCopyOptions.structure && templateSourceStructure) {
+            await saveProjectSharedSettings(newProjectId, { structure: templateSourceStructure });
+          }
         } else {
           await saveProjectMetadataToCloud(newProjectId, trimmedName, {
             contractorName: '',
@@ -4057,20 +4094,61 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all"
                   />
 
-                  <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer bg-white p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors">
-                    <input 
-                      type="checkbox" 
-                      checked={duplicateFromCurrent} 
-                      onChange={(e) => setDuplicateFromCurrent(e.target.checked)}
-                      className="w-4 h-4 mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
-                    />
-                    <div>
-                      <span className="font-bold text-slate-800">Sao chép mẫu từ dự án hiện tại</span>
-                      <p className="text-[10px] text-slate-500 font-normal mt-0.5">
-                        Giữ định mức + cấu trúc tầng/phòng + mẫu kiểm tra; đặt lại tiến độ. Không sao chép tồn kho, defect, quân số hoặc ảnh.
-                      </p>
-                    </div>
-                  </label>
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-2.5">
+                    <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={duplicateFromCurrent} 
+                        onChange={(e) => {
+                          setDuplicateFromCurrent(e.target.checked);
+                          if (e.target.checked) setTemplateSourceProjectId(activeId || getActiveProjectId());
+                        }}
+                        className="w-4 h-4 mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <div>
+                        <span className="font-bold text-slate-800">Tạo từ mẫu công trình</span>
+                        <p className="text-[10px] text-slate-500 font-normal mt-0.5">
+                          Chỉ sao chép danh mục/cấu trúc đã chọn; luôn đặt lại tiến độ. Không sao chép tồn kho, phiếu nhập/xuất, defect, quân số, ảnh hoặc lịch sử.
+                        </p>
+                      </div>
+                    </label>
+                    {duplicateFromCurrent && (
+                      <div className="pl-6 space-y-2">
+                        <select
+                          value={templateSourceProjectId}
+                          onChange={(e) => setTemplateSourceProjectId(e.target.value)}
+                          className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-[11px] font-bold text-slate-800"
+                        >
+                          {projects.map((project) => <option key={project.id} value={project.id}>Mẫu từ: {project.name}{project.id === activeId ? ' (đang mở)' : ''}</option>)}
+                        </select>
+                        <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+                          {([
+                            ['structure', 'Khu/Khối · Tầng · Căn'],
+                            ['workVolumes', 'Hạng mục thi công'],
+                            ['materialNorms', 'Định mức vật tư'],
+                            ['teams', 'Danh mục đội thi công'],
+                            ['checklist', 'Mẫu checklist'],
+                          ] as const).map(([key, label]) => (
+                            <label key={key} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2 py-1.5 cursor-pointer hover:bg-slate-50">
+                              <input
+                                type="checkbox"
+                                checked={templateCopyOptions[key]}
+                                disabled={key === 'workVolumes' && templateCopyOptions.materialNorms}
+                                onChange={(e) => setTemplateCopyOptions((current) => {
+                                  const next = { ...current, [key]: e.target.checked };
+                                  if (key === 'materialNorms' && e.target.checked) next.workVolumes = true;
+                                  return next;
+                                })}
+                                className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600"
+                              />
+                              <span className={`font-semibold ${key === 'workVolumes' && templateCopyOptions.materialNorms ? 'text-slate-400' : 'text-slate-700'}`}>{label}</span>
+                            </label>
+                          ))}
+                        </div>
+                        <div className="text-[9px] leading-4 text-amber-700 font-semibold">Thiết bị hiện chưa có master catalog độc lập; không tạo giao dịch kho giả chỉ để làm mẫu.</div>
+                      </div>
+                    )}
+                  </div>
 
                   <div className="flex gap-2 pt-1">
                     <button

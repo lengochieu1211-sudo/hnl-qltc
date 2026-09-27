@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { detectRoomsFromDxf } from '../src/utils/dxfRoomDetection';
+import { detectRoomsFromDxf, renderDxfFloorPlanSvgDataUrl } from '../src/utils/dxfRoomDetection';
 
 const dxf = [
   '0','SECTION','2','HEADER','9','$INSUNITS','70','4','0','ENDSEC',
@@ -45,5 +45,13 @@ assert.equal(roomB?.textType, 'MTEXT');
 assert.equal(roomA?.areaM2, 11.75, 'nested HATCH island must be subtracted from room area');
 assert.equal(roomB?.areaM2, 12);
 assert.ok(complexResult.warnings.some((warning) => /island\/hole/i.test(warning)), 'nested HATCH loops must surface a review warning');
+
+
+const rendered = renderDxfFloorPlanSvgDataUrl(complexDxf);
+assert.match(rendered.dataUrl, /^data:image\/svg\+xml/, 'DXF renderer must produce a persistent SVG data URL');
+assert.ok(rendered.renderedEntities >= 2, 'DXF renderer must materialize CAD geometry/text for floor-plan background');
+assert.equal(rendered.extents.minX, 0);
+assert.equal(rendered.extents.maxX, 10000);
+assert.ok(rendered.layers.includes('ROOM_TEXT'));
 
 console.log('DXF Room Detection Golden: PASS');

@@ -86,7 +86,7 @@ import { saveWorkbookFile } from '../utils/fileExport';
 import { describePdfError, loadPdfDocument, renderPdfDocumentPageToImage } from '../utils/pdfToImage';
 import { getImageQualityProfile } from '../utils/imageQualitySettings';
 import { detectPdfRoomCandidatesFromDocument, DEFAULT_PDF_ROOM_NAME_PATTERN, PdfRoomCandidate } from '../utils/pdfRoomDetection';
-import { detectRoomsFromDxf, type DxfRoomCandidate } from '../utils/dxfRoomDetection';
+import { detectRoomsFromDxf, renderDxfFloorPlanSvgDataUrl, type DxfRoomCandidate } from '../utils/dxfRoomDetection';
 import { QuickSortBar } from './QuickSortBar';
 import { MoveOrderControls } from './MoveOrderControls';
 import { ExcelActionMenu } from './ExcelActionMenu';
@@ -417,6 +417,12 @@ interface PendingDxfRoomImport {
   unitLabel: string;
   warnings: string[];
   candidates: PendingDxfReviewCandidate[];
+  cadFloorPlanDataUrl?: string;
+  cadRenderedEntities?: number;
+  cadSkippedEntities?: number;
+  cadLayers?: string[];
+  useCadFloorPlan?: boolean;
+  dxfExtents?: { minX: number; minY: number; maxX: number; maxY: number };
 }
 
 
@@ -2957,6 +2963,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     return subItems.map((subItem, subIndex) => ({
       __rowKey: `${room.id}--${subItem?.id || `legacy-${subIndex}`}`,
       __recordId: room.id,
+      __groupKey: room.id,
+      __groupPrimary: subIndex === 0,
       __subItemId: subItem?.id || '',
       structureGroup: groupName,
       floorName: floor?.floorName || room.floorName || '',
@@ -3010,9 +3018,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const roomQuickColumns = React.useMemo<QuickGridColumn[]>(() => [
     { key: 'structureGroup', label: normalizedStructureConfig.label || 'Khu/Khối', editable: false, width: 145 },
     { key: 'floorName', label: 'Tầng', editable: false, width: 125 },
-    { key: 'roomName', label: 'Căn / Phòng', editable: canManageStructure, required: true, width: 155 },
-    { key: 'mainCategory', label: 'Hạng mục chính', editable: canManageStructure, type: 'select', options: quickWorkCategoryOptions, width: 230 },
-    { key: 'mainVolume', label: 'KL Hạng mục chính', editable: canManageStructure, type: 'number', width: 145, validate: (value) => Number(value || 0) < 0 ? 'Không được âm' : null },
+    { key: 'roomName', label: 'Căn / Phòng', editable: (row) => canManageStructure && Boolean(row.__groupPrimary), required: true, width: 155 },
+    { key: 'mainCategory', label: 'Hạng mục chính', editable: (row) => canManageStructure && Boolean(row.__groupPrimary), type: 'select', options: quickWorkCategoryOptions, width: 230 },
+    { key: 'mainVolume', label: 'KL Hạng mục chính', editable: (row) => canManageStructure && Boolean(row.__groupPrimary), type: 'number', width: 145, validate: (value) => Number(value || 0) < 0 ? 'Không được âm' : null },
     { key: 'subItemName', label: 'Hạng mục phụ / Công đoạn', editable: canManageStructure, width: 230 },
     { key: 'subTeamName', label: 'Đội thi công HM phụ', editable: canManageStructure, type: 'select', options: quickTeamOptions, width: 190 },
     { key: 'progress', label: 'Tiến độ', editable: canManageStructure, type: 'select', options: ['Chưa làm', 'Đang làm', 'Đã hoàn thành'], width: 135 },
@@ -3181,6 +3189,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     const text = await file.text();
     const result = detectRoomsFromDxf(text);
+    let cadRender: ReturnType<typeof renderDxfFloorPlanSvgDataUrl> | null = null;
+    try {
+      cadRender = renderDxfFloorPlanSvgDataUrl(text);
+    } catch (error) {
+      console.warn('DXF CAD background render warning:', error);
+    }
     const currentFloorRooms = roomProgressList.filter((room) => room.floorId === target.floorId);
     const existingNames = new Set(currentFloorRooms.map((room) => normalizeDxfCatalogName(room.roomName)));
     const catalogByExactName = new Map<string, WorkVolume[]>();
@@ -3209,8 +3223,15 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       createFloor: Boolean(target.createFloor),
       fileName: file.name,
       unitLabel: result.unitLabel,
+      cadFloorPlanDataUrl: cadRender?.dataUrl,
+      cadRenderedEntities: cadRender?.renderedEntities,
+      cadSkippedEntities: cadRender?.skippedEntities,
+      cadLayers: cadRender?.layers,
+      useCadFloorPlan: Boolean(cadRender?.dataUrl) && !(floorPlans.find((item) => item.id === target.floorId)?.imageUrl),
+      dxfExtents: result.extents,
       warnings: [
         ...result.warnings,
+        ...(cadRender?.skippedEntities ? [`Mặt bằng CAD đã bỏ qua ${cadRender.skippedEntities} entity chưa hỗ trợ hoặc vượt giới hạn render an toàn.`] : []),
         ...(candidates.some((candidate) => !candidate.hasDetectedName)
           ? ['Có vùng chưa tìm thấy TEXT/MTEXT bên trong. Các dòng này mặc định chưa chọn; hãy đặt tên rồi chọn nếu đúng Căn / Phòng.']
           : []),
@@ -3236,7 +3257,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       id: pendingDxfImport.floorId,
       floorName: pendingDxfImport.floorName,
       structureGroupId: pendingDxfImport.structureGroupId,
-      imageUrl: '',
+      imageUrl: pendingDxfImport.useCadFloorPlan ? (pendingDxfImport.cadFloorPlanDataUrl || '') : '',
       uploadedAt: new Date().toISOString().split('T')[0],
     } : null);
     if (!floor) {
@@ -3307,6 +3328,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         inspectionStatus: 'Chưa nghiệm thu',
         inspectorName: inspectorName || undefined,
         notes: `Nhận diện từ DXF · ${candidate.source} · Layer: ${candidate.layer || '(không tên)'}${candidate.areaM2 !== undefined ? ` · Diện tích: ${formatDecimal(candidate.areaM2)} m²` : ''}`,
+        cadSource: {
+          format: 'DXF',
+          rawPoints: candidate.rawPoints,
+          extents: pendingDxfImport.dxfExtents,
+          layer: candidate.layer || '',
+          source: candidate.source,
+        },
         createdAt: now + index,
         updatedAt: now + index,
       };
@@ -3315,6 +3343,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const confirmed = await confirmAsync(
       `${pendingDxfImport.createFloor ? 'Tạo tầng và ' : 'Tạo '}${newRooms.length} Căn / Phòng từ DXF trên “${floor.floorName}”?\n\n` +
       '• HATCH/Polyline → polygon highlight\n' +
+      (pendingDxfImport.useCadFloorPlan ? '• CAD DXF → mặt bằng nền cùng hệ tọa độ highlight\n' : '') +
       '• TEXT/MTEXT → tên Căn / Phòng\n' +
       '• Diện tích chỉ ghi m² khi DXF có đơn vị hợp lệ và đã gán Hạng mục\n' +
       '• Không ghi đè Căn / Phòng đã tồn tại'
@@ -3322,6 +3351,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (!confirmed) return;
 
     if (pendingDxfImport.createFloor && !existingFloor) onAddFloorPlan(floor);
+    if (!pendingDxfImport.createFloor && pendingDxfImport.useCadFloorPlan && pendingDxfImport.cadFloorPlanDataUrl && existingFloor && !existingFloor.imageUrl && onUpdateFloorPlanImage) {
+      await onUpdateFloorPlanImage(existingFloor.id, pendingDxfImport.cadFloorPlanDataUrl);
+    }
     if (onCreateMultipleRoomProgress) onCreateMultipleRoomProgress(newRooms);
     else newRooms.forEach((room) => onSaveRoomProgress(room));
     setSelectedFloorId(floor.id);
@@ -3337,7 +3369,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         id: pendingDxfImport.floorId,
         floorName: pendingDxfImport.floorName,
         structureGroupId: pendingDxfImport.structureGroupId,
-        imageUrl: '',
+        imageUrl: pendingDxfImport.useCadFloorPlan ? (pendingDxfImport.cadFloorPlanDataUrl || '') : '',
         uploadedAt: new Date().toISOString().split('T')[0],
       });
     }
@@ -9181,6 +9213,29 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               </div>
             )}
 
+            <div className="px-4 pt-4">
+              <label className={`flex items-start gap-3 rounded-xl border p-3 ${pendingDxfImport.cadFloorPlanDataUrl ? 'border-indigo-200 bg-indigo-50/60' : 'border-slate-200 bg-slate-50'}`}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(pendingDxfImport.useCadFloorPlan)}
+                  disabled={!pendingDxfImport.cadFloorPlanDataUrl || Boolean(floorPlans.find((item) => item.id === pendingDxfImport.floorId)?.imageUrl)}
+                  onChange={(event) => setPendingDxfImport((current) => current ? { ...current, useCadFloorPlan: event.target.checked } : current)}
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600"
+                />
+                <div className="min-w-0">
+                  <div className="text-xs font-black text-slate-800">Lấy mặt bằng trực tiếp từ DXF</div>
+                  <div className="mt-0.5 text-[10px] leading-4 text-slate-600">
+                    {pendingDxfImport.cadFloorPlanDataUrl
+                      ? `Render ${pendingDxfImport.cadRenderedEntities || 0} entity CAD · ${pendingDxfImport.cadLayers?.length || 0} layer. Mặt bằng và highlight dùng cùng extents nên khớp tọa độ ngay từ đầu.`
+                      : 'DXF này chưa tạo được nền CAD an toàn; vẫn có thể tạo highlight Căn/Phòng.'}
+                  </div>
+                  {floorPlans.find((item) => item.id === pendingDxfImport.floorId)?.imageUrl && (
+                    <div className="mt-1 text-[10px] font-bold text-amber-700">Tầng đã có mặt bằng nên hệ thống không tự ghi đè. Muốn thay nền hãy dùng chức năng Thay mặt bằng để giữ revision/sync an toàn.</div>
+                  )}
+                </div>
+              </label>
+            </div>
+
             <div className="flex-1 overflow-auto p-4">
               <div className="overflow-x-auto rounded-xl border border-slate-200">
                 <table className="min-w-[1120px] w-full text-[11px] border-collapse">
@@ -9297,6 +9352,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         canEdit={quickEditMode === 'rooms' ? canManageStructure : canEditDefects}
         canAddRows={false}
         onClose={() => setShowQuickEdit(false)}
+        syncGroupColumns={quickEditMode === 'rooms' ? ['roomName', 'mainCategory', 'mainVolume'] : []}
         onSave={quickEditMode === 'rooms' ? saveRoomQuickRows : saveDefectQuickRows}
       />
 

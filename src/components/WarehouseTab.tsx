@@ -1540,7 +1540,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       { key: 'specificNorm', label: 'ĐM riêng hạng mục', editable: hasNormManageAccess, type: 'number', width: 145, validate: (value) => String(value ?? '').trim() && Number(value) < 0 ? 'Không được âm' : null },
       { key: 'generalNorm', label: 'ĐM chung', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), type: 'number', width: 120, validate: (value) => String(value ?? '').trim() && Number(value) < 0 ? 'Không được âm' : null },
       { key: 'normSource', label: 'Nguồn định mức', editable: false, width: 155 },
-      { key: 'quotaQuantity', label: 'Khối lượng định mức', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), type: 'number', width: 150, validate: (value) => Number(value || 0) < 0 ? 'Không được âm' : null },
+      { key: 'quotaQuantity', label: 'Khối lượng định mức (tự tính)', editable: false, type: 'number', width: 175 },
       { key: 'notes', label: 'Ghi chú / Tiêu chuẩn kỹ thuật', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), width: 300 },
     ];
     if (quickEditMode === 'stock') return [
@@ -1667,8 +1667,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         const generalRaw = String(primary.generalNorm ?? '').trim();
         const generalNorm = generalRaw === '' ? undefined : Number(primary.generalNorm);
         if (generalNorm !== undefined && (!Number.isFinite(generalNorm) || generalNorm < 0)) throw new Error('ĐM chung không hợp lệ.');
-        const quotaQuantity = Math.max(0, Number(primary.quotaQuantity || 0));
-        if (!Number.isFinite(quotaQuantity)) throw new Error('Khối lượng định mức không hợp lệ.');
+        // quotaQuantity is derived centrally in App.tsx from WorkVolume × norm factor.
+        // Never persist a Quick Edit override as a second source of truth.
+        const quotaQuantity = Number(existing.quotaQuantity || 0);
 
         byId.set(normId, {
           ...existing,
@@ -1986,7 +1987,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         canAddRows={quickEditMode === 'norms' ? hasNormManageAccess : quickEditMode === 'in' || quickEditMode === 'out' ? hasImportAccess : false}
         canDeleteRows={quickEditMode === 'norms' ? hasNormManageAccess : quickEditMode === 'in' || quickEditMode === 'out' ? hasDeleteAccess : false}
         requiresAnchorForInsert={quickEditMode === 'norms'}
-        syncGroupColumns={quickEditMode === 'norms' ? ['materialName', 'category', 'unit', 'generalNorm', 'quotaQuantity', 'notes'] : []}
+        syncGroupColumns={quickEditMode === 'norms' ? ['materialName', 'category', 'unit', 'generalNorm', 'notes'] : []}
         getRowDeleteBlockReason={(row, currentRows) => {
           if (quickEditMode !== 'norms') return null;
           const normId = String(row.__normId || '').trim();

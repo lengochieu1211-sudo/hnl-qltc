@@ -45,6 +45,7 @@ import { createEntityId } from '../utils/idUtils';
 import { QuickSortBar } from './QuickSortBar';
 import { ExcelActionMenu } from './ExcelActionMenu';
 import { QuickEditGridModal, type QuickGridColumn, type QuickGridRow } from './QuickEditGridModal';
+import { CatalogTemplatePickerModal } from './CatalogTemplatePickerModal';
 import { UserRole, canEditCrewData, canDeleteBusinessData, canDeleteCrewRecord, canManageTeams, canImportData } from '../utils/securityUtils';
 import { findWorsenedTeamNameConflict, normalizeTeamDirectoryName, resolveUniqueTeamByDirectoryName } from '../utils/teamDirectoryIntegrity';
 import { canonicalWorkCategoryId, isActiveRecord, normalizeLinkText, resolveWorkVolumeRef, workVolumeAppliesToFloor } from '../utils/linkageIntegrity';
@@ -492,6 +493,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [copyDatePickerValue, setCopyDatePickerValue] = useState('');
   const [showCrewReportShare, setShowCrewReportShare] = useState(false);
   const [showQuickEdit, setShowQuickEdit] = useState(false);
+  const [showTeamTemplatePicker, setShowTeamTemplatePicker] = useState(false);
   const [quickEditMode, setQuickEditMode] = useState<'logs' | 'teams'>('logs');
 
   useEffect(() => {
@@ -1641,6 +1643,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       return categories.map((category, categoryIndex) => ({
         __rowKey: `${record.id}--${floorIndex}--${categoryIndex}`,
         __recordId: record.id,
+        __groupKey: record.id,
+        __groupPrimary: floorIndex === 0 && categoryIndex === 0,
         date: record.date,
         teamName: record.teamName,
         morning: counts.morning,
@@ -1682,11 +1686,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   ].filter(Boolean))), [activeWorkVolumeCatalog, crewRecords]);
 
   const crewQuickColumns = useMemo<QuickGridColumn[]>(() => [
-    { key: 'date', label: 'Ngày', type: 'date', editable: canOperate, required: true, width: 135 },
-    { key: 'teamName', label: 'Đội thi công', type: 'select', options: crewTeamOptions, editable: canOperate, required: true, width: 180 },
-    { key: 'morning', label: 'Ca sáng', type: 'number', editable: canOperate, width: 95, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
-    { key: 'afternoon', label: 'Ca chiều', type: 'number', editable: canOperate, width: 95, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
-    { key: 'evening', label: 'Ca tối', type: 'number', editable: canOperate, width: 95, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
+    { key: 'date', label: 'Ngày', type: 'date', editable: (row) => canOperate && Boolean(row.__groupPrimary), required: true, width: 135 },
+    { key: 'teamName', label: 'Đội thi công', type: 'select', options: crewTeamOptions, editable: (row) => canOperate && Boolean(row.__groupPrimary), required: true, width: 180 },
+    { key: 'morning', label: 'Ca sáng', type: 'number', editable: (row) => canOperate && Boolean(row.__groupPrimary), width: 95, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
+    { key: 'afternoon', label: 'Ca chiều', type: 'number', editable: (row) => canOperate && Boolean(row.__groupPrimary), width: 95, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
+    { key: 'evening', label: 'Ca tối', type: 'number', editable: (row) => canOperate && Boolean(row.__groupPrimary), width: 95, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
     {
       key: 'structureGroup',
       label: normalizedStructureConfig.label || 'Khu/Khối',
@@ -2266,17 +2270,27 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             <div className="mt-3.5 pt-3 border-t border-slate-100">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 {canManageTeamDirectory && (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setEditingTeam(null);
-                      setShowTeamModal(true);
-                    }}
-                    className="w-full h-8 px-3 sm:w-auto flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs shadow-2xs transition-all active:scale-95"
-                  >
-                    <Plus className="w-4 h-4 shrink-0" />
-                    <span className="truncate">Thêm đội mới</span>
-                  </button>
+                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setEditingTeam(null);
+                        setShowTeamModal(true);
+                      }}
+                      className="w-full h-8 px-3 sm:w-auto flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs shadow-2xs transition-all active:scale-95"
+                    >
+                      <Plus className="w-4 h-4 shrink-0" />
+                      <span className="truncate">Thêm đội mới</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowTeamTemplatePicker(true)}
+                      className="w-full h-8 px-3 sm:w-auto flex items-center justify-center gap-1.5 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl text-xs transition-all active:scale-95"
+                    >
+                      <Copy className="w-4 h-4 shrink-0" />
+                      <span className="truncate">Lấy từ công trình khác</span>
+                    </button>
+                  </div>
                 )}
 
                 <div className="grid w-full grid-cols-2 gap-2 sm:ml-auto sm:w-auto sm:grid-cols-[160px_160px]">
@@ -4103,6 +4117,39 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         );
       })()}
 
+      <CatalogTemplatePickerModal
+        open={showTeamTemplatePicker}
+        onClose={() => setShowTeamTemplatePicker(false)}
+        currentProjectId={projectId}
+        kind="teams"
+        title="Lấy Đội thi công từ công trình khác"
+        onImport={async (rows) => {
+          if (!canManageTeamDirectory) return;
+          const existingNames = new Set(teams.map((team) => normalizeTeamDirectoryName(team.name)));
+          const additions: TeamInfo[] = [];
+          rows.forEach((row) => {
+            const source = row.item as TeamInfo;
+            const key = normalizeTeamDirectoryName(source.name);
+            if (!key || existingNames.has(key)) return;
+            additions.push({
+              ...source,
+              id: createEntityId('team-template'),
+              name: String(source.name || '').trim(),
+              leader: String(source.leader || '').trim(),
+              defaultCount: Math.max(0, Number(source.defaultCount) || 0),
+              phone: source.phone ? String(source.phone).trim() : '',
+              notes: source.notes ? String(source.notes).trim() : '',
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+              revision: 1,
+              deletedAt: null,
+            });
+            existingNames.add(key);
+          });
+          if (additions.length) updateTeamsAndParent([...teams, ...additions]);
+        }}
+      />
+
       <QuickEditGridModal
         open={showQuickEdit}
         title={quickEditMode === 'logs' ? 'Bảng chỉnh nhanh · Nhật ký quân số' : 'Bảng chỉnh nhanh · Danh mục đội'}
@@ -4136,6 +4183,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           notes: '',
         })}
         onClose={() => setShowQuickEdit(false)}
+        syncGroupColumns={quickEditMode === 'logs' ? ['date', 'teamName', 'morning', 'afternoon', 'evening'] : []}
         onSave={quickEditMode === 'logs' ? saveQuickCrewRows : (rows) => saveQuickTeamRows(rows)}
       />
 

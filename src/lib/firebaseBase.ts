@@ -620,6 +620,73 @@ async function registerProjectForCurrentUser(projectId: string, projectName: str
   console.debug('[user index write]', projectId, 'written');
 }
 
+export interface UserCatalogTemplate {
+  id: string;
+  name: string;
+  kind: 'workVolumes' | 'teams' | 'materialNorms';
+  items: any[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+const sanitizeCatalogTemplateItems = (items: any[]): any[] => {
+  const safe = Array.isArray(items) ? items.slice(0, 40) : [];
+  return safe.map((item) => JSON.parse(JSON.stringify(item, (_key, value) => value === undefined ? null : value)));
+};
+
+export async function fetchUserCatalogTemplates(): Promise<UserCatalogTemplate[]> {
+  await ensureAuth();
+  const user = getCurrentRealFirebaseUser();
+  if (!user?.uid) return [];
+  const snap = await getDocFromServer(doc(db, 'users', user.uid));
+  if (!snap.exists()) return [];
+  const raw = snap.data()?.catalogTemplates;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item: any) => item && typeof item.id === 'string' && typeof item.name === 'string' && ['workVolumes', 'teams', 'materialNorms'].includes(item.kind))
+    .map((item: any) => ({
+      id: String(item.id),
+      name: String(item.name).slice(0, 80),
+      kind: item.kind,
+      items: Array.isArray(item.items) ? item.items.slice(0, 40) : [],
+      createdAt: Number(item.createdAt || 0),
+      updatedAt: Number(item.updatedAt || 0),
+    }))
+    .sort((a: UserCatalogTemplate, b: UserCatalogTemplate) => b.updatedAt - a.updatedAt)
+    .slice(0, 12);
+}
+
+export async function saveUserCatalogTemplate(input: Omit<UserCatalogTemplate, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<UserCatalogTemplate> {
+  await ensureAuth();
+  const user = getCurrentRealFirebaseUser();
+  if (!user?.uid) throw new Error('Bạn cần đăng nhập Google để lưu mẫu dùng chung giữa thiết bị.');
+  const current = await fetchUserCatalogTemplates().catch(() => []);
+  const now = Date.now();
+  const id = String(input.id || `catalog-template-${now}-${Math.random().toString(36).slice(2, 8)}`);
+  const existing = current.find((item) => item.id === id);
+  const next: UserCatalogTemplate = {
+    id,
+    name: String(input.name || '').trim().slice(0, 80) || 'Mẫu chưa đặt tên',
+    kind: input.kind,
+    items: sanitizeCatalogTemplateItems(input.items),
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  };
+  const merged = [next, ...current.filter((item) => item.id !== id)].slice(0, 12);
+  await setDoc(doc(db, 'users', user.uid), { catalogTemplates: merged }, { merge: true });
+  return next;
+}
+
+export async function deleteUserCatalogTemplate(templateId: string): Promise<void> {
+  await ensureAuth();
+  const user = getCurrentRealFirebaseUser();
+  if (!user?.uid) throw new Error('Bạn cần đăng nhập Google.');
+  const current = await fetchUserCatalogTemplates().catch(() => []);
+  await setDoc(doc(db, 'users', user.uid), {
+    catalogTemplates: current.filter((item) => item.id !== templateId),
+  }, { merge: true });
+}
+
 export async function fetchCurrentUserProjectsFromCloud(): Promise<CloudProjectSummary[]> {
   try {
     await ensureAuth();
@@ -2024,6 +2091,14 @@ export interface ProjectSharedSettings {
   updatedAt?: number;
   updatedByUid?: string;
   updatedByEmail?: string;
+}
+
+export async function fetchProjectSharedSettingsSnapshot(projectId: string, serverOnly = true): Promise<ProjectSharedSettings | null> {
+  if (!projectId) return null;
+  await ensureAuth();
+  const ref = doc(db, 'projects', projectId, 'settings', 'shared');
+  const snap = serverOnly ? await getDocFromServer(ref) : await getDoc(ref);
+  return snap.exists() ? (snap.data() as ProjectSharedSettings) : null;
 }
 
 export async function saveProjectSharedSettings(projectId: string, patch: Partial<ProjectSharedSettings>): Promise<void> {

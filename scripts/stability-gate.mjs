@@ -460,8 +460,13 @@ requireAll(projectManager, [
   "if (FIREBASE_ONLY_RUNTIME) {",
   "if (!FIREBASE_ONLY_RUNTIME) {",
 ], 'Project Manager Firebase-only source-of-truth guards');
-if (!projectManager.includes('inventory: []') || !projectManager.includes('floorPlans: templateFloorPlans') || !projectManager.includes("imageUrl: ''") || !projectManager.includes('defects: []') || !projectManager.includes('crewRecords: []') || !projectManager.includes('teams: []')) {
-  fail('Firebase-only template clone may copy operational/transaction/media datasets');
+if (!projectManager.includes('inventory: []')
+  || !projectManager.includes('floorPlans: templateCopyOptions.structure ? templateFloorPlans : []')
+  || !projectManager.includes("imageUrl: ''")
+  || !projectManager.includes('defects: []')
+  || !projectManager.includes('crewRecords: []')
+  || !projectManager.includes('teams: templateCopyOptions.teams ? templateTeams : []')) {
+  fail('Firebase-only template clone may copy operational/transaction/media datasets or bypass explicit catalog selection');
 }
 pass('Project Manager cloud-first sync/pull/create guards retained');
 
