@@ -726,11 +726,6 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       return;
     }
 
-    const quotaParsedForSubmit = parseInteractiveNumericInput(quotaQuantityStr);
-    if (quotaQuantityStr.trim() && quotaParsedForSubmit === null) {
-      alert('Khối lượng định mức có công thức hoặc số nhập không hợp lệ. Ví dụ hợp lệ: 500, 100*5, 1220/3.');
-      return;
-    }
     if (unitNormPerM2Str.trim() && parseInteractiveNumericInput(unitNormPerM2Str) === null) {
       alert('Định mức / đơn vị có công thức hoặc số nhập không hợp lệ.');
       return;
@@ -744,10 +739,6 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       return;
     }
 
-    if (!quotaQuantity || Number(quotaQuantity) <= 0) {
-      alert('Vui lòng nhập số lượng định mức công trình hợp lệ (> 0)!');
-      return;
-    }
     if (workCategories.length === 0) {
       alert('Vui lòng chọn ít nhất một hạng mục thi công liên kết!');
       return;
@@ -803,6 +794,11 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       });
     });
 
+    const editingNormForQuota = mode === 'edit' && editingId ? materialNorms.find((item) => item.id === editingId) : undefined;
+    const derivedQuotaQuantity = computedAutoQuota !== null
+      ? computedAutoQuota
+      : Math.max(0, Number(editingNormForQuota?.quotaQuantity || 0));
+
     const normData: Omit<MaterialNorm, 'id'> = {
       category: finalCategory,
       workCategoryId: selectedWorkCategoryIds[0] || '',
@@ -813,7 +809,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       workCategoryNormsById: normCategoryNormsById,
       materialName: materialName.trim(),
       unit: finalUnit,
-      quotaQuantity: Number(quotaQuantity),
+      quotaQuantity: derivedQuotaQuantity,
       unitNormPerM2: unitNormPerM2 ? Number(unitNormPerM2) : undefined,
       normBasisUnit: !hasMixedBasisUnits && selectedBasisUnits.length === 1
         ? (Object.values(selectedWorkCategoryUnits).find((u): u is string => typeof u === 'string' && Boolean(u) && u !== 'Nhiều ĐVT') || undefined)
@@ -1182,65 +1178,15 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:items-start">
               <div className="flex flex-col">
                 <div className="flex items-start justify-between gap-2 mb-1 sm:min-h-[2.75rem]">
-                  <label className="block font-bold text-slate-700 leading-tight pt-0.5">Khối lượng định mức *</label>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {evaluateMathExpression(quotaQuantityStr) !== null && /[+\-*/xX×:÷]/.test(quotaQuantityStr) && (
-                      <span className="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded text-[10px] font-extrabold animate-pulse">
-                        = {formatDecimal(evaluateMathExpression(quotaQuantityStr))}
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={commitQuotaFormula}
-                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-indigo-200 bg-indigo-50 text-indigo-700 text-[10px] font-extrabold hover:bg-indigo-100"
-                      title="Tính công thức đang nhập"
-                    >
-                      <Calculator className="w-3 h-3" /> Tính
-                    </button>
-                  </div>
+                  <label className="block font-bold text-slate-700 leading-tight pt-0.5">Khối lượng định mức</label>
+                  <span className="text-[9px] font-extrabold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-1.5 py-0.5">Tự tính</span>
                 </div>
-                <input
-                  type="text"
-                  placeholder="VD: 500 hoặc 100*5"
-                  value={quotaQuantityStr}
-                  onChange={(e) => {
-                    const typedVal = e.target.value;
-                    setQuotaQuantityStr(typedVal);
-                    if (typedVal === '') {
-                      setQuotaQuantity('');
-                      return;
-                    }
-                    const parsed = parseInteractiveNumericInput(typedVal);
-                    if (parsed !== null) setQuotaQuantity(parsed);
-                  }}
-                  onBlur={() => {
-                    if (quotaQuantityStr.trim()) commitQuotaFormula();
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      commitQuotaFormula();
-                    }
-                  }}
-                  className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-indigo-600 focus:ring-2 focus:ring-indigo-500"
-                  required
-                />
-                {computedAutoQuota !== null ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setQuotaQuantity(computedAutoQuota);
-                      setQuotaQuantityStr(formatDecimal(computedAutoQuota));
-                    }}
-                    className="mt-1 text-[10px] text-indigo-700 hover:text-indigo-900 font-extrabold flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 p-1.5 rounded-lg border border-indigo-200 transition-all active:scale-95 text-left w-full"
-                    title={`Khối lượng liên kết (${selectedWorkCategoriesVolumeLabel || '0'}) × định mức / đơn vị (${formatAdaptiveDecimal(unitNormPerM2)})`}
-                  >
-                    <span>💡 Áp dụng định mức: <strong>{formatDecimal(computedAutoQuota)}</strong> {unit === 'khac' ? customUnit : unit}</span>
-                  </button>
-                ) : (
-                  <span className="text-[10px] text-slate-400 mt-0.5 block">Tổng số định mức toàn công trình</span>
-                )}
+                <div className="w-full border border-slate-200 rounded-xl p-2.5 font-black text-indigo-700 bg-slate-50 min-h-[41px] flex items-center">
+                  {computedAutoQuota !== null ? `${formatDecimal(computedAutoQuota)} ${unit === 'khac' ? customUnit : unit}` : '0'}
+                </div>
+                <span className="text-[10px] text-slate-500 mt-1 block leading-4">
+                  Tự động = Σ(Khối lượng hạng mục × Định mức riêng/chung). Không nhập tay để tránh hai nguồn dữ liệu.
+                </span>
               </div>
               <div className="flex flex-col">
                 <div className="flex items-start justify-between gap-2 mb-1 sm:min-h-[2.75rem]">
