@@ -482,10 +482,10 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
 
         <div className="flex-1 overflow-auto bg-slate-100">
           <table className="min-w-max w-full border-separate border-spacing-0 text-[11px]">
-            <thead className="sticky top-0 z-20">
+            <thead>
               <tr>
                 {rowOperationsEnabled && (
-                  <th className="sticky left-0 z-40 bg-slate-200 border-r border-b border-slate-300 px-2 py-2 text-center w-10">
+                  <th className="sticky top-0 left-0 z-40 bg-slate-200 border-r border-b border-slate-300 px-2 py-2 text-center w-10">
                     <input
                       type="checkbox"
                       checked={allVisibleSelected}
@@ -499,12 +499,12 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
                     />
                   </th>
                 )}
-                <th className={`${rowOperationsEnabled ? 'sticky left-10' : 'sticky left-0'} z-30 bg-slate-200 border-r border-b border-slate-300 px-2 py-2 text-center w-12`}>#</th>
+                <th className={`${rowOperationsEnabled ? 'sticky left-10' : 'sticky left-0'} sticky top-0 z-30 bg-slate-200 border-r border-b border-slate-300 px-2 py-2 text-center w-12`}>#</th>
                 {columns.map((column) => {
                   const sortable = column.sortable !== false;
                   const activeSort = sortState?.key === column.key ? sortState.direction : null;
                   return (
-                    <th key={column.key} style={{ minWidth: column.width || 140 }} className="bg-slate-200 border-r border-b border-slate-300 p-0 text-left font-black text-slate-700 whitespace-nowrap">
+                    <th key={column.key} style={{ minWidth: column.width || 140 }} className="sticky top-0 z-20 bg-slate-200 border-r border-b border-slate-300 p-0 text-left font-black text-slate-700 whitespace-nowrap">
                       <button
                         type="button"
                         disabled={!sortable}
