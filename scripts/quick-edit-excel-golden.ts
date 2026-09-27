@@ -30,7 +30,8 @@ assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /XLSX\.utils\.
 assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /'__itemKind': item\.itemKind === 'equipment'/, 'Warehouse inbound round-trip must preserve material-vs-equipment identity');
 assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /XLSX\.utils\.aoa_to_sheet\(\[inHeaders\]\)/, 'Warehouse blank inbound template must retain headers');
 assert.doesNotMatch(excel, /Xuất báo cáo Excel/, 'Excel edit menu must not duplicate reporting');
-assert.match(excel, /className="relative shrink-0"/, 'Excel action trigger must not be squeezed/cropped in mobile flex rows');
+assert.match(excel, /fillMobile/, 'Excel action trigger must support equal-width mobile action rows');
+assert.match(excel, /w-full sm:w-auto/, 'Excel action trigger must be able to fill one mobile grid column without affecting desktop');
 assert.match(excel, /whitespace-nowrap/, 'Excel action trigger must keep its compact label intact on mobile');
 assert.match(excel, /FileSpreadsheet/, 'Excel action trigger must use the standard spreadsheet icon instead of a text glyph');
 
@@ -54,6 +55,10 @@ assert.match(floor, /aria-invalid=\{!isSmartPdfNamePatternValid\}/, 'Advanced PD
 assert.doesNotMatch(pdfRoomDetection, /\(\?=\.\*/, 'Default room-name regex should avoid the hard-to-read lookahead form reported on mobile');
 assert.match(floor, /Tạo Căn \/ Phòng từ DXF/, 'DXF import must retain an explicit review/apply path');
 assert.match(floor, /Không ghi đè Căn \/ Phòng đã tồn tại/, 'DXF import must protect existing room highlights');
+assert.match(floor, /Quản lý Khu\/Khối & Tầng[\s\S]*grid grid-cols-2 gap-2[\s\S]*Bảng chỉnh nhanh[\s\S]*fillMobile/, 'Floor bulk edit actions must sit below structure management and fill two balanced mobile columns');
+const acceptanceSection = floor.slice(floor.indexOf('Nghiệm thu từng Căn / Phòng'), floor.indexOf('Quick Sort Controls'));
+assert.doesNotMatch(acceptanceSection, /Thêm Căn \/ Phòng/, 'Acceptance section must not duplicate the add-room action');
+assert.doesNotMatch(acceptanceSection, /Bảng chỉnh nhanh/, 'Acceptance section must not duplicate bulk-edit actions');
 
 assert.match(crew, /Xuất Nhật ký để chỉnh sửa/, 'Crew must export journal for editing');
 assert.match(crew, /Nhập Nhật ký đã chỉnh sửa/, 'Crew must import edited journal');
@@ -62,6 +67,11 @@ assert.match(crew, /__teamId không tồn tại trong dự án hiện tại/, 'C
 assert.match(crew, /__recordId không tồn tại trong dự án hiện tại/, 'Crew Excel import must reject stale journal IDs');
 assert.match(crew, /Thống kê tất cả đội/, 'All-team report button must be distinguishable from global report');
 assert.match(crew, /Xuất Excel Đội Này/, 'Single-team report export must remain available');
+assert.match(crew, /selectedLogStructureGroupId/, 'Crew entry must expose an explicit Khu/Khối selection state');
+assert.match(crew, /Danh sách Tầng bên dưới chỉ hiện trong/, 'Crew entry must explain that floor choices are filtered by Khu/Khối');
+assert.match(crew, /key: 'structureGroup'/, 'Crew quick edit must include a Khu/Khối column');
+assert.match(crew, /Tầng không thuộc Khu\/Khối này/, 'Crew quick edit must reject floor/group mismatches');
+assert.match(crew, /grid grid-cols-2 gap-2 sm:flex/, 'Crew bulk-edit actions must use balanced two-column mobile layout');
 
 assert.match(warehouse, /Danh mục & Định mức/, 'Warehouse quick edit must have material/norm table');
 assert.match(warehouse, /Nhập kho/, 'Warehouse quick edit must have inbound ledger table');
@@ -70,6 +80,12 @@ assert.match(warehouse, /Tồn kho 🔒/, 'Warehouse stock must be visibly read-
 assert.match(warehouse, /quickEditMode === 'stock' \? false/, 'Stock quick table must reject edits');
 assert.match(warehouse, /Mã Phiếu không tồn tại trong dự án hiện tại/, 'Warehouse Excel import must reject stale transaction IDs');
 assert.match(warehouse, /assertKnownReference/, 'Warehouse Excel import must validate technical linkage IDs before writing');
+assert.match(warehouse, /key: 'workCategory'[\s\S]*type: 'select'[\s\S]*options: warehouseWorkOptions/, 'Warehouse norm quick edit must select work categories from the authoritative catalog');
+assert.match(warehouse, /key: 'specificNorm'/, 'Warehouse norm quick edit must expose per-work-category norm');
+assert.match(warehouse, /key: 'generalNorm'/, 'Warehouse norm quick edit must retain the general fallback norm');
+assert.match(warehouse, /workCategoryNormsById/, 'Warehouse norm quick edit must persist per-work-category norms in the existing ID map');
+assert.match(warehouse, /Định mức riêng theo Hạng mục sẽ được ưu tiên/, 'Warehouse quick edit must document specific-over-general norm precedence');
+assert.match(warehouse, /grid grid-cols-2 gap-2 pt-0\.5 sm:flex/, 'Warehouse bulk-edit actions must use balanced two-column mobile layout');
 
 assert.match(volume, /Khối lượng đã làm/, 'WorkVolume quick table must show actual volume');
 assert.match(volume, /key: 'actual'.*editable: false/, 'Actual volume must be read-only');
