@@ -201,14 +201,33 @@ import { commitWarehouseTransactionAtomic, updateWarehouseTransactionAtomic, sof
 import { drainBinaryPurgeRetryQueues, purgeTrashOperationBinaries } from './lib/cloudBinaryPurge';
 
 // Heavy screens are code-split so Android does not parse XLSX/PDF-heavy modules at startup.
-const WarehouseTab = React.lazy(() => import('./components/WarehouseTab').then(m => ({ default: m.WarehouseTab })));
-const WorkVolumeTab = React.lazy(() => import('./components/WorkVolumeTab').then(m => ({ default: m.WorkVolumeTab })));
-const FloorPlanDefectTab = React.lazy(() => import('./components/FloorPlanDefectTab').then(m => ({ default: m.FloorPlanDefectTab })));
-const ChecklistTab = React.lazy(() => import('./components/ChecklistTab').then(m => ({ default: m.ChecklistTab })));
-const CrewTab = React.lazy(() => import('./components/CrewTab').then(m => ({ default: m.CrewTab })));
-const GoogleConfigTab = React.lazy(() => import('./components/GoogleConfigTab').then(m => ({ default: m.GoogleConfigTab })));
-const ChatTab = React.lazy(() => import('./features/chat/ChatTab').then(m => ({ default: m.ChatTab })));
-const AiAssistantPage = React.lazy(() => import('./features/ai/AiAssistantPage').then(m => ({ default: m.AiAssistantPage })));
+const loadWarehouseTab = () => import('./components/WarehouseTab');
+const loadWorkVolumeTab = () => import('./components/WorkVolumeTab');
+const loadFloorPlanDefectTab = () => import('./components/FloorPlanDefectTab');
+const loadChecklistTab = () => import('./components/ChecklistTab');
+const loadCrewTab = () => import('./components/CrewTab');
+const loadGoogleConfigTab = () => import('./components/GoogleConfigTab');
+const loadChatTab = () => import('./features/chat/ChatTab');
+const loadAiAssistantPage = () => import('./features/ai/AiAssistantPage');
+const WarehouseTab = React.lazy(() => loadWarehouseTab().then(m => ({ default: m.WarehouseTab })));
+const WorkVolumeTab = React.lazy(() => loadWorkVolumeTab().then(m => ({ default: m.WorkVolumeTab })));
+const FloorPlanDefectTab = React.lazy(() => loadFloorPlanDefectTab().then(m => ({ default: m.FloorPlanDefectTab })));
+const ChecklistTab = React.lazy(() => loadChecklistTab().then(m => ({ default: m.ChecklistTab })));
+const CrewTab = React.lazy(() => loadCrewTab().then(m => ({ default: m.CrewTab })));
+const GoogleConfigTab = React.lazy(() => loadGoogleConfigTab().then(m => ({ default: m.GoogleConfigTab })));
+const ChatTab = React.lazy(() => loadChatTab().then(m => ({ default: m.ChatTab })));
+const AiAssistantPage = React.lazy(() => loadAiAssistantPage().then(m => ({ default: m.AiAssistantPage })));
+
+const PRIMARY_TAB_IDS: TabType[] = ['home', 'floorplan', 'crew', 'warehouse', 'volume', 'config'];
+const getRememberedTab = (): TabType => {
+  if (typeof window === 'undefined') return 'home';
+  try {
+    const remembered = sessionStorage.getItem('qlct_active_tab_v1') as TabType | null;
+    return remembered && PRIMARY_TAB_IDS.includes(remembered) ? remembered : 'home';
+  } catch (_) {
+    return 'home';
+  }
+};
 const HNL_AI_ENABLED = String(((import.meta as any).env || {}).VITE_HNL_AI_ENABLED || 'false').toLowerCase() === 'true';
 
 interface AppData {
@@ -334,7 +353,37 @@ const normalizeSuperAdminUiSettings = (raw: any): SuperAdminUiSettings => {
 function AuthenticatedApp() {
   const isDesktopRuntime = typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('app') === 'desktop';
-  const [activeTab, setActiveTab] = useState<TabType>('home');
+  const [activeTab, setActiveTab] = useState<TabType>(getRememberedTab);
+
+  useEffect(() => {
+    try { sessionStorage.setItem('qlct_active_tab_v1', activeTab); } catch (_) {}
+  }, [activeTab]);
+
+  // Warm the primary field screens after first paint so the first user tap does not
+  // pay the full network + parse cost of a React.lazy chunk. Respect Data Saver.
+  useEffect(() => {
+    const connection = (navigator as any).connection;
+    if (connection?.saveData) return;
+    let cancelled = false;
+    const loaders = [loadFloorPlanDefectTab, loadCrewTab, loadWarehouseTab, loadWorkVolumeTab, loadGoogleConfigTab];
+    const warm = () => {
+      let index = 0;
+      const next = () => {
+        if (cancelled || index >= loaders.length) return;
+        void loaders[index++]().catch(() => undefined);
+        window.setTimeout(next, 180);
+      };
+      next();
+    };
+    const idle = (window as any).requestIdleCallback;
+    const idleId = typeof idle === 'function' ? idle(warm, { timeout: 1600 }) : null;
+    const timer = idleId == null ? window.setTimeout(warm, 450) : null;
+    return () => {
+      cancelled = true;
+      if (timer != null) window.clearTimeout(timer);
+      if (idleId != null && typeof (window as any).cancelIdleCallback === 'function') (window as any).cancelIdleCallback(idleId);
+    };
+  }, []);
 
   // Diagnostic navigation stays decoupled from individual screens. The source screen
   // stores the entity request in sessionStorage, while App only switches modules.
