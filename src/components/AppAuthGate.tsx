@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Loader2, LockKeyhole, WifiOff } from 'lucide-react';
 import { APP_VERSION } from '../config/appVersion';
+import { BUILD_METADATA } from '../config/buildMetadata';
 import {
   getCurrentRealFirebaseUser,
   signInWithGoogle,
@@ -72,10 +73,7 @@ export const AppAuthGate: React.FC<AppAuthGateProps> = ({ children }) => {
     };
   }, []);
 
-  const appEnv = useMemo(
-    () => String((import.meta as any).env?.VITE_APP_ENV || '').toUpperCase() === 'DEV' ? 'DEV' : '',
-    [],
-  );
+  const appEnv = useMemo(() => BUILD_METADATA.environment, []);
 
   if (state === 'authenticated' || state === 'offline-remembered') {
     return <>{children}</>;
@@ -97,66 +95,87 @@ export const AppAuthGate: React.FC<AppAuthGateProps> = ({ children }) => {
   };
 
   const dark = prefersDark;
+  const isDev = appEnv === 'DEV';
   return (
     <div
-      className={`min-h-[100dvh] w-full flex items-center justify-center px-4 py-8 ${dark ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900'}`}
+      className={`relative min-h-[100dvh] w-full overflow-hidden px-4 py-8 ${dark ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900'}`}
       data-hnl-auth-gate={state}
     >
-      <div className={`w-full max-w-md overflow-hidden rounded-[28px] border shadow-2xl ${dark ? 'border-slate-800 bg-slate-900' : 'border-slate-200 bg-white'}`}>
-        <div className={`h-1.5 w-full ${dark ? 'bg-blue-500' : 'bg-blue-600'}`} />
-        <div className="px-6 pb-6 pt-7 sm:px-8 sm:pb-8">
-          <div className="text-center">
-            <div className={`mx-auto flex h-20 w-20 items-center justify-center rounded-3xl border p-2 shadow-sm ${dark ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white'}`}>
-              <img src={`/icon.png?v=${APP_VERSION}-auth`} alt="HNL QLTC" className="h-full w-full object-contain" draggable={false} />
-            </div>
-            <h1 className="mt-4 text-2xl font-black tracking-tight">HNL QLTC</h1>
-            <p className={`mt-1 text-sm font-semibold ${dark ? 'text-slate-300' : 'text-slate-600'}`}>Quản lý thi công</p>
-          </div>
-
-          {state === 'checking' ? (
-            <div className={`mt-7 flex items-center justify-center gap-2 rounded-2xl border px-4 py-4 text-sm font-semibold ${dark ? 'border-slate-700 bg-slate-800 text-slate-300' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
-              <Loader2 className="h-4 w-4 animate-spin" /> Đang kiểm tra phiên đăng nhập…
-            </div>
-          ) : (
-            <>
-              <p className={`mx-auto mt-6 max-w-sm text-center text-sm leading-relaxed ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
-                Đăng nhập để truy cập các dự án và dữ liệu được cấp quyền cho tài khoản của bạn.
-              </p>
-
-              {loginError && (
-                <div className={`mt-4 rounded-2xl border px-4 py-3 text-xs leading-relaxed ${dark ? 'border-rose-900/70 bg-rose-950/50 text-rose-200' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
-                  {loginError}
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={handleLogin}
-                disabled={loginBusy}
-                className={`mt-6 flex min-h-12 w-full items-center justify-center gap-3 rounded-2xl border px-4 text-sm font-extrabold shadow-sm transition active:scale-[0.99] disabled:cursor-wait disabled:opacity-60 ${dark ? 'border-slate-700 bg-white text-slate-900 hover:bg-slate-100' : 'border-slate-300 bg-white text-slate-900 hover:bg-slate-50'}`}
-              >
-                {loginBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : googleMark}
-                {loginBusy ? 'Đang mở Google…' : 'Đăng nhập bằng Google'}
-              </button>
-
-              <div className={`mt-5 flex items-start gap-2 rounded-2xl px-3 py-3 text-[11px] leading-relaxed ${dark ? 'bg-slate-800 text-slate-400' : 'bg-slate-50 text-slate-500'}`}>
-                <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>Ứng dụng chỉ mở giao diện dự án sau khi xác nhận tài khoản. Phiên đăng nhập được lưu trên thiết bị để lần sau có thể vào nhanh hơn.</span>
+      <div aria-hidden="true" className={`pointer-events-none absolute inset-x-0 top-0 h-64 ${dark ? 'bg-gradient-to-b from-blue-950/70 to-transparent' : 'bg-gradient-to-b from-blue-100/80 to-transparent'}`} />
+      <div className="relative z-10 mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-lg items-center justify-center">
+        <div className={`w-full overflow-hidden rounded-[30px] border shadow-2xl ${dark ? 'border-slate-800 bg-slate-900/95' : 'border-slate-200 bg-white/95'}`}>
+          <div className="px-6 pb-6 pt-7 sm:px-9 sm:pb-9 sm:pt-8">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className={`text-[10px] font-black uppercase tracking-[0.18em] ${dark ? 'text-blue-300' : 'text-blue-700'}`}>HNL Construction</div>
+                <div className={`mt-1 text-xs font-semibold ${dark ? 'text-slate-400' : 'text-slate-500'}`}>Hệ thống quản lý thi công</div>
               </div>
-
-              {typeof navigator !== 'undefined' && !navigator.onLine && (
-                <div className={`mt-3 flex items-start gap-2 rounded-2xl px-3 py-3 text-[11px] ${dark ? 'bg-amber-950/40 text-amber-200' : 'bg-amber-50 text-amber-700'}`}>
-                  <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span>Thiết bị đang ngoại tuyến. Cần có mạng để đăng nhập Google lần đầu.</span>
-                </div>
+              {isDev && (
+                <span className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[10px] font-black tracking-[0.14em] text-amber-700 shadow-sm">
+                  DEV
+                </span>
               )}
-            </>
-          )}
+            </div>
 
-          <div className={`mt-6 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] ${dark ? 'text-slate-500' : 'text-slate-400'}`}>
-            {appEnv && <span>{appEnv}</span>}
-            {appEnv && <span>•</span>}
-            <span>v{APP_VERSION}</span>
+            <div className="mt-7 text-center">
+              <img
+                src={`/icon.png?v=${APP_VERSION}-auth`}
+                alt="HNL QLTC"
+                className="mx-auto h-24 w-24 object-contain drop-shadow-sm sm:h-28 sm:w-28"
+                draggable={false}
+              />
+              <h1 className="mt-4 text-3xl font-black tracking-[-0.03em]">HNL QLTC</h1>
+              <p className={`mt-1.5 text-sm font-semibold ${dark ? 'text-slate-300' : 'text-slate-600'}`}>Quản lý thi công đồng bộ đa thiết bị</p>
+              {isDev && (
+                <p className={`mt-2 text-[11px] font-bold ${dark ? 'text-amber-300' : 'text-amber-700'}`}>Môi trường DEV · dữ liệu thử nghiệm tách biệt PROD</p>
+              )}
+            </div>
+
+            {state === 'checking' ? (
+              <div className={`mt-7 flex items-center justify-center gap-2 rounded-2xl border px-4 py-4 text-sm font-semibold ${dark ? 'border-slate-700 bg-slate-800 text-slate-300' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
+                <Loader2 className="h-4 w-4 animate-spin" /> Đang kiểm tra phiên đăng nhập…
+              </div>
+            ) : (
+              <>
+                <div className={`mx-auto mt-7 max-w-sm text-center text-sm leading-relaxed ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
+                  Đăng nhập bằng tài khoản Google đã được cấp quyền để mở đúng dự án và dữ liệu của bạn.
+                </div>
+
+                {loginError && (
+                  <div className={`mt-4 rounded-2xl border px-4 py-3 text-xs leading-relaxed ${dark ? 'border-rose-900/70 bg-rose-950/50 text-rose-200' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
+                    {loginError}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleLogin}
+                  disabled={loginBusy}
+                  className={`mt-6 flex min-h-12 w-full items-center justify-center gap-3 rounded-2xl border px-4 text-sm font-extrabold shadow-sm transition hover:-translate-y-px active:translate-y-0 active:scale-[0.995] disabled:cursor-wait disabled:opacity-60 ${dark ? 'border-slate-600 bg-white text-slate-900 hover:bg-slate-100' : 'border-slate-300 bg-white text-slate-900 hover:bg-slate-50'}`}
+                >
+                  {loginBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : googleMark}
+                  {loginBusy ? 'Đang mở Google…' : 'Đăng nhập bằng Google'}
+                </button>
+
+                <div className={`mt-5 flex items-start gap-2 rounded-2xl px-3.5 py-3 text-[11px] leading-relaxed ${dark ? 'bg-slate-800 text-slate-400' : 'bg-slate-50 text-slate-500'}`}>
+                  <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>Ứng dụng chỉ mở dữ liệu sau khi xác nhận tài khoản và quyền dự án. Phiên đã xác minh được lưu trên thiết bị để lần sau vào nhanh hơn.</span>
+                </div>
+
+                {typeof navigator !== 'undefined' && !navigator.onLine && (
+                  <div className={`mt-3 flex items-start gap-2 rounded-2xl px-3.5 py-3 text-[11px] ${dark ? 'bg-amber-950/40 text-amber-200' : 'bg-amber-50 text-amber-700'}`}>
+                    <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>Thiết bị đang ngoại tuyến. Cần có mạng để đăng nhập Google lần đầu.</span>
+                  </div>
+                )}
+              </>
+            )}
+
+            <div className={`mt-6 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] ${dark ? 'text-slate-500' : 'text-slate-400'}`}>
+              <span>{appEnv}</span>
+              <span>•</span>
+              <span>v{APP_VERSION}</span>
+            </div>
           </div>
         </div>
       </div>

@@ -1437,6 +1437,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         __rowKey: `${norm.id}--${workCategoryId}`,
         __normId: norm.id,
         __workCategoryId: workCategoryId,
+        __groupKey: norm.id,
+        __groupPrimary: index === 0,
         materialName: norm.materialName,
         category: norm.category,
         unit: norm.unit,
@@ -1454,6 +1456,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       __rowKey: `${norm.id}--general`,
       __normId: norm.id,
       __workCategoryId: '',
+      __groupKey: norm.id,
+      __groupPrimary: true,
       materialName: norm.materialName,
       category: norm.category,
       unit: norm.unit,
@@ -1515,9 +1519,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
   const warehouseQuickColumns = useMemo<QuickGridColumn[]>(() => {
     if (quickEditMode === 'norms') return [
-      { key: 'materialName', label: 'Tên vật tư 🔒', editable: false, width: 220 },
-      { key: 'category', label: 'Nhóm 🔒', editable: false, width: 150 },
-      { key: 'unit', label: 'ĐVT 🔒', editable: false, width: 90 },
+      { key: 'materialName', label: 'Tên vật tư', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), required: true, width: 220 },
+      { key: 'category', label: 'Nhóm', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), required: true, width: 150 },
+      { key: 'unit', label: 'ĐVT', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), required: true, width: 90 },
       {
         key: 'workCategory',
         label: 'Hạng mục thi công',
@@ -1525,19 +1529,19 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         type: 'select',
         options: warehouseWorkOptions,
         width: 260,
-        validate: (value) => {
+        validate: (value, row) => {
           const name = String(value || '').trim();
-          if (!name) return null;
+          if (!name) return row.__new ? 'Dòng mới phải chọn Hạng mục' : null;
           return (workVolumes || []).some((work) => normalizeLinkText(work.title) === normalizeLinkText(name))
             ? null
             : 'Hạng mục không còn trong danh mục';
         },
       },
       { key: 'specificNorm', label: 'ĐM riêng hạng mục', editable: hasNormManageAccess, type: 'number', width: 145, validate: (value) => String(value ?? '').trim() && Number(value) < 0 ? 'Không được âm' : null },
-      { key: 'generalNorm', label: 'ĐM chung 🔒', editable: false, type: 'number', width: 120 },
+      { key: 'generalNorm', label: 'ĐM chung', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), type: 'number', width: 120, validate: (value) => String(value ?? '').trim() && Number(value) < 0 ? 'Không được âm' : null },
       { key: 'normSource', label: 'Nguồn định mức', editable: false, width: 155 },
-      { key: 'quotaQuantity', label: 'Khối lượng định mức 🔒', editable: false, type: 'number', width: 150 },
-      { key: 'notes', label: 'Ghi chú / Tiêu chuẩn kỹ thuật 🔒', editable: false, width: 300 },
+      { key: 'quotaQuantity', label: 'Khối lượng định mức', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), type: 'number', width: 150, validate: (value) => Number(value || 0) < 0 ? 'Không được âm' : null },
+      { key: 'notes', label: 'Ghi chú / Tiêu chuẩn kỹ thuật', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), width: 300 },
     ];
     if (quickEditMode === 'stock') return [
       { key: 'materialName', label: 'Tên vật tư', editable: false, width: 220 },
@@ -1579,104 +1583,125 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       ? warehouseQuickStockRows
       : warehouseQuickInventoryRows.filter((row) => row.__type === quickEditMode);
 
-  const saveWarehouseQuickRows = async (rows: QuickGridRow[], dirtyCellKeys: Set<string>) => {
+  const saveWarehouseQuickRows = async (
+    rows: QuickGridRow[],
+    dirtyCellKeys: Set<string>,
+    deletedRows: QuickGridRow[] = [],
+  ) => {
     if (quickEditMode === 'stock') return;
     const dirtyRowKeys = new Set(Array.from(dirtyCellKeys).map((key) => key.split('::')[0]));
     const dirtyRows = rows.filter((row) => dirtyRowKeys.has(row.__rowKey));
-    if (!dirtyRows.length) return;
 
     if (quickEditMode === 'norms') {
       if (!hasNormManageAccess || !onImportNorms) return;
+      const affectedNormIds = new Set<string>([
+        ...dirtyRows.map((row) => String(row.__normId || '').trim()),
+        ...deletedRows.map((row) => String(row.__normId || '').trim()),
+      ].filter(Boolean));
+      if (!affectedNormIds.size) return;
+
       const byId = new Map<string, MaterialNorm>(materialNorms.map((norm) => [norm.id, norm] as const));
 
-      for (const row of dirtyRows) {
-        const normId = String(row.__normId || '').trim();
-        if (!normId) {
-          throw new Error('Bảng Định mức theo Hạng mục không tạo vật tư mới. Hãy tạo vật tư/ĐM chung trong màn Định mức vật tư trước.');
-        }
+      for (const normId of affectedNormIds) {
         const existing = byId.get(normId);
-        if (!existing) {
-          throw new Error(`Không tìm thấy vật tư gốc cho __normId ${normId}. Hệ thống đã hủy để tránh tạo nhầm vật tư.`);
-        }
-        const workName = String(row.workCategory || '').trim();
-        if (!workName) continue;
-        const work = (workVolumes || []).find((item) => normalizeLinkText(item.title) === normalizeLinkText(workName));
-        if (!work) throw new Error(`Hạng mục thi công “${workName}” không còn trong danh mục.`);
-        const categoryId = canonicalWorkCategoryId(work);
-        const duplicate = rows.some((other) =>
-          other.__rowKey !== row.__rowKey
-          && String(other.__normId || '').trim() === normId
-          && (() => {
-            const otherName = String(other.workCategory || '').trim();
-            const otherWork = (workVolumes || []).find((item) => normalizeLinkText(item.title) === normalizeLinkText(otherName));
-            return Boolean(otherWork && canonicalWorkCategoryId(otherWork) === categoryId);
-          })()
+        if (!existing) throw new Error(`Không tìm thấy vật tư gốc cho __normId ${normId}. Hệ thống đã hủy để tránh tạo nhầm vật tư.`);
+
+        const groupRows = rows.filter((row) => String(row.__normId || '').trim() === normId);
+        if (!groupRows.length) throw new Error(`Không thể xóa toàn bộ dòng của vật tư “${existing.materialName}” trong Bảng chỉnh nhanh.`);
+        const primary = groupRows.find((row) => row.__groupPrimary) || groupRows[0];
+
+        const nextMaterialName = String(primary.materialName || '').trim();
+        const nextCategory = String(primary.category || '').trim();
+        const nextUnit = normalizeUnit(String(primary.unit || '').trim()) || String(primary.unit || '').trim();
+        if (!nextMaterialName || !nextCategory || !nextUnit) throw new Error('Tên vật tư, Nhóm và ĐVT không được để trống.');
+
+        const duplicateMaterial = materialNorms.find((norm) =>
+          norm.id !== normId
+          && normalizeLinkText(norm.materialName) === normalizeLinkText(nextMaterialName)
+          && (normalizeUnit(norm.unit) || norm.unit) === nextUnit
         );
-        if (duplicate) throw new Error(`Vật tư “${existing.materialName}” đang có hai dòng cùng Hạng mục “${workName}”.`);
-      }
-
-      dirtyRows.forEach((row) => {
-        const normId = String(row.__normId || '').trim();
-        const existing = byId.get(normId);
-        if (!existing) return;
-
-        const workName = String(row.workCategory || '').trim();
-        const selectedWork = workName
-          ? (workVolumes || []).find((work) => normalizeLinkText(work.title) === normalizeLinkText(workName))
-          : undefined;
-        if (workName && !selectedWork) throw new Error(`Hạng mục thi công “${workName}” không còn trong danh mục.`);
-        const selectedWorkId = selectedWork ? canonicalWorkCategoryId(selectedWork) : '';
-        const previousWorkId = String(row.__workCategoryId || '').trim();
-
-        const nextIds = new Set<string>([
-          ...(existing.workCategoryIds || []),
-          ...(existing.workCategoryId ? [existing.workCategoryId] : []),
-          ...Object.keys(existing.workCategoryNormsById || {}),
-        ].map((value) => String(value || '').trim()).filter(Boolean));
-        const nameById = new Map<string, string>();
-        const existingNames = existing.workCategories?.length
-          ? existing.workCategories
-          : (existing.workCategory ? [existing.workCategory] : []);
-        Array.from(nextIds).forEach((categoryId, index) => {
-          const catalogWork = (workVolumes || []).find((work) => canonicalWorkCategoryId(work) === categoryId || work.id === categoryId);
-          nameById.set(categoryId, catalogWork?.title || existingNames[index] || '');
-        });
-        const nextSpecific = { ...(existing.workCategoryNormsById || {}) };
-
-        if (previousWorkId && previousWorkId !== selectedWorkId) {
-          nextIds.delete(previousWorkId);
-          delete nextSpecific[previousWorkId];
-          nameById.delete(previousWorkId);
+        if (duplicateMaterial) {
+          throw new Error(`Vật tư “${nextMaterialName}” / ${nextUnit} đã tồn tại. Hệ thống hủy để tránh tạo hai vật tư trùng.`);
         }
-        if (selectedWorkId) {
-          nextIds.add(selectedWorkId);
-          nameById.set(selectedWorkId, selectedWork?.title || workName);
+
+        const oldUnit = normalizeUnit(existing.unit) || existing.unit;
+        if (oldUnit !== nextUnit) {
+          const stableMaterialId = resolveNormMaterialId(existing);
+          const hasWarehouseHistory = inventory.some((item) =>
+            String(item.materialId || '').trim() === stableMaterialId
+            || (!item.materialId
+              && normalizeLinkText(item.materialName) === normalizeLinkText(existing.materialName)
+              && (normalizeUnit(item.unit) || item.unit) === oldUnit)
+          );
+          if (hasWarehouseHistory) {
+            throw new Error(`Không thể đổi ĐVT của “${existing.materialName}” vì đã có lịch sử Nhập/Xuất kho. Hãy giữ ĐVT cũ để bảo toàn số liệu và materialId.`);
+          }
+        }
+
+        const selectedIds: string[] = [];
+        const selectedNames: string[] = [];
+        const selectedSpecific: Record<string, number> = {};
+        const seenIds = new Set<string>();
+
+        for (const row of groupRows) {
+          const workName = String(row.workCategory || '').trim();
+          if (!workName) {
+            if (row.__new) throw new Error(`Dòng mới của “${nextMaterialName}” phải chọn Hạng mục thi công.`);
+            continue;
+          }
+          const work = (workVolumes || []).find((item) => normalizeLinkText(item.title) === normalizeLinkText(workName));
+          if (!work) throw new Error(`Hạng mục thi công “${workName}” không còn trong danh mục.`);
+          const categoryId = canonicalWorkCategoryId(work);
+          if (seenIds.has(categoryId)) throw new Error(`Vật tư “${nextMaterialName}” đang có hai dòng cùng Hạng mục “${workName}”.`);
+          seenIds.add(categoryId);
+          selectedIds.push(categoryId);
+          selectedNames.push(work.title);
           const specificRaw = String(row.specificNorm ?? '').trim();
-          if (specificRaw === '') delete nextSpecific[selectedWorkId];
-          else nextSpecific[selectedWorkId] = Math.max(0, Number(row.specificNorm || 0));
+          if (specificRaw !== '') {
+            const specific = Number(row.specificNorm);
+            if (!Number.isFinite(specific) || specific < 0) throw new Error(`ĐM riêng của “${workName}” không hợp lệ.`);
+            selectedSpecific[categoryId] = specific;
+          }
         }
 
-        const workCategoryIds = Array.from(nextIds);
-        const workCategories = workCategoryIds
-          .map((categoryId) => nameById.get(categoryId) || (workVolumes || []).find((work) => canonicalWorkCategoryId(work) === categoryId || work.id === categoryId)?.title || '')
-          .filter(Boolean);
+        const generalRaw = String(primary.generalNorm ?? '').trim();
+        const generalNorm = generalRaw === '' ? undefined : Number(primary.generalNorm);
+        if (generalNorm !== undefined && (!Number.isFinite(generalNorm) || generalNorm < 0)) throw new Error('ĐM chung không hợp lệ.');
+        const quotaQuantity = Math.max(0, Number(primary.quotaQuantity || 0));
+        if (!Number.isFinite(quotaQuantity)) throw new Error('Khối lượng định mức không hợp lệ.');
 
         byId.set(normId, {
           ...existing,
-          workCategory: workCategories[0],
-          workCategoryId: workCategoryIds[0],
-          workCategories: workCategories.length ? workCategories : undefined,
-          workCategoryIds: workCategoryIds.length ? workCategoryIds : undefined,
-          workCategoryNormsById: Object.keys(nextSpecific).length ? nextSpecific : undefined,
+          materialName: nextMaterialName,
+          category: nextCategory,
+          unit: nextUnit,
+          quotaQuantity,
+          unitNormPerM2: generalNorm,
+          notes: String(primary.notes || '').trim() || undefined,
+          workCategory: selectedNames[0],
+          workCategoryId: selectedIds[0],
+          workCategories: selectedNames.length ? selectedNames : undefined,
+          workCategoryIds: selectedIds.length ? selectedIds : undefined,
+          workCategoryNormsById: Object.keys(selectedSpecific).length ? selectedSpecific : undefined,
         });
-      });
-      const confirmed = await confirmAsync(`Lưu ${dirtyRows.length} thay đổi liên kết Hạng mục / ĐM riêng? Tên vật tư, materialId, Nhóm, ĐVT và ĐM chung được giữ nguyên.`);
+      }
+
+      const confirmed = await confirmAsync(
+        `Lưu thay đổi Định mức cho ${affectedNormIds.size} vật tư?\n\n`
+        + 'Tên/Nhóm/ĐVT/ĐM chung/Khối lượng/Ghi chú được lấy từ dòng đại diện; các dòng con chỉ quản lý liên kết Hạng mục và ĐM riêng. materialId được giữ nguyên.'
+      );
       if (!confirmed) return false;
       onImportNorms(Array.from(byId.values()));
       return;
     }
 
-    if (!hasImportAccess || !onImportInventory) return;
+    if (!hasImportAccess) return;
+    const deleteIds = deletedRows
+      .map((row) => String(row.__recordId || row.__rowKey || '').trim())
+      .filter((id) => Boolean(id) && inventory.some((item) => item.id === id));
+    if (!dirtyRows.length && !deleteIds.length) return;
+    if (dirtyRows.length && !onImportInventory) return;
+
     const upserts: InventoryItem[] = dirtyRows.map((row) => {
       const existing = inventory.find((item) => item.id === String(row.__recordId || row.__rowKey));
       const materialNameValue = String(row.materialName || '').trim();
@@ -1709,9 +1734,21 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         sourceWorkCategoryId: type === 'out' ? (work ? canonicalWorkCategoryId(work) : existing?.sourceWorkCategoryId) : existing?.sourceWorkCategoryId,
       };
     });
-    const confirmed = await confirmAsync(`Lưu ${upserts.length} phiếu ${quickEditMode === 'in' ? 'Nhập kho' : 'Xuất kho'}? Tồn kho sẽ được tính lại từ sổ giao dịch.`);
+
+    const confirmed = await confirmAsync(
+      `Bảng chỉnh nhanh ${quickEditMode === 'in' ? 'Nhập kho' : 'Xuất kho'}:\n\n`
+      + `• ${upserts.length} phiếu thêm/sửa\n`
+      + `• ${deleteIds.length} phiếu chờ xóa\n\n`
+      + 'Tồn kho sẽ được tính lại từ sổ giao dịch. Tiếp tục?'
+    );
     if (!confirmed) return false;
-    await onImportInventory(upserts);
+
+    if (upserts.length > 0 && onImportInventory) await onImportInventory(upserts);
+    if (deleteIds.length > 0) {
+      if (!hasDeleteAccess) throw new Error('Tài khoản hiện tại không có quyền xóa dữ liệu Kho.');
+      if (onDeleteMultipleInventory) await onDeleteMultipleInventory(deleteIds);
+      else for (const id of deleteIds) await onDeleteInventory(id);
+    }
   };
 
   return (
@@ -1933,7 +1970,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         subtitle={quickEditMode === 'stock'
           ? 'Tồn kho là số tính từ Tổng nhập - Tổng xuất và luôn chỉ đọc.'
           : quickEditMode === 'norms'
-            ? 'Mỗi dòng là liên kết của cùng một vật tư với một Hạng mục. Chỉ Hạng mục + ĐM riêng được sửa; Tên vật tư/Nhóm/ĐVT/ĐM chung được khóa để tránh tách nhầm vật tư.'
+            ? 'Mỗi vật tư là một nhóm. Dòng đại diện sửa Tên/Nhóm/ĐVT/ĐM chung/Khối lượng/Ghi chú và tự đồng bộ các dòng con; dòng con sửa Hạng mục + ĐM riêng.'
             : 'Chỉnh trực tiếp theo cột/dòng; dữ liệu chỉ ghi khi bấm Lưu.'}
         tabs={[
           { key: 'norms', label: 'Định mức theo Hạng mục' },
@@ -1946,22 +1983,39 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         columns={warehouseQuickColumns}
         rows={warehouseActiveQuickRows}
         canEdit={quickEditMode === 'stock' ? false : quickEditMode === 'norms' ? hasNormManageAccess : hasImportAccess}
-        canAddRows={quickEditMode === 'norms' ? false : quickEditMode === 'in' || quickEditMode === 'out' ? hasImportAccess : false}
-        createEmptyRow={(index) => quickEditMode === 'norms' ? ({
-          __rowKey: `new-norm-${Date.now()}-${index}`,
+        canAddRows={quickEditMode === 'norms' ? hasNormManageAccess : quickEditMode === 'in' || quickEditMode === 'out' ? hasImportAccess : false}
+        canDeleteRows={quickEditMode === 'norms' ? hasNormManageAccess : quickEditMode === 'in' || quickEditMode === 'out' ? hasDeleteAccess : false}
+        requiresAnchorForInsert={quickEditMode === 'norms'}
+        syncGroupColumns={quickEditMode === 'norms' ? ['materialName', 'category', 'unit', 'generalNorm', 'quotaQuantity', 'notes'] : []}
+        getRowDeleteBlockReason={(row, currentRows) => {
+          if (quickEditMode !== 'norms') return null;
+          const normId = String(row.__normId || '').trim();
+          const workName = String(row.workCategory || '').trim();
+          if (!normId || !workName) return 'Dòng ĐM chung đại diện không được xóa trong Bảng chỉnh nhanh.';
+          const linkedCount = currentRows.filter((item) =>
+            String(item.__normId || '').trim() === normId && String(item.workCategory || '').trim()
+          ).length;
+          return linkedCount <= 1
+            ? 'Không thể xóa Hạng mục cuối cùng của vật tư trong Bảng chỉnh nhanh. Hãy quản lý liên kết này ở màn Định mức vật tư.'
+            : null;
+        }}
+        createEmptyRow={(index, anchorRow) => quickEditMode === 'norms' ? (anchorRow ? ({
+          __rowKey: `new-norm-${String(anchorRow.__normId || anchorRow.__groupKey || 'unknown')}-${Date.now()}-${index}`,
           __new: true,
-          __normId: '',
+          __normId: String(anchorRow.__normId || anchorRow.__groupKey || ''),
           __workCategoryId: '',
-          materialName: '',
-          category: '',
-          unit: '',
+          __groupKey: String(anchorRow.__normId || anchorRow.__groupKey || ''),
+          __groupPrimary: false,
+          materialName: String(anchorRow.materialName || ''),
+          category: String(anchorRow.category || ''),
+          unit: String(anchorRow.unit || ''),
           workCategory: '',
-          normSource: 'Định mức chung',
+          normSource: 'Dùng định mức chung',
           specificNorm: '',
-          generalNorm: 0,
-          quotaQuantity: 0,
-          notes: '',
-        }) : ({
+          generalNorm: anchorRow.generalNorm ?? '',
+          quotaQuantity: anchorRow.quotaQuantity ?? 0,
+          notes: String(anchorRow.notes || ''),
+        }) : null) : ({
           __rowKey: `new-${quickEditMode}-${Date.now()}-${index}`,
           __new: true,
           __recordId: '',

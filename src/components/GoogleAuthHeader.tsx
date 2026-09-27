@@ -11,6 +11,7 @@ import {
   Shield
 } from 'lucide-react';
 import { APP_VERSION } from '../config/appVersion';
+import { BUILD_METADATA } from '../config/buildMetadata';
 import { UndoRedoControls } from './UndoRedoControls';
 import { GoogleAuthStatus } from '../types';
 import { formatDateTime } from '../utils/dateFormatter';
@@ -131,6 +132,11 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 flex-wrap">
+                  {BUILD_METADATA.environment === 'DEV' && (
+                    <span className="shrink-0 rounded-md border border-amber-400/70 bg-amber-400/15 px-1.5 py-0.5 text-[9px] font-black tracking-[0.12em] text-amber-300" title="Môi trường DEV tách biệt PROD">
+                      DEV
+                    </span>
+                  )}
                   {isEditingProject ? (
                     <input
                       type="text"

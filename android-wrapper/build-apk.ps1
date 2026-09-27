@@ -76,6 +76,7 @@ $alignedApk = Join-Path $build 'qlct-aligned.apk'
 $keystore = Join-Path $root 'qlct-debug.keystore'
 $finalApk = Join-Path $projectRoot 'HNL-QLTC-Android.apk'
 $stringsXml = Join-Path $root 'res\values\strings.xml'
+$manifestXml = Join-Path $root 'AndroidManifest.xml'
 $webUrlFile = Join-Path $root 'web-url.txt'
 
 $packageJsonPath = Join-Path $projectRoot 'package.json'
@@ -112,12 +113,19 @@ $strings = $strings -replace '<string name="web_url">.*?</string>', "<string nam
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($stringsXml, $strings, $utf8NoBom)
 
+$isDevWrapper = $webUrl -match 'hnl-qltc-dev\.web\.app' -or $webUrl -match '([?&])env=dev(?:&|$)'
+$wrapperLabel = if ($isDevWrapper) { 'HNL QLTC DEV' } else { 'HNL Quản Lý Thi Công' }
+$manifest = Get-Content -Raw -LiteralPath $manifestXml
+$manifest = $manifest -replace 'android:label="[^"]*"', "android:label=`"$wrapperLabel`""
+[System.IO.File]::WriteAllText($manifestXml, $manifest, $utf8NoBom)
+
 Write-Output "Android SDK: $sdk"
 Write-Output "Android build-tools: $buildTools"
 Write-Output "Android platform: $platform"
 Write-Output "JAVA_HOME: $javaHome"
 Write-Output "Android versionName=$appVersion versionCode=$versionCode"
 Write-Output "Android wrapper web URL: $webUrl"
+Write-Output "Android wrapper label: $wrapperLabel"
 
 if (-not (Test-Path -LiteralPath (Join-Path $dist 'index.html'))) {
     throw 'Missing web build. Run npm run build before building the APK.'

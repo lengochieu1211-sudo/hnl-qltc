@@ -129,7 +129,7 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   }
   return merged;
 }
-import { subscribeToProjectRealtime, saveProjectDiffsToCloud, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, subscribeCurrentUserPinResetRealtime, signOutGoogle, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, refreshCurrentUserProjectDiscovery, subscribeProjectSharedSettings, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud, updateProjectPresence } from './lib/firebase';
+import { subscribeToProjectRealtime, saveProjectDiffsToCloud, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, subscribeCurrentUserPinResetRealtime, signOutGoogle, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, subscribeProjectSharedSettings, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud, updateProjectPresence } from './lib/firebase';
 import { REALTIME_STATE_KEYS, STATE_KEY_TO_CLOUD_NAME } from './config/realtimeCollections';
 import { FIREBASE_ONLY_RUNTIME, LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED, LEGACY_LOCAL_IMPORT_ENABLED } from './config/runtimeArchitecture';
 import { CURRENT_DATA_SCHEMA_VERSION } from './config/dataSchema';
@@ -620,6 +620,10 @@ function AuthenticatedApp() {
   const verifiedOfflineBasePresentRef = React.useRef<AppData | null>(null);
   const verifiedOfflineBaseMetadataRef = React.useRef<{ projectName: string; contractorName: string; inspectorName: string; projectLocation: string } | null>(null);
   const verifiedOfflineBaseCapturedAtRef = React.useRef<number>(0);
+  // The verified recovery snapshot contains all business collections. Serializing it
+  // after every realtime/local render can visibly stall WebView2 and Android WebView.
+  const verifiedOfflineSnapshotLastSavedAtRef = React.useRef<number>(0);
+  const verifiedOfflineSnapshotProjectRef = React.useRef<string>('');
 
   // V6.2.22: Persist only collections that the user actually changed. Rewriting all
   // nine large arrays on every small edit caused avoidable IndexedDB serialization
@@ -2460,12 +2464,8 @@ function AuthenticatedApp() {
 
     // Firestore/invitations are the source of truth for the cross-device project index.
     // construction_projects_list remains only a local cache for fast/offline startup.
-    // Proactively consume/repair pending invitations when Auth is restored so Chat and
-    // the global project cache do not depend on the Project Manager modal being opened.
-    refreshCurrentUserProjectDiscovery().catch((err) =>
-      console.warn('Global project discovery refresh warning:', err)
-    );
-
+    // subscribeCurrentUserProjectsRealtime already consumes/verifies invitation/index
+    // sources. Do not run a second server discovery pass on every app startup.
     let firstCloudEmission = true;
     const unsubscribe = subscribeCurrentUserProjectsRealtime((remoteProjects) => {
       setAuthorizedChatProjects(remoteProjects.map((project) => ({
@@ -3273,7 +3273,8 @@ function AuthenticatedApp() {
             setCurrentUserRole(roleInfo.role);
             setCurrentUserRoleState(roleInfo.role);
           }
-          setCloudBootstrapVersion((v) => v + 1);
+          // Existing Cloud projects already have the realtime listener mounted.
+          // Rebinding here rereads metadata + all business collections.
           return;
         }
 
@@ -3627,6 +3628,13 @@ function AuthenticatedApp() {
     const projectId = activeProjectId;
     if (!user?.uid || !user.email || !projectId) return;
 
+    const sameProject = verifiedOfflineSnapshotProjectRef.current === projectId;
+    const elapsed = sameProject ? Date.now() - verifiedOfflineSnapshotLastSavedAtRef.current : Number.POSITIVE_INFINITY;
+    const minSnapshotIntervalMs = 30_000;
+    const delayMs = Number.isFinite(elapsed) && elapsed < minSnapshotIntervalMs
+      ? Math.max(1_200, minSnapshotIntervalMs - elapsed)
+      : 1_200;
+
     const timer = window.setTimeout(() => {
       const cloudBaseline = lastSyncedPresentRef.current;
       if (!cloudBaseline || activeProjectIdRef.current !== projectId) return;
@@ -3636,8 +3644,12 @@ function AuthenticatedApp() {
         { projectName, contractorName, inspectorName, projectLocation },
         cloudBaseline,
         lastServerMetadataUpdatedAtRef.current || lastUpdatedAt,
-      ).catch((err) => console.warn('[Verified offline snapshot] save warning:', err));
-    }, 350);
+      ).then((saved) => {
+        if (!saved || activeProjectIdRef.current !== projectId) return;
+        verifiedOfflineSnapshotProjectRef.current = projectId;
+        verifiedOfflineSnapshotLastSavedAtRef.current = Date.now();
+      }).catch((err) => console.warn('[Verified offline snapshot] save warning:', err));
+    }, delayMs);
 
     return () => window.clearTimeout(timer);
   }, [
