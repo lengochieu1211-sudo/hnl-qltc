@@ -2288,7 +2288,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       className="w-full h-8 px-3 sm:w-auto flex items-center justify-center gap-1.5 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl text-xs transition-all active:scale-95"
                     >
                       <Copy className="w-4 h-4 shrink-0" />
-                      <span className="truncate">Lấy từ công trình khác</span>
+                      <span className="truncate">Lấy từ công trình/mẫu</span>
                     </button>
                   </div>
                 )}
@@ -4122,7 +4122,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         onClose={() => setShowTeamTemplatePicker(false)}
         currentProjectId={projectId}
         kind="teams"
-        title="Lấy Đội thi công từ công trình khác"
+        title="Lấy Đội thi công từ công trình/mẫu"
         onImport={async (rows) => {
           if (!canManageTeamDirectory) return;
           const existingNames = new Set(teams.map((team) => normalizeTeamDirectoryName(team.name)));

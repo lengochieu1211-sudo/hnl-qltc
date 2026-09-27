@@ -878,7 +878,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                     className="flex items-center gap-1 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95"
                   >
                     <BookOpen className="w-4 h-4" />
-                    Lấy từ công trình khác
+                    Lấy từ công trình/mẫu
                   </button>
                   <button
                     onClick={handleOpenAdd}
@@ -1351,7 +1351,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
         onClose={() => setShowNormTemplatePicker(false)}
         currentProjectId={currentProjectId}
         kind="materialNorms"
-        title="Lấy Định mức vật tư từ công trình khác"
+        title="Lấy Định mức vật tư từ công trình/mẫu"
         onImport={async (rows) => {
           if (!hasManageAccess || !onImportNorms) return;
           const targetWorksByName = new Map<string, WorkVolume>(activeWorkVolumes.map((work) => [String(work.title || '').trim().toLocaleLowerCase('vi-VN'), work] as [string, WorkVolume]));

@@ -101,6 +101,7 @@ import { ShareEntityMenu } from './ShareEntityMenu';
 import { buildDefectShareText, resolveDefectTeam } from '../utils/defectContactUtils';
 import { isPointInsideRoom, reconcileDefectLinkage, resolveDefectLinkageFromSelection } from '../utils/defectLinkageUtils';
 import { getRoomHighlightBounds, mirrorRoomHighlight, resizeRoomHighlightToBounds, rotateRoomHighlight, snapRotationDelta } from '../utils/roomHighlightGeometry';
+import { DEFAULT_CAD_ALIGNMENT, normalizeCadAlignment, rebuildCadRoomForAlignment, remapPointBetweenCadAlignments, type CadAlignment } from '../utils/cadAlignment';
 
 const getMappedCoordinates = (e: React.PointerEvent | React.MouseEvent | Touch, element: HTMLElement, currentRotation: number) => {
   const rect = element.getBoundingClientRect();
@@ -1245,6 +1246,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [floorPlanRangeStartId, setFloorPlanRangeStartId] = useState<string>('');
   const [floorPlanRangeEndId, setFloorPlanRangeEndId] = useState<string>('');
   const updatePlanInputRef = useRef<HTMLInputElement>(null);
+  const [showCadAlignmentModal, setShowCadAlignmentModal] = useState(false);
+  const [cadAlignmentDraft, setCadAlignmentDraft] = useState<CadAlignment>(DEFAULT_CAD_ALIGNMENT);
 
   // Room Highlight Modal State
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
@@ -2943,6 +2946,49 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   const floorDefects = defects.filter((d) => d.floorId === activeFloor?.id);
   const floorRooms = roomProgressList.filter((r) => r.floorId === activeFloor?.id);
+  const cadSourceRoomCount = floorRooms.filter((room) => room.cadSource?.format === 'DXF' && room.cadSource.rawPoints?.length).length;
+
+  const openCadAlignment = () => {
+    if (!activeFloor || cadSourceRoomCount === 0) return;
+    setCadAlignmentDraft(normalizeCadAlignment(activeFloor.cadAlignment));
+    setShowCadAlignmentModal(true);
+  };
+
+  const applyCadAlignment = async (nextInput: CadAlignment) => {
+    if (!activeFloor || !canManageStructure || cadSourceRoomCount === 0) return;
+    const previous = normalizeCadAlignment(activeFloor.cadAlignment);
+    const next = normalizeCadAlignment(nextInput);
+    if (floorDefects.length > 0 && !onUpdateDefect) {
+      alert('Không thể căn chỉnh CAD an toàn vì tầng đang có Defect nhưng handler cập nhật Defect không khả dụng.');
+      return;
+    }
+
+    const transformedRooms = floorRooms
+      .filter((room) => room.cadSource?.format === 'DXF')
+      .map((room) => rebuildCadRoomForAlignment(room, next));
+
+    const confirmed = await confirmAsync(
+      `Căn chỉnh ${transformedRooms.length} vùng CAD theo mặt bằng hiện tại?\n\nLeft ${next.left.toFixed(1)}% · Top ${next.top.toFixed(1)}% · Width ${next.width.toFixed(1)}% · Height ${next.height.toFixed(1)}% · Xoay ${next.rotation}°\n\nroomId, cadSource.rawPoints và lịch sử nghiệp vụ được giữ nguyên. ${floorDefects.length ? `${floorDefects.length} Defect trên tầng sẽ dịch chuyển cùng lớp CAD để tiếp tục bám đúng vị trí.` : ''}`,
+      { title: 'Căn chỉnh CAD với mặt bằng', confirmLabel: 'Áp dụng căn chỉnh' },
+    );
+    if (!confirmed) return;
+
+    if (transformedRooms.length > 1 && onBatchSaveRooms) onBatchSaveRooms(transformedRooms);
+    else transformedRooms.forEach((room) => onSaveRoomProgress(room));
+
+    if (onUpdateDefect) {
+      floorDefects.forEach((defect) => {
+        const mapped = remapPointBetweenCadAlignments({ x: defect.x, y: defect.y }, previous, next);
+        onUpdateDefect({ ...defect, x: mapped.x, y: mapped.y, updatedAt: Date.now() });
+      });
+    }
+    onUpdateFloorPlan?.(activeFloor.id, { cadAlignment: { ...next, updatedAt: Date.now() } });
+    setCadAlignmentDraft(next);
+    setShowCadAlignmentModal(false);
+    setCopyNotification(`✅ Đã căn chỉnh ${transformedRooms.length} vùng CAD theo mặt bằng.`);
+    window.setTimeout(() => setCopyNotification(null), 3200);
+  };
+
   const [showQuickEdit, setShowQuickEdit] = useState(false);
   const [quickEditMode, setQuickEditMode] = useState<'rooms' | 'defects'>('rooms');
   const [pendingDxfImport, setPendingDxfImport] = useState<PendingDxfRoomImport | null>(null);
@@ -6354,6 +6400,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <span>Cập nhật bản vẽ</span>
               </button>}
 
+              {canManageStructure && cadSourceRoomCount > 0 && (
+                <button
+                  type="button"
+                  onClick={openCadAlignment}
+                  className="col-span-2 sm:col-span-1 flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-3 py-2 sm:py-1.5 rounded-xl text-xs font-bold transition-all shadow-2xs active:scale-95"
+                  title="Căn toàn bộ highlight nguồn DXF với ảnh/PDF mặt bằng hiện tại mà không đổi roomId"
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span>Căn chỉnh CAD</span>
+                </button>
+              )}
+
               {canManageStructure && (viewMode === 'highlight' || viewMode === 'all') && (
                 <button
                   type="button"
@@ -9385,6 +9443,80 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         defaultInspectorName={inspectorName}
         onAddInventory={onAddInventory}
       />
+
+      {canManageStructure && showCadAlignmentModal && activeFloor && (
+        <div className="fixed inset-0 z-[240] flex items-end sm:items-center justify-center bg-slate-950/60 p-0 sm:p-4">
+          <div className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+              <div>
+                <h3 className="text-sm font-black text-slate-900">Căn chỉnh CAD với mặt bằng</h3>
+                <p className="mt-0.5 text-[10.5px] text-slate-500">
+                  Áp dụng cho {cadSourceRoomCount} Căn/Phòng nguồn DXF của {activeFloor.floorName}. Dữ liệu CAD gốc và roomId không đổi.
+                </p>
+              </div>
+              <button type="button" onClick={() => setShowCadAlignmentModal(false)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-600">Đóng</button>
+            </div>
+            <div className="p-4 space-y-3 text-xs">
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10.5px] leading-4 text-amber-900">
+                Dùng khi đã import DXF trước rồi mới thêm/thay ảnh hoặc PDF mặt bằng. Chỉnh khung CAD tổng thể thay vì sửa từng căn.
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {([
+                  ['left', 'Lề trái (%)'],
+                  ['top', 'Lề trên (%)'],
+                  ['width', 'Chiều rộng CAD (%)'],
+                  ['height', 'Chiều cao CAD (%)'],
+                ] as const).map(([key, label]) => (
+                  <label key={key} className="space-y-1">
+                    <span className="font-bold text-slate-700">{label}</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={0.1}
+                      value={cadAlignmentDraft[key]}
+                      onChange={(event) => setCadAlignmentDraft((current) => normalizeCadAlignment({ ...current, [key]: Number(event.target.value) }))}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 font-bold"
+                    />
+                  </label>
+                ))}
+              </div>
+              <label className="space-y-1 block">
+                <span className="font-bold text-slate-700">Xoay lớp CAD</span>
+                <select
+                  value={cadAlignmentDraft.rotation}
+                  onChange={(event) => setCadAlignmentDraft((current) => normalizeCadAlignment({ ...current, rotation: Number(event.target.value) as 0 | 90 | 180 | 270 }))}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 font-bold"
+                >
+                  <option value={0}>0°</option>
+                  <option value={90}>90°</option>
+                  <option value={180}>180°</option>
+                  <option value={270}>270°</option>
+                </select>
+              </label>
+              <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-50 border border-slate-200 p-2.5">
+                <button
+                  type="button"
+                  onClick={() => setCadAlignmentDraft(DEFAULT_CAD_ALIGNMENT)}
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700"
+                >
+                  Reset CAD gốc
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void applyCadAlignment(cadAlignmentDraft)}
+                  className="rounded-xl bg-indigo-600 px-3 py-2 text-xs font-black text-white"
+                >
+                  Áp dụng
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-500">
+                Mẹo: nếu ảnh có viền trắng, tăng Lề trái/Lề trên và giảm Width/Height. Có thể áp dụng lại nhiều lần vì highlight luôn được dựng lại từ rawPoints DXF gốc.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add New Floor Plan Modal */}
       {canManageStructure && showAddFloorModal && (
