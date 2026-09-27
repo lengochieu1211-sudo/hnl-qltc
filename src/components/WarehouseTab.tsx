@@ -41,6 +41,7 @@ import { QuickSortBar } from './QuickSortBar';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import { ExcelActionMenu } from './ExcelActionMenu';
 import { QuickEditGridModal, type QuickGridColumn, type QuickGridRow } from './QuickEditGridModal';
+import { CrossProjectTemplateImportModal, type TemplateProjectOption, type TemplateSourceSnapshot, type TemplateSelection } from './CrossProjectTemplateImportModal';
 import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
 import { computeMaterialNeeds } from '../utils/materialNeedEngine';
 import { UserRole, canEditWarehouseData, canDeleteBusinessData, canImportData, canManageMaterialNorms } from '../utils/securityUtils';
@@ -55,6 +56,9 @@ type WarehouseCatalogSortKey = 'name' | 'category' | 'unit' | 'totalIn' | 'total
 
 interface WarehouseTabProps {
   inventory: InventoryItem[];
+  projectId?: string;
+  templateProjects?: TemplateProjectOption[];
+  onLoadTemplateProject?: (projectId: string) => Promise<TemplateSourceSnapshot>;
   userRole: UserRole;
   roleResolved: boolean;
   onAddInventory: (item: Omit<InventoryItem, 'id'> & { id?: string }) => void | Promise<void>;
@@ -83,6 +87,9 @@ interface WarehouseTabProps {
 
 export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   inventory,
+  projectId = '',
+  templateProjects = [],
+  onLoadTemplateProject,
   userRole,
   roleResolved,
   onAddInventory,
@@ -129,6 +136,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [warehouseCatalogSortOrder, setWarehouseCatalogSortOrder] = useState<'asc' | 'desc'>('asc');
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [showQuickEdit, setShowQuickEdit] = useState(false);
+  const [showNormTemplateImport, setShowNormTemplateImport] = useState(false);
   const [quickEditMode, setQuickEditMode] = useState<'norms' | 'in' | 'out' | 'stock'>('norms');
   const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
   const [materialNeedStructureGroupIds, setMaterialNeedStructureGroupIds] = useState<string[]>([]);
@@ -1772,6 +1780,16 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <Layers className="w-3.5 h-3.5 text-blue-600" />
             <span>Danh mục kho</span>
           </button>
+          {hasNormManageAccess && onLoadTemplateProject && templateProjects.some((project) => project.id !== projectId) && (
+            <button
+              type="button"
+              onClick={() => setShowNormTemplateImport(true)}
+              className="flex items-center gap-1 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-2 rounded-xl text-xs font-bold active:scale-95 transition-all"
+              title="Chọn một hoặc nhiều định mức từ các công trình khác"
+            >
+              Lấy định mức từ công trình/mẫu
+            </button>
+          )}
           <button
             onClick={onOpenNormModal}
             className="flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-2.5 py-2 rounded-xl text-xs font-bold active:scale-95 transition-all"
@@ -1963,6 +1981,115 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           />
         </div>
       </div>
+
+      {onLoadTemplateProject && (
+        <CrossProjectTemplateImportModal<MaterialNorm>
+          open={showNormTemplateImport}
+          title="Lấy Định mức vật tư từ công trình khác"
+          entityLabel="Định mức vật tư"
+          currentProjectId={projectId}
+          projects={templateProjects}
+          loadProject={onLoadTemplateProject}
+          getItems={(snapshot) => snapshot.materialNorms || []}
+          getItemId={(item) => item.id}
+          getItemLabel={(item) => item.materialName}
+          getItemDetail={(item) => `${item.category || '—'} · ${item.unit || '—'} · ĐM chung: ${Number(item.unitNormPerM2 || 0)}`}
+          onClose={() => setShowNormTemplateImport(false)}
+          onImport={async (selected: TemplateSelection<MaterialNorm>[]) => {
+            if (!hasNormManageAccess || !onImportNorms) throw new Error('Tài khoản hiện tại không có quyền nhập Định mức.');
+            const targetWorkByName = new Map((workVolumes || []).map((work) => [normalizeLinkText(work.title), work] as const));
+            const nextById = new Map(materialNorms.map((norm) => [norm.id, { ...norm }]));
+            const targetByMaterialKey = new Map(materialNorms.map((norm) => [`${normalizeLinkText(norm.materialName)}::${normalizeUnit(norm.unit)}`, norm] as const));
+            let importedCount = 0;
+            let mergedCount = 0;
+            let unmappedCategoryCount = 0;
+
+            selected.forEach(({ item, snapshot }) => {
+              const sourceWorkById = new Map((snapshot.workVolumes || []).map((work: WorkVolume) => [String(work.workCategoryId || work.id), work] as const));
+              const sourceNames = Array.from(new Set([
+                ...(item.workCategories || []),
+                ...(item.workCategory ? [item.workCategory] : []),
+                ...(item.workCategoryIds || []).map((id) => sourceWorkById.get(String(id))?.title || ''),
+                ...(item.workCategoryId ? [sourceWorkById.get(String(item.workCategoryId))?.title || ''] : []),
+              ].map((name) => String(name || '').trim()).filter(Boolean)));
+
+              const mappedWorks = sourceNames.map((name) => targetWorkByName.get(normalizeLinkText(name))).filter((work): work is WorkVolume => Boolean(work));
+              unmappedCategoryCount += Math.max(0, sourceNames.length - mappedWorks.length);
+              const mappedNames = Array.from(new Set(mappedWorks.map((work) => work.title)));
+              const mappedIds = Array.from(new Set(mappedWorks.map((work) => canonicalWorkCategoryId(work))));
+
+              const sourceNormByName = item.workCategoryNorms || {};
+              const sourceNormById = item.workCategoryNormsById || {};
+              const mappedNormByName: Record<string, number> = {};
+              const mappedNormById: Record<string, number> = {};
+              mappedWorks.forEach((work) => {
+                const id = canonicalWorkCategoryId(work);
+                const sourceName = sourceNames.find((name) => normalizeLinkText(name) === normalizeLinkText(work.title));
+                const sourceWork = (snapshot.workVolumes || []).find((candidate: WorkVolume) => normalizeLinkText(candidate.title) === normalizeLinkText(work.title));
+                const sourceId = sourceWork ? String(sourceWork.workCategoryId || sourceWork.id) : '';
+                const value = Number((sourceId && sourceNormById[sourceId] !== undefined) ? sourceNormById[sourceId] : (sourceName && sourceNormByName[sourceName] !== undefined ? sourceNormByName[sourceName] : item.unitNormPerM2 || 0));
+                if (Number.isFinite(value) && value >= 0) {
+                  mappedNormByName[work.title] = value;
+                  mappedNormById[id] = value;
+                }
+              });
+
+              const materialKey = `${normalizeLinkText(item.materialName)}::${normalizeUnit(item.unit)}`;
+              const existing = targetByMaterialKey.get(materialKey);
+              if (existing) {
+                const merged: MaterialNorm = {
+                  ...existing,
+                  workCategories: Array.from(new Set([...(existing.workCategories || []), ...mappedNames])),
+                  workCategoryIds: Array.from(new Set([...(existing.workCategoryIds || []), ...mappedIds])),
+                  workCategoryNorms: { ...(existing.workCategoryNorms || {}), ...mappedNormByName },
+                  workCategoryNormsById: { ...(existing.workCategoryNormsById || {}), ...mappedNormById },
+                  unitNormPerM2: Number(existing.unitNormPerM2 || item.unitNormPerM2 || 0),
+                  normBasisUnit: existing.normBasisUnit || item.normBasisUnit,
+                  notes: existing.notes || item.notes,
+                };
+                nextById.set(existing.id, merged);
+                mergedCount += 1;
+              } else {
+                const id = createEntityId('NORM');
+                const materialId = createEntityId('MAT');
+                const cloned: MaterialNorm = {
+                  id,
+                  materialId,
+                  category: item.category || 'Vật tư',
+                  materialName: item.materialName.trim(),
+                  unit: normalizeUnit(item.unit) || item.unit,
+                  quotaQuantity: 0,
+                  unitNormPerM2: Math.max(0, Number(item.unitNormPerM2 || 0)),
+                  normBasisUnit: item.normBasisUnit,
+                  workCategory: mappedNames[0],
+                  workCategoryId: mappedIds[0],
+                  workCategories: mappedNames,
+                  workCategoryIds: mappedIds,
+                  workCategoryNorms: mappedNormByName,
+                  workCategoryNormsById: mappedNormById,
+                  notes: item.notes,
+                };
+                nextById.set(id, cloned);
+                targetByMaterialKey.set(materialKey, cloned);
+                importedCount += 1;
+              }
+            });
+
+            if (importedCount + mergedCount === 0) throw new Error('Không có Định mức hợp lệ để nhập.');
+            const confirmed = await confirmAsync(
+              `Nhập Định mức đã chọn?
+
+• Tạo vật tư mới: ${importedCount}
+• Gộp vào vật tư hiện có: ${mergedCount}
+• Liên kết Hạng mục không tìm thấy ở công trình đích: ${unmappedCategoryCount}
+
+ID nguồn không được mang sang; materialId hiện có của công trình đích luôn được giữ.`
+            );
+            if (!confirmed) return;
+            onImportNorms(Array.from(nextById.values()));
+          }}
+        />
+      )}
 
       <QuickEditGridModal
         open={showQuickEdit}
