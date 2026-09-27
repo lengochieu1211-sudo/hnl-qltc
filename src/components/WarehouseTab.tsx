@@ -1548,7 +1548,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       { key: 'specificNorm', label: 'ĐM riêng hạng mục', editable: hasNormManageAccess, type: 'number', width: 145, validate: (value) => String(value ?? '').trim() && Number(value) < 0 ? 'Không được âm' : null },
       { key: 'generalNorm', label: 'ĐM chung', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), type: 'number', width: 120, validate: (value) => String(value ?? '').trim() && Number(value) < 0 ? 'Không được âm' : null },
       { key: 'normSource', label: 'Nguồn định mức', editable: false, width: 155 },
-      { key: 'quotaQuantity', label: 'Khối lượng định mức', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), type: 'number', width: 150, validate: (value) => Number(value || 0) < 0 ? 'Không được âm' : null },
+      { key: 'quotaQuantity', label: 'Khối lượng định mức (tự tính)', editable: false, type: 'number', width: 175 },
       { key: 'notes', label: 'Ghi chú / Tiêu chuẩn kỹ thuật', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), width: 300 },
     ];
     if (quickEditMode === 'stock') return [
@@ -2097,7 +2097,7 @@ ID nguồn không được mang sang; materialId hiện có của công trình �
         subtitle={quickEditMode === 'stock'
           ? 'Tồn kho là số tính từ Tổng nhập - Tổng xuất và luôn chỉ đọc.'
           : quickEditMode === 'norms'
-            ? 'Mỗi vật tư là một nhóm. Dòng đại diện sửa Tên/Nhóm/ĐVT/ĐM chung/Khối lượng/Ghi chú và tự đồng bộ các dòng con; dòng con sửa Hạng mục + ĐM riêng.'
+            ? 'Mỗi vật tư là một nhóm. Dòng đại diện sửa Tên/Nhóm/ĐVT/ĐM chung/Ghi chú; dòng con sửa Hạng mục + ĐM riêng. Khối lượng định mức tự tính từ Khối lượng Hạng mục × Định mức và chỉ đọc.'
             : 'Chỉnh trực tiếp theo cột/dòng; dữ liệu chỉ ghi khi bấm Lưu.'}
         tabs={[
           { key: 'norms', label: 'Định mức theo Hạng mục' },
@@ -2113,7 +2113,7 @@ ID nguồn không được mang sang; materialId hiện có của công trình �
         canAddRows={quickEditMode === 'norms' ? hasNormManageAccess : quickEditMode === 'in' || quickEditMode === 'out' ? hasImportAccess : false}
         canDeleteRows={quickEditMode === 'norms' ? hasNormManageAccess : quickEditMode === 'in' || quickEditMode === 'out' ? hasDeleteAccess : false}
         requiresAnchorForInsert={quickEditMode === 'norms'}
-        syncGroupColumns={quickEditMode === 'norms' ? ['materialName', 'category', 'unit', 'generalNorm', 'quotaQuantity', 'notes'] : []}
+        syncGroupColumns={quickEditMode === 'norms' ? ['materialName', 'category', 'unit', 'generalNorm', 'notes'] : []}
         getRowDeleteBlockReason={(row, currentRows) => {
           if (quickEditMode !== 'norms') return null;
           const normId = String(row.__normId || '').trim();
