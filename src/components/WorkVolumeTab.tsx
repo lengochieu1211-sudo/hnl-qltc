@@ -734,7 +734,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 className="flex items-center gap-1 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all"
               >
                 <Copy className="w-4 h-4" />
-                Lấy từ công trình khác
+                Lấy từ công trình/mẫu
               </button>
               <button
                 onClick={async () => {
@@ -1148,7 +1148,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         onClose={() => setShowTemplatePicker(false)}
         currentProjectId={currentProjectId}
         kind="workVolumes"
-        title="Lấy Hạng mục thi công từ công trình khác"
+        title="Lấy Hạng mục thi công từ công trình/mẫu"
         onImport={async (rows) => {
           if (!hasStructureManageAccess || !onImportWorkVolumes) return;
           const existingKeys = new Set(workVolumes.map((item) => `${item.title.trim().toLocaleLowerCase('vi-VN')}|${normalizeUnit(item.unit) || item.unit}`));
