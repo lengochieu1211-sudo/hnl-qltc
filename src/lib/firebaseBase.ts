@@ -2026,6 +2026,14 @@ export interface ProjectSharedSettings {
   updatedByEmail?: string;
 }
 
+export async function fetchProjectSharedSettingsSnapshot(projectId: string, serverOnly = true): Promise<ProjectSharedSettings | null> {
+  if (!projectId) return null;
+  await ensureAuth();
+  const ref = doc(db, 'projects', projectId, 'settings', 'shared');
+  const snap = serverOnly ? await getDocFromServer(ref) : await getDoc(ref);
+  return snap.exists() ? (snap.data() as ProjectSharedSettings) : null;
+}
+
 export async function saveProjectSharedSettings(projectId: string, patch: Partial<ProjectSharedSettings>): Promise<void> {
   if (!projectId) return;
   const user = getCurrentRealFirebaseUser();
