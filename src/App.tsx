@@ -1950,6 +1950,22 @@ function AuthenticatedApp() {
   // Chat must only list projects currently authorized by Firestore. Local recovery
   // projects remain available in Project Manager, but are never treated as chat access.
   const [authorizedChatProjects, setAuthorizedChatProjects] = useState<Array<{ id: string; name: string; role?: UserRole }>>([]);
+
+  const loadTemplateSourceProject = React.useCallback(async (sourceProjectId: string) => {
+    if (!isOnline) throw new Error('Cần có mạng để đọc công trình nguồn an toàn từ Firebase.');
+    const source = authorizedChatProjects.find((project) => project.id === sourceProjectId);
+    if (!source) throw new Error('Công trình nguồn không còn trong danh sách được tài khoản hiện tại cấp quyền.');
+    const record = await fetchProjectFromCloud(sourceProjectId, { serverOnly: true });
+    if (!record) throw new Error(`Không đọc được công trình nguồn “${source.name}”.`);
+    const payload = record.data?.payload || record.data || {};
+    return {
+      projectId: sourceProjectId,
+      projectName: String(payload.projectName || record.name || source.name || sourceProjectId),
+      workVolumes: Array.isArray(payload.workVolumes) ? payload.workVolumes : [],
+      teams: Array.isArray(payload.teams) ? payload.teams : [],
+      materialNorms: Array.isArray(payload.materialNorms) ? payload.materialNorms : [],
+    };
+  }, [authorizedChatProjects, isOnline]);
   const [isMultiProjectOverviewOpen, setIsMultiProjectOverviewOpen] = useState(false);
   const [startupProjectId, setStartupProjectId] = useState<string>(() => {
     try { return localStorage.getItem(STARTUP_PROJECT_ID_KEY) || ''; } catch (_) { return ''; }
@@ -7034,6 +7050,9 @@ function AuthenticatedApp() {
           {activeTab === 'warehouse' && (
             <WarehouseTab
               inventory={inventory}
+              projectId={activeProjectId}
+              templateProjects={authorizedChatProjects}
+              onLoadTemplateProject={loadTemplateSourceProject}
               userRole={currentUserRole}
               roleResolved={isProjectRoleResolved}
               onAddInventory={handleAddInventory}
@@ -7068,6 +7087,9 @@ function AuthenticatedApp() {
               roomProgressList={roomProgressList}
               structureConfig={structureConfig}
               projectName={projectName}
+              projectId={activeProjectId}
+              templateProjects={authorizedChatProjects}
+              onLoadTemplateProject={loadTemplateSourceProject}
               userRole={currentUserRole}
               onAddWorkVolume={handleAddWorkVolume}
               onSaveWorkVolume={handleSaveWorkVolume}
@@ -7166,6 +7188,8 @@ function AuthenticatedApp() {
               currentUserUid={getCurrentRealFirebaseUser()?.uid || ''}
               projectName={projectName}
               projectLocation={projectLocation}
+              templateProjects={authorizedChatProjects}
+              onLoadTemplateProject={loadTemplateSourceProject}
               crewRecords={crewRecords}
               floorPlans={floorPlans}
               structureConfig={structureConfig}
