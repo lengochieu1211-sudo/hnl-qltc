@@ -531,6 +531,8 @@ const bootstrapCreateStart = app.indexOf('const payload = buildCloudProjectPaylo
 if (bootstrapExistingCloudStart < 0 || bootstrapCreateStart < 0) fail('Cloud project bootstrap branches missing');
 const existingCloudBootstrapBranch = app.slice(bootstrapExistingCloudStart, bootstrapCreateStart);
 if (existingCloudBootstrapBranch.includes('setCloudBootstrapVersion')) fail('Existing Cloud project bootstrap must not force realtime listener rebind');
+if (app.includes('Global project discovery refresh warning:')) fail('App startup must not run a redundant manual project-discovery server pass');
+if (!app.includes('subscribeCurrentUserProjectsRealtime already consumes/verifies invitation/index')) fail('Startup project-discovery dedupe marker missing');
 pass('PROD read amplification + full-snapshot stall guards retained');
 
 console.log('STABILITY GATE PASS – V6.3.0 Firebase-only RC architecture');
