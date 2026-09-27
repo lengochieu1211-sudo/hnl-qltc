@@ -1588,17 +1588,30 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     if (quickEditMode === 'norms') {
       if (!hasNormManageAccess || !onImportNorms) return;
       const byId = new Map<string, MaterialNorm>(materialNorms.map((norm) => [norm.id, norm] as const));
+      const dirtyFieldsByRow = new Map<string, Set<string>>();
+      dirtyCellKeys.forEach((key) => {
+        const separator = key.lastIndexOf('::');
+        if (separator < 0) return;
+        const rowKey = key.slice(0, separator);
+        const field = key.slice(separator + 2);
+        const fields = dirtyFieldsByRow.get(rowKey) || new Set<string>();
+        fields.add(field);
+        dirtyFieldsByRow.set(rowKey, fields);
+      });
 
       for (const row of dirtyRows) {
-        const normId = String(row.__normId || '').trim();
+        const providedNormId = String(row.__normId || '').trim();
+        if (providedNormId && !byId.has(providedNormId)) {
+          throw new Error(`ID định mức “${providedNormId}” không còn tồn tại. Hệ thống hủy ghi để tránh tạo vật tư mới ngoài ý muốn.`);
+        }
         const workName = String(row.workCategory || '').trim();
-        if (!normId || !workName) continue;
+        if (!providedNormId || !workName) continue;
         const work = (workVolumes || []).find((item) => normalizeLinkText(item.title) === normalizeLinkText(workName));
         if (!work) throw new Error(`Hạng mục thi công “${workName}” không còn trong danh mục.`);
         const categoryId = canonicalWorkCategoryId(work);
         const duplicate = rows.some((other) =>
           other.__rowKey !== row.__rowKey
-          && String(other.__normId || '').trim() === normId
+          && String(other.__normId || '').trim() === providedNormId
           && (() => {
             const otherName = String(other.workCategory || '').trim();
             const otherWork = (workVolumes || []).find((item) => normalizeLinkText(item.title) === normalizeLinkText(otherName));
@@ -1609,10 +1622,20 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       }
 
       dirtyRows.forEach((row) => {
-        const existing = byId.get(String(row.__normId || '').trim());
-        const id = existing?.id || createEntityId('norm');
+        const dirtyFields = dirtyFieldsByRow.get(String(row.__rowKey)) || new Set<string>();
+        const providedNormId = String(row.__normId || '').trim();
         const materialName = String(row.materialName || '').trim();
         const unit = normalizeUnit(String(row.unit || '').trim()) || String(row.unit || '').trim();
+
+        const matchingExisting = !providedNormId
+          ? materialNorms.find((norm) =>
+              normalizeLinkText(norm.materialName) === normalizeLinkText(materialName)
+              && (normalizeUnit(norm.unit) || norm.unit) === unit
+            )
+          : undefined;
+        const existing = providedNormId ? byId.get(providedNormId) : matchingExisting;
+        const id = existing?.id || createEntityId('norm');
+
         const workName = String(row.workCategory || '').trim();
         const selectedWork = workName
           ? (workVolumes || []).find((work) => normalizeLinkText(work.title) === normalizeLinkText(workName))
@@ -1626,6 +1649,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           ...(existing?.workCategoryId ? [existing.workCategoryId] : []),
           ...Object.keys(existing?.workCategoryNormsById || {}),
         ].map((value) => String(value || '').trim()).filter(Boolean));
+
         const nameById = new Map<string, string>();
         const existingNames = existing?.workCategories?.length
           ? existing.workCategories
@@ -1634,50 +1658,66 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           const catalogWork = (workVolumes || []).find((work) => canonicalWorkCategoryId(work) === categoryId || work.id === categoryId);
           nameById.set(categoryId, catalogWork?.title || existingNames[index] || '');
         });
-        const nextSpecific = { ...(existing?.workCategoryNormsById || {}) };
 
-        if (previousWorkId && previousWorkId !== selectedWorkId) {
-          nextIds.delete(previousWorkId);
-          delete nextSpecific[previousWorkId];
-          nameById.delete(previousWorkId);
-        }
-        if (selectedWorkId) {
-          nextIds.add(selectedWorkId);
-          nameById.set(selectedWorkId, selectedWork?.title || workName);
-          const specificRaw = String(row.specificNorm ?? '').trim();
-          if (specificRaw === '') delete nextSpecific[selectedWorkId];
-          else nextSpecific[selectedWorkId] = Math.max(0, Number(row.specificNorm || 0));
+        const nextSpecific = { ...(existing?.workCategoryNormsById || {}) };
+        const mappingChanged = !existing || dirtyFields.has('workCategory') || dirtyFields.has('specificNorm');
+
+        if (mappingChanged) {
+          if (previousWorkId && previousWorkId !== selectedWorkId) {
+            nextIds.delete(previousWorkId);
+            delete nextSpecific[previousWorkId];
+            nameById.delete(previousWorkId);
+          }
+          if (selectedWorkId) {
+            nextIds.add(selectedWorkId);
+            nameById.set(selectedWorkId, selectedWork?.title || workName);
+            const specificRaw = String(row.specificNorm ?? '').trim();
+            if (specificRaw === '') delete nextSpecific[selectedWorkId];
+            else nextSpecific[selectedWorkId] = Math.max(0, Number(row.specificNorm || 0));
+          }
         }
 
         const workCategoryIds = Array.from(nextIds);
         const workCategories = workCategoryIds
-          .map((categoryId) => nameById.get(categoryId) || (workVolumes || []).find((work) => canonicalWorkCategoryId(work) === categoryId || work.id === categoryId)?.title || '')
+          .map((categoryId) =>
+            nameById.get(categoryId)
+            || (workVolumes || []).find((work) => canonicalWorkCategoryId(work) === categoryId || work.id === categoryId)?.title
+            || ''
+          )
           .filter(Boolean);
-        const matchingMaterial = materialNorms.find((norm) =>
-          norm.id !== existing?.id
-          && normalizeLinkText(norm.materialName) === normalizeLinkText(materialName)
-          && (normalizeUnit(norm.unit) || norm.unit) === unit
-        );
 
+        const isNew = !existing;
         byId.set(id, {
           ...(existing || {} as MaterialNorm),
           id,
-          materialId: existing?.materialId || matchingMaterial?.materialId || createEntityId('material'),
-          materialName,
-          category: String(row.category || '').trim(),
-          unit,
+          materialId: existing?.materialId || createEntityId('material'),
+          materialName: isNew || dirtyFields.has('materialName') ? materialName : existing!.materialName,
+          category: isNew || dirtyFields.has('category') ? String(row.category || '').trim() : existing!.category,
+          unit: isNew || dirtyFields.has('unit') ? unit : existing!.unit,
           workCategory: workCategories[0],
           workCategoryId: workCategoryIds[0],
           workCategories: workCategories.length ? workCategories : undefined,
           workCategoryIds: workCategoryIds.length ? workCategoryIds : undefined,
           workCategoryNormsById: Object.keys(nextSpecific).length ? nextSpecific : undefined,
-          quotaQuantity: Math.max(0, Number(row.quotaQuantity || 0)),
-          unitNormPerM2: String(row.generalNorm ?? '').trim() === '' ? undefined : Math.max(0, Number(row.generalNorm || 0)),
+          quotaQuantity: isNew || dirtyFields.has('quotaQuantity')
+            ? Math.max(0, Number(row.quotaQuantity || 0))
+            : existing!.quotaQuantity,
+          unitNormPerM2: isNew || dirtyFields.has('generalNorm')
+            ? (String(row.generalNorm ?? '').trim() === '' ? undefined : Math.max(0, Number(row.generalNorm || 0)))
+            : existing!.unitNormPerM2,
           normBasisUnit: existing?.normBasisUnit || 'm²',
-          notes: String(row.notes || '').trim() || undefined,
+          notes: isNew || dirtyFields.has('notes')
+            ? (String(row.notes || '').trim() || undefined)
+            : existing!.notes,
         });
       });
-      const confirmed = await confirmAsync(`Lưu ${dirtyRows.length} thay đổi Danh mục & Định mức vật tư? Định mức riêng theo Hạng mục sẽ được ưu tiên khi tính nhu cầu.`);
+
+      const confirmed = await confirmAsync(
+        `Lưu ${dirtyRows.length} dòng thay đổi Định mức vật tư?\n\n` +
+        '• Các dòng cùng vật tư dùng chung một ID, không tự sinh vật tư mới.\n' +
+        '• Chỉ ô đã sửa mới được ghi.\n' +
+        '• ĐM riêng chỉ cập nhật Hạng mục tương ứng; ĐM chung và Hạng mục khác được giữ nguyên.'
+      );
       if (!confirmed) return false;
       onImportNorms(Array.from(byId.values()));
       return;
@@ -1940,7 +1980,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         subtitle={quickEditMode === 'stock'
           ? 'Tồn kho là số tính từ Tổng nhập - Tổng xuất và luôn chỉ đọc.'
           : quickEditMode === 'norms'
-            ? 'Hạng mục thi công lấy từ danh mục có sẵn. ĐM riêng theo Hạng mục được ưu tiên; nếu để trống sẽ dùng ĐM chung.'
+            ? 'Các dòng cùng vật tư dùng chung một ID. Sửa ĐM riêng chỉ đổi Hạng mục đó; Tên vật tư/ĐVT là dữ liệu chung. ĐM riêng được ưu tiên, trống thì dùng ĐM chung.'
             : 'Chỉnh trực tiếp theo cột/dòng; dữ liệu chỉ ghi khi bấm Lưu.'}
         tabs={[
           { key: 'norms', label: 'Danh mục & Định mức' },

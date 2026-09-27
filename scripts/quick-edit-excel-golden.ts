@@ -79,6 +79,7 @@ assert.match(crew, /selectedLogStructureGroupId/, 'Crew entry must expose an exp
 assert.match(crew, /Danh sách Tầng bên dưới chỉ hiện trong/, 'Crew entry must explain that floor choices are filtered by Khu/Khối');
 assert.match(crew, /key: 'structureGroup'/, 'Crew quick edit must include a Khu/Khối column');
 assert.match(crew, /Tầng không thuộc Khu\/Khối này/, 'Crew quick edit must reject floor/group mismatches');
+assert.match(crew, /Chia sẻ báo cáo quân số[\s\S]*grid grid-cols-2 gap-2 sm:grid-cols-\[160px_160px\] sm:justify-start/, 'Crew share action must appear above the equal-width Quick Edit + Excel pair');
 assert.match(crew, /grid grid-cols-2 gap-2 sm:grid-cols-\[160px_160px\] sm:justify-start/, 'Crew bulk-edit actions must use equal-width mobile and desktop columns');
 assert.match(crew, /sm:grid-cols-\[160px_160px\][\s\S]*fillWidth[\s\S]*reportLabel="Thống kê tất cả đội"/, 'Team directory Quick Edit + Excel pair must be balanced on desktop');
 
@@ -93,7 +94,10 @@ assert.match(warehouse, /key: 'workCategory'[\s\S]*type: 'select'[\s\S]*options:
 assert.match(warehouse, /key: 'specificNorm'/, 'Warehouse norm quick edit must expose per-work-category norm');
 assert.match(warehouse, /key: 'generalNorm'/, 'Warehouse norm quick edit must retain the general fallback norm');
 assert.match(warehouse, /workCategoryNormsById/, 'Warehouse norm quick edit must persist per-work-category norms in the existing ID map');
-assert.match(warehouse, /Định mức riêng theo Hạng mục sẽ được ưu tiên/, 'Warehouse quick edit must document specific-over-general norm precedence');
+assert.match(warehouse, /providedNormId && !byId\.has\(providedNormId\)/, 'Warehouse norm quick edit must fail closed for a stale technical norm ID');
+assert.match(warehouse, /matchingExisting = !providedNormId/, 'New category rows must reuse an existing material norm when material name + unit already match');
+assert.match(warehouse, /dirtyFields\.has\('specificNorm'\)/, 'Warehouse norm save must isolate category-specific edits to dirty fields');
+assert.match(warehouse, /ĐM riêng chỉ cập nhật Hạng mục tương ứng/, 'Warehouse norm confirmation must state that one category edit does not alter other categories or the general norm');
 assert.match(warehouse, /grid grid-cols-2 gap-2 pt-0\.5 sm:grid-cols-\[160px_160px\]/, 'Warehouse bulk-edit actions must use equal-width mobile and desktop columns');
 
 assert.match(volume, /Khối lượng đã làm/, 'WorkVolume quick table must show actual volume');
