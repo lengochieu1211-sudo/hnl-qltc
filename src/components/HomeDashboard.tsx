@@ -60,6 +60,9 @@ interface HomeDashboardProps {
   onOpenFloorPlan: () => void;
 }
 
+const crewReportSessionCache = new Map<string, CrewReportProjectInput>();
+const crewReportCacheKey = (projectId: string, startDate: string, endDate: string) => `${projectId}::${startDate}::${endDate}`;
+
 const roleLabel = (role?: UserRole) => role === 'ADMIN' ? 'ADMIN' : role === 'EDITOR' ? 'EDITOR' : 'VIEWER';
 const roleClass = (role?: UserRole) => role === 'ADMIN'
   ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
@@ -112,7 +115,15 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const [reportStartDate, setReportStartDate] = useState(todayKey);
   const [reportEndDate, setReportEndDate] = useState(todayKey);
   const [reportPreset, setReportPreset] = useState<'today' | 'yesterday' | '7days' | 'month' | 'custom'>('today');
-  const [reportProjects, setReportProjects] = useState<CrewReportProjectInput[]>([]);
+  const [reportProjects, setReportProjects] = useState<CrewReportProjectInput[]>(() => activeProjectId ? [{
+    projectId: activeProjectId,
+    projectName: activeProjectName || 'Dự án đang mở',
+    projectLocation: activeProjectLocation,
+    records: crewRecords,
+    teams,
+    floorPlans,
+    structureConfig,
+  }] : []);
   const [reportFailedProjects, setReportFailedProjects] = useState<string[]>([]);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState('');
@@ -149,6 +160,12 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       return () => { cancelled = true; };
     }
 
+    const cachedRemoteProjects = projects
+      .filter((project) => project.id !== activeProjectId)
+      .map((project) => crewReportSessionCache.get(crewReportCacheKey(project.id, reportStartDate, reportEndDate)))
+      .filter((item): item is CrewReportProjectInput => Boolean(item));
+    setReportProjects(activeProjectId ? [activeFallback, ...cachedRemoteProjects] : cachedRemoteProjects);
+    setReportFailedProjects([]);
     setReportLoading(true);
     setReportError('');
     const load = async () => {
@@ -158,7 +175,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           return activeFallback;
         }
         const snapshot = await fetchProjectCrewReportData(project.id, reportStartDate, reportEndDate, { serverOnly: true });
-        return {
+        const loadedProject = {
           projectId: project.id,
           projectName: snapshot.projectName || project.name,
           projectLocation: snapshot.projectLocation,
@@ -167,6 +184,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           floorPlans: snapshot.floorPlans,
           structureConfig: snapshot.structureConfig,
         } satisfies CrewReportProjectInput;
+        crewReportSessionCache.set(crewReportCacheKey(project.id, reportStartDate, reportEndDate), loadedProject);
+        return loadedProject;
       }));
       if (cancelled) return;
       const loaded: CrewReportProjectInput[] = [];
