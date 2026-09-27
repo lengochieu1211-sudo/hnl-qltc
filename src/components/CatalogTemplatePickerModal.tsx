@@ -1,6 +1,6 @@
 import React from 'react';
 import { X, Search, Download, FolderOpen } from 'lucide-react';
-import { fetchCurrentUserProjectsFromCloud, fetchProjectFromCloud, getCloudPayload } from '../lib/firebaseBase';
+import { fetchCurrentUserProjectsFromCloud, fetchProjectFromCloud, getCloudPayload, fetchUserCatalogTemplates, saveUserCatalogTemplate, deleteUserCatalogTemplate, type UserCatalogTemplate } from '../lib/firebaseBase';
 
 export type CatalogTemplateKind = 'workVolumes' | 'teams' | 'materialNorms';
 
@@ -42,6 +42,7 @@ export const CatalogTemplatePickerModal: React.FC<CatalogTemplatePickerModalProp
   onImport,
 }) => {
   const [projects, setProjects] = React.useState<Array<{ id: string; name: string }>>([]);
+  const [templates, setTemplates] = React.useState<UserCatalogTemplate[]>([]);
   const [sourceProjectId, setSourceProjectId] = React.useState('');
   const [sourceItems, setSourceItems] = React.useState<any[]>([]);
   const [selectedIds, setSelectedIds] = React.useState<string[]>([]);
@@ -54,13 +55,18 @@ export const CatalogTemplatePickerModal: React.FC<CatalogTemplatePickerModalProp
     if (!open) return;
     setError('');
     setLoading(true);
-    fetchCurrentUserProjectsFromCloud()
-      .then((rows) => {
+    Promise.all([fetchCurrentUserProjectsFromCloud(), fetchUserCatalogTemplates()])
+      .then(([rows, savedTemplates]) => {
         const visible = rows.filter((project) => project.id !== currentProjectId);
+        const matchingTemplates = savedTemplates.filter((template) => template.kind === kind);
         setProjects(visible);
-        setSourceProjectId((current) => current && visible.some((project) => project.id === current) ? current : (visible[0]?.id || ''));
+        setTemplates(matchingTemplates);
+        setSourceProjectId((current) => {
+          if (current && (visible.some((project) => project.id === current) || matchingTemplates.some((template) => `template:${template.id}` === current))) return current;
+          return visible[0]?.id || (matchingTemplates[0] ? `template:${matchingTemplates[0].id}` : '');
+        });
       })
-      .catch((err) => setError(err instanceof Error ? err.message : 'Không đọc được danh sách công trình.'))
+      .catch((err) => setError(err instanceof Error ? err.message : 'Không đọc được danh sách công trình/mẫu.'))
       .finally(() => setLoading(false));
   }, [open, currentProjectId]);
 
@@ -73,12 +79,19 @@ export const CatalogTemplatePickerModal: React.FC<CatalogTemplatePickerModalProp
     let cancelled = false;
     setLoading(true);
     setError('');
-    fetchProjectFromCloud(sourceProjectId, { serverOnly: true })
-      .then((record) => {
+    const savedTemplate = sourceProjectId.startsWith('template:')
+      ? templates.find((template) => `template:${template.id}` === sourceProjectId)
+      : undefined;
+    const sourcePromise = savedTemplate
+      ? Promise.resolve(savedTemplate.items)
+      : fetchProjectFromCloud(sourceProjectId, { serverOnly: true }).then((record) => {
+          if (!record) throw new Error('Không đọc được công trình nguồn hoặc bạn không còn quyền.');
+          const payload: any = getCloudPayload(record);
+          return Array.isArray(payload?.[kind]) ? payload[kind].filter((item: any) => item && item.deleted !== true && !item.deletedAt) : [];
+        });
+    sourcePromise
+      .then((rows) => {
         if (cancelled) return;
-        if (!record) throw new Error('Không đọc được công trình nguồn hoặc bạn không còn quyền.');
-        const payload: any = getCloudPayload(record);
-        const rows = Array.isArray(payload?.[kind]) ? payload[kind].filter((item: any) => item && item.deleted !== true && !item.deletedAt) : [];
         setSourceItems(rows);
         setSelectedIds([]);
       })
@@ -90,7 +103,7 @@ export const CatalogTemplatePickerModal: React.FC<CatalogTemplatePickerModalProp
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [open, sourceProjectId, kind]);
+  }, [open, sourceProjectId, kind, templates]);
 
   React.useEffect(() => {
     if (!open) {
@@ -103,7 +116,8 @@ export const CatalogTemplatePickerModal: React.FC<CatalogTemplatePickerModalProp
 
   if (!open) return null;
 
-  const sourceName = projects.find((project) => project.id === sourceProjectId)?.name || sourceProjectId;
+  const activeTemplate = sourceProjectId.startsWith('template:') ? templates.find((template) => `template:${template.id}` === sourceProjectId) : undefined;
+  const sourceName = activeTemplate?.name || projects.find((project) => project.id === sourceProjectId)?.name || sourceProjectId;
   const query = search.trim().toLocaleLowerCase('vi-VN');
   const filteredItems = sourceItems.filter((item) => {
     if (!query) return true;
@@ -137,8 +151,9 @@ export const CatalogTemplatePickerModal: React.FC<CatalogTemplatePickerModalProp
           <div className="flex min-h-0 flex-col gap-2">
             <div className="grid gap-2 sm:grid-cols-[1fr_1fr]">
               <select value={sourceProjectId} onChange={(e) => setSourceProjectId(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold">
-                {projects.length === 0 && <option value="">Không có công trình nguồn</option>}
-                {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+                {projects.length === 0 && templates.length === 0 && <option value="">Không có công trình/mẫu nguồn</option>}
+                {projects.length > 0 && <optgroup label="Công trình khác">{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</optgroup>}
+                {templates.length > 0 && <optgroup label="Mẫu đã lưu">{templates.map((template) => <option key={template.id} value={`template:${template.id}`}>★ {template.name}</option>)}</optgroup>}
               </select>
               <div className="relative">
                 <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
@@ -198,11 +213,42 @@ export const CatalogTemplatePickerModal: React.FC<CatalogTemplatePickerModalProp
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-2 border-t border-slate-200 px-4 py-3">
-          <div className="text-[10px] text-slate-500">Dữ liệu được đọc trực tiếp từ Cloud và vẫn phải qua kiểm tra trùng/liên kết trước khi ghi vào công trình hiện tại.</div>
-          <button type="button" disabled={basket.length === 0} onClick={async () => { await onImport(basket); onClose(); }} className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-40">
-            <Download className="h-4 w-4" /> Lấy {basket.length || ''} mục
-          </button>
+        <div className="flex flex-col gap-2 border-t border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-[10px] text-slate-500">Công trình nguồn đọc trực tiếp từ Cloud. “Mẫu đã lưu” được đồng bộ trong hồ sơ Google của bạn và giới hạn 40 mục/mẫu để tránh phình dữ liệu.</div>
+          <div className="flex shrink-0 items-center gap-2">
+            {activeTemplate && (
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!window.confirm(`Xóa mẫu “${activeTemplate.name}”? Dữ liệu công trình không bị ảnh hưởng.`)) return;
+                  await deleteUserCatalogTemplate(activeTemplate.id);
+                  const next = templates.filter((template) => template.id !== activeTemplate.id);
+                  setTemplates(next);
+                  setSourceProjectId(projects[0]?.id || (next[0] ? `template:${next[0].id}` : ''));
+                }}
+                className="rounded-xl border border-rose-200 bg-rose-50 px-2.5 py-2 text-[11px] font-bold text-rose-700"
+              >
+                Xóa mẫu
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={basket.length === 0}
+              onClick={async () => {
+                const name = window.prompt('Tên mẫu muốn lưu:', `Mẫu ${title.replace(/^Lấy\s+/i, '')}`);
+                if (!name?.trim()) return;
+                const saved = await saveUserCatalogTemplate({ name: name.trim(), kind, items: basket.map((row) => row.item) });
+                setTemplates((current) => [saved, ...current.filter((template) => template.id !== saved.id)]);
+                setSourceProjectId(`template:${saved.id}`);
+              }}
+              className="rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-[11px] font-bold text-indigo-700 disabled:opacity-40"
+            >
+              Lưu giỏ thành mẫu
+            </button>
+            <button type="button" disabled={basket.length === 0} onClick={async () => { await onImport(basket); onClose(); }} className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-40">
+              <Download className="h-4 w-4" /> Lấy {basket.length || ''} mục
+            </button>
+          </div>
         </div>
       </div>
     </div>
