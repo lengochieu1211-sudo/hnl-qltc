@@ -1354,7 +1354,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
         title="Lấy Định mức vật tư từ công trình khác"
         onImport={async (rows) => {
           if (!hasManageAccess || !onImportNorms) return;
-          const targetWorksByName = new Map(activeWorkVolumes.map((work) => [String(work.title || '').trim().toLocaleLowerCase('vi-VN'), work] as const));
+          const targetWorksByName = new Map<string, WorkVolume>(activeWorkVolumes.map((work) => [String(work.title || '').trim().toLocaleLowerCase('vi-VN'), work] as [string, WorkVolume]));
           const merged = [...activeMaterialNorms];
           const skipped: string[] = [];
           let changed = false;
