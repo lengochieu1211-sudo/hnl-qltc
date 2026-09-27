@@ -8,6 +8,8 @@ const crew = fs.readFileSync('src/components/CrewTabBase.tsx', 'utf8');
 const warehouse = fs.readFileSync('src/components/WarehouseTab.tsx', 'utf8');
 const volume = fs.readFileSync('src/components/WorkVolumeTab.tsx', 'utf8');
 const projectManager = fs.readFileSync('src/components/ProjectManagerModal.tsx', 'utf8');
+const materialNormModal = fs.readFileSync('src/components/MaterialNormModal.tsx', 'utf8');
+const catalogTemplatePicker = fs.readFileSync('src/components/CatalogTemplatePickerModal.tsx', 'utf8');
 const dxf = fs.readFileSync('src/utils/dxfRoomDetection.ts', 'utf8');
 const pdfRoomDetection = fs.readFileSync('src/utils/pdfRoomDetection.ts', 'utf8');
 
@@ -145,6 +147,13 @@ assert.match(projectManager, /workVolumes: templateCopyOptions\.workVolumes \? t
 assert.match(projectManager, /materialNorms: templateCopyOptions\.materialNorms/, 'Template clone must include material norms without warehouse transactions');
 assert.match(projectManager, /inventory: \[\]/, 'Template clone must never copy warehouse transaction history');
 assert.match(projectManager, /saveProjectSharedSettings\(newProjectId, \{ structure: templateSourceStructure \}\)/, 'Template clone must preserve Khu/Khối structure settings');
+assert.match(volume, /Lấy từ công trình khác/, 'Work Volume must support copying selected catalog items from other projects');
+assert.match(crew, /Lấy từ công trình khác/, 'Team directory must support copying selected teams from other projects');
+assert.match(materialNormModal, /Lấy từ công trình khác/, 'Material Norms must support copying selected norms from other projects');
+assert.match(catalogTemplatePicker, /Lưu giỏ thành mẫu/, 'Cross-project picker must support saving a reusable personal template');
+assert.match(catalogTemplatePicker, /Mẫu đã lưu/, 'Cross-project picker must support loading saved templates');
+assert.match(catalogTemplatePicker, /fetchProjectFromCloud\(sourceProjectId, \{ serverOnly: true \}\)/, 'Cross-project picker must server-verify source project data');
+assert.match(catalogTemplatePicker, /fetchUserCatalogTemplates/, 'Reusable templates must be read from the signed-in user cloud profile');
 
 console.log('Quick Edit + Excel + DXF Golden: PASS');
 
