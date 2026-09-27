@@ -426,6 +426,10 @@ const projectAccessRepairInFlight = new Set<string>();
 const projectAccessRepairCompleted = new Set<string>();
 const userProjectIndexSignatureCache = new Map<string, string>();
 const discoveryProjectCache = new Map<string, { at: number; summary: CloudProjectSummary | null }>();
+// Coalesce the burst of discovery-source snapshots that arrives during Auth/startup.
+// Entries are invalidated immediately when an authoritative discovery source changes,
+// so this short TTL never replaces canonical role/project verification.
+const DISCOVERY_VERIFICATION_CACHE_MS = 5_000;
 const projectRootMetadataTouchAt = new Map<string, number>();
 
 const WORK_VOLUME_FINANCIAL_COLLECTION = 'work_volume_financials';
@@ -864,6 +868,11 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
       const localHint = localCandidateProjects[id];
       const hint = durableHint || localHint || {};
       const cacheKey = cacheKeyFor(id);
+      const cachedVerification = discoveryProjectCache.get(cacheKey);
+      if (cachedVerification && Date.now() - cachedVerification.at <= DISCOVERY_VERIFICATION_CACHE_MS) {
+        if (cachedVerification.summary) result.push(cachedVerification.summary);
+        continue;
+      }
 
       try {
         const projectRef = doc(db, 'projects', id);
@@ -957,6 +966,28 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
     }, 160);
   };
 
+  // All six discovery listeners produce an initial snapshot. Waiting until every source
+  // has answered avoids six near-identical canonical verification passes at startup.
+  // A source error is still marked ready so a denied optional legacy/index query cannot
+  // block the authoritative project list forever.
+  const initialDiscoverySources = new Set([
+    'user-index',
+    'invitation',
+    'legacy-invitation',
+    'project-access',
+    'owner-uid',
+    'owner-email',
+  ]);
+  const scheduleDiscoveryEmit = (source: string) => {
+    const wasInitial = initialDiscoverySources.delete(source);
+    if (initialDiscoverySources.size > 0) return;
+    scheduleEmit(wasInitial ? 'initial-sources-ready' : source);
+  };
+  const markDiscoverySourceError = (source: string, label: string, err: any) => {
+    console.warn(label, err);
+    scheduleDiscoveryEmit(source);
+  };
+
   const applyQueryChanges = (
     snap: any,
     target: Record<string, any>,
@@ -1004,40 +1035,40 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
     }
     userProjects = nextProjects;
     primeUserProjectIndexCache(user.uid, userProjects);
-    scheduleEmit('user-index');
-  }, (err) => console.warn('User project index realtime error:', err)));
+    scheduleDiscoveryEmit('user-index');
+  }, (err) => markDiscoverySourceError('user-index', 'User project index realtime error:', err)));
 
   const invitationQ = query(collection(db, 'projectInvitations'), where('invitedEmail', '==', email));
   unsubs.push(onSnapshot(invitationQ, (snap) => {
     applyQueryChanges(snap, invitationProjects, 'invitation');
-    scheduleEmit('invitation');
-  }, (err) => console.warn('Project invitations realtime error:', err)));
+    scheduleDiscoveryEmit('invitation');
+  }, (err) => markDiscoverySourceError('invitation', 'Project invitations realtime error:', err)));
 
   const legacyInvitationQ = query(collection(db, 'projectInvitations'), where('email', '==', email));
   unsubs.push(onSnapshot(legacyInvitationQ, (snap) => {
     applyQueryChanges(snap, legacyInvitationProjects, 'invitation');
-    scheduleEmit('legacy-invitation');
-  }, (err) => console.warn('Legacy project invitations realtime error:', err)));
+    scheduleDiscoveryEmit('legacy-invitation');
+  }, (err) => markDiscoverySourceError('legacy-invitation', 'Legacy project invitations realtime error:', err)));
 
   const accessQ = query(collection(db, 'projectAccess'), where('email', '==', email));
   unsubs.push(onSnapshot(accessQ, (snap) => {
     applyQueryChanges(snap, accessProjects, 'access');
-    scheduleEmit('project-access');
-  }, (err) => console.warn('Project access index realtime error:', err)));
+    scheduleDiscoveryEmit('project-access');
+  }, (err) => markDiscoverySourceError('project-access', 'Project access index realtime error:', err)));
 
   const ownerUidQ = query(collection(db, 'projects'), where('ownerUid', '==', user.uid));
   unsubs.push(onSnapshot(ownerUidQ, (snap) => {
     console.debug('[owner query] uid changes=', snap.docChanges().length);
     applyQueryChanges(snap, ownerUidProjects, 'owner');
-    scheduleEmit('owner-uid');
-  }, (err) => console.warn('Owner UID projects realtime recovery warning:', err)));
+    scheduleDiscoveryEmit('owner-uid');
+  }, (err) => markDiscoverySourceError('owner-uid', 'Owner UID projects realtime recovery warning:', err)));
 
   const ownerEmailQ = query(collection(db, 'projects'), where('ownerEmail', '==', email));
   unsubs.push(onSnapshot(ownerEmailQ, (snap) => {
     console.debug('[owner query] email changes=', snap.docChanges().length);
     applyQueryChanges(snap, ownerEmailProjects, 'owner');
-    scheduleEmit('owner-email');
-  }, (err) => console.warn('Owner email projects realtime recovery warning:', err)));
+    scheduleDiscoveryEmit('owner-email');
+  }, (err) => markDiscoverySourceError('owner-email', 'Owner email projects realtime recovery warning:', err)));
 
   return () => {
     cancelled = true;

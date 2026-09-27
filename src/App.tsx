@@ -619,6 +619,11 @@ function AuthenticatedApp() {
   const verifiedOfflineBasePresentRef = React.useRef<AppData | null>(null);
   const verifiedOfflineBaseMetadataRef = React.useRef<{ projectName: string; contractorName: string; inspectorName: string; projectLocation: string } | null>(null);
   const verifiedOfflineBaseCapturedAtRef = React.useRef<number>(0);
+  // The verified recovery snapshot contains all business collections. Serializing it
+  // after every realtime/local render caused visible WebView2/Android stalls. Keep the
+  // first baseline prompt, then cap full snapshot writes to once per 30 seconds/project.
+  const verifiedOfflineSnapshotLastSavedAtRef = React.useRef<number>(0);
+  const verifiedOfflineSnapshotProjectRef = React.useRef<string>('');
 
   // V6.2.22: Persist only collections that the user actually changed. Rewriting all
   // nine large arrays on every small edit caused avoidable IndexedDB serialization
@@ -3237,7 +3242,9 @@ function AuthenticatedApp() {
             setCurrentUserRole(roleInfo.role);
             setCurrentUserRoleState(roleInfo.role);
           }
-          setCloudBootstrapVersion((v) => v + 1);
+          // Existing Cloud projects already have the realtime listener mounted.
+          // Do not force a bootstrap-version bump here: re-binding the listener would
+          // reread metadata + all nine business collections (+ ADMIN financials).
           return;
         }
 
@@ -3590,6 +3597,13 @@ function AuthenticatedApp() {
     const projectId = activeProjectId;
     if (!user?.uid || !user.email || !projectId) return;
 
+    const sameProject = verifiedOfflineSnapshotProjectRef.current === projectId;
+    const elapsed = sameProject ? Date.now() - verifiedOfflineSnapshotLastSavedAtRef.current : Number.POSITIVE_INFINITY;
+    const minSnapshotIntervalMs = 30_000;
+    const delayMs = Number.isFinite(elapsed) && elapsed < minSnapshotIntervalMs
+      ? Math.max(1_200, minSnapshotIntervalMs - elapsed)
+      : 1_200;
+
     const timer = window.setTimeout(() => {
       const cloudBaseline = lastSyncedPresentRef.current;
       if (!cloudBaseline || activeProjectIdRef.current !== projectId) return;
@@ -3599,8 +3613,12 @@ function AuthenticatedApp() {
         { projectName, contractorName, inspectorName, projectLocation },
         cloudBaseline,
         lastServerMetadataUpdatedAtRef.current || lastUpdatedAt,
-      ).catch((err) => console.warn('[Verified offline snapshot] save warning:', err));
-    }, 350);
+      ).then((saved) => {
+        if (!saved || activeProjectIdRef.current !== projectId) return;
+        verifiedOfflineSnapshotProjectRef.current = projectId;
+        verifiedOfflineSnapshotLastSavedAtRef.current = Date.now();
+      }).catch((err) => console.warn('[Verified offline snapshot] save warning:', err));
+    }, delayMs);
 
     return () => window.clearTimeout(timer);
   }, [
