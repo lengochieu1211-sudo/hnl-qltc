@@ -853,9 +853,53 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     }
   };
 
-  // Pick Contact from Device Contact List
+  // Pick Contact from Device Contact List. The APK uses a native ACTION_PICK bridge
+  // (user-selected contact only, no blanket READ_CONTACTS permission). Chromium-based
+  // browsers can use the Contact Picker API. Unsupported desktop/iOS web surfaces fall
+  // back explicitly to paste/manual entry instead of pretending direct access worked.
   const handlePickContact = async () => {
-    let success = false;
+    const androidBridge = (window as any).AndroidContact;
+    if (androidBridge && typeof androidBridge.pickContact === 'function') {
+      const requestId = `contact-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const picked = await new Promise<{ success: boolean; name?: string; phone?: string; cancelled?: boolean }>((resolve) => {
+        const timeout = window.setTimeout(() => {
+          window.removeEventListener('android-contact-result', onResult as EventListener);
+          resolve({ success: false });
+        }, 30_000);
+        const onResult = (event: Event) => {
+          const detail = (event as CustomEvent<any>).detail || {};
+          if (detail.requestId !== requestId) return;
+          window.clearTimeout(timeout);
+          window.removeEventListener('android-contact-result', onResult as EventListener);
+          resolve({
+            success: Boolean(detail.success),
+            name: String(detail.name || ''),
+            phone: String(detail.phone || ''),
+            cancelled: Boolean(detail.cancelled),
+          });
+        };
+        window.addEventListener('android-contact-result', onResult as EventListener);
+        try {
+          const started = androidBridge.pickContact(requestId);
+          if (started === false) {
+            window.clearTimeout(timeout);
+            window.removeEventListener('android-contact-result', onResult as EventListener);
+            resolve({ success: false });
+          }
+        } catch (_) {
+          window.clearTimeout(timeout);
+          window.removeEventListener('android-contact-result', onResult as EventListener);
+          resolve({ success: false });
+        }
+      });
+      if (picked.cancelled) return;
+      if (picked.success && picked.phone) {
+        setTPhone(picked.phone.replace(/[^\d+]/g, '') || picked.phone);
+        if (picked.name && !tLeader) setTLeader(picked.name);
+        return;
+      }
+    }
+
     if ('contacts' in navigator && 'select' in (navigator as any).contacts) {
       try {
         const props = ['name', 'tel'];
@@ -865,22 +909,19 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           if (contact.tel && contact.tel.length > 0) {
             const rawPhone = contact.tel[0].replace(/[^\d+]/g, '');
             setTPhone(rawPhone || contact.tel[0]);
-            success = true;
-          }
-          if (contact.name && contact.name.length > 0 && !tLeader) {
-            setTLeader(contact.name[0]);
+            if (contact.name && contact.name.length > 0 && !tLeader) setTLeader(contact.name[0]);
+            return;
           }
         } else {
-          return; // user cancelled
+          return;
         }
       } catch (err) {
-        console.log('Contact picker not allowed in iframe or failed:', err);
+        console.log('Contact picker not allowed or failed:', err);
       }
     }
 
-    if (!success) {
-      await handlePasteClipboard();
-    }
+    alert('Thiết bị/trình duyệt này chưa cho Web truy cập trực tiếp danh bạ. Hãy dùng nút Dán hoặc nhập số điện thoại. APK Android hỗ trợ chọn trực tiếp từ danh bạ.');
+    await handlePasteClipboard();
   };
 
   // Navigate Date

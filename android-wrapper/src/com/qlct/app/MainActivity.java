@@ -22,6 +22,7 @@ import android.print.PrintDocumentAdapter;
 import android.print.PrintManager;
 import android.provider.DocumentsContract;
 import android.provider.MediaStore;
+import android.provider.ContactsContract;
 import android.util.Base64;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
@@ -56,6 +57,7 @@ public class MainActivity extends Activity {
     private static final int STORAGE_PERMISSION_REQUEST = 1002;
     private static final int EXPORT_CREATE_DOCUMENT_REQUEST = 1003;
     private static final int AUTO_SAVE_TREE_REQUEST = 1004;
+    private static final int CONTACT_PICK_REQUEST = 1005;
     private static final String LOCAL_FALLBACK_URL = "file:///android_asset/www/index.html";
     private static final String PREFS_NAME = "qlct_native_prefs";
     private static final String PREF_AUTO_SAVE_TREE_URI = "auto_save_tree_uri";
@@ -70,6 +72,7 @@ public class MainActivity extends Activity {
     private boolean loadedFallback = false;
     private PendingExport pendingExport;
     private String pendingAutoSaveTreeRequestId;
+    private String pendingContactRequestId;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -161,7 +164,15 @@ public class MainActivity extends Activity {
             }
         });
 
-        webView.loadUrl(startUrl);
+        if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
+            webView.loadUrl(startUrl);
+        }
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        if (webView != null) webView.saveState(outState);
+        super.onSaveInstanceState(outState);
     }
 
     private String getConfiguredStartUrl() {
@@ -510,6 +521,26 @@ public class MainActivity extends Activity {
     }
 
     public class AndroidContactBridge {
+        @JavascriptInterface
+        public boolean pickContact(String requestId) {
+            try {
+                final String safeRequestId = requestId == null ? "" : requestId;
+                runOnUiThread(() -> {
+                    try {
+                        pendingContactRequestId = safeRequestId;
+                        Intent intent = new Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI);
+                        startActivityForResult(intent, CONTACT_PICK_REQUEST);
+                    } catch (Exception error) {
+                        pendingContactRequestId = null;
+                        dispatchAndroidContactEvent(safeRequestId, false, false, "", "", error.getMessage());
+                    }
+                });
+                return true;
+            } catch (Exception error) {
+                return false;
+            }
+        }
+
         @JavascriptInterface
         public boolean shareText(String title, String text) {
             try {
@@ -1337,6 +1368,21 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void dispatchAndroidContactEvent(final String requestId, final boolean success, final boolean cancelled, final String name, final String phone, final String message) {
+        runOnUiThread(() -> {
+            if (webView == null) return;
+            String script = "window.dispatchEvent(new CustomEvent('android-contact-result',{detail:{requestId:"
+                    + JSONObject.quote(requestId == null ? "" : requestId)
+                    + ",success:" + (success ? "true" : "false")
+                    + ",cancelled:" + (cancelled ? "true" : "false")
+                    + ",name:" + JSONObject.quote(name == null ? "" : name)
+                    + ",phone:" + JSONObject.quote(phone == null ? "" : phone)
+                    + ",message:" + JSONObject.quote(message == null ? "" : message)
+                    + "}}));";
+            webView.evaluateJavascript(script, null);
+        });
+    }
+
     @Override
     public void onBackPressed() {
         if (authPopupWebView != null) {
@@ -1359,6 +1405,37 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == CONTACT_PICK_REQUEST) {
+            String requestId = pendingContactRequestId;
+            pendingContactRequestId = null;
+            if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+                dispatchAndroidContactEvent(requestId, false, true, "", "", "Cancelled");
+                return;
+            }
+            Cursor cursor = null;
+            try {
+                Uri uri = data.getData();
+                cursor = getContentResolver().query(
+                        uri,
+                        new String[]{ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER},
+                        null, null, null);
+                if (cursor != null && cursor.moveToFirst()) {
+                    int nameColumn = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME);
+                    int phoneColumn = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER);
+                    String name = nameColumn >= 0 ? cursor.getString(nameColumn) : "";
+                    String phone = phoneColumn >= 0 ? cursor.getString(phoneColumn) : "";
+                    dispatchAndroidContactEvent(requestId, phone != null && phone.trim().length() > 0, false, name, phone, "Picked");
+                } else {
+                    dispatchAndroidContactEvent(requestId, false, false, "", "", "Contact unavailable");
+                }
+            } catch (Exception error) {
+                dispatchAndroidContactEvent(requestId, false, false, "", "", error.getMessage());
+            } finally {
+                if (cursor != null) cursor.close();
+            }
+            return;
+        }
 
         if (requestCode == FILE_CHOOSER_REQUEST && filePathCallback != null) {
             if (fileChooserDirectCamera) {

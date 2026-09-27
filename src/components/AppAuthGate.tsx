@@ -96,6 +96,18 @@ export const AppAuthGate: React.FC<AppAuthGateProps> = ({ children }) => {
 
   const dark = prefersDark;
   const isDev = appEnv === 'DEV';
+
+  if (state === 'checking') {
+    return (
+      <div className={`min-h-[100dvh] w-full flex items-center justify-center px-4 ${dark ? 'bg-slate-950 text-slate-200' : 'bg-slate-100 text-slate-700'}`} data-hnl-auth-gate="checking">
+        <div className="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold">
+          <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+          <span>Đang khôi phục phiên đăng nhập…</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={`relative min-h-[100dvh] w-full overflow-hidden px-4 py-8 ${dark ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900'}`}
@@ -131,12 +143,7 @@ export const AppAuthGate: React.FC<AppAuthGateProps> = ({ children }) => {
               )}
             </div>
 
-            {state === 'checking' ? (
-              <div className={`mt-7 flex items-center justify-center gap-2 rounded-2xl border px-4 py-4 text-sm font-semibold ${dark ? 'border-slate-700 bg-slate-800 text-slate-300' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
-                <Loader2 className="h-4 w-4 animate-spin" /> Đang kiểm tra phiên đăng nhập…
-              </div>
-            ) : (
-              <>
+            <>
                 <div className={`mx-auto mt-7 max-w-sm text-center text-sm leading-relaxed ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
                   Đăng nhập bằng tài khoản Google đã được cấp quyền để mở đúng dự án và dữ liệu của bạn.
                 </div>
@@ -169,7 +176,6 @@ export const AppAuthGate: React.FC<AppAuthGateProps> = ({ children }) => {
                   </div>
                 )}
               </>
-            )}
 
             <div className={`mt-6 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] ${dark ? 'text-slate-500' : 'text-slate-400'}`}>
               <span>{appEnv}</span>
