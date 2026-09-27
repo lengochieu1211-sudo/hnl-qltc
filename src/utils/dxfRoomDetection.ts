@@ -562,3 +562,147 @@ export function detectRoomsFromDxf(input: string): DxfRoomDetectionResult {
     extents: { minX, minY, maxX, maxY },
   };
 }
+
+export interface DxfFloorPlanRenderResult {
+  dataUrl: string;
+  renderedEntities: number;
+  skippedEntities: number;
+  extents: { minX: number; minY: number; maxX: number; maxY: number };
+  layers: string[];
+}
+
+const xmlEscape = (value: string) => String(value || '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&apos;');
+
+const readLwPolylineAny = (entityPairs: DxfPair[]) => {
+  const flag = getNumber(entityPairs, 70, 0);
+  const points: DxfPoint[] = [];
+  let x: number | undefined;
+  entityPairs.forEach((pair) => {
+    if (pair.code === 10) {
+      const value = Number(pair.value);
+      x = Number.isFinite(value) ? value : undefined;
+    } else if (pair.code === 20 && x !== undefined) {
+      const y = Number(pair.value);
+      if (Number.isFinite(y)) points.push({ x, y });
+      x = undefined;
+    }
+  });
+  return { points, closed: (flag & 1) === 1 };
+};
+
+/**
+ * Render a conservative 2D CAD background from an ASCII DXF. This is display-only:
+ * it never mutates business IDs. Supported: LINE, LWPOLYLINE, CIRCLE, TEXT/MTEXT
+ * plus safe HATCH polygon boundaries.
+ */
+export function renderDxfFloorPlanSvgDataUrl(input: string): DxfFloorPlanRenderResult {
+  const pairs = toPairs(input);
+  if (pairs.length < 10) throw new Error('DXF quá ngắn hoặc không đúng định dạng ASCII.');
+  const entities = collectEntities(extractEntitiesSection(pairs));
+  const texts = readTexts(entities);
+  const warnings: string[] = [];
+  const roomShapes = readShapes(entities, warnings);
+
+  const headerMin = readHeaderPoint(pairs, '$EXTMIN');
+  const headerMax = readHeaderPoint(pairs, '$EXTMAX');
+  const geometryPoints: DxfPoint[] = [];
+  roomShapes.forEach((shape) => geometryPoints.push(...shape.points));
+  texts.forEach((row) => geometryPoints.push({ x: row.x, y: row.y }));
+  entities.forEach((entity) => {
+    if (entity.type === 'LINE') {
+      const x1 = getNumber(entity.pairs, 10, NaN);
+      const y1 = getNumber(entity.pairs, 20, NaN);
+      const x2 = getNumber(entity.pairs, 11, NaN);
+      const y2 = getNumber(entity.pairs, 21, NaN);
+      if ([x1, y1, x2, y2].every(Number.isFinite)) geometryPoints.push({ x: x1, y: y1 }, { x: x2, y: y2 });
+    } else if (entity.type === 'LWPOLYLINE') {
+      geometryPoints.push(...readLwPolylineAny(entity.pairs).points);
+    } else if (entity.type === 'CIRCLE') {
+      const cx = getNumber(entity.pairs, 10, NaN);
+      const cy = getNumber(entity.pairs, 20, NaN);
+      const r = Math.abs(getNumber(entity.pairs, 40, NaN));
+      if ([cx, cy, r].every(Number.isFinite)) geometryPoints.push({ x: cx - r, y: cy - r }, { x: cx + r, y: cy + r });
+    }
+  });
+
+  const fallbackX = geometryPoints.map((point) => point.x);
+  const fallbackY = geometryPoints.map((point) => point.y);
+  const minX = headerMin?.x ?? Math.min(...fallbackX);
+  const minY = headerMin?.y ?? Math.min(...fallbackY);
+  const maxX = headerMax?.x ?? Math.max(...fallbackX);
+  const maxY = headerMax?.y ?? Math.max(...fallbackY);
+  if (![minX, minY, maxX, maxY].every(Number.isFinite) || maxX <= minX || maxY <= minY) {
+    throw new Error('Không xác định được phạm vi bản vẽ DXF để tạo mặt bằng CAD.');
+  }
+
+  const spanX = maxX - minX;
+  const spanY = maxY - minY;
+  const mapX = (x: number) => ((x - minX) / spanX) * 1000;
+  const mapY = (y: number) => ((maxY - y) / spanY) * 1000;
+  const layers = new Set<string>();
+  let renderedEntities = 0;
+  let skippedEntities = 0;
+  const body: string[] = [];
+  const maxEntities = 15000;
+
+  for (const entity of entities) {
+    if (renderedEntities >= maxEntities) { skippedEntities += 1; continue; }
+    const layer = getString(entity.pairs, 8) || '0';
+    layers.add(layer);
+    if (entity.type === 'LINE') {
+      const x1 = getNumber(entity.pairs, 10, NaN);
+      const y1 = getNumber(entity.pairs, 20, NaN);
+      const x2 = getNumber(entity.pairs, 11, NaN);
+      const y2 = getNumber(entity.pairs, 21, NaN);
+      if ([x1, y1, x2, y2].every(Number.isFinite)) {
+        body.push(`<line x1="${mapX(x1).toFixed(2)}" y1="${mapY(y1).toFixed(2)}" x2="${mapX(x2).toFixed(2)}" y2="${mapY(y2).toFixed(2)}"/>`);
+        renderedEntities += 1;
+      } else skippedEntities += 1;
+    } else if (entity.type === 'LWPOLYLINE') {
+      const row = readLwPolylineAny(entity.pairs);
+      if (row.points.length >= 2) {
+        const points = row.points.map((point) => `${mapX(point.x).toFixed(2)},${mapY(point.y).toFixed(2)}`).join(' ');
+        body.push(row.closed ? `<polygon points="${points}" fill="none"/>` : `<polyline points="${points}" fill="none"/>`);
+        renderedEntities += 1;
+      } else skippedEntities += 1;
+    } else if (entity.type === 'CIRCLE') {
+      const cx = getNumber(entity.pairs, 10, NaN);
+      const cy = getNumber(entity.pairs, 20, NaN);
+      const r = Math.abs(getNumber(entity.pairs, 40, NaN));
+      if ([cx, cy, r].every(Number.isFinite)) {
+        body.push(`<ellipse cx="${mapX(cx).toFixed(2)}" cy="${mapY(cy).toFixed(2)}" rx="${(r / spanX * 1000).toFixed(2)}" ry="${(r / spanY * 1000).toFixed(2)}" fill="none"/>`);
+        renderedEntities += 1;
+      } else skippedEntities += 1;
+    }
+  }
+
+  roomShapes.forEach((shape) => {
+    if (renderedEntities >= maxEntities) return;
+    const points = shape.points.map((point) => `${mapX(point.x).toFixed(2)},${mapY(point.y).toFixed(2)}`).join(' ');
+    if (points) {
+      body.push(`<polygon points="${points}" fill="none" opacity="0.7"/>`);
+      renderedEntities += 1;
+    }
+  });
+
+  const textBody = texts.slice(0, 2500).map((row) => {
+    layers.add(row.layer || '0');
+    return `<text x="${mapX(row.x).toFixed(2)}" y="${mapY(row.y).toFixed(2)}" font-size="10" fill="#334155" stroke="none">${xmlEscape(row.text)}</text>`;
+  }).join('');
+  renderedEntities += Math.min(texts.length, 2500);
+  if (texts.length > 2500) skippedEntities += texts.length - 2500;
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" preserveAspectRatio="none" width="1600" height="1600"><rect width="1000" height="1000" fill="white"/><g fill="none" stroke="#475569" stroke-width="0.8" vector-effect="non-scaling-stroke">${body.join('')}</g>${textBody}</svg>`;
+  return {
+    dataUrl: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+    renderedEntities,
+    skippedEntities,
+    extents: { minX, minY, maxX, maxY },
+    layers: Array.from(layers).sort((a, b) => a.localeCompare(b, 'vi')),
+  };
+}
