@@ -31,6 +31,8 @@ assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /'__itemKind':
 assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /XLSX\.utils\.aoa_to_sheet\(\[inHeaders\]\)/, 'Warehouse blank inbound template must retain headers');
 assert.doesNotMatch(excel, /Xuất báo cáo Excel/, 'Excel edit menu must not duplicate reporting');
 assert.match(excel, /fillMobile/, 'Excel action trigger must support equal-width mobile action rows');
+assert.match(excel, /fillWidth/, 'Excel action trigger must support equal-width desktop/mobile action pairs');
+assert.match(excel, /onExportReport/, 'Excel action menu must support an optional report action without duplicating standalone buttons');
 assert.match(excel, /w-full sm:w-auto/, 'Excel action trigger must be able to fill one mobile grid column without affecting desktop');
 assert.match(excel, /whitespace-nowrap/, 'Excel action trigger must keep its compact label intact on mobile');
 assert.match(excel, /FileSpreadsheet/, 'Excel action trigger must use the standard spreadsheet icon instead of a text glyph');
@@ -55,7 +57,7 @@ assert.match(floor, /aria-invalid=\{!isSmartPdfNamePatternValid\}/, 'Advanced PD
 assert.doesNotMatch(pdfRoomDetection, /\(\?=\.\*/, 'Default room-name regex should avoid the hard-to-read lookahead form reported on mobile');
 assert.match(floor, /Tạo Căn \/ Phòng từ DXF/, 'DXF import must retain an explicit review/apply path');
 assert.match(floor, /Không ghi đè Căn \/ Phòng đã tồn tại/, 'DXF import must protect existing room highlights');
-assert.match(floor, /Quản lý Khu\/Khối & Tầng[\s\S]*grid grid-cols-2 gap-2[\s\S]*Bảng chỉnh nhanh[\s\S]*fillMobile/, 'Floor bulk edit actions must sit below structure management and fill two balanced mobile columns');
+assert.match(floor, /Quản lý Khu\/Khối & Tầng[\s\S]*grid grid-cols-2 gap-2 sm:grid-cols-\[160px_160px\][\s\S]*Bảng chỉnh nhanh[\s\S]*fillWidth/, 'Floor bulk edit actions must stay balanced on mobile and desktop');
 const acceptanceSection = floor.slice(floor.indexOf('Nghiệm thu từng Căn / Phòng'), floor.indexOf('Quick Sort Controls'));
 assert.doesNotMatch(acceptanceSection, /Thêm Căn \/ Phòng/, 'Acceptance section must not duplicate the add-room action');
 assert.doesNotMatch(acceptanceSection, /Bảng chỉnh nhanh/, 'Acceptance section must not duplicate bulk-edit actions');
@@ -65,7 +67,9 @@ assert.match(crew, /Nhập Nhật ký đã chỉnh sửa/, 'Crew must import edi
 assert.match(crew, /chi tiet cong viec/i, 'Crew import must understand detailed work sheet');
 assert.match(crew, /__teamId không tồn tại trong dự án hiện tại/, 'Crew Excel import must reject stale technical team IDs');
 assert.match(crew, /__recordId không tồn tại trong dự án hiện tại/, 'Crew Excel import must reject stale journal IDs');
-assert.match(crew, /Thống kê tất cả đội/, 'All-team report button must be distinguishable from global report');
+assert.match(crew, /onExportReport=\{\(\) => handleExportTeamStats\(\)\}/, 'All-team statistics export must live inside the team Excel menu');
+assert.match(crew, /reportLabel="Thống kê tất cả đội"/, 'Team Excel menu must label the all-team report clearly');
+assert.doesNotMatch(crew, /bg-emerald-600[\s\S]{0,220}Thống kê tất cả đội/, 'All-team statistics must not remain as a standalone toolbar button');
 assert.match(crew, /Xuất Excel Đội Này/, 'Single-team report export must remain available');
 assert.match(crew, /grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-between/, 'Team-detail footer must use two balanced mobile columns');
 assert.match(crew, /sm:hidden">Xuất Excel</, 'Team-detail Excel action must use a compact mobile label');
@@ -75,7 +79,8 @@ assert.match(crew, /selectedLogStructureGroupId/, 'Crew entry must expose an exp
 assert.match(crew, /Danh sách Tầng bên dưới chỉ hiện trong/, 'Crew entry must explain that floor choices are filtered by Khu/Khối');
 assert.match(crew, /key: 'structureGroup'/, 'Crew quick edit must include a Khu/Khối column');
 assert.match(crew, /Tầng không thuộc Khu\/Khối này/, 'Crew quick edit must reject floor/group mismatches');
-assert.match(crew, /grid grid-cols-2 gap-2 sm:flex/, 'Crew bulk-edit actions must use balanced two-column mobile layout');
+assert.match(crew, /grid grid-cols-2 gap-2 sm:grid-cols-\[160px_160px\] sm:justify-start/, 'Crew bulk-edit actions must use equal-width mobile and desktop columns');
+assert.match(crew, /sm:grid-cols-\[160px_160px\][\s\S]*fillWidth[\s\S]*reportLabel="Thống kê tất cả đội"/, 'Team directory Quick Edit + Excel pair must be balanced on desktop');
 
 assert.match(warehouse, /Danh mục & Định mức/, 'Warehouse quick edit must have material/norm table');
 assert.match(warehouse, /Nhập kho/, 'Warehouse quick edit must have inbound ledger table');
@@ -89,7 +94,7 @@ assert.match(warehouse, /key: 'specificNorm'/, 'Warehouse norm quick edit must e
 assert.match(warehouse, /key: 'generalNorm'/, 'Warehouse norm quick edit must retain the general fallback norm');
 assert.match(warehouse, /workCategoryNormsById/, 'Warehouse norm quick edit must persist per-work-category norms in the existing ID map');
 assert.match(warehouse, /Định mức riêng theo Hạng mục sẽ được ưu tiên/, 'Warehouse quick edit must document specific-over-general norm precedence');
-assert.match(warehouse, /grid grid-cols-2 gap-2 pt-0\.5 sm:flex/, 'Warehouse bulk-edit actions must use balanced two-column mobile layout');
+assert.match(warehouse, /grid grid-cols-2 gap-2 pt-0\.5 sm:grid-cols-\[160px_160px\]/, 'Warehouse bulk-edit actions must use equal-width mobile and desktop columns');
 
 assert.match(volume, /Khối lượng đã làm/, 'WorkVolume quick table must show actual volume');
 assert.match(volume, /key: 'actual'.*editable: false/, 'Actual volume must be read-only');
@@ -107,3 +112,5 @@ assert.match(dxf, /alignedX/, 'DXF TEXT reader must honor justified alignment po
 assert.match(dxf, /measurement/, 'DXF room-name selection must de-prioritize area/measurement labels');
 
 console.log('Quick Edit + Excel + DXF Golden: PASS');
+
+assert.match(volume, /sm:grid-cols-\[160px_160px\][\s\S]*Bảng chỉnh nhanh[\s\S]*fillWidth/, 'Work Volume Quick Edit + Excel pair must be balanced on desktop');
