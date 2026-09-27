@@ -1,0 +1,108 @@
+name: One-shot HNL QLTC PROD performance hotfix hosting-only 2026-09-27
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/release-prod-performance-hotfix-20260927.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy_prod_hotfix:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      APP_SHA: 6e3b0f1c167f0c86a1b1ec1778781ddcd1b27a68
+      VITE_APP_ENV: PROD
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+      VITE_FIREBASE_AUTH_DOMAIN: hnlqltc.web.app
+      VITE_HNL_AI_ENABLED: "true"
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: "true"
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: "false"
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: "false"
+      VITE_GIT_COMMIT: 6e3b0f1c167f0c86a1b1ec1778781ddcd1b27a68
+      PROD_HOSTING_URL: https://hnlqltc.web.app
+
+    steps:
+      - name: Exact hotfix release gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = "refs/heads/main"
+          test "$APP_SHA" = "6e3b0f1c167f0c86a1b1ec1778781ddcd1b27a68"
+          echo "PROD performance hotfix: Hosting only; Rules/R2/AI remain unchanged."
+
+      - name: Checkout exact approved app source
+        uses: actions/checkout@v4
+        with:
+          ref: 6e3b0f1c167f0c86a1b1ec1778781ddcd1b27a68
+          fetch-depth: 2
+
+      - name: Verify exact source and hotfix scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$APP_SHA"
+          test "$(node -p "require('./package.json').version")" = "$(node -p "require('./package-lock.json').version")"
+          grep -q '"site": "hnlqltc"' firebase.prod.json
+          grep -q '"default": "com-example-qlct-61329"' .firebaserc
+          CHANGED="$(git diff --name-only "$APP_SHA^1" "$APP_SHA")"
+          printf '%s\n' "$CHANGED"
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            case "$file" in
+              scripts/stability-gate.mjs|src/App.tsx|src/lib/firebaseBase.ts) ;;
+              *) echo "REFUSING: out-of-scope app file $file"; exit 1 ;;
+            esac
+          done <<< "$CHANGED"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install exact locked dependencies
+        run: npm ci
+
+      - name: Full release gates
+        run: |
+          npm run test:prod-readiness
+          npm run test:stability
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run security:audit
+          npm run build
+
+      - name: Deploy Hosting only
+        shell: bash
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
+        run: |
+          set -euo pipefail
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}" || { echo "Missing PROD Firebase service account"; exit 1; }
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          npx --yes firebase-tools@13.35.1 deploy --only hosting --config firebase.prod.json --project com-example-qlct-61329 --non-interactive
+
+      - name: Smoke PROD Hosting
+        shell: bash
+        run: |
+          set -euo pipefail
+          ok=0
+          for i in $(seq 1 30); do
+            HTML="$(curl --fail --silent --show-error "${PROD_HOSTING_URL}/?hotfix=${GITHUB_RUN_ID}-${i}" || true)"
+            if printf '%s' "$HTML" | grep -qi '<div id="root"'; then
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ok" = 1 || { echo "PROD Hosting smoke failed"; exit 1; }
+          echo "PROD PERFORMANCE HOTFIX DEPLOY PASS — exact app source $APP_SHA"
