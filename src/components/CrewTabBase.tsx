@@ -2006,16 +2006,16 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </>
           )}
 
-          <div className="mb-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+          <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-[160px_160px] sm:justify-start">
             <button
               type="button"
               onClick={() => { setQuickEditMode('logs'); setShowQuickEdit(true); }}
-              className="w-full sm:w-auto text-xs font-extrabold text-indigo-700 bg-white border border-indigo-200 hover:bg-indigo-50 px-3 py-2 rounded-xl shadow-2xs whitespace-nowrap"
+              className="w-full h-8 text-xs font-extrabold text-indigo-700 bg-white border border-indigo-200 hover:bg-indigo-50 px-3 rounded-xl shadow-2xs whitespace-nowrap"
             >
               ▦ Bảng chỉnh nhanh
             </button>
             <ExcelActionMenu
-              fillMobile
+              fillWidth
               onExportEdit={handleExportCrewLogsEdit}
               onImportFile={canOperate ? handleImportCrewLogsExcel : undefined}
               onDownloadTemplate={handleDownloadCrewLogTemplate}
@@ -2264,45 +2264,40 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </p>
 
             <div className="mt-3.5 pt-3 border-t border-slate-100">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {canManageTeamDirectory && <button
-                  type="button"
-                  onClick={async () => {
-                    setEditingTeam(null);
-                    setShowTeamModal(true);
-                  }}
-                  className="h-10 px-3 flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs shadow-2xs transition-all active:scale-95"
-                >
-                  <Plus className="w-4 h-4 shrink-0" />
-                  <span className="truncate">Thêm đội mới</span>
-                </button>}
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                {canManageTeamDirectory && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setEditingTeam(null);
+                      setShowTeamModal(true);
+                    }}
+                    className="w-full h-8 px-3 sm:w-auto flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs shadow-2xs transition-all active:scale-95"
+                  >
+                    <Plus className="w-4 h-4 shrink-0" />
+                    <span className="truncate">Thêm đội mới</span>
+                  </button>
+                )}
 
-                <button
-                  type="button"
-                  onClick={() => handleExportTeamStats()}
-                  className="h-10 px-3 flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs shadow-2xs transition-all active:scale-95"
-                  title="Tải báo cáo Excel thống kê căn, tầng, khối lượng và defect của tất cả các đội thi công"
-                >
-                  <Download className="w-4 h-4 shrink-0" />
-                  <span className="truncate">Thống kê tất cả đội</span>
-                </button>
+                <div className="grid w-full grid-cols-2 gap-2 sm:ml-auto sm:w-auto sm:grid-cols-[160px_160px]">
+                  <button
+                    type="button"
+                    onClick={() => { setQuickEditMode('teams'); setShowQuickEdit(true); }}
+                    className="w-full h-8 px-3 flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl border border-indigo-200 text-xs shadow-2xs transition-all active:scale-95 whitespace-nowrap"
+                  >
+                    ▦ <span className="truncate">Bảng chỉnh nhanh</span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => { setQuickEditMode('teams'); setShowQuickEdit(true); }}
-                  className="h-10 px-3 flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl border border-indigo-200 text-xs shadow-2xs transition-all active:scale-95"
-                >
-                  ▦ <span className="truncate">Bảng chỉnh nhanh</span>
-                </button>
-
-                <div className="h-10 flex items-center">
                   <ExcelActionMenu
+                    fillWidth
                     onExportEdit={() => handleExportTeamsTemplate(false)}
                     onImportFile={canImportTeams ? handleImportExcelTeams : undefined}
                     onDownloadTemplate={() => handleExportTeamsTemplate(true)}
+                    onExportReport={() => handleExportTeamStats()}
                     exportLabel="Xuất danh mục đội để chỉnh sửa"
                     importLabel="Nhập danh mục đội đã chỉnh sửa"
                     templateLabel="Tải mẫu danh mục đội"
+                    reportLabel="Thống kê tất cả đội"
                   />
                 </div>
               </div>
