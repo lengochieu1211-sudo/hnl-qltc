@@ -35,6 +35,8 @@ const taskbar512 = readPngSize('public/hnl-logo-original-512.png');
 const runtimeTaskbarSizes = [16, 20, 24, 28, 32, 40, 48];
 
 assert(launcher.includes('https://hnlqltc.web.app/?app=desktop'), 'desktop wrapper targets short PROD Hosting');
+assert(launcher.includes('GetAppDisplayName()') && launcher.includes('HNL QLTC DEV') && launcher.includes('IsDevBuild()'), 'desktop shell derives a distinct DEV display name without changing PROD URL identity');
+assert(webShell.includes('Program.GetAppDisplayName()') && webShell.includes(' • DEV'), 'native Windows title/tray/release chrome visibly identifies DEV builds');
 assert(!launcher.includes('https://com-example-qlct-61329.web.app/?app=desktop'), 'legacy desktop Hosting URL is removed');
 assert(launcher.includes('"QLTCAnPhu"') && launcher.includes('"EdgeProfile"'), 'legacy Edge profile path is preserved for local/offline data continuity');
 assert(!launcher.includes('Service Worker') && !launcher.includes('CacheStorage'), 'launcher no longer deletes service-worker offline cache on every start');

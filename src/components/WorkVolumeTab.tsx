@@ -196,11 +196,18 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     return columns;
   }, [hasStructureManageAccess, hasFinancialAccess, normalizedStructureConfig.label, quickEditFloorNameToId]);
 
-  const saveQuickEditRows = async (rows: QuickGridRow[], dirtyCellKeys: Set<string>) => {
+  const saveQuickEditRows = async (
+    rows: QuickGridRow[],
+    dirtyCellKeys: Set<string>,
+    deletedRows: QuickGridRow[] = [],
+  ) => {
     if (!hasStructureManageAccess) return;
     const dirtyRowKeys = new Set(Array.from(dirtyCellKeys).map((key) => key.split('::')[0]));
     const changedRows = rows.filter((row) => dirtyRowKeys.has(row.__rowKey));
-    if (!changedRows.length) return;
+    const deleteIds = deletedRows
+      .map((row) => String(row.__recordId || row.__rowKey || '').trim())
+      .filter((id) => Boolean(id) && workVolumes.some((item) => item.id === id));
+    if (!changedRows.length && !deleteIds.length) return;
 
     const upserts: WorkVolume[] = changedRows.map((row) => {
       const existing = workVolumes.find((item) => item.id === String(row.__recordId || row.__rowKey));
@@ -225,23 +232,34 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       };
     });
 
-    const nextCatalogById = new Map<string, WorkVolume>(workVolumes.map((item) => [item.id, item] as const));
+    const deleteSet = new Set(deleteIds);
+    const nextCatalogById = new Map<string, WorkVolume>(
+      workVolumes.filter((item) => !deleteSet.has(item.id)).map((item) => [item.id, item] as const)
+    );
     upserts.forEach((item) => nextCatalogById.set(item.id, item));
     const issues = validateWorkVolumeCatalog(Array.from(nextCatalogById.values()));
     if (issues.length) throw new Error(issues.map((issue) => issue.message).join('\n'));
 
     const confirmed = await confirmAsync(
-      `Bảng chỉnh nhanh đã kiểm tra ${upserts.length} hạng mục.\n\n` +
-      'Khối lượng đã làm là dữ liệu chỉ đọc và không bị ghi đè. Tiếp tục lưu thay đổi?'
+      `Bảng chỉnh nhanh đã kiểm tra:\n\n` +
+      `• ${upserts.length} hạng mục thêm/sửa\n` +
+      `• ${deleteIds.length} hạng mục chờ xóa\n\n` +
+      'Khối lượng đã làm là dữ liệu chỉ đọc. Xóa danh mục không tự remap ID lịch sử. Tiếp tục?'
     );
     if (!confirmed) return false;
 
-    if (onImportWorkVolumes) {
-      if (!onImportWorkVolumes(upserts)) throw new Error('Dữ liệu hạng mục đã thay đổi trên thiết bị khác; hệ thống đã hủy ghi.');
-    } else if (onSaveWorkVolume) {
-      upserts.forEach((item) => onSaveWorkVolume(item));
-    } else {
-      throw new Error('Phiên bản ứng dụng chưa có handler lưu hạng mục hàng loạt.');
+    if (upserts.length > 0) {
+      if (onImportWorkVolumes) {
+        if (!onImportWorkVolumes(upserts)) throw new Error('Dữ liệu hạng mục đã thay đổi trên thiết bị khác; hệ thống đã hủy ghi.');
+      } else if (onSaveWorkVolume) {
+        upserts.forEach((item) => onSaveWorkVolume(item));
+      } else {
+        throw new Error('Phiên bản ứng dụng chưa có handler lưu hạng mục hàng loạt.');
+      }
+    }
+    if (deleteIds.length > 0) {
+      if (onDeleteMultipleWorkVolumes) onDeleteMultipleWorkVolumes(deleteIds);
+      else deleteIds.forEach((id) => onDeleteWorkVolume(id));
     }
   };
 
@@ -1121,6 +1139,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         rows={quickEditRows}
         canEdit={hasStructureManageAccess}
         canAddRows={hasStructureManageAccess}
+        canDeleteRows={hasStructureManageAccess}
         createEmptyRow={(index) => ({
           __rowKey: `new-work-${Date.now()}-${index}`,
           __new: true,

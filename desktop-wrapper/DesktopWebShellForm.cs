@@ -64,7 +64,7 @@ namespace QLTCAnPhu
             Current = this;
             theme = Program.DesktopUiTheme.ReadFromSystem();
 
-            Text = "HNL QLTC";
+            Text = Program.GetAppDisplayName();
             StartPosition = FormStartPosition.CenterScreen;
             MinimumSize = new Size(980, 680);
             Size = new Size(1280, 820);
@@ -119,7 +119,7 @@ namespace QLTCAnPhu
             brandLabel = new Label
             {
                 AutoSize = true,
-                Text = "HNL QLTC",
+                Text = Program.GetAppDisplayName(),
                 Font = new Font("Segoe UI", 11.5F, FontStyle.Bold),
                 Location = new Point(46, 5),
                 Tag = "title",
@@ -130,7 +130,7 @@ namespace QLTCAnPhu
             releaseLabel = new Label
             {
                 AutoSize = true,
-                Text = Program.GetReleaseTag(),
+                Text = Program.GetReleaseTag() + (Program.IsDevBuild() ? " • DEV" : string.Empty),
                 Font = new Font("Segoe UI", 8F, FontStyle.Bold),
                 Location = new Point(47, 25),
                 Tag = "subtle",
@@ -284,12 +284,12 @@ namespace QLTCAnPhu
 
             trayIcon = new NotifyIcon
             {
-                Text = "HNL QLTC",
+                Text = Program.GetAppDisplayName(),
                 Visible = true,
                 Icon = Icon
             };
             var trayMenu = new ContextMenuStrip();
-            trayMenu.Items.Add("Mở HNL QLTC", null, delegate { RestoreFromTray(); ShowWebApp(); });
+            trayMenu.Items.Add("Mở " + Program.GetAppDisplayName(), null, delegate { RestoreFromTray(); ShowWebApp(); });
             trayMenu.Items.Add("Công cụ máy tính", null, delegate { RestoreFromTray(); ShowHome(); });
             trayMenu.Items.Add("Trung tâm đồng bộ", null, delegate { RestoreFromTray(); OpenSyncCenter(); });
             trayMenu.Items.Add(new ToolStripSeparator());

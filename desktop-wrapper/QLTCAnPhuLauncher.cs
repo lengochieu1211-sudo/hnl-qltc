@@ -78,6 +78,17 @@ namespace QLTCAnPhu
         [DllImport("user32.dll")]
         private static extern bool SetProcessDPIAware();
 
+        internal static bool IsDevBuild()
+        {
+            return AppBaseUrl.IndexOf("hnl-qltc-dev.web.app", StringComparison.OrdinalIgnoreCase) >= 0
+                || AppBaseUrl.IndexOf("env=dev", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        internal static string GetAppDisplayName()
+        {
+            return IsDevBuild() ? "HNL QLTC DEV" : "HNL QLTC";
+        }
+
         internal static string GetReleaseTag()
         {
             return string.IsNullOrWhiteSpace(BuildInfo.ReleaseTag)

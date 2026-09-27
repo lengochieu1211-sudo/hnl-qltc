@@ -12,6 +12,8 @@ const firebase = read('src/lib/firebase.ts');
 const firebaseBase = read('src/lib/firebaseBase.ts');
 const app = read('src/App.tsx');
 const authGate = read('src/components/AppAuthGate.tsx');
+const authHeader = read('src/components/GoogleAuthHeader.tsx');
+const androidBuild = read('android-wrapper/build-apk.ps1');
 const prodWorkflow = read('.github/workflows/firebase-hosting-merge.yml');
 const devBrowser = read('scripts/dev-hosted-browser-golden.mjs');
 
@@ -27,6 +29,10 @@ assert(firebaseBase.includes('subscribeToFirebaseAuthSettled'), 'Auth exposes a 
 assert(authGate.includes("type AuthGateState = 'checking' | 'authenticated' | 'offline-remembered' | 'signed-out'"), 'entry gate models checking, signed-in, remembered-offline and signed-out states explicitly');
 assert(authGate.includes("data-hnl-auth-gate={state}"), 'signed-out/checking state is rendered by a dedicated full-screen auth surface');
 assert(authGate.includes('Đăng nhập bằng Google'), 'dedicated entry screen exposes one clear Google sign-in action');
+assert(authGate.includes('BUILD_METADATA.environment') && authGate.includes('Môi trường DEV'), 'login surface visibly identifies DEV without changing auth logic');
+assert(authGate.includes('drop-shadow') && !authGate.includes('rounded-3xl border p-2'), 'login logo is presented without the old surrounding border frame');
+assert(authHeader.includes("BUILD_METADATA.environment === 'DEV'") && authHeader.includes('DEV'), 'authenticated header keeps a visible DEV badge across Web/APK/EXE');
+assert(androidBuild.includes('HNL QLTC DEV') && androidBuild.includes('android:label'), 'Android DEV build rewrites launcher label while PROD keeps its normal label');
 assert(authGate.includes('getRememberedVerifiedAuthIdentity'), 'offline entry reuses only the previously verified remembered identity');
 assert(app.includes('function AuthenticatedApp()'), 'main project UI is isolated in an authenticated-only component');
 assert(app.includes('<AppAuthGate>') && app.includes('<AuthenticatedApp />'), 'root App mounts project UI only through the Auth gate');
