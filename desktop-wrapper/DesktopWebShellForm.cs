@@ -374,7 +374,9 @@ namespace QLTCAnPhu
 
             if (embeddedRuntime != null && embeddedRuntime.IsReady)
             {
-                embeddedRuntime.Navigate(Program.BuildAppUrl());
+                // Preserve the live WebView when returning from the native home/tray.
+                // Re-navigating to BuildAppUrl here reloads React and can discard an
+                // in-progress form that the user temporarily left to copy information.
                 webStatusLabel.Text = "HNL QLTC đang chạy bên trong ứng dụng Windows.";
             }
         }
