@@ -1669,7 +1669,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         if (generalNorm !== undefined && (!Number.isFinite(generalNorm) || generalNorm < 0)) throw new Error('ĐM chung không hợp lệ.');
         // quotaQuantity is derived centrally in App.tsx from WorkVolume × norm factor.
         // Never persist a Quick Edit override as a second source of truth.
-        const quotaQuantity = Number(original.quotaQuantity || 0);
+        const quotaQuantity = Number(existing.quotaQuantity || 0);
 
         byId.set(normId, {
           ...existing,
