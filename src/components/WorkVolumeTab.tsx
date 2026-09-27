@@ -24,7 +24,8 @@ import {
   Eye,
   X,
   Layers3,
-  Search
+  Search,
+  Copy
 } from 'lucide-react';
 import { WorkVolume, CategoryType, FloorPlan, RoomProgressItem } from '../types';
 import { exportWorkVolumesTemplate } from '../utils/excelExport';
