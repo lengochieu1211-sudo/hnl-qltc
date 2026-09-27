@@ -45,6 +45,7 @@ import { createEntityId } from '../utils/idUtils';
 import { QuickSortBar } from './QuickSortBar';
 import { ExcelActionMenu } from './ExcelActionMenu';
 import { QuickEditGridModal, type QuickGridColumn, type QuickGridRow } from './QuickEditGridModal';
+import { CrossProjectTemplateImportModal, type TemplateProjectOption, type TemplateSourceSnapshot, type TemplateSelection } from './CrossProjectTemplateImportModal';
 import { UserRole, canEditCrewData, canDeleteBusinessData, canDeleteCrewRecord, canManageTeams, canImportData } from '../utils/securityUtils';
 import { findWorsenedTeamNameConflict, normalizeTeamDirectoryName, resolveUniqueTeamByDirectoryName } from '../utils/teamDirectoryIntegrity';
 import { canonicalWorkCategoryId, isActiveRecord, normalizeLinkText, resolveWorkVolumeRef, workVolumeAppliesToFloor } from '../utils/linkageIntegrity';
@@ -94,6 +95,8 @@ interface CrewTabProps {
   currentUserUid?: string;
   projectName?: string;
   projectLocation?: string;
+  templateProjects?: TemplateProjectOption[];
+  onLoadTemplateProject?: (projectId: string) => Promise<TemplateSourceSnapshot>;
   crewRecords: CrewRecord[];
   floorPlans: FloorPlan[];
   structureConfig: ProjectStructureConfig;
@@ -226,6 +229,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   currentUserUid = '',
   projectName,
   projectLocation,
+  templateProjects = [],
+  onLoadTemplateProject,
   crewRecords,
   floorPlans,
   structureConfig,
@@ -441,6 +446,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   // Modals visibility states
   const [showAddLogModal, setShowAddLogModal] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
+  const [showTeamTemplateImport, setShowTeamTemplateImport] = useState(false);
   const returnToHealthCenterIfPending = () => {
     try {
       if (sessionStorage.getItem('qlct_health_center_return_state')) window.dispatchEvent(new Event('qlct-health-center-return'));
@@ -2266,17 +2272,28 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             <div className="mt-3.5 pt-3 border-t border-slate-100">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 {canManageTeamDirectory && (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setEditingTeam(null);
-                      setShowTeamModal(true);
-                    }}
-                    className="w-full h-8 px-3 sm:w-auto flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs shadow-2xs transition-all active:scale-95"
-                  >
-                    <Plus className="w-4 h-4 shrink-0" />
-                    <span className="truncate">Thêm đội mới</span>
-                  </button>
+                  <div className="flex w-full sm:w-auto flex-col sm:flex-row gap-2">
+                    {onLoadTemplateProject && templateProjects.some((project) => project.id !== projectId) && (
+                      <button
+                        type="button"
+                        onClick={() => setShowTeamTemplateImport(true)}
+                        className="w-full h-8 px-3 sm:w-auto flex items-center justify-center gap-1.5 bg-white hover:bg-indigo-50 text-indigo-700 font-bold rounded-xl text-xs border border-indigo-200 shadow-2xs transition-all active:scale-95"
+                      >
+                        Lấy từ công trình/mẫu
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setEditingTeam(null);
+                        setShowTeamModal(true);
+                      }}
+                      className="w-full h-8 px-3 sm:w-auto flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs shadow-2xs transition-all active:scale-95"
+                    >
+                      <Plus className="w-4 h-4 shrink-0" />
+                      <span className="truncate">Thêm đội mới</span>
+                    </button>
+                  </div>
                 )}
 
                 <div className="grid w-full grid-cols-2 gap-2 sm:ml-auto sm:w-auto sm:grid-cols-[160px_160px]">
@@ -2975,6 +2992,51 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       )}
 
       {/* Thêm / Sửa thông tin Đội thi công Modal */}
+      {onLoadTemplateProject && (
+        <CrossProjectTemplateImportModal<TeamInfo>
+          open={showTeamTemplateImport}
+          title="Lấy Đội thi công từ công trình khác"
+          entityLabel="Đội thi công"
+          currentProjectId={projectId || ''}
+          projects={templateProjects}
+          loadProject={onLoadTemplateProject}
+          getItems={(snapshot) => snapshot.teams || []}
+          getItemId={(item) => item.id}
+          getItemLabel={(item) => item.name}
+          getItemDetail={(item) => `${item.leader || 'Chưa có đội trưởng'} · QS mặc định: ${Number(item.defaultCount || 0)}`}
+          onClose={() => setShowTeamTemplateImport(false)}
+          onImport={async (selected: TemplateSelection<TeamInfo>[]) => {
+            const existing = new Set(teams.map((team) => normalizeTeamDirectoryName(team.name)));
+            const seen = new Set<string>();
+            const imports: TeamInfo[] = [];
+            let skipped = 0;
+            selected.forEach(({ item }) => {
+              const key = normalizeTeamDirectoryName(item.name);
+              if (!key || existing.has(key) || seen.has(key)) {
+                skipped += 1;
+                return;
+              }
+              seen.add(key);
+              imports.push({
+                id: createEntityId('team'),
+                name: item.name.trim(),
+                leader: String(item.leader || '').trim(),
+                defaultCount: Math.max(0, Number(item.defaultCount || 0)),
+                phone: item.phone ? String(item.phone).trim() : undefined,
+                notes: item.notes ? String(item.notes) : undefined,
+              });
+            });
+            if (!imports.length) throw new Error('Không có đội mới hợp lệ để nhập. Các đội trùng tên đã được bỏ qua.');
+            const next = [...teams, ...imports];
+            const conflict = findWorsenedTeamNameConflict(teams, next);
+            if (conflict) throw new Error(`Tên đội “${conflict.displayName}” bị trùng.`);
+            const confirmed = await confirmAsync(`Nhập ${imports.length} Đội thi công vào công trình hiện tại?${skipped ? `\n\nBỏ qua ${skipped} đội trùng tên.` : ''}`);
+            if (!confirmed) return;
+            if (!updateTeamsAndParent(next)) throw new Error('Danh mục đội thay đổi trong lúc nhập; chưa ghi dữ liệu.');
+          }}
+        />
+      )}
+
       {canManageTeamDirectory && showTeamModal && (
         <div className={`fixed inset-y-0 right-0 ${crewModalRailInsetClass} z-50 flex items-center justify-center px-2 py-2 sm:p-4 bg-slate-900/60 backdrop-blur-sm`}>
           <div 
