@@ -63,7 +63,7 @@ assert.match(floor, /createFloor: true/, 'DXF selected from add-floor flow must 
 assert.doesNotMatch(floor, /<FileType[^>]*\/> Nhận diện CAD\/DXF/, 'Room toolbar must not expose a separate CAD/DXF button');
 assert.match(floor, /Chỉ tạo tầng/, 'DXF review must let the user create the floor without auto-creating rooms');
 assert.match(floor, /Tạo tầng \+ Căn \/ Phòng/, 'DXF review must support creating the floor and detected rooms together');
-assert.match(floor, /isPolyline: candidate\.points\.length >= 3/, 'DXF polygon geometry must remain polygonal instead of degrading to a rectangle');
+assert.match(floor, /isPolyline: false,/, 'DXF closed room boundaries must persist as polygon geometry for fill and Defect hit-testing');
 assert.match(floor, /Khôi phục mặc định/, 'Advanced PDF name regex must provide a safe reset action');
 assert.match(floor, /aria-invalid=\{!isSmartPdfNamePatternValid\}/, 'Advanced PDF name regex must surface invalid syntax before detection');
 assert.doesNotMatch(pdfRoomDetection, /\(\?=\.\*/, 'Default room-name regex should avoid the hard-to-read lookahead form reported on mobile');
@@ -71,6 +71,10 @@ assert.match(floor, /Tạo Căn \/ Phòng từ DXF/, 'DXF import must retain an 
 assert.match(floor, /Không ghi đè Căn \/ Phòng đã tồn tại/, 'DXF import must protect existing room highlights');
 assert.match(floor, /Lấy mặt bằng trực tiếp từ DXF/, 'DXF review must offer CAD-background materialization');
 assert.match(floor, /cadSource:/, 'Saved DXF room highlights must retain immutable CAD geometry for later alignment');
+assert.match(volume, /floorId: targetFloorIds\[0\]/, 'Cross-project Work Volume copy must replace source floorId with target-project floor identity');
+assert.doesNotMatch(volume, /floorNamesById/, 'Cross-project Work Volume copy must not depend on non-schema source floor-name metadata');
+assert.match(materialNormModal, /uniqueByCanonicalId\.length !== 1/, 'Material Norm remap must fail closed when a target Work Category title is missing or ambiguous');
+assert.match(materialNormModal, /trùng tên/, 'Material Norm remap must explain ambiguous target Work Category names instead of choosing one silently');
 assert.match(floor, /syncGroupColumns=\{quickEditMode === 'rooms'/, 'Room quick edit must synchronize shared room fields across child rows');
 assert.match(floor, /Quản lý Khu\/Khối & Tầng[\s\S]*grid grid-cols-2 gap-2 sm:grid-cols-\[160px_160px\][\s\S]*Bảng chỉnh nhanh[\s\S]*fillWidth/, 'Floor bulk edit actions must stay balanced on mobile and desktop');
 const acceptanceSection = floor.slice(floor.indexOf('Nghiệm thu từng Căn / Phòng'), floor.indexOf('Quick Sort Controls'));
