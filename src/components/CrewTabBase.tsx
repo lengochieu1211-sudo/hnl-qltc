@@ -1942,15 +1942,16 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </>
           )}
 
-          <div className="mb-3 flex flex-wrap items-center gap-2">
+          <div className="mb-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
             <button
               type="button"
               onClick={() => { setQuickEditMode('logs'); setShowQuickEdit(true); }}
-              className="text-xs font-extrabold text-indigo-700 bg-white border border-indigo-200 hover:bg-indigo-50 px-3 py-2 rounded-xl shadow-2xs"
+              className="w-full sm:w-auto text-xs font-extrabold text-indigo-700 bg-white border border-indigo-200 hover:bg-indigo-50 px-3 py-2 rounded-xl shadow-2xs whitespace-nowrap"
             >
               ▦ Bảng chỉnh nhanh
             </button>
             <ExcelActionMenu
+              fillMobile
               onExportEdit={handleExportCrewLogsEdit}
               onImportFile={canOperate ? handleImportCrewLogsExcel : undefined}
               onDownloadTemplate={handleDownloadCrewLogTemplate}

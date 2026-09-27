@@ -1783,15 +1783,16 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           </span>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 pt-0.5">
+        <div className="grid grid-cols-2 gap-2 pt-0.5 sm:flex sm:flex-wrap sm:items-center">
           <button
             type="button"
             onClick={() => { setQuickEditMode('norms'); setShowQuickEdit(true); }}
-            className="flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-extrabold py-2 px-3 rounded-xl transition-all text-xs active:scale-95 cursor-pointer"
+            className="w-full sm:w-auto flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-extrabold py-2 px-3 rounded-xl transition-all text-xs active:scale-95 cursor-pointer whitespace-nowrap"
           >
             ▦ <span>Bảng chỉnh nhanh</span>
           </button>
           <ExcelActionMenu
+            fillMobile
             onExportEdit={() => exportWarehouseUpdateTemplate(materialNorms, workVolumes || [], inventory, undefined, {
               floorPlans,
               roomProgressList,

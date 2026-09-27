@@ -9,6 +9,7 @@ interface ExcelActionMenuProps {
   importLabel?: string;
   templateLabel?: string;
   disabled?: boolean;
+  fillMobile?: boolean;
 }
 
 export const ExcelActionMenu: React.FC<ExcelActionMenuProps> = ({
@@ -19,14 +20,15 @@ export const ExcelActionMenu: React.FC<ExcelActionMenuProps> = ({
   importLabel = 'Nhập Excel đã chỉnh sửa',
   templateLabel = 'Tải Excel mẫu',
   disabled = false,
+  fillMobile = false,
 }) => {
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const close = () => detailsRef.current?.removeAttribute('open');
 
   return (
-    <details ref={detailsRef} className="relative shrink-0">
+    <details ref={detailsRef} className={`relative shrink-0 ${fillMobile ? 'w-full sm:w-auto' : ''}`}>
       <summary
-        className={`list-none cursor-pointer select-none whitespace-nowrap text-[11px] sm:text-xs font-extrabold h-8 px-2.5 sm:px-3 rounded-xl border shadow-2xs inline-flex items-center gap-1 transition ${disabled ? 'opacity-50 pointer-events-none bg-slate-100 text-slate-400 border-slate-200' : 'bg-white hover:bg-slate-50 text-emerald-700 border-emerald-200'}`}
+        className={`list-none cursor-pointer select-none whitespace-nowrap text-[11px] sm:text-xs font-extrabold h-8 px-2.5 sm:px-3 rounded-xl border shadow-2xs inline-flex items-center gap-1 transition ${fillMobile ? 'w-full justify-center sm:w-auto' : ''} ${disabled ? 'opacity-50 pointer-events-none bg-slate-100 text-slate-400 border-slate-200' : 'bg-white hover:bg-slate-50 text-emerald-700 border-emerald-200'}`}
       >
         <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
         <span>Excel</span>

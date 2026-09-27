@@ -5795,17 +5795,38 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             </div>
           </div>
 
-          {canManageStructure && (
-            <button
-              type="button"
-              onClick={() => setShowManageFloorsModal(true)}
-              className="w-full shrink-0 flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-3 py-2 rounded-xl text-xs font-bold active:scale-[0.99] transition-all shadow-xs whitespace-nowrap sm:w-auto"
-              title="Quản lý Khu/Khối, đổi tên, sắp xếp và quản lý tầng"
-            >
-              <Settings className="w-3.5 h-3.5 shrink-0" />
-              Quản lý Khu/Khối & Tầng
-            </button>
-          )}
+          <div className="w-full sm:w-auto space-y-2">
+            {canManageStructure && (
+              <button
+                type="button"
+                onClick={() => setShowManageFloorsModal(true)}
+                className="w-full shrink-0 flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-3 py-2 rounded-xl text-xs font-bold active:scale-[0.99] transition-all shadow-xs whitespace-nowrap sm:w-auto"
+                title="Quản lý Khu/Khối, đổi tên, sắp xếp và quản lý tầng"
+              >
+                <Settings className="w-3.5 h-3.5 shrink-0" />
+                Quản lý Khu/Khối & Tầng
+              </button>
+            )}
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:justify-end">
+              <button
+                type="button"
+                onClick={() => { setQuickEditMode('rooms'); setShowQuickEdit(true); }}
+                className="w-full sm:w-auto whitespace-nowrap text-[11px] font-extrabold text-indigo-700 hover:text-indigo-900 bg-white hover:bg-indigo-50 px-2.5 py-2 sm:py-1.5 rounded-xl flex items-center justify-center gap-1 border border-indigo-200 transition-all active:scale-95 shadow-2xs"
+                title="Chỉnh Căn/Hạng mục/Defect nhiều tầng theo bảng cột và dòng"
+              >
+                ▦ Bảng chỉnh nhanh
+              </button>
+              <ExcelActionMenu
+                fillMobile
+                onExportEdit={() => downloadHighlightTemplate('all')}
+                onImportFile={canManageStructure ? handleImportExcelHighlights : undefined}
+                onDownloadTemplate={() => downloadHighlightTemplate('template')}
+                exportLabel="Xuất Căn / Hạng mục để chỉnh sửa"
+                importLabel="Nhập Excel đã chỉnh sửa"
+                templateLabel="Tải mẫu Căn / Hạng mục"
+              />
+            </div>
+          </div>
 
           <input
             type="file"
@@ -8432,39 +8453,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <Building2 className="w-4 h-4 text-indigo-600" />
                 Nghiệm thu từng Căn / Phòng ({floorRooms.length})
               </h3>
-              <div className="flex w-full sm:w-auto flex-wrap items-center justify-end gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => { setQuickEditMode('rooms'); setShowQuickEdit(true); }}
-                  className="shrink-0 whitespace-nowrap text-[11px] font-extrabold text-indigo-700 hover:text-indigo-900 bg-white hover:bg-indigo-50 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-indigo-200 transition-all active:scale-95 shadow-2xs"
-                  title="Chỉnh Căn/Hạng mục/Defect nhiều tầng theo bảng cột và dòng"
-                >
-                  ▦ Bảng chỉnh nhanh
-                </button>
-                <ExcelActionMenu
-                  onExportEdit={() => downloadHighlightTemplate('all')}
-                  onImportFile={canManageStructure ? handleImportExcelHighlights : undefined}
-                  onDownloadTemplate={() => downloadHighlightTemplate('template')}
-                  exportLabel="Xuất Căn / Hạng mục để chỉnh sửa"
-                  importLabel="Nhập Excel đã chỉnh sửa"
-                  templateLabel="Tải mẫu Căn / Hạng mục"
-                />
-                {canManageStructure && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        setSelectedRoomForEdit(null);
-                        setNewRoomClickPos({ x: 30, y: 30 });
-                        setIsRoomModalOpen(true);
-                      }}
-                      className="shrink-0 whitespace-nowrap text-xs font-extrabold text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-2.5 py-1 rounded-lg flex items-center gap-1 border border-indigo-200 transition-all active:scale-95 cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> Thêm Căn / Phòng
-                    </button>
-                  </>
-                )}
-              </div>
+
             </div>
 
             {floorRooms.length === 0 ? (
