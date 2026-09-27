@@ -29,7 +29,7 @@ assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /XLSX\.utils\.
 assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /XLSX\.utils\.aoa_to_sheet\(\[mainHeaders\]\)/, 'Crew blank template must retain journal headers');
 assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /'__itemKind': item\.itemKind === 'equipment'/, 'Warehouse inbound round-trip must preserve material-vs-equipment identity');
 assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /XLSX\.utils\.aoa_to_sheet\(\[inHeaders\]\)/, 'Warehouse blank inbound template must retain headers');
-assert.doesNotMatch(excel, /Xuất báo cáo Excel/, 'Excel edit menu must not duplicate reporting');
+assert.match(excel, /\{onExportReport && \(/, 'Excel report section must render only when a module explicitly supplies a report callback');
 assert.match(excel, /fillMobile/, 'Excel action trigger must support equal-width mobile action rows');
 assert.match(excel, /fillWidth/, 'Excel action trigger must support equal-width desktop/mobile action pairs');
 assert.match(excel, /onExportReport/, 'Excel action menu must support an optional report action without duplicating standalone buttons');
