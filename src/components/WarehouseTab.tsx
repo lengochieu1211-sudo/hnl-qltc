@@ -1414,17 +1414,57 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     }
   };
 
-  const warehouseQuickNormRows = useMemo<QuickGridRow[]>(() => materialNorms.map((norm) => ({
-    __rowKey: norm.id,
-    __normId: norm.id,
-    materialName: norm.materialName,
-    category: norm.category,
-    unit: norm.unit,
-    workCategories: (norm.workCategories?.length ? norm.workCategories : (norm.workCategory ? [norm.workCategory] : [])).join('; '),
-    unitNorm: norm.unitNormPerM2 ?? '',
-    quotaQuantity: norm.quotaQuantity ?? 0,
-    notes: norm.notes || '',
-  })), [materialNorms]);
+  const warehouseQuickNormRows = useMemo<QuickGridRow[]>(() => materialNorms.flatMap((norm) => {
+    const linkedIds = new Set<string>([
+      ...(norm.workCategoryIds || []),
+      ...(norm.workCategoryId ? [norm.workCategoryId] : []),
+      ...Object.keys(norm.workCategoryNormsById || {}),
+    ].map((value) => String(value || '').trim()).filter(Boolean));
+    const linkedNames = norm.workCategories?.length
+      ? norm.workCategories
+      : (norm.workCategory ? [norm.workCategory] : []);
+    linkedNames.forEach((name) => {
+      const work = (workVolumes || []).find((item) => normalizeLinkText(item.title) === normalizeLinkText(name));
+      if (work) linkedIds.add(canonicalWorkCategoryId(work));
+    });
+
+    const rows = Array.from(linkedIds).map((workCategoryId, index) => {
+      const work = (workVolumes || []).find((item) => canonicalWorkCategoryId(item) === workCategoryId || item.id === workCategoryId);
+      const legacyName = linkedNames[index] || '';
+      const specific = norm.workCategoryNormsById?.[workCategoryId];
+      const hasSpecific = specific !== undefined && specific !== null && Number.isFinite(Number(specific));
+      return {
+        __rowKey: `${norm.id}--${workCategoryId}`,
+        __normId: norm.id,
+        __workCategoryId: workCategoryId,
+        materialName: norm.materialName,
+        category: norm.category,
+        unit: norm.unit,
+        workCategory: work?.title || legacyName,
+        normSource: hasSpecific ? 'Riêng theo hạng mục' : 'Dùng định mức chung',
+        specificNorm: hasSpecific ? Number(specific) : '',
+        generalNorm: norm.unitNormPerM2 ?? '',
+        quotaQuantity: norm.quotaQuantity ?? 0,
+        notes: norm.notes || '',
+      };
+    });
+
+    if (rows.length > 0) return rows;
+    return [{
+      __rowKey: `${norm.id}--general`,
+      __normId: norm.id,
+      __workCategoryId: '',
+      materialName: norm.materialName,
+      category: norm.category,
+      unit: norm.unit,
+      workCategory: '',
+      normSource: 'Định mức chung',
+      specificNorm: '',
+      generalNorm: norm.unitNormPerM2 ?? '',
+      quotaQuantity: norm.quotaQuantity ?? 0,
+      notes: norm.notes || '',
+    }];
+  }), [materialNorms, workVolumes]);
 
   const warehouseQuickInventoryRows = useMemo<QuickGridRow[]>(() => inventory.map((item) => {
     const floor = item.sourceFloorId ? floorPlans.find((entry) => entry.id === item.sourceFloorId) : undefined;
@@ -1478,8 +1518,24 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       { key: 'materialName', label: 'Tên vật tư', editable: hasNormManageAccess, required: true, width: 220 },
       { key: 'category', label: 'Nhóm', editable: hasNormManageAccess, required: true, width: 150 },
       { key: 'unit', label: 'ĐVT', editable: hasNormManageAccess, required: true, width: 90 },
-      { key: 'workCategories', label: 'Liên kết hạng mục thi công', editable: hasNormManageAccess, width: 260 },
-      { key: 'unitNorm', label: 'Định mức / ĐVT', editable: hasNormManageAccess, type: 'number', width: 130, validate: (value) => Number(value || 0) < 0 ? 'Không được âm' : null },
+      {
+        key: 'workCategory',
+        label: 'Hạng mục thi công',
+        editable: hasNormManageAccess,
+        type: 'select',
+        options: warehouseWorkOptions,
+        width: 260,
+        validate: (value) => {
+          const name = String(value || '').trim();
+          if (!name) return null;
+          return (workVolumes || []).some((work) => normalizeLinkText(work.title) === normalizeLinkText(name))
+            ? null
+            : 'Hạng mục không còn trong danh mục';
+        },
+      },
+      { key: 'specificNorm', label: 'ĐM riêng hạng mục', editable: hasNormManageAccess, type: 'number', width: 145, validate: (value) => String(value ?? '').trim() && Number(value) < 0 ? 'Không được âm' : null },
+      { key: 'generalNorm', label: 'ĐM chung', editable: hasNormManageAccess, type: 'number', width: 120, validate: (value) => String(value ?? '').trim() && Number(value) < 0 ? 'Không được âm' : null },
+      { key: 'normSource', label: 'Nguồn định mức', editable: false, width: 155 },
       { key: 'quotaQuantity', label: 'Khối lượng định mức', editable: hasNormManageAccess, type: 'number', width: 150, validate: (value) => Number(value || 0) < 0 ? 'Không được âm' : null },
       { key: 'notes', label: 'Ghi chú / Tiêu chuẩn kỹ thuật', editable: hasNormManageAccess, width: 300 },
     ];
@@ -1532,31 +1588,96 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     if (quickEditMode === 'norms') {
       if (!hasNormManageAccess || !onImportNorms) return;
       const byId = new Map<string, MaterialNorm>(materialNorms.map((norm) => [norm.id, norm] as const));
+
+      for (const row of dirtyRows) {
+        const normId = String(row.__normId || '').trim();
+        const workName = String(row.workCategory || '').trim();
+        if (!normId || !workName) continue;
+        const work = (workVolumes || []).find((item) => normalizeLinkText(item.title) === normalizeLinkText(workName));
+        if (!work) throw new Error(`Hạng mục thi công “${workName}” không còn trong danh mục.`);
+        const categoryId = canonicalWorkCategoryId(work);
+        const duplicate = rows.some((other) =>
+          other.__rowKey !== row.__rowKey
+          && String(other.__normId || '').trim() === normId
+          && (() => {
+            const otherName = String(other.workCategory || '').trim();
+            const otherWork = (workVolumes || []).find((item) => normalizeLinkText(item.title) === normalizeLinkText(otherName));
+            return Boolean(otherWork && canonicalWorkCategoryId(otherWork) === categoryId);
+          })()
+        );
+        if (duplicate) throw new Error(`Định mức “${row.materialName || ''}” đang có hai dòng cùng Hạng mục “${workName}”.`);
+      }
+
       dirtyRows.forEach((row) => {
-        const existing = byId.get(String(row.__normId || row.__rowKey));
+        const existing = byId.get(String(row.__normId || '').trim());
         const id = existing?.id || createEntityId('norm');
-        const workNames = String(row.workCategories || '').split(/[;\n]+/).map((item) => item.trim()).filter(Boolean);
-        const workIds = workNames.map((name) => (workVolumes || []).find((work) => normalizeLinkText(work.title) === normalizeLinkText(name)))
-          .filter((work): work is WorkVolume => Boolean(work))
-          .map((work) => canonicalWorkCategoryId(work));
+        const materialName = String(row.materialName || '').trim();
+        const unit = normalizeUnit(String(row.unit || '').trim()) || String(row.unit || '').trim();
+        const workName = String(row.workCategory || '').trim();
+        const selectedWork = workName
+          ? (workVolumes || []).find((work) => normalizeLinkText(work.title) === normalizeLinkText(workName))
+          : undefined;
+        if (workName && !selectedWork) throw new Error(`Hạng mục thi công “${workName}” không còn trong danh mục.`);
+        const selectedWorkId = selectedWork ? canonicalWorkCategoryId(selectedWork) : '';
+        const previousWorkId = String(row.__workCategoryId || '').trim();
+
+        const nextIds = new Set<string>([
+          ...(existing?.workCategoryIds || []),
+          ...(existing?.workCategoryId ? [existing.workCategoryId] : []),
+          ...Object.keys(existing?.workCategoryNormsById || {}),
+        ].map((value) => String(value || '').trim()).filter(Boolean));
+        const nameById = new Map<string, string>();
+        const existingNames = existing?.workCategories?.length
+          ? existing.workCategories
+          : (existing?.workCategory ? [existing.workCategory] : []);
+        Array.from(nextIds).forEach((categoryId, index) => {
+          const catalogWork = (workVolumes || []).find((work) => canonicalWorkCategoryId(work) === categoryId || work.id === categoryId);
+          nameById.set(categoryId, catalogWork?.title || existingNames[index] || '');
+        });
+        const nextSpecific = { ...(existing?.workCategoryNormsById || {}) };
+
+        if (previousWorkId && previousWorkId !== selectedWorkId) {
+          nextIds.delete(previousWorkId);
+          delete nextSpecific[previousWorkId];
+          nameById.delete(previousWorkId);
+        }
+        if (selectedWorkId) {
+          nextIds.add(selectedWorkId);
+          nameById.set(selectedWorkId, selectedWork?.title || workName);
+          const specificRaw = String(row.specificNorm ?? '').trim();
+          if (specificRaw === '') delete nextSpecific[selectedWorkId];
+          else nextSpecific[selectedWorkId] = Math.max(0, Number(row.specificNorm || 0));
+        }
+
+        const workCategoryIds = Array.from(nextIds);
+        const workCategories = workCategoryIds
+          .map((categoryId) => nameById.get(categoryId) || (workVolumes || []).find((work) => canonicalWorkCategoryId(work) === categoryId || work.id === categoryId)?.title || '')
+          .filter(Boolean);
+        const matchingMaterial = materialNorms.find((norm) =>
+          norm.id !== existing?.id
+          && normalizeLinkText(norm.materialName) === normalizeLinkText(materialName)
+          && (normalizeUnit(norm.unit) || norm.unit) === unit
+        );
+
         byId.set(id, {
           ...(existing || {} as MaterialNorm),
           id,
-          materialId: existing?.materialId || createEntityId('material'),
-          materialName: String(row.materialName || '').trim(),
+          materialId: existing?.materialId || matchingMaterial?.materialId || createEntityId('material'),
+          materialName,
           category: String(row.category || '').trim(),
-          unit: normalizeUnit(String(row.unit || '').trim()) || String(row.unit || '').trim(),
-          workCategory: workNames[0],
-          workCategoryId: workIds[0],
-          workCategories: workNames.length ? workNames : undefined,
-          workCategoryIds: workIds.length ? Array.from(new Set(workIds)) : undefined,
+          unit,
+          workCategory: workCategories[0],
+          workCategoryId: workCategoryIds[0],
+          workCategories: workCategories.length ? workCategories : undefined,
+          workCategoryIds: workCategoryIds.length ? workCategoryIds : undefined,
+          workCategoryNormsById: Object.keys(nextSpecific).length ? nextSpecific : undefined,
           quotaQuantity: Math.max(0, Number(row.quotaQuantity || 0)),
-          unitNormPerM2: Math.max(0, Number(row.unitNorm || 0)),
+          unitNormPerM2: String(row.generalNorm ?? '').trim() === '' ? undefined : Math.max(0, Number(row.generalNorm || 0)),
           normBasisUnit: existing?.normBasisUnit || 'm²',
           notes: String(row.notes || '').trim() || undefined,
         });
       });
-      const confirmed = await confirmAsync(`Lưu ${dirtyRows.length} thay đổi Danh mục & Định mức vật tư?`);
+      const confirmed = await confirmAsync(`Lưu ${dirtyRows.length} thay đổi Danh mục & Định mức vật tư? Định mức riêng theo Hạng mục sẽ được ưu tiên khi tính nhu cầu.`);
       if (!confirmed) return false;
       onImportNorms(Array.from(byId.values()));
       return;
@@ -1783,15 +1904,16 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           </span>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 pt-0.5">
+        <div className="grid grid-cols-2 gap-2 pt-0.5 sm:flex sm:flex-wrap sm:items-center">
           <button
             type="button"
             onClick={() => { setQuickEditMode('norms'); setShowQuickEdit(true); }}
-            className="flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-extrabold py-2 px-3 rounded-xl transition-all text-xs active:scale-95 cursor-pointer"
+            className="w-full sm:w-auto flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-extrabold py-2 px-3 rounded-xl transition-all text-xs active:scale-95 cursor-pointer whitespace-nowrap"
           >
             ▦ <span>Bảng chỉnh nhanh</span>
           </button>
           <ExcelActionMenu
+            fillMobile
             onExportEdit={() => exportWarehouseUpdateTemplate(materialNorms, workVolumes || [], inventory, undefined, {
               floorPlans,
               roomProgressList,
@@ -1815,7 +1937,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       <QuickEditGridModal
         open={showQuickEdit}
         title="Bảng chỉnh nhanh · Kho vật tư"
-        subtitle={quickEditMode === 'stock' ? 'Tồn kho là số tính từ Tổng nhập - Tổng xuất và luôn chỉ đọc.' : 'Chỉnh trực tiếp theo cột/dòng; dữ liệu chỉ ghi khi bấm Lưu.'}
+        subtitle={quickEditMode === 'stock'
+          ? 'Tồn kho là số tính từ Tổng nhập - Tổng xuất và luôn chỉ đọc.'
+          : quickEditMode === 'norms'
+            ? 'Hạng mục thi công lấy từ danh mục có sẵn. ĐM riêng theo Hạng mục được ưu tiên; nếu để trống sẽ dùng ĐM chung.'
+            : 'Chỉnh trực tiếp theo cột/dòng; dữ liệu chỉ ghi khi bấm Lưu.'}
         tabs={[
           { key: 'norms', label: 'Danh mục & Định mức' },
           { key: 'in', label: 'Nhập kho' },
@@ -1832,11 +1958,14 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           __rowKey: `new-norm-${Date.now()}-${index}`,
           __new: true,
           __normId: '',
+          __workCategoryId: '',
           materialName: '',
           category: '',
           unit: '',
-          workCategories: '',
-          unitNorm: 0,
+          workCategory: '',
+          normSource: 'Định mức chung',
+          specificNorm: '',
+          generalNorm: 0,
           quotaQuantity: 0,
           notes: '',
         }) : ({
