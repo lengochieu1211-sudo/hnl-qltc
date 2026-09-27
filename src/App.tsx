@@ -350,6 +350,23 @@ const normalizeSuperAdminUiSettings = (raw: any): SuperAdminUiSettings => {
   };
 };
 
+const getVerifiedCachedHomeProjects = (): Array<{ id: string; name: string; role?: UserRole }> => {
+  if (typeof window === 'undefined') return [];
+  const online = typeof navigator === 'undefined' ? true : navigator.onLine;
+  const identity = getCurrentRealFirebaseUser() || (!online ? getRememberedVerifiedAuthIdentity() : null);
+  if (!identity) return [];
+  return getProjectsList().flatMap((project) => {
+    if (!project?.id || project.id === 'default') return [];
+    const verified = getCachedVerifiedProjectRole(project.id, identity);
+    if (!verified?.allowed) return [];
+    return [{
+      id: project.id,
+      name: project.name || project.id,
+      role: verified.role,
+    }];
+  });
+};
+
 function AuthenticatedApp() {
   const isDesktopRuntime = typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('app') === 'desktop';
@@ -1998,7 +2015,7 @@ function AuthenticatedApp() {
 
   // Chat must only list projects currently authorized by Firestore. Local recovery
   // projects remain available in Project Manager, but are never treated as chat access.
-  const [authorizedChatProjects, setAuthorizedChatProjects] = useState<Array<{ id: string; name: string; role?: UserRole }>>([]);
+  const [authorizedChatProjects, setAuthorizedChatProjects] = useState<Array<{ id: string; name: string; role?: UserRole }>>(getVerifiedCachedHomeProjects);
   const [isMultiProjectOverviewOpen, setIsMultiProjectOverviewOpen] = useState(false);
   const [startupProjectId, setStartupProjectId] = useState<string>(() => {
     try { return localStorage.getItem(STARTUP_PROJECT_ID_KEY) || ''; } catch (_) { return ''; }
@@ -2509,6 +2526,14 @@ function AuthenticatedApp() {
     if (!cloudUserKey) {
       setAuthorizedChatProjects([]);
       return;
+    }
+
+    // Render only identity-bound, previously verified local project metadata immediately
+    // while the authorization-sensitive realtime discovery performs its server checks.
+    // Realtime remains authoritative and replaces this cache-first seed on first emission.
+    const cachedAuthorized = getVerifiedCachedHomeProjects();
+    if (cachedAuthorized.length > 0) {
+      setAuthorizedChatProjects(cachedAuthorized);
     }
 
     // Firestore/invitations are the source of truth for the cross-device project index.
