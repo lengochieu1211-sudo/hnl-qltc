@@ -1641,6 +1641,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       return categories.map((category, categoryIndex) => ({
         __rowKey: `${record.id}--${floorIndex}--${categoryIndex}`,
         __recordId: record.id,
+        __groupKey: record.id,
+        __groupPrimary: floorIndex === 0 && categoryIndex === 0,
         date: record.date,
         teamName: record.teamName,
         morning: counts.morning,
@@ -1682,11 +1684,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   ].filter(Boolean))), [activeWorkVolumeCatalog, crewRecords]);
 
   const crewQuickColumns = useMemo<QuickGridColumn[]>(() => [
-    { key: 'date', label: 'Ngày', type: 'date', editable: canOperate, required: true, width: 135 },
-    { key: 'teamName', label: 'Đội thi công', type: 'select', options: crewTeamOptions, editable: canOperate, required: true, width: 180 },
-    { key: 'morning', label: 'Ca sáng', type: 'number', editable: canOperate, width: 95, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
-    { key: 'afternoon', label: 'Ca chiều', type: 'number', editable: canOperate, width: 95, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
-    { key: 'evening', label: 'Ca tối', type: 'number', editable: canOperate, width: 95, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
+    { key: 'date', label: 'Ngày', type: 'date', editable: (row) => canOperate && Boolean(row.__groupPrimary), required: true, width: 135 },
+    { key: 'teamName', label: 'Đội thi công', type: 'select', options: crewTeamOptions, editable: (row) => canOperate && Boolean(row.__groupPrimary), required: true, width: 180 },
+    { key: 'morning', label: 'Ca sáng', type: 'number', editable: (row) => canOperate && Boolean(row.__groupPrimary), width: 95, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
+    { key: 'afternoon', label: 'Ca chiều', type: 'number', editable: (row) => canOperate && Boolean(row.__groupPrimary), width: 95, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
+    { key: 'evening', label: 'Ca tối', type: 'number', editable: (row) => canOperate && Boolean(row.__groupPrimary), width: 95, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
     {
       key: 'structureGroup',
       label: normalizedStructureConfig.label || 'Khu/Khối',
@@ -4136,6 +4138,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           notes: '',
         })}
         onClose={() => setShowQuickEdit(false)}
+        syncGroupColumns={quickEditMode === 'logs' ? ['date', 'teamName', 'morning', 'afternoon', 'evening'] : []}
         onSave={quickEditMode === 'logs' ? saveQuickCrewRows : (rows) => saveQuickTeamRows(rows)}
       />
 
