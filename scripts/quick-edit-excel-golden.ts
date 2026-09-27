@@ -67,6 +67,10 @@ assert.match(crew, /__teamId không tồn tại trong dự án hiện tại/, 'C
 assert.match(crew, /__recordId không tồn tại trong dự án hiện tại/, 'Crew Excel import must reject stale journal IDs');
 assert.match(crew, /Thống kê tất cả đội/, 'All-team report button must be distinguishable from global report');
 assert.match(crew, /Xuất Excel Đội Này/, 'Single-team report export must remain available');
+assert.match(crew, /grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-between/, 'Team-detail footer must use two balanced mobile columns');
+assert.match(crew, /sm:hidden">Xuất Excel</, 'Team-detail Excel action must use a compact mobile label');
+assert.match(crew, /sm:hidden">Đóng</, 'Team-detail close action must use a compact mobile label');
+assert.match(crew, /w-full sm:w-auto min-h-10 bg-emerald-600/, 'Team-detail Excel action must fill its mobile column');
 assert.match(crew, /selectedLogStructureGroupId/, 'Crew entry must expose an explicit Khu/Khối selection state');
 assert.match(crew, /Danh sách Tầng bên dưới chỉ hiện trong/, 'Crew entry must explain that floor choices are filtered by Khu/Khối');
 assert.match(crew, /key: 'structureGroup'/, 'Crew quick edit must include a Khu/Khối column');

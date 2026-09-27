@@ -4085,19 +4085,22 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Footer */}
-              <div className="bg-white border-t border-slate-200 p-3 flex items-center justify-between gap-2 shrink-0">
+              <div className="bg-white border-t border-slate-200 p-3 grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-between shrink-0">
                 <button
                   onClick={() => handleExportTeamStats(team.name)}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-3.5 rounded-xl text-xs flex items-center gap-1.5 transition shadow-2xs active:scale-95"
+                  className="w-full sm:w-auto min-h-10 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition shadow-2xs active:scale-95 whitespace-nowrap"
                   title="Tải báo cáo Excel thống kê chi tiết cho đội thi công này"
                 >
-                  <Download className="w-4 h-4" /> Xuất Excel Đội Này
+                  <Download className="w-4 h-4 shrink-0" />
+                  <span className="sm:hidden">Xuất Excel</span>
+                  <span className="hidden sm:inline">Xuất Excel Đội Này</span>
                 </button>
                 <button
                   onClick={() => setSelectedTeamForDetail(null)}
-                  className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 px-5 rounded-xl text-xs transition"
+                  className="w-full sm:w-auto min-h-10 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 px-3 sm:px-5 rounded-xl text-xs transition whitespace-nowrap"
                 >
-                  Đóng thống kê
+                  <span className="sm:hidden">Đóng</span>
+                  <span className="hidden sm:inline">Đóng thống kê</span>
                 </button>
               </div>
             </div>
