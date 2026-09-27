@@ -263,6 +263,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
   // Khu/Khối remains in persisted data; Crew lists/statistics stay project-wide and show location per item.
   const selectedStructureGroupId = 'all';
+  // Explicit Khu/Khối selector for the crew log editor. This is separate from the
+  // project-wide list scope so users can see/control the hierarchy without hiding logs.
+  const [selectedLogStructureGroupId, setSelectedLogStructureGroupId] = useState('');
+  const activeLogStructureGroupId = normalizedStructureConfig.enabled
+    && normalizedStructureConfig.groups.some((group) => group.id === selectedLogStructureGroupId)
+      ? selectedLogStructureGroupId
+      : normalizedStructureConfig.defaultGroupId;
 
   const floorById = useMemo(
     () => new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.id, floor] as const)),
@@ -337,8 +344,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   );
 
   const logFloorPlans = useMemo(
-    () => floorPlans,
-    [floorPlans],
+    () => normalizedStructureConfig.enabled
+      ? floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === activeLogStructureGroupId)
+      : floorPlans,
+    [floorPlans, normalizedStructureConfig, activeLogStructureGroupId],
   );
 
   // Load custom teams list from props
@@ -574,6 +583,16 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     };
   };
 
+  const handleLogStructureGroupChange = (groupId: string) => {
+    setSelectedLogStructureGroupId(groupId);
+    const availableFloors = normalizedStructureConfig.enabled
+      ? floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === groupId)
+      : floorPlans;
+    const next = createDefaultFloorWork(availableFloors[0]);
+    setFloorWorks(next ? [next] : []);
+    setSelectedFloorId(next?.floorId || '');
+  };
+
   const addFloorWork = () => {
     const defaultFp = logFloorPlans[0];
     const next = createDefaultFloorWork(defaultFp);
@@ -720,6 +739,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   useEffect(() => {
     if (editingRecord) {
       setActiveLogEntityId(editingRecord.id);
+      const editingGroupId = normalizedStructureConfig.enabled
+        ? (getRecordStructureGroupIds(editingRecord)[0] || normalizedStructureConfig.defaultGroupId)
+        : normalizedStructureConfig.defaultGroupId;
+      setSelectedLogStructureGroupId(editingGroupId);
       setTeamName(editingRecord.teamName);
       setTeamId(editingRecord.teamId || '');
       setLeaderName(editingRecord.leaderName);
@@ -750,6 +773,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       setNotes(editingRecord.notes || '');
     } else {
       setActiveLogEntityId(`crew_${Date.now()}`);
+      const defaultGroupId = normalizedStructureConfig.defaultGroupId;
+      setSelectedLogStructureGroupId(defaultGroupId);
       // Set to first team in directory if available, otherwise blank
       if (teams.length > 0) {
         setTeamName(teams[0].name);
@@ -768,7 +793,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         setAfternoonCount(5);
         setEveningCount(0);
       }
-      const availableFloors = floorPlans;
+      const availableFloors = normalizedStructureConfig.enabled
+        ? floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === defaultGroupId)
+        : floorPlans;
       if (availableFloors.length > 0) {
         setFloorWorks([{
           floorId: availableFloors[0].id,
@@ -1045,10 +1072,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       alert(`Một bản ghi quân số chỉ được chọn các tầng trong cùng ${normalizedStructureConfig.label}.`);
       return;
     }
-    const fallbackFloor = selectedFloorId ? floorById.get(selectedFloorId) : undefined;
     const currentGroupId = normalizedStructureConfig.enabled
-      ? (selectedGroupIds[0] || (fallbackFloor ? resolveFloorStructureGroupId(fallbackFloor, normalizedStructureConfig) : normalizedStructureConfig.defaultGroupId))
+      ? activeLogStructureGroupId
       : normalizedStructureConfig.defaultGroupId;
+    if (normalizedStructureConfig.enabled && selectedGroupIds.some((groupId) => groupId !== currentGroupId)) {
+      alert(`Tầng đã chọn không thuộc ${normalizedStructureConfig.label} “${getStructureGroupName(currentGroupId, normalizedStructureConfig)}”. Hãy chọn lại tầng.`);
+      return;
+    }
     const existingRecord = crewRecords.find(
       (r) => r.date === selectedDate
         && r.teamName.toLowerCase() === normalizedTeamName.toLowerCase()
@@ -1603,6 +1633,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       : [{ floorId: record.floorId || '', floorName: record.floorName || '', categories: [{ categoryName: '', subItems: [] }] }];
     return floorWorks.flatMap((floorWork, floorIndex) => {
       const categories = floorWork.categories?.length ? floorWork.categories : [{ categoryName: '', subItems: [] }];
+      const linkedFloor = floorById.get(floorWork.floorId);
+      const groupId = linkedFloor
+        ? resolveFloorStructureGroupId(linkedFloor, normalizedStructureConfig)
+        : (record.structureGroupId || normalizedStructureConfig.defaultGroupId);
+      const structureGroup = getStructureGroupName(groupId, normalizedStructureConfig);
       return categories.map((category, categoryIndex) => ({
         __rowKey: `${record.id}--${floorIndex}--${categoryIndex}`,
         __recordId: record.id,
@@ -1611,12 +1646,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         morning: counts.morning,
         afternoon: counts.afternoon,
         evening: counts.evening,
+        structureGroup,
         floorName: floorWork.floorName || record.floorName || '',
         categoryName: category.categoryName || '',
         subItems: (category.subItems || []).join('; '),
       }));
     });
-  }), [crewRecords]);
+  }), [crewRecords, floorById, normalizedStructureConfig]);
 
   const teamQuickRows = useMemo<QuickGridRow[]>(() => teams.map((team) => ({
     __rowKey: team.id,
@@ -1632,6 +1668,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     ...teams.map((team) => team.name),
     ...crewRecords.map((record) => record.teamName),
   ].filter(Boolean))), [teams, crewRecords]);
+  const crewStructureOptions = useMemo(
+    () => normalizedStructureConfig.groups.map((group) => group.name),
+    [normalizedStructureConfig],
+  );
   const crewFloorOptions = useMemo(() => Array.from(new Set([
     ...floorPlans.map((floor) => floor.floorName),
     ...crewRecords.flatMap((record) => (record.floorWorks || []).map((work) => work.floorName)),
@@ -1647,10 +1687,27 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     { key: 'morning', label: 'Ca sáng', type: 'number', editable: canOperate, width: 95, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
     { key: 'afternoon', label: 'Ca chiều', type: 'number', editable: canOperate, width: 95, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
     { key: 'evening', label: 'Ca tối', type: 'number', editable: canOperate, width: 95, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
+    {
+      key: 'structureGroup',
+      label: normalizedStructureConfig.label || 'Khu/Khối',
+      type: 'select',
+      options: crewStructureOptions,
+      editable: canOperate && normalizedStructureConfig.enabled,
+      required: normalizedStructureConfig.enabled,
+      width: 160,
+      validate: (value, row) => {
+        if (!normalizedStructureConfig.enabled) return null;
+        const group = normalizedStructureConfig.groups.find((item) => normalizeLinkText(item.name) === normalizeLinkText(String(value || '')));
+        if (!group) return 'Khu/Khối không hợp lệ';
+        const floor = floorPlans.find((item) => normalizeLinkText(item.floorName) === normalizeLinkText(String(row.floorName || '')));
+        if (floor && resolveFloorStructureGroupId(floor, normalizedStructureConfig) !== group.id) return 'Tầng không thuộc Khu/Khối này';
+        return null;
+      },
+    },
     { key: 'floorName', label: 'Tầng', type: 'select', options: crewFloorOptions, editable: canOperate, required: true, width: 150 },
     { key: 'categoryName', label: 'Hạng mục chính', type: 'select', options: crewCategoryOptions, editable: canOperate, width: 220 },
     { key: 'subItems', label: 'Hạng mục phụ / Công đoạn', editable: canOperate, width: 260 },
-  ], [canOperate, crewTeamOptions, crewFloorOptions, crewCategoryOptions]);
+  ], [canOperate, crewTeamOptions, crewStructureOptions, crewFloorOptions, crewCategoryOptions, normalizedStructureConfig, floorPlans]);
 
   const teamQuickColumns = useMemo<QuickGridColumn[]>(() => [
     { key: 'name', label: 'Tên đội', editable: canManageTeamDirectory, required: true, width: 200 },
@@ -1690,12 +1747,21 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       const morning = Math.max(0, Number(pickShared('morning', existing ? getCrewShiftCounts(existing).morning : 0) || 0));
       const afternoon = Math.max(0, Number(pickShared('afternoon', existing ? getCrewShiftCounts(existing).afternoon : 0) || 0));
       const evening = Math.max(0, Number(pickShared('evening', existing ? getCrewShiftCounts(existing).evening : 0) || 0));
+      const fallbackGroupId = existing ? (getRecordStructureGroupIds(existing)[0] || normalizedStructureConfig.defaultGroupId) : normalizedStructureConfig.defaultGroupId;
+      const fallbackGroupName = getStructureGroupName(fallbackGroupId, normalizedStructureConfig);
+      const structureGroupName = String(pickShared('structureGroup', sourceRows[0]?.structureGroup || fallbackGroupName) || '').trim();
+      const structureGroup = normalizedStructureConfig.groups.find((group) => normalizeLinkText(group.name) === normalizeLinkText(structureGroupName));
+      if (normalizedStructureConfig.enabled && !structureGroup) throw new Error(`Không tìm thấy ${normalizedStructureConfig.label} “${structureGroupName}”.`);
+      const structureGroupId = structureGroup?.id || fallbackGroupId;
 
       const floorWorksById = new Map<string, CrewFloorWork>();
       sourceRows.forEach((row) => {
         const floorNameValue = String(row.floorName || '').trim();
         const floor = floorByName.get(floorNameValue.toLocaleLowerCase('vi-VN'));
         if (!floor) throw new Error(`Không tìm thấy tầng “${floorNameValue}”.`);
+        if (normalizedStructureConfig.enabled && resolveFloorStructureGroupId(floor, normalizedStructureConfig) !== structureGroupId) {
+          throw new Error(`Tầng “${floor.floorName}” không thuộc ${normalizedStructureConfig.label} “${getStructureGroupName(structureGroupId, normalizedStructureConfig)}”.`);
+        }
         const categoryName = String(row.categoryName || '').trim();
         const subItems = String(row.subItems || '').split(/[;\n]+/).map((item) => item.trim()).filter(Boolean);
         const current = floorWorksById.get(floor.id) || { floorId: floor.id, floorName: floor.floorName, categories: [] };
@@ -1722,9 +1788,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         eveningCount: evening,
         floorId: firstFloor?.floorId || existing?.floorId,
         floorName: floorWorks.map((fw) => fw.floorName).join(', ') || existing?.floorName,
-        structureGroupId: firstFloor && normalizedStructureConfig.enabled
-          ? resolveFloorStructureGroupId(floorPlans.find((floor) => floor.id === firstFloor.floorId), normalizedStructureConfig)
-          : existing?.structureGroupId,
+        structureGroupId: normalizedStructureConfig.enabled ? structureGroupId : existing?.structureGroupId,
         floorWorks,
         taskDescription: taskDescriptionValue || existing?.taskDescription || '',
         shift: [morning > 0 ? 'Sáng' : '', afternoon > 0 ? 'Chiều' : '', evening > 0 ? 'Tối' : ''].filter(Boolean).join(', ') || 'Nghỉ',
@@ -2601,6 +2665,22 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   <span>{formatDateDDMMYYYY(selectedDate)}</span>
                 </div>
               </div>
+
+              {normalizedStructureConfig.enabled && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">{normalizedStructureConfig.label}</label>
+                  <select
+                    value={activeLogStructureGroupId}
+                    onChange={(e) => handleLogStructureGroupChange(e.target.value)}
+                    className="w-full text-xs bg-white border border-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-semibold"
+                  >
+                    {normalizedStructureConfig.groups.map((group) => (
+                      <option key={group.id} value={group.id}>{group.name}</option>
+                    ))}
+                  </select>
+                  <div className="mt-1 text-[10px] text-slate-400">Danh sách Tầng bên dưới chỉ hiện trong {normalizedStructureConfig.label} đã chọn.</div>
+                </div>
+              )}
 
               {/* Dynamic Team selection with Auto-fill */}
               <div>
