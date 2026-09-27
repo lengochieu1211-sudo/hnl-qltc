@@ -33,11 +33,13 @@ import { assertSafeExcelImportFile, parseExcelNumberRecord, parseExcelStringArra
 import { UserRole, canManageMaterialNorms, canImportData } from '../utils/securityUtils';
 
 import { QuickSortBar } from './QuickSortBar';
+import { CatalogTemplatePickerModal } from './CatalogTemplatePickerModal';
 
 interface MaterialNormModalProps {
   isOpen: boolean;
   userRole: UserRole;
   roleResolved: boolean;
+  currentProjectId?: string;
   onClose: () => void;
   materialNorms: MaterialNorm[];
   onAddNorm: (norm: Omit<MaterialNorm, 'id'>) => void;
@@ -77,6 +79,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   isOpen,
   userRole,
   roleResolved,
+  currentProjectId,
   onClose,
   materialNorms,
   onAddNorm,
@@ -99,6 +102,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   useFormatSettings();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedNormIds, setSelectedNormIds] = useState<string[]>([]);
+  const [showNormTemplatePicker, setShowNormTemplatePicker] = useState(false);
   
   const workCategoriesList = React.useMemo(() => {
     const list = new Set<string>();
@@ -868,13 +872,22 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                 />
               </div>
               {hasManageAccess && (
-                <button
-                  onClick={handleOpenAdd}
-                  className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold shadow transition-all shrink-0 active:scale-95"
-                >
-                  <Plus className="w-4 h-4" />
-                  Thêm định mức
-                </button>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <button
+                    onClick={() => setShowNormTemplatePicker(true)}
+                    className="flex items-center gap-1 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95"
+                  >
+                    <BookOpen className="w-4 h-4" />
+                    Lấy từ công trình khác
+                  </button>
+                  <button
+                    onClick={handleOpenAdd}
+                    className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold shadow transition-all active:scale-95"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Thêm định mức
+                  </button>
+                </div>
               )}
             </div>
 
@@ -1332,6 +1345,96 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
           </form>
         )}
       </div>
+
+      <CatalogTemplatePickerModal
+        open={showNormTemplatePicker}
+        onClose={() => setShowNormTemplatePicker(false)}
+        currentProjectId={currentProjectId}
+        kind="materialNorms"
+        title="Lấy Định mức vật tư từ công trình khác"
+        onImport={async (rows) => {
+          if (!hasManageAccess || !onImportNorms) return;
+          const targetWorksByName = new Map(activeWorkVolumes.map((work) => [String(work.title || '').trim().toLocaleLowerCase('vi-VN'), work] as const));
+          const merged = [...activeMaterialNorms];
+          const skipped: string[] = [];
+          let changed = false;
+
+          for (const row of rows) {
+            const source = row.item as MaterialNorm;
+            const sourceNames = Array.from(new Set([
+              ...(Array.isArray(source.workCategories) ? source.workCategories : []),
+              ...(source.workCategory ? [source.workCategory] : []),
+            ].map((name) => String(name || '').trim()).filter(Boolean)));
+            const missingNames = sourceNames.filter((name) => !targetWorksByName.has(name.toLocaleLowerCase('vi-VN')));
+            if (missingNames.length) {
+              skipped.push(`${source.materialName}: thiếu Hạng mục ${missingNames.join(', ')}`);
+              continue;
+            }
+
+            const targetWorks = sourceNames.map((name) => targetWorksByName.get(name.toLocaleLowerCase('vi-VN'))!).filter(Boolean);
+            const targetIds = targetWorks.map((work) => String(work.workCategoryId || work.id));
+            const normalizedUnit = normalizeUnit(source.unit) || source.unit;
+            const existingIndex = merged.findIndex((norm) =>
+              norm.materialName.trim().toLocaleLowerCase('vi-VN') === String(source.materialName || '').trim().toLocaleLowerCase('vi-VN')
+              && (normalizeUnit(norm.unit) || norm.unit) === normalizedUnit
+            );
+
+            const remappedNormsById: Record<string, number> = {};
+            targetWorks.forEach((work) => {
+              const name = String(work.title || '').trim();
+              const sourceIdIndex = sourceNames.findIndex((candidate) => candidate.toLocaleLowerCase('vi-VN') === name.toLocaleLowerCase('vi-VN'));
+              const sourceId = sourceIdIndex >= 0 ? source.workCategoryIds?.[sourceIdIndex] : undefined;
+              const value = source.workCategoryNorms?.[name]
+                ?? (sourceId ? source.workCategoryNormsById?.[sourceId] : undefined)
+                ?? source.unitNormPerM2;
+              if (value !== undefined && Number.isFinite(Number(value))) remappedNormsById[String(work.workCategoryId || work.id)] = Number(value);
+            });
+
+            if (existingIndex >= 0) {
+              const existing = merged[existingIndex];
+              const names = Array.from(new Set([...(existing.workCategories || (existing.workCategory ? [existing.workCategory] : [])), ...sourceNames]));
+              const ids = Array.from(new Set([...(existing.workCategoryIds || (existing.workCategoryId ? [existing.workCategoryId] : [])), ...targetIds]));
+              merged[existingIndex] = {
+                ...existing,
+                workCategories: names,
+                workCategoryIds: ids,
+                workCategory: names[0],
+                workCategoryId: ids[0],
+                workCategoryNorms: { ...(existing.workCategoryNorms || {}), ...(source.workCategoryNorms || {}) },
+                workCategoryNormsById: { ...(existing.workCategoryNormsById || {}), ...remappedNormsById },
+                unitNormPerM2: existing.unitNormPerM2 ?? source.unitNormPerM2,
+                notes: [existing.notes, source.notes].filter(Boolean).join(' · '),
+                updatedAt: Date.now(),
+              };
+              changed = true;
+            } else {
+              const id = createEntityId('norm-template');
+              merged.push({
+                ...source,
+                id,
+                materialId: resolveNormMaterialId({ id, materialName: source.materialName, unit: normalizedUnit }),
+                unit: normalizedUnit,
+                workCategories: sourceNames,
+                workCategoryIds: targetIds,
+                workCategory: sourceNames[0],
+                workCategoryId: targetIds[0],
+                workCategoryNormsById: remappedNormsById,
+                quotaQuantity: 0,
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                revision: 1,
+                deletedAt: null,
+              });
+              changed = true;
+            }
+          }
+
+          if (skipped.length) {
+            alert('Một số định mức chưa được lấy vì công trình hiện tại chưa có Hạng mục tương ứng:\n' + skipped.map((item) => '• ' + item).join('\n') + '\n\nHãy lấy Hạng mục thi công trước, sau đó lấy lại Định mức.');
+          }
+          if (changed) onImportNorms(merged);
+        }}
+      />
 
       {/* Delete Confirmation Modal Overlay */}
       {hasManageAccess && deletingNormTarget && (
