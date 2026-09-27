@@ -102,6 +102,18 @@ export interface FloorPlan {
   imageDisplayRevision?: number;
   imageDisplaySource?: 'memory' | 'cache' | 'cloud' | 'legacy' | 'remote-url' | string;
   imageOfflineStale?: boolean;
+  /**
+   * Optional mapping from the immutable DXF coordinate space to the currently displayed
+   * floor-plan image. Legacy/CAD-native floors default to the full 0..100 canvas.
+   */
+  cadAlignment?: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+    rotation: 0 | 90 | 180 | 270;
+    updatedAt?: number;
+  };
   storagePath?: string;
   thumbnailPath?: string;
   storageMd5Hash?: string;
