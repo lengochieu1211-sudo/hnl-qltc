@@ -1157,22 +1157,18 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
             const source = row.item as WorkVolume;
             const key = `${String(source.title || '').trim().toLocaleLowerCase('vi-VN')}|${normalizeUnit(source.unit) || source.unit}`;
             if (!source.title || existingKeys.has(key)) continue;
-            const matchingFloorIds = (source.floorIds || [])
-              .map((sourceId) => {
-                const sourceName = String((source as any).floorNamesById?.[sourceId] || '').trim();
-                return sourceName ? floorPlans.find((floor) => floor.floorName.trim().toLocaleLowerCase('vi-VN') === sourceName.toLocaleLowerCase('vi-VN'))?.id : undefined;
-              })
-              .filter((id): id is string => Boolean(id));
+            // A copied catalog item is independent from the source project. Source floor IDs
+            // are never valid in the target project, so start it on the target fallback floor only.
             const fallbackFloor = floorPlans[0];
+            const targetFloorIds = fallbackFloor ? [fallbackFloor.id] : [];
             const id = createEntityId('work-template');
             imported.push({
               ...source,
               id,
               workCategoryId: id,
-              floorIds: matchingFloorIds.length ? matchingFloorIds : (fallbackFloor ? [fallbackFloor.id] : []),
-              floor: matchingFloorIds.length
-                ? matchingFloorIds.map((floorId) => floorPlans.find((floor) => floor.id === floorId)?.floorName).filter(Boolean).join(', ')
-                : (fallbackFloor?.floorName || ''),
+              floorId: targetFloorIds[0],
+              floorIds: targetFloorIds,
+              floor: fallbackFloor?.floorName || '',
               planned: 0,
               actual: 0,
               unitPrice: 0,

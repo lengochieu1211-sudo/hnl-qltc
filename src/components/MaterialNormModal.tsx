@@ -1354,7 +1354,12 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
         title="Lấy Định mức vật tư từ công trình/mẫu"
         onImport={async (rows) => {
           if (!hasManageAccess || !onImportNorms) return;
-          const targetWorksByName = new Map<string, WorkVolume>(activeWorkVolumes.map((work) => [String(work.title || '').trim().toLocaleLowerCase('vi-VN'), work] as [string, WorkVolume]));
+          const targetWorksByName = new Map<string, WorkVolume[]>();
+          activeWorkVolumes.forEach((work) => {
+            const key = String(work.title || '').trim().toLocaleLowerCase('vi-VN');
+            if (!key) return;
+            targetWorksByName.set(key, [...(targetWorksByName.get(key) || []), work]);
+          });
           const merged = [...activeMaterialNorms];
           const skipped: string[] = [];
           let changed = false;
@@ -1365,13 +1370,24 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               ...(Array.isArray(source.workCategories) ? source.workCategories : []),
               ...(source.workCategory ? [source.workCategory] : []),
             ].map((name) => String(name || '').trim()).filter(Boolean)));
-            const missingNames = sourceNames.filter((name) => !targetWorksByName.has(name.toLocaleLowerCase('vi-VN')));
-            if (missingNames.length) {
-              skipped.push(`${source.materialName}: thiếu Hạng mục ${missingNames.join(', ')}`);
+            const targetWorks: WorkVolume[] = [];
+            const unresolvedNames: string[] = [];
+            sourceNames.forEach((name) => {
+              const candidates = targetWorksByName.get(name.toLocaleLowerCase('vi-VN')) || [];
+              const uniqueByCanonicalId = Array.from(new Map(
+                candidates.map((work) => [String(work.workCategoryId || work.id), work] as [string, WorkVolume]),
+              ).values());
+              if (uniqueByCanonicalId.length !== 1) {
+                unresolvedNames.push(`${name}${uniqueByCanonicalId.length > 1 ? ' (trùng tên)' : ' (không có)'}`);
+                return;
+              }
+              targetWorks.push(uniqueByCanonicalId[0]);
+            });
+            if (unresolvedNames.length) {
+              skipped.push(`${source.materialName}: Hạng mục ${unresolvedNames.join(', ')}`);
               continue;
             }
 
-            const targetWorks = sourceNames.map((name) => targetWorksByName.get(name.toLocaleLowerCase('vi-VN'))!).filter(Boolean);
             const targetIds = targetWorks.map((work) => String(work.workCategoryId || work.id));
             const normalizedUnit = normalizeUnit(source.unit) || source.unit;
             const existingIndex = merged.findIndex((norm) =>
@@ -1430,7 +1446,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
           }
 
           if (skipped.length) {
-            alert('Một số định mức chưa được lấy vì công trình hiện tại chưa có Hạng mục tương ứng:\n' + skipped.map((item) => '• ' + item).join('\n') + '\n\nHãy lấy Hạng mục thi công trước, sau đó lấy lại Định mức.');
+            alert('Một số định mức chưa được lấy vì Hạng mục ở công trình hiện tại đang thiếu hoặc trùng tên nên không thể remap an toàn:\n' + skipped.map((item) => '• ' + item).join('\n') + '\n\nHãy bổ sung hoặc làm rõ Hạng mục thi công, sau đó lấy lại Định mức.');
           }
           if (changed) onImportNorms(merged);
         }}
