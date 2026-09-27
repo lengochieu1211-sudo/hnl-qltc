@@ -7,6 +7,7 @@ const floor = fs.readFileSync('src/components/FloorPlanDefectTab.tsx', 'utf8');
 const crew = fs.readFileSync('src/components/CrewTabBase.tsx', 'utf8');
 const warehouse = fs.readFileSync('src/components/WarehouseTab.tsx', 'utf8');
 const volume = fs.readFileSync('src/components/WorkVolumeTab.tsx', 'utf8');
+const projectManager = fs.readFileSync('src/components/ProjectManagerModal.tsx', 'utf8');
 const dxf = fs.readFileSync('src/utils/dxfRoomDetection.ts', 'utf8');
 const pdfRoomDetection = fs.readFileSync('src/utils/pdfRoomDetection.ts', 'utf8');
 
@@ -27,6 +28,9 @@ assert.match(quick, /\+ Dưới/, 'Quick grid must support inserting rows below 
 assert.match(quick, /deletedRows/, 'Quick grid must stage row deletions until Save');
 assert.match(quick, /canDeleteRows/, 'Quick grid must expose module-controlled multi-row deletion');
 assert.match(quick, /syncGroupColumns/, 'Quick grid must support synchronized shared fields for grouped rows');
+assert.match(quick, /sticky top-0 left-0 z-50/, 'Quick grid select-all corner must be pinned on both axes');
+assert.match(quick, /sticky top-0 z-30 bg-slate-200/, 'Each Quick Edit header cell must own vertical sticky positioning');
+assert.doesNotMatch(quick, /<thead className="sticky top-0/, 'Quick Edit must avoid nested sticky thead/header composition that makes the checkbox drift');
 
 assert.match(excel, /Xuất Excel để chỉnh sửa/, 'Excel menu must be editing-oriented');
 assert.match(excel, /Nhập Excel đã chỉnh sửa/, 'Excel menu must contain round-trip import');
@@ -63,6 +67,9 @@ assert.match(floor, /aria-invalid=\{!isSmartPdfNamePatternValid\}/, 'Advanced PD
 assert.doesNotMatch(pdfRoomDetection, /\(\?=\.\*/, 'Default room-name regex should avoid the hard-to-read lookahead form reported on mobile');
 assert.match(floor, /Tạo Căn \/ Phòng từ DXF/, 'DXF import must retain an explicit review/apply path');
 assert.match(floor, /Không ghi đè Căn \/ Phòng đã tồn tại/, 'DXF import must protect existing room highlights');
+assert.match(floor, /Lấy mặt bằng trực tiếp từ DXF/, 'DXF review must offer CAD-background materialization');
+assert.match(floor, /cadSource:/, 'Saved DXF room highlights must retain immutable CAD geometry for later alignment');
+assert.match(floor, /syncGroupColumns=\{quickEditMode === 'rooms'/, 'Room quick edit must synchronize shared room fields across child rows');
 assert.match(floor, /Quản lý Khu\/Khối & Tầng[\s\S]*grid grid-cols-2 gap-2 sm:grid-cols-\[160px_160px\][\s\S]*Bảng chỉnh nhanh[\s\S]*fillWidth/, 'Floor bulk edit actions must stay balanced on mobile and desktop');
 const acceptanceSection = floor.slice(floor.indexOf('Nghiệm thu từng Căn / Phòng'), floor.indexOf('Quick Sort Controls'));
 assert.doesNotMatch(acceptanceSection, /Thêm Căn \/ Phòng/, 'Acceptance section must not duplicate the add-room action');
@@ -84,6 +91,8 @@ assert.match(crew, /w-full sm:w-auto min-h-10 bg-emerald-600/, 'Team-detail Exce
 assert.match(crew, /selectedLogStructureGroupId/, 'Crew entry must expose an explicit Khu/Khối selection state');
 assert.match(crew, /Danh sách Tầng bên dưới chỉ hiện trong/, 'Crew entry must explain that floor choices are filtered by Khu/Khối');
 assert.match(crew, /key: 'structureGroup'/, 'Crew quick edit must include a Khu/Khối column');
+assert.match(crew, /__groupPrimary: floorIndex === 0 && categoryIndex === 0/, 'Crew quick edit must use one representative row for shared journal fields');
+assert.match(crew, /syncGroupColumns=\{quickEditMode === 'logs'/, 'Crew child rows must stay synchronized with representative shift/date/team values');
 assert.match(crew, /Tầng không thuộc Khu\/Khối này/, 'Crew quick edit must reject floor/group mismatches');
 assert.match(crew, /grid grid-cols-2 gap-2 sm:grid-cols-\[160px_160px\] sm:justify-start/, 'Crew bulk-edit actions must use equal-width mobile and desktop columns');
 assert.ok(
@@ -105,6 +114,7 @@ assert.match(warehouse, /key: 'materialName'.*__groupPrimary/, 'Only the grouped
 assert.match(warehouse, /key: 'category'.*__groupPrimary/, 'Only the grouped primary row may edit the shared material group');
 assert.match(warehouse, /key: 'unit'.*__groupPrimary/, 'Only the grouped primary row may edit the shared material unit');
 assert.match(warehouse, /key: 'generalNorm'.*__groupPrimary/, 'Only the grouped primary row may edit the shared general norm');
+assert.match(warehouse, /Khối lượng định mức \(tự tính\).*editable: false/, 'Derived material quota must be read-only in Quick Edit');
 assert.match(warehouse, /syncGroupColumns=\{quickEditMode === 'norms'/, 'Grouped norm rows must synchronize shared edits across child rows');
 assert.match(warehouse, /workCategoryNormsById/, 'Warehouse norm quick edit must persist per-work-category norms in the existing ID map');
 assert.match(warehouse, /Không thể đổi ĐVT/, 'Quick norm edit must block unsafe unit changes when warehouse history exists');
@@ -128,6 +138,13 @@ assert.match(dxf, /\$EXTMIN/, 'DXF detector must prefer drawing extents for alig
 assert.match(dxf, /readHatchBoundaryShapes/, 'DXF detector must parse all HATCH boundary paths, not only the first loop');
 assert.match(dxf, /alignedX/, 'DXF TEXT reader must honor justified alignment point 11\/21');
 assert.match(dxf, /measurement/, 'DXF room-name selection must de-prioritize area/measurement labels');
+
+assert.match(projectManager, /Tạo từ mẫu công trình/, 'Project creation must expose template-based creation');
+assert.match(projectManager, /templateSourceProjectId/, 'Template creation must allow choosing another accessible project as source');
+assert.match(projectManager, /workVolumes: templateCopyOptions\.workVolumes \? templateWorkVolumes : \[\]/, 'Template clone must include work-category catalog when selected');
+assert.match(projectManager, /materialNorms: templateCopyOptions\.materialNorms/, 'Template clone must include material norms without warehouse transactions');
+assert.match(projectManager, /inventory: \[\]/, 'Template clone must never copy warehouse transaction history');
+assert.match(projectManager, /saveProjectSharedSettings\(newProjectId, \{ structure: templateSourceStructure \}\)/, 'Template clone must preserve Khu/Khối structure settings');
 
 console.log('Quick Edit + Excel + DXF Golden: PASS');
 
