@@ -417,6 +417,8 @@ interface PendingDxfRoomImport {
   unitLabel: string;
   warnings: string[];
   candidates: PendingDxfReviewCandidate[];
+  floorPlanSvgDataUrl?: string;
+  useCadFloorPlan?: boolean;
 }
 
 
@@ -3209,6 +3211,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       createFloor: Boolean(target.createFloor),
       fileName: file.name,
       unitLabel: result.unitLabel,
+      floorPlanSvgDataUrl: result.floorPlanSvgDataUrl,
+      useCadFloorPlan: Boolean(result.floorPlanSvgDataUrl),
       warnings: [
         ...result.warnings,
         ...(candidates.some((candidate) => !candidate.hasDetectedName)
@@ -3236,7 +3240,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       id: pendingDxfImport.floorId,
       floorName: pendingDxfImport.floorName,
       structureGroupId: pendingDxfImport.structureGroupId,
-      imageUrl: '',
+      imageUrl: pendingDxfImport.useCadFloorPlan ? (pendingDxfImport.floorPlanSvgDataUrl || '') : '',
       uploadedAt: new Date().toISOString().split('T')[0],
     } : null);
     if (!floor) {
@@ -3321,7 +3325,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     );
     if (!confirmed) return;
 
-    if (pendingDxfImport.createFloor && !existingFloor) onAddFloorPlan(floor);
+    if (pendingDxfImport.createFloor && !existingFloor) {
+      onAddFloorPlan(floor);
+    } else if (existingFloor && pendingDxfImport.useCadFloorPlan && pendingDxfImport.floorPlanSvgDataUrl && !existingFloor.imageUrl && onUpdateFloorPlanImage) {
+      await onUpdateFloorPlanImage(existingFloor.id, pendingDxfImport.floorPlanSvgDataUrl);
+    }
     if (onCreateMultipleRoomProgress) onCreateMultipleRoomProgress(newRooms);
     else newRooms.forEach((room) => onSaveRoomProgress(room));
     setSelectedFloorId(floor.id);
@@ -3337,7 +3345,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         id: pendingDxfImport.floorId,
         floorName: pendingDxfImport.floorName,
         structureGroupId: pendingDxfImport.structureGroupId,
-        imageUrl: '',
+        imageUrl: pendingDxfImport.useCadFloorPlan ? (pendingDxfImport.floorPlanSvgDataUrl || '') : '',
         uploadedAt: new Date().toISOString().split('T')[0],
       });
     }
@@ -9526,7 +9534,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   className="w-full text-xs text-slate-500 file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                 />
                 <p className="text-slate-500 text-[10px] mt-1 leading-relaxed">
-                  DXF sẽ nhận diện HATCH/Polyline + TEXT/MTEXT và mở màn hình kiểm tra trước khi tạo tầng/Căn. DXF không tạo ảnh nền; có thể tải ảnh/PDF mặt bằng sau.
+                  DXF sẽ nhận diện HATCH/Polyline + TEXT/MTEXT và mở màn hình kiểm tra. Có thể chọn lấy luôn mặt bằng CAD từ DXF; nền CAD và highlight dùng chung hệ tọa độ nên khớp ngay.
                 </p>
                 {isUploadingPlan && <p className="text-blue-600 text-[11px] mt-1">Đang xử lý bản vẽ...</p>}
               </div>
