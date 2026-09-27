@@ -513,4 +513,26 @@ for (const required of [
 ]) if (!exists(required)) fail(`required migration/golden artifact missing: ${required}`);
 pass('migration audit + Golden/Rules tooling present');
 
+requireAll(firebaseBase, [
+  'DISCOVERY_VERIFICATION_CACHE_MS = 5_000',
+  'discoveryProjectCache.get(cacheKey)',
+  'initialDiscoverySources',
+  'scheduleDiscoveryEmit',
+  'initial-sources-ready',
+], 'Firestore project discovery read coalescing');
+requireAll(app, [
+  'verifiedOfflineSnapshotLastSavedAtRef',
+  'verifiedOfflineSnapshotProjectRef',
+  'minSnapshotIntervalMs = 30_000',
+  'Math.max(1_200, minSnapshotIntervalMs - elapsed)',
+], 'verified offline full-snapshot write throttle');
+const bootstrapExistingCloudStart = app.indexOf('if (roleInfo.allowed || roleInfo.isCloudSynced)');
+const bootstrapCreateStart = app.indexOf('const payload = buildCloudProjectPayload()', bootstrapExistingCloudStart);
+if (bootstrapExistingCloudStart < 0 || bootstrapCreateStart < 0) fail('Cloud project bootstrap branches missing');
+const existingCloudBootstrapBranch = app.slice(bootstrapExistingCloudStart, bootstrapCreateStart);
+if (existingCloudBootstrapBranch.includes('setCloudBootstrapVersion')) fail('Existing Cloud project bootstrap must not force realtime listener rebind');
+if (app.includes('Global project discovery refresh warning:')) fail('App startup must not run a redundant manual project-discovery server pass');
+if (!app.includes('subscribeCurrentUserProjectsRealtime already consumes/verifies invitation/index')) fail('Startup project-discovery dedupe marker missing');
+pass('PROD read amplification + full-snapshot stall guards retained');
+
 console.log('STABILITY GATE PASS – V6.3.0 Firebase-only RC architecture');
