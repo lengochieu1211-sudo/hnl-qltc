@@ -44,8 +44,8 @@ assert.match(appSource, /Warm primary field screens after first paint without fl
 assert.match(appSource, /nextTimer = window\.setTimeout\(next, 260\)/, 'primary lazy tabs must warm sequentially instead of creating a desktop parse burst');
 assert.match(appSource, /navigationRequestRef/, 'rapid primary navigation must coalesce stale heavy-screen transitions');
 assert.match(appSource, /navigationCommitTimerRef/, 'rapid primary navigation must debounce heavy-screen commits during continuous taps');
-assert.match(appSource, /commitDelayMs = rapidMode \? 110 : 24/, 'single navigation must retain a fast path while rapid taps keep a bounded quiet window');
-assert.match(appSource, /rapidTap = sinceLastRequest < 220/, 'rapid navigation mode must be driven by actual tap cadence');
+assert.match(appSource, /commitDelayMs = rapidMode \? 36 : 0/, 'single navigation must be immediate while rapid taps keep only a short coalescing window');
+assert.match(appSource, /rapidTap = sinceLastRequest < 120/, 'rapid navigation mode must be driven by actual fast tap cadence');
 const navigationCoordinator = appSource.slice(appSource.indexOf('const navigateToTab'), appSource.indexOf('// Warm primary field screens'));
 assert.doesNotMatch(navigationCoordinator, /React\.startTransition/, 'settled rapid navigation commit must not remain transition-delayed');
 
