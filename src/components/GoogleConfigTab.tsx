@@ -51,6 +51,7 @@ import { HealthCenterPanel } from '../healthCenter/HealthCenterPanel';
 import { SettingsAccordionCard } from './SettingsAccordionCard';
 import { WindowsDesktopSyncBridgeCard } from './WindowsDesktopSyncBridgeCard';
 import { ProjectOfflineMirrorCard } from './ProjectOfflineMirrorCard';
+import { CatalogTemplateManager } from './CatalogTemplateManager';
 import {
   createStructureGroupId,
   normalizeStructureGroupConfig,
@@ -869,6 +870,19 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           </div>
         </SettingsAccordionCard>
       )}
+
+      <SettingsAccordionCard
+        id="catalog-template-manager-card"
+        icon={Layers3}
+        iconClassName="text-indigo-600"
+        title="Quản lý mẫu"
+        description="Mẫu cá nhân: Đội thi công, Hạng mục thi công, Định mức vật tư, Vật tư và Thiết bị."
+        badge="Theo tài khoản Google"
+        badgeClassName="border-indigo-100 bg-indigo-50 text-indigo-700"
+        bodyClassName="p-0"
+      >
+        <CatalogTemplateManager />
+      </SettingsAccordionCard>
 
       {/* APP FORMATTING PREFERENCES CARD */}
       <SettingsAccordionCard

@@ -27,7 +27,7 @@ assert.match(panelSource, /entityType === 'room'[\s\S]*qlct_diagnostic_navigatio
 assert.match(floorSource, /HEALTH_CENTER_ROOM_OPEN/);
 assert.match(configSource, /HNL Health Center/);
 assert.match(configSource, /Trạng thái hệ thống & đồng bộ/);
-assert.match(navSource, /setActiveTab\('config'\)[\s\S]*\{t\('config'\)\}/);
+assert.match(navSource, /activate\('config'\)[\s\S]*\{t\('config'\)\}/);
 assert.match(roomModalSource, /Hạng mục mồ côi cần xử lý/);
 assert.match(roomModalSource, /Gán lại hạng mục/);
 assert.match(roomModalSource, /availableWorkCategories = React\.useMemo\(\(\) => projectWorkCategoryTitles/);

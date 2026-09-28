@@ -248,7 +248,7 @@ requireAll(configTab, ['HNL Health Center', 'Trạng thái hệ thống & đồn
 requireAll(healthCenterPanelBase, ['Xuất &amp; chia sẻ chẩn đoán', 'Xuất JSON', 'Xuất Excel', 'Copy chẩn đoán', 'Xóa log chẩn đoán cũ', 'Xử lý hạng mục'], 'Health Center keeps one compact combined export area at the bottom');
 if (['Audit PDF', 'Chẩn đoán hệ thống JSON', 'onExportSystemDiagnostics', 'onCopySystemDiagnostics'].some((marker) => healthCenterPanelBase.includes(marker))) fail('Health Center duplicate/PDF export controls must stay removed');
 requireAll(fileExport, ['saveTextFileToDownloads', "'downloads'", 'finishTextFile'], 'Android diagnostics direct Download/QLTC export avoids zero-byte picker provider');
-requireAll(bottomNav, ["{t('config')}", "setActiveTab('config')"], 'More menu keeps original Cấu hình entry; Health Center lives inside Config');
+requireAll(bottomNav, ["{t('config')}", "activate('config')"], 'More menu keeps original Cấu hình entry through the responsive navigation helper; Health Center lives inside Config');
 requireAll(roomHighlight, ['Hạng mục mồ côi cần xử lý', 'Gán lại hạng mục', 'projectWorkCategoryTitles', '⚠️ Đã xóa: {catName} — chọn hạng mục mới', 'focusOrphanRepair'], 'room editor exposes deterministic orphan repair and excludes deleted categories from normal dropdown');
 requireAll(runtimeDiagnostics, ['MAX_ENTRIES = 200', 'clearRuntimeDiagnostics', 'redacted-api-key', 'Bearer [redacted]'], 'runtime diagnostics retains useful history and redacts secrets');
 pass('photo gallery no longer clears synced metadata on initial auth emission; camera input waits for non-empty MediaStore bytes');
