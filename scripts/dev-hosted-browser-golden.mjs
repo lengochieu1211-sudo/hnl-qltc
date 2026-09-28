@@ -70,18 +70,22 @@ async function waitForSettingsSheet(page, sheetKey, visible) {
 
 async function verifyRapidPrimaryNavigation(page, label) {
   const viewport = page.viewportSize();
-  if (!viewport || viewport.width < 1024) return;
+  if (!viewport) return;
+  const desktopLike = viewport.width >= 1024;
 
-  const result = await page.evaluate(async () => {
+  const result = await page.evaluate(async ({ desktopLike }) => {
     const main = document.querySelector('main[data-hnl-active-tab]');
     if (!main) throw new Error('Main navigation diagnostic surface missing');
 
-    const preferred = ['home', 'floorplan', 'crew', 'warehouse', 'volume', 'chat', 'ai', 'config'];
+    const preferred = desktopLike
+      ? ['home', 'floorplan', 'crew', 'warehouse', 'volume', 'chat', 'ai', 'config']
+      : ['home', 'floorplan', 'crew', 'warehouse'];
     const available = preferred.filter((tab) => {
       const button = document.querySelector(`button[data-hnl-nav-tab="${tab}"]`);
       return button && getComputedStyle(button).display !== 'none' && button.getClientRects().length > 0;
-    });
-    if (available.length < 6) throw new Error(`Not enough visible desktop nav tabs for rapid-switch test: ${available.join(',')}`);
+    }, { desktopLike });
+    const minimum = desktopLike ? 6 : 4;
+    if (available.length < minimum) throw new Error(`Not enough visible primary nav tabs for rapid-switch test: ${available.join(',')}`);
 
     const commits = [];
     const targets = [];
@@ -129,7 +133,7 @@ async function verifyRapidPrimaryNavigation(page, label) {
   const maxTargetLatency = Math.max(...result.targetLatencies.map((entry) => entry.ms));
   assert(maxTargetLatency <= 300, `${label}: rapid navigation target feedback exceeded 300ms (${maxTargetLatency.toFixed(1)}ms)`);
   const intermediateCommits = result.commits.filter((tab) => tab && tab !== result.finalTab);
-  assert(intermediateCommits.length <= 2, `${label}: too many heavy intermediate tabs committed during rapid navigation — ${JSON.stringify(result.commits)}`);
+  assert(intermediateCommits.length === 0, `${label}: intermediate heavy tabs mounted during rapid navigation — ${JSON.stringify(result.commits)}`);
   pass(`${label} rapid primary navigation last-click-wins`, `${result.available.length} tabs · max target ${maxTargetLatency.toFixed(1)}ms · commits ${result.commits.join('→') || 'final-only'}`);
 }
 
