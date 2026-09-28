@@ -371,6 +371,8 @@ function AuthenticatedApp() {
   const isDesktopRuntime = typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('app') === 'desktop';
   const [activeTab, setActiveTab] = useState<TabType>(getRememberedTab);
+  const activeTabRef = useRef<TabType>(activeTab);
+  activeTabRef.current = activeTab;
 
   useEffect(() => {
     try { sessionStorage.setItem('qlct_active_tab_v1', activeTab); } catch (_) {}
@@ -501,14 +503,14 @@ function AuthenticatedApp() {
   }, []);
 
   // Lightweight presence heartbeat for the currently opened project only.
-  // No typed text or business payload is sent; hidden/background clients naturally
-  // become inactive after the UI timeout because heartbeat writes stop.
+  // Keep the listener/interval stable while switching tabs; recreating it on every
+  // rapid navigation caused avoidable teardown + Firestore writes on DEV.
   useEffect(() => {
     if (!isOnline || !isProjectRoleResolved || !projectRoleAllowed || !activeProjectId) return;
     let disposed = false;
     const touchPresence = () => {
       if (disposed || document.visibilityState === 'hidden') return;
-      void updateProjectPresence(activeProjectId, activeTab, currentUserRole).catch((err) =>
+      void updateProjectPresence(activeProjectId, activeTabRef.current, currentUserRole).catch((err) =>
         console.warn('Project presence heartbeat warning:', err)
       );
     };
@@ -526,7 +528,21 @@ function AuthenticatedApp() {
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [activeProjectId, activeTab, currentUserRole, isOnline, isProjectRoleResolved, projectRoleAllowed]);
+  }, [activeProjectId, currentUserRole, isOnline, isProjectRoleResolved, projectRoleAllowed]);
+
+  // Publish the latest tab after rapid navigation settles without rebuilding the
+  // long-lived presence heartbeat/listeners for each intermediate tap.
+  useEffect(() => {
+    if (!isOnline || !isProjectRoleResolved || !projectRoleAllowed || !activeProjectId) return;
+    const projectId = activeProjectId;
+    const timer = window.setTimeout(() => {
+      if (document.visibilityState === 'hidden' || activeProjectIdRef.current !== projectId) return;
+      void updateProjectPresence(projectId, activeTabRef.current, currentUserRole).catch((err) =>
+        console.warn('Project presence tab update warning:', err)
+      );
+    }, 280);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, activeProjectId, currentUserRole, isOnline, isProjectRoleResolved, projectRoleAllowed]);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -2419,7 +2435,10 @@ function AuthenticatedApp() {
         await new Promise((resolve) => window.setTimeout(resolve, 80));
       }
     };
-    const timer = window.setTimeout(run, 350);
+    // A rapid multi-tab gesture should not start large floor-plan binary work for a
+    // screen the user only passed through. Normal floor-plan entry still starts well
+    // under one second and local/cached drawings render immediately from current state.
+    const timer = window.setTimeout(run, 520);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
@@ -3768,20 +3787,23 @@ function AuthenticatedApp() {
     isProjectRoleResolved,
   ]);
 
-  // Photo metadata is realtime; binary image chunks are downloaded lazily only when an image is displayed.
-  // This keeps multi-device image sync complete without loading every photo into phone RAM at startup.
+  // Photo metadata is realtime; binary image chunks are still downloaded lazily only
+  // when displayed. Keep one project-scoped metadata subscription alive across primary
+  // tab switches so rapid Floor Plan/Crew/Chat navigation does not unsubscribe/resubscribe.
   useEffect(() => {
-    const photoTabActive = activeTab === 'floorplan' || activeTab === 'crew' || activeTab === 'chat';
-    if (!photoTabActive || !isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed) {
+    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed) {
       setPhotoCloudStatus({ phase: 'idle', pending: 0 });
       return;
     }
     const projectId = activeProjectId;
     const unsubscribePhotos = subscribeProjectPhotosRealtime(projectId, (status) => {
-      if (activeProjectIdRef.current === projectId) setPhotoCloudStatus(status);
+      if (activeProjectIdRef.current !== projectId) return;
+      setPhotoCloudStatus((current) =>
+        current.phase === status.phase && current.pending === status.pending ? current : status
+      );
     });
     return () => unsubscribePhotos();
-  }, [activeProjectId, activeTab, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, isOnline, projectRoleSource, projectRoleAllowed]);
+  }, [activeProjectId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, isOnline, projectRoleSource, projectRoleAllowed]);
 
   const handleUpdateProjectName = (val: string) => {
     if (!isProjectRoleResolved || currentUserRole !== 'ADMIN') return;
