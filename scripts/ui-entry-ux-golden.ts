@@ -293,7 +293,8 @@ assert(appSource.includes('const preloadTab = React.useCallback') && appSource.i
 assert(appSource.includes('navigationRequestRef') && appSource.includes('requestId === navigationRequestRef.current'), 'Rapid navigation must invalidate stale tab transitions so the last click wins');
 assert(appSource.includes('navigationCommitTimerRef') && appSource.includes('window.setTimeout(() =>') && appSource.includes('}, 110);'), 'Rapid navigation must debounce heavy tab commits so intermediate screens are not mounted while the user keeps tapping');
 assert(appSource.includes('window.clearTimeout(navigationCommitTimerRef.current)'), 'Each newer navigation request must cancel the previous pending heavy-screen commit');
-assert(appSource.includes('React.startTransition') && appSource.includes('data-hnl-navigation-target'), 'Heavy tab rendering must be interruptible while the requested destination is shown immediately');
+const navigationCoordinator = appSource.slice(appSource.indexOf('const navigateToTab'), appSource.indexOf('// Warm primary field screens'));
+assert(!navigationCoordinator.includes('React.startTransition') && appSource.includes('data-hnl-navigation-target'), 'Settled heavy-tab commit must not be delayed by React transition scheduling while the requested destination is shown immediately');
 assert(appSource.includes('data-hnl-tab-switching="true"'), 'Rapid tab switching must replace the old heavy screen with a lightweight destination state');
 assert(!appSource.includes('loaders.forEach((loader)'), 'Navigation warming must not parse all heavy primary screens in parallel');
 assert(appSource.includes('nextTimer = window.setTimeout(next, 260)'), 'Background lazy warming must be staggered to avoid main-thread bursts');
