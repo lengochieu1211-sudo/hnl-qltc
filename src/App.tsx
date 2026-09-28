@@ -376,6 +376,19 @@ function AuthenticatedApp() {
     try { sessionStorage.setItem('qlct_active_tab_v1', activeTab); } catch (_) {}
   }, [activeTab]);
 
+  const preloadTab = React.useCallback((tab: TabType) => {
+    const loader = tab === 'floorplan' ? loadFloorPlanDefectTab
+      : tab === 'crew' ? loadCrewTab
+      : tab === 'warehouse' ? loadWarehouseTab
+      : tab === 'volume' ? loadWorkVolumeTab
+      : tab === 'config' ? loadGoogleConfigTab
+      : tab === 'checklist' ? loadChecklistTab
+      : tab === 'chat' ? loadChatTab
+      : tab === 'ai' ? loadAiAssistantPage
+      : null;
+    if (loader) void loader().catch(() => undefined);
+  }, []);
+
   // Warm the primary field screens after first paint so the first user tap does not
   // pay the full network + parse cost of a React.lazy chunk. Respect Data Saver.
   useEffect(() => {
@@ -7631,6 +7644,7 @@ function AuthenticatedApp() {
             activeTab={activeTab}
             forceDesktopRail={isDesktopRuntime}
             setActiveTab={setActiveTab}
+            onPreloadTab={preloadTab}
             defectBadgeCount={unhandledDefectsCount}
             chatBadgeCount={chatUnreadCount}
             showChecklist={showChecklistModule}
