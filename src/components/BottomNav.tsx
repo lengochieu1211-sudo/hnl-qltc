@@ -94,7 +94,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   return (
     <>
       {/* PC/Laptop: same light navigation language as the mobile bottom bar, moved to the left rail. */}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-[84px] flex-col border-r border-slate-200 bg-white text-slate-700 shadow-sm ${forceDesktopRail ? 'flex' : 'hidden lg:flex'}`}>
+      <aside data-hnl-nav-surface="desktop" className={`fixed inset-y-0 left-0 z-50 w-[84px] flex-col border-r border-slate-200 bg-white text-slate-700 shadow-sm ${forceDesktopRail ? 'flex' : 'hidden lg:flex'}`}>
         <nav className="flex flex-1 flex-col items-center gap-1 overflow-y-auto px-1.5 py-2 no-scrollbar" aria-label="Điều hướng chính HNL QLTC">
           {desktopTabs.map((tab) => {
             const Icon = tab.icon;
@@ -155,6 +155,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 
       {/* Phone/tablet: keep a thumb-friendly bottom bar. */}
       <div
+        data-hnl-nav-surface="mobile"
         className={`fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200 bg-white shadow-2xl ${forceDesktopRail ? 'hidden' : 'lg:hidden'}`}
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
@@ -195,7 +196,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 
           {showMore && (
             <div className="absolute right-2 w-56 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-2xl" style={{ bottom: 'calc(68px + env(safe-area-inset-bottom))' }}>
-              <button type="button" onPointerEnter={() => onPreloadTab?.('volume')} onPointerDown={() => previewTab('volume')} onClick={() => activate('volume')} style={navButtonStyle} className="flex w-full items-center gap-2 active:scale-[0.99] active:bg-slate-100 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+              <button type="button" data-hnl-nav-tab="volume" onPointerEnter={() => onPreloadTab?.('volume')} onPointerDown={() => previewTab('volume')} onClick={() => activate('volume')} style={navButtonStyle} className="flex w-full items-center gap-2 active:scale-[0.99] active:bg-slate-100 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
                 <BarChart3 className="h-4 w-4 text-blue-600" /> {t('volume')}
               </button>
               {showChecklist && (
