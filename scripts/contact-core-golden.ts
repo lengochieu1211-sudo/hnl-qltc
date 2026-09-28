@@ -42,6 +42,9 @@ const appSource = fs.readFileSync('src/App.tsx', 'utf8');
 assert.match(appSource, /qlct_active_tab_v1/, 'Web/mobile shell must remember the active primary tab across an unavoidable page recreation');
 assert.match(appSource, /Warm primary field screens after first paint/, 'primary lazy tabs must be warmed after first paint to reduce first-tap latency');
 assert.match(appSource, /desktopLike[\s\S]*loaders\.forEach\(\(loader\)/, 'desktop\/EXE must warm primary lazy tabs in parallel to reduce first-switch latency');
+assert.match(appSource, /setRenderedTab\(requestedTab\)[\s\S]*120[\s\S]*clearTimeout\(timer\)/, 'rapid primary navigation must cancel stale heavy mounts and commit only the settled tab');
+assert.match(appSource, /data-hnl-tab-switch-pending/, 'rapid primary navigation must show a lightweight switch shell instead of keeping the previous heavy screen visible');
+
 const showWebAppSection = desktopShell.slice(desktopShell.indexOf('internal void ShowWebApp()'), desktopShell.indexOf('private void InitializeEmbeddedWeb()'));
 assert.doesNotMatch(showWebAppSection, /Navigate\(Program\.BuildAppUrl\(\)\)/, 'Windows EXE must not re-navigate the WebView when returning from native home/tray');
 assert.match(appSource, /const securityModalProjects = React\.useMemo\(/, 'SecurityModal projects must stay referentially stable across Android VisualViewport keyboard renders');
