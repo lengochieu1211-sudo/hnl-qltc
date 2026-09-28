@@ -7118,7 +7118,12 @@ function AuthenticatedApp() {
         <OfflineSyncBanner onAutoSync={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleSyncAll : undefined} isSyncing={isSyncing} userRole={currentUserRole} roleResolved={isProjectRoleResolved} roleSource={projectRoleSource} firestorePendingWriteCount={firestorePendingWriteCount} firebaseOnly={FIREBASE_ONLY_RUNTIME} verifiedSnapshotFallback={businessDataSource === 'verified-offline-snapshot'} />
 
         {/* Tab Content */}
-        <main className="animate-in fade-in duration-150">
+        <main
+          className="animate-in fade-in duration-150"
+          data-hnl-active-tab={activeTab}
+          data-hnl-rendered-tab={renderedTab}
+          data-hnl-tab-switch-state={tabSwitchPending ? 'pending' : 'settled'}
+        >
           {tabSwitchPending && (
             <div
               data-hnl-tab-switch-pending
