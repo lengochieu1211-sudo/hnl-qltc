@@ -1882,7 +1882,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     <div className="pb-24 pt-4 px-4 w-full max-w-6xl mx-auto bg-slate-50 min-h-screen text-slate-800" id="crew-tab-container">
       
       {/* Sub-tab Navigation Selector */}
-      <div className="flex bg-slate-200 p-1.5 rounded-xl mb-4 shadow-sm lg:max-w-[560px]" id="crew-subtab-navigation">
+      <div className="flex bg-slate-200 p-1.5 rounded-xl mb-4 shadow-sm" id="crew-subtab-navigation">
         <button
           onClick={() => setActiveSubTab('logs')}
           className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-bold rounded-lg transition-all ${
@@ -1903,48 +1903,114 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
       {activeSubTab === 'logs' ? (
         <>
-          <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-4 lg:items-start">
-            <div className="min-w-0">
-          {/* Date controller. Khu/Khối is shown on each log/team card instead of a global filter. */}
-          <div className="mb-4 lg:max-w-[420px]">
-            <div className="flex items-center justify-between bg-white px-3 py-2.5 rounded-xl border border-slate-200 shadow-sm">
-            <button 
-              onClick={handlePrevDay}
-              className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition"
-              title="Ngày trước"
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-indigo-600" />
-              <input 
-                type="date"
-                value={selectedDate}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  const today = getTodayString();
-                  if (val > today) {
-                    alert('Không thể chọn quân số của ngày hôm sau!');
-                    setSelectedDate(today);
-                  } else {
-                    setSelectedDate(val);
-                  }
-                }}
-                max={getTodayString()}
-                className="hnl-crew-date-input font-bold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-0 cursor-pointer text-sm" aria-label="Chọn ngày quân số"
-              />
+          <div className="mb-4 grid grid-cols-2 gap-2 lg:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1fr)] lg:items-stretch">
+            <div className="col-span-2 lg:col-span-1">
+              <div className="flex h-10 items-center justify-between rounded-xl border border-slate-200 bg-white px-2.5 shadow-sm">
+                <button
+                  onClick={handlePrevDay}
+                  className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition"
+                  title="Ngày trước"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <div className="flex min-w-0 items-center justify-center gap-1.5">
+                  <Calendar className="w-4 h-4 shrink-0 text-indigo-600" />
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const today = getTodayString();
+                      if (val > today) {
+                        alert('Không thể chọn quân số của ngày hôm sau!');
+                        setSelectedDate(today);
+                      } else {
+                        setSelectedDate(val);
+                      }
+                    }}
+                    max={getTodayString()}
+                    className="hnl-crew-date-input min-w-0 bg-transparent text-sm font-bold text-slate-800 border-none focus:outline-none focus:ring-0 cursor-pointer"
+                    aria-label="Chọn ngày quân số"
+                  />
+                </div>
+                <button
+                  onClick={handleNextDay}
+                  className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition"
+                  title="Ngày tiếp theo"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
-            <button 
-              onClick={handleNextDay}
-              className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition"
-              title="Ngày tiếp theo"
+            {canOperate && (
+              <>
+                <button
+                  onClick={async () => {
+                    setEditingRecord(null);
+                    setShowAddLogModal(true);
+                  }}
+                  className="flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-900 px-3 text-xs font-bold text-white shadow-sm transition hover:bg-slate-800"
+                >
+                  <Plus className="w-4 h-4" /> Ghi nhận quân số
+                </button>
+                <button
+                  onClick={handleOpenCopyDatePicker}
+                  className="flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                  title="Chọn ngày nguồn để sao chép quân số"
+                >
+                  <Copy className="w-3.5 h-3.5" /> Sao chép quân số
+                </button>
+              </>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setShowCrewReportShare(true)}
+              className="flex h-10 items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-extrabold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
             >
-              <ChevronRight className="w-5 h-5" />
+              <FileText className="h-4 w-4" /> Chia sẻ báo cáo quân số
             </button>
-            </div>
+
+            <ExcelActionMenu
+              fillWidth
+              triggerLabel="Quản lý dữ liệu"
+              onQuickEdit={() => { setQuickEditMode('logs'); setShowQuickEdit(true); }}
+              onExportEdit={handleExportCrewLogsEdit}
+              onImportFile={canOperate ? handleImportCrewLogsExcel : undefined}
+              onDownloadTemplate={handleDownloadCrewLogTemplate}
+              exportLabel="Xuất Nhật ký để chỉnh sửa"
+              importLabel="Nhập Nhật ký đã chỉnh sửa"
+              templateLabel="Tải mẫu Nhật ký"
+            />
           </div>
+
+          {showCopyDatePicker && (
+            <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50/70 p-3">
+              <div className="text-[11px] font-bold text-indigo-800 mb-2">Chọn ngày cần sao chép quân số</div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  max={getTodayString()}
+                  value={copyDatePickerValue}
+                  onChange={(e) => setCopyDatePickerValue(e.target.value)}
+                  className="flex-1 min-w-0 bg-white border border-indigo-200 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-800"
+                  aria-label="Ngày nguồn sao chép quân số"
+                />
+                <button
+                  type="button"
+                  disabled={!copyDatePickerValue || copyDatePickerValue === selectedDate}
+                  onClick={() => {
+                    requestCopyFromDate(copyDatePickerValue);
+                    setShowCopyDatePicker(false);
+                  }}
+                  className="shrink-0 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Sao chép
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Statistics widgets */}
           <div className="grid grid-cols-2 gap-3 mb-4">
@@ -2004,92 +2070,6 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
             </div>
           )}
-
-            </div>
-            <div className="min-w-0 lg:border-l lg:border-slate-200 lg:pl-4">
-          {/* Functional Actions */}
-          {canOperate && (
-            <>
-            <div className="grid grid-cols-1 gap-2 mb-3">
-              <button
-                onClick={async () => {
-                  setEditingRecord(null);
-                  setShowAddLogModal(true);
-                }}
-                className="flex-1 flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-4 rounded-xl shadow-sm transition text-xs"
-              >
-                <Plus className="w-4 h-4" /> Ghi nhận quân số
-              </button>
-
-              <button
-                onClick={handleOpenCopyDatePicker}
-                className="flex-1 flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold py-2.5 px-4 rounded-xl shadow-sm transition text-xs"
-                title="Chọn ngày nguồn để sao chép quân số"
-              >
-                <Copy className="w-3.5 h-3.5" /> Sao chép quân số
-              </button>
-            </div>
-
-            {showCopyDatePicker && (
-              <div className="mb-4 -mt-2 rounded-xl border border-indigo-200 bg-indigo-50/70 p-3">
-                <div className="text-[11px] font-bold text-indigo-800 mb-2">Chọn ngày cần sao chép quân số</div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="date"
-                    max={getTodayString()}
-                    value={copyDatePickerValue}
-                    onChange={(e) => setCopyDatePickerValue(e.target.value)}
-                    className="flex-1 min-w-0 bg-white border border-indigo-200 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-800"
-                    aria-label="Ngày nguồn sao chép quân số"
-                  />
-                  <button
-                    type="button"
-                    disabled={!copyDatePickerValue || copyDatePickerValue === selectedDate}
-                    onClick={() => {
-                      requestCopyFromDate(copyDatePickerValue);
-                      setShowCopyDatePicker(false);
-                    }}
-                    className="shrink-0 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    Sao chép
-                  </button>
-                </div>
-              </div>
-            )}
-            </>
-          )}
-
-          <div className="mb-3">
-            <button
-              type="button"
-              onClick={() => setShowCrewReportShare(true)}
-              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 text-xs font-extrabold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
-            >
-              <FileText className="h-4 w-4" /> Chia sẻ báo cáo quân số
-            </button>
-          </div>
-
-          <div className="mb-4 grid grid-cols-2 gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-1 shadow-xs">
-            <button
-              type="button"
-              onClick={() => { setQuickEditMode('logs'); setShowQuickEdit(true); }}
-              className="w-full h-8 text-xs font-extrabold text-indigo-700 bg-white border border-indigo-200 hover:bg-indigo-50 px-3 rounded-xl shadow-2xs whitespace-nowrap sm:border-transparent sm:shadow-none"
-            >
-              ▦ Bảng chỉnh nhanh
-            </button>
-            <ExcelActionMenu
-              fillWidth
-              onExportEdit={handleExportCrewLogsEdit}
-              onImportFile={canOperate ? handleImportCrewLogsExcel : undefined}
-              onDownloadTemplate={handleDownloadCrewLogTemplate}
-              exportLabel="Xuất Nhật ký để chỉnh sửa"
-              importLabel="Nhập Nhật ký đã chỉnh sửa"
-              templateLabel="Tải mẫu Nhật ký"
-            />
-          </div>
-            </div>
-          </div>
-
           {/* Daily Records List */}
           <div className="space-y-3">
             <h2 className="text-xs font-bold text-slate-400 tracking-wider uppercase flex items-center gap-1.5 px-1">
@@ -2344,17 +2324,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   </div>
                 )}
 
-                <div className="grid w-full grid-cols-2 gap-2 sm:ml-auto sm:inline-grid sm:w-auto sm:grid-cols-[148px_116px] sm:rounded-2xl sm:border sm:border-slate-200 sm:bg-slate-50 sm:p-1 sm:shadow-xs">
-                  <button
-                    type="button"
-                    onClick={() => { setQuickEditMode('teams'); setShowQuickEdit(true); }}
-                    className="w-full h-8 px-3 flex items-center justify-center gap-1.5 bg-white hover:bg-indigo-50 text-indigo-700 font-bold rounded-xl border border-indigo-200 text-xs shadow-2xs transition-all active:scale-95 whitespace-nowrap sm:border-transparent sm:shadow-none"
-                  >
-                    ▦ <span className="truncate">Bảng chỉnh nhanh</span>
-                  </button>
-
+                <div className="w-full sm:ml-auto sm:w-auto">
                   <ExcelActionMenu
-                    fillWidth
+                    fillMobile
+                    triggerLabel="Quản lý dữ liệu"
+                    onQuickEdit={() => { setQuickEditMode('teams'); setShowQuickEdit(true); }}
                     onExportEdit={() => handleExportTeamsTemplate(false)}
                     onImportFile={canImportTeams ? handleImportExcelTeams : undefined}
                     onDownloadTemplate={() => handleExportTeamsTemplate(true)}

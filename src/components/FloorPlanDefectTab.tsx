@@ -5923,7 +5923,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           {t('floorplan_title')}
         </h2>
 
-        <div className="grid gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center">
+        <div className="grid gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-1">
             <div className="text-xs font-medium text-slate-500 min-w-0">
               Đang xem:{' '}
@@ -5965,37 +5965,29 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             </div>
           </div>
 
-          <div className="w-full space-y-2 sm:border-l sm:border-slate-200 sm:pl-3">
+          <div className="grid w-full grid-cols-1 gap-2 sm:w-auto sm:grid-flow-col sm:auto-cols-max sm:grid-cols-none sm:items-center sm:border-l sm:border-slate-200 sm:pl-3">
             {canManageStructure && (
               <button
                 type="button"
                 onClick={() => setShowManageFloorsModal(true)}
-                className="flex h-9 w-full shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-xs font-bold text-indigo-700 shadow-xs transition-all hover:bg-indigo-100 active:scale-[0.99]"
+                className="flex h-9 w-full shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-xs font-bold text-indigo-700 shadow-xs transition-all hover:bg-indigo-100 active:scale-[0.99] sm:w-auto"
                 title="Quản lý Khu/Khối, đổi tên, sắp xếp và quản lý tầng"
               >
                 <Settings className="w-3.5 h-3.5 shrink-0" />
                 Quản lý Khu/Khối & Tầng
               </button>
             )}
-            <div className="grid grid-cols-2 gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-1 shadow-xs">
-              <button
-                type="button"
-                onClick={() => { setQuickEditMode('rooms'); setShowQuickEdit(true); }}
-                className="w-full h-8 whitespace-nowrap text-[11px] font-extrabold text-indigo-700 hover:text-indigo-900 bg-white hover:bg-indigo-50 px-2.5 rounded-xl flex items-center justify-center gap-1 border border-indigo-200 transition-all active:scale-95 shadow-2xs sm:border-transparent sm:shadow-none"
-                title="Chỉnh Căn/Hạng mục/Defect nhiều tầng theo bảng cột và dòng"
-              >
-                ▦ Bảng chỉnh nhanh
-              </button>
-              <ExcelActionMenu
-                fillWidth
-                onExportEdit={() => downloadHighlightTemplate('all')}
-                onImportFile={canManageStructure ? handleImportExcelHighlights : undefined}
-                onDownloadTemplate={() => downloadHighlightTemplate('template')}
-                exportLabel="Xuất Căn / Hạng mục để chỉnh sửa"
-                importLabel="Nhập Excel đã chỉnh sửa"
-                templateLabel="Tải mẫu Căn / Hạng mục"
-              />
-            </div>
+            <ExcelActionMenu
+              fillMobile
+              triggerLabel="Quản lý dữ liệu"
+              onQuickEdit={() => { setQuickEditMode('rooms'); setShowQuickEdit(true); }}
+              onExportEdit={() => downloadHighlightTemplate('all')}
+              onImportFile={canManageStructure ? handleImportExcelHighlights : undefined}
+              onDownloadTemplate={() => downloadHighlightTemplate('template')}
+              exportLabel="Xuất Căn / Hạng mục để chỉnh sửa"
+              importLabel="Nhập Excel đã chỉnh sửa"
+              templateLabel="Tải mẫu Căn / Hạng mục"
+            />
           </div>
 
           <input

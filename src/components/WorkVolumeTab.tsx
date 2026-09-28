@@ -697,9 +697,9 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
   return (
     <div className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
-      {/* Title + aligned action grid */}
-      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-start">
-        <div>
+      {/* Title + horizontal PC actions */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
             <BarChart3 className="w-5 h-5 text-blue-600" />
             {t('volume_title')}
@@ -707,12 +707,12 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           <p className="text-xs text-slate-500">{t('volume_subtitle')}</p>
         </div>
 
-        <div className="grid w-full grid-cols-2 gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-3xs">
+        <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-flow-col sm:auto-cols-max sm:grid-cols-none sm:items-center">
           {hasStructureManageAccess && (
             <>
               <button
                 onClick={() => setShowTemplatePicker(true)}
-                className="flex h-9 w-full items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 text-xs font-bold text-indigo-700 transition-all hover:bg-indigo-100"
+                className="flex h-9 w-full items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-xs font-bold text-indigo-700 transition-all hover:bg-indigo-100 sm:w-auto"
               >
                 <Copy className="w-4 h-4" />
                 <span className="truncate">Lấy từ công trình/mẫu</span>
@@ -731,31 +731,26 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                   setEditingVolume(null);
                   setShowAddForm(true);
                 }}
-                className="flex h-9 w-full items-center justify-center gap-1 rounded-xl bg-blue-600 px-2.5 text-xs font-bold text-white shadow transition-all hover:bg-blue-700 active:scale-95"
+                className="flex h-9 w-full items-center justify-center gap-1 rounded-xl bg-blue-600 px-3 text-xs font-bold text-white shadow transition-all hover:bg-blue-700 active:scale-95 sm:w-auto"
               >
                 <Plus className="w-4 h-4" />
                 Thêm
               </button>
             </>
           )}
-
-          <button
-            type="button"
-            onClick={() => setShowQuickEdit(true)}
-            className="flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-xl border border-indigo-200 bg-white px-2.5 text-xs font-extrabold text-indigo-700 transition-all hover:bg-indigo-50 active:scale-95"
-            title="Mở bảng cột/dòng để chỉnh nhanh trực tiếp, không cần tải Excel"
-          >
-            ▦ Bảng chỉnh nhanh
-          </button>
-          <ExcelActionMenu
-            fillWidth
-            onExportEdit={() => import('../utils/excelExport').then(({ exportWorkVolumesTemplate }) => exportWorkVolumesTemplate(workVolumes, projectName, hasFinancialAccess))}
-            onImportFile={hasStructureManageAccess ? handleImportExcelWorkVolumes : undefined}
-            onDownloadTemplate={() => import('../utils/excelExport').then(({ exportWorkVolumesTemplate }) => exportWorkVolumesTemplate([], projectName, hasFinancialAccess))}
-            exportLabel="Xuất hạng mục để chỉnh sửa"
-            importLabel="Nhập hạng mục đã chỉnh sửa"
-            templateLabel="Tải mẫu hạng mục"
-          />
+          <div className="col-span-2 sm:col-span-1">
+            <ExcelActionMenu
+              fillMobile
+              triggerLabel="Quản lý dữ liệu"
+              onQuickEdit={() => setShowQuickEdit(true)}
+              onExportEdit={() => import('../utils/excelExport').then(({ exportWorkVolumesTemplate }) => exportWorkVolumesTemplate(workVolumes, projectName, hasFinancialAccess))}
+              onImportFile={hasStructureManageAccess ? handleImportExcelWorkVolumes : undefined}
+              onDownloadTemplate={() => import('../utils/excelExport').then(({ exportWorkVolumesTemplate }) => exportWorkVolumesTemplate([], projectName, hasFinancialAccess))}
+              exportLabel="Xuất hạng mục để chỉnh sửa"
+              importLabel="Nhập hạng mục đã chỉnh sửa"
+              templateLabel="Tải mẫu hạng mục"
+            />
+          </div>
         </div>
       </div>
 

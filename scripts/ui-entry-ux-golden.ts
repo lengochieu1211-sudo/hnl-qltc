@@ -317,10 +317,10 @@ for (const [label, source] of [['Floor Plan', floorPlanSource], ['Crew', crewSou
 }
 assert(!warehouseSource.includes("from '../utils/excelExport'") && !workVolumeUi.includes("from '../utils/excelExport'") && !crewSource.includes("from '../utils/excelExport'"), 'Primary field screens must lazy-load Excel export code only when the user invokes Excel actions');
 assert(aiPageSource.includes("import type { HnlAiReportExportInput }") && aiPageSource.includes("await import('../../ai/export/aiReportExport')"), 'HNL AI navigation must defer Excel/PDF export implementation until export is requested');
-assert(workVolumeUi.includes('sm:grid-cols-[minmax(0,1fr)_340px]') && workVolumeUi.includes('grid w-full grid-cols-2 gap-2'), 'Work Volume actions must stay aligned as a desktop action column and balanced two-column mobile grid');
-assert(crewSource.includes('lg:grid-cols-[minmax(0,1fr)_360px]') && crewSource.includes('lg:max-w-[420px]'), 'Crew PC layout must keep date/statistics aligned with a dedicated action column');
-assert(warehouseSource.includes('lg:grid-cols-[minmax(0,1fr)_420px]') && warehouseSource.includes('Bảng chỉnh nhanh'), 'Warehouse PC layout must keep business actions and data tools aligned in the right column');
-assert(floorPlanSource.includes('sm:grid-cols-[minmax(0,1fr)_320px]') && floorPlanSource.includes('Quản lý Khu/Khối & Tầng'), 'Floor Plan PC layout must keep context left and aligned actions right');
+assert(workVolumeUi.includes('sm:grid-flow-col') && workVolumeUi.includes('triggerLabel="Quản lý dữ liệu"'), 'Work Volume PC actions must use a horizontal toolbar with consolidated data management');
+assert(crewSource.includes('lg:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1fr)]') && crewSource.includes('triggerLabel="Quản lý dữ liệu"'), 'Crew PC must keep the approved Date-to-Data-Management toolbar order');
+assert(warehouseSource.includes('lg:grid-flow-col') && warehouseSource.includes('triggerLabel="Quản lý dữ liệu"'), 'Warehouse PC actions must use one aligned horizontal toolbar');
+assert(floorPlanSource.includes('sm:grid-cols-[minmax(0,1fr)_auto]') && floorPlanSource.includes('triggerLabel="Quản lý dữ liệu"'), 'Floor Plan PC must keep current-view context left and horizontal actions right');
 
 assert(navSource.includes("touchAction: 'manipulation'"), 'Primary navigation must opt into immediate touch manipulation');
 assert(navSource.includes('onPointerDown={() => previewTab(tab.id)}'), 'Primary navigation must provide immediate pressed feedback before click activation');
