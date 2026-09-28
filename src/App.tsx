@@ -371,6 +371,8 @@ function AuthenticatedApp() {
   const isDesktopRuntime = typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('app') === 'desktop';
   const [activeTab, setActiveTab] = useState<TabType>(getRememberedTab);
+  const [navigationTargetTab, setNavigationTargetTab] = useState<TabType | null>(null);
+  const navigationRequestRef = useRef(0);
 
   useEffect(() => {
     try { sessionStorage.setItem('qlct_active_tab_v1', activeTab); } catch (_) {}
@@ -389,46 +391,53 @@ function AuthenticatedApp() {
     if (loader) void loader().catch(() => undefined);
   }, []);
 
-  // Warm primary field screens after first paint. Desktop/EXE has enough memory to
-  // fetch/parse the primary lazy chunks in parallel, which avoids DEV paying a visibly
-  // higher first-switch cost than the lighter PROD bundle. Mobile keeps the staggered
-  // idle strategy to protect RAM/battery. Respect Data Saver in both modes.
+  // Navigation must stay responsive even when users tap several heavy modules in quick
+  // succession. The target label changes urgently, while the expensive screen render is
+  // interruptible. A newer request invalidates older transition work so intermediate
+  // Floor/Crew/Warehouse/etc screens are not all mounted just because the user crossed
+  // them while navigating.
+  const navigateToTab = React.useCallback((tab: TabType) => {
+    const requestId = ++navigationRequestRef.current;
+    setNavigationTargetTab(tab);
+    preloadTab(tab);
+    React.startTransition(() => {
+      setActiveTab((current) => requestId === navigationRequestRef.current ? tab : current);
+    });
+  }, [preloadTab]);
+
+  useEffect(() => {
+    if (navigationTargetTab === activeTab) setNavigationTargetTab(null);
+  }, [activeTab, navigationTargetTab]);
+
+  // Warm primary field screens after first paint without flooding the main thread.
+  // Parse one lazy chunk at a time during idle periods. Pointer/touch intent still
+  // preloads the exact destination immediately, but background warming never launches
+  // five heavy modules in parallel.
   useEffect(() => {
     const connection = (navigator as any).connection;
     if (connection?.saveData) return;
     let cancelled = false;
+    let nextTimer: number | null = null;
     const loaders = [loadFloorPlanDefectTab, loadCrewTab, loadWarehouseTab, loadWorkVolumeTab, loadGoogleConfigTab];
-    const desktopLike = isDesktopRuntime || window.matchMedia('(min-width: 1024px)').matches;
-
-    if (desktopLike) {
-      const timer = window.setTimeout(() => {
-        if (cancelled) return;
-        loaders.forEach((loader) => { void loader().catch(() => undefined); });
-      }, 80);
-      return () => {
-        cancelled = true;
-        window.clearTimeout(timer);
-      };
-    }
-
     const warm = () => {
       let index = 0;
       const next = () => {
         if (cancelled || index >= loaders.length) return;
         void loaders[index++]().catch(() => undefined);
-        window.setTimeout(next, 180);
+        nextTimer = window.setTimeout(next, 260);
       };
       next();
     };
     const idle = (window as any).requestIdleCallback;
-    const idleId = typeof idle === 'function' ? idle(warm, { timeout: 1600 }) : null;
-    const timer = idleId == null ? window.setTimeout(warm, 450) : null;
+    const idleId = typeof idle === 'function' ? idle(warm, { timeout: 2200 }) : null;
+    const timer = idleId == null ? window.setTimeout(warm, 700) : null;
     return () => {
       cancelled = true;
       if (timer != null) window.clearTimeout(timer);
+      if (nextTimer != null) window.clearTimeout(nextTimer);
       if (idleId != null && typeof (window as any).cancelIdleCallback === 'function') (window as any).cancelIdleCallback(idleId);
     };
-  }, [isDesktopRuntime]);
+  }, []);
 
   // Diagnostic navigation stays decoupled from individual screens. The source screen
   // stores the entity request in sessionStorage, while App only switches modules.
@@ -442,16 +451,16 @@ function AuthenticatedApp() {
           : detail.entityType === 'chat'
             ? 'chat'
             : null;
-      if (nextTab) setActiveTab(nextTab);
+      if (nextTab) navigateToTab(nextTab);
     };
-    const handleHealthCenterReturn = () => setActiveTab('config');
+    const handleHealthCenterReturn = () => navigateToTab('config');
     window.addEventListener('qlct-diagnostic-open-entity', handleDiagnosticOpenTab);
     window.addEventListener('qlct-health-center-return', handleHealthCenterReturn);
     return () => {
       window.removeEventListener('qlct-diagnostic-open-entity', handleDiagnosticOpenTab);
       window.removeEventListener('qlct-health-center-return', handleHealthCenterReturn);
     };
-  }, []);
+  }, [navigateToTab]);
   const [activeProjectId, setActiveProjectId] = useState<string>(() => getActiveProjectId());
   const activeProjectIdRef = useRef<string>(activeProjectId);
   // Firebase-only business data must come from Firestore/its official cache. Legacy
@@ -7102,8 +7111,18 @@ function AuthenticatedApp() {
         <OfflineSyncBanner onAutoSync={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleSyncAll : undefined} isSyncing={isSyncing} userRole={currentUserRole} roleResolved={isProjectRoleResolved} roleSource={projectRoleSource} firestorePendingWriteCount={firestorePendingWriteCount} firebaseOnly={FIREBASE_ONLY_RUNTIME} verifiedSnapshotFallback={businessDataSource === 'verified-offline-snapshot'} />
 
         {/* Tab Content */}
-        <main className="animate-in fade-in duration-150">
-          <React.Suspense fallback={<div className="p-8 text-center text-sm text-slate-500"><RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />Đang tải mục...</div>}>
+        <main
+          className="animate-in fade-in duration-150"
+          data-hnl-active-tab={activeTab}
+          data-hnl-navigation-target={navigationTargetTab || activeTab}
+        >
+          {navigationTargetTab && navigationTargetTab !== activeTab ? (
+            <div className="min-h-[180px] p-8 text-center text-sm text-slate-500" data-hnl-tab-switching="true">
+              <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />
+              Đang mở mục...
+            </div>
+          ) : (
+          <React.Suspense fallback={<div className="min-h-[180px] p-8 text-center text-sm text-slate-500" data-hnl-tab-switching="true"><RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />Đang tải mục...</div>}>
           {activeTab === 'home' && (
             <HomeDashboard
               projects={authorizedChatProjects}
@@ -7124,12 +7143,12 @@ function AuthenticatedApp() {
               onStartupProjectChange={handleStartupProjectChange}
               onOpenProject={async (projectId) => {
                 await switchProject(projectId);
-                setActiveTab('floorplan');
+                navigateToTab('floorplan');
               }}
               onManageProjects={() => handleOpenProjectManager('projects')}
               onOpenNotifications={() => setIsNotificationCenterOpen(true)}
-              onOpenCrew={() => setActiveTab('crew')}
-              onOpenFloorPlan={() => setActiveTab('floorplan')}
+              onOpenCrew={() => navigateToTab('crew')}
+              onOpenFloorPlan={() => navigateToTab('floorplan')}
             />
           )}
 
@@ -7396,9 +7415,9 @@ function AuthenticatedApp() {
               showChecklist={showChecklistModule}
               onOpenProjectManager={() => handleOpenProjectManager('sync')}
               onOpenSecurity={() => setIsSecurityModalOpen(true)}
-              onOpenConfig={() => setActiveTab('config')}
+              onOpenConfig={() => navigateToTab('config')}
               onOpenHiddenHistory={() => {
-                setActiveTab('config');
+                navigateToTab('config');
                 let attempts = 0;
                 const focusTrash = () => {
                   const target = document.getElementById('trash-recovery-card');
@@ -7571,6 +7590,7 @@ function AuthenticatedApp() {
             />
           )}
           </React.Suspense>
+          )}
         </main>
 
         {/* PDF Export Modal */}
@@ -7637,7 +7657,7 @@ function AuthenticatedApp() {
           onNavigateToItem={handleNavigateFromAlert}
           chatUnreadCount={chatUnreadCount}
           chatMentioned={chatMentioned}
-          onOpenChat={() => { setIsNotificationCenterOpen(false); setActiveTab('chat'); }}
+          onOpenChat={() => { setIsNotificationCenterOpen(false); navigateToTab('chat'); }}
           floatingAlertsEnabled={floatingAlertsEnabled}
           onFloatingAlertsEnabledChange={updateFloatingAlertsEnabled}
         />
@@ -7645,7 +7665,7 @@ function AuthenticatedApp() {
         {chatToast && activeTab !== 'chat' && !isSoftKeyboardOpen && (
           <button
             type="button"
-            onClick={() => { setChatToast(null); setActiveTab('chat'); }}
+            onClick={() => { setChatToast(null); navigateToTab('chat'); }}
             className="fixed z-50 right-3 left-3 sm:left-auto sm:w-80 bottom-20 sm:bottom-20 rounded-2xl border border-indigo-200 bg-white p-3 shadow-2xl text-left animate-in slide-in-from-bottom-2"
           >
             <div className="text-[11px] font-extrabold text-indigo-700">{chatToast.sender}</div>
@@ -7656,9 +7676,9 @@ function AuthenticatedApp() {
         {/* Fixed navigation is hidden while the OS keyboard owns the visual viewport. */}
         {!isSoftKeyboardOpen && (
           <BottomNav
-            activeTab={activeTab}
+            activeTab={navigationTargetTab || activeTab}
             forceDesktopRail={isDesktopRuntime}
-            setActiveTab={setActiveTab}
+            setActiveTab={navigateToTab}
             onPreloadTab={preloadTab}
             defectBadgeCount={unhandledDefectsCount}
             chatBadgeCount={chatUnreadCount}
