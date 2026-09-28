@@ -2061,11 +2061,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </button>
           </div>
 
-          <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-[160px_160px] sm:justify-start">
+          <div className="mb-4 grid grid-cols-2 gap-2 sm:inline-grid sm:w-auto sm:grid-cols-[148px_116px] sm:rounded-2xl sm:border sm:border-slate-200 sm:bg-slate-50 sm:p-1 sm:shadow-xs">
             <button
               type="button"
               onClick={() => { setQuickEditMode('logs'); setShowQuickEdit(true); }}
-              className="w-full h-8 text-xs font-extrabold text-indigo-700 bg-white border border-indigo-200 hover:bg-indigo-50 px-3 rounded-xl shadow-2xs whitespace-nowrap"
+              className="w-full h-8 text-xs font-extrabold text-indigo-700 bg-white border border-indigo-200 hover:bg-indigo-50 px-3 rounded-xl shadow-2xs whitespace-nowrap sm:border-transparent sm:shadow-none"
             >
               ▦ Bảng chỉnh nhanh
             </button>
@@ -2334,11 +2334,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   </div>
                 )}
 
-                <div className="grid w-full grid-cols-2 gap-2 sm:ml-auto sm:w-auto sm:grid-cols-[160px_160px]">
+                <div className="grid w-full grid-cols-2 gap-2 sm:ml-auto sm:inline-grid sm:w-auto sm:grid-cols-[148px_116px] sm:rounded-2xl sm:border sm:border-slate-200 sm:bg-slate-50 sm:p-1 sm:shadow-xs">
                   <button
                     type="button"
                     onClick={() => { setQuickEditMode('teams'); setShowQuickEdit(true); }}
-                    className="w-full h-8 px-3 flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl border border-indigo-200 text-xs shadow-2xs transition-all active:scale-95 whitespace-nowrap"
+                    className="w-full h-8 px-3 flex items-center justify-center gap-1.5 bg-white hover:bg-indigo-50 text-indigo-700 font-bold rounded-xl border border-indigo-200 text-xs shadow-2xs transition-all active:scale-95 whitespace-nowrap sm:border-transparent sm:shadow-none"
                   >
                     ▦ <span className="truncate">Bảng chỉnh nhanh</span>
                   </button>

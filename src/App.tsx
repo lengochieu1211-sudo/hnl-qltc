@@ -389,13 +389,28 @@ function AuthenticatedApp() {
     if (loader) void loader().catch(() => undefined);
   }, []);
 
-  // Warm the primary field screens after first paint so the first user tap does not
-  // pay the full network + parse cost of a React.lazy chunk. Respect Data Saver.
+  // Warm primary field screens after first paint. Desktop/EXE has enough memory to
+  // fetch/parse the primary lazy chunks in parallel, which avoids DEV paying a visibly
+  // higher first-switch cost than the lighter PROD bundle. Mobile keeps the staggered
+  // idle strategy to protect RAM/battery. Respect Data Saver in both modes.
   useEffect(() => {
     const connection = (navigator as any).connection;
     if (connection?.saveData) return;
     let cancelled = false;
     const loaders = [loadFloorPlanDefectTab, loadCrewTab, loadWarehouseTab, loadWorkVolumeTab, loadGoogleConfigTab];
+    const desktopLike = isDesktopRuntime || window.matchMedia('(min-width: 1024px)').matches;
+
+    if (desktopLike) {
+      const timer = window.setTimeout(() => {
+        if (cancelled) return;
+        loaders.forEach((loader) => { void loader().catch(() => undefined); });
+      }, 80);
+      return () => {
+        cancelled = true;
+        window.clearTimeout(timer);
+      };
+    }
+
     const warm = () => {
       let index = 0;
       const next = () => {
@@ -413,7 +428,7 @@ function AuthenticatedApp() {
       if (timer != null) window.clearTimeout(timer);
       if (idleId != null && typeof (window as any).cancelIdleCallback === 'function') (window as any).cancelIdleCallback(idleId);
     };
-  }, []);
+  }, [isDesktopRuntime]);
 
   // Diagnostic navigation stays decoupled from individual screens. The source screen
   // stores the entity request in sessionStorage, while App only switches modules.

@@ -2995,6 +2995,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   const quickFloorById = React.useMemo(() => new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.id, floor] as const)), [floorPlans]);
   const quickRoomById = React.useMemo(() => new Map<string, RoomProgressItem>(roomProgressList.map((room) => [room.id, room] as const)), [roomProgressList]);
+  const quickPrimaryRoomIdByFloor = React.useMemo(() => {
+    const result = new Map<string, string>();
+    roomProgressList.forEach((room) => {
+      if (room.floorId && !result.has(room.floorId)) result.set(room.floorId, room.id);
+    });
+    return result;
+  }, [roomProgressList]);
   const quickTeamByName = React.useMemo(() => new Map<string, TeamInfo>(
     teams.filter((team) => team.name?.trim()).map((team) => [team.name.trim().toLocaleLowerCase('vi-VN'), team] as const)
   ), [teams]);
@@ -3011,6 +3018,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       __recordId: room.id,
       __groupKey: room.id,
       __groupPrimary: subIndex === 0,
+      __floorPrimary: subIndex === 0 && quickPrimaryRoomIdByFloor.get(room.floorId) === room.id,
+      __floorId: floor?.id || room.floorId,
       __subItemId: subItem?.id || '',
       structureGroup: groupName,
       floorName: floor?.floorName || room.floorName || '',
@@ -3024,7 +3033,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       targetDate: subItem?.targetDate || room.targetBoardDate || room.targetFrameDate || '',
       defectCount: roomDefectCount,
     }));
-  }), [roomProgressList, defects, quickFloorById, normalizedStructureConfig, teams]);
+  }), [roomProgressList, defects, quickFloorById, quickPrimaryRoomIdByFloor, normalizedStructureConfig, teams]);
 
   const defectQuickRows = React.useMemo<QuickGridRow[]>(() => defects.filter((defect) => !defect.deletedAt).map((defect) => {
     const floor = quickFloorById.get(defect.floorId);
@@ -3061,9 +3070,27 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     ...defects.map((defect) => defect.assignedTo || ''),
   ].filter(Boolean))), [teams, roomProgressList, defects]);
 
+  const quickStructureGroupOptions = React.useMemo(
+    () => normalizedStructureConfig.groups.map((group) => group.name),
+    [normalizedStructureConfig.groups],
+  );
+
   const roomQuickColumns = React.useMemo<QuickGridColumn[]>(() => [
-    { key: 'structureGroup', label: normalizedStructureConfig.label || 'Khu/Khối', editable: false, width: 145 },
-    { key: 'floorName', label: 'Tầng', editable: false, width: 125 },
+    {
+      key: 'structureGroup',
+      label: normalizedStructureConfig.label || 'Khu/Khối',
+      editable: (row) => canManageStructure && normalizedStructureConfig.enabled && Boolean(row.__floorPrimary),
+      type: 'select',
+      options: quickStructureGroupOptions,
+      width: 145,
+    },
+    {
+      key: 'floorName',
+      label: 'Tầng',
+      editable: (row) => canManageStructure && Boolean(row.__floorPrimary),
+      required: true,
+      width: 125,
+    },
     { key: 'roomName', label: 'Căn / Phòng', editable: (row) => canManageStructure && Boolean(row.__groupPrimary), required: true, width: 155 },
     { key: 'mainCategory', label: 'Hạng mục chính', editable: (row) => canManageStructure && Boolean(row.__groupPrimary), type: 'select', options: quickWorkCategoryOptions, width: 230 },
     { key: 'mainVolume', label: 'KL Hạng mục chính', editable: (row) => canManageStructure && Boolean(row.__groupPrimary), type: 'number', width: 145, validate: (value) => Number(value || 0) < 0 ? 'Không được âm' : null },
@@ -3083,7 +3110,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     },
     { key: 'targetDate', label: 'Hạn xong', editable: canManageStructure, type: 'date', width: 135 },
     { key: 'defectCount', label: 'Defect', editable: false, type: 'number', width: 85 },
-  ], [canManageStructure, normalizedStructureConfig.label, quickWorkCategoryOptions, quickTeamOptions]);
+  ], [canManageStructure, normalizedStructureConfig.enabled, normalizedStructureConfig.label, quickStructureGroupOptions, quickWorkCategoryOptions, quickTeamOptions]);
 
   const defectQuickColumns = React.useMemo<QuickGridColumn[]>(() => [
     { key: 'structureGroup', label: normalizedStructureConfig.label || 'Khu/Khối', editable: false, width: 145 },
@@ -3102,6 +3129,50 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (!canManageStructure) return;
     const dirtyRowKeys = new Set(Array.from(dirtyCellKeys).map((key) => key.split('::')[0]));
     const dirtyRows = rows.filter((row) => dirtyRowKeys.has(row.__rowKey));
+
+    const floorEditById = new Map<string, { floorName: string; structureGroupId?: string; structureGroupName: string }>();
+    const dirtyFloorIds = Array.from(new Set(
+      dirtyRows
+        .filter((row) => dirtyCellKeys.has(`${row.__rowKey}::floorName`) || dirtyCellKeys.has(`${row.__rowKey}::structureGroup`))
+        .map((row) => String(row.__floorId || '').trim())
+        .filter(Boolean)
+    ));
+
+    dirtyFloorIds.forEach((floorId) => {
+      const floor = floorPlans.find((item) => item.id === floorId);
+      if (!floor) throw new Error(`Không tìm thấy tầng có ID ${floorId}.`);
+      const changedForFloor = dirtyRows.filter((row) => String(row.__floorId || '') === floorId);
+      const pickFloorValue = (key: 'floorName' | 'structureGroup', fallback: string) => {
+        const changed = changedForFloor.filter((row) => dirtyCellKeys.has(`${row.__rowKey}::${key}`));
+        const values = Array.from(new Set(changed.map((row) => String(row[key] ?? '').trim())));
+        if (values.length > 1) throw new Error(`Tầng ${floor.floorName}: cột ${key} có nhiều giá trị khác nhau. Hãy chỉ sửa tại dòng đại diện của tầng.`);
+        return changed.length ? String(changed[changed.length - 1][key] ?? '').trim() : fallback;
+      };
+
+      const nextFloorName = pickFloorValue('floorName', floor.floorName).trim();
+      if (!nextFloorName) throw new Error('Tên tầng không được để trống.');
+      const duplicate = floorPlans.find((item) => item.id !== floorId && item.floorName.trim().toLocaleLowerCase('vi-VN') === nextFloorName.toLocaleLowerCase('vi-VN'));
+      if (duplicate) throw new Error(`Tên tầng “${nextFloorName}” đã tồn tại.`);
+
+      const currentGroupId = resolveFloorStructureGroupId(floor, normalizedStructureConfig);
+      const currentGroupName = getStructureGroupName(currentGroupId, normalizedStructureConfig);
+      const nextGroupName = normalizedStructureConfig.enabled
+        ? pickFloorValue('structureGroup', currentGroupName)
+        : currentGroupName;
+      const nextGroup = normalizedStructureConfig.groups.find(
+        (group) => group.name.trim().toLocaleLowerCase('vi-VN') === nextGroupName.trim().toLocaleLowerCase('vi-VN')
+      );
+      if (normalizedStructureConfig.enabled && !nextGroup) {
+        throw new Error(`${normalizedStructureConfig.label || 'Khu/Khối'} “${nextGroupName}” không tồn tại.`);
+      }
+
+      floorEditById.set(floorId, {
+        floorName: nextFloorName,
+        structureGroupId: nextGroup?.id || currentGroupId,
+        structureGroupName: nextGroupName,
+      });
+    });
+
     const dirtyRoomIds = Array.from(new Set(dirtyRows.map((row) => String(row.__recordId || '')).filter(Boolean)));
     const changedRooms: RoomProgressItem[] = [];
 
@@ -3111,6 +3182,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       const allRows = rows.filter((row) => String(row.__recordId || '') === roomId);
       const changedForRoom = dirtyRows.filter((row) => String(row.__recordId || '') === roomId);
       const next: RoomProgressItem = { ...existing, subItems: existing.subItems ? existing.subItems.map((item) => ({ ...item })) : [] };
+      const plannedFloorEdit = floorEditById.get(existing.floorId);
+      if (plannedFloorEdit) next.floorName = plannedFloorEdit.floorName;
 
       const pickShared = (key: string, fallback: unknown) => {
         const changed = changedForRoom.filter((row) => dirtyCellKeys.has(`${row.__rowKey}::${key}`));
@@ -3176,10 +3249,26 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       changedRooms.push(next);
     });
 
-    const confirmed = await confirmAsync(`Lưu thay đổi cho ${changedRooms.length} Căn / Phòng trên nhiều tầng? ID Căn, highlight, Defect và lịch sử được giữ nguyên.`);
+    const floorChangeCount = floorEditById.size;
+    const confirmed = await confirmAsync(`Lưu thay đổi cho ${changedRooms.length} Căn / Phòng${floorChangeCount ? ` và ${floorChangeCount} Tầng/Khu-Khối` : ''}? floorId, ID Căn, highlight, Defect và lịch sử được giữ nguyên.`);
     if (!confirmed) return false;
+
     if (onBatchSaveRooms) onBatchSaveRooms(changedRooms);
     else changedRooms.forEach((room) => onSaveRoomProgress(room));
+
+    for (const [floorId, edit] of floorEditById) {
+      const floor = floorPlans.find((item) => item.id === floorId);
+      if (!floor) continue;
+      const currentGroupId = resolveFloorStructureGroupId(floor, normalizedStructureConfig);
+      if (normalizedStructureConfig.enabled && edit.structureGroupId && edit.structureGroupId !== currentGroupId) {
+        if (!onUpdateFloorPlan) throw new Error('Phiên bản ứng dụng chưa hỗ trợ đổi Khu/Khối của tầng.');
+        onUpdateFloorPlan(floorId, { structureGroupId: edit.structureGroupId });
+      }
+      if (edit.floorName !== floor.floorName) {
+        if (!onRenameFloorPlan) throw new Error('Phiên bản ứng dụng chưa hỗ trợ đổi tên tầng an toàn.');
+        onRenameFloorPlan(floorId, edit.floorName);
+      }
+    }
   };
 
   const saveDefectQuickRows = async (rows: QuickGridRow[], dirtyCellKeys: Set<string>) => {
@@ -5887,11 +5976,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 Quản lý Khu/Khối & Tầng
               </button>
             )}
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-[160px_160px] sm:justify-end">
+            <div className="grid grid-cols-2 gap-2 sm:inline-grid sm:w-auto sm:grid-cols-[148px_116px] sm:rounded-2xl sm:border sm:border-slate-200 sm:bg-slate-50 sm:p-1 sm:shadow-xs">
               <button
                 type="button"
                 onClick={() => { setQuickEditMode('rooms'); setShowQuickEdit(true); }}
-                className="w-full h-8 whitespace-nowrap text-[11px] font-extrabold text-indigo-700 hover:text-indigo-900 bg-white hover:bg-indigo-50 px-2.5 rounded-xl flex items-center justify-center gap-1 border border-indigo-200 transition-all active:scale-95 shadow-2xs"
+                className="w-full h-8 whitespace-nowrap text-[11px] font-extrabold text-indigo-700 hover:text-indigo-900 bg-white hover:bg-indigo-50 px-2.5 rounded-xl flex items-center justify-center gap-1 border border-indigo-200 transition-all active:scale-95 shadow-2xs sm:border-transparent sm:shadow-none"
                 title="Chỉnh Căn/Hạng mục/Defect nhiều tầng theo bảng cột và dòng"
               >
                 ▦ Bảng chỉnh nhanh
@@ -9399,7 +9488,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         open={showQuickEdit}
         title="Bảng chỉnh nhanh · Mặt bằng"
         subtitle={quickEditMode === 'rooms'
-          ? 'Chỉnh Căn/Hạng mục của nhiều tầng cùng lúc. Khu/Khối và Tầng chỉ đọc để bảo vệ liên kết floorId.'
+          ? 'Chỉnh Căn/Hạng mục của nhiều tầng cùng lúc. Có thể đổi Khu/Khối và tên Tầng tại dòng đại diện; floorId được giữ nguyên để bảo vệ liên kết.'
           : 'Defect được chỉnh theo defectId; ảnh trước/sau sửa không bị thay đổi.'}
         tabs={[
           { key: 'rooms', label: 'Căn & Hạng mục' },

@@ -289,6 +289,9 @@ assert(navSource.includes('setActiveTab(tab);'), 'Primary navigation must switch
 assert(!navSource.includes('startTransition(() => setActiveTab(tab))'), 'Primary navigation must not keep the old heavy screen visible through a React transition');
 assert(navSource.includes('onPreloadTab?.(tab)') && navSource.includes('onPointerEnter={() => onPreloadTab?.(tab.id)}'), 'Primary navigation must preload the destination on hover/touch intent');
 assert(appSource.includes('const preloadTab = React.useCallback') && appSource.includes('onPreloadTab={preloadTab}'), 'App must map navigation intent to the destination lazy loader');
+assert(appSource.includes("window.matchMedia('(min-width: 1024px)').matches") && appSource.includes('loaders.forEach((loader)'), 'Desktop/EXE must warm primary lazy screens in parallel after first paint');
+assert(appSource.includes('if (connection?.saveData) return;'), 'Navigation prewarm must continue respecting Data Saver');
+
 assert(navSource.includes("touchAction: 'manipulation'"), 'Primary navigation must opt into immediate touch manipulation');
 assert(navSource.includes('onPointerDown={() => previewTab(tab.id)}'), 'Primary navigation must provide immediate pressed feedback before click activation');
 assert(navSource.includes("active:scale-[0.96]") && navSource.includes("active:opacity-75"), 'Mobile primary navigation must expose visible touch feedback');

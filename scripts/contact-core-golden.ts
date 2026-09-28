@@ -40,7 +40,8 @@ assert.match(androidMain, /webView\.saveState\(outState\)/, 'Android wrapper mus
 
 const appSource = fs.readFileSync('src/App.tsx', 'utf8');
 assert.match(appSource, /qlct_active_tab_v1/, 'Web/mobile shell must remember the active primary tab across an unavoidable page recreation');
-assert.match(appSource, /Warm the primary field screens after first paint/, 'primary lazy tabs must be warmed after first paint to reduce first-tap latency');
+assert.match(appSource, /Warm primary field screens after first paint/, 'primary lazy tabs must be warmed after first paint to reduce first-tap latency');
+assert.match(appSource, /desktopLike[\s\S]*loaders\.forEach\(\(loader\)/, 'desktop\/EXE must warm primary lazy tabs in parallel to reduce first-switch latency');
 const showWebAppSection = desktopShell.slice(desktopShell.indexOf('internal void ShowWebApp()'), desktopShell.indexOf('private void InitializeEmbeddedWeb()'));
 assert.doesNotMatch(showWebAppSection, /Navigate\(Program\.BuildAppUrl\(\)\)/, 'Windows EXE must not re-navigate the WebView when returning from native home/tray');
 assert.match(appSource, /const securityModalProjects = React\.useMemo\(/, 'SecurityModal projects must stay referentially stable across Android VisualViewport keyboard renders');
