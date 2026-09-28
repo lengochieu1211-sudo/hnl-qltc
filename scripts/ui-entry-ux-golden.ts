@@ -291,10 +291,12 @@ assert(!navSource.includes('startTransition(() => setActiveTab(tab))'), 'Primary
 assert(navSource.includes('onPreloadTab?.(tab)') && navSource.includes('onPointerEnter={() => onPreloadTab?.(tab.id)}'), 'Primary navigation must preload the destination on hover/touch intent');
 assert(appSource.includes('const preloadTab = React.useCallback') && appSource.includes('onPreloadTab={preloadTab}'), 'App must map navigation intent to the destination lazy loader');
 assert(appSource.includes('navigationRequestRef') && appSource.includes('requestId === navigationRequestRef.current'), 'Rapid navigation must invalidate stale tab transitions so the last click wins');
-assert(appSource.includes('navigationCommitTimerRef') && appSource.includes('window.setTimeout(() =>') && appSource.includes('}, 110);'), 'Rapid navigation must debounce heavy tab commits so intermediate screens are not mounted while the user keeps tapping');
+assert(appSource.includes('navigationCommitTimerRef') && appSource.includes('commitDelayMs = rapidMode ? 110 : 24'), 'Primary navigation must use a fast single-tap path and a longer rapid-tap coalescing window');
+assert(appSource.includes('rapidTap = sinceLastRequest < 220') && appSource.includes('navigationRapidUntilRef.current = now + 320'), 'Rapid navigation mode must be cadence-driven and bounded');
 assert(appSource.includes('window.clearTimeout(navigationCommitTimerRef.current)'), 'Each newer navigation request must cancel the previous pending heavy-screen commit');
 const navigationCoordinator = appSource.slice(appSource.indexOf('const navigateToTab'), appSource.indexOf('// Warm primary field screens'));
-assert(!navigationCoordinator.includes('React.startTransition') && appSource.includes('data-hnl-navigation-target'), 'Settled heavy-tab commit must not be delayed by React transition scheduling while the requested destination is shown immediately');
+assert(!navigationCoordinator.includes('React.startTransition') && appSource.includes('data-hnl-navigation-target'), 'Settled heavy-tab commit must remain direct while the requested destination is shown immediately');
+assert(appSource.includes('activeTabRef.current') && appSource.includes('Project presence tab update warning:'), 'Presence heartbeat must stay stable across tab switches and update the tab label separately');
 assert(appSource.includes('data-hnl-tab-switching="true"'), 'Rapid tab switching must replace the old heavy screen with a lightweight destination state');
 assert(!appSource.includes('loaders.forEach((loader)'), 'Navigation warming must not parse all heavy primary screens in parallel');
 assert(appSource.includes('nextTimer = window.setTimeout(next, 260)'), 'Background lazy warming must be staggered to avoid main-thread bursts');
