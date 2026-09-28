@@ -445,6 +445,17 @@ requireAll(app, [
   'startupNavigationAppliedForRef',
   "setActiveTab('floorplan')",
 ], 'Home + quick-start routing');
+requireAll(app, [
+  'navigationRequestRef',
+  'navigationCommitTimerRef',
+  'window.clearTimeout(navigationCommitTimerRef.current)',
+  'requestId !== navigationRequestRef.current',
+  '}, 110);',
+  'data-hnl-navigation-target',
+  'data-hnl-tab-switching="true"',
+], 'rapid navigation last-click-wins debounce');
+const navigationCoordinator = app.slice(app.indexOf('const navigateToTab'), app.indexOf('// Warm primary field screens'));
+if (navigationCoordinator.includes('React.startTransition')) fail('settled rapid navigation commit must not use React.startTransition');
 pass('multi-project RBAC is preserved while startup now routes through Home or the explicitly pinned project');
 
 if (!floorPlanDefect.includes('operationalWorkCategoryCatalog') || !floorPlanDefect.includes('getOperationalRoomSubItems')) fail('floor-plan ghost-category filter missing');
