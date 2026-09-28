@@ -327,19 +327,21 @@ pass('warehouse transaction/derived-balance safety engine is wired into runtime'
 
 requireAll(warehouseTab, [
   '<ExcelActionMenu',
+  'triggerLabel="Quản lý dữ liệu"',
+  "onQuickEdit={() => { setQuickEditMode('norms'); setShowQuickEdit(true); }}",
   'onImportFile={hasImportAccess ? handleFileChangeExcel : undefined}',
   "quickEditMode === 'stock' ? false",
-  '▦ <span>Bảng chỉnh nhanh</span>',
-], 'warehouse role-aware Excel actions');
+], 'warehouse role-aware data-management actions');
 if (warehouseTab.includes('<span>Chỉ ADMIN được nhập</span>')) fail('warehouse must hide unavailable import action instead of showing a disabled ADMIN-only placeholder');
 const workVolumeTab = read('src/components/WorkVolumeTab.tsx');
 requireAll(workVolumeTab, [
   '<ExcelActionMenu',
+  'triggerLabel="Quản lý dữ liệu"',
+  'onQuickEdit={() => setShowQuickEdit(true)}',
   'onImportFile={hasStructureManageAccess ? handleImportExcelWorkVolumes : undefined}',
-  '▦ Bảng chỉnh nhanh',
   "key: 'actual', label: 'Khối lượng đã làm', editable: false",
-], 'work-volume role-aware Excel actions');
-pass('Excel action bars are visually consistent across ADMIN, ENGINEER and VIEWER without weakening RBAC');
+], 'work-volume role-aware data-management actions');
+pass('Data-management action bars are visually consistent across ADMIN, ENGINEER and VIEWER without weakening RBAC');
 
 const multiProjectAccess = read('src/components/MultiProjectAccessPanel.tsx');
 const multiProjectOverview = read('src/components/MultiProjectOverview.tsx');
