@@ -110,8 +110,10 @@ assert(featureSheet.includes('<X className="h-6 w-6"'), 'Shared feature sheet cl
 assert(!featureSheet.includes('rounded-full border border-slate-200 bg-white'), 'Shared feature sheet X must not regress to a large circular button');
 
 const warehouse = read('src/components/WarehouseTab.tsx');
+const materialNormModal = read('src/components/MaterialNormModal.tsx');
 
 assert(warehouse.includes('<ExcelActionMenu'), 'Warehouse must use the shared single Excel action menu');
+assert(materialNormModal.includes('Tùy chọn thêm định mức') && materialNormModal.includes('Lấy từ công trình/mẫu') && materialNormModal.includes('Lưu & thêm tiếp') && materialNormModal.includes('value="continue"'), 'Material Norm Add must own template import and save-and-continue multi-entry flow');
 assert(warehouse.includes('onImportFile={hasImportAccess ? handleFileChangeExcel : undefined}'), 'Warehouse Excel menu must hide import when the current role cannot import');
 assert(!warehouse.includes('<span>Chỉ ADMIN được nhập</span>'), 'Warehouse must hide unavailable bulk-import action instead of rendering a disabled ADMIN-only placeholder');
 assert(warehouse.includes('exportLabel="Xuất dữ liệu Kho để chỉnh sửa"'), 'Warehouse Excel export must keep the agreed editing-oriented label');
@@ -318,6 +320,7 @@ for (const [label, source] of [['Floor Plan', floorPlanSource], ['Crew', crewSou
 assert(!warehouseSource.includes("from '../utils/excelExport'") && !workVolumeUi.includes("from '../utils/excelExport'") && !crewSource.includes("from '../utils/excelExport'"), 'Primary field screens must lazy-load Excel export code only when the user invokes Excel actions');
 assert(aiPageSource.includes("import type { HnlAiReportExportInput }") && aiPageSource.includes("await import('../../ai/export/aiReportExport')"), 'HNL AI navigation must defer Excel/PDF export implementation until export is requested');
 assert(workVolumeUi.includes('order-first col-span-2') && workVolumeUi.includes('sm:grid-flow-col') && workVolumeUi.includes('triggerLabel="Quản lý dữ liệu"'), 'Work Volume must highlight Add as a full mobile row while preserving the horizontal PC toolbar');
+assert(workVolumeUi.includes('Tùy chọn thêm khối lượng') && workVolumeUi.includes('Lấy từ công trình/mẫu') && workVolumeUi.includes('Lưu & thêm tiếp') && workVolumeUi.includes('value="continue"'), 'Work Volume Add must own template import and save-and-continue multi-entry flow');
 assert(crewSource.includes('order-1 col-span-2 lg:order-none lg:col-span-1') && crewSource.includes('order-2 col-span-2 flex h-11') && crewSource.includes('order-5 col-span-2 lg:order-none lg:col-span-1') && crewSource.includes('lg:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1fr)]') && crewSource.includes('triggerLabel="Quản lý dữ liệu"'), 'Crew mobile must place Date above Record and keep Data Management full-width while preserving the approved PC toolbar order');
 assert(warehouseSource.includes('order-first col-span-2') && warehouseSource.includes('lg:grid-flow-col') && warehouseSource.includes('triggerLabel="Quản lý dữ liệu"'), 'Warehouse must highlight Create Voucher as a full mobile row while preserving the horizontal PC toolbar');
 assert(floorPlanSource.includes('sm:grid-cols-[minmax(0,1fr)_auto]') && floorPlanSource.includes('triggerLabel="Quản lý dữ liệu"'), 'Floor Plan PC must keep current-view context left and horizontal actions right');
@@ -355,6 +358,8 @@ assert(homeDashboardUi.includes('relative isolate max-h-[440px] overflow-auto ov
 const crewUi = read('src/components/CrewTabBase.tsx');
 const crewShareUi = read('src/components/CrewReportShareModal.tsx');
 assert(crewUi.includes('Chia sẻ báo cáo quân số') && !crewUi.includes('1 ngày / nhiều ngày · nội dung / ảnh'), 'Crew screen must expose the concise consolidated share-report entry');
+assert(crewUi.includes('Tùy chọn thêm đội') && crewUi.includes('Lấy từ công trình/mẫu') && crewUi.includes('Lưu & thêm tiếp') && crewUi.includes('value="continue"'), 'Team Directory Add must own template import and save-and-continue multi-entry flow');
+assert(warehouse.includes('Tạo phiếu') && warehouse.indexOf('Tạo phiếu') < warehouse.indexOf('Danh mục kho'), 'Warehouse PC primary Create Voucher action must precede Catalog and Norms');
 assert(crewUi.includes('workVolumeAppliesToFloor') && crewUi.includes('crew-category-options-') && crewUi.includes('Chọn hạng mục đã khai báo hoặc nhập khác') && crewUi.includes('crew-subitem-options-') && crewUi.includes('Chọn công đoạn đã khai báo hoặc nhập khác'), 'Crew entry must suggest declared work categories/sub-items while preserving custom text entry');
 assert(crewUi.includes('openRoomOnFloorPlan') && crewUi.includes('openDefectOnFloorPlan') && crewUi.includes('qlct_diagnostic_navigation_request') && crewUi.includes('qlct_pending_defect_navigation'), 'Team detail must drill down to exact room/defect entities on the floor plan');
 assert(crewUi.includes('Xem các Căn/Phòng đội đang làm') && crewUi.includes('Mở Defect trên mặt bằng') && crewUi.includes('Căn/Phòng:'), 'Team KPI, room and defect cards must expose direct-view affordances and linked room labels');
