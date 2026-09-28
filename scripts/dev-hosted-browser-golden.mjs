@@ -83,7 +83,7 @@ async function verifyRapidPrimaryNavigation(page, label) {
     const available = preferred.filter((tab) => {
       const button = document.querySelector(`button[data-hnl-nav-tab="${tab}"]`);
       return button && getComputedStyle(button).display !== 'none' && button.getClientRects().length > 0;
-    }, { desktopLike });
+    });
     const minimum = desktopLike ? 6 : 4;
     if (available.length < minimum) throw new Error(`Not enough visible primary nav tabs for rapid-switch test: ${available.join(',')}`);
 
@@ -126,7 +126,7 @@ async function verifyRapidPrimaryNavigation(page, label) {
       targetLatencies,
       totalMs: performance.now() - startedAt,
     };
-  });
+  }, { desktopLike });
 
   assert(result.finalActive === result.finalTab, `${label}: rapid navigation did not settle on last click (${result.finalActive} != ${result.finalTab})`);
   assert(result.targets.every((target, index) => target === result.available[index]), `${label}: requested nav target did not respond to every rapid click — ${JSON.stringify(result.targetLatencies)}`);
