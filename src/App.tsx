@@ -367,10 +367,55 @@ const getVerifiedCachedHomeProjects = (): Array<{ id: string; name: string; role
   });
 };
 
+type FrozenKeepAliveTabProps = {
+  active: boolean;
+  mounted: boolean;
+  tab: TabType;
+  children: React.ReactElement;
+};
+
+const FrozenKeepAliveTab = React.memo(function FrozenKeepAliveTab({
+  active,
+  mounted,
+  tab,
+  children,
+}: FrozenKeepAliveTabProps) {
+  const frozenChildRef = React.useRef<React.ReactElement | null>(null);
+  if (active) frozenChildRef.current = children;
+  if (!active && !mounted) return null;
+  const content = active ? children : frozenChildRef.current;
+  if (!content) return null;
+  return (
+    <section
+      data-hnl-keepalive-tab={tab}
+      data-active={active ? 'true' : 'false'}
+      hidden={!active}
+      aria-hidden={!active}
+      className={active ? 'block' : 'hidden'}
+    >
+      {content}
+    </section>
+  );
+});
+
 function AuthenticatedApp() {
   const isDesktopRuntime = typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('app') === 'desktop';
   const [activeTab, setActiveTab] = useState<TabType>(getRememberedTab);
+  const [keepAliveTabs, setKeepAliveTabs] = useState<TabType[]>(() => [getRememberedTab()]);
+
+  const desktopLikeNavigation = React.useMemo(
+    () => isDesktopRuntime || (typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches),
+    [isDesktopRuntime],
+  );
+
+  useEffect(() => {
+    setKeepAliveTabs((current) => {
+      const next = [activeTab, ...current.filter((tab) => tab !== activeTab)];
+      const limit = desktopLikeNavigation ? 9 : 3;
+      return next.slice(0, limit);
+    });
+  }, [activeTab, desktopLikeNavigation]);
 
   useEffect(() => {
     try { sessionStorage.setItem('qlct_active_tab_v1', activeTab); } catch (_) {}
@@ -398,7 +443,7 @@ function AuthenticatedApp() {
     if (connection?.saveData) return;
     let cancelled = false;
     const loaders = [loadFloorPlanDefectTab, loadCrewTab, loadWarehouseTab, loadWorkVolumeTab, loadGoogleConfigTab];
-    const desktopLike = isDesktopRuntime || window.matchMedia('(min-width: 1024px)').matches;
+    const desktopLike = desktopLikeNavigation;
 
     if (desktopLike) {
       const timer = window.setTimeout(() => {
@@ -428,7 +473,43 @@ function AuthenticatedApp() {
       if (timer != null) window.clearTimeout(timer);
       if (idleId != null && typeof (window as any).cancelIdleCallback === 'function') (window as any).cancelIdleCallback(idleId);
     };
-  }, [isDesktopRuntime]);
+  }, [desktopLikeNavigation]);
+
+  // Desktop/EXE pre-mounts the primary screens one-by-one during idle time. The lazy
+  // chunks are already warmed above; this second phase pays the expensive React mount
+  // cost before the user rapidly switches tabs. Mobile keeps only the three most recent
+  // tabs to avoid retaining the very large Floor Plan/Crew subtrees in phone memory.
+  useEffect(() => {
+    if (!desktopLikeNavigation) return;
+    const connection = (navigator as any).connection;
+    if (connection?.saveData) return;
+
+    const candidates: TabType[] = ['home', 'floorplan', 'crew', 'warehouse', 'volume', 'chat', 'ai', 'config'];
+    let cancelled = false;
+    let index = 0;
+    let timer: number | null = null;
+
+    const mountNext = () => {
+      if (cancelled || index >= candidates.length) return;
+      const tab = candidates[index++];
+      setKeepAliveTabs((current) => current.includes(tab) ? current : [...current, tab]);
+      timer = window.setTimeout(mountNext, 240);
+    };
+
+    const idle = (window as any).requestIdleCallback;
+    const idleId = typeof idle === 'function'
+      ? idle(mountNext, { timeout: 2200 })
+      : null;
+    if (idleId == null) timer = window.setTimeout(mountNext, 700);
+
+    return () => {
+      cancelled = true;
+      if (timer != null) window.clearTimeout(timer);
+      if (idleId != null && typeof (window as any).cancelIdleCallback === 'function') {
+        (window as any).cancelIdleCallback(idleId);
+      }
+    };
+  }, [desktopLikeNavigation]);
 
   // Diagnostic navigation stays decoupled from individual screens. The source screen
   // stores the entity request in sessionStorage, while App only switches modules.
