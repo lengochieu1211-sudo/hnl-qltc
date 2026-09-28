@@ -373,6 +373,7 @@ function AuthenticatedApp() {
   const [activeTab, setActiveTab] = useState<TabType>(getRememberedTab);
   const [navigationTargetTab, setNavigationTargetTab] = useState<TabType | null>(null);
   const navigationRequestRef = useRef(0);
+  const navigationCommitTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     try { sessionStorage.setItem('qlct_active_tab_v1', activeTab); } catch (_) {}
@@ -392,22 +393,38 @@ function AuthenticatedApp() {
   }, []);
 
   // Navigation must stay responsive even when users tap several heavy modules in quick
-  // succession. The target label changes urgently, while the expensive screen render is
-  // interruptible. A newer request invalidates older transition work so intermediate
-  // Floor/Crew/Warehouse/etc screens are not all mounted just because the user crossed
-  // them while navigating.
+  // succession. The target label changes urgently, but the expensive screen mount waits
+  // for a short quiet window. Each new tap cancels the previous commit, so a user moving
+  // Home -> Floor -> Crew -> Warehouse mounts only the final destination instead of
+  // blocking the main thread with every intermediate screen.
   const navigateToTab = React.useCallback((tab: TabType) => {
     const requestId = ++navigationRequestRef.current;
     setNavigationTargetTab(tab);
     preloadTab(tab);
-    React.startTransition(() => {
-      setActiveTab((current) => requestId === navigationRequestRef.current ? tab : current);
-    });
+
+    if (navigationCommitTimerRef.current != null) {
+      window.clearTimeout(navigationCommitTimerRef.current);
+    }
+    navigationCommitTimerRef.current = window.setTimeout(() => {
+      navigationCommitTimerRef.current = null;
+      if (requestId !== navigationRequestRef.current) return;
+      React.startTransition(() => {
+        setActiveTab((current) => requestId === navigationRequestRef.current ? tab : current);
+      });
+    }, 110);
   }, [preloadTab]);
 
   useEffect(() => {
     if (navigationTargetTab === activeTab) setNavigationTargetTab(null);
   }, [activeTab, navigationTargetTab]);
+
+  useEffect(() => () => {
+    navigationRequestRef.current += 1;
+    if (navigationCommitTimerRef.current != null) {
+      window.clearTimeout(navigationCommitTimerRef.current);
+      navigationCommitTimerRef.current = null;
+    }
+  }, []);
 
   // Warm primary field screens after first paint without flooding the main thread.
   // Parse one lazy chunk at a time during idle periods. Pointer/touch intent still
