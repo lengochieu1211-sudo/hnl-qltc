@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   BarChart3,
   ClipboardCheck,
@@ -42,6 +42,12 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   const { t } = useLanguage();
   const [showMore, setShowMore] = useState(false);
   const [pressedTab, setPressedTab] = useState<TabType | null>(null);
+  const pendingTabRef = useRef<TabType | null>(null);
+  const navigationTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (navigationTimerRef.current != null) window.clearTimeout(navigationTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (pressedTab === activeTab) setPressedTab(null);
@@ -70,14 +76,29 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   const activate = (tab: TabType) => {
     setShowMore(false);
     setPressedTab(tab);
-    if (tab === activeTab) {
+    onPreloadTab?.(tab);
+
+    if (tab === activeTab && pendingTabRef.current == null) {
       setPressedTab(null);
       return;
     }
-    // Switch the destination immediately. If a lazy chunk still needs a moment,
-    // App's Suspense fallback appears right away instead of keeping the old screen
-    // visible until the heavy destination render finishes.
-    setActiveTab(tab);
+
+    // Coalesce rapid taps. A single tap still commits within one short UI beat,
+    // while a fast Home -> Floor -> Crew -> Warehouse sequence only mounts the
+    // final destination instead of forcing every heavy intermediate screen to mount.
+    pendingTabRef.current = tab;
+    if (navigationTimerRef.current != null) window.clearTimeout(navigationTimerRef.current);
+    navigationTimerRef.current = window.setTimeout(() => {
+      navigationTimerRef.current = null;
+      const nextTab = pendingTabRef.current;
+      pendingTabRef.current = null;
+      if (!nextTab) return;
+      if (nextTab === activeTab) {
+        setPressedTab(null);
+        return;
+      }
+      setActiveTab(nextTab);
+    }, 40);
   };
 
   const navButtonStyle: React.CSSProperties = { touchAction: 'manipulation' };
