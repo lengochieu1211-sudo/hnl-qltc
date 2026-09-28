@@ -445,6 +445,13 @@ requireAll(app, [
   'startupNavigationAppliedForRef',
   "setActiveTab('floorplan')",
 ], 'Home + quick-start routing');
+requireAll(app, [
+  'const [renderedTab, setRenderedTab]',
+  'const tabSwitchPending = activeTab !== renderedTab',
+  'setRenderedTab(requestedTab);',
+  'data-hnl-tab-switch-pending',
+  "data-hnl-tab-switch-state={tabSwitchPending ? 'pending' : 'settled'}",
+], 'rapid navigation heavy-mount coalescing');
 pass('multi-project RBAC is preserved while startup now routes through Home or the explicitly pinned project');
 
 if (!floorPlanDefect.includes('operationalWorkCategoryCatalog') || !floorPlanDefect.includes('getOperationalRoomSubItems')) fail('floor-plan ghost-category filter missing');
