@@ -396,25 +396,22 @@ function AuthenticatedApp() {
     if (loader) void loader().catch(() => undefined);
   }, []);
 
-  // Navigation must stay responsive even when users tap several heavy modules in quick
-  // succession. The target label changes urgently, but the expensive screen mount waits
-  // for a short quiet window. Each new tap cancels the previous commit, so a user moving
-  // Home -> Floor -> Crew -> Warehouse mounts only the final destination instead of
-  // blocking the main thread with every intermediate screen.
+  // Navigation target feedback is immediate, but never parse a heavy lazy module inside
+  // the click task. Coalesce only a very short burst so rapid taps do not mount every
+  // intermediate screen; the previous 110 ms quiet window was visibly slower than PROD.
   const navigateToTab = React.useCallback((tab: TabType) => {
     const requestId = ++navigationRequestRef.current;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const sinceLastRequest = navigationLastRequestAtRef.current > 0
       ? now - navigationLastRequestAtRef.current
       : Number.POSITIVE_INFINITY;
-    const rapidTap = sinceLastRequest < 220;
+    const rapidTap = sinceLastRequest < 120;
     navigationLastRequestAtRef.current = now;
-    if (rapidTap) navigationRapidUntilRef.current = now + 320;
+    if (rapidTap) navigationRapidUntilRef.current = now + 140;
     const rapidMode = rapidTap || now < navigationRapidUntilRef.current;
-    const commitDelayMs = rapidMode ? 110 : 24;
+    const commitDelayMs = rapidMode ? 36 : 0;
 
     setNavigationTargetTab(tab);
-    preloadTab(tab);
 
     if (navigationCommitTimerRef.current != null) {
       window.clearTimeout(navigationCommitTimerRef.current);
@@ -424,7 +421,7 @@ function AuthenticatedApp() {
       if (requestId !== navigationRequestRef.current) return;
       setActiveTab((current) => requestId === navigationRequestRef.current ? tab : current);
     }, commitDelayMs);
-  }, [preloadTab]);
+  }, []);
 
   useEffect(() => {
     if (navigationTargetTab === activeTab) setNavigationTargetTab(null);
@@ -439,9 +436,8 @@ function AuthenticatedApp() {
   }, []);
 
   // Warm primary field screens after first paint without flooding the main thread.
-  // Parse one lazy chunk at a time during idle periods. Pointer/touch intent still
-  // preloads the exact destination immediately, but background warming never launches
-  // five heavy modules in parallel.
+  // Parse one lazy chunk at a time during idle periods. Mouse hover may preload the exact
+  // desktop destination, but touch/click navigation never performs heavy parsing first.
   useEffect(() => {
     const connection = (navigator as any).connection;
     if (connection?.saveData) return;
@@ -3816,11 +3812,11 @@ function AuthenticatedApp() {
     isProjectRoleResolved,
   ]);
 
-  // Photo metadata is realtime; binary image chunks are downloaded lazily only when an image is displayed.
-  // This keeps multi-device image sync complete without loading every photo into phone RAM at startup.
+  // Photo metadata is lightweight realtime state. Keep one project-scoped listener alive
+  // across tab changes so rapid Floor Plan/Crew/Chat navigation does not repeatedly tear
+  // down and recreate Firestore listeners. Binary image chunks remain lazy/on-demand.
   useEffect(() => {
-    const photoTabActive = activeTab === 'floorplan' || activeTab === 'crew' || activeTab === 'chat';
-    if (!photoTabActive || !isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed) {
+    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed) {
       setPhotoCloudStatus({ phase: 'idle', pending: 0 });
       return;
     }
@@ -3829,7 +3825,7 @@ function AuthenticatedApp() {
       if (activeProjectIdRef.current === projectId) setPhotoCloudStatus(status);
     });
     return () => unsubscribePhotos();
-  }, [activeProjectId, activeTab, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, isOnline, projectRoleSource, projectRoleAllowed]);
+  }, [activeProjectId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, isOnline, projectRoleSource, projectRoleAllowed]);
 
   const handleUpdateProjectName = (val: string) => {
     if (!isProjectRoleResolved || currentUserRole !== 'ADMIN') return;
