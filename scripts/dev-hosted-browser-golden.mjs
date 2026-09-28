@@ -68,6 +68,79 @@ async function waitForSettingsSheet(page, sheetKey, visible) {
   return sheet;
 }
 
+async function verifyRapidPrimaryNavigation(page, label) {
+  const viewport = page.viewportSize();
+  const desktopLike = Boolean(viewport && viewport.width >= 1024);
+  const requested = desktopLike
+    ? ['home', 'floorplan', 'crew', 'warehouse', 'volume', 'chat', 'ai']
+    : ['home', 'floorplan', 'crew', 'warehouse'];
+
+  const available = await page.evaluate((ids) => ids.filter((id) => {
+    const candidates = Array.from(document.querySelectorAll(`button[data-hnl-tab-id="${id}"]`));
+    return candidates.some((node) => {
+      const style = getComputedStyle(node);
+      const rect = node.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+    });
+  }), requested);
+
+  assert(available.length >= 4, `${label}: insufficient visible primary tabs for rapid-switch test (${available.join(', ')})`);
+  const finalTab = available[available.length - 1];
+
+  await page.evaluate(() => {
+    const main = document.querySelector('main[data-hnl-rendered-tab]');
+    window.__hnlRapidRenderedTabs = main ? [main.getAttribute('data-hnl-rendered-tab')] : [];
+    window.__hnlRapidObserver?.disconnect?.();
+    window.__hnlRapidObserver = new MutationObserver(() => {
+      const current = main?.getAttribute('data-hnl-rendered-tab');
+      if (current && window.__hnlRapidRenderedTabs[window.__hnlRapidRenderedTabs.length - 1] !== current) {
+        window.__hnlRapidRenderedTabs.push(current);
+      }
+    });
+    if (main) window.__hnlRapidObserver.observe(main, { attributes: true, attributeFilter: ['data-hnl-rendered-tab'] });
+  });
+
+  const startedAt = Date.now();
+  const clicked = await page.evaluate((ids) => {
+    const result = [];
+    for (const id of ids) {
+      const candidates = Array.from(document.querySelectorAll(`button[data-hnl-tab-id="${id}"]`));
+      const button = candidates.find((node) => {
+        const style = getComputedStyle(node);
+        const rect = node.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+      });
+      if (!button) continue;
+      button.click();
+      result.push(id);
+    }
+    return result;
+  }, available);
+
+  assert(clicked.length === available.length, `${label}: rapid-switch click sequence did not fire completely`);
+  await page.waitForFunction((expectedTab) => {
+    const main = document.querySelector('main[data-hnl-active-tab]');
+    return main?.getAttribute('data-hnl-active-tab') === expectedTab
+      && main?.getAttribute('data-hnl-rendered-tab') === expectedTab
+      && main?.getAttribute('data-hnl-tab-switch-state') === 'settled';
+  }, finalTab, { timeout: 2500 });
+
+  const elapsedMs = Date.now() - startedAt;
+  const observed = await page.evaluate(() => {
+    window.__hnlRapidObserver?.disconnect?.();
+    const values = Array.isArray(window.__hnlRapidRenderedTabs) ? [...window.__hnlRapidRenderedTabs] : [];
+    delete window.__hnlRapidRenderedTabs;
+    delete window.__hnlRapidObserver;
+    return values;
+  });
+
+  const intermediate = observed.slice(1, -1);
+  assert(intermediate.length === 0, `${label}: rapid switching mounted intermediate heavy tabs: ${observed.join(' -> ')}`);
+  assert(observed[observed.length - 1] === finalTab, `${label}: rapid switching did not settle on final tab ${finalTab}: ${observed.join(' -> ')}`);
+  assert(elapsedMs < 2000, `${label}: rapid primary navigation took too long to settle (${elapsedMs}ms)`);
+  pass(`${label} rapid primary navigation coalescing`, `${clicked.join(' → ')}; final=${finalTab}; ${elapsedMs}ms`);
+}
+
 async function verifySettingsFeatureSheets(page, label) {
   const viewport = page.viewportSize();
   const desktopRail = Boolean(viewport && viewport.width >= 1024);
@@ -497,6 +570,7 @@ async function runViewport(browser, label, viewport, screenshotPath) {
   await securityTitle.waitFor({ state: 'hidden', timeout: 10000 });
   pass(`${label} Security Center closes through visible close control`);
 
+  await verifyRapidPrimaryNavigation(page, label);
   await verifySettingsFeatureSheets(page, label);
   await verifyMaterialNeedFeatureSheet(page, label);
 
