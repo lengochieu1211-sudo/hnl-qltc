@@ -137,7 +137,7 @@ assert.match(warehouse, /Không thể xóa Hạng mục cuối cùng/, 'Quick no
 assert.match(warehouse, /requiresAnchorForInsert=\{quickEditMode === 'norms'\}/, 'Norm child insertion must require an existing material anchor');
 assert.match(warehouse, /canAddRows=\{quickEditMode === 'norms' \? hasNormManageAccess/, 'Norm quick edit may add child links only under ADMIN material-norm access');
 assert.match(warehouse, /order-first col-span-2[\s\S]*Tạo phiếu/, 'Warehouse mobile primary Create Voucher action must occupy a full highlighted row');
-assert.match(warehouse, /lg:grid-flow-col[\s\S]*Danh mục kho[\s\S]*Tạo phiếu[\s\S]*triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit/, 'Warehouse PC actions must remain one horizontal row with consolidated data management');
+assert.match(warehouse, /lg:grid-flow-col[\s\S]*Tạo phiếu[\s\S]*Danh mục kho[\s\S]*triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit/, 'Warehouse PC actions must keep Create Voucher first, then Catalog/Norms, with consolidated data management');
 
 assert.match(volume, /Khối lượng đã làm/, 'WorkVolume quick table must show actual volume');
 assert.match(volume, /key: 'actual'.*editable: false/, 'Actual volume must be read-only');
@@ -172,4 +172,4 @@ assert.match(catalogTemplatePicker, /fetchUserCatalogTemplates/, 'Reusable templ
 console.log('Quick Edit + Excel + DXF Golden: PASS');
 
 assert.match(volume, /order-first col-span-2[\s\S]*Thêm/, 'Work Volume mobile primary Add action must occupy a full highlighted row');
-assert.match(volume, /sm:grid-flow-col[\s\S]*Lấy từ công trình\/mẫu[\s\S]*Thêm[\s\S]*triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit/, 'Work Volume PC actions must remain horizontal with consolidated data management');
+assert.match(volume, /sm:grid-flow-col[\s\S]*Thêm[\s\S]*Lấy từ công trình\/mẫu[\s\S]*triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit/, 'Work Volume PC actions must keep Add primary with template import inside its split control and consolidated data management');
