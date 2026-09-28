@@ -471,8 +471,10 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     setDueDate('');
   };
 
-  const handleAddSubmit = (e: React.FormEvent) => {
+  const handleAddSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const submitMode = submitter?.value === 'continue' ? 'continue' : 'close';
     if (!hasStructureManageAccess) {
       alert('Chỉ ADMIN được tạo hoặc sửa định nghĩa hạng mục khối lượng. Kỹ sư cập nhật tiến độ tại Mặt bằng.');
       handleCloseModal();
@@ -533,6 +535,15 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         status: Number(actual) >= finalPlanned ? 'Đã hoàn thành' : Number(actual) > 0 ? 'Đang thi công' : 'Chưa thi công',
         dueDate: dueDate ? dueDate : undefined,
       });
+    }
+
+    if (!editingVolume && submitMode === 'continue') {
+      setTitle('');
+      setPlanned(350);
+      setPlannedStr('350');
+      setActual(0);
+      setEditingVolume(null);
+      return;
     }
 
     handleCloseModal();
@@ -709,14 +720,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
         <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-flow-col sm:auto-cols-max sm:grid-cols-none sm:items-center">
           {hasStructureManageAccess && (
-            <>
-              <button
-                onClick={() => setShowTemplatePicker(true)}
-                className="flex h-9 w-full items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-xs font-bold text-indigo-700 transition-all hover:bg-indigo-100 sm:w-auto"
-              >
-                <Copy className="w-4 h-4" />
-                <span className="truncate">Lấy từ công trình/mẫu</span>
-              </button>
+            <div className="order-first col-span-2 flex h-11 w-full sm:order-none sm:col-span-1 sm:h-9 sm:w-auto">
               <button
                 onClick={async () => {
                   setTitle('');
@@ -731,12 +735,34 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                   setEditingVolume(null);
                   setShowAddForm(true);
                 }}
-                className="order-first col-span-2 flex h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 text-sm font-extrabold text-white shadow-md transition-all hover:bg-blue-700 active:scale-[0.99] sm:order-none sm:col-span-1 sm:h-9 sm:w-auto sm:px-3 sm:text-xs"
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-l-xl bg-blue-600 px-4 text-sm font-extrabold text-white shadow-md transition-all hover:bg-blue-700 active:scale-[0.99] sm:flex-none sm:px-3 sm:text-xs"
               >
                 <Plus className="w-4 h-4" />
                 Thêm
               </button>
-            </>
+              <details className="group relative">
+                <summary
+                  className="flex h-full cursor-pointer list-none items-center justify-center rounded-r-xl border-l border-blue-400 bg-blue-600 px-2 text-white shadow-md transition hover:bg-blue-700 [&::-webkit-details-marker]:hidden"
+                  aria-label="Tùy chọn thêm khối lượng"
+                  title="Tùy chọn thêm khối lượng"
+                >
+                  <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+                </summary>
+                <div className="absolute right-0 top-full z-30 mt-1 min-w-56 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      setShowTemplatePicker(true);
+                      (event.currentTarget.closest('details') as HTMLDetailsElement | null)?.removeAttribute('open');
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-bold text-indigo-700 hover:bg-indigo-50"
+                  >
+                    <Copy className="h-4 w-4 shrink-0" />
+                    Lấy từ công trình/mẫu
+                  </button>
+                </div>
+              </details>
+            </div>
           )}
           <div className={hasStructureManageAccess ? 'col-span-1 sm:col-span-1' : 'col-span-2 sm:col-span-1'}>
             <ExcelActionMenu
@@ -1448,19 +1474,31 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 </div>
               </div>
 
-              <div className="sticky bottom-0 z-10 -mx-5 -mb-5 mt-1 flex gap-2 border-t border-slate-100 bg-white px-5 py-4 lg:col-span-6">
+              <div className={`sticky bottom-0 z-10 -mx-5 -mb-5 mt-1 grid gap-2 border-t border-slate-100 bg-white px-5 py-4 lg:col-span-6 ${editingVolume ? 'grid-cols-2' : 'grid-cols-1 sm:grid-cols-3'}`}>
                 <button
                   type="button"
                   onClick={handleCloseModal}
-                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-slate-600 transition"
+                  className="py-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-slate-600 transition"
                 >
                   Hủy
                 </button>
+                {!editingVolume && (
+                  <button
+                    type="submit"
+                    name="submitMode"
+                    value="continue"
+                    className="py-2.5 rounded-xl border border-blue-200 bg-blue-50 font-bold text-blue-700 transition hover:bg-blue-100 active:scale-95"
+                  >
+                    Lưu & thêm tiếp
+                  </button>
+                )}
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md"
+                  name="submitMode"
+                  value="close"
+                  className="py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md"
                 >
-                  {editingVolume ? 'Cập nhật hạng mục' : 'Tạo hạng mục'}
+                  {editingVolume ? 'Cập nhật hạng mục' : 'Lưu & đóng'}
                 </button>
               </div>
             </form>
