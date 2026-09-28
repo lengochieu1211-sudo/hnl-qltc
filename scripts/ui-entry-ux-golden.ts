@@ -287,10 +287,14 @@ const homeDashboardUi = read('src/components/HomeDashboard.tsx');
 const navSource = read('src/components/BottomNav.tsx');
 assert(navSource.includes('setActiveTab(tab);'), 'Primary navigation must switch the destination immediately after one tap');
 assert(!navSource.includes('startTransition(() => setActiveTab(tab))'), 'Primary navigation must not keep the old heavy screen visible through a React transition');
-assert(navSource.includes('onPreloadTab?.(tab)') && navSource.includes('onPointerEnter={() => onPreloadTab?.(tab.id)}'), 'Primary navigation must preload the destination on hover/touch intent');
-assert(appSource.includes('const preloadTab = React.useCallback') && appSource.includes('onPreloadTab={preloadTab}'), 'App must map navigation intent to the destination lazy loader');
-assert(appSource.includes("window.matchMedia('(min-width: 1024px)').matches") && appSource.includes('loaders.forEach((loader)'), 'Desktop/EXE must warm primary lazy screens in parallel after first paint');
+assert(navSource.includes("if (event.pointerType === 'mouse') onPreloadTab?.(tab)") && navSource.includes('preloadTabFromHover'), 'Primary navigation must preload only from desktop mouse hover, never from touch pointer-down');
+assert(!navSource.includes('setPressedTab(tab);\n    onPreloadTab?.(tab);'), 'Touch pointer-down must not import/parse a heavy destination before click activation');
+assert(appSource.includes('const preloadTab = React.useCallback') && appSource.includes('onPreloadTab={preloadTab}'), 'App must map navigation hover intent to the destination lazy loader');
+assert(appSource.includes('requestIdleCallback') && appSource.includes('stepDelay') && appSource.includes('loader().catch(() => undefined).finally'), 'Background navigation warming must be idle and staggered rather than parallel main-thread work');
+assert(!appSource.includes('loaders.forEach((loader)'), 'Primary screen warming must not parse every heavy DEV chunk in parallel');
 assert(appSource.includes('if (connection?.saveData) return;'), 'Navigation prewarm must continue respecting Data Saver');
+assert(appSource.includes('activeTabRef.current') && appSource.includes('Project presence tab update warning'), 'Presence heartbeat must stay stable across rapid tab switches and debounce the settled tab write');
+assert(appSource.includes('subscribeProjectPhotosRealtime(projectId') && !appSource.includes("const photoTabActive = activeTab === 'floorplan'"), 'Photo metadata realtime listener must remain project-scoped instead of restarting on every tab switch');
 
 assert(navSource.includes("touchAction: 'manipulation'"), 'Primary navigation must opt into immediate touch manipulation');
 assert(navSource.includes('onPointerDown={() => previewTab(tab.id)}'), 'Primary navigation must provide immediate pressed feedback before click activation');
