@@ -1769,6 +1769,15 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           onDrop={hasImportAccess ? handleDropExcel : undefined}
           className={`grid w-full grid-cols-2 gap-2 rounded-xl transition-all lg:w-auto lg:grid-flow-col lg:auto-cols-max lg:grid-cols-none lg:items-center ${isDraggingExcel ? 'ring-2 ring-emerald-400 ring-offset-2' : ''}`}
         >
+          {hasEditAccess && (
+            <button
+              onClick={openCreateInventory}
+              className="order-first col-span-2 flex h-11 items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 text-sm font-extrabold text-white shadow-md transition-all hover:bg-blue-700 active:scale-[0.99] lg:order-none lg:col-span-1 lg:h-9 lg:px-3 lg:text-xs"
+            >
+              <Plus className="w-4 h-4" />
+              Tạo phiếu
+            </button>
+          )}
           <button
             type="button"
             onClick={() => { setWarehouseCatalogTab('material'); setWarehouseCatalogSearch(''); setShowWarehouseCatalog(true); }}
@@ -1786,15 +1795,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <Sliders className="w-3.5 h-3.5 text-indigo-600" />
             <span>{hasNormManageAccess ? t('norms_button') : 'Xem định mức'}</span>
           </button>
-          {hasEditAccess && (
-            <button
-              onClick={openCreateInventory}
-              className="order-first col-span-2 flex h-11 items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 text-sm font-extrabold text-white shadow-md transition-all hover:bg-blue-700 active:scale-[0.99] lg:order-none lg:col-span-1 lg:h-9 lg:px-3 lg:text-xs"
-            >
-              <Plus className="w-4 h-4" />
-              Tạo phiếu
-            </button>
-          )}
           <div className="col-span-2 lg:col-span-1">
             <ExcelActionMenu
               fillMobile

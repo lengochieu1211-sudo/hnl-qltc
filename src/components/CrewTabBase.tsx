@@ -10,6 +10,7 @@ import {
   Copy, 
   ChevronLeft, 
   ChevronRight, 
+  ChevronDown, 
   MapPin, 
   Clipboard, 
   User, 
@@ -1218,9 +1219,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   };
 
   // Handle Team Directory Submission
-  const handleTeamSubmit = (e: React.FormEvent) => {
+  const handleTeamSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!canManageTeamDirectory) return;
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const submitMode = submitter?.value === 'continue' ? 'continue' : 'close';
     if (!tName.trim()) {
       alert('Vui lòng nhập tên đội thi công!');
       return;
@@ -1251,6 +1254,14 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     }
     if (!updateTeamsAndParent(nextTeams)) return;
     setEditingTeam(null);
+    if (!editingTeam && submitMode === 'continue') {
+      setTName('');
+      setTLeader('');
+      setTCount(5);
+      setTPhone('');
+      setTNotes('');
+      return;
+    }
     setShowTeamModal(false);
   };
 
@@ -1950,7 +1961,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     setEditingRecord(null);
                     setShowAddLogModal(true);
                   }}
-                  className="order-2 col-span-2 flex h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-3 text-sm font-extrabold text-white shadow-md transition hover:bg-blue-700 active:scale-[0.99] lg:order-none lg:col-span-1 lg:h-10 lg:bg-slate-900 lg:text-xs lg:hover:bg-slate-800"
+                  className="order-2 col-span-2 flex h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-3 text-sm font-extrabold text-white shadow-md transition hover:bg-blue-700 active:scale-[0.99] lg:order-none lg:col-span-1 lg:h-10 lg:text-xs"
                 >
                   <Plus className="w-4 h-4" /> Ghi nhận quân số
                 </button>
@@ -2303,26 +2314,40 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             <div className="mt-3.5 pt-3 border-t border-slate-100">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 {canManageTeamDirectory && (
-                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                  <div className="flex w-full sm:w-auto">
                     <button
                       type="button"
                       onClick={async () => {
                         setEditingTeam(null);
                         setShowTeamModal(true);
                       }}
-                      className="w-full h-8 px-3 sm:w-auto flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs shadow-2xs transition-all active:scale-95"
+                      className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-l-xl bg-indigo-600 px-3 text-xs font-bold text-white shadow-2xs transition-all hover:bg-indigo-500 active:scale-[0.99] sm:flex-none"
                     >
                       <Plus className="w-4 h-4 shrink-0" />
                       <span className="truncate">Thêm đội mới</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowTeamTemplatePicker(true)}
-                      className="w-full h-8 px-3 sm:w-auto flex items-center justify-center gap-1.5 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl text-xs transition-all active:scale-95"
-                    >
-                      <Copy className="w-4 h-4 shrink-0" />
-                      <span className="truncate">Lấy từ công trình/mẫu</span>
-                    </button>
+                    <details className="group relative">
+                      <summary
+                        className="flex h-9 cursor-pointer list-none items-center justify-center rounded-r-xl border-l border-indigo-400 bg-indigo-600 px-2 text-white transition hover:bg-indigo-500 [&::-webkit-details-marker]:hidden"
+                        aria-label="Tùy chọn thêm đội"
+                        title="Tùy chọn thêm đội"
+                      >
+                        <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+                      </summary>
+                      <div className="absolute left-0 top-full z-30 mt-1 min-w-56 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            setShowTeamTemplatePicker(true);
+                            (event.currentTarget.closest('details') as HTMLDetailsElement | null)?.removeAttribute('open');
+                          }}
+                          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-bold text-indigo-700 hover:bg-indigo-50"
+                        >
+                          <Copy className="h-4 w-4 shrink-0" />
+                          Lấy từ công trình/mẫu
+                        </button>
+                      </div>
+                    </details>
                   </div>
                 )}
 
@@ -3136,22 +3161,34 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Buttons */}
-              <div className="flex gap-2.5 pt-2 sm:col-span-2">
+              <div className={`grid gap-2.5 pt-2 sm:col-span-2 ${editingTeam ? 'grid-cols-2' : 'grid-cols-1 sm:grid-cols-3'}`}>
                 <button
                   type="button"
                   onClick={async () => {
                     setShowTeamModal(false);
                     setEditingTeam(null);
                   }}
-                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-lg text-xs transition"
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-lg text-xs transition"
                 >
                   Hủy bỏ
                 </button>
+                {!editingTeam && (
+                  <button
+                    type="submit"
+                    name="submitMode"
+                    value="continue"
+                    className="border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold py-2.5 px-4 rounded-lg text-xs transition active:scale-95"
+                  >
+                    Lưu & thêm tiếp
+                  </button>
+                )}
                 <button
                   type="submit"
-                  className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 px-4 rounded-lg text-xs transition"
+                  name="submitMode"
+                  value="close"
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 px-4 rounded-lg text-xs transition"
                 >
-                  {editingTeam ? 'Lưu thay đổi' : 'Thêm mới'}
+                  {editingTeam ? 'Lưu thay đổi' : 'Lưu & đóng'}
                 </button>
               </div>
             </form>
