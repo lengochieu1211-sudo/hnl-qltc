@@ -440,7 +440,7 @@ requireAll(app, [
   "new URLSearchParams(window.location.search).get('app') === 'desktop'",
   "isDesktopRuntime ? 'pl-[84px]' : 'lg:pl-[84px]'",
   'forceDesktopRail={isDesktopRuntime}',
-  "useState<TabType>(getRememberedTab)",
+  "const [activeTab, setActiveTab] = useState<TabType>(initialTabRef.current)",
   '<HomeDashboard',
   'startupNavigationAppliedForRef',
   "setActiveTab('floorplan')",
