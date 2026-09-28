@@ -731,14 +731,14 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                   setEditingVolume(null);
                   setShowAddForm(true);
                 }}
-                className="flex h-9 w-full items-center justify-center gap-1 rounded-xl bg-blue-600 px-3 text-xs font-bold text-white shadow transition-all hover:bg-blue-700 active:scale-95 sm:w-auto"
+                className="order-first col-span-2 flex h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 text-sm font-extrabold text-white shadow-md transition-all hover:bg-blue-700 active:scale-[0.99] sm:order-none sm:col-span-1 sm:h-9 sm:w-auto sm:px-3 sm:text-xs"
               >
                 <Plus className="w-4 h-4" />
                 Thêm
               </button>
             </>
           )}
-          <div className="col-span-2 sm:col-span-1">
+          <div className={hasStructureManageAccess ? 'col-span-1 sm:col-span-1' : 'col-span-2 sm:col-span-1'}>
             <ExcelActionMenu
               fillMobile
               triggerLabel="Quản lý dữ liệu"
