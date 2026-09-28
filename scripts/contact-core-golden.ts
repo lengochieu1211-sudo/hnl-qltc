@@ -45,8 +45,9 @@ assert.match(appSource, /loader\(\)\.catch\(\(\) => undefined\)\.finally\(\(\) =
 assert.match(appSource, /const warmGapMs = mobileLike \? 900 : 260/, 'mobile lazy-tab warm cadence must stay gentler than desktop');
 assert.match(appSource, /navigationRequestRef/, 'rapid primary navigation must coalesce stale heavy-screen transitions');
 assert.match(appSource, /navigationCommitTimerRef/, 'rapid primary navigation must debounce heavy-screen commits during continuous taps');
-assert.match(appSource, /if \(!rapidMode\)[\s\S]*setActiveTab\(tab\);[\s\S]*\}, 110\);/, 'single navigation must commit immediately while rapid taps keep the bounded 110 ms quiet window');
+assert.match(appSource, /commitDelayMs = rapidMode \? 110 : 24/, 'single navigation must retain a short debounce while rapid taps keep the bounded 110 ms quiet window');
 assert.match(appSource, /rapidTap = sinceLastRequest < 220/, 'rapid navigation mode must be driven by actual tap cadence');
+assert.doesNotMatch(appSource, /navigationTargetTab && navigationTargetTab !== activeTab \?/, 'navigation intent must not blank the current screen behind an intermediate spinner');
 const navigationCoordinator = appSource.slice(appSource.indexOf('const navigateToTab'), appSource.indexOf('// Warm primary field screens'));
 assert.doesNotMatch(navigationCoordinator, /React\.startTransition/, 'settled rapid navigation commit must not remain transition-delayed');
 
