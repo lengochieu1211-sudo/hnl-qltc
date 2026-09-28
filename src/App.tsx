@@ -370,11 +370,27 @@ const getVerifiedCachedHomeProjects = (): Array<{ id: string; name: string; role
 function AuthenticatedApp() {
   const isDesktopRuntime = typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('app') === 'desktop';
-  const [activeTab, setActiveTab] = useState<TabType>(getRememberedTab);
+  const initialTabRef = useRef<TabType>(getRememberedTab());
+  const [activeTab, setActiveTab] = useState<TabType>(initialTabRef.current);
+  const [renderedTab, setRenderedTab] = useState<TabType>(initialTabRef.current);
+  const tabSwitchPending = activeTab !== renderedTab;
 
   useEffect(() => {
     try { sessionStorage.setItem('qlct_active_tab_v1', activeTab); } catch (_) {}
   }, [activeTab]);
+
+  // Coalesce rapid primary navigation. The nav highlight and lightweight switch shell
+  // update immediately, while expensive screen mount/effects wait for a short quiet
+  // window. Repeated taps cancel the previous pending mount, so only the final tab
+  // in a rapid sequence is allowed to initialize.
+  useEffect(() => {
+    if (activeTab === renderedTab) return;
+    const requestedTab = activeTab;
+    const timer = window.setTimeout(() => {
+      setRenderedTab(requestedTab);
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, renderedTab]);
 
   const preloadTab = React.useCallback((tab: TabType) => {
     const loader = tab === 'floorplan' ? loadFloorPlanDefectTab
@@ -3771,7 +3787,7 @@ function AuthenticatedApp() {
   // Photo metadata is realtime; binary image chunks are downloaded lazily only when an image is displayed.
   // This keeps multi-device image sync complete without loading every photo into phone RAM at startup.
   useEffect(() => {
-    const photoTabActive = activeTab === 'floorplan' || activeTab === 'crew' || activeTab === 'chat';
+    const photoTabActive = renderedTab === 'floorplan' || renderedTab === 'crew' || renderedTab === 'chat';
     if (!photoTabActive || !isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed) {
       setPhotoCloudStatus({ phase: 'idle', pending: 0 });
       return;
@@ -3781,7 +3797,7 @@ function AuthenticatedApp() {
       if (activeProjectIdRef.current === projectId) setPhotoCloudStatus(status);
     });
     return () => unsubscribePhotos();
-  }, [activeProjectId, activeTab, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, isOnline, projectRoleSource, projectRoleAllowed]);
+  }, [activeProjectId, renderedTab, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, isOnline, projectRoleSource, projectRoleAllowed]);
 
   const handleUpdateProjectName = (val: string) => {
     if (!isProjectRoleResolved || currentUserRole !== 'ADMIN') return;
@@ -7103,8 +7119,26 @@ function AuthenticatedApp() {
 
         {/* Tab Content */}
         <main className="animate-in fade-in duration-150">
+          {tabSwitchPending && (
+            <div
+              data-hnl-tab-switch-pending
+              className="min-h-[180px] rounded-2xl border border-slate-100 bg-white/80 p-6"
+              aria-live="polite"
+              aria-label="Đang chuyển mục"
+            >
+              <div className="mx-auto max-w-xl animate-pulse space-y-3">
+                <div className="h-5 w-36 rounded-lg bg-slate-200" />
+                <div className="h-3 w-full rounded bg-slate-100" />
+                <div className="h-3 w-4/5 rounded bg-slate-100" />
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <div className="h-20 rounded-xl bg-slate-100" />
+                  <div className="h-20 rounded-xl bg-slate-100" />
+                </div>
+              </div>
+            </div>
+          )}
           <React.Suspense fallback={<div className="p-8 text-center text-sm text-slate-500"><RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />Đang tải mục...</div>}>
-          {activeTab === 'home' && (
+          {!tabSwitchPending && renderedTab === 'home' && (
             <HomeDashboard
               projects={authorizedChatProjects}
               activeProjectId={activeProjectId}
@@ -7133,7 +7167,7 @@ function AuthenticatedApp() {
             />
           )}
 
-          {activeTab === 'warehouse' && (
+          {!tabSwitchPending && renderedTab === 'warehouse' && (
             <WarehouseTab
               inventory={inventory}
               userRole={currentUserRole}
@@ -7163,7 +7197,7 @@ function AuthenticatedApp() {
             />
           )}
 
-          {activeTab === 'volume' && (
+          {!tabSwitchPending && renderedTab === 'volume' && (
             <WorkVolumeTab
               workVolumes={computedWorkVolumes}
               floorPlans={floorPlans}
@@ -7187,7 +7221,7 @@ function AuthenticatedApp() {
             />
           )}
 
-          {activeTab === 'floorplan' && (
+          {!tabSwitchPending && renderedTab === 'floorplan' && (
             <FloorPlanDefectTab
               projectId={activeProjectId}
               floorPlans={floorPlans}
@@ -7238,7 +7272,7 @@ function AuthenticatedApp() {
             />
           )}
 
-          {activeTab === 'checklist' && (
+          {!tabSwitchPending && renderedTab === 'checklist' && (
             <ChecklistTab
               checklist={activeChecklist}
               userRole={currentUserRole}
@@ -7261,7 +7295,7 @@ function AuthenticatedApp() {
             />
           )}
 
-          {activeTab === 'crew' && (
+          {!tabSwitchPending && renderedTab === 'crew' && (
             <CrewTab
               projectId={activeProjectId}
               userRole={currentUserRole}
@@ -7374,7 +7408,7 @@ function AuthenticatedApp() {
           )}
 
 
-          {activeTab === 'chat' && (
+          {!tabSwitchPending && renderedTab === 'chat' && (
             <ChatTab
               activeProjectId={activeProjectId}
               projectName={projectName}
@@ -7385,7 +7419,7 @@ function AuthenticatedApp() {
             />
           )}
 
-          {activeTab === 'superadmin' && isCurrentSuperAdmin && (
+          {!tabSwitchPending && renderedTab === 'superadmin' && isCurrentSuperAdmin && (
             <SuperAdminCenter
               userEmail={currentIdentityEmail || undefined}
               userRole={currentUserRole}
@@ -7421,7 +7455,7 @@ function AuthenticatedApp() {
             />
           )}
 
-          {HNL_AI_ENABLED && activeTab === 'ai' && (
+          {HNL_AI_ENABLED && !tabSwitchPending && renderedTab === 'ai' && (
             <AiAssistantPage
               projectId={activeProjectId}
               projectName={projectName}
@@ -7440,7 +7474,7 @@ function AuthenticatedApp() {
             />
           )}
 
-          {activeTab === 'config' && (
+          {!tabSwitchPending && renderedTab === 'config' && (
             <GoogleConfigTab
               projectName={projectName}
               setProjectName={handleUpdateProjectName}
