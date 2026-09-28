@@ -291,9 +291,13 @@ assert(!navSource.includes('startTransition(() => setActiveTab(tab))'), 'Primary
 assert(navSource.includes('onPreloadTab?.(tab)') && navSource.includes('onPointerEnter={() => onPreloadTab?.(tab.id)}'), 'Primary navigation must preload the destination on hover/touch intent');
 assert(appSource.includes('const preloadTab = React.useCallback') && appSource.includes('onPreloadTab={preloadTab}'), 'App must map navigation intent to the destination lazy loader');
 assert(appSource.includes('navigationRequestRef') && appSource.includes('requestId === navigationRequestRef.current'), 'Rapid navigation must invalidate stale tab transitions so the last click wins');
-assert(appSource.includes('navigationCommitTimerRef') && appSource.includes('window.setTimeout(() =>') && appSource.includes('}, 110);'), 'Rapid navigation must debounce heavy tab commits so intermediate screens are not mounted while the user keeps tapping');
+assert(appSource.includes('navigationCommitTimerRef') && appSource.includes('commitDelayMs = rapidMode ? 110 : 24'), 'Primary navigation must use a fast single-tap commit and a longer rapid-tap coalescing window');
+assert(appSource.includes('rapidTap = sinceLastRequest < 220') && appSource.includes('navigationRapidUntilRef.current = now + 320'), 'Navigation must detect and bound rapid-tap mode instead of delaying every single tap');
 assert(appSource.includes('window.clearTimeout(navigationCommitTimerRef.current)'), 'Each newer navigation request must cancel the previous pending heavy-screen commit');
-assert(appSource.includes('React.startTransition') && appSource.includes('data-hnl-navigation-target'), 'Heavy tab rendering must be interruptible while the requested destination is shown immediately');
+assert(appSource.includes('if (rapidMode) React.startTransition(commit)') && appSource.includes('else commit();'), 'Only rapid heavy-screen commits should use a transition; normal single taps must commit directly');
+assert(appSource.includes('activeTabRef.current') && appSource.includes('Project presence tab update warning:'), 'Presence heartbeat must stay stable across tab switches and update the tab label separately');
+assert(!appSource.includes('[activeProjectId, activeTab, currentUserRole, isOnline, isProjectRoleResolved, projectRoleAllowed]);\n\n  useEffect(() => {\n    const viewport'), 'Presence heartbeat must not tear down on every activeTab change');
+assert(appSource.includes('data-hnl-navigation-target'), 'Requested destination must remain visible immediately while a heavy screen is preparing');
 assert(appSource.includes('data-hnl-tab-switching="true"'), 'Rapid tab switching must replace the old heavy screen with a lightweight destination state');
 assert(!appSource.includes('loaders.forEach((loader)'), 'Navigation warming must not parse all heavy primary screens in parallel');
 assert(appSource.includes('nextTimer = window.setTimeout(next, 260)'), 'Background lazy warming must be staggered to avoid main-thread bursts');
