@@ -710,9 +710,11 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     return true;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!hasManageAccess) return;
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const submitMode = submitter?.value === 'continue' ? 'continue' : 'close';
     const finalCategory = category === 'khac' ? customCategory.trim() : category;
     const finalUnit = unit === 'khac' ? customUnit.trim() : unit;
 
@@ -822,6 +824,19 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
 
     if (mode === 'add') {
       onAddNorm(normData);
+      if (submitMode === 'continue') {
+        setMaterialName('');
+        setQuotaQuantity(100);
+        setQuotaQuantityStr('100');
+        setUnitNormPerM2('');
+        setUnitNormPerM2Str('');
+        setWorkCategoryNorms({});
+        setWorkCategoryNormsStr({});
+        setNotes('');
+        setEditingId(null);
+        setMode('add');
+        return;
+      }
     } else if (mode === 'edit' && editingId) {
       onUpdateNorm(editingId, normData);
     }
@@ -871,21 +886,36 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                 />
               </div>
               {hasManageAccess && (
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <button
-                    onClick={() => setShowNormTemplatePicker(true)}
-                    className="flex items-center gap-1 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95"
-                  >
-                    <BookOpen className="w-4 h-4" />
-                    Lấy từ công trình/mẫu
-                  </button>
+                <div className="flex shrink-0">
                   <button
                     onClick={handleOpenAdd}
-                    className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold shadow transition-all active:scale-95"
+                    className="flex items-center gap-1 rounded-l-xl bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white shadow transition-all hover:bg-indigo-700 active:scale-[0.99]"
                   >
                     <Plus className="w-4 h-4" />
                     Thêm định mức
                   </button>
+                  <details className="group relative">
+                    <summary
+                      className="flex h-full cursor-pointer list-none items-center justify-center rounded-r-xl border-l border-indigo-400 bg-indigo-600 px-2 text-white shadow transition hover:bg-indigo-700 [&::-webkit-details-marker]:hidden"
+                      aria-label="Tùy chọn thêm định mức"
+                      title="Tùy chọn thêm định mức"
+                    >
+                      <span className="text-xs transition-transform group-open:rotate-180">▼</span>
+                    </summary>
+                    <div className="absolute right-0 top-full z-30 mt-1 min-w-56 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          setShowNormTemplatePicker(true);
+                          (event.currentTarget.closest('details') as HTMLDetailsElement | null)?.removeAttribute('open');
+                        }}
+                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-bold text-indigo-700 hover:bg-indigo-50"
+                      >
+                        <BookOpen className="h-4 w-4 shrink-0" />
+                        Lấy từ công trình/mẫu
+                      </button>
+                    </div>
+                  </details>
                 </div>
               )}
             </div>
@@ -1325,20 +1355,32 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             </div>
 
             {/* Submit Action */}
-            <div className="pt-2 flex gap-2">
+            <div className={`pt-2 grid gap-2 ${mode === 'edit' ? 'grid-cols-2' : 'grid-cols-1 sm:grid-cols-3'}`}>
               <button
                 type="button"
                 onClick={() => setMode('list')}
-                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl active:scale-95 transition-all"
+                className="py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl active:scale-95 transition-all"
               >
                 Hủy
               </button>
+              {mode === 'add' && (
+                <button
+                  type="submit"
+                  name="submitMode"
+                  value="continue"
+                  className="py-3 border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold rounded-xl active:scale-95 transition-all"
+                >
+                  Lưu & thêm tiếp
+                </button>
+              )}
               <button
                 type="submit"
-                className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md active:scale-95 transition-all flex items-center justify-center gap-1.5"
+                name="submitMode"
+                value="close"
+                className="py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md active:scale-95 transition-all flex items-center justify-center gap-1.5"
               >
                 <Save className="w-4 h-4" />
-                Lưu định mức
+                {mode === 'edit' ? 'Lưu thay đổi' : 'Lưu & đóng'}
               </button>
             </div>
           </form>
