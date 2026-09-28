@@ -372,6 +372,9 @@ function AuthenticatedApp() {
     && new URLSearchParams(window.location.search).get('app') === 'desktop';
   const [activeTab, setActiveTab] = useState<TabType>(getRememberedTab);
 
+  const activeTabRef = useRef<TabType>(activeTab);
+  activeTabRef.current = activeTab;
+
   useEffect(() => {
     try { sessionStorage.setItem('qlct_active_tab_v1', activeTab); } catch (_) {}
   }, [activeTab]);
@@ -397,13 +400,16 @@ function AuthenticatedApp() {
     const connection = (navigator as any).connection;
     if (connection?.saveData) return;
     let cancelled = false;
-    const loaders = [loadFloorPlanDefectTab, loadCrewTab, loadWarehouseTab, loadWorkVolumeTab, loadGoogleConfigTab];
+    const primaryLoaders = [loadFloorPlanDefectTab, loadCrewTab, loadWarehouseTab, loadWorkVolumeTab, loadGoogleConfigTab];
+    const desktopLoaders = HNL_AI_ENABLED
+      ? [...primaryLoaders, loadChatTab, loadAiAssistantPage]
+      : [...primaryLoaders, loadChatTab];
     const desktopLike = isDesktopRuntime || window.matchMedia('(min-width: 1024px)').matches;
 
     if (desktopLike) {
       const timer = window.setTimeout(() => {
         if (cancelled) return;
-        loaders.forEach((loader) => { void loader().catch(() => undefined); });
+        desktopLoaders.forEach((loader) => { void loader().catch(() => undefined); });
       }, 80);
       return () => {
         cancelled = true;
@@ -414,8 +420,8 @@ function AuthenticatedApp() {
     const warm = () => {
       let index = 0;
       const next = () => {
-        if (cancelled || index >= loaders.length) return;
-        void loaders[index++]().catch(() => undefined);
+        if (cancelled || index >= primaryLoaders.length) return;
+        void primaryLoaders[index++]().catch(() => undefined);
         window.setTimeout(next, 180);
       };
       next();
@@ -508,7 +514,7 @@ function AuthenticatedApp() {
     let disposed = false;
     const touchPresence = () => {
       if (disposed || document.visibilityState === 'hidden') return;
-      void updateProjectPresence(activeProjectId, activeTab, currentUserRole).catch((err) =>
+      void updateProjectPresence(activeProjectId, activeTabRef.current, currentUserRole).catch((err) =>
         console.warn('Project presence heartbeat warning:', err)
       );
     };
@@ -526,6 +532,18 @@ function AuthenticatedApp() {
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('focus', handleFocus);
     };
+  }, [activeProjectId, currentUserRole, isOnline, isProjectRoleResolved, projectRoleAllowed]);
+
+  // Keep the server-side "current screen" label reasonably fresh without tearing down
+  // the heartbeat listeners for every rapid tab switch.
+  useEffect(() => {
+    if (!isOnline || !isProjectRoleResolved || !projectRoleAllowed || !activeProjectId) return;
+    const timer = window.setTimeout(() => {
+      void updateProjectPresence(activeProjectId, activeTabRef.current, currentUserRole).catch((err) =>
+        console.warn('Project presence tab update warning:', err)
+      );
+    }, 700);
+    return () => window.clearTimeout(timer);
   }, [activeProjectId, activeTab, currentUserRole, isOnline, isProjectRoleResolved, projectRoleAllowed]);
 
   useEffect(() => {
