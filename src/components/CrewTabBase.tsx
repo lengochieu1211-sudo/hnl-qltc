@@ -1972,7 +1972,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <FileText className="h-4 w-4" /> Chia sẻ báo cáo quân số
             </button>
 
-            <div className="order-5 lg:order-none">
+            <div className="order-5 col-span-2 lg:order-none lg:col-span-1">
             <ExcelActionMenu
               fillWidth
               triggerLabel="Quản lý dữ liệu"

@@ -111,6 +111,7 @@ assert.match(crew, /__groupPrimary: floorIndex === 0 && categoryIndex === 0/, 'C
 assert.match(crew, /syncGroupColumns=\{quickEditMode === 'logs'/, 'Crew child rows must stay synchronized with representative shift/date/team values');
 assert.match(crew, /Tầng không thuộc Khu\/Khối này/, 'Crew quick edit must reject floor/group mismatches');
 assert.match(crew, /order-1 col-span-2 lg:order-none lg:col-span-1[\s\S]*aria-label="Chọn ngày quân số"[\s\S]*order-2 col-span-2[\s\S]*Ghi nhận quân số/, 'Crew mobile must show Date first, then the highlighted full-width Record action');
+assert.match(crew, /order-5 col-span-2 lg:order-none lg:col-span-1[\s\S]*triggerLabel="Quản lý dữ liệu"/, 'Crew mobile Data Management action must occupy a full row while PC stays one toolbar column');
 assert.match(crew, /lg:grid-cols-\[220px_minmax\(0,1fr\)_minmax\(0,1fr\)_minmax\(0,1\.1fr\)_minmax\(0,1fr\)\][\s\S]*Chia sẻ báo cáo quân số[\s\S]*triggerLabel="Quản lý dữ liệu"/, 'Crew PC must preserve Date, Record, Copy, Share and Data Management on one aligned row');
 assert.doesNotMatch(crew, /crew-subtab-navigation[^\n]*lg:max-w/, 'Crew primary subtabs must remain full-width like the original layout');
 assert.match(crew, /triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit=\{\(\) => \{ setQuickEditMode\('teams'\); setShowQuickEdit\(true\); \}\}[\s\S]*reportLabel="Thống kê tất cả đội"/, 'Team directory must consolidate Quick Edit and Excel under the same data menu');
