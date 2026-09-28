@@ -1,4 +1,4 @@
-import React, { startTransition, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   BarChart3,
   ClipboardCheck,
@@ -20,6 +20,7 @@ interface BottomNavProps {
   activeTab: TabType;
   forceDesktopRail?: boolean;
   setActiveTab: (tab: TabType) => void;
+  onPreloadTab?: (tab: TabType) => void;
   defectBadgeCount: number;
   chatBadgeCount?: number;
   showChecklist?: boolean;
@@ -31,6 +32,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   activeTab,
   forceDesktopRail = false,
   setActiveTab,
+  onPreloadTab,
   defectBadgeCount,
   chatBadgeCount = 0,
   showChecklist = true,
@@ -60,7 +62,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({
     { id: 'warehouse' as TabType, label: t('warehouse'), icon: PackageCheck },
   ];
 
-  const previewTab = (tab: TabType) => setPressedTab(tab);
+  const previewTab = (tab: TabType) => {
+    setPressedTab(tab);
+    onPreloadTab?.(tab);
+  };
 
   const activate = (tab: TabType) => {
     setShowMore(false);
@@ -69,7 +74,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       setPressedTab(null);
       return;
     }
-    startTransition(() => setActiveTab(tab));
+    // Switch the destination immediately. If a lazy chunk still needs a moment,
+    // App's Suspense fallback appears right away instead of keeping the old screen
+    // visible until the heavy destination render finishes.
+    setActiveTab(tab);
   };
 
   const navButtonStyle: React.CSSProperties = { touchAction: 'manipulation' };
