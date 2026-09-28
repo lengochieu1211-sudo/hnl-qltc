@@ -371,9 +371,13 @@ function AuthenticatedApp() {
   const isDesktopRuntime = typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('app') === 'desktop';
   const [activeTab, setActiveTab] = useState<TabType>(getRememberedTab);
+  const activeTabRef = useRef<TabType>(activeTab);
+  activeTabRef.current = activeTab;
   const [navigationTargetTab, setNavigationTargetTab] = useState<TabType | null>(null);
   const navigationRequestRef = useRef(0);
   const navigationCommitTimerRef = useRef<number | null>(null);
+  const navigationLastRequestAtRef = useRef(0);
+  const navigationRapidUntilRef = useRef(0);
 
   useEffect(() => {
     try { sessionStorage.setItem('qlct_active_tab_v1', activeTab); } catch (_) {}
@@ -399,6 +403,16 @@ function AuthenticatedApp() {
   // blocking the main thread with every intermediate screen.
   const navigateToTab = React.useCallback((tab: TabType) => {
     const requestId = ++navigationRequestRef.current;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const sinceLastRequest = navigationLastRequestAtRef.current > 0
+      ? now - navigationLastRequestAtRef.current
+      : Number.POSITIVE_INFINITY;
+    const rapidTap = sinceLastRequest < 220;
+    navigationLastRequestAtRef.current = now;
+    if (rapidTap) navigationRapidUntilRef.current = now + 320;
+    const rapidMode = rapidTap || now < navigationRapidUntilRef.current;
+    const commitDelayMs = rapidMode ? 110 : 24;
+
     setNavigationTargetTab(tab);
     preloadTab(tab);
 
@@ -409,7 +423,7 @@ function AuthenticatedApp() {
       navigationCommitTimerRef.current = null;
       if (requestId !== navigationRequestRef.current) return;
       setActiveTab((current) => requestId === navigationRequestRef.current ? tab : current);
-    }, 110);
+    }, commitDelayMs);
   }, [preloadTab]);
 
   useEffect(() => {
@@ -532,7 +546,7 @@ function AuthenticatedApp() {
     let disposed = false;
     const touchPresence = () => {
       if (disposed || document.visibilityState === 'hidden') return;
-      void updateProjectPresence(activeProjectId, activeTab, currentUserRole).catch((err) =>
+      void updateProjectPresence(activeProjectId, activeTabRef.current, currentUserRole).catch((err) =>
         console.warn('Project presence heartbeat warning:', err)
       );
     };
@@ -550,6 +564,16 @@ function AuthenticatedApp() {
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('focus', handleFocus);
     };
+  }, [activeProjectId, currentUserRole, isOnline, isProjectRoleResolved, projectRoleAllowed]);
+
+  useEffect(() => {
+    if (!isOnline || !isProjectRoleResolved || !projectRoleAllowed || !activeProjectId) return;
+    const timer = window.setTimeout(() => {
+      void updateProjectPresence(activeProjectId, activeTabRef.current, currentUserRole).catch((err) =>
+        console.warn('Project presence tab update warning:', err)
+      );
+    }, 500);
+    return () => window.clearTimeout(timer);
   }, [activeProjectId, activeTab, currentUserRole, isOnline, isProjectRoleResolved, projectRoleAllowed]);
 
   useEffect(() => {

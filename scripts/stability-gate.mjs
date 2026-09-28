@@ -450,10 +450,12 @@ requireAll(app, [
   'navigationCommitTimerRef',
   'window.clearTimeout(navigationCommitTimerRef.current)',
   'requestId !== navigationRequestRef.current',
-  '}, 110);',
+  'commitDelayMs = rapidMode ? 110 : 24',
+  'rapidTap = sinceLastRequest < 220',
+  'navigationRapidUntilRef.current = now + 320',
   'data-hnl-navigation-target',
   'data-hnl-tab-switching="true"',
-], 'rapid navigation last-click-wins debounce');
+], 'adaptive navigation last-click-wins debounce');
 const navigationCoordinator = app.slice(app.indexOf('const navigateToTab'), app.indexOf('// Warm primary field screens'));
 if (navigationCoordinator.includes('React.startTransition')) fail('settled rapid navigation commit must not use React.startTransition');
 pass('multi-project RBAC is preserved while startup now routes through Home or the explicitly pinned project');
