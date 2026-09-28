@@ -1882,7 +1882,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     <div className="pb-24 pt-4 px-4 w-full max-w-6xl mx-auto bg-slate-50 min-h-screen text-slate-800" id="crew-tab-container">
       
       {/* Sub-tab Navigation Selector */}
-      <div className="flex bg-slate-200 p-1.5 rounded-xl mb-4 shadow-sm" id="crew-subtab-navigation">
+      <div className="flex bg-slate-200 p-1.5 rounded-xl mb-4 shadow-sm lg:max-w-[560px]" id="crew-subtab-navigation">
         <button
           onClick={() => setActiveSubTab('logs')}
           className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-bold rounded-lg transition-all ${
@@ -1903,8 +1903,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
       {activeSubTab === 'logs' ? (
         <>
+          <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-4 lg:items-start">
+            <div className="min-w-0">
           {/* Date controller. Khu/Khối is shown on each log/team card instead of a global filter. */}
-          <div className="mb-4">
+          <div className="mb-4 lg:max-w-[420px]">
             <div className="flex items-center justify-between bg-white px-3 py-2.5 rounded-xl border border-slate-200 shadow-sm">
             <button 
               onClick={handlePrevDay}
@@ -2003,10 +2005,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </div>
           )}
 
+            </div>
+            <div className="min-w-0 lg:border-l lg:border-slate-200 lg:pl-4">
           {/* Functional Actions */}
           {canOperate && (
             <>
-            <div className="flex items-center gap-2 mb-4">
+            <div className="grid grid-cols-1 gap-2 mb-3">
               <button
                 onClick={async () => {
                   setEditingRecord(null);
@@ -2065,7 +2069,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </button>
           </div>
 
-          <div className="mb-4 grid grid-cols-2 gap-2 sm:inline-grid sm:w-auto sm:grid-cols-[148px_116px] sm:rounded-2xl sm:border sm:border-slate-200 sm:bg-slate-50 sm:p-1 sm:shadow-xs">
+          <div className="mb-4 grid grid-cols-2 gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-1 shadow-xs">
             <button
               type="button"
               onClick={() => { setQuickEditMode('logs'); setShowQuickEdit(true); }}
@@ -2082,6 +2086,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               importLabel="Nhập Nhật ký đã chỉnh sửa"
               templateLabel="Tải mẫu Nhật ký"
             />
+          </div>
+            </div>
           </div>
 
           {/* Daily Records List */}

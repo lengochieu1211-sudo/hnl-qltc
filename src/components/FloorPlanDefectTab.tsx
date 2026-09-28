@@ -5923,7 +5923,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           {t('floorplan_title')}
         </h2>
 
-        <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="grid gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center">
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-1">
             <div className="text-xs font-medium text-slate-500 min-w-0">
               Đang xem:{' '}
@@ -5965,19 +5965,19 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             </div>
           </div>
 
-          <div className="w-full sm:w-auto space-y-2">
+          <div className="w-full space-y-2 sm:border-l sm:border-slate-200 sm:pl-3">
             {canManageStructure && (
               <button
                 type="button"
                 onClick={() => setShowManageFloorsModal(true)}
-                className="w-full shrink-0 flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-3 py-2 rounded-xl text-xs font-bold active:scale-[0.99] transition-all shadow-xs whitespace-nowrap sm:w-auto"
+                className="flex h-9 w-full shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-xs font-bold text-indigo-700 shadow-xs transition-all hover:bg-indigo-100 active:scale-[0.99]"
                 title="Quản lý Khu/Khối, đổi tên, sắp xếp và quản lý tầng"
               >
                 <Settings className="w-3.5 h-3.5 shrink-0" />
                 Quản lý Khu/Khối & Tầng
               </button>
             )}
-            <div className="grid grid-cols-2 gap-2 sm:inline-grid sm:w-auto sm:grid-cols-[148px_116px] sm:rounded-2xl sm:border sm:border-slate-200 sm:bg-slate-50 sm:p-1 sm:shadow-xs">
+            <div className="grid grid-cols-2 gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-1 shadow-xs">
               <button
                 type="button"
                 onClick={() => { setQuickEditMode('rooms'); setShowQuickEdit(true); }}
