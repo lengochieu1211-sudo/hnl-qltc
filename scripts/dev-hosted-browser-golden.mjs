@@ -80,16 +80,16 @@ async function verifyRapidPrimaryNavigation(page, label) {
     const preferred = desktopLike
       ? ['home', 'floorplan', 'crew', 'warehouse', 'volume', 'chat', 'ai', 'config']
       : ['home', 'floorplan', 'crew', 'warehouse'];
-    const available = preferred.filter((tab) => {
-      const button = document.querySelector(`button[data-hnl-nav-tab="${tab}"]`);
-      return button && getComputedStyle(button).display !== 'none' && button.getClientRects().length > 0;
-    });
+    const findVisibleNavButton = (tab) => Array.from(document.querySelectorAll(`button[data-hnl-nav-tab="${tab}"]`))
+      .find((button) => getComputedStyle(button).display !== 'none' && button.getClientRects().length > 0);
+    const available = preferred.filter((tab) => Boolean(findVisibleNavButton(tab)));
     const minimum = desktopLike ? 6 : 4;
     if (available.length < minimum) throw new Error(`Not enough visible primary nav tabs for rapid-switch test: ${available.join(',')}`);
 
     const currentActive = main.getAttribute('data-hnl-active-tab') || '';
     const singleTab = available.find((tab) => tab !== currentActive) || available[0];
-    const singleButton = document.querySelector(`button[data-hnl-nav-tab="${singleTab}"]`);
+    const singleButton = findVisibleNavButton(singleTab);
+    if (!singleButton) throw new Error(`Single nav button not visible: ${singleTab}`);
     const singleStartedAt = performance.now();
     singleButton.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', isPrimary: true }));
     singleButton.click();
@@ -112,7 +112,8 @@ async function verifyRapidPrimaryNavigation(page, label) {
     const targetLatencies = [];
     const startedAt = performance.now();
     for (const tab of available) {
-      const button = document.querySelector(`button[data-hnl-nav-tab="${tab}"]`);
+      const button = findVisibleNavButton(tab);
+      if (!button) throw new Error(`Rapid nav button not visible: ${tab}`);
       const clickAt = performance.now();
       button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', isPrimary: true }));
       button.click();
