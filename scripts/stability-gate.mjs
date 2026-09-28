@@ -452,9 +452,7 @@ requireAll(app, [
   'navigationCommitTimerRef',
   'window.clearTimeout(navigationCommitTimerRef.current)',
   'requestId !== navigationRequestRef.current',
-  'if (!rapidMode)',
-  'setActiveTab(tab);',
-  '}, 110);',
+  'commitDelayMs = rapidMode ? 110 : 24',
   'rapidTap = sinceLastRequest < 220',
   'navigationRapidUntilRef.current = now + 320',
   'data-hnl-navigation-target',
@@ -462,6 +460,7 @@ requireAll(app, [
 ], 'adaptive navigation last-click-wins debounce');
 const navigationCoordinator = app.slice(app.indexOf('const navigateToTab'), app.indexOf('// Warm primary field screens'));
 if (navigationCoordinator.includes('React.startTransition')) fail('settled rapid navigation commit must not use React.startTransition');
+if (app.includes('navigationTargetTab && navigationTargetTab !== activeTab ?')) fail('navigation intent must not replace the current screen with a blocking intermediate spinner');
 pass('multi-project RBAC is preserved while startup now routes through Home or the explicitly pinned project');
 
 if (!floorPlanDefect.includes('operationalWorkCategoryCatalog') || !floorPlanDefect.includes('getOperationalRoomSubItems')) fail('floor-plan ghost-category filter missing');
