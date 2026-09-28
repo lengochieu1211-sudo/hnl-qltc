@@ -43,6 +43,8 @@ assert.match(appSource, /qlct_active_tab_v1/, 'Web/mobile shell must remember th
 assert.match(appSource, /Warm primary field screens after first paint without flooding the main thread/, 'primary lazy tabs must be warmed after first paint without blocking input');
 assert.match(appSource, /nextTimer = window\.setTimeout\(next, 260\)/, 'primary lazy tabs must warm sequentially instead of creating a desktop parse burst');
 assert.match(appSource, /navigationRequestRef/, 'rapid primary navigation must coalesce stale heavy-screen transitions');
+assert.match(appSource, /navigationCommitTimerRef/, 'rapid primary navigation must debounce heavy-screen commits during continuous taps');
+assert.match(appSource, /\}, 110\);/, 'rapid navigation debounce must keep a short bounded quiet window');
 const showWebAppSection = desktopShell.slice(desktopShell.indexOf('internal void ShowWebApp()'), desktopShell.indexOf('private void InitializeEmbeddedWeb()'));
 assert.doesNotMatch(showWebAppSection, /Navigate\(Program\.BuildAppUrl\(\)\)/, 'Windows EXE must not re-navigate the WebView when returning from native home/tray');
 assert.match(appSource, /const securityModalProjects = React\.useMemo\(/, 'SecurityModal projects must stay referentially stable across Android VisualViewport keyboard renders');
