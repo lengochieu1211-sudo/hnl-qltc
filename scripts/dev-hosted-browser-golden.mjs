@@ -68,6 +68,71 @@ async function waitForSettingsSheet(page, sheetKey, visible) {
   return sheet;
 }
 
+async function verifyRapidPrimaryNavigation(page, label) {
+  const viewport = page.viewportSize();
+  if (!viewport || viewport.width < 1024) return;
+
+  const result = await page.evaluate(async () => {
+    const main = document.querySelector('main[data-hnl-active-tab]');
+    if (!main) throw new Error('Main navigation diagnostic surface missing');
+
+    const preferred = ['home', 'floorplan', 'crew', 'warehouse', 'volume', 'chat', 'ai', 'config'];
+    const available = preferred.filter((tab) => {
+      const button = document.querySelector(`button[data-hnl-nav-tab="${tab}"]`);
+      return button && getComputedStyle(button).display !== 'none' && button.getClientRects().length > 0;
+    });
+    if (available.length < 6) throw new Error(`Not enough visible desktop nav tabs for rapid-switch test: ${available.join(',')}`);
+
+    const commits = [];
+    const targets = [];
+    const observer = new MutationObserver(() => {
+      const active = main.getAttribute('data-hnl-active-tab') || '';
+      if (!commits.length || commits[commits.length - 1] !== active) commits.push(active);
+    });
+    observer.observe(main, { attributes: true, attributeFilter: ['data-hnl-active-tab'] });
+
+    const targetLatencies = [];
+    const startedAt = performance.now();
+    for (const tab of available) {
+      const button = document.querySelector(`button[data-hnl-nav-tab="${tab}"]`);
+      const clickAt = performance.now();
+      button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', isPrimary: true }));
+      button.click();
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const target = main.getAttribute('data-hnl-navigation-target') || '';
+      targets.push(target);
+      targetLatencies.push({ tab, ms: performance.now() - clickAt, target });
+      await new Promise((resolve) => setTimeout(resolve, 8));
+    }
+
+    const finalTab = available[available.length - 1];
+    const deadline = performance.now() + 2500;
+    while (performance.now() < deadline && main.getAttribute('data-hnl-active-tab') !== finalTab) {
+      await new Promise((resolve) => setTimeout(resolve, 16));
+    }
+    observer.disconnect();
+
+    return {
+      available,
+      finalTab,
+      finalActive: main.getAttribute('data-hnl-active-tab') || '',
+      finalTarget: main.getAttribute('data-hnl-navigation-target') || '',
+      commits,
+      targets,
+      targetLatencies,
+      totalMs: performance.now() - startedAt,
+    };
+  });
+
+  assert(result.finalActive === result.finalTab, `${label}: rapid navigation did not settle on last click (${result.finalActive} != ${result.finalTab})`);
+  assert(result.targets.every((target, index) => target === result.available[index]), `${label}: requested nav target did not respond to every rapid click — ${JSON.stringify(result.targetLatencies)}`);
+  const maxTargetLatency = Math.max(...result.targetLatencies.map((entry) => entry.ms));
+  assert(maxTargetLatency <= 300, `${label}: rapid navigation target feedback exceeded 300ms (${maxTargetLatency.toFixed(1)}ms)`);
+  const intermediateCommits = result.commits.filter((tab) => tab && tab !== result.finalTab);
+  assert(intermediateCommits.length <= 2, `${label}: too many heavy intermediate tabs committed during rapid navigation — ${JSON.stringify(result.commits)}`);
+  pass(`${label} rapid primary navigation last-click-wins`, `${result.available.length} tabs · max target ${maxTargetLatency.toFixed(1)}ms · commits ${result.commits.join('→') || 'final-only'}`);
+}
+
 async function verifySettingsFeatureSheets(page, label) {
   const viewport = page.viewportSize();
   const desktopRail = Boolean(viewport && viewport.width >= 1024);
@@ -483,6 +548,8 @@ async function runViewport(browser, label, viewport, screenshotPath) {
   const wifiBadge = page.locator('button[title*="Wi-Fi" i], button[title*="wifi" i]');
   assert(await wifiBadge.count() === 0, `${label}: legacy Wi-Fi header badge returned`);
   pass(`${label} header account/network badges removed`);
+
+  await verifyRapidPrimaryNavigation(page, label);
 
   const securityButton = page.locator('button[title*="Trung tâm bảo mật" i]').first();
   assert(await securityButton.count() > 0, `${label}: Security Center button not found`);
