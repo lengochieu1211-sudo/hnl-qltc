@@ -168,4 +168,5 @@ assert.match(catalogTemplatePicker, /fetchUserCatalogTemplates/, 'Reusable templ
 
 console.log('Quick Edit + Excel + DXF Golden: PASS');
 
-assert.match(volume, /sm:grid-cols-\[160px_160px\][\s\S]*Bảng chỉnh nhanh[\s\S]*fillWidth/, 'Work Volume Quick Edit + Excel pair must be balanced on desktop');
+assert.match(volume, /grid w-full grid-cols-2 gap-2 sm:flex[\s\S]*Bảng chỉnh nhanh[\s\S]*fillWidth/, 'Work Volume Quick Edit + Excel pair must stay balanced as a two-column mobile row');
+assert.ok((volume.match(/sm:w-\[160px\]/g) || []).length >= 2, 'Work Volume Quick Edit + Excel pair must preserve equal compact desktop widths');
