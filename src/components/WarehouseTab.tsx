@@ -1753,9 +1753,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
   return (
     <div className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
-      {/* Title & aligned action panel */}
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-start">
-        <div>
+      {/* Title & horizontal PC actions */}
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
             <PackageCheck className="w-5 h-5 text-blue-600" />
             {t('warehouse_title')}
@@ -1767,47 +1767,39 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           onDragOver={hasImportAccess ? handleDragOverExcel : undefined}
           onDragLeave={hasImportAccess ? handleDragLeaveExcel : undefined}
           onDrop={hasImportAccess ? handleDropExcel : undefined}
-          className={`rounded-2xl border bg-white p-2.5 shadow-3xs transition-all ${isDraggingExcel ? 'border-emerald-500 bg-emerald-50/50' : 'border-slate-200'}`}
+          className={`grid w-full grid-cols-2 gap-2 rounded-xl transition-all lg:w-auto lg:grid-flow-col lg:auto-cols-max lg:grid-cols-none lg:items-center ${isDraggingExcel ? 'ring-2 ring-emerald-400 ring-offset-2' : ''}`}
         >
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <button
+            type="button"
+            onClick={() => { setWarehouseCatalogTab('material'); setWarehouseCatalogSearch(''); setShowWarehouseCatalog(true); }}
+            className="flex h-9 items-center justify-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-700 transition-all hover:bg-slate-100 active:scale-95"
+            title="Xem danh mục và tồn kho vật tư, thiết bị của dự án"
+          >
+            <Layers className="w-3.5 h-3.5 text-blue-600" />
+            <span>Danh mục kho</span>
+          </button>
+          <button
+            onClick={onOpenNormModal}
+            className="flex h-9 items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-xs font-bold text-indigo-700 transition-all hover:bg-indigo-100 active:scale-95"
+            title={hasNormManageAccess ? 'Cập nhật chủng loại vật tư, ĐVT, định mức' : 'Xem định mức vật tư (chỉ ADMIN được sửa)'}
+          >
+            <Sliders className="w-3.5 h-3.5 text-indigo-600" />
+            <span>{hasNormManageAccess ? t('norms_button') : 'Xem định mức'}</span>
+          </button>
+          {hasEditAccess && (
             <button
-              type="button"
-              onClick={() => { setWarehouseCatalogTab('material'); setWarehouseCatalogSearch(''); setShowWarehouseCatalog(true); }}
-              className="flex h-9 items-center justify-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-2.5 text-xs font-bold text-slate-700 transition-all hover:bg-slate-100 active:scale-95"
-              title="Xem danh mục và tồn kho vật tư, thiết bị của dự án"
+              onClick={openCreateInventory}
+              className="flex h-9 items-center justify-center gap-1 rounded-xl bg-blue-600 px-3 text-xs font-bold text-white shadow-md transition-all hover:bg-blue-700 active:scale-95"
             >
-              <Layers className="w-3.5 h-3.5 text-blue-600" />
-              <span>Danh mục kho</span>
+              <Plus className="w-4 h-4" />
+              Tạo phiếu
             </button>
-            <button
-              onClick={onOpenNormModal}
-              className="flex h-9 items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 text-xs font-bold text-indigo-700 transition-all hover:bg-indigo-100 active:scale-95"
-              title={hasNormManageAccess ? 'Cập nhật chủng loại vật tư, ĐVT, định mức' : 'Xem định mức vật tư (chỉ ADMIN được sửa)'}
-            >
-              <Sliders className="w-3.5 h-3.5 text-indigo-600" />
-              <span>{hasNormManageAccess ? t('norms_button') : 'Xem định mức'}</span>
-            </button>
-            {hasEditAccess && (
-              <button
-                onClick={openCreateInventory}
-                className="col-span-2 flex h-9 items-center justify-center gap-1 rounded-xl bg-blue-600 px-3 text-xs font-bold text-white shadow-md transition-all hover:bg-blue-700 active:scale-95 sm:col-span-1"
-              >
-                <Plus className="w-4 h-4" />
-                Tạo phiếu
-              </button>
-            )}
-          </div>
-
-          <div className="mt-2 grid grid-cols-2 gap-2 border-t border-slate-100 pt-2">
-            <button
-              type="button"
-              onClick={() => { setQuickEditMode('norms'); setShowQuickEdit(true); }}
-              className="flex h-9 w-full items-center justify-center gap-1.5 rounded-xl border border-indigo-200 bg-white px-3 text-xs font-extrabold text-indigo-700 transition-all hover:bg-indigo-50 active:scale-95"
-            >
-              ▦ <span>Bảng chỉnh nhanh</span>
-            </button>
+          )}
+          <div className="col-span-2 lg:col-span-1">
             <ExcelActionMenu
-              fillWidth
+              fillMobile
+              triggerLabel="Quản lý dữ liệu"
+              onQuickEdit={() => { setQuickEditMode('norms'); setShowQuickEdit(true); }}
               onExportEdit={() => import('../utils/excelExport').then(({ exportWarehouseUpdateTemplate }) => exportWarehouseUpdateTemplate(materialNorms, workVolumes || [], inventory, undefined, {
                 floorPlans,
                 roomProgressList,
