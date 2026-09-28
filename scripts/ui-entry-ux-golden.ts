@@ -291,6 +291,14 @@ assert(navSource.includes('onPreloadTab?.(tab)') && navSource.includes('onPointe
 assert(appSource.includes('const preloadTab = React.useCallback') && appSource.includes('onPreloadTab={preloadTab}'), 'App must map navigation intent to the destination lazy loader');
 assert(appSource.includes("window.matchMedia('(min-width: 1024px)').matches") && appSource.includes('loaders.forEach((loader)'), 'Desktop/EXE must warm primary lazy screens in parallel after first paint');
 assert(appSource.includes('if (connection?.saveData) return;'), 'Navigation prewarm must continue respecting Data Saver');
+assert(appSource.includes('const [renderedTab, setRenderedTab]') && appSource.includes('const tabSwitchPending = activeTab !== renderedTab'), 'App must separate navigation intent from heavy rendered tab');
+assert(appSource.includes('setRenderedTab(requestedTab);') && appSource.includes('}, 120);') && appSource.includes('window.clearTimeout(timer)'), 'Rapid tab changes must debounce heavy screen mount and cancel stale pending mounts');
+assert(appSource.includes('data-hnl-tab-switch-pending') && appSource.includes("data-hnl-tab-switch-state={tabSwitchPending ? 'pending' : 'settled'}"), 'Rapid navigation must replace the old screen immediately with a lightweight switch shell');
+assert(appSource.includes("renderedTab === 'floorplan' || renderedTab === 'crew' || renderedTab === 'chat'"), 'Photo realtime subscription must follow the committed rendered tab, not every rapid navigation intent');
+assert(appSource.includes("!tabSwitchPending && renderedTab === 'floorplan'") && appSource.includes("!tabSwitchPending && renderedTab === 'crew'") && appSource.includes("!tabSwitchPending && renderedTab === 'warehouse'"), 'Heavy primary screens must mount only after navigation settles');
+const hostedBrowserGolden = read('scripts/dev-hosted-browser-golden.mjs');
+assert(hostedBrowserGolden.includes('verifyRapidPrimaryNavigation') && hostedBrowserGolden.includes('__hnlRapidRenderedTabs'), 'Hosted browser golden must exercise rapid multi-tab switching and detect intermediate heavy mounts');
+
 
 assert(navSource.includes("touchAction: 'manipulation'"), 'Primary navigation must opt into immediate touch manipulation');
 assert(navSource.includes('onPointerDown={() => previewTab(tab.id)}'), 'Primary navigation must provide immediate pressed feedback before click activation');
