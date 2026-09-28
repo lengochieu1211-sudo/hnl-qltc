@@ -76,7 +76,7 @@ assert.doesNotMatch(volume, /floorNamesById/, 'Cross-project Work Volume copy mu
 assert.match(materialNormModal, /uniqueByCanonicalId\.length !== 1/, 'Material Norm remap must fail closed when a target Work Category title is missing or ambiguous');
 assert.match(materialNormModal, /trùng tên/, 'Material Norm remap must explain ambiguous target Work Category names instead of choosing one silently');
 assert.match(floor, /syncGroupColumns=\{quickEditMode === 'rooms'/, 'Room quick edit must synchronize shared room fields across child rows');
-assert.match(floor, /Quản lý Khu\/Khối & Tầng[\s\S]*grid grid-cols-2 gap-2 sm:inline-grid[\s\S]*sm:grid-cols-\[148px_116px\][\s\S]*Bảng chỉnh nhanh[\s\S]*fillWidth/, 'Floor bulk edit actions must stay touch-friendly on mobile and use the compact grouped PC action cluster');
+assert.match(floor, /sm:grid-cols-\[minmax\(0,1fr\)_320px\][\s\S]*Quản lý Khu\/Khối & Tầng[\s\S]*grid grid-cols-2 gap-2[\s\S]*Bảng chỉnh nhanh[\s\S]*fillWidth/, 'Floor bulk edit actions must use the aligned desktop action column while keeping a balanced two-column tool row');
 const acceptanceSection = floor.slice(floor.indexOf('Nghiệm thu từng Căn / Phòng'), floor.indexOf('Quick Sort Controls'));
 assert.doesNotMatch(acceptanceSection, /Thêm Căn \/ Phòng/, 'Acceptance section must not duplicate the add-room action');
 assert.doesNotMatch(acceptanceSection, /Bảng chỉnh nhanh/, 'Acceptance section must not duplicate bulk-edit actions');
@@ -86,7 +86,7 @@ assert.match(floor, /__floorPrimary/, 'Floor quick edit must expose exactly one 
 assert.match(floor, /floorEditById/, 'Floor quick edit must stage floor-level edits separately from room edits');
 assert.match(floor, /onRenameFloorPlan\(floorId, edit\.floorName\)/, 'Floor quick edit must rename through the existing cascade-safe floor handler');
 assert.match(floor, /onUpdateFloorPlan\(floorId, \{ structureGroupId: edit\.structureGroupId \}\)/, 'Floor quick edit must update Khu/Khối by stable structureGroupId');
-assert.match(floor, /sm:grid-cols-\[148px_116px\]/, 'Floor Quick Edit + Excel must use the compact PC action cluster');
+assert.match(floor, /grid grid-cols-2 gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-1 shadow-xs/, 'Floor Quick Edit + Excel must remain a balanced paired action row');
 
 assert.match(crew, /Xuất Nhật ký để chỉnh sửa/, 'Crew must export journal for editing');
 assert.match(crew, /Nhập Nhật ký đã chỉnh sửa/, 'Crew must import edited journal');
@@ -107,7 +107,7 @@ assert.match(crew, /key: 'structureGroup'/, 'Crew quick edit must include a Khu/
 assert.match(crew, /__groupPrimary: floorIndex === 0 && categoryIndex === 0/, 'Crew quick edit must use one representative row for shared journal fields');
 assert.match(crew, /syncGroupColumns=\{quickEditMode === 'logs'/, 'Crew child rows must stay synchronized with representative shift/date/team values');
 assert.match(crew, /Tầng không thuộc Khu\/Khối này/, 'Crew quick edit must reject floor/group mismatches');
-assert.match(crew, /sm:grid-cols-\[148px_116px\][\s\S]*sm:rounded-2xl[\s\S]*sm:bg-slate-50/, 'Crew bulk-edit actions must use a compact grouped PC action cluster');
+assert.match(crew, /lg:grid-cols-\[minmax\(0,1fr\)_360px\][\s\S]*lg:border-l[\s\S]*grid grid-cols-2 gap-2 rounded-2xl border border-slate-200 bg-slate-50/, 'Crew bulk-edit actions must use the dedicated aligned PC action column with a paired Quick Edit + Excel row');
 assert.ok(
   crew.indexOf('Chia sẻ báo cáo quân số') < crew.indexOf("setQuickEditMode('logs')"),
   'Crew share-report action must appear above the Quick Edit + Excel pair'
