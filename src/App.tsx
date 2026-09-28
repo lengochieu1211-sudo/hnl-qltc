@@ -404,30 +404,21 @@ function AuthenticatedApp() {
     navigationLastRequestAtRef.current = now;
     if (rapidTap) navigationRapidUntilRef.current = now + 320;
     const rapidMode = rapidTap || now < navigationRapidUntilRef.current;
+    const commitDelayMs = rapidMode ? 110 : 24;
 
+    // Reflect the requested destination immediately in navigation chrome, while keeping
+    // the current heavy screen mounted until the short coalescing window settles.
+    setNavigationTargetTab(tab);
     preloadTab(tab);
 
     if (navigationCommitTimerRef.current != null) {
       window.clearTimeout(navigationCommitTimerRef.current);
-      navigationCommitTimerRef.current = null;
     }
-
-    if (!rapidMode) {
-      // A normal single tap should commit immediately. The lazy destination has already
-      // been preloaded above, and Suspense remains the fallback if its chunk is not ready.
-      setNavigationTargetTab(null);
-      setActiveTab(tab);
-      return;
-    }
-
-    // Only rapid consecutive taps enter the coalescing path. Keep the current heavy
-    // screen out of the way while the user is still choosing a final destination.
-    setNavigationTargetTab(tab);
     navigationCommitTimerRef.current = window.setTimeout(() => {
       navigationCommitTimerRef.current = null;
       if (requestId !== navigationRequestRef.current) return;
       setActiveTab(tab);
-    }, 110);
+    }, commitDelayMs);
   }, [preloadTab]);
 
   useEffect(() => {
@@ -7170,12 +7161,6 @@ function AuthenticatedApp() {
           data-hnl-active-tab={activeTab}
           data-hnl-navigation-target={navigationTargetTab || activeTab}
         >
-          {navigationTargetTab && navigationTargetTab !== activeTab ? (
-            <div className="min-h-[180px] p-8 text-center text-sm text-slate-500" data-hnl-tab-switching="true">
-              <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />
-              Đang mở mục...
-            </div>
-          ) : (
           <React.Suspense fallback={<div className="min-h-[180px] p-8 text-center text-sm text-slate-500" data-hnl-tab-switching="true"><RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />Đang tải mục...</div>}>
           {activeTab === 'home' && (
             <HomeDashboard
@@ -7644,7 +7629,6 @@ function AuthenticatedApp() {
             />
           )}
           </React.Suspense>
-          )}
         </main>
 
         {/* PDF Export Modal */}
