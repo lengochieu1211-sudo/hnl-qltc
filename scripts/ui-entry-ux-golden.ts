@@ -290,8 +290,9 @@ assert(navSource.includes('data-hnl-nav-tab={tab.id}') && navSource.includes('da
 assert(!navSource.includes('startTransition(() => setActiveTab(tab))'), 'Primary navigation must not keep the old heavy screen visible through a React transition');
 assert(navSource.includes('onPreloadTab?.(tab)') && navSource.includes('onPointerEnter={() => onPreloadTab?.(tab.id)}'), 'Primary navigation must preload the destination on hover/touch intent');
 assert(appSource.includes('const preloadTab = React.useCallback') && appSource.includes('onPreloadTab={preloadTab}'), 'App must map navigation intent to the destination lazy loader');
-assert(appSource.includes('navigationRequestRef') && appSource.includes('requestId === navigationRequestRef.current'), 'Rapid navigation must invalidate stale tab transitions so the last click wins');
-assert(appSource.includes('React.startTransition') && appSource.includes('data-hnl-navigation-target'), 'Heavy tab rendering must be interruptible while the requested destination is shown immediately');
+assert(appSource.includes('navigationRequestRef') && appSource.includes('requestId !== navigationRequestRef.current'), 'Rapid navigation must invalidate stale heavy-tab commits so the last click wins');
+assert(appSource.includes('navigationCommitTimerRef') && appSource.includes('window.clearTimeout(navigationCommitTimerRef.current)') && appSource.includes('}, 120);'), 'Rapid navigation must cancel prior pending heavy mounts and debounce the final commit');
+assert(!appSource.includes('React.startTransition(() =>') && appSource.includes('data-hnl-navigation-target'), 'Primary heavy-tab commit must not use React transition retention; requested destination must be shown immediately');
 assert(appSource.includes('data-hnl-tab-switching="true"'), 'Rapid tab switching must replace the old heavy screen with a lightweight destination state');
 assert(!appSource.includes('loaders.forEach((loader)'), 'Navigation warming must not parse all heavy primary screens in parallel');
 assert(appSource.includes('nextTimer = window.setTimeout(next, 260)'), 'Background lazy warming must be staggered to avoid main-thread bursts');
