@@ -294,7 +294,7 @@ assert(navSource.includes('data-hnl-nav-tab="volume"'), 'Mobile More menu must e
 assert(!navSource.includes('startTransition(() => setActiveTab(tab))'), 'Primary navigation must not keep the old heavy screen visible through a React transition');
 assert(navSource.includes('onPreloadTab?.(tab)') && navSource.includes('onPointerEnter={() => onPreloadTab?.(tab.id)}'), 'Primary navigation must preload the destination on hover/touch intent');
 assert(appSource.includes('const preloadTab = React.useCallback') && appSource.includes('onPreloadTab={preloadTab}'), 'App must map navigation intent to the destination lazy loader');
-assert(appSource.includes('navigationRequestRef') && appSource.includes('requestId === navigationRequestRef.current'), 'Rapid navigation must invalidate stale tab transitions so the last click wins');
+assert(appSource.includes('navigationRequestRef') && appSource.includes('requestId !== navigationRequestRef.current'), 'Rapid navigation must invalidate stale tab transitions so the last click wins');
 assert(appSource.includes('navigationCommitTimerRef') && appSource.includes('if (!rapidMode)') && appSource.includes('setActiveTab(tab);') && appSource.includes('}, 110);') && !appSource.includes('commitDelayMs = rapidMode ? 110 : 24'), 'Primary navigation must commit a normal single tap immediately and reserve the 110 ms coalescing timer for rapid taps only');
 assert(appSource.includes('rapidTap = sinceLastRequest < 220') && appSource.includes('navigationRapidUntilRef.current = now + 320'), 'Rapid navigation mode must be cadence-driven and bounded');
 assert(appSource.includes('window.clearTimeout(navigationCommitTimerRef.current)'), 'Each newer navigation request must cancel the previous pending heavy-screen commit');
