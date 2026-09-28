@@ -697,8 +697,8 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
   return (
     <div className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
-      {/* Title */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      {/* Title + aligned action grid */}
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-start">
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
             <BarChart3 className="w-5 h-5 text-blue-600" />
@@ -706,36 +706,16 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           </h2>
           <p className="text-xs text-slate-500">{t('volume_subtitle')}</p>
         </div>
-        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-end sm:gap-1.5">
-          <div className="w-full sm:w-[160px]">
-            <button
-              type="button"
-              onClick={() => setShowQuickEdit(true)}
-              className="flex h-8 w-full items-center justify-center gap-1 whitespace-nowrap rounded-xl border border-indigo-200 bg-white px-2.5 text-xs font-extrabold text-indigo-700 shadow-2xs transition-all hover:bg-slate-50 hover:text-indigo-900 active:scale-95"
-              title="Mở bảng cột/dòng để chỉnh nhanh trực tiếp, không cần tải Excel"
-            >
-              ▦ Bảng chỉnh nhanh
-            </button>
-          </div>
-          <div className="w-full sm:w-[160px]">
-            <ExcelActionMenu
-              fillWidth
-              onExportEdit={() => import('../utils/excelExport').then(({ exportWorkVolumesTemplate }) => exportWorkVolumesTemplate(workVolumes, projectName, hasFinancialAccess))}
-              onImportFile={hasStructureManageAccess ? handleImportExcelWorkVolumes : undefined}
-              onDownloadTemplate={() => import('../utils/excelExport').then(({ exportWorkVolumesTemplate }) => exportWorkVolumesTemplate([], projectName, hasFinancialAccess))}
-              exportLabel="Xuất hạng mục để chỉnh sửa"
-              importLabel="Nhập hạng mục đã chỉnh sửa"
-              templateLabel="Tải mẫu hạng mục"
-            />
-          </div>
+
+        <div className="grid w-full grid-cols-2 gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-3xs">
           {hasStructureManageAccess && (
             <>
               <button
                 onClick={() => setShowTemplatePicker(true)}
-                className="flex h-8 w-full items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 text-xs font-bold text-indigo-700 transition-all hover:bg-indigo-100 sm:w-auto"
+                className="flex h-9 w-full items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 text-xs font-bold text-indigo-700 transition-all hover:bg-indigo-100"
               >
                 <Copy className="w-4 h-4" />
-                Lấy từ công trình/mẫu
+                <span className="truncate">Lấy từ công trình/mẫu</span>
               </button>
               <button
                 onClick={async () => {
@@ -751,13 +731,31 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                   setEditingVolume(null);
                   setShowAddForm(true);
                 }}
-                className="flex h-8 w-full items-center justify-center gap-1 rounded-xl bg-blue-600 px-2.5 text-xs font-bold text-white shadow transition-all hover:bg-blue-700 active:scale-95 sm:w-auto"
+                className="flex h-9 w-full items-center justify-center gap-1 rounded-xl bg-blue-600 px-2.5 text-xs font-bold text-white shadow transition-all hover:bg-blue-700 active:scale-95"
               >
                 <Plus className="w-4 h-4" />
                 Thêm
               </button>
             </>
           )}
+
+          <button
+            type="button"
+            onClick={() => setShowQuickEdit(true)}
+            className="flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-xl border border-indigo-200 bg-white px-2.5 text-xs font-extrabold text-indigo-700 transition-all hover:bg-indigo-50 active:scale-95"
+            title="Mở bảng cột/dòng để chỉnh nhanh trực tiếp, không cần tải Excel"
+          >
+            ▦ Bảng chỉnh nhanh
+          </button>
+          <ExcelActionMenu
+            fillWidth
+            onExportEdit={() => import('../utils/excelExport').then(({ exportWorkVolumesTemplate }) => exportWorkVolumesTemplate(workVolumes, projectName, hasFinancialAccess))}
+            onImportFile={hasStructureManageAccess ? handleImportExcelWorkVolumes : undefined}
+            onDownloadTemplate={() => import('../utils/excelExport').then(({ exportWorkVolumesTemplate }) => exportWorkVolumesTemplate([], projectName, hasFinancialAccess))}
+            exportLabel="Xuất hạng mục để chỉnh sửa"
+            importLabel="Nhập hạng mục đã chỉnh sửa"
+            templateLabel="Tải mẫu hạng mục"
+          />
         </div>
       </div>
 
