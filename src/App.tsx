@@ -371,8 +371,10 @@ function AuthenticatedApp() {
   const isDesktopRuntime = typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('app') === 'desktop';
   const [activeTab, setActiveTab] = useState<TabType>(getRememberedTab);
+  const activeTabRef = useRef<TabType>(activeTab);
 
   useEffect(() => {
+    activeTabRef.current = activeTab;
     try { sessionStorage.setItem('qlct_active_tab_v1', activeTab); } catch (_) {}
   }, [activeTab]);
 
@@ -389,44 +391,41 @@ function AuthenticatedApp() {
     if (loader) void loader().catch(() => undefined);
   }, []);
 
-  // Warm primary field screens after first paint. Desktop/EXE has enough memory to
-  // fetch/parse the primary lazy chunks in parallel, which avoids DEV paying a visibly
-  // higher first-switch cost than the lighter PROD bundle. Mobile keeps the staggered
-  // idle strategy to protect RAM/battery. Respect Data Saver in both modes.
+  // Warm primary field screens only while the browser is idle. Importing every heavy
+  // DEV screen in parallel can monopolise the main thread and make rapid navigation feel
+  // worse than the lighter PROD bundle. Mouse hover still preloads an intended desktop tab.
   useEffect(() => {
     const connection = (navigator as any).connection;
     if (connection?.saveData) return;
     let cancelled = false;
     const loaders = [loadFloorPlanDefectTab, loadCrewTab, loadWarehouseTab, loadWorkVolumeTab, loadGoogleConfigTab];
     const desktopLike = isDesktopRuntime || window.matchMedia('(min-width: 1024px)').matches;
-
-    if (desktopLike) {
-      const timer = window.setTimeout(() => {
-        if (cancelled) return;
-        loaders.forEach((loader) => { void loader().catch(() => undefined); });
-      }, 80);
-      return () => {
-        cancelled = true;
-        window.clearTimeout(timer);
-      };
-    }
+    const stepDelay = desktopLike ? 90 : 180;
 
     const warm = () => {
       let index = 0;
       const next = () => {
         if (cancelled || index >= loaders.length) return;
-        void loaders[index++]().catch(() => undefined);
-        window.setTimeout(next, 180);
+        const loader = loaders[index++];
+        void loader().catch(() => undefined).finally(() => {
+          if (!cancelled) window.setTimeout(next, stepDelay);
+        });
       };
       next();
     };
+
     const idle = (window as any).requestIdleCallback;
-    const idleId = typeof idle === 'function' ? idle(warm, { timeout: 1600 }) : null;
-    const timer = idleId == null ? window.setTimeout(warm, 450) : null;
+    const idleId = typeof idle === 'function'
+      ? idle(warm, { timeout: desktopLike ? 900 : 1600 })
+      : null;
+    const timer = idleId == null ? window.setTimeout(warm, desktopLike ? 320 : 450) : null;
+
     return () => {
       cancelled = true;
       if (timer != null) window.clearTimeout(timer);
-      if (idleId != null && typeof (window as any).cancelIdleCallback === 'function') (window as any).cancelIdleCallback(idleId);
+      if (idleId != null && typeof (window as any).cancelIdleCallback === 'function') {
+        (window as any).cancelIdleCallback(idleId);
+      }
     };
   }, [isDesktopRuntime]);
 
@@ -501,14 +500,13 @@ function AuthenticatedApp() {
   }, []);
 
   // Lightweight presence heartbeat for the currently opened project only.
-  // No typed text or business payload is sent; hidden/background clients naturally
-  // become inactive after the UI timeout because heartbeat writes stop.
+  // Keep listeners/interval stable across tab clicks; activeTab is read from a ref.
   useEffect(() => {
     if (!isOnline || !isProjectRoleResolved || !projectRoleAllowed || !activeProjectId) return;
     let disposed = false;
     const touchPresence = () => {
       if (disposed || document.visibilityState === 'hidden') return;
-      void updateProjectPresence(activeProjectId, activeTab, currentUserRole).catch((err) =>
+      void updateProjectPresence(activeProjectId, activeTabRef.current, currentUserRole).catch((err) =>
         console.warn('Project presence heartbeat warning:', err)
       );
     };
@@ -526,6 +524,20 @@ function AuthenticatedApp() {
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('focus', handleFocus);
     };
+  }, [activeProjectId, currentUserRole, isOnline, isProjectRoleResolved, projectRoleAllowed]);
+
+  // Rapid tab taps should not emit a Firestore presence write for every intermediate tab.
+  // Publish only the settled tab after a short debounce; this keeps presence accurate
+  // without competing with UI rendering/network work during navigation bursts.
+  useEffect(() => {
+    if (!isOnline || !isProjectRoleResolved || !projectRoleAllowed || !activeProjectId) return;
+    const timer = window.setTimeout(() => {
+      if (document.visibilityState === 'hidden') return;
+      void updateProjectPresence(activeProjectId, activeTab, currentUserRole).catch((err) =>
+        console.warn('Project presence tab update warning:', err)
+      );
+    }, 350);
+    return () => window.clearTimeout(timer);
   }, [activeProjectId, activeTab, currentUserRole, isOnline, isProjectRoleResolved, projectRoleAllowed]);
 
   useEffect(() => {
@@ -3768,11 +3780,11 @@ function AuthenticatedApp() {
     isProjectRoleResolved,
   ]);
 
-  // Photo metadata is realtime; binary image chunks are downloaded lazily only when an image is displayed.
-  // This keeps multi-device image sync complete without loading every photo into phone RAM at startup.
+  // Photo metadata is lightweight realtime state. Keep one project-scoped listener alive
+  // instead of unsubscribe/resubscribe on every Floor Plan/Crew/Chat tab switch. Binary
+  // image chunks remain lazy and are still downloaded only when actually displayed.
   useEffect(() => {
-    const photoTabActive = activeTab === 'floorplan' || activeTab === 'crew' || activeTab === 'chat';
-    if (!photoTabActive || !isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed) {
+    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed) {
       setPhotoCloudStatus({ phase: 'idle', pending: 0 });
       return;
     }
@@ -3781,7 +3793,7 @@ function AuthenticatedApp() {
       if (activeProjectIdRef.current === projectId) setPhotoCloudStatus(status);
     });
     return () => unsubscribePhotos();
-  }, [activeProjectId, activeTab, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, isOnline, projectRoleSource, projectRoleAllowed]);
+  }, [activeProjectId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, isOnline, projectRoleSource, projectRoleAllowed]);
 
   const handleUpdateProjectName = (val: string) => {
     if (!isProjectRoleResolved || currentUserRole !== 'ADMIN') return;
