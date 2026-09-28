@@ -287,6 +287,8 @@ const homeDashboardUi = read('src/components/HomeDashboard.tsx');
 const navSource = read('src/components/BottomNav.tsx');
 assert(navSource.includes('setActiveTab(tab);'), 'Primary navigation must send the selected destination to the App navigation coordinator');
 assert(navSource.includes('data-hnl-nav-tab={tab.id}') && navSource.includes('data-hnl-nav-tab="chat"'), 'Primary navigation must expose stable diagnostic tab IDs for runtime switching tests');
+assert(navSource.includes('data-hnl-nav-surface="desktop"') && navSource.includes('data-hnl-nav-surface="mobile"'), 'Runtime navigation diagnostics must distinguish desktop rail from mobile bottom bar');
+assert(navSource.includes('data-hnl-nav-tab="volume"'), 'Mobile More menu must expose Work Volume as a stable runtime navigation destination');
 assert(!navSource.includes('startTransition(() => setActiveTab(tab))'), 'Primary navigation must not keep the old heavy screen visible through a React transition');
 assert(navSource.includes('onPreloadTab?.(tab)') && navSource.includes('onPointerEnter={() => onPreloadTab?.(tab.id)}'), 'Primary navigation must preload the destination on hover/touch intent');
 assert(appSource.includes('const preloadTab = React.useCallback') && appSource.includes('onPreloadTab={preloadTab}'), 'App must map navigation intent to the destination lazy loader');
@@ -297,6 +299,7 @@ assert(appSource.includes('window.clearTimeout(navigationCommitTimerRef.current)
 const navigationCoordinator = appSource.slice(appSource.indexOf('const navigateToTab'), appSource.indexOf('// Warm primary field screens'));
 assert(!navigationCoordinator.includes('React.startTransition') && appSource.includes('data-hnl-navigation-target'), 'Settled heavy-tab commit must remain direct while the requested destination is shown immediately');
 assert(appSource.includes('activeTabRef.current') && appSource.includes('Project presence tab update warning:'), 'Presence heartbeat must stay stable across tab switches and update the tab label separately');
+assert(appSource.includes("const photoRealtimeActive = activeTab === 'floorplan' || activeTab === 'crew' || activeTab === 'chat'") && appSource.includes('[activeProjectId, photoRealtimeActive, cloudUserKey'), 'Photo metadata realtime must remain stable while switching between photo-capable tabs');
 assert(appSource.includes('data-hnl-tab-switching="true"'), 'Rapid tab switching must replace the old heavy screen with a lightweight destination state');
 assert(!appSource.includes('loaders.forEach((loader)'), 'Navigation warming must not parse all heavy primary screens in parallel');
 assert(appSource.includes('nextTimer = window.setTimeout(next, 260)'), 'Background lazy warming must be staggered to avoid main-thread bursts');

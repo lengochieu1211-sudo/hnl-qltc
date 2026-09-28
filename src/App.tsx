@@ -3817,10 +3817,13 @@ function AuthenticatedApp() {
   ]);
 
   // Photo metadata is realtime; binary image chunks are downloaded lazily only when an image is displayed.
-  // This keeps multi-device image sync complete without loading every photo into phone RAM at startup.
+  // Keep one metadata listener alive while moving between photo-capable tabs. Depending
+  // on each exact activeTab used to tear down/recreate the same Firestore subscription
+  // for Floor Plan -> Crew -> Chat navigation even though the project and identity did
+  // not change. Non-photo tabs still release the listener exactly as before.
+  const photoRealtimeActive = activeTab === 'floorplan' || activeTab === 'crew' || activeTab === 'chat';
   useEffect(() => {
-    const photoTabActive = activeTab === 'floorplan' || activeTab === 'crew' || activeTab === 'chat';
-    if (!photoTabActive || !isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed) {
+    if (!photoRealtimeActive || !isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed) {
       setPhotoCloudStatus({ phase: 'idle', pending: 0 });
       return;
     }
@@ -3829,7 +3832,7 @@ function AuthenticatedApp() {
       if (activeProjectIdRef.current === projectId) setPhotoCloudStatus(status);
     });
     return () => unsubscribePhotos();
-  }, [activeProjectId, activeTab, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, isOnline, projectRoleSource, projectRoleAllowed]);
+  }, [activeProjectId, photoRealtimeActive, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, isOnline, projectRoleSource, projectRoleAllowed]);
 
   const handleUpdateProjectName = (val: string) => {
     if (!isProjectRoleResolved || currentUserRole !== 'ADMIN') return;

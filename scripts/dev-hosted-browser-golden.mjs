@@ -77,19 +77,23 @@ async function verifyRapidPrimaryNavigation(page, label) {
     const main = document.querySelector('main[data-hnl-active-tab]');
     if (!main) throw new Error('Main navigation diagnostic surface missing');
 
+    const navSurfaceName = desktopLike ? 'desktop' : 'mobile';
+    const navSurface = document.querySelector(`[data-hnl-nav-surface="${navSurfaceName}"]`);
+    if (!navSurface || getComputedStyle(navSurface).display === 'none' || navSurface.getClientRects().length === 0) {
+      throw new Error(`Visible ${navSurfaceName} navigation surface missing`);
+    }
+    const visibleNavButton = (tab) => Array.from(navSurface.querySelectorAll(`button[data-hnl-nav-tab="${tab}"]`))
+      .find((button) => getComputedStyle(button).display !== 'none' && button.getClientRects().length > 0);
     const preferred = desktopLike
       ? ['home', 'floorplan', 'crew', 'warehouse', 'volume', 'chat', 'ai', 'config']
       : ['home', 'floorplan', 'crew', 'warehouse'];
-    const available = preferred.filter((tab) => {
-      const button = document.querySelector(`button[data-hnl-nav-tab="${tab}"]`);
-      return button && getComputedStyle(button).display !== 'none' && button.getClientRects().length > 0;
-    });
+    const available = preferred.filter((tab) => Boolean(visibleNavButton(tab)));
     const minimum = desktopLike ? 6 : 4;
     if (available.length < minimum) throw new Error(`Not enough visible primary nav tabs for rapid-switch test: ${available.join(',')}`);
 
     const currentActive = main.getAttribute('data-hnl-active-tab') || '';
     const singleTab = available.find((tab) => tab !== currentActive) || available[0];
-    const singleButton = document.querySelector(`button[data-hnl-nav-tab="${singleTab}"]`);
+    const singleButton = visibleNavButton(singleTab);
     const singleStartedAt = performance.now();
     singleButton.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', isPrimary: true }));
     singleButton.click();
@@ -112,7 +116,7 @@ async function verifyRapidPrimaryNavigation(page, label) {
     const targetLatencies = [];
     const startedAt = performance.now();
     for (const tab of available) {
-      const button = document.querySelector(`button[data-hnl-nav-tab="${tab}"]`);
+      const button = visibleNavButton(tab);
       const clickAt = performance.now();
       button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', isPrimary: true }));
       button.click();
@@ -155,6 +159,71 @@ async function verifyRapidPrimaryNavigation(page, label) {
   assert(intermediateCommits.length === 0, `${label}: intermediate heavy tabs committed during rapid navigation — ${JSON.stringify(result.commits)}`);
   assert(result.totalMs <= 2200, `${label}: rapid navigation settle path exceeded 2200ms (${result.totalMs.toFixed(1)}ms)`);
   pass(`${label} primary navigation responsiveness`, `single ${result.singleSwitchMs.toFixed(1)}ms · ${result.available.length} rapid tabs · max target ${maxTargetLatency.toFixed(1)}ms · commits ${result.commits.join('→') || 'final-only'}`);
+}
+
+async function verifyMobileMoreNavigation(page, label) {
+  const viewport = page.viewportSize();
+  if (!viewport || viewport.width >= 1024) return;
+
+  const result = await page.evaluate(async () => {
+    const main = document.querySelector('main[data-hnl-active-tab]');
+    const navSurface = document.querySelector('[data-hnl-nav-surface="mobile"]');
+    if (!main || !navSurface) throw new Error('Mobile navigation diagnostic surface missing');
+    const visibleButton = (tab) => Array.from(navSurface.querySelectorAll(`button[data-hnl-nav-tab="${tab}"]`))
+      .find((button) => getComputedStyle(button).display !== 'none' && button.getClientRects().length > 0);
+    const more = visibleButton('more');
+    if (!more) throw new Error('Visible mobile More button missing');
+
+    const required = ['volume', 'chat', 'config'];
+    const optional = ['checklist', 'ai', 'superadmin'];
+    const tested = [];
+    const targetLatencies = [];
+    const settleLatencies = [];
+
+    for (const tab of [...required, ...optional]) {
+      if (!visibleButton(tab)) {
+        more.click();
+        const menuDeadline = performance.now() + 800;
+        while (performance.now() < menuDeadline && !visibleButton(tab)) {
+          await new Promise((resolve) => setTimeout(resolve, 8));
+        }
+      }
+      const button = visibleButton(tab);
+      if (!button) {
+        // Optional entries can legitimately be absent for this project/account.
+        if (required.includes(tab)) throw new Error(`Required mobile More destination missing: ${tab}`);
+        const openMore = visibleButton('more');
+        if (openMore) openMore.click();
+        continue;
+      }
+
+      const clickAt = performance.now();
+      button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', isPrimary: true }));
+      button.click();
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const target = main.getAttribute('data-hnl-navigation-target') || '';
+      targetLatencies.push({ tab, ms: performance.now() - clickAt, target });
+
+      const settleStartedAt = performance.now();
+      const settleDeadline = performance.now() + 1500;
+      while (performance.now() < settleDeadline && main.getAttribute('data-hnl-active-tab') !== tab) {
+        await new Promise((resolve) => setTimeout(resolve, 8));
+      }
+      settleLatencies.push({ tab, ms: performance.now() - settleStartedAt, active: main.getAttribute('data-hnl-active-tab') || '' });
+      tested.push(tab);
+      await new Promise((resolve) => setTimeout(resolve, 380));
+    }
+
+    return { required, tested, targetLatencies, settleLatencies };
+  });
+
+  assert(result.required.every((tab) => result.tested.includes(tab)), `${label}: mobile More paths did not cover required destinations — ${JSON.stringify(result.tested)}`);
+  assert(result.targetLatencies.every((entry) => entry.target === entry.tab), `${label}: mobile More destination feedback mismatch — ${JSON.stringify(result.targetLatencies)}`);
+  const maxTargetLatency = Math.max(...result.targetLatencies.map((entry) => entry.ms));
+  const maxSettleLatency = Math.max(...result.settleLatencies.map((entry) => entry.ms));
+  assert(maxTargetLatency <= 220, `${label}: mobile More target feedback exceeded 220ms (${maxTargetLatency.toFixed(1)}ms)`);
+  assert(result.settleLatencies.every((entry) => entry.active === entry.tab && entry.ms <= 900), `${label}: mobile More destination settle exceeded 900ms — ${JSON.stringify(result.settleLatencies)}`);
+  pass(`${label} mobile More navigation paths`, `${result.tested.join('→')} · max target ${maxTargetLatency.toFixed(1)}ms · max settle ${maxSettleLatency.toFixed(1)}ms`);
 }
 
 async function verifySettingsFeatureSheets(page, label) {
@@ -574,6 +643,7 @@ async function runViewport(browser, label, viewport, screenshotPath) {
   pass(`${label} header account/network badges removed`);
 
   await verifyRapidPrimaryNavigation(page, label);
+  await verifyMobileMoreNavigation(page, label);
 
   const securityButton = page.locator('button[title*="Trung tâm bảo mật" i]').first();
   assert(await securityButton.count() > 0, `${label}: Security Center button not found`);
