@@ -134,7 +134,7 @@ assert.match(warehouse, /Không thể đổi ĐVT/, 'Quick norm edit must block 
 assert.match(warehouse, /Không thể xóa Hạng mục cuối cùng/, 'Quick norm edit must protect the final work-category link');
 assert.match(warehouse, /requiresAnchorForInsert=\{quickEditMode === 'norms'\}/, 'Norm child insertion must require an existing material anchor');
 assert.match(warehouse, /canAddRows=\{quickEditMode === 'norms' \? hasNormManageAccess/, 'Norm quick edit may add child links only under ADMIN material-norm access');
-assert.match(warehouse, /grid grid-cols-2 gap-2 pt-0\.5 sm:grid-cols-\[160px_160px\]/, 'Warehouse bulk-edit actions must use equal-width mobile and desktop columns');
+assert.match(warehouse, /lg:grid-cols-\[minmax\(0,1fr\)_420px\][\s\S]*grid grid-cols-2 gap-2 border-t border-slate-100 pt-2[\s\S]*Bảng chỉnh nhanh[\s\S]*fillWidth/, 'Warehouse bulk-edit actions must stay paired inside the aligned desktop action column');
 
 assert.match(volume, /Khối lượng đã làm/, 'WorkVolume quick table must show actual volume');
 assert.match(volume, /key: 'actual'.*editable: false/, 'Actual volume must be read-only');
