@@ -285,11 +285,15 @@ const securityModalUi = read('src/components/SecurityModal.tsx');
 const multiProjectOverviewUi = read('src/components/MultiProjectOverview.tsx');
 const homeDashboardUi = read('src/components/HomeDashboard.tsx');
 const navSource = read('src/components/BottomNav.tsx');
-assert(navSource.includes('setActiveTab(tab);'), 'Primary navigation must switch the destination immediately after one tap');
+assert(navSource.includes('pendingTabRef') && navSource.includes('navigationTimerRef'), 'Primary navigation must coalesce rapid tab switches instead of mounting every intermediate screen');
+assert(navSource.includes('window.setTimeout(() =>') && navSource.includes('}, 40);'), 'A single tab switch must commit within one short UI beat while allowing rapid taps to collapse');
+assert(navSource.includes('setActiveTab(nextTab);'), 'Primary navigation must commit the final coalesced destination');
 assert(!navSource.includes('startTransition(() => setActiveTab(tab))'), 'Primary navigation must not keep the old heavy screen visible through a React transition');
 assert(navSource.includes('onPreloadTab?.(tab)') && navSource.includes('onPointerEnter={() => onPreloadTab?.(tab.id)}'), 'Primary navigation must preload the destination on hover/touch intent');
 assert(appSource.includes('const preloadTab = React.useCallback') && appSource.includes('onPreloadTab={preloadTab}'), 'App must map navigation intent to the destination lazy loader');
-assert(appSource.includes("window.matchMedia('(min-width: 1024px)').matches") && appSource.includes('loaders.forEach((loader)'), 'Desktop/EXE must warm primary lazy screens in parallel after first paint');
+assert(appSource.includes("window.matchMedia('(min-width: 1024px)').matches") && appSource.includes('desktopLoaders.forEach((loader)'), 'Desktop/EXE must warm primary lazy screens in parallel after first paint');
+assert(appSource.includes('loadChatTab') && appSource.includes('loadAiAssistantPage'), 'Desktop prewarm must cover Trao đổi and HNL AI in addition to field modules');
+assert(appSource.includes('activeTabRef.current') && !appSource.includes('[activeProjectId, activeTab, currentUserRole, isOnline, isProjectRoleResolved, projectRoleAllowed]);\n\n  useEffect(() => {\n    const viewport'), 'Presence heartbeat must not tear down and recreate on every primary tab switch');
 assert(appSource.includes('if (connection?.saveData) return;'), 'Navigation prewarm must continue respecting Data Saver');
 
 assert(navSource.includes("touchAction: 'manipulation'"), 'Primary navigation must opt into immediate touch manipulation');
