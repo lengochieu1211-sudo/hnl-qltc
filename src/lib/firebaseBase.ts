@@ -620,10 +620,12 @@ async function registerProjectForCurrentUser(projectId: string, projectName: str
   console.debug('[user index write]', projectId, 'written');
 }
 
+export type UserCatalogTemplateKind = 'workVolumes' | 'teams' | 'materialNorms' | 'materials' | 'equipment';
+
 export interface UserCatalogTemplate {
   id: string;
   name: string;
-  kind: 'workVolumes' | 'teams' | 'materialNorms';
+  kind: UserCatalogTemplateKind;
   items: any[];
   createdAt: number;
   updatedAt: number;
@@ -643,7 +645,7 @@ export async function fetchUserCatalogTemplates(): Promise<UserCatalogTemplate[]
   const raw = snap.data()?.catalogTemplates;
   if (!Array.isArray(raw)) return [];
   return raw
-    .filter((item: any) => item && typeof item.id === 'string' && typeof item.name === 'string' && ['workVolumes', 'teams', 'materialNorms'].includes(item.kind))
+    .filter((item: any) => item && typeof item.id === 'string' && typeof item.name === 'string' && ['workVolumes', 'teams', 'materialNorms', 'materials', 'equipment'].includes(item.kind))
     .map((item: any) => ({
       id: String(item.id),
       name: String(item.name).slice(0, 80),
@@ -684,6 +686,18 @@ export async function deleteUserCatalogTemplate(templateId: string): Promise<voi
   const current = await fetchUserCatalogTemplates().catch(() => []);
   await setDoc(doc(db, 'users', user.uid), {
     catalogTemplates: current.filter((item) => item.id !== templateId),
+  }, { merge: true });
+}
+
+export async function deleteUserCatalogTemplates(templateIds: string[]): Promise<void> {
+  await ensureAuth();
+  const user = getCurrentRealFirebaseUser();
+  if (!user?.uid) throw new Error('Bạn cần đăng nhập Google.');
+  const ids = new Set((templateIds || []).map((id) => String(id || '').trim()).filter(Boolean));
+  if (ids.size === 0) return;
+  const current = await fetchUserCatalogTemplates().catch(() => []);
+  await setDoc(doc(db, 'users', user.uid), {
+    catalogTemplates: current.filter((item) => !ids.has(item.id)),
   }, { merge: true });
 }
 
