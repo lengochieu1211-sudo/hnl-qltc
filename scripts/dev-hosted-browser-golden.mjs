@@ -87,6 +87,20 @@ async function verifyRapidPrimaryNavigation(page, label) {
     const minimum = desktopLike ? 6 : 4;
     if (available.length < minimum) throw new Error(`Not enough visible primary nav tabs for rapid-switch test: ${available.join(',')}`);
 
+    const currentActive = main.getAttribute('data-hnl-active-tab') || '';
+    const singleTab = available.find((tab) => tab !== currentActive) || available[0];
+    const singleButton = document.querySelector(`button[data-hnl-nav-tab="${singleTab}"]`);
+    const singleStartedAt = performance.now();
+    singleButton.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', isPrimary: true }));
+    singleButton.click();
+    const singleDeadline = performance.now() + 1500;
+    while (performance.now() < singleDeadline && main.getAttribute('data-hnl-active-tab') !== singleTab) {
+      await new Promise((resolve) => setTimeout(resolve, 8));
+    }
+    const singleSwitchMs = performance.now() - singleStartedAt;
+    const singleActive = main.getAttribute('data-hnl-active-tab') || '';
+    await new Promise((resolve) => setTimeout(resolve, 380));
+
     const commits = [];
     const targets = [];
     const observer = new MutationObserver(() => {
@@ -118,6 +132,9 @@ async function verifyRapidPrimaryNavigation(page, label) {
 
     return {
       available,
+      singleTab,
+      singleActive,
+      singleSwitchMs,
       finalTab,
       finalActive: main.getAttribute('data-hnl-active-tab') || '',
       finalTarget: main.getAttribute('data-hnl-navigation-target') || '',
@@ -128,13 +145,16 @@ async function verifyRapidPrimaryNavigation(page, label) {
     };
   }, { desktopLike });
 
+  assert(result.singleActive === result.singleTab, `${label}: single primary navigation did not settle on one click (${result.singleActive} != ${result.singleTab})`);
+  assert(result.singleSwitchMs <= 900, `${label}: single primary navigation exceeded 900ms (${result.singleSwitchMs.toFixed(1)}ms)`);
   assert(result.finalActive === result.finalTab, `${label}: rapid navigation did not settle on last click (${result.finalActive} != ${result.finalTab})`);
   assert(result.targets.every((target, index) => target === result.available[index]), `${label}: requested nav target did not respond to every rapid click — ${JSON.stringify(result.targetLatencies)}`);
   const maxTargetLatency = Math.max(...result.targetLatencies.map((entry) => entry.ms));
-  assert(maxTargetLatency <= 300, `${label}: rapid navigation target feedback exceeded 300ms (${maxTargetLatency.toFixed(1)}ms)`);
+  assert(maxTargetLatency <= 220, `${label}: rapid navigation target feedback exceeded 220ms (${maxTargetLatency.toFixed(1)}ms)`);
   const intermediateCommits = result.commits.filter((tab) => tab && tab !== result.finalTab);
   assert(intermediateCommits.length === 0, `${label}: intermediate heavy tabs committed during rapid navigation — ${JSON.stringify(result.commits)}`);
-  pass(`${label} rapid primary navigation last-click-wins`, `${result.available.length} tabs · max target ${maxTargetLatency.toFixed(1)}ms · commits ${result.commits.join('→') || 'final-only'}`);
+  assert(result.totalMs <= 2200, `${label}: rapid navigation settle path exceeded 2200ms (${result.totalMs.toFixed(1)}ms)`);
+  pass(`${label} primary navigation responsiveness`, `single ${result.singleSwitchMs.toFixed(1)}ms · ${result.available.length} rapid tabs · max target ${maxTargetLatency.toFixed(1)}ms · commits ${result.commits.join('→') || 'final-only'}`);
 }
 
 async function verifySettingsFeatureSheets(page, label) {
