@@ -408,9 +408,7 @@ function AuthenticatedApp() {
     navigationCommitTimerRef.current = window.setTimeout(() => {
       navigationCommitTimerRef.current = null;
       if (requestId !== navigationRequestRef.current) return;
-      React.startTransition(() => {
-        setActiveTab((current) => requestId === navigationRequestRef.current ? tab : current);
-      });
+      setActiveTab((current) => requestId === navigationRequestRef.current ? tab : current);
     }, 110);
   }, [preloadTab]);
 
