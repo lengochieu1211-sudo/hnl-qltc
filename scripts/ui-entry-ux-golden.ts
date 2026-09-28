@@ -291,6 +291,11 @@ assert(navSource.includes('onPreloadTab?.(tab)') && navSource.includes('onPointe
 assert(appSource.includes('const preloadTab = React.useCallback') && appSource.includes('onPreloadTab={preloadTab}'), 'App must map navigation intent to the destination lazy loader');
 assert(appSource.includes("window.matchMedia('(min-width: 1024px)').matches") && appSource.includes('loaders.forEach((loader)'), 'Desktop/EXE must warm primary lazy screens in parallel after first paint');
 assert(appSource.includes('if (connection?.saveData) return;'), 'Navigation prewarm must continue respecting Data Saver');
+assert(appSource.includes('activeTabRef.current = activeTab'), 'App must retain the latest primary tab in a ref for stable long-lived effects');
+assert(appSource.includes('updateProjectPresence(activeProjectId, activeTabRef.current, currentUserRole)'), 'Presence heartbeat must read the current tab from a ref');
+assert(!appSource.includes('[activeProjectId, activeTab, currentUserRole, isOnline, isProjectRoleResolved, projectRoleAllowed]'), 'Presence heartbeat must not teardown/recreate for every tab switch');
+assert(appSource.includes('subscribeProjectPhotosRealtime(projectId') && !appSource.includes('[activeProjectId, activeTab, cloudUserKey, isHydrated'), 'Photo metadata realtime must stay project-scoped instead of tab-scoped');
+assert(appSource.includes('window.setTimeout(run, 520)'), 'Floor-plan binary hydration must wait for tab navigation to settle before starting heavy work');
 
 assert(navSource.includes("touchAction: 'manipulation'"), 'Primary navigation must opt into immediate touch manipulation');
 assert(navSource.includes('onPointerDown={() => previewTab(tab.id)}'), 'Primary navigation must provide immediate pressed feedback before click activation');
