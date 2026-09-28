@@ -404,19 +404,30 @@ function AuthenticatedApp() {
     navigationLastRequestAtRef.current = now;
     if (rapidTap) navigationRapidUntilRef.current = now + 320;
     const rapidMode = rapidTap || now < navigationRapidUntilRef.current;
-    const commitDelayMs = rapidMode ? 110 : 24;
 
-    setNavigationTargetTab(tab);
     preloadTab(tab);
 
     if (navigationCommitTimerRef.current != null) {
       window.clearTimeout(navigationCommitTimerRef.current);
+      navigationCommitTimerRef.current = null;
     }
+
+    if (!rapidMode) {
+      // A normal single tap should commit immediately. The lazy destination has already
+      // been preloaded above, and Suspense remains the fallback if its chunk is not ready.
+      setNavigationTargetTab(null);
+      setActiveTab(tab);
+      return;
+    }
+
+    // Only rapid consecutive taps enter the coalescing path. Keep the current heavy
+    // screen out of the way while the user is still choosing a final destination.
+    setNavigationTargetTab(tab);
     navigationCommitTimerRef.current = window.setTimeout(() => {
       navigationCommitTimerRef.current = null;
       if (requestId !== navigationRequestRef.current) return;
-      setActiveTab((current) => requestId === navigationRequestRef.current ? tab : current);
-    }, commitDelayMs);
+      setActiveTab(tab);
+    }, 110);
   }, [preloadTab]);
 
   useEffect(() => {
