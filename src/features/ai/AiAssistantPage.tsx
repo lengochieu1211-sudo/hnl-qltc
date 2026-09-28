@@ -8,7 +8,7 @@ import { runHnlAiQuestion, type HnlAiOrchestratorResult } from '../../ai/orchest
 import { HnlManagedAiProvider, type HnlManagedProviderId } from '../../ai/providers/hnlManagedProvider';
 import type { AiProviderModelInfo } from '../../ai/providers/providerTypes';
 import type { AiAuditIssue, AiAuditSummary } from '../../ai/core/contracts';
-import { exportHnlAiExcel, exportHnlAiPdf, type HnlAiReportExportInput } from '../../ai/export/aiReportExport';
+import type { HnlAiReportExportInput } from '../../ai/export/aiReportExport';
 
 export type AiAssistantMode = 'data' | 'audit' | 'ai' | 'hybrid';
 
@@ -311,6 +311,7 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
     setExportBusy(kind);
     setExportNotice('');
     try {
+      const { exportHnlAiExcel, exportHnlAiPdf } = await import('../../ai/export/aiReportExport');
       if (kind === 'excel') {
         await exportHnlAiExcel(input);
         setExportNotice('Đã tạo báo cáo Excel HNL AI.');

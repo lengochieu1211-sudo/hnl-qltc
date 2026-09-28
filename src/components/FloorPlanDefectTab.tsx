@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
-import * as XLSX from 'xlsx';
 import { assertSafeExcelImportFile } from '../utils/excelImportUtils';
 import { 
   MapPin, 
@@ -2180,7 +2179,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   // Download excel template or current room data for Room Highlights
-  const downloadHighlightTemplate = (scope: 'current' | 'all' | 'template' = 'current') => {
+  const downloadHighlightTemplate = async (scope: 'current' | 'all' | 'template' = 'current') => {
+    const XLSX = await import('xlsx');
     const wb = XLSX.utils.book_new();
     const roomsToExport = scope === 'template' ? [] : scope === 'all' ? roomProgressList : floorRooms;
     const floorByIdForExcel = new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.id, floor] as const));
@@ -2463,6 +2463,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
+        const XLSX = await import('xlsx');
         const data = new Uint8Array(event.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         const normalizeSheetName = (name: string) => name.trim().toLocaleLowerCase('vi-VN').replace(/\s+/g, '_');

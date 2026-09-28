@@ -302,8 +302,22 @@ assert(appSource.includes('activeTabRef.current') && appSource.includes('Project
 assert(appSource.includes("const photoRealtimeActive = activeTab === 'floorplan' || activeTab === 'crew' || activeTab === 'chat'") && appSource.includes('[activeProjectId, photoRealtimeActive, cloudUserKey'), 'Photo metadata realtime must remain stable while switching between photo-capable tabs');
 assert(appSource.includes('data-hnl-tab-switching="true"'), 'Rapid tab switching must replace the old heavy screen with a lightweight destination state');
 assert(!appSource.includes('loaders.forEach((loader)'), 'Navigation warming must not parse all heavy primary screens in parallel');
-assert(appSource.includes('nextTimer = window.setTimeout(next, 260)'), 'Background lazy warming must be staggered to avoid main-thread bursts');
+assert(appSource.includes('nextTimer = window.setTimeout(next, warmGapMs)') && appSource.includes('loader().catch(() => undefined).finally(() =>'), 'Background lazy warming must serialize heavy chunk parsing instead of overlapping imports');
+assert(appSource.includes('const warmGapMs = mobileLike ? 900 : 260') && appSource.includes('const warmTimeoutMs = mobileLike ? 4800 : 2200'), 'Android navigation warming must use a gentler mobile cadence');
 assert(appSource.includes('if (connection?.saveData) return;'), 'Navigation prewarm must continue respecting Data Saver');
+const fileExportSource = read('src/utils/fileExport.ts');
+const floorPlanSource = read('src/components/FloorPlanDefectTab.tsx');
+const crewSource = read('src/components/CrewTabBase.tsx');
+const warehouseSource = read('src/components/WarehouseTab.tsx');
+const aiPageSource = read('src/features/ai/AiAssistantPage.tsx');
+assert(!appSource.includes("from './utils/excelExport'"), 'App startup must not statically pull the XLSX export module');
+assert(!fileExportSource.includes("import * as XLSX from 'xlsx'") && fileExportSource.includes("const XLSX = await import('xlsx')"), 'Generic file export must lazy-load XLSX only on an actual workbook export');
+for (const [label, source] of [['Floor Plan', floorPlanSource], ['Crew', crewSource], ['Warehouse', warehouseSource], ['Work Volume', workVolumeUi]] as const) {
+  assert(!source.includes("import * as XLSX from 'xlsx'"), `${label} navigation chunk must not statically import XLSX`);
+}
+assert(!warehouseSource.includes("from '../utils/excelExport'") && !workVolumeUi.includes("from '../utils/excelExport'") && !crewSource.includes("from '../utils/excelExport'"), 'Primary field screens must lazy-load Excel export code only when the user invokes Excel actions');
+assert(aiPageSource.includes("import type { HnlAiReportExportInput }") && aiPageSource.includes("await import('../../ai/export/aiReportExport')"), 'HNL AI navigation must defer Excel/PDF export implementation until export is requested');
+assert(workVolumeUi.includes('grid w-full grid-cols-2 gap-2 sm:flex') && workVolumeUi.includes('w-full sm:w-[160px]'), 'Work Volume mobile actions must use a balanced two-column grid while preserving compact desktop widths');
 
 assert(navSource.includes("touchAction: 'manipulation'"), 'Primary navigation must opt into immediate touch manipulation');
 assert(navSource.includes('onPointerDown={() => previewTab(tab.id)}'), 'Primary navigation must provide immediate pressed feedback before click activation');

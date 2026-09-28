@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
-import * as XLSX from 'xlsx';
 import { assertSafeExcelImportFile } from '../utils/excelImportUtils';
 import { 
   Users, 
@@ -32,7 +31,6 @@ import {
 } from 'lucide-react';
 import { CrewRecord, FloorPlan, TeamInfo, RoomProgressItem, DefectItem, CrewFloorWork, CrewFloorCategoryWork, AcceptanceStatus, RoomInspectionResult, WorkVolume, InventoryItem, MaterialNorm } from '../types';
 import { formatDateDDMMYYYY, formatExcelDate } from '../utils/dateFormatter';
-import { exportCrewRecordsToExcel, exportTeamStatisticsToExcel } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
 import { formatDecimal, evaluateMathExpression, useFormatSettings, parseExcelNumber } from '../utils/numberUtils';
 import { isTeamMatch, getTeamCategoriesForRoom, calculateTeamStatistics, isTeamWorkCompletedInRoom, FloorGroupDetail, getSubItemGroupWeight } from '../utils/teamUtils';
@@ -1320,7 +1318,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     }
   };
 
-  const handleExportTeamsTemplate = (templateOnly = false) => {
+  const handleExportTeamsTemplate = async (templateOnly = false) => {
+    const XLSX = await import('xlsx');
     const wb = XLSX.utils.book_new();
     const sourceData = !templateOnly && teams.length > 0 ? teams : [
       {
@@ -1362,7 +1361,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     return saveWorkbookFile(wb, 'Mau_Danh_Sach_Doi_Thi_Cong.xlsx');
   };
 
-  const handleExportTeamStats = (teamName?: string) => {
+  const handleExportTeamStats = async (teamName?: string) => {
+    const { exportTeamStatisticsToExcel } = await import('../utils/excelExport');
     const currentProjName = projectName || 'Công Trình';
     exportTeamStatisticsToExcel({
       teams,
@@ -1378,11 +1378,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     });
   };
 
-  const handleExportCrewLogsEdit = () => {
+  const handleExportCrewLogsEdit = async () => {
+    const { exportCrewRecordsToExcel } = await import('../utils/excelExport');
     exportCrewRecordsToExcel(structureScopedCrewRecords, teams, projectName || 'Công Trình');
   };
 
-  const handleDownloadCrewLogTemplate = () => {
+  const handleDownloadCrewLogTemplate = async () => {
+    const { exportCrewRecordsToExcel } = await import('../utils/excelExport');
     exportCrewRecordsToExcel([], teams, projectName || 'Công Trình');
   };
 
@@ -1399,6 +1401,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
+        const XLSX = await import('xlsx');
         const data = new Uint8Array(event.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         const mainName = workbook.SheetNames.find((name) => name.toLocaleLowerCase('vi-VN').includes('nhat ky')) || workbook.SheetNames[0];
@@ -1553,8 +1556,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     }
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
+        const XLSX = await import('xlsx');
         const data = new Uint8Array(event.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         const firstSheetName = workbook.SheetNames[0];
