@@ -146,14 +146,14 @@ async function verifyRapidPrimaryNavigation(page, label) {
   }, { desktopLike });
 
   assert(result.singleActive === result.singleTab, `${label}: single primary navigation did not settle on one click (${result.singleActive} != ${result.singleTab})`);
-  assert(result.singleSwitchMs <= 900, `${label}: single primary navigation exceeded 900ms (${result.singleSwitchMs.toFixed(1)}ms)`);
+  assert(result.singleSwitchMs <= 450, `${label}: single primary navigation exceeded 450ms (${result.singleSwitchMs.toFixed(1)}ms)`);
   assert(result.finalActive === result.finalTab, `${label}: rapid navigation did not settle on last click (${result.finalActive} != ${result.finalTab})`);
   assert(result.targets.every((target, index) => target === result.available[index]), `${label}: requested nav target did not respond to every rapid click — ${JSON.stringify(result.targetLatencies)}`);
   const maxTargetLatency = Math.max(...result.targetLatencies.map((entry) => entry.ms));
-  assert(maxTargetLatency <= 220, `${label}: rapid navigation target feedback exceeded 220ms (${maxTargetLatency.toFixed(1)}ms)`);
+  assert(maxTargetLatency <= 120, `${label}: rapid navigation target feedback exceeded 120ms (${maxTargetLatency.toFixed(1)}ms)`);
   const intermediateCommits = result.commits.filter((tab) => tab && tab !== result.finalTab);
   assert(intermediateCommits.length === 0, `${label}: intermediate heavy tabs committed during rapid navigation — ${JSON.stringify(result.commits)}`);
-  assert(result.totalMs <= 2200, `${label}: rapid navigation settle path exceeded 2200ms (${result.totalMs.toFixed(1)}ms)`);
+  assert(result.totalMs <= 1200, `${label}: rapid navigation settle path exceeded 1200ms (${result.totalMs.toFixed(1)}ms)`);
   pass(`${label} primary navigation responsiveness`, `single ${result.singleSwitchMs.toFixed(1)}ms · ${result.available.length} rapid tabs · max target ${maxTargetLatency.toFixed(1)}ms · commits ${result.commits.join('→') || 'final-only'}`);
 }
 
