@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useLanguage } from '../context/LanguageContext';
-import * as XLSX from 'xlsx';
 import { assertSafeExcelImportFile } from '../utils/excelImportUtils';
 import { 
   BarChart3, 
@@ -28,7 +27,6 @@ import {
   Copy
 } from 'lucide-react';
 import { WorkVolume, CategoryType, FloorPlan, RoomProgressItem } from '../types';
-import { exportWorkVolumesTemplate } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
 import { formatDecimal, formatVND, evaluateMathExpression, useFormatSettings, parseVietnameseNumber, parseExcelNumber } from '../utils/numberUtils';
 import { getTodayDateString, addDaysToDateString, formatDateVN, calculateDiffDays } from '../utils/dueDateUtils';
@@ -566,6 +564,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
+        const XLSX = await import('xlsx');
         const data = new Uint8Array(event.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         const worksheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -707,21 +706,23 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           </h2>
           <p className="text-xs text-slate-500">{t('volume_subtitle')}</p>
         </div>
-        <div className="flex w-full items-center gap-1.5 flex-wrap justify-end sm:w-auto">
-          <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-[160px_160px]">
+        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-end sm:gap-1.5">
+          <div className="w-full sm:w-[160px]">
             <button
               type="button"
               onClick={() => setShowQuickEdit(true)}
-              className="w-full h-8 text-xs font-extrabold text-indigo-700 hover:text-indigo-900 bg-white hover:bg-slate-50 px-2.5 rounded-xl flex items-center justify-center gap-1 border border-indigo-200 transition-all active:scale-95 shadow-2xs cursor-pointer whitespace-nowrap"
+              className="flex h-8 w-full items-center justify-center gap-1 whitespace-nowrap rounded-xl border border-indigo-200 bg-white px-2.5 text-xs font-extrabold text-indigo-700 shadow-2xs transition-all hover:bg-slate-50 hover:text-indigo-900 active:scale-95"
               title="Mở bảng cột/dòng để chỉnh nhanh trực tiếp, không cần tải Excel"
             >
               ▦ Bảng chỉnh nhanh
             </button>
+          </div>
+          <div className="w-full sm:w-[160px]">
             <ExcelActionMenu
               fillWidth
-              onExportEdit={() => exportWorkVolumesTemplate(workVolumes, projectName, hasFinancialAccess)}
+              onExportEdit={() => import('../utils/excelExport').then(({ exportWorkVolumesTemplate }) => exportWorkVolumesTemplate(workVolumes, projectName, hasFinancialAccess))}
               onImportFile={hasStructureManageAccess ? handleImportExcelWorkVolumes : undefined}
-              onDownloadTemplate={() => exportWorkVolumesTemplate([], projectName, hasFinancialAccess)}
+              onDownloadTemplate={() => import('../utils/excelExport').then(({ exportWorkVolumesTemplate }) => exportWorkVolumesTemplate([], projectName, hasFinancialAccess))}
               exportLabel="Xuất hạng mục để chỉnh sửa"
               importLabel="Nhập hạng mục đã chỉnh sửa"
               templateLabel="Tải mẫu hạng mục"
@@ -731,7 +732,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
             <>
               <button
                 onClick={() => setShowTemplatePicker(true)}
-                className="flex items-center gap-1 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all"
+                className="flex h-8 w-full items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 text-xs font-bold text-indigo-700 transition-all hover:bg-indigo-100 sm:w-auto"
               >
                 <Copy className="w-4 h-4" />
                 Lấy từ công trình/mẫu
@@ -750,7 +751,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                   setEditingVolume(null);
                   setShowAddForm(true);
                 }}
-                className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1.5 rounded-xl text-xs font-bold shadow active:scale-95 transition-all"
+                className="flex h-8 w-full items-center justify-center gap-1 rounded-xl bg-blue-600 px-2.5 text-xs font-bold text-white shadow transition-all hover:bg-blue-700 active:scale-95 sm:w-auto"
               >
                 <Plus className="w-4 h-4" />
                 Thêm

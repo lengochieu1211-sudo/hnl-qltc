@@ -28,8 +28,6 @@ import {
 import { InventoryItem, InventoryIssuePurpose, InventoryItemKind, TransactionType, MaterialNorm, WorkVolume, RoomProgressItem, TeamInfo, FloorPlan } from '../types';
 import { formatDateDDMMYYYY, formatExcelDate } from '../utils/dateFormatter';
 import { formatDecimal, evaluateMathExpression, useFormatSettings, parseVietnameseNumber, parseExcelNumber } from '../utils/numberUtils';
-import * as XLSX from 'xlsx';
-import { exportWarehouseUpdateTemplate } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
 import { calculateStockSummary, resolveNormMaterialId } from '../utils/inventoryUtils';
 import { compareDateValues, naturalCompare } from '../utils/sortUtils';
@@ -403,6 +401,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
+        const XLSX = await import('xlsx');
         const data = new Uint8Array(evt.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         
@@ -1945,19 +1944,19 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           </button>
           <ExcelActionMenu
             fillWidth
-            onExportEdit={() => exportWarehouseUpdateTemplate(materialNorms, workVolumes || [], inventory, undefined, {
+            onExportEdit={() => import('../utils/excelExport').then(({ exportWarehouseUpdateTemplate }) => exportWarehouseUpdateTemplate(materialNorms, workVolumes || [], inventory, undefined, {
               floorPlans,
               roomProgressList,
               teams,
               structureConfig: normalizedStructureConfig,
-            })}
+            }))}
             onImportFile={hasImportAccess ? handleFileChangeExcel : undefined}
-            onDownloadTemplate={() => exportWarehouseUpdateTemplate(materialNorms, workVolumes || [], [], undefined, {
+            onDownloadTemplate={() => import('../utils/excelExport').then(({ exportWarehouseUpdateTemplate }) => exportWarehouseUpdateTemplate(materialNorms, workVolumes || [], [], undefined, {
               floorPlans,
               roomProgressList,
               teams,
               structureConfig: normalizedStructureConfig,
-            })}
+            }))}
             exportLabel="Xuất dữ liệu Kho để chỉnh sửa"
             importLabel="Nhập dữ liệu Kho đã chỉnh sửa"
             templateLabel="Tải mẫu Kho / Định mức"

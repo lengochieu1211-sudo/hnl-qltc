@@ -41,7 +41,8 @@ assert.match(androidMain, /webView\.saveState\(outState\)/, 'Android wrapper mus
 const appSource = fs.readFileSync('src/App.tsx', 'utf8');
 assert.match(appSource, /qlct_active_tab_v1/, 'Web/mobile shell must remember the active primary tab across an unavoidable page recreation');
 assert.match(appSource, /Warm primary field screens after first paint without flooding the main thread/, 'primary lazy tabs must be warmed after first paint without blocking input');
-assert.match(appSource, /nextTimer = window\.setTimeout\(next, 260\)/, 'primary lazy tabs must warm sequentially instead of creating a desktop parse burst');
+assert.match(appSource, /loader\(\)\.catch\(\(\) => undefined\)\.finally\(\(\) => \{[\s\S]*?nextTimer = window\.setTimeout\(next, warmGapMs\)/, 'primary lazy tabs must warm truly sequentially instead of overlapping heavy parses');
+assert.match(appSource, /const warmGapMs = mobileLike \? 900 : 260/, 'mobile lazy-tab warm cadence must stay gentler than desktop');
 assert.match(appSource, /navigationRequestRef/, 'rapid primary navigation must coalesce stale heavy-screen transitions');
 assert.match(appSource, /navigationCommitTimerRef/, 'rapid primary navigation must debounce heavy-screen commits during continuous taps');
 assert.match(appSource, /commitDelayMs = rapidMode \? 110 : 24/, 'single navigation must retain a fast path while rapid taps keep a bounded quiet window');

@@ -159,13 +159,6 @@ import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { SuperAdminCenter, SuperAdminUiSettings } from './components/SuperAdminCenter';
 import { BottomNav, TabType } from './components/BottomNav';
 import { isSuperAdminEmail } from './config/superAdmin';
-import { 
-  exportWarehouseToExcel, 
-  exportWorkVolumesToExcel, 
-  exportFloorPlanToExcel, 
-  exportChecklistToExcel,
-  exportCrewToExcel
-} from './utils/excelExport';
 import { collectDueDateAlerts, DueDateAlertItem } from './utils/dueDateUtils';
 import { getFileHandle, saveFileHandle, removeFileHandle } from './utils/localSyncDb';
 import { getAllBackupVersions, saveBackupVersion, deleteBackupVersion, BackupVersion } from './utils/backupDb';
@@ -447,19 +440,27 @@ function AuthenticatedApp() {
     if (connection?.saveData) return;
     let cancelled = false;
     let nextTimer: number | null = null;
+    const mobileLike = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '') || window.innerWidth < 768;
+    const warmGapMs = mobileLike ? 900 : 260;
+    const warmTimeoutMs = mobileLike ? 4800 : 2200;
     const loaders = [loadFloorPlanDefectTab, loadCrewTab, loadWarehouseTab, loadWorkVolumeTab, loadGoogleConfigTab];
     const warm = () => {
       let index = 0;
       const next = () => {
         if (cancelled || index >= loaders.length) return;
-        void loaders[index++]().catch(() => undefined);
-        nextTimer = window.setTimeout(next, 260);
+        const loader = loaders[index++];
+        // Truly serialize chunk warming. Launching a new heavy import every 260 ms
+        // allowed Android to parse several screens concurrently during startup.
+        void loader().catch(() => undefined).finally(() => {
+          if (cancelled) return;
+          nextTimer = window.setTimeout(next, warmGapMs);
+        });
       };
       next();
     };
     const idle = (window as any).requestIdleCallback;
-    const idleId = typeof idle === 'function' ? idle(warm, { timeout: 2200 }) : null;
-    const timer = idleId == null ? window.setTimeout(warm, 700) : null;
+    const idleId = typeof idle === 'function' ? idle(warm, { timeout: warmTimeoutMs }) : null;
+    const timer = idleId == null ? window.setTimeout(warm, mobileLike ? 1800 : 700) : null;
     return () => {
       cancelled = true;
       if (timer != null) window.clearTimeout(timer);

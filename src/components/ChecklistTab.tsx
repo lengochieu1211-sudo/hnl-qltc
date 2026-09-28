@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
-import * as XLSX from 'xlsx';
 import { assertSafeExcelImportFile } from '../utils/excelImportUtils';
 import { 
   ClipboardCheck, 
@@ -280,6 +279,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
   };
 
   const handleExportChecklistTemplate = async () => {
+    const XLSX = await import('xlsx');
     const wb = XLSX.utils.book_new();
     const sourceData = activeChecklist.length > 0 ? activeChecklist : [
       {
@@ -330,8 +330,9 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
     }
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
+        const XLSX = await import('xlsx');
         const data = new Uint8Array(event.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         const firstSheetName = workbook.SheetNames[0];

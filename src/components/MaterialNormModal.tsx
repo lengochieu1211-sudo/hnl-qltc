@@ -20,8 +20,6 @@ import {
   Calculator
 } from 'lucide-react';
 import { MaterialNorm, InventoryItem, WorkVolume } from '../types';
-import * as XLSX from 'xlsx';
-import { exportWarehouseUpdateTemplate } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
 import { formatExcelDate } from '../utils/dateFormatter';
 import { formatDecimal, formatAdaptiveDecimal, evaluateMathExpression, useFormatSettings, parseExcelNumber } from '../utils/numberUtils';
@@ -179,6 +177,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
+        const XLSX = await import('xlsx');
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         

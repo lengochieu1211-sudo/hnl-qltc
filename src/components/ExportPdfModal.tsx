@@ -2,7 +2,6 @@ import { downloadOrShareFile } from '../utils/downloadUtils';
 import React, { useState, useEffect, useMemo } from 'react';
 import { FileText, Download, Printer, X, CheckCircle2, Filter, Mail, Package, BarChart3, Building2, ClipboardCheck, FileSpreadsheet, Users, Copy, HelpCircle, Camera, Image as ImageIcon, ChevronDown } from 'lucide-react';
 import { InventoryItem, WorkVolume, DefectItem, ChecklistItem, FloorPlan, RoomProgressItem, MaterialNorm, CrewRecord, TeamInfo } from '../types';
-import { exportAllToExcel, exportAllToExcelBase64, exportTeamStatisticsToExcel } from '../utils/excelExport';
 import { formatDateDDMMYYYY, formatDateTime, formatFloorName, parseLegacyTimestamp } from '../utils/dateFormatter';
 import { getCrewShiftCounts } from '../utils/crewUtils';
 import { getRoomColorStyle } from '../utils/colorPalette';
@@ -1639,7 +1638,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
     }
   };
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
+    const { exportAllToExcel } = await import('../utils/excelExport');
     exportAllToExcel({
       projectName,
       projectLocation: displayProjectLocation,
@@ -1675,6 +1675,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
         throw new Error('Google Drive upload can server backend. Firebase Hosting mien phi dang chay static-only nen hay tai file truc tiep ve may.');
       }
 
+      const { exportAllToExcelBase64 } = await import('../utils/excelExport');
       const base64 = exportAllToExcelBase64({
         projectName,
         projectLocation: displayProjectLocation,
