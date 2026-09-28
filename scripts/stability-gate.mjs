@@ -445,6 +445,15 @@ requireAll(app, [
   'startupNavigationAppliedForRef',
   "setActiveTab('floorplan')",
 ], 'Home + quick-start routing');
+requireAll(app, [
+  'navigationCommitTimerRef',
+  'window.clearTimeout(navigationCommitTimerRef.current)',
+  'requestId !== navigationRequestRef.current',
+  'data-hnl-navigation-target',
+  'data-hnl-tab-switching="true"',
+], 'rapid navigation cancellable heavy-mount debounce');
+const navigateBlock = app.slice(app.indexOf('const navigateToTab'), app.indexOf('// Warm primary field screens'));
+if (navigateBlock.includes('React.startTransition')) fail('rapid navigation must debounce/cancel heavy mounts instead of retaining old content through React.startTransition');
 pass('multi-project RBAC is preserved while startup now routes through Home or the explicitly pinned project');
 
 if (!floorPlanDefect.includes('operationalWorkCategoryCatalog') || !floorPlanDefect.includes('getOperationalRoomSubItems')) fail('floor-plan ghost-category filter missing');
