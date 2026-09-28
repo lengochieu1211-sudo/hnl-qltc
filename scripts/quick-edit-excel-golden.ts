@@ -110,7 +110,8 @@ assert.match(crew, /key: 'structureGroup'/, 'Crew quick edit must include a Khu/
 assert.match(crew, /__groupPrimary: floorIndex === 0 && categoryIndex === 0/, 'Crew quick edit must use one representative row for shared journal fields');
 assert.match(crew, /syncGroupColumns=\{quickEditMode === 'logs'/, 'Crew child rows must stay synchronized with representative shift/date/team values');
 assert.match(crew, /Tầng không thuộc Khu\/Khối này/, 'Crew quick edit must reject floor/group mismatches');
-assert.match(crew, /lg:grid-cols-\[220px_minmax\(0,1fr\)_minmax\(0,1fr\)_minmax\(0,1\.1fr\)_minmax\(0,1fr\)\][\s\S]*Chia sẻ báo cáo quân số[\s\S]*triggerLabel="Quản lý dữ liệu"/, 'Crew PC must place Date, Record, Copy, Share and Data Management on one aligned row');
+assert.match(crew, /order-1 col-span-2[\s\S]*Ghi nhận quân số/, 'Crew mobile primary Record action must occupy a full highlighted row before secondary controls');
+assert.match(crew, /lg:grid-cols-\[220px_minmax\(0,1fr\)_minmax\(0,1fr\)_minmax\(0,1\.1fr\)_minmax\(0,1fr\)\][\s\S]*Chia sẻ báo cáo quân số[\s\S]*triggerLabel="Quản lý dữ liệu"/, 'Crew PC must preserve Date, Record, Copy, Share and Data Management on one aligned row');
 assert.doesNotMatch(crew, /crew-subtab-navigation[^\n]*lg:max-w/, 'Crew primary subtabs must remain full-width like the original layout');
 assert.match(crew, /triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit=\{\(\) => \{ setQuickEditMode\('teams'\); setShowQuickEdit\(true\); \}\}[\s\S]*reportLabel="Thống kê tất cả đội"/, 'Team directory must consolidate Quick Edit and Excel under the same data menu');
 
@@ -134,7 +135,8 @@ assert.match(warehouse, /Không thể đổi ĐVT/, 'Quick norm edit must block 
 assert.match(warehouse, /Không thể xóa Hạng mục cuối cùng/, 'Quick norm edit must protect the final work-category link');
 assert.match(warehouse, /requiresAnchorForInsert=\{quickEditMode === 'norms'\}/, 'Norm child insertion must require an existing material anchor');
 assert.match(warehouse, /canAddRows=\{quickEditMode === 'norms' \? hasNormManageAccess/, 'Norm quick edit may add child links only under ADMIN material-norm access');
-assert.match(warehouse, /lg:grid-flow-col[\s\S]*Danh mục kho[\s\S]*Tạo phiếu[\s\S]*triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit/, 'Warehouse PC actions must be one horizontal row with consolidated data management');
+assert.match(warehouse, /order-first col-span-2[\s\S]*Tạo phiếu/, 'Warehouse mobile primary Create Voucher action must occupy a full highlighted row');
+assert.match(warehouse, /lg:grid-flow-col[\s\S]*Danh mục kho[\s\S]*Tạo phiếu[\s\S]*triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit/, 'Warehouse PC actions must remain one horizontal row with consolidated data management');
 
 assert.match(volume, /Khối lượng đã làm/, 'WorkVolume quick table must show actual volume');
 assert.match(volume, /key: 'actual'.*editable: false/, 'Actual volume must be read-only');
@@ -168,4 +170,5 @@ assert.match(catalogTemplatePicker, /fetchUserCatalogTemplates/, 'Reusable templ
 
 console.log('Quick Edit + Excel + DXF Golden: PASS');
 
-assert.match(volume, /sm:grid-flow-col[\s\S]*Lấy từ công trình\/mẫu[\s\S]*Thêm[\s\S]*triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit/, 'Work Volume PC actions must be horizontal while mobile keeps business actions above the consolidated data menu');
+assert.match(volume, /order-first col-span-2[\s\S]*Thêm/, 'Work Volume mobile primary Add action must occupy a full highlighted row');
+assert.match(volume, /sm:grid-flow-col[\s\S]*Lấy từ công trình\/mẫu[\s\S]*Thêm[\s\S]*triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit/, 'Work Volume PC actions must remain horizontal with consolidated data management');

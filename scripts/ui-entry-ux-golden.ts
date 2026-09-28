@@ -317,9 +317,9 @@ for (const [label, source] of [['Floor Plan', floorPlanSource], ['Crew', crewSou
 }
 assert(!warehouseSource.includes("from '../utils/excelExport'") && !workVolumeUi.includes("from '../utils/excelExport'") && !crewSource.includes("from '../utils/excelExport'"), 'Primary field screens must lazy-load Excel export code only when the user invokes Excel actions');
 assert(aiPageSource.includes("import type { HnlAiReportExportInput }") && aiPageSource.includes("await import('../../ai/export/aiReportExport')"), 'HNL AI navigation must defer Excel/PDF export implementation until export is requested');
-assert(workVolumeUi.includes('sm:grid-flow-col') && workVolumeUi.includes('triggerLabel="Quản lý dữ liệu"'), 'Work Volume PC actions must use a horizontal toolbar with consolidated data management');
-assert(crewSource.includes('lg:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1fr)]') && crewSource.includes('triggerLabel="Quản lý dữ liệu"'), 'Crew PC must keep the approved Date-to-Data-Management toolbar order');
-assert(warehouseSource.includes('lg:grid-flow-col') && warehouseSource.includes('triggerLabel="Quản lý dữ liệu"'), 'Warehouse PC actions must use one aligned horizontal toolbar');
+assert(workVolumeUi.includes('order-first col-span-2') && workVolumeUi.includes('sm:grid-flow-col') && workVolumeUi.includes('triggerLabel="Quản lý dữ liệu"'), 'Work Volume must highlight Add as a full mobile row while preserving the horizontal PC toolbar');
+assert(crewSource.includes('order-1 col-span-2') && crewSource.includes('lg:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1fr)]') && crewSource.includes('triggerLabel="Quản lý dữ liệu"'), 'Crew must highlight Record as a full mobile row while preserving the approved PC toolbar order');
+assert(warehouseSource.includes('order-first col-span-2') && warehouseSource.includes('lg:grid-flow-col') && warehouseSource.includes('triggerLabel="Quản lý dữ liệu"'), 'Warehouse must highlight Create Voucher as a full mobile row while preserving the horizontal PC toolbar');
 assert(floorPlanSource.includes('sm:grid-cols-[minmax(0,1fr)_auto]') && floorPlanSource.includes('triggerLabel="Quản lý dữ liệu"'), 'Floor Plan PC must keep current-view context left and horizontal actions right');
 
 assert(navSource.includes("touchAction: 'manipulation'"), 'Primary navigation must opt into immediate touch manipulation');

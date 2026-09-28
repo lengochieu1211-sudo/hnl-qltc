@@ -1904,7 +1904,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       {activeSubTab === 'logs' ? (
         <>
           <div className="mb-4 grid grid-cols-2 gap-2 lg:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1fr)] lg:items-stretch">
-            <div className="col-span-2 lg:col-span-1">
+            <div className="order-2 col-span-2 lg:order-none lg:col-span-1">
               <div className="flex h-10 items-center justify-between rounded-xl border border-slate-200 bg-white px-2.5 shadow-sm">
                 <button
                   onClick={handlePrevDay}
@@ -1950,13 +1950,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     setEditingRecord(null);
                     setShowAddLogModal(true);
                   }}
-                  className="flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-900 px-3 text-xs font-bold text-white shadow-sm transition hover:bg-slate-800"
+                  className="order-1 col-span-2 flex h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-3 text-sm font-extrabold text-white shadow-md transition hover:bg-blue-700 active:scale-[0.99] lg:order-none lg:col-span-1 lg:h-10 lg:bg-slate-900 lg:text-xs lg:hover:bg-slate-800"
                 >
                   <Plus className="w-4 h-4" /> Ghi nhận quân số
                 </button>
                 <button
                   onClick={handleOpenCopyDatePicker}
-                  className="flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                  className="order-3 flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 lg:order-none"
                   title="Chọn ngày nguồn để sao chép quân số"
                 >
                   <Copy className="w-3.5 h-3.5" /> Sao chép quân số
@@ -1967,11 +1967,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             <button
               type="button"
               onClick={() => setShowCrewReportShare(true)}
-              className="flex h-10 items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-extrabold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
+              className="order-4 flex h-10 items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-extrabold text-emerald-700 shadow-sm transition hover:bg-emerald-100 lg:order-none"
             >
               <FileText className="h-4 w-4" /> Chia sẻ báo cáo quân số
             </button>
 
+            <div className="order-5 lg:order-none">
             <ExcelActionMenu
               fillWidth
               triggerLabel="Quản lý dữ liệu"
@@ -1983,6 +1984,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               importLabel="Nhập Nhật ký đã chỉnh sửa"
               templateLabel="Tải mẫu Nhật ký"
             />
+            </div>
           </div>
 
           {showCopyDatePicker && (

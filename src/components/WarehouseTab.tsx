@@ -1789,7 +1789,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           {hasEditAccess && (
             <button
               onClick={openCreateInventory}
-              className="flex h-9 items-center justify-center gap-1 rounded-xl bg-blue-600 px-3 text-xs font-bold text-white shadow-md transition-all hover:bg-blue-700 active:scale-95"
+              className="order-first col-span-2 flex h-11 items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 text-sm font-extrabold text-white shadow-md transition-all hover:bg-blue-700 active:scale-[0.99] lg:order-none lg:col-span-1 lg:h-9 lg:px-3 lg:text-xs"
             >
               <Plus className="w-4 h-4" />
               Tạo phiếu
