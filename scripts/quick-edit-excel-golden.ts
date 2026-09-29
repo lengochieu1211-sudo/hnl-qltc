@@ -172,5 +172,5 @@ assert.match(catalogTemplatePicker, /fetchUserCatalogTemplates/, 'Reusable templ
 
 console.log('Quick Edit + Excel + DXF Golden: PASS');
 
-assert.match(volume, /order-first col-span-2[\s\S]*Thêm/, 'Work Volume mobile primary Add action must occupy a full highlighted row');
+assert.match(volume, /grid w-full grid-cols-1[\s\S]*order-first col-span-1[\s\S]*Thêm[\s\S]*<div className="col-span-1">[\s\S]*triggerLabel="Quản lý dữ liệu"/, 'Work Volume mobile actions must stack as full-width rows without a half-empty grid column');
 assert.match(volume, /sm:grid-flow-col[\s\S]*Thêm[\s\S]*Lấy từ công trình\/mẫu[\s\S]*triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit/, 'Work Volume PC actions must keep Add primary with template import inside its split control and consolidated data management');
