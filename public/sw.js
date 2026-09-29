@@ -132,30 +132,42 @@ self.addEventListener('fetch', (event) => {
   // fallback, so installed/PWA use still works without connectivity.
   if (url.origin === self.location.origin && url.pathname.startsWith('/assets/')) {
     event.respondWith((async () => {
-      const cachedResponse = await caches.match(request);
+      const currentCache = await caches.open(CACHE_NAME);
+      const cachedResponse = await currentCache.match(request);
+      const responseMatchesAssetType = (response) => {
+        if (!response || response.status !== 200) return false;
+        const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+        if (contentType.includes('text/html')) return false;
+        if (/\\.m?js$/i.test(url.pathname)) return contentType.includes('javascript') || contentType.includes('ecmascript');
+        if (/\\.css$/i.test(url.pathname)) return contentType.includes('text/css');
+        return true;
+      };
+      const cachedResponseIsValid = responseMatchesAssetType(cachedResponse);
+      if (cachedResponse && !cachedResponseIsValid) {
+        await currentCache.delete(request);
+      }
+
       try {
         const networkResponse = await fetch(request);
-        const contentType = String(networkResponse.headers.get('content-type') || '').toLowerCase();
-        const htmlFallback = networkResponse.status === 200 && contentType.includes('text/html');
-
-        // A missing hashed Vite asset must never be cached as index.html. This can happen
-        // when an SPA catch-all rewrite answers a stale /assets/*.js URL with HTML 200.
-        if (htmlFallback) {
-          if (cachedResponse) return cachedResponse;
-          return new Response('Hashed asset not found', {
-            status: 404,
-            statusText: 'Not Found',
-            headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
-          });
+        if (!responseMatchesAssetType(networkResponse)) {
+          // Never recover an online stale/missing hashed asset from an older cache.
+          // A hash mismatch means the HTML document and asset set belong to different
+          // builds; mixing them can freeze navigation or create intermittent boot loops.
+          await currentCache.delete(request);
+          return networkResponse.status === 404
+            ? networkResponse
+            : new Response('Hashed asset not found or invalid content type', {
+                status: 404,
+                statusText: 'Not Found',
+                headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
+              });
         }
 
-        if (networkResponse.status === 200 && networkResponse.type === 'basic') {
-          const responseToCache = networkResponse.clone();
-          void caches.open(CACHE_NAME).then((cache) => cache.put(request, responseToCache));
-        }
+        const responseToCache = networkResponse.clone();
+        void currentCache.put(request, responseToCache);
         return networkResponse;
       } catch {
-        return cachedResponse || Response.error();
+        return cachedResponseIsValid ? cachedResponse : Response.error();
       }
     })());
     return;
