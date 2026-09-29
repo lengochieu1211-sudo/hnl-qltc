@@ -15,6 +15,7 @@ interface CatalogTemplatePickerModalProps {
   open: boolean;
   onClose: () => void;
   currentProjectId?: string;
+  currentItems?: any[];
   kind: CatalogTemplateKind;
   title: string;
   onImport: (items: BasketItem[]) => void | Promise<void>;
@@ -37,6 +38,7 @@ export const CatalogTemplatePickerModal: React.FC<CatalogTemplatePickerModalProp
   open,
   onClose,
   currentProjectId,
+  currentItems = [],
   kind,
   title,
   onImport,
@@ -215,7 +217,22 @@ export const CatalogTemplatePickerModal: React.FC<CatalogTemplatePickerModalProp
 
         <div className="flex flex-col gap-2 border-t border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-[10px] text-slate-500">Công trình nguồn đọc trực tiếp từ Cloud. “Mẫu đã lưu” được đồng bộ trong hồ sơ Google của bạn và giới hạn 40 mục/mẫu để tránh phình dữ liệu.</div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              disabled={currentItems.length === 0}
+              onClick={async () => {
+                const name = window.prompt('Tên mẫu muốn lưu từ dữ liệu hiện tại:', `Mẫu ${title.replace(/^Lấy\s+/i, '')}`);
+                if (!name?.trim()) return;
+                const saved = await saveUserCatalogTemplate({ name: name.trim(), kind, items: currentItems });
+                setTemplates((current) => [saved, ...current.filter((template) => template.id !== saved.id)]);
+                setSourceProjectId(`template:${saved.id}`);
+              }}
+              className="rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-2 text-[11px] font-bold text-emerald-700 disabled:opacity-40"
+              title={currentItems.length > 40 ? 'Mỗi mẫu lưu tối đa 40 mục; hệ thống giữ 40 mục đầu.' : 'Lưu dữ liệu hiện tại thành mẫu dùng cho dự án khác'}
+            >
+              Lưu dữ liệu hiện tại thành mẫu
+            </button>
             {activeTemplate && (
               <button
                 type="button"
