@@ -452,7 +452,7 @@ requireAll(app, [
   'navigationCommitTimerRef',
   'window.clearTimeout(navigationCommitTimerRef.current)',
   'requestId !== navigationRequestRef.current',
-  'commitDelayMs = rapidMode ? 80 : 0',
+  'commitDelayMs = rapidMode ? 80 : 24',
   'setNavigationTargetTab(tab)',
   'rapidTap = sinceLastRequest < 220',
   'navigationRapidUntilRef.current = now + 320',
@@ -461,7 +461,7 @@ requireAll(app, [
 ], 'adaptive navigation last-click-wins debounce');
 const navigationCoordinator = app.slice(app.indexOf('const navigateToTab'), app.indexOf('// Warm primary field screens'));
 if (navigationCoordinator.includes('React.startTransition')) fail('settled rapid navigation commit must not use React.startTransition');
-requireAll(hostedBrowserGolden, ['intermediateHeavyCommits', 'heavyTabs.has(tab)'], 'Runtime navigation blocks intermediate lazy/heavy mounts while allowing lightweight Home feedback');
+requireAll(hostedBrowserGolden, ['intermediateHeavyCommits', 'heavyTabs.has(tab)', 'data-hnl-content-tab', 'data-hnl-navigation-shell'], 'Runtime navigation switches the destination shell immediately while blocking intermediate lazy/heavy mounts');
 pass('multi-project RBAC is preserved while startup now routes through Home or the explicitly pinned project');
 
 if (!floorPlanDefect.includes('operationalWorkCategoryCatalog') || !floorPlanDefect.includes('getOperationalRoomSubItems')) fail('floor-plan ghost-category filter missing');
@@ -514,6 +514,9 @@ if (!sw.includes("new URL(self.location.href).searchParams.get('v')") || !swRegi
 if (!swRegistration.includes('requestIdleCallback') || !swRegistration.includes('window.setTimeout(registerCurrentBuildServiceWorker, 900)')) fail('service worker registration must defer install work until the first interactive window settles');
 requireAll(vite, ['hnl-service-worker-asset-manifest', 'sw-assets.json', 'assets = Object.keys(bundle)'], 'Vite service-worker asset manifest');
 requireAll(sw, ['loadBuildAssetManifest', 'SW_ASSET_MANIFEST_HAS_NO_JS_CHUNKS', 'cacheAssetsInBatches', 'cache.addAll(batch)'], 'service-worker complete app-shell precache with bounded concurrency');
+requireAll(sw, ['isCompatibleAssetResponse', "contentType.includes('text/html')", "pathname.endsWith('.js')", "pathname.endsWith('.css')", "statusText: 'Invalid Asset Response'"], 'service-worker stale-asset MIME poisoning guard');
+if (!firebaseJson.includes('"source": "!/assets/**"')) fail('Firebase Hosting SPA rewrite must exclude /assets so missing hashed files return 404');
+requireAll(firebaseJson, ['public,max-age=31536000,immutable', 'no-cache,no-store,must-revalidate'], 'Firebase Hosting hashed asset + HTML cache policy');
 requireAll(hostedBrowserGolden, ['verifyColdStartOffline', 'Network.clearBrowserCache', 'context.setOffline(true)', 'CacheStorage'], 'Runtime Golden cold-start offline');
 const devRuntimeHasGlobalPushTrigger = !devRuntimeWorkflow.includes('    paths:');
 if (!devRuntimeHasGlobalPushTrigger) {
