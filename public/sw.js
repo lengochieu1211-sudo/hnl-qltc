@@ -36,10 +36,21 @@ function isValidAssetResponse(url, response) {
   if (!response || !response.ok || response.type !== 'basic') return false;
   const path = new URL(url, self.location.origin).pathname.toLowerCase();
   const contentType = String(response.headers.get('content-type') || '').toLowerCase();
-  if (contentType.includes('text/html')) return false;
-  if (path.endsWith('.js') || path.endsWith('.mjs')) return contentType.includes('javascript');
-  if (path.endsWith('.css')) return contentType.includes('text/css');
-  return true;
+
+  // The executable app shell intentionally includes HTML. Only these two canonical
+  // navigation entries may be cached as HTML; hashed /assets URLs must never accept it.
+  if (path === '/' || path === '/index.html') return contentType.includes('text/html');
+
+  if (path.startsWith('/assets/')) {
+    if (contentType.includes('text/html')) return false;
+    if (path.endsWith('.js') || path.endsWith('.mjs')) return contentType.includes('javascript');
+    if (path.endsWith('.css')) return contentType.includes('text/css');
+    return true;
+  }
+
+  if (path.endsWith('.json')) return contentType.includes('json');
+  if (/\.(?:png|jpg|jpeg|gif|webp|svg|ico)$/i.test(path)) return contentType.startsWith('image/');
+  return !contentType.includes('text/html');
 }
 
 async function deletePoisonedAssetCacheEntries(request) {
