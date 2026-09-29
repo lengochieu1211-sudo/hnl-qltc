@@ -35,6 +35,31 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+async function verifyHostingAssetMime() {
+  const htmlResponse = await fetch(`${hostingUrl}/?assetMimeGolden=${Date.now()}`, { cache: 'no-store' });
+  assert(htmlResponse.status === 200, `DEV index asset MIME probe HTTP ${htmlResponse.status}`);
+  const html = await htmlResponse.text();
+  const scriptMatch = html.match(/<script[^>]+src=["']([^"']+\.js)["'][^>]*>/i);
+  assert(scriptMatch?.[1], 'DEV index does not reference a hashed JS entry asset');
+
+  const entryUrl = new URL(scriptMatch[1], hostingUrl).toString();
+  const entryResponse = await fetch(entryUrl, { cache: 'no-store' });
+  const entryType = String(entryResponse.headers.get('content-type') || '').toLowerCase();
+  const entryBody = await entryResponse.text();
+  assert(entryResponse.status === 200, `DEV JS entry HTTP ${entryResponse.status}: ${entryUrl}`);
+  assert(entryType.includes('javascript') || entryType.includes('ecmascript'), `DEV JS entry has invalid MIME ${entryType || '(missing)'}: ${entryUrl}`);
+  assert(!/^\s*<!doctype html/i.test(entryBody) && !/^\s*<html/i.test(entryBody), `DEV JS entry returned HTML: ${entryUrl}`);
+  pass('DEV current hashed JS asset MIME', `${new URL(entryUrl).pathname} · ${entryType}`);
+
+  const staleUrl = `${hostingUrl}/assets/__hnl_missing_asset_${Date.now()}.js`;
+  const staleResponse = await fetch(staleUrl, { cache: 'no-store' });
+  const staleType = String(staleResponse.headers.get('content-type') || '').toLowerCase();
+  const staleBody = await staleResponse.text();
+  assert(staleResponse.status === 404, `DEV stale hashed asset must return 404, got ${staleResponse.status} (${staleType})`);
+  assert(!/^\s*<!doctype html/i.test(staleBody) && !/^\s*<html/i.test(staleBody), 'DEV stale hashed asset returned SPA HTML');
+  pass('DEV stale hashed asset is not SPA HTML 200', `HTTP ${staleResponse.status} · ${staleType || 'no content-type'}`);
+}
+
 async function waitForDetailsOpen(page, selector, expectedOpen) {
   await page.waitForFunction(
     ({ targetSelector, open }) => {
