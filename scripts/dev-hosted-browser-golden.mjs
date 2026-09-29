@@ -234,10 +234,15 @@ async function verifyMobileMoreNavigation(page, label) {
 
       const settleStartedAt = performance.now();
       const settleDeadline = performance.now() + 1500;
-      while (performance.now() < settleDeadline && main.getAttribute('data-hnl-active-tab') !== tab) {
+      while (performance.now() < settleDeadline && main.getAttribute('data-hnl-committed-tab') !== tab) {
         await new Promise((resolve) => setTimeout(resolve, 8));
       }
-      settleLatencies.push({ tab, ms: performance.now() - settleStartedAt, active: main.getAttribute('data-hnl-active-tab') || '' });
+      settleLatencies.push({
+        tab,
+        ms: performance.now() - settleStartedAt,
+        active: main.getAttribute('data-hnl-active-tab') || '',
+        committed: main.getAttribute('data-hnl-committed-tab') || '',
+      });
       tested.push(tab);
       await new Promise((resolve) => setTimeout(resolve, 380));
     }
@@ -250,7 +255,7 @@ async function verifyMobileMoreNavigation(page, label) {
   const maxTargetLatency = Math.max(...result.targetLatencies.map((entry) => entry.ms));
   const maxSettleLatency = Math.max(...result.settleLatencies.map((entry) => entry.ms));
   assert(maxTargetLatency <= 220, `${label}: mobile More target feedback exceeded 220ms (${maxTargetLatency.toFixed(1)}ms)`);
-  assert(result.settleLatencies.every((entry) => entry.active === entry.tab && entry.ms <= 900), `${label}: mobile More destination settle exceeded 900ms — ${JSON.stringify(result.settleLatencies)}`);
+  assert(result.settleLatencies.every((entry) => entry.active === entry.tab && entry.committed === entry.tab && entry.ms <= 900), `${label}: mobile More destination heavy-content settle exceeded 900ms — ${JSON.stringify(result.settleLatencies)}`);
   pass(`${label} mobile More navigation paths`, `${result.tested.join('→')} · max target ${maxTargetLatency.toFixed(1)}ms · max settle ${maxSettleLatency.toFixed(1)}ms`);
 }
 
