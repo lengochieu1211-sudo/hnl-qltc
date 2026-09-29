@@ -32,6 +32,13 @@ async function loadBuildAssetManifest() {
   return assets;
 }
 
+async function cacheAssetsInBatches(cache, urls, batchSize = 4) {
+  for (let index = 0; index < urls.length; index += batchSize) {
+    const batch = urls.slice(index, index + batchSize);
+    await cache.addAll(batch);
+  }
+}
+
 // Install Event: atomically pre-cache the complete hashed Vite app shell. If any
 // required chunk is missing, installation fails and the previous certified worker/cache
 // stays active instead of activating a half-build that cannot cold-start offline.
@@ -45,7 +52,9 @@ self.addEventListener('install', (event) => {
       build: SW_BUILD_ID,
       hashedAssets: buildAssets.length,
     });
-    await cache.addAll(required);
+    // Keep complete offline coverage, but avoid flooding low-end Android/WebView
+    // with every JS/CSS request at once during first install/update.
+    await cacheAssetsInBatches(cache, required, 4);
     await self.skipWaiting();
   })());
 });
