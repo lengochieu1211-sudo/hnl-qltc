@@ -43,16 +43,22 @@ export function registerServiceWorker() {
     };
 
     const scheduleRegistration = () => {
-      const idle = (window as any).requestIdleCallback;
-      if (typeof idle === 'function') {
-        idle(registerCurrentBuildServiceWorker, { timeout: 2200 });
-      } else {
-        window.setTimeout(registerCurrentBuildServiceWorker, 900);
-      }
+      const connection = (navigator as any).connection;
+      const mobileLike = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '')
+        || Math.min(window.innerWidth || 0, window.innerHeight || 0) < 820;
+      const minimumQuietMs = mobileLike ? 5000 : 1800;
+      window.setTimeout(() => {
+        const idle = (window as any).requestIdleCallback;
+        if (typeof idle === 'function') {
+          idle(registerCurrentBuildServiceWorker, { timeout: mobileLike ? 3000 : 1600 });
+        } else {
+          registerCurrentBuildServiceWorker();
+        }
+      }, connection?.saveData ? Math.max(minimumQuietMs, 8000) : minimumQuietMs);
     };
 
-    // Keep first-install offline coverage, but do not let service-worker installation
-    // compete with the first interactive paint and first user tap on Android/WebView.
+    // Preserve full offline installation, but start it only after the first interaction
+    // window so app-shell precaching cannot compete with initial navigation on mobile.
     if (document.readyState === 'complete') {
       scheduleRegistration();
     } else {

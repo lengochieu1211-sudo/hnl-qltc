@@ -88,9 +88,12 @@ async function verifyStaleAssetCacheGuard(page, label) {
   }, stalePath);
 
   assert(probe.status === 404, `${label}: stale hashed JS must return 404, got HTTP ${probe.status}`);
-  assert(!probe.contentType.includes('text/html') && !probe.prefix.startsWith('<!doctype html') && !probe.prefix.startsWith('<html'), `${label}: stale hashed JS resolved to HTML`);
+  // Firebase Hosting's default 404 document may itself be HTML. The safety boundary is
+  // status 404 + no CacheStorage poisoning; only HTTP 200 HTML would recreate the SPA
+  // fallback/module-MIME failure that caused intermittent stale-build boot problems.
+  assert(!(probe.status === 200 && (probe.contentType.includes('text/html') || probe.prefix.startsWith('<!doctype html') || probe.prefix.startsWith('<html'))), `${label}: stale hashed JS resolved to SPA HTML 200`);
   assert(!probe.cached, `${label}: stale hashed JS response poisoned CacheStorage`);
-  pass(`${label} stale hashed asset cache guard`, 'HTTP 404 · non-HTML · not cached');
+  pass(`${label} stale hashed asset cache guard`, `HTTP ${probe.status} · not cached`);
 }
 
 async function verifyRapidPrimaryNavigation(page, label) {

@@ -105,9 +105,12 @@ export default defineConfig(() => {
             if (id.includes('pdfjs-dist')) return 'vendor-pdfjs';
             if (id.includes('jspdf')) return 'vendor-jspdf';
             if (id.includes('xlsx')) return 'vendor-xlsx';
-            // Leave normal dependencies to Rollup so lazy screens do not get pulled
-            // into one startup-wide vendor bucket.
-            return undefined;
+            if (id.includes('/@firebase/') || id.includes('/firebase/')) return 'vendor-firebase';
+            if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/scheduler/')) return 'vendor-react';
+            if (id.includes('/lucide-react/')) return 'vendor-icons';
+            // Keep remaining third-party code in a stable shared chunk so feature
+            // chunks do not duplicate/absorb large dependencies across navigation.
+            return 'vendor';
           }
         }
       }

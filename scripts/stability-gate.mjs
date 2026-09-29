@@ -454,7 +454,7 @@ requireAll(app, [
   'navigationCommitTimerRef',
   'window.clearTimeout(navigationCommitTimerRef.current)',
   'requestId !== navigationRequestRef.current',
-  'commitDelayMs = rapidMode ? 80 : 24',
+  'commitDelayMs = rapidMode ? 80 : 12',
   'setNavigationTargetTab(tab)',
   'rapidTap = sinceLastRequest < 220',
   'navigationRapidUntilRef.current = now + 320',
@@ -519,9 +519,9 @@ if (!firebaseJson.includes('"source": "!/@(assets)/**"')) fail('DEV Hosting must
 if (!firebaseProdJson.includes('"source": "!/assets/**"') && !firebaseProdJson.includes('"source": "!/@(assets)/**"')) fail('PROD Hosting must exclude /assets/** from SPA index rewrite');
 requireAll(sw, ["contentType.includes('text/html')", 'Hashed asset not found', "'Cache-Control': 'no-store'"], 'service-worker hashed asset HTML fallback guard');
 if (!devDeployWorkflow.includes('Missing hashed asset must return 404') || !devDeployWorkflow.includes('entry JS asset has non-JavaScript Content-Type')) fail('DEV deploy must verify hashed asset HTTP/MIME integrity');
-if (!swRegistration.includes('requestIdleCallback') || !swRegistration.includes('window.setTimeout(registerCurrentBuildServiceWorker, 900)')) fail('service worker registration must defer install work until the first interactive window settles');
+if (!swRegistration.includes('minimumQuietMs = mobileLike ? 5000 : 1800') || !swRegistration.includes('requestIdleCallback') || !swRegistration.includes('connection?.saveData')) fail('service worker registration must defer full precache beyond the first mobile interaction window');
 requireAll(vite, ['hnl-service-worker-asset-manifest', 'sw-assets.json', 'assets = Object.keys(bundle)'], 'Vite service-worker asset manifest');
-requireAll(firebaseJson, ['"source": "/"', 'no-cache, no-store, must-revalidate'], 'DEV root app-shell no-cache');
+requireAll(firebaseJson, ['"source": "/"', 'public, max-age=0, s-maxage=60, must-revalidate', '"source": "/assets/**"', 'public, max-age=31536000, immutable'], 'DEV HTML CDN revalidation + immutable hashed assets');
 requireAll(sw, ['loadBuildAssetManifest', 'SW_ASSET_MANIFEST_HAS_NO_JS_CHUNKS', 'isValidAssetResponse', 'cacheOneAsset', 'cacheAssetsInBatches', 'SW_INVALID_ASSET_RESPONSE'], 'service-worker MIME-safe app-shell precache');
 if (sw.includes('cache.addAll(batch)')) fail('service worker precache still trusts HTTP 200 without validating hashed asset MIME');
 requireAll(hostedBrowserGolden, ['data-hnl-mounted-tab', 'verifyColdStartOffline', 'Network.clearBrowserCache', 'context.setOffline(true)', 'CacheStorage'], 'Runtime Golden visual-vs-mounted navigation + cold-start offline');
