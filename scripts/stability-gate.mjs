@@ -457,6 +457,8 @@ requireAll(app, [
   'rapidTap = sinceLastRequest < 220',
   'navigationRapidUntilRef.current = now + 320',
   'data-hnl-navigation-target',
+  'data-hnl-mounted-tab',
+  'tab === activeTabRef.current',
   'data-hnl-tab-switching="true"',
 ], 'adaptive navigation last-click-wins debounce');
 const navigationCoordinator = app.slice(app.indexOf('const navigateToTab'), app.indexOf('// Warm primary field screens'));
@@ -513,8 +515,10 @@ pass('Firebase-only JSON backup is Cloud/live-state sourced and media-complete/f
 if (!sw.includes("new URL(self.location.href).searchParams.get('v')") || !swRegistration.includes('APP_VERSION')) fail('service worker cache version is not derived from canonical app version');
 if (!swRegistration.includes('requestIdleCallback') || !swRegistration.includes('window.setTimeout(registerCurrentBuildServiceWorker, 900)')) fail('service worker registration must defer install work until the first interactive window settles');
 requireAll(vite, ['hnl-service-worker-asset-manifest', 'sw-assets.json', 'assets = Object.keys(bundle)'], 'Vite service-worker asset manifest');
-requireAll(sw, ['loadBuildAssetManifest', 'SW_ASSET_MANIFEST_HAS_NO_JS_CHUNKS', 'cacheAssetsInBatches', 'cache.addAll(batch)'], 'service-worker complete app-shell precache with bounded concurrency');
-requireAll(hostedBrowserGolden, ['verifyColdStartOffline', 'Network.clearBrowserCache', 'context.setOffline(true)', 'CacheStorage'], 'Runtime Golden cold-start offline');
+requireAll(firebaseJson, ['!/@(assets)/**', 'no-cache, no-store, must-revalidate', 'public, max-age=31536000, immutable'], 'Firebase Hosting hashed-asset integrity/caching');
+requireAll(sw, ['loadBuildAssetManifest', 'SW_ASSET_MANIFEST_HAS_NO_JS_CHUNKS', 'isValidAssetResponse', 'cacheOneAsset', 'cacheAssetsInBatches', 'SW_INVALID_ASSET_RESPONSE', 'INVALID_HASHED_ASSET_RESPONSE'], 'service-worker MIME-safe app-shell precache');
+if (sw.includes('cache.addAll(batch)')) fail('service worker precache still trusts HTTP 200 without validating hashed asset MIME');
+requireAll(hostedBrowserGolden, ['verifyHostedAssetIntegrity', '__hnl_missing_asset_', 'data-hnl-mounted-tab', 'verifyColdStartOffline', 'Network.clearBrowserCache', 'context.setOffline(true)', 'CacheStorage'], 'Runtime Golden live asset integrity + cold-start offline');
 const devRuntimeHasGlobalPushTrigger = !devRuntimeWorkflow.includes('    paths:');
 if (!devRuntimeHasGlobalPushTrigger) {
   for (const trigger of ['public/sw.js', 'vite.config.ts', 'src/serviceWorkerRegistration.ts', 'scripts/stability-gate.mjs']) {
