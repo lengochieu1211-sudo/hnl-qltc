@@ -224,6 +224,16 @@ async function verifyRapidPrimaryNavigation(page, label) {
     while (performance.now() < deadline && main.getAttribute('data-hnl-mounted-tab') !== finalTab) {
       await new Promise((resolve) => setTimeout(resolve, 16));
     }
+
+    // React state can commit before a cold lazy destination finishes mounting. Measure
+    // release/keep-alive only after the final real tab DOM exists; otherwise Suspense may
+    // legitimately keep the previous content connected while the final chunk resolves.
+    const finalInstanceDeadline = performance.now() + 1500;
+    let finalInstance = main.querySelector(`[data-hnl-tab-instance="${finalTab}"]`);
+    while (performance.now() < finalInstanceDeadline && !finalInstance) {
+      await new Promise((resolve) => setTimeout(resolve, 8));
+      finalInstance = main.querySelector(`[data-hnl-tab-instance="${finalTab}"]`);
+    }
     observer.disconnect();
 
     // Capture the rapid-navigation outcome before the intentional same-tab/revisit probes
@@ -251,9 +261,13 @@ async function verifyRapidPrimaryNavigation(page, label) {
     while (performance.now() < revisitMountedDeadline && main.getAttribute('data-hnl-mounted-tab') !== singleTab) {
       await new Promise((resolve) => setTimeout(resolve, 8));
     }
+    let revisitInstance = main.querySelector(`[data-hnl-tab-instance="${singleTab}"]`);
+    while (performance.now() < revisitMountedDeadline && !revisitInstance) {
+      await new Promise((resolve) => setTimeout(resolve, 8));
+      revisitInstance = main.querySelector(`[data-hnl-tab-instance="${singleTab}"]`);
+    }
     const revisitMountedMs = performance.now() - revisitStartedAt;
     const revisitMounted = main.getAttribute('data-hnl-mounted-tab') || '';
-    const revisitInstance = main.querySelector(`[data-hnl-tab-instance="${singleTab}"]`);
     const revisitPreservedInstance = Boolean(singleInstance && revisitInstance && singleInstance === revisitInstance);
     const revisitSwitching = Boolean(main.querySelector('[data-hnl-tab-switching="true"]'));
 
@@ -290,6 +304,7 @@ async function verifyRapidPrimaryNavigation(page, label) {
       finalActive: rapidFinalActive,
       finalMounted: rapidFinalMounted,
       finalTarget: rapidFinalTarget,
+      finalInstanceReady: Boolean(finalInstance),
       rapidFinalInstances,
       singleInstanceConnectedAfterRapid,
       commits,
@@ -317,6 +332,7 @@ async function verifyRapidPrimaryNavigation(page, label) {
   assert(result.singleMountedMs <= 900, `${label}: first heavy-content mount exceeded 900ms (${result.singleMountedMs.toFixed(1)}ms)`);
   assert(result.finalActive === result.finalTab, `${label}: rapid navigation visual shell did not settle on last click (${result.finalActive} != ${result.finalTab})`);
   assert(result.finalMounted === result.finalTab, `${label}: rapid navigation heavy content did not settle on last click (${result.finalMounted} != ${result.finalTab})`);
+  assert(result.finalInstanceReady, `${label}: rapid navigation final heavy-content DOM instance did not mount`);
   assert(result.targets.every((target, index) => target === result.available[index]), `${label}: requested nav target did not respond to every rapid click — ${JSON.stringify(result.targetLatencies)}`);
   const maxTargetLatency = Math.max(...result.targetLatencies.map((entry) => entry.ms));
   assert(maxTargetLatency <= 220, `${label}: rapid navigation target feedback exceeded 220ms (${maxTargetLatency.toFixed(1)}ms)`);
