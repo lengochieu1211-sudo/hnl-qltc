@@ -123,7 +123,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       return ['Tầng 1', 'Tầng 2', 'Tầng 3', 'Tầng 4', 'Sảnh / Ngoại thất'];
     }
     return floorPlans.map(fp => fp.floorName);
-  }, [showQuickEdit, floorPlans]);
+  }, [floorPlans]);
 
   // Extract unique categories from workVolumes
   const availableCategories = useMemo(() => {
@@ -169,7 +169,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       if (key && !map.has(key)) map.set(key, floor.id);
     });
     return map;
-  }, [floorPlans]);
+  }, [showQuickEdit, floorPlans]);
 
   const resolveQuickEditFloorIds = (raw: unknown): string[] => {
     if (isGlobalWorkScopeText(raw)) return [];
