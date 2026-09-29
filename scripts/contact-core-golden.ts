@@ -40,9 +40,10 @@ assert.match(androidMain, /webView\.saveState\(outState\)/, 'Android wrapper mus
 
 const appSource = fs.readFileSync('src/App.tsx', 'utf8');
 assert.match(appSource, /qlct_active_tab_v1/, 'Web/mobile shell must remember the active primary tab across an unavoidable page recreation');
-assert.match(appSource, /Warm primary field screens after first paint without flooding the main thread/, 'primary lazy tabs must be warmed after first paint without blocking input');
-assert.match(appSource, /loader\(\)\.catch\(\(\) => undefined\)\.finally\(\(\) => \{[\s\S]*?nextTimer = window\.setTimeout\(next, warmGapMs\)/, 'primary lazy tabs must warm truly sequentially instead of overlapping heavy parses');
-assert.match(appSource, /const warmGapMs = mobileLike \? 650 : 220/, 'mobile lazy-tab warm cadence must stay serialized and gentler than desktop while warming earlier');
+assert.match(appSource, /Warm primary field screens after first paint without flooding the main thread/, 'desktop primary lazy tabs must still warm after first paint without blocking input');
+assert.match(appSource, /loader\(\)\.catch\(\(\) => undefined\)\.finally\(\(\) => \{[\s\S]*?nextTimer = window\.setTimeout\(next, warmGapMs\)/, 'desktop primary lazy tabs must warm truly sequentially instead of overlapping heavy parses');
+assert.match(appSource, /connection\?\.saveData \|\| isMobileRuntime/, 'mobile field runtime must skip background lazy-tab warming');
+assert.match(appSource, /return isMobileRuntime \? next\.slice\(-2\) : next/, 'mobile field runtime must cap mounted primary React trees at current + previous while desktop keeps warmed tabs');
 assert.match(appSource, /navigationRequestRef/, 'rapid primary navigation must coalesce stale heavy-screen transitions');
 assert.match(appSource, /navigationCommitTimerRef/, 'rapid primary navigation must debounce heavy-screen commits during continuous taps');
 assert.match(appSource, /commitDelayMs = rapidMode \? 80 : 24/, 'single navigation must show the destination immediately while heavy content waits one paint-scale window');
