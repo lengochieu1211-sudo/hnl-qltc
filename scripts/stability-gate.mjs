@@ -462,8 +462,9 @@ requireAll(app, [
   'data-hnl-tab-switching="true"',
 ], 'adaptive navigation last-click-wins debounce');
 const navigationCoordinator = app.slice(app.indexOf('const navigateToTab'), app.indexOf('// Warm primary field screens'));
-if (navigationCoordinator.includes('React.startTransition')) fail('settled rapid navigation commit must not use React.startTransition');
-requireAll(hostedBrowserGolden, ['intermediateHeavyCommits', 'heavyTabs.has(tab)'], 'Runtime navigation blocks intermediate lazy/heavy mounts while allowing lightweight Home feedback');
+if (!navigationCoordinator.includes('React.startTransition')) fail('heavy tab mount must use React.startTransition after urgent destination feedback');
+requireAll(app, ['data-hnl-committed-tab', 'data-hnl-navigation-pending', 'NAVIGATION_TAB_LABELS', 'if (tab === activeTabRef.current)'], 'immediate destination feedback + committed-tab diagnostics + no-op re-tap');
+requireAll(hostedBrowserGolden, ['intermediateHeavyCommits', 'heavyTabs.has(tab)', 'data-hnl-committed-tab'], 'Runtime navigation separates visible destination feedback from heavy content commits');
 pass('multi-project RBAC is preserved while startup now routes through Home or the explicitly pinned project');
 
 if (!floorPlanDefect.includes('operationalWorkCategoryCatalog') || !floorPlanDefect.includes('getOperationalRoomSubItems')) fail('floor-plan ghost-category filter missing');
