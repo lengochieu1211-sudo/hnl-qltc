@@ -298,6 +298,7 @@ assert(appSource.includes('navigationRequestRef') && appSource.includes('request
 assert(appSource.includes('navigationCommitTimerRef') && appSource.includes('commitDelayMs = rapidMode ? 80 : 0') && appSource.includes('setNavigationTargetTab(tab)'), 'Primary navigation must commit normal taps immediately while still coalescing rapid heavy-screen taps');
 assert(appSource.includes('rapidTap = sinceLastRequest < 220') && appSource.includes('navigationRapidUntilRef.current = now + 320'), 'Rapid navigation mode must be cadence-driven and bounded');
 assert(appSource.includes('window.clearTimeout(navigationCommitTimerRef.current)'), 'Each newer navigation request must cancel the previous pending heavy-screen commit');
+assert(appSource.includes('if (tab === activeTabRef.current)') && appSource.includes('setNavigationTargetTab(null);'), 'Re-tapping the already active tab must cancel pending navigation and return without remounting');
 const navigationCoordinator = appSource.slice(appSource.indexOf('const navigateToTab'), appSource.indexOf('// Warm primary field screens'));
 assert(!navigationCoordinator.includes('React.startTransition') && appSource.includes('data-hnl-navigation-target'), 'Settled heavy-tab commit must remain direct while the requested destination is shown immediately');
 assert(appSource.includes('activeTabRef.current') && appSource.includes('Project presence tab update warning:'), 'Presence heartbeat must stay stable across tab switches and update the tab label separately');
