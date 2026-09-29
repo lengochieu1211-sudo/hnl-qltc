@@ -214,6 +214,18 @@ const ExportPdfModal = React.lazy(() => loadExportPdfModal().then(m => ({ defaul
 const MaterialNormModal = React.lazy(() => loadMaterialNormModal().then(m => ({ default: m.MaterialNormModal })));
 
 const PRIMARY_TAB_IDS: TabType[] = ['home', 'floorplan', 'crew', 'warehouse', 'volume', 'config'];
+const NAVIGATION_TAB_LABELS: Partial<Record<TabType, string>> = {
+  home: 'Tổng quan',
+  floorplan: 'Mặt bằng',
+  crew: 'Quân số',
+  warehouse: 'Kho',
+  volume: 'Khối lượng',
+  checklist: 'Checklist',
+  chat: 'Trao đổi',
+  config: 'Cài đặt',
+  ai: 'HNL AI',
+  superadmin: 'Quản trị hệ thống',
+};
 const getRememberedTab = (): TabType => {
   if (typeof window === 'undefined') return 'home';
   try {
@@ -7170,11 +7182,25 @@ function AuthenticatedApp() {
 
         {/* Tab Content */}
         <main
-          className="animate-in fade-in duration-150"
-          data-hnl-active-tab={activeTab}
+          className="relative animate-in fade-in duration-150"
+          data-hnl-active-tab={navigationTargetTab || activeTab}
+          data-hnl-committed-tab={activeTab}
           data-hnl-navigation-target={navigationTargetTab || activeTab}
+          aria-busy={Boolean(navigationTargetTab && navigationTargetTab !== activeTab)}
         >
-          <React.Suspense fallback={<div className="min-h-[180px] p-8 text-center text-sm text-slate-500" data-hnl-tab-switching="true"><RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />Đang tải mục...</div>}>
+          {navigationTargetTab && navigationTargetTab !== activeTab && (
+            <div
+              className="absolute inset-0 z-20 min-h-[180px] bg-slate-50/98 px-4 py-8 text-center text-sm text-slate-600 backdrop-blur-[1px]"
+              data-hnl-navigation-pending={navigationTargetTab}
+              data-hnl-tab-switching="true"
+              aria-live="polite"
+            >
+              <RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin" />
+              <div className="font-bold text-slate-800">{NAVIGATION_TAB_LABELS[navigationTargetTab] || 'Đang mở mục'}</div>
+              <div className="mt-1 text-xs text-slate-500">Đang tải nội dung...</div>
+            </div>
+          )}
+          <React.Suspense fallback={<div className="min-h-[180px] p-8 text-center text-sm text-slate-500" data-hnl-tab-switching="true"><RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />Đang tải nội dung...</div>}>
           {activeTab === 'home' && (
             <HomeDashboard
               projects={authorizedChatProjects}
