@@ -68,6 +68,31 @@ async function waitForSettingsSheet(page, sheetKey, visible) {
   return sheet;
 }
 
+async function verifyStaleAssetCacheGuard(page, label) {
+  const stalePath = `/assets/__hnl_runtime_stale_${Date.now()}.js`;
+  const probe = await page.evaluate(async (path) => {
+    const response = await fetch(path, { cache: 'no-store' });
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+    const prefix = (await response.text()).slice(0, 96).trim().toLowerCase();
+    let cached = false;
+    if (typeof caches !== 'undefined') {
+      for (const name of await caches.keys()) {
+        const cache = await caches.open(name);
+        if (await cache.match(path)) {
+          cached = true;
+          break;
+        }
+      }
+    }
+    return { status: response.status, contentType, prefix, cached };
+  }, stalePath);
+
+  assert(probe.status === 404, `${label}: stale hashed JS must resolve to 404 through Service Worker, got HTTP ${probe.status}`);
+  assert(!probe.contentType.includes('text/html') && !probe.prefix.startsWith('<!doctype html') && !probe.prefix.startsWith('<html'), `${label}: stale hashed JS still resolves to HTML`);
+  assert(!probe.cached, `${label}: stale hashed JS response was cached in CacheStorage`);
+  pass(`${label} stale hashed asset cache guard`, 'HTTP 404 · non-HTML · not cached');
+}
+
 async function verifyRapidPrimaryNavigation(page, label) {
   const viewport = page.viewportSize();
   if (!viewport) return;
@@ -82,6 +107,7 @@ async function verifyRapidPrimaryNavigation(page, label) {
     if (!navSurface || getComputedStyle(navSurface).display === 'none' || navSurface.getClientRects().length === 0) {
       throw new Error(`Visible ${navSurfaceName} navigation surface missing`);
     }
+
     const visibleNavButton = (tab) => Array.from(navSurface.querySelectorAll(`button[data-hnl-nav-tab="${tab}"]`))
       .find((button) => getComputedStyle(button).display !== 'none' && button.getClientRects().length > 0);
     const preferred = desktopLike
@@ -91,27 +117,44 @@ async function verifyRapidPrimaryNavigation(page, label) {
     const minimum = desktopLike ? 6 : 4;
     if (available.length < minimum) throw new Error(`Not enough visible primary nav tabs for rapid-switch test: ${available.join(',')}`);
 
-    const currentActive = main.getAttribute('data-hnl-active-tab') || '';
-    const singleTab = available.find((tab) => tab !== currentActive) || available[0];
+    const currentContent = main.getAttribute('data-hnl-content-tab') || main.getAttribute('data-hnl-active-tab') || '';
+    const singleTab = available.find((tab) => tab !== currentContent) || available[0];
     const singleButton = visibleNavButton(singleTab);
+
     const singleStartedAt = performance.now();
     singleButton.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', isPrimary: true }));
     singleButton.click();
-    const singleDeadline = performance.now() + 1500;
-    while (performance.now() < singleDeadline && main.getAttribute('data-hnl-active-tab') !== singleTab) {
+
+    const visualDeadline = performance.now() + 500;
+    while (performance.now() < visualDeadline && main.getAttribute('data-hnl-active-tab') !== singleTab) {
+      await new Promise((resolve) => setTimeout(resolve, 4));
+    }
+    const singleVisualMs = performance.now() - singleStartedAt;
+    const singleVisible = main.getAttribute('data-hnl-active-tab') || '';
+
+    const contentDeadline = performance.now() + 1500;
+    while (performance.now() < contentDeadline && main.getAttribute('data-hnl-content-tab') !== singleTab) {
       await new Promise((resolve) => setTimeout(resolve, 8));
     }
-    const singleSwitchMs = performance.now() - singleStartedAt;
-    const singleActive = main.getAttribute('data-hnl-active-tab') || '';
+    const singleContentMs = performance.now() - singleStartedAt;
+    const singleContent = main.getAttribute('data-hnl-content-tab') || '';
+
+    // Re-tapping the already-open tab should not flash a loading shell or schedule work.
+    const sameTabStartedAt = performance.now();
+    singleButton.click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const sameTabMs = performance.now() - sameTabStartedAt;
+    const sameTabShell = Boolean(main.querySelector('[data-hnl-navigation-shell]'));
+    const sameTabContent = main.getAttribute('data-hnl-content-tab') || '';
     await new Promise((resolve) => setTimeout(resolve, 380));
 
     const commits = [];
     const targets = [];
     const observer = new MutationObserver(() => {
-      const active = main.getAttribute('data-hnl-active-tab') || '';
-      if (!commits.length || commits[commits.length - 1] !== active) commits.push(active);
+      const content = main.getAttribute('data-hnl-content-tab') || '';
+      if (!commits.length || commits[commits.length - 1] !== content) commits.push(content);
     });
-    observer.observe(main, { attributes: true, attributeFilter: ['data-hnl-active-tab'] });
+    observer.observe(main, { attributes: true, attributeFilter: ['data-hnl-content-tab'] });
 
     const targetLatencies = [];
     const startedAt = performance.now();
@@ -122,44 +165,85 @@ async function verifyRapidPrimaryNavigation(page, label) {
       button.click();
       await new Promise((resolve) => requestAnimationFrame(resolve));
       const target = main.getAttribute('data-hnl-navigation-target') || '';
+      const visible = main.getAttribute('data-hnl-active-tab') || '';
       targets.push(target);
-      targetLatencies.push({ tab, ms: performance.now() - clickAt, target });
+      targetLatencies.push({ tab, ms: performance.now() - clickAt, target, visible });
       await new Promise((resolve) => setTimeout(resolve, 8));
     }
 
     const finalTab = available[available.length - 1];
-    const deadline = performance.now() + 2500;
-    while (performance.now() < deadline && main.getAttribute('data-hnl-active-tab') !== finalTab) {
+    const finalDeadline = performance.now() + 2500;
+    while (performance.now() < finalDeadline && main.getAttribute('data-hnl-content-tab') !== finalTab) {
       await new Promise((resolve) => setTimeout(resolve, 16));
     }
     observer.disconnect();
 
+    // Revisit a tab whose JS chunk has already been loaded once. This catches repeated
+    // remount paths that still feel slow even though the network chunk is warm.
+    const revisitButton = visibleNavButton(singleTab);
+    const revisitStartedAt = performance.now();
+    revisitButton.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', isPrimary: true }));
+    revisitButton.click();
+
+    const revisitVisualDeadline = performance.now() + 500;
+    while (performance.now() < revisitVisualDeadline && main.getAttribute('data-hnl-active-tab') !== singleTab) {
+      await new Promise((resolve) => setTimeout(resolve, 4));
+    }
+    const revisitVisualMs = performance.now() - revisitStartedAt;
+
+    const revisitContentDeadline = performance.now() + 1500;
+    while (performance.now() < revisitContentDeadline && main.getAttribute('data-hnl-content-tab') !== singleTab) {
+      await new Promise((resolve) => setTimeout(resolve, 8));
+    }
+    const revisitContentMs = performance.now() - revisitStartedAt;
+
     return {
       available,
       singleTab,
-      singleActive,
-      singleSwitchMs,
+      singleVisible,
+      singleContent,
+      singleVisualMs,
+      singleContentMs,
+      sameTabMs,
+      sameTabShell,
+      sameTabContent,
       finalTab,
-      finalActive: main.getAttribute('data-hnl-active-tab') || '',
+      finalVisible: main.getAttribute('data-hnl-active-tab') || '',
+      finalContent: main.getAttribute('data-hnl-content-tab') || '',
       finalTarget: main.getAttribute('data-hnl-navigation-target') || '',
       commits,
       targets,
       targetLatencies,
       totalMs: performance.now() - startedAt,
+      revisitVisualMs,
+      revisitContentMs,
+      revisitVisible: main.getAttribute('data-hnl-active-tab') || '',
+      revisitContent: main.getAttribute('data-hnl-content-tab') || '',
     };
   }, { desktopLike });
 
-  assert(result.singleActive === result.singleTab, `${label}: single primary navigation did not settle on one click (${result.singleActive} != ${result.singleTab})`);
-  assert(result.singleSwitchMs <= 900, `${label}: single primary navigation exceeded 900ms (${result.singleSwitchMs.toFixed(1)}ms)`);
-  assert(result.finalActive === result.finalTab, `${label}: rapid navigation did not settle on last click (${result.finalActive} != ${result.finalTab})`);
+  assert(result.singleVisible === result.singleTab, `${label}: visible destination did not switch immediately (${result.singleVisible} != ${result.singleTab})`);
+  assert(result.singleVisualMs <= 120, `${label}: visible destination feedback exceeded 120ms (${result.singleVisualMs.toFixed(1)}ms)`);
+  assert(result.singleContent === result.singleTab, `${label}: heavy content did not settle on one click (${result.singleContent} != ${result.singleTab})`);
+  assert(result.singleContentMs <= 900, `${label}: heavy content settle exceeded 900ms (${result.singleContentMs.toFixed(1)}ms)`);
+  assert(!result.sameTabShell && result.sameTabContent === result.singleTab, `${label}: re-clicking current tab scheduled another navigation shell`);
+  assert(result.sameTabMs <= 80, `${label}: re-clicking current tab was not an immediate no-op (${result.sameTabMs.toFixed(1)}ms)`);
+
   assert(result.targets.every((target, index) => target === result.available[index]), `${label}: requested nav target did not respond to every rapid click — ${JSON.stringify(result.targetLatencies)}`);
+  assert(result.targetLatencies.every((entry) => entry.visible === entry.tab), `${label}: visible destination did not follow rapid click immediately — ${JSON.stringify(result.targetLatencies)}`);
   const maxTargetLatency = Math.max(...result.targetLatencies.map((entry) => entry.ms));
-  assert(maxTargetLatency <= 220, `${label}: rapid navigation target feedback exceeded 220ms (${maxTargetLatency.toFixed(1)}ms)`);
+  assert(maxTargetLatency <= 120, `${label}: rapid visible feedback exceeded 120ms (${maxTargetLatency.toFixed(1)}ms)`);
+
   const heavyTabs = new Set(['floorplan', 'crew', 'warehouse', 'volume', 'config', 'chat', 'ai']);
   const intermediateHeavyCommits = result.commits.filter((tab) => tab && tab !== result.finalTab && heavyTabs.has(tab));
   assert(intermediateHeavyCommits.length === 0, `${label}: intermediate heavy tabs committed during rapid navigation — ${JSON.stringify(result.commits)}`);
   assert(result.totalMs <= 2200, `${label}: rapid navigation settle path exceeded 2200ms (${result.totalMs.toFixed(1)}ms)`);
-  pass(`${label} primary navigation responsiveness`, `single ${result.singleSwitchMs.toFixed(1)}ms · ${result.available.length} rapid tabs · max target ${maxTargetLatency.toFixed(1)}ms · commits ${result.commits.join('→') || 'final-only'}`);
+
+  assert(result.revisitVisible === result.singleTab && result.revisitContent === result.singleTab, `${label}: warmed tab revisit did not settle to ${result.singleTab}`);
+  assert(result.revisitVisualMs <= 120, `${label}: warmed tab revisit visual feedback exceeded 120ms (${result.revisitVisualMs.toFixed(1)}ms)`);
+  assert(result.revisitContentMs <= 650, `${label}: warmed tab revisit content exceeded 650ms (${result.revisitContentMs.toFixed(1)}ms)`);
+
+  pass(`${label} primary navigation responsiveness`, `visual ${result.singleVisualMs.toFixed(1)}ms · content ${result.singleContentMs.toFixed(1)}ms · same-tab ${result.sameTabMs.toFixed(1)}ms · revisit ${result.revisitContentMs.toFixed(1)}ms · rapid max ${maxTargetLatency.toFixed(1)}ms`);
 }
 
 async function verifyMobileMoreNavigation(page, label) {
@@ -207,10 +291,10 @@ async function verifyMobileMoreNavigation(page, label) {
 
       const settleStartedAt = performance.now();
       const settleDeadline = performance.now() + 1500;
-      while (performance.now() < settleDeadline && main.getAttribute('data-hnl-active-tab') !== tab) {
+      while (performance.now() < settleDeadline && main.getAttribute('data-hnl-content-tab') !== tab) {
         await new Promise((resolve) => setTimeout(resolve, 8));
       }
-      settleLatencies.push({ tab, ms: performance.now() - settleStartedAt, active: main.getAttribute('data-hnl-active-tab') || '' });
+      settleLatencies.push({ tab, ms: performance.now() - settleStartedAt, active: main.getAttribute('data-hnl-content-tab') || '' });
       tested.push(tab);
       await new Promise((resolve) => setTimeout(resolve, 380));
     }
@@ -620,6 +704,8 @@ async function runViewport(browser, label, viewport, screenshotPath) {
   const title = await page.title();
   assert(title === 'HNL Quản Lý Thi Công', `${label}: unexpected title: ${title}`);
   pass(`${label} document title`, title);
+
+  await verifyStaleAssetCacheGuard(page, label);
 
   await page.waitForTimeout(2500);
   assert(report.forbiddenRequests.filter(x => x.label === label).length === 0, `${label}: browser contacted PROD backend`);
