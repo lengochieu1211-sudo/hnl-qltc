@@ -875,6 +875,7 @@ async function verifyNarrowDesktopRuntime(browser) {
 
 let browser;
 try {
+  await verifyHostingAssetMime();
   browser = await chromium.launch({ headless: true });
   await verifySignedOutGate(browser, 'login-desktop', { width: 1440, height: 900 }, 'runtime-evidence/login-desktop.png');
   await verifySignedOutGate(browser, 'login-mobile', { width: 393, height: 852 }, 'runtime-evidence/login-mobile.png');
