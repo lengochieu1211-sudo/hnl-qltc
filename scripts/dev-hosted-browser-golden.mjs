@@ -231,6 +231,10 @@ async function verifyRapidPrimaryNavigation(page, label) {
     const rapidFinalActive = main.getAttribute('data-hnl-active-tab') || '';
     const rapidFinalMounted = main.getAttribute('data-hnl-mounted-tab') || '';
     const rapidFinalTarget = main.getAttribute('data-hnl-navigation-target') || '';
+    const rapidFinalInstances = Array.from(main.querySelectorAll('[data-hnl-tab-instance]'))
+      .map((node) => node.getAttribute('data-hnl-tab-instance') || '')
+      .filter(Boolean);
+    const singleInstanceConnectedAfterRapid = Boolean(singleInstance?.isConnected);
 
     // Revisit a tab whose chunk has already loaded. This measures render/remount cost,
     // not network download cost, and mirrors the user's "đã bấm rồi mà bấm lại vẫn lâu".
@@ -286,6 +290,8 @@ async function verifyRapidPrimaryNavigation(page, label) {
       finalActive: rapidFinalActive,
       finalMounted: rapidFinalMounted,
       finalTarget: rapidFinalTarget,
+      rapidFinalInstances,
+      singleInstanceConnectedAfterRapid,
       commits,
       targets,
       targetLatencies,
@@ -323,7 +329,8 @@ async function verifyRapidPrimaryNavigation(page, label) {
     assert(!result.revisitSwitching, `${label}: desktop warmed primary tab revisit displayed a loading state`);
     assert(result.revisitMountedMs <= 180, `${label}: desktop warmed tab revisit commit exceeded 180ms (${result.revisitMountedMs.toFixed(1)}ms)`);
   } else {
-    assert(!result.revisitPreservedInstance, `${label}: mobile must release the previous heavy React tree instead of keeping it alive`);
+    assert(!result.singleInstanceConnectedAfterRapid, `${label}: mobile kept the previous primary DOM connected after navigating away — ${JSON.stringify(result.rapidFinalInstances)}`);
+    assert(result.rapidFinalInstances.length === 1 && result.rapidFinalInstances[0] === result.finalTab, `${label}: mobile must keep exactly the final primary tab mounted — ${JSON.stringify(result.rapidFinalInstances)}`);
     assert(result.revisitMountedMs <= 320, `${label}: cached mobile tab remount exceeded 320ms (${result.revisitMountedMs.toFixed(1)}ms)`);
   }
   assert(result.revisitVisualMs <= 120, `${label}: warmed tab revisit shell exceeded 120ms (${result.revisitVisualMs.toFixed(1)}ms)`);
