@@ -369,7 +369,7 @@ function AuthenticatedApp() {
     && (/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '') || window.innerWidth < 768);
   const [activeTab, setActiveTab] = useState<TabType>(getRememberedTab);
   // Desktop keeps warmed operational screens mounted for instant revisits.
-  // Mobile is the primary field runtime, so cap the live React trees at current + previous
+  // Mobile is the primary field runtime, so keep only the current primary React tree
   // to prevent RAM/CPU growth after visiting several heavy modules.
   const [mountedPrimaryTabs, setMountedPrimaryTabs] = useState<TabType[]>(() => [getRememberedTab()]);
   const activeTabRef = useRef<TabType>(activeTab);
@@ -7204,7 +7204,7 @@ function AuthenticatedApp() {
             </div>
           )}
           <React.Suspense fallback={<div className="min-h-[180px] p-8 text-center text-sm text-slate-500" data-hnl-tab-switching="true"><RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />Đang tải mục...</div>}>
-          {(mountedPrimaryTabs.includes('home') || activeTab === 'home') && (
+          {((isMobileRuntime ? activeTab === 'home' : mountedPrimaryTabs.includes('home') || activeTab === 'home')) && (
             <div
               data-hnl-tab-instance="home"
               data-hnl-tab-visible={visibleTab === 'home' ? 'true' : 'false'}
@@ -7239,7 +7239,7 @@ function AuthenticatedApp() {
             </div>
           )}
 
-          {(mountedPrimaryTabs.includes('warehouse') || activeTab === 'warehouse') && (
+          {((isMobileRuntime ? activeTab === 'warehouse' : mountedPrimaryTabs.includes('warehouse') || activeTab === 'warehouse')) && (
             <div
               data-hnl-tab-instance="warehouse"
               data-hnl-tab-visible={visibleTab === 'warehouse' ? 'true' : 'false'}
@@ -7286,7 +7286,7 @@ function AuthenticatedApp() {
             </div>
           )}
 
-          {(mountedPrimaryTabs.includes('volume') || activeTab === 'volume') && (
+          {((isMobileRuntime ? activeTab === 'volume' : mountedPrimaryTabs.includes('volume') || activeTab === 'volume')) && (
             <div
               data-hnl-tab-instance="volume"
               data-hnl-tab-visible={visibleTab === 'volume' ? 'true' : 'false'}
@@ -7317,7 +7317,7 @@ function AuthenticatedApp() {
             </div>
           )}
 
-          {(mountedPrimaryTabs.includes('floorplan') || activeTab === 'floorplan') && (
+          {((isMobileRuntime ? activeTab === 'floorplan' : mountedPrimaryTabs.includes('floorplan') || activeTab === 'floorplan')) && (
             <div
               data-hnl-tab-instance="floorplan"
               data-hnl-tab-visible={visibleTab === 'floorplan' ? 'true' : 'false'}
@@ -7398,7 +7398,7 @@ function AuthenticatedApp() {
             />
           )}
 
-          {(mountedPrimaryTabs.includes('crew') || activeTab === 'crew') && (
+          {((isMobileRuntime ? activeTab === 'crew' : mountedPrimaryTabs.includes('crew') || activeTab === 'crew')) && (
             <div
               data-hnl-tab-instance="crew"
               data-hnl-tab-visible={visibleTab === 'crew' ? 'true' : 'false'}
@@ -7584,7 +7584,7 @@ function AuthenticatedApp() {
             />
           )}
 
-          {(mountedPrimaryTabs.includes('config') || activeTab === 'config') && (
+          {((isMobileRuntime ? activeTab === 'config' : mountedPrimaryTabs.includes('config') || activeTab === 'config')) && (
             <div
               data-hnl-tab-instance="config"
               data-hnl-tab-visible={visibleTab === 'config' ? 'true' : 'false'}
