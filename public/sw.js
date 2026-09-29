@@ -39,6 +39,25 @@ async function cacheAssetsInBatches(cache, urls, batchSize = 4) {
   }
 }
 
+function isCompatibleAssetResponse(request, response) {
+  if (!response || response.status !== 200) return false;
+  const pathname = new URL(request.url).pathname.toLowerCase();
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+
+  // Never allow the SPA HTML fallback to poison a hashed asset URL.
+  if (contentType.includes('text/html')) return false;
+  if (pathname.endsWith('.js') || pathname.endsWith('.mjs')) {
+    return contentType.includes('javascript') || contentType.includes('ecmascript');
+  }
+  if (pathname.endsWith('.css')) return contentType.includes('text/css');
+  return true;
+}
+
+async function getCompatibleCachedAsset(request) {
+  const cached = await caches.match(request);
+  return cached && isCompatibleAssetResponse(request, cached) ? cached : null;
+}
+
 // Install Event: atomically pre-cache the complete hashed Vite app shell. If any
 // required chunk is missing, installation fails and the previous certified worker/cache
 // stays active instead of activating a half-build that cannot cold-start offline.
@@ -131,17 +150,32 @@ self.addEventListener('fetch', (event) => {
   // after deployment can combine code from two builds. The cache remains an offline
   // fallback, so installed/PWA use still works without connectivity.
   if (url.origin === self.location.origin && url.pathname.startsWith('/assets/')) {
-    event.respondWith(
-      fetch(request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-            const responseToCache = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, responseToCache));
-          }
-          return networkResponse;
-        })
-        .catch(() => caches.match(request))
-    );
+    event.respondWith((async () => {
+      try {
+        const networkResponse = await fetch(request);
+        if (!isCompatibleAssetResponse(request, networkResponse)) {
+          console.warn('[SW] Refusing incompatible asset response', {
+            path: url.pathname,
+            status: networkResponse?.status,
+            contentType: networkResponse?.headers?.get('content-type') || '',
+          });
+          const cached = await getCompatibleCachedAsset(request);
+          if (cached) return cached;
+          return new Response('Invalid asset response', {
+            status: 502,
+            statusText: 'Invalid Asset Response',
+            headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+          });
+        }
+        if (networkResponse.type === 'basic') {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, responseToCache));
+        }
+        return networkResponse;
+      } catch {
+        return (await getCompatibleCachedAsset(request)) || Response.error();
+      }
+    })());
     return;
   }
 
