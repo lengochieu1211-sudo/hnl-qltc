@@ -295,7 +295,7 @@ assert(!navSource.includes('startTransition(() => setActiveTab(tab))'), 'Primary
 assert(navSource.includes('onPreloadTab?.(tab)') && navSource.includes('onPointerEnter={() => onPreloadTab?.(tab.id)}'), 'Primary navigation must preload the destination on hover/touch intent');
 assert(appSource.includes('const preloadTab = React.useCallback') && appSource.includes('onPreloadTab={preloadTab}'), 'App must map navigation intent to the destination lazy loader');
 assert(appSource.includes('navigationRequestRef') && appSource.includes('requestId !== navigationRequestRef.current'), 'Rapid navigation must invalidate stale tab transitions so the last click wins');
-assert(appSource.includes('navigationCommitTimerRef') && appSource.includes('commitDelayMs = rapidMode ? 110 : 24') && appSource.includes('setNavigationTargetTab(tab)'), 'Primary navigation must show the requested destination immediately while coalescing heavy-screen commits');
+assert(appSource.includes('navigationCommitTimerRef') && appSource.includes('commitDelayMs = rapidMode ? 80 : 0') && appSource.includes('setNavigationTargetTab(tab)'), 'Primary navigation must commit normal taps without an artificial delay while still coalescing rapid heavy-screen taps');
 assert(appSource.includes('rapidTap = sinceLastRequest < 220') && appSource.includes('navigationRapidUntilRef.current = now + 320'), 'Rapid navigation mode must be cadence-driven and bounded');
 assert(appSource.includes('window.clearTimeout(navigationCommitTimerRef.current)'), 'Each newer navigation request must cancel the previous pending heavy-screen commit');
 const navigationCoordinator = appSource.slice(appSource.indexOf('const navigateToTab'), appSource.indexOf('// Warm primary field screens'));
@@ -305,7 +305,7 @@ assert(appSource.includes("const photoRealtimeActive = activeTab === 'floorplan'
 assert(!appSource.includes('Đang mở mục...') && appSource.includes('data-hnl-navigation-target'), 'Pending navigation must keep the current heavy screen mounted instead of swapping to an intermediate spinner');
 assert(!appSource.includes('loaders.forEach((loader)'), 'Navigation warming must not parse all heavy primary screens in parallel');
 assert(appSource.includes('nextTimer = window.setTimeout(next, warmGapMs)') && appSource.includes('loader().catch(() => undefined).finally(() =>'), 'Background lazy warming must serialize heavy chunk parsing instead of overlapping imports');
-assert(appSource.includes('const warmGapMs = mobileLike ? 900 : 260') && appSource.includes('const warmTimeoutMs = mobileLike ? 4800 : 2200'), 'Android navigation warming must use a gentler mobile cadence');
+assert(appSource.includes('const warmGapMs = mobileLike ? 650 : 220') && appSource.includes('const warmTimeoutMs = mobileLike ? 1800 : 900'), 'Android navigation warming must start early enough to hide first-open lazy costs without parallel chunk parsing');
 assert(appSource.includes('if (connection?.saveData) return;'), 'Navigation prewarm must continue respecting Data Saver');
 const fileExportSource = read('src/utils/fileExport.ts');
 const floorPlanSource = read('src/components/FloorPlanDefectTab.tsx');
@@ -314,6 +314,11 @@ const warehouseSource = read('src/components/WarehouseTab.tsx');
 const aiPageSource = read('src/features/ai/AiAssistantPage.tsx');
 assert(!appSource.includes("from './utils/excelExport'"), 'App startup must not statically pull the XLSX export module');
 assert(!fileExportSource.includes("import * as XLSX from 'xlsx'") && fileExportSource.includes("const XLSX = await import('xlsx')"), 'Generic file export must lazy-load XLSX only on an actual workbook export');
+assert(!appSource.includes("import { ExportPdfModal } from './components/ExportPdfModal'") && appSource.includes("const loadExportPdfModal = () => import('./components/ExportPdfModal')"), 'PDF export dialog must stay out of startup and load only when opened');
+assert(!appSource.includes("import { MaterialNormModal } from './components/MaterialNormModal'") && appSource.includes("const loadMaterialNormModal = () => import('./components/MaterialNormModal')"), 'Material Norm dialog must stay out of startup and load only when opened');
+assert(appSource.includes('{isProjectManagerOpen && (') && appSource.includes('<ProjectManagerModal'), 'Closed Project Manager must not stay mounted with background Firestore listeners');
+const viteSource = read('vite.config.ts');
+assert(!viteSource.includes("return 'vendor';") && viteSource.includes("return 'vendor-pdfjs';") && viteSource.includes("return 'vendor-jspdf';") && viteSource.includes("return 'vendor-xlsx';"), 'Vite must not pull every lazy dependency into one startup-wide vendor chunk');
 for (const [label, source] of [['Floor Plan', floorPlanSource], ['Crew', crewSource], ['Warehouse', warehouseSource], ['Work Volume', workVolumeUi]] as const) {
   assert(!source.includes("import * as XLSX from 'xlsx'"), `${label} navigation chunk must not statically import XLSX`);
 }

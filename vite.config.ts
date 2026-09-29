@@ -101,12 +101,13 @@ export default defineConfig(() => {
         input: path.resolve(__dirname, 'index.html'),
         output: {
           manualChunks(id) {
-            if (id.includes('node_modules')) {
-              if (id.includes('pdfjs-dist') || id.includes('jspdf') || id.includes('xlsx')) {
-                return 'vendor-heavy';
-              }
-              return 'vendor';
-            }
+            if (!id.includes('node_modules')) return undefined;
+            if (id.includes('pdfjs-dist')) return 'vendor-pdfjs';
+            if (id.includes('jspdf')) return 'vendor-jspdf';
+            if (id.includes('xlsx')) return 'vendor-xlsx';
+            // Leave normal dependencies to Rollup so lazy screens do not get pulled
+            // into one startup-wide vendor bucket.
+            return undefined;
           }
         }
       }

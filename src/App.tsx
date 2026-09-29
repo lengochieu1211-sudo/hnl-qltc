@@ -149,8 +149,6 @@ import {
 } from './types';
 import { GoogleAuthHeader } from './components/GoogleAuthHeader';
 import { OfflineSyncBanner } from './components/OfflineSyncBanner';
-import { ExportPdfModal } from './components/ExportPdfModal';
-import { MaterialNormModal } from './components/MaterialNormModal';
 import { ProjectManagerModal } from './components/ProjectManagerModal';
 import { MultiProjectOverview } from './components/MultiProjectOverview';
 import { HomeDashboard } from './components/HomeDashboard';
@@ -202,6 +200,8 @@ const loadCrewTab = () => import('./components/CrewTab');
 const loadGoogleConfigTab = () => import('./components/GoogleConfigTab');
 const loadChatTab = () => import('./features/chat/ChatTab');
 const loadAiAssistantPage = () => import('./features/ai/AiAssistantPage');
+const loadExportPdfModal = () => import('./components/ExportPdfModal');
+const loadMaterialNormModal = () => import('./components/MaterialNormModal');
 const WarehouseTab = React.lazy(() => loadWarehouseTab().then(m => ({ default: m.WarehouseTab })));
 const WorkVolumeTab = React.lazy(() => loadWorkVolumeTab().then(m => ({ default: m.WorkVolumeTab })));
 const FloorPlanDefectTab = React.lazy(() => loadFloorPlanDefectTab().then(m => ({ default: m.FloorPlanDefectTab })));
@@ -210,6 +210,8 @@ const CrewTab = React.lazy(() => loadCrewTab().then(m => ({ default: m.CrewTab }
 const GoogleConfigTab = React.lazy(() => loadGoogleConfigTab().then(m => ({ default: m.GoogleConfigTab })));
 const ChatTab = React.lazy(() => loadChatTab().then(m => ({ default: m.ChatTab })));
 const AiAssistantPage = React.lazy(() => loadAiAssistantPage().then(m => ({ default: m.AiAssistantPage })));
+const ExportPdfModal = React.lazy(() => loadExportPdfModal().then(m => ({ default: m.ExportPdfModal })));
+const MaterialNormModal = React.lazy(() => loadMaterialNormModal().then(m => ({ default: m.MaterialNormModal })));
 
 const PRIMARY_TAB_IDS: TabType[] = ['home', 'floorplan', 'crew', 'warehouse', 'volume', 'config'];
 const getRememberedTab = (): TabType => {
@@ -404,7 +406,7 @@ function AuthenticatedApp() {
     navigationLastRequestAtRef.current = now;
     if (rapidTap) navigationRapidUntilRef.current = now + 320;
     const rapidMode = rapidTap || now < navigationRapidUntilRef.current;
-    const commitDelayMs = rapidMode ? 110 : 24;
+    const commitDelayMs = rapidMode ? 80 : 0;
 
     // Reflect the requested destination immediately in navigation chrome, while keeping
     // the current heavy screen mounted until the short coalescing window settles.
@@ -443,8 +445,8 @@ function AuthenticatedApp() {
     let cancelled = false;
     let nextTimer: number | null = null;
     const mobileLike = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '') || window.innerWidth < 768;
-    const warmGapMs = mobileLike ? 900 : 260;
-    const warmTimeoutMs = mobileLike ? 4800 : 2200;
+    const warmGapMs = mobileLike ? 650 : 220;
+    const warmTimeoutMs = mobileLike ? 1800 : 900;
     const loaders = [loadFloorPlanDefectTab, loadCrewTab, loadWarehouseTab, loadWorkVolumeTab, loadGoogleConfigTab];
     const warm = () => {
       let index = 0;
@@ -462,7 +464,7 @@ function AuthenticatedApp() {
     };
     const idle = (window as any).requestIdleCallback;
     const idleId = typeof idle === 'function' ? idle(warm, { timeout: warmTimeoutMs }) : null;
-    const timer = idleId == null ? window.setTimeout(warm, mobileLike ? 1800 : 700) : null;
+    const timer = idleId == null ? window.setTimeout(warm, mobileLike ? 900 : 350) : null;
     return () => {
       cancelled = true;
       if (timer != null) window.clearTimeout(timer);
@@ -7109,48 +7111,50 @@ function AuthenticatedApp() {
           }}
         />
 
-        <ProjectManagerModal 
-          isOpen={isProjectManagerOpen} 
-          onClose={() => setIsProjectManagerOpen(false)} 
-          activeProjectId={activeProjectId}
-          initialTab={projectManagerInitialTab}
-          userRole={currentUserRole}
-          autoSyncEnabled={autoSyncEnabled}
-          setAutoSyncEnabled={setAutoSyncEnabled}
-          onDriveSyncUpAll={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleDriveSyncUpAll : undefined}
-          onDriveSyncDownAll={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleDriveSyncDownAll : undefined}
-          localAllSyncStatus={localAllSyncStatus}
-          localAllFileName={localAllFileName}
-          localAllFileHandle={localAllFileHandle}
-          onLinkLocalAllFile={handleLinkLocalAllFile}
-          onUnlinkLocalAllFile={handleUnlinkLocalAllFile}
-          onRequestLocalAllFilePermission={handleRequestLocalAllFilePermission}
-          autosaveVersions={autosaveVersions}
-          onRestoreAutoSaveVersion={handleRestoreAutoSaveVersion}
-          onCreateManualBackup={handleCreateManualBackup}
-          onDeleteAutoSaveVersion={handleDeleteAutoSaveVersion}
-          fullAppData={{
-            projectName,
-            contractorName,
-            inspectorName,
-            projectLocation,
-            materialNorms,
-            inventory,
-            workVolumes,
-            floorPlans,
-            defects,
-            roomProgressList,
-            checklist,
-            crewRecords,
-            teams,
-            updatedAt: lastUpdatedAt,
-          }}
-          onRestoreData={handleRestoreData}
-          onSwitchProject={switchProject}
-          onFlushCurrentProject={async () => await saveCurrentProject(activeProjectId)}
-          dataCloudStatus={dataCloudStatus}
-          photoCloudStatus={photoCloudStatus}
-        />
+        {isProjectManagerOpen && (
+          <ProjectManagerModal 
+            isOpen={true} 
+            onClose={() => setIsProjectManagerOpen(false)} 
+            activeProjectId={activeProjectId}
+            initialTab={projectManagerInitialTab}
+            userRole={currentUserRole}
+            autoSyncEnabled={autoSyncEnabled}
+            setAutoSyncEnabled={setAutoSyncEnabled}
+            onDriveSyncUpAll={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleDriveSyncUpAll : undefined}
+            onDriveSyncDownAll={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleDriveSyncDownAll : undefined}
+            localAllSyncStatus={localAllSyncStatus}
+            localAllFileName={localAllFileName}
+            localAllFileHandle={localAllFileHandle}
+            onLinkLocalAllFile={handleLinkLocalAllFile}
+            onUnlinkLocalAllFile={handleUnlinkLocalAllFile}
+            onRequestLocalAllFilePermission={handleRequestLocalAllFilePermission}
+            autosaveVersions={autosaveVersions}
+            onRestoreAutoSaveVersion={handleRestoreAutoSaveVersion}
+            onCreateManualBackup={handleCreateManualBackup}
+            onDeleteAutoSaveVersion={handleDeleteAutoSaveVersion}
+            fullAppData={{
+              projectName,
+              contractorName,
+              inspectorName,
+              projectLocation,
+              materialNorms,
+              inventory,
+              workVolumes,
+              floorPlans,
+              defects,
+              roomProgressList,
+              checklist,
+              crewRecords,
+              teams,
+              updatedAt: lastUpdatedAt,
+            }}
+            onRestoreData={handleRestoreData}
+            onSwitchProject={switchProject}
+            onFlushCurrentProject={async () => await saveCurrentProject(activeProjectId)}
+            dataCloudStatus={dataCloudStatus}
+            photoCloudStatus={photoCloudStatus}
+          />
+        )}
 
         {/* Offline & Sync Status Banner */}
         <OfflineSyncBanner onAutoSync={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleSyncAll : undefined} isSyncing={isSyncing} userRole={currentUserRole} roleResolved={isProjectRoleResolved} roleSource={projectRoleSource} firestorePendingWriteCount={firestorePendingWriteCount} firebaseOnly={FIREBASE_ONLY_RUNTIME} verifiedSnapshotFallback={businessDataSource === 'verified-offline-snapshot'} />
@@ -7631,46 +7635,53 @@ function AuthenticatedApp() {
           </React.Suspense>
         </main>
 
-        {/* PDF Export Modal */}
-        <ExportPdfModal
-          isOpen={isExportPdfOpen}
-          onClose={() => setIsExportPdfOpen(false)}
-          projectName={projectName}
-          contractorName={contractorName}
-          inspectorName={inspectorName}
-          projectLocation={projectLocation}
-          activeProjectId={activeProjectId}
-          userRole={currentUserRole}
-          inventory={inventory}
-          materialNorms={computedMaterialNorms}
-          workVolumes={computedWorkVolumes}
-          defects={activeDefects}
-          checklist={activeChecklist}
-          floorPlans={floorPlans}
-          structureConfig={structureConfig}
-          roomProgressList={roomProgressList}
-          crewRecords={crewRecords}
-          teams={teams}
-        />
+        {/* Heavy dialogs stay out of startup and mount only on demand. */}
+        {isExportPdfOpen && (
+          <React.Suspense fallback={<div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/55"><div className="rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-xl"><RefreshCw className="mr-2 inline h-4 w-4 animate-spin" />Đang mở xuất PDF...</div></div>}>
+            <ExportPdfModal
+              isOpen={true}
+              onClose={() => setIsExportPdfOpen(false)}
+              projectName={projectName}
+              contractorName={contractorName}
+              inspectorName={inspectorName}
+              projectLocation={projectLocation}
+              activeProjectId={activeProjectId}
+              userRole={currentUserRole}
+              inventory={inventory}
+              materialNorms={computedMaterialNorms}
+              workVolumes={computedWorkVolumes}
+              defects={activeDefects}
+              checklist={activeChecklist}
+              floorPlans={floorPlans}
+              structureConfig={structureConfig}
+              roomProgressList={roomProgressList}
+              crewRecords={crewRecords}
+              teams={teams}
+            />
+          </React.Suspense>
+        )}
 
-        {/* Material Norms Modal */}
-        <MaterialNormModal
-          isOpen={isMaterialNormOpen}
-          userRole={currentUserRole}
-          roleResolved={isProjectRoleResolved}
-          currentProjectId={activeProjectId}
-          onClose={() => setIsMaterialNormOpen(false)}
-          materialNorms={computedMaterialNorms}
-          onAddNorm={handleAddNorm}
-          onUpdateNorm={handleUpdateNorm}
-          onDeleteNorm={handleDeleteNorm}
-          onDeleteMultipleNorms={handleDeleteMultipleNorms}
-          onImportNorms={handleImportNorms}
-          inventory={inventory}
-          workVolumes={computedWorkVolumes}
-          onImportInventory={handleImportInventory}
-          onImportWorkVolumes={handleImportWorkVolumes}
-        />
+        {isMaterialNormOpen && (
+          <React.Suspense fallback={<div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/55"><div className="rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-xl"><RefreshCw className="mr-2 inline h-4 w-4 animate-spin" />Đang mở định mức...</div></div>}>
+            <MaterialNormModal
+              isOpen={true}
+              userRole={currentUserRole}
+              roleResolved={isProjectRoleResolved}
+              currentProjectId={activeProjectId}
+              onClose={() => setIsMaterialNormOpen(false)}
+              materialNorms={computedMaterialNorms}
+              onAddNorm={handleAddNorm}
+              onUpdateNorm={handleUpdateNorm}
+              onDeleteNorm={handleDeleteNorm}
+              onDeleteMultipleNorms={handleDeleteMultipleNorms}
+              onImportNorms={handleImportNorms}
+              inventory={inventory}
+              workVolumes={computedWorkVolumes}
+              onImportInventory={handleImportInventory}
+              onImportWorkVolumes={handleImportWorkVolumes}
+            />
+          </React.Suspense>
+        )}
 
         {/* Floating alerts never compete with the chat composer / soft keyboard. */}
         {floatingAlertsEnabled && activeTab !== 'chat' && !isSoftKeyboardOpen && (
