@@ -7175,6 +7175,7 @@ function AuthenticatedApp() {
         <main
           className="animate-in fade-in duration-150"
           data-hnl-active-tab={navigationTargetTab || activeTab}
+          data-hnl-mounted-tab={activeTab}
           data-hnl-navigation-target={navigationTargetTab || activeTab}
         >
           {navigationTargetTab && navigationTargetTab !== activeTab ? (
