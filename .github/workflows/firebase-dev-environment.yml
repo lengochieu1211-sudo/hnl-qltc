@@ -418,6 +418,11 @@ jobs:
 
           MISSING_CODE="$(curl --silent --output /tmp/dev-missing-asset.txt --write-out '%{http_code}' "${DEV_HOSTING_URL}/assets/__hnl_missing_asset_${GITHUB_RUN_ID}.js")"
           test "$MISSING_CODE" = '404' || { echo "::error::Missing hashed asset must return 404, got $MISSING_CODE"; head -c 120 /tmp/dev-missing-asset.txt || true; exit 1; }
+          if cmp -s /tmp/dev-index.html /tmp/dev-missing-asset.txt; then
+            echo '::error::Missing hashed asset was rewritten to the app index.html body'
+            exit 1
+          fi
+          echo 'DEV stale hashed asset boundary: PASS (HTTP 404, not app index.html)'
 
           curl --fail --silent --show-error "${DEV_AI_URL}/health?hostingSmoke=${GITHUB_RUN_ID}" | grep -q '"ok":true' || { echo '::error::DEV AI health after Hosting deploy failed'; exit 1; }
           echo "DEV_READY_URL=$DEV_HOSTING_URL"

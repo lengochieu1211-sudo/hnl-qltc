@@ -71,9 +71,29 @@ async function waitForSettingsSheet(page, sheetKey, visible) {
 async function verifyStaleAssetCacheGuard(page, label) {
   const stalePath = `/assets/__hnl_runtime_stale_${Date.now()}.js`;
   const probe = await page.evaluate(async (path) => {
-    const response = await fetch(path, { cache: 'no-store' });
-    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
-    const prefix = (await response.text()).slice(0, 96).trim().toLowerCase();
+    const entryScript = Array.from(document.scripts)
+      .map((script) => script.src)
+      .find((src) => {
+        try {
+          const pathname = new URL(src, location.href).pathname;
+          return pathname.startsWith('/assets/') && /\\.js$/i.test(pathname);
+        } catch {
+          return false;
+        }
+      });
+    if (!entryScript) return { error: 'CURRENT_ENTRY_JS_NOT_FOUND' };
+
+    const entryResponse = await fetch(entryScript, { cache: 'no-store' });
+    const entryContentType = String(entryResponse.headers.get('content-type') || '').toLowerCase();
+    const entryPrefix = (await entryResponse.text()).slice(0, 96).trim().toLowerCase();
+
+    const indexResponse = await fetch('/index.html', { cache: 'no-store' });
+    const indexBody = await indexResponse.text();
+
+    const staleResponse = await fetch(path, { cache: 'no-store' });
+    const staleContentType = String(staleResponse.headers.get('content-type') || '').toLowerCase();
+    const staleBody = await staleResponse.text();
+
     let cached = false;
     if (typeof caches !== 'undefined') {
       for (const name of await caches.keys()) {
@@ -84,13 +104,32 @@ async function verifyStaleAssetCacheGuard(page, label) {
         }
       }
     }
-    return { status: response.status, contentType, prefix, cached };
+
+    return {
+      current: {
+        status: entryResponse.status,
+        contentType: entryContentType,
+        prefix: entryPrefix,
+      },
+      stale: {
+        status: staleResponse.status,
+        contentType: staleContentType,
+        prefix: staleBody.slice(0, 96).trim().toLowerCase(),
+        matchesIndex: staleBody.trim() === indexBody.trim(),
+        cached,
+      },
+    };
   }, stalePath);
 
-  assert(probe.status === 404, `${label}: stale hashed JS must return 404, got HTTP ${probe.status}`);
-  assert(!probe.contentType.includes('text/html') && !probe.prefix.startsWith('<!doctype html') && !probe.prefix.startsWith('<html'), `${label}: stale hashed JS resolved to HTML`);
-  assert(!probe.cached, `${label}: stale hashed JS response poisoned CacheStorage`);
-  pass(`${label} stale hashed asset cache guard`, 'HTTP 404 · non-HTML · not cached');
+  assert(!probe.error, `${label}: current hashed JS entry not found`);
+  assert(probe.current.status === 200, `${label}: current hashed JS must return 200, got HTTP ${probe.current.status}`);
+  assert(probe.current.contentType.includes('javascript'), `${label}: current hashed JS has non-JavaScript MIME: ${probe.current.contentType || 'unknown'}`);
+  assert(!probe.current.prefix.startsWith('<!doctype html') && !probe.current.prefix.startsWith('<html'), `${label}: current hashed JS body resolved to HTML`);
+
+  assert(probe.stale.status === 404, `${label}: stale hashed JS must return 404, got HTTP ${probe.stale.status}`);
+  assert(!probe.stale.matchesIndex, `${label}: stale hashed JS was rewritten to app index.html`);
+  assert(!probe.stale.cached, `${label}: stale hashed JS response poisoned CacheStorage`);
+  pass(`${label} hashed asset boundary`, `current JS 200/${probe.current.contentType || 'unknown'} · stale 404 · not app shell · not cached`);
 }
 
 async function verifyRapidPrimaryNavigation(page, label) {
@@ -861,6 +900,40 @@ async function verifyColdStartOffline(browser) {
   assert(swState.controlled, 'cold-start: page is not controlled by Service Worker');
   assert(swState.assets.some((asset) => /\.js$/i.test(asset)), 'cold-start: CacheStorage has no hashed JS chunk');
   pass('cold-start Service Worker controls installed build', `${swState.assets.length} hashed assets cached`);
+
+  const poisonGuard = await page.evaluate(async () => {
+    const path = `/assets/__hnl_runtime_poison_${Date.now()}.js`;
+    const cacheNames = await caches.keys();
+    const activeCacheName = cacheNames.find((name) => name.startsWith('hnl-thi-cong-cache-'));
+    if (!activeCacheName) return { error: 'HNL_CACHE_NOT_FOUND' };
+
+    const cache = await caches.open(activeCacheName);
+    await cache.put(path, new Response('<!doctype html><html><body>poison</body></html>', {
+      status: 200,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    }));
+
+    const response = await fetch(path, { cache: 'no-store' });
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+    const prefix = (await response.text()).slice(0, 96).trim().toLowerCase();
+
+    let stillCached = false;
+    for (const name of await caches.keys()) {
+      const candidate = await caches.open(name);
+      if (await candidate.match(path)) {
+        stillCached = true;
+        break;
+      }
+    }
+
+    return { status: response.status, contentType, prefix, stillCached };
+  });
+
+  assert(!poisonGuard.error, `cold-start SW poison guard setup failed: ${poisonGuard.error || 'unknown'}`);
+  assert(poisonGuard.status === 404, `cold-start SW poison guard expected 404, got ${poisonGuard.status}`);
+  assert(!poisonGuard.contentType.includes('text/html') && !poisonGuard.prefix.startsWith('<!doctype html') && !poisonGuard.prefix.startsWith('<html'), 'cold-start SW poison guard returned HTML for JS URL');
+  assert(!poisonGuard.stillCached, 'cold-start SW poison guard did not delete poisoned CacheStorage entry');
+  pass('cold-start Service Worker purges poisoned hashed JS cache', 'HTTP 404 · text-safe · poisoned entry deleted');
 
   const cdp = await context.newCDPSession(page);
   await cdp.send('Network.enable');

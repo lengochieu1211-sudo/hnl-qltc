@@ -42,9 +42,22 @@ function isValidAssetResponse(url, response) {
   return true;
 }
 
+async function deletePoisonedAssetCacheEntries(request) {
+  for (const cacheName of await caches.keys()) {
+    if (!cacheName.startsWith('hnl-thi-cong-cache-')) continue;
+    const cache = await caches.open(cacheName);
+    const cached = await cache.match(request);
+    if (cached && !isValidAssetResponse(request.url, cached)) {
+      await cache.delete(request);
+      console.warn('[SW] Deleted poisoned asset cache entry:', request.url, cacheName);
+    }
+  }
+}
+
 async function cacheOneAsset(cache, url) {
   const response = await fetch(url, { cache: 'no-store' });
   if (!isValidAssetResponse(url, response)) {
+    await cache.delete(url);
     throw new Error(`SW_INVALID_ASSET_RESPONSE:${url}:${response.status}:${response.headers.get('content-type') || 'unknown'}`);
   }
   await cache.put(url, response.clone());
@@ -150,13 +163,20 @@ self.addEventListener('fetch', (event) => {
   // fallback, so installed/PWA use still works without connectivity.
   if (url.origin === self.location.origin && url.pathname.startsWith('/assets/')) {
     event.respondWith((async () => {
-      const cachedResponse = await caches.match(request);
+      let cachedResponse = await caches.match(request);
+      if (cachedResponse && !isValidAssetResponse(request.url, cachedResponse)) {
+        await deletePoisonedAssetCacheEntries(request);
+        cachedResponse = undefined;
+      }
+
       try {
         const networkResponse = await fetch(request, { cache: 'no-store' });
 
         // Hashed JS/CSS must never execute or enter CacheStorage with the wrong MIME.
-        // This rejects both SPA HTML fallbacks and any proxy/CDN response with a bad type.
+        // Firebase Hosting can return an HTML error document for a real HTTP 404;
+        // convert that to a MIME-safe plain 404 and purge any previously poisoned entry.
         if (!isValidAssetResponse(request.url, networkResponse)) {
+          await deletePoisonedAssetCacheEntries(request);
           if (cachedResponse && isValidAssetResponse(request.url, cachedResponse)) return cachedResponse;
           return new Response('Hashed asset not found', {
             status: 404,
@@ -169,7 +189,9 @@ self.addEventListener('fetch', (event) => {
         void caches.open(CACHE_NAME).then((cache) => cache.put(request, responseToCache));
         return networkResponse;
       } catch {
-        return cachedResponse || Response.error();
+        if (cachedResponse && isValidAssetResponse(request.url, cachedResponse)) return cachedResponse;
+        await deletePoisonedAssetCacheEntries(request);
+        return Response.error();
       }
     })());
     return;
