@@ -452,7 +452,7 @@ requireAll(app, [
   'navigationCommitTimerRef',
   'window.clearTimeout(navigationCommitTimerRef.current)',
   'requestId !== navigationRequestRef.current',
-  'commitDelayMs = rapidMode ? 80 : 12',
+  'commitDelayMs = rapidMode ? 80 : 32',
   'setNavigationTargetTab(tab)',
   'rapidTap = sinceLastRequest < 220',
   'navigationRapidUntilRef.current = now + 320',
