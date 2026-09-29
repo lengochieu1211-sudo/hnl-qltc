@@ -108,10 +108,10 @@ async function verifyRapidPrimaryNavigation(page, label) {
     const commits = [];
     const targets = [];
     const observer = new MutationObserver(() => {
-      const active = main.getAttribute('data-hnl-active-tab') || '';
-      if (!commits.length || commits[commits.length - 1] !== active) commits.push(active);
+      const mounted = main.getAttribute('data-hnl-mounted-tab') || '';
+      if (!commits.length || commits[commits.length - 1] !== mounted) commits.push(mounted);
     });
-    observer.observe(main, { attributes: true, attributeFilter: ['data-hnl-active-tab'] });
+    observer.observe(main, { attributes: true, attributeFilter: ['data-hnl-mounted-tab'] });
 
     const targetLatencies = [];
     const startedAt = performance.now();
@@ -129,10 +129,18 @@ async function verifyRapidPrimaryNavigation(page, label) {
 
     const finalTab = available[available.length - 1];
     const deadline = performance.now() + 2500;
-    while (performance.now() < deadline && main.getAttribute('data-hnl-active-tab') !== finalTab) {
+    while (performance.now() < deadline && main.getAttribute('data-hnl-mounted-tab') !== finalTab) {
       await new Promise((resolve) => setTimeout(resolve, 16));
     }
     observer.disconnect();
+
+    const sameTabButton = visibleNavButton(finalTab);
+    const sameTabBefore = main.getAttribute('data-hnl-mounted-tab') || '';
+    sameTabButton.click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await new Promise((resolve) => setTimeout(resolve, 32));
+    const sameTabAfter = main.getAttribute('data-hnl-mounted-tab') || '';
+    const sameTabSwitching = Boolean(main.querySelector('[data-hnl-tab-switching="true"]'));
 
     return {
       available,
@@ -141,23 +149,30 @@ async function verifyRapidPrimaryNavigation(page, label) {
       singleSwitchMs,
       finalTab,
       finalActive: main.getAttribute('data-hnl-active-tab') || '',
+      finalMounted: main.getAttribute('data-hnl-mounted-tab') || '',
       finalTarget: main.getAttribute('data-hnl-navigation-target') || '',
       commits,
       targets,
       targetLatencies,
+      sameTabBefore,
+      sameTabAfter,
+      sameTabSwitching,
       totalMs: performance.now() - startedAt,
     };
   }, { desktopLike });
 
   assert(result.singleActive === result.singleTab, `${label}: single primary navigation did not settle on one click (${result.singleActive} != ${result.singleTab})`);
   assert(result.singleSwitchMs <= 900, `${label}: single primary navigation exceeded 900ms (${result.singleSwitchMs.toFixed(1)}ms)`);
-  assert(result.finalActive === result.finalTab, `${label}: rapid navigation did not settle on last click (${result.finalActive} != ${result.finalTab})`);
+  assert(result.finalActive === result.finalTab, `${label}: rapid navigation visual shell did not settle on last click (${result.finalActive} != ${result.finalTab})`);
+  assert(result.finalMounted === result.finalTab, `${label}: rapid navigation heavy content did not settle on last click (${result.finalMounted} != ${result.finalTab})`);
   assert(result.targets.every((target, index) => target === result.available[index]), `${label}: requested nav target did not respond to every rapid click — ${JSON.stringify(result.targetLatencies)}`);
   const maxTargetLatency = Math.max(...result.targetLatencies.map((entry) => entry.ms));
   assert(maxTargetLatency <= 220, `${label}: rapid navigation target feedback exceeded 220ms (${maxTargetLatency.toFixed(1)}ms)`);
   const heavyTabs = new Set(['floorplan', 'crew', 'warehouse', 'volume', 'config', 'chat', 'ai']);
   const intermediateHeavyCommits = result.commits.filter((tab) => tab && tab !== result.finalTab && heavyTabs.has(tab));
   assert(intermediateHeavyCommits.length === 0, `${label}: intermediate heavy tabs committed during rapid navigation — ${JSON.stringify(result.commits)}`);
+  assert(result.sameTabBefore === result.finalTab && result.sameTabAfter === result.finalTab, `${label}: re-tapping active tab changed mounted content`);
+  assert(!result.sameTabSwitching, `${label}: re-tapping active tab triggered a loading state`);
   assert(result.totalMs <= 2200, `${label}: rapid navigation settle path exceeded 2200ms (${result.totalMs.toFixed(1)}ms)`);
   pass(`${label} primary navigation responsiveness`, `single ${result.singleSwitchMs.toFixed(1)}ms · ${result.available.length} rapid tabs · max target ${maxTargetLatency.toFixed(1)}ms · commits ${result.commits.join('→') || 'final-only'}`);
 }

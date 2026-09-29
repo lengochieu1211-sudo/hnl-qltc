@@ -32,10 +32,28 @@ async function loadBuildAssetManifest() {
   return assets;
 }
 
+function isValidAssetResponse(url, response) {
+  if (!response || !response.ok || response.type !== 'basic') return false;
+  const path = new URL(url, self.location.origin).pathname.toLowerCase();
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+  if (contentType.includes('text/html')) return false;
+  if (path.endsWith('.js') || path.endsWith('.mjs')) return contentType.includes('javascript');
+  if (path.endsWith('.css')) return contentType.includes('text/css');
+  return true;
+}
+
+async function cacheOneAsset(cache, url) {
+  const response = await fetch(url, { cache: 'no-store' });
+  if (!isValidAssetResponse(url, response)) {
+    throw new Error(`SW_INVALID_ASSET_RESPONSE:${url}:${response.status}:${response.headers.get('content-type') || 'unknown'}`);
+  }
+  await cache.put(url, response.clone());
+}
+
 async function cacheAssetsInBatches(cache, urls, batchSize = 4) {
   for (let index = 0; index < urls.length; index += batchSize) {
     const batch = urls.slice(index, index + batchSize);
-    await cache.addAll(batch);
+    await Promise.all(batch.map((url) => cacheOneAsset(cache, url)));
   }
 }
 
@@ -134,14 +152,12 @@ self.addEventListener('fetch', (event) => {
     event.respondWith((async () => {
       const cachedResponse = await caches.match(request);
       try {
-        const networkResponse = await fetch(request);
-        const contentType = String(networkResponse.headers.get('content-type') || '').toLowerCase();
-        const htmlFallback = networkResponse.status === 200 && contentType.includes('text/html');
+        const networkResponse = await fetch(request, { cache: 'no-store' });
 
-        // A missing hashed Vite asset must never be cached as index.html. This can happen
-        // when an SPA catch-all rewrite answers a stale /assets/*.js URL with HTML 200.
-        if (htmlFallback) {
-          if (cachedResponse) return cachedResponse;
+        // Hashed JS/CSS must never execute or enter CacheStorage with the wrong MIME.
+        // This rejects both SPA HTML fallbacks and any proxy/CDN response with a bad type.
+        if (!isValidAssetResponse(request.url, networkResponse)) {
+          if (cachedResponse && isValidAssetResponse(request.url, cachedResponse)) return cachedResponse;
           return new Response('Hashed asset not found', {
             status: 404,
             statusText: 'Not Found',
@@ -149,10 +165,8 @@ self.addEventListener('fetch', (event) => {
           });
         }
 
-        if (networkResponse.status === 200 && networkResponse.type === 'basic') {
-          const responseToCache = networkResponse.clone();
-          void caches.open(CACHE_NAME).then((cache) => cache.put(request, responseToCache));
-        }
+        const responseToCache = networkResponse.clone();
+        void caches.open(CACHE_NAME).then((cache) => cache.put(request, responseToCache));
         return networkResponse;
       } catch {
         return cachedResponse || Response.error();

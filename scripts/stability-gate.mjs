@@ -521,8 +521,10 @@ requireAll(sw, ["contentType.includes('text/html')", 'Hashed asset not found', "
 if (!devDeployWorkflow.includes('Missing hashed asset must return 404') || !devDeployWorkflow.includes('entry JS asset has non-JavaScript Content-Type')) fail('DEV deploy must verify hashed asset HTTP/MIME integrity');
 if (!swRegistration.includes('requestIdleCallback') || !swRegistration.includes('window.setTimeout(registerCurrentBuildServiceWorker, 900)')) fail('service worker registration must defer install work until the first interactive window settles');
 requireAll(vite, ['hnl-service-worker-asset-manifest', 'sw-assets.json', 'assets = Object.keys(bundle)'], 'Vite service-worker asset manifest');
-requireAll(sw, ['loadBuildAssetManifest', 'SW_ASSET_MANIFEST_HAS_NO_JS_CHUNKS', 'cacheAssetsInBatches', 'cache.addAll(batch)'], 'service-worker complete app-shell precache with bounded concurrency');
-requireAll(hostedBrowserGolden, ['verifyColdStartOffline', 'Network.clearBrowserCache', 'context.setOffline(true)', 'CacheStorage'], 'Runtime Golden cold-start offline');
+requireAll(firebaseJson, ['"source": "/"', 'no-cache, no-store, must-revalidate'], 'DEV root app-shell no-cache');
+requireAll(sw, ['loadBuildAssetManifest', 'SW_ASSET_MANIFEST_HAS_NO_JS_CHUNKS', 'isValidAssetResponse', 'cacheOneAsset', 'cacheAssetsInBatches', 'SW_INVALID_ASSET_RESPONSE'], 'service-worker MIME-safe app-shell precache');
+if (sw.includes('cache.addAll(batch)')) fail('service worker precache still trusts HTTP 200 without validating hashed asset MIME');
+requireAll(hostedBrowserGolden, ['data-hnl-mounted-tab', 'verifyColdStartOffline', 'Network.clearBrowserCache', 'context.setOffline(true)', 'CacheStorage'], 'Runtime Golden visual-vs-mounted navigation + cold-start offline');
 const devRuntimeHasGlobalPushTrigger = !devRuntimeWorkflow.includes('    paths:');
 if (!devRuntimeHasGlobalPushTrigger) {
   for (const trigger of ['public/sw.js', 'vite.config.ts', 'src/serviceWorkerRegistration.ts', 'scripts/stability-gate.mjs']) {

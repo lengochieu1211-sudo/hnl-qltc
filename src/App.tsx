@@ -7171,9 +7171,16 @@ function AuthenticatedApp() {
         {/* Tab Content */}
         <main
           className="animate-in fade-in duration-150"
-          data-hnl-active-tab={activeTab}
+          data-hnl-active-tab={navigationTargetTab || activeTab}
+          data-hnl-mounted-tab={activeTab}
           data-hnl-navigation-target={navigationTargetTab || activeTab}
         >
+          {navigationTargetTab && navigationTargetTab !== activeTab ? (
+            <div className="min-h-[180px] p-8 text-center text-sm text-slate-500" data-hnl-tab-switching="true">
+              <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />
+              Đang tải mục...
+            </div>
+          ) : (
           <React.Suspense fallback={<div className="min-h-[180px] p-8 text-center text-sm text-slate-500" data-hnl-tab-switching="true"><RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />Đang tải mục...</div>}>
           {activeTab === 'home' && (
             <HomeDashboard
@@ -7642,6 +7649,7 @@ function AuthenticatedApp() {
             />
           )}
           </React.Suspense>
+          )}
         </main>
 
         {/* Heavy dialogs stay out of startup and mount only on demand. */}
