@@ -31,6 +31,7 @@ const storageRules = read('storage.rules');
 const sw = read('public/sw.js');
 const swRegistration = read('src/serviceWorkerRegistration.ts');
 const devRuntimeWorkflow = read('.github/workflows/dev-runtime-golden.yml');
+const devDeployWorkflow = read('.github/workflows/firebase-dev-environment.yml');
 const hostedBrowserGolden = read('scripts/dev-hosted-browser-golden.mjs');
 const cloudBinaryPurge = read('src/lib/cloudBinaryPurge.ts');
 const photoSync = read('src/lib/photoCloudSync.ts');
