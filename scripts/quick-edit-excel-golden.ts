@@ -74,7 +74,8 @@ assert.match(floor, /Tạo Căn \/ Phòng từ DXF/, 'DXF import must retain an 
 assert.match(floor, /Không ghi đè Căn \/ Phòng đã tồn tại/, 'DXF import must protect existing room highlights');
 assert.match(floor, /Lấy mặt bằng trực tiếp từ DXF/, 'DXF review must offer CAD-background materialization');
 assert.match(floor, /cadSource:/, 'Saved DXF room highlights must retain immutable CAD geometry for later alignment');
-assert.match(volume, /floorId: targetFloorIds\[0\]/, 'Cross-project Work Volume copy must replace source floorId with target-project floor identity');
+assert.match(volume, /floorId: undefined[\s\S]{0,120}floorIds: targetFloorIds[\s\S]{0,120}floor: GLOBAL_WORK_SCOPE_LABEL/, 'Cross-project Work Volume copy must drop source floor identity and remain global until the target project scopes it explicitly');
+assert.doesNotMatch(volume, /const fallbackFloor = floorPlans\[0\]/, 'Cross-project Work Volume copy must not silently bind the imported catalog to the first target floor');
 assert.doesNotMatch(volume, /floorNamesById/, 'Cross-project Work Volume copy must not depend on non-schema source floor-name metadata');
 assert.match(materialNormModal, /uniqueByCanonicalId\.length !== 1/, 'Material Norm remap must fail closed when a target Work Category title is missing or ambiguous');
 assert.match(materialNormModal, /trùng tên/, 'Material Norm remap must explain ambiguous target Work Category names instead of choosing one silently');
