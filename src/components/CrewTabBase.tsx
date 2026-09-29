@@ -144,17 +144,6 @@ const buildCrewRecordShareText = (record: CrewRecord, projectName?: string, proj
   ].filter(Boolean).join('\n');
 };
 
-const COMMON_TASKS = [
-  'Thi công trần thạch cao',
-  'Thi công vách thạch cao',
-  'Lắp dựng khung xương chính & phụ',
-  'Bắn tấm thạch cao trần / vách',
-  'Xử lý mối nối & dán băng keo',
-  'Thi công cách âm / bảo ôn bông thủy tinh',
-  'Vệ sinh mặt bằng & tập kết vật tư',
-  'Sửa chữa lỗi & vá dặm lỗ điện nước'
-];
-
 type TeamSortOrder = SortOrder;
 type TeamLogSortMode = 'date' | 'floor';
 
@@ -806,7 +795,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         setFloorWorks([]);
         setSelectedFloorId('');
       }
-      setTaskDescription(COMMON_TASKS[0]);
+      setTaskDescription('');
       setNotes('');
     }
   }, [editingRecord, showAddLogModal, floorPlans, teams, normalizedStructureConfig]);
