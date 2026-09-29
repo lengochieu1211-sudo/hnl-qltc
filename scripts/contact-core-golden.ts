@@ -47,6 +47,7 @@ assert.match(appSource, /navigationRequestRef/, 'rapid primary navigation must c
 assert.match(appSource, /navigationCommitTimerRef/, 'rapid primary navigation must debounce heavy-screen commits during continuous taps');
 assert.match(appSource, /commitDelayMs = rapidMode \? 80 : 0/, 'single navigation must commit immediately while rapid taps keep a bounded quiet window');
 assert.match(appSource, /rapidTap = sinceLastRequest < 220/, 'rapid navigation mode must be driven by actual tap cadence');
+assert.match(appSource, /if \(tab === activeTabRef\.current\)[\s\S]*?setNavigationTargetTab\(null\);[\s\S]*?return;/, 're-tapping the current tab must cancel pending work without scheduling another render');
 const navigationCoordinator = appSource.slice(appSource.indexOf('const navigateToTab'), appSource.indexOf('// Warm primary field screens'));
 assert.doesNotMatch(navigationCoordinator, /React\.startTransition/, 'settled rapid navigation commit must not remain transition-delayed');
 
