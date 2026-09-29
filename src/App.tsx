@@ -366,9 +366,13 @@ function AuthenticatedApp() {
   const isDesktopRuntime = typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('app') === 'desktop';
   const [activeTab, setActiveTab] = useState<TabType>(getRememberedTab);
+  // Keep primary operational screens mounted after their first real visit. This preserves
+  // local UI state and makes revisits immediate without keeping Chat/AI background feeds alive.
+  const [mountedPrimaryTabs, setMountedPrimaryTabs] = useState<TabType[]>(() => [getRememberedTab()]);
   const activeTabRef = useRef<TabType>(activeTab);
   activeTabRef.current = activeTab;
   const [navigationTargetTab, setNavigationTargetTab] = useState<TabType | null>(null);
+  const visibleTab = navigationTargetTab || activeTab;
   const navigationRequestRef = useRef(0);
   const navigationCommitTimerRef = useRef<number | null>(null);
   const navigationLastRequestAtRef = useRef(0);
@@ -376,6 +380,11 @@ function AuthenticatedApp() {
 
   useEffect(() => {
     try { sessionStorage.setItem('qlct_active_tab_v1', activeTab); } catch (_) {}
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!PRIMARY_TAB_IDS.includes(activeTab)) return;
+    setMountedPrimaryTabs((previous) => previous.includes(activeTab) ? previous : [...previous, activeTab]);
   }, [activeTab]);
 
   const preloadTab = React.useCallback((tab: TabType) => {
@@ -429,6 +438,9 @@ function AuthenticatedApp() {
     navigationCommitTimerRef.current = window.setTimeout(() => {
       navigationCommitTimerRef.current = null;
       if (requestId !== navigationRequestRef.current) return;
+      if (PRIMARY_TAB_IDS.includes(tab)) {
+        setMountedPrimaryTabs((previous) => previous.includes(tab) ? previous : [...previous, tab]);
+      }
       setActiveTab(tab);
     }, commitDelayMs);
   }, [preloadTab]);
@@ -7176,14 +7188,19 @@ function AuthenticatedApp() {
           data-hnl-mounted-tab={activeTab}
           data-hnl-navigation-target={navigationTargetTab || activeTab}
         >
-          {navigationTargetTab && navigationTargetTab !== activeTab ? (
+          {navigationTargetTab && navigationTargetTab !== activeTab && !mountedPrimaryTabs.includes(navigationTargetTab) && (
             <div className="min-h-[180px] p-8 text-center text-sm text-slate-500" data-hnl-tab-switching="true">
               <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />
               Đang tải mục...
             </div>
-          ) : (
+          )}
           <React.Suspense fallback={<div className="min-h-[180px] p-8 text-center text-sm text-slate-500" data-hnl-tab-switching="true"><RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />Đang tải mục...</div>}>
-          {activeTab === 'home' && (
+          {(mountedPrimaryTabs.includes('home') || activeTab === 'home') && (
+            <div
+              data-hnl-tab-instance="home"
+              data-hnl-tab-visible={visibleTab === 'home' ? 'true' : 'false'}
+              style={{ display: visibleTab === 'home' ? 'contents' : 'none' }}
+            >
             <HomeDashboard
               projects={authorizedChatProjects}
               activeProjectId={activeProjectId}
@@ -7210,9 +7227,15 @@ function AuthenticatedApp() {
               onOpenCrew={() => navigateToTab('crew')}
               onOpenFloorPlan={() => navigateToTab('floorplan')}
             />
+            </div>
           )}
 
-          {activeTab === 'warehouse' && (
+          {(mountedPrimaryTabs.includes('warehouse') || activeTab === 'warehouse') && (
+            <div
+              data-hnl-tab-instance="warehouse"
+              data-hnl-tab-visible={visibleTab === 'warehouse' ? 'true' : 'false'}
+              style={{ display: visibleTab === 'warehouse' ? 'contents' : 'none' }}
+            >
             <WarehouseTab
               inventory={inventory}
               userRole={currentUserRole}
@@ -7240,9 +7263,15 @@ function AuthenticatedApp() {
               onImportNorms={handleImportNorms}
               onImportWorkVolumes={handleImportWorkVolumes}
             />
+            </div>
           )}
 
-          {activeTab === 'volume' && (
+          {(mountedPrimaryTabs.includes('volume') || activeTab === 'volume') && (
+            <div
+              data-hnl-tab-instance="volume"
+              data-hnl-tab-visible={visibleTab === 'volume' ? 'true' : 'false'}
+              style={{ display: visibleTab === 'volume' ? 'contents' : 'none' }}
+            >
             <WorkVolumeTab
               workVolumes={computedWorkVolumes}
               floorPlans={floorPlans}
@@ -7264,9 +7293,15 @@ function AuthenticatedApp() {
               canUndo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && past.length > 0}
               canRedo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && future.length > 0}
             />
+            </div>
           )}
 
-          {activeTab === 'floorplan' && (
+          {(mountedPrimaryTabs.includes('floorplan') || activeTab === 'floorplan') && (
+            <div
+              data-hnl-tab-instance="floorplan"
+              data-hnl-tab-visible={visibleTab === 'floorplan' ? 'true' : 'false'}
+              style={{ display: visibleTab === 'floorplan' ? 'contents' : 'none' }}
+            >
             <FloorPlanDefectTab
               projectId={activeProjectId}
               floorPlans={floorPlans}
@@ -7281,6 +7316,7 @@ function AuthenticatedApp() {
               workVolumes={computedWorkVolumes}
               userRole={currentUserRole}
               roleResolved={isProjectRoleResolved}
+              isActive={visibleTab === 'floorplan'}
               inspectorName={inspectorName}
               onAddInventory={handleAddInventory}
               onAddFloorPlan={handleAddFloorPlan}
@@ -7315,9 +7351,10 @@ function AuthenticatedApp() {
               canUndo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && past.length > 0}
               canRedo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && future.length > 0}
             />
+            </div>
           )}
 
-          {activeTab === 'checklist' && (
+          {visibleTab === 'checklist' && activeTab === 'checklist' && (
             <ChecklistTab
               checklist={activeChecklist}
               userRole={currentUserRole}
@@ -7340,7 +7377,12 @@ function AuthenticatedApp() {
             />
           )}
 
-          {activeTab === 'crew' && (
+          {(mountedPrimaryTabs.includes('crew') || activeTab === 'crew') && (
+            <div
+              data-hnl-tab-instance="crew"
+              data-hnl-tab-visible={visibleTab === 'crew' ? 'true' : 'false'}
+              style={{ display: visibleTab === 'crew' ? 'contents' : 'none' }}
+            >
             <CrewTab
               projectId={activeProjectId}
               userRole={currentUserRole}
@@ -7450,10 +7492,11 @@ function AuthenticatedApp() {
                 });
               }}
             />
+            </div>
           )}
 
 
-          {activeTab === 'chat' && (
+          {visibleTab === 'chat' && activeTab === 'chat' && (
             <ChatTab
               activeProjectId={activeProjectId}
               projectName={projectName}
@@ -7464,7 +7507,7 @@ function AuthenticatedApp() {
             />
           )}
 
-          {activeTab === 'superadmin' && isCurrentSuperAdmin && (
+          {visibleTab === 'superadmin' && activeTab === 'superadmin' && isCurrentSuperAdmin && (
             <SuperAdminCenter
               userEmail={currentIdentityEmail || undefined}
               userRole={currentUserRole}
@@ -7500,7 +7543,7 @@ function AuthenticatedApp() {
             />
           )}
 
-          {HNL_AI_ENABLED && activeTab === 'ai' && (
+          {HNL_AI_ENABLED && visibleTab === 'ai' && activeTab === 'ai' && (
             <AiAssistantPage
               projectId={activeProjectId}
               projectName={projectName}
@@ -7519,7 +7562,12 @@ function AuthenticatedApp() {
             />
           )}
 
-          {activeTab === 'config' && (
+          {(mountedPrimaryTabs.includes('config') || activeTab === 'config') && (
+            <div
+              data-hnl-tab-instance="config"
+              data-hnl-tab-visible={visibleTab === 'config' ? 'true' : 'false'}
+              style={{ display: visibleTab === 'config' ? 'contents' : 'none' }}
+            >
             <GoogleConfigTab
               projectName={projectName}
               setProjectName={handleUpdateProjectName}
@@ -7648,9 +7696,9 @@ function AuthenticatedApp() {
                 updatedAt: lastUpdatedAt,
               }}
             />
+            </div>
           )}
           </React.Suspense>
-          )}
         </main>
 
         {/* Heavy dialogs stay out of startup and mount only on demand. */}

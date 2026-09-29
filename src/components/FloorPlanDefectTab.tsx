@@ -337,6 +337,7 @@ interface FloorPlanDefectTabProps {
   inspectorName?: string;
   userRole?: UserRole;
   roleResolved?: boolean;
+  isActive?: boolean;
   onAddInventory?: (item: Omit<InventoryItem, 'id'> & { id?: string }) => void;
   onAddFloorPlan: (plan: Omit<FloorPlan, 'id'> & { id?: string }) => void;
   onUpdateFloorPlan?: (id: string, updates: Partial<FloorPlan>) => void;
@@ -643,6 +644,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   inspectorName,
   userRole = 'VIEWER',
   roleResolved = false,
+  isActive = true,
   onAddInventory,
   onAddFloorPlan,
   onUpdateFloorPlan,
@@ -4051,6 +4053,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
 
   useEffect(() => {
+    if (!isActive) {
+      spacePanHeldRef.current = false;
+      return;
+    }
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable) return;
@@ -4165,19 +4171,19 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     window.addEventListener('keydown', handleKeyDown, true);
     window.addEventListener('keyup', handleKeyUp, true);
     return () => { window.removeEventListener('keydown', handleKeyDown, true); window.removeEventListener('keyup', handleKeyUp, true); };
-  }, [selectedRoomForDragId, selectedRoomIds, floorRooms, copiedRoomsState, activeFloor, onSaveRoomProgress, onDeleteRoomProgress, lockedRoomIds, canManageStructure]);
+  }, [isActive, selectedRoomForDragId, selectedRoomIds, floorRooms, copiedRoomsState, activeFloor, onSaveRoomProgress, onDeleteRoomProgress, lockedRoomIds, canManageStructure]);
 
   // Repair legacy/stale links once source data is available. Durable roomId stays
   // authoritative while its room still exists: editing/rotating a highlight must never
   // silently move a historical Defect to another room. Missing/deleted room links still
   // fall back to pin geometry, while a valid teamId is preserved/refreshed after renames.
   React.useEffect(() => {
-    if (!canEditDefects || !onUpdateDefect || floorDefects.length === 0) return;
+    if (!isActive || !canEditDefects || !onUpdateDefect || floorDefects.length === 0) return;
     floorDefects.forEach((defect) => {
       const repaired = reconcileDefectLinkage(defect, floorRooms, teams, { preserveValidRoomId: true });
       if (repaired !== defect) onUpdateDefect(repaired);
     });
-  }, [canEditDefects, floorDefects, floorRooms, teams, onUpdateDefect]);
+  }, [isActive, canEditDefects, floorDefects, floorRooms, teams, onUpdateDefect]);
 
   const filteredDefects = React.useMemo(() => {
     const getRoomLabel = (defect: DefectItem) => {

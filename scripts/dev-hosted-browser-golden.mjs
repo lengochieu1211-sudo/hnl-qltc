@@ -71,12 +71,15 @@ async function waitForSettingsSheet(page, sheetKey, visible) {
 async function verifyStaleAssetCacheGuard(page, label) {
   const stalePath = `/assets/__hnl_runtime_stale_${Date.now()}.js`;
   const probe = await page.evaluate(async (path) => {
-    const entryScript = Array.from(document.scripts)
-      .map((script) => script.src)
+    const indexResponse = await fetch('/index.html', { cache: 'no-store' });
+    const indexBody = await indexResponse.text();
+    const parsedIndex = new DOMParser().parseFromString(indexBody, 'text/html');
+    const entryScript = Array.from(parsedIndex.scripts)
+      .map((script) => script.getAttribute('src') || '')
       .find((src) => {
         try {
           const pathname = new URL(src, location.href).pathname;
-          return pathname.startsWith('/assets/') && /\\.js$/i.test(pathname);
+          return pathname.startsWith('/assets/') && /\.js$/i.test(pathname);
         } catch {
           return false;
         }
@@ -86,9 +89,6 @@ async function verifyStaleAssetCacheGuard(page, label) {
     const entryResponse = await fetch(entryScript, { cache: 'no-store' });
     const entryContentType = String(entryResponse.headers.get('content-type') || '').toLowerCase();
     const entryPrefix = (await entryResponse.text()).slice(0, 96).trim().toLowerCase();
-
-    const indexResponse = await fetch('/index.html', { cache: 'no-store' });
-    const indexBody = await indexResponse.text();
 
     const staleResponse = await fetch(path, { cache: 'no-store' });
     const staleContentType = String(staleResponse.headers.get('content-type') || '').toLowerCase();
@@ -174,6 +174,7 @@ async function verifyRapidPrimaryNavigation(page, label) {
     }
     const singleMountedMs = performance.now() - singleStartedAt;
     const singleMounted = main.getAttribute('data-hnl-mounted-tab') || '';
+    const singleInstance = main.querySelector(`[data-hnl-tab-instance="${singleTab}"]`);
     await new Promise((resolve) => setTimeout(resolve, 380));
 
     const commits = [];
@@ -230,6 +231,9 @@ async function verifyRapidPrimaryNavigation(page, label) {
     }
     const revisitMountedMs = performance.now() - revisitStartedAt;
     const revisitMounted = main.getAttribute('data-hnl-mounted-tab') || '';
+    const revisitInstance = main.querySelector(`[data-hnl-tab-instance="${singleTab}"]`);
+    const revisitPreservedInstance = Boolean(singleInstance && revisitInstance && singleInstance === revisitInstance);
+    const revisitSwitching = Boolean(main.querySelector('[data-hnl-tab-switching="true"]'));
 
     return {
       available,
@@ -251,6 +255,8 @@ async function verifyRapidPrimaryNavigation(page, label) {
       revisitVisualMs,
       revisitMountedMs,
       revisitMounted,
+      revisitPreservedInstance,
+      revisitSwitching,
       totalMs: performance.now() - startedAt,
     };
   }, { desktopLike });
@@ -270,8 +276,10 @@ async function verifyRapidPrimaryNavigation(page, label) {
   assert(result.sameTabBefore === result.finalTab && result.sameTabAfter === result.finalTab, `${label}: re-tapping active tab changed mounted content`);
   assert(!result.sameTabSwitching, `${label}: re-tapping active tab triggered a loading state`);
   assert(result.revisitMounted === result.singleTab, `${label}: warmed tab revisit did not settle to ${result.singleTab}`);
+  assert(result.revisitPreservedInstance, `${label}: warmed primary tab was remounted instead of reusing its existing DOM instance`);
+  assert(!result.revisitSwitching, `${label}: warmed primary tab revisit displayed a loading state`);
   assert(result.revisitVisualMs <= 120, `${label}: warmed tab revisit shell exceeded 120ms (${result.revisitVisualMs.toFixed(1)}ms)`);
-  assert(result.revisitMountedMs <= 700, `${label}: warmed tab revisit heavy-content mount exceeded 700ms (${result.revisitMountedMs.toFixed(1)}ms)`);
+  assert(result.revisitMountedMs <= 180, `${label}: warmed tab revisit commit exceeded 180ms (${result.revisitMountedMs.toFixed(1)}ms)`);
   assert(result.totalMs <= 2200, `${label}: rapid navigation settle path exceeded 2200ms (${result.totalMs.toFixed(1)}ms)`);
   pass(`${label} primary navigation responsiveness`, `shell ${result.singleSwitchMs.toFixed(1)}ms · first content ${result.singleMountedMs.toFixed(1)}ms · revisit ${result.revisitMountedMs.toFixed(1)}ms · ${result.available.length} rapid tabs · max target ${maxTargetLatency.toFixed(1)}ms`);
 }
