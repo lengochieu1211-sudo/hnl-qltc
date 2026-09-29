@@ -48,7 +48,7 @@ assert.match(appSource, /navigationCommitTimerRef/, 'rapid primary navigation mu
 assert.match(appSource, /commitDelayMs = rapidMode \? 80 : 0/, 'single navigation must commit immediately while rapid taps keep a bounded quiet window');
 assert.match(appSource, /rapidTap = sinceLastRequest < 220/, 'rapid navigation mode must be driven by actual tap cadence');
 const navigationCoordinator = appSource.slice(appSource.indexOf('const navigateToTab'), appSource.indexOf('// Warm primary field screens'));
-assert.doesNotMatch(navigationCoordinator, /React\.startTransition/, 'settled rapid navigation commit must not remain transition-delayed');
+assert.match(navigationCoordinator, /React\.startTransition/, 'heavy navigation content must transition after urgent destination feedback');
 
 const showWebAppSection = desktopShell.slice(desktopShell.indexOf('internal void ShowWebApp()'), desktopShell.indexOf('private void InitializeEmbeddedWeb()'));
 assert.doesNotMatch(showWebAppSection, /Navigate\(Program\.BuildAppUrl\(\)\)/, 'Windows EXE must not re-navigate the WebView when returning from native home/tray');
