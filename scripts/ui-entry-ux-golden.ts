@@ -296,6 +296,7 @@ assert(navSource.includes('onPreloadTab?.(tab)') && navSource.includes('onPointe
 assert(appSource.includes('const preloadTab = React.useCallback') && appSource.includes('onPreloadTab={preloadTab}'), 'App must map navigation intent to the destination lazy loader');
 assert(appSource.includes('navigationRequestRef') && appSource.includes('requestId !== navigationRequestRef.current'), 'Rapid navigation must invalidate stale tab transitions so the last click wins');
 assert(appSource.includes('navigationCommitTimerRef') && appSource.includes('commitDelayMs = rapidMode ? 80 : 0') && appSource.includes('setNavigationTargetTab(tab)'), 'Primary navigation must commit normal taps immediately while still coalescing rapid heavy-screen taps');
+assert(appSource.includes('if (tab === activeTabRef.current)') && appSource.includes('setNavigationTargetTab(null);'), 'Re-tapping the already active tab must be a true no-op without preload/remount delay');
 assert(appSource.includes('rapidTap = sinceLastRequest < 220') && appSource.includes('navigationRapidUntilRef.current = now + 320'), 'Rapid navigation mode must be cadence-driven and bounded');
 assert(appSource.includes('window.clearTimeout(navigationCommitTimerRef.current)'), 'Each newer navigation request must cancel the previous pending heavy-screen commit');
 const navigationCoordinator = appSource.slice(appSource.indexOf('const navigateToTab'), appSource.indexOf('// Warm primary field screens'));

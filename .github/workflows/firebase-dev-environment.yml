@@ -403,5 +403,21 @@ jobs:
             sleep 2
           done
           test "$ok" = 1 || { echo '::error::DEV Hosting smoke failed'; exit 1; }
+
+          ENTRY_ASSET="$(grep -oE 'src="/assets/[^"]+\.js"' /tmp/dev-index.html | head -1 | cut -d'"' -f2)"
+          test -n "$ENTRY_ASSET" || { echo '::error::Unable to resolve DEV entry JS asset'; exit 1; }
+          ENTRY_HEADERS="$(mktemp)"
+          ENTRY_BODY="$(mktemp)"
+          ENTRY_CODE="$(curl --silent --show-error -D "$ENTRY_HEADERS" -o "$ENTRY_BODY" --write-out '%{http_code}' "${DEV_HOSTING_URL}${ENTRY_ASSET}")"
+          test "$ENTRY_CODE" = '200' || { echo "::error::DEV entry asset HTTP $ENTRY_CODE"; exit 1; }
+          grep -Eqi '^content-type: .*javascript' "$ENTRY_HEADERS" || { echo '::error::DEV entry JS asset has non-JavaScript Content-Type'; cat "$ENTRY_HEADERS"; exit 1; }
+          if head -c 64 "$ENTRY_BODY" | grep -Eqi '<!doctype html|<html'; then
+            echo '::error::DEV entry JS asset body is HTML'
+            exit 1
+          fi
+
+          MISSING_CODE="$(curl --silent --output /tmp/dev-missing-asset.txt --write-out '%{http_code}' "${DEV_HOSTING_URL}/assets/__hnl_missing_asset_${GITHUB_RUN_ID}.js")"
+          test "$MISSING_CODE" = '404' || { echo "::error::Missing hashed asset must return 404, got $MISSING_CODE"; head -c 120 /tmp/dev-missing-asset.txt || true; exit 1; }
+
           curl --fail --silent --show-error "${DEV_AI_URL}/health?hostingSmoke=${GITHUB_RUN_ID}" | grep -q '"ok":true' || { echo '::error::DEV AI health after Hosting deploy failed'; exit 1; }
           echo "DEV_READY_URL=$DEV_HOSTING_URL"
