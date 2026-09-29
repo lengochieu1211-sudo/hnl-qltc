@@ -144,16 +144,6 @@ const buildCrewRecordShareText = (record: CrewRecord, projectName?: string, proj
   ].filter(Boolean).join('\n');
 };
 
-const COMMON_TASKS = [
-  'Bắn tấm thạch cao trần vách',
-  'Lắp dựng khung xương chính & phụ',
-  'Sơn bả matit hoàn thiện trần',
-  'Trét mối nối & dán băng keo thủy tinh',
-  'Vệ sinh mặt bằng & tập kết vật tư',
-  'Sửa chữa lỗi & vá dặm lỗ điện nước',
-  'Thi công cách âm / bảo ôn bông thủy tinh'
-];
-
 type TeamSortOrder = SortOrder;
 type TeamLogSortMode = 'date' | 'floor';
 
@@ -798,20 +788,14 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         ? floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === defaultGroupId)
         : floorPlans;
       if (availableFloors.length > 0) {
-        setFloorWorks([{
-          floorId: availableFloors[0].id,
-          floorName: availableFloors[0].floorName,
-          categories: [{
-            categoryName: 'Thi công thạch cao',
-            subItems: ['Bắn tấm khung chìm', 'Bả matit 2 lớp']
-          }]
-        }]);
+        const defaultFloorWork = createDefaultFloorWork(availableFloors[0]);
+        setFloorWorks(defaultFloorWork ? [defaultFloorWork] : []);
         setSelectedFloorId(availableFloors[0].id);
       } else {
         setFloorWorks([]);
         setSelectedFloorId('');
       }
-      setTaskDescription(COMMON_TASKS[0]);
+      setTaskDescription('');
       setNotes('');
     }
   }, [editingRecord, showAddLogModal, floorPlans, teams, normalizedStructureConfig]);
@@ -4185,6 +4169,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         open={showTeamTemplatePicker}
         onClose={() => setShowTeamTemplatePicker(false)}
         currentProjectId={projectId}
+        currentItems={teams.filter((team) => !team.deletedAt)}
         kind="teams"
         title="Lấy Đội thi công từ công trình/mẫu"
         onImport={async (rows) => {

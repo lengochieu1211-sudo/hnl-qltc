@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, ZoomIn, ZoomOut, RotateCcw, Download, Share2, Loader2 } from 'lucide-react';
+import { X, ZoomIn, ZoomOut, RotateCcw, RotateCw, Download, Share2, Loader2 } from 'lucide-react';
 import { saveBlobToDownloads } from '../utils/fileExport';
 import { sharePreparedContent } from '../utils/shareUtils';
 
@@ -25,6 +25,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   const allImages = images && images.length > 0 ? images : (imageUrl ? [imageUrl] : []);
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [scale, setScale] = useState(1);
+  const [rotation, setRotation] = useState(0);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [mediaAction, setMediaAction] = useState<'download' | 'share' | null>(null);
   const [mediaActionMessage, setMediaActionMessage] = useState('');
@@ -52,6 +53,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
     if (isOpen) {
       setCurrentIndex(initialIndex >= 0 && initialIndex < allImages.length ? initialIndex : 0);
       setScale(1);
+      setRotation(0);
       setPosition({ x: 0, y: 0 });
       setMediaAction(null);
       setMediaActionMessage('');
@@ -121,12 +123,14 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   const handlePrev = () => {
     setCurrentIndex((current) => Math.max(0, current - 1));
     setScale(1);
+    setRotation(0);
     setPosition({ x: 0, y: 0 });
   };
 
   const handleNext = () => {
     setCurrentIndex((current) => Math.min(Math.max(0, allImages.length - 1), current + 1));
     setScale(1);
+    setRotation(0);
     setPosition({ x: 0, y: 0 });
   };
 
@@ -314,7 +318,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
               referrerPolicy="no-referrer"
               crossOrigin="anonymous"
               style={{
-                transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
+                transform: `translate(${position.x}px, ${position.y}px) scale(${scale}) rotate(${rotation}deg)`,
                 transition: isDraggingRef.current ? 'none' : 'transform 0.1s ease-out'
               }}
               className="max-w-full max-h-[80vh] object-contain pointer-events-none"
@@ -341,7 +345,10 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
       </div>
       
       <div className="px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 z-10 bg-gradient-to-t from-slate-950 via-slate-950/95 to-transparent">
-        <div className="flex items-center justify-center gap-4">
+        <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-4">
+          <button onClick={() => setRotation((value) => value - 90)} className="p-3 bg-slate-800 rounded-full text-white" aria-label="Xoay ảnh sang trái 90 độ" title="Xoay trái 90°">
+            <RotateCcw className="w-5 h-5" />
+          </button>
           <button onClick={() => setScale(s => Math.max(1, s - 0.5))} className="p-3 bg-slate-800 rounded-full text-white" aria-label="Thu nhỏ ảnh">
             <ZoomOut className="w-5 h-5" />
           </button>
@@ -349,9 +356,12 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
           <button onClick={() => setScale(s => Math.min(5, s + 0.5))} className="p-3 bg-slate-800 rounded-full text-white" aria-label="Phóng to ảnh">
             <ZoomIn className="w-5 h-5" />
           </button>
-          {scale > 1 && (
-            <button onClick={() => { setScale(1); setPosition({x:0, y:0}); }} className="p-3 bg-slate-800 rounded-full text-white" aria-label="Đặt lại ảnh">
-              <RotateCcw className="w-5 h-5" />
+          <button onClick={() => setRotation((value) => value + 90)} className="p-3 bg-slate-800 rounded-full text-white" aria-label="Xoay ảnh sang phải 90 độ" title="Xoay phải 90°">
+            <RotateCw className="w-5 h-5" />
+          </button>
+          {(scale > 1 || rotation % 360 !== 0 || position.x !== 0 || position.y !== 0) && (
+            <button onClick={() => { setScale(1); setRotation(0); setPosition({x:0, y:0}); }} className="h-11 min-w-11 rounded-full bg-slate-800 px-3 text-xs font-black text-white" aria-label="Đặt lại ảnh" title="Đặt lại ảnh">
+              1:1
             </button>
           )}
         </div>

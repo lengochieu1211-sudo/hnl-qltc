@@ -6,6 +6,7 @@ import {
   resolveAuthoritativeWorkVolumeRef,
   resolveUniqueMaterialIdentity,
   resolveWorkVolumeRef,
+  workVolumeAppliesToFloor,
   validateInventoryOutProvenance,
   validateMaterialNormCatalog,
   validateWorkVolumeCatalog,
@@ -32,6 +33,11 @@ const norm = (id: string, materialId: string | undefined, categoryIds: string[],
 
 const w1 = work('CAT-F1', 'F1');
 const w2 = work('CAT-F2', 'F2');
+const globalWork: WorkVolume = { ...work('CAT-GLOBAL', 'F1', 'Trần toàn công trình'), floor: 'Toàn công trình', floorId: undefined, floorIds: [] };
+assert.equal(workVolumeAppliesToFloor(globalWork, 'F1', 'Tầng 1'), true);
+assert.equal(workVolumeAppliesToFloor(globalWork, 'F2', 'Tầng 2'), true);
+assert.equal(resolveWorkVolumeRef({ workVolumes: [globalWork], workCategoryId: 'CAT-GLOBAL', floorId: 'F2' }).state, 'resolved');
+console.log('PASS linkage: global WorkVolume scope applies to every linked floor');
 assert.equal(resolveWorkVolumeRef({ workVolumes: [w1, w2], workCategoryName: w1.title, floorId: 'F1' }).work?.id, 'CAT-F1');
 assert.equal(resolveWorkVolumeRef({ workVolumes: [w1, w2], workCategoryName: w1.title }).state, 'ambiguous');
 console.log('PASS linkage: floor-aware name fallback and authoritative IDs');
