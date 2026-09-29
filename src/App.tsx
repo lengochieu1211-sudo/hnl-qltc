@@ -398,6 +398,19 @@ function AuthenticatedApp() {
   // blocking the main thread with every intermediate screen.
   const navigateToTab = React.useCallback((tab: TabType) => {
     const requestId = ++navigationRequestRef.current;
+
+    // Re-clicking the current tab must be an immediate no-op. If a different tab was
+    // pending, this also cancels that pending heavy mount and restores the current view.
+    if (tab === activeTabRef.current) {
+      if (navigationCommitTimerRef.current != null) {
+        window.clearTimeout(navigationCommitTimerRef.current);
+        navigationCommitTimerRef.current = null;
+      }
+      setNavigationTargetTab(null);
+      preloadTab(tab);
+      return;
+    }
+
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const sinceLastRequest = navigationLastRequestAtRef.current > 0
       ? now - navigationLastRequestAtRef.current
@@ -406,7 +419,7 @@ function AuthenticatedApp() {
     navigationLastRequestAtRef.current = now;
     if (rapidTap) navigationRapidUntilRef.current = now + 320;
     const rapidMode = rapidTap || now < navigationRapidUntilRef.current;
-    const commitDelayMs = rapidMode ? 80 : 0;
+    const commitDelayMs = rapidMode ? 80 : 24;
 
     // Reflect the requested destination immediately in navigation chrome, while keeping
     // the current heavy screen mounted until the short coalescing window settles.
@@ -7162,10 +7175,22 @@ function AuthenticatedApp() {
         {/* Tab Content */}
         <main
           className="animate-in fade-in duration-150"
-          data-hnl-active-tab={activeTab}
+          data-hnl-active-tab={navigationTargetTab || activeTab}
+          data-hnl-content-tab={activeTab}
           data-hnl-navigation-target={navigationTargetTab || activeTab}
         >
-          <React.Suspense fallback={<div className="min-h-[180px] p-8 text-center text-sm text-slate-500" data-hnl-tab-switching="true"><RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />Đang tải mục...</div>}>
+          {navigationTargetTab && navigationTargetTab !== activeTab && (
+            <div
+              className="min-h-[180px] p-8 text-center text-sm text-slate-500"
+              data-hnl-navigation-shell={navigationTargetTab}
+              data-hnl-tab-switching="true"
+            >
+              <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />
+              Đang mở mục...
+            </div>
+          )}
+          <div className={navigationTargetTab && navigationTargetTab !== activeTab ? 'hidden' : undefined}>
+          <React.Suspense fallback={<div className="min-h-[180px] p-8 text-center text-sm text-slate-500" data-hnl-tab-switching="true"><RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />Đang tải dữ liệu...</div>}>
           {activeTab === 'home' && (
             <HomeDashboard
               projects={authorizedChatProjects}
@@ -7633,6 +7658,7 @@ function AuthenticatedApp() {
             />
           )}
           </React.Suspense>
+          </div>
         </main>
 
         {/* Heavy dialogs stay out of startup and mount only on demand. */}
