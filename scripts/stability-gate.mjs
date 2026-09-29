@@ -517,7 +517,9 @@ if (!sw.includes("new URL(self.location.href).searchParams.get('v')") || !swRegi
 if (!swRegistration.includes('requestIdleCallback') || !swRegistration.includes('window.setTimeout(registerCurrentBuildServiceWorker, 900)')) fail('service worker registration must defer install work until the first interactive window settles');
 requireAll(vite, ['hnl-service-worker-asset-manifest', 'sw-assets.json', 'assets = Object.keys(bundle)'], 'Vite service-worker asset manifest');
 requireAll(sw, ['loadBuildAssetManifest', 'SW_ASSET_MANIFEST_HAS_NO_JS_CHUNKS', 'cacheAssetsInBatches', 'cache.addAll(batch)'], 'service-worker complete app-shell precache with bounded concurrency');
+requireAll(sw, ['responseMatchesAssetType', "contentType.includes('text/html')", 'currentCache.delete(request)', 'cachedResponseIsValid', 'Hashed asset not found or invalid content type'], 'service-worker hashed asset MIME guard + poisoned-cache eviction');
 requireAll(hostedBrowserGolden, ['verifyColdStartOffline', 'Network.clearBrowserCache', 'context.setOffline(true)', 'CacheStorage'], 'Runtime Golden cold-start offline');
+requireAll(hostedBrowserGolden, ['verifyHostingAssetMime', 'DEV current hashed JS asset MIME', 'DEV stale hashed asset is not SPA HTML 200'], 'Runtime Golden Hosting asset MIME/404 guard');
 const devRuntimeHasGlobalPushTrigger = !devRuntimeWorkflow.includes('    paths:');
 if (!devRuntimeHasGlobalPushTrigger) {
   for (const trigger of ['public/sw.js', 'vite.config.ts', 'src/serviceWorkerRegistration.ts', 'scripts/stability-gate.mjs']) {
