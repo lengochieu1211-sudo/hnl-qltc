@@ -450,6 +450,7 @@ assert(!workVolumeTab.includes("setCategory('khung_tran')"), 'Work Volume create
 assert(workVolumeTab.includes('currentItems={workVolumes.filter((item) => !item.deletedAt)}'), 'Work Volume templates must allow saving the current catalog');
 
 assert(!crewTab.includes("subItems: ['Bắn tấm khung chìm', 'Bả matit 2 lớp']"), 'Crew create flow must not inject Bả matit as a fake default sub-item');
+assert(!crewTab.includes("setTaskDescription(COMMON_TASKS[0])"), 'Crew create flow must not fabricate a generic task when no linked project work exists');
 assert(crewTab.includes('const defaultFloorWork = createDefaultFloorWork(availableFloors[0]);'), 'Crew create flow must derive floor/category/sub-item suggestions from live project data');
 assert(crewTab.includes('currentItems={teams.filter((team) => !team.deletedAt)}'), 'Team templates must allow saving the current team directory');
 
