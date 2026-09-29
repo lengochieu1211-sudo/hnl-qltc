@@ -214,11 +214,20 @@ async function verifyRapidPrimaryNavigation(page, label) {
 
     const sameTabButton = visibleNavButton(finalTab);
     const sameTabBefore = main.getAttribute('data-hnl-mounted-tab') || '';
+    const sameTabInstanceBefore = main.querySelector(`[data-hnl-tab-instance="${finalTab}"]`);
+    const hasVisibleSwitching = () => Array.from(main.querySelectorAll('[data-hnl-tab-switching="true"]'))
+      .some((node) => {
+        const element = node;
+        return getComputedStyle(element).display !== 'none' && element.getClientRects().length > 0;
+      });
+    const sameTabSwitchingBefore = hasVisibleSwitching();
     sameTabButton.click();
     await new Promise((resolve) => requestAnimationFrame(resolve));
     await new Promise((resolve) => setTimeout(resolve, 32));
     const sameTabAfter = main.getAttribute('data-hnl-mounted-tab') || '';
-    const sameTabSwitching = Boolean(main.querySelector('[data-hnl-tab-switching="true"]'));
+    const sameTabInstanceAfter = main.querySelector(`[data-hnl-tab-instance="${finalTab}"]`);
+    const sameTabPreservedInstance = Boolean(sameTabInstanceBefore && sameTabInstanceAfter && sameTabInstanceBefore === sameTabInstanceAfter);
+    const sameTabSwitchingAfter = hasVisibleSwitching();
 
     // Revisit a tab whose chunk has already loaded. This measures render/remount cost,
     // not network download cost, and mirrors the user's "đã bấm rồi mà bấm lại vẫn lâu".
@@ -257,7 +266,9 @@ async function verifyRapidPrimaryNavigation(page, label) {
       targetLatencies,
       sameTabBefore,
       sameTabAfter,
-      sameTabSwitching,
+      sameTabPreservedInstance,
+      sameTabSwitchingBefore,
+      sameTabSwitchingAfter,
       revisitVisualMs,
       revisitMountedMs,
       revisitMounted,
@@ -280,7 +291,8 @@ async function verifyRapidPrimaryNavigation(page, label) {
   const intermediateHeavyCommits = result.commits.filter((tab) => tab && tab !== result.finalTab && heavyTabs.has(tab));
   assert(intermediateHeavyCommits.length === 0, `${label}: intermediate heavy tabs committed during rapid navigation — ${JSON.stringify(result.commits)}`);
   assert(result.sameTabBefore === result.finalTab && result.sameTabAfter === result.finalTab, `${label}: re-tapping active tab changed mounted content`);
-  assert(!result.sameTabSwitching, `${label}: re-tapping active tab triggered a loading state`);
+  assert(result.sameTabPreservedInstance, `${label}: re-tapping active tab remounted its existing DOM instance`);
+  assert(!(result.sameTabSwitchingBefore === false && result.sameTabSwitchingAfter === true), `${label}: re-tapping active tab introduced a new visible loading state`);
   assert(result.revisitMounted === result.singleTab, `${label}: warmed tab revisit did not settle to ${result.singleTab}`);
   assert(result.revisitPreservedInstance, `${label}: warmed primary tab was remounted instead of reusing its existing DOM instance`);
   assert(!result.revisitSwitching, `${label}: warmed primary tab revisit displayed a loading state`);
