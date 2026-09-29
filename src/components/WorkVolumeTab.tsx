@@ -47,6 +47,24 @@ import { ExcelActionMenu } from './ExcelActionMenu';
 import { QuickEditGridModal, type QuickGridColumn, type QuickGridRow } from './QuickEditGridModal';
 import { CatalogTemplatePickerModal } from './CatalogTemplatePickerModal';
 
+const WORK_CATEGORY_SUGGESTIONS = ['Trần', 'Vách', 'Trần & Vách', 'Cửa', 'Khác'];
+
+const inferWorkCategoryGroup = (rawTitle: string): string => {
+  const normalized = rawTitle
+    .trim()
+    .toLocaleLowerCase('vi-VN')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (!normalized) return '';
+  const hasCeiling = /(^|\s)(tran|ceiling)(\s|$)/.test(normalized);
+  const hasWall = /(^|\s)(vach|tuong|wall)(\s|$)/.test(normalized);
+  if (hasCeiling && hasWall) return 'Trần & Vách';
+  if (hasCeiling) return 'Trần';
+  if (hasWall) return 'Vách';
+  if (/(^|\s)(cua|door)(\s|$)/.test(normalized)) return 'Cửa';
+  return '';
+};
+
 interface WorkVolumeTabProps {
   workVolumes: WorkVolume[];
   floorPlans?: FloorPlan[];
@@ -280,7 +298,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
   // New Work Volume Form State
   const [title, setTitle] = useState('');
-  const [selectedFloors, setSelectedFloors] = useState<string[]>(() => [floorOptions[0] || 'Tầng 1']);
+  const [selectedFloors, setSelectedFloors] = useState<string[]>([]);
   const [isFloorDropdownOpen, setIsFloorDropdownOpen] = useState(false);
   const floorDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -294,7 +312,8 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const [category, setCategory] = useState<string>('khung_tran');
+  const [category, setCategory] = useState<string>('');
+  const [categoryManuallyEdited, setCategoryManuallyEdited] = useState(false);
   const [unit, setUnit] = useState('m2');
   const [planned, setPlanned] = useState<number | ''>(350);
   const [plannedStr, setPlannedStr] = useState<string>('350');
@@ -302,13 +321,6 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   const [unitPrice, setUnitPrice] = useState<number | ''>(110000);
   const [unitPriceStr, setUnitPriceStr] = useState<string>('110000');
   const [dueDate, setDueDate] = useState<string>('');
-
-  // Keep floor state in sync with floorOptions
-  useEffect(() => {
-    if (!editingVolume && floorOptions.length > 0) {
-      setSelectedFloors([floorOptions[0]]);
-    }
-  }, [floorOptions, editingVolume]);
 
   // Financial calculations
   const totals = useMemo(() => {
@@ -460,8 +472,9 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     setShowAddForm(false);
     setEditingVolume(null);
     setTitle('');
-    setSelectedFloors([floorOptions[0] || 'Tầng 1']);
-    setCategory('khung_tran');
+    setSelectedFloors([]);
+    setCategory('');
+    setCategoryManuallyEdited(false);
     setUnit('m2');
     setPlanned(350);
     setPlannedStr('350');
@@ -500,8 +513,11 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       return;
     }
 
-    const floorNames = selectedFloors.length > 0 ? selectedFloors : ['Tầng 1'];
-    const matchedFloorIds = floorNames.map(fName => floorPlans?.find(fp => (fp.floorName || fp.id) === fName)?.id || fName);
+    const floorNames = selectedFloors;
+    const matchedFloorIds = floorNames
+      .map((fName) => floorPlans?.find((fp) => (fp.floorName || fp.id) === fName)?.id)
+      .filter((id): id is string => Boolean(id));
+    const floorScopeLabel = floorNames.length > 0 ? floorNames.join(', ') : 'Toàn công trình';
     const assignedWorkCategoryId = editingVolume?.workCategoryId || createEntityId('CAT');
 
     if (editingVolume) {
@@ -509,10 +525,11 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         onSaveWorkVolume({
           id: editingVolume.id,
           workCategoryId: assignedWorkCategoryId,
+          floorId: matchedFloorIds[0],
           floorIds: matchedFloorIds,
           title: title.trim(),
-          floor: floorNames.join(', '),
-          category,
+          floor: floorScopeLabel,
+          category: category.trim() || inferWorkCategoryGroup(title) || 'Khác',
           unit: normalizeUnit(unit) || unit,
           planned: finalPlanned,
           actual: Number(actual || 0),
@@ -524,10 +541,11 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     } else {
       onAddWorkVolume({
         workCategoryId: assignedWorkCategoryId,
+        floorId: matchedFloorIds[0],
         floorIds: matchedFloorIds,
         title: title.trim(),
-        floor: floorNames.join(', '),
-        category,
+        floor: floorScopeLabel,
+        category: category.trim() || inferWorkCategoryGroup(title) || 'Khác',
         unit: normalizeUnit(unit) || unit,
         planned: finalPlanned,
         actual: Number(actual || 0),
@@ -539,6 +557,8 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
     if (!editingVolume && submitMode === 'continue') {
       setTitle('');
+      setCategory('');
+      setCategoryManuallyEdited(false);
       setPlanned(350);
       setPlannedStr('350');
       setActual(0);
@@ -718,14 +738,15 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           <p className="text-xs text-slate-500">{t('volume_subtitle')}</p>
         </div>
 
-        <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-flow-col sm:auto-cols-max sm:grid-cols-none sm:items-center">
+        <div className="grid w-full grid-cols-1 gap-2 sm:w-auto sm:grid-flow-col sm:auto-cols-max sm:grid-cols-none sm:items-center">
           {hasStructureManageAccess && (
-            <div className="order-first col-span-2 flex h-11 w-full sm:order-none sm:col-span-1 sm:h-9 sm:w-auto">
+            <div className="order-first col-span-1 flex h-11 w-full sm:order-none sm:h-9 sm:w-auto">
               <button
                 onClick={async () => {
                   setTitle('');
-                  setSelectedFloors([floorOptions[0] || 'Tầng 1']);
-                  setCategory('khung_tran');
+                  setSelectedFloors([]);
+                  setCategory('');
+                  setCategoryManuallyEdited(false);
                   setUnit('m2');
                   setPlanned(350);
                   setPlannedStr('350');
@@ -764,7 +785,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               </details>
             </div>
           )}
-          <div className={hasStructureManageAccess ? 'col-span-1 sm:col-span-1' : 'col-span-2 sm:col-span-1'}>
+          <div className="col-span-1">
             <ExcelActionMenu
               fillMobile
               triggerLabel="Quản lý dữ liệu"
@@ -1128,8 +1149,12 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                             onClick={async () => {
                               setEditingVolume(item);
                               setTitle(item.title);
-                              setSelectedFloors(item.floor ? item.floor.split(',').map(s => s.trim()).filter(Boolean) : [floorOptions[0] || 'Tầng 1']);
-                              setCategory(item.category);
+                              const scopedFloorNames = Array.from(new Set([...(item.floorIds || []), item.floorId || ''].filter(Boolean)))
+                                .map((id) => floorPlans.find((floor) => floor.id === id)?.floorName)
+                                .filter((name): name is string => Boolean(name));
+                              setSelectedFloors(scopedFloorNames);
+                              setCategory(item.category || '');
+                              setCategoryManuallyEdited(Boolean(item.category));
                               setUnit(item.unit);
                               setPlanned(item.planned);
                               setPlannedStr(item.planned.toString());
@@ -1167,6 +1192,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         open={showTemplatePicker}
         onClose={() => setShowTemplatePicker(false)}
         currentProjectId={currentProjectId}
+        currentItems={workVolumes.filter((item) => !item.deletedAt)}
         kind="workVolumes"
         title="Lấy Hạng mục thi công từ công trình/mẫu"
         onImport={async (rows) => {
@@ -1251,9 +1277,13 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 <label className="block text-slate-700 font-bold mb-1">Tên hạng mục Công Việc *</label>
                 <input
                   type="text"
-                  placeholder="Ví dụ: Thi công khung trần chìm Tầng 3"
+                  placeholder="Ví dụ: Trần thạch cao khung chìm"
                   value={title}
-                  onChange={(e) => setTitle(e.target.value)}
+                  onChange={(e) => {
+                    const nextTitle = e.target.value;
+                    setTitle(nextTitle);
+                    if (!categoryManuallyEdited) setCategory(inferWorkCategoryGroup(nextTitle));
+                  }}
                   className="w-full border border-slate-200 rounded-xl p-2.5 font-medium"
                   required
                 />
@@ -1262,7 +1292,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:col-span-6 items-start">
                 <div className="flex flex-col min-w-0">
                   <label className="h-6 text-slate-700 font-bold mb-1 flex items-center justify-between gap-2">
-                    <span>Vị trí tầng</span>
+                    <span>Phạm vi tầng <span className="font-medium text-slate-400">(không bắt buộc)</span></span>
                     {floorPlans && floorPlans.length > 0 && (
                       <span className="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 font-bold">
                         Đồng bộ từ Mặt bằng
@@ -1275,12 +1305,19 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                       onClick={() => setIsFloorDropdownOpen(!isFloorDropdownOpen)}
                     >
                       <span className="truncate">
-                        {selectedFloors.length > 0 ? selectedFloors.join(', ') : 'Chọn tầng...'}
+                        {selectedFloors.length > 0 ? selectedFloors.join(', ') : 'Toàn công trình'}
                       </span>
                       <ChevronDown className="w-5 h-5 text-slate-400 flex-shrink-0" />
                     </div>
                     {isFloorDropdownOpen && (
                       <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-50 max-h-48 overflow-y-auto">
+                        <div
+                          className="p-2.5 flex items-center hover:bg-indigo-50 cursor-pointer border-b border-slate-100"
+                          onClick={() => setSelectedFloors([])}
+                        >
+                          <input type="checkbox" checked={selectedFloors.length === 0} readOnly className="mr-2.5 w-4 h-4 text-blue-600 rounded border-slate-300" />
+                          <span className="font-bold text-indigo-700 truncate">Toàn công trình</span>
+                        </div>
                         {floorOptions.map(fName => (
                           <div 
                             key={fName} 
@@ -1288,8 +1325,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                             onClick={() => {
                               setSelectedFloors(prev => {
                                 if (prev.includes(fName)) {
-                                  const next = prev.filter(f => f !== fName);
-                                  return next.length > 0 ? next : [fName]; // Prevent empty
+                                  return prev.filter(f => f !== fName);
                                 }
                                 return [...prev, fName];
                               });
@@ -1307,6 +1343,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                       </div>
                     )}
                   </div>
+                  <p className="mt-1 text-[10px] text-slate-500">Không chọn tầng = áp dụng toàn công trình; khi gán vào Căn/Mặt bằng, tầng thực tế lấy từ liên kết của Căn.</p>
                 </div>
                 <div className="flex flex-col min-w-0">
                   <label className="h-6 text-slate-700 font-bold mb-1 flex items-center">Nhóm hạng mục</label>
@@ -1314,19 +1351,19 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                     type="text"
                     list="category-options"
                     value={category}
-                    onChange={(e) => setCategory(e.target.value)}
+                    onChange={(e) => {
+                      setCategory(e.target.value);
+                      setCategoryManuallyEdited(true);
+                    }}
                     className="w-full min-h-11 border border-slate-200 rounded-xl p-2.5 font-bold text-indigo-700"
                     placeholder="Nhập hoặc chọn nhóm"
                   />
                   <datalist id="category-options">
-                    {availableCategories.map(catId => (
-                      <option key={catId} value={catId}>
-                        {catId === 'khung_tran' ? 'Khung Trần' : 
-                         catId === 'ban_tam' ? 'Bắn Tấm' : 
-                         catId === 'son_ba' ? 'Sơn Bả' : catId}
-                      </option>
+                    {Array.from(new Set([...WORK_CATEGORY_SUGGESTIONS, ...availableCategories])).map((group) => (
+                      <option key={group} value={group} />
                     ))}
                   </datalist>
+                  <p className="mt-1 text-[10px] text-slate-500">Gợi ý tự động theo tên hạng mục; vẫn có thể nhập nhóm khác.</p>
                 </div>
               </div>
 
