@@ -415,7 +415,15 @@ function AuthenticatedApp() {
 
     if (navigationCommitTimerRef.current != null) {
       window.clearTimeout(navigationCommitTimerRef.current);
+      navigationCommitTimerRef.current = null;
     }
+
+    // Re-tapping the active tab is a true no-op: no timer, no remount and no listener churn.
+    if (tab === activeTabRef.current) {
+      setNavigationTargetTab(null);
+      return;
+    }
+
     navigationCommitTimerRef.current = window.setTimeout(() => {
       navigationCommitTimerRef.current = null;
       if (requestId !== navigationRequestRef.current) return;
