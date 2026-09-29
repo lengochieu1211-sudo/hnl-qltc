@@ -158,6 +158,7 @@ pass('offline mutation durability uses Firestore SDK pending writes, not React/l
 
 if (!exists('storage.rules') || !firebaseJson.includes('"storage"') || !firebaseJson.includes('"rules": "storage.rules"')) fail('Firebase Storage fallback rules are not retained in firebase.json');
 if (!firebaseJson.includes('"source": "!/assets/**"') || !firebaseProdJson.includes('"source": "!/assets/**"')) fail('Firebase Hosting SPA rewrite must exclude /assets/** so stale hashed JS/CSS returns 404 instead of index.html');
+if (!firebaseJson.includes('"source": "/index.html"') || !firebaseJson.includes('"no-cache, max-age=0, must-revalidate"') || !firebaseJson.includes('"source": "/assets/**"') || !firebaseJson.includes('"public, max-age=31536000, immutable"')) fail('DEV Hosting cache policy must keep HTML/SW fresh while hashed assets stay immutable');
 requireAll(firebaseStorage, ['uploadProjectBinary', 'uploadFloorPlanBinary', 'thumbnailPath', 'deleteObject'], 'Firebase Storage fallback client');
 requireAll(binaryStorage, ['BINARY_STORAGE_PROVIDER', "'r2'", "'firebase-storage'", 'uploadProjectBinaryToCloud', 'uploadFloorPlanBinaryToCloud', 'downloadBinaryBlob'], 'binary storage provider adapter');
 requireAll(r2Storage, ['VITE_R2_GATEWAY_URL', 'Authorization', 'uploadProjectBinaryToR2', 'uploadFloorPlanBinaryToR2', 'downloadR2Blob'], 'R2 client');
@@ -516,7 +517,7 @@ if (!sw.includes("new URL(self.location.href).searchParams.get('v')") || !swRegi
 if (!swRegistration.includes('requestIdleCallback') || !swRegistration.includes('window.setTimeout(registerCurrentBuildServiceWorker, 900)')) fail('service worker registration must defer install work until the first interactive window settles');
 requireAll(vite, ['hnl-service-worker-asset-manifest', 'sw-assets.json', 'assets = Object.keys(bundle)'], 'Vite service-worker asset manifest');
 requireAll(sw, ['loadBuildAssetManifest', 'SW_ASSET_MANIFEST_HAS_NO_JS_CHUNKS', 'cacheAssetsInBatches', 'cache.addAll(batch)'], 'service-worker complete app-shell precache with bounded concurrency');
-requireAll(sw, ['htmlFallback', "contentType.includes('text/html')", "status: 404", 'cachedResponse'], 'service-worker hashed asset MIME guard');
+requireAll(sw, ['responseMatchesAssetType', "contentType.includes('text/html')", 'currentCache.delete(request)', 'Hashed asset not found or invalid content type', 'cachedResponseIsValid'], 'service-worker hashed asset MIME guard + poisoned-cache eviction');
 requireAll(hostedBrowserGolden, ['verifyColdStartOffline', 'Network.clearBrowserCache', 'context.setOffline(true)', 'CacheStorage'], 'Runtime Golden cold-start offline');
 requireAll(hostedBrowserGolden, ['verifyHostingAssetMime', 'DEV current hashed JS asset MIME', 'DEV stale hashed asset is not SPA HTML 200'], 'Runtime Golden Hosting asset MIME/404 guard');
 const devRuntimeHasGlobalPushTrigger = !devRuntimeWorkflow.includes('    paths:');
