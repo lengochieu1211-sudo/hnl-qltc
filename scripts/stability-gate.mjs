@@ -20,6 +20,7 @@ const mergeWorkflow = read('.github/workflows/firebase-hosting-merge.yml');
 const prWorkflow = read('.github/workflows/firebase-hosting-pull-request.yml');
 const buildWorkflow = read('.github/workflows/build.yml');
 const firebaseJson = read('firebase.json');
+const firebaseProdJson = read('firebase.prod.json');
 const firebase = read('src/lib/firebase.ts');
 const firebaseBase = read('src/lib/firebaseBase.ts');
 const securityModal = read('src/components/SecurityModal.tsx');
@@ -458,6 +459,8 @@ requireAll(app, [
   'navigationRapidUntilRef.current = now + 320',
   'data-hnl-navigation-target',
   'data-hnl-tab-switching="true"',
+  'tab === activeTabRef.current',
+
 ], 'adaptive navigation last-click-wins debounce');
 const navigationCoordinator = app.slice(app.indexOf('const navigateToTab'), app.indexOf('// Warm primary field screens'));
 if (navigationCoordinator.includes('React.startTransition')) fail('settled rapid navigation commit must not use React.startTransition');
@@ -511,6 +514,10 @@ if (app.includes("FIREBASE_ONLY_ALL_BACKUP_CLOUD_SOURCE") && app.includes("const
 pass('Firebase-only JSON backup is Cloud/live-state sourced and media-complete/fail-closed');
 
 if (!sw.includes("new URL(self.location.href).searchParams.get('v')") || !swRegistration.includes('APP_VERSION')) fail('service worker cache version is not derived from canonical app version');
+if (!firebaseJson.includes('"source": "!/@(assets)/**"')) fail('DEV Hosting must exclude /assets/** from SPA index rewrite');
+if (!firebaseProdJson.includes('"source": "!/assets/**"') && !firebaseProdJson.includes('"source": "!/@(assets)/**"')) fail('PROD Hosting must exclude /assets/** from SPA index rewrite');
+requireAll(sw, ["contentType.includes('text/html')", 'Hashed asset not found', "'Cache-Control': 'no-store'"], 'service-worker hashed asset HTML fallback guard');
+if (!devDeployWorkflow.includes('Missing hashed asset must return 404') || !devDeployWorkflow.includes('entry JS asset has non-JavaScript Content-Type')) fail('DEV deploy must verify hashed asset HTTP/MIME integrity');
 if (!swRegistration.includes('requestIdleCallback') || !swRegistration.includes('window.setTimeout(registerCurrentBuildServiceWorker, 900)')) fail('service worker registration must defer install work until the first interactive window settles');
 requireAll(vite, ['hnl-service-worker-asset-manifest', 'sw-assets.json', 'assets = Object.keys(bundle)'], 'Vite service-worker asset manifest');
 requireAll(sw, ['loadBuildAssetManifest', 'SW_ASSET_MANIFEST_HAS_NO_JS_CHUNKS', 'cacheAssetsInBatches', 'cache.addAll(batch)'], 'service-worker complete app-shell precache with bounded concurrency');
