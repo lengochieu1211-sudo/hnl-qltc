@@ -63,8 +63,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   ];
 
   const previewTab = (tab: TabType) => {
+    // Touch/pointer-down is feedback only. Starting a heavy lazy import here can block
+    // Android's main thread before the pressed state has painted.
     setPressedTab(tab);
-    onPreloadTab?.(tab);
   };
 
   const activate = (tab: TabType) => {

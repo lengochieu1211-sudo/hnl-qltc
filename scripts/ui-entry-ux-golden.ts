@@ -292,7 +292,8 @@ assert(navSource.includes('data-hnl-nav-tab={tab.id}') && navSource.includes('da
 assert(navSource.includes('data-hnl-nav-surface="desktop"') && navSource.includes('data-hnl-nav-surface="mobile"'), 'Runtime navigation diagnostics must distinguish desktop rail from mobile bottom bar');
 assert(navSource.includes('data-hnl-nav-tab="volume"'), 'Mobile More menu must expose Work Volume as a stable runtime navigation destination');
 assert(!navSource.includes('startTransition(() => setActiveTab(tab))'), 'Primary navigation must not keep the old heavy screen visible through a React transition');
-assert(navSource.includes('onPreloadTab?.(tab)') && navSource.includes('onPointerEnter={() => onPreloadTab?.(tab.id)}'), 'Primary navigation must preload the destination on hover/touch intent');
+assert(navSource.includes('onPointerEnter={() => onPreloadTab?.(tab.id)}'), 'Desktop pointer hover must preload the destination lazy chunk');
+assert(!navSource.includes('onPreloadTab?.(tab);'), 'Touch pointer-down feedback must not start heavy lazy chunk parsing before mobile paint');
 assert(appSource.includes('const preloadTab = React.useCallback') && appSource.includes('onPreloadTab={preloadTab}'), 'App must map navigation intent to the destination lazy loader');
 assert(appSource.includes('navigationRequestRef') && appSource.includes('requestId !== navigationRequestRef.current'), 'Rapid navigation must invalidate stale tab transitions so the last click wins');
 assert(appSource.includes('navigationCommitTimerRef') && appSource.includes('commitDelayMs = rapidMode ? 80 : 24') && appSource.includes('setNavigationTargetTab(tab)'), 'Primary navigation must switch the visible destination immediately while giving the shell one paint opportunity before heavy content');
@@ -311,6 +312,7 @@ assert(floorPlanKeepAliveSource.includes('isActive?: boolean;') && floorPlanKeep
 assert(!appSource.includes('loaders.forEach((loader)'), 'Navigation warming must not parse all heavy primary screens in parallel');
 assert(appSource.includes('nextTimer = window.setTimeout(next, warmGapMs)') && appSource.includes('loader().catch(() => undefined).finally(() =>'), 'Desktop background lazy warming must serialize heavy chunk parsing instead of overlapping imports');
 assert(appSource.includes('if (connection?.saveData || isMobileRuntime) return;'), 'Mobile field runtime must skip background prewarm while desktop still respects Data Saver');
+assert(appSource.includes('if (!isMobileRuntime) preloadTab(tab);'), 'Mobile navigation must paint the destination shell before lazy chunk parsing while desktop keeps intent preload');
 assert(appSource.includes('return isMobileRuntime ? next.slice(-2) : next;'), 'Mobile primary keep-alive must retain at most current + previous tab while desktop keeps warmed tabs');
 const fileExportSource = read('src/utils/fileExport.ts');
 const floorPlanSource = read('src/components/FloorPlanDefectTab.tsx');
@@ -421,6 +423,8 @@ const crewReportText = buildCrewReportText({ rows: crewReportRows, startDate: '2
 assert(crewReportText.includes('Đội A: Sáng 0') && crewReportText.includes('Đội B: Chưa báo'), 'Crew report text must preserve 0 vs Chưa báo semantics');
 assert(crewReportText.includes('Tổng QS/ngày: 5 người') && crewReportText.includes('TỔNG') && crewReportText.includes('Tổng lượt người-ngày: 5'), 'Crew report text must include per-day totals and the final multi-day total block');
 const warehouseUi = read('src/components/WarehouseTab.tsx');
+assert(warehouseUi.includes('onCreateMaterialCatalog') && warehouseUi.includes("setCustomMaterialCategory('Vật tư khác')") && warehouseUi.includes('Định mức hao phí chưa khai báo (0)'), 'Warehouse custom material must create a canonical catalog item with explicit zero/unconfigured norm metadata instead of an orphan ledger name');
+assert(warehouseUi.includes('createdMaterialId') && warehouseUi.includes('materialId: createdMaterialId'), 'Warehouse custom material transaction must link the newly created canonical materialId');
 const offlineBannerUi = read('src/components/OfflineSyncBanner.tsx');
 const roomHighlightUi = read('src/components/RoomHighlightModal.tsx');
 assert(workVolumeUi.includes('Tổng hợp tiến độ khối lượng & giá trị') && workVolumeUi.includes('Chưa khai báo đơn giá') && workVolumeUi.includes('Giá trị đã thực hiện') && workVolumeUi.includes('Object.entries(totals.byUnit)'), 'Work Volume summary must show the same physical quantities for every role and add financial values only as supplementary ADMIN information');

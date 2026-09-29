@@ -71,6 +71,7 @@ interface WarehouseTabProps {
   workVolumes?: WorkVolume[];
   onImportInventory?: (inventory: InventoryItem[]) => void | Promise<void>;
   onImportNorms?: (norms: MaterialNorm[]) => void;
+  onCreateMaterialCatalog?: (input: { materialName: string; unit: string; category: string }) => string | null | Promise<string | null>;
   onImportWorkVolumes?: (volumes: WorkVolume[]) => void;
   roomProgressList?: RoomProgressItem[];
   teams?: TeamInfo[];
@@ -99,6 +100,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   workVolumes,
   onImportInventory,
   onImportNorms,
+  onCreateMaterialCatalog,
   onImportWorkVolumes,
   roomProgressList = [],
   teams = [],
@@ -769,6 +771,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [type, setType] = useState<TransactionType>('in');
   const [materialName, setMaterialName] = useState(materialNorms[0]?.materialName || '');
   const [customMaterial, setCustomMaterial] = useState('');
+  const [customMaterialCategory, setCustomMaterialCategory] = useState('Vật tư khác');
   const [materialPickerSearch, setMaterialPickerSearch] = useState('');
   const [unit, setUnit] = useState(materialNorms[0]?.unit || 'Tấm');
   const [quantity, setQuantity] = useState<number | ''>('');
@@ -1212,6 +1215,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setItemKind(kind);
     setType('in');
     setCustomMaterial('');
+    setCustomMaterialCategory('Vật tư khác');
     setIsNewEquipment(kind === 'equipment' && equipmentCatalog.length === 0);
     setMaterialPickerSearch('');
     if (kind === 'equipment') {
@@ -1250,6 +1254,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       : undefined;
     setMaterialName(matched?.materialName || item.materialName);
     setCustomMaterial(editingKind === 'material' && !matched ? item.materialName : '');
+    setCustomMaterialCategory('Vật tư khác');
     setMaterialPickerSearch('');
     setUnit(item.unit);
     setQuantity(item.quantity);
@@ -1337,6 +1342,27 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         && (normalizeUnit(norm.unit) || norm.unit) === normalizedFinalUnit)
       .map(resolveNormMaterialId)
       .filter(Boolean) as string[])) : [];
+    let createdMaterialId: string | null = null;
+    if (itemKind === 'material' && exactNormMaterialIds.length === 0 && customMaterial.trim()) {
+      if (!hasNormManageAccess) {
+        alert('Vật tư mới chưa có trong Danh mục vật tư. Tài khoản hiện tại không có quyền tạo danh mục; hãy chọn vật tư có sẵn hoặc nhờ ADMIN thêm trước.');
+        return;
+      }
+      if (!onCreateMaterialCatalog) {
+        alert('Không thể tạo Danh mục vật tư lúc này. Vui lòng thử lại sau.');
+        return;
+      }
+      const category = customMaterialCategory.trim() || 'Vật tư khác';
+      createdMaterialId = await onCreateMaterialCatalog({
+        materialName: finalMaterialName,
+        unit: normalizedFinalUnit,
+        category,
+      });
+      if (!createdMaterialId) {
+        alert('Không thể thêm vật tư mới vào Danh mục vật tư. Phiếu kho chưa được ghi.');
+        return;
+      }
+    }
     const editingKeepsIdentity = Boolean(itemKind === 'material' && editingInventory
       && editingInventory.itemKind !== 'equipment'
       && editingInventory.materialName.trim().toLocaleLowerCase('vi-VN') === finalMaterialName.trim().toLocaleLowerCase('vi-VN')
@@ -1360,9 +1386,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     const payload = {
       type,
       itemKind,
-      materialId: exactNormMaterialIds.length === 1
-        ? exactNormMaterialIds[0]
-        : (exactNormMaterialIds.length === 0 && editingKeepsIdentity ? editingInventory?.materialId : undefined),
+      materialId: createdMaterialId
+        || (exactNormMaterialIds.length === 1
+          ? exactNormMaterialIds[0]
+          : (exactNormMaterialIds.length === 0 && editingKeepsIdentity ? editingInventory?.materialId : undefined)),
       materialName: finalMaterialName,
       unit: normalizedFinalUnit,
       quantity: finalQuantity,
@@ -2997,7 +3024,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
               {/* Legacy/custom material remains material-only; equipment uses a reusable catalog instead of “Tên khác”. */}
               {itemKind === 'material' && (
-                <div className="lg:col-span-3">
+                <div className="lg:col-span-3 space-y-2">
                   <label className="block text-slate-500 font-medium mb-1">Tên vật tư khác</label>
                   <input
                     type="text"
@@ -3006,6 +3033,32 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     onChange={(e) => setCustomMaterial(e.target.value)}
                     className="w-full bg-white border border-slate-200 rounded-xl p-2.5"
                   />
+                  {customMaterial.trim() && !materialNorms.some((norm) =>
+                    norm.materialName.trim().toLocaleLowerCase('vi-VN') === customMaterial.trim().toLocaleLowerCase('vi-VN')
+                    && (normalizeUnit(norm.unit) || norm.unit) === (normalizeUnit(unit) || unit)
+                  ) && (
+                    <div className="rounded-xl border border-blue-100 bg-blue-50 p-2.5">
+                      {hasNormManageAccess ? (
+                        <>
+                          <label className="block text-[10px] font-bold text-blue-800 mb-1">Nhóm vật tư mới</label>
+                          <input
+                            type="text"
+                            value={customMaterialCategory}
+                            onChange={(e) => setCustomMaterialCategory(e.target.value)}
+                            placeholder="Vật tư khác"
+                            className="w-full rounded-lg border border-blue-200 bg-white px-2.5 py-2 text-xs text-slate-800"
+                          />
+                          <p className="mt-1.5 text-[10px] leading-relaxed text-blue-700">
+                            Khi lưu phiếu, vật tư này sẽ được thêm vào Danh mục vật tư và liên kết bằng materialId. Định mức hao phí chưa khai báo (0) để tránh tự suy đoán.
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-[10px] leading-relaxed text-amber-700">
+                          Vật tư này chưa có trong Danh mục vật tư. Chỉ ADMIN quản lý định mức mới được tạo vật tư mới; hãy chọn vật tư có sẵn hoặc nhờ ADMIN thêm trước.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 

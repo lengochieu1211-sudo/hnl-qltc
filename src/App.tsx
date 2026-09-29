@@ -436,7 +436,7 @@ function AuthenticatedApp() {
     // gives the browser one paint opportunity for the destination shell before React mounts
     // the heavy screen; rapid taps still use the longer last-click-wins window.
     setNavigationTargetTab(tab);
-    preloadTab(tab);
+    if (!isMobileRuntime) preloadTab(tab);
 
     if (navigationCommitTimerRef.current != null) {
       window.clearTimeout(navigationCommitTimerRef.current);
@@ -5488,8 +5488,8 @@ function AuthenticatedApp() {
     return reconcileMaterialNormWorkCategoryLinks([normalized], catalog).materialNorms[0] || normalized;
   };
 
-  const handleAddNorm = (normData: Omit<MaterialNorm, 'id'>) => {
-    if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được thêm định mức vật tư.'); return; }
+  const handleAddNorm = (normData: Omit<MaterialNorm, 'id'>): string | null => {
+    if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được thêm định mức vật tư.'); return null; }
     const newId = createEntityId('NORM');
     const identity = resolveUniqueMaterialIdentity({
       materialId: normData.materialId,
@@ -5499,7 +5499,7 @@ function AuthenticatedApp() {
     });
     if (!normData.materialId && identity.state === 'ambiguous') {
       alert('Không thể xác định duy nhất vật tư theo Tên + ĐVT. Hãy sửa materialId/định mức trùng trước.');
-      return;
+      return null;
     }
     const materialId = normData.materialId || (identity.state === 'resolved' ? identity.materialId : resolveNormMaterialId({ ...normData, id: newId }));
     const candidate = normalizeMaterialNormCandidate({ ...normData, id: newId, materialId } as MaterialNorm, present.workVolumes);
@@ -5507,9 +5507,10 @@ function AuthenticatedApp() {
       .filter((issue) => issue.normIds.includes(newId));
     if (issues.length > 0) {
       alert(issues.map((issue) => issue.message).join('\n'));
-      return;
+      return null;
     }
     updateAppData((prev) => ({ ...prev, materialNorms: [candidate, ...prev.materialNorms] }));
+    return materialId || null;
   };
 
   const handleUpdateNorm = (id: string, updated: Omit<MaterialNorm, 'id'>) => {
@@ -7269,6 +7270,16 @@ function AuthenticatedApp() {
               defaultHandler={inspectorName}
               onImportInventory={handleImportInventory}
               onImportNorms={handleImportNorms}
+              onCreateMaterialCatalog={({ materialName, unit, category }) => handleAddNorm({
+                materialName,
+                unit,
+                category,
+                quotaQuantity: 0,
+                unitNormPerM2: 0,
+                workCategories: [],
+                workCategoryIds: [],
+                notes: 'Tạo từ Nhập/Xuất kho; chưa khai báo định mức hao phí.',
+              })}
               onImportWorkVolumes={handleImportWorkVolumes}
             />
             </div>
