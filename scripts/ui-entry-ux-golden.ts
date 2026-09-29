@@ -435,3 +435,25 @@ assert(hostedBrowserGolden.includes("const restrictedBackupNotice = sheet.getByT
 assert(!hostedBrowserGolden.includes('must expand inline, not become a fixed page/sheet'), 'Hosted browser Golden must not regress to the removed inline-expansion contract');
 
 console.log('PASS ui-entry-ux-golden: shared Settings feature sheets, Material Need semantic quick-sort, Sync Center engine reuse, close/backdrop/history contract, Defect photo icon de-duplication and role-aware Runtime Golden rules are intact.');
+
+const workVolumeTab = read('src/components/WorkVolumeTab.tsx');
+const crewTab = read('src/components/CrewTabBase.tsx');
+const imageViewer = read('src/components/ImageViewerModal.tsx');
+const catalogTemplatePicker = read('src/components/CatalogTemplatePickerModal.tsx');
+
+assert(workVolumeTab.includes('grid w-full grid-cols-1 gap-2 sm:w-auto'), 'Work Volume mobile action toolbar must use one full-width column');
+assert(workVolumeTab.includes('triggerLabel="Quản lý dữ liệu"') && workVolumeTab.includes('<div className="col-span-1">'), 'Work Volume Data Manager action must not leave a half-width mobile gap');
+assert(workVolumeTab.includes("const GLOBAL_WORK_SCOPE_LABEL = 'Toàn công trình';"), 'Work Volume must support a global floor scope');
+assert(workVolumeTab.includes('Phạm vi tầng <span className="font-medium text-slate-400">(không bắt buộc)</span>'), 'Work Volume floor scope must be visibly optional');
+assert(workVolumeTab.includes('inferWorkCategoryGroup') && workVolumeTab.includes("return 'Trần';") && workVolumeTab.includes("return 'Vách';"), 'Work Volume category group must be suggested from the typed title');
+assert(!workVolumeTab.includes("setCategory('khung_tran')"), 'Work Volume create flow must not hard-code khung_tran as the default category');
+assert(workVolumeTab.includes('currentItems={workVolumes.filter((item) => !item.deletedAt)}'), 'Work Volume templates must allow saving the current catalog');
+
+assert(!crewTab.includes("subItems: ['Bắn tấm khung chìm', 'Bả matit 2 lớp']"), 'Crew create flow must not inject Bả matit as a fake default sub-item');
+assert(crewTab.includes('const defaultFloorWork = createDefaultFloorWork(availableFloors[0]);'), 'Crew create flow must derive floor/category/sub-item suggestions from live project data');
+assert(crewTab.includes('currentItems={teams.filter((team) => !team.deletedAt)}'), 'Team templates must allow saving the current team directory');
+
+assert(imageViewer.includes('RotateCw') && imageViewer.includes('Xoay ảnh sang trái 90 độ') && imageViewer.includes('Xoay ảnh sang phải 90 độ'), 'Shared image viewer must expose left/right 90-degree rotation');
+assert(imageViewer.includes('rotate(${rotation}deg)'), 'Shared image viewer transform must apply rotation');
+assert(catalogTemplatePicker.includes('currentItems?: any[];') && catalogTemplatePicker.includes('Lưu dữ liệu hiện tại thành mẫu'), 'Catalog template picker must expose saving the current project catalog as a reusable template');
+assert(materialNormModal.includes('currentItems={activeMaterialNorms}'), 'Material Norm templates must allow saving the current norm catalog');
