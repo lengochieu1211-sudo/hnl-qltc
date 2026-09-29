@@ -172,9 +172,18 @@ async function verifyRapidPrimaryNavigation(page, label) {
     while (performance.now() < singleMountedDeadline && main.getAttribute('data-hnl-mounted-tab') !== singleTab) {
       await new Promise((resolve) => setTimeout(resolve, 8));
     }
-    const singleMountedMs = performance.now() - singleStartedAt;
     const singleMounted = main.getAttribute('data-hnl-mounted-tab') || '';
-    const singleInstance = main.querySelector(`[data-hnl-tab-instance="${singleTab}"]`);
+
+    // A state commit is not yet "heavy content mounted" if its lazy chunk is still
+    // suspended. Wait for the real tab DOM instance so first-open latency and keepalive
+    // identity are measured against the content the user can actually interact with.
+    const singleInstanceDeadline = performance.now() + 1500;
+    let singleInstance = main.querySelector(`[data-hnl-tab-instance="${singleTab}"]`);
+    while (performance.now() < singleInstanceDeadline && !singleInstance) {
+      await new Promise((resolve) => setTimeout(resolve, 8));
+      singleInstance = main.querySelector(`[data-hnl-tab-instance="${singleTab}"]`);
+    }
+    const singleMountedMs = performance.now() - singleStartedAt;
     await new Promise((resolve) => setTimeout(resolve, 380));
 
     const commits = [];
@@ -260,6 +269,7 @@ async function verifyRapidPrimaryNavigation(page, label) {
       singleSwitchMs,
       singleMounted,
       singleMountedMs,
+      singleInstanceReady: Boolean(singleInstance),
       finalTab,
       finalActive: rapidFinalActive,
       finalMounted: rapidFinalMounted,
@@ -284,6 +294,7 @@ async function verifyRapidPrimaryNavigation(page, label) {
   assert(result.singleActive === result.singleTab, `${label}: visible destination shell did not settle on one click (${result.singleActive} != ${result.singleTab})`);
   assert(result.singleSwitchMs <= 120, `${label}: visible destination shell exceeded 120ms (${result.singleSwitchMs.toFixed(1)}ms)`);
   assert(result.singleMounted === result.singleTab, `${label}: heavy content did not settle on one click (${result.singleMounted} != ${result.singleTab})`);
+  assert(result.singleInstanceReady, `${label}: first heavy-content DOM instance did not mount`);
   assert(result.singleMountedMs <= 900, `${label}: first heavy-content mount exceeded 900ms (${result.singleMountedMs.toFixed(1)}ms)`);
   assert(result.finalActive === result.finalTab, `${label}: rapid navigation visual shell did not settle on last click (${result.finalActive} != ${result.finalTab})`);
   assert(result.finalMounted === result.finalTab, `${label}: rapid navigation heavy content did not settle on last click (${result.finalMounted} != ${result.finalTab})`);
