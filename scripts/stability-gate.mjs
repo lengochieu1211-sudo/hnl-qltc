@@ -156,6 +156,8 @@ if (!offlineBanner.includes('hàng chờ Firestore bền vững') || offlineBann
 pass('offline mutation durability uses Firestore SDK pending writes, not React/localStorage-only state');
 
 if (!exists('storage.rules') || !firebaseJson.includes('"storage"') || !firebaseJson.includes('"rules": "storage.rules"')) fail('Firebase Storage fallback rules are not retained in firebase.json');
+if (!firebaseJson.includes('"source": "!/assets/**"') || !firebaseProdJson.includes('"source": "!/assets/**"')) fail('Firebase Hosting SPA rewrite must exclude /assets/** so missing hashed assets return 404');
+if (!firebaseJson.includes('"source": "/index.html"') || !firebaseJson.includes('"public, max-age=31536000, immutable"')) fail('DEV Hosting cache headers for HTML/assets are missing');
 requireAll(firebaseStorage, ['uploadProjectBinary', 'uploadFloorPlanBinary', 'thumbnailPath', 'deleteObject'], 'Firebase Storage fallback client');
 requireAll(binaryStorage, ['BINARY_STORAGE_PROVIDER', "'r2'", "'firebase-storage'", 'uploadProjectBinaryToCloud', 'uploadFloorPlanBinaryToCloud', 'downloadBinaryBlob'], 'binary storage provider adapter');
 requireAll(r2Storage, ['VITE_R2_GATEWAY_URL', 'Authorization', 'uploadProjectBinaryToR2', 'uploadFloorPlanBinaryToR2', 'downloadR2Blob'], 'R2 client');
