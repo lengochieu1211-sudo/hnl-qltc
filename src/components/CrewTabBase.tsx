@@ -1668,7 +1668,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     e.target.value = '';
   };
 
-  const crewQuickRows = useMemo<QuickGridRow[]>(() => crewRecords.flatMap((record) => {
+  const crewQuickRows = useMemo<QuickGridRow[]>(() => {
+    if (!showQuickEdit) return [];
+    return crewRecords.flatMap((record) => {
     const counts = getCrewShiftCounts(record);
     const floorWorks = record.floorWorks?.length
       ? record.floorWorks
@@ -1696,9 +1698,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         subItems: (category.subItems || []).join('; '),
       }));
     });
-  }), [crewRecords, floorById, normalizedStructureConfig]);
+  });
+  }, [showQuickEdit, crewRecords, floorById, normalizedStructureConfig]);
 
-  const teamQuickRows = useMemo<QuickGridRow[]>(() => teams.map((team) => ({
+  const teamQuickRows = useMemo<QuickGridRow[]>(() => showQuickEdit ? teams.map((team) => ({
     __rowKey: team.id,
     __teamId: team.id,
     name: team.name,
@@ -1706,7 +1709,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     defaultCount: team.defaultCount,
     phone: team.phone || '',
     notes: team.notes || '',
-  })), [teams]);
+  })) : [], [showQuickEdit, teams]);
 
   const crewTeamOptions = useMemo(() => Array.from(new Set([
     ...teams.map((team) => team.name),

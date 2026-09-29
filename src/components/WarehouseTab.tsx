@@ -1413,7 +1413,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     }
   };
 
-  const warehouseQuickNormRows = useMemo<QuickGridRow[]>(() => materialNorms.flatMap((norm) => {
+  const warehouseQuickNormRows = useMemo<QuickGridRow[]>(() => {
+    if (!showQuickEdit) return [];
+    return materialNorms.flatMap((norm) => {
     const linkedIds = new Set<string>([
       ...(norm.workCategoryIds || []),
       ...(norm.workCategoryId ? [norm.workCategoryId] : []),
@@ -1467,9 +1469,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       quotaQuantity: norm.quotaQuantity ?? 0,
       notes: norm.notes || '',
     }];
-  }), [materialNorms, workVolumes]);
+  });
+  }, [showQuickEdit, materialNorms, workVolumes]);
 
-  const warehouseQuickInventoryRows = useMemo<QuickGridRow[]>(() => inventory.map((item) => {
+  const warehouseQuickInventoryRows = useMemo<QuickGridRow[]>(() => {
+    if (!showQuickEdit) return [];
+    return inventory.map((item) => {
     const floor = item.sourceFloorId ? floorPlans.find((entry) => entry.id === item.sourceFloorId) : undefined;
     const room = item.sourceRoomId ? roomProgressList.find((entry) => entry.id === item.sourceRoomId) : undefined;
     const team = item.sourceTeamId ? teams.find((entry) => entry.id === item.sourceTeamId) : undefined;
@@ -1493,9 +1498,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       handler: item.handler || '',
       notes: item.notes || '',
     };
-  }), [inventory, floorPlans, roomProgressList, teams, workVolumes, materialNorms, normalizedStructureConfig]);
+  });
+  }, [showQuickEdit, inventory, floorPlans, roomProgressList, teams, workVolumes, materialNorms, normalizedStructureConfig]);
 
-  const warehouseQuickStockRows = useMemo<QuickGridRow[]>(() => stockSummaries.map((item, index) => ({
+  const warehouseQuickStockRows = useMemo<QuickGridRow[]>(() => showQuickEdit ? stockSummaries.map((item, index) => ({
     __rowKey: `stock-${item.materialId || item.materialName}-${index}`,
     materialName: item.materialName,
     category: item.category,
@@ -1505,7 +1511,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     currentStock: item.currentStock,
     normQuantity: item.normQuantity,
     remainingNeed: item.remainingNeed,
-  })), [stockSummaries]);
+  })) : [], [showQuickEdit, stockSummaries]);
 
   const warehouseMaterialOptions = useMemo(() => Array.from(new Set([
     ...materialNorms.map((norm) => norm.materialName),

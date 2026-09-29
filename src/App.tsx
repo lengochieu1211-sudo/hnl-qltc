@@ -365,9 +365,12 @@ const getVerifiedCachedHomeProjects = (): Array<{ id: string; name: string; role
 function AuthenticatedApp() {
   const isDesktopRuntime = typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('app') === 'desktop';
+  const isMobileRuntime = typeof window !== 'undefined'
+    && (/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '') || window.innerWidth < 768);
   const [activeTab, setActiveTab] = useState<TabType>(getRememberedTab);
-  // Keep primary operational screens mounted after their first real visit. This preserves
-  // local UI state and makes revisits immediate without keeping Chat/AI background feeds alive.
+  // Desktop keeps warmed operational screens mounted for instant revisits.
+  // Mobile is the primary field runtime, so cap the live React trees at current + previous
+  // to prevent RAM/CPU growth after visiting several heavy modules.
   const [mountedPrimaryTabs, setMountedPrimaryTabs] = useState<TabType[]>(() => [getRememberedTab()]);
   const activeTabRef = useRef<TabType>(activeTab);
   activeTabRef.current = activeTab;
@@ -384,8 +387,11 @@ function AuthenticatedApp() {
 
   useEffect(() => {
     if (!PRIMARY_TAB_IDS.includes(activeTab)) return;
-    setMountedPrimaryTabs((previous) => previous.includes(activeTab) ? previous : [...previous, activeTab]);
-  }, [activeTab]);
+    setMountedPrimaryTabs((previous) => {
+      const next = [...previous.filter((tab) => tab !== activeTab), activeTab];
+      return isMobileRuntime ? next.slice(-2) : next;
+    });
+  }, [activeTab, isMobileRuntime]);
 
   const preloadTab = React.useCallback((tab: TabType) => {
     const loader = tab === 'floorplan' ? loadFloorPlanDefectTab
@@ -439,11 +445,14 @@ function AuthenticatedApp() {
       navigationCommitTimerRef.current = null;
       if (requestId !== navigationRequestRef.current) return;
       if (PRIMARY_TAB_IDS.includes(tab)) {
-        setMountedPrimaryTabs((previous) => previous.includes(tab) ? previous : [...previous, tab]);
+        setMountedPrimaryTabs((previous) => {
+          const next = [...previous.filter((mountedTab) => mountedTab !== tab), tab];
+          return isMobileRuntime ? next.slice(-2) : next;
+        });
       }
       setActiveTab(tab);
     }, commitDelayMs);
-  }, [preloadTab]);
+  }, [preloadTab, isMobileRuntime]);
 
   useEffect(() => {
     if (navigationTargetTab === activeTab) setNavigationTargetTab(null);
@@ -463,12 +472,11 @@ function AuthenticatedApp() {
   // five heavy modules in parallel.
   useEffect(() => {
     const connection = (navigator as any).connection;
-    if (connection?.saveData) return;
+    if (connection?.saveData || isMobileRuntime) return;
     let cancelled = false;
     let nextTimer: number | null = null;
-    const mobileLike = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '') || window.innerWidth < 768;
-    const warmGapMs = mobileLike ? 650 : 220;
-    const warmTimeoutMs = mobileLike ? 1800 : 900;
+    const warmGapMs = 220;
+    const warmTimeoutMs = 900;
     const loaders = [loadFloorPlanDefectTab, loadCrewTab, loadWarehouseTab, loadWorkVolumeTab, loadGoogleConfigTab];
     const warm = () => {
       let index = 0;
@@ -486,14 +494,14 @@ function AuthenticatedApp() {
     };
     const idle = (window as any).requestIdleCallback;
     const idleId = typeof idle === 'function' ? idle(warm, { timeout: warmTimeoutMs }) : null;
-    const timer = idleId == null ? window.setTimeout(warm, mobileLike ? 900 : 350) : null;
+    const timer = idleId == null ? window.setTimeout(warm, 350) : null;
     return () => {
       cancelled = true;
       if (timer != null) window.clearTimeout(timer);
       if (nextTimer != null) window.clearTimeout(nextTimer);
       if (idleId != null && typeof (window as any).cancelIdleCallback === 'function') (window as any).cancelIdleCallback(idleId);
     };
-  }, []);
+  }, [isMobileRuntime]);
 
   // Diagnostic navigation stays decoupled from individual screens. The source screen
   // stores the entity request in sessionStorage, while App only switches modules.

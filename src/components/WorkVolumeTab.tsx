@@ -123,7 +123,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       return ['Tầng 1', 'Tầng 2', 'Tầng 3', 'Tầng 4', 'Sảnh / Ngoại thất'];
     }
     return floorPlans.map(fp => fp.floorName);
-  }, [floorPlans]);
+  }, [showQuickEdit, floorPlans]);
 
   // Extract unique categories from workVolumes
   const availableCategories = useMemo(() => {
@@ -163,6 +163,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
   const quickEditFloorNameToId = useMemo(() => {
     const map = new Map<string, string>();
+    if (!showQuickEdit) return map;
     floorPlans.forEach((floor) => {
       const key = String(floor.floorName || '').trim().toLocaleLowerCase('vi-VN');
       if (key && !map.has(key)) map.set(key, floor.id);
@@ -176,7 +177,9 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     return Array.from(new Set(names.map((name) => quickEditFloorNameToId.get(name.toLocaleLowerCase('vi-VN'))).filter((id): id is string => Boolean(id))));
   };
 
-  const quickEditRows = useMemo<QuickGridRow[]>(() => workVolumes.map((item) => {
+  const quickEditRows = useMemo<QuickGridRow[]>(() => {
+    if (!showQuickEdit) return [];
+    return workVolumes.map((item) => {
     const ids = Array.from(new Set([...(item.floorIds || []), item.floorId || ''].filter(Boolean)));
     const floors = ids.map((id) => floorPlans.find((floor) => floor.id === id)).filter((floor): floor is FloorPlan => Boolean(floor));
     const groupNames = Array.from(new Set(floors.map((floor) =>
@@ -195,7 +198,8 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       unitPrice: hasFinancialAccess ? item.unitPrice : '',
       dueDate: item.dueDate || '',
     };
-  }), [workVolumes, floorPlans, normalizedStructureConfig, hasFinancialAccess]);
+  });
+  }, [showQuickEdit, workVolumes, floorPlans, normalizedStructureConfig, hasFinancialAccess]);
 
   const quickEditColumns = useMemo<QuickGridColumn[]>(() => {
     const columns: QuickGridColumn[] = [

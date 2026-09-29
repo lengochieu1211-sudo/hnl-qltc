@@ -2996,20 +2996,29 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [quickEditMode, setQuickEditMode] = useState<'rooms' | 'defects'>('rooms');
   const [pendingDxfImport, setPendingDxfImport] = useState<PendingDxfRoomImport | null>(null);
 
-  const quickFloorById = React.useMemo(() => new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.id, floor] as const)), [floorPlans]);
-  const quickRoomById = React.useMemo(() => new Map<string, RoomProgressItem>(roomProgressList.map((room) => [room.id, room] as const)), [roomProgressList]);
+  const quickFloorById = React.useMemo(
+    () => showQuickEdit ? new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.id, floor] as const)) : new Map<string, FloorPlan>(),
+    [showQuickEdit, floorPlans],
+  );
+  const quickRoomById = React.useMemo(
+    () => showQuickEdit ? new Map<string, RoomProgressItem>(roomProgressList.map((room) => [room.id, room] as const)) : new Map<string, RoomProgressItem>(),
+    [showQuickEdit, roomProgressList],
+  );
   const quickPrimaryRoomIdByFloor = React.useMemo(() => {
     const result = new Map<string, string>();
+    if (!showQuickEdit) return result;
     roomProgressList.forEach((room) => {
       if (room.floorId && !result.has(room.floorId)) result.set(room.floorId, room.id);
     });
     return result;
-  }, [roomProgressList]);
-  const quickTeamByName = React.useMemo(() => new Map<string, TeamInfo>(
+  }, [showQuickEdit, roomProgressList]);
+  const quickTeamByName = React.useMemo(() => showQuickEdit ? new Map<string, TeamInfo>(
     teams.filter((team) => team.name?.trim()).map((team) => [team.name.trim().toLocaleLowerCase('vi-VN'), team] as const)
-  ), [teams]);
+  ) : new Map<string, TeamInfo>(), [showQuickEdit, teams]);
 
-  const floorQuickRows = React.useMemo<QuickGridRow[]>(() => roomProgressList.flatMap((room) => {
+  const floorQuickRows = React.useMemo<QuickGridRow[]>(() => {
+    if (!showQuickEdit) return [];
+    return roomProgressList.flatMap((room) => {
     const floor = quickFloorById.get(room.floorId);
     const groupName = floor
       ? getStructureGroupName(resolveFloorStructureGroupId(floor, normalizedStructureConfig), normalizedStructureConfig)
@@ -3036,9 +3045,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       targetDate: subItem?.targetDate || room.targetBoardDate || room.targetFrameDate || '',
       defectCount: roomDefectCount,
     }));
-  }), [roomProgressList, defects, quickFloorById, quickPrimaryRoomIdByFloor, normalizedStructureConfig, teams]);
+  });
+  }, [showQuickEdit, roomProgressList, defects, quickFloorById, quickPrimaryRoomIdByFloor, normalizedStructureConfig, teams]);
 
-  const defectQuickRows = React.useMemo<QuickGridRow[]>(() => defects.filter((defect) => !defect.deletedAt).map((defect) => {
+  const defectQuickRows = React.useMemo<QuickGridRow[]>(() => {
+    if (!showQuickEdit) return [];
+    return defects.filter((defect) => !defect.deletedAt).map((defect) => {
     const floor = quickFloorById.get(defect.floorId);
     const room = defect.roomId ? quickRoomById.get(defect.roomId) : undefined;
     const groupName = floor
@@ -3058,20 +3070,21 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       completedAt: defect.completedAt || '',
       status: defect.status,
     };
-  }), [defects, quickFloorById, quickRoomById, normalizedStructureConfig]);
+  });
+  }, [showQuickEdit, defects, quickFloorById, quickRoomById, normalizedStructureConfig]);
 
-  const quickWorkCategoryOptions = React.useMemo(() => Array.from(new Set([
+  const quickWorkCategoryOptions = React.useMemo(() => showQuickEdit ? Array.from(new Set([
     ...workVolumes.map((item) => item.title),
     ...roomProgressList.map((room) => room.workCategory || ''),
-  ].filter(Boolean))), [workVolumes, roomProgressList]);
-  const quickTeamOptions = React.useMemo(() => Array.from(new Set([
+  ].filter(Boolean))) : [], [showQuickEdit, workVolumes, roomProgressList]);
+  const quickTeamOptions = React.useMemo(() => showQuickEdit ? Array.from(new Set([
     ...teams.map((team) => team.name),
     ...roomProgressList.flatMap((room) => [
       room.assignedTeam || '',
       ...(room.subItems || []).map((subItem) => subItem.assignedTeam || ''),
     ]),
     ...defects.map((defect) => defect.assignedTo || ''),
-  ].filter(Boolean))), [teams, roomProgressList, defects]);
+  ].filter(Boolean))) : [], [showQuickEdit, teams, roomProgressList, defects]);
 
   const quickStructureGroupOptions = React.useMemo(
     () => normalizedStructureConfig.groups.map((group) => group.name),
