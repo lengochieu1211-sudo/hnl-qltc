@@ -406,7 +406,7 @@ function AuthenticatedApp() {
     navigationLastRequestAtRef.current = now;
     if (rapidTap) navigationRapidUntilRef.current = now + 320;
     const rapidMode = rapidTap || now < navigationRapidUntilRef.current;
-    const commitDelayMs = rapidMode ? 80 : 0;
+    const commitDelayMs = rapidMode ? 80 : 24;
 
     if (tab === activeTabRef.current) {
       if (navigationCommitTimerRef.current != null) {
@@ -417,8 +417,9 @@ function AuthenticatedApp() {
       return;
     }
 
-    // Reflect the requested destination immediately in navigation chrome, while keeping
-    // the current heavy screen mounted until the short coalescing window settles.
+    // Reflect the requested destination immediately. The 24 ms normal window intentionally
+    // gives the browser one paint opportunity for the destination shell before React mounts
+    // the heavy screen; rapid taps still use the longer last-click-wins window.
     setNavigationTargetTab(tab);
     preloadTab(tab);
 
