@@ -131,17 +131,35 @@ self.addEventListener('fetch', (event) => {
   // after deployment can combine code from two builds. The cache remains an offline
   // fallback, so installed/PWA use still works without connectivity.
   if (url.origin === self.location.origin && url.pathname.startsWith('/assets/')) {
-    event.respondWith(
-      fetch(request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-            const responseToCache = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, responseToCache));
-          }
-          return networkResponse;
-        })
-        .catch(() => caches.match(request))
-    );
+    event.respondWith((async () => {
+      const cachedResponse = await caches.match(request);
+      try {
+        const networkResponse = await fetch(request);
+        const contentType = String(networkResponse.headers.get('content-type') || '').toLowerCase();
+        const htmlFallback = networkResponse.status === 200 && contentType.includes('text/html');
+
+        // A stale/missing hashed Vite asset must never become cached index.html.
+        if (htmlFallback) {
+          if (cachedResponse) return cachedResponse;
+          return new Response('Hashed asset not found', {
+            status: 404,
+            statusText: 'Not Found',
+            headers: {
+              'Content-Type': 'text/plain; charset=utf-8',
+              'Cache-Control': 'no-store',
+            },
+          });
+        }
+
+        if (networkResponse.status === 200 && networkResponse.type === 'basic') {
+          const responseToCache = networkResponse.clone();
+          void caches.open(CACHE_NAME).then((cache) => cache.put(request, responseToCache));
+        }
+        return networkResponse;
+      } catch {
+        return cachedResponse || Response.error();
+      }
+    })());
     return;
   }
 
