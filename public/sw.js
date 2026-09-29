@@ -129,19 +129,43 @@ self.addEventListener('fetch', (event) => {
 
   // Hashed Vite assets must be network-first while online. Serving an old cached chunk
   // after deployment can combine code from two builds. The cache remains an offline
-  // fallback, so installed/PWA use still works without connectivity.
+  // fallback only when it has the correct MIME for the requested asset type.
   if (url.origin === self.location.origin && url.pathname.startsWith('/assets/')) {
-    event.respondWith(
-      fetch(request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-            const responseToCache = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, responseToCache));
-          }
-          return networkResponse;
-        })
-        .catch(() => caches.match(request))
-    );
+    event.respondWith((async () => {
+      const currentCache = await caches.open(CACHE_NAME);
+      const cachedResponse = await currentCache.match(request);
+      const responseMatchesAssetType = (response) => {
+        if (!response || response.status !== 200) return false;
+        const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+        if (contentType.includes('text/html')) return false;
+        if (/\\.m?js$/i.test(url.pathname)) return contentType.includes('javascript') || contentType.includes('ecmascript');
+        if (/\\.css$/i.test(url.pathname)) return contentType.includes('text/css');
+        return true;
+      };
+      const cachedResponseIsValid = responseMatchesAssetType(cachedResponse);
+      if (cachedResponse && !cachedResponseIsValid) {
+        await currentCache.delete(request);
+      }
+
+      try {
+        const networkResponse = await fetch(request);
+        if (!responseMatchesAssetType(networkResponse)) {
+          await currentCache.delete(request);
+          return networkResponse.status === 404
+            ? networkResponse
+            : new Response('Hashed asset not found or invalid content type', {
+                status: 404,
+                statusText: 'Not Found',
+                headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
+              });
+        }
+
+        void currentCache.put(request, networkResponse.clone());
+        return networkResponse;
+      } catch {
+        return cachedResponseIsValid ? cachedResponse : Response.error();
+      }
+    })());
     return;
   }
 
