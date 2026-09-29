@@ -24,7 +24,7 @@ import * as XLSX from 'xlsx';
 import { exportWarehouseUpdateTemplate } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
 import { formatExcelDate } from '../utils/dateFormatter';
-import { formatDecimal, evaluateMathExpression, useFormatSettings, parseExcelNumber } from '../utils/numberUtils';
+import { formatDecimal, formatAdaptiveDecimal, evaluateMathExpression, useFormatSettings, parseExcelNumber } from '../utils/numberUtils';
 import { getResolvedNormWorkCategories } from '../utils/projectReconciliation';
 import { normalizeUnit, unitKey, areSameUnit } from '../utils/unitUtils';
 import { createEntityId } from '../utils/idUtils';
@@ -748,7 +748,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       return false;
     }
     setUnitNormPerM2(parsed);
-    setUnitNormPerM2Str(formatDecimal(parsed));
+    setUnitNormPerM2Str(formatAdaptiveDecimal(parsed));
     return true;
   };
 
@@ -768,7 +768,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       return false;
     }
     setWorkCategoryNorms(prev => ({ ...prev, [cat]: parsed }));
-    setWorkCategoryNormsStr(prev => ({ ...prev, [cat]: formatDecimal(parsed) }));
+    setWorkCategoryNormsStr(prev => ({ ...prev, [cat]: formatAdaptiveDecimal(parsed) }));
     return true;
   };
 
@@ -1097,13 +1097,13 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                         </div>
                         <div>
                           <p className="text-[10px] text-slate-400 font-semibold uppercase">Hao phí định mức</p>
-                          <p className="font-bold text-indigo-600">{formatDecimal(norm.quotaQuantity)} {norm.unit}</p>
+                          <p className="font-bold text-indigo-600">{formatAdaptiveDecimal(norm.quotaQuantity)} {norm.unit}</p>
                         </div>
                         <div>
                           <p className="text-[10px] text-slate-400 font-semibold uppercase">Hao phí / ĐVT nguồn</p>
                           <p className="font-semibold text-slate-700">
                             {norm.unitNormPerM2 !== undefined && norm.unitNormPerM2 !== null
-                              ? `${formatDecimal(norm.unitNormPerM2)} ${norm.unit}/${norm.normBasisUnit || 'm²'}`
+                              ? `${formatAdaptiveDecimal(norm.unitNormPerM2)} ${norm.unit}/${norm.normBasisUnit || 'm²'}`
                               : 'Chưa nhập'}
                           </p>
                         </div>
@@ -1299,7 +1299,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                       setQuotaQuantityStr(formatDecimal(computedAutoQuota));
                     }}
                     className="mt-1 text-[10px] text-indigo-700 hover:text-indigo-900 font-extrabold flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 p-1.5 rounded-lg border border-indigo-200 transition-all active:scale-95 text-left w-full"
-                    title={`Khối lượng liên kết (${selectedWorkCategoriesVolumeLabel || '0'}) × định mức hao phí (${formatDecimal(unitNormPerM2)})`}
+                    title={`Khối lượng liên kết (${selectedWorkCategoriesVolumeLabel || '0'}) × định mức hao phí (${formatAdaptiveDecimal(unitNormPerM2)})`}
                   >
                     <span>💡 Áp dụng định mức: <strong>{formatDecimal(computedAutoQuota)}</strong> {unit === 'khac' ? customUnit : unit}</span>
                   </button>
@@ -1313,7 +1313,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                   <div className="flex items-center gap-1 shrink-0">
                     {evaluateMathExpression(unitNormPerM2Str) !== null && /[+\-*/xX×:÷]/.test(unitNormPerM2Str) && (
                       <span className="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded text-[10px] font-extrabold">
-                        = {formatDecimal(evaluateMathExpression(unitNormPerM2Str))}
+                        = {formatAdaptiveDecimal(evaluateMathExpression(unitNormPerM2Str))}
                       </span>
                     )}
                     <button
