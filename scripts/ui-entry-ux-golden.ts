@@ -309,13 +309,15 @@ assert(appSource.includes('!mountedPrimaryTabs.includes(navigationTargetTab)') &
 const floorPlanKeepAliveSource = read('src/components/FloorPlanDefectTab.tsx');
 assert(floorPlanKeepAliveSource.includes('isActive?: boolean;') && floorPlanKeepAliveSource.includes('if (!isActive) {') && floorPlanKeepAliveSource.includes('if (!isActive || !canEditDefects'), 'Hidden Floor Plan keep-alive instance must suspend global shortcuts and automatic repair writes');
 assert(!appSource.includes('loaders.forEach((loader)'), 'Navigation warming must not parse all heavy primary screens in parallel');
-assert(appSource.includes('nextTimer = window.setTimeout(next, warmGapMs)') && appSource.includes('loader().catch(() => undefined).finally(() =>'), 'Background lazy warming must serialize heavy chunk parsing instead of overlapping imports');
-assert(appSource.includes('const warmGapMs = mobileLike ? 650 : 220') && appSource.includes('const warmTimeoutMs = mobileLike ? 1800 : 900'), 'Android navigation warming must start early enough to hide first-open lazy costs without parallel chunk parsing');
-assert(appSource.includes('if (connection?.saveData) return;'), 'Navigation prewarm must continue respecting Data Saver');
+assert(appSource.includes('nextTimer = window.setTimeout(next, warmGapMs)') && appSource.includes('loader().catch(() => undefined).finally(() =>'), 'Desktop background lazy warming must serialize heavy chunk parsing instead of overlapping imports');
+assert(appSource.includes('if (connection?.saveData || isMobileRuntime) return;'), 'Mobile field runtime must skip background prewarm while desktop still respects Data Saver');
+assert(appSource.includes('return isMobileRuntime ? next.slice(-2) : next;'), 'Mobile primary keep-alive must retain at most current + previous tab while desktop keeps warmed tabs');
 const fileExportSource = read('src/utils/fileExport.ts');
 const floorPlanSource = read('src/components/FloorPlanDefectTab.tsx');
 const crewSource = read('src/components/CrewTabBase.tsx');
 const warehouseSource = read('src/components/WarehouseTab.tsx');
+const workVolumeSource = read('src/components/WorkVolumeTab.tsx');
+assert(floorPlanSource.includes('if (!showQuickEdit) return [];') && crewSource.includes('if (!showQuickEdit) return [];') && warehouseSource.includes('if (!showQuickEdit) return [];') && workVolumeSource.includes('if (!showQuickEdit) return [];'), 'Quick Edit row preparation must stay dormant until the user opens the grid');
 const aiPageSource = read('src/features/ai/AiAssistantPage.tsx');
 assert(!appSource.includes("from './utils/excelExport'"), 'App startup must not statically pull the XLSX export module');
 assert(!fileExportSource.includes("import * as XLSX from 'xlsx'") && fileExportSource.includes("const XLSX = await import('xlsx')"), 'Generic file export must lazy-load XLSX only on an actual workbook export');
