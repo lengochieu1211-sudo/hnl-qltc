@@ -131,10 +131,10 @@ async function verifyRapidPrimaryNavigation(page, label) {
     const commits = [];
     const targets = [];
     const observer = new MutationObserver(() => {
-      const active = main.getAttribute('data-hnl-active-tab') || '';
-      if (!commits.length || commits[commits.length - 1] !== active) commits.push(active);
+      const committed = main.getAttribute('data-hnl-committed-tab') || '';
+      if (!commits.length || commits[commits.length - 1] !== committed) commits.push(committed);
     });
-    observer.observe(main, { attributes: true, attributeFilter: ['data-hnl-active-tab'] });
+    observer.observe(main, { attributes: true, attributeFilter: ['data-hnl-committed-tab'] });
 
     const targetLatencies = [];
     const startedAt = performance.now();
@@ -152,7 +152,7 @@ async function verifyRapidPrimaryNavigation(page, label) {
 
     const finalTab = available[available.length - 1];
     const deadline = performance.now() + 2500;
-    while (performance.now() < deadline && main.getAttribute('data-hnl-active-tab') !== finalTab) {
+    while (performance.now() < deadline && main.getAttribute('data-hnl-committed-tab') !== finalTab) {
       await new Promise((resolve) => setTimeout(resolve, 16));
     }
     observer.disconnect();
@@ -164,6 +164,7 @@ async function verifyRapidPrimaryNavigation(page, label) {
       singleSwitchMs,
       finalTab,
       finalActive: main.getAttribute('data-hnl-active-tab') || '',
+      finalCommitted: main.getAttribute('data-hnl-committed-tab') || '',
       finalTarget: main.getAttribute('data-hnl-navigation-target') || '',
       commits,
       targets,
@@ -174,7 +175,8 @@ async function verifyRapidPrimaryNavigation(page, label) {
 
   assert(result.singleActive === result.singleTab, `${label}: single primary navigation did not settle on one click (${result.singleActive} != ${result.singleTab})`);
   assert(result.singleSwitchMs <= 900, `${label}: single primary navigation exceeded 900ms (${result.singleSwitchMs.toFixed(1)}ms)`);
-  assert(result.finalActive === result.finalTab, `${label}: rapid navigation did not settle on last click (${result.finalActive} != ${result.finalTab})`);
+  assert(result.finalActive === result.finalTab, `${label}: visible navigation did not switch to last click (${result.finalActive} != ${result.finalTab})`);
+  assert(result.finalCommitted === result.finalTab, `${label}: heavy content did not commit the last click (${result.finalCommitted} != ${result.finalTab})`);
   assert(result.targets.every((target, index) => target === result.available[index]), `${label}: requested nav target did not respond to every rapid click — ${JSON.stringify(result.targetLatencies)}`);
   const maxTargetLatency = Math.max(...result.targetLatencies.map((entry) => entry.ms));
   assert(maxTargetLatency <= 220, `${label}: rapid navigation target feedback exceeded 220ms (${maxTargetLatency.toFixed(1)}ms)`);
@@ -229,10 +231,15 @@ async function verifyMobileMoreNavigation(page, label) {
 
       const settleStartedAt = performance.now();
       const settleDeadline = performance.now() + 1500;
-      while (performance.now() < settleDeadline && main.getAttribute('data-hnl-active-tab') !== tab) {
+      while (performance.now() < settleDeadline && main.getAttribute('data-hnl-committed-tab') !== tab) {
         await new Promise((resolve) => setTimeout(resolve, 8));
       }
-      settleLatencies.push({ tab, ms: performance.now() - settleStartedAt, active: main.getAttribute('data-hnl-active-tab') || '' });
+      settleLatencies.push({
+        tab,
+        ms: performance.now() - settleStartedAt,
+        active: main.getAttribute('data-hnl-active-tab') || '',
+        committed: main.getAttribute('data-hnl-committed-tab') || '',
+      });
       tested.push(tab);
       await new Promise((resolve) => setTimeout(resolve, 380));
     }
@@ -245,7 +252,7 @@ async function verifyMobileMoreNavigation(page, label) {
   const maxTargetLatency = Math.max(...result.targetLatencies.map((entry) => entry.ms));
   const maxSettleLatency = Math.max(...result.settleLatencies.map((entry) => entry.ms));
   assert(maxTargetLatency <= 220, `${label}: mobile More target feedback exceeded 220ms (${maxTargetLatency.toFixed(1)}ms)`);
-  assert(result.settleLatencies.every((entry) => entry.active === entry.tab && entry.ms <= 900), `${label}: mobile More destination settle exceeded 900ms — ${JSON.stringify(result.settleLatencies)}`);
+  assert(result.settleLatencies.every((entry) => entry.active === entry.tab && entry.committed === entry.tab && entry.ms <= 900), `${label}: mobile More destination heavy-content settle exceeded 900ms — ${JSON.stringify(result.settleLatencies)}`);
   pass(`${label} mobile More navigation paths`, `${result.tested.join('→')} · max target ${maxTargetLatency.toFixed(1)}ms · max settle ${maxSettleLatency.toFixed(1)}ms`);
 }
 
