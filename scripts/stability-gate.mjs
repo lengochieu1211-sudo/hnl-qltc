@@ -20,6 +20,7 @@ const mergeWorkflow = read('.github/workflows/firebase-hosting-merge.yml');
 const prWorkflow = read('.github/workflows/firebase-hosting-pull-request.yml');
 const buildWorkflow = read('.github/workflows/build.yml');
 const firebaseJson = read('firebase.json');
+const firebaseProdJson = read('firebase.prod.json');
 const firebase = read('src/lib/firebase.ts');
 const firebaseBase = read('src/lib/firebaseBase.ts');
 const securityModal = read('src/components/SecurityModal.tsx');
@@ -156,6 +157,7 @@ if (!offlineBanner.includes('hàng chờ Firestore bền vững') || offlineBann
 pass('offline mutation durability uses Firestore SDK pending writes, not React/localStorage-only state');
 
 if (!exists('storage.rules') || !firebaseJson.includes('"storage"') || !firebaseJson.includes('"rules": "storage.rules"')) fail('Firebase Storage fallback rules are not retained in firebase.json');
+if (!firebaseJson.includes('"source": "!/assets/**"') || !firebaseProdJson.includes('"source": "!/assets/**"')) fail('Firebase Hosting SPA rewrite must exclude /assets/** so stale hashed JS/CSS returns 404 instead of index.html');
 requireAll(firebaseStorage, ['uploadProjectBinary', 'uploadFloorPlanBinary', 'thumbnailPath', 'deleteObject'], 'Firebase Storage fallback client');
 requireAll(binaryStorage, ['BINARY_STORAGE_PROVIDER', "'r2'", "'firebase-storage'", 'uploadProjectBinaryToCloud', 'uploadFloorPlanBinaryToCloud', 'downloadBinaryBlob'], 'binary storage provider adapter');
 requireAll(r2Storage, ['VITE_R2_GATEWAY_URL', 'Authorization', 'uploadProjectBinaryToR2', 'uploadFloorPlanBinaryToR2', 'downloadR2Blob'], 'R2 client');
@@ -458,6 +460,7 @@ requireAll(app, [
   'navigationRapidUntilRef.current = now + 320',
   'data-hnl-navigation-target',
   'data-hnl-tab-switching="true"',
+  'if (tab === activeTabRef.current)',
 ], 'adaptive navigation last-click-wins debounce');
 const navigationCoordinator = app.slice(app.indexOf('const navigateToTab'), app.indexOf('// Warm primary field screens'));
 if (navigationCoordinator.includes('React.startTransition')) fail('settled rapid navigation commit must not use React.startTransition');
@@ -513,7 +516,9 @@ if (!sw.includes("new URL(self.location.href).searchParams.get('v')") || !swRegi
 if (!swRegistration.includes('requestIdleCallback') || !swRegistration.includes('window.setTimeout(registerCurrentBuildServiceWorker, 900)')) fail('service worker registration must defer install work until the first interactive window settles');
 requireAll(vite, ['hnl-service-worker-asset-manifest', 'sw-assets.json', 'assets = Object.keys(bundle)'], 'Vite service-worker asset manifest');
 requireAll(sw, ['loadBuildAssetManifest', 'SW_ASSET_MANIFEST_HAS_NO_JS_CHUNKS', 'cacheAssetsInBatches', 'cache.addAll(batch)'], 'service-worker complete app-shell precache with bounded concurrency');
+requireAll(sw, ['htmlFallback', "contentType.includes('text/html')", "status: 404", 'cachedResponse'], 'service-worker hashed asset MIME guard');
 requireAll(hostedBrowserGolden, ['verifyColdStartOffline', 'Network.clearBrowserCache', 'context.setOffline(true)', 'CacheStorage'], 'Runtime Golden cold-start offline');
+requireAll(hostedBrowserGolden, ['verifyHostingAssetMime', 'DEV current hashed JS asset MIME', 'DEV stale hashed asset is not SPA HTML 200'], 'Runtime Golden Hosting asset MIME/404 guard');
 const devRuntimeHasGlobalPushTrigger = !devRuntimeWorkflow.includes('    paths:');
 if (!devRuntimeHasGlobalPushTrigger) {
   for (const trigger of ['public/sw.js', 'vite.config.ts', 'src/serviceWorkerRegistration.ts', 'scripts/stability-gate.mjs']) {
