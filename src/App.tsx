@@ -397,6 +397,18 @@ function AuthenticatedApp() {
   // Home -> Floor -> Crew -> Warehouse mounts only the final destination instead of
   // blocking the main thread with every intermediate screen.
   const navigateToTab = React.useCallback((tab: TabType) => {
+    // Re-tapping the tab already on screen must be a true no-op. This cancels any
+    // pending cross-tab request instead of scheduling another timer/re-render cycle.
+    if (tab === activeTabRef.current) {
+      navigationRequestRef.current += 1;
+      if (navigationCommitTimerRef.current != null) {
+        window.clearTimeout(navigationCommitTimerRef.current);
+        navigationCommitTimerRef.current = null;
+      }
+      setNavigationTargetTab(null);
+      return;
+    }
+
     const requestId = ++navigationRequestRef.current;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const sinceLastRequest = navigationLastRequestAtRef.current > 0
@@ -7162,9 +7174,15 @@ function AuthenticatedApp() {
         {/* Tab Content */}
         <main
           className="animate-in fade-in duration-150"
-          data-hnl-active-tab={activeTab}
+          data-hnl-active-tab={navigationTargetTab || activeTab}
           data-hnl-navigation-target={navigationTargetTab || activeTab}
         >
+          {navigationTargetTab && navigationTargetTab !== activeTab ? (
+            <div className="min-h-[180px] p-8 text-center text-sm text-slate-500" data-hnl-tab-switching="true">
+              <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />
+              Đang tải mục...
+            </div>
+          ) : (
           <React.Suspense fallback={<div className="min-h-[180px] p-8 text-center text-sm text-slate-500" data-hnl-tab-switching="true"><RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />Đang tải mục...</div>}>
           {activeTab === 'home' && (
             <HomeDashboard
@@ -7633,6 +7651,7 @@ function AuthenticatedApp() {
             />
           )}
           </React.Suspense>
+          )}
         </main>
 
         {/* Heavy dialogs stay out of startup and mount only on demand. */}
