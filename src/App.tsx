@@ -406,7 +406,7 @@ function AuthenticatedApp() {
     navigationLastRequestAtRef.current = now;
     if (rapidTap) navigationRapidUntilRef.current = now + 320;
     const rapidMode = rapidTap || now < navigationRapidUntilRef.current;
-    const commitDelayMs = rapidMode ? 80 : 32;
+    const commitDelayMs = rapidMode ? 80 : 0;
 
     // Reflect the requested destination immediately in navigation chrome, while keeping
     // the current heavy screen mounted until the short coalescing window settles.
