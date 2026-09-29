@@ -72,7 +72,8 @@ if (app.includes("await deleteTrashOperationFromCloud(operation.projectId, opera
 pass('App keeps Trash intent until safe purge completes');
 
 requireAll(vite, ['hnl-service-worker-asset-manifest', 'sw-assets.json'], 'Vite app-shell manifest');
-requireAll(sw, ['loadBuildAssetManifest', 'cacheAssetsInBatches', 'cache.addAll(batch)'], 'Service Worker full precache with bounded concurrency');
+requireAll(sw, ['loadBuildAssetManifest', 'isValidAssetResponse', 'cacheOneAsset', 'cacheAssetsInBatches', 'SW_INVALID_ASSET_RESPONSE'], 'Service Worker full precache with MIME validation and bounded concurrency');
+if (sw.includes('cache.addAll(batch)')) fail('Service Worker precache still accepts rewritten HTML or wrong-MIME assets');
 requireAll(runtimeGolden, ['verifyColdStartOffline', 'Network.clearBrowserCache', 'context.setOffline(true)', 'offlineResponse.fromServiceWorker()'], 'cold-start Runtime Golden');
 const runtimeHasGlobalPushTrigger = !runtimeWorkflow.includes('    paths:');
 if (!runtimeHasGlobalPushTrigger) {
