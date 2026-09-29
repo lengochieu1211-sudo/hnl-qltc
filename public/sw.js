@@ -32,10 +32,28 @@ async function loadBuildAssetManifest() {
   return assets;
 }
 
+function isValidAssetResponse(url, response) {
+  if (!response || !response.ok || response.type !== 'basic') return false;
+  const path = new URL(url, self.location.origin).pathname.toLowerCase();
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+  if (contentType.includes('text/html')) return false;
+  if (path.endsWith('.js') || path.endsWith('.mjs')) return contentType.includes('javascript');
+  if (path.endsWith('.css')) return contentType.includes('text/css');
+  return true;
+}
+
+async function cacheOneAsset(cache, url) {
+  const response = await fetch(url, { cache: 'no-store' });
+  if (!isValidAssetResponse(url, response)) {
+    throw new Error(`SW_INVALID_ASSET_RESPONSE:${url}:${response.status}:${response.headers.get('content-type') || 'unknown'}`);
+  }
+  await cache.put(url, response.clone());
+}
+
 async function cacheAssetsInBatches(cache, urls, batchSize = 4) {
   for (let index = 0; index < urls.length; index += batchSize) {
     const batch = urls.slice(index, index + batchSize);
-    await cache.addAll(batch);
+    await Promise.all(batch.map((url) => cacheOneAsset(cache, url)));
   }
 }
 
@@ -131,17 +149,25 @@ self.addEventListener('fetch', (event) => {
   // after deployment can combine code from two builds. The cache remains an offline
   // fallback, so installed/PWA use still works without connectivity.
   if (url.origin === self.location.origin && url.pathname.startsWith('/assets/')) {
-    event.respondWith(
-      fetch(request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-            const responseToCache = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, responseToCache));
-          }
-          return networkResponse;
-        })
-        .catch(() => caches.match(request))
-    );
+    event.respondWith((async () => {
+      try {
+        const networkResponse = await fetch(request, { cache: 'no-store' });
+        if (!isValidAssetResponse(request.url, networkResponse)) {
+          throw new Error(`INVALID_HASHED_ASSET_RESPONSE:${networkResponse.status}:${networkResponse.headers.get('content-type') || 'unknown'}`);
+        }
+        const responseToCache = networkResponse.clone();
+        void caches.open(CACHE_NAME).then((cache) => cache.put(request, responseToCache));
+        return networkResponse;
+      } catch (_) {
+        const cached = await caches.match(request);
+        if (cached && isValidAssetResponse(request.url, cached)) return cached;
+        return new Response('Hashed asset not found', {
+          status: 404,
+          statusText: 'Not Found',
+          headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
+        });
+      }
+    })());
     return;
   }
 
