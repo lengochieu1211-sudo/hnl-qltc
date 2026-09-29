@@ -1391,6 +1391,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
         open={showNormTemplatePicker}
         onClose={() => setShowNormTemplatePicker(false)}
         currentProjectId={currentProjectId}
+        currentItems={activeMaterialNorms}
         kind="materialNorms"
         title="Lấy Định mức vật tư từ công trình/mẫu"
         onImport={async (rows) => {
