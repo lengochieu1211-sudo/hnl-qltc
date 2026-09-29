@@ -186,6 +186,17 @@ async function verifyRapidPrimaryNavigation(page, label) {
     const singleMountedMs = performance.now() - singleStartedAt;
     await new Promise((resolve) => setTimeout(resolve, 380));
 
+    const longTasks = [];
+    let longTaskObserver = null;
+    try {
+      if (PerformanceObserver.supportedEntryTypes?.includes('longtask')) {
+        longTaskObserver = new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) longTasks.push(entry.duration);
+        });
+        longTaskObserver.observe({ entryTypes: ['longtask'] });
+      }
+    } catch {}
+
     const commits = [];
     const targets = [];
     const observer = new MutationObserver(() => {
@@ -261,6 +272,7 @@ async function verifyRapidPrimaryNavigation(page, label) {
     const sameTabInstanceAfter = main.querySelector(`[data-hnl-tab-instance="${singleTab}"]`);
     const sameTabPreservedInstance = Boolean(sameTabInstanceBefore && sameTabInstanceAfter && sameTabInstanceBefore === sameTabInstanceAfter);
     const sameTabSwitchingAfter = hasVisibleSwitching();
+    longTaskObserver?.disconnect();
 
     return {
       available,
@@ -287,6 +299,7 @@ async function verifyRapidPrimaryNavigation(page, label) {
       revisitMounted,
       revisitPreservedInstance,
       revisitSwitching,
+      longTasks,
       totalMs: performance.now() - startedAt,
     };
   }, { desktopLike });
@@ -305,15 +318,22 @@ async function verifyRapidPrimaryNavigation(page, label) {
   const intermediateHeavyCommits = result.commits.filter((tab) => tab && tab !== result.finalTab && heavyTabs.has(tab));
   assert(intermediateHeavyCommits.length === 0, `${label}: intermediate heavy tabs committed during rapid navigation — ${JSON.stringify(result.commits)}`);
   assert(result.revisitMounted === result.singleTab, `${label}: warmed tab revisit did not settle to ${result.singleTab}`);
-  assert(result.revisitPreservedInstance, `${label}: warmed primary tab was remounted instead of reusing its existing DOM instance`);
-  assert(!result.revisitSwitching, `${label}: warmed primary tab revisit displayed a loading state`);
+  if (desktopLike) {
+    assert(result.revisitPreservedInstance, `${label}: desktop warmed primary tab was remounted instead of reusing its existing DOM instance`);
+    assert(!result.revisitSwitching, `${label}: desktop warmed primary tab revisit displayed a loading state`);
+    assert(result.revisitMountedMs <= 180, `${label}: desktop warmed tab revisit commit exceeded 180ms (${result.revisitMountedMs.toFixed(1)}ms)`);
+  } else {
+    assert(!result.revisitPreservedInstance, `${label}: mobile must release the previous heavy React tree instead of keeping it alive`);
+    assert(result.revisitMountedMs <= 320, `${label}: cached mobile tab remount exceeded 320ms (${result.revisitMountedMs.toFixed(1)}ms)`);
+  }
   assert(result.revisitVisualMs <= 120, `${label}: warmed tab revisit shell exceeded 120ms (${result.revisitVisualMs.toFixed(1)}ms)`);
-  assert(result.revisitMountedMs <= 180, `${label}: warmed tab revisit commit exceeded 180ms (${result.revisitMountedMs.toFixed(1)}ms)`);
   assert(result.sameTabBefore === result.singleTab && result.sameTabAfter === result.singleTab, `${label}: re-tapping warmed active tab changed mounted content`);
   assert(result.sameTabPreservedInstance, `${label}: re-tapping warmed active tab remounted its existing DOM instance`);
   assert(!(result.sameTabSwitchingBefore === false && result.sameTabSwitchingAfter === true), `${label}: re-tapping warmed active tab introduced a new visible loading state`);
   assert(result.totalMs <= 2200, `${label}: rapid navigation settle path exceeded 2200ms (${result.totalMs.toFixed(1)}ms)`);
-  pass(`${label} primary navigation responsiveness`, `shell ${result.singleSwitchMs.toFixed(1)}ms · first content ${result.singleMountedMs.toFixed(1)}ms · revisit ${result.revisitMountedMs.toFixed(1)}ms · ${result.available.length} rapid tabs · max target ${maxTargetLatency.toFixed(1)}ms`);
+  const maxLongTaskMs = result.longTasks.length ? Math.max(...result.longTasks) : 0;
+  assert(maxLongTaskMs <= 200, `${label}: warm interaction produced a Long Task >200ms (${maxLongTaskMs.toFixed(1)}ms)`);
+  pass(`${label} primary navigation responsiveness`, `shell ${result.singleSwitchMs.toFixed(1)}ms · first content ${result.singleMountedMs.toFixed(1)}ms · revisit ${result.revisitMountedMs.toFixed(1)}ms · ${result.available.length} rapid tabs · max target ${maxTargetLatency.toFixed(1)}ms · max long task ${maxLongTaskMs.toFixed(1)}ms`);
 }
 
 async function verifyMobileMoreNavigation(page, label) {

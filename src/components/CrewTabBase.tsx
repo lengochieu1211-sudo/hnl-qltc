@@ -88,6 +88,7 @@ const CrewPhotoCount: React.FC<{ projectId?: string; recordId: string }> = ({ pr
 };
 
 interface CrewTabProps {
+  isActive?: boolean;
   projectId?: string;
   userRole: UserRole;
   roleResolved: boolean;
@@ -210,6 +211,7 @@ const getCrewLogFloorLabel = (log: CrewRecord, floorPlans: FloorPlan[]) => {
 
 
 export const CrewTab: React.FC<CrewTabProps> = ({
+  isActive = true,
   projectId = 'default-project',
   userRole,
   roleResolved,
@@ -395,10 +397,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
   // Sync state if prop changes
   useEffect(() => {
+    if (!isActive) return;
     if (propTeams) {
       setTeams(propTeams);
     }
-  }, [propTeams]);
+  }, [isActive, propTeams]);
 
   // Validate before mutating local state so a rejected duplicate never appears as saved
   // and no form state needs to be destroyed/remounted to recover.
@@ -486,6 +489,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [quickEditMode, setQuickEditMode] = useState<'logs' | 'teams'>('logs');
 
   useEffect(() => {
+    if (!isActive) return;
     if (!canOperate) {
       setShowAddLogModal(false);
       setEditingRecord(null);
@@ -504,7 +508,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       setDeletingTeamTarget(null);
       setSelectedTeamIds([]);
     }
-  }, [canOperate, canDelete, canManageTeamDirectory, roleResolved, userRole, currentUserUid]);
+  }, [isActive, canOperate, canDelete, canManageTeamDirectory, roleResolved, userRole, currentUserUid]);
 
   // Daily Log Form State
   const [teamName, setTeamName] = useState('');
@@ -728,6 +732,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [activeLogEntityId, setActiveLogEntityId] = useState<string>(`crew_${Date.now()}`);
 
   useEffect(() => {
+    if (!isActive) return;
     if (editingRecord) {
       setActiveLogEntityId(editingRecord.id);
       const editingGroupId = normalizedStructureConfig.enabled
@@ -798,10 +803,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       setTaskDescription('');
       setNotes('');
     }
-  }, [editingRecord, showAddLogModal, floorPlans, teams, normalizedStructureConfig]);
+  }, [isActive, editingRecord, showAddLogModal, floorPlans, teams, normalizedStructureConfig]);
 
   // Synchronize Manage Team Form values
   useEffect(() => {
+    if (!isActive) return;
     if (editingTeam) {
       setTName(editingTeam.name);
       setTLeader(editingTeam.leader);
@@ -815,7 +821,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       setTPhone('');
       setTNotes('');
     }
-  }, [editingTeam, showTeamModal]);
+  }, [isActive, editingTeam, showTeamModal]);
 
   // Paste from Clipboard or Prompt
   const handlePasteClipboard = async () => {

@@ -71,6 +71,7 @@ const inferWorkCategoryGroup = (rawTitle: string): string => {
 };
 
 interface WorkVolumeTabProps {
+  isActive?: boolean;
   workVolumes: WorkVolume[];
   floorPlans?: FloorPlan[];
   roomProgressList?: RoomProgressItem[];
@@ -93,6 +94,7 @@ interface WorkVolumeTabProps {
 }
 
 export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
+  isActive = true,
   workVolumes,
   floorPlans = [],
   roomProgressList = [],
@@ -303,6 +305,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   // Role changes can happen without remounting this tab. Never leave an ADMIN-only
   // modal/selection open after switching to EDITOR/VIEWER in the same browser session.
   useEffect(() => {
+    if (!isActive) return;
     if (hasStructureManageAccess) return;
     setSelectedItemIds([]);
     setShowAddForm(false);
@@ -310,7 +313,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     setDeletingVolumeTarget(null);
     setIsImportFromRoomsOpen(false);
     setSelectedRoomIdsForImport([]);
-  }, [hasStructureManageAccess]);
+  }, [isActive, hasStructureManageAccess]);
 
   // New Work Volume Form State
   const [title, setTitle] = useState('');
@@ -319,6 +322,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   const floorDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!isActive) return;
     function handleClickOutside(event: MouseEvent) {
       if (floorDropdownRef.current && !floorDropdownRef.current.contains(event.target as Node)) {
         setIsFloorDropdownOpen(false);
@@ -326,7 +330,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [isActive]);
 
   const [category, setCategory] = useState<string>('');
   const [categoryManuallyEdited, setCategoryManuallyEdited] = useState(false);
@@ -447,9 +451,9 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     });
   }, [detailBreakdown, detailSearch, detailStructureGroupIds, detailFloorIds, detailRoomIds, detailTeamNames, detailSortBy, detailSortOrder, floorPlans, normalizedStructureConfig]);
 
-  useEffect(() => { setDetailFloorIds((ids) => ids.filter((id) => detailVisibleFloorOptions.some((floor) => floor.id === id))); }, [detailVisibleFloorOptions]);
-  useEffect(() => { setDetailRoomIds((ids) => ids.filter((id) => detailVisibleRoomOptions.some((row) => row.roomId === id))); }, [detailVisibleRoomOptions]);
-  useEffect(() => { setDetailTeamNames((names) => names.filter((name) => detailVisibleTeamOptions.includes(name))); }, [detailVisibleTeamOptions]);
+  useEffect(() => { if (!isActive) return; setDetailFloorIds((ids) => ids.filter((id) => detailVisibleFloorOptions.some((floor) => floor.id === id))); }, [isActive, detailVisibleFloorOptions]);
+  useEffect(() => { if (!isActive) return; setDetailRoomIds((ids) => ids.filter((id) => detailVisibleRoomOptions.some((row) => row.roomId === id))); }, [isActive, detailVisibleRoomOptions]);
+  useEffect(() => { if (!isActive) return; setDetailTeamNames((names) => names.filter((name) => detailVisibleTeamOptions.includes(name))); }, [isActive, detailVisibleTeamOptions]);
 
   const detailStructureSummary = detailStructureGroupIds.length === 0
     ? `Tất cả ${normalizedStructureConfig.label}`

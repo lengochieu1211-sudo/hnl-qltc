@@ -313,13 +313,15 @@ assert(!appSource.includes('loaders.forEach((loader)'), 'Navigation warming must
 assert(appSource.includes('nextTimer = window.setTimeout(next, warmGapMs)') && appSource.includes('loader().catch(() => undefined).finally(() =>'), 'Desktop background lazy warming must serialize heavy chunk parsing instead of overlapping imports');
 assert(appSource.includes('if (connection?.saveData || isMobileRuntime) return;'), 'Mobile field runtime must skip background prewarm while desktop still respects Data Saver');
 assert(appSource.includes('if (!isMobileRuntime) preloadTab(tab);'), 'Mobile navigation must paint the destination shell before lazy chunk parsing while desktop keeps intent preload');
-assert(appSource.includes('return isMobileRuntime ? next.slice(-2) : next;'), 'Mobile primary keep-alive must retain at most current + previous tab while desktop keeps warmed tabs');
+assert(appSource.includes('return isMobileRuntime ? next.slice(-1) : next;'), 'Mobile primary runtime must retain only the current heavy tab while desktop keeps warmed tabs');
 const fileExportSource = read('src/utils/fileExport.ts');
 const floorPlanSource = read('src/components/FloorPlanDefectTab.tsx');
 const crewSource = read('src/components/CrewTabBase.tsx');
 const warehouseSource = read('src/components/WarehouseTab.tsx');
 const workVolumeSource = read('src/components/WorkVolumeTab.tsx');
 assert(floorPlanSource.includes('if (!showQuickEdit) return [];') && crewSource.includes('if (!showQuickEdit) return [];') && warehouseSource.includes('if (!showQuickEdit) return [];') && workVolumeSource.includes('if (!showQuickEdit) return [];'), 'Quick Edit row preparation must stay dormant until the user opens the grid');
+assert(crewSource.includes('isActive?: boolean;') && warehouseSource.includes('isActive?: boolean;') && workVolumeSource.includes('isActive?: boolean;'), 'Crew, Warehouse and Work Volume must expose active-tab suspension state');
+assert(floorPlanSource.includes('if (!isActive) return;') && floorPlanSource.includes('new ResizeObserver') && floorPlanSource.includes("addEventListener('touchmove'"), 'Hidden Floor Plan must suspend viewport observers and gesture listeners');
 const aiPageSource = read('src/features/ai/AiAssistantPage.tsx');
 assert(!appSource.includes("from './utils/excelExport'"), 'App startup must not statically pull the XLSX export module');
 assert(!fileExportSource.includes("import * as XLSX from 'xlsx'") && fileExportSource.includes("const XLSX = await import('xlsx')"), 'Generic file export must lazy-load XLSX only on an actual workbook export');
@@ -437,6 +439,7 @@ assert(!roomHighlightUi.includes('📐 Tùy chỉnh kích thước &amp; tọa �
 assert(!projectManager.includes('🔗 Chọn Tệp Trên Máy Để Liên Kết Auto-Save'), 'Project Manager link action must not duplicate its Lucide icon with an emoji.');
 
 const hostedBrowserGolden = read('scripts/dev-hosted-browser-golden.mjs');
+assert(hostedBrowserGolden.includes("supportedEntryTypes?.includes('longtask')") && hostedBrowserGolden.includes('Long Task >200ms'), 'Hosted browser Golden must measure warm interaction long tasks, not only shell/mount timing');
 assert(hostedBrowserGolden.includes('five Settings cards share one design system'), 'Hosted browser Golden must verify all five Settings cards share one design system');
 assert(hostedBrowserGolden.includes('five Settings entries open in shared feature sheets'), 'Hosted browser Golden must verify all five Settings entries open as feature sheets');
 assert(hostedBrowserGolden.includes('Settings sheet close contract'), 'Hosted browser Golden must cover shared close behavior');

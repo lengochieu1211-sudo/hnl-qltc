@@ -52,6 +52,7 @@ type MaterialNeedSortKey = 'default' | 'material' | 'category' | 'unit' | 'remai
 type WarehouseCatalogSortKey = 'name' | 'category' | 'unit' | 'totalIn' | 'totalOut' | 'normQuantity' | 'currentStock';
 
 interface WarehouseTabProps {
+  isActive?: boolean;
   inventory: InventoryItem[];
   userRole: UserRole;
   roleResolved: boolean;
@@ -81,6 +82,7 @@ interface WarehouseTabProps {
 }
 
 export const WarehouseTab: React.FC<WarehouseTabProps> = ({
+  isActive = true,
   inventory,
   userRole,
   roleResolved,
@@ -238,29 +240,34 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const materialNeedWorkCategoryIdsKey = materialNeedWorkCategories.map((item) => item.id).sort().join('|');
 
   useEffect(() => {
+    if (!isActive) return;
     const available = new Set(materialNeedStructureGroups.map((group) => group.id));
     setMaterialNeedStructureGroupIds((current) => current.filter((id) => available.has(id)));
-  }, [materialNeedStructureGroupIdsKey]);
+  }, [isActive, materialNeedStructureGroupIdsKey]);
 
   useEffect(() => {
+    if (!isActive) return;
     const available = new Set(materialNeedVisibleFloors.map((floor) => floor.id));
     setMaterialNeedFloorIds((current) => current.filter((id) => available.has(id)));
-  }, [materialNeedVisibleFloorIdsKey]);
+  }, [isActive, materialNeedVisibleFloorIdsKey]);
 
   useEffect(() => {
+    if (!isActive) return;
     const available = new Set(materialNeedRooms.map((room) => room.id));
     setMaterialNeedRoomIds((current) => current.filter((id) => available.has(id)));
-  }, [materialNeedRoomIdsKey]);
+  }, [isActive, materialNeedRoomIdsKey]);
 
   useEffect(() => {
+    if (!isActive) return;
     const available = new Set(materialNeedTeams.map((team) => team.id));
     setMaterialNeedTeamIds((current) => current.filter((id) => available.has(id)));
-  }, [materialNeedTeamIdsKey]);
+  }, [isActive, materialNeedTeamIdsKey]);
 
   useEffect(() => {
+    if (!isActive) return;
     const available = new Set(materialNeedWorkCategories.map((item) => item.id));
     setMaterialNeedWorkCategoryIds((current) => current.filter((id) => available.has(id)));
-  }, [materialNeedWorkCategoryIdsKey]);
+  }, [isActive, materialNeedWorkCategoryIdsKey]);
 
   const effectiveMaterialNeedFloorIds = useMemo(() => {
     if (materialNeedFloorIds.length > 0) return materialNeedFloorIds;
@@ -354,6 +361,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
 
   useEffect(() => {
+    if (!isActive) return;
     if (!hasEditAccess) {
       setShowAddForm(false);
       setEditingInventory(null);
@@ -362,7 +370,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       setSelectedItemIds([]);
       setDeletingInventoryTarget(null);
     }
-  }, [hasEditAccess, hasDeleteAccess]);
+  }, [isActive, hasEditAccess, hasDeleteAccess]);
 
   // Drag and Drop state for Excel file
   const [isDraggingExcel, setIsDraggingExcel] = useState(false);
@@ -949,7 +957,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
   // Auto update material selection when materialNorms change
   React.useEffect(() => {
-    if (itemKind !== 'material') return;
+    if (!isActive || itemKind !== 'material') return;
     if (materialNorms.length > 0) {
       const matched = materialNorms.find((m) => m.materialName === materialName);
       if (!matched) {
@@ -957,7 +965,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         setUnit(materialNorms[0].unit);
       }
     }
-  }, [itemKind, materialNorms]);
+  }, [isActive, itemKind, materialNorms]);
 
   // Map material norms by ID or name for quick lookup
   const normMap = useMemo(() => {

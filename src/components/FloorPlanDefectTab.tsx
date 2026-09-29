@@ -3751,15 +3751,17 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   }, [selectedFloorId, currentProjectId]);
 
   useEffect(() => {
+    if (!isActive) return;
     const pending = pendingFocusRef.current;
     if (!pending || pending.floorId !== selectedFloorId) return;
     requestAnimationFrame(() => requestAnimationFrame(() => {
       focusPlanPoint(pending.x, pending.y);
       pendingFocusRef.current = null;
     }));
-  }, [selectedFloorId]);
+  }, [isActive, selectedFloorId]);
 
   useEffect(() => {
+    if (!isActive) return;
     // Always use the real image ratio once it is available. Resetting to 1.414 at
     // 100% and switching to the real ratio only after zooming changes both scale
     // and geometry on the first wheel step, which makes the drawing jump.
@@ -3767,9 +3769,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (imgEl && imgEl.naturalWidth && imgEl.naturalHeight) {
       setImgAspect(imgEl.naturalWidth / imgEl.naturalHeight);
     }
-  }, [activeFloor?.imageUrl, selectedFloorId, isFullscreen]);
+  }, [isActive, activeFloor?.imageUrl, selectedFloorId, isFullscreen]);
 
   useEffect(() => {
+    if (!isActive) return;
     const el = parentRef.current;
     if (!el) return;
     const obs = new ResizeObserver((entries) => {
@@ -3780,10 +3783,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     obs.observe(el);
     setParentSize({ w: el.clientWidth, h: el.clientHeight });
     return () => obs.disconnect();
-  }, [isFullscreen, selectedFloorId, activeFloor]);
+  }, [isActive, isFullscreen, selectedFloorId, activeFloor]);
 
 
   useEffect(() => {
+    if (!isActive) return;
     const el = parentRef.current;
     if (!el || !selectedFloorId) return;
     let raf = 0;
@@ -3820,7 +3824,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       el.removeEventListener('scroll', update);
       window.removeEventListener('resize', update);
     };
-  }, [selectedFloorId, currentProjectId, isFullscreen]);
+  }, [isActive, selectedFloorId, currentProjectId, isFullscreen]);
 
   const activePointersRef = useRef<Set<number>>(new Set());
   // Floor-plan navigation: touch one-finger pan; desktop middle-mouse or Space+left pan.
@@ -3843,6 +3847,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const zoomScaleRef = useRef(zoomScale);
   useLayoutEffect(() => {
     zoomScaleRef.current = zoomScale;
+    if (!isActive) return;
 
     // Keep the map point under the mouse / pinch midpoint fixed during the exact
     // layout commit that changes the zoom. This avoids stacked requestAnimationFrame
@@ -3861,11 +3866,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const anchoredClientY = nextRect.top + anchor.ry * nextRect.height;
     parent.scrollLeft += anchoredClientX - anchor.clientX;
     parent.scrollTop += anchoredClientY - anchor.clientY;
-  }, [zoomScale, rotation]);
+  }, [isActive, zoomScale, rotation]);
 
 
   useEffect(() => {
-    if (floorViewRestoringRef.current || !selectedFloorId) return;
+    if (!isActive || floorViewRestoringRef.current || !selectedFloorId) return;
     const parent = parentRef.current;
     if (!parent) return;
     try {
@@ -3889,7 +3894,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         scrollHeight: Math.max(1, current.scrollHeight),
       });
     });
-  }, [zoomScale, selectedFloorId, currentProjectId]);
+  }, [isActive, zoomScale, selectedFloorId, currentProjectId]);
 
   const toDisplayedPercent = (x: number, y: number) => {
     if (rotation === 90) return { x: 100 - y, y: x };
@@ -3973,6 +3978,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   useEffect(() => {
+    if (!isActive) return;
     // Bind once on the scroll viewport. Binding both viewport + image caused the same
     // wheel/touch event to be handled twice because the event bubbles.
     const gestureEl = parentRef.current || imageContainerRef.current;
@@ -4062,7 +4068,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       gestureEl.removeEventListener('touchcancel', onTouchEnd);
       gestureEl.removeEventListener('wheel', onWheel);
     };
-  }, [selectedFloorId, isFullscreen]);
+  }, [isActive, selectedFloorId, isFullscreen]);
 
 
   useEffect(() => {

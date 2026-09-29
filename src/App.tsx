@@ -389,7 +389,7 @@ function AuthenticatedApp() {
     if (!PRIMARY_TAB_IDS.includes(activeTab)) return;
     setMountedPrimaryTabs((previous) => {
       const next = [...previous.filter((tab) => tab !== activeTab), activeTab];
-      return isMobileRuntime ? next.slice(-2) : next;
+      return isMobileRuntime ? next.slice(-1) : next;
     });
   }, [activeTab, isMobileRuntime]);
 
@@ -447,7 +447,7 @@ function AuthenticatedApp() {
       if (PRIMARY_TAB_IDS.includes(tab)) {
         setMountedPrimaryTabs((previous) => {
           const next = [...previous.filter((mountedTab) => mountedTab !== tab), tab];
-          return isMobileRuntime ? next.slice(-2) : next;
+          return isMobileRuntime ? next.slice(-1) : next;
         });
       }
       setActiveTab(tab);
@@ -7246,6 +7246,7 @@ function AuthenticatedApp() {
               style={{ display: visibleTab === 'warehouse' ? 'contents' : 'none' }}
             >
             <WarehouseTab
+              isActive={visibleTab === 'warehouse'}
               inventory={inventory}
               userRole={currentUserRole}
               roleResolved={isProjectRoleResolved}
@@ -7292,6 +7293,7 @@ function AuthenticatedApp() {
               style={{ display: visibleTab === 'volume' ? 'contents' : 'none' }}
             >
             <WorkVolumeTab
+              isActive={visibleTab === 'volume'}
               workVolumes={computedWorkVolumes}
               floorPlans={floorPlans}
               roomProgressList={roomProgressList}
@@ -7403,6 +7405,7 @@ function AuthenticatedApp() {
               style={{ display: visibleTab === 'crew' ? 'contents' : 'none' }}
             >
             <CrewTab
+              isActive={visibleTab === 'crew'}
               projectId={activeProjectId}
               userRole={currentUserRole}
               roleResolved={isProjectRoleResolved}
