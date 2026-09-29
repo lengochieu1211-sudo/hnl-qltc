@@ -171,6 +171,28 @@ jobs:
         run: |
           set -euo pipefail
           test "$(curl --silent --output /tmp/dev-index.html --write-out '%{http_code}' "${DEV_HOSTING_URL}/?goldenPreflight=${GITHUB_RUN_ID}")" = '200' || { echo '::error::DEV Hosting preflight failed'; exit 1; }
+
+          ENTRY_ASSET="$(grep -oE '/assets/[^"'"'"']+\\.js' /tmp/dev-index.html | head -n 1 || true)"
+          test -n "$ENTRY_ASSET" || { echo '::error::DEV Hosting index has no JS entry asset'; exit 1; }
+          ENTRY_HEADERS="$(mktemp)"
+          ENTRY_BODY="$(mktemp)"
+          ENTRY_STATUS="$(curl --silent --show-error --dump-header "$ENTRY_HEADERS" --output "$ENTRY_BODY" --write-out '%{http_code}' "${DEV_HOSTING_URL}${ENTRY_ASSET}?goldenAsset=${GITHUB_RUN_ID}")"
+          test "$ENTRY_STATUS" = '200' || { echo "::error::DEV Hosting JS entry returned HTTP $ENTRY_STATUS: $ENTRY_ASSET"; exit 1; }
+          grep -qiE '^content-type:.*(javascript|ecmascript)' "$ENTRY_HEADERS" || { echo "::error::DEV Hosting JS entry has wrong Content-Type: $ENTRY_ASSET"; cat "$ENTRY_HEADERS"; exit 1; }
+          if head -c 256 "$ENTRY_BODY" | grep -qiE '<!doctype html|<html'; then
+            echo "::error::DEV Hosting JS entry returned HTML: $ENTRY_ASSET"
+            exit 1
+          fi
+
+          MISSING_ASSET="/assets/__hnl_missing_${GITHUB_RUN_ID}.js"
+          MISSING_STATUS="$(curl --silent --show-error --output /tmp/dev-missing-asset --write-out '%{http_code}' "${DEV_HOSTING_URL}${MISSING_ASSET}")"
+          test "$MISSING_STATUS" = '404' || { echo "::error::Missing DEV hashed asset must return 404, got $MISSING_STATUS"; exit 1; }
+          if head -c 256 /tmp/dev-missing-asset | grep -qiE '<!doctype html|<html'; then
+            echo '::error::Missing DEV hashed asset fell through to index.html'
+            exit 1
+          fi
+          echo "DEV Hosting asset MIME/fallback guard: PASS ($ENTRY_ASSET)"
+
           R2_HEALTH="$(curl --fail --silent --show-error "${DEV_R2_URL}/health?goldenPreflight=${GITHUB_RUN_ID}")"
           printf '%s' "$R2_HEALTH" | grep -q '"ok":true' || { echo '::error::DEV R2 preflight failed'; exit 1; }
           printf '%s' "$R2_HEALTH" | grep -q '"firebaseProjectId":"hnl-qltc-dev"' || { echo '::error::DEV R2 Firebase project mismatch'; exit 1; }
