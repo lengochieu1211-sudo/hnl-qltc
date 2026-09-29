@@ -206,6 +206,12 @@ async function verifyRapidPrimaryNavigation(page, label) {
     }
     observer.disconnect();
 
+    // Capture the rapid-navigation outcome before the intentional same-tab/revisit probes
+    // below mutate the visual and mounted destinations again.
+    const rapidFinalActive = main.getAttribute('data-hnl-active-tab') || '';
+    const rapidFinalMounted = main.getAttribute('data-hnl-mounted-tab') || '';
+    const rapidFinalTarget = main.getAttribute('data-hnl-navigation-target') || '';
+
     const sameTabButton = visibleNavButton(finalTab);
     const sameTabBefore = main.getAttribute('data-hnl-mounted-tab') || '';
     sameTabButton.click();
@@ -243,9 +249,9 @@ async function verifyRapidPrimaryNavigation(page, label) {
       singleMounted,
       singleMountedMs,
       finalTab,
-      finalActive: main.getAttribute('data-hnl-active-tab') || '',
-      finalMounted: main.getAttribute('data-hnl-mounted-tab') || '',
-      finalTarget: main.getAttribute('data-hnl-navigation-target') || '',
+      finalActive: rapidFinalActive,
+      finalMounted: rapidFinalMounted,
+      finalTarget: rapidFinalTarget,
       commits,
       targets,
       targetLatencies,
