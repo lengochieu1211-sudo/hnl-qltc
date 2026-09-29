@@ -48,6 +48,11 @@ import { QuickEditGridModal, type QuickGridColumn, type QuickGridRow } from './Q
 import { CatalogTemplatePickerModal } from './CatalogTemplatePickerModal';
 
 const WORK_CATEGORY_SUGGESTIONS = ['Trần', 'Vách', 'Trần & Vách', 'Cửa', 'Khác'];
+const GLOBAL_WORK_SCOPE_LABEL = 'Toàn công trình';
+const isGlobalWorkScopeText = (value: unknown): boolean => {
+  const normalized = String(value || '').trim().toLocaleLowerCase('vi-VN');
+  return !normalized || ['toàn công trình', 'toàn nhà', 'công trình', 'all', 'tất cả'].includes(normalized);
+};
 
 const inferWorkCategoryGroup = (rawTitle: string): string => {
   const normalized = rawTitle
@@ -166,6 +171,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   }, [floorPlans]);
 
   const resolveQuickEditFloorIds = (raw: unknown): string[] => {
+    if (isGlobalWorkScopeText(raw)) return [];
     const names = String(raw || '').split(/[,;\n]+/).map((item) => item.trim()).filter(Boolean);
     return Array.from(new Set(names.map((name) => quickEditFloorNameToId.get(name.toLocaleLowerCase('vi-VN'))).filter((id): id is string => Boolean(id))));
   };
@@ -181,7 +187,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       __recordId: item.id,
       title: item.title,
       structureGroups: groupNames.join(', '),
-      floors: floors.length ? floors.map((floor) => floor.floorName).join(', ') : item.floor,
+      floors: floors.length ? floors.map((floor) => floor.floorName).join(', ') : (item.floor || GLOBAL_WORK_SCOPE_LABEL),
       category: item.category,
       planned: item.planned,
       actual: item.actual,
@@ -199,9 +205,10 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         key: 'floors',
         label: 'Tầng / Vị trí',
         editable: hasStructureManageAccess,
-        required: true,
+        required: false,
         width: 190,
         validate: (value) => {
+          if (isGlobalWorkScopeText(value)) return null;
           const names = String(value || '').split(/[,;\n]+/).map((item) => item.trim()).filter(Boolean);
           const missing = names.filter((name) => !quickEditFloorNameToId.has(name.toLocaleLowerCase('vi-VN')));
           return missing.length ? `Không tìm thấy tầng: ${missing.join(', ')}` : null;
@@ -232,8 +239,11 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
     const upserts: WorkVolume[] = changedRows.map((row) => {
       const existing = workVolumes.find((item) => item.id === String(row.__recordId || row.__rowKey));
-      const floorIds = resolveQuickEditFloorIds(row.floors);
-      if (!floorIds.length) throw new Error(`Hạng mục “${String(row.title || '')}” chưa có tầng hợp lệ.`);
+      const rawFloorScope = String(row.floors || '').trim();
+      const floorIds = resolveQuickEditFloorIds(rawFloorScope);
+      if (!isGlobalWorkScopeText(rawFloorScope) && !floorIds.length) {
+        throw new Error(`Hạng mục “${String(row.title || '')}” chưa có tầng hợp lệ.`);
+      }
       const recordId = existing?.id || createEntityId('HM');
       return {
         ...(existing || {} as WorkVolume),
@@ -242,8 +252,10 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         title: String(row.title || '').trim(),
         floorIds,
         floorId: floorIds[0],
-        floor: floorIds.map((id) => floorPlans.find((floor) => floor.id === id)?.floorName).filter(Boolean).join(', '),
-        category: String(row.category || existing?.category || 'khung_tran').trim(),
+        floor: floorIds.length > 0
+          ? floorIds.map((id) => floorPlans.find((floor) => floor.id === id)?.floorName).filter(Boolean).join(', ')
+          : GLOBAL_WORK_SCOPE_LABEL,
+        category: String(row.category || existing?.category || inferWorkCategoryGroup(String(row.title || '')) || 'Khác').trim(),
         planned: Math.max(0, Number(row.planned || 0)),
         actual: Number(existing?.actual || 0),
         unit: normalizeUnit(String(row.unit || existing?.unit || 'm²')) || String(row.unit || existing?.unit || 'm²'),
@@ -517,7 +529,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     const matchedFloorIds = floorNames
       .map((fName) => floorPlans?.find((fp) => (fp.floorName || fp.id) === fName)?.id)
       .filter((id): id is string => Boolean(id));
-    const floorScopeLabel = floorNames.length > 0 ? floorNames.join(', ') : 'Toàn công trình';
+    const floorScopeLabel = floorNames.length > 0 ? floorNames.join(', ') : GLOBAL_WORK_SCOPE_LABEL;
     const assignedWorkCategoryId = editingVolume?.workCategoryId || createEntityId('CAT');
 
     if (editingVolume) {
@@ -658,7 +670,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           if (rawFloorId && !floorIds.includes(rawFloorId)) floorIds.unshift(rawFloorId);
           const unknownFloorIds = floorIds.filter((id) => !floorPlans.some((floor) => floor.id === id));
           if (unknownFloorIds.length) throw new Error(`Dòng ${rowIndex + 2}: __floorId/__floorIds không tồn tại: ${unknownFloorIds.join(', ')}.`);
-          if (floorIds.length === 0 && floorText) {
+          if (floorIds.length === 0 && floorText && !isGlobalWorkScopeText(floorText)) {
             const floorNames = floorText.split(/[,;\n]+/).map((name) => name.trim()).filter(Boolean);
             floorIds = floorNames.map((name) => {
               const matches = floorPlans.filter((floor) => floor.floorName.trim().toLocaleLowerCase('vi-VN') === name.toLocaleLowerCase('vi-VN'));
@@ -685,10 +697,10 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
             id: recordId,
             workCategoryId: categoryId,
             title,
-            floor: floorText || existing?.floor || '',
-            floorId: floorIds[0] || existing?.floorId,
-            floorIds: floorIds.length > 0 ? Array.from(new Set(floorIds)) : existing?.floorIds,
-            category: String(row['Nhóm Hạng Mục'] || row['Nhóm hạng mục'] || row['Phân Loại'] || row['category'] || existing?.category || 'khung_tran').trim() as CategoryType,
+            floor: floorText || (floorIds.length > 0 ? existing?.floor : GLOBAL_WORK_SCOPE_LABEL),
+            floorId: floorIds[0],
+            floorIds: Array.from(new Set(floorIds)),
+            category: String(row['Nhóm Hạng Mục'] || row['Nhóm hạng mục'] || row['Phân Loại'] || row['category'] || existing?.category || inferWorkCategoryGroup(title) || 'Khác').trim() as CategoryType,
             unit,
             planned,
             // Excel actual/status are reporting fields only; never import them into master.
@@ -1204,17 +1216,17 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
             const key = `${String(source.title || '').trim().toLocaleLowerCase('vi-VN')}|${normalizeUnit(source.unit) || source.unit}`;
             if (!source.title || existingKeys.has(key)) continue;
             // A copied catalog item is independent from the source project. Source floor IDs
-            // are never valid in the target project, so start it on the target fallback floor only.
-            const fallbackFloor = floorPlans[0];
-            const targetFloorIds = fallbackFloor ? [fallbackFloor.id] : [];
+            // are never valid in the target project. Keep it global until the target project
+            // explicitly narrows the scope or links it from a Room/FloorPlan.
+            const targetFloorIds: string[] = [];
             const id = createEntityId('work-template');
             imported.push({
               ...source,
               id,
               workCategoryId: id,
-              floorId: targetFloorIds[0],
+              floorId: undefined,
               floorIds: targetFloorIds,
-              floor: fallbackFloor?.floorName || '',
+              floor: GLOBAL_WORK_SCOPE_LABEL,
               planned: 0,
               actual: 0,
               unitPrice: 0,
@@ -1244,8 +1256,8 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           __recordId: '',
           title: '',
           structureGroups: '',
-          floors: floorPlans[0]?.floorName || '',
-          category: availableCategories[0] || 'khung_tran',
+          floors: GLOBAL_WORK_SCOPE_LABEL,
+          category: '',
           planned: 0,
           actual: 0,
           unit: 'm²',
