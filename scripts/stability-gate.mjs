@@ -452,7 +452,7 @@ requireAll(app, [
   'navigationCommitTimerRef',
   'window.clearTimeout(navigationCommitTimerRef.current)',
   'requestId !== navigationRequestRef.current',
-  'commitDelayMs = rapidMode ? 110 : 24',
+  'commitDelayMs = rapidMode ? 80 : 0',
   'setNavigationTargetTab(tab)',
   'rapidTap = sinceLastRequest < 220',
   'navigationRapidUntilRef.current = now + 320',
@@ -510,8 +510,9 @@ if (app.includes("FIREBASE_ONLY_ALL_BACKUP_CLOUD_SOURCE") && app.includes("const
 pass('Firebase-only JSON backup is Cloud/live-state sourced and media-complete/fail-closed');
 
 if (!sw.includes("new URL(self.location.href).searchParams.get('v')") || !swRegistration.includes('APP_VERSION')) fail('service worker cache version is not derived from canonical app version');
+if (!swRegistration.includes('requestIdleCallback') || !swRegistration.includes('window.setTimeout(registerCurrentBuildServiceWorker, 900)')) fail('service worker registration must defer install work until the first interactive window settles');
 requireAll(vite, ['hnl-service-worker-asset-manifest', 'sw-assets.json', 'assets = Object.keys(bundle)'], 'Vite service-worker asset manifest');
-requireAll(sw, ['loadBuildAssetManifest', 'SW_ASSET_MANIFEST_HAS_NO_JS_CHUNKS', 'cache.addAll(required)'], 'service-worker complete app-shell precache');
+requireAll(sw, ['loadBuildAssetManifest', 'SW_ASSET_MANIFEST_HAS_NO_JS_CHUNKS', 'cacheAssetsInBatches', 'cache.addAll(batch)'], 'service-worker complete app-shell precache with bounded concurrency');
 requireAll(hostedBrowserGolden, ['verifyColdStartOffline', 'Network.clearBrowserCache', 'context.setOffline(true)', 'CacheStorage'], 'Runtime Golden cold-start offline');
 const devRuntimeHasGlobalPushTrigger = !devRuntimeWorkflow.includes('    paths:');
 if (!devRuntimeHasGlobalPushTrigger) {
