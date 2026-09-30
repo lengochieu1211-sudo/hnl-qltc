@@ -89,7 +89,8 @@ import { detectRoomsFromDxf, renderDxfFloorPlanSvgDataUrl, type DxfRoomCandidate
 import { QuickSortBar } from './QuickSortBar';
 import { MoveOrderControls } from './MoveOrderControls';
 import { ExcelActionMenu } from './ExcelActionMenu';
-import { QuickEditGridModal, type QuickGridColumn, type QuickGridRow } from './QuickEditGridModal';
+import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';
+const LazyQuickEditGridModal = React.lazy(() => import('./QuickEditGridModal').then((m) => ({ default: m.QuickEditGridModal })));
 import { UserRole, canManageFloorPlanStructure, canEditDefectData, canDeleteBusinessData } from '../utils/securityUtils';
 import { appendRuntimeDiagnostic } from '../lib/runtimeDiagnostics';
 import { getCurrentRealFirebaseUser } from '../lib/firebase';
@@ -338,6 +339,7 @@ interface FloorPlanDefectTabProps {
   userRole?: UserRole;
   roleResolved?: boolean;
   isActive?: boolean;
+  quickEditEnabled?: boolean;
   onAddInventory?: (item: Omit<InventoryItem, 'id'> & { id?: string }) => void;
   onAddFloorPlan: (plan: Omit<FloorPlan, 'id'> & { id?: string }) => void;
   onUpdateFloorPlan?: (id: string, updates: Partial<FloorPlan>) => void;
@@ -645,6 +647,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   userRole = 'VIEWER',
   roleResolved = false,
   isActive = true,
+  quickEditEnabled = true,
   onAddInventory,
   onAddFloorPlan,
   onUpdateFloorPlan,
@@ -3087,11 +3090,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   ].filter(Boolean))) : [], [showQuickEdit, teams, roomProgressList, defects]);
 
   const quickStructureGroupOptions = React.useMemo(
-    () => normalizedStructureConfig.groups.map((group) => group.name),
-    [normalizedStructureConfig.groups],
+    () => showQuickEdit ? normalizedStructureConfig.groups.map((group) => group.name) : [],
+    [showQuickEdit, normalizedStructureConfig.groups],
   );
 
-  const roomQuickColumns = React.useMemo<QuickGridColumn[]>(() => [
+  const roomQuickColumns = React.useMemo<QuickGridColumn[]>(() => showQuickEdit ? [
     {
       key: 'structureGroup',
       label: normalizedStructureConfig.label || 'Khu/Khối',
@@ -3126,9 +3129,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     },
     { key: 'targetDate', label: 'Hạn xong', editable: canManageStructure, type: 'date', width: 135 },
     { key: 'defectCount', label: 'Defect', editable: false, type: 'number', width: 85 },
-  ], [canManageStructure, normalizedStructureConfig.enabled, normalizedStructureConfig.label, quickStructureGroupOptions, quickWorkCategoryOptions, quickTeamOptions]);
+  ] : [], [showQuickEdit, canManageStructure, normalizedStructureConfig.enabled, normalizedStructureConfig.label, quickStructureGroupOptions, quickWorkCategoryOptions, quickTeamOptions]);
 
-  const defectQuickColumns = React.useMemo<QuickGridColumn[]>(() => [
+  const defectQuickColumns = React.useMemo<QuickGridColumn[]>(() => showQuickEdit ? [
     { key: 'structureGroup', label: normalizedStructureConfig.label || 'Khu/Khối', editable: false, width: 145 },
     { key: 'floorName', label: 'Tầng', editable: false, width: 125 },
     { key: 'roomName', label: 'Căn / Phòng', editable: false, width: 155 },
@@ -3139,7 +3142,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     { key: 'assignedTo', label: 'Đội phụ trách defect', editable: canEditDefects, type: 'select', options: quickTeamOptions, width: 190 },
     { key: 'completedAt', label: 'Ngày hoàn thành thực tế defect', editable: canEditDefects, type: 'date', width: 190 },
     { key: 'status', label: 'Trạng thái defect', editable: canEditDefects, type: 'select', options: ['Mới phát hiện', 'Đang sửa', 'Đã khắc phục', 'Đã nghiệm thu'], width: 155 },
-  ], [canEditDefects, normalizedStructureConfig.label, quickTeamOptions]);
+  ] : [], [showQuickEdit, canEditDefects, normalizedStructureConfig.label, quickTeamOptions]);
 
   const saveRoomQuickRows = async (rows: QuickGridRow[], dirtyCellKeys: Set<string>) => {
     if (!canManageStructure) return;
@@ -6005,7 +6008,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             <ExcelActionMenu
               fillMobile
               triggerLabel="Quản lý dữ liệu"
-              onQuickEdit={() => { setQuickEditMode('rooms'); setShowQuickEdit(true); }}
+              onQuickEdit={quickEditEnabled ? (() => { setQuickEditMode('rooms'); setShowQuickEdit(true); }) : undefined}
               onExportEdit={() => downloadHighlightTemplate('all')}
               onImportFile={canManageStructure ? handleImportExcelHighlights : undefined}
               onDownloadTemplate={() => downloadHighlightTemplate('template')}
@@ -9502,7 +9505,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         </div>
       )}
 
-      <QuickEditGridModal
+      {quickEditEnabled && showQuickEdit && <React.Suspense fallback={null}>
+      <LazyQuickEditGridModal
         open={showQuickEdit}
         title="Bảng chỉnh nhanh · Mặt bằng"
         subtitle={quickEditMode === 'rooms'
@@ -9522,6 +9526,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         syncGroupColumns={quickEditMode === 'rooms' ? ['roomName', 'mainCategory', 'mainVolume'] : []}
         onSave={quickEditMode === 'rooms' ? saveRoomQuickRows : saveDefectQuickRows}
       />
+      </React.Suspense>}
 
       <RoomHighlightModal
         isOpen={isRoomModalOpen}

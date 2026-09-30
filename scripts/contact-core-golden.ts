@@ -46,7 +46,7 @@ assert.match(appSource, /connection\?\.saveData \|\| isMobileRuntime/, 'mobile f
 assert.match(appSource, /return isMobileRuntime \? next\.slice\(-1\) : next/, 'mobile field runtime must keep only the current primary React tree while desktop keeps warmed tabs');
 assert.match(appSource, /navigationRequestRef/, 'rapid primary navigation must coalesce stale heavy-screen transitions');
 assert.match(appSource, /navigationCommitTimerRef/, 'rapid primary navigation must debounce heavy-screen commits during continuous taps');
-assert.match(appSource, /commitDelayMs = rapidMode \? 80 : 24/, 'single navigation must show the destination immediately while heavy content waits one paint-scale window');
+assert.match(appSource, /commitDelayMs = rapidMode \? 48 : 0/, 'single navigation must avoid an artificial hold while rapid navigation still coalesces heavy mounts');
 assert.match(appSource, /rapidTap = sinceLastRequest < 220/, 'rapid navigation mode must be driven by actual tap cadence');
 const navigationCoordinator = appSource.slice(appSource.indexOf('const navigateToTab'), appSource.indexOf('// Warm primary field screens'));
 assert.doesNotMatch(navigationCoordinator, /React\.startTransition/, 'settled rapid navigation commit must not remain transition-delayed');

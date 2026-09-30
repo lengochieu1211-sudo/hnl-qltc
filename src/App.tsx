@@ -422,7 +422,7 @@ function AuthenticatedApp() {
     navigationLastRequestAtRef.current = now;
     if (rapidTap) navigationRapidUntilRef.current = now + 320;
     const rapidMode = rapidTap || now < navigationRapidUntilRef.current;
-    const commitDelayMs = rapidMode ? 80 : 24;
+    const commitDelayMs = rapidMode ? 48 : 0;
 
     if (tab === activeTabRef.current) {
       if (navigationCommitTimerRef.current != null) {
@@ -433,9 +433,9 @@ function AuthenticatedApp() {
       return;
     }
 
-    // Reflect the requested destination immediately. The 24 ms normal window intentionally
-    // gives the browser one paint opportunity for the destination shell before React mounts
-    // the heavy screen; rapid taps still use the longer last-click-wins window.
+    // Reflect the requested destination immediately. A normal tap commits on the next task
+    // without an artificial 24 ms hold; rapid taps retain a short last-click-wins window
+    // so Android does not mount every intermediate heavy screen.
     setNavigationTargetTab(tab);
     if (!isMobileRuntime) preloadTab(tab);
 
@@ -7250,6 +7250,7 @@ function AuthenticatedApp() {
             >
             <WarehouseTab
               isActive={visibleTab === 'warehouse'}
+              quickEditEnabled={!isMobileRuntime}
               inventory={inventory}
               userRole={currentUserRole}
               roleResolved={isProjectRoleResolved}
@@ -7298,6 +7299,7 @@ function AuthenticatedApp() {
             >
             <WorkVolumeTab
               isActive={visibleTab === 'volume'}
+              quickEditEnabled={!isMobileRuntime}
               workVolumes={computedWorkVolumes}
               floorPlans={floorPlans}
               roomProgressList={roomProgressList}
@@ -7343,6 +7345,7 @@ function AuthenticatedApp() {
               userRole={currentUserRole}
               roleResolved={isProjectRoleResolved}
               isActive={visibleTab === 'floorplan'}
+              quickEditEnabled={!isMobileRuntime}
               inspectorName={inspectorName}
               onAddInventory={handleAddInventory}
               onAddFloorPlan={handleAddFloorPlan}
@@ -7412,6 +7415,7 @@ function AuthenticatedApp() {
             >
             <CrewTab
               isActive={visibleTab === 'crew'}
+              quickEditEnabled={!isMobileRuntime}
               projectId={activeProjectId}
               userRole={currentUserRole}
               roleResolved={isProjectRoleResolved}

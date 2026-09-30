@@ -330,7 +330,7 @@ pass('warehouse transaction/derived-balance safety engine is wired into runtime'
 requireAll(warehouseTab, [
   '<ExcelActionMenu',
   'triggerLabel="Quản lý dữ liệu"',
-  "onQuickEdit={() => { setQuickEditMode('norms'); setShowQuickEdit(true); }}",
+  "onQuickEdit={quickEditEnabled ? (() => { setQuickEditMode('norms'); setShowQuickEdit(true); }) : undefined}",
   'onImportFile={hasImportAccess ? handleFileChangeExcel : undefined}',
   "quickEditMode === 'stock' ? false",
 ], 'warehouse role-aware data-management actions');
@@ -339,7 +339,7 @@ const workVolumeTab = read('src/components/WorkVolumeTab.tsx');
 requireAll(workVolumeTab, [
   '<ExcelActionMenu',
   'triggerLabel="Quản lý dữ liệu"',
-  'onQuickEdit={() => setShowQuickEdit(true)}',
+  'onQuickEdit={quickEditEnabled ? (() => setShowQuickEdit(true)) : undefined}',
   'onImportFile={hasStructureManageAccess ? handleImportExcelWorkVolumes : undefined}',
   "key: 'actual', label: 'Khối lượng đã làm', editable: false",
 ], 'work-volume role-aware data-management actions');
@@ -454,7 +454,7 @@ requireAll(app, [
   'navigationCommitTimerRef',
   'window.clearTimeout(navigationCommitTimerRef.current)',
   'requestId !== navigationRequestRef.current',
-  'commitDelayMs = rapidMode ? 80 : 24',
+  'commitDelayMs = rapidMode ? 48 : 0',
   'setNavigationTargetTab(tab)',
   'rapidTap = sinceLastRequest < 220',
   'navigationRapidUntilRef.current = now + 320',

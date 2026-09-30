@@ -44,7 +44,8 @@ import {
 
 import { QuickSortBar } from './QuickSortBar';
 import { ExcelActionMenu } from './ExcelActionMenu';
-import { QuickEditGridModal, type QuickGridColumn, type QuickGridRow } from './QuickEditGridModal';
+import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';
+const LazyQuickEditGridModal = React.lazy(() => import('./QuickEditGridModal').then((m) => ({ default: m.QuickEditGridModal })));
 import { CatalogTemplatePickerModal } from './CatalogTemplatePickerModal';
 
 const WORK_CATEGORY_SUGGESTIONS = ['Trần', 'Vách', 'Trần & Vách', 'Cửa', 'Khác'];
@@ -72,6 +73,7 @@ const inferWorkCategoryGroup = (rawTitle: string): string => {
 
 interface WorkVolumeTabProps {
   isActive?: boolean;
+  quickEditEnabled?: boolean;
   workVolumes: WorkVolume[];
   floorPlans?: FloorPlan[];
   roomProgressList?: RoomProgressItem[];
@@ -95,6 +97,7 @@ interface WorkVolumeTabProps {
 
 export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   isActive = true,
+  quickEditEnabled = true,
   workVolumes,
   floorPlans = [],
   roomProgressList = [],
@@ -204,6 +207,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   }, [showQuickEdit, workVolumes, floorPlans, normalizedStructureConfig, hasFinancialAccess]);
 
   const quickEditColumns = useMemo<QuickGridColumn[]>(() => {
+    if (!showQuickEdit) return [];
     const columns: QuickGridColumn[] = [
       { key: 'title', label: 'Hạng mục thi công', editable: hasStructureManageAccess, required: true, width: 230 },
       { key: 'structureGroups', label: normalizedStructureConfig.label || 'Khu/Khối', editable: false, width: 150 },
@@ -228,7 +232,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     if (hasFinancialAccess) columns.push({ key: 'unitPrice', label: 'Đơn giá', editable: hasStructureManageAccess, type: 'number', width: 130, validate: (value) => Number(value) < 0 ? 'Không được âm' : null });
     columns.push({ key: 'dueDate', label: 'Hạn hoàn thành', editable: hasStructureManageAccess, type: 'date', width: 145 });
     return columns;
-  }, [hasStructureManageAccess, hasFinancialAccess, normalizedStructureConfig.label, quickEditFloorNameToId]);
+  }, [showQuickEdit, hasStructureManageAccess, hasFinancialAccess, normalizedStructureConfig.label, quickEditFloorNameToId]);
 
   const saveQuickEditRows = async (
     rows: QuickGridRow[],
@@ -809,7 +813,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
             <ExcelActionMenu
               fillMobile
               triggerLabel="Quản lý dữ liệu"
-              onQuickEdit={() => setShowQuickEdit(true)}
+              onQuickEdit={quickEditEnabled ? (() => setShowQuickEdit(true)) : undefined}
               onExportEdit={() => import('../utils/excelExport').then(({ exportWorkVolumesTemplate }) => exportWorkVolumesTemplate(workVolumes, projectName, hasFinancialAccess))}
               onImportFile={hasStructureManageAccess ? handleImportExcelWorkVolumes : undefined}
               onDownloadTemplate={() => import('../utils/excelExport').then(({ exportWorkVolumesTemplate }) => exportWorkVolumesTemplate([], projectName, hasFinancialAccess))}
@@ -1249,7 +1253,8 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         }}
       />
 
-      <QuickEditGridModal
+      {quickEditEnabled && showQuickEdit && <React.Suspense fallback={null}>
+      <LazyQuickEditGridModal
         open={showQuickEdit}
         title="Bảng chỉnh nhanh · Khối lượng"
         subtitle="Khu/Khối tự đồng bộ từ các tầng đã gán. KL đã làm là dữ liệu thực tế chỉ đọc."
@@ -1275,6 +1280,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         onClose={() => setShowQuickEdit(false)}
         onSave={saveQuickEditRows}
       />
+      </React.Suspense>}
 
       {/* Add / Edit Work Volume Modal */}
       {hasStructureManageAccess && (showAddForm || editingVolume !== null) && (

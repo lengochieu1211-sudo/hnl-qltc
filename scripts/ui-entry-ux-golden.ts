@@ -296,7 +296,7 @@ assert(navSource.includes('onPointerEnter={() => onPreloadTab?.(tab.id)}'), 'Des
 assert(!navSource.includes('onPreloadTab?.(tab);'), 'Touch pointer-down feedback must not start heavy lazy chunk parsing before mobile paint');
 assert(appSource.includes('const preloadTab = React.useCallback') && appSource.includes('onPreloadTab={preloadTab}'), 'App must map navigation intent to the destination lazy loader');
 assert(appSource.includes('navigationRequestRef') && appSource.includes('requestId !== navigationRequestRef.current'), 'Rapid navigation must invalidate stale tab transitions so the last click wins');
-assert(appSource.includes('navigationCommitTimerRef') && appSource.includes('commitDelayMs = rapidMode ? 80 : 24') && appSource.includes('setNavigationTargetTab(tab)'), 'Primary navigation must switch the visible destination immediately while giving the shell one paint opportunity before heavy content');
+assert(appSource.includes('navigationCommitTimerRef') && appSource.includes('commitDelayMs = rapidMode ? 48 : 0') && appSource.includes('setNavigationTargetTab(tab)'), 'Primary navigation must commit normal taps without artificial hold while retaining a short rapid-tap last-click-wins window');
 assert(appSource.includes('if (tab === activeTabRef.current)') && appSource.includes('setNavigationTargetTab(null);'), 'Re-tapping the already active tab must be a true no-op without preload/remount delay');
 assert(appSource.includes('rapidTap = sinceLastRequest < 220') && appSource.includes('navigationRapidUntilRef.current = now + 320'), 'Rapid navigation mode must be cadence-driven and bounded');
 assert(appSource.includes('window.clearTimeout(navigationCommitTimerRef.current)'), 'Each newer navigation request must cancel the previous pending heavy-screen commit');
@@ -320,6 +320,8 @@ const crewSource = read('src/components/CrewTabBase.tsx');
 const warehouseSource = read('src/components/WarehouseTab.tsx');
 const workVolumeSource = read('src/components/WorkVolumeTab.tsx');
 assert(floorPlanSource.includes('if (!showQuickEdit) return [];') && crewSource.includes('if (!showQuickEdit) return [];') && warehouseSource.includes('if (!showQuickEdit) return [];') && workVolumeSource.includes('if (!showQuickEdit) return [];'), 'Quick Edit row preparation must stay dormant until the user opens the grid');
+assert([floorPlanSource, crewSource, warehouseSource, workVolumeSource].every((source) => source.includes("import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';") && source.includes("import('./QuickEditGridModal')") && source.includes('quickEditEnabled?: boolean;')), 'Primary heavy tabs must lazy-load Quick Edit and expose a runtime enable flag');
+assert(appSource.includes('quickEditEnabled={!isMobileRuntime}'), 'Mobile Web/APK must disable Quick Edit while desktop/EXE keeps it available on demand');
 assert(crewSource.includes('isActive?: boolean;') && warehouseSource.includes('isActive?: boolean;') && workVolumeSource.includes('isActive?: boolean;'), 'Crew, Warehouse and Work Volume must expose active-tab suspension state');
 assert(floorPlanSource.includes('if (!isActive) return;') && floorPlanSource.includes('new ResizeObserver') && floorPlanSource.includes("addEventListener('touchmove'"), 'Hidden Floor Plan must suspend viewport observers and gesture listeners');
 const aiPageSource = read('src/features/ai/AiAssistantPage.tsx');

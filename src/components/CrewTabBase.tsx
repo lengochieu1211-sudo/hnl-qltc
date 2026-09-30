@@ -43,7 +43,8 @@ import { saveWorkbookFile } from '../utils/fileExport';
 import { createEntityId } from '../utils/idUtils';
 import { QuickSortBar } from './QuickSortBar';
 import { ExcelActionMenu } from './ExcelActionMenu';
-import { QuickEditGridModal, type QuickGridColumn, type QuickGridRow } from './QuickEditGridModal';
+import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';
+const LazyQuickEditGridModal = React.lazy(() => import('./QuickEditGridModal').then((m) => ({ default: m.QuickEditGridModal })));
 import { CatalogTemplatePickerModal } from './CatalogTemplatePickerModal';
 import { UserRole, canEditCrewData, canDeleteBusinessData, canDeleteCrewRecord, canManageTeams, canImportData } from '../utils/securityUtils';
 import { findWorsenedTeamNameConflict, normalizeTeamDirectoryName, resolveUniqueTeamByDirectoryName } from '../utils/teamDirectoryIntegrity';
@@ -89,6 +90,7 @@ const CrewPhotoCount: React.FC<{ projectId?: string; recordId: string }> = ({ pr
 
 interface CrewTabProps {
   isActive?: boolean;
+  quickEditEnabled?: boolean;
   projectId?: string;
   userRole: UserRole;
   roleResolved: boolean;
@@ -212,6 +214,7 @@ const getCrewLogFloorLabel = (log: CrewRecord, floorPlans: FloorPlan[]) => {
 
 export const CrewTab: React.FC<CrewTabProps> = ({
   isActive = true,
+  quickEditEnabled = true,
   projectId = 'default-project',
   userRole,
   roleResolved,
@@ -1717,24 +1720,24 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     notes: team.notes || '',
   })) : [], [showQuickEdit, teams]);
 
-  const crewTeamOptions = useMemo(() => Array.from(new Set([
+  const crewTeamOptions = useMemo(() => showQuickEdit ? Array.from(new Set([
     ...teams.map((team) => team.name),
     ...crewRecords.map((record) => record.teamName),
-  ].filter(Boolean))), [teams, crewRecords]);
+  ].filter(Boolean))) : [], [showQuickEdit, teams, crewRecords]);
   const crewStructureOptions = useMemo(
-    () => normalizedStructureConfig.groups.map((group) => group.name),
-    [normalizedStructureConfig],
+    () => showQuickEdit ? normalizedStructureConfig.groups.map((group) => group.name) : [],
+    [showQuickEdit, normalizedStructureConfig],
   );
-  const crewFloorOptions = useMemo(() => Array.from(new Set([
+  const crewFloorOptions = useMemo(() => showQuickEdit ? Array.from(new Set([
     ...floorPlans.map((floor) => floor.floorName),
     ...crewRecords.flatMap((record) => (record.floorWorks || []).map((work) => work.floorName)),
-  ].filter(Boolean))), [floorPlans, crewRecords]);
-  const crewCategoryOptions = useMemo(() => Array.from(new Set([
+  ].filter(Boolean))) : [], [showQuickEdit, floorPlans, crewRecords]);
+  const crewCategoryOptions = useMemo(() => showQuickEdit ? Array.from(new Set([
     ...activeWorkVolumeCatalog.map((item) => item.title),
     ...crewRecords.flatMap((record) => (record.floorWorks || []).flatMap((work) => (work.categories || []).map((category) => category.categoryName))),
-  ].filter(Boolean))), [activeWorkVolumeCatalog, crewRecords]);
+  ].filter(Boolean))) : [], [showQuickEdit, activeWorkVolumeCatalog, crewRecords]);
 
-  const crewQuickColumns = useMemo<QuickGridColumn[]>(() => [
+  const crewQuickColumns = useMemo<QuickGridColumn[]>(() => showQuickEdit ? [
     { key: 'date', label: 'Ngày', type: 'date', editable: (row) => canOperate && Boolean(row.__groupPrimary), required: true, width: 135 },
     { key: 'teamName', label: 'Đội thi công', type: 'select', options: crewTeamOptions, editable: (row) => canOperate && Boolean(row.__groupPrimary), required: true, width: 180 },
     { key: 'morning', label: 'Ca sáng', type: 'number', editable: (row) => canOperate && Boolean(row.__groupPrimary), width: 95, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
@@ -1760,15 +1763,15 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     { key: 'floorName', label: 'Tầng', type: 'select', options: crewFloorOptions, editable: canOperate, required: true, width: 150 },
     { key: 'categoryName', label: 'Hạng mục chính', type: 'select', options: crewCategoryOptions, editable: canOperate, width: 220 },
     { key: 'subItems', label: 'Hạng mục phụ / Công đoạn', editable: canOperate, width: 260 },
-  ], [canOperate, crewTeamOptions, crewStructureOptions, crewFloorOptions, crewCategoryOptions, normalizedStructureConfig, floorPlans]);
+  ] : [], [showQuickEdit, canOperate, crewTeamOptions, crewStructureOptions, crewFloorOptions, crewCategoryOptions, normalizedStructureConfig, floorPlans]);
 
-  const teamQuickColumns = useMemo<QuickGridColumn[]>(() => [
+  const teamQuickColumns = useMemo<QuickGridColumn[]>(() => showQuickEdit ? [
     { key: 'name', label: 'Tên đội', editable: canManageTeamDirectory, required: true, width: 200 },
     { key: 'leader', label: 'Trưởng nhóm', editable: canManageTeamDirectory, required: true, width: 190 },
     { key: 'defaultCount', label: 'Quân số định biên', editable: canManageTeamDirectory, type: 'number', required: true, width: 135, validate: (value) => Number(value) <= 0 ? 'Phải lớn hơn 0' : null },
     { key: 'phone', label: 'Số điện thoại', editable: canManageTeamDirectory, width: 150 },
     { key: 'notes', label: 'Mô tả / Ghi chú', editable: canManageTeamDirectory, width: 280 },
-  ], [canManageTeamDirectory]);
+  ] : [], [showQuickEdit, canManageTeamDirectory]);
 
   const saveQuickCrewRows = async (rows: QuickGridRow[], dirtyCellKeys: Set<string>) => {
     if (!canOperate) return;
@@ -1980,7 +1983,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             <ExcelActionMenu
               fillWidth
               triggerLabel="Quản lý dữ liệu"
-              onQuickEdit={() => { setQuickEditMode('logs'); setShowQuickEdit(true); }}
+              onQuickEdit={quickEditEnabled ? (() => { setQuickEditMode('logs'); setShowQuickEdit(true); }) : undefined}
               onExportEdit={handleExportCrewLogsEdit}
               onImportFile={canOperate ? handleImportCrewLogsExcel : undefined}
               onDownloadTemplate={handleDownloadCrewLogTemplate}
@@ -2348,7 +2351,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   <ExcelActionMenu
                     fillMobile
                     triggerLabel="Quản lý dữ liệu"
-                    onQuickEdit={() => { setQuickEditMode('teams'); setShowQuickEdit(true); }}
+                    onQuickEdit={quickEditEnabled ? (() => { setQuickEditMode('teams'); setShowQuickEdit(true); }) : undefined}
                     onExportEdit={() => handleExportTeamsTemplate(false)}
                     onImportFile={canImportTeams ? handleImportExcelTeams : undefined}
                     onDownloadTemplate={() => handleExportTeamsTemplate(true)}
@@ -4208,7 +4211,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         }}
       />
 
-      <QuickEditGridModal
+      {quickEditEnabled && showQuickEdit && <React.Suspense fallback={null}>
+      <LazyQuickEditGridModal
         open={showQuickEdit}
         title={quickEditMode === 'logs' ? 'Bảng chỉnh nhanh · Nhật ký quân số' : 'Bảng chỉnh nhanh · Danh mục đội'}
         subtitle={quickEditMode === 'logs'
@@ -4244,6 +4248,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         syncGroupColumns={quickEditMode === 'logs' ? ['date', 'teamName', 'morning', 'afternoon', 'evening'] : []}
         onSave={quickEditMode === 'logs' ? saveQuickCrewRows : (rows) => saveQuickTeamRows(rows)}
       />
+      </React.Suspense>}
 
       <CrewReportShareModal
         isOpen={showCrewReportShare}

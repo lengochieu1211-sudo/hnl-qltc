@@ -38,7 +38,8 @@ import { assertSafeExcelImportFile, parseExcelNumberRecord, parseExcelStringArra
 import { QuickSortBar } from './QuickSortBar';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import { ExcelActionMenu } from './ExcelActionMenu';
-import { QuickEditGridModal, type QuickGridColumn, type QuickGridRow } from './QuickEditGridModal';
+import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';
+const LazyQuickEditGridModal = React.lazy(() => import('./QuickEditGridModal').then((m) => ({ default: m.QuickEditGridModal })));
 import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
 import { computeMaterialNeeds } from '../utils/materialNeedEngine';
 import { UserRole, canEditWarehouseData, canDeleteBusinessData, canImportData, canManageMaterialNorms } from '../utils/securityUtils';
@@ -53,6 +54,7 @@ type WarehouseCatalogSortKey = 'name' | 'category' | 'unit' | 'totalIn' | 'total
 
 interface WarehouseTabProps {
   isActive?: boolean;
+  quickEditEnabled?: boolean;
   inventory: InventoryItem[];
   userRole: UserRole;
   roleResolved: boolean;
@@ -83,6 +85,7 @@ interface WarehouseTabProps {
 
 export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   isActive = true,
+  quickEditEnabled = true,
   inventory,
   userRole,
   roleResolved,
@@ -1548,16 +1551,17 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     remainingNeed: item.remainingNeed,
   })) : [], [showQuickEdit, stockSummaries]);
 
-  const warehouseMaterialOptions = useMemo(() => Array.from(new Set([
+  const warehouseMaterialOptions = useMemo(() => showQuickEdit ? Array.from(new Set([
     ...materialNorms.map((norm) => norm.materialName),
     ...inventory.map((item) => item.materialName),
-  ].filter(Boolean))), [materialNorms, inventory]);
-  const warehouseFloorOptions = useMemo(() => floorPlans.map((floor) => floor.floorName), [floorPlans]);
-  const warehouseTeamOptions = useMemo(() => teams.map((team) => team.name), [teams]);
-  const warehouseWorkOptions = useMemo(() => (workVolumes || []).map((work) => work.title), [workVolumes]);
-  const warehouseRoomOptions = useMemo(() => roomProgressList.map((room) => room.roomName), [roomProgressList]);
+  ].filter(Boolean))) : [], [showQuickEdit, materialNorms, inventory]);
+  const warehouseFloorOptions = useMemo(() => showQuickEdit ? floorPlans.map((floor) => floor.floorName) : [], [showQuickEdit, floorPlans]);
+  const warehouseTeamOptions = useMemo(() => showQuickEdit ? teams.map((team) => team.name) : [], [showQuickEdit, teams]);
+  const warehouseWorkOptions = useMemo(() => showQuickEdit ? (workVolumes || []).map((work) => work.title) : [], [showQuickEdit, workVolumes]);
+  const warehouseRoomOptions = useMemo(() => showQuickEdit ? roomProgressList.map((room) => room.roomName) : [], [showQuickEdit, roomProgressList]);
 
   const warehouseQuickColumns = useMemo<QuickGridColumn[]>(() => {
+    if (!showQuickEdit) return [];
     if (quickEditMode === 'norms') return [
       { key: 'materialName', label: 'Tên vật tư', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), required: true, width: 220 },
       { key: 'category', label: 'Nhóm', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), required: true, width: 150 },
@@ -1615,7 +1619,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       { key: 'notes', label: 'Ghi chú', editable: hasImportAccess, width: 260 },
     );
     return base;
-  }, [quickEditMode, hasNormManageAccess, hasImportAccess, warehouseMaterialOptions, warehouseFloorOptions, warehouseRoomOptions, warehouseTeamOptions, warehouseWorkOptions, normalizedStructureConfig]);
+  }, [showQuickEdit, quickEditMode, hasNormManageAccess, hasImportAccess, warehouseMaterialOptions, warehouseFloorOptions, warehouseRoomOptions, warehouseTeamOptions, warehouseWorkOptions, normalizedStructureConfig]);
 
   const warehouseActiveQuickRows = quickEditMode === 'norms'
     ? warehouseQuickNormRows
@@ -1840,7 +1844,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <ExcelActionMenu
               fillMobile
               triggerLabel="Quản lý dữ liệu"
-              onQuickEdit={() => { setQuickEditMode('norms'); setShowQuickEdit(true); }}
+              onQuickEdit={quickEditEnabled ? (() => { setQuickEditMode('norms'); setShowQuickEdit(true); }) : undefined}
               onExportEdit={() => import('../utils/excelExport').then(({ exportWarehouseUpdateTemplate }) => exportWarehouseUpdateTemplate(materialNorms, workVolumes || [], inventory, undefined, {
                 floorPlans,
                 roomProgressList,
@@ -1976,7 +1980,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
 
 
-      <QuickEditGridModal
+      {quickEditEnabled && showQuickEdit && <React.Suspense fallback={null}>
+      <LazyQuickEditGridModal
         open={showQuickEdit}
         title="Bảng chỉnh nhanh · Kho vật tư"
         subtitle={quickEditMode === 'stock'
@@ -2048,6 +2053,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         onClose={() => setShowQuickEdit(false)}
         onSave={saveWarehouseQuickRows}
       />
+      </React.Suspense>}
 
       {/* Gợi ý vật tư tổng hợp */}
       <section className="mb-4 rounded-2xl border border-indigo-200 bg-indigo-50/50 p-4 shadow-sm">

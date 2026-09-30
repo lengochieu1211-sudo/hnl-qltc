@@ -51,6 +51,12 @@ assert.match(excel, /FileSpreadsheet/, 'Excel-only action trigger must retain th
 assert.match(excel, /Database/, 'Combined data-management trigger must use a data icon');
 assert.match(excel, /onQuickEdit/, 'Shared data menu must support the Quick Edit action');
 assert.match(excel, /Quản lý dữ liệu/, 'Shared data menu must expose the approved data-management label');
+for (const [name, source] of [['floor', floor], ['crew', crew], ['warehouse', warehouse], ['volume', volume]] as const) {
+  assert.match(source, /quickEditEnabled\?: boolean;/, `${name} must expose a Quick Edit runtime enable flag`);
+  assert.match(source, /import\('\.\/QuickEditGridModal'\)/, `${name} must lazy-load Quick Edit instead of parsing the grid with the heavy tab chunk`);
+  assert.doesNotMatch(source, /import \{ QuickEditGridModal,/, `${name} must not statically import the Quick Edit runtime component`);
+  assert.match(source, /quickEditEnabled && showQuickEdit/, `${name} must not mount Quick Edit while disabled or closed`);
+}
 
 assert.match(floor, /Căn & Hạng mục/, 'Floor quick edit must separate room/work rows');
 assert.match(floor, /Deadline defect/, 'Defect quick edit must expose deadline');
@@ -115,7 +121,7 @@ assert.match(crew, /order-1 col-span-2 lg:order-none lg:col-span-1[\s\S]*aria-la
 assert.match(crew, /order-5 col-span-2 lg:order-none lg:col-span-1[\s\S]*triggerLabel="Quản lý dữ liệu"/, 'Crew mobile Data Management action must occupy a full row while PC stays one toolbar column');
 assert.match(crew, /lg:grid-cols-\[220px_minmax\(0,1fr\)_minmax\(0,1fr\)_minmax\(0,1\.1fr\)_minmax\(0,1fr\)\][\s\S]*Chia sẻ báo cáo quân số[\s\S]*triggerLabel="Quản lý dữ liệu"/, 'Crew PC must preserve Date, Record, Copy, Share and Data Management on one aligned row');
 assert.doesNotMatch(crew, /crew-subtab-navigation[^\n]*lg:max-w/, 'Crew primary subtabs must remain full-width like the original layout');
-assert.match(crew, /triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit=\{\(\) => \{ setQuickEditMode\('teams'\); setShowQuickEdit\(true\); \}\}[\s\S]*reportLabel="Thống kê tất cả đội"/, 'Team directory must consolidate Quick Edit and Excel under the same data menu');
+assert.match(crew, /triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit=\{quickEditEnabled \? \(\(\) => \{ setQuickEditMode\('teams'\); setShowQuickEdit\(true\); \}\) : undefined\}[\s\S]*reportLabel="Thống kê tất cả đội"/, 'Team directory must consolidate Quick Edit and Excel under the same data menu');
 
 assert.match(warehouse, /Định mức theo Hạng mục/, 'Warehouse quick edit must expose the safe per-work-category norm table');
 assert.match(warehouse, /Nhập kho/, 'Warehouse quick edit must have inbound ledger table');
