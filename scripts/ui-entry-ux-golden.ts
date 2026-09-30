@@ -312,7 +312,7 @@ assert(floorPlanKeepAliveSource.includes('isActive?: boolean;') && floorPlanKeep
 assert(!appSource.includes('loaders.forEach((loader)'), 'Navigation warming must not parse all heavy primary screens in parallel');
 assert(appSource.includes('nextTimer = window.setTimeout(next, warmGapMs)') && appSource.includes('loader().catch(() => undefined).finally(() =>'), 'Desktop background lazy warming must serialize heavy chunk parsing instead of overlapping imports');
 assert(appSource.includes('if (connection?.saveData || isMobileRuntime) return;'), 'Mobile field runtime must skip background prewarm while desktop still respects Data Saver');
-assert(appSource.includes('if (!isMobileRuntime) preloadTab(tab);'), 'Mobile navigation must paint the destination shell before lazy chunk parsing while desktop keeps intent preload');
+assert(!navigationCoordinator.includes('preloadTab(tab)') && navSource.includes("onPointerEnter={() => onPreloadTab?.(tab.id)}"), 'Click navigation must paint destination feedback before heavy lazy parsing; desktop may still warm on hover/background intent');
 assert(appSource.includes('return isMobileRuntime ? next.slice(-1) : next;'), 'Mobile primary runtime must retain only the current heavy tab while desktop keeps warmed tabs');
 const fileExportSource = read('src/utils/fileExport.ts');
 const floorPlanSource = read('src/components/FloorPlanDefectTab.tsx');

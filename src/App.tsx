@@ -436,8 +436,9 @@ function AuthenticatedApp() {
     // Reflect the requested destination immediately. A normal tap commits on the next task
     // without an artificial 24 ms hold; rapid taps retain a short last-click-wins window
     // so Android does not mount every intermediate heavy screen.
+    // Paint destination feedback before starting any heavy lazy import.
+    // Desktop hover/background warming already handles intent preloading.
     setNavigationTargetTab(tab);
-    if (!isMobileRuntime) preloadTab(tab);
 
     if (navigationCommitTimerRef.current != null) {
       window.clearTimeout(navigationCommitTimerRef.current);
@@ -453,7 +454,7 @@ function AuthenticatedApp() {
       }
       setActiveTab(tab);
     }, commitDelayMs);
-  }, [preloadTab, isMobileRuntime]);
+  }, [isMobileRuntime]);
 
   useEffect(() => {
     if (navigationTargetTab === activeTab) setNavigationTargetTab(null);
