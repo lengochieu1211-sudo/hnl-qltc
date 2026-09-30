@@ -703,7 +703,7 @@ async function verifyMaterialNeedFeatureSheet(page, label) {
   await sheet.getByText('Tất cả hạng mục đã khai', { exact: true }).first().waitFor({ state: 'visible', timeout: 10000 });
   pass(`${label} Material Need multi-room + declared work-category filters visible`);
 
-  const closeButton = sheet.getByRole('button', { name: /^Đóng Gợi ý vật tư tổng hợp$/ }).first();
+  const closeButton = sheet.getByRole('button', { name: /^Đóng Gợi ý vật tư tổng hợp · Nhu cầu theo phạm vi$/ }).first();
   await closeButton.waitFor({ state: 'visible', timeout: 10000 });
   await closeButton.click();
   await waitForSettingsSheet(page, 'material-need-details', false);
