@@ -46,7 +46,7 @@ import { QuickSortBar } from './QuickSortBar';
 import { ExcelActionMenu } from './ExcelActionMenu';
 import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';
 const LazyQuickEditGridModal = React.lazy(() => import('./QuickEditGridModal').then((m) => ({ default: m.QuickEditGridModal })));
-import { CatalogTemplatePickerModal } from './CatalogTemplatePickerModal';
+const LazyCatalogTemplatePickerModal = React.lazy(() => import('./CatalogTemplatePickerModal').then((m) => ({ default: m.CatalogTemplatePickerModal })));
 
 const WORK_CATEGORY_SUGGESTIONS = ['Trần', 'Vách', 'Trần & Vách', 'Cửa', 'Khác'];
 const GLOBAL_WORK_SCOPE_LABEL = 'Toàn công trình';
@@ -1212,7 +1212,8 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         )}
       </div>
 
-      <CatalogTemplatePickerModal
+      {showTemplatePicker && <React.Suspense fallback={null}>
+      <LazyCatalogTemplatePickerModal
         open={showTemplatePicker}
         onClose={() => setShowTemplatePicker(false)}
         currentProjectId={currentProjectId}
@@ -1252,6 +1253,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           if (imported.length) onImportWorkVolumes(imported);
         }}
       />
+      </React.Suspense>}
 
       {quickEditEnabled && showQuickEdit && <React.Suspense fallback={null}>
       <LazyQuickEditGridModal

@@ -85,7 +85,7 @@ import { saveWorkbookFile } from '../utils/fileExport';
 import { describePdfError, loadPdfDocument, renderPdfDocumentPageToImage } from '../utils/pdfToImage';
 import { getImageQualityProfile } from '../utils/imageQualitySettings';
 import { detectPdfRoomCandidatesFromDocument, DEFAULT_PDF_ROOM_NAME_PATTERN, PdfRoomCandidate } from '../utils/pdfRoomDetection';
-import { detectRoomsFromDxf, renderDxfFloorPlanSvgDataUrl, type DxfRoomCandidate } from '../utils/dxfRoomDetection';
+import type { DxfFloorPlanRenderResult, DxfRoomCandidate } from '../utils/dxfRoomDetection';
 import { QuickSortBar } from './QuickSortBar';
 import { MoveOrderControls } from './MoveOrderControls';
 import { ExcelActionMenu } from './ExcelActionMenu';
@@ -2950,9 +2950,26 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setViewingImageSet({ images, initialIndex });
   };
 
-  const floorDefects = defects.filter((d) => d.floorId === activeFloor?.id);
-  const floorRooms = roomProgressList.filter((r) => r.floorId === activeFloor?.id);
-  const cadSourceRoomCount = floorRooms.filter((room) => room.cadSource?.format === 'DXF' && room.cadSource.rawPoints?.length).length;
+  // Keep current-floor collections referentially stable. These arrays feed keyboard,
+  // linkage-repair and filtered-list effects; recreating them on every UI render made
+  // button/modal/zoom state changes retrigger expensive scans on Android.
+  const activeFloorId = activeFloor?.id;
+  const floorDefects = React.useMemo(
+    () => defects.filter((d) => d.floorId === activeFloorId),
+    [defects, activeFloorId],
+  );
+  const floorRooms = React.useMemo(
+    () => roomProgressList.filter((r) => r.floorId === activeFloorId),
+    [roomProgressList, activeFloorId],
+  );
+  const floorRoomById = React.useMemo(
+    () => new Map<string, RoomProgressItem>(floorRooms.map((room) => [room.id, room] as const)),
+    [floorRooms],
+  );
+  const cadSourceRoomCount = React.useMemo(
+    () => floorRooms.reduce((count, room) => count + (room.cadSource?.format === 'DXF' && room.cadSource.rawPoints?.length ? 1 : 0), 0),
+    [floorRooms],
+  );
 
   const openCadAlignment = () => {
     if (!activeFloor || cadSourceRoomCount === 0) return;
@@ -3342,8 +3359,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }
 
     const text = await file.text();
+    // DXF parsing/rendering is a specialist path. Keep its ~700-line parser out of the
+    // normal Floor Plan navigation chunk and load it only after the user selects a DXF.
+    const { detectRoomsFromDxf, renderDxfFloorPlanSvgDataUrl } = await import('../utils/dxfRoomDetection');
     const result = detectRoomsFromDxf(text);
-    let cadRender: ReturnType<typeof renderDxfFloorPlanSvgDataUrl> | null = null;
+    let cadRender: DxfFloorPlanRenderResult | null = null;
     try {
       cadRender = renderDxfFloorPlanSvgDataUrl(text);
     } catch (error) {
@@ -4208,10 +4228,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   }, [isActive, canEditDefects, floorDefects, floorRooms, teams, onUpdateDefect]);
 
   const filteredDefects = React.useMemo(() => {
-    const getRoomLabel = (defect: DefectItem) => {
-      const matchedRoom = floorRooms.find((room) => room.id === defect.roomId);
-      return matchedRoom?.roomName || defect.positionDetail || defect.axisGrid || '';
-    };
+    const getRoomLabel = (defect: DefectItem) =>
+      floorRoomById.get(defect.roomId || '')?.roomName || defect.positionDetail || defect.axisGrid || '';
 
     const compareDueDate = (a: DefectItem, b: DefectItem) => {
       if (!a.dueDate && !b.dueDate) return 0;
@@ -4253,7 +4271,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
       return defectSortOrder === 'asc' ? comparison : -comparison;
     });
-  }, [floorDefects, floorRooms, statusFilter, defectSortBy, defectSortOrder]);
+  }, [floorDefects, floorRoomById, statusFilter, defectSortBy, defectSortOrder]);
 
   // Helper handlers for floor plan customization (rename, duplicate, delete, quick add)
   const isFloorNameTaken = (name: string, exceptFloorId?: string) => {
@@ -9217,7 +9235,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               const overdueInfo = getDefectOverdueInfo(defect);
               const contactTeam = resolveDefectTeam(defect, teams);
               const defectRoomName = defect.roomId
-                ? roomProgressList.find((room) => room.id === defect.roomId)?.roomName || ''
+                ? floorRoomById.get(defect.roomId)?.roomName || ''
                 : '';
               const defectShareText = buildDefectShareText(defect, defectRoomName);
               return (
@@ -9287,8 +9305,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-semibold text-slate-500">
                         <span>📍 Tầng: <strong className="text-slate-700">{defect.floorName || activeFloor?.floorName || 'Chưa rõ'}</strong></span>
-                        {defect.roomId && floorRooms.find((room) => room.id === defect.roomId)?.roomName && (
-                          <span>🏠 Căn/Phòng: <strong className="text-slate-700">{floorRooms.find((room) => room.id === defect.roomId)?.roomName}</strong></span>
+                        {defect.roomId && floorRoomById.get(defect.roomId)?.roomName && (
+                          <span>🏠 Căn/Phòng: <strong className="text-slate-700">{floorRoomById.get(defect.roomId)?.roomName}</strong></span>
                         )}
                       </div>
 

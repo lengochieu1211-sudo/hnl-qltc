@@ -324,6 +324,11 @@ assert([floorPlanSource, crewSource, warehouseSource, workVolumeSource].every((s
 assert(appSource.includes('quickEditEnabled={!isMobileRuntime}'), 'Mobile Web/APK must disable Quick Edit while desktop/EXE keeps it available on demand');
 assert(crewSource.includes('isActive?: boolean;') && warehouseSource.includes('isActive?: boolean;') && workVolumeSource.includes('isActive?: boolean;'), 'Crew, Warehouse and Work Volume must expose active-tab suspension state');
 assert(floorPlanSource.includes('if (!isActive) return;') && floorPlanSource.includes('new ResizeObserver') && floorPlanSource.includes("addEventListener('touchmove'"), 'Hidden Floor Plan must suspend viewport observers and gesture listeners');
+assert(floorPlanSource.includes('const floorDefects = React.useMemo(') && floorPlanSource.includes('const floorRooms = React.useMemo(') && floorPlanSource.includes('const floorRoomById = React.useMemo('), 'Floor Plan current-floor arrays and room lookup must stay referentially stable across UI-only renders');
+assert(!floorPlanSource.includes("import { detectRoomsFromDxf") && floorPlanSource.includes("await import('../utils/dxfRoomDetection')"), 'DXF parser/rendering must load only when a user actually imports a DXF');
+assert(crewSource.includes("import('./CatalogTemplatePickerModal')") && workVolumeSource.includes("import('./CatalogTemplatePickerModal')") && !crewSource.includes("import { CatalogTemplatePickerModal") && !workVolumeSource.includes("import { CatalogTemplatePickerModal"), 'Template picker must stay out of Crew/Work Volume first-view chunks until opened');
+assert(crewSource.includes('const sortedTeams = useMemo('), 'Crew team directory sorting must not rerun on every unrelated UI render');
+assert(appSource.includes('const floorNames = useMemo(') && appSource.includes('const unhandledDefectsCount = useMemo('), 'App navigation renders must not rebuild stable floor/defect summaries');
 const aiPageSource = read('src/features/ai/AiAssistantPage.tsx');
 assert(!appSource.includes("from './utils/excelExport'"), 'App startup must not statically pull the XLSX export module');
 assert(!fileExportSource.includes("import * as XLSX from 'xlsx'") && fileExportSource.includes("const XLSX = await import('xlsx')"), 'Generic file export must lazy-load XLSX only on an actual workbook export');

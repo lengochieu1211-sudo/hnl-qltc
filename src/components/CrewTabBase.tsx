@@ -45,7 +45,7 @@ import { QuickSortBar } from './QuickSortBar';
 import { ExcelActionMenu } from './ExcelActionMenu';
 import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';
 const LazyQuickEditGridModal = React.lazy(() => import('./QuickEditGridModal').then((m) => ({ default: m.QuickEditGridModal })));
-import { CatalogTemplatePickerModal } from './CatalogTemplatePickerModal';
+const LazyCatalogTemplatePickerModal = React.lazy(() => import('./CatalogTemplatePickerModal').then((m) => ({ default: m.CatalogTemplatePickerModal })));
 import { UserRole, canEditCrewData, canDeleteBusinessData, canDeleteCrewRecord, canManageTeams, canImportData } from '../utils/securityUtils';
 import { findWorsenedTeamNameConflict, normalizeTeamDirectoryName, resolveUniqueTeamByDirectoryName } from '../utils/teamDirectoryIntegrity';
 import { canonicalWorkCategoryId, isActiveRecord, normalizeLinkText, resolveWorkVolumeRef, workVolumeAppliesToFloor } from '../utils/linkageIntegrity';
@@ -994,7 +994,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       .sort((a, b) => naturalCompare(a, b));
   };
 
-  const sortedTeams = (() => {
+  const sortedTeams = useMemo(() => {
     const list = [...teams];
     list.sort((a, b) => {
       let comparison = 0;
@@ -1014,7 +1014,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       return teamListSortOrder === 'asc' ? comparison : -comparison;
     });
     return list;
-  })();
+  }, [teams, teamListSortBy, teamListSortOrder, crewRecords, roomProgressList, defects, floorById, normalizedStructureConfig]);
 
   // Statistics for the selected date
   const stats = useMemo(() => {
@@ -4177,7 +4177,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         );
       })()}
 
-      <CatalogTemplatePickerModal
+      {showTeamTemplatePicker && <React.Suspense fallback={null}>
+      <LazyCatalogTemplatePickerModal
         open={showTeamTemplatePicker}
         onClose={() => setShowTeamTemplatePicker(false)}
         currentProjectId={projectId}
@@ -4210,6 +4211,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           if (additions.length) updateTeamsAndParent([...teams, ...additions]);
         }}
       />
+      </React.Suspense>}
 
       {quickEditEnabled && showQuickEdit && <React.Suspense fallback={null}>
       <LazyQuickEditGridModal

@@ -183,6 +183,9 @@ check(pdf.includes('canvas.width = 1;') && pdf.includes('blobToDataUrl(jpegBlob)
 check(!ui.includes('getPdfDocumentInfo(file)') && !ui.includes('convertPdfToImage(file'), 'Floor-plan PDF import must not load the same PDF twice for page count + rendering.');
 check(ui.includes('const pdf = await loadPdfDocument(file);') && ui.includes('renderPdfDocumentPageToImage(pdf'), 'Floor-plan PDF import must reuse one loaded PDF document.');
 check(ui.includes("code: 'FLOOR_PLAN_FILE_READ_FAILED'"), 'PDF/image import failures must be visible in Runtime Diagnostics.');
+check(ui.includes('const floorDefects = React.useMemo(') && ui.includes('const floorRooms = React.useMemo(') && ui.includes('const floorRoomById = React.useMemo('), 'Current-floor business collections must remain stable across UI-only renders.');
+check(ui.includes("await import('../utils/dxfRoomDetection')") && !ui.includes("import { detectRoomsFromDxf"), 'DXF parser must be on-demand so normal Floor Plan navigation does not parse DXF support code.');
+check(ui.includes("floorRoomById.get(defect.roomId || '')") && !ui.includes("const matchedRoom = floorRooms.find((room) => room.id === defect.roomId)"), 'Defect room sorting must use O(1) room lookup instead of repeated linear scans.');
 
 const config = read('src/components/GoogleConfigTab.tsx');
 const offlineMirrorCard = read('src/components/ProjectOfflineMirrorCard.tsx');

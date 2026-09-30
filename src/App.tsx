@@ -6880,8 +6880,14 @@ function AuthenticatedApp() {
     });
   };
 
-  const floorNames = Array.from(new Set(floorPlans.map((fp) => fp.floorName)));
-  const unhandledDefectsCount = activeDefects.filter((d) => d.status !== 'Đã nghiệm thu').length;
+  const floorNames = useMemo(
+    () => Array.from(new Set(floorPlans.map((fp) => fp.floorName))),
+    [floorPlans],
+  );
+  const unhandledDefectsCount = useMemo(
+    () => activeDefects.reduce((count, defect) => count + (defect.status !== 'Đã nghiệm thu' ? 1 : 0), 0),
+    [activeDefects],
+  );
 
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
   const [floatingAlertsEnabled, setFloatingAlertsEnabled] = useState(true);
