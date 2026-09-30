@@ -44,6 +44,159 @@ function autoFitColumns(ws: XLSX.WorkSheet) {
   ws['!views'] = [{ state: 'frozen', ySplit: 1 }];
 }
 
+function findWorksheetHeaderColumn(ws: XLSX.WorkSheet, header: string): number | null {
+  if (!ws?.['!ref']) return null;
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  for (let c = range.s.c; c <= range.e.c; c += 1) {
+    const cell = ws[XLSX.utils.encode_cell({ r: range.s.r, c })];
+    if (String(cell?.v ?? '') === header) return c;
+  }
+  return null;
+}
+
+function setCachedNumericFormula(
+  ws: XLSX.WorkSheet,
+  rowZeroBased: number,
+  column: number | null,
+  formula: string,
+  cachedValue: unknown,
+) {
+  if (column === null) return;
+  const address = XLSX.utils.encode_cell({ r: rowZeroBased, c: column });
+  ws[address] = {
+    ...(ws[address] || {}),
+    t: 'n',
+    v: Number(cachedValue || 0),
+    f: formula,
+  } as XLSX.CellObject;
+}
+
+function enableWorkbookRecalculation(wb: XLSX.WorkBook) {
+  const meta = ((wb as any).Workbook ||= {});
+  meta.CalcPr = {
+    ...(meta.CalcPr || {}),
+    calcMode: 'auto',
+    fullCalcOnLoad: true,
+    forceFullCalc: true,
+  };
+}
+
+function applyWorkVolumeSummaryFormulas(
+  ws: XLSX.WorkSheet,
+  rows: Array<Record<string, any>>,
+  canFinancials: boolean,
+) {
+  const plannedCol = findWorksheetHeaderColumn(ws, 'KL Định Mức');
+  const actualCol = findWorksheetHeaderColumn(ws, 'KL Thực Tế (chỉ xem - không import)');
+  const progressCol = findWorksheetHeaderColumn(ws, 'Tiến Độ (%)');
+  const unitPriceCol = canFinancials ? findWorksheetHeaderColumn(ws, 'Đơn Giá (VNĐ)') : null;
+  const amountCol = canFinancials ? findWorksheetHeaderColumn(ws, 'Thành Tiền (VNĐ)') : null;
+  if (plannedCol === null || actualCol === null) return;
+
+  rows.forEach((row, index) => {
+    const sheetRow = index + 2;
+    const rowZeroBased = index + 1;
+    const plannedCell = `${XLSX.utils.encode_col(plannedCol)}${sheetRow}`;
+    const actualCell = `${XLSX.utils.encode_col(actualCol)}${sheetRow}`;
+    setCachedNumericFormula(
+      ws,
+      rowZeroBased,
+      progressCol,
+      `IF(${plannedCell}>0,${actualCell}/${plannedCell}*100,0)`,
+      row['Tiến Độ (%)'],
+    );
+    if (unitPriceCol !== null && amountCol !== null) {
+      const priceCell = `${XLSX.utils.encode_col(unitPriceCol)}${sheetRow}`;
+      setCachedNumericFormula(
+        ws,
+        rowZeroBased,
+        amountCol,
+        `${actualCell}*${priceCell}`,
+        row['Thành Tiền (VNĐ)'],
+      );
+    }
+  });
+}
+
+function applyWorkVolumeDetailFormulas(
+  ws: XLSX.WorkSheet,
+  rows: Array<Record<string, any>>,
+  canFinancials: boolean,
+) {
+  const assignedCol = findWorksheetHeaderColumn(ws, 'KL Phân Bổ');
+  const actualCol = findWorksheetHeaderColumn(ws, 'KL Thực Hiện');
+  const remainingCol = findWorksheetHeaderColumn(ws, 'KL Còn Lại');
+  const progressCol = findWorksheetHeaderColumn(ws, 'Tiến Độ (%)');
+  const unitPriceCol = canFinancials ? findWorksheetHeaderColumn(ws, 'Đơn Giá (VNĐ)') : null;
+  const amountCol = canFinancials ? findWorksheetHeaderColumn(ws, 'Thành Tiền Thực Hiện (VNĐ)') : null;
+  if (assignedCol === null || actualCol === null) return;
+
+  rows.forEach((row, index) => {
+    const sheetRow = index + 2;
+    const rowZeroBased = index + 1;
+    const assignedCell = `${XLSX.utils.encode_col(assignedCol)}${sheetRow}`;
+    const actualCell = `${XLSX.utils.encode_col(actualCol)}${sheetRow}`;
+    setCachedNumericFormula(
+      ws,
+      rowZeroBased,
+      remainingCol,
+      `MAX(0,${assignedCell}-${actualCell})`,
+      row['KL Còn Lại'],
+    );
+    setCachedNumericFormula(
+      ws,
+      rowZeroBased,
+      progressCol,
+      `IF(${assignedCell}>0,${actualCell}/${assignedCell}*100,0)`,
+      row['Tiến Độ (%)'],
+    );
+    if (unitPriceCol !== null && amountCol !== null) {
+      const priceCell = `${XLSX.utils.encode_col(unitPriceCol)}${sheetRow}`;
+      setCachedNumericFormula(
+        ws,
+        rowZeroBased,
+        amountCol,
+        `${actualCell}*${priceCell}`,
+        row['Thành Tiền Thực Hiện (VNĐ)'],
+      );
+    }
+  });
+}
+
+function applyWarehouseStockFormulas(
+  ws: XLSX.WorkSheet,
+  rows: Array<Record<string, any>>,
+) {
+  const totalInCol = findWorksheetHeaderColumn(ws, 'Tổng Nhập Kho');
+  const totalOutCol = findWorksheetHeaderColumn(ws, 'Tổng Xuất Kho');
+  const stockCol = findWorksheetHeaderColumn(ws, 'Tồn Kho Thực Tế');
+  const planCol = findWorksheetHeaderColumn(ws, 'Định Mức Tổng Kế Hoạch');
+  const remainingPlanCol = findWorksheetHeaderColumn(ws, 'Còn Cần Theo Kế Hoạch');
+  if (totalInCol === null || totalOutCol === null || planCol === null) return;
+
+  rows.forEach((row, index) => {
+    const sheetRow = index + 2;
+    const rowZeroBased = index + 1;
+    const totalInCell = `${XLSX.utils.encode_col(totalInCol)}${sheetRow}`;
+    const totalOutCell = `${XLSX.utils.encode_col(totalOutCol)}${sheetRow}`;
+    const planCell = `${XLSX.utils.encode_col(planCol)}${sheetRow}`;
+    setCachedNumericFormula(
+      ws,
+      rowZeroBased,
+      stockCol,
+      `${totalInCell}-${totalOutCell}`,
+      row['Tồn Kho Thực Tế'],
+    );
+    setCachedNumericFormula(
+      ws,
+      rowZeroBased,
+      remainingPlanCol,
+      `MAX(0,${planCell}-${totalOutCell})`,
+      row['Còn Cần Theo Kế Hoạch'],
+    );
+  });
+}
+
 const inventoryIssuePurposeLabel = (item: InventoryItem): string => {
   if (item.type !== 'out') return '';
   if (item.issuePurpose === 'external-project') return 'Xuất ngoài dự án';
@@ -118,6 +271,8 @@ function appendWorkVolumeDetailSheet(
 
   if (rows.length === 0) return;
   const ws = XLSX.utils.json_to_sheet(rows);
+  applyWorkVolumeDetailFormulas(ws, rows, canFinancials);
+  enableWorkbookRecalculation(wb);
   autoFitColumns(ws);
   XLSX.utils.book_append_sheet(wb, ws, 'Chi Tiet Khoi Luong');
 }
@@ -307,6 +462,8 @@ export function exportAllToExcel(params: {
       return row;
     });
     const wsVolumes = XLSX.utils.json_to_sheet(volumeData);
+    applyWorkVolumeSummaryFormulas(wsVolumes, volumeData, canFinancials);
+    enableWorkbookRecalculation(wb);
     autoFitColumns(wsVolumes);
     XLSX.utils.book_append_sheet(wb, wsVolumes, 'Khoi Luong Thi Cong');
     if (params.includeWorkVolumeDetails !== false) appendWorkVolumeDetailSheet(wb, {
@@ -524,6 +681,8 @@ export function exportAllToExcelBase64(params: {
       return row;
     });
     const wsVolumes = XLSX.utils.json_to_sheet(volumeData);
+    applyWorkVolumeSummaryFormulas(wsVolumes, volumeData, canFinancials);
+    enableWorkbookRecalculation(wb);
     autoFitColumns(wsVolumes);
     XLSX.utils.book_append_sheet(wb, wsVolumes, 'Khoi Luong Thi Cong');
     if (params.includeWorkVolumeDetails !== false) appendWorkVolumeDetailSheet(wb, {
@@ -1292,19 +1451,21 @@ export function exportWarehouseUpdateTemplate(
     'Tổng Nhập Kho': s.totalIn,
     'Tổng Xuất Kho': s.totalOut,
     'Tồn Kho Thực Tế': s.currentStock,
-    'Nhu Cầu Định Mức': s.normQuantity,
-    'Nhu Cầu Còn Lại': s.remainingNeed,
+    'Định Mức Tổng Kế Hoạch': s.normQuantity,
+    'Còn Cần Theo Kế Hoạch': s.remainingNeed,
     'Trạng Thái Tồn Kho': s.status
   }));
 
   const stockHeaders = [
     'STT', '__itemKind', '__materialId', 'Loại Hàng', 'Chủng Loại',
     'Tên Vật Tư / Thiết Bị', 'Đơn Vị Tính', 'Tổng Nhập Kho', 'Tổng Xuất Kho',
-    'Tồn Kho Thực Tế', 'Nhu Cầu Định Mức', 'Nhu Cầu Còn Lại', 'Trạng Thái Tồn Kho',
+    'Tồn Kho Thực Tế', 'Định Mức Tổng Kế Hoạch', 'Còn Cần Theo Kế Hoạch', 'Trạng Thái Tồn Kho',
   ];
   const wsStock = stockData.length > 0
     ? XLSX.utils.json_to_sheet(stockData, { header: stockHeaders })
     : XLSX.utils.aoa_to_sheet([stockHeaders]);
+  applyWarehouseStockFormulas(wsStock, stockData);
+  enableWorkbookRecalculation(wb);
   autoFitColumns(wsStock);
   wsStock['!cols'] = (wsStock['!cols'] || []).map((col, index) =>
     [1, 2].includes(index) ? { ...col, hidden: true } : col

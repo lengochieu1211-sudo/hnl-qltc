@@ -7204,6 +7204,7 @@ function AuthenticatedApp() {
           data-hnl-active-tab={navigationTargetTab || activeTab}
           data-hnl-mounted-tab={activeTab}
           data-hnl-navigation-target={navigationTargetTab || activeTab}
+          data-hnl-mobile-runtime={isMobileRuntime ? 'true' : 'false'}
         >
           {navigationTargetTab && navigationTargetTab !== activeTab && !mountedPrimaryTabs.includes(navigationTargetTab) && (
             <div className="min-h-[180px] p-8 text-center text-sm text-slate-500" data-hnl-tab-switching="true">

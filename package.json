@@ -49,7 +49,7 @@
     "test:audit-hardening": "node scripts/audit-hardening-golden.mjs",
     "test:linkage-calculation": "tsx scripts/linkage-calculation-golden.ts && node scripts/linkage-calculation-source-golden.mjs",
     "test:prod-readiness": "node scripts/prod-readiness-golden.mjs",
-    "test:excel-security": "tsx scripts/excel-import-security-golden.ts",
+    "test:excel-security": "tsx scripts/excel-import-security-golden.ts && tsx scripts/excel-formula-golden.ts",
     "test:structure-group": "tsx scripts/structure-group-golden.ts",
     "test:room-highlight-transform": "tsx scripts/room-highlight-transform-golden.ts",
     "test:warehouse-ledger": "tsx scripts/warehouse-ledger-reconcile-golden.ts",

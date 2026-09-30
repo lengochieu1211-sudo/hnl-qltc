@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { computeMaterialNeeds } from '../src/utils/materialNeedEngine';
 import type { InventoryItem, MaterialNorm, RoomProgressItem, TeamInfo, WorkVolume } from '../src/types';
 
@@ -354,5 +355,54 @@ const duplicateLegacyTitleResult = computeMaterialNeeds({
 });
 assert.equal(duplicateLegacyTitleResult.lines.length, 0, 'Duplicate same-title categories must remain fail-closed when floorName is missing');
 assert.ok(duplicateLegacyTitleResult.warnings.some((warning) => warning.code === 'AMBIGUOUS_LINK'));
+
+// UI semantics regression: total planned norm and scoped material need are intentionally different concepts.
+const scopedPlanWork = {
+  id: 'wc-plan-vs-scope',
+  workCategoryId: 'wc-plan-vs-scope',
+  title: 'Trần scope test',
+  unit: 'm²',
+  planned: 100,
+} as WorkVolume;
+const scopedPlanNorm = {
+  ...norm,
+  id: 'norm-plan-vs-scope',
+  materialId: 'mat-plan-vs-scope',
+  materialName: 'Tấm scope test',
+  workCategoryId: 'wc-plan-vs-scope',
+  workCategoryIds: ['wc-plan-vs-scope'],
+  workCategoryNormsById: { 'wc-plan-vs-scope': 0.35 },
+  unitNormPerM2: 0.35,
+  normBasisUnit: 'm²',
+} as MaterialNorm;
+const scopedPlanRoom = {
+  ...multiTeamRoom,
+  id: 'room-plan-vs-scope',
+  roomName: 'Scope 40m2',
+  workCategoryId: 'wc-plan-vs-scope',
+  workCategory: 'Trần scope test',
+  workVolume: 40,
+  subItems: [],
+} as RoomProgressItem;
+const scopedPlanResult = computeMaterialNeeds({
+  rooms: [scopedPlanRoom],
+  materialNorms: [scopedPlanNorm],
+  inventory: [],
+  workVolumes: [scopedPlanWork],
+  teams,
+  scope: { floorId: 'floor-3' },
+});
+const totalPlannedNorm = Number(scopedPlanWork.planned || 0) * 0.35;
+assert.equal(totalPlannedNorm, 35, 'Total planned norm must be based on WorkVolume.planned');
+assert.equal(scopedPlanResult.lines[0]?.estimatedQty, 14, 'Scoped material need must be based on the 40m² room allocation');
+assert.notEqual(totalPlannedNorm, scopedPlanResult.lines[0]?.estimatedQty, 'Planned norm and scoped need must never be conflated');
+
+const warehouseSource = readFileSync(new URL('../src/components/WarehouseTab.tsx', import.meta.url), 'utf8');
+const materialNormSource = readFileSync(new URL('../src/components/MaterialNormModal.tsx', import.meta.url), 'utf8');
+const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+assert.match(warehouseSource, /Định mức tổng theo KL kế hoạch/, 'Warehouse UI must label project-plan quota explicitly');
+assert.match(warehouseSource, /Nhu cầu theo phạm vi/, 'Warehouse UI must label scoped Material Need explicitly');
+assert.match(materialNormSource, /Định mức tổng theo KL kế hoạch/, 'Material Norm UI must label planned quota explicitly');
+assert.match(appSource, /Number\(work\.planned\) \|\| 0\) \* factor/, 'Central planned quota must remain WorkVolume.planned × norm factor');
 
 console.log('MATERIAL NEED GOLDEN PASS');

@@ -140,6 +140,7 @@ async function verifyRapidPrimaryNavigation(page, label) {
   const result = await page.evaluate(async ({ desktopLike }) => {
     const main = document.querySelector('main[data-hnl-active-tab]');
     if (!main) throw new Error('Main navigation diagnostic surface missing');
+    const mobileRuntime = main.getAttribute('data-hnl-mobile-runtime') === 'true';
 
     const navSurfaceName = desktopLike ? 'desktop' : 'mobile';
     const navSurface = document.querySelector(`[data-hnl-nav-surface="${navSurfaceName}"]`);
@@ -294,6 +295,7 @@ async function verifyRapidPrimaryNavigation(page, label) {
 
     return {
       available,
+      mobileRuntime,
       singleTab,
       singleActive,
       singleSwitchMs,
@@ -340,14 +342,14 @@ async function verifyRapidPrimaryNavigation(page, label) {
   const intermediateHeavyCommits = result.commits.filter((tab) => tab && tab !== result.finalTab && heavyTabs.has(tab));
   assert(intermediateHeavyCommits.length === 0, `${label}: intermediate heavy tabs committed during rapid navigation — ${JSON.stringify(result.commits)}`);
   assert(result.revisitMounted === result.singleTab, `${label}: warmed tab revisit did not settle to ${result.singleTab}`);
-  if (desktopLike) {
-    assert(result.revisitPreservedInstance, `${label}: desktop warmed primary tab was remounted instead of reusing its existing DOM instance`);
-    assert(!result.revisitSwitching, `${label}: desktop warmed primary tab revisit displayed a loading state`);
-    assert(result.revisitMountedMs <= 180, `${label}: desktop warmed tab revisit commit exceeded 180ms (${result.revisitMountedMs.toFixed(1)}ms)`);
+  if (!result.mobileRuntime) {
+    assert(result.revisitPreservedInstance, `${label}: desktop-runtime warmed primary tab was remounted instead of reusing its existing DOM instance`);
+    assert(!result.revisitSwitching, `${label}: desktop-runtime warmed primary tab revisit displayed a loading state`);
+    assert(result.revisitMountedMs <= 180, `${label}: desktop-runtime warmed tab revisit commit exceeded 180ms (${result.revisitMountedMs.toFixed(1)}ms)`);
   } else {
-    assert(!result.singleInstanceConnectedAfterRapid, `${label}: mobile kept the previous primary DOM connected after navigating away — ${JSON.stringify(result.rapidFinalInstances)}`);
-    assert(result.rapidFinalInstances.length === 1 && result.rapidFinalInstances[0] === result.finalTab, `${label}: mobile must keep exactly the final primary tab mounted — ${JSON.stringify(result.rapidFinalInstances)}`);
-    assert(result.revisitMountedMs <= 320, `${label}: cached mobile tab remount exceeded 320ms (${result.revisitMountedMs.toFixed(1)}ms)`);
+    assert(!result.singleInstanceConnectedAfterRapid, `${label}: mobile-runtime kept the previous primary DOM connected after navigating away — ${JSON.stringify(result.rapidFinalInstances)}`);
+    assert(result.rapidFinalInstances.length === 1 && result.rapidFinalInstances[0] === result.finalTab, `${label}: mobile-runtime must keep exactly the final primary tab mounted — ${JSON.stringify(result.rapidFinalInstances)}`);
+    assert(result.revisitMountedMs <= 320, `${label}: cached mobile-runtime tab remount exceeded 320ms (${result.revisitMountedMs.toFixed(1)}ms)`);
   }
   assert(result.revisitVisualMs <= 120, `${label}: warmed tab revisit shell exceeded 120ms (${result.revisitVisualMs.toFixed(1)}ms)`);
   assert(result.sameTabBefore === result.singleTab && result.sameTabAfter === result.singleTab, `${label}: re-tapping warmed active tab changed mounted content`);
@@ -779,12 +781,13 @@ async function verifySignedOutGate(browser, label, viewport, screenshotPath) {
   await context.close();
 }
 
-async function runViewport(browser, label, viewport, screenshotPath) {
+async function runViewport(browser, label, viewport, screenshotPath, contextOverrides = {}) {
   const context = await browser.newContext({
     viewport,
     locale: 'vi-VN',
     serviceWorkers: 'allow',
     ignoreHTTPSErrors: false,
+    ...contextOverrides,
   });
   await seedRememberedOfflineAdmin(context);
   const page = await context.newPage();
@@ -1084,6 +1087,13 @@ try {
   await runViewport(browser, 'desktop-compact', { width: 1088, height: 610 }, 'runtime-evidence/desktop-compact.png');
   await verifyNarrowDesktopRuntime(browser);
   await runViewport(browser, 'mobile', { width: 393, height: 852 }, 'runtime-evidence/mobile.png');
+  const iPadTouchContext = {
+    userAgent: 'Mozilla/5.0 (iPad; CPU OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1',
+    hasTouch: true,
+    isMobile: true,
+  };
+  await runViewport(browser, 'tablet-portrait', { width: 820, height: 1180 }, 'runtime-evidence/tablet-portrait.png', iPadTouchContext);
+  await runViewport(browser, 'tablet-landscape', { width: 1180, height: 820 }, 'runtime-evidence/tablet-landscape.png', iPadTouchContext);
   await verifyColdStartOffline(browser);
 
   const fatalConsole = report.consoleErrors.filter(item => {

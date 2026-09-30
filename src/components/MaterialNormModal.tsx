@@ -666,7 +666,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   const commitQuotaFormula = () => {
     const parsed = parseInteractiveNumericInput(quotaQuantityStr);
     if (parsed === null) {
-      alert('Công thức Khối lượng định mức không hợp lệ. Ví dụ: 100*5, 1220/3 hoặc (50+20)*2.');
+      alert('Công thức định mức tổng không hợp lệ. Ví dụ: 100*5, 1220/3 hoặc (50+20)*2.');
       return false;
     }
     setQuotaQuantity(parsed);
@@ -954,7 +954,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               itemCount={sortedFilteredNorms.length}
               options={[
                 { key: 'materialName', label: 'Tên vật tư', kind: 'alpha' },
-                { key: 'quotaQuantity', label: 'Số định mức', kind: 'number' },
+                { key: 'quotaQuantity', label: 'Định mức tổng kế hoạch', kind: 'number' },
                 { key: 'stock', label: 'Số lượng nhập kho', kind: 'number' },
               ]}
               activeKey={normSortBy === 'none' ? null : normSortBy}
@@ -1069,7 +1069,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                           <p className="font-bold text-slate-800">{norm.unit}</p>
                         </div>
                         <div>
-                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Khối lượng định mức</p>
+                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Định mức tổng theo KL kế hoạch</p>
                           <p className="font-bold text-indigo-600">{formatAdaptiveDecimal(norm.quotaQuantity)} {norm.unit}</p>
                         </div>
                         <div>
