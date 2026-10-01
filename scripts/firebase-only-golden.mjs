@@ -3,6 +3,8 @@ import fs from 'node:fs';
 const read = (p) => fs.readFileSync(p,'utf8');
 const app = read('src/App.tsx');
 const firebase = read('src/lib/firebase.ts');
+const firebaseBase = read('src/lib/firebaseBase.ts');
+const projectManager = read('src/components/ProjectManagerModal.tsx');
 const photo = read('src/lib/photoCloudSync.ts');
 const photoStorage = read('src/utils/photoStorage.ts');
 const photoPicker = read('src/components/PhotoAttachmentPicker.tsx');
@@ -49,6 +51,13 @@ verify(17,'Offline OUT không giả đảm bảo tồn kho', warehouse.includes(
 verify(18,'Import backup không dùng làm realtime source', app.includes('Import Firebase-only cần có mạng') && app.includes('await saveProjectToCloud'), 'manual import → Firestore, legacy local writes gated');
 verify(19,'Reconnect không nhân đôi ID', firebase.includes('UPSERT-only') && warehouse.includes('duplicate: true'), 'immutable IDs / idempotent transaction IDs');
 verify(20,'Legacy schema dry-run before migration', fs.existsSync('scripts/firebase-only-legacy-audit.mjs') && workflow.includes('DEV Firebase isolation gate'), 'migration audit + isolated DEV gate');
+verify(21,'Khôi phục backup có thể phục hồi record đã xóa nhưng chỉ qua ADMIN explicit restore',
+  app.includes('authoritativeBackupRestore: options?.authoritativeBackupRestore === true')
+    && projectManager.includes("authoritativeBackupRestore: action === 'OVERWRITE_FILE'")
+    && firebaseBase.includes("restoreRole.role !== 'ADMIN'")
+    && firebaseBase.includes('!authoritativeBackupRestore && currentCloud')
+    && firebaseBase.includes('Only IDs present in the backup are'),
+  'OVERWRITE_FILE -> explicit authoritative restore; ADMIN verified; Smart Merge/newer-cloud guard unchanged otherwise');
 
 // These require a real isolated Firebase DEV project and physical devices; source checks are
 // not mislabeled as runtime VERIFIED.
