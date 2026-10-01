@@ -129,7 +129,7 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   }
   return merged;
 }
-import { subscribeToProjectRealtime, saveProjectDiffsToCloud, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, subscribeCurrentUserPinResetRealtime, signOutGoogle, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, subscribeProjectSharedSettings, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud, updateProjectPresence } from './lib/firebase';
+import { subscribeToProjectRealtime, saveProjectDiffsToCloud, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, subscribeCurrentUserPinResetRealtime, signOutGoogle, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, subscribeProjectSharedSettings, fetchProjectSharedSettingsSnapshot, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud, updateProjectPresence } from './lib/firebase';
 import { REALTIME_STATE_KEYS, STATE_KEY_TO_CLOUD_NAME } from './config/realtimeCollections';
 import { FIREBASE_ONLY_RUNTIME, LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED, LEGACY_LOCAL_IMPORT_ENABLED } from './config/runtimeArchitecture';
 import { CURRENT_DATA_SCHEMA_VERSION } from './config/dataSchema';
