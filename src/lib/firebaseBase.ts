@@ -2412,7 +2412,7 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
     const code = String(err?.code || '').trim();
     const message = String(err?.message || err || '').trim();
     console.error("Firestore Write Error:", { code, message, cause: err });
-    const detail = code || message;
+    const detail = [code, message].filter(Boolean).filter((value, index, all) => all.indexOf(value) === index).join(': ');
     throw new Error(detail
       ? `Lỗi lưu dự án lên đám mây (${detail}).`
       : 'Lỗi lưu dự án lên đám mây. Vui lòng kiểm tra kết nối và thử lại.');
