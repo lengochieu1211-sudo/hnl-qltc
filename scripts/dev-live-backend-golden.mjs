@@ -355,6 +355,10 @@ try {
     project: { id: pid, name: 'HNL QLTC DEV Live Golden' },
     data: {
       projectName: 'HNL QLTC DEV Live Golden',
+      sharedSettings: {
+        structure: { enabled: true, defaultGroupId: 'DEFAULT', groups: [{ id: 'DEFAULT', name: 'Mặc định' }] },
+        trash: { enabled: true, retentionDays: 7 },
+      },
       workVolumes: [{ ...backupBusiness, id: legacyWorkVolumeId, unitPrice: Number(restoredFinancial.data().unitPrice) }],
       updatedAt: restoreAt,
     },
@@ -362,6 +366,9 @@ try {
   const parsedBackupV4 = JSON.parse(JSON.stringify(backupV4));
   if (parsedBackupV4.schemaVersion !== 4 || parsedBackupV4.backupType !== 'single-project') {
     throw new Error('Backup v4 JSON envelope round-trip mismatch');
+  }
+  if (parsedBackupV4.data?.sharedSettings?.trash?.retentionDays !== 7 || parsedBackupV4.data?.sharedSettings?.structure?.defaultGroupId !== 'DEFAULT') {
+    throw new Error('Backup v4 lost project-scoped sharedSettings');
   }
   const roundTripRow = parsedBackupV4.data?.workVolumes?.[0];
   if (!roundTripRow || roundTripRow.id !== legacyWorkVolumeId || Number(roundTripRow.unitPrice) !== legacyPrice) {
@@ -397,7 +404,7 @@ try {
   if (Number(roundTripFinancialSnap.data()?.unitPrice) !== legacyPrice || Number(roundTripBusinessSnap.data()?.planned) !== 125.5) {
     throw new Error('Backup v4 round-trip data mismatch');
   }
-  pass('Backup v4 WorkVolume round-trip PASS', 'ID/planned/unitPrice preserved; financial isolation intact');
+  pass('Backup v4 WorkVolume round-trip PASS', 'ID/planned/unitPrice/sharedSettings preserved; financial isolation intact');
 
   await setDoc(doc(admin.db, 'projects', pid, 'memberContacts', editorEmail), {
     projectId: pid,

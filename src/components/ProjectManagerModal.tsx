@@ -1455,6 +1455,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             contractorName: normalized.contractorName || '',
             inspectorName: normalized.inspectorName || '',
             projectLocation: normalized.projectLocation || '',
+            ...(normalized.sharedSettings ? { sharedSettings: normalized.sharedSettings } : {}),
             materialNorms: normalized.materialNorms || [],
             inventory: normalized.inventory || [],
             workVolumes: normalized.workVolumes || [],

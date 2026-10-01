@@ -87,6 +87,8 @@ verify(25,'Restore dọn unitPrice legacy mà không làm mất đơn giá',
 verify(26,'Backup JSON v4 export/import giữ tương thích v3 và financial isolation',
   projectManager.includes('schemaVersion: 4')
     && projectManager.includes('Number(exportedData.schemaVersion || 0) >= 3')
+    && projectManager.includes('sharedSettings: normalized.sharedSettings')
+    && app.includes('await saveProjectSharedSettings(pid, importedSharedSettings)')
     && dataNormalizer.includes('declaredSchemaVersion >= 3')
     && dataNormalizer.includes("obj.backupType === 'primary-drive-project'")
     && liveBackendGolden.includes('Backup v4 WorkVolume round-trip PASS')
