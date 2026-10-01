@@ -3954,7 +3954,7 @@ function AuthenticatedApp() {
     }
   }, [autoSyncEnabled, activeProjectId, isHydrated, isLoadingProject, isProjectRoleResolved, currentUserRole]);
 
-  const handleRestoreData = async (rawData: any, targetProjectId?: string) => {
+  const handleRestoreData = async (rawData: any, targetProjectId?: string, options?: { authoritativeBackupRestore?: boolean }) => {
     if (!rawData) return;
     if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) {
       alert('Chỉ ADMIN được khôi phục/ghi đè dữ liệu dự án từ bản sao lưu.');
@@ -4039,7 +4039,7 @@ function AuthenticatedApp() {
           projectLocation: data.projectLocation || '',
           syncCode: pid.slice(0, 8).toUpperCase(),
           payload: nextState,
-        });
+        }, { authoritativeBackupRestore: options?.authoritativeBackupRestore === true });
       }
 
       const parsedSourceTime = parseLegacyTimestamp(data.updatedAt, 0);
