@@ -63,6 +63,11 @@ verify(22,'Restore backup lớn chia Firestore batch an toàn và không che l�
     && firebaseBase.includes('Firestore Write Error:')
     && firebaseBase.includes('Lỗi lưu dự án lên đám mây ('),
   'full restore <=100 writes/batch; preserve Firestore code/message for diagnosis');
+verify(23,'Authoritative Restore fail-closed nếu không đọc được lifecycle Cloud hiện tại',
+  firebaseBase.includes('Firestore restore failed reading current')
+    && firebaseBase.includes("restore-read-failed")
+    && firebaseBase.includes('if (authoritativeBackupRestore)'),
+  'không được nuốt permission/read error rồi ghi đè với revision giả định');
 
 // These require a real isolated Firebase DEV project and physical devices; source checks are
 // not mislabeled as runtime VERIFIED.
