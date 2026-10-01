@@ -2380,7 +2380,10 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
           }, { merge: true });
           operationCount++;
 
-          if (operationCount >= 400) {
+          // Full backup restores may contain many medium/large business records.
+          // Keep batches deliberately below Firestore's request-size ceiling; the 500-write
+          // count limit alone is not sufficient when restoring real project snapshots.
+          if (operationCount >= 100) {
             await batch.commit();
             batch = writeBatch(db);
             operationCount = 0;
@@ -2392,9 +2395,14 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
     if (operationCount > 0) {
       await batch.commit();
     }
-  } catch (err) {
-    console.error("Firestore Write Error:", err);
-    throw new Error('Lỗi lưu dự án lên đám mây: Dữ liệu quá lớn hoặc mất kết nối.');
+  } catch (err: any) {
+    const code = String(err?.code || '').trim();
+    const message = String(err?.message || err || '').trim();
+    console.error("Firestore Write Error:", { code, message, cause: err });
+    const detail = code || message;
+    throw new Error(detail
+      ? `Lỗi lưu dự án lên đám mây (${detail}).`
+      : 'Lỗi lưu dự án lên đám mây. Vui lòng kiểm tra kết nối và thử lại.');
   }
 }
 
