@@ -2359,9 +2359,7 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
             // the same missing quantity at the same time; a transaction keeps only one
             // cumulative record and never lets a stale device lower it.
             if (operationCount > 0) {
-              await batch.commit();
-              batch = writeBatch(db);
-              operationCount = 0;
+              await commitBatch(`${cloudName} before room-auto transaction`);
             }
             await runTransaction(db, async (transaction) => {
               const snap = await transaction.get(docRef);
