@@ -58,6 +58,11 @@ verify(21,'Khôi phục backup có thể phục hồi record đã xóa nhưng ch
     && firebaseBase.includes('!authoritativeBackupRestore && currentCloud')
     && firebaseBase.includes('Only IDs present in the backup are'),
   'OVERWRITE_FILE -> explicit authoritative restore; ADMIN verified; Smart Merge/newer-cloud guard unchanged otherwise');
+verify(22,'Restore backup lớn chia Firestore batch an toàn và không che lỗi gốc',
+  firebaseBase.includes('if (operationCount >= 100)')
+    && firebaseBase.includes('Firestore Write Error:')
+    && firebaseBase.includes('Lỗi lưu dự án lên đám mây ('),
+  'full restore <=100 writes/batch; preserve Firestore code/message for diagnosis');
 
 // These require a real isolated Firebase DEV project and physical devices; source checks are
 // not mislabeled as runtime VERIFIED.
