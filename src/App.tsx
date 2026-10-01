@@ -1764,6 +1764,13 @@ function AuthenticatedApp() {
         allData[getKey('construction_contractor', projectId)] = payload.contractorName || '';
         allData[getKey('construction_inspector', projectId)] = payload.inspectorName || '';
         allData[getKey('construction_project_location', projectId)] = payload.projectLocation || '';
+        const projectSharedSettings = await fetchProjectSharedSettingsSnapshot(projectId, true).catch((err) => {
+          console.warn(`[Backup] shared settings read warning for ${projectId}:`, err);
+          return null;
+        });
+        if (projectSharedSettings) {
+          allData[getKey('construction_shared_settings', projectId)] = JSON.stringify(projectSharedSettings);
+        }
         allData[getKey('construction_material_norms', projectId)] = JSON.stringify(payload.materialNorms || []);
         allData[getKey('construction_inventory', projectId)] = JSON.stringify(payload.inventory || []);
         allData[getKey('construction_work_volumes', projectId)] = JSON.stringify(payload.workVolumes || []);
