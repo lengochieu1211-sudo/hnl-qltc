@@ -2346,15 +2346,18 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
           const restoredUpdatedAt = authoritativeBackupRestore
             ? Math.max(now, cloudUpdatedAt + 1, localUpdatedAt)
             : Number(item.updatedAt || now);
+          // Keep ADMIN-only price writes out of the work_volumes business batch.
+          // Otherwise a denial in work_volume_financials is incorrectly reported as
+          // "work_volumes", hiding whether lifecycle data or financial RBAC actually failed.
+          let pendingFinancial: Record<string, any> | null = null;
           if (cloudName === 'work_volumes' && canWriteFinancials) {
             const financial = financialRecordFromWorkVolume(item);
             if (financial) {
-              batch.set(doc(db, 'projects', project.id, WORK_VOLUME_FINANCIAL_COLLECTION, String(item.id)), {
+              pendingFinancial = {
                 ...financial,
                 updatedByUid: financialActor?.uid || '',
                 updatedByEmail: normalizeEmail(financialActor?.email),
-              }, { merge: true });
-              operationCount++;
+              };
             }
           }
           const nextRevision = Math.max(Number(item.revision || 0), Number(currentCloud?.revision || 0) + 1, 1);
@@ -2394,6 +2397,24 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
             updatedAt: restoredUpdatedAt
           }, { merge: true });
           operationCount++;
+
+          // For authoritative restore, commit the business lifecycle record first so any
+          // Rules rejection is attributed to its exact document. Financial data is committed
+          // separately below and can never make a work_volumes batch fail ambiguously.
+          if (authoritativeBackupRestore && cloudName === 'work_volumes') {
+            await commitBatch(`work_volumes/${String(item.id)}`);
+            if (pendingFinancial) {
+              const financialBatch = writeBatch(db);
+              financialBatch.set(doc(db, 'projects', project.id, WORK_VOLUME_FINANCIAL_COLLECTION, String(item.id)), pendingFinancial, { merge: true });
+              try {
+                await financialBatch.commit();
+              } catch (err: any) {
+                const wrapped = new Error(`Firestore restore failed at ${WORK_VOLUME_FINANCIAL_COLLECTION}/${String(item.id)}: ${String(err?.code || err?.message || err)}`);
+                (wrapped as any).code = err?.code || 'restore-financial-write-failed';
+                throw wrapped;
+              }
+            }
+          }
 
           // Full backup restores may contain many medium/large business records.
           // Keep batches deliberately below Firestore's request-size ceiling; the 500-write
