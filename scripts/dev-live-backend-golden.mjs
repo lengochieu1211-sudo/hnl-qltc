@@ -249,27 +249,6 @@ try {
   const projectRefViewer = doc(viewer.db, 'projects', pid);
   const now = Date.now();
 
-  // One-shot hygiene for the exact DEV fixture left by Runtime Golden #488 when the
-  // regression itself passed but cleanup referenced a block-scoped ID. This is strictly
-  // limited to the known dev-live-golden prefix/ID and is safe to repeat (404 is allowed).
-  const staleFixturePid = 'dev-live-golden-36887992408-muppzljm';
-  const staleFixtureEditorEmail = 'dev-editor-36887992408-muppzljm@example.test';
-  const staleFixtureViewerEmail = 'dev-viewer-36887992408-muppzljm@example.test';
-  const staleOauth = await adminAccessToken();
-  for (const path of [
-    `projects/${staleFixturePid}/memberContacts/${staleFixtureEditorEmail}`,
-    `projects/${staleFixturePid}/members/${staleFixtureEditorEmail}`,
-    `projects/${staleFixturePid}/members/${staleFixtureViewerEmail}`,
-    `projects/${staleFixturePid}/defects/${defectId}`,
-    `projects/${staleFixturePid}/work_volume_financials/${legacyWorkVolumeId}`,
-    `projects/${staleFixturePid}/work_volumes/${legacyWorkVolumeId}`,
-    `projects/${staleFixturePid}/rooms/${roomId}`,
-    `projects/${staleFixturePid}/teams/${teamId}`,
-    `projects/${staleFixturePid}/floor_plans/${floorId}`,
-    `projects/${staleFixturePid}`,
-  ]) await adminDeleteDoc(staleOauth, path);
-  pass('cleanup previous failed Runtime Golden DEV fixture', staleFixturePid);
-
   if ((await getDoc(projectRefAdmin)).exists()) throw new Error('Fresh live golden project unexpectedly exists');
   pass('fresh DEV project root probe');
 
