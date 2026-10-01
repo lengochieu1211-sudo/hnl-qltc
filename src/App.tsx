@@ -657,7 +657,16 @@ function AuthenticatedApp() {
       }
 
       const cachedRole = getCachedVerifiedProjectRole(activeProjectId, identity);
-      if (cachedRole) {
+      // SUPER ADMIN is an account-level invariant shared with Firestore Rules. Do not
+      // transiently downgrade this verified Firebase identity to VIEWER while the
+      // project-scoped realtime role subscription is still hydrating.
+      if (realUser && isSuperAdminEmail(realUser.email)) {
+        setCurrentUserRole('ADMIN');
+        setCurrentUserRoleState('ADMIN');
+        setIsProjectRoleResolved(true);
+        setProjectRoleSource('cloud');
+        setProjectRoleAllowed(true);
+      } else if (cachedRole) {
         // Offline startup resumes the last role that was authoritatively verified for
         // this exact uid/email + projectId. VIEWER stays read-only; EDITOR/ADMIN may
         // keep editing the local IndexedDB cache while Cloud is unavailable.
