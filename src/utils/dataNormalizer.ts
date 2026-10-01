@@ -272,6 +272,33 @@ export function normalizeImportedData(rawInput: any, activeProjectId?: string, s
     });
   };
 
+  const extractObject = (candidateKeys: string[]): Record<string, any> | null => {
+    const tryValue = (raw: any): Record<string, any> | null => {
+      let value = raw;
+      if (typeof value === 'string') {
+        try { value = JSON.parse(value); } catch (_) { return null; }
+      }
+      return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+    };
+    if (effectiveProjectId) {
+      for (const cand of candidateKeys) {
+        const scopedKey = projectKey(cand, effectiveProjectId);
+        if (scopedKey in targetObj) {
+          const value = tryValue(targetObj[scopedKey]);
+          if (value) return value;
+        }
+      }
+    }
+    for (const key of candidateKeys) {
+      if (key in targetObj) {
+        if (isDump && effectiveProjectId && effectiveProjectId !== 'default') continue;
+        const value = tryValue(targetObj[key]);
+        if (value) return value;
+      }
+    }
+    return null;
+  };
+
   // Helper to extract string
   const extractString = (candidateKeys: string[]): string | null => {
     if (effectiveProjectId) {
@@ -372,10 +399,8 @@ export function normalizeImportedData(rawInput: any, activeProjectId?: string, s
 
   // Backup v4: preserve project-scoped shared settings as a single contract. These are
   // operational/project preferences only; RBAC, membership, PIN and secrets are never imported here.
-  const sharedSettings = targetObj.sharedSettings;
-  if (sharedSettings && typeof sharedSettings === 'object' && !Array.isArray(sharedSettings)) {
-    normalized.sharedSettings = { ...sharedSettings };
-  }
+  const sharedSettings = extractObject(['sharedSettings', 'construction_shared_settings']);
+  if (sharedSettings) normalized.sharedSettings = { ...sharedSettings };
 
   return normalized;
 }
