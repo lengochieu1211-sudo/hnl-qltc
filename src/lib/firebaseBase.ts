@@ -2235,6 +2235,10 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
       if (restoreRole.verification !== 'verified' || !restoreRole.allowed || restoreRole.role !== 'ADMIN') {
         throw new Error('Chỉ ADMIN đã xác minh mới được khôi phục chính xác dữ liệu từ bản sao lưu.');
       }
+      // The authoritative restore role check is also the financial-write authority.
+      // Reuse this verified result so a transient earlier preflight cannot silently skip
+      // work_volume_financials and then remove the only legacy unitPrice copy.
+      canWriteFinancials = true;
     }
 
     let payloadData = project.payload;
@@ -2307,6 +2311,21 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
       batch = writeBatch(db);
       operationCount = 0;
     };
+    const commitWorkVolumeRestoreFinancial = async (itemId: string, financial: Record<string, any>) => {
+      const financialBatch = writeBatch(db);
+      financialBatch.set(
+        doc(db, 'projects', project.id, WORK_VOLUME_FINANCIAL_COLLECTION, itemId),
+        financial,
+        { merge: true },
+      );
+      try {
+        await financialBatch.commit();
+      } catch (err: any) {
+        const wrapped = new Error(`Firestore restore failed at ${WORK_VOLUME_FINANCIAL_COLLECTION}/${itemId}: ${String(err?.code || err?.message || err)}`);
+        (wrapped as any).code = err?.code || 'restore-financial-write-failed';
+        throw wrapped;
+      }
+    };
 
     for (const { cloudName, stateKey } of subNames) {
       const list = payloadData[stateKey];
@@ -2349,12 +2368,24 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
           // Keep ADMIN-only price writes out of the work_volumes business batch.
           // Otherwise a denial in work_volume_financials is incorrectly reported as
           // "work_volumes", hiding whether lifecycle data or financial RBAC actually failed.
+          const hasLegacyUnitPrice = cloudName === 'work_volumes'
+            && currentCloud != null
+            && Object.prototype.hasOwnProperty.call(currentCloud, 'unitPrice');
+          const hasBackupUnitPrice = item.unitPrice !== undefined && item.unitPrice !== null;
           let pendingFinancial: Record<string, any> | null = null;
           if (cloudName === 'work_volumes' && canWriteFinancials) {
-            const financial = financialRecordFromWorkVolume(item);
+            // Old PROD documents may still carry unitPrice inside work_volumes even though
+            // schema v6 moved it to work_volume_financials. A v4 backup normally contains
+            // the ADMIN price; older backups fall back to the legacy Cloud value so cleanup
+            // can never destroy the only remaining price copy.
+            const financialSource = authoritativeBackupRestore && hasLegacyUnitPrice && !hasBackupUnitPrice
+              ? { ...item, unitPrice: normalizeUnitPrice(currentCloud.unitPrice) }
+              : item;
+            const financial = financialRecordFromWorkVolume(financialSource);
             if (financial) {
               pendingFinancial = {
                 ...financial,
+                updatedAt: restoredUpdatedAt,
                 updatedByUid: financialActor?.uid || '',
                 updatedByEmail: normalizeEmail(financialActor?.email),
               };
@@ -2387,32 +2418,40 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
             continue;
           }
 
+          // Rules intentionally reject unitPrice inside work_volumes. With merge:true,
+          // merely omitting unitPrice does not remove a legacy PROD field, so request.resource
+          // still contains it and the restore is denied. Preserve the price first, then remove
+          // only that legacy field from the business document.
+          if (authoritativeBackupRestore && cloudName === 'work_volumes' && hasLegacyUnitPrice) {
+            if (!pendingFinancial) {
+              const wrapped = new Error(`Firestore restore cannot preserve legacy work volume price at ${WORK_VOLUME_FINANCIAL_COLLECTION}/${String(item.id)}`);
+              (wrapped as any).code = 'restore-financial-preserve-required';
+              throw wrapped;
+            }
+            await commitWorkVolumeRestoreFinancial(String(item.id), pendingFinancial);
+          }
+          const removeLegacyWorkVolumeUnitPrice =
+            authoritativeBackupRestore && cloudName === 'work_volumes' && hasLegacyUnitPrice;
+
           batch.set(docRef, {
             ...sanitized,
+            ...(removeLegacyWorkVolumeUnitPrice ? { unitPrice: deleteField() } : {}),
             deleted: false,
             deletedAt: null,
             deletedByUid: null,
-          deletedBy: null,
+            deletedBy: null,
             revision: nextRevision,
             updatedAt: restoredUpdatedAt
           }, { merge: true });
           operationCount++;
 
-          // For authoritative restore, commit the business lifecycle record first so any
-          // Rules rejection is attributed to its exact document. Financial data is committed
-          // separately below and can never make a work_volumes batch fail ambiguously.
+          // Keep per-record diagnostics for authoritative work-volume restore. Legacy
+          // prices are committed first (data-loss guard); clean/new records keep the
+          // previous business-first ordering to avoid orphan financial rows.
           if (authoritativeBackupRestore && cloudName === 'work_volumes') {
             await commitBatch(`work_volumes/${String(item.id)}`);
-            if (pendingFinancial) {
-              const financialBatch = writeBatch(db);
-              financialBatch.set(doc(db, 'projects', project.id, WORK_VOLUME_FINANCIAL_COLLECTION, String(item.id)), pendingFinancial, { merge: true });
-              try {
-                await financialBatch.commit();
-              } catch (err: any) {
-                const wrapped = new Error(`Firestore restore failed at ${WORK_VOLUME_FINANCIAL_COLLECTION}/${String(item.id)}: ${String(err?.code || err?.message || err)}`);
-                (wrapped as any).code = err?.code || 'restore-financial-write-failed';
-                throw wrapped;
-              }
+            if (pendingFinancial && !hasLegacyUnitPrice) {
+              await commitWorkVolumeRestoreFinancial(String(item.id), pendingFinancial);
             }
           }
 

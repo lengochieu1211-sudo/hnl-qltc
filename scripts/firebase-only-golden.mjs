@@ -69,6 +69,20 @@ verify(23,'Authoritative Restore fail-closed nếu không đọc được lifecy
     && firebaseBase.includes('if (authoritativeBackupRestore)'),
   'không được nuốt permission/read error rồi ghi đè với revision giả định');
 
+verify(24,'Restore work volume tách business lifecycle khỏi ADMIN-only financial batch',
+  firebaseBase.includes('work_volumes/${String(item.id)}')
+    && firebaseBase.includes('restore-financial-write-failed')
+    && firebaseBase.includes('commitWorkVolumeRestoreFinancial')
+    && firebaseBase.includes('financialBatch.commit()'),
+  'permission-denied phải chỉ đúng work_volumes/<id> hoặc work_volume_financials/<id>, không gộp mơ hồ');
+verify(25,'Restore dọn unitPrice legacy mà không làm mất đơn giá',
+  firebaseBase.includes("const hasLegacyUnitPrice = cloudName === 'work_volumes'")
+    && firebaseBase.includes('removeLegacyWorkVolumeUnitPrice')
+    && firebaseBase.includes('unitPrice: deleteField()')
+    && firebaseBase.includes('normalizeUnitPrice(currentCloud.unitPrice)')
+    && (firebaseBase.match(/canWriteFinancials = true;/g) || []).length >= 2,
+  'ADMIN verified -> preserve financial first -> delete only legacy business-field copy');
+
 // These require a real isolated Firebase DEV project and physical devices; source checks are
 // not mislabeled as runtime VERIFIED.
 external('E1','Multi-device DEV runtime matrix','REVIEW','requires configured DEV/R2 gateway and PC+Android');
@@ -77,10 +91,3 @@ external('E3','Full emulator Rules behavior','REVIEW','npm run test:rules must r
 
 if (process.exitCode) process.exit(process.exitCode);
 console.log('FIREBASE-ONLY GOLDEN SOURCE MATRIX PASS (external items remain REVIEW/BLOCKED by design)');
-
-verify(24,'Restore work volume tách business lifecycle khỏi ADMIN-only financial batch',
-  firebaseBase.includes('work_volumes/${String(item.id)}')
-    && firebaseBase.includes('restore-financial-write-failed')
-    && firebaseBase.includes('Financial data is committed')
-    && firebaseBase.includes('financialBatch.commit()'),
-  'permission-denied phải chỉ đúng work_volumes/<id> hoặc work_volume_financials/<id>, không gộp mơ hồ');

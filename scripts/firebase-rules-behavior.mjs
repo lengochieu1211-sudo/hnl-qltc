@@ -14,6 +14,7 @@ import {
   getDoc,
   updateDoc,
   deleteDoc,
+  deleteField,
 } from 'firebase/firestore';
 import {
   getStorage,
@@ -140,6 +141,9 @@ try {
     id: 'WV-RULE-1', projectId: pid, workVolumeId: 'WV-RULE-1', unitPrice: 110000, updatedAt: Date.now(),
   }));
   await expectAllowed('ADMIN reads isolated work-volume financial record', () => getDoc(workVolumeFinancialRef));
+  await expectAllowed('ADMIN restore may sanitize a legacy work-volume price field with deleteField merge', () => setDoc(workVolumeRef, {
+    unitPrice: deleteField(), revision: 2, updatedAt: Date.now() + 1,
+  }, { merge: true }));
   await expectDenied('ADMIN cannot embed unitPrice back into shared work-volume document', () => setDoc(doc(db, 'projects', pid, 'work_volumes', 'WV-PRICE-LEAK'), {
     id: 'WV-PRICE-LEAK', title: 'Không được phép', floor: 'Tầng 1', category: 'Trần', unit: 'm²',
     planned: 1, actual: 0, unitPrice: 123456, status: 'Chưa thi công',
