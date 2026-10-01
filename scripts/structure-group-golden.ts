@@ -114,3 +114,18 @@ assert.equal(exportSource.includes('disabled={allRoomsSelected}'), false, 'repor
 assert.equal(exportSource.includes('disabled={allTeamsSelected}'), false, 'report team options must stay selectable while Tất cả is active');
 
 console.log('structure-group-golden: PASS');
+
+
+// Backup contract regression: hierarchy/project metadata must survive JSON DR backup.
+// Security state (RBAC/members/PIN/secrets) is deliberately outside this contract.
+assert.ok(appSource.includes('schemaVersion: 4'), 'single-project backup schema must be v4 after shared-settings coverage');
+assert.ok(appSource.includes('projectLocation,') && appSource.includes('...(sharedSettings ? { sharedSettings } : {})'), 'backup must include project location and shared settings');
+assert.ok(appSource.includes('fetchProjectSharedSettingsSnapshot(activeProjectId, true)'), 'single-project backup must read authoritative Cloud shared settings');
+assert.ok(appSource.includes("allData[getKey('construction_shared_settings', projectId)]"), 'all-project backup must include project shared settings');
+assert.ok(appSource.includes('await saveProjectSharedSettings(pid, importedSharedSettings)'), 'authoritative restore must restore project shared settings');
+assert.ok(appSource.includes('setStructureConfig(normalizeStructureGroupConfig(importedSharedSettings.structure))'), 'restore must hydrate Khu/Khối immediately');
+const normalizerSource = readFileSync(new URL('../src/utils/dataNormalizer.ts', import.meta.url), 'utf8');
+assert.ok(normalizerSource.includes('obj.project.projectLocation') && normalizerSource.includes("extractObject(['sharedSettings', 'construction_shared_settings'])"), 'import normalizer must preserve project location and v4/shared-dump settings');
+const typeSource = readFileSync(new URL('../src/types.ts', import.meta.url), 'utf8');
+assert.ok(typeSource.includes('schemaVersion: 3 | 4') && typeSource.includes('sharedSettings?:'), 'backup type must remain backward-compatible with v3 while defining v4 settings');
+assert.equal(typeSource.includes('members?:') || typeSource.includes('pin?:') || typeSource.includes('secrets?:'), false, 'backup contract must not add security membership/PIN/secrets');
