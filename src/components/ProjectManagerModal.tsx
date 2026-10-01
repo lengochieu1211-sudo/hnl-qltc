@@ -78,7 +78,7 @@ interface ProjectManagerModalProps {
   handleExportAllJson?: () => void;
   handleImportAllJson?: (e: React.ChangeEvent<HTMLInputElement>) => void;
   fullAppData?: any;
-  onRestoreData?: (data: any, targetProjectId?: string) => void | Promise<void>;
+  onRestoreData?: (data: any, targetProjectId?: string, options?: { authoritativeBackupRestore?: boolean }) => void | Promise<void>;
   autosaveVersions?: any[];
   onRestoreAutoSaveVersion?: (version: any) => void;
   onCreateManualBackup?: () => void;
@@ -1737,7 +1737,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             payload = { ...candData, projectName: displayName };
           }
 
-          await onRestoreData(payload, targetId);
+          await onRestoreData(payload, targetId, { authoritativeBackupRestore: action === 'OVERWRITE_FILE' });
 
           const candidatePhotos = candData.photos
             || (multiProjectSyncState.rawData?.projectPhotos && multiProjectSyncState.rawData.projectPhotos[candidate.id]);
