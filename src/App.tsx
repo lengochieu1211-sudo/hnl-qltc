@@ -1677,10 +1677,9 @@ function AuthenticatedApp() {
                 : plan.imageUrl,
         }));
 
-    const sharedSettings = await fetchProjectSharedSettingsSnapshot(activeProjectId, true).catch((err) => {
-      console.warn('[Backup] shared project settings read warning:', err);
-      return null;
-    });
+    // Backup must fail closed if Cloud settings cannot be read; silently omitting
+    // Khu/Khối/workflow/trash settings would create a deceptively incomplete DR file.
+    const sharedSettings = await fetchProjectSharedSettingsSnapshot(activeProjectId, true);
 
     return {
       schemaVersion: 4,
@@ -1764,10 +1763,7 @@ function AuthenticatedApp() {
         allData[getKey('construction_contractor', projectId)] = payload.contractorName || '';
         allData[getKey('construction_inspector', projectId)] = payload.inspectorName || '';
         allData[getKey('construction_project_location', projectId)] = payload.projectLocation || '';
-        const projectSharedSettings = await fetchProjectSharedSettingsSnapshot(projectId, true).catch((err) => {
-          console.warn(`[Backup] shared settings read warning for ${projectId}:`, err);
-          return null;
-        });
+        const projectSharedSettings = await fetchProjectSharedSettingsSnapshot(projectId, true);
         if (projectSharedSettings) {
           allData[getKey('construction_shared_settings', projectId)] = JSON.stringify(projectSharedSettings);
         }
