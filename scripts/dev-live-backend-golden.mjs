@@ -9,6 +9,7 @@ import {
   setDoc,
   getDoc,
   updateDoc,
+  deleteField,
   onSnapshot,
   disableNetwork,
   enableNetwork,
@@ -203,6 +204,22 @@ async function probeUserFirestoreRest(name, token, path, options = {}) {
   return response;
 }
 
+async function adminPatchDoc(oauthToken, path, fields) {
+  const response = await fetch(firestoreDocUrl(path), {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${oauthToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ fields }),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`Admin seed ${path} failed HTTP ${response.status}: ${body.slice(0, 500)}`);
+  }
+  return response.json().catch(() => null);
+}
+
 async function adminDeleteDoc(oauthToken, path) {
   const response = await fetch(firestoreDocUrl(path), {
     method: 'DELETE',
@@ -261,6 +278,126 @@ try {
   if (!(await getDoc(projectRefEditor)).exists()) throw new Error('EDITOR cannot read live project');
   if (!(await getDoc(projectRefViewer)).exists()) throw new Error('VIEWER cannot read live project');
   pass('multi-user project reads through deployed Firestore rules');
+
+  // Reproduce the real PROD legacy condition without weakening Rules: seed one old
+  // work_volumes document through the DEV service account so it still contains the
+  // pre-v6 embedded unitPrice, then exercise the same safe order used by Restore.
+  const legacyWorkVolumeId = 'WV-LEGACY-RESTORE-1';
+  const legacyPrice = 137500;
+  const legacyWorkVolumeRef = doc(admin.db, 'projects', pid, 'work_volumes', legacyWorkVolumeId);
+  const legacyFinancialRef = doc(admin.db, 'projects', pid, 'work_volume_financials', legacyWorkVolumeId);
+  const seedOauth = await adminAccessToken();
+  await adminPatchDoc(seedOauth, `projects/${pid}/work_volumes/${legacyWorkVolumeId}`, {
+    id: { stringValue: legacyWorkVolumeId },
+    title: { stringValue: 'Trần chìm legacy PROD' },
+    floor: { stringValue: 'Tầng DEV 1' },
+    category: { stringValue: 'Trần' },
+    unit: { stringValue: 'm²' },
+    planned: { doubleValue: 125.5 },
+    actual: { doubleValue: 20.25 },
+    status: { stringValue: 'Đang thi công' },
+    unitPrice: { integerValue: String(legacyPrice) },
+    revision: { integerValue: '1' },
+    updatedAt: { integerValue: String(now - 1000) },
+    deleted: { booleanValue: false },
+    deletedAt: { nullValue: null },
+  });
+  const legacySeed = await getDoc(legacyWorkVolumeRef);
+  if (!legacySeed.exists() || Number(legacySeed.data().unitPrice) !== legacyPrice) {
+    throw new Error('Legacy work_volumes.unitPrice seed mismatch');
+  }
+  pass('DEV seeded exact legacy work_volumes.unitPrice condition', `${legacyWorkVolumeId}=${legacyPrice}`);
+
+  const restoreAt = now + 1;
+  await setDoc(legacyFinancialRef, {
+    id: legacyWorkVolumeId,
+    unitPrice: legacyPrice,
+    deleted: false,
+    updatedAt: restoreAt,
+    updatedByUid: adminUid,
+    updatedByEmail: adminEmail,
+  }, { merge: true });
+  await setDoc(legacyWorkVolumeRef, {
+    id: legacyWorkVolumeId,
+    title: 'Trần chìm legacy PROD',
+    floor: 'Tầng DEV 1',
+    category: 'Trần',
+    unit: 'm²',
+    planned: 125.5,
+    actual: 20.25,
+    status: 'Đang thi công',
+    unitPrice: deleteField(),
+    deleted: false,
+    deletedAt: null,
+    deletedByUid: null,
+    deletedBy: null,
+    revision: 2,
+    updatedAt: restoreAt,
+  }, { merge: true });
+
+  const restoredLegacy = await getDoc(legacyWorkVolumeRef);
+  const restoredFinancial = await getDoc(legacyFinancialRef);
+  if (!restoredLegacy.exists() || Object.prototype.hasOwnProperty.call(restoredLegacy.data(), 'unitPrice')) {
+    throw new Error('Restore failed to remove legacy unitPrice from work_volumes');
+  }
+  if (!restoredFinancial.exists() || Number(restoredFinancial.data().unitPrice) !== legacyPrice) {
+    throw new Error('Restore failed to preserve legacy price in work_volume_financials');
+  }
+  pass('Restore legacy work_volumes permission-denied regression PASS', 'price preserved first; embedded field removed under deployed Rules');
+
+  // Backup v4 round-trip runs only after the legacy Restore check above has passed.
+  // Reconstruct the ADMIN-visible WorkVolume exactly as production backup does:
+  // business fields + isolated financial unitPrice -> JSON v4 -> parse -> restore.
+  const backupBusiness = restoredLegacy.data();
+  const backupV4 = {
+    schemaVersion: 4,
+    backupType: 'single-project',
+    project: { id: pid, name: 'HNL QLTC DEV Live Golden' },
+    data: {
+      projectName: 'HNL QLTC DEV Live Golden',
+      workVolumes: [{ ...backupBusiness, id: legacyWorkVolumeId, unitPrice: Number(restoredFinancial.data().unitPrice) }],
+      updatedAt: restoreAt,
+    },
+  };
+  const parsedBackupV4 = JSON.parse(JSON.stringify(backupV4));
+  if (parsedBackupV4.schemaVersion !== 4 || parsedBackupV4.backupType !== 'single-project') {
+    throw new Error('Backup v4 JSON envelope round-trip mismatch');
+  }
+  const roundTripRow = parsedBackupV4.data?.workVolumes?.[0];
+  if (!roundTripRow || roundTripRow.id !== legacyWorkVolumeId || Number(roundTripRow.unitPrice) !== legacyPrice) {
+    throw new Error('Backup v4 lost WorkVolume identity or unitPrice');
+  }
+
+  const roundTripAt = restoreAt + 1;
+  const { unitPrice: roundTripPrice, ...roundTripBusiness } = roundTripRow;
+  await setDoc(legacyWorkVolumeRef, {
+    ...roundTripBusiness,
+    id: legacyWorkVolumeId,
+    revision: 3,
+    updatedAt: roundTripAt,
+    deleted: false,
+    deletedAt: null,
+    deletedByUid: null,
+    deletedBy: null,
+  }, { merge: true });
+  await setDoc(legacyFinancialRef, {
+    id: legacyWorkVolumeId,
+    unitPrice: Number(roundTripPrice),
+    deleted: false,
+    updatedAt: roundTripAt,
+    updatedByUid: adminUid,
+    updatedByEmail: adminEmail,
+  }, { merge: true });
+
+  const roundTripBusinessSnap = await getDoc(legacyWorkVolumeRef);
+  const roundTripFinancialSnap = await getDoc(legacyFinancialRef);
+  if (Object.prototype.hasOwnProperty.call(roundTripBusinessSnap.data() || {}, 'unitPrice')) {
+    throw new Error('Backup v4 round-trip re-embedded unitPrice into work_volumes');
+  }
+  if (Number(roundTripFinancialSnap.data()?.unitPrice) !== legacyPrice || Number(roundTripBusinessSnap.data()?.planned) !== 125.5) {
+    throw new Error('Backup v4 round-trip data mismatch');
+  }
+  pass('Backup v4 WorkVolume round-trip PASS', 'ID/planned/unitPrice preserved; financial isolation intact');
 
   await setDoc(doc(admin.db, 'projects', pid, 'memberContacts', editorEmail), {
     projectId: pid,
@@ -663,6 +800,8 @@ try {
       `projects/${pid}/members/${editorEmail}`,
       `projects/${pid}/members/${viewerEmail}`,
       `projects/${pid}/defects/${defectId}`,
+      `projects/${pid}/work_volume_financials/${legacyWorkVolumeId}`,
+      `projects/${pid}/work_volumes/${legacyWorkVolumeId}`,
       `projects/${pid}/rooms/${roomId}`,
       `projects/${pid}/teams/${teamId}`,
       `projects/${pid}/floor_plans/${floorId}`,

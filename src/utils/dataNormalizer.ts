@@ -108,14 +108,23 @@ export function detectBackupStructure(rawInput: any): {
     return { isSingleProject: false, isStorageDump: false };
   }
 
-  // Schema v3 Single Project Backup
-  if (obj.schemaVersion === 3 || obj.backupType === 'single-project') {
+  // Schema v3+ Single Project Backup. v3 remains fully supported while current v4
+  // preserves the actual version instead of being mislabeled as v3 during import.
+  const declaredSchemaVersion = Number(obj.schemaVersion || 0);
+  const isVersionedSingleProject = declaredSchemaVersion >= 3
+    && Boolean(obj.data)
+    && Boolean(obj.project || obj.projectId);
+  if (
+    isVersionedSingleProject
+    || obj.backupType === 'single-project'
+    || obj.backupType === 'primary-drive-project'
+  ) {
     return {
       isSingleProject: true,
       isStorageDump: false,
       projectId: obj.project?.id || obj.projectId,
       projectName: obj.project?.name || obj.projectName,
-      schemaVersion: 3,
+      schemaVersion: declaredSchemaVersion >= 3 ? declaredSchemaVersion : 3,
       categoryUpdatedAt: obj.categoryUpdatedAt,
       sourceData: obj.data || obj
     };
@@ -473,7 +482,7 @@ export function extractProjectsFromImportData(rawInput: any): ProjectImportCandi
     };
   };
 
-  // Case 1: Schema Version 3 Single Project
+  // Case 1: Schema Version 3+ Single Project
   if (structure.isSingleProject && structure.projectId) {
     const pid = structure.projectId;
     const normalized = normalizeImportedData(obj, pid, pid);

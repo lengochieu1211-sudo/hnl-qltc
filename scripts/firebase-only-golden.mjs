@@ -5,6 +5,8 @@ const app = read('src/App.tsx');
 const firebase = read('src/lib/firebase.ts');
 const firebaseBase = read('src/lib/firebaseBase.ts');
 const projectManager = read('src/components/ProjectManagerModal.tsx');
+const dataNormalizer = read('src/utils/dataNormalizer.ts');
+const liveBackendGolden = read('scripts/dev-live-backend-golden.mjs');
 const photo = read('src/lib/photoCloudSync.ts');
 const photoStorage = read('src/utils/photoStorage.ts');
 const photoPicker = read('src/components/PhotoAttachmentPicker.tsx');
@@ -82,6 +84,14 @@ verify(25,'Restore dọn unitPrice legacy mà không làm mất đơn giá',
     && firebaseBase.includes('normalizeUnitPrice(currentCloud.unitPrice)')
     && (firebaseBase.match(/canWriteFinancials = true;/g) || []).length >= 2,
   'ADMIN verified -> preserve financial first -> delete only legacy business-field copy');
+verify(26,'Backup JSON v4 export/import giữ tương thích v3 và financial isolation',
+  projectManager.includes('schemaVersion: 4')
+    && projectManager.includes('Number(exportedData.schemaVersion || 0) >= 3')
+    && dataNormalizer.includes('declaredSchemaVersion >= 3')
+    && dataNormalizer.includes("obj.backupType === 'primary-drive-project'")
+    && liveBackendGolden.includes('Backup v4 WorkVolume round-trip PASS')
+    && liveBackendGolden.includes('Restore legacy work_volumes permission-denied regression PASS'),
+  'v3 remains readable; v4 is labeled/detected correctly; live DEV round-trip verifies WorkVolume price isolation');
 
 // These require a real isolated Firebase DEV project and physical devices; source checks are
 // not mislabeled as runtime VERIFIED.

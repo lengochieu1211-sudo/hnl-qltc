@@ -875,7 +875,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     const exportedProjects: string[] = [];
     let processedData = { ...exportedData };
     
-    if (exportedData && exportedData.schemaVersion === 3 && exportedData.data) {
+    if (exportedData && Number(exportedData.schemaVersion || 0) >= 3 && exportedData.data) {
       const d = exportedData.data;
       const pid = exportedData.project?.id || 'active';
       const suffix = pid === 'default' ? '' : `_${pid}`;
@@ -1444,7 +1444,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         });
 
         finalDataToExport = {
-          schemaVersion: 3,
+          schemaVersion: 4,
           backupType: "single-project",
           project: {
             id: activeId,
@@ -2350,7 +2350,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           projectName: fullAppData.projectName || currentProj.name,
         }, curId);
         statsSource = {
-          schemaVersion: 3,
+          schemaVersion: 4,
           project: { id: curId, name: normalized.projectName || currentProj.name },
           data: normalized,
         };
