@@ -385,7 +385,7 @@ export interface ProjectInfo {
 }
 
 export interface SingleProjectBackup {
-  schemaVersion: 3;
+  schemaVersion: 3 | 4;
   backupType: 'single-project';
   project: ProjectInfo;
   data: {
@@ -393,6 +393,17 @@ export interface SingleProjectBackup {
     contractorName?: string;
     inspectorName?: string;
     projectLocation?: string;
+    /** Project-scoped shared settings. Security membership/RBAC/PIN/secrets are intentionally excluded. */
+    sharedSettings?: {
+      driveAutoSyncEnabled?: boolean;
+      syncOptions?: Record<string, boolean>;
+      report?: Record<string, any>;
+      workflow?: Record<string, any>;
+      photoBackup?: Record<string, any>;
+      trash?: { enabled?: boolean; retentionDays?: number };
+      structure?: import('./utils/structureGroupUtils').ProjectStructureConfig;
+      superAdminUi?: Record<string, any>;
+    };
     materialNorms: MaterialNorm[];
     inventory: InventoryItem[];
     workVolumes: WorkVolume[];
