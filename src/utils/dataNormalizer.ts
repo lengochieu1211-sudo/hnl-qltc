@@ -180,6 +180,7 @@ export function normalizeImportedData(rawInput: any, activeProjectId?: string, s
     if (obj.project.name && !targetObj.projectName) targetObj.projectName = obj.project.name;
     if (obj.project.contractorName && !targetObj.contractorName) targetObj.contractorName = obj.project.contractorName;
     if (obj.project.inspectorName && !targetObj.inspectorName) targetObj.inspectorName = obj.project.inspectorName;
+    if (obj.project.projectLocation !== undefined && targetObj.projectLocation === undefined) targetObj.projectLocation = obj.project.projectLocation;
   }
 
   const isDump = structure.isStorageDump;
@@ -368,6 +369,13 @@ export function normalizeImportedData(rawInput: any, activeProjectId?: string, s
 
   const projectLocation = extractString(['projectLocation', 'project_location', 'location', 'construction_project_location']);
   if (projectLocation !== null) normalized.projectLocation = projectLocation;
+
+  // Backup v4: preserve project-scoped shared settings as a single contract. These are
+  // operational/project preferences only; RBAC, membership, PIN and secrets are never imported here.
+  const sharedSettings = targetObj.sharedSettings;
+  if (sharedSettings && typeof sharedSettings === 'object' && !Array.isArray(sharedSettings)) {
+    normalized.sharedSettings = { ...sharedSettings };
+  }
 
   return normalized;
 }
