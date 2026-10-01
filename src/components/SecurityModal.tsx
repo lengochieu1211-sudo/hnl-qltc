@@ -292,7 +292,10 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setPinConfig(getStoredPinLockConfig());
-      setRoleState(getCurrentUserRole());
+      const openingUser = getCurrentFirebaseUser();
+      const openingRole = isSuperAdminEmail(openingUser?.email) ? 'ADMIN' : getCurrentUserRole();
+      setRoleState(openingRole);
+      if (openingRole === 'ADMIN') setCurrentUserRole('ADMIN');
       setAuditLogs([]);
       setAuditRangeMode('today');
       setAuditSelectedDate(toLocalDateInputValue(new Date()));
