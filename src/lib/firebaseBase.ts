@@ -2314,8 +2314,13 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
       try {
         const existingSnap = await getDocs(collection(db, 'projects', project.id, cloudName));
         existingSnap.docs.forEach((row) => cloudById.set(row.id, row.data()));
-      } catch (err) {
+      } catch (err: any) {
         console.warn(`[Cloud Sync] Could not read current ${cloudName} revisions before full UPSERT:`, err);
+        if (authoritativeBackupRestore) {
+          const wrapped = new Error(`Firestore restore failed reading current ${cloudName}: ${String(err?.code || err?.message || err)}`);
+          (wrapped as any).code = err?.code || 'restore-read-failed';
+          throw wrapped;
+        }
       }
 
       // Firebase-only rule: a missing item in a local snapshot is NOT proof of deletion.
