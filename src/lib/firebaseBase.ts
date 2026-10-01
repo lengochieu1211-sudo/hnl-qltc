@@ -2206,9 +2206,10 @@ export async function saveProjectMetadataToCloud(projectId: string, name: string
   await registerProjectForCurrentUser(projectId, name.trim(), roleInfo?.allowed ? roleInfo.role : 'VIEWER');
 }
 
-export async function saveProjectToCloud(project: { id: string; name: string; syncCode?: string; payload?: any; contractorName?: string; inspectorName?: string; projectLocation?: string; [key: string]: any }): Promise<void> {
+export async function saveProjectToCloud(project: { id: string; name: string; syncCode?: string; payload?: any; contractorName?: string; inspectorName?: string; projectLocation?: string; [key: string]: any }, options?: { authoritativeBackupRestore?: boolean }): Promise<void> {
   try {
     await ensureAuth();
+    const authoritativeBackupRestore = options?.authoritativeBackupRestore === true;
     const financialActor = getCurrentRealFirebaseUser();
     let canWriteFinancials = false;
     if (financialActor) {
@@ -2227,6 +2228,15 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
         console.warn('[Financial isolation] ADMIN verification unavailable; financial writes skipped:', err);
       }
     }
+    if (authoritativeBackupRestore) {
+      const restoreActor = getCurrentRealFirebaseUser();
+      if (!restoreActor) throw new Error('Khôi phục bản sao lưu cần tài khoản Firebase đã xác thực.');
+      const restoreRole = await fetchProjectUserRoleFromCloud(project.id, restoreActor);
+      if (restoreRole.verification !== 'verified' || !restoreRole.allowed || restoreRole.role !== 'ADMIN') {
+        throw new Error('Chỉ ADMIN đã xác minh mới được khôi phục chính xác dữ liệu từ bản sao lưu.');
+      }
+    }
+
     let payloadData = project.payload;
     if (!payloadData) {
       const copy = { ...project };
@@ -2312,7 +2322,13 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
           const cloudUpdatedAt = Number(currentCloud?.updatedAt || 0);
           // A full/import snapshot is never allowed to overwrite a newer Cloud record.
           // Missing/legacy timestamps are accepted only when the Cloud record is also legacy.
-          if (currentCloud && cloudUpdatedAt > 0 && localUpdatedAt <= cloudUpdatedAt) continue;
+          if (!authoritativeBackupRestore && currentCloud && cloudUpdatedAt > 0 && localUpdatedAt <= cloudUpdatedAt) continue;
+          // An explicit ADMIN backup restore is the one path allowed to resurrect an
+          // item that was deleted after the backup. Only IDs present in the backup are
+          // restored; unrelated Cloud tombstones remain untouched.
+          const restoredUpdatedAt = authoritativeBackupRestore
+            ? Math.max(now, cloudUpdatedAt + 1, localUpdatedAt)
+            : Number(item.updatedAt || now);
           if (cloudName === 'work_volumes' && canWriteFinancials) {
             const financial = financialRecordFromWorkVolume(item);
             if (financial) {
@@ -2360,7 +2376,7 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
             deletedByUid: null,
           deletedBy: null,
             revision: nextRevision,
-            updatedAt: Number(item.updatedAt || now)
+            updatedAt: restoredUpdatedAt
           }, { merge: true });
           operationCount++;
 
