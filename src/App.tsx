@@ -1677,8 +1677,13 @@ function AuthenticatedApp() {
                 : plan.imageUrl,
         }));
 
+    const sharedSettings = await fetchProjectSharedSettingsSnapshot(activeProjectId, true).catch((err) => {
+      console.warn('[Backup] shared project settings read warning:', err);
+      return null;
+    });
+
     return {
-      schemaVersion: 3,
+      schemaVersion: 4,
       backupType: 'single-project',
       project: {
         id: activeProjectId,
@@ -1693,6 +1698,7 @@ function AuthenticatedApp() {
         contractorName,
         inspectorName,
         projectLocation,
+        ...(sharedSettings ? { sharedSettings } : {}),
         materialNorms,
         inventory,
         workVolumes,
@@ -4005,6 +4011,9 @@ function AuthenticatedApp() {
         if (!FIREBASE_ONLY_RUNTIME || LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) await setAsyncItem(getKey('construction_project_location', pid), data.projectLocation || '');
         safeSetLocalStorageItem(getKey('construction_project_location', pid), data.projectLocation || '');
       }
+      const importedSharedSettings = data.sharedSettings && typeof data.sharedSettings === 'object' && !Array.isArray(data.sharedSettings)
+        ? data.sharedSettings
+        : null;
       const nextState = {
         materialNorms: Array.isArray(data.materialNorms) ? data.materialNorms : (isCurrentActive ? present.materialNorms : []),
         inventory: Array.isArray(data.inventory) ? data.inventory : (isCurrentActive ? present.inventory : []),
@@ -4049,6 +4058,21 @@ function AuthenticatedApp() {
           syncCode: pid.slice(0, 8).toUpperCase(),
           payload: nextState,
         }, { authoritativeBackupRestore: options?.authoritativeBackupRestore === true });
+        if (options?.authoritativeBackupRestore === true && importedSharedSettings) {
+          // Restore only project-scoped operational settings. Membership/RBAC/PIN/secrets
+          // are not part of the backup contract and therefore cannot be overwritten here.
+          await saveProjectSharedSettings(pid, importedSharedSettings);
+          if (isCurrentActive) {
+            if (importedSharedSettings.structure) setStructureConfig(normalizeStructureGroupConfig(importedSharedSettings.structure));
+            if (importedSharedSettings.trash) {
+              const nextTrash = normalizeTrashSettings(importedSharedSettings.trash);
+              trashSettingsRef.current = nextTrash;
+              setTrashSettings(nextTrash);
+            }
+            if (importedSharedSettings.superAdminUi) setSuperAdminUiSettings(normalizeSuperAdminUiSettings(importedSharedSettings.superAdminUi));
+            if (typeof importedSharedSettings.driveAutoSyncEnabled === 'boolean') setAutoSyncEnabled(importedSharedSettings.driveAutoSyncEnabled);
+          }
+        }
       }
 
       const parsedSourceTime = parseLegacyTimestamp(data.updatedAt, 0);
