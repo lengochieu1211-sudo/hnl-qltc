@@ -2295,6 +2295,18 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
     let batch = writeBatch(db);
     let operationCount = 0;
     const now = Date.now();
+    const commitBatch = async (context: string) => {
+      if (operationCount <= 0) return;
+      try {
+        await batch.commit();
+      } catch (err: any) {
+        const wrapped = new Error(`Firestore restore failed at ${context}: ${String(err?.code || err?.message || err)}`);
+        (wrapped as any).code = err?.code || 'restore-write-failed';
+        throw wrapped;
+      }
+      batch = writeBatch(db);
+      operationCount = 0;
+    };
 
     for (const { cloudName, stateKey } of subNames) {
       const list = payloadData[stateKey];
@@ -2384,16 +2396,19 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
           // Keep batches deliberately below Firestore's request-size ceiling; the 500-write
           // count limit alone is not sufficient when restoring real project snapshots.
           if (operationCount >= 100) {
-            await batch.commit();
-            batch = writeBatch(db);
-            operationCount = 0;
+            await commitBatch(`${cloudName} chunk`);
           }
         }
+      }
+      // During explicit backup restore, isolate commits per collection so a Rules/RBAC
+      // rejection identifies the exact business collection without weakening any rule.
+      if (authoritativeBackupRestore) {
+        await commitBatch(cloudName);
       }
     }
 
     if (operationCount > 0) {
-      await batch.commit();
+      await commitBatch('final batch');
     }
   } catch (err: any) {
     const code = String(err?.code || '').trim();
