@@ -166,6 +166,7 @@ import { getAsyncItem, setAsyncItem, getAllStorageData } from './utils/asyncStor
 import { migrateAndCleanLocalStorage } from './utils/migrateStorage';
 import { confirmAsync } from './utils/confirmAsync';
 import { normalizeImportedData } from './utils/dataNormalizer';
+import { reconcileBackupSnapshot } from './utils/backupSnapshot';
 import { computeDerivedWorkVolumes } from './utils/workVolumeComputation';
 import { canonicalNormCategoryIds, canonicalWorkCategoryId, resolveUniqueMaterialIdentity, resolveWorkVolumeRef, validateInventoryOutProvenance, validateMaterialNormCatalog, validateWorkVolumeCatalog } from './utils/linkageIntegrity';
 import { reconcileMaterialNormWorkCategoryLinks } from './utils/projectReconciliation';
@@ -1655,7 +1656,44 @@ function AuthenticatedApp() {
     return { projectPhotos, projectPhotoData };
   };
 
+  const buildFirebaseOnlyCanonicalBackupSnapshot = async () => {
+    const localSnapshot = {
+      projectName,
+      contractorName,
+      inspectorName,
+      projectLocation,
+      materialNorms,
+      inventory,
+      workVolumes,
+      floorPlans,
+      defects,
+      roomProgressList,
+      checklist,
+      crewRecords,
+      teams,
+      tombstones: { ...localTombstonesRef.current },
+      updatedAt: lastUpdatedAt,
+    };
+
+    if (!FIREBASE_ONLY_RUNTIME) return localSnapshot;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      throw new Error('Backup Firebase-only cần online để xác minh dữ liệu Firestore server; từ chối tạo tệp có nguy cơ thiếu dữ liệu.');
+    }
+
+    const cloudRecord = await fetchProjectFromCloud(activeProjectId, { serverOnly: true });
+    if (!cloudRecord) {
+      throw new Error('Không đọc được snapshot Firestore server của dự án hiện tại; từ chối tạo backup không đầy đủ.');
+    }
+    const cloudPayload = getCloudPayload(cloudRecord);
+    if (!cloudPayload) {
+      throw new Error('Snapshot Firestore server không có payload hợp lệ; từ chối tạo backup không đầy đủ.');
+    }
+
+    return reconcileBackupSnapshot(cloudPayload, localSnapshot);
+  };
+
   const buildSingleProjectBackupObject = async (includePhotoBinary = true) => {
+    const backupSource = await buildFirebaseOnlyCanonicalBackupSnapshot();
     let photos: any[] = [];
     let photoData: Record<string, string> = {};
     if (includePhotoBinary) {
@@ -1673,8 +1711,8 @@ function AuthenticatedApp() {
     }
 
     const floorPlansForBackup = includePhotoBinary
-      ? await hydrateFloorPlansForBackup(activeProjectId, floorPlans)
-      : floorPlans.map((plan) => ({
+      ? await hydrateFloorPlansForBackup(activeProjectId, backupSource.floorPlans || [])
+      : (backupSource.floorPlans || []).map((plan: any) => ({
           ...plan,
           imageUrl: plan.driveFileId
             ? `cloud-floorplan:drive:${activeProjectId}:${plan.driveFileId}`
@@ -1701,27 +1739,27 @@ function AuthenticatedApp() {
         updatedAt: lastUpdatedAt,
       },
       data: {
-        projectName,
-        contractorName,
-        inspectorName,
-        projectLocation,
+        projectName: backupSource.projectName || projectName,
+        contractorName: backupSource.contractorName ?? contractorName,
+        inspectorName: backupSource.inspectorName ?? inspectorName,
+        projectLocation: backupSource.projectLocation ?? projectLocation,
         ...(sharedSettings ? { sharedSettings } : {}),
-        materialNorms,
-        inventory,
-        workVolumes,
+        materialNorms: backupSource.materialNorms || [],
+        inventory: backupSource.inventory || [],
+        workVolumes: backupSource.workVolumes || [],
         floorPlans: floorPlansForBackup,
-        defects,
-        roomProgressList,
-        checklist,
-        crewRecords,
-        teams,
+        defects: backupSource.defects || [],
+        roomProgressList: backupSource.roomProgressList || [],
+        checklist: backupSource.checklist || [],
+        crewRecords: backupSource.crewRecords || [],
+        teams: backupSource.teams || [],
         photos: photos.map((photo) => {
           const { base64, localUri, dataUrl, ...metadataOnly } = photo as any;
           return metadataOnly;
         }),
-        tombstones: { ...localTombstonesRef.current },
+        tombstones: { ...(backupSource.tombstones || {}) },
         ...(includePhotoBinary ? { photoData } : {}),
-        updatedAt: lastUpdatedAt,
+        updatedAt: backupSource.updatedAt || lastUpdatedAt,
       },
     };
   };
@@ -1753,11 +1791,7 @@ function AuthenticatedApp() {
         const projectInfo = projectList.find((project) => project.id === projectId);
         let payload: any;
         if (projectId === activeProjectIdRef.current) {
-          payload = {
-            projectName, contractorName, inspectorName, projectLocation,
-            materialNorms, inventory, workVolumes, floorPlans, defects,
-            roomProgressList, checklist, crewRecords, teams, updatedAt: lastUpdatedAt,
-          };
+          payload = await buildFirebaseOnlyCanonicalBackupSnapshot();
         } else {
           const cloudRecord = await fetchProjectFromCloud(projectId, { serverOnly: true });
           payload = cloudRecord ? getCloudPayload(cloudRecord) : null;
