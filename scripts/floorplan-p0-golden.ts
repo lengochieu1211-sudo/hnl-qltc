@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { classifyFloorPlanBulkTarget } from '../src/utils/floorPlanBulkSafety';
+import { prepareFloorPlansForBackupRestore } from '../src/utils/floorPlanBackupRestore';
 
 const read = (path: string) => fs.readFileSync(path, 'utf8');
 const check = (condition: unknown, message: string) => { if (!condition) throw new Error(message); };
@@ -129,6 +130,25 @@ const managerBackupHydrateEnd = projectManager.indexOf('\n  const toFirebaseOnly
 const managerBackupHydrate = projectManager.slice(managerBackupHydrateStart, managerBackupHydrateEnd);
 check(managerBackupHydrate.indexOf('cloudReady && hasCloudPointer') >= 0, 'Project Manager backup must detect authoritative Cloud-ready floor-plan assets.');
 check(managerBackupHydrate.indexOf('cloudReady && hasCloudPointer') < managerBackupHydrate.indexOf("currentUrl.startsWith('data:image/')"), 'Project Manager backup must not let a stale Base64 display cache override the newer Cloud drawing.');
+
+const restoredEmbeddedPlan = prepareFloorPlansForBackupRestore([{
+  id: 'FP-RESTORE-1',
+  floorName: 'Tầng 1',
+  imageUrl: 'data:image/png;base64,AA==',
+  storageProvider: 'r2',
+  storagePath: 'projects/dev-old/floor-plans/FP-RESTORE-1/original.old.png',
+  cloudFileId: 'r2:projects/dev-old/floor-plans/FP-RESTORE-1/original.old.png',
+  imageAssetId: 'floor-plan-asset:r2:projects/dev-old/floor-plans/FP-RESTORE-1/original.old.png',
+  imageAssetOwnerFloorId: 'FP-RESTORE-1',
+  imageRevision: 100,
+  imageCloudRevision: 100,
+  updatedAt: 100,
+}], 1000)[0] as any;
+check(!restoredEmbeddedPlan.storagePath && !restoredEmbeddedPlan.cloudFileId && !restoredEmbeddedPlan.imageAssetId, 'Embedded backup image must detach from historical R2/Cloud pointers before restore.');
+check(restoredEmbeddedPlan.imageRevision >= 1000 && restoredEmbeddedPlan.imageCloudRevision === 0, 'Embedded backup image must become a new unsynced revision.');
+check(restoredEmbeddedPlan.imageUploadState === 'pending' && restoredEmbeddedPlan.imageOutboxRevision === restoredEmbeddedPlan.imageRevision, 'Embedded backup image must be eligible for the dedicated binary uploader.');
+check(projectManager.includes('prepareFloorPlansForBackupRestore(payload.floorPlans)'), 'Firebase-only import must prepare floor-plan binaries before saveProjectToCloud and upload.');
+check(app.includes('prepareFloorPlansForBackupRestore(normalizedRestoreData.floorPlans)'), 'Direct/autosave restore must use the same floor-plan pointer detachment guard.');
 check(app.includes('const stableStructureGroupId = normalizedStructure.enabled'), 'New floor creation must stamp an explicit stable Khu/Khối membership.');
 check(app.includes('const duplicateStructureGroupId = normalizedStructure.enabled'), 'Duplicated floors must stamp the resolved source Khu/Khối explicitly.');
 check(app.includes('const sourceCloudReady = isFloorPlanCloudBinaryReady(sourcePlan);'), 'Duplicate floor must detect whether the source drawing is truly Cloud-ready.');
@@ -151,6 +171,9 @@ check(!bulkMetadata.includes('order:'), 'Bulk shared drawing metadata must never
 
 const firebaseBase = read('src/lib/firebaseBase.ts');
 check(firebaseBase.includes("'imageDisplayRevision', 'imageDisplaySource', 'imageOfflineStale'"), 'Transient floor-plan cache/display metadata must be stripped from Firestore writes.');
+for (const field of ['storagePath', 'thumbnailPath', 'storageMd5Hash', 'storageEtag', 'imageAssetId', 'imageAssetOwnerFloorId']) {
+  check(firebaseBase.includes(`'${field}'`), `Generic floor-plan save must strip historical cloud pointer field from local-binary writes: ${field}`);
+}
 
 const ui = read('src/components/FloorPlanDefectTab.tsx');
 check(ui.includes("floorPlanProcessingKind === 'pdf'"), 'Floor-plan processing UI must branch by file type.');
@@ -171,8 +194,10 @@ check(ui.includes('Thu gọn tất cả') && ui.includes('Mở tất cả'), 'Fl
 check(ui.includes('toggleManagedStructureGroupCollapsed(currentGroupId)'), 'Each Khu/Khối header must be independently collapsible.');
 check(ui.includes('Dùng chung bản vẽ ·'), 'Floor management must show which floors share one immutable drawing asset.');
 check(ui.includes('🖼️ Bản vẽ riêng'), 'Floor management must identify independent drawings.');
-check(ui.includes('Dùng bản vẽ tầng khác'), 'Floor-plan UI must let a target floor reuse an already uploaded Cloud drawing.');
-check(ui.includes('Không upload binary lần nữa.'), 'Shared drawing UI must explain that no second binary upload occurs.');
+check(ui.includes('Hoặc dùng bản vẽ đã có từ tầng khác'), 'Floor-plan replace modal must include reuse of an already uploaded Cloud drawing.');
+check(ui.includes('Không upload ảnh lại.'), 'Shared drawing UI must explain that no second binary upload occurs.');
+check(!ui.includes('<span>Dùng bản vẽ tầng khác</span>'), 'Shared drawing reuse must not remain as a separate top-level floor-plan button.');
+check(!ui.includes('openReuseFloorPlanModal'), 'Shared drawing reuse must stay inside the common replace-drawing flow instead of opening a second modal.');
 check(ui.includes('switchFullscreenFloor'), 'Fullscreen floor navigation handler missing.');
 check(ui.includes('Tầng trước · Alt + ←') && ui.includes('Tầng sau · Alt + →'), 'Fullscreen must expose previous/next floor navigation.');
 check(ui.includes('Chọn nhanh tầng trong chế độ toàn màn hình'), 'Fullscreen must expose direct floor selection.');
