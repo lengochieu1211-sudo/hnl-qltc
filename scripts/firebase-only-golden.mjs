@@ -17,6 +17,8 @@ const warehouse = read('src/lib/warehouseTransactions.ts');
 const category = read('src/components/FloorPlanDefectTab.tsx');
 const security = read('src/utils/securityUtils.ts');
 const workflow = read('.github/workflows/firebase-hosting-pull-request.yml');
+const windowsDevWorkflow = read('.github/workflows/windows-exe-dev.yml');
+const androidDevWorkflow = read('.github/workflows/android-apk-dev.yml');
 
 const scenarios = [];
 function verify(id, name, condition, evidence) {
@@ -106,6 +108,13 @@ verify(27,'Backup v4 sharedSettings không rơi ở CREATE/SMART MERGE và khôn
     && dataNormalizer.includes('Preserve backup v4 project-scoped shared settings through the merge payload')
     && dataNormalizer.includes('merged.sharedSettings = { ...incomingData.sharedSettings }'),
   'CREATE/new-copy restore settings; SMART MERGE only applies newer settings; OVERWRITE remains explicit authoritative restore');
+
+verify(28,'Windows/Android DEV rebuild khi JSON restore Golden thay đổi',
+  windowsDevWorkflow.includes("'scripts/firebase-only-golden.mjs'")
+    && windowsDevWorkflow.includes("'scripts/structure-group-golden.ts'")
+    && androidDevWorkflow.includes("'scripts/firebase-only-golden.mjs'")
+    && androidDevWorkflow.includes("'scripts/structure-group-golden.ts'"),
+  'platform DEV workflows follow the JSON restore regression gates so EXE/APK cannot stay stale after a Golden-only fix');
 
 // These require a real isolated Firebase DEV project and physical devices; source checks are
 // not mislabeled as runtime VERIFIED.
