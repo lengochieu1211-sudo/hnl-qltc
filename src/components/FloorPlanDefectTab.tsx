@@ -345,6 +345,7 @@ interface FloorPlanDefectTabProps {
   onUpdateFloorPlan?: (id: string, updates: Partial<FloorPlan>) => void;
   onUpdateFloorPlanImage?: (id: string, imageUrl: string) => void | Promise<void>;
   onUpdateFloorPlanImages?: (ids: string[], imageUrl: string) => number | Promise<number>;
+  onUseExistingFloorPlanAsset?: (targetFloorId: string, sourceFloorId: string) => void | Promise<void>;
   onInspectFloorPlanBulkTargets?: (ids: string[]) => Promise<{
     readyIds: string[];
     blocked: Array<{ id: string; floorName: string; reason: string }>;
@@ -653,6 +654,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   onUpdateFloorPlan,
   onUpdateFloorPlanImage,
   onUpdateFloorPlanImages,
+  onUseExistingFloorPlanAsset,
   onInspectFloorPlanBulkTargets,
   onRenameFloorPlan,
   onDeleteFloorPlan,
@@ -2930,6 +2932,64 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     || visibleFloorPlans[0]
     || (!normalizedStructureConfig.enabled || selectedStructureGroupId === 'all' ? floorPlans[0] : undefined);
 
+  const [reuseFloorPlanTargetId, setReuseFloorPlanTargetId] = useState<string | null>(null);
+  const [reuseFloorPlanBusy, setReuseFloorPlanBusy] = useState(false);
+
+  const floorPlanHasReusableCloudAsset = React.useCallback((plan: FloorPlan) => {
+    const imageRevision = Math.max(0, Number(plan.imageRevision || 0));
+    const cloudRevision = Math.max(0, Number(plan.imageCloudRevision || 0));
+    const hasPointer = Boolean(
+      String(plan.storagePath || '').trim()
+      || String(plan.driveFileId || '').trim()
+      || String(plan.cloudFileId || '').trim()
+    );
+    return hasPointer && cloudRevision > 0 && cloudRevision >= imageRevision;
+  }, []);
+
+  const reusableFloorPlanSources = React.useMemo(
+    () => floorPlans.filter((plan) => plan.id !== reuseFloorPlanTargetId && floorPlanHasReusableCloudAsset(plan)),
+    [floorPlans, reuseFloorPlanTargetId, floorPlanHasReusableCloudAsset],
+  );
+
+  const fullscreenFloorPlans = visibleFloorPlans.length > 0 ? visibleFloorPlans : floorPlans;
+  const fullscreenFloorIndex = Math.max(0, fullscreenFloorPlans.findIndex((plan) => plan.id === activeFloor?.id));
+  const switchFullscreenFloor = React.useCallback((nextIndex: number) => {
+    const target = fullscreenFloorPlans[nextIndex];
+    if (!target) return;
+    setSelectedFloorId(target.id);
+    setZoomScale(1);
+    setRotation(0);
+    setSelectedRoomIds([]);
+    setSelectedRoomForDragId(null);
+    setSelectedDefectIds([]);
+  }, [fullscreenFloorPlans]);
+
+  const openReuseFloorPlanModal = (targetFloorId: string) => {
+    if (!canManageStructure || !onUseExistingFloorPlanAsset) return;
+    setReuseFloorPlanTargetId(targetFloorId);
+  };
+
+  const applyExistingFloorPlanAsset = async (sourceFloorId: string) => {
+    if (!reuseFloorPlanTargetId || !onUseExistingFloorPlanAsset || reuseFloorPlanBusy) return;
+    setReuseFloorPlanBusy(true);
+    try {
+      await onUseExistingFloorPlanAsset(reuseFloorPlanTargetId, sourceFloorId);
+      const target = floorPlans.find((plan) => plan.id === reuseFloorPlanTargetId);
+      const source = floorPlans.find((plan) => plan.id === sourceFloorId);
+      setReuseFloorPlanTargetId(null);
+      alert(`✅ ${target?.floorName || 'Tầng'} đã dùng chung bản vẽ của ${source?.floorName || 'tầng nguồn'}. Ảnh Cloud được tái sử dụng, không upload lại; Defect/Căn/Phòng/tiến độ vẫn giữ riêng.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('SOURCE_NOT_CLOUD_READY')) {
+        alert('Tầng nguồn chưa có bản vẽ Cloud hoàn chỉnh. Hãy chờ đồng bộ ảnh xong rồi thử lại.');
+      } else {
+        alert(`Không thể dùng chung bản vẽ tầng: ${message}`);
+      }
+    } finally {
+      setReuseFloorPlanBusy(false);
+    }
+  };
+
   const getFloorTargetState = (dateStr?: string) => {
     if (!dateStr) return { label: 'Chưa đặt hạn', className: 'bg-slate-100 text-slate-600 border-slate-200' };
     const today = new Date();
@@ -4103,6 +4163,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       const target = e.target as HTMLElement;
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable) return;
 
+      if (isFullscreen && e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault();
+        e.stopPropagation();
+        const nextIndex = e.key === 'ArrowLeft' ? fullscreenFloorIndex - 1 : fullscreenFloorIndex + 1;
+        switchFullscreenFloor(nextIndex);
+        return;
+      }
+
       // Structural keyboard shortcuts are ADMIN-only. Navigation/escape remain available.
       if (!canManageStructure) {
         if (e.code === 'Space') spacePanHeldRef.current = true;
@@ -4213,7 +4281,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     window.addEventListener('keydown', handleKeyDown, true);
     window.addEventListener('keyup', handleKeyUp, true);
     return () => { window.removeEventListener('keydown', handleKeyDown, true); window.removeEventListener('keyup', handleKeyUp, true); };
-  }, [isActive, selectedRoomForDragId, selectedRoomIds, floorRooms, copiedRoomsState, activeFloor, onSaveRoomProgress, onDeleteRoomProgress, lockedRoomIds, canManageStructure]);
+  }, [isActive, isFullscreen, fullscreenFloorIndex, switchFullscreenFloor, selectedRoomForDragId, selectedRoomIds, floorRooms, copiedRoomsState, activeFloor, onSaveRoomProgress, onDeleteRoomProgress, lockedRoomIds, canManageStructure]);
 
   // Repair legacy/stale links once source data is available. Durable roomId stays
   // authoritative while its room still exists: editing/rotating a highlight must never
@@ -6530,6 +6598,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <span>Cập nhật bản vẽ</span>
               </button>}
 
+              {canManageStructure && onUseExistingFloorPlanAsset && floorPlans.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => openReuseFloorPlanModal(activeFloor.id)}
+                  className="col-span-2 sm:col-span-1 flex items-center justify-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-3 py-2 sm:py-1.5 rounded-xl text-xs font-bold transition-all shadow-2xs active:scale-95"
+                  title="Dùng lại bản vẽ Cloud của tầng khác, không upload ảnh lần nữa"
+                >
+                  <Images className="w-3.5 h-3.5" />
+                  <span>Dùng bản vẽ tầng khác</span>
+                </button>
+              )}
+
               {canManageStructure && cadSourceRoomCount > 0 && (
                 <button
                   type="button"
@@ -7034,6 +7114,40 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       <Maximize2 className="w-3.5 h-3.5" />
                       <span className="truncate max-w-[100px] sm:max-w-none">{activeFloor?.floorName || 'Toàn Màn Hình'}</span>
                     </span>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => switchFullscreenFloor(fullscreenFloorIndex - 1)}
+                        disabled={fullscreenFloorIndex <= 0}
+                        className="h-7 w-7 inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 disabled:opacity-35"
+                        title="Tầng trước · Alt + ←"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <select
+                        value={activeFloor?.id || ''}
+                        onChange={(event) => {
+                          const nextIndex = fullscreenFloorPlans.findIndex((plan) => plan.id === event.target.value);
+                          if (nextIndex >= 0) switchFullscreenFloor(nextIndex);
+                        }}
+                        className="h-7 max-w-[150px] rounded-lg border border-slate-700 bg-slate-800 px-2 text-[11px] font-bold text-white"
+                        title="Chọn nhanh tầng trong chế độ toàn màn hình"
+                      >
+                        {fullscreenFloorPlans.map((plan) => (
+                          <option key={plan.id} value={plan.id}>{plan.floorName}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => switchFullscreenFloor(fullscreenFloorIndex + 1)}
+                        disabled={fullscreenFloorIndex < 0 || fullscreenFloorIndex >= fullscreenFloorPlans.length - 1}
+                        className="h-7 w-7 inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 disabled:opacity-35"
+                        title="Tầng sau · Alt + →"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
 
                     {canManageStructure && (viewMode === 'highlight' || viewMode === 'all') && (
                       <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
@@ -9576,6 +9690,60 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         onAddInventory={onAddInventory}
       />
 
+      {canManageStructure && reuseFloorPlanTargetId && (
+        <div className="fixed inset-0 z-[245] flex items-end sm:items-center justify-center bg-slate-950/60 p-0 sm:p-4">
+          <div className="w-full sm:max-w-lg max-h-[86vh] rounded-t-3xl sm:rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+              <div>
+                <h3 className="text-sm font-black text-slate-900">Dùng bản vẽ từ tầng khác</h3>
+                <p className="mt-0.5 text-[10.5px] text-slate-500">
+                  Tầng đích: <b>{floorPlans.find((plan) => plan.id === reuseFloorPlanTargetId)?.floorName || reuseFloorPlanTargetId}</b>. Chỉ dùng chung asset ảnh Cloud; dữ liệu thi công vẫn độc lập.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => !reuseFloorPlanBusy && setReuseFloorPlanTargetId(null)}
+                disabled={reuseFloorPlanBusy}
+                className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-600 disabled:opacity-40"
+              >
+                Đóng
+              </button>
+            </div>
+            <div className="overflow-y-auto p-4 space-y-2">
+              {reusableFloorPlanSources.length === 0 ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-xs font-semibold text-amber-900">
+                  Chưa có tầng khác với bản vẽ Cloud đã đồng bộ hoàn chỉnh. Ảnh đang chờ upload không được dùng chung để tránh sai revision.
+                </div>
+              ) : reusableFloorPlanSources.map((source) => {
+                const sharedInfo = getFloorPlanAssetGroupInfo(source);
+                return (
+                  <button
+                    key={source.id}
+                    type="button"
+                    disabled={reuseFloorPlanBusy}
+                    onClick={() => { void applyExistingFloorPlanAsset(source.id); }}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-left hover:border-emerald-300 hover:bg-emerald-50 disabled:opacity-50"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-xs font-black text-slate-900 truncate">{source.floorName}</div>
+                        <div className="mt-1 text-[10px] text-slate-500">
+                          {sharedInfo.shared ? `Đang dùng chung với ${sharedInfo.count} tầng` : 'Bản vẽ Cloud riêng'} · revision {Number(source.imageCloudRevision || 0)}
+                        </div>
+                      </div>
+                      <div className="text-[10px] font-black text-emerald-700 shrink-0">Dùng ảnh này</div>
+                    </div>
+                  </button>
+                );
+              })}
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] text-slate-600">
+                Không upload binary lần nữa. Hệ thống chỉ gán cùng <b>imageAssetId/storagePath</b>. Defect, Căn/Phòng, highlight, tiến độ, checklist và đội thi công của tầng đích không bị sao chép.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {canManageStructure && showCadAlignmentModal && activeFloor && (
         <div className="fixed inset-0 z-[240] flex items-end sm:items-center justify-center bg-slate-950/60 p-0 sm:p-4">
           <div className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
@@ -11355,6 +11523,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           >
                             <Copy className="w-3.5 h-3.5" /> Nhân bản
                           </button>
+                          {onUseExistingFloorPlanAsset && floorPlans.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                openReuseFloorPlanModal(fp.id);
+                                event.currentTarget.closest('details')?.removeAttribute('open');
+                              }}
+                              className="w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold text-emerald-700 hover:bg-emerald-50 flex items-center gap-2"
+                            >
+                              <Images className="w-3.5 h-3.5" /> Dùng bản vẽ tầng khác
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={(event) => {
