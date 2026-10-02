@@ -27,14 +27,14 @@ import {
 } from 'lucide-react';
 import { InventoryItem, InventoryIssuePurpose, InventoryItemKind, TransactionType, MaterialNorm, WorkVolume, RoomProgressItem, TeamInfo, FloorPlan } from '../types';
 import { formatDateDDMMYYYY, formatExcelDate } from '../utils/dateFormatter';
-import { formatDecimal, evaluateMathExpression, useFormatSettings, parseVietnameseNumber, parseExcelNumber } from '../utils/numberUtils';
+import { formatDecimal, evaluateMathExpression, hasMathExpression, useFormatSettings, parseVietnameseNumber, parseExcelNumber } from '../utils/numberUtils';
 import { confirmAsync } from '../utils/confirmAsync';
 import { calculateStockSummary, resolveNormMaterialId } from '../utils/inventoryUtils';
 import { compareDateValues, naturalCompare } from '../utils/sortUtils';
 import { createEntityId } from '../utils/idUtils';
 import { normalizeUnit } from '../utils/unitUtils';
 import { canonicalWorkCategoryId, normalizeLinkText } from '../utils/linkageIntegrity';
-import { assertSafeExcelImportFile, parseExcelNumberRecord, parseExcelStringArray, sameStringSet } from '../utils/excelImportUtils';
+import { assertSafeExcelImportFile, parseExcelNumberRecord, parseExcelStringArray, parseExcelStringRecord, readExcelFormulaByHeaders, sameStringSet } from '../utils/excelImportUtils';
 import { QuickSortBar } from './QuickSortBar';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import { ExcelActionMenu } from './ExcelActionMenu';
@@ -467,7 +467,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             const materialNameStr = String(materialNameRaw).trim();
             const rawItemKind = String(row['__itemKind'] || row['Loại Hàng'] || row['Loại hàng'] || row['itemKind'] || '').trim().toLocaleLowerCase('vi-VN');
             const importedItemKind: InventoryItemKind = rawItemKind.includes('thiết') || rawItemKind === 'equipment' ? 'equipment' : 'material';
-            const quantityNum = parseVietnameseNumber(row['Số Lượng'] || row['quantity'] || 0);
+            const quantityFormula = readExcelFormulaByHeaders(sheet, XLSX.utils, rIdx + 1, ['Số Lượng', 'quantity']);
+            const quantityFormulaValue = quantityFormula ? evaluateMathExpression(quantityFormula) : null;
+            if (quantityFormula && quantityFormulaValue === null) throw new Error(`Dòng ${rIdx + 2}: công thức Số Lượng không an toàn hoặc không hợp lệ.`);
+            const quantityNum = quantityFormulaValue !== null
+              ? quantityFormulaValue
+              : parseVietnameseNumber(row['Số Lượng'] || row['quantity'] || 0);
             if (isNaN(quantityNum) || quantityNum <= 0) return;
 
             const unitStr = String(row['Đơn Vị Tính'] || row['unit'] || 'Tấm').trim();
@@ -514,6 +519,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               materialName: materialNameStr,
               unit: unitStr,
               quantity: quantityNum,
+              inputExpressions: (() => {
+                const next = { ...(existingItem?.inputExpressions || {}) };
+                delete next.quantity;
+                if (quantityFormula) next.quantity = quantityFormula;
+                return Object.keys(next).length ? next : undefined;
+              })(),
               location: locationStr,
               handler: handlerStr,
               date: dateStr,
@@ -564,7 +575,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             const materialNameStr = String(materialNameRaw).trim();
             const rawItemKind = String(row['__itemKind'] || row['Loại Hàng'] || row['Loại hàng'] || row['itemKind'] || '').trim().toLocaleLowerCase('vi-VN');
             const importedItemKind: InventoryItemKind = rawItemKind.includes('thiết') || rawItemKind === 'equipment' ? 'equipment' : 'material';
-            const quantityNum = parseVietnameseNumber(row['Số Lượng'] || row['quantity'] || 0);
+            const quantityFormula = readExcelFormulaByHeaders(sheet, XLSX.utils, rIdx + 1, ['Số Lượng', 'quantity']);
+            const quantityFormulaValue = quantityFormula ? evaluateMathExpression(quantityFormula) : null;
+            if (quantityFormula && quantityFormulaValue === null) throw new Error(`Dòng ${rIdx + 2}: công thức Số Lượng không an toàn hoặc không hợp lệ.`);
+            const quantityNum = quantityFormulaValue !== null
+              ? quantityFormulaValue
+              : parseVietnameseNumber(row['Số Lượng'] || row['quantity'] || 0);
             if (isNaN(quantityNum) || quantityNum <= 0) return;
 
             const unitStr = String(row['Đơn Vị Tính'] || row['unit'] || 'Tấm').trim();
@@ -611,6 +627,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               materialName: materialNameStr,
               unit: unitStr,
               quantity: quantityNum,
+              inputExpressions: (() => {
+                const next = { ...(existingItem?.inputExpressions || {}) };
+                delete next.quantity;
+                if (quantityFormula) next.quantity = quantityFormula;
+                return Object.keys(next).length ? next : undefined;
+              })(),
               location: locationStr,
               handler: handlerStr,
               date: dateStr,
@@ -673,6 +695,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             const importedWorkCategoryIds = parseExcelStringArray(row['__workCategoryIds'] || row['workCategoryIds'])
               || (rawWorkCategoryId ? [String(rawWorkCategoryId).trim()] : undefined);
             const importedWorkCategoryNormsById = parseExcelNumberRecord(row['__workCategoryNormsById'] || row['workCategoryNormsById']);
+            const importedInputExpressions = parseExcelStringRecord(row['__inputExpressions'] || row['inputExpressions']);
+            const generalNormFormula = readExcelFormulaByHeaders(sheet, XLSX.utils, rIdx + 1, ['Định Mức / m2', 'Định Mức Hao Phí / m2', 'Định mức tiêu hao', 'unitNormPerM2']);
+            const generalNormFormulaValue = generalNormFormula ? evaluateMathExpression(generalNormFormula) : null;
+            if (generalNormFormula && generalNormFormulaValue === null) throw new Error(`Dòng ${rIdx + 2}: công thức Định Mức / đơn vị không an toàn hoặc không hợp lệ.`);
             const importedWorkCategories = workCategoryStr ? workCategoryStr.split(',').map(value => value.trim()).filter(Boolean) : undefined;
             const rawIdStr = rawId ? String(rawId).trim() : '';
             const normalizedImportedUnit = normalizeUnit(unitStr) || unitStr;
@@ -704,6 +730,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               ? String(rawWorkCategoryId).trim()
               : (finalWorkCategoryIds?.[0] || existingNorm?.workCategoryId);
 
+            const nextInputExpressions = { ...(importedInputExpressions || existingNorm?.inputExpressions || {}) };
+            delete nextInputExpressions.unitNormPerM2;
+            if (generalNormFormula) nextInputExpressions.unitNormPerM2 = generalNormFormula;
+
             const normData: MaterialNorm = {
               ...(existingNorm || {}),
               id: importedNormId,
@@ -717,7 +747,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               materialName: materialNameStr,
               unit: normalizedImportedUnit,
               quotaQuantity: quotaQuantityNum,
-              unitNormPerM2: unitNormPerM2Num ? parseExcelNumber(unitNormPerM2Num) : undefined,
+              unitNormPerM2: generalNormFormulaValue !== null ? generalNormFormulaValue : (unitNormPerM2Num ? parseExcelNumber(unitNormPerM2Num) : undefined),
+              inputExpressions: Object.keys(nextInputExpressions).length ? nextInputExpressions : undefined,
               normBasisUnit: normalizeUnit(row['ĐVT Khối Lượng Nguồn'] || row['Đơn Vị Khối Lượng Nguồn'] || row['normBasisUnit'] || '') || existingNorm?.normBasisUnit,
               notes: notesStr || undefined
             };
@@ -1269,7 +1300,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setMaterialPickerSearch('');
     setUnit(item.unit);
     setQuantity(item.quantity);
-    setQuantityStr(String(item.quantity));
+    setQuantityStr(item.inputExpressions?.quantity || String(item.quantity));
     setLocation(item.location || '');
     setHandler(item.handler || '');
     setDate(item.date || new Date().toISOString().split('T')[0]);
@@ -1404,6 +1435,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       materialName: finalMaterialName,
       unit: normalizedFinalUnit,
       quantity: finalQuantity,
+      inputExpressions: (() => {
+        const next = { ...(editingInventory?.inputExpressions || {}) };
+        delete next.quantity;
+        if (hasMathExpression(quantityStr) && parsedQuantity !== null) next.quantity = quantityStr.trim();
+        return Object.keys(next).length ? next : undefined;
+      })(),
       location: location.trim(),
       handler: handler.trim(),
       date,
@@ -1483,8 +1520,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         unit: norm.unit,
         workCategory: work?.title || legacyName,
         normSource: hasSpecific ? 'Riêng theo hạng mục' : 'Dùng định mức chung',
-        specificNorm: hasSpecific ? Number(specific) : '',
-        generalNorm: norm.unitNormPerM2 ?? '',
+        specificNorm: hasSpecific
+          ? (norm.inputExpressions?.[`workCategoryNorm:${workCategoryId}`] || Number(specific))
+          : '',
+        generalNorm: norm.inputExpressions?.unitNormPerM2 || norm.unitNormPerM2 || '',
         quotaQuantity: norm.quotaQuantity ?? 0,
         notes: norm.notes || '',
       };
@@ -1503,7 +1542,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       workCategory: '',
       normSource: 'Định mức chung',
       specificNorm: '',
-      generalNorm: norm.unitNormPerM2 ?? '',
+      generalNorm: norm.inputExpressions?.unitNormPerM2 || norm.unitNormPerM2 || '',
       quotaQuantity: norm.quotaQuantity ?? 0,
       notes: norm.notes || '',
     }];
@@ -1525,7 +1564,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       date: item.date,
       materialName: item.materialName,
       unit: item.unit,
-      quantity: item.quantity,
+      quantity: item.inputExpressions?.quantity || item.quantity,
       category: materialNorms.find((norm) => resolveNormMaterialId(norm) === item.materialId || (norm.materialName === item.materialName && norm.unit === item.unit))?.category || '',
       structureGroup: groupId ? normalizedStructureConfig.groups.find((group) => group.id === groupId)?.name || '' : '',
       floorName: floor?.floorName || '',
@@ -1581,8 +1620,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             : 'Hạng mục không còn trong danh mục';
         },
       },
-      { key: 'specificNorm', label: 'ĐM riêng hạng mục', editable: hasNormManageAccess, type: 'number', width: 145, validate: (value) => String(value ?? '').trim() && Number(value) < 0 ? 'Không được âm' : null },
-      { key: 'generalNorm', label: 'ĐM chung', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), type: 'number', width: 120, validate: (value) => String(value ?? '').trim() && Number(value) < 0 ? 'Không được âm' : null },
+      { key: 'specificNorm', label: 'ĐM riêng hạng mục', editable: hasNormManageAccess, type: 'number', allowExpression: true, width: 145, validate: (value) => { const raw = String(value ?? '').trim(); const parsed = raw ? evaluateMathExpression(raw) : null; return parsed !== null && parsed < 0 ? 'Không được âm' : null; } },
+      { key: 'generalNorm', label: 'ĐM chung', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), type: 'number', allowExpression: true, width: 120, validate: (value) => { const raw = String(value ?? '').trim(); const parsed = raw ? evaluateMathExpression(raw) : null; return parsed !== null && parsed < 0 ? 'Không được âm' : null; } },
       { key: 'normSource', label: 'Nguồn định mức', editable: false, width: 155 },
       { key: 'quotaQuantity', label: 'Định mức tổng theo KL kế hoạch', editable: false, type: 'number', width: 205 },
       { key: 'notes', label: 'Ghi chú / Tiêu chuẩn kỹ thuật', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), width: 300 },
@@ -1601,7 +1640,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       { key: 'date', label: 'Ngày', editable: hasImportAccess, type: 'date', required: true, width: 135 },
       { key: 'materialName', label: 'Tên vật tư', editable: hasImportAccess, type: 'select', options: warehouseMaterialOptions, required: true, width: 220 },
       { key: 'unit', label: 'ĐVT', editable: hasImportAccess, required: true, width: 90 },
-      { key: 'quantity', label: 'Số lượng', editable: hasImportAccess, type: 'number', required: true, width: 110, validate: (value) => Number(value) <= 0 ? 'Phải lớn hơn 0' : null },
+      { key: 'quantity', label: 'Số lượng', editable: hasImportAccess, type: 'number', allowExpression: true, required: true, width: 110, validate: (value) => { const parsed = evaluateMathExpression(String(value ?? '')); return parsed !== null && parsed <= 0 ? 'Phải lớn hơn 0' : null; } },
     ];
     if (quickEditMode === 'out') {
       base.push(
@@ -1702,15 +1741,26 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           selectedNames.push(work.title);
           const specificRaw = String(row.specificNorm ?? '').trim();
           if (specificRaw !== '') {
-            const specific = Number(row.specificNorm);
-            if (!Number.isFinite(specific) || specific < 0) throw new Error(`ĐM riêng của “${workName}” không hợp lệ.`);
+            const specific = evaluateMathExpression(specificRaw);
+            if (specific === null || specific < 0) throw new Error(`ĐM riêng của “${workName}” không hợp lệ.`);
             selectedSpecific[categoryId] = specific;
           }
         }
 
         const generalRaw = String(primary.generalNorm ?? '').trim();
-        const generalNorm = generalRaw === '' ? undefined : Number(primary.generalNorm);
-        if (generalNorm !== undefined && (!Number.isFinite(generalNorm) || generalNorm < 0)) throw new Error('ĐM chung không hợp lệ.');
+        const generalNorm = generalRaw === '' ? undefined : evaluateMathExpression(generalRaw);
+        if (generalRaw !== '' && (generalNorm === null || generalNorm < 0)) throw new Error('ĐM chung không hợp lệ.');
+        const inputExpressions = { ...(existing.inputExpressions || {}) };
+        delete inputExpressions.unitNormPerM2;
+        Object.keys(inputExpressions).filter((key) => key.startsWith('workCategoryNorm:')).forEach((key) => delete inputExpressions[key]);
+        if (generalRaw && hasMathExpression(generalRaw) && generalNorm !== null) inputExpressions.unitNormPerM2 = generalRaw;
+        groupRows.forEach((row) => {
+          const workName = String(row.workCategory || '').trim();
+          const work = (workVolumes || []).find((item) => normalizeLinkText(item.title) === normalizeLinkText(workName));
+          const raw = String(row.specificNorm ?? '').trim();
+          if (!work || !hasMathExpression(raw) || evaluateMathExpression(raw) === null) return;
+          inputExpressions[`workCategoryNorm:${canonicalWorkCategoryId(work)}`] = raw;
+        });
         // quotaQuantity is derived centrally in App.tsx from WorkVolume × norm factor.
         // Never persist a Quick Edit override as a second source of truth.
         const quotaQuantity = Number(existing.quotaQuantity || 0);
@@ -1721,7 +1771,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           category: nextCategory,
           unit: nextUnit,
           quotaQuantity,
-          unitNormPerM2: generalNorm,
+          unitNormPerM2: generalNorm ?? undefined,
+          inputExpressions: Object.keys(inputExpressions).length ? inputExpressions : undefined,
           notes: String(primary.notes || '').trim() || undefined,
           workCategory: selectedNames[0],
           workCategoryId: selectedIds[0],
@@ -1766,7 +1817,14 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         materialId: norm ? resolveNormMaterialId(norm) : existing?.materialId,
         materialName: materialNameValue,
         unit: normalizeUnit(String(row.unit || '').trim()) || String(row.unit || '').trim(),
-        quantity: Math.max(0, Number(row.quantity || 0)),
+        quantity: Math.max(0, evaluateMathExpression(String(row.quantity ?? '')) ?? 0),
+        inputExpressions: (() => {
+          const next = { ...(existing?.inputExpressions || {}) };
+          const raw = String(row.quantity ?? '').trim();
+          delete next.quantity;
+          if (hasMathExpression(raw) && evaluateMathExpression(raw) !== null) next.quantity = raw;
+          return Object.keys(next).length ? next : undefined;
+        })(),
         date: String(row.date || '').trim(),
         location: type === 'in' ? String(row.location || existing?.location || 'Kho chính').trim() : String(existing?.location || 'Công trình'),
         handler: String(row.handler || existing?.handler || defaultHandler || '').trim(),
@@ -3098,10 +3156,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     }}
                     onBlur={() => {
                       const parsed = evaluateMathExpression(quantityStr);
-                      if (parsed !== null) {
-                        setQuantity(parsed);
-                        setQuantityStr(formatDecimal(parsed));
-                      }
+                      if (parsed !== null) setQuantity(parsed);
                     }}
                     className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-slate-900 focus:ring-2 focus:ring-blue-500"
                     required
