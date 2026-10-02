@@ -43,6 +43,50 @@ export function parseExcelNumberRecord(value: unknown): Record<string, number> |
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
+export function parseExcelStringRecord(value: unknown): Record<string, string> | undefined {
+  if (value === null || value === undefined || value === '') return undefined;
+  let parsed: unknown = value;
+  if (typeof value === 'string') {
+    const raw = value.trim();
+    if (!raw) return undefined;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (_) {
+      return undefined;
+    }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+  const result: Record<string, string> = {};
+  Object.entries(parsed as Record<string, unknown>).forEach(([key, rawValue]) => {
+    const normalizedKey = String(key || '').trim();
+    const normalizedValue = String(rawValue ?? '').trim();
+    if (normalizedKey && normalizedValue) result[normalizedKey] = normalizedValue;
+  });
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+export function readExcelFormulaByHeaders(
+  worksheet: any,
+  xlsxUtils: { decode_range: (ref: string) => any; encode_cell: (cell: { r: number; c: number }) => string },
+  rowZeroBased: number,
+  headers: string[],
+): string | undefined {
+  if (!worksheet?.['!ref'] || !Number.isFinite(rowZeroBased)) return undefined;
+  const range = xlsxUtils.decode_range(worksheet['!ref']);
+  let column = -1;
+  for (let c = range.s.c; c <= range.e.c; c += 1) {
+    const headerCell = worksheet[xlsxUtils.encode_cell({ r: range.s.r, c })];
+    if (headers.includes(String(headerCell?.v ?? '').trim())) {
+      column = c;
+      break;
+    }
+  }
+  if (column < 0) return undefined;
+  const cell = worksheet[xlsxUtils.encode_cell({ r: rowZeroBased, c: column })];
+  const formula = typeof cell?.f === 'string' ? cell.f.trim().replace(/^=/, '') : '';
+  return formula || undefined;
+}
+
 export function sameStringSet(left?: string[], right?: string[]): boolean {
   const a = Array.from(new Set((left || []).map((item) => String(item || '').trim()).filter(Boolean))).sort();
   const b = Array.from(new Set((right || []).map((item) => String(item || '').trim()).filter(Boolean))).sort();
