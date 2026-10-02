@@ -561,6 +561,19 @@ export function smartMergeProjectData(localData: any, incomingData: any): any {
 
   const merged: any = { ...localData };
 
+  // Preserve backup v4 project-scoped shared settings through the merge payload.
+  // The Cloud restore layer remains authoritative for timestamp conflict resolution.
+  if (incomingData.sharedSettings && typeof incomingData.sharedSettings === 'object' && !Array.isArray(incomingData.sharedSettings)) {
+    const localSettings = localData.sharedSettings && typeof localData.sharedSettings === 'object' && !Array.isArray(localData.sharedSettings)
+      ? localData.sharedSettings
+      : null;
+    const incomingSettingsTime = parseLegacyTimestamp(incomingData.sharedSettings.updatedAt, 0);
+    const localSettingsTime = parseLegacyTimestamp(localSettings?.updatedAt, 0);
+    if (!localSettings || incomingSettingsTime > localSettingsTime) {
+      merged.sharedSettings = { ...incomingData.sharedSettings };
+    }
+  }
+
   // Project metadata
   if (incomingData.projectName && (!localData.projectName || localData.projectName === 'Dự án')) {
     merged.projectName = incomingData.projectName;
