@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { confirmAsync } from '../utils/confirmAsync';
+import { evaluateMathExpression } from '../utils/numberUtils';
 
 export type QuickGridCellValue = string | number | null | undefined;
 
@@ -21,6 +22,8 @@ export interface QuickGridColumn {
   width?: number;
   required?: boolean;
   placeholder?: string;
+  /** Allow a numeric cell to keep a safe arithmetic expression while validating/calculating its numeric result. */
+  allowExpression?: boolean;
   validate?: (value: QuickGridCellValue, row: QuickGridRow) => string | null;
 }
 
@@ -71,6 +74,10 @@ function isColumnEditable(column: QuickGridColumn, row: QuickGridRow, canEdit: b
 function parseSortValue(value: unknown, column: QuickGridColumn): string | number {
   if (value === null || value === undefined || value === '') return '';
   if (column.type === 'number') {
+    if (column.allowExpression) {
+      const parsed = evaluateMathExpression(String(value));
+      return parsed !== null ? parsed : Number.POSITIVE_INFINITY;
+    }
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric : Number.POSITIVE_INFINITY;
   }
@@ -163,6 +170,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
 
   const coerceValue = (column: QuickGridColumn, rawValue: string): QuickGridCellValue => {
     if (column.type !== 'number') return rawValue;
+    if (column.allowExpression) return rawValue;
     const normalized = rawValue.trim().replace(',', '.');
     return normalized === '' ? '' : Number(normalized);
   };
@@ -210,9 +218,14 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
           errors.set(cellKey(row.__rowKey, column.key), 'Bắt buộc');
           return;
         }
-        if (column.type === 'number' && normalized && !Number.isFinite(Number(value))) {
-          errors.set(cellKey(row.__rowKey, column.key), 'Phải là số hợp lệ');
-          return;
+        if (column.type === 'number' && normalized) {
+          const numericValid = column.allowExpression
+            ? evaluateMathExpression(normalized) !== null
+            : Number.isFinite(Number(value));
+          if (!numericValid) {
+            errors.set(cellKey(row.__rowKey, column.key), column.allowExpression ? 'Số/công thức không hợp lệ' : 'Phải là số hợp lệ');
+            return;
+          }
         }
         const custom = column.validate?.(value, row);
         if (custom) errors.set(cellKey(row.__rowKey, column.key), custom);
@@ -580,7 +593,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
                             </select>
                           ) : (
                             <input
-                              type={column.type === 'date' ? 'date' : column.type === 'number' ? 'number' : 'text'}
+                              type={column.type === 'date' ? 'date' : column.type === 'number' && !column.allowExpression ? 'number' : 'text'}
                               value={normalizeCell(value)}
                               readOnly={!editable}
                               placeholder={column.placeholder}
