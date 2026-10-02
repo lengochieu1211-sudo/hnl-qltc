@@ -2,6 +2,7 @@ import { GlobalConfirmModal } from './components/GlobalConfirmModal';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { HardDrive, RefreshCw } from 'lucide-react';
 import { safeSetLocalStorageItem } from './utils/storage';
+import { prepareFloorPlansForBackupRestore } from './utils/floorPlanBackupRestore';
 import { parseLegacyTimestamp, formatDateTime } from './utils/dateFormatter';
 import { AppLockOverlay } from './components/AppLockOverlay';
 import { AppAuthGate } from './components/AppAuthGate';
@@ -4004,7 +4005,13 @@ function AuthenticatedApp() {
       setIsRestoring(true);
     }
     console.log('[RESTORE START]', operationProjectId, 'isCurrentActive:', isCurrentActive);
-    const data = normalizeImportedData(rawData, operationProjectId);
+    const normalizedRestoreData = normalizeImportedData(rawData, operationProjectId);
+    const data = Array.isArray(normalizedRestoreData.floorPlans)
+      ? {
+          ...normalizedRestoreData,
+          floorPlans: prepareFloorPlansForBackupRestore(normalizedRestoreData.floorPlans),
+        }
+      : normalizedRestoreData;
     syncLockRef.current = true;
     try {
       const pid = operationProjectId;
