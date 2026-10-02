@@ -3972,7 +3972,14 @@ function AuthenticatedApp() {
     }
   }, [autoSyncEnabled, activeProjectId, isHydrated, isLoadingProject, isProjectRoleResolved, currentUserRole]);
 
-  const handleRestoreData = async (rawData: any, targetProjectId?: string, options?: { authoritativeBackupRestore?: boolean }) => {
+  const handleRestoreData = async (
+    rawData: any,
+    targetProjectId?: string,
+    options?: {
+      authoritativeBackupRestore?: boolean;
+      sharedSettingsRestoreMode?: 'create' | 'replace' | 'merge-newer';
+    }
+  ) => {
     if (!rawData) return;
     if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) {
       alert('Chỉ ADMIN được khôi phục/ghi đè dữ liệu dự án từ bản sao lưu.');
@@ -4061,19 +4068,34 @@ function AuthenticatedApp() {
           syncCode: pid.slice(0, 8).toUpperCase(),
           payload: nextState,
         }, { authoritativeBackupRestore: options?.authoritativeBackupRestore === true });
-        if (options?.authoritativeBackupRestore === true && importedSharedSettings) {
-          // Restore only project-scoped operational settings. Membership/RBAC/PIN/secrets
-          // are not part of the backup contract and therefore cannot be overwritten here.
-          await saveProjectSharedSettings(pid, importedSharedSettings);
-          if (isCurrentActive) {
-            if (importedSharedSettings.structure) setStructureConfig(normalizeStructureGroupConfig(importedSharedSettings.structure));
-            if (importedSharedSettings.trash) {
-              const nextTrash = normalizeTrashSettings(importedSharedSettings.trash);
-              trashSettingsRef.current = nextTrash;
-              setTrashSettings(nextTrash);
+        if (importedSharedSettings && (options?.authoritativeBackupRestore === true || options?.sharedSettingsRestoreMode)) {
+          // Backup v4 includes project-scoped operational settings. CREATE/new-copy may
+          // restore them directly. SMART MERGE only accepts the incoming settings when
+          // their document timestamp is newer than the current Cloud settings, so a
+          // stale backup cannot silently roll back Khu/Khối/trash/workflow preferences.
+          // Membership/RBAC/PIN/secrets are not part of this backup contract.
+          let settingsToRestore: any = importedSharedSettings;
+          if (options?.sharedSettingsRestoreMode === 'merge-newer') {
+            const currentSharedSettings = await fetchProjectSharedSettingsSnapshot(pid, true);
+            const incomingSettingsTime = parseLegacyTimestamp(importedSharedSettings.updatedAt, 0);
+            const currentSettingsTime = parseLegacyTimestamp(currentSharedSettings?.updatedAt, 0);
+            if (currentSharedSettings && (incomingSettingsTime <= 0 || incomingSettingsTime <= currentSettingsTime)) {
+              settingsToRestore = null;
             }
-            if (importedSharedSettings.superAdminUi) setSuperAdminUiSettings(normalizeSuperAdminUiSettings(importedSharedSettings.superAdminUi));
-            if (typeof importedSharedSettings.driveAutoSyncEnabled === 'boolean') setAutoSyncEnabled(importedSharedSettings.driveAutoSyncEnabled);
+          }
+
+          if (settingsToRestore) {
+            await saveProjectSharedSettings(pid, settingsToRestore);
+            if (isCurrentActive) {
+              if (settingsToRestore.structure) setStructureConfig(normalizeStructureGroupConfig(settingsToRestore.structure));
+              if (settingsToRestore.trash) {
+                const nextTrash = normalizeTrashSettings(settingsToRestore.trash);
+                trashSettingsRef.current = nextTrash;
+                setTrashSettings(nextTrash);
+              }
+              if (settingsToRestore.superAdminUi) setSuperAdminUiSettings(normalizeSuperAdminUiSettings(settingsToRestore.superAdminUi));
+              if (typeof settingsToRestore.driveAutoSyncEnabled === 'boolean') setAutoSyncEnabled(settingsToRestore.driveAutoSyncEnabled);
+            }
           }
         }
       }
