@@ -116,6 +116,11 @@ verify(28,'Windows/Android DEV rebuild khi JSON restore Golden thay đổi',
     && androidDevWorkflow.includes("'scripts/structure-group-golden.ts'"),
   'platform DEV workflows follow the JSON restore regression gates so EXE/APK cannot stay stale after a Golden-only fix');
 
+verify(29,'Windows/Android DEV rebuild khi FloorPlan Golden thay đổi',
+  windowsDevWorkflow.includes("'scripts/floorplan-p0-golden.ts'")
+    && androidDevWorkflow.includes("'scripts/floorplan-p0-golden.ts'"),
+  'platform DEV workflows follow floor-plan regression gates so shared drawing/fullscreen navigation fixes cannot ship with stale EXE/APK');
+
 // These require a real isolated Firebase DEV project and physical devices; source checks are
 // not mislabeled as runtime VERIFIED.
 external('E1','Multi-device DEV runtime matrix','REVIEW','requires configured DEV/R2 gateway and PC+Android');
