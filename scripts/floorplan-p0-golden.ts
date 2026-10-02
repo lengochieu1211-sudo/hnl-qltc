@@ -15,6 +15,9 @@ check(sync.includes('runTransaction(db, async (transaction) =>'), 'Floor-plan im
 check(sync.includes('FLOOR_PLAN_IDENTITY_MISSING'), 'Image publication must fail closed rather than create a nameless floor.');
 check(sync.includes('if (!existingFloorName) identityPatch.floorName = planFloorName'), 'Image-first floor creation must backfill floorName.');
 check(sync.includes('if (!existingGroupId && planGroupId) identityPatch.structureGroupId = planGroupId'), 'Image-first floor creation must backfill Khu/Khối identity.');
+check(sync.includes('Number(existingData?.revision || 0) + 1'), 'Image publication must advance from the current Cloud lifecycle revision, not the stale backup/local revision.');
+check(sync.includes('Number(existingData?.updatedAt || 0) + 1'), 'Image publication updatedAt must remain monotonic after restore writes.');
+check(sync.includes('publishedMetadata'), 'Image publication must return/cache the exact metadata committed after transaction revision reconciliation.');
 check(sync.includes('imagePendingByUid'), 'Pending outbox must be uploader/account scoped.');
 check(sync.includes("FLOOR_PLAN_CACHE_PREFIX = 'floor_plan_image_cache_v1'"), 'Persistent floor-plan offline cache prefix missing.');
 check(sync.includes('FLOOR_PLAN_CACHE_REVISIONS_PER_FLOOR = 2'), 'Offline cache must retain two revisions per floor for atomic replacement fallback.');
@@ -125,6 +128,7 @@ check(appBackupHydrate.indexOf('cloudReady && hasCloudPointer') >= 0, 'App backu
 check(appBackupHydrate.indexOf('cloudReady && hasCloudPointer') < appBackupHydrate.indexOf("currentUrl.startsWith('data:image/')"), 'App backup must resolve the Cloud asset before accepting a hydrated Base64 cache.');
 
 const projectManager = read('src/components/ProjectManagerModal.tsx');
+check(projectManager.includes('Khôi phục ảnh mặt bằng thất bại tại floor_plans/'), 'Restore must report the exact floor-plan record when binary publication fails.');
 const managerBackupHydrateStart = projectManager.indexOf('const hydrateFloorPlansForBackup = async');
 const managerBackupHydrateEnd = projectManager.indexOf('\n  const toFirebaseOnlyBackupDump', managerBackupHydrateStart);
 const managerBackupHydrate = projectManager.slice(managerBackupHydrateStart, managerBackupHydrateEnd);
