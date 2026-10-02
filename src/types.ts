@@ -1,6 +1,7 @@
 export type TransactionType = 'in' | 'out';
 export type InventoryItemKind = 'material' | 'equipment';
 export type InventoryIssuePurpose = 'project-work' | 'external-project' | 'other';
+export type NumericInputExpressions = Record<string, string>;
 
 /** Canonical Firestore lifecycle fields for Firebase-only records.
  * Legacy rows may omit them; migration/normalization must treat missing deletedAt as active. */
@@ -23,6 +24,8 @@ export interface InventoryItem {
   materialName: string;
   unit: string;
   quantity: number;
+  /** Original safe arithmetic expressions entered by the user. Numeric fields stay authoritative for calculations. */
+  inputExpressions?: NumericInputExpressions;
   location: string;
   handler: string;
   date: string;
@@ -65,6 +68,8 @@ export interface WorkVolume {
   planned: number;
   actual: number;
   unitPrice: number;
+  /** Original safe arithmetic expressions entered by the user (for example planned/unitPrice). */
+  inputExpressions?: NumericInputExpressions;
   status: 'Chưa thi công' | 'Đang thi công' | 'Đã hoàn thành';
   dueDate?: string; // Hạn định hoàn thành (YYYY-MM-DD)
   subItems?: string[]; // Hạng mục con / công đoạn lấy từ căn hộ
@@ -234,6 +239,8 @@ export interface MaterialNorm {
   normBasisUnit?: string; // Đơn vị khối lượng nguồn áp dụng cho unitNormPerM2 (m², m, bộ...).
   workCategoryNorms?: Record<string, number>; // Định mức riêng theo tên hạng mục
   workCategoryNormsById?: Record<string, number>; // Định mức riêng theo ID hạng mục
+  /** Original safe arithmetic expressions for general/specific norm inputs. */
+  inputExpressions?: NumericInputExpressions;
   notes?: string;
   updatedAt?: number;
   revision?: number;
