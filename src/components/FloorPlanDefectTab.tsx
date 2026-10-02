@@ -70,7 +70,7 @@ import {
 import { UndoRedoControls } from './UndoRedoControls';
 import { getRoomColorStyle, ROOM_COLOR_PALETTE } from '../utils/colorPalette';
 import { getDefectOverdueInfo, getDefectShortCode } from '../utils/defectUtils';
-import { formatDateDDMMYYYY, parseLegacyTimestamp } from '../utils/dateFormatter';
+import { addLocalCalendarDaysToDateInput, formatDateDDMMYYYY, parseLegacyTimestamp, toLocalDateInputValue } from '../utils/dateFormatter';
 import { useFormatSettings, parseExcelNumber, formatDecimal } from '../utils/numberUtils';
 import { createEntityId } from '../utils/idUtils';
 import { normalizeUnit, unitKey } from '../utils/unitUtils';
@@ -392,6 +392,9 @@ const DEFECT_CATEGORIES: DefectCategory[] = [
   'Vệ sinh / bảo vệ thành phẩm',
   'Khác',
 ];
+
+const getDefaultDefectDueDate = (reference = new Date()) =>
+  addLocalCalendarDaysToDateInput(reference, 3);
 
 type DefectSortBy = 'createdAt' | 'priority' | 'category' | 'floorName' | 'roomName' | 'severity' | 'dueDate' | 'status' | 'assignedTo';
 type SortOrder = 'asc' | 'desc';
@@ -1054,10 +1057,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   );
   const [dueDate, setDueDate] = useState(() => {
     const saved = localStorage.getItem(getDraftKey('construction_defect_draft_dueDate'));
-    if (saved) return saved;
-    const d = new Date();
-    d.setDate(d.getDate() + 3);
-    return d.toISOString().split('T')[0];
+    const hasOpenDraft = localStorage.getItem(getDraftKey('construction_defect_draft_showDefectModal')) === 'true';
+    // Preserve a genuinely unfinished open draft across reloads, but never let a
+    // closed/stale draft carry an old deadline into a brand-new Defect.
+    if (hasOpenDraft && saved && /^\d{4}-\d{2}-\d{2}$/.test(saved)) return saved;
+    return getDefaultDefectDueDate();
   });
   const [photoUrl, setPhotoUrl] = useState(() => {
     return localStorage.getItem(getDraftKey('construction_defect_draft_photoUrl')) || '';
@@ -1208,6 +1212,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setDescription('');
     setPhotoUrl('');
     setAfterPhotoUrl('');
+    setDueDate(getDefaultDefectDueDate());
     
     // Clear draft storage
     localStorage.removeItem(getDraftKey('construction_defect_draft_pinPos'));
@@ -5340,6 +5345,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   const openDefectModalForPin = (x: number, y: number) => {
     if (!canEditDefects) return;
+    // A new Defect is a new deadline cycle. Recompute from the device's local
+    // calendar instead of reusing an old React/localStorage draft value.
+    setDueDate(getDefaultDefectDueDate());
     setPinPos({ x, y });
     const { roomAtPosTeam, currentFloorTeams, declaredTeamNames } = getCandidateTeamsForDefect(
       { x, y },
@@ -5988,6 +5996,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setDescription('');
     setPhotoUrl('');
     setAfterPhotoUrl('');
+    setDueDate(getDefaultDefectDueDate());
 
     // Clear draft storage
     localStorage.removeItem(getDraftKey('construction_defect_draft_pinPos'));
@@ -10357,7 +10366,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               if (!ok) return;
             }
           }
-          const todayStr = new Date().toISOString().split('T')[0];
+          const todayStr = toLocalDateInputValue(new Date());
           const updated = {
             ...activeDefectDetail,
             status: newStatus,
