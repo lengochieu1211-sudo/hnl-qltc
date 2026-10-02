@@ -57,6 +57,7 @@ import { encryptBackupData, decryptBackupData, isEncryptedBackup, EncryptedBacku
 import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
 import { refreshProjectPhotoMetadataFromCloud, syncProjectPhotosToCloud } from '../lib/photoCloudSync';
 import { floorPlanNeedsCloudUpload, isFloorPlanCloudBinaryReady, loadFloorPlanImageFromCloud, syncFloorPlanImageToCloud } from '../lib/floorPlanImageSync';
+import { prepareFloorPlansForBackupRestore } from '../utils/floorPlanBackupRestore';
 
 interface ProjectManagerModalProps {
   isOpen: boolean;
@@ -1748,6 +1749,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             displayName = payload.projectName || displayName;
           } else {
             payload = { ...candData, projectName: displayName };
+          }
+
+          if (Array.isArray(payload.floorPlans)) {
+            payload = {
+              ...payload,
+              floorPlans: prepareFloorPlansForBackupRestore(payload.floorPlans),
+            };
           }
 
           await onRestoreData(payload, targetId, {
