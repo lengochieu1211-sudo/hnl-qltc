@@ -78,7 +78,14 @@ interface ProjectManagerModalProps {
   handleExportAllJson?: () => void;
   handleImportAllJson?: (e: React.ChangeEvent<HTMLInputElement>) => void;
   fullAppData?: any;
-  onRestoreData?: (data: any, targetProjectId?: string, options?: { authoritativeBackupRestore?: boolean }) => void | Promise<void>;
+  onRestoreData?: (
+    data: any,
+    targetProjectId?: string,
+    options?: {
+      authoritativeBackupRestore?: boolean;
+      sharedSettingsRestoreMode?: 'create' | 'replace' | 'merge-newer';
+    }
+  ) => void | Promise<void>;
   autosaveVersions?: any[];
   onRestoreAutoSaveVersion?: (version: any) => void;
   onCreateManualBackup?: () => void;
@@ -1738,7 +1745,17 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             payload = { ...candData, projectName: displayName };
           }
 
-          await onRestoreData(payload, targetId, { authoritativeBackupRestore: action === 'OVERWRITE_FILE' });
+          await onRestoreData(payload, targetId, {
+            authoritativeBackupRestore: action === 'OVERWRITE_FILE',
+            sharedSettingsRestoreMode:
+              action === 'OVERWRITE_FILE'
+                ? 'replace'
+                : action === 'SMART_MERGE'
+                  ? 'merge-newer'
+                  : (action === 'CREATE_PRESERVE_ID' || action === 'IMPORT_AS_NEW_COPY')
+                    ? 'create'
+                    : undefined,
+          });
 
           const candidatePhotos = candData.photos
             || (multiProjectSyncState.rawData?.projectPhotos && multiProjectSyncState.rawData.projectPhotos[candidate.id]);
