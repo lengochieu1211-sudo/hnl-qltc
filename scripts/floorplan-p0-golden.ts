@@ -1,9 +1,14 @@
 import fs from 'node:fs';
 import { classifyFloorPlanBulkTarget } from '../src/utils/floorPlanBulkSafety';
 import { prepareFloorPlansForBackupRestore } from '../src/utils/floorPlanBackupRestore';
+import { addLocalCalendarDaysToDateInput, toLocalDateInputValue } from '../src/utils/dateFormatter';
 
 const read = (path: string) => fs.readFileSync(path, 'utf8');
 const check = (condition: unknown, message: string) => { if (!condition) throw new Error(message); };
+
+const nearMidnightLocal = new Date(2026, 9, 2, 0, 30, 0, 0);
+check(toLocalDateInputValue(nearMidnightLocal) === '2026-10-02', 'Local date input formatting must not roll back around midnight.');
+check(addLocalCalendarDaysToDateInput(nearMidnightLocal, 3) === '2026-10-05', 'Defect default deadline must be exactly local calendar +3 days.');
 
 const sync = read('src/lib/floorPlanImageSync.ts');
 check(sync.includes('fetchProjectUserRoleFromCloud'), 'Floor-plan upload must use project-scoped Cloud role verification.');
@@ -180,6 +185,11 @@ for (const field of ['storagePath', 'thumbnailPath', 'storageMd5Hash', 'storageE
 }
 
 const ui = read('src/components/FloorPlanDefectTab.tsx');
+check(ui.includes('const getDefaultDefectDueDate'), 'Defect creation must use a dedicated local-calendar deadline helper.');
+check((ui.match(/setDueDate\(getDefaultDefectDueDate\(\)\)/g) || []).length >= 3, 'New/cancelled/saved Defect flows must reset stale deadline state.');
+check(ui.includes("const hasOpenDraft = localStorage.getItem(getDraftKey('construction_defect_draft_showDefectModal')) === 'true';"), 'Only a genuinely open restored draft may keep its saved deadline.');
+check(!ui.includes("d.toISOString().split('T')[0]"), 'Defect default deadline must not use UTC toISOString date conversion.');
+check(ui.includes('const todayStr = toLocalDateInputValue(new Date());'), 'Defect completion date must use the same local calendar semantics.');
 check(ui.includes("floorPlanProcessingKind === 'pdf'"), 'Floor-plan processing UI must branch by file type.');
 check(ui.includes('Đang tối ưu ảnh mặt bằng'), 'Normal image processing label missing.');
 check(ui.includes('không có bước chuyển PDF'), 'Image path must explicitly avoid the misleading PDF message.');
