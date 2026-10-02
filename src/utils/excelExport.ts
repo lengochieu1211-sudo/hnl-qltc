@@ -1460,7 +1460,7 @@ export function exportWarehouseUpdateTemplate(
   wsNorms['!cols'] = (wsNorms['!cols'] || []).map((col, index) =>
     index >= 1 && index <= 5 ? { ...col, hidden: true } : col
   );
-  wsNorms['!autofilter'] = { ref: `A1:N${Math.max(2, templateNormData.length + 1)}` };
+  wsNorms['!autofilter'] = { ref: `A1:O${Math.max(2, templateNormData.length + 1)}` };
   XLSX.utils.book_append_sheet(wb, wsNorms, 'Định Mức Vật Tư');
 
   // 4. Sheet "Hạng Mục Thi Công (Chỉ xem)" — reference-only here; edit it in WorkVolume.
