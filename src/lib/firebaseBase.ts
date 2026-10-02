@@ -438,11 +438,19 @@ function normalizeUnitPrice(value: unknown): number {
   return Number.isFinite(amount) && amount >= 0 ? amount : 0;
 }
 
+function normalizeFinancialInputExpression(value: unknown): string | null {
+  const expression = String(value ?? '').trim();
+  if (!expression) return null;
+  const sanitized = expression.replace(/^=/, '').replace(/[xX×]/g, '*').replace(/[:÷]/g, '/');
+  return /^[0-9+\-*/().,\s]+$/.test(sanitized) ? expression : null;
+}
+
 function financialRecordFromWorkVolume(item: any): Record<string, any> | null {
   if (!item?.id || item.unitPrice === undefined || item.unitPrice === null) return null;
   return {
     id: String(item.id),
     unitPrice: normalizeUnitPrice(item.unitPrice),
+    unitPriceExpression: normalizeFinancialInputExpression(item.inputExpressions?.unitPrice),
     deleted: item.deleted === true,
     updatedAt: Number(item.updatedAt || Date.now()),
   };
@@ -2032,6 +2040,12 @@ function sanitizeSubcollectionItemForCloud(subcollection: string, item: any): an
   // be persisted inside work_volumes from schema v6 onward.
   if (subcollection === 'work_volumes' && sanitized && typeof sanitized === 'object') {
     delete sanitized.unitPrice;
+    if (sanitized.inputExpressions && typeof sanitized.inputExpressions === 'object') {
+      const businessExpressions = { ...sanitized.inputExpressions };
+      delete businessExpressions.unitPrice;
+      if (Object.keys(businessExpressions).length > 0) sanitized.inputExpressions = businessExpressions;
+      else delete sanitized.inputExpressions;
+    }
   }
 
   // Floor-plan binaries are uploaded by floorPlanImageSync.ts. When a user replaces
@@ -3047,6 +3061,12 @@ export async function fetchProjectFromCloud(projectId: string, options?: { serve
             if (stateKey === 'workVolumes') {
               const financial = financials.get(docSnap.id);
               item.unitPrice = financial ? normalizeUnitPrice(financial.unitPrice) : 0;
+              const inputExpressions = { ...(item.inputExpressions || {}) };
+              delete inputExpressions.unitPrice;
+              if (canViewFinancials && typeof financial?.unitPriceExpression === 'string' && financial.unitPriceExpression.trim()) {
+                inputExpressions.unitPrice = financial.unitPriceExpression.trim();
+              }
+              item.inputExpressions = Object.keys(inputExpressions).length ? inputExpressions : undefined;
             }
             list.push(item);
           }
@@ -3097,12 +3117,19 @@ export function subscribeToProjectRealtime(
   let workVolumeInitialPending = false;
   const workVolumeRaw = new Map<string, any>();
   const workVolumeFinancials = new Map<string, any>();
-  const mergeWorkVolumeFinancials = (item: any) => ({
-    ...item,
-    unitPrice: includeFinancials
-      ? normalizeUnitPrice(workVolumeFinancials.get(String(item?.id || ''))?.unitPrice)
-      : 0,
-  });
+  const mergeWorkVolumeFinancials = (item: any) => {
+    const financial = workVolumeFinancials.get(String(item?.id || ''));
+    const inputExpressions = { ...(item?.inputExpressions || {}) };
+    delete inputExpressions.unitPrice;
+    if (includeFinancials && typeof financial?.unitPriceExpression === 'string' && financial.unitPriceExpression.trim()) {
+      inputExpressions.unitPrice = financial.unitPriceExpression.trim();
+    }
+    return {
+      ...item,
+      unitPrice: includeFinancials ? normalizeUnitPrice(financial?.unitPrice) : 0,
+      inputExpressions: Object.keys(inputExpressions).length ? inputExpressions : undefined,
+    };
+  };
 
   ensureAuth().then(() => {
     if (isCancelled) return;

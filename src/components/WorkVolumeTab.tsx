@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useLanguage } from '../context/LanguageContext';
-import { assertSafeExcelImportFile } from '../utils/excelImportUtils';
+import { assertSafeExcelImportFile, readExcelFormulaByHeaders } from '../utils/excelImportUtils';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { WorkVolume, CategoryType, FloorPlan, RoomProgressItem } from '../types';
 import { confirmAsync } from '../utils/confirmAsync';
-import { formatDecimal, formatVND, evaluateMathExpression, useFormatSettings, parseVietnameseNumber, parseExcelNumber } from '../utils/numberUtils';
+import { formatDecimal, formatVND, evaluateMathExpression, hasMathExpression, useFormatSettings, parseVietnameseNumber, parseExcelNumber } from '../utils/numberUtils';
 import { getTodayDateString, addDaysToDateString, formatDateVN, calculateDiffDays } from '../utils/dueDateUtils';
 import { getCurrentUserRole, canViewFinancials, canManageWorkVolumeStructure, UserRole } from '../utils/securityUtils';
 import { normalizeUnit, unitKey } from '../utils/unitUtils';
@@ -197,10 +197,10 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       structureGroups: groupNames.join(', '),
       floors: floors.length ? floors.map((floor) => floor.floorName).join(', ') : (item.floor || GLOBAL_WORK_SCOPE_LABEL),
       category: item.category,
-      planned: item.planned,
+      planned: item.inputExpressions?.planned || item.planned,
       actual: item.actual,
       unit: item.unit,
-      unitPrice: hasFinancialAccess ? item.unitPrice : '',
+      unitPrice: hasFinancialAccess ? (item.inputExpressions?.unitPrice || item.unitPrice) : '',
       dueDate: item.dueDate || '',
     };
   });
@@ -225,11 +225,11 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         },
       },
       { key: 'category', label: 'Nhóm hạng mục', editable: hasStructureManageAccess, required: true, width: 160 },
-      { key: 'planned', label: 'Khối lượng định mức', editable: hasStructureManageAccess, type: 'number', required: true, width: 150, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
+      { key: 'planned', label: 'Khối lượng định mức', editable: hasStructureManageAccess, type: 'number', allowExpression: true, required: true, width: 150, validate: (value) => { const parsed = evaluateMathExpression(String(value ?? '')); return parsed !== null && parsed < 0 ? 'Không được âm' : null; } },
       { key: 'actual', label: 'Khối lượng đã làm', editable: false, type: 'number', width: 150 },
       { key: 'unit', label: 'Đơn vị', editable: hasStructureManageAccess, required: true, width: 100 },
     ];
-    if (hasFinancialAccess) columns.push({ key: 'unitPrice', label: 'Đơn giá', editable: hasStructureManageAccess, type: 'number', width: 130, validate: (value) => Number(value) < 0 ? 'Không được âm' : null });
+    if (hasFinancialAccess) columns.push({ key: 'unitPrice', label: 'Đơn giá', editable: hasStructureManageAccess, type: 'number', allowExpression: true, width: 130, validate: (value) => { const parsed = evaluateMathExpression(String(value ?? '')); return parsed !== null && parsed < 0 ? 'Không được âm' : null; } });
     columns.push({ key: 'dueDate', label: 'Hạn hoàn thành', editable: hasStructureManageAccess, type: 'date', width: 145 });
     return columns;
   }, [showQuickEdit, hasStructureManageAccess, hasFinancialAccess, normalizedStructureConfig.label, quickEditFloorNameToId]);
@@ -266,10 +266,24 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           ? floorIds.map((id) => floorPlans.find((floor) => floor.id === id)?.floorName).filter(Boolean).join(', ')
           : GLOBAL_WORK_SCOPE_LABEL,
         category: String(row.category || existing?.category || inferWorkCategoryGroup(String(row.title || '')) || 'Khác').trim(),
-        planned: Math.max(0, Number(row.planned || 0)),
+        planned: Math.max(0, evaluateMathExpression(String(row.planned ?? '')) ?? 0),
         actual: Number(existing?.actual || 0),
         unit: normalizeUnit(String(row.unit || existing?.unit || 'm²')) || String(row.unit || existing?.unit || 'm²'),
-        unitPrice: hasFinancialAccess ? Math.max(0, Number(row.unitPrice ?? existing?.unitPrice ?? 0)) : Number(existing?.unitPrice || 0),
+        unitPrice: hasFinancialAccess
+          ? Math.max(0, evaluateMathExpression(String(row.unitPrice ?? existing?.unitPrice ?? 0)) ?? 0)
+          : Number(existing?.unitPrice || 0),
+        inputExpressions: (() => {
+          const next = { ...(existing?.inputExpressions || {}) };
+          const plannedRaw = String(row.planned ?? '').trim();
+          delete next.planned;
+          if (hasMathExpression(plannedRaw) && evaluateMathExpression(plannedRaw) !== null) next.planned = plannedRaw;
+          if (hasFinancialAccess) {
+            const priceRaw = String(row.unitPrice ?? '').trim();
+            delete next.unitPrice;
+            if (hasMathExpression(priceRaw) && evaluateMathExpression(priceRaw) !== null) next.unitPrice = priceRaw;
+          }
+          return Object.keys(next).length ? next : undefined;
+        })(),
         status: existing?.status || 'Chưa thi công',
         dueDate: String(row.dueDate || '').trim() || undefined,
       };
@@ -558,6 +572,14 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           planned: finalPlanned,
           actual: Number(actual || 0),
           unitPrice: finalUnitPrice,
+          inputExpressions: (() => {
+            const next = { ...(editingVolume.inputExpressions || {}) };
+            delete next.planned;
+            delete next.unitPrice;
+            if (hasMathExpression(plannedStr) && parsedPlanned !== null) next.planned = plannedStr.trim();
+            if (hasMathExpression(unitPriceStr) && parsedUnitPrice !== null) next.unitPrice = unitPriceStr.trim();
+            return Object.keys(next).length ? next : undefined;
+          })(),
           status: Number(actual) >= finalPlanned ? 'Đã hoàn thành' : Number(actual) > 0 ? 'Đang thi công' : 'Chưa thi công',
           dueDate: dueDate ? dueDate : undefined,
         });
@@ -574,6 +596,12 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         planned: finalPlanned,
         actual: Number(actual || 0),
         unitPrice: finalUnitPrice,
+        inputExpressions: (() => {
+          const next: Record<string, string> = {};
+          if (hasMathExpression(plannedStr) && parsedPlanned !== null) next.planned = plannedStr.trim();
+          if (hasMathExpression(unitPriceStr) && parsedUnitPrice !== null) next.unitPrice = unitPriceStr.trim();
+          return Object.keys(next).length ? next : undefined;
+        })(),
         status: Number(actual) >= finalPlanned ? 'Đã hoàn thành' : Number(actual) > 0 ? 'Đang thi công' : 'Chưa thi công',
         dueDate: dueDate ? dueDate : undefined,
       });
@@ -696,10 +724,25 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           if (touchedIds.has(recordId)) throw new Error(`Dòng ${rowIndex + 2}: record ID ${recordId} xuất hiện nhiều lần trong cùng file.`);
           touchedIds.add(recordId);
           const categoryId = existing ? canonicalWorkCategoryId(existing) : recordId;
+          const plannedFormula = readExcelFormulaByHeaders(worksheet, XLSX.utils, rowIndex + 1, ['KL Định Mức', 'Khối lượng định mức', 'Khối lượng kế hoạch', 'planned']);
+          const priceFormula = readExcelFormulaByHeaders(worksheet, XLSX.utils, rowIndex + 1, ['Đơn Giá (VNĐ)', 'Đơn Giá', 'unitPrice']);
+          const plannedFormulaValue = plannedFormula ? evaluateMathExpression(plannedFormula) : null;
+          const priceFormulaValue = priceFormula ? evaluateMathExpression(priceFormula) : null;
+          if (plannedFormula && plannedFormulaValue === null) throw new Error(`Dòng ${rowIndex + 2}: công thức KL Định Mức không an toàn/hợp lệ.`);
+          if (priceFormula && priceFormulaValue === null) throw new Error(`Dòng ${rowIndex + 2}: công thức Đơn Giá không an toàn/hợp lệ.`);
           const plannedParsed = parseExcelNumber(row['KL Định Mức'] ?? row['Khối lượng định mức'] ?? row['Khối lượng kế hoạch'] ?? row['planned']);
           const priceParsed = parseExcelNumber(row['Đơn Giá (VNĐ)'] ?? row['Đơn Giá'] ?? row['unitPrice']);
-          const planned = Number.isFinite(plannedParsed) ? Math.max(0, plannedParsed) : Math.max(0, Number(existing?.planned || 0));
-          const unitPrice = Number.isFinite(priceParsed) ? priceParsed : Number(existing?.unitPrice || 0);
+          const planned = plannedFormulaValue !== null
+            ? Math.max(0, plannedFormulaValue)
+            : Number.isFinite(plannedParsed) ? Math.max(0, plannedParsed) : Math.max(0, Number(existing?.planned || 0));
+          const unitPrice = priceFormulaValue !== null
+            ? Math.max(0, priceFormulaValue)
+            : Number.isFinite(priceParsed) ? priceParsed : Number(existing?.unitPrice || 0);
+          const inputExpressions = { ...(existing?.inputExpressions || {}) };
+          delete inputExpressions.planned;
+          delete inputExpressions.unitPrice;
+          if (plannedFormula) inputExpressions.planned = plannedFormula;
+          if (priceFormula) inputExpressions.unitPrice = priceFormula;
           const dueDateRaw = row['Ngày Hạn Định'] ?? row['Hạn Định'] ?? row['Hạn Hoàn Thành'] ?? row['dueDate'];
           const dueDate = dueDateRaw === undefined || String(dueDateRaw).trim() === '' ? existing?.dueDate : normalizeDate(dueDateRaw);
           if (dueDateRaw && !dueDate) throw new Error(`Dòng ${rowIndex + 2}: ngày hạn không hợp lệ (${String(dueDateRaw)}).`);
@@ -719,6 +762,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
             actual: existing?.actual || 0,
             status: existing?.status || 'Chưa thi công',
             unitPrice,
+            inputExpressions: Object.keys(inputExpressions).length ? inputExpressions : undefined,
             dueDate,
           });
           if (existing) updatedCount += 1; else addedCount += 1;
@@ -1181,10 +1225,10 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                               setCategoryManuallyEdited(Boolean(item.category));
                               setUnit(item.unit);
                               setPlanned(item.planned);
-                              setPlannedStr(item.planned.toString());
+                              setPlannedStr(item.inputExpressions?.planned || item.planned.toString());
                               setActual(item.actual);
                               setUnitPrice(item.unitPrice);
-                              setUnitPriceStr(item.unitPrice.toString());
+                              setUnitPriceStr(item.inputExpressions?.unitPrice || item.unitPrice.toString());
                               setDueDate(item.dueDate || '');
                             }}
                             className="text-amber-600 hover:text-amber-800 flex items-center gap-1 font-semibold text-[11px]"
@@ -1416,10 +1460,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                     }}
                     onBlur={() => {
                       const parsed = evaluateMathExpression(plannedStr);
-                      if (parsed !== null) {
-                        setPlanned(parsed);
-                        setPlannedStr(formatDecimal(parsed));
-                      }
+                      if (parsed !== null) setPlanned(parsed);
                     }}
                     className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-blue-600 focus:ring-2 focus:ring-blue-500"
                     required
@@ -1473,10 +1514,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                     }}
                     onBlur={() => {
                       const parsed = evaluateMathExpression(unitPriceStr);
-                      if (parsed !== null) {
-                        setUnitPrice(parsed);
-                        setUnitPriceStr(formatDecimal(parsed));
-                      }
+                      if (parsed !== null) setUnitPrice(parsed);
                     }}
                     className="w-full border border-slate-200 rounded-xl p-2.5 font-bold focus:ring-2 focus:ring-indigo-500"
                   />

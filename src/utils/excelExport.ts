@@ -8,6 +8,7 @@ import { formatDateDDMMYYYY, formatDateTime } from './dateFormatter';
 import { saveWorkbookFile } from './fileExport';
 import { getCrewShiftCounts } from './crewUtils';
 import { computeWorkVolumeDetailBreakdown } from './workVolumeComputation';
+import { normalizeMathExpression } from './numberUtils';
 import {
   getStructureGroupName,
   normalizeStructureGroupConfig,
@@ -69,6 +70,48 @@ function setCachedNumericFormula(
     v: Number(cachedValue || 0),
     f: formula,
   } as XLSX.CellObject;
+}
+
+function setUserInputNumericFormula(
+  ws: XLSX.WorkSheet,
+  rowZeroBased: number,
+  column: number | null,
+  expression: unknown,
+  cachedValue: unknown,
+) {
+  const formula = normalizeMathExpression(String(expression ?? ''));
+  if (!formula || column === null) return;
+  setCachedNumericFormula(ws, rowZeroBased, column, formula, cachedValue);
+}
+
+function applyWorkVolumeInputFormulas(
+  ws: XLSX.WorkSheet,
+  items: WorkVolume[],
+  canFinancials: boolean,
+) {
+  const plannedCol = findWorksheetHeaderColumn(ws, 'KL Định Mức');
+  const priceCol = canFinancials ? findWorksheetHeaderColumn(ws, 'Đơn Giá (VNĐ)') : null;
+  items.forEach((item, index) => {
+    setUserInputNumericFormula(ws, index + 1, plannedCol, item.inputExpressions?.planned, item.planned);
+    if (canFinancials) {
+      setUserInputNumericFormula(ws, index + 1, priceCol, item.inputExpressions?.unitPrice, item.unitPrice);
+    }
+  });
+}
+
+function applyInventoryInputFormulas(ws: XLSX.WorkSheet, items: InventoryItem[]) {
+  const quantityCol = findWorksheetHeaderColumn(ws, 'Số Lượng');
+  items.forEach((item, index) => {
+    setUserInputNumericFormula(ws, index + 1, quantityCol, item.inputExpressions?.quantity, item.quantity);
+  });
+}
+
+function applyMaterialNormInputFormulas(ws: XLSX.WorkSheet, items: MaterialNorm[]) {
+  const normCol = findWorksheetHeaderColumn(ws, 'Định Mức Hao Phí / m2')
+    ?? findWorksheetHeaderColumn(ws, 'Định Mức Tiêu Hao (1m2)');
+  items.forEach((item, index) => {
+    setUserInputNumericFormula(ws, index + 1, normCol, item.inputExpressions?.unitNormPerM2, item.unitNormPerM2 || 0);
+  });
 }
 
 function enableWorkbookRecalculation(wb: XLSX.WorkBook) {
@@ -429,6 +472,7 @@ export function exportAllToExcel(params: {
       'Ngày Lập Phiếu': item.date ? formatDateDDMMYYYY(item.date) : '',
     }));
     const wsInventory = XLSX.utils.json_to_sheet(inventoryData);
+    applyInventoryInputFormulas(wsInventory, params.inventory);
     autoFitColumns(wsInventory);
     XLSX.utils.book_append_sheet(wb, wsInventory, 'Kho Vat Tu');
   }
@@ -462,6 +506,7 @@ export function exportAllToExcel(params: {
       return row;
     });
     const wsVolumes = XLSX.utils.json_to_sheet(volumeData);
+    applyWorkVolumeInputFormulas(wsVolumes, params.workVolumes, canFinancials);
     applyWorkVolumeSummaryFormulas(wsVolumes, volumeData, canFinancials);
     enableWorkbookRecalculation(wb);
     autoFitColumns(wsVolumes);
@@ -652,6 +697,7 @@ export function exportAllToExcelBase64(params: {
       'Ngày Lập Phiếu': item.date ? formatDateDDMMYYYY(item.date) : '',
     }));
     const wsInventory = XLSX.utils.json_to_sheet(inventoryData);
+    applyInventoryInputFormulas(wsInventory, params.inventory);
     autoFitColumns(wsInventory);
     XLSX.utils.book_append_sheet(wb, wsInventory, 'Kho Vat Tu');
   }
@@ -681,6 +727,7 @@ export function exportAllToExcelBase64(params: {
       return row;
     });
     const wsVolumes = XLSX.utils.json_to_sheet(volumeData);
+    applyWorkVolumeInputFormulas(wsVolumes, params.workVolumes, canFinancials);
     applyWorkVolumeSummaryFormulas(wsVolumes, volumeData, canFinancials);
     enableWorkbookRecalculation(wb);
     autoFitColumns(wsVolumes);
@@ -944,6 +991,7 @@ export function exportMaterialNormTemplate(materialNorms?: MaterialNorm[]) {
     '__workCategoryId': n.workCategoryId || '',
     '__workCategoryIds': JSON.stringify(n.workCategoryIds || []),
     '__workCategoryNormsById': JSON.stringify(n.workCategoryNormsById || {}),
+    '__inputExpressions': JSON.stringify(n.inputExpressions || {}),
     'Phân Loại': n.category,
     'Tên Hạng Mục Thi Công': n.workCategory || (n.workCategories ? n.workCategories.join(', ') : ''),
     'Tên Vật Tư': n.materialName,
@@ -955,6 +1003,7 @@ export function exportMaterialNormTemplate(materialNorms?: MaterialNorm[]) {
   }));
 
   const ws = XLSX.utils.json_to_sheet(templateData);
+  applyMaterialNormInputFormulas(ws, materialNorms || []);
   autoFitColumns(ws);
   XLSX.utils.book_append_sheet(wb, ws, 'Dinh Muc Vat Tu');
   return saveWorkbookFile(wb, 'Danh_Sach_Dinh_Muc_Vat_Tu.xlsx');
@@ -993,6 +1042,8 @@ export function exportWorkVolumesTemplate(workVolumes?: WorkVolume[], projectNam
   const ws = data.length > 0
     ? XLSX.utils.json_to_sheet(data, { header: workVolumeHeaders })
     : XLSX.utils.aoa_to_sheet([workVolumeHeaders]);
+  applyWorkVolumeInputFormulas(ws, workVolumes || [], canViewFinancials);
+  enableWorkbookRecalculation(wb);
   autoFitColumns(ws);
   ws['!cols'] = (ws['!cols'] || []).map((col, index) =>
     [1, 2, 3, 4].includes(index) ? { ...col, hidden: true } : col
@@ -1303,6 +1354,7 @@ export function exportWarehouseUpdateTemplate(
   const wsIn = inSource.length > 0
     ? XLSX.utils.json_to_sheet(inSource, { header: inHeaders })
     : XLSX.utils.aoa_to_sheet([inHeaders]);
+  applyInventoryInputFormulas(wsIn, inItems);
   autoFitColumns(wsIn);
   wsIn['!cols'] = (wsIn['!cols'] || []).map((col, index) =>
     index >= 2 && index <= 12 ? { ...col, hidden: true } : col
@@ -1364,6 +1416,7 @@ export function exportWarehouseUpdateTemplate(
   const wsOut = outSource.length > 0
     ? XLSX.utils.json_to_sheet(outSource, { header: outHeaders })
     : XLSX.utils.aoa_to_sheet([outHeaders]);
+  applyInventoryInputFormulas(wsOut, outItems);
   autoFitColumns(wsOut);
   wsOut['!cols'] = (wsOut['!cols'] || []).map((col, index) =>
     index >= 2 && index <= 12 ? { ...col, hidden: true } : col
@@ -1381,6 +1434,7 @@ export function exportWarehouseUpdateTemplate(
       '__workCategoryId': n.workCategoryId || '',
       '__workCategoryIds': JSON.stringify(n.workCategoryIds || []),
       '__workCategoryNormsById': JSON.stringify(n.workCategoryNormsById || {}),
+      '__inputExpressions': JSON.stringify(n.inputExpressions || {}),
       'Chủng Loại': n.category || 'Vật tư thạch cao',
       'Tên Hạng Mục Thi Công': workCatStr || '',
       'Tên Vật Tư': n.materialName,
@@ -1394,18 +1448,19 @@ export function exportWarehouseUpdateTemplate(
 
   const normHeaders = [
     'STT', '__normId', '__materialId', '__workCategoryId', '__workCategoryIds',
-    '__workCategoryNormsById', 'Chủng Loại', 'Tên Hạng Mục Thi Công', 'Tên Vật Tư',
+    '__workCategoryNormsById', '__inputExpressions', 'Chủng Loại', 'Tên Hạng Mục Thi Công', 'Tên Vật Tư',
     'Đơn Vị Tính', 'Số Lượng Định Mức', 'Định Mức Hao Phí / m2',
     'ĐVT Khối Lượng Nguồn', 'Ghi Chú',
   ];
   const wsNorms = templateNormData.length > 0
     ? XLSX.utils.json_to_sheet(templateNormData, { header: normHeaders })
     : XLSX.utils.aoa_to_sheet([normHeaders]);
+  applyMaterialNormInputFormulas(wsNorms, materialNorms || []);
   autoFitColumns(wsNorms);
   wsNorms['!cols'] = (wsNorms['!cols'] || []).map((col, index) =>
     index >= 1 && index <= 5 ? { ...col, hidden: true } : col
   );
-  wsNorms['!autofilter'] = { ref: `A1:N${Math.max(2, templateNormData.length + 1)}` };
+  wsNorms['!autofilter'] = { ref: `A1:O${Math.max(2, templateNormData.length + 1)}` };
   XLSX.utils.book_append_sheet(wb, wsNorms, 'Định Mức Vật Tư');
 
   // 4. Sheet "Hạng Mục Thi Công (Chỉ xem)" — reference-only here; edit it in WorkVolume.
@@ -1432,6 +1487,8 @@ export function exportWarehouseUpdateTemplate(
   const wsWorkVolumes = workVolumeData.length > 0
     ? XLSX.utils.json_to_sheet(workVolumeData, { header: referenceWorkHeaders })
     : XLSX.utils.aoa_to_sheet([referenceWorkHeaders]);
+  applyWorkVolumeInputFormulas(wsWorkVolumes, workVolumes || [], true);
+  enableWorkbookRecalculation(wb);
   autoFitColumns(wsWorkVolumes);
   wsWorkVolumes['!cols'] = (wsWorkVolumes['!cols'] || []).map((col, index) =>
     [1, 2, 3, 4].includes(index) ? { ...col, hidden: true } : col

@@ -14,6 +14,7 @@ const workVolume = {
   planned: 100,
   actual: 25,
   unitPrice: 200000,
+  inputExpressions: { planned: '25*4', unitPrice: '100000*2' },
   status: 'Đang thi công',
 } as WorkVolume;
 
@@ -60,9 +61,15 @@ const row = 2;
 const plannedCell = `${XLSX.utils.encode_col(plannedCol)}${row}`;
 const actualCell = `${XLSX.utils.encode_col(actualCol)}${row}`;
 const priceCell = `${XLSX.utils.encode_col(priceCol)}${row}`;
+const plannedInputCell = ws[XLSX.utils.encode_cell({ r: 1, c: plannedCol })];
+const priceInputCell = ws[XLSX.utils.encode_cell({ r: 1, c: priceCol })];
 const amountCell = ws[XLSX.utils.encode_cell({ r: 1, c: amountCol })];
 const progressCell = ws[XLSX.utils.encode_cell({ r: 1, c: progressCol })];
 
+assert.equal(plannedInputCell?.f, '25*4', 'User-entered planned expression must remain a real Excel formula');
+assert.equal(Number(plannedInputCell?.v), 100, 'Planned formula must retain its cached numeric value');
+assert.equal(priceInputCell?.f, '100000*2', 'User-entered unit-price expression must remain a real Excel formula');
+assert.equal(Number(priceInputCell?.v), 200000, 'Unit-price formula must retain its cached numeric value');
 assert.equal(amountCell?.f, `${actualCell}*${priceCell}`, 'Amount must remain a real Excel formula');
 assert.equal(Number(amountCell?.v), 5_000_000, 'Amount must keep the current cached numeric value');
 assert.equal(progressCell?.f, `IF(${plannedCell}>0,${actualCell}/${plannedCell}*100,0)`, 'Progress must remain a real Excel formula');
@@ -74,4 +81,4 @@ assert.match(exportSource, /Định Mức Tổng Kế Hoạch/, 'Warehouse Excel
 assert.match(exportSource, /Còn Cần Theo Kế Hoạch/, 'Warehouse Excel must label planned remaining need explicitly');
 assert.match(exportSource, /fullCalcOnLoad: true/, 'Workbook must request recalculation when opened in Excel');
 
-console.log('EXCEL DERIVED FORMULA GOLDEN PASS');
+console.log('EXCEL USER + DERIVED FORMULA GOLDEN PASS');

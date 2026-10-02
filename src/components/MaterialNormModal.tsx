@@ -22,12 +22,12 @@ import {
 import { MaterialNorm, InventoryItem, WorkVolume } from '../types';
 import { confirmAsync } from '../utils/confirmAsync';
 import { formatExcelDate } from '../utils/dateFormatter';
-import { formatDecimal, formatAdaptiveDecimal, evaluateMathExpression, useFormatSettings, parseExcelNumber } from '../utils/numberUtils';
+import { formatDecimal, formatAdaptiveDecimal, evaluateMathExpression, hasMathExpression, useFormatSettings, parseExcelNumber } from '../utils/numberUtils';
 import { getResolvedNormWorkCategories } from '../utils/projectReconciliation';
 import { normalizeUnit, unitKey, areSameUnit } from '../utils/unitUtils';
 import { createEntityId } from '../utils/idUtils';
 import { calculateStockSummary, getMaterialIdentityKey, resolveNormMaterialId } from '../utils/inventoryUtils';
-import { assertSafeExcelImportFile, parseExcelNumberRecord, parseExcelStringArray, sameStringSet } from '../utils/excelImportUtils';
+import { assertSafeExcelImportFile, parseExcelNumberRecord, parseExcelStringArray, parseExcelStringRecord, readExcelFormulaByHeaders, sameStringSet } from '../utils/excelImportUtils';
 import { UserRole, canManageMaterialNorms, canImportData } from '../utils/securityUtils';
 
 import { QuickSortBar } from './QuickSortBar';
@@ -360,6 +360,10 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             const importedWorkCategoryIds = parseExcelStringArray(row['__workCategoryIds'] || row['workCategoryIds'])
               || (rawWorkCategoryId ? [String(rawWorkCategoryId).trim()] : undefined);
             const importedWorkCategoryNormsById = parseExcelNumberRecord(row['__workCategoryNormsById'] || row['workCategoryNormsById']);
+            const importedInputExpressions = parseExcelStringRecord(row['__inputExpressions'] || row['inputExpressions']);
+            const generalNormFormula = readExcelFormulaByHeaders(sheet, XLSX.utils, rIdx + 1, ['Định Mức / m2', 'Định Mức Hao Phí / m2', 'Định Mức Tiêu Hao (1m2)', 'unitNormPerM2']);
+            const generalNormFormulaValue = generalNormFormula ? evaluateMathExpression(generalNormFormula) : null;
+            if (generalNormFormula && generalNormFormulaValue === null) throw new Error(`Dòng ${rIdx + 2}: công thức Định Mức / đơn vị không an toàn hoặc không hợp lệ.`);
             const importedWorkCategories = workCategoryStr ? workCategoryStr.split(',').map(value => value.trim()).filter(Boolean) : undefined;
             const normalizedImportedUnit = normalizeUnit(unitStr) || unitStr;
             let existingIdx = -1;
@@ -384,6 +388,10 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               ? String(rawWorkCategoryId).trim()
               : (finalWorkCategoryIds?.[0] || existingNorm?.workCategoryId);
 
+            const nextInputExpressions = { ...(importedInputExpressions || existingNorm?.inputExpressions || {}) };
+            delete nextInputExpressions.unitNormPerM2;
+            if (generalNormFormula) nextInputExpressions.unitNormPerM2 = generalNormFormula;
+
             const normData: MaterialNorm = {
               ...(existingNorm || {}),
               id: importedNormId,
@@ -397,7 +405,8 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               materialName: materialNameStr,
               unit: normalizedImportedUnit,
               quotaQuantity: quotaQuantityNum,
-              unitNormPerM2: unitNormPerM2Num || undefined,
+              unitNormPerM2: generalNormFormulaValue !== null ? generalNormFormulaValue : (unitNormPerM2Num || undefined),
+              inputExpressions: Object.keys(nextInputExpressions).length ? nextInputExpressions : undefined,
               normBasisUnit: normalizeUnit(row['ĐVT Khối Lượng Nguồn'] || row['Đơn Vị Khối Lượng Nguồn'] || row['normBasisUnit'] || '') || existingNorm?.normBasisUnit,
               notes: notesStr || undefined
             };
@@ -638,12 +647,23 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     setQuotaQuantity(norm.quotaQuantity);
     setQuotaQuantityStr(norm.quotaQuantity.toString());
     setUnitNormPerM2(norm.unitNormPerM2 || '');
-    setUnitNormPerM2Str(norm.unitNormPerM2 !== undefined ? norm.unitNormPerM2.toString() : '');
+    setUnitNormPerM2Str(norm.inputExpressions?.unitNormPerM2 || (norm.unitNormPerM2 !== undefined ? norm.unitNormPerM2.toString() : ''));
     setWorkCategoryNorms(norm.workCategoryNorms || {});
     const initialNormsStr: Record<string, string> = {};
     if (norm.workCategoryNorms) {
       Object.entries(norm.workCategoryNorms).forEach(([cat, val]) => {
-        initialNormsStr[cat] = val.toString();
+        const matched = activeWorkVolumes.find((work) => work.title === cat || work.id === cat || work.workCategoryId === cat);
+        const canonicalId = matched?.workCategoryId || matched?.id;
+        initialNormsStr[cat] = (canonicalId && norm.inputExpressions?.[`workCategoryNorm:${canonicalId}`]) || val.toString();
+      });
+    }
+    if (norm.workCategories) {
+      norm.workCategories.forEach((cat) => {
+        if (initialNormsStr[cat] !== undefined) return;
+        const matched = activeWorkVolumes.find((work) => work.title === cat || work.id === cat || work.workCategoryId === cat);
+        const canonicalId = matched?.workCategoryId || matched?.id;
+        const value = canonicalId ? norm.workCategoryNormsById?.[canonicalId] : undefined;
+        if (value !== undefined) initialNormsStr[cat] = (canonicalId && norm.inputExpressions?.[`workCategoryNorm:${canonicalId}`]) || String(value);
       });
     }
     setWorkCategoryNormsStr(initialNormsStr);
@@ -686,7 +706,6 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       return false;
     }
     setUnitNormPerM2(parsed);
-    setUnitNormPerM2Str(formatAdaptiveDecimal(parsed));
     return true;
   };
 
@@ -706,7 +725,6 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       return false;
     }
     setWorkCategoryNorms(prev => ({ ...prev, [cat]: parsed }));
-    setWorkCategoryNormsStr(prev => ({ ...prev, [cat]: formatAdaptiveDecimal(parsed) }));
     return true;
   };
 
@@ -804,6 +822,20 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       ? computedAutoQuota
       : Math.max(0, Number(editingNormForQuota?.quotaQuantity || 0));
 
+    const inputExpressions = { ...(editingNormForQuota?.inputExpressions || {}) };
+    delete inputExpressions.unitNormPerM2;
+    Object.keys(inputExpressions).filter((key) => key.startsWith('workCategoryNorm:')).forEach((key) => delete inputExpressions[key]);
+    if (hasMathExpression(unitNormPerM2Str) && parseInteractiveNumericInput(unitNormPerM2Str) !== null) {
+      inputExpressions.unitNormPerM2 = unitNormPerM2Str.trim();
+    }
+    workCategories.forEach((catName) => {
+      const raw = String(workCategoryNormsStr[catName] || '').trim();
+      if (!hasMathExpression(raw) || parseInteractiveNumericInput(raw) === null) return;
+      const matched = activeWorkVolumes.find((work) => work.title === catName || work.id === catName || work.workCategoryId === catName);
+      const canonicalId = matched?.workCategoryId || matched?.id;
+      if (canonicalId) inputExpressions[`workCategoryNorm:${canonicalId}`] = raw;
+    });
+
     const normData: Omit<MaterialNorm, 'id'> = {
       category: finalCategory,
       workCategoryId: selectedWorkCategoryIds[0] || '',
@@ -816,6 +848,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       unit: finalUnit,
       quotaQuantity: derivedQuotaQuantity,
       unitNormPerM2: unitNormPerM2 ? Number(unitNormPerM2) : undefined,
+      inputExpressions: Object.keys(inputExpressions).length ? inputExpressions : undefined,
       normBasisUnit: !hasMixedBasisUnits && selectedBasisUnits.length === 1
         ? (Object.values(selectedWorkCategoryUnits).find((u): u is string => typeof u === 'string' && Boolean(u) && u !== 'Nhiều ĐVT') || undefined)
         : undefined,

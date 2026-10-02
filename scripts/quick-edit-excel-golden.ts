@@ -33,6 +33,8 @@ assert.match(quick, /syncGroupColumns/, 'Quick grid must support synchronized sh
 assert.match(quick, /sticky top-0 left-0 z-50/, 'Quick grid select-all corner must be pinned on both axes');
 assert.match(quick, /sticky top-0 z-30 bg-slate-200/, 'Each Quick Edit header cell must own vertical sticky positioning');
 assert.doesNotMatch(quick, /<thead className="sticky top-0/, 'Quick Edit must avoid nested sticky thead/header composition that makes the checkbox drift');
+assert.match(quick, /allowExpression/, 'Quick grid must support safe arithmetic expressions in numeric cells');
+assert.match(quick, /evaluateMathExpression/, 'Quick grid must validate expression-backed numeric cells by numeric result');
 
 assert.match(excel, /Xuất Excel để chỉnh sửa/, 'Excel menu must be editing-oriented');
 assert.match(excel, /Nhập Excel đã chỉnh sửa/, 'Excel menu must contain round-trip import');
@@ -85,6 +87,7 @@ assert.doesNotMatch(volume, /const fallbackFloor = floorPlans\[0\]/, 'Cross-proj
 assert.doesNotMatch(volume, /floorNamesById/, 'Cross-project Work Volume copy must not depend on non-schema source floor-name metadata');
 assert.match(materialNormModal, /uniqueByCanonicalId\.length !== 1/, 'Material Norm remap must fail closed when a target Work Category title is missing or ambiguous');
 assert.match(materialNormModal, /trùng tên/, 'Material Norm remap must explain ambiguous target Work Category names instead of choosing one silently');
+assert.match(materialNormModal, /inputExpressions/, 'Material Norm editor must retain general/specific arithmetic expressions');
 assert.match(floor, /syncGroupColumns=\{quickEditMode === 'rooms'/, 'Room quick edit must synchronize shared room fields across child rows');
 assert.match(floor, /sm:grid-cols-\[minmax\(0,1fr\)_auto\][\s\S]*sm:grid-flow-col[\s\S]*Quản lý Khu\/Khối & Tầng[\s\S]*triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit/, 'Floor actions must sit horizontally to the right of the current-view context and combine Quick Edit + Excel');
 const acceptanceSection = floor.slice(floor.indexOf('Nghiệm thu từng Căn / Phòng'), floor.indexOf('Quick Sort Controls'));
@@ -139,6 +142,8 @@ assert.match(warehouse, /key: 'generalNorm'.*__groupPrimary/, 'Only the grouped 
 assert.match(warehouse, /Định mức tổng theo KL kế hoạch.*editable: false/, 'Derived material quota must be read-only in Quick Edit');
 assert.match(warehouse, /syncGroupColumns=\{quickEditMode === 'norms'/, 'Grouped norm rows must synchronize shared edits across child rows');
 assert.match(warehouse, /workCategoryNormsById/, 'Warehouse norm quick edit must persist per-work-category norms in the existing ID map');
+assert.match(warehouse, /inputExpressions/, 'Warehouse must persist quantity and norm expressions instead of flattening them to numbers');
+assert.match(warehouse, /readExcelFormulaByHeaders/, 'Warehouse Excel import must read real cell formulas for round-trip editing');
 assert.match(warehouse, /Không thể đổi ĐVT/, 'Quick norm edit must block unsafe unit changes when warehouse history exists');
 assert.match(warehouse, /Không thể xóa Hạng mục cuối cùng/, 'Quick norm edit must protect the final work-category link');
 assert.match(warehouse, /requiresAnchorForInsert=\{quickEditMode === 'norms'\}/, 'Norm child insertion must require an existing material anchor');
@@ -152,6 +157,8 @@ assert.match(volume, /Khu\/Khối tự đồng bộ từ các tầng đã gán/,
 assert.match(volume, /__recordId không tồn tại trong dự án hiện tại/, 'WorkVolume Excel import must reject stale record IDs');
 assert.match(volume, /__floorId\/__floorIds không tồn tại/, 'WorkVolume Excel import must reject stale floor IDs');
 assert.match(volume, /canDeleteRows=\{hasStructureManageAccess\}/, 'WorkVolume quick edit must allow ADMIN-staged row deletion');
+assert.match(volume, /inputExpressions/, 'WorkVolume must retain planned and unit-price expressions');
+assert.match(volume, /readExcelFormulaByHeaders/, 'WorkVolume Excel import must round-trip real cell formulas');
 
 assert.match(dxf, /HATCH/, 'DXF detector must support HATCH');
 assert.match(dxf, /LWPOLYLINE/, 'DXF detector must support closed polylines');
