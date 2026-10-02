@@ -88,12 +88,24 @@ verify(26,'Backup JSON v4 export/import giữ tương thích v3 và financial is
   projectManager.includes('schemaVersion: 4')
     && projectManager.includes('Number(exportedData.schemaVersion || 0) >= 3')
     && projectManager.includes('sharedSettings: normalized.sharedSettings')
-    && app.includes('await saveProjectSharedSettings(pid, importedSharedSettings)')
+    && app.includes('await saveProjectSharedSettings(pid, settingsToRestore)')
     && dataNormalizer.includes('declaredSchemaVersion >= 3')
     && dataNormalizer.includes("obj.backupType === 'primary-drive-project'")
     && liveBackendGolden.includes('Backup v4 WorkVolume round-trip PASS')
     && liveBackendGolden.includes('Restore legacy work_volumes permission-denied regression PASS'),
   'v3 remains readable; v4 is labeled/detected correctly; live DEV round-trip verifies WorkVolume price isolation');
+
+verify(27,'Backup v4 sharedSettings không rơi ở CREATE/SMART MERGE và không rollback settings mới hơn',
+  projectManager.includes("sharedSettingsRestoreMode?: 'create' | 'replace' | 'merge-newer'")
+    && projectManager.includes("action === 'SMART_MERGE'")
+    && projectManager.includes("? 'merge-newer'")
+    && projectManager.includes("? 'create'")
+    && app.includes("options?.sharedSettingsRestoreMode === 'merge-newer'")
+    && app.includes('fetchProjectSharedSettingsSnapshot(pid, true)')
+    && app.includes('incomingSettingsTime <= currentSettingsTime')
+    && dataNormalizer.includes('Preserve backup v4 project-scoped shared settings through the merge payload')
+    && dataNormalizer.includes('merged.sharedSettings = { ...incomingData.sharedSettings }'),
+  'CREATE/new-copy restore settings; SMART MERGE only applies newer settings; OVERWRITE remains explicit authoritative restore');
 
 // These require a real isolated Firebase DEV project and physical devices; source checks are
 // not mislabeled as runtime VERIFIED.
