@@ -122,8 +122,10 @@ assert.ok(appSource.includes('schemaVersion: 4'), 'single-project backup schema 
 assert.ok(appSource.includes('projectLocation,') && appSource.includes('...(sharedSettings ? { sharedSettings } : {})'), 'backup must include project location and shared settings');
 assert.ok(appSource.includes('fetchProjectSharedSettingsSnapshot(activeProjectId, true)'), 'single-project backup must read authoritative Cloud shared settings');
 assert.ok(appSource.includes("allData[getKey('construction_shared_settings', projectId)]"), 'all-project backup must include project shared settings');
-assert.ok(appSource.includes('await saveProjectSharedSettings(pid, importedSharedSettings)'), 'authoritative restore must restore project shared settings');
-assert.ok(appSource.includes('setStructureConfig(normalizeStructureGroupConfig(importedSharedSettings.structure))'), 'restore must hydrate Khu/Khối immediately');
+assert.ok(appSource.includes('await saveProjectSharedSettings(pid, settingsToRestore)'), 'restore must persist the resolved project shared settings');
+assert.ok(appSource.includes("options?.sharedSettingsRestoreMode === 'merge-newer'"), 'SMART MERGE must guard shared settings by Cloud timestamp');
+assert.ok(appSource.includes('incomingSettingsTime <= currentSettingsTime'), 'stale backup shared settings must not roll back newer Cloud settings');
+assert.ok(appSource.includes('setStructureConfig(normalizeStructureGroupConfig(settingsToRestore.structure))'), 'restore must hydrate Khu/Khối immediately from the resolved settings');
 const normalizerSource = readFileSync(new URL('../src/utils/dataNormalizer.ts', import.meta.url), 'utf8');
 assert.ok(normalizerSource.includes('obj.project.projectLocation') && normalizerSource.includes("extractObject(['sharedSettings', 'construction_shared_settings'])"), 'import normalizer must preserve project location and v4/shared-dump settings');
 const typeSource = readFileSync(new URL('../src/types.ts', import.meta.url), 'utf8');
