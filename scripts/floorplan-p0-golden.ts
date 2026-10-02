@@ -107,6 +107,28 @@ check(app.includes('priorityFloorPlanId: activeFloorViewId'), 'Smart cache must 
 check(app.includes('isFloorPlanAutoCacheNetworkSuitable()'), 'Smart cache must pause on Data Saver/very slow network.');
 check(app.includes('const handleUpdateFloorPlanImages = async'), 'App multi-floor image handler missing.');
 check(app.includes('applyFloorPlanImageToMultipleFloors(projectId, targets, imageUrl)'), 'App must use the one-upload multi-floor operation.');
+
+const sharedReuseStart = app.indexOf('const handleUseExistingFloorPlanAsset = async');
+const sharedReuseEnd = app.indexOf('\n  const handleInspectFloorPlanBulkTargets', sharedReuseStart);
+check(sharedReuseStart >= 0 && sharedReuseEnd > sharedReuseStart, 'Existing Cloud floor-plan reuse handler missing.');
+const sharedReuseHandler = app.slice(sharedReuseStart, sharedReuseEnd);
+check(sharedReuseHandler.includes('isFloorPlanCloudBinaryReady(sourcePlan)'), 'Reusing another floor drawing must require a Cloud-ready immutable source asset.');
+check(sharedReuseHandler.includes('storagePath: sourcePlan.storagePath'), 'Shared drawing reuse must point the target floor to the existing Cloud storage path.');
+check(sharedReuseHandler.includes('imageAssetId: sourcePlan.imageAssetId'), 'Shared drawing reuse must preserve immutable asset identity.');
+check(!sharedReuseHandler.includes('uploadFloorPlanBinaryToCloud') && !sharedReuseHandler.includes('applyFloorPlanImageToMultipleFloors'), 'Shared drawing reuse must not upload binary data again.');
+
+const appBackupHydrateStart = app.indexOf('const hydrateFloorPlansForBackup = async');
+const appBackupHydrateEnd = app.indexOf('\n  const collectProjectPhotoBackup', appBackupHydrateStart);
+const appBackupHydrate = app.slice(appBackupHydrateStart, appBackupHydrateEnd);
+check(appBackupHydrate.indexOf('cloudReady && hasCloudPointer') >= 0, 'App backup must detect authoritative Cloud-ready floor-plan assets.');
+check(appBackupHydrate.indexOf('cloudReady && hasCloudPointer') < appBackupHydrate.indexOf("currentUrl.startsWith('data:image/')"), 'App backup must resolve the Cloud asset before accepting a hydrated Base64 cache.');
+
+const projectManager = read('src/components/ProjectManagerModal.tsx');
+const managerBackupHydrateStart = projectManager.indexOf('const hydrateFloorPlansForBackup = async');
+const managerBackupHydrateEnd = projectManager.indexOf('\n  const toFirebaseOnlyBackupDump', managerBackupHydrateStart);
+const managerBackupHydrate = projectManager.slice(managerBackupHydrateStart, managerBackupHydrateEnd);
+check(managerBackupHydrate.indexOf('cloudReady && hasCloudPointer') >= 0, 'Project Manager backup must detect authoritative Cloud-ready floor-plan assets.');
+check(managerBackupHydrate.indexOf('cloudReady && hasCloudPointer') < managerBackupHydrate.indexOf("currentUrl.startsWith('data:image/')"), 'Project Manager backup must not let a stale Base64 display cache override the newer Cloud drawing.');
 check(app.includes('const stableStructureGroupId = normalizedStructure.enabled'), 'New floor creation must stamp an explicit stable Khu/Khối membership.');
 check(app.includes('const duplicateStructureGroupId = normalizedStructure.enabled'), 'Duplicated floors must stamp the resolved source Khu/Khối explicitly.');
 check(app.includes('const sourceCloudReady = isFloorPlanCloudBinaryReady(sourcePlan);'), 'Duplicate floor must detect whether the source drawing is truly Cloud-ready.');
@@ -149,6 +171,11 @@ check(ui.includes('Thu gọn tất cả') && ui.includes('Mở tất cả'), 'Fl
 check(ui.includes('toggleManagedStructureGroupCollapsed(currentGroupId)'), 'Each Khu/Khối header must be independently collapsible.');
 check(ui.includes('Dùng chung bản vẽ ·'), 'Floor management must show which floors share one immutable drawing asset.');
 check(ui.includes('🖼️ Bản vẽ riêng'), 'Floor management must identify independent drawings.');
+check(ui.includes('Dùng bản vẽ tầng khác'), 'Floor-plan UI must let a target floor reuse an already uploaded Cloud drawing.');
+check(ui.includes('Không upload binary lần nữa.'), 'Shared drawing UI must explain that no second binary upload occurs.');
+check(ui.includes('switchFullscreenFloor'), 'Fullscreen floor navigation handler missing.');
+check(ui.includes('Tầng trước · Alt + ←') && ui.includes('Tầng sau · Alt + →'), 'Fullscreen must expose previous/next floor navigation.');
+check(ui.includes('Chọn nhanh tầng trong chế độ toàn màn hình'), 'Fullscreen must expose direct floor selection.');
 check(ui.includes('loading="lazy"') && ui.includes('decoding="async"'), 'Floor management thumbnails must avoid eager decoding every plan image.');
 check(app.includes('onInspectFloorPlanBulkTargets={handleInspectFloorPlanBulkTargets}'), 'App must expose bulk preflight to the floor-plan UI.');
 check(ui.includes('Defect, Căn/Phòng, highlight, tiến độ, checklist'), 'Bulk floor UI must warn that business data remains per-floor.');
