@@ -20,6 +20,35 @@ export function formatFloorName(name?: string): string {
 
 export type DateFormatPreset = 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD' | 'DD-MM-YYYY';
 
+
+/**
+ * Formats a Date as an HTML date-input value using the device's LOCAL calendar
+ * fields. Do not use toISOString() here: UTC conversion can shift the date
+ * backward/forward around midnight in non-UTC time zones.
+ */
+export function toLocalDateInputValue(date: Date): string {
+  const year = String(date.getFullYear()).padStart(4, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Adds calendar days in local time and returns YYYY-MM-DD for <input type="date">.
+ */
+export function addLocalCalendarDaysToDateInput(date: Date, days: number): string {
+  const next = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate() + days,
+    12,
+    0,
+    0,
+    0,
+  );
+  return toLocalDateInputValue(next);
+}
+
 /**
  * Parses any timestamp input (number, string ISO, legacy string format) into a valid numeric timestamp (ms since epoch).
  */
