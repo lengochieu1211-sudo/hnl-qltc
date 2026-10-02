@@ -1784,7 +1784,12 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
           for (const floorPlan of Array.isArray(payload.floorPlans) ? payload.floorPlans : []) {
             if (!floorPlan?.id || !floorPlanNeedsCloudUpload(floorPlan)) continue;
-            await syncFloorPlanImageToCloud(targetId, floorPlan);
+            try {
+              await syncFloorPlanImageToCloud(targetId, floorPlan);
+            } catch (err: any) {
+              const code = String(err?.code || err?.message || err);
+              throw new Error(`Khôi phục ảnh mặt bằng thất bại tại floor_plans/${String(floorPlan.id)}: ${code}`);
+            }
           }
 
           const existingIndex = firebaseList.findIndex((project) => project.id === targetId);
