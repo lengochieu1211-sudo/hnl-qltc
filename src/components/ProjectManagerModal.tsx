@@ -56,7 +56,7 @@ import { logAuditAction, UserRole, getCurrentUserRole, canManageProjects, canEdi
 import { encryptBackupData, decryptBackupData, isEncryptedBackup, EncryptedBackupContainer } from '../utils/cryptoUtils';
 import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
 import { refreshProjectPhotoMetadataFromCloud, syncProjectPhotosToCloud } from '../lib/photoCloudSync';
-import { floorPlanNeedsCloudUpload, loadFloorPlanImageFromCloud, syncFloorPlanImageToCloud } from '../lib/floorPlanImageSync';
+import { floorPlanNeedsCloudUpload, isFloorPlanCloudBinaryReady, loadFloorPlanImageFromCloud, syncFloorPlanImageToCloud } from '../lib/floorPlanImageSync';
 
 interface ProjectManagerModalProps {
   isOpen: boolean;
@@ -703,23 +703,28 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     for (const rawPlan of Array.isArray(plans) ? plans : []) {
       const plan = { ...rawPlan };
       const currentUrl = String(plan.imageUrl || '').trim();
-      if (currentUrl.startsWith('data:image/')) {
-        result.push(plan);
-        continue;
-      }
+      const hasCloudPointer = Boolean(
+        plan.storagePath || plan.driveFileId || plan.cloudFileId || plan.storageProvider ||
+        String(plan.driveUrl || '').startsWith('drive:')
+      );
+      const cloudReady = isFloorPlanCloudBinaryReady(plan as any);
 
+      // Base64/blob can be a stale hydrated cache from an older drawing. If the
+      // authoritative row is already cloud-ready, back up the immutable Cloud/R2 asset
+      // identified by storagePath/imageCloudRevision instead of trusting that cache.
       let resolved = '';
-      if (currentUrl.startsWith('blob:')) {
+      if (cloudReady && hasCloudPointer) {
+        resolved = String(await loadFloorPlanImageFromCloud(projectId, plan).catch(() => '') || '');
+      }
+      if (!resolved && currentUrl.startsWith('data:image/')) {
+        resolved = currentUrl;
+      }
+      if (!resolved && currentUrl.startsWith('blob:')) {
         try {
           const response = await fetch(currentUrl);
           if (response.ok) resolved = await blobToBackupDataUrl(await response.blob());
         } catch (_) {}
       }
-
-      const hasCloudPointer = Boolean(
-        plan.storagePath || plan.driveFileId || plan.cloudFileId || plan.storageProvider ||
-        String(plan.driveUrl || '').startsWith('drive:')
-      );
       if (!resolved && hasCloudPointer) {
         resolved = String(await loadFloorPlanImageFromCloud(projectId, plan).catch(() => '') || '');
       }
