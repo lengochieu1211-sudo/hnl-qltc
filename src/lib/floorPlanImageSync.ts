@@ -654,6 +654,7 @@ export async function syncFloorPlanImageToCloud(projectId: string, plan: FloorPl
     updatedAt: Math.max(now, Number((plan as any).updatedAt || 0) + 1),
   };
   const floorDocRef = doc(db, 'projects', projectId, 'floor_plans', plan.id);
+  let publishedMetadata: Partial<FloorPlan> & Record<string, any> = metadata;
   await runTransaction(db, async (transaction) => {
     const existing = await transaction.get(floorDocRef);
     const existingData = existing.exists() ? existing.data() : {};
@@ -661,6 +662,25 @@ export async function syncFloorPlanImageToCloud(projectId: string, plan: FloorPl
     const planFloorName = String(plan.floorName || '').trim();
     const resolvedFloorName = existingFloorName || planFloorName;
     if (!resolvedFloorName) throw new Error(`FLOOR_PLAN_IDENTITY_MISSING:${plan.id}`);
+
+    // Restore/import may have just advanced the business document revision before this
+    // binary publish starts. Never publish image metadata with the stale revision carried
+    // by the backup/local snapshot; Firestore lifecycle Rules require a strict increase.
+    const lifecycleRevision = Math.max(
+      Number(existingData?.revision || 0) + 1,
+      Number(metadata.revision || 0),
+      1,
+    );
+    const lifecycleUpdatedAt = Math.max(
+      now,
+      Number(existingData?.updatedAt || 0) + 1,
+      Number(metadata.updatedAt || 0),
+    );
+    publishedMetadata = {
+      ...metadata,
+      revision: lifecycleRevision,
+      updatedAt: lifecycleUpdatedAt,
+    };
 
     // P0 creation race guard: the binary uploader can finish before the normal
     // business-state diff creates the floor document. Never let image metadata create
@@ -680,18 +700,18 @@ export async function syncFloorPlanImageToCloud(projectId: string, plan: FloorPl
       identityPatch.uploadedAt = plan.uploadedAt;
     }
 
-    transaction.set(floorDocRef, { ...metadata, ...identityPatch }, { merge: true });
+    transaction.set(floorDocRef, { ...publishedMetadata, ...identityPatch }, { merge: true });
   });
   // The uploader should be offline-ready immediately after a successful atomic publish;
   // cache failure must never turn a successful Cloud upload into a failed business write.
-  await cacheFloorPlanBlob(projectId, { ...plan, ...metadata } as FloorPlan, revision, blob).catch((err) => {
+  await cacheFloorPlanBlob(projectId, { ...plan, ...publishedMetadata } as FloorPlan, revision, blob).catch((err) => {
     console.warn('[Floor Plan Image] post-upload offline cache warning:', plan.floorName, err);
   });
   await clearFloorPlanOutboxUpTo(projectId, plan.id, revision, user.uid).catch(() => {});
 
   // Do not delete Drive/chunk legacy binary yet. Migration cleanup is a separate,
   // verified purge pass after count + checksum + Firestore-reference parity.
-  return metadata;
+  return publishedMetadata;
 }
 
 export async function inspectFloorPlanBulkTargets(
