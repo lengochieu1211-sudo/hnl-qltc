@@ -1580,19 +1580,26 @@ function AuthenticatedApp() {
     for (const rawPlan of sourcePlans || []) {
       const plan = { ...rawPlan };
       const currentUrl = String(plan.imageUrl || '').trim();
-      if (currentUrl.startsWith('data:image/')) {
-        result.push(plan);
-        continue;
-      }
+      const hasCloudPointer = Boolean(plan.storagePath || plan.driveFileId || plan.cloudFileId || plan.storageProvider || String(plan.driveUrl || '').startsWith('drive:'));
+      const cloudReady = isFloorPlanCloudBinaryReady(plan);
 
+      // A hydrated Base64/blob is only a display cache. When this row already has an
+      // authoritative cloud revision, always re-read that immutable asset for backup.
+      // Otherwise an old bitmap kept by the uploader can silently replace the newer
+      // Cloud/R2 drawing inside JSON even though storagePath/imageCloudRevision are current.
       let resolved = '';
-      if (currentUrl.startsWith('blob:')) {
+      if (cloudReady && hasCloudPointer) {
+        resolved = String(await loadFloorPlanImageFromCloud(projectId, plan).catch(() => '') || '');
+      }
+      if (!resolved && currentUrl.startsWith('data:image/')) {
+        resolved = currentUrl;
+      }
+      if (!resolved && currentUrl.startsWith('blob:')) {
         try {
           const response = await fetch(currentUrl);
           if (response.ok) resolved = await blobToBackupDataUrl(await response.blob());
         } catch (_) {}
       }
-      const hasCloudPointer = Boolean(plan.storagePath || plan.driveFileId || plan.cloudFileId || plan.storageProvider || String(plan.driveUrl || '').startsWith('drive:'));
       if (!resolved && hasCloudPointer) {
         resolved = String(await loadFloorPlanImageFromCloud(projectId, plan).catch(() => '') || '');
       }
@@ -6098,6 +6105,61 @@ function AuthenticatedApp() {
     }));
   };
 
+  const handleUseExistingFloorPlanAsset = async (targetFloorId: string, sourceFloorId: string): Promise<void> => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) throw new Error('FLOOR_PLAN_ADMIN_REQUIRED');
+    if (!targetFloorId || !sourceFloorId || targetFloorId === sourceFloorId) throw new Error('FLOOR_PLAN_SHARED_SOURCE_INVALID');
+
+    const projectId = activeProjectIdRef.current;
+    const sourcePlan = floorPlans.find((plan) => plan.id === sourceFloorId);
+    const targetPlan = floorPlans.find((plan) => plan.id === targetFloorId);
+    if (!sourcePlan || !targetPlan) throw new Error('FLOOR_PLAN_SHARED_TARGET_NOT_FOUND');
+    if (!isFloorPlanCloudBinaryReady(sourcePlan)) throw new Error('FLOOR_PLAN_SHARED_SOURCE_NOT_CLOUD_READY');
+
+    const cloudRevision = Math.max(0, Number(sourcePlan.imageCloudRevision || sourcePlan.imageRevision || 0));
+    const provider = String(sourcePlan.storageProvider || '').trim();
+    const storagePath = String(sourcePlan.storagePath || '').trim();
+    const driveFileId = String(sourcePlan.driveFileId || '').trim();
+    const canonicalImageUrl = provider && storagePath
+      ? `cloud-floorplan:${provider}:${storagePath}`
+      : driveFileId
+        ? `cloud-floorplan:drive:${projectId}:${driveFileId}`
+        : String(sourcePlan.imageUrl || '');
+
+    if (!canonicalImageUrl) throw new Error('FLOOR_PLAN_SHARED_SOURCE_POINTER_MISSING');
+
+    const now = Date.now();
+    const uploaderUid = getCurrentRealFirebaseUser()?.uid || '';
+    updateAppData((prev) => ({
+      ...prev,
+      floorPlans: prev.floorPlans.map((plan) => plan.id === targetFloorId ? {
+        ...plan,
+        imageUrl: canonicalImageUrl,
+        driveFileId: sourcePlan.driveFileId,
+        driveUrl: sourcePlan.driveUrl,
+        cloudFileId: sourcePlan.cloudFileId,
+        storageProvider: sourcePlan.storageProvider,
+        storagePath: sourcePlan.storagePath,
+        thumbnailPath: sourcePlan.thumbnailPath,
+        storageMd5Hash: sourcePlan.storageMd5Hash,
+        storageEtag: sourcePlan.storageEtag,
+        imageMimeType: sourcePlan.imageMimeType,
+        imageFileSize: sourcePlan.imageFileSize,
+        imageRevision: cloudRevision,
+        imageCloudRevision: cloudRevision,
+        imageCloudSyncedAt: sourcePlan.imageCloudSyncedAt,
+        imageAssetId: sourcePlan.imageAssetId || (provider && storagePath ? `floor-plan-asset:${provider}:${storagePath}` : null),
+        imageAssetOwnerFloorId: sourcePlan.imageAssetOwnerFloorId || sourcePlan.id,
+        imageUploadState: 'ready',
+        imagePendingByUid: null,
+        imageOutboxRevision: cloudRevision,
+        uploadedAt: sourcePlan.uploadedAt || new Date().toISOString().split('T')[0],
+        updatedAt: now,
+        revision: Math.max(Number((plan as any).revision || 0), 0) + 1,
+        updatedByUid: uploaderUid || plan.updatedByUid,
+      } : plan),
+    }));
+  };
+
   const handleInspectFloorPlanBulkTargets = async (ids: string[]) => {
     const uniqueIds = Array.from(new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean)));
     const idSet = new Set(uniqueIds);
@@ -7418,6 +7480,7 @@ function AuthenticatedApp() {
               onUpdateFloorPlan={handleUpdateFloorPlan}
               onUpdateFloorPlanImage={handleUpdateFloorPlanImage}
               onUpdateFloorPlanImages={handleUpdateFloorPlanImages}
+              onUseExistingFloorPlanAsset={handleUseExistingFloorPlanAsset}
               onInspectFloorPlanBulkTargets={handleInspectFloorPlanBulkTargets}
               onRenameFloorPlan={handleRenameFloorPlan}
               onDeleteFloorPlan={handleDeleteFloorPlan}
