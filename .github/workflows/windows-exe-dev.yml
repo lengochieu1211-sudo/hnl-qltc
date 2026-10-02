@@ -17,6 +17,7 @@ on:
       - 'scripts/firebase-rules-behavior.mjs'
       - 'scripts/firebase-only-golden.mjs'
       - 'scripts/structure-group-golden.ts'
+      - 'scripts/floorplan-p0-golden.ts'
       - 'scripts/desktop-launcher-golden.mjs'
       - 'scripts/windows-icon-golden.ps1'
       - 'scripts/windows-desktop-local-store-golden.ps1'
