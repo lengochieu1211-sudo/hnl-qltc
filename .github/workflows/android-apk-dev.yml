@@ -19,6 +19,7 @@ on:
       - 'scripts/firebase-rules-behavior.mjs'
       - 'scripts/firebase-only-golden.mjs'
       - 'scripts/structure-group-golden.ts'
+      - 'scripts/floorplan-p0-golden.ts'
       - '.github/workflows/android-apk-dev.yml'
 
 permissions:
