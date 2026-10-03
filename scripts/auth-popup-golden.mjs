@@ -42,10 +42,13 @@ assert(devBrowser.includes('seedRememberedOfflineAdmin'), 'hosted browser golden
 assert(devBrowser.includes('project UI hidden until Google login'), 'hosted browser golden guards against project UI leaking before login');
 assert(firebase.includes("export * from './firebaseBase'"), 'Firebase facade delegates all auth/data behavior to one implementation');
 assert(!firebase.includes('signInWithPopup(base.auth'), 'Firebase facade does not override Android browser transport separately');
-assert(firebaseBase.includes('signInWithRedirect(auth, provider)'), 'shared mobile auth implementation keeps redirect flow');
+assert(firebaseBase.includes('signInWithRedirect(auth, provider)'), 'normal mobile browser auth keeps redirect flow');
+assert(firebaseBase.includes('androidNativeWrapper'), 'Auth explicitly distinguishes the native Android wrapper from normal mobile browsers');
+assert(firebaseBase.includes('(window as any).AndroidExport') && firebaseBase.includes('(window as any).AndroidContact'), 'Android wrapper detection uses native JS bridges instead of fragile user-agent guessing');
+assert(firebaseBase.includes('if (mobileLike && !androidNativeWrapper)'), 'redirect is forbidden inside native Android WebView');
 assert(firebaseBase.includes("provider.setCustomParameters({ prompt: 'select_account' })"), 'Google sign-in always requests account chooser');
-assert(firebaseBase.indexOf("provider.setCustomParameters({ prompt: 'select_account' })") < firebaseBase.indexOf('signInWithRedirect(auth, provider)'), 'account chooser is configured before Android/mobile redirect starts');
-assert(firebaseBase.includes('signInWithPopup(auth, provider)'), 'shared desktop auth implementation keeps popup flow');
+assert(firebaseBase.indexOf("provider.setCustomParameters({ prompt: 'select_account' })") < firebaseBase.indexOf('signInWithRedirect(auth, provider)'), 'account chooser is configured before mobile redirect starts');
+assert(firebaseBase.includes('signInWithPopup(auth, provider)'), 'desktop and native Android wrapper auth use popup flow');
 assert(prodWorkflow.includes('VITE_FIREBASE_AUTH_DOMAIN: hnlqltc.web.app'), 'PROD Web Auth helper uses same Firebase Hosting origin');
 assert(prodWorkflow.includes('VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329'), 'PROD Firebase project ID is unchanged');
 assert(prodWorkflow.includes('VITE_FIREBASE_APP_ID: 1:119152410850:web:c2aee2135428af34ef5ebb'), 'PROD Firebase app ID is unchanged');
