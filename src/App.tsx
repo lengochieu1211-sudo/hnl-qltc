@@ -4175,6 +4175,23 @@ function AuthenticatedApp() {
                 + (extra.length ? ` dư [${extra.slice(0, 3).join(', ')}]` : '')
               );
             }
+
+            if (key === 'defects') {
+              const actualById = new Map<string, any>(
+                actualList
+                  .filter((item: any) => item?.id)
+                  .map((item: any) => [String(item.id), item] as const)
+              );
+              const wronglyArchived = expectedList
+                .filter((item: any) => item?.id && !item?.archivedAt)
+                .filter((item: any) => Boolean(actualById.get(String(item.id))?.archivedAt))
+                .map((item: any) => String(item.id));
+              if (wronglyArchived.length > 0) {
+                restoreMismatches.push(
+                  `defects còn archive marker [${wronglyArchived.slice(0, 3).join(', ')}]`
+                );
+              }
+            }
           }
           if (restoreMismatches.length > 0) {
             throw new Error(`Khôi phục Full Replace chưa đạt đối chiếu Server: ${restoreMismatches.join(' | ')}`);

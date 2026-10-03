@@ -2531,8 +2531,22 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
           const removeLegacyWorkVolumeUnitPrice =
             authoritativeBackupRestore && cloudName === 'work_volumes' && hasLegacyUnitPrice;
 
+          const authoritativeDefectArchiveCleanup =
+            authoritativeBackupRestore && cloudName === 'defects' && !item?.archivedAt
+              ? {
+                  // Full Replace must restore the backup's active lifecycle exactly.
+                  // merge:true would otherwise preserve historical archive markers from
+                  // the destination Cloud document and the UI would hide the restored
+                  // Defect even though its ID/server verification succeeded.
+                  archivedAt: deleteField(),
+                  archivedFloorId: deleteField(),
+                  archivedFloorName: deleteField(),
+                }
+              : {};
+
           batch.set(docRef, {
             ...sanitized,
+            ...authoritativeDefectArchiveCleanup,
             ...(removeLegacyWorkVolumeUnitPrice ? { unitPrice: deleteField() } : {}),
             deleted: false,
             deletedAt: null,
