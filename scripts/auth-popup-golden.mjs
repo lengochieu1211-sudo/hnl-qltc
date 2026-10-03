@@ -31,6 +31,7 @@ assert(authGate.includes('data-hnl-auth-gate="checking"'), 'checking auth state 
 assert(authGate.includes("data-hnl-auth-gate={state}"), 'signed-out state is rendered by a dedicated full-screen auth surface');
 assert(authGate.includes('Đăng nhập với Google'), 'dedicated entry screen exposes one clear Google sign-in action');
 assert(authGate.includes('BUILD_METADATA.environment') && authGate.includes("appEnv === 'DEV'") && authGate.includes('DEV'), 'login surface visibly identifies DEV without changing auth logic');
+assert(authGate.includes('<span>V{APP_VERSION}</span>') && !authGate.includes('<span>v{APP_VERSION}</span>'), 'login version uses uppercase V to match PROD presentation');
 assert(authGate.includes('/icon.png') && authGate.includes('drop-shadow-[') && !authGate.includes('HNL Construction') && !authGate.includes('Công ty Cổ phần Công nghiệp An Phú'), 'login uses the canonical HNL icon borderless in the approved centered blue layout without redundant company/top-left labels');
 assert(authHeader.includes("BUILD_METADATA.environment === 'DEV'") && authHeader.includes('DEV'), 'authenticated header keeps a visible DEV badge across Web/APK/EXE');
 assert(androidBuild.includes('HNL QLTC DEV') && androidBuild.includes('android:label'), 'Android DEV build rewrites launcher label while PROD keeps its normal label');
