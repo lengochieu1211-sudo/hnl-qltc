@@ -47,7 +47,7 @@ assert(authGate.includes('Quản lý thi công thông minh'), 'login uses concis
 assert(authGate.includes('Đăng nhập với Google'), 'login keeps existing Google auth action');
 assert(authGate.includes('from-blue-600'), 'login follows Home blue visual language');
 assert(!authGate.includes('HNL Construction'), 'old top-left login label is removed');
-assert(authGate.includes('Công ty Cổ phần Công nghiệp An Phú'), 'login footer keeps company identity');
+assert(!authGate.includes('Công ty Cổ phần Công nghiệp An Phú'), 'login omits redundant company footer for a cleaner entry screen');
 assert(authGate.includes('Mã PIN chỉ dùng để mở khóa nhanh'), 'PIN is explained without weakening Google identity verification');
 
 console.log('RESTORE DEFECT VISIBILITY GOLDEN PASS');
