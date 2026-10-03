@@ -121,6 +121,26 @@ verify(29,'Windows/Android DEV rebuild khi FloorPlan Golden thay đổi',
     && androidDevWorkflow.includes("'scripts/floorplan-p0-golden.ts'"),
   'platform DEV workflows follow floor-plan regression gates so shared drawing/fullscreen navigation fixes cannot ship with stale EXE/APK');
 
+verify(30,'Dự án hoàn thành có Archive riêng, không xóa Firestore/R2',
+  firebaseBase.includes('export async function setProjectArchivedState')
+    && firebaseBase.includes('archivedAt: archived ? now : null')
+    && firebaseBase.includes("roleInfo.role !== 'ADMIN'")
+    && !firebaseBase.includes('deleteProjectPhotos(projectId)'),
+  'ADMIN-only root metadata archive; business collections/media remain untouched');
+
+verify(31,'Dự án đã Archive không vào Home/Chat danh sách hoạt động',
+  app.includes('const activeRemoteProjects = remoteProjects.filter')
+    && app.includes('Number(project.archivedAt || 0) <= 0')
+    && app.includes('archivedAt: Number(remoteProject.archivedAt || 0) || undefined'),
+  'discovery keeps archive metadata in cache while active navigation filters archived projects');
+
+verify(32,'Project Manager tách Đang hoạt động và Đã lưu trữ',
+  projectManager.includes("const [projectViewMode, setProjectViewMode] = useState<'active' | 'archived'>('active')")
+    && projectManager.includes('Đã lưu trữ ({archivedProjectCount})')
+    && projectManager.includes('handleArchiveProject(proj, false)')
+    && projectManager.includes('handleArchiveProject(proj, true)'),
+  'archived projects remain recoverable from a dedicated list without loading them into normal navigation');
+
 // These require a real isolated Firebase DEV project and physical devices; source checks are
 // not mislabeled as runtime VERIFIED.
 external('E1','Multi-device DEV runtime matrix','REVIEW','requires configured DEV/R2 gateway and PC+Android');
