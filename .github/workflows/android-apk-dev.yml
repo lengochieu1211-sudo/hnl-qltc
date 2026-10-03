@@ -84,6 +84,13 @@ jobs:
       VITE_GIT_COMMIT: ${{ github.sha }}
       QLCT_WEB_URL: https://hnl-qltc-dev.web.app/?app=android&env=dev
       QLCT_RELEASE_TAG: 6.3.0-dev
+      # Dedicated DEV signing only. These secrets must never reuse PROD signing material.
+      QLCT_ANDROID_KEYSTORE_BASE64: ${{ secrets.HNL_QLTC_DEV_ANDROID_KEYSTORE_BASE64 }}
+      QLCT_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.HNL_QLTC_DEV_ANDROID_KEYSTORE_PASSWORD }}
+      QLCT_ANDROID_KEY_PASSWORD: ${{ secrets.HNL_QLTC_DEV_ANDROID_KEYSTORE_PASSWORD }}
+      QLCT_ANDROID_KEY_ALIAS: ${{ secrets.HNL_QLTC_DEV_ANDROID_KEY_ALIAS }}
+      # Keep DEV upgrades monotonic across workflow runs without changing app version.
+      QLCT_ANDROID_VERSION_CODE: 900${{ github.run_number }}
 
     steps:
       - name: Checkout DEV
@@ -181,10 +188,13 @@ jobs:
           if ($after -match ('package="' + [regex]::Escape($env:PROD_ANDROID_PACKAGE) + '"')) { throw 'PROD package remains in DEV manifest' }
           if ($after -notmatch 'android:label="HNL QLTC DEV"') { throw 'DEV label rewrite failed' }
 
-          Remove-Item Env:QLCT_ANDROID_KEYSTORE_BASE64 -ErrorAction SilentlyContinue
-          Remove-Item Env:QLCT_ANDROID_KEYSTORE_PASSWORD -ErrorAction SilentlyContinue
-          Remove-Item Env:QLCT_ANDROID_KEY_PASSWORD -ErrorAction SilentlyContinue
-          Remove-Item Env:QLCT_ANDROID_KEY_ALIAS -ErrorAction SilentlyContinue
+          if ([string]::IsNullOrWhiteSpace($env:QLCT_ANDROID_KEYSTORE_BASE64)) {
+            Write-Warning 'Fixed DEV signing secrets are not configured. This APK will use a one-off development key and may require uninstall before the next build.'
+          } else {
+            if ([string]::IsNullOrWhiteSpace($env:QLCT_ANDROID_KEYSTORE_PASSWORD)) { throw 'DEV signing keystore password secret is missing' }
+            if ([string]::IsNullOrWhiteSpace($env:QLCT_ANDROID_KEY_ALIAS)) { throw 'DEV signing key alias secret is missing' }
+            Write-Host 'Fixed isolated DEV signing is enabled.'
+          }
 
       - name: Build isolated DEV APK
         shell: pwsh
