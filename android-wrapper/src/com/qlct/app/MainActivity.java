@@ -8,6 +8,7 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
@@ -24,6 +25,9 @@ import android.provider.DocumentsContract;
 import android.provider.MediaStore;
 import android.provider.ContactsContract;
 import android.util.Base64;
+import android.graphics.Color;
+import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
@@ -33,6 +37,11 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.ProgressBar;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
@@ -63,6 +72,15 @@ public class MainActivity extends Activity {
     private static final String PREF_AUTO_SAVE_TREE_URI = "auto_save_tree_uri";
 
     private WebView webView;
+    private View startupSplash;
+    private boolean startupContentShown = false;
+    private final Handler startupSplashHandler = new Handler(Looper.getMainLooper());
+    private final Runnable startupSplashFailsafe = new Runnable() {
+        @Override
+        public void run() {
+            showStartupContent();
+        }
+    };
     private WebView authPopupWebView;
     private WebView printWebView;
     private ValueCallback<Uri[]> filePathCallback;
@@ -78,11 +96,23 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        webView = new WebView(this);
-        webView.setLayoutParams(new ViewGroup.LayoutParams(
+        FrameLayout startupRoot = new FrameLayout(this);
+        startupRoot.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
-        setContentView(webView);
+
+        webView = new WebView(this);
+        webView.setVisibility(View.INVISIBLE);
+        startupRoot.addView(webView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+
+        startupSplash = createStartupSplashView();
+        startupRoot.addView(startupSplash, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+
+        setContentView(startupRoot);
         requestLegacyStoragePermissionIfNeeded();
 
         configureWebView(webView);
@@ -164,8 +194,102 @@ public class MainActivity extends Activity {
             }
         });
 
-        if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
+        boolean restoredWebViewState = savedInstanceState != null && webView.restoreState(savedInstanceState) != null;
+        if (restoredWebViewState) {
+            // A configuration/process recreation already has a rendered WebView state.
+            showStartupContent();
+        } else {
             webView.loadUrl(startUrl);
+            // Fail-safe only. Normal cold start removes the native splash from the
+            // WebView callbacks below, but never leave the user trapped behind it if an
+            // OEM WebView fails to deliver page callbacks.
+            startupSplashHandler.postDelayed(startupSplashFailsafe, 12000L);
+        }
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private View createStartupSplashView() {
+        final boolean darkMode =
+                (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                        == Configuration.UI_MODE_NIGHT_YES;
+        final int backgroundColor = Color.parseColor(darkMode ? "#0F172A" : "#F8FAFC");
+        final int titleColor = Color.parseColor(darkMode ? "#F8FAFC" : "#0F172A");
+        final int subtitleColor = Color.parseColor(darkMode ? "#CBD5E1" : "#64748B");
+
+        FrameLayout splash = new FrameLayout(this);
+        splash.setBackgroundColor(backgroundColor);
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setGravity(Gravity.CENTER_HORIZONTAL);
+        content.setPadding(dp(28), dp(28), dp(28), dp(28));
+
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.mipmap.ic_launcher);
+        logo.setContentDescription("HNL QLTC");
+        logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        LinearLayout.LayoutParams logoParams = new LinearLayout.LayoutParams(dp(96), dp(96));
+        logoParams.bottomMargin = dp(20);
+        content.addView(logo, logoParams);
+
+        TextView title = new TextView(this);
+        title.setText("HNL Quản Lý Thi Công");
+        title.setTextColor(titleColor);
+        title.setTextSize(20);
+        title.setGravity(Gravity.CENTER);
+        title.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        titleParams.bottomMargin = dp(8);
+        content.addView(title, titleParams);
+
+        TextView subtitle = new TextView(this);
+        subtitle.setText("Đang khởi tạo ứng dụng…");
+        subtitle.setTextColor(subtitleColor);
+        subtitle.setTextSize(13);
+        subtitle.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        subtitleParams.bottomMargin = dp(18);
+        content.addView(subtitle, subtitleParams);
+
+        ProgressBar progress = new ProgressBar(this);
+        progress.setIndeterminate(true);
+        content.addView(progress, new LinearLayout.LayoutParams(dp(32), dp(32)));
+
+        FrameLayout.LayoutParams contentParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER);
+        splash.addView(content, contentParams);
+        return splash;
+    }
+
+    private void showStartupContent() {
+        if (startupContentShown) return;
+        startupContentShown = true;
+        startupSplashHandler.removeCallbacks(startupSplashFailsafe);
+
+        if (webView != null) {
+            webView.setVisibility(View.VISIBLE);
+        }
+        if (startupSplash != null) {
+            View splash = startupSplash;
+            startupSplash = null;
+            splash.animate()
+                    .alpha(0f)
+                    .setDuration(140L)
+                    .withEndAction(() -> {
+                        if (splash.getParent() instanceof ViewGroup) {
+                            ((ViewGroup) splash.getParent()).removeView(splash);
+                        }
+                    })
+                    .start();
         }
     }
 
@@ -221,6 +345,18 @@ public class MainActivity extends Activity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 return request != null && handleUrlOverride(request.getUrl().toString());
+            }
+
+            @Override
+            public void onPageCommitVisible(WebView view, String url) {
+                super.onPageCommitVisible(view, url);
+                if (allowFallback) showStartupContent();
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (allowFallback) showStartupContent();
             }
 
             @Override
@@ -1512,6 +1648,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        startupSplashHandler.removeCallbacks(startupSplashFailsafe);
         closeAuthPopup();
 
         if (webView != null) {

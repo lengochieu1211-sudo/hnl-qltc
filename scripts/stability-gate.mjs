@@ -261,6 +261,18 @@ requireAll(androidMain, [
   'copyGalleryUriToStableCache',
   'PickerCacheProvider.AUTHORITY',
 ], 'Android gallery materializes OEM/Google Photos content into app-owned cache');
+requireAll(androidMain, [
+  'createStartupSplashView',
+  'HNL Quản Lý Thi Công',
+  'Đang khởi tạo ứng dụng…',
+  'webView.setVisibility(View.INVISIBLE)',
+  'onPageCommitVisible',
+  'onPageFinished',
+  'showStartupContent()',
+  'startupSplashHandler.postDelayed(startupSplashFailsafe, 12000L)',
+  'R.mipmap.ic_launcher',
+], 'Android cold start must show native HNL splash instead of a blank WebView');
+
 const pickerProvider = read('android-wrapper/src/com/qlct/app/PickerCacheProvider.java');
 requireAll(pickerProvider, ['ParcelFileDescriptor.MODE_READ_ONLY', 'OpenableColumns.DISPLAY_NAME', 'OpenableColumns.SIZE'], 'Android app-owned picker ContentProvider');
 pass('Android Gallery returns stable app-owned binary to WebView instead of ephemeral OEM content URI');
