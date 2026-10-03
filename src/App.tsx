@@ -4164,8 +4164,8 @@ function AuthenticatedApp() {
           for (const key of restoreKeys) {
             const expectedList = Array.isArray(nextState[key]) ? nextState[key] : [];
             const actualList = Array.isArray((verifiedPayload as any)[key]) ? (verifiedPayload as any)[key] : [];
-            const expectedIds = new Set(expectedList.map((item: any) => String(item?.id || '')).filter(Boolean));
-            const actualIds = new Set(actualList.map((item: any) => String(item?.id || '')).filter(Boolean));
+            const expectedIds = new Set<string>(expectedList.map((item: any) => String(item?.id || '')).filter(Boolean));
+            const actualIds = new Set<string>(actualList.map((item: any) => String(item?.id || '')).filter(Boolean));
             const missing = Array.from(expectedIds).filter((id) => !actualIds.has(id));
             const extra = Array.from(actualIds).filter((id) => !expectedIds.has(id));
             if (missing.length || extra.length) {
