@@ -197,11 +197,37 @@ function Write-HnlAndroidLauncherIcons {
             Write-HnlLauncherPng -Source $source -Size ([int]$entry.Value) -OutputPath (Join-Path $folder 'ic_launcher.png')
             Write-HnlLauncherPng -Source $source -Size ([int]$entry.Value) -OutputPath (Join-Path $folder 'ic_launcher_round.png')
         }
+
+        # Android 12+ system splash can mask/crop launcher artwork. Generate a dedicated
+        # real PNG with transparent safe-area instead of inflating an XML inset drawable
+        # during Activity launch. This keeps the HNL logo fully visible and avoids OEM
+        # runtime crashes observed with the previous nested drawable XML.
+        $splashFolder = Join-Path $root 'res\drawable-nodpi'
+        New-Item -ItemType Directory -Force -Path $splashFolder | Out-Null
+        $canvasSize = 288
+        $logoSize = 172
+        $splashBitmap = New-Object System.Drawing.Bitmap($canvasSize, $canvasSize, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        $splashGraphics = [System.Drawing.Graphics]::FromImage($splashBitmap)
+        try {
+            $splashGraphics.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceOver
+            $splashGraphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+            $splashGraphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+            $splashGraphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+            $splashGraphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+            $splashGraphics.Clear([System.Drawing.Color]::Transparent)
+            $offset = [int](($canvasSize - $logoSize) / 2)
+            $splashGraphics.DrawImage($source, (New-Object System.Drawing.Rectangle($offset, $offset, $logoSize, $logoSize)))
+            $splashBitmap.Save((Join-Path $splashFolder 'hnl_splash_logo.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+        } finally {
+            $splashGraphics.Dispose()
+            $splashBitmap.Dispose()
+        }
     } finally {
         $source.Dispose()
     }
     Write-Output "Android launcher icon source: desktop-wrapper/HNL-QLTC-SHELL-ICON.png"
     Write-Output "Android launcher densities: mdpi=48 hdpi=72 xhdpi=96 xxhdpi=144 xxxhdpi=192"
+    Write-Output "Android splash asset: drawable-nodpi/hnl_splash_logo.png canvas=288 logo=172"
 }
 
 Write-HnlAndroidLauncherIcons -SourcePath $launcherIconSource
