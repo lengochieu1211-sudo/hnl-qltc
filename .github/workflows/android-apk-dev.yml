@@ -84,6 +84,11 @@ jobs:
       VITE_GIT_COMMIT: ${{ github.sha }}
       QLCT_WEB_URL: https://hnl-qltc-dev.web.app/?app=android&env=dev
       QLCT_RELEASE_TAG: 6.3.0-dev
+      # Dedicated DEV signing only. Never point these names at PROD signing material.
+      QLCT_ANDROID_KEYSTORE_BASE64: ${{ secrets.HNL_QLTC_DEV_ANDROID_KEYSTORE_BASE64 }}
+      QLCT_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.HNL_QLTC_DEV_ANDROID_KEYSTORE_PASSWORD }}
+      QLCT_ANDROID_KEY_PASSWORD: ${{ secrets.HNL_QLTC_DEV_ANDROID_KEYSTORE_PASSWORD }}
+      QLCT_ANDROID_KEY_ALIAS: ${{ secrets.HNL_QLTC_DEV_ANDROID_KEY_ALIAS }}
 
     steps:
       - name: Checkout DEV
@@ -181,10 +186,13 @@ jobs:
           if ($after -match ('package="' + [regex]::Escape($env:PROD_ANDROID_PACKAGE) + '"')) { throw 'PROD package remains in DEV manifest' }
           if ($after -notmatch 'android:label="HNL QLTC DEV"') { throw 'DEV label rewrite failed' }
 
-          Remove-Item Env:QLCT_ANDROID_KEYSTORE_BASE64 -ErrorAction SilentlyContinue
-          Remove-Item Env:QLCT_ANDROID_KEYSTORE_PASSWORD -ErrorAction SilentlyContinue
-          Remove-Item Env:QLCT_ANDROID_KEY_PASSWORD -ErrorAction SilentlyContinue
-          Remove-Item Env:QLCT_ANDROID_KEY_ALIAS -ErrorAction SilentlyContinue
+          if ([string]::IsNullOrWhiteSpace($env:QLCT_ANDROID_KEYSTORE_BASE64)) {
+            Write-Warning 'Fixed DEV signing is not configured. This build uses a one-off DEV key, so Android may require uninstall before a later APK.'
+          } else {
+            if ([string]::IsNullOrWhiteSpace($env:QLCT_ANDROID_KEYSTORE_PASSWORD)) { throw 'Missing HNL QLTC DEV keystore password secret' }
+            if ([string]::IsNullOrWhiteSpace($env:QLCT_ANDROID_KEY_ALIAS)) { throw 'Missing HNL QLTC DEV key alias secret' }
+            Write-Host 'Fixed isolated DEV signing: ENABLED'
+          }
 
       - name: Build isolated DEV APK
         shell: pwsh
