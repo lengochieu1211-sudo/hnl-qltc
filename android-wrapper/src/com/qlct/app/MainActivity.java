@@ -100,8 +100,10 @@ public class MainActivity extends Activity {
         startupRoot.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
+        startupRoot.setBackgroundColor(getStartupBackgroundColor());
 
         webView = new WebView(this);
+        webView.setBackgroundColor(getStartupBackgroundColor());
         webView.setVisibility(View.INVISIBLE);
         startupRoot.addView(webView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -119,6 +121,7 @@ public class MainActivity extends Activity {
 
         startUrl = getConfiguredStartUrl();
         webView.setWebViewClient(createAppWebViewClient(true));
+        webView.addJavascriptInterface(new AndroidStartupBridge(), "AndroidStartup");
         webView.addJavascriptInterface(new AndroidExportBridge(), "AndroidExport");
         webView.addJavascriptInterface(new AndroidContactBridge(), "AndroidContact");
         webView.setWebChromeClient(new WebChromeClient() {
@@ -200,10 +203,10 @@ public class MainActivity extends Activity {
             showStartupContent();
         } else {
             webView.loadUrl(startUrl);
-            // Fail-safe only. Normal cold start removes the native splash from the
-            // WebView callbacks below, but never leave the user trapped behind it if an
-            // OEM WebView fails to deliver page callbacks.
-            startupSplashHandler.postDelayed(startupSplashFailsafe, 12000L);
+            // Fail-safe only. Normal cold start removes the native splash only after
+            // React has painted and calls AndroidStartup.markReady(). Never expose the
+            // WebView just because HTML committed: that caused the visible white/gray gap.
+            startupSplashHandler.postDelayed(startupSplashFailsafe, 15000L);
         }
     }
 
@@ -211,11 +214,19 @@ public class MainActivity extends Activity {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
+    @SuppressWarnings("deprecation")
+    private int getStartupBackgroundColor() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            return getColor(R.color.hnl_startup_background);
+        }
+        return getResources().getColor(R.color.hnl_startup_background);
+    }
+
     private View createStartupSplashView() {
         final boolean darkMode =
                 (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
                         == Configuration.UI_MODE_NIGHT_YES;
-        final int backgroundColor = Color.parseColor(darkMode ? "#0F172A" : "#F8FAFC");
+        final int backgroundColor = getStartupBackgroundColor();
         final int titleColor = Color.parseColor(darkMode ? "#F8FAFC" : "#0F172A");
         final int subtitleColor = Color.parseColor(darkMode ? "#CBD5E1" : "#64748B");
 
@@ -228,7 +239,7 @@ public class MainActivity extends Activity {
         content.setPadding(dp(28), dp(28), dp(28), dp(28));
 
         ImageView logo = new ImageView(this);
-        logo.setImageResource(R.mipmap.ic_launcher);
+        logo.setImageResource(R.drawable.splash_logo);
         logo.setContentDescription("HNL QLTC");
         logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         LinearLayout.LayoutParams logoParams = new LinearLayout.LayoutParams(dp(96), dp(96));
@@ -347,17 +358,9 @@ public class MainActivity extends Activity {
                 return request != null && handleUrlOverride(request.getUrl().toString());
             }
 
-            @Override
-            public void onPageCommitVisible(WebView view, String url) {
-                super.onPageCommitVisible(view, url);
-                if (allowFallback) showStartupContent();
-            }
-
-            @Override
-            public void onPageFinished(WebView view, String url) {
-                super.onPageFinished(view, url);
-                if (allowFallback) showStartupContent();
-            }
+            // Do not reveal the WebView from page lifecycle callbacks. HTML can commit
+            // several frames before React/Auth Gate paints, which previously exposed a
+            // blank white/gray frame. AndroidStartup.markReady() owns the cold-start handoff.
 
             @Override
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
@@ -653,6 +656,13 @@ public class MainActivity extends Activity {
             if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, STORAGE_PERMISSION_REQUEST);
             }
+        }
+    }
+
+    public class AndroidStartupBridge {
+        @JavascriptInterface
+        public void markReady() {
+            runOnUiThread(() -> showStartupContent());
         }
     }
 
