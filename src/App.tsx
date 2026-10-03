@@ -281,6 +281,9 @@ export interface ProjectInfo {
   createdAtSource?: 'cloud' | 'local' | 'migrating';
   canonicalProjectId?: string;
   aliases?: string[];
+  archivedAt?: number;
+  archivedByUid?: string;
+  archivedByEmail?: string;
 }
 
 export const getProjectsList = (): ProjectInfo[] => {
@@ -353,7 +356,7 @@ const getVerifiedCachedHomeProjects = (): Array<{ id: string; name: string; role
   const identity = getCurrentRealFirebaseUser() || (!online ? getRememberedVerifiedAuthIdentity() : null);
   if (!identity) return [];
   return getProjectsList().flatMap((project) => {
-    if (!project?.id || project.id === 'default') return [];
+    if (!project?.id || project.id === 'default' || Number(project.archivedAt || 0) > 0) return [];
     const verified = getCachedVerifiedProjectRole(project.id, identity);
     if (!verified?.allowed) return [];
     return [{
@@ -2687,7 +2690,10 @@ function AuthenticatedApp() {
     if (!isOnline) {
       const identity = getCurrentRealFirebaseUser() || getRememberedVerifiedAuthIdentity();
       const cachedProjects = identity
-        ? getProjectsList().filter((project) => getCachedVerifiedProjectRole(project.id, identity)?.allowed === true)
+        ? getProjectsList().filter((project) =>
+            Number(project.archivedAt || 0) <= 0
+            && getCachedVerifiedProjectRole(project.id, identity)?.allowed === true
+          )
         : [];
       setAuthorizedChatProjects(cachedProjects.map((project) => ({
         id: project.id,
@@ -2715,7 +2721,8 @@ function AuthenticatedApp() {
     // sources. Do not run a second server discovery pass on every app startup.
     let firstCloudEmission = true;
     const unsubscribe = subscribeCurrentUserProjectsRealtime((remoteProjects) => {
-      setAuthorizedChatProjects(remoteProjects.map((project) => ({
+      const activeRemoteProjects = remoteProjects.filter((project) => Number(project.archivedAt || 0) <= 0);
+      setAuthorizedChatProjects(activeRemoteProjects.map((project) => ({
         id: project.id,
         name: project.name,
         role: project.role === 'ADMIN' || project.role === 'EDITOR' ? project.role : 'VIEWER',
@@ -2738,6 +2745,9 @@ function AuthenticatedApp() {
           updatedAt: Math.max(Number(cached?.updatedAt || 0), Number(remoteProject.updatedAt || 0)),
           canonicalProjectId: remoteProject.canonicalProjectId,
           aliases: remoteProject.aliases,
+          archivedAt: Number(remoteProject.archivedAt || 0) || undefined,
+          archivedByUid: remoteProject.archivedByUid,
+          archivedByEmail: remoteProject.archivedByEmail,
         };
       });
 
@@ -2785,7 +2795,7 @@ function AuthenticatedApp() {
         && !shouldFollowCanonicalRedirect
         && !currentIsAuthorized
         && !hasUserEditedSinceHydrateRef.current
-        && remoteProjects[0]?.id
+        && activeRemoteProjects[0]?.id
         && (currentActive === 'default' || localProjects.length <= 1);
       firstCloudEmission = false;
 
@@ -2797,7 +2807,7 @@ function AuthenticatedApp() {
       }
 
       if (shouldAutoSwitch) {
-        void switchProject(remoteProjects[0].id).catch((err) =>
+        void switchProject(activeRemoteProjects[0].id).catch((err) =>
           console.warn('Authorized project auto-switch warning:', err)
         );
       }
