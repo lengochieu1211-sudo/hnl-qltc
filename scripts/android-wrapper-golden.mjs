@@ -14,6 +14,7 @@ const startupColorsNight = read('android-wrapper/res/values-night/colors.xml');
 const mainTsx = read('src/main.tsx');
 const workflow = read('.github/workflows/android-apk-dev.yml');
 const mainActivity = read('android-wrapper/src/com/qlct/app/MainActivity.java');
+const androidBuild = read('android-wrapper/build-apk.ps1');
 
 assert(styles.includes('@drawable/startup_window'), 'pre-Android-12 launch window uses branded startup drawable');
 assert(styles31.includes('android:windowSplashScreenBackground') && styles31.includes('@color/hnl_startup_background'), 'Android 12+ system splash uses the shared startup background');
@@ -32,6 +33,8 @@ assert(workflow.includes('HNL_QLTC_DEV_ANDROID_KEY_ALIAS'), 'DEV workflow suppor
 assert(!workflow.includes('secrets.QLCT_ANDROID_KEYSTORE_BASE64'), 'DEV workflow does not consume the PROD keystore secret');
 assert(!workflow.includes('secrets.QLCT_ANDROID_KEYSTORE_PASSWORD'), 'DEV workflow does not consume the PROD keystore password secret');
 assert(workflow.includes('one-off DEV key'), 'DEV workflow warns when fixed signing is not configured');
-assert(read('android-wrapper/build-apk.ps1').includes('hnl_splash_logo.png') && read('android-wrapper/build-apk.ps1').includes('$canvasSize = 288') && read('android-wrapper/build-apk.ps1').includes('$logoSize = 172'), 'Android build generates a real padded PNG splash asset instead of runtime XML composition');
+assert(androidBuild.includes('HNL-QLTC-SPLASH-SOURCE.png') && androidBuild.includes("9ab45895172034ccb4e1386a41a49e5222a32310dc30b48f5b2cea6e14a5c34d"), 'Android splash is pinned to the user-approved 1254px Drive master');
+assert(androidBuild.includes("'drawable-mdpi' = @{ Canvas = 288; Logo = 172 }") && androidBuild.includes("'drawable-xxxhdpi' = @{ Canvas = 1152; Logo = 688 }"), 'Android splash builds density-aware safe-area PNGs without high-DPI upscaling');
+assert(androidBuild.includes('legacyNoDpiSplash') && androidBuild.includes('Remove-Item -LiteralPath $legacyNoDpiSplash -Force'), 'Android build removes stale APK383 nodpi splash output');
 
 console.log('ANDROID WRAPPER GOLDEN PASS');
