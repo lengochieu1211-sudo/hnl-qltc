@@ -5,5 +5,9 @@
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar">true</item>
         <item name="android:windowNoTitle">true</item>
+        <!-- Prevent the default white launch window before MainActivity builds the
+             native startup view. Keep this resource static so cold start never flashes. -->
+        <item name="android:windowBackground">@drawable/startup_window</item>
+        <item name="android:windowDisablePreview">false</item>
     </style>
 </resources>
