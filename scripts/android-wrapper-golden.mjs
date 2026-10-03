@@ -17,6 +17,8 @@ const mainActivity = read('android-wrapper/src/com/qlct/app/MainActivity.java');
 const androidBuild = read('android-wrapper/build-apk.ps1');
 
 assert(styles.includes('@drawable/startup_window'), 'pre-Android-12 launch window uses branded startup drawable');
+assert(styles.includes('android:colorBackground') && styles.includes('@color/hnl_startup_background'), 'legacy launch preview resolves the shared HNL startup background');
+assert(styles31.includes('android:colorBackground') && styles31.includes('@color/hnl_startup_background'), 'Android 12+ launch preview resolves the shared HNL startup background before system splash');
 assert(styles31.includes('android:windowSplashScreenBackground') && styles31.includes('@color/hnl_startup_background'), 'Android 12+ system splash uses the shared startup background');
 assert(styles31.includes('android:windowSplashScreenAnimatedIcon') && styles31.includes('@drawable/hnl_splash_logo'), 'Android 12+ system splash uses the generated padded HNL PNG');
 assert(startupWindow.includes('@color/hnl_startup_background') && startupWindow.includes('@drawable/hnl_splash_logo'), 'launch window uses the same shared background and generated padded logo');

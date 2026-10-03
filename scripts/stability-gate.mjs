@@ -38,6 +38,9 @@ const photoSync = read('src/lib/photoCloudSync.ts');
 const photoStorage = read('src/utils/photoStorage.ts');
 const photoPicker = read('src/components/PhotoAttachmentPicker.tsx');
 const androidMain = read('android-wrapper/src/com/qlct/app/MainActivity.java');
+const androidStyles = read('android-wrapper/res/values/styles.xml');
+const androidStyles31 = read('android-wrapper/res/values-v31/styles.xml');
+const indexCss = read('src/index.css');
 const mainTsx = read('src/main.tsx');
 const desktopBuild = read('desktop-wrapper/build-launcher.ps1');
 const androidBuild = read('android-wrapper/build-apk.ps1');
@@ -274,6 +277,9 @@ requireAll(androidMain, [
   'R.drawable.hnl_splash_logo',
 ], 'Android cold start keeps native HNL splash until the rendered Web UI is ready');
 if (androidMain.includes('if (allowFallback) showStartupContent();')) fail('Android page commit/finish callbacks must not reveal WebView before React paint');
+requireAll(androidStyles, ['android:windowBackground', 'android:colorBackground', '@color/hnl_startup_background'], 'Android legacy launch preview uses branded startup background');
+requireAll(androidStyles31, ['android:windowSplashScreenBackground', 'android:colorBackground', '@color/hnl_startup_background'], 'Android 12+ launch preview and system splash share branded startup background');
+if (!indexCss.includes('html[data-hnl-theme="dark"] .text-slate-950')) fail('Dark theme must remap text-slate-950 so Home title/KPI values remain readable');
 const nativeSplashAttachIndex = androidMain.indexOf('setContentView(startupRoot);');
 const coldWebViewCreateIndex = androidMain.indexOf('webView = new WebView(this);');
 if (nativeSplashAttachIndex < 0 || coldWebViewCreateIndex <= nativeSplashAttachIndex) fail('Android cold start must attach native HNL splash before constructing WebView');

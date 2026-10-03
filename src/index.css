@@ -68,6 +68,7 @@ html[data-hnl-theme="dark"] .bg-slate-200 { background-color: var(--hnl-dark-sur
 
 /* Neutral text. */
 html[data-hnl-theme="dark"] .text-gray-950,
+html[data-hnl-theme="dark"] .text-slate-950,
 html[data-hnl-theme="dark"] .text-gray-900,
 html[data-hnl-theme="dark"] .text-gray-800,
 html[data-hnl-theme="dark"] .text-gray-700,

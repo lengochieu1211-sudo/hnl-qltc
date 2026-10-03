@@ -6,6 +6,7 @@
         <item name="android:windowLightNavigationBar">true</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowBackground">@drawable/startup_window</item>
+        <item name="android:colorBackground">@color/hnl_startup_background</item>
         <item name="android:windowDisablePreview">false</item>
     </style>
 </resources>
