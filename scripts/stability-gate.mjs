@@ -271,7 +271,7 @@ requireAll(androidMain, [
   'public void markReady()',
   'showStartupContent()',
   'startupSplashHandler.postDelayed(startupSplashFailsafe, 15000L)',
-  'R.drawable.splash_logo',
+  'R.drawable.hnl_splash_logo',
 ], 'Android cold start keeps native HNL splash until the rendered Web UI is ready');
 if (androidMain.includes('if (allowFallback) showStartupContent();')) fail('Android page commit/finish callbacks must not reveal WebView before React paint');
 requireAll(mainTsx, ['notifyAndroidStartupReadyAfterPaint', 'AndroidStartup?.markReady?.()', 'window.requestAnimationFrame(notify)'], 'React paint explicitly owns Android splash handoff');
@@ -291,6 +291,7 @@ requireAll(app, ['? 250 : 150', 'Math.min(30000, 750 * Math.pow(2', 'photoOutbox
 requireAll(photoSync, ['PHOTO_INITIAL_SYNC_DELAY_MS = 1200', 'requestIdleCallback(run, { timeout: 1000 })', '}, 5000);'], 'photo initial reconciliation latency');
 requireAll(desktopBuild, ['HNL-QLTC-SHELL-ICON.png', 'Write-HnlIcoFromPng -PngPath $logoSource -IcoPath $generatedIcon', 'HNL.QLTC.Brand.Icon', 'HNL.QLTC.Brand.Png', 'Certified multi-resolution ICO'], 'Windows dedicated shell icon, embedded branding resources and multi-resolution icon generation');
 requireAll(androidBuild, ['desktop-wrapper\\HNL-QLTC-SHELL-ICON.png', "'mipmap-mdpi' = 48", "'mipmap-hdpi' = 72", "'mipmap-xhdpi' = 96", "'mipmap-xxhdpi' = 144", "'mipmap-xxxhdpi' = 192", 'ic_launcher.png', 'ic_launcher_round.png'], 'Android dedicated shell launcher icon generation');
+requireAll(androidBuild, ['hnl_splash_logo.png', '$canvasSize = 288', '$logoSize = 172'], 'Android splash uses a generated padded PNG safe-area asset');
 requireAll(authHeader, ['/icon.png?v=${APP_VERSION}-brand20260921'], 'Web/in-app unified HNL brand fallback');
 if (!desktopBuild.includes('HNL-QLTC-SHELL-ICON.png') || !androidBuild.includes('HNL-QLTC-SHELL-ICON.png')) fail('Windows and Android must continue to use the same certified HNL master artwork');
 if (desktopBuild.includes('Optimize-HnlSmallIconFrame')) fail('Windows icon builder must not visually alter the certified HNL logo with custom sharpening/contrast');
