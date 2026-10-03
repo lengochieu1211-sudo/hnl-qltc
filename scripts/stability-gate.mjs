@@ -38,6 +38,7 @@ const photoSync = read('src/lib/photoCloudSync.ts');
 const photoStorage = read('src/utils/photoStorage.ts');
 const photoPicker = read('src/components/PhotoAttachmentPicker.tsx');
 const androidMain = read('android-wrapper/src/com/qlct/app/MainActivity.java');
+const mainTsx = read('src/main.tsx');
 const desktopBuild = read('desktop-wrapper/build-launcher.ps1');
 const androidBuild = read('android-wrapper/build-apk.ps1');
 const imageCompressor = read('src/utils/imageCompressor.ts');
@@ -266,12 +267,14 @@ requireAll(androidMain, [
   'HNL Quản Lý Thi Công',
   'Đang khởi tạo ứng dụng…',
   'webView.setVisibility(View.INVISIBLE)',
-  'onPageCommitVisible',
-  'onPageFinished',
+  'new AndroidStartupBridge()',
+  'public void markReady()',
   'showStartupContent()',
-  'startupSplashHandler.postDelayed(startupSplashFailsafe, 12000L)',
-  'R.mipmap.ic_launcher',
-], 'Android cold start must show native HNL splash instead of a blank WebView');
+  'startupSplashHandler.postDelayed(startupSplashFailsafe, 15000L)',
+  'R.drawable.splash_logo',
+], 'Android cold start keeps native HNL splash until the rendered Web UI is ready');
+if (androidMain.includes('if (allowFallback) showStartupContent();')) fail('Android page commit/finish callbacks must not reveal WebView before React paint');
+requireAll(mainTsx, ['notifyAndroidStartupReadyAfterPaint', 'AndroidStartup?.markReady?.()', 'window.requestAnimationFrame(notify)'], 'React paint explicitly owns Android splash handoff');
 
 const pickerProvider = read('android-wrapper/src/com/qlct/app/PickerCacheProvider.java');
 requireAll(pickerProvider, ['ParcelFileDescriptor.MODE_READ_ONLY', 'OpenableColumns.DISPLAY_NAME', 'OpenableColumns.SIZE'], 'Android app-owned picker ContentProvider');
