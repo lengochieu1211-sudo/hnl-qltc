@@ -14,37 +14,44 @@ const cloudDefects = Array.from({ length: 17 }, (_, index) =>
 );
 const staleLocalNine = cloudDefects.slice(0, 9).map((item) => ({ ...item }));
 
-const reconciled = reconcileBackupSnapshot(
-  { defects: cloudDefects, tombstones: {}, updatedAt: 2000 },
-  { defects: staleLocalNine, tombstones: {}, updatedAt: 1900 },
+assert.throws(
+  () =>
+    reconcileBackupSnapshot(
+      { defects: cloudDefects, tombstones: {}, updatedAt: 2000 },
+      { defects: staleLocalNine, tombstones: {}, updatedAt: 1900 },
+    ),
+  /defects: 8 bản ghi.*chỉ có trên Firestore/i,
+  'Cloud-only rows are ambiguous and must never be silently injected into a backup.',
 );
-assert.equal(reconciled.defects.length, 17, 'Cloud rows missing from stale local state must be preserved.');
-assert.deepEqual(
-  new Set(reconciled.defects.map((item: any) => item.id)),
-  new Set(cloudDefects.map((item) => item.id)),
-  'Reconciled backup must retain every Cloud defect ID.',
-);
-assert.equal(reconciled.updatedAt, 2000, 'Backup reconciliation must preserve real data time, not export time.');
 
-const tombstonedId = 'DEF-CLOUD-17';
+const synced = reconcileBackupSnapshot(
+  { defects: cloudDefects, tombstones: {}, updatedAt: 2000 },
+  { defects: cloudDefects.map((item) => ({ ...item })), tombstones: {}, updatedAt: 1900 },
+);
+assert.equal(synced.defects.length, 17, 'A converged Cloud/live state must back up normally.');
+assert.equal(synced.updatedAt, 2000, 'Backup reconciliation must preserve real data time, not export time.');
+
+const historicalId = 'DEF-HISTORICAL-OLD';
+const historicalCloud = [...staleLocalNine, makeDefect(historicalId, 1200, 'legacy historical row')];
 const deletionAt = 5000;
 const withTombstone = reconcileBackupSnapshot(
-  { defects: cloudDefects, tombstones: {}, updatedAt: 2000 },
+  { defects: historicalCloud, tombstones: {}, updatedAt: 2000 },
   {
     defects: staleLocalNine,
-    tombstones: { [`defects_${tombstonedId}`]: deletionAt },
+    tombstones: { [`defects_${historicalId}`]: deletionAt },
     updatedAt: deletionAt,
   },
 );
 assert.equal(
-  withTombstone.defects.some((item: any) => item.id === tombstonedId),
+  withTombstone.defects.some((item: any) => item.id === historicalId),
   false,
-  'A newer local tombstone must prevent Cloud backup reconciliation from resurrecting an intentional delete.',
+  'A newer tombstone is explicit deletion evidence and must prevent historical-row resurrection.',
 );
+assert.equal(withTombstone.defects.length, 9);
 
 const localOnly = makeDefect('DEF-LOCAL-PENDING', 9000, 'newer local unsynced');
 const withLocalPending = reconcileBackupSnapshot(
-  { defects: cloudDefects, tombstones: {}, updatedAt: 2000 },
+  { defects: staleLocalNine, tombstones: {}, updatedAt: 2000 },
   { defects: [...staleLocalNine, localOnly], tombstones: {}, updatedAt: 9000 },
 );
 assert.equal(
@@ -63,22 +70,22 @@ assert.match(
 assert.match(
   appSource,
   /reconcileBackupSnapshot\(cloudPayload,\s*localSnapshot\)/,
-  'Single-project backup must reconcile Cloud authority with current local state.',
+  'Single-project backup must verify Cloud state against current live state.',
 );
 assert.match(
   appSource,
   /materialNorms:\s*backupSource\.materialNorms/,
-  'Backup payload must use the reconciled snapshot rather than raw React state.',
+  'Backup payload must use the verified snapshot rather than raw React state.',
 );
 assert.match(
   appSource,
   /defects:\s*backupSource\.defects/,
-  'Defect backup must use the reconciled snapshot rather than raw React state.',
+  'Defect backup must use the verified snapshot rather than raw React state.',
 );
 assert.match(
   appSource,
   /payload = await buildFirebaseOnlyCanonicalBackupSnapshot\(\)/,
-  'All-project backup must use the same canonical snapshot for the active project.',
+  'All-project backup must use the same verified snapshot for the active project.',
 );
 
 console.log('Backup Cloud authority golden: PASS');
