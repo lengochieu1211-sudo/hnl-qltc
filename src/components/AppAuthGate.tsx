@@ -131,14 +131,12 @@ export const AppAuthGate: React.FC<AppAuthGateProps> = ({ children }) => {
       <div className="relative z-10 mx-auto flex min-h-[100dvh] w-full max-w-md flex-col px-5 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(34px,env(safe-area-inset-top))] sm:px-7">
         <div className="flex flex-1 flex-col justify-center py-5">
           <div className="text-center">
-            <div className={`mx-auto flex h-28 w-28 items-center justify-center rounded-[30px] border shadow-[0_18px_50px_rgba(37,99,235,0.16)] ${dark ? 'border-slate-800 bg-slate-900/85' : 'border-white/90 bg-white/90'}`}>
-              <img
-                src={`/icon.png?v=${APP_VERSION}-auth-blue`}
-                alt="HNL QLTC"
-                className="h-24 w-24 object-contain"
-                draggable={false}
-              />
-            </div>
+            <img
+              src={`/icon.png?v=${APP_VERSION}-auth-blue`}
+              alt="HNL QLTC"
+              className="mx-auto h-28 w-28 object-contain drop-shadow-[0_16px_28px_rgba(37,99,235,0.16)]"
+              draggable={false}
+            />
             <h1 className="mt-5 text-[34px] font-black tracking-[-0.045em] sm:text-4xl">
               HNL <span className="text-blue-600">QLTC</span>
             </h1>
@@ -200,7 +198,6 @@ export const AppAuthGate: React.FC<AppAuthGateProps> = ({ children }) => {
             )}
             <span>v{APP_VERSION}</span>
           </div>
-          <div className="mt-2 normal-case tracking-normal">Công ty Cổ phần Công nghiệp An Phú</div>
         </div>
       </div>
     </div>
