@@ -759,36 +759,58 @@ export async function getProjectPhotosWithBinary(projectId: string, requireBinar
 export async function restorePhotosFromBackup(
   projectId: string,
   photos: PhotoAttachment[],
-  photoDataMap?: Record<string, string>
+  photoDataMap?: Record<string, string>,
+  options: { concurrency?: number; onProgress?: (done: number, total: number) => void } = {}
 ): Promise<{ restoredCount: number; missingCount: number }> {
   if (!projectId || !Array.isArray(photos)) return { restoredCount: 0, missingCount: 0 };
   let restoredCount = 0;
   let missingCount = 0;
+  let completedCount = 0;
+  const concurrency = Math.max(1, Math.min(3, Math.floor(Number(options.concurrency || 2))));
+  let cursor = 0;
 
-  for (const photo of photos) {
-    if (!photo.id) continue;
-    const imgData = (photoDataMap && photoDataMap[photo.id]) || photo.base64 || photo.localUri || photo.dataUrl;
-    if (imgData && imgData.startsWith('data:image/')) {
-      try {
-        const blob = dataURItoBlob(imgData);
-        await localforage.setItem(getPhotoBlobKey(photo.id), blob);
+  // Backup photos are independent immutable assets. Restore them with a small worker
+  // pool so Android/WebView does not spend minutes decoding/thumbing one image at a
+  // time, while keeping memory bounded on lower-end phones.
+  const workers = Array.from({ length: Math.min(concurrency, Math.max(1, photos.length)) }, async () => {
+    while (true) {
+      const index = cursor++;
+      if (index >= photos.length) return;
+      const photo = photos[index];
+      if (!photo?.id) {
+        completedCount++;
+        options.onProgress?.(completedCount, photos.length);
+        continue;
+      }
+
+      const imgData = (photoDataMap && photoDataMap[photo.id]) || photo.base64 || photo.localUri || photo.dataUrl;
+      if (imgData && imgData.startsWith('data:image/')) {
         try {
-          const thumbDataUrl = await compressImage(imgData, 320, 0.70);
-          const thumbBlob = dataURItoBlob(thumbDataUrl);
-          await localforage.setItem(getPhotoThumbKey(photo.id), thumbBlob);
-        } catch (_) {}
+          const blob = dataURItoBlob(imgData);
+          await localforage.setItem(getPhotoBlobKey(photo.id), blob);
+          try {
+            // Reuse the already-decoded Blob instead of running the base64 pipeline
+            // again. This preserves the same 320px/0.70 thumbnail contract.
+            const thumbBlob = await compressImageToBlob(blob, 320, 0.70);
+            if (thumbBlob) await localforage.setItem(getPhotoThumbKey(photo.id), thumbBlob);
+          } catch (_) {}
+          restoredCount++;
+        } catch (e) {
+          console.warn('Error restoring photo blob to localforage:', e);
+          missingCount++;
+        }
+      } else if (photo.cloudUrl || photo.cloudFileId || photo.storagePath) {
+        // Remote cloud reference exists.
         restoredCount++;
-      } catch (e) {
-        console.warn('Error restoring photo blob to localforage:', e);
+      } else {
         missingCount++;
       }
-    } else if (photo.cloudUrl || photo.cloudFileId) {
-      // Remote cloud reference exists
-      restoredCount++;
-    } else {
-      missingCount++;
+      completedCount++;
+      options.onProgress?.(completedCount, photos.length);
     }
-  }
+  });
+  await Promise.all(workers);
+
   const cleanPhotos = photos.map(p => {
     const copy = { ...p };
     delete copy.localUri;
@@ -798,9 +820,19 @@ export async function restorePhotosFromBackup(
   });
   const existing = await getProjectPhotos(projectId, true);
   const existingMap = new Map(existing.map(e => [e.id, e]));
-  for (const cp of cleanPhotos) {
-    existingMap.set(cp.id, cp);
-    if (FIREBASE_ONLY_RUNTIME) await savePendingPhotoMetadata({ ...cp, projectId });
+  for (const cp of cleanPhotos) existingMap.set(cp.id, cp);
+
+  if (FIREBASE_ONLY_RUNTIME) {
+    let pendingCursor = 0;
+    const pendingWorkers = Array.from({ length: Math.min(4, Math.max(1, cleanPhotos.length)) }, async () => {
+      while (true) {
+        const index = pendingCursor++;
+        if (index >= cleanPhotos.length) return;
+        const cp = cleanPhotos[index];
+        if (cp?.id) await savePendingPhotoMetadata({ ...cp, projectId });
+      }
+    });
+    await Promise.all(pendingWorkers);
   }
   await saveProjectPhotos(projectId, Array.from(existingMap.values()));
   return { restoredCount, missingCount };

@@ -2347,20 +2347,35 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
       }
     };
 
-    for (const { cloudName, stateKey } of subNames) {
-      const list = payloadData[stateKey];
-      const cloudById = new Map<string, any>();
+    // Read independent business collections in parallel before writing. This removes
+    // one network round-trip per collection from manual JSON restore and is safer for an
+    // authoritative restore: if a required collection cannot be read, fail before any
+    // business subcollection writes begin instead of discovering it halfway through.
+    const existingCloudByCollection = new Map<string, Map<string, any>>();
+    const preflightReads = await Promise.all(subNames.map(async ({ cloudName }) => {
       try {
         const existingSnap = await getDocs(collection(db, 'projects', project.id, cloudName));
-        existingSnap.docs.forEach((row) => cloudById.set(row.id, row.data()));
-      } catch (err: any) {
-        console.warn(`[Cloud Sync] Could not read current ${cloudName} revisions before full UPSERT:`, err);
-        if (authoritativeBackupRestore) {
-          const wrapped = new Error(`Firestore restore failed reading current ${cloudName}: ${String(err?.code || err?.message || err)}`);
-          (wrapped as any).code = err?.code || 'restore-read-failed';
-          throw wrapped;
-        }
+        return { cloudName, existingSnap, error: null as any };
+      } catch (error: any) {
+        return { cloudName, existingSnap: null as any, error };
       }
+    }));
+    for (const { cloudName, existingSnap, error } of preflightReads) {
+      const cloudById = new Map<string, any>();
+      if (existingSnap) existingSnap.docs.forEach((row: any) => cloudById.set(row.id, row.data()));
+      existingCloudByCollection.set(cloudName, cloudById);
+      if (!error) continue;
+      console.warn(`[Cloud Sync] Could not read current ${cloudName} revisions before full UPSERT:`, error);
+      if (authoritativeBackupRestore) {
+        const wrapped = new Error(`Firestore restore failed reading current ${cloudName}: ${String(error?.code || error?.message || error)}`);
+        (wrapped as any).code = error?.code || 'restore-read-failed';
+        throw wrapped;
+      }
+    }
+
+    for (const { cloudName, stateKey } of subNames) {
+      const list = payloadData[stateKey];
+      const cloudById = existingCloudByCollection.get(cloudName) || new Map<string, any>();
 
       // Firebase-only rule: a missing item in a local snapshot is NOT proof of deletion.
       // A device may have an incomplete/offline cache. Deletions travel only as explicit
