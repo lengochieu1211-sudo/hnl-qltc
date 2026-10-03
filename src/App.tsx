@@ -10,7 +10,7 @@ import { SecurityModal } from './components/SecurityModal';
 import { getStoredPinLockConfig, applyRemotePinReset, logAuditAction, getCurrentUserRole, setCurrentUserRole, UserRole, canEditProjectData, canManageProjects, canManageWorkVolumeStructure, canManageFloorPlanStructure, canManageMaterialNorms, canManageTeams, canManageChecklistStructure, canDeleteBusinessData, canDeleteCrewRecord, canManageBackups, canUseGlobalUndoRedo, canEditWarehouseData, canEditDefectData, canEditChecklistData, canEditCrewData, canImportData } from './utils/securityUtils';
 import { cacheVerifiedProjectRole, getCachedVerifiedProjectRole, getRememberedVerifiedAuthIdentity, rememberVerifiedAuthIdentity } from './utils/offlineAccess';
 import { loadVerifiedOfflineBusinessSnapshot, saveVerifiedOfflineBusinessSnapshot } from './lib/verifiedOfflineBusinessSnapshot';
-import { applyVerifiedOfflineWorkingDelta, buildVerifiedOfflineWorkingDelta, loadVerifiedOfflineWorkingDelta, saveVerifiedOfflineWorkingDelta } from './lib/verifiedOfflineWorkingState';
+import { applyVerifiedOfflineWorkingDelta, buildVerifiedOfflineWorkingDelta, clearVerifiedOfflineWorkingDelta, loadVerifiedOfflineWorkingDelta, saveVerifiedOfflineWorkingDelta } from './lib/verifiedOfflineWorkingState';
 import { resolveVerifiedIdentityLabel } from './utils/authIdentityUtils';
 
 function restoreLocalFloorPlanIdentity(cloudItem: any, localItem: any): any {
@@ -4057,6 +4057,7 @@ function AuthenticatedApp() {
         }
       : normalizedRestoreData;
     syncLockRef.current = true;
+    let authoritativeVerifiedUpdatedAt = 0;
     try {
       const pid = operationProjectId;
       if (data.projectName) {
@@ -4126,6 +4127,83 @@ function AuthenticatedApp() {
           syncCode: pid.slice(0, 8).toUpperCase(),
           payload: nextState,
         }, { authoritativeBackupRestore: options?.authoritativeBackupRestore === true });
+
+        if (options?.authoritativeBackupRestore === true) {
+          // Full Replace is only successful after the SERVER confirms exact active IDs.
+          // This closes two restore holes at once:
+          // 1) stale local/offline tombstones can no longer hide rows that the ADMIN just restored;
+          // 2) Cloud-only historical rows cannot survive a UI action labelled "Ghi đè hoàn toàn".
+          const verifiedCloud = await fetchProjectFromCloud(pid, { serverOnly: true });
+          const verifiedPayload = verifiedCloud ? (getCloudPayload(verifiedCloud) || {}) : null;
+          if (!verifiedPayload) {
+            throw new Error('Khôi phục chưa được Server xác nhận. Không thể đọc lại dữ liệu Firestore sau khi ghi.');
+          }
+
+          const restoreKeys = REALTIME_STATE_KEYS as (keyof AppData)[];
+          const restoreMismatches: string[] = [];
+          for (const key of restoreKeys) {
+            const expectedList = Array.isArray(nextState[key]) ? nextState[key] : [];
+            const actualList = Array.isArray((verifiedPayload as any)[key]) ? (verifiedPayload as any)[key] : [];
+            const expectedIds = new Set(expectedList.map((item: any) => String(item?.id || '')).filter(Boolean));
+            const actualIds = new Set(actualList.map((item: any) => String(item?.id || '')).filter(Boolean));
+            const missing = Array.from(expectedIds).filter((id) => !actualIds.has(id));
+            const extra = Array.from(actualIds).filter((id) => !expectedIds.has(id));
+            if (missing.length || extra.length) {
+              restoreMismatches.push(
+                `${String(key)} JSON=${expectedIds.size} Cloud=${actualIds.size}`
+                + (missing.length ? ` thiếu [${missing.slice(0, 3).join(', ')}]` : '')
+                + (extra.length ? ` dư [${extra.slice(0, 3).join(', ')}]` : '')
+              );
+            }
+          }
+          if (restoreMismatches.length > 0) {
+            throw new Error(`Khôi phục Full Replace chưa đạt đối chiếu Server: ${restoreMismatches.join(' | ')}`);
+          }
+
+          // The explicit ADMIN restore supersedes any pre-restore local delete overlay.
+          // Clear it only AFTER Firestore has passed the exact-ID verification above.
+          localTombstonesRef.current = {};
+          persistLocalTombstones(pid);
+          const restoreActor = getCurrentRealFirebaseUser();
+          if (restoreActor?.uid && restoreActor.email) {
+            await clearVerifiedOfflineWorkingDelta(pid, restoreActor);
+          }
+
+          const backupFloorById = new Map(
+            (nextState.floorPlans || []).filter((item: any) => item?.id).map((item: any) => [String(item.id), item] as const)
+          );
+          const verifiedFloorPlans = (Array.isArray((verifiedPayload as any).floorPlans) ? (verifiedPayload as any).floorPlans : [])
+            .map((cloudItem: any) => {
+              const localItem = backupFloorById.get(String(cloudItem?.id || ''));
+              if (!localItem) return cloudItem;
+              return restoreLocalOmittedImages(restoreLocalFloorPlanIdentity(cloudItem, localItem), localItem);
+            })
+            .sort((a: any, b: any) => Number(a?.order || 0) - Number(b?.order || 0));
+
+          const verifiedState: AppData = {
+            materialNorms: Array.isArray((verifiedPayload as any).materialNorms) ? (verifiedPayload as any).materialNorms : [],
+            inventory: Array.isArray((verifiedPayload as any).inventory) ? (verifiedPayload as any).inventory : [],
+            workVolumes: Array.isArray((verifiedPayload as any).workVolumes) ? (verifiedPayload as any).workVolumes : [],
+            floorPlans: verifiedFloorPlans,
+            defects: Array.isArray((verifiedPayload as any).defects) ? (verifiedPayload as any).defects : [],
+            roomProgressList: Array.isArray((verifiedPayload as any).roomProgressList) ? (verifiedPayload as any).roomProgressList : [],
+            checklist: Array.isArray((verifiedPayload as any).checklist) ? (verifiedPayload as any).checklist : [],
+            crewRecords: Array.isArray((verifiedPayload as any).crewRecords) ? (verifiedPayload as any).crewRecords : [],
+            teams: Array.isArray((verifiedPayload as any).teams) ? (verifiedPayload as any).teams : [],
+          };
+
+          lastSyncedPresentRef.current = verifiedState;
+          localDirtyRevisionRef.current = {};
+          localMetadataDirtyRevisionRef.current = 0;
+          authoritativeVerifiedUpdatedAt = parseLegacyTimestamp((verifiedCloud as any)?.updatedAt || (verifiedPayload as any).updatedAt, Date.now());
+
+          if (isCurrentActive) {
+            setPresent(verifiedState);
+            setBusinessDataSource('cloud');
+          }
+          console.log('[RESTORE VERIFIED]', pid, 'defects=', verifiedState.defects.length);
+        }
+
         if (importedSharedSettings && (options?.authoritativeBackupRestore === true || options?.sharedSettingsRestoreMode)) {
           // Backup v4 includes project-scoped operational settings. CREATE/new-copy may
           // restore them directly. SMART MERGE only accepts the incoming settings when
@@ -4159,7 +4237,9 @@ function AuthenticatedApp() {
       }
 
       const parsedSourceTime = parseLegacyTimestamp(data.updatedAt, 0);
-      let updatedTime = parsedSourceTime > 0 ? parsedSourceTime : 0;
+      let updatedTime = authoritativeVerifiedUpdatedAt > 0
+        ? authoritativeVerifiedUpdatedAt
+        : (parsedSourceTime > 0 ? parsedSourceTime : 0);
       if (updatedTime === 0) {
         let maxTime = 0;
         const scanArray = (arr: any[]) => {
