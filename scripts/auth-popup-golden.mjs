@@ -29,9 +29,9 @@ assert(firebaseBase.includes('subscribeToFirebaseAuthSettled'), 'Auth exposes a 
 assert(authGate.includes("type AuthGateState = 'checking' | 'authenticated' | 'offline-remembered' | 'signed-out'"), 'entry gate models checking, signed-in, remembered-offline and signed-out states explicitly');
 assert(authGate.includes('data-hnl-auth-gate="checking"'), 'checking auth state uses a dedicated restore splash without rendering the login card');
 assert(authGate.includes("data-hnl-auth-gate={state}"), 'signed-out state is rendered by a dedicated full-screen auth surface');
-assert(authGate.includes('Đăng nhập bằng Google'), 'dedicated entry screen exposes one clear Google sign-in action');
-assert(authGate.includes('BUILD_METADATA.environment') && authGate.includes('Môi trường DEV'), 'login surface visibly identifies DEV without changing auth logic');
-assert(authGate.includes('drop-shadow') && !authGate.includes('rounded-3xl border p-2'), 'login logo is presented without the old surrounding border frame');
+assert(authGate.includes('Đăng nhập với Google'), 'dedicated entry screen exposes one clear Google sign-in action');
+assert(authGate.includes('BUILD_METADATA.environment') && authGate.includes("appEnv === 'DEV'") && authGate.includes('DEV'), 'login surface visibly identifies DEV without changing auth logic');
+assert(authGate.includes('/icon.png') && authGate.includes('rounded-[30px]') && !authGate.includes('HNL Construction'), 'login uses the canonical HNL icon in the approved centered blue layout without the old top-left label');
 assert(authHeader.includes("BUILD_METADATA.environment === 'DEV'") && authHeader.includes('DEV'), 'authenticated header keeps a visible DEV badge across Web/APK/EXE');
 assert(androidBuild.includes('HNL QLTC DEV') && androidBuild.includes('android:label'), 'Android DEV build rewrites launcher label while PROD keeps its normal label');
 assert(authGate.includes('getRememberedVerifiedAuthIdentity'), 'offline entry reuses only the previously verified remembered identity');
