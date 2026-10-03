@@ -4056,6 +4056,26 @@ function AuthenticatedApp() {
           floorPlans: prepareFloorPlansForBackupRestore(normalizedRestoreData.floorPlans),
         }
       : normalizedRestoreData;
+
+    if (options?.authoritativeBackupRestore === true) {
+      // Full Replace may remove Cloud rows that are absent from the backup, so the
+      // backup must explicitly carry all nine business collections. Missing collections
+      // are ambiguous and must fail closed rather than being interpreted as empty.
+      const restoreKeys = REALTIME_STATE_KEYS as (keyof AppData)[];
+      const invalidCollections = restoreKeys.filter((key) => !Array.isArray((data as any)[key]));
+      if (invalidCollections.length > 0) {
+        throw new Error(`Bản sao lưu không đủ dữ liệu để Ghi đè hoàn toàn. Thiếu: ${invalidCollections.join(', ')}.`);
+      }
+      for (const key of restoreKeys) {
+        const list = (data as any)[key] as any[];
+        const ids = list.map((item) => String(item?.id || '').trim());
+        const missingIdCount = ids.filter((id) => !id).length;
+        const uniqueIds = new Set(ids.filter(Boolean));
+        if (missingIdCount > 0 || uniqueIds.size !== list.length) {
+          throw new Error(`Bản sao lưu có ID không hợp lệ/trùng lặp trong ${String(key)}. Dừng Ghi đè hoàn toàn để bảo vệ dữ liệu.`);
+        }
+      }
+    }
     syncLockRef.current = true;
     let authoritativeVerifiedUpdatedAt = 0;
     try {
