@@ -239,7 +239,7 @@ public class MainActivity extends Activity {
         content.setPadding(dp(28), dp(28), dp(28), dp(28));
 
         ImageView logo = new ImageView(this);
-        logo.setImageResource(R.drawable.splash_logo);
+        logo.setImageResource(R.drawable.hnl_splash_logo);
         logo.setContentDescription("HNL QLTC");
         logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         LinearLayout.LayoutParams logoParams = new LinearLayout.LayoutParams(dp(96), dp(96));
