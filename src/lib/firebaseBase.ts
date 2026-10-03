@@ -1279,7 +1279,16 @@ export async function signInWithGoogle(): Promise<User | null> {
         Boolean((navigator as any).userAgentData?.mobile) ||
         /Android|iPhone|iPad|iPod|Mobile/i.test(ua)
       );
-      if (mobileLike) {
+      // The native Android wrapper exposes AndroidExport/AndroidContact bridges and
+      // already implements WebChromeClient.onCreateWindow for OAuth popups. Firebase
+      // redirect auth inside WebView may lose its sessionStorage "initial state" after
+      // the Google round-trip, so use the popup transport only for the native wrapper.
+      // Normal Chrome/Safari mobile browsers keep the existing redirect flow.
+      const androidNativeWrapper = typeof window !== 'undefined' && (
+        Boolean((window as any).AndroidExport) ||
+        Boolean((window as any).AndroidContact)
+      );
+      if (mobileLike && !androidNativeWrapper) {
         await signInWithRedirect(auth, provider);
         return null;
       }
