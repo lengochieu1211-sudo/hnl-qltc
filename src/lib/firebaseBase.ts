@@ -2287,6 +2287,7 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
     await ensureAuth();
     const authoritativeBackupRestore = options?.authoritativeBackupRestore === true;
     const financialActor = getCurrentRealFirebaseUser();
+    let authoritativeRestoreActor: User | null = null;
     let canWriteFinancials = false;
     if (financialActor) {
       try {
@@ -2307,6 +2308,7 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
     if (authoritativeBackupRestore) {
       const restoreActor = getCurrentRealFirebaseUser();
       if (!restoreActor) throw new Error('Khôi phục bản sao lưu cần tài khoản Firebase đã xác thực.');
+      authoritativeRestoreActor = restoreActor;
       const restoreRole = await fetchProjectUserRoleFromCloud(project.id, restoreActor);
       if (restoreRole.verification !== 'verified' || !restoreRole.allowed || restoreRole.role !== 'ADMIN') {
         throw new Error('Chỉ ADMIN đã xác minh mới được khôi phục chính xác dữ liệu từ bản sao lưu.');
@@ -2432,6 +2434,11 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
     for (const { cloudName, stateKey } of subNames) {
       const list = payloadData[stateKey];
       const cloudById = existingCloudByCollection.get(cloudName) || new Map<string, any>();
+      const expectedActiveIds = new Set<string>(
+        (Array.isArray(list) ? list : [])
+          .map((item: any) => String(item?.id || ''))
+          .filter(Boolean)
+      );
 
       // Firebase-only rule: a missing item in a local snapshot is NOT proof of deletion.
       // A device may have an incomplete/offline cache. Deletions travel only as explicit
@@ -2554,6 +2561,53 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
           }
         }
       }
+      if (authoritativeBackupRestore) {
+        // "Khôi phục từ bản sao lưu" is a real Full Replace. Rows that are active in
+        // Firestore but absent from the backup must be soft-deleted, not left behind to
+        // reappear on another device. Use the same monotonic lifecycle fields as normal
+        // deletes so Rules/realtime keep one deterministic history.
+        const actor = authoritativeRestoreActor || financialActor;
+        for (const [cloudId, currentCloud] of cloudById.entries()) {
+          if (expectedActiveIds.has(String(cloudId)) || currentCloud?.deleted === true) continue;
+
+          const deletedAt = Math.max(now, Number(currentCloud?.updatedAt || 0) + 1);
+          const deletionRevision = Math.max(Number(currentCloud?.revision || 0) + 1, 1);
+
+          if (cloudName === 'work_volumes' && canWriteFinancials) {
+            batch.set(doc(db, 'projects', project.id, WORK_VOLUME_FINANCIAL_COLLECTION, String(cloudId)), {
+              id: String(cloudId),
+              deleted: true,
+              updatedAt: deletedAt,
+              updatedByUid: actor?.uid || '',
+              updatedByEmail: normalizeEmail(actor?.email),
+            }, { merge: true });
+            operationCount++;
+            if (operationCount >= 100) {
+              await commitBatch(`${cloudName} financial replace chunk`);
+            }
+          }
+
+          batch.set(doc(db, 'projects', project.id, cloudName, String(cloudId)), {
+            id: String(cloudId),
+            deleted: true,
+            deletedAt,
+            deletedByUid: actor?.uid || '',
+            deletedBy: actor?.uid || '',
+            revision: deletionRevision,
+            updatedAt: deletedAt,
+            updatedByUid: actor?.uid || '',
+            updatedByEmail: normalizeEmail(actor?.email),
+            updatedByDeviceId: getDeviceId(),
+            updatedByDeviceName: getDeviceName(),
+          }, { merge: true });
+          operationCount++;
+
+          if (operationCount >= 100) {
+            await commitBatch(`${cloudName} replace chunk`);
+          }
+        }
+      }
+
       // During explicit backup restore, isolate commits per collection so a Rules/RBAC
       // rejection identifies the exact business collection without weakening any rule.
       if (authoritativeBackupRestore) {
