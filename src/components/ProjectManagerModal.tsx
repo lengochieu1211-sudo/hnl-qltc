@@ -1778,6 +1778,11 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     ? 'create'
                     : undefined,
           });
+          if (action === 'OVERWRITE_FILE') {
+            setMultiSyncProgress({
+              label: `Đã xác minh Cloud · ${candidate.itemCounts.defects} Defect · ${displayName}`
+            });
+          }
 
           const candidatePhotos = candData.photos
             || (multiProjectSyncState.rawData?.projectPhotos && multiProjectSyncState.rawData.projectPhotos[candidate.id]);
