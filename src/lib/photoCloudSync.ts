@@ -448,7 +448,13 @@ export async function refreshProjectPhotoMetadataFromCloud(projectId: string): P
   }
 }
 
-export async function syncProjectPhotosToCloud(projectId: string): Promise<{ uploaded: number; skipped: number; migratedToStorage?: number; failed?: number; lastError?: string; lastErrorPhotoId?: string }> {
+export async function syncProjectPhotosToCloud(
+  projectId: string,
+  options: {
+    readyVerifyConcurrency?: number;
+    onProgress?: (done: number, total: number) => void;
+  } = {},
+): Promise<{ uploaded: number; skipped: number; migratedToStorage?: number; failed?: number; lastError?: string; lastErrorPhotoId?: string }> {
   const photos = await getProjectPhotos(projectId, true);
   let uploaded = 0;
   let skipped = 0;
@@ -456,6 +462,7 @@ export async function syncProjectPhotosToCloud(projectId: string): Promise<{ upl
   let failed = 0;
   let lastError = '';
   let lastErrorPhotoId = '';
+  let processed = 0;
 
   // Online sync decisions must be based on SERVER metadata. Using getDocs() here
   // allowed persistent Firestore cache to classify an already-repaired R2 row as
@@ -471,9 +478,56 @@ export async function syncProjectPhotosToCloud(projectId: string): Promise<{ upl
   const cloudById = new Map<string, any>();
   cloudSnapshot?.docs.forEach((item) => cloudById.set(item.id, item.data()));
 
+  // Disaster-recovery import commonly includes the same immutable R2 objects that are
+  // already authoritative in Cloud. Previously every local restored Blob forced a
+  // serial HEAD/verification through uploadPhotoToCloud(), so 50-100 photos could make
+  // the modal appear frozen for minutes. Verify only exact same-pointer candidates in a
+  // small read-only worker pool; changed/pending/mismatched assets still use the original
+  // strict sequential repair/upload path below.
+  const fastVerifiedReady = new Set<string>();
+  const readyVerifyConcurrency = Math.max(0, Math.min(4, Math.floor(Number(options.readyVerifyConcurrency || 0))));
+  const browserOnline = typeof navigator === 'undefined' || navigator.onLine;
+  if (readyVerifyConcurrency > 0 && browserOnline && cloudSnapshot) {
+    const candidates = photos.filter((photo) => {
+      if (!photo?.id || photo.deleted || photo.deletedAt || String(photo.binaryUploadState || '') === 'pending') return false;
+      const cloudData = cloudById.get(photo.id);
+      if (!cloudData || cloudData.deleted || cloudData.deletedAt) return false;
+      const cloudProvider = String(cloudData.storageProvider || parseStoragePointer(cloudData.cloudFileId || cloudData.cloudUrl).provider || '');
+      const localProvider = String(photo.storageProvider || parseStoragePointer(photo.cloudFileId || photo.cloudUrl).provider || '');
+      const cloudPath = String(cloudData.storagePath || parseStoragePointer(cloudData.cloudFileId || cloudData.cloudUrl).path || '');
+      const localPath = String(photo.storagePath || parseStoragePointer(photo.cloudFileId || photo.cloudUrl).path || '');
+      if (!cloudPath || cloudProvider !== BINARY_STORAGE_PROVIDER || localProvider !== cloudProvider || localPath !== cloudPath) return false;
+      const localUpdatedAt = Number(photo.updatedAt || photo.createdAt || 0);
+      const cloudUpdatedAt = Number(cloudData.updatedAt || 0);
+      if (cloudUpdatedAt > 0 && localUpdatedAt > cloudUpdatedAt) return false;
+      const cloudChecksum = String(cloudData.contentHash || cloudData.storageMd5Hash || '');
+      const localChecksum = String((photo as any).contentHash || photo.storageMd5Hash || '');
+      if (cloudChecksum && localChecksum && cloudChecksum !== localChecksum) return false;
+      return true;
+    });
+
+    let verifyCursor = 0;
+    const workers = Array.from({ length: Math.min(readyVerifyConcurrency, Math.max(1, candidates.length)) }, async () => {
+      while (true) {
+        const index = verifyCursor++;
+        if (index >= candidates.length) return;
+        const photo = candidates[index];
+        const cloudData = cloudById.get(photo.id);
+        if (cloudData && await verifyCurrentProviderCloudBinary(cloudData)) {
+          fastVerifiedReady.add(photo.id);
+        }
+      }
+    });
+    await Promise.all(workers);
+  }
+
   for (const photo of photos) {
     try {
       if (photoUnrecoverableThisSession.has(`${projectId}:${photo.id}`)) {
+        skipped++;
+        continue;
+      }
+      if (fastVerifiedReady.has(photo.id)) {
         skipped++;
         continue;
       }
@@ -517,19 +571,22 @@ export async function syncProjectPhotosToCloud(projectId: string): Promise<{ upl
           code: 'PHOTO_BINARY_UNRECOVERABLE',
           message: `${photo.entityType || 'photo'}/${photo.entityId || ''}/${photo.id}: ${message}`,
         });
-        continue;
+      } else {
+        failed++;
+        lastError = message;
+        lastErrorPhotoId = photo.id;
+        appendRuntimeDiagnostic({
+          level: 'error',
+          area: 'photo-sync',
+          projectId,
+          code: photoSyncErrorCode(err),
+          message: `${photo.entityType || 'photo'}/${photo.entityId || ''}/${photo.id}: ${message}`,
+        });
+        console.warn(`[Photo Cloud] ${BINARY_STORAGE_PROVIDER} sync warning:`, photo.id, err);
       }
-      failed++;
-      lastError = message;
-      lastErrorPhotoId = photo.id;
-      appendRuntimeDiagnostic({
-        level: 'error',
-        area: 'photo-sync',
-        projectId,
-        code: photoSyncErrorCode(err),
-        message: `${photo.entityType || 'photo'}/${photo.entityId || ''}/${photo.id}: ${message}`,
-      });
-      console.warn(`[Photo Cloud] ${BINARY_STORAGE_PROVIDER} sync warning:`, photo.id, err);
+    } finally {
+      processed++;
+      options.onProgress?.(processed, photos.length);
     }
   }
   return { uploaded, skipped, migratedToStorage, failed, lastError, lastErrorPhotoId };
