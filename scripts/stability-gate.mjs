@@ -274,6 +274,10 @@ requireAll(androidMain, [
   'R.drawable.hnl_splash_logo',
 ], 'Android cold start keeps native HNL splash until the rendered Web UI is ready');
 if (androidMain.includes('if (allowFallback) showStartupContent();')) fail('Android page commit/finish callbacks must not reveal WebView before React paint');
+const nativeSplashAttachIndex = androidMain.indexOf('setContentView(startupRoot);');
+const coldWebViewCreateIndex = androidMain.indexOf('webView = new WebView(this);');
+if (nativeSplashAttachIndex < 0 || coldWebViewCreateIndex <= nativeSplashAttachIndex) fail('Android cold start must attach native HNL splash before constructing WebView');
+requireAll(androidMain, ['initializeWebRuntime(startupRoot, savedInstanceState)', 'startupRoot.postDelayed(', '32L'], 'Android cold WebView initialization defers until native splash has a frame');
 requireAll(mainTsx, ['notifyAndroidStartupReadyAfterPaint', 'AndroidStartup?.markReady?.()', 'window.requestAnimationFrame(notify)'], 'React paint explicitly owns Android splash handoff');
 
 const pickerProvider = read('android-wrapper/src/com/qlct/app/PickerCacheProvider.java');

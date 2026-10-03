@@ -102,20 +102,32 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT));
         startupRoot.setBackgroundColor(getStartupBackgroundColor());
 
-        webView = new WebView(this);
-        webView.setBackgroundColor(getStartupBackgroundColor());
-        webView.setVisibility(View.INVISIBLE);
-        startupRoot.addView(webView, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT));
-
         startupSplash = createStartupSplashView();
         startupRoot.addView(startupSplash, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
 
+        // Draw the lightweight native HNL splash before constructing WebView.
+        // Cold WebView initialization can block the UI thread for hundreds of
+        // milliseconds on OEM Android builds; doing it first leaves a gray
+        // launcher/startup frame visible before our branded content appears.
         setContentView(startupRoot);
         requestLegacyStoragePermissionIfNeeded();
+        startupRoot.postDelayed(
+                () -> initializeWebRuntime(startupRoot, savedInstanceState),
+                32L);
+    }
+
+    private void initializeWebRuntime(FrameLayout startupRoot, Bundle savedInstanceState) {
+        if (isFinishing() || isDestroyed()) return;
+
+        webView = new WebView(this);
+        webView.setBackgroundColor(getStartupBackgroundColor());
+        webView.setVisibility(View.INVISIBLE);
+        // The native splash is already visible; insert WebView behind it.
+        startupRoot.addView(webView, 0, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
 
         configureWebView(webView);
 

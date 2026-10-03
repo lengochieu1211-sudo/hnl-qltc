@@ -23,6 +23,10 @@ assert(startupWindow.includes('@color/hnl_startup_background') && startupWindow.
 assert(startupColors.includes('#F8FAFC') && startupColorsNight.includes('#0F172A'), 'light/dark startup backgrounds are explicitly aligned');
 assert(mainActivity.includes('createStartupSplashView()') && mainActivity.includes('webView.setVisibility(View.INVISIBLE)'), 'native splash stays above hidden WebView during cold start');
 assert(mainActivity.includes('new AndroidStartupBridge()') && mainActivity.includes('public void markReady()'), 'native wrapper exposes a startup-ready bridge');
+const nativeSplashAttachIndex = mainActivity.indexOf('setContentView(startupRoot);');
+const coldWebViewCreateIndex = mainActivity.indexOf('webView = new WebView(this);');
+assert(nativeSplashAttachIndex >= 0 && coldWebViewCreateIndex > nativeSplashAttachIndex, 'native HNL splash is attached before cold WebView construction');
+assert(mainActivity.includes('initializeWebRuntime(startupRoot, savedInstanceState)') && mainActivity.includes('32L'), 'cold WebView initialization is deferred until after the first native splash frame');
 assert(!mainActivity.includes('if (allowFallback) showStartupContent();'), 'page commit/finished callbacks cannot reveal WebView before React paints');
 assert(mainTsx.includes('notifyAndroidStartupReadyAfterPaint') && mainTsx.includes('AndroidStartup?.markReady?.()'), 'web bootstrap signals native Android only after React paint');
 assert(mainTsx.includes('requestAnimationFrame(() =>') && mainTsx.includes('window.requestAnimationFrame(notify)'), 'startup handoff waits two animation frames before splash removal');
