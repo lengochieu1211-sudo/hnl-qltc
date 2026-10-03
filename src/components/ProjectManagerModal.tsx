@@ -457,6 +457,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     }[];
   } | null>(null);
   const [isExecutingMultiSync, setIsExecutingMultiSync] = useState(false);
+  const [multiSyncProgress, setMultiSyncProgress] = useState<{ label: string; done?: number; total?: number } | null>(null);
 
   // Legacy single project conflict modal state & Paste JSON state
   const [pendingImportData, setPendingImportData] = useState<any | null>(null);
@@ -1703,6 +1704,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const executeMultiProjectSync = async () => {
     if (!multiProjectSyncState || isExecutingMultiSync) return;
     setIsExecutingMultiSync(true);
+    setMultiSyncProgress({ label: 'Chuẩn bị dữ liệu hiện tại…' });
 
     try {
       if (onFlushCurrentProject) {
@@ -1758,6 +1760,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             };
           }
 
+          setMultiSyncProgress({ label: `Khôi phục dữ liệu · ${displayName}` });
           await onRestoreData(payload, targetId, {
             authoritativeBackupRestore: action === 'OVERWRITE_FILE',
             sharedSettingsRestoreMode:
@@ -1775,17 +1778,34 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           const candidatePhotoData = candData.photoData || candData.photoDataMap || candidate.photoData
             || (multiProjectSyncState.rawData?.projectPhotoData && multiProjectSyncState.rawData.projectPhotoData[candidate.id]);
           if (Array.isArray(candidatePhotos) && candidatePhotos.length > 0) {
-            await restorePhotosFromBackup(targetId, candidatePhotos, candidatePhotoData);
-            const photoResult = await syncProjectPhotosToCloud(targetId);
+            setMultiSyncProgress({ label: 'Chuẩn bị ảnh từ JSON…', done: 0, total: candidatePhotos.length });
+            await restorePhotosFromBackup(targetId, candidatePhotos, candidatePhotoData, {
+              concurrency: 2,
+              onProgress: (done, total) => setMultiSyncProgress({ label: 'Chuẩn bị ảnh từ JSON…', done, total }),
+            });
+            setMultiSyncProgress({ label: 'Đối chiếu & đồng bộ ảnh Cloud…', done: 0, total: candidatePhotos.length });
+            const photoResult = await syncProjectPhotosToCloud(targetId, {
+              // Read-only verification can safely run in parallel for unchanged
+              // content-addressed R2 objects; actual repairs/uploads remain sequential.
+              readyVerifyConcurrency: 3,
+              onProgress: (done, total) => setMultiSyncProgress({ label: 'Đối chiếu & đồng bộ ảnh Cloud…', done, total }),
+            });
             if (Number(photoResult.failed || 0) > 0) {
               throw new Error(`Import ảnh dự án ${targetId} còn ${photoResult.failed} ảnh chưa tải lên Firebase Storage.`);
             }
           }
 
-          for (const floorPlan of Array.isArray(payload.floorPlans) ? payload.floorPlans : []) {
-            if (!floorPlan?.id || !floorPlanNeedsCloudUpload(floorPlan)) continue;
+          const floorPlansToUpload = (Array.isArray(payload.floorPlans) ? payload.floorPlans : [])
+            .filter((floorPlan: any) => floorPlan?.id && floorPlanNeedsCloudUpload(floorPlan));
+          let floorPlanDone = 0;
+          if (floorPlansToUpload.length > 0) {
+            setMultiSyncProgress({ label: 'Khôi phục ảnh mặt bằng…', done: 0, total: floorPlansToUpload.length });
+          }
+          for (const floorPlan of floorPlansToUpload) {
             try {
               await syncFloorPlanImageToCloud(targetId, floorPlan);
+              floorPlanDone++;
+              setMultiSyncProgress({ label: 'Khôi phục ảnh mặt bằng…', done: floorPlanDone, total: floorPlansToUpload.length });
             } catch (err: any) {
               const code = String(err?.code || err?.message || err);
               throw new Error(`Khôi phục ảnh mặt bằng thất bại tại floor_plans/${String(floorPlan.id)}: ${code}`);
@@ -1810,6 +1830,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           if (!firstImportedId) firstImportedId = targetId;
         }
 
+        setMultiSyncProgress({ label: 'Hoàn tất & cập nhật danh sách dự án…' });
         saveProjectsList(firebaseList);
         setProjects(firebaseList);
         setMultiProjectSyncState(null);
@@ -2069,6 +2090,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       alert('Lỗi khi đồng bộ dự án: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsExecutingMultiSync(false);
+      setMultiSyncProgress(null);
     }
   };
 
@@ -4637,8 +4659,16 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
             {/* Footer */}
             <div className="p-4 border-t border-slate-100 bg-slate-50 flex flex-wrap items-center justify-between gap-3">
-              <div className="text-xs text-slate-500">
-                {multiProjectSyncState.items.filter(it => it.action !== 'SKIP' && it.action !== 'KEEP_LOCAL').length} / {multiProjectSyncState.items.length} dự án sẽ được nạp/đồng bộ
+              <div className="text-xs text-slate-500 min-w-0">
+                <div>{multiProjectSyncState.items.filter(it => it.action !== 'SKIP' && it.action !== 'KEEP_LOCAL').length} / {multiProjectSyncState.items.length} dự án sẽ được nạp/đồng bộ</div>
+                {isExecutingMultiSync && multiSyncProgress ? (
+                  <div className="mt-1 font-semibold text-indigo-700 truncate max-w-[280px] sm:max-w-md" title={multiSyncProgress.label}>
+                    {multiSyncProgress.label}
+                    {Number.isFinite(multiSyncProgress.total) && Number(multiSyncProgress.total) > 0
+                      ? ` ${Number(multiSyncProgress.done || 0)}/${Number(multiSyncProgress.total)}`
+                      : ''}
+                  </div>
+                ) : null}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button
@@ -4667,7 +4697,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 >
                   {isExecutingMultiSync ? (
                     <>
-                      <RefreshCw className="w-4 h-4 animate-spin" /> Đang đồng bộ...
+                      <RefreshCw className="w-4 h-4 animate-spin" /> {multiSyncProgress?.label || 'Đang đồng bộ…'}
                     </>
                   ) : (
                     <>
