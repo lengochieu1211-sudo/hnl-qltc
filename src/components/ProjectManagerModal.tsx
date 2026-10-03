@@ -5,7 +5,7 @@ import {
   CheckCircle2, AlertTriangle, ShieldCheck, ArrowLeftRight, Search, Edit3, Check, Building2, Copy, Sparkles, FolderPlus,
   Cloud, CloudUpload, CloudDownload, Smartphone, Monitor, Share2, Layers,
   CheckSquare, Square, FileSpreadsheet, Layers3, CheckCircle, Database, History, Eye,
-  Lock, Key, ShieldAlert
+  Lock, Key, ShieldAlert, Archive
 } from 'lucide-react';
 import { ProjectInfo, getProjectsList, getActiveProjectId, setActiveProject, saveProjectsList, getKey } from '../App';
 import { safeSetLocalStorageItem } from '../utils/storage';
@@ -25,6 +25,7 @@ import {
   subscribeCurrentUserProjectsRealtime,
   refreshCurrentUserProjectDiscovery,
   saveProjectMetadataToCloud,
+  setProjectArchivedState,
   deleteCloudProject,
   restoreCloudProject,
   fetchProjectDeletionStateFromServer,
@@ -141,6 +142,8 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [projectSortBy, setProjectSortBy] = useState<'name' | 'createdAt' | 'updatedAt'>('name');
   const [projectSortOrder, setProjectSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [projectViewMode, setProjectViewMode] = useState<'active' | 'archived'>('active');
+  const [archivingProjectId, setArchivingProjectId] = useState<string | null>(null);
   const [autosaveSortBy, setAutosaveSortBy] = useState<'date' | 'project' | 'type'>('date');
   const [autosaveSortOrder, setAutosaveSortOrder] = useState<'asc' | 'desc'>('desc');
   const [cloudBackupSortBy, setCloudBackupSortBy] = useState<'date' | 'name' | 'projects'>('date');
@@ -177,6 +180,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           updatedAt: Number(p.updatedAt || cached.get(p.id)?.updatedAt || 0),
           canonicalProjectId: p.canonicalProjectId,
           aliases: p.aliases,
+          archivedAt: Number(p.archivedAt || 0) || undefined,
+          archivedByUid: p.archivedByUid,
+          archivedByEmail: p.archivedByEmail,
         }));
         saveProjectsList(next); // local cache only
         setProjects(next);
@@ -2874,6 +2880,47 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     }
   };
 
+  const handleArchiveProject = async (project: ProjectInfo, archived: boolean) => {
+    if (!canManage || archivingProjectId) return;
+    if (archived && project.id === activeId) {
+      setErrorMessage('Dự án đang mở chưa thể lưu trữ. Hãy chuyển sang dự án khác trước rồi lưu trữ dự án này.');
+      return;
+    }
+    const verb = archived ? 'lưu trữ' : 'khôi phục khỏi lưu trữ';
+    const accepted = await confirmAsync(
+      archived
+        ? `Lưu trữ dự án “${project.name}”?\n\nDữ liệu Firestore/R2 KHÔNG bị xóa. Dự án chỉ được ẩn khỏi danh sách đang hoạt động và có thể khôi phục lại bất cứ lúc nào.`
+        : `Đưa dự án “${project.name}” trở lại danh sách đang hoạt động?`
+    );
+    if (!accepted) return;
+
+    setArchivingProjectId(project.id);
+    setErrorMessage(null);
+    try {
+      const archivedAt = await setProjectArchivedState(project.id, archived);
+      const next = projects.map((item) => item.id === project.id ? {
+        ...item,
+        archivedAt: archived ? archivedAt : undefined,
+        archivedByUid: archived ? getCurrentRealFirebaseUser()?.uid : undefined,
+        archivedByEmail: archived ? (getCurrentRealFirebaseUser()?.email || '').toLowerCase() : undefined,
+        updatedAt: Math.max(Number(item.updatedAt || 0), Date.now()),
+      } : item);
+      saveProjectsList(next);
+      setProjects(next);
+      logAuditAction(
+        archived ? 'PROJECT_ARCHIVE' : 'PROJECT_UNARCHIVE',
+        `${archived ? 'Lưu trữ' : 'Khôi phục'} dự án: ${project.id}`,
+        project.id
+      );
+      if (archived) setProjectViewMode('active');
+    } catch (err) {
+      console.error('Project archive update failed:', err);
+      setErrorMessage(`Không thể ${verb} dự án: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setArchivingProjectId(null);
+    }
+  };
+
   const handleDeleteProject = (id: string) => {
     if (!canManage) return;
     if (projects.length === 1) {
@@ -2968,6 +3015,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const duplicateGroups = useMemo(() => {
     const groups = new Map<string, ProjectInfo[]>();
     projects.forEach((project) => {
+      if (Number(project.archivedAt || 0) > 0) return;
       const key = normalizeProjectNameForDuplicate(project.name);
       if (!key) return;
       const current = groups.get(key) || [];
@@ -3164,7 +3212,11 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     return applyOrder(av - bv);
   });
 
+  const activeProjectCount = projects.filter((project) => Number(project.archivedAt || 0) <= 0).length;
+  const archivedProjectCount = projects.filter((project) => Number(project.archivedAt || 0) > 0).length;
   const filteredProjects = sortedProjectsAll.filter(p => {
+    const archived = Number(p.archivedAt || 0) > 0;
+    if ((projectViewMode === 'archived') !== archived) return false;
     const q = searchQuery.trim().toLowerCase();
     return !q || p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q) || shortProjectId(p.id).toLowerCase().includes(q);
   });
@@ -3876,6 +3928,29 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           {modalTab === 'projects' && (
             <div className="space-y-3">
               
+              <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => setProjectViewMode('active')}
+                  className={`rounded-lg px-3 py-1.5 text-[10.5px] font-extrabold transition-all ${projectViewMode === 'active' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  Đang hoạt động ({activeProjectCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProjectViewMode('archived')}
+                  className={`rounded-lg px-3 py-1.5 text-[10.5px] font-extrabold transition-all ${projectViewMode === 'archived' ? 'bg-white text-amber-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  Đã lưu trữ ({archivedProjectCount})
+                </button>
+              </div>
+
+              {projectViewMode === 'archived' && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] leading-relaxed text-amber-900">
+                  Dự án lưu trữ vẫn giữ nguyên Firestore, R2, ảnh và ID. Danh sách hoạt động/Home/Chat không tải dự án này cho tới khi ADMIN khôi phục.
+                </div>
+              )}
+
               {/* Search Bar */}
               {projects.length > 2 && (
                 <div className="relative">
@@ -3956,6 +4031,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     const isActive = proj.id === activeId;
                     const isEditing = editingProjectId === proj.id;
                     const isDuplicate = duplicateProjectIds.has(proj.id);
+                    const isArchived = Number(proj.archivedAt || 0) > 0;
 
                     return (
                       <div 
@@ -3999,15 +4075,20 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         ) : (
                           <div className="flex items-center justify-between gap-3">
                             <div 
-                              className="flex-1 min-w-0 cursor-pointer"
-                              onClick={() => handleSwitchProject(proj.id)}
+                              className={`flex-1 min-w-0 ${isArchived ? 'cursor-default' : 'cursor-pointer'}`}
+                              onClick={() => { if (!isArchived) void handleSwitchProject(proj.id); }}
                             >
                               <div className="flex items-center gap-2 min-w-0">
                                 <Folder className={`w-4 h-4 shrink-0 ${isActive ? 'text-indigo-600' : 'text-slate-400'}`} />
                                 <p className={`font-bold text-xs truncate ${isActive ? 'text-indigo-900' : 'text-slate-800'}`}>
                                   {proj.name} <span className="font-mono text-[10px] text-slate-400">· {shortProjectId(proj.id)}</span>
                                 </p>
-                                {isDuplicate && (
+                                {isArchived && (
+                                  <span className="shrink-0 text-[9px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded-full">
+                                    Đã lưu trữ
+                                  </span>
+                                )}
+                                                                {isDuplicate && (
                                   <span className="shrink-0 text-[9px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded-full">
                                     Trùng tên · ID khác
                                   </span>
@@ -4023,11 +4104,22 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                               </div>
                               <p className="text-[10px] text-slate-400 mt-0.5 pl-6 font-medium">
                                 Khởi tạo: {formatProjectCreatedAt(proj)} · ID {shortProjectId(proj.id)}
+                                {isArchived && proj.archivedAt ? ` · Lưu trữ: ${formatDateTime(Number(proj.archivedAt))}` : ''}
                               </p>
                             </div>
                             
                             <div className="flex items-center gap-1.5 shrink-0">
-                              {isActive ? (
+                              {isArchived ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleArchiveProject(proj, false)}
+                                  disabled={archivingProjectId === proj.id}
+                                  className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-2.5 py-1 rounded-lg shadow-xs"
+                                >
+                                  {archivingProjectId === proj.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Archive className="w-3 h-3" />}
+                                  Khôi phục
+                                </button>
+                              ) : isActive ? (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-indigo-600 text-white px-2.5 py-1 rounded-lg shadow-xs">
                                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
                                   Đang mở
@@ -4046,7 +4138,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                                 </button>
                               )}
                               
-                              {canManage && (
+                              {canManage && !isArchived && (
                                 <button
                                   type="button"
                                   onClick={(e) => handleStartRename(proj, e)}
@@ -4057,7 +4149,19 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                                 </button>
                               )}
 
-                              {canManage && !isActive && (
+                              {canManage && !isArchived && !isActive && (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleArchiveProject(proj, true)}
+                                  disabled={archivingProjectId === proj.id}
+                                  className="p-1 text-slate-400 hover:text-amber-700 hover:bg-amber-50 disabled:opacity-50 rounded-lg transition-colors cursor-pointer"
+                                  title="Lưu trữ dự án (không xóa dữ liệu)"
+                                >
+                                  {archivingProjectId === proj.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Archive className="w-3.5 h-3.5" />}
+                                </button>
+                              )}
+
+                              {canManage && !isArchived && !isActive && (
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteProject(proj.id)}
@@ -4071,7 +4175,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                           </div>
                         )}
 
-                        {!isEditing && isDuplicate && canManage && (
+                        {!isEditing && !isArchived && isDuplicate && canManage && (
                           <div className="mt-2 pl-6 flex items-center justify-between gap-2 border-t border-amber-100 pt-2">
                             <span className="text-[10px] text-amber-700 font-semibold">
                               Chọn ID này làm dự án chính

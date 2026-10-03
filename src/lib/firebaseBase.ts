@@ -258,6 +258,13 @@ export interface CloudProjectSummary {
   updatedAt?: number;
   createdAtSource?: 'cloud' | 'migrating';
   /**
+   * Archived projects remain fully intact in Firestore/R2 but are excluded from
+   * normal active-project navigation until an ADMIN restores them.
+   */
+  archivedAt?: number;
+  archivedByUid?: string;
+  archivedByEmail?: string;
+  /**
    * When this project has been safely merged into another Cloud project, this
    * points to the canonical projectId. The source project is kept as an archive.
    */
@@ -765,6 +772,9 @@ export async function fetchCurrentUserProjectsFromCloud(): Promise<CloudProjectS
           createdAt,
           createdAtSource: createdAt ? 'cloud' : 'migrating',
           updatedAt: cloudTimestampToMillis(projectData?.updatedAt) || Number(item?.updatedAt || 0),
+          archivedAt: cloudTimestampToMillis(projectData?.archivedAt),
+          archivedByUid: String(projectData?.archivedByUid || '') || undefined,
+          archivedByEmail: normalizeEmail(projectData?.archivedByEmail) || undefined,
           canonicalProjectId: String(projectData?.canonicalProjectId || projectData?.mergedIntoProjectId || '').trim() || undefined,
         });
       } catch (err) {
@@ -915,6 +925,9 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
             createdAt,
             createdAtSource: createdAt ? 'cloud' as const : 'migrating' as const,
             updatedAt: cloudTimestampToMillis(data?.updatedAt),
+            archivedAt: cloudTimestampToMillis(data?.archivedAt),
+            archivedByUid: String(data?.archivedByUid || '') || undefined,
+            archivedByEmail: normalizeEmail(data?.archivedByEmail) || undefined,
             canonicalProjectId: canonicalRaw && canonicalRaw !== d.id ? canonicalRaw : undefined,
             __deleted: data?.deleted === true,
           } as CloudProjectSummary & { __deleted?: boolean };
@@ -1005,6 +1018,9 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
           createdAt,
           createdAtSource: createdAt ? 'cloud' : 'migrating',
           updatedAt,
+          archivedAt: cloudTimestampToMillis(data?.archivedAt),
+          archivedByUid: String(data?.archivedByUid || '') || undefined,
+          archivedByEmail: normalizeEmail(data?.archivedByEmail) || undefined,
           canonicalProjectId,
         };
         discoveryProjectCache.set(cacheKey, { at: Date.now(), summary });
@@ -2224,6 +2240,46 @@ export async function saveProjectMetadataToCloud(projectId: string, name: string
   }, { merge: true });
   const roleInfo = await fetchProjectUserRoleFromCloud(projectId, user).catch(() => null);
   await registerProjectForCurrentUser(projectId, name.trim(), roleInfo?.allowed ? roleInfo.role : 'VIEWER');
+}
+
+
+/**
+ * Archive/unarchive a project without deleting business records or media.
+ * Archive is ADMIN-only and changes only lightweight root metadata; Firestore/R2
+ * content remains untouched and can be made active again later.
+ */
+export async function setProjectArchivedState(projectId: string, archived: boolean): Promise<number> {
+  if (!projectId) throw new Error('PROJECT_ARCHIVE_ID_REQUIRED');
+  await ensureAuth();
+  const user = getCurrentRealFirebaseUser();
+  if (!user?.uid || !user.email) throw new Error('PROJECT_ARCHIVE_AUTH_REQUIRED');
+
+  const roleInfo = await fetchProjectUserRoleFromCloud(projectId, user);
+  if (roleInfo.verification !== 'verified' || !roleInfo.allowed || roleInfo.role !== 'ADMIN') {
+    throw new Error('PROJECT_ARCHIVE_ADMIN_REQUIRED');
+  }
+
+  const projectRef = doc(db, 'projects', projectId);
+  const snap = await getDocFromServer(projectRef);
+  if (!snap.exists() || snap.data()?.deleted === true) throw new Error('PROJECT_ARCHIVE_NOT_FOUND');
+
+  const now = Date.now();
+  await setDoc(projectRef, {
+    archivedAt: archived ? now : null,
+    archivedByUid: archived ? user.uid : null,
+    archivedByEmail: archived ? normalizeEmail(user.email) : null,
+    updatedAt: now,
+    updatedByUid: user.uid,
+    updatedByEmail: normalizeEmail(user.email),
+    updatedByDeviceId: getDeviceId(),
+    updatedByDeviceName: getDeviceName(),
+  }, { merge: true });
+
+  // Force discovery to re-read the canonical project root on the next index event,
+  // then touch the user's own project index so other open tabs/devices refresh promptly.
+  discoveryProjectCache.delete(`${user.uid}:${projectId}`);
+  await registerProjectForCurrentUser(projectId, String(snap.data()?.name || projectId), roleInfo.role).catch(() => {});
+  return archived ? now : 0;
 }
 
 export async function saveProjectToCloud(project: { id: string; name: string; syncCode?: string; payload?: any; contractorName?: string; inspectorName?: string; projectLocation?: string; [key: string]: any }, options?: { authoritativeBackupRestore?: boolean }): Promise<void> {

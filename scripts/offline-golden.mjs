@@ -75,7 +75,8 @@ for (const marker of [
   if (!app.includes(marker)) fail(`App offline bootstrap missing ${marker}`);
 }
 if (!app.includes("if (!isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed)")) fail('business realtime must stay detached while using offline role cache');
-if (!app.includes("getProjectsList().filter((project) => getCachedVerifiedProjectRole(project.id, identity)?.allowed === true)")) fail('offline project discovery is not identity/role scoped');
+if (!app.includes("getCachedVerifiedProjectRole(project.id, identity)?.allowed === true")) fail('offline project discovery is not identity/role scoped');
+if (!app.includes("Number(project.archivedAt || 0) <= 0")) fail('offline project discovery still exposes archived projects in the active list');
 if (!firebase.includes('persistentLocalCache()') || !firebase.includes('getDocsFromCache')) fail('official Firestore persistent cache hydrate missing');
 if (!app.includes("businessDataSource === 'legacy-migration-fallback'")) fail('legacy local migration fallback is not explicitly read-only');
 if (!app.includes('Legacy data is migration input only') || !app.includes('if (FIREBASE_ONLY_RUNTIME) return;')) fail('Firebase-only still auto-recovers legacy IndexedDB rows into live state');
