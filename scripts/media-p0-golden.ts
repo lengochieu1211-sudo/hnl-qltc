@@ -23,6 +23,9 @@ check(photoStorage.includes("const photoKind = photo.entityType === 'defect' ? '
 check(photoStorage.includes('const profile = getImageQualityProfile(photoKind);'), 'Photo save/edit path must read the current image-quality profile before compression.');
 check(photoStorage.includes('const mainBlob = await compressImageToBlob(imageSource, profile.maxDimension, profile.quality);'), 'Main photo binary must use the selected quality profile.');
 check(photoStorage.includes('compressImageToBlob(mainBlob, 320, 0.70)'), 'Gallery thumbnail must stay lightweight and separate from the full photo binary.');
+check(photoStorage.includes('options: { concurrency?: number; onProgress?: (done: number, total: number) => void } = {}'), 'JSON photo restore must expose bounded worker/progress options.');
+check(photoStorage.includes('Math.min(concurrency, Math.max(1, photos.length))'), 'JSON photo restore must bound image decode concurrency on mobile.');
+check(photoStorage.includes('compressImageToBlob(blob, 320, 0.70)'), 'JSON photo restore must build thumbnails directly from the restored Blob.');
 
 const qualitySettings = read('src/utils/imageQualitySettings.ts');
 for (const marker of [
@@ -47,6 +50,20 @@ check(imageViewer.includes('if (!activeImage || mediaAction || isImageLoading) r
 const cloudSync = read('src/lib/photoCloudSync.ts');
 check(cloudSync.includes('uploadProjectBinaryToCloud'), 'Photo Cloud sync must route through binaryStorage atomic uploader.');
 check(cloudSync.includes("binaryUploadState: 'ready'"), 'Photo metadata must publish an explicit ready state only after upload.');
+check(cloudSync.includes('readyVerifyConcurrency?: number'), 'Restore photo sync must support bounded read-only verification.');
+check(cloudSync.includes('const fastVerifiedReady = new Set<string>()'), 'Restore photo sync fast-path set missing.');
+check(cloudSync.includes('await verifyCurrentProviderCloudBinary(cloudData)'), 'Unchanged backup media must still verify the immutable Cloud object before fast-skip.');
+check(cloudSync.includes('actual repairs/uploads remain sequential') || cloudSync.includes('strict sequential repair/upload path'), 'Media restore optimization must keep repair/upload writes sequential.');
+
+const projectManager = read('src/components/ProjectManagerModal.tsx');
+check(projectManager.includes("label: 'Chuẩn bị ảnh từ JSON…'"), 'JSON restore UI must expose the local photo-restore stage.');
+check(projectManager.includes("label: 'Đối chiếu & đồng bộ ảnh Cloud…'"), 'JSON restore UI must expose Cloud photo-sync progress.');
+check(projectManager.includes('readyVerifyConcurrency: 3'), 'JSON restore must use a small bounded verification pool.');
+check(projectManager.includes("label: 'Khôi phục ảnh mặt bằng…'"), 'JSON restore UI must expose floor-plan restore progress.');
+
+const firebaseBase = read('src/lib/firebaseBase.ts');
+check(firebaseBase.includes('const preflightReads = await Promise.all(subNames.map'), 'Authoritative JSON restore must preflight independent Firestore collection reads in parallel.');
+check(firebaseBase.includes('fail before any') || firebaseBase.includes('before any\n    // business subcollection writes'), 'Authoritative restore parallel preflight must preserve fail-before-business-write safety.');
 
 const storageRules = read('storage.rules');
 check(storageRules.includes('match /projects/{projectId}/media/{entityType}/{entityId}/{assetId}/{fileName}'), 'Storage rules must preserve project/entity/asset isolation for legacy media paths.');
