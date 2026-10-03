@@ -769,7 +769,7 @@ async function verifySignedOutGate(browser, label, viewport, screenshotPath) {
   });
   assert(response && response.status() === 200, `${label}: signed-out Hosting navigation failed`);
   await page.locator('[data-hnl-auth-gate="signed-out"]').waitFor({ state: 'visible', timeout: 20000 });
-  await page.getByRole('button', { name: 'Đăng nhập bằng Google', exact: true }).waitFor({ state: 'visible', timeout: 10000 });
+  await page.getByRole('button', { name: 'Đăng nhập với Google', exact: true }).waitFor({ state: 'visible', timeout: 10000 });
   assert(await page.locator('aside').count() === 0, `${label}: desktop navigation rail leaked before login`);
   assert(await page.locator('button[title*="Trung tâm bảo mật" i]').count() === 0, `${label}: Security Center leaked before login`);
   assert(await page.getByText('Ghi nhận quân số', { exact: true }).count() === 0, `${label}: project UI leaked before login`);
