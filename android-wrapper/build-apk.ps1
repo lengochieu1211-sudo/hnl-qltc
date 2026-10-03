@@ -93,6 +93,206 @@ $patch = [int]$semverMatch.Groups[3].Value
 $versionCode = ($major * 10000) + ($minor * 100) + $patch
 if ($versionCode -lt 1) { $versionCode = 1 }
 
+$versionCodeOverride = [string]$env:QLCT_ANDROID_VERSION_CODE
+if (-not [string]::IsNullOrWhiteSpace($versionCodeOverride)) {
+    if ($versionCodeOverride -notmatch '^\d+
+
+$webUrl = $env:QLCT_WEB_URL
+if (-not $webUrl -and (Test-Path -LiteralPath $webUrlFile)) {
+    $webUrl = (Get-Content -Raw -LiteralPath $webUrlFile).Trim()
+}
+if (-not $webUrl) { $webUrl = 'https://hnlqltc.web.app/?app=android' }
+if ($webUrl -notmatch '^https://') { throw 'QLCT_WEB_URL must use https://' }
+
+$webUrl = $webUrl -replace '([?&])v=[^&]*', '$1'
+$webUrl = $webUrl.TrimEnd('?','&')
+if ($webUrl -notmatch '([?&])app=android(?:&|$)') {
+    $webUrl += $(if ($webUrl.Contains('?')) { '&app=android' } else { '?app=android' })
+}
+$releaseTag = if ($env:QLCT_RELEASE_TAG) { $env:QLCT_RELEASE_TAG.Trim() } else { $appVersion }
+$webUrl += "&v=$releaseTag"
+$escapedWebUrl = [System.Security.SecurityElement]::Escape($webUrl)
+$strings = Get-Content -Raw -LiteralPath $stringsXml
+$strings = $strings -replace '<string name="web_url">.*?</string>', "<string name=`"web_url`">$escapedWebUrl</string>"
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($stringsXml, $strings, $utf8NoBom)
+
+$isDevWrapper = $webUrl -match 'hnl-qltc-dev\.web\.app' -or $webUrl -match '([?&])env=dev(?:&|$)'
+$wrapperLabel = if ($isDevWrapper) { 'HNL QLTC DEV' } else { 'HNL Quản Lý Thi Công' }
+$manifest = Get-Content -Raw -LiteralPath $manifestXml
+$manifest = $manifest -replace 'android:label="[^"]*"', "android:label=`"$wrapperLabel`""
+[System.IO.File]::WriteAllText($manifestXml, $manifest, $utf8NoBom)
+
+Write-Output "Android SDK: $sdk"
+Write-Output "Android build-tools: $buildTools"
+Write-Output "Android platform: $platform"
+Write-Output "JAVA_HOME: $javaHome"
+Write-Output "Android versionName=$appVersion versionCode=$versionCode"
+Write-Output "Android wrapper web URL: $webUrl"
+Write-Output "Android wrapper label: $wrapperLabel"
+
+if (-not (Test-Path -LiteralPath (Join-Path $dist 'index.html'))) {
+    throw 'Missing web build. Run npm run build before building the APK.'
+}
+
+foreach ($dir in @($assets, $build)) {
+    $parent = Split-Path -Parent $dir
+    if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+    $resolvedParent = (Resolve-Path -LiteralPath $parent).Path
+    if (-not $resolvedParent.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to clean path outside wrapper: $dir"
+    }
+}
+
+if (Test-Path -LiteralPath $assets) { Get-ChildItem -LiteralPath $assets -Force | Remove-Item -Recurse -Force }
+else { New-Item -ItemType Directory -Path $assets | Out-Null }
+if (Test-Path -LiteralPath $build) { Get-ChildItem -LiteralPath $build -Force | Remove-Item -Recurse -Force }
+else { New-Item -ItemType Directory -Path $build | Out-Null }
+New-Item -ItemType Directory -Force -Path $classes, $dex, $generated | Out-Null
+Copy-Item -Path (Join-Path $dist '*') -Destination $assets -Recurse -Force
+Get-ChildItem -LiteralPath $assets -Recurse -Filter '*.map' | Remove-Item -Force
+
+
+# Dedicated launcher branding: keep separate from Web/in-app logo assets.
+$launcherIconSource = Join-Path $projectRoot 'desktop-wrapper\HNL-QLTC-SHELL-ICON.png'
+if (-not (Test-Path -LiteralPath $launcherIconSource)) { throw "Missing HNL shell launcher icon source: $launcherIconSource" }
+
+Add-Type -AssemblyName System.Drawing
+function Write-HnlLauncherPng {
+    param(
+        [Parameter(Mandatory = $true)][System.Drawing.Image] $Source,
+        [Parameter(Mandatory = $true)][int] $Size,
+        [Parameter(Mandatory = $true)][string] $OutputPath
+    )
+    $bitmap = New-Object System.Drawing.Bitmap($Size, $Size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    try {
+        $graphics.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceOver
+        $graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+        $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+        $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+        $graphics.Clear([System.Drawing.Color]::Transparent)
+        $graphics.DrawImage($Source, (New-Object System.Drawing.Rectangle(0, 0, $Size, $Size)))
+        $bitmap.Save($OutputPath, [System.Drawing.Imaging.ImageFormat]::Png)
+    } finally {
+        $graphics.Dispose()
+        $bitmap.Dispose()
+    }
+}
+
+function Write-HnlAndroidLauncherIcons {
+    param([Parameter(Mandatory = $true)][string] $SourcePath)
+    $source = [System.Drawing.Image]::FromFile($SourcePath)
+    try {
+        if ($source.Width -lt 512 -or $source.Height -lt 512) {
+            throw "HNL launcher source is too small: $($source.Width)x$($source.Height)"
+        }
+        $targets = [ordered]@{
+            'mipmap-mdpi' = 48
+            'mipmap-hdpi' = 72
+            'mipmap-xhdpi' = 96
+            'mipmap-xxhdpi' = 144
+            'mipmap-xxxhdpi' = 192
+        }
+        foreach ($entry in $targets.GetEnumerator()) {
+            $folder = Join-Path $root ('res\' + $entry.Key)
+            New-Item -ItemType Directory -Force -Path $folder | Out-Null
+            Write-HnlLauncherPng -Source $source -Size ([int]$entry.Value) -OutputPath (Join-Path $folder 'ic_launcher.png')
+            Write-HnlLauncherPng -Source $source -Size ([int]$entry.Value) -OutputPath (Join-Path $folder 'ic_launcher_round.png')
+        }
+    } finally {
+        $source.Dispose()
+    }
+    Write-Output "Android launcher icon source: desktop-wrapper/HNL-QLTC-SHELL-ICON.png"
+    Write-Output "Android launcher densities: mdpi=48 hdpi=72 xhdpi=96 xxhdpi=144 xxxhdpi=192"
+}
+
+Write-HnlAndroidLauncherIcons -SourcePath $launcherIconSource
+
+Invoke-Tool $aapt2 @('compile', '--dir', (Join-Path $root 'res'), '-o', $compiled)
+Invoke-Tool $aapt2 @(
+    'link', '-o', $unsignedApk, '-I', $androidJar,
+    '--manifest', (Join-Path $root 'AndroidManifest.xml'), '-R', $compiled,
+    '--java', $generated, '--min-sdk-version', '23', '--target-sdk-version', '35',
+    '--version-code', [string]$versionCode, '--version-name', $appVersion, '--auto-add-overlay'
+)
+
+$javaFiles = @(
+    Get-ChildItem -LiteralPath (Join-Path $root 'src') -Recurse -Filter '*.java'
+    Get-ChildItem -LiteralPath $generated -Recurse -Filter '*.java'
+) | ForEach-Object { $_.FullName }
+$javacArgs = @('-encoding', 'UTF-8', '-source', '8', '-target', '8', '-classpath', $androidJar, '-d', $classes) + $javaFiles
+Invoke-Tool $javac $javacArgs
+
+$classFiles = Get-ChildItem -LiteralPath $classes -Recurse -Filter '*.class' | ForEach-Object { $_.FullName }
+Invoke-Tool $d8 (@('--release', '--min-api', '23', '--lib', $androidJar, '--output', $dex) + $classFiles)
+
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+function Add-ZipEntry {
+    param(
+        [Parameter(Mandatory = $true)] $Zip,
+        [Parameter(Mandatory = $true)][string] $File,
+        [Parameter(Mandatory = $true)][string] $EntryName
+    )
+    $normalizedEntryName = $EntryName -replace '\\', '/'
+    $existing = $Zip.GetEntry($normalizedEntryName)
+    if ($existing -ne $null) { $existing.Delete() }
+    [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+        $Zip, $File, $normalizedEntryName, [System.IO.Compression.CompressionLevel]::Optimal
+    ) | Out-Null
+}
+
+$zip = [System.IO.Compression.ZipFile]::Open($unsignedApk, [System.IO.Compression.ZipArchiveMode]::Update)
+try {
+    Add-ZipEntry $zip (Join-Path $dex 'classes.dex') 'classes.dex'
+    $assetRoot = Join-Path $root 'assets'
+    $assetRootPrefix = (Resolve-Path -LiteralPath $assetRoot).Path.TrimEnd('\') + '\'
+    foreach ($assetFile in Get-ChildItem -LiteralPath $assetRoot -Recurse -File) {
+        $relativePath = $assetFile.FullName.Substring($assetRootPrefix.Length)
+        Add-ZipEntry $zip $assetFile.FullName ('assets/' + $relativePath)
+    }
+} finally { $zip.Dispose() }
+
+Invoke-Tool $zipalign @('-f', '-p', '4', $unsignedApk, $alignedApk)
+
+$keystoreBase64 = $env:QLCT_ANDROID_KEYSTORE_BASE64
+if ($keystoreBase64) {
+    [System.IO.File]::WriteAllBytes($keystore, [Convert]::FromBase64String($keystoreBase64))
+}
+
+$storePass = if ($env:QLCT_ANDROID_KEYSTORE_PASSWORD) { $env:QLCT_ANDROID_KEYSTORE_PASSWORD } else { 'android' }
+$keyPass = if ($env:QLCT_ANDROID_KEY_PASSWORD) { $env:QLCT_ANDROID_KEY_PASSWORD } else { $storePass }
+$keyAlias = if ($env:QLCT_ANDROID_KEY_ALIAS) { $env:QLCT_ANDROID_KEY_ALIAS } else { 'qlct' }
+
+if (-not (Test-Path -LiteralPath $keystore)) {
+    Write-Warning 'No release keystore supplied; generating a local development keystore. Keep the same release keystore for upgradeable production APKs.'
+    Invoke-Tool $keytool @(
+        '-genkeypair', '-keystore', $keystore, '-alias', $keyAlias,
+        '-storepass', $storePass, '-keypass', $keyPass,
+        '-keyalg', 'RSA', '-keysize', '2048', '-validity', '10000',
+        '-dname', 'CN=HNL QLTC,O=HNL,C=VN'
+    )
+}
+
+Invoke-Tool $apksigner @(
+    'sign', '--ks', $keystore, '--ks-key-alias', $keyAlias,
+    '--ks-pass', "pass:$storePass", '--key-pass', "pass:$keyPass",
+    '--out', $finalApk, $alignedApk
+)
+Invoke-Tool $apksigner @('verify', '--verbose', '--print-certs', $finalApk)
+Write-Output "APK created: $finalApk"
+) {
+        throw "QLCT_ANDROID_VERSION_CODE must be a positive integer, got: $versionCodeOverride"
+    }
+    $parsedVersionCode = [int64]$versionCodeOverride
+    if ($parsedVersionCode -lt 1 -or $parsedVersionCode -gt 2100000000) {
+        throw "QLCT_ANDROID_VERSION_CODE is outside Android's supported range: $parsedVersionCode"
+    }
+    $versionCode = [int]$parsedVersionCode
+}
+
 $webUrl = $env:QLCT_WEB_URL
 if (-not $webUrl -and (Test-Path -LiteralPath $webUrlFile)) {
     $webUrl = (Get-Content -Raw -LiteralPath $webUrlFile).Trim()
