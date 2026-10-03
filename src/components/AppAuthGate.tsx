@@ -196,7 +196,7 @@ export const AppAuthGate: React.FC<AppAuthGateProps> = ({ children }) => {
                 DEV
               </span>
             )}
-            <span>v{APP_VERSION}</span>
+            <span>V{APP_VERSION}</span>
           </div>
         </div>
       </div>
