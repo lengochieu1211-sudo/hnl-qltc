@@ -4138,16 +4138,16 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                                 </button>
                               )}
                               
-                              {canManage && !isArchived && (
+                              {canManage && !isArchived ? (
                                 <button
                                   type="button"
-                                  onClick={(e) => handleStartRename(proj, e)}
+                                  onClick={(event) => handleStartRename(proj, event)}
                                   className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
                                   title="Đổi tên dự án"
                                 >
                                   <Edit3 className="w-3.5 h-3.5" />
                                 </button>
-                              )}
+                              ) : null}
 
                               {canManage && !isArchived && !isActive && (
                                 <button
