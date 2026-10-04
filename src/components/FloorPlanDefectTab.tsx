@@ -7218,6 +7218,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           }`}
                           title="Bấm 2 điểm tạo khung chữ nhật"
                         >
+                          <span className="text-sm leading-none shrink-0">📦</span>
                           <span>Vẽ chữ nhật</span>
                         </button>
 

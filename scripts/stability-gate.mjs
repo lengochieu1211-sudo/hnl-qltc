@@ -402,7 +402,7 @@ requireAll(dataManagementMenu, ['Quản lý dữ liệu', 'Bảng chỉnh nhanh'
 requireAll(actionMenuButton, ['mobileLabel?: string', 'data-hnl-mobile-label={mobileLabel || undefined}', 'sm:hidden', 'hidden truncate sm:inline'], 'shared action trigger supports compact mobile wording and exposes it for Runtime Golden without changing desktop labels');
 requireAll(dataManagementMenu, ['mobileLabel="Dữ liệu"'], 'Data Management uses a compact mobile trigger label');
 requireAll(quickSortBar, ['sm:hidden', '<select', 'Sắp xếp:', 'hidden sm:block', 'Sắp xếp nhanh:'], 'Quick Sort is compact on mobile while retaining desktop quick chips');
-requireAll(materialNormModal, ['expandedNormTagIds', 'hiddenCount', "sm:hidden inline-flex", "'Thu gọn'"], 'Material Norm cards collapse extra mobile work-category tags behind +N');
+requireAll(materialNormModal, ['expandedNormTagIds', 'hiddenCount', "wIdx > 0 && !expanded ? 'hidden sm:inline-block' : 'inline-block'", "sm:hidden inline-flex", "'Thu gọn'"], 'Material Norm cards collapse extra mobile work-category tags behind +N without conflicting display utilities');
 requireAll(checklistTab, ['<DataManagementMenu', 'exportLabel="Tải Excel để chỉnh sửa"', 'importLabel="Nhập lại từ Excel"'], 'Checklist unified data-management entry');
 requireAll(crewTabBase, ['<AddSourceMenu', 'triggerLabel="Thêm đội"', 'onOpenSourcePicker={() => setShowTeamTemplatePicker(true)}'], 'Team directory shared Add Source entry');
 requireAll(crewTabBase, ['reportLabel="Báo cáo chi tiết tất cả đội"', 'onExportReport={() => handleExportTeamStats()}'], 'Team directory distinguishes detailed all-team reporting from editable catalog export');
