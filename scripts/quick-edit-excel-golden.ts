@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const quick = fs.readFileSync('src/components/QuickEditGridModal.tsx', 'utf8');
-const excel = fs.readFileSync('src/components/ExcelActionMenu.tsx', 'utf8');
+const dataMenu = fs.readFileSync('src/components/DataManagementMenu.tsx', 'utf8');
+const actionMenu = fs.readFileSync('src/components/ActionMenuButton.tsx', 'utf8');
+const addSourceMenu = fs.readFileSync('src/components/AddSourceMenu.tsx', 'utf8');
+const checklist = fs.readFileSync('src/components/ChecklistTab.tsx', 'utf8');
 const floor = fs.readFileSync('src/components/FloorPlanDefectTab.tsx', 'utf8');
 const crew = fs.readFileSync('src/components/CrewTabBase.tsx', 'utf8');
 const warehouse = fs.readFileSync('src/components/WarehouseTab.tsx', 'utf8');
@@ -36,23 +39,28 @@ assert.doesNotMatch(quick, /<thead className="sticky top-0/, 'Quick Edit must av
 assert.match(quick, /allowExpression/, 'Quick grid must support safe arithmetic expressions in numeric cells');
 assert.match(quick, /evaluateMathExpression/, 'Quick grid must validate expression-backed numeric cells by numeric result');
 
-assert.match(excel, /Xuất Excel để chỉnh sửa/, 'Excel menu must be editing-oriented');
-assert.match(excel, /Nhập Excel đã chỉnh sửa/, 'Excel menu must contain round-trip import');
-assert.match(excel, /Tải Excel mẫu/, 'Excel menu must contain template action');
+assert.match(dataMenu, /Xuất Excel để chỉnh sửa/, 'Data Management menu must be editing-oriented');
+assert.match(dataMenu, /Nhập Excel đã chỉnh sửa/, 'Data Management menu must contain round-trip import');
+assert.match(dataMenu, /Tải Excel mẫu/, 'Data Management menu must contain template action');
 assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /XLSX\.utils\.aoa_to_sheet\(\[workVolumeHeaders\]\)/, 'WorkVolume blank template must retain editable headers');
 assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /XLSX\.utils\.aoa_to_sheet\(\[mainHeaders\]\)/, 'Crew blank template must retain journal headers');
 assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /'__itemKind': item\.itemKind === 'equipment'/, 'Warehouse inbound round-trip must preserve material-vs-equipment identity');
 assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /XLSX\.utils\.aoa_to_sheet\(\[inHeaders\]\)/, 'Warehouse blank inbound template must retain headers');
-assert.match(excel, /\{onExportReport && \(/, 'Excel report section must render only when a module explicitly supplies a report callback');
-assert.match(excel, /fillMobile/, 'Excel action trigger must support equal-width mobile action rows');
-assert.match(excel, /fillWidth/, 'Excel action trigger must support equal-width desktop/mobile action pairs');
-assert.match(excel, /onExportReport/, 'Excel action menu must support an optional report action without duplicating standalone buttons');
-assert.match(excel, /w-full sm:w-auto/, 'Excel action trigger must be able to fill one mobile grid column without affecting desktop');
-assert.match(excel, /whitespace-nowrap/, 'Excel action trigger must keep its compact label intact on mobile');
-assert.match(excel, /FileSpreadsheet/, 'Excel-only action trigger must retain the standard spreadsheet icon');
-assert.match(excel, /Database/, 'Combined data-management trigger must use a data icon');
-assert.match(excel, /onQuickEdit/, 'Shared data menu must support the Quick Edit action');
-assert.match(excel, /Quản lý dữ liệu/, 'Shared data menu must expose the approved data-management label');
+assert.match(dataMenu, /if \(onExportReport\)/, 'Data Management report section must render only when a module explicitly supplies a report callback');
+assert.match(dataMenu, /fillMobile/, 'Data Management trigger must support equal-width mobile action rows');
+assert.match(dataMenu, /fillWidth/, 'Data Management trigger must support equal-width desktop/mobile action pairs');
+assert.match(dataMenu, /onExportReport/, 'Data Management menu must support an optional report action without duplicating standalone buttons');
+assert.match(actionMenu, /w-full sm:w-auto/, 'Shared action trigger must be able to fill one mobile grid column without affecting desktop');
+assert.match(actionMenu, /whitespace-nowrap/, 'Shared action trigger must keep its compact label intact on mobile');
+assert.match(dataMenu, /FileSpreadsheet/, 'Data Management export must retain the spreadsheet icon');
+assert.match(dataMenu, /Database/, 'Data Management trigger must use a data icon');
+assert.match(dataMenu, /onQuickEdit/, 'Shared Data Management menu must support the Quick Edit action');
+assert.match(dataMenu, /Quản lý dữ liệu/, 'Shared Data Management menu must expose the approved data-management label');
+assert.match(addSourceMenu, /Chọn cách thêm/, 'Shared Add Source menu must expose one consistent source-choice pattern');
+assert.match(addSourceMenu, /Tạo mới để nhập thủ công/, 'Shared Add Source menu must explain create-vs-copy behavior');
+assert.match(actionMenu, /fixed bottom-2 left-2 right-2/, 'Shared action menu must use a mobile bottom sheet surface');
+assert.match(actionMenu, /sm:absolute/, 'Shared action menu must switch to an anchored popover on wider screens');
+assert.match(checklist, /<DataManagementMenu/, 'Checklist must use shared Data Management instead of standalone Excel buttons');
 for (const [name, source] of [['floor', floor], ['crew', crew], ['warehouse', warehouse], ['volume', volume]] as const) {
   assert.match(source, /quickEditEnabled\?: boolean;/, `${name} must expose a Quick Edit runtime enable flag`);
   assert.match(source, /import\('\.\/QuickEditGridModal'\)/, `${name} must lazy-load Quick Edit instead of parsing the grid with the heavy tab chunk`);
@@ -175,9 +183,9 @@ assert.match(projectManager, /workVolumes: templateCopyOptions\.workVolumes \? t
 assert.match(projectManager, /materialNorms: templateCopyOptions\.materialNorms/, 'Template clone must include material norms without warehouse transactions');
 assert.match(projectManager, /inventory: \[\]/, 'Template clone must never copy warehouse transaction history');
 assert.match(projectManager, /saveProjectSharedSettings\(newProjectId, \{ structure: templateSourceStructure \}\)/, 'Template clone must preserve Khu/Khối structure settings');
-assert.match(volume, /Lấy từ công trình\/mẫu/, 'Work Volume must support copying selected catalog items from other projects');
-assert.match(crew, /Lấy từ công trình\/mẫu/, 'Team directory must support copying selected teams from other projects');
-assert.match(materialNormModal, /Lấy từ công trình\/mẫu/, 'Material Norms must support copying selected norms from other projects');
+assert.match(volume, /onOpenSourcePicker=\{\(\) => setShowTemplatePicker\(true\)\}/, 'Work Volume must keep the existing cross-project/template picker behind Add Source');
+assert.match(crew, /onOpenSourcePicker=\{\(\) => setShowTeamTemplatePicker\(true\)\}/, 'Team directory must keep the existing cross-project/template picker behind Add Source');
+assert.match(materialNormModal, /onOpenSourcePicker=\{\(\) => setShowNormTemplatePicker\(true\)\}/, 'Material Norms must keep the existing cross-project/template picker behind Add Source');
 assert.match(catalogTemplatePicker, /Lưu giỏ thành mẫu/, 'Cross-project picker must support saving a reusable personal template');
 assert.match(catalogTemplatePicker, /Mẫu đã lưu/, 'Cross-project picker must support loading saved templates');
 assert.match(catalogTemplatePicker, /fetchProjectFromCloud\(sourceProjectId, \{ serverOnly: true \}\)/, 'Cross-project picker must server-verify source project data');
@@ -185,5 +193,5 @@ assert.match(catalogTemplatePicker, /fetchUserCatalogTemplates/, 'Reusable templ
 
 console.log('Quick Edit + Excel + DXF Golden: PASS');
 
-assert.match(volume, /grid w-full grid-cols-1[\s\S]*order-first col-span-1[\s\S]*Thêm[\s\S]*<div className="col-span-1">[\s\S]*triggerLabel="Quản lý dữ liệu"/, 'Work Volume mobile actions must stack as full-width rows without a half-empty grid column');
-assert.match(volume, /sm:grid-flow-col[\s\S]*Thêm[\s\S]*Lấy từ công trình\/mẫu[\s\S]*triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit/, 'Work Volume PC actions must keep Add primary with template import inside its split control and consolidated data management');
+assert.match(volume, /grid w-full grid-cols-1[\s\S]*order-first col-span-1[\s\S]*<AddSourceMenu[\s\S]*triggerLabel="Thêm hạng mục"[\s\S]*<div className="col-span-1">[\s\S]*triggerLabel="Quản lý dữ liệu"/, 'Work Volume mobile Add Source and Data Management actions must stack as full-width rows');
+assert.match(volume, /sm:grid-flow-col[\s\S]*<AddSourceMenu[\s\S]*triggerLabel="Thêm hạng mục"[\s\S]*triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit/, 'Work Volume PC actions must use shared Add Source plus consolidated Data Management');

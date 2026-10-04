@@ -67,6 +67,10 @@ const shareUtils = read('src/utils/shareUtils.ts');
 const fileExport = read('src/utils/fileExport.ts');
 const configTab = read('src/components/GoogleConfigTab.tsx');
 const bottomNav = read('src/components/BottomNav.tsx');
+const actionMenuButton = read('src/components/ActionMenuButton.tsx');
+const addSourceMenu = read('src/components/AddSourceMenu.tsx');
+const dataManagementMenu = read('src/components/DataManagementMenu.tsx');
+const checklistTab = read('src/components/ChecklistTab.tsx');
 const healthCenterPanelBase = read('src/healthCenter/HealthCenterPanelBase.tsx');
 const runtimeDiagnostics = read('src/lib/runtimeDiagnostics.ts');
 const roomHighlight = read('src/components/RoomHighlightModal.tsx');
@@ -358,7 +362,7 @@ if (!warehouseTab.includes('FIREBASE_ONLY_RUNTIME') || !warehouseTab.includes('K
 pass('warehouse transaction/derived-balance safety engine is wired into runtime');
 
 requireAll(warehouseTab, [
-  '<ExcelActionMenu',
+  '<DataManagementMenu',
   'triggerLabel="Quản lý dữ liệu"',
   "onQuickEdit={quickEditEnabled ? (() => { setQuickEditMode('norms'); setShowQuickEdit(true); }) : undefined}",
   'onImportFile={hasImportAccess ? handleFileChangeExcel : undefined}',
@@ -367,13 +371,20 @@ requireAll(warehouseTab, [
 if (warehouseTab.includes('<span>Chỉ ADMIN được nhập</span>')) fail('warehouse must hide unavailable import action instead of showing a disabled ADMIN-only placeholder');
 const workVolumeTab = read('src/components/WorkVolumeTab.tsx');
 requireAll(workVolumeTab, [
-  '<ExcelActionMenu',
+  '<DataManagementMenu',
   'triggerLabel="Quản lý dữ liệu"',
   'onQuickEdit={quickEditEnabled ? (() => setShowQuickEdit(true)) : undefined}',
   'onImportFile={hasStructureManageAccess ? handleImportExcelWorkVolumes : undefined}',
   "key: 'actual', label: 'Khối lượng đã làm', editable: false",
 ], 'work-volume role-aware data-management actions');
 pass('Data-management action bars are visually consistent across ADMIN, ENGINEER and VIEWER without weakening RBAC');
+requireAll(actionMenuButton, ['fixed bottom-2 left-2 right-2', 'sm:absolute', 'border-blue-600 bg-blue-600', 'group-open:rotate-180'], 'shared action menu mobile bottom-sheet / desktop popover shell');
+requireAll(addSourceMenu, ['Chọn cách thêm', 'Tạo mới để nhập thủ công', 'Lấy từ công trình/mẫu'], 'shared Add Source menu');
+requireAll(dataManagementMenu, ['Quản lý dữ liệu', 'Bảng chỉnh nhanh', '.xlsx,.xls', 'onExportReport'], 'shared Data Management menu');
+requireAll(checklistTab, ['<DataManagementMenu', 'exportLabel="Tải Excel để chỉnh sửa"', 'importLabel="Nhập lại từ Excel"'], 'Checklist unified data-management entry');
+requireAll(crewTabBase, ['<AddSourceMenu', 'triggerLabel="Thêm đội"', 'onOpenSourcePicker={() => setShowTeamTemplatePicker(true)}'], 'Team directory shared Add Source entry');
+requireAll(materialNormModal, ['<AddSourceMenu', 'triggerLabel="Thêm định mức"', 'onOpenSourcePicker={() => setShowNormTemplatePicker(true)}'], 'Material Norm shared Add Source entry');
+requireAll(workVolumeTab, ['<AddSourceMenu', 'triggerLabel="Thêm hạng mục"', 'onOpenSourcePicker={() => setShowTemplatePicker(true)}'], 'Work Volume shared Add Source entry');
 
 const multiProjectAccess = read('src/components/MultiProjectAccessPanel.tsx');
 const multiProjectOverview = read('src/components/MultiProjectOverview.tsx');

@@ -29,6 +29,7 @@ import { UserRole, canEditChecklistData, canManageChecklistStructure, canDeleteB
 
 import { QuickSortBar } from './QuickSortBar';
 import { filterChecklistForFloor, isSameChecklistFloor } from '../utils/checklistUtils';
+import { DataManagementMenu } from './DataManagementMenu';
 
 interface ChecklistTabProps {
   checklist: ChecklistItem[];
@@ -485,7 +486,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
           {canManageStructure && (
             <button
               onClick={() => setShowAddForm(true)}
-              className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl text-xs font-bold shadow active:scale-95 transition-all cursor-pointer"
+              className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-bold shadow active:scale-95 transition-all cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               Thêm Tiêu Chí
@@ -494,27 +495,15 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
         </div>
       </div>
 
-      {/* Excel Import/Export Actions */}
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={handleExportChecklistTemplate}
-          className="flex items-center justify-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-extrabold py-2.5 px-3 rounded-xl shadow-xs transition-all text-xs cursor-pointer"
-          title="Tải mẫu Excel hoặc danh sách checklist hiện tại để chỉnh sửa"
-        >
-          <Download className="w-4 h-4 text-indigo-600" /> Tải Excel để chỉnh sửa
-        </button>
-        {canImport && canManageStructure ? (
-          <label className="flex items-center justify-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 font-extrabold py-2.5 px-3 rounded-xl shadow-xs cursor-pointer transition-all text-xs">
-            <Upload className="w-4 h-4 text-emerald-600" /> Nhập lại từ Excel
-            <input type="file" accept=".xlsx, .xls" onChange={handleImportExcelChecklist} className="hidden" />
-          </label>
-        ) : (
-          <div className="flex items-center justify-center gap-1.5 bg-slate-50 border border-slate-200 text-slate-400 font-extrabold py-2.5 px-3 rounded-xl text-xs" title="Chỉ ADMIN được nhập Checklist từ Excel">
-            <Upload className="w-4 h-4" /> Chỉ ADMIN được nhập
-          </div>
-        )}
-      </div>
+      {/* Unified bulk data actions */}
+      <DataManagementMenu
+        fillWidth
+        triggerLabel="Quản lý dữ liệu"
+        onExportEdit={handleExportChecklistTemplate}
+        onImportFile={canImport && canManageStructure ? handleImportExcelChecklist : undefined}
+        exportLabel="Tải Excel để chỉnh sửa"
+        importLabel="Nhập lại từ Excel"
+      />
 
       {/* Floor Chips */}
       <div className="flex gap-2 overflow-x-auto pb-1 text-xs no-scrollbar">
