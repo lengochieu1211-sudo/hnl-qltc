@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const quick = fs.readFileSync('src/components/QuickEditGridModal.tsx', 'utf8');
+const excelExport = fs.readFileSync('src/utils/excelExport.ts', 'utf8');
 const dataMenu = fs.readFileSync('src/components/DataManagementMenu.tsx', 'utf8');
 const actionMenu = fs.readFileSync('src/components/ActionMenuButton.tsx', 'utf8');
 const addSourceMenu = fs.readFileSync('src/components/AddSourceMenu.tsx', 'utf8');
@@ -130,6 +131,14 @@ assert.match(crew, /__teamId không tồn tại trong dự án hiện tại/, 'C
 assert.match(crew, /__recordId không tồn tại trong dự án hiện tại/, 'Crew Excel import must reject stale journal IDs');
 assert.match(crew, /onExportReport=\{\(\) => handleExportTeamStats\(\)\}/, 'All-team statistics export must live inside the team Excel menu');
 assert.match(crew, /reportLabel="Thống kê tất cả đội"/, 'Team Excel menu must label the all-team report clearly');
+assert.match(excelExport, /'01-Tong quan cac doi'/, 'All-team statistics must include an overview sheet');
+assert.match(excelExport, /'02-KL theo tang'/, 'All-team statistics must include floor/category volume detail');
+assert.match(excelExport, /'03-Chi tiet phong'/, 'All-team statistics must include room detail');
+assert.match(excelExport, /'04-Defect'/, 'All-team statistics must include defect detail');
+assert.match(excelExport, /'05-Nhat ky quan so'/, 'All-team statistics must include crew log detail');
+assert.match(excelExport, /'06-Vat tu doi chieu'/, 'All-team statistics must include material reconciliation');
+assert.match(excelExport, /'Đội Thi Công': team\.name/, 'All-team detail sheets must identify the source team on each row');
+
 assert.doesNotMatch(crew, /bg-emerald-600[\s\S]{0,220}Thống kê tất cả đội/, 'All-team statistics must not remain as a standalone toolbar button');
 assert.match(crew, /Xuất Excel Đội Này/, 'Single-team report export must remain available');
 assert.match(crew, /grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-between/, 'Team-detail footer must use two balanced mobile columns');
