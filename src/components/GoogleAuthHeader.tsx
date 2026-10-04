@@ -117,11 +117,11 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
   return (
     <>
       <div className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-30 shadow-lg">
-        <div className="w-full px-3 sm:px-4 py-2.5 sm:py-3">
+        <div className="w-full px-3 sm:px-4 py-2 sm:py-3">
           {/* Top Header Row */}
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-1.5 sm:mb-2">
             <div className="flex items-center gap-2 min-w-0">
-              <div className="w-10 h-10 flex items-center justify-center overflow-hidden shrink-0 select-none bg-transparent">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center overflow-hidden shrink-0 select-none bg-transparent">
                 <img
                   src={logoUrl || `/icon.png?v=${APP_VERSION}-brand20260921`}
                   alt={appDisplayName || 'HNL Quản Lý Thi Công'}
@@ -224,10 +224,10 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
               {onOpenSecurity && (
                 <button
                   onClick={onOpenSecurity}
-                  className="flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-indigo-200 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 border border-slate-700 cursor-pointer whitespace-nowrap"
+                  className="flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-blue-200 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 border border-slate-700 cursor-pointer whitespace-nowrap"
                   title="Trung tâm bảo mật, khóa mã PIN & phân quyền"
                 >
-                  <Shield className="w-4 h-4 text-indigo-400 shrink-0" />
+                  <Shield className="w-4 h-4 text-blue-400 shrink-0" />
                   <span className="hidden sm:inline">Bảo Mật</span>
                   {userRole && (
                     <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
@@ -247,10 +247,10 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
               {onOpenProjectManager && (
                 <button
                   onClick={() => onOpenProjectManager('projects')}
-                  className="flex items-center justify-center gap-1.5 bg-indigo-900/90 hover:bg-indigo-800 text-indigo-100 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 border border-indigo-700/70 cursor-pointer whitespace-nowrap"
+                  className="flex items-center justify-center gap-1.5 bg-blue-950/90 hover:bg-blue-900 text-blue-100 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 border border-blue-800/80 cursor-pointer whitespace-nowrap"
                   title="Quản lý danh sách dự án"
                 >
-                  <Folder className="w-4 h-4 text-indigo-300 shrink-0" />
+                  <Folder className="w-4 h-4 text-blue-300 shrink-0" />
                   <span className="hidden sm:inline">Dự án</span>
                 </button>
               )}
@@ -259,10 +259,10 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
               {onOpenExportPdf && (
                 <button
                   onClick={onOpenExportPdf}
-                  className="flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 whitespace-nowrap"
+                  className="flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 whitespace-nowrap"
                   title="Xuất Báo Cáo PDF & Excel"
                 >
-                  <FileText className="w-4 h-4 text-indigo-100 shrink-0" />
+                  <FileText className="w-4 h-4 text-blue-100 shrink-0" />
                   <span className="hidden sm:inline">Báo Cáo</span>
                 </button>
               )}

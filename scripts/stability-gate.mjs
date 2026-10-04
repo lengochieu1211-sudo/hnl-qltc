@@ -281,6 +281,9 @@ requireAll(androidStyles, ['android:windowBackground', 'android:colorBackground'
 requireAll(androidStyles31, ['android:windowSplashScreenBackground', 'android:colorBackground', '@color/hnl_startup_background', '@drawable/hnl_system_splash_logo'], 'Android 12+ launch preview and system splash share branded startup background with a size-matched system icon');
 requireAll(androidBuild, ['hnl_system_splash_logo.png', 'SystemLogo = 104', 'SystemLogo = 416'], 'Android system splash uses separate safe-area padding from native splash');
 if (!indexCss.includes('html[data-hnl-theme="dark"] .text-slate-950')) fail('Dark theme must remap text-slate-950 so Home title/KPI values remain readable');
+requireAll(indexCss, ['--hnl-primary: #2563eb', '--hnl-primary-hover: #1d4ed8', '--hnl-primary-soft: #eff6ff'], 'HNL UI primary palette is standardized on blue');
+requireAll(bottomNav, ['text-[10px]', 'text-blue-600" /> Checklist', 'text-blue-600" /> HNL AI Assistant', 'text-blue-600" /> Trao đổi'], 'Mobile bottom navigation uses readable labels and the unified blue primary accent');
+requireAll(authHeader, ['w-9 h-9 sm:w-10 sm:h-10', 'bg-blue-950/90 hover:bg-blue-900', 'bg-blue-600 hover:bg-blue-700'], 'Mobile header is compact and uses the unified blue primary accent');
 const nativeSplashAttachIndex = androidMain.indexOf('setContentView(startupRoot);');
 const coldWebViewCreateIndex = androidMain.indexOf('webView = new WebView(this);');
 if (nativeSplashAttachIndex < 0 || coldWebViewCreateIndex <= nativeSplashAttachIndex) fail('Android cold start must attach native HNL splash before constructing WebView');
@@ -302,7 +305,7 @@ requireAll(app, ['? 250 : 150', 'Math.min(30000, 750 * Math.pow(2', 'photoOutbox
 requireAll(photoSync, ['PHOTO_INITIAL_SYNC_DELAY_MS = 1200', 'requestIdleCallback(run, { timeout: 1000 })', '}, 5000);'], 'photo initial reconciliation latency');
 requireAll(desktopBuild, ['HNL-QLTC-SHELL-ICON.png', 'Write-HnlIcoFromPng -PngPath $logoSource -IcoPath $generatedIcon', 'HNL.QLTC.Brand.Icon', 'HNL.QLTC.Brand.Png', 'Certified multi-resolution ICO'], 'Windows dedicated shell icon, embedded branding resources and multi-resolution icon generation');
 requireAll(androidBuild, ['desktop-wrapper\\HNL-QLTC-SHELL-ICON.png', "'mipmap-mdpi' = 48", "'mipmap-hdpi' = 72", "'mipmap-xhdpi' = 96", "'mipmap-xxhdpi' = 144", "'mipmap-xxxhdpi' = 192", 'ic_launcher.png', 'ic_launcher_round.png'], 'Android dedicated shell launcher icon generation');
-requireAll(androidBuild, ['HNL-QLTC-SPLASH-SOURCE.png', '9ab45895172034ccb4e1386a41a49e5222a32310dc30b48f5b2cea6e14a5c34d', "'drawable-mdpi' = @{ Canvas = 288; Logo = 172 }", "'drawable-xxxhdpi' = @{ Canvas = 1152; Logo = 688 }", 'legacyNoDpiSplash'], 'Android splash uses the approved 1254px master and density-aware safe-area assets');
+requireAll(androidBuild, ['HNL-QLTC-SPLASH-SOURCE.png', '9ab45895172034ccb4e1386a41a49e5222a32310dc30b48f5b2cea6e14a5c34d', "'drawable-mdpi' = @{ Canvas = 288; Logo = 172; SystemLogo = 104 }", "'drawable-xxxhdpi' = @{ Canvas = 1152; Logo = 688; SystemLogo = 416 }", 'legacyNoDpiSplash', 'legacyNoDpiSystemSplash'], 'Android splash uses the approved 1254px master with separate density-aware native/system safe areas');
 requireAll(authHeader, ['/icon.png?v=${APP_VERSION}-brand20260921'], 'Web/in-app unified HNL brand fallback');
 if (!desktopBuild.includes('HNL-QLTC-SHELL-ICON.png') || !androidBuild.includes('HNL-QLTC-SHELL-ICON.png')) fail('Windows and Android must continue to use the same certified HNL master artwork');
 if (desktopBuild.includes('Optimize-HnlSmallIconFrame')) fail('Windows icon builder must not visually alter the certified HNL logo with custom sharpening/contrast');

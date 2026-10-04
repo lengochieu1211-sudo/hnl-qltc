@@ -178,7 +178,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 className={`relative flex flex-col items-center justify-center transition-all active:scale-[0.96] active:opacity-75 ${isActive ? 'font-bold text-blue-600' : 'font-medium text-slate-500 hover:text-slate-800'}`}
               >
                 <div className="relative"><Icon className={`h-5 w-5 ${isActive ? 'scale-110' : ''}`} />{tab.badge !== undefined && tab.badge > 0 ? <span className="absolute -top-1.5 -right-2 min-w-4 rounded-full border border-white bg-rose-600 px-1 text-center text-[8px] font-black leading-4 text-white" title={`${tab.badge} ${tab.badgeLabel || 'Defect chưa xử lý'}`}>D{tab.badge}</span> : null}</div>
-                <span className="mt-1 max-w-full truncate px-1 text-[9.5px]">{tab.label}</span>
+                <span className="mt-1 max-w-full truncate px-1 text-[10px]">{tab.label}</span>
                 {isActive && <span className="absolute top-0 h-1 w-8 rounded-b-full bg-blue-600" />}
               </button>
             );
@@ -192,7 +192,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
             className={`relative flex flex-col items-center justify-center transition-all active:scale-[0.96] active:opacity-75 ${activeTab === 'volume' || activeTab === 'checklist' || activeTab === 'chat' || activeTab === 'ai' || activeTab === 'config' || activeTab === 'superadmin' || showMore ? 'font-bold text-blue-600' : 'font-medium text-slate-500'}`}
           >
             <MoreHorizontal className="h-5 w-5" />
-            <span className="mt-1 text-[9.5px]">Thêm</span>
+            <span className="mt-1 text-[10px]">Thêm</span>
           </button>
 
           {showMore && (
@@ -202,16 +202,16 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               </button>
               {showChecklist && (
                 <button type="button" data-hnl-nav-tab="checklist" onPointerEnter={() => onPreloadTab?.('checklist')} onPointerDown={() => previewTab('checklist')} onClick={() => activate('checklist')} style={navButtonStyle} className="flex w-full items-center gap-2 active:scale-[0.99] active:bg-slate-100 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                  <ClipboardCheck className="h-4 w-4 text-indigo-600" /> Checklist
+                  <ClipboardCheck className="h-4 w-4 text-blue-600" /> Checklist
                 </button>
               )}
               {showAi && (
-                <button type="button" data-hnl-nav-tab="ai" onPointerEnter={() => onPreloadTab?.('ai')} onPointerDown={() => previewTab('ai')} onClick={() => activate('ai')} style={navButtonStyle} className="flex w-full items-center gap-2 active:scale-[0.99] active:bg-slate-100 rounded-xl px-3 py-2.5 text-xs font-extrabold text-indigo-700 hover:bg-indigo-50">
-                  <Sparkles className="h-4 w-4 text-indigo-600" /> HNL AI Assistant
+                <button type="button" data-hnl-nav-tab="ai" onPointerEnter={() => onPreloadTab?.('ai')} onPointerDown={() => previewTab('ai')} onClick={() => activate('ai')} style={navButtonStyle} className="flex w-full items-center gap-2 active:scale-[0.99] active:bg-slate-100 rounded-xl px-3 py-2.5 text-xs font-extrabold text-blue-700 hover:bg-blue-50">
+                  <Sparkles className="h-4 w-4 text-blue-600" /> HNL AI Assistant
                 </button>
               )}
               <button type="button" data-hnl-nav-tab="chat" onPointerEnter={() => onPreloadTab?.('chat')} onPointerDown={() => previewTab('chat')} onClick={() => activate('chat')} style={navButtonStyle} className="flex w-full items-center justify-between gap-2 active:scale-[0.99] active:bg-slate-100 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                <span className="flex items-center gap-2"><MessageCircle className="h-4 w-4 text-violet-600" /> Trao đổi</span>
+                <span className="flex items-center gap-2"><MessageCircle className="h-4 w-4 text-blue-600" /> Trao đổi</span>
                 {chatBadgeCount > 0 && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1.5 text-[10px] font-extrabold text-white">{chatBadgeCount > 9 ? '9+' : chatBadgeCount}</span>}
               </button>
               {showSuperAdmin && (
