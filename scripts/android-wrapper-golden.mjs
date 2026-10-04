@@ -42,6 +42,6 @@ assert(workflow.includes('one-off DEV key'), 'DEV workflow warns when fixed sign
 assert(androidBuild.includes('HNL-QLTC-SPLASH-SOURCE.png') && androidBuild.includes("9ab45895172034ccb4e1386a41a49e5222a32310dc30b48f5b2cea6e14a5c34d"), 'Android splash is pinned to the user-approved 1254px Drive master');
 assert(androidBuild.includes("'drawable-mdpi' = @{ Canvas = 288; Logo = 172; SystemLogo = 104 }") && androidBuild.includes("'drawable-xxxhdpi' = @{ Canvas = 1152; Logo = 688; SystemLogo = 416 }"), 'Android native/system splashes build density-aware PNGs from the same master without high-DPI upscaling');
 assert(androidBuild.includes("hnl_system_splash_logo.png") && androidBuild.includes('Android system splash densities: mdpi=288/104'), 'Android system splash has extra safe-area padding to avoid a large-to-small logo jump');
-assert(androidBuild.includes('legacyNoDpiSplash') && androidBuild.includes('Remove-Item -LiteralPath $legacyNoDpiSplash -Force'), 'Android build removes stale APK383 nodpi splash output');
+assert(androidBuild.includes('legacyNoDpiSplash') && androidBuild.includes('legacyNoDpiSystemSplash') && androidBuild.includes('foreach ($legacySplash in @($legacyNoDpiSplash, $legacyNoDpiSystemSplash))') && androidBuild.includes('Remove-Item -LiteralPath $legacySplash -Force'), 'Android build removes stale native/system nodpi splash outputs');
 
 console.log('ANDROID WRAPPER GOLDEN PASS');
