@@ -366,6 +366,13 @@ if (!warehouseTab.includes('FIREBASE_ONLY_RUNTIME') || !warehouseTab.includes('K
 pass('warehouse transaction/derived-balance safety engine is wired into runtime');
 
 requireAll(warehouseTab, [
+  'min-w-[780px]',
+  'grid-cols-[minmax(180px,1.6fr)_120px_52px_64px_64px_120px_76px]',
+  'items-center gap-2 bg-slate-50',
+  'whitespace-nowrap text-right leading-none">Khối lượng định mức',
+], 'Warehouse catalog keeps Khối lượng định mức on one aligned header row with Nhập / Xuất / Tồn kho');
+
+requireAll(warehouseTab, [
   '<DataManagementMenu',
   'triggerLabel="Quản lý dữ liệu"',
   "onQuickEdit={quickEditEnabled ? (() => { setQuickEditMode('norms'); setShowQuickEdit(true); }) : undefined}",

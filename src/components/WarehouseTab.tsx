@@ -1999,14 +1999,14 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           />
 
           <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <div className="min-w-[760px]">
-              <div className="grid grid-cols-[minmax(180px,1.6fr)_120px_52px_64px_64px_104px_76px] gap-2 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">
+            <div className="min-w-[780px]">
+              <div className="grid grid-cols-[minmax(180px,1.6fr)_120px_52px_64px_64px_120px_76px] items-center gap-2 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">
                 <span>Tên {warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'vật tư'}</span>
                 <span>Nhóm</span>
                 <span>ĐVT</span>
                 <span className="text-right">Nhập</span>
                 <span className="text-right">Xuất</span>
-                <span className="text-right leading-tight">Khối lượng định mức</span>
+                <span className="whitespace-nowrap text-right leading-none">Khối lượng định mức</span>
                 <span className="text-right">Tồn kho</span>
               </div>
               <div className="max-h-[46vh] divide-y divide-slate-100 overflow-y-auto">
@@ -2015,7 +2015,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     {warehouseCatalogTab === 'equipment' ? 'Chưa có thiết bị. Thiết bị sẽ được lưu vào danh mục sau giao dịch đầu tiên.' : 'Không có vật tư phù hợp.'}
                   </div>
                 ) : warehouseCatalogStockRows.map((item) => (
-                  <div key={item.key} className="grid grid-cols-[minmax(180px,1.6fr)_120px_52px_64px_64px_104px_76px] items-center gap-2 px-3 py-2.5 text-xs">
+                  <div key={item.key} className="grid grid-cols-[minmax(180px,1.6fr)_120px_52px_64px_64px_120px_76px] items-center gap-2 px-3 py-2.5 text-xs">
                     <div className="min-w-0 whitespace-normal break-words font-bold leading-snug text-slate-800">{item.name}</div>
                     <span className="min-w-0 whitespace-normal break-words text-slate-500">{item.category}</span>
                     <span className="break-words text-slate-600">{item.unit}</span>
