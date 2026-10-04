@@ -391,7 +391,7 @@ requireAll(floorPlanDefect, ['grid w-full grid-cols-2 gap-2', '<span className="
 requireAll(actionMenuButton, ['createPortal', 'data-hnl-action-menu-mode', "placement: 'above' | 'below'", 'naturalHeight > bestAvailable && naturalHeight > 220', 'scrollTopBeforeOpenRef', 'sm:w-auto', 'border-blue-600 bg-blue-600', 'border-slate-200 bg-white text-slate-600 shadow-none'], 'shared action menu adaptive near-trigger popover / bottom-sheet fallback with primary/secondary hierarchy');
 requireAll(addSourceMenu, ['Chọn cách thêm', 'Tạo mới để nhập thủ công', 'Lấy từ công trình/mẫu'], 'shared Add Source menu');
 requireAll(dataManagementMenu, ['Quản lý dữ liệu', 'Bảng chỉnh nhanh', '.xlsx,.xls', 'onExportReport', 'triggerTone="secondary"'], 'shared Data Management menu remains a visually secondary utility action');
-requireAll(actionMenuButton, ['mobileLabel?: string', 'sm:hidden', 'hidden truncate sm:inline'], 'shared action trigger supports compact mobile wording without changing desktop labels');
+requireAll(actionMenuButton, ['mobileLabel?: string', 'data-hnl-mobile-label={mobileLabel || undefined}', 'sm:hidden', 'hidden truncate sm:inline'], 'shared action trigger supports compact mobile wording and exposes it for Runtime Golden without changing desktop labels');
 requireAll(dataManagementMenu, ['mobileLabel="Dữ liệu"'], 'Data Management uses a compact mobile trigger label');
 requireAll(quickSortBar, ['sm:hidden', '<select', 'Sắp xếp:', 'hidden sm:block', 'Sắp xếp nhanh:'], 'Quick Sort is compact on mobile while retaining desktop quick chips');
 requireAll(materialNormModal, ['expandedNormTagIds', 'hiddenCount', "sm:hidden inline-flex", "'Thu gọn'"], 'Material Norm cards collapse extra mobile work-category tags behind +N');

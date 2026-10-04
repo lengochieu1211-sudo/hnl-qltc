@@ -225,6 +225,7 @@ export const ActionMenuButton: React.FC<ActionMenuButtonProps> = ({
         aria-controls={open ? menuId : undefined}
         disabled={disabled}
         data-hnl-action-menu-trigger="true"
+        data-hnl-mobile-label={mobileLabel || undefined}
         onPointerDown={() => {
           if (typeof window !== 'undefined') scrollTopBeforeOpenRef.current = window.scrollY;
         }}
