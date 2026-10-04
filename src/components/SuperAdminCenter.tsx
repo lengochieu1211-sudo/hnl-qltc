@@ -155,7 +155,7 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
 
   return (
     <div className="max-w-5xl mx-auto px-3 sm:px-5 pb-24 space-y-4">
-      <section className="rounded-3xl bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-white p-5 shadow-xl border border-indigo-800/40">
+      <section className="rounded-3xl bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 text-white p-5 shadow-xl border border-blue-800/40">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full bg-amber-400/15 border border-amber-300/30 px-3 py-1 text-[11px] font-extrabold text-amber-200">
@@ -183,11 +183,11 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
         </div>
         <div className="grid sm:grid-cols-2 gap-2.5">
           {actions.map(({ title, description, icon: Icon, onClick }) => (
-            <button key={title} type="button" onClick={onClick} className="group text-left rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:border-indigo-300 hover:shadow-md transition-all">
+            <button key={title} type="button" onClick={onClick} className="group text-left rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:border-blue-300 hover:shadow-md transition-all">
               <div className="flex gap-3">
-                <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0"><Icon className="w-5 h-5" /></div>
+                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center shrink-0"><Icon className="w-5 h-5" /></div>
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2"><span className="font-extrabold text-sm text-slate-900">{title}</span><ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-500" /></div>
+                  <div className="flex items-center justify-between gap-2"><span className="font-extrabold text-sm text-slate-900">{title}</span><ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-500" /></div>
                   <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{description}</p>
                 </div>
               </div>
@@ -197,39 +197,39 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
       </section>
 
       {showUiSettings && (
-        <section id="superadmin-ui-settings-card" className="rounded-3xl border border-indigo-200 bg-white shadow-sm overflow-hidden scroll-mt-24 transition-shadow">
-          <div className="px-4 py-3 bg-indigo-50 border-b border-indigo-100 flex items-center justify-between gap-3">
-            <div><h3 className="text-sm font-black text-indigo-950">Giao diện & Module · V2</h3><p className="text-[10px] text-indigo-700 mt-0.5">Xem trước tức thời. Chỉ khi bấm “Áp dụng & Lưu” mới đồng bộ Cloud.</p></div>
+        <section id="superadmin-ui-settings-card" className="rounded-3xl border border-blue-200 bg-white shadow-sm overflow-hidden scroll-mt-24 transition-shadow">
+          <div className="px-4 py-3 bg-blue-50 border-b border-blue-100 flex items-center justify-between gap-3">
+            <div><h3 className="text-sm font-black text-blue-950">Giao diện & Module · V2</h3><p className="text-[10px] text-blue-700 mt-0.5">Xem trước tức thời. Chỉ khi bấm “Áp dụng & Lưu” mới đồng bộ Cloud.</p></div>
             <button type="button" onClick={() => { setShowUiSettings(false); onPreviewUiSettings(uiSettings); }} className="text-[11px] font-bold text-slate-500 px-2 py-1 rounded-lg hover:bg-white">Đóng</button>
           </div>
 
           <div className="p-4 space-y-5">
             <div className="grid lg:grid-cols-2 gap-4">
               <div className="rounded-2xl border border-slate-200 p-3 space-y-3">
-                <div className="flex items-center gap-2"><ImageIcon className="w-4 h-4 text-indigo-600"/><h4 className="text-xs font-black text-slate-800">Nhận diện ứng dụng</h4></div>
+                <div className="flex items-center gap-2"><ImageIcon className="w-4 h-4 text-blue-600"/><h4 className="text-xs font-black text-slate-800">Nhận diện ứng dụng</h4></div>
                 <label className="block space-y-1"><span className="text-[10px] font-bold text-slate-600">Tên hiển thị</span><input value={draftUi.appDisplayName} maxLength={40} onChange={(e) => updateDraft({ appDisplayName: e.target.value })} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs" placeholder="HNL QLTC" /></label>
                 <label className="block space-y-1"><span className="text-[10px] font-bold text-slate-600">Logo URL (HTTPS)</span><input value={draftUi.logoUrl} onChange={(e) => updateDraft({ logoUrl: e.target.value })} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs" placeholder="https://.../logo.png · để trống dùng logo mặc định" /></label>
                 <div className="flex items-center gap-3 rounded-xl bg-slate-50 border border-slate-200 p-3"><div className="w-12 h-12 rounded-xl bg-white border border-slate-200 overflow-hidden flex items-center justify-center"><img src={draftUi.logoUrl || '/icon.png?v=20260921-unified1'} onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/icon.png?v=20260921-unified1'; }} className="w-full h-full object-contain" alt="Preview logo" /></div><div><div className="text-xs font-black text-slate-800">{draftUi.appDisplayName || 'HNL QLTC'}</div><div className="text-[10px] text-slate-500">Preview logo + tên ứng dụng</div></div></div>
               </div>
 
               <div className="rounded-2xl border border-slate-200 p-3 space-y-3">
-                <div className="flex items-center gap-2"><Palette className="w-4 h-4 text-indigo-600"/><h4 className="text-xs font-black text-slate-800">Theme & màu sắc</h4></div>
+                <div className="flex items-center gap-2"><Palette className="w-4 h-4 text-blue-600"/><h4 className="text-xs font-black text-slate-800">Theme & màu sắc</h4></div>
                 <label className="block space-y-1"><span className="text-[10px] font-bold text-slate-600">Theme</span><select value={draftUi.theme} onChange={(e) => updateDraft({ theme: e.target.value as SuperAdminUiSettings['theme'] })} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold"><option value="system">Theo hệ thống</option><option value="light">Sáng</option><option value="dark">Tối</option></select></label>
                 <div className="grid grid-cols-2 gap-2">
-                  <label className="space-y-1"><span className="text-[10px] font-bold text-slate-600">Màu chủ đạo</span><div className="flex gap-2"><input type="color" value={draftUi.primaryColor} onChange={(e) => updateDraft({ primaryColor: e.target.value })} className="w-11 h-10 rounded-lg border border-slate-300 p-1"/><input value={draftUi.primaryColor} onChange={(e) => updateDraft({ primaryColor: e.target.value })} className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 text-[10px] font-mono"/></div></label>
+                  <label className="space-y-1"><span className="text-[10px] font-bold text-slate-600">Màu chủ đạo · HNL blue mặc định</span><div className="flex gap-2"><input type="color" value={draftUi.primaryColor} onChange={(e) => updateDraft({ primaryColor: e.target.value })} className="w-11 h-10 rounded-lg border border-slate-300 p-1"/><input value={draftUi.primaryColor} onChange={(e) => updateDraft({ primaryColor: e.target.value })} className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 text-[10px] font-mono"/></div></label>
                   <label className="space-y-1"><span className="text-[10px] font-bold text-slate-600">Màu phụ</span><div className="flex gap-2"><input type="color" value={draftUi.secondaryColor} onChange={(e) => updateDraft({ secondaryColor: e.target.value })} className="w-11 h-10 rounded-lg border border-slate-300 p-1"/><input value={draftUi.secondaryColor} onChange={(e) => updateDraft({ secondaryColor: e.target.value })} className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 text-[10px] font-mono"/></div></label>
                 </div>
               </div>
 
               <div className="rounded-2xl border border-slate-200 p-3 space-y-3">
-                <div className="flex items-center gap-2"><Type className="w-4 h-4 text-indigo-600"/><h4 className="text-xs font-black text-slate-800">Chữ & mật độ</h4></div>
+                <div className="flex items-center gap-2"><Type className="w-4 h-4 text-blue-600"/><h4 className="text-xs font-black text-slate-800">Chữ & mật độ</h4></div>
                 <label className="space-y-1 block"><span className="text-[10px] font-bold text-slate-600">Cỡ chữ / tỷ lệ giao diện</span><select value={draftUi.scalePercent} onChange={(e) => updateDraft({ scalePercent: Number(e.target.value) })} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold"><option value={90}>90% · Nhỏ</option><option value={100}>100% · Tiêu chuẩn</option><option value={110}>110% · Lớn</option><option value={120}>120% · Rất lớn</option></select></label>
                 <label className="space-y-1 block"><span className="text-[10px] font-bold text-slate-600">Mật độ giao diện</span><select value={draftUi.density} onChange={(e) => updateDraft({ density: e.target.value as SuperAdminUiSettings['density'] })} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold"><option value="compact">Gọn</option><option value="standard">Tiêu chuẩn</option><option value="comfortable">Thoáng / dễ chạm</option></select></label>
                 <label className="space-y-1 block"><span className="text-[10px] font-bold text-slate-600">Bo góc</span><select value={draftUi.borderRadius} onChange={(e) => updateDraft({ borderRadius: e.target.value as SuperAdminUiSettings['borderRadius'] })} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold"><option value="square">Vuông</option><option value="soft">Mềm</option><option value="round">Bo tròn</option></select></label>
               </div>
 
               <div className="rounded-2xl border border-slate-200 p-3 space-y-3">
-                <div className="flex items-center gap-2"><MousePointerClick className="w-4 h-4 text-indigo-600"/><h4 className="text-xs font-black text-slate-800">Nút, icon & module</h4></div>
+                <div className="flex items-center gap-2"><MousePointerClick className="w-4 h-4 text-blue-600"/><h4 className="text-xs font-black text-slate-800">Nút, icon & module</h4></div>
                 <div className="grid grid-cols-2 gap-2">
                   <label className="space-y-1"><span className="text-[10px] font-bold text-slate-600">Kích thước nút</span><select value={draftUi.buttonSize} onChange={(e) => updateDraft({ buttonSize: e.target.value as SuperAdminUiSettings['buttonSize'] })} className="w-full rounded-xl border border-slate-300 px-2 py-2 text-xs"><option value="compact">Nhỏ</option><option value="standard">Chuẩn</option><option value="large">Lớn</option></select></label>
                   <label className="space-y-1"><span className="text-[10px] font-bold text-slate-600">Kích thước icon</span><select value={draftUi.iconSize} onChange={(e) => updateDraft({ iconSize: e.target.value as SuperAdminUiSettings['iconSize'] })} className="w-full rounded-xl border border-slate-300 px-2 py-2 text-xs"><option value="small">Nhỏ</option><option value="standard">Chuẩn</option><option value="large">Lớn</option></select></label>
@@ -239,7 +239,7 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-              <div className="flex items-center gap-2 mb-2"><MonitorSmartphone className="w-4 h-4 text-indigo-600"/><span className="text-[11px] font-black text-slate-700">Preview Mobile / PC</span></div>
+              <div className="flex items-center gap-2 mb-2"><MonitorSmartphone className="w-4 h-4 text-blue-600"/><span className="text-[11px] font-black text-slate-700">Preview Mobile / PC</span></div>
               <div className="grid sm:grid-cols-2 gap-2">
                 <div className="rounded-xl border border-slate-300 bg-white p-3"><div className="text-[9px] text-slate-400">Điện thoại</div><div className="mt-2 h-20 rounded-lg border border-slate-200 p-2" style={{ borderRadius: draftUi.borderRadius === 'square' ? 2 : draftUi.borderRadius === 'round' ? 18 : 10 }}><div className="h-3 w-2/3 rounded" style={{ backgroundColor: draftUi.primaryColor }}></div><div className="mt-2 h-2 w-full bg-slate-200 rounded"></div><div className="mt-2 h-7 w-20 text-white text-[9px] flex items-center justify-center" style={{ backgroundColor: draftUi.secondaryColor, borderRadius: 8 }}>Nút mẫu</div></div></div>
                 <div className="rounded-xl border border-slate-300 bg-white p-3"><div className="text-[9px] text-slate-400">PC</div><div className="mt-2 h-20 rounded-lg border border-slate-200 p-2 flex gap-2"><div className="w-1/4 rounded bg-slate-100"></div><div className="flex-1"><div className="h-3 w-1/2 rounded" style={{ backgroundColor: draftUi.primaryColor }}></div><div className="mt-2 h-2 w-full bg-slate-200 rounded"></div><div className="mt-2 h-2 w-3/4 bg-slate-200 rounded"></div></div></div></div>
@@ -253,7 +253,7 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
             {uiMessage && <div className="text-[10px] font-semibold text-slate-600 bg-slate-50 rounded-lg px-3 py-2">{uiMessage}</div>}
             <div className="flex flex-wrap gap-2 justify-end">
               <button type="button" disabled={savingUi} onClick={async () => { setSavingUi(true); try { await onResetUiSettings(); setUiMessage('Đã khôi phục mặc định.'); } finally { setSavingUi(false); } }} className="px-3 py-2 rounded-xl border border-slate-300 text-[11px] font-bold text-slate-600 disabled:opacity-50">Khôi phục mặc định</button>
-              <button type="button" disabled={savingUi} onClick={() => void saveDraft()} className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-[11px] font-extrabold shadow-sm disabled:opacity-50">{savingUi ? 'Đang lưu…' : 'Áp dụng & Lưu'}</button>
+              <button type="button" disabled={savingUi} onClick={() => void saveDraft()} className="px-4 py-2 rounded-xl bg-blue-600 text-white text-[11px] font-extrabold shadow-sm disabled:opacity-50">{savingUi ? 'Đang lưu…' : 'Áp dụng & Lưu'}</button>
             </div>
           </div>
         </section>

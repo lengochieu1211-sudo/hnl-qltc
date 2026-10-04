@@ -58,10 +58,12 @@ assert.match(dataMenu, /onQuickEdit/, 'Shared Data Management menu must support 
 assert.match(dataMenu, /Quản lý dữ liệu/, 'Shared Data Management menu must expose the approved data-management label');
 assert.match(dataMenu, /triggerTone="secondary"/, 'Data Management trigger must remain visually secondary because it is a lower-frequency action');
 assert.match(actionMenu, /border-slate-200 bg-white text-slate-600 shadow-none/, 'Shared action menu must support a quiet secondary trigger style');
+assert.match(actionMenu, /placement: 'above' \| 'below'/, 'Shared action menu must support opening above or below the pressed trigger');
+assert.match(actionMenu, /scrollTopBeforeOpenRef/, 'Opening a shared action menu must preserve the page scroll position');
 assert.match(addSourceMenu, /Chọn cách thêm/, 'Shared Add Source menu must expose one consistent source-choice pattern');
 assert.match(addSourceMenu, /Tạo mới để nhập thủ công/, 'Shared Add Source menu must explain create-vs-copy behavior');
-assert.match(actionMenu, /fixed bottom-2 left-2 right-2/, 'Shared action menu must use a mobile bottom sheet surface');
-assert.match(actionMenu, /sm:absolute/, 'Shared action menu must switch to an anchored popover on wider screens');
+assert.match(actionMenu, /data-hnl-action-menu-mode/, 'Shared action menu must expose its adaptive runtime mode');
+assert.match(actionMenu, /naturalHeight > bestAvailable && naturalHeight > 220/, 'Shared action menu must use bottom sheet only when a longer mobile menu cannot fit near the trigger');
 assert.match(checklist, /<DataManagementMenu/, 'Checklist must use shared Data Management instead of standalone Excel buttons');
 for (const [name, source] of [['floor', floor], ['crew', crew], ['warehouse', warehouse], ['volume', volume]] as const) {
   assert.match(source, /quickEditEnabled\?: boolean;/, `${name} must expose a Quick Edit runtime enable flag`);

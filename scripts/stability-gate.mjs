@@ -378,7 +378,7 @@ requireAll(workVolumeTab, [
   "key: 'actual', label: 'Khối lượng đã làm', editable: false",
 ], 'work-volume role-aware data-management actions');
 pass('Data-management action bars are visually consistent across ADMIN, ENGINEER and VIEWER without weakening RBAC');
-requireAll(actionMenuButton, ['fixed bottom-2 left-2 right-2', 'sm:absolute', 'border-blue-600 bg-blue-600', 'border-slate-200 bg-white text-slate-600 shadow-none', 'group-open:rotate-180'], 'shared action menu mobile bottom-sheet / desktop popover shell with primary/secondary hierarchy');
+requireAll(actionMenuButton, ['createPortal', 'data-hnl-action-menu-mode', "placement: 'above' | 'below'", 'naturalHeight > bestAvailable && naturalHeight > 220', 'scrollTopBeforeOpenRef', 'border-blue-600 bg-blue-600', 'border-slate-200 bg-white text-slate-600 shadow-none'], 'shared action menu adaptive near-trigger popover / bottom-sheet fallback with primary/secondary hierarchy');
 requireAll(addSourceMenu, ['Chọn cách thêm', 'Tạo mới để nhập thủ công', 'Lấy từ công trình/mẫu'], 'shared Add Source menu');
 requireAll(dataManagementMenu, ['Quản lý dữ liệu', 'Bảng chỉnh nhanh', '.xlsx,.xls', 'onExportReport', 'triggerTone="secondary"'], 'shared Data Management menu remains a visually secondary utility action');
 requireAll(checklistTab, ['<DataManagementMenu', 'exportLabel="Tải Excel để chỉnh sửa"', 'importLabel="Nhập lại từ Excel"'], 'Checklist unified data-management entry');
@@ -470,6 +470,19 @@ requireAll(firebaseBase, [
   "'teams'",
   'CREW_REPORT_ACCESS_DENIED',
 ], 'targeted multi-project crew report reader');
+requireAll(app, [
+  "primaryColor: '#2563eb'",
+  "normalized === '#4f46e5' ? DEFAULT_SUPER_ADMIN_UI_SETTINGS.primaryColor : normalized",
+  "root.style.setProperty('--hnl-primary', superAdminUiSettings.primaryColor)",
+], 'HNL blue default + legacy primary migration while preserving custom colors');
+requireAll(indexCss, [
+  '.bg-indigo-50',
+  '.text-indigo-950',
+  '.border-indigo-100',
+  '.ring-indigo-500',
+  '.focus\\:ring-indigo-500:focus',
+  '.hover\\:bg-indigo-50:hover',
+], 'legacy indigo utilities render through the HNL primary token');
 requireAll(bottomNav, [
   "'home' | 'warehouse'",
   "label: 'Trang chủ'",

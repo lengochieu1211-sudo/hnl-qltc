@@ -187,6 +187,8 @@ assert(!defectUi.includes('<span>💡 <strong>Kéo Vẽ tự do:'), 'Freehand ba
 assert(!defectUi.includes('📐 <strong>Đang vẽ lại vùng cho căn'), 'Redraw banner must not show a second leading symbol beside its Lucide icon.');
 assert(!defectUi.includes('<span>📋 Dán thường') && !defectUi.includes('<span>📝 Dán đè'), 'Paste actions must use one icon system, not Lucide plus emoji.');
 const checklistUi = read('src/components/ChecklistTab.tsx');
+const actionMenuButton = read('src/components/ActionMenuButton.tsx');
+assert(actionMenuButton.includes('createPortal') && actionMenuButton.includes("placement: 'above' | 'below'") && actionMenuButton.includes('naturalHeight > bestAvailable && naturalHeight > 220'), 'Shared Action Menu must open near the pressed button and fall back to a bottom sheet only when space is insufficient');
 assert(checklistUi.includes('<DataManagementMenu') && checklistUi.includes('triggerLabel="Quản lý dữ liệu"') && checklistUi.includes('exportLabel="Tải Excel để chỉnh sửa"') && checklistUi.includes('importLabel="Nhập lại từ Excel"'), 'Checklist must use the shared Data Management menu instead of two standalone Excel buttons');
 const workVolumeUi = read('src/components/WorkVolumeTab.tsx');
 const crewUiForPc = read('src/components/CrewTabBase.tsx');

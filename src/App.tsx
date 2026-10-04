@@ -317,7 +317,7 @@ const DEFAULT_SUPER_ADMIN_UI_SETTINGS: SuperAdminUiSettings = {
   scalePercent: 100,
   checklistVisibility: 'auto',
   theme: 'system',
-  primaryColor: '#4f46e5',
+  primaryColor: '#2563eb',
   secondaryColor: '#059669',
   buttonSize: 'standard',
   iconSize: 'standard',
@@ -332,6 +332,13 @@ const normalizeHexColor = (value: unknown, fallback: string): string => {
   return /^#[0-9a-fA-F]{6}$/.test(text) ? text.toLowerCase() : fallback;
 };
 
+const normalizeHnlPrimaryColor = (value: unknown): string => {
+  const normalized = normalizeHexColor(value, DEFAULT_SUPER_ADMIN_UI_SETTINGS.primaryColor);
+  // Migrate only the historical built-in indigo default; preserve every other
+  // explicit SUPER ADMIN custom color.
+  return normalized === '#4f46e5' ? DEFAULT_SUPER_ADMIN_UI_SETTINGS.primaryColor : normalized;
+};
+
 const normalizeSuperAdminUiSettings = (raw: any): SuperAdminUiSettings => {
   const logoCandidate = String(raw?.logoUrl || '').trim();
   const safeLogoUrl = !logoCandidate || logoCandidate.startsWith('/') || /^https:\/\//i.test(logoCandidate) ? logoCandidate : '';
@@ -339,7 +346,7 @@ const normalizeSuperAdminUiSettings = (raw: any): SuperAdminUiSettings => {
     scalePercent: [90, 100, 110, 120].includes(Number(raw?.scalePercent)) ? Number(raw.scalePercent) : 100,
     checklistVisibility: raw?.checklistVisibility === 'always' ? 'always' : 'auto',
     theme: ['light', 'dark', 'system'].includes(String(raw?.theme)) ? raw.theme : 'system',
-    primaryColor: normalizeHexColor(raw?.primaryColor, DEFAULT_SUPER_ADMIN_UI_SETTINGS.primaryColor),
+    primaryColor: normalizeHnlPrimaryColor(raw?.primaryColor),
     secondaryColor: normalizeHexColor(raw?.secondaryColor, DEFAULT_SUPER_ADMIN_UI_SETTINGS.secondaryColor),
     buttonSize: ['compact', 'standard', 'large'].includes(String(raw?.buttonSize)) ? raw.buttonSize : 'standard',
     iconSize: ['small', 'standard', 'large'].includes(String(raw?.iconSize)) ? raw.iconSize : 'standard',
