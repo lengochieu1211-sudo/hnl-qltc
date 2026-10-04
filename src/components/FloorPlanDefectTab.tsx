@@ -7967,7 +7967,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         height={Math.abs(drawHoverPos.y - drawStartPos.y)}
                         rx="1"
                         fill="rgba(99, 102, 241, 0.35)"
-                        stroke="#4f46e5"
+                        stroke="#2563eb"
                         strokeWidth={0.8 * strokeScale}
                         strokeDasharray="2,2"
                       />

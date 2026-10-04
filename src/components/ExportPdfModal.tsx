@@ -696,7 +696,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
       }).join('');
       return `
         <div class="page-break-avoid" style="margin:10px 0 14px;">
-          <div style="font-size:10.5px;font-weight:800;color:#1e1b4b;margin:0 0 5px;">
+          <div style="font-size:10.5px;font-weight:800;color:#1e3a8a;margin:0 0 5px;">
             ${h(item.title)} · ${h(item.unit || '')}
           </div>
           <table>
@@ -768,8 +768,8 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           @page { size: ${pdfPaperSize} ${pdfOrientation}; margin: 10mm 10mm 12mm 10mm; }
           * { box-sizing: border-box; }
           body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 0; padding: 12px; color: #0f172a; line-height: 1.4; background: #fff; font-size: 10px; }
-          .header { border-bottom: 2.5px solid #4f46e5; padding-bottom: 10px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: flex-start; }
-          .header h1 { margin: 0; color: #1e1b4b; font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: -0.2px; }
+          .header { border-bottom: 2.5px solid #2563eb; padding-bottom: 10px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: flex-start; }
+          .header h1 { margin: 0; color: #1e3a8a; font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: -0.2px; }
           .header p { margin: 2px 0 0; color: #475569; font-size: 10.5px; }
           .badge { display: inline-block; max-width: 100%; padding: 2px 5px; border-radius: 4px; font-weight: 700; font-size: 8.8px; white-space: normal; word-break: break-word; overflow-wrap: anywhere; line-height: 1.25; text-align: center; vertical-align: middle; }
           .badge-passed { background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }
@@ -789,7 +789,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           .wrap-cell { white-space: normal; word-break: break-word; overflow-wrap: anywhere; line-height: 1.3; }
           .map-legend td, .map-legend th { padding: 4px 5px; }
           tr:nth-child(even) { background-color: #f8fafc; }
-          .section-title { font-size: 12px; font-weight: 800; margin-top: 14px; margin-bottom: 8px; color: #1e1b4b; border-left: 4px solid #4f46e5; padding-left: 8px; background: #f1f5f9; padding-top: 4px; padding-bottom: 4px; page-break-after: avoid; break-after: avoid; text-transform: uppercase; }
+          .section-title { font-size: 12px; font-weight: 800; margin-top: 14px; margin-bottom: 8px; color: #1e3a8a; border-left: 4px solid #2563eb; padding-left: 8px; background: #f1f5f9; padding-top: 4px; padding-bottom: 4px; page-break-after: avoid; break-after: avoid; text-transform: uppercase; }
           .footer { font-size: 8.5px; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 6px; margin-top: 20px; }
           .page-break-avoid { page-break-inside: avoid; break-inside: avoid; }
           @media print {
@@ -818,7 +818,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           </div>
           <div style="text-align: right;">
             <p><strong>Ngày xuất:</strong> ${formatDateTime(new Date())}</p>
-            <p style="color: #4f46e5; font-weight: bold;">Hệ thống quản lý thi công &amp; nghiệm thu</p>
+            <p style="color: #2563eb; font-weight: bold;">Hệ thống quản lý thi công &amp; nghiệm thu</p>
           </div>
         </div>
 
@@ -837,7 +837,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           ` : ''}
           ${includeFloorPlan ? `
             <div class="card">
-              <h3 style="color: #4f46e5;">${filteredRooms.length}</h3>
+              <h3 style="color: #2563eb;">${filteredRooms.length}</h3>
               <p>Khu vực / Phòng</p>
             </div>
             <div class="card">
@@ -853,7 +853,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           ` : ''}
           ${includeCrew ? `
             <div class="card">
-              <h3 style="color: #4f46e5;">${filteredCrew.reduce((sum, c) => sum + c.workerCount, 0)}</h3>
+              <h3 style="color: #2563eb;">${filteredCrew.reduce((sum, c) => sum + c.workerCount, 0)}</h3>
               <p>TỔNG LƯỢT NHÂN CÔNG</p>
             </div>
           ` : ''}
@@ -935,7 +935,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         ${includeFloorPlan && targetFloorPlans.length > 0 ? `
           <div class="section-title">🖼️ MẶT BẰNG CĂN / PHÒNG &amp; SƠ ĐỒ DEFECT</div>
           <div class="page-break-avoid" style="display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin:0 0 10px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:7px;background:#f8fafc;font-size:8.8px;color:#475569;">
-            <span><strong style="color:#4f46e5;">● Căn/Phòng:</strong> ${pdfRoomCodeStyle === 'hash' ? '#1, #2…' : pdfRoomCodeStyle === 'room' ? 'C1, C2…' : '1, 2, 3…'}</span>
+            <span><strong style="color:#2563eb;">● Căn/Phòng:</strong> ${pdfRoomCodeStyle === 'hash' ? '#1, #2…' : pdfRoomCodeStyle === 'room' ? 'C1, C2…' : '1, 2, 3…'}</span>
             <span><strong style="color:#e11d48;">● Defect:</strong> ${pdfDefectCodeStyle === 'df' ? 'DF-01, DF-02…' : '01, 02, 03…'}</span>
             <span>Số/mã trên bản vẽ khớp với bảng chú giải, danh sách Defect và phụ lục ảnh.</span>
             <span style="color:#64748b;">Mã hệ thống DF-xxxx chỉ dùng để truy vết kỹ thuật.</span>
@@ -949,7 +949,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
             if (!hasRooms && !hasDefects) {
               return `
                 <div class="page-break-avoid" style="margin-bottom: 16px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; background: #f8fafc;">
-                  <span style="font-weight: bold; color: #1e1b4b; font-size: 11px;">📍 Sơ đồ mặt bằng: ${h(formatFloorName(fp.floorName))}</span>
+                  <span style="font-weight: bold; color: #1e3a8a; font-size: 11px;">📍 Sơ đồ mặt bằng: ${h(formatFloorName(fp.floorName))}</span>
                   <span style="color: #64748b; font-size: 10px; margin-left: 8px;">(Chưa có khu vực/phòng được đánh dấu &amp; Không có Defect)</span>
                 </div>
               `;
@@ -977,7 +977,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 
             return `
               <div class="page-break-avoid" style="margin-bottom: 20px; border: 1px solid #cbd5e1; border-radius: 10px; padding: 12px; background: #fff;">
-                <h4 style="margin: 0 0 10px 0; font-size: 12.5px; color: #1e1b4b; font-weight: bold; border-bottom: 2px solid #4f46e5; padding-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+                <h4 style="margin: 0 0 10px 0; font-size: 12.5px; color: #1e3a8a; font-weight: bold; border-bottom: 2px solid #2563eb; padding-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
                   <span>📍 Sơ đồ mặt bằng: <strong>${h(formatFloorName(fp.floorName))}</strong></span>
                   <span style="font-size: 10px; font-weight: normal; color: #475569;">(${fpRooms.length} khu vực/phòng, ${fpDefects.length} defect)</span>
                 </h4>
@@ -985,7 +985,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                 <div style="display: flex; flex-direction: column; gap: 14px;">
                   <!-- Vùng đánh dấu Map -->
                   <div style="width: 100%;">
-                    <p style="margin: 0 0 6px 0; font-size: 10.5px; font-weight: bold; color: #4f46e5;">
+                    <p style="margin: 0 0 6px 0; font-size: 10.5px; font-weight: bold; color: #2563eb;">
                       1. Mặt bằng vùng đánh dấu khu vực / phòng (${fpRooms.length} khu vực)
                     </p>
 
@@ -1047,7 +1047,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                       <!-- Legend Table below Vùng đánh dấu Map -->
                       ${fpRooms.length > 0 ? `
                         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 8px; margin-bottom: 6px;">
-                          <p style="margin: 0 0 4px 0; font-size: 9.5px; font-weight: bold; color: #1e1b4b;">Chú giải mã vị trí khu vực / phòng (${h(formatFloorName(fp.floorName))}):</p>
+                          <p style="margin: 0 0 4px 0; font-size: 9.5px; font-weight: bold; color: #1e3a8a;">Chú giải mã vị trí khu vực / phòng (${h(formatFloorName(fp.floorName))}):</p>
                           <p style="margin: 0 0 5px 0; font-size: 8.5px; color: #64748b;">🟣 Ký hiệu tím = Căn/Phòng. Mã trên bản vẽ khớp với cột Mã trong bảng chú giải.</p>
                           <table style="width: 100%; border-collapse: collapse; margin-bottom: 0; font-size: 9px; table-layout: fixed;">
                             <thead>
@@ -1265,7 +1265,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                 const groupLabel = getDefectReportGroupLabel(d);
                 const previousGroup = index > 0 ? getDefectReportGroupLabel(defectsForReport[index - 1]) : '';
                 const groupHeader = groupLabel !== previousGroup
-                  ? `<tr><td colspan="7" style="background:#eef2ff;color:#3730a3;font-weight:900;font-size:9px;padding:5px 7px;border-top:1.4px solid #c7d2fe;">${h(groupLabel)}</td></tr>`
+                  ? `<tr><td colspan="7" style="background:#eff6ff;color:#1d4ed8;font-weight:900;font-size:9px;padding:5px 7px;border-top:1.4px solid #bfdbfe;">${h(groupLabel)}</td></tr>`
                   : '';
                 return `${groupHeader}
                 <tr>
@@ -1424,7 +1424,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                   <td>${formatDateDDMMYYYY(c.date)}</td>
                   <td><strong>${escapeHtml(c.teamName)}</strong></td>
                   <td>${escapeHtml(c.leaderName)}</td>
-                  <td style="text-align: center; font-weight: bold; color: #4f46e5;">${c.workerCount}</td>
+                  <td style="text-align: center; font-weight: bold; color: #2563eb;">${c.workerCount}</td>
                   <td style="text-align: center;">${escapeHtml(getCrewShiftSummary(c))}</td>
                   <td>${escapeHtml(c.floorName || '-')}</td>
                   <td>
@@ -2329,7 +2329,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                     {pdfShowRoomMarkers && (
                       <div
                         className="absolute left-[28%] top-[48%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white text-indigo-700 font-black flex items-center justify-center"
-                        style={{ minWidth: `${28 * pdfRoomMarkerSizeScale}px`, height: `${22 * pdfRoomMarkerSizeScale}px`, paddingInline: `${5 * pdfRoomMarkerSizeScale}px`, fontSize: `${10 * pdfMarkerFontScale}px`, opacity: pdfMarkerOpacity / 100, border: pdfShowMarkerOutline ? '2px solid #4f46e5' : 'none' }}
+                        style={{ minWidth: `${28 * pdfRoomMarkerSizeScale}px`, height: `${22 * pdfRoomMarkerSizeScale}px`, paddingInline: `${5 * pdfRoomMarkerSizeScale}px`, fontSize: `${10 * pdfMarkerFontScale}px`, opacity: pdfMarkerOpacity / 100, border: pdfShowMarkerOutline ? '2px solid #2563eb' : 'none' }}
                       >
                         {pdfRoomCodeStyle === 'hash' ? '#1' : pdfRoomCodeStyle === 'room' ? 'C1' : '1'}
                       </div>

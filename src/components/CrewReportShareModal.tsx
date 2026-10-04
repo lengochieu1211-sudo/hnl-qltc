@@ -149,12 +149,12 @@ async function renderCrewReportImages(params: {
     visibleGroups.forEach((group) => {
       const x = teamStartX + teamOffset * teamWidth;
       const spanWidth = group.teams.length * teamWidth;
-      ctx.fillStyle = '#eef2ff';
+      ctx.fillStyle = '#eff6ff';
       ctx.fillRect(x, tableTop, spanWidth, groupHeaderHeight);
-      ctx.strokeStyle = '#c7d2fe';
+      ctx.strokeStyle = '#bfdbfe';
       ctx.strokeRect(x, tableTop, spanWidth, groupHeaderHeight);
       ctx.font = '700 14px Arial, sans-serif';
-      ctx.fillStyle = '#3730a3';
+      ctx.fillStyle = '#1d4ed8';
       const groupName = group.structureGroupName.length > 34 ? `${group.structureGroupName.slice(0, 33)}…` : group.structureGroupName;
       const gw = ctx.measureText(groupName).width;
       ctx.fillText(groupName, x + Math.max(8, (spanWidth - gw) / 2), tableTop + 23);

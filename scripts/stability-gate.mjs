@@ -533,6 +533,16 @@ requireAll(floorPlanDefect, [
   'Tùy chỉnh kỹ thuật (Regex)',
   'Khôi phục mặc định',
 ], 'Smart PDF room-name rule progressive disclosure');
+for (const [label, source] of [
+  ['App UI', app],
+  ['Floor plan UI', floorPlanDefect],
+  ['PDF export', exportPdf],
+  ['AI export', read('src/ai/export/aiReportExport.ts')],
+  ['Health export', read('src/healthCenter/healthCenterExport.ts')],
+  ['Crew report share', read('src/components/CrewReportShareModal.tsx')],
+]) {
+  if (source.toLowerCase().includes('#4f46e5')) fail(`${label} reintroduced legacy indigo primary #4f46e5`);
+}
 pass('known regression guards retained');
 
 requireAll(projectManager, [
