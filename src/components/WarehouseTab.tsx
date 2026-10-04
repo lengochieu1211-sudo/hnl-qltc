@@ -2000,7 +2000,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
           <div className="overflow-x-auto rounded-xl border border-slate-200">
             <div className="min-w-[760px]">
-              <div className="grid grid-cols-[minmax(180px,1.6fr)_120px_52px_64px_64px_104px_76px] gap-2 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">
+              <div className="grid grid-cols-[minmax(180px,1.6fr)_120px_52px_64px_64px_104px_76px] items-center gap-2 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">
                 <span>Tên {warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'vật tư'}</span>
                 <span>Nhóm</span>
                 <span>ĐVT</span>
