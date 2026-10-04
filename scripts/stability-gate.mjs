@@ -397,6 +397,8 @@ requireAll(quickSortBar, ['sm:hidden', '<select', 'Sắp xếp:', 'hidden sm:blo
 requireAll(materialNormModal, ['expandedNormTagIds', 'hiddenCount', "sm:hidden inline-flex", "'Thu gọn'"], 'Material Norm cards collapse extra mobile work-category tags behind +N');
 requireAll(checklistTab, ['<DataManagementMenu', 'exportLabel="Tải Excel để chỉnh sửa"', 'importLabel="Nhập lại từ Excel"'], 'Checklist unified data-management entry');
 requireAll(crewTabBase, ['<AddSourceMenu', 'triggerLabel="Thêm đội"', 'onOpenSourcePicker={() => setShowTeamTemplatePicker(true)}'], 'Team directory shared Add Source entry');
+requireAll(crewTabBase, ['reportLabel="Báo cáo chi tiết tất cả đội"', 'onExportReport={() => handleExportTeamStats()}'], 'Team directory distinguishes detailed all-team reporting from editable catalog export');
+
 requireAll(materialNormModal, ['<AddSourceMenu', 'triggerLabel="Thêm định mức"', 'onOpenSourcePicker={() => setShowNormTemplatePicker(true)}'], 'Material Norm shared Add Source entry');
 requireAll(workVolumeTab, ['<AddSourceMenu', 'triggerLabel="Thêm hạng mục"', 'onOpenSourcePicker={() => setShowTemplatePicker(true)}'], 'Work Volume shared Add Source entry');
 

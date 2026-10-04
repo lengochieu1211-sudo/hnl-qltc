@@ -130,7 +130,7 @@ assert.match(crew, /chi tiet cong viec/i, 'Crew import must understand detailed 
 assert.match(crew, /__teamId không tồn tại trong dự án hiện tại/, 'Crew Excel import must reject stale technical team IDs');
 assert.match(crew, /__recordId không tồn tại trong dự án hiện tại/, 'Crew Excel import must reject stale journal IDs');
 assert.match(crew, /onExportReport=\{\(\) => handleExportTeamStats\(\)\}/, 'All-team statistics export must live inside the team Excel menu');
-assert.match(crew, /reportLabel="Thống kê tất cả đội"/, 'Team Excel menu must label the all-team report clearly');
+assert.match(crew, /reportLabel="Báo cáo chi tiết tất cả đội"/, 'Team data menu must clearly distinguish the detailed all-team report from the editable team catalog');
 assert.match(excelExport, /'01-Tong quan cac doi'/, 'All-team statistics must include an overview sheet');
 assert.match(excelExport, /'02-KL theo tang'/, 'All-team statistics must include floor/category volume detail');
 assert.match(excelExport, /'03-Chi tiet phong'/, 'All-team statistics must include room detail');
@@ -139,7 +139,7 @@ assert.match(excelExport, /'05-Nhat ky quan so'/, 'All-team statistics must incl
 assert.match(excelExport, /'06-Vat tu doi chieu'/, 'All-team statistics must include material reconciliation');
 assert.match(excelExport, /'Đội Thi Công': team\.name/, 'All-team detail sheets must identify the source team on each row');
 
-assert.doesNotMatch(crew, /bg-emerald-600[\s\S]{0,220}Thống kê tất cả đội/, 'All-team statistics must not remain as a standalone toolbar button');
+assert.doesNotMatch(crew, /bg-emerald-600[\s\S]{0,220}Báo cáo chi tiết tất cả đội/, 'All-team statistics must not remain as a standalone toolbar button');
 assert.match(crew, /Xuất Excel Đội Này/, 'Single-team report export must remain available');
 assert.match(crew, /grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-between/, 'Team-detail footer must use two balanced mobile columns');
 assert.match(crew, /sm:hidden">Xuất Excel</, 'Team-detail Excel action must use a compact mobile label');
@@ -155,7 +155,7 @@ assert.match(crew, /order-1 col-span-2 lg:order-none lg:col-span-1[\s\S]*aria-la
 assert.match(crew, /canOperate \? 'grid-cols-3' : 'grid-cols-2'[\s\S]*Sao chép[\s\S]*Chia sẻ[\s\S]*triggerLabel="Quản lý dữ liệu"/, 'Crew mobile must keep Copy / Share / Data Management in one compact utility row');
 assert.match(crew, /lg:grid-cols-\[220px_minmax\(0,1fr\)_minmax\(0,1fr\)_minmax\(0,1\.1fr\)_minmax\(0,1fr\)\][\s\S]*Chia sẻ báo cáo quân số[\s\S]*triggerLabel="Quản lý dữ liệu"/, 'Crew PC must preserve Date, Record, Copy, Share and Data Management on one aligned row');
 assert.doesNotMatch(crew, /crew-subtab-navigation[^\n]*lg:max-w/, 'Crew primary subtabs must remain full-width like the original layout');
-assert.match(crew, /triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit=\{quickEditEnabled \? \(\(\) => \{ setQuickEditMode\('teams'\); setShowQuickEdit\(true\); \}\) : undefined\}[\s\S]*reportLabel="Thống kê tất cả đội"/, 'Team directory must consolidate Quick Edit and Excel under the same data menu');
+assert.match(crew, /triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit=\{quickEditEnabled \? \(\(\) => \{ setQuickEditMode\('teams'\); setShowQuickEdit\(true\); \}\) : undefined\}[\s\S]*reportLabel="Báo cáo chi tiết tất cả đội"/, 'Team directory must consolidate Quick Edit and Excel under the same data menu');
 
 assert.match(warehouse, /Định mức theo Hạng mục/, 'Warehouse quick edit must expose the safe per-work-category norm table');
 assert.match(warehouse, /Nhập kho/, 'Warehouse quick edit must have inbound ledger table');

@@ -2340,7 +2340,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     exportLabel="Xuất danh mục đội để chỉnh sửa"
                     importLabel="Nhập danh mục đội đã chỉnh sửa"
                     templateLabel="Tải mẫu danh mục đội"
-                    reportLabel="Thống kê tất cả đội"
+                    reportLabel="Báo cáo chi tiết tất cả đội"
                   />
                 </div>
               </div>
