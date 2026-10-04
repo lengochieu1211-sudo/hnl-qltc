@@ -70,6 +70,7 @@ const bottomNav = read('src/components/BottomNav.tsx');
 const actionMenuButton = read('src/components/ActionMenuButton.tsx');
 const addSourceMenu = read('src/components/AddSourceMenu.tsx');
 const dataManagementMenu = read('src/components/DataManagementMenu.tsx');
+const quickSortBar = read('src/components/QuickSortBar.tsx');
 const checklistTab = read('src/components/ChecklistTab.tsx');
 const healthCenterPanelBase = read('src/healthCenter/HealthCenterPanelBase.tsx');
 const runtimeDiagnostics = read('src/lib/runtimeDiagnostics.ts');
@@ -384,6 +385,10 @@ pass('Data-management action bars are visually consistent across ADMIN, ENGINEER
 requireAll(actionMenuButton, ['createPortal', 'data-hnl-action-menu-mode', "placement: 'above' | 'below'", 'naturalHeight > bestAvailable && naturalHeight > 220', 'scrollTopBeforeOpenRef', 'sm:w-auto', 'border-blue-600 bg-blue-600', 'border-slate-200 bg-white text-slate-600 shadow-none'], 'shared action menu adaptive near-trigger popover / bottom-sheet fallback with primary/secondary hierarchy');
 requireAll(addSourceMenu, ['Chọn cách thêm', 'Tạo mới để nhập thủ công', 'Lấy từ công trình/mẫu'], 'shared Add Source menu');
 requireAll(dataManagementMenu, ['Quản lý dữ liệu', 'Bảng chỉnh nhanh', '.xlsx,.xls', 'onExportReport', 'triggerTone="secondary"'], 'shared Data Management menu remains a visually secondary utility action');
+requireAll(actionMenuButton, ['mobileLabel?: string', 'sm:hidden', 'hidden truncate sm:inline'], 'shared action trigger supports compact mobile wording without changing desktop labels');
+requireAll(dataManagementMenu, ['mobileLabel="Dữ liệu"'], 'Data Management uses a compact mobile trigger label');
+requireAll(quickSortBar, ['sm:hidden', '<select', 'Sắp xếp:', 'hidden sm:block', 'Sắp xếp nhanh:'], 'Quick Sort is compact on mobile while retaining desktop quick chips');
+requireAll(materialNormModal, ['expandedNormTagIds', 'hiddenCount', "sm:hidden inline-flex", "'Thu gọn'"], 'Material Norm cards collapse extra mobile work-category tags behind +N');
 requireAll(checklistTab, ['<DataManagementMenu', 'exportLabel="Tải Excel để chỉnh sửa"', 'importLabel="Nhập lại từ Excel"'], 'Checklist unified data-management entry');
 requireAll(crewTabBase, ['<AddSourceMenu', 'triggerLabel="Thêm đội"', 'onOpenSourcePicker={() => setShowTeamTemplatePicker(true)}'], 'Team directory shared Add Source entry');
 requireAll(materialNormModal, ['<AddSourceMenu', 'triggerLabel="Thêm định mức"', 'onOpenSourcePicker={() => setShowNormTemplatePicker(true)}'], 'Material Norm shared Add Source entry');

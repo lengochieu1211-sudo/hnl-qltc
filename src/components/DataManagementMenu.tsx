@@ -41,6 +41,7 @@ export const DataManagementMenu: React.FC<DataManagementMenuProps> = ({
   return (
     <ActionMenuButton
       label={triggerLabel}
+      mobileLabel="Dữ liệu"
       icon={Database}
       entries={entries}
       menuTitle="Quản lý dữ liệu"

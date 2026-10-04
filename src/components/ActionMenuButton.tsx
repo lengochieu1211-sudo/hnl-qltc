@@ -21,6 +21,7 @@ interface ActionMenuButtonProps {
   align?: 'left' | 'right';
   ariaLabel?: string;
   triggerTone?: 'primary' | 'secondary';
+  mobileLabel?: string;
 }
 
 type MenuLayout =
@@ -37,7 +38,7 @@ const entryToneClass: Record<ActionMenuTone, string> = {
 export const ActionMenuButton: React.FC<ActionMenuButtonProps> = ({
   label, icon: TriggerIcon, entries, menuTitle, footer, disabled = false,
   fillMobile = false, fillWidth = false, align = 'right', ariaLabel,
-  triggerTone = 'primary',
+  triggerTone = 'primary', mobileLabel,
 }) => {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -237,7 +238,14 @@ export const ActionMenuButton: React.FC<ActionMenuButtonProps> = ({
         } ${disabled ? 'pointer-events-none opacity-50' : ''}`}
       >
         <TriggerIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
-        <span className="truncate">{label}</span>
+        {mobileLabel ? (
+          <>
+            <span className="truncate sm:hidden">{mobileLabel}</span>
+            <span className="hidden truncate sm:inline">{label}</span>
+          </>
+        ) : (
+          <span className="truncate">{label}</span>
+        )}
         <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
       </button>
       {menuContent}

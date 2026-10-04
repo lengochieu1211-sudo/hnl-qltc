@@ -101,6 +101,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   useFormatSettings();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedNormIds, setSelectedNormIds] = useState<string[]>([]);
+  const [expandedNormTagIds, setExpandedNormTagIds] = useState<Set<string>>(() => new Set());
   const [showNormTemplatePicker, setShowNormTemplatePicker] = useState(false);
   
   const workCategoriesList = React.useMemo(() => {
@@ -1056,11 +1057,36 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                               </span>
                               {(() => {
                                 const resolvedCats = getResolvedNormWorkCategories(norm, activeWorkVolumes);
-                                return resolvedCats.map((wCat, wIdx) => (
-                                  <span key={`${wCat}-${wIdx}`} className="inline-block px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-md">
-                                    🏗️ {wCat}
-                                  </span>
-                                ));
+                                const expanded = expandedNormTagIds.has(norm.id);
+                                const hiddenCount = Math.max(0, resolvedCats.length - 1);
+                                return (
+                                  <>
+                                    {resolvedCats.map((wCat, wIdx) => (
+                                      <span
+                                        key={`${wCat}-${wIdx}`}
+                                        className={`inline-block px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-md ${wIdx > 0 && !expanded ? 'hidden sm:inline-block' : ''}`}
+                                      >
+                                        🏗️ {wCat}
+                                      </span>
+                                    ))}
+                                    {hiddenCount > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setExpandedNormTagIds((current) => {
+                                          const next = new Set(current);
+                                          if (next.has(norm.id)) next.delete(norm.id);
+                                          else next.add(norm.id);
+                                          return next;
+                                        })}
+                                        className="sm:hidden inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-extrabold text-slate-600 active:scale-95"
+                                        aria-expanded={expanded}
+                                        title={expanded ? 'Thu gọn hạng mục' : 'Xem thêm hạng mục'}
+                                      >
+                                        {expanded ? 'Thu gọn' : `+${hiddenCount}`}
+                                      </button>
+                                    )}
+                                  </>
+                                );
                               })()}
                             </div>
                             <h4 className="text-xs font-bold text-slate-900 leading-snug">{norm.materialName}</h4>
