@@ -2024,7 +2024,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
           {/* Statistics widgets */}
           <div className="grid grid-cols-2 gap-3 mb-4">
-            <div className="bg-gradient-to-br from-indigo-500 to-blue-600 text-white p-4 rounded-xl shadow-md">
+            <div className="bg-gradient-to-br from-blue-500 to-blue-700 text-white p-4 rounded-xl shadow-md">
               <div className="flex justify-between items-start">
                 <span className="text-white/80 text-[10px] font-bold tracking-wider uppercase">
                   {selectedDate === getTodayString() ? 'Tổng quân số hôm nay' : `Tổng Quân Số Ngày ${formatDateDDMMYYYY(selectedDate)}`}

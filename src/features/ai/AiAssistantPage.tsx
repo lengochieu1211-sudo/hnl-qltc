@@ -330,7 +330,7 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
 
   return (
     <div className="max-w-5xl mx-auto px-3 sm:px-5 pb-28 space-y-4">
-      <section className="rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-cyan-50 p-4 shadow-sm">
+      <section className="rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 via-white to-cyan-50 p-4 shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shrink-0"><Sparkles className="w-6 h-6" /></div>
