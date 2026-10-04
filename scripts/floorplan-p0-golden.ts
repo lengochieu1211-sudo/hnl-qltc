@@ -215,8 +215,8 @@ check(!ui.includes('openReuseFloorPlanModal'), 'Shared drawing reuse must stay i
 check(ui.includes('switchFullscreenFloor'), 'Fullscreen floor navigation handler missing.');
 check(ui.includes('Tầng trước · Alt + ←') && ui.includes('Tầng sau · Alt + →'), 'Fullscreen must expose previous/next floor navigation.');
 check(ui.includes('Chọn nhanh tầng trong chế độ toàn màn hình'), 'Fullscreen must expose direct floor selection.');
-check(ui.includes('<span className="truncate max-w-[100px] sm:max-w-none">Toàn màn hình</span>'), 'Fullscreen status badge must describe fullscreen mode instead of duplicating the active floor name.');
-check(!ui.includes("<span className=\"truncate max-w-[100px] sm:max-w-none\">{activeFloor?.floorName || 'Toàn Màn Hình'}</span>"), 'Fullscreen active floor name must be rendered only by the floor selector, not duplicated in the status badge.');
+check(!ui.includes('<span className="truncate max-w-[100px] sm:max-w-none">Toàn màn hình</span>'), 'Fullscreen toolbar must not waste mobile space on a redundant fullscreen mode label.');
+check(!ui.includes("<span className=\"truncate max-w-[100px] sm:max-w-none\">{activeFloor?.floorName || 'Toàn Màn Hình'}</span>"), 'Fullscreen active floor name must be rendered only by the floor selector, not duplicated in the toolbar.');
 check(ui.includes('loading="lazy"') && ui.includes('decoding="async"'), 'Floor management thumbnails must avoid eager decoding every plan image.');
 check(app.includes('onInspectFloorPlanBulkTargets={handleInspectFloorPlanBulkTargets}'), 'App must expose bulk preflight to the floor-plan UI.');
 check(ui.includes('Defect, Căn/Phòng, highlight, tiến độ, checklist'), 'Bulk floor UI must warn that business data remains per-floor.');
