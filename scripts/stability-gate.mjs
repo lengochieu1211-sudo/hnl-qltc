@@ -378,9 +378,9 @@ requireAll(workVolumeTab, [
   "key: 'actual', label: 'Khối lượng đã làm', editable: false",
 ], 'work-volume role-aware data-management actions');
 pass('Data-management action bars are visually consistent across ADMIN, ENGINEER and VIEWER without weakening RBAC');
-requireAll(actionMenuButton, ['fixed bottom-2 left-2 right-2', 'sm:absolute', 'border-blue-600 bg-blue-600', 'group-open:rotate-180'], 'shared action menu mobile bottom-sheet / desktop popover shell');
+requireAll(actionMenuButton, ['fixed bottom-2 left-2 right-2', 'sm:absolute', 'border-blue-600 bg-blue-600', 'border-slate-200 bg-white text-slate-600 shadow-none', 'group-open:rotate-180'], 'shared action menu mobile bottom-sheet / desktop popover shell with primary/secondary hierarchy');
 requireAll(addSourceMenu, ['Chọn cách thêm', 'Tạo mới để nhập thủ công', 'Lấy từ công trình/mẫu'], 'shared Add Source menu');
-requireAll(dataManagementMenu, ['Quản lý dữ liệu', 'Bảng chỉnh nhanh', '.xlsx,.xls', 'onExportReport'], 'shared Data Management menu');
+requireAll(dataManagementMenu, ['Quản lý dữ liệu', 'Bảng chỉnh nhanh', '.xlsx,.xls', 'onExportReport', 'triggerTone="secondary"'], 'shared Data Management menu remains a visually secondary utility action');
 requireAll(checklistTab, ['<DataManagementMenu', 'exportLabel="Tải Excel để chỉnh sửa"', 'importLabel="Nhập lại từ Excel"'], 'Checklist unified data-management entry');
 requireAll(crewTabBase, ['<AddSourceMenu', 'triggerLabel="Thêm đội"', 'onOpenSourcePicker={() => setShowTeamTemplatePicker(true)}'], 'Team directory shared Add Source entry');
 requireAll(materialNormModal, ['<AddSourceMenu', 'triggerLabel="Thêm định mức"', 'onOpenSourcePicker={() => setShowNormTemplatePicker(true)}'], 'Material Norm shared Add Source entry');

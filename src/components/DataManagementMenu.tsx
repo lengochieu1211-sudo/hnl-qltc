@@ -49,6 +49,7 @@ export const DataManagementMenu: React.FC<DataManagementMenuProps> = ({
       fillMobile={fillMobile}
       fillWidth={fillWidth}
       align="right"
+      triggerTone="secondary"
     />
   );
 };

@@ -56,6 +56,8 @@ assert.match(dataMenu, /FileSpreadsheet/, 'Data Management export must retain th
 assert.match(dataMenu, /Database/, 'Data Management trigger must use a data icon');
 assert.match(dataMenu, /onQuickEdit/, 'Shared Data Management menu must support the Quick Edit action');
 assert.match(dataMenu, /Quản lý dữ liệu/, 'Shared Data Management menu must expose the approved data-management label');
+assert.match(dataMenu, /triggerTone="secondary"/, 'Data Management trigger must remain visually secondary because it is a lower-frequency action');
+assert.match(actionMenu, /border-slate-200 bg-white text-slate-600 shadow-none/, 'Shared action menu must support a quiet secondary trigger style');
 assert.match(addSourceMenu, /Chọn cách thêm/, 'Shared Add Source menu must expose one consistent source-choice pattern');
 assert.match(addSourceMenu, /Tạo mới để nhập thủ công/, 'Shared Add Source menu must explain create-vs-copy behavior');
 assert.match(actionMenu, /fixed bottom-2 left-2 right-2/, 'Shared action menu must use a mobile bottom sheet surface');

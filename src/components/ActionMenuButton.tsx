@@ -19,6 +19,7 @@ interface ActionMenuButtonProps {
   fillWidth?: boolean;
   align?: 'left' | 'right';
   ariaLabel?: string;
+  triggerTone?: 'primary' | 'secondary';
 }
 
 const entryToneClass: Record<ActionMenuTone, string> = {
@@ -31,14 +32,18 @@ const entryToneClass: Record<ActionMenuTone, string> = {
 export const ActionMenuButton: React.FC<ActionMenuButtonProps> = ({
   label, icon: TriggerIcon, entries, menuTitle, footer, disabled = false,
   fillMobile = false, fillWidth = false, align = 'right', ariaLabel,
+  triggerTone = 'primary',
 }) => {
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const close = () => detailsRef.current?.removeAttribute('open');
+  const triggerToneClass = triggerTone === 'secondary'
+    ? 'border-slate-200 bg-white text-slate-600 shadow-none hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800'
+    : 'border-blue-600 bg-blue-600 text-white shadow-sm hover:border-blue-700 hover:bg-blue-700';
   return (
     <details ref={detailsRef} className={`group relative shrink-0 ${fillWidth ? 'w-full' : fillMobile ? 'w-full sm:w-auto' : ''}`}>
       <summary
         aria-label={ariaLabel || label}
-        className={`list-none cursor-pointer select-none whitespace-nowrap rounded-xl border border-blue-600 bg-blue-600 text-white shadow-sm transition hover:border-blue-700 hover:bg-blue-700 active:scale-[0.99] [&::-webkit-details-marker]:hidden ${fillWidth ? 'flex h-10 w-full items-center justify-center gap-1.5 px-3 text-xs font-extrabold' : fillMobile ? 'flex h-10 w-full items-center justify-center gap-1.5 px-3 text-xs font-extrabold sm:w-auto sm:h-9' : 'inline-flex h-9 items-center gap-1.5 px-3 text-xs font-extrabold'} ${disabled ? 'pointer-events-none opacity-50' : ''}`}
+        className={`list-none cursor-pointer select-none whitespace-nowrap rounded-xl border transition active:scale-[0.99] [&::-webkit-details-marker]:hidden ${triggerToneClass} ${fillWidth ? 'flex h-10 w-full items-center justify-center gap-1.5 px-3 text-xs font-extrabold' : fillMobile ? 'flex h-10 w-full items-center justify-center gap-1.5 px-3 text-xs font-extrabold sm:w-auto sm:h-9' : 'inline-flex h-9 items-center gap-1.5 px-3 text-xs font-extrabold'} ${disabled ? 'pointer-events-none opacity-50' : ''}`}
       >
         <TriggerIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
         <span className="truncate">{label}</span>
