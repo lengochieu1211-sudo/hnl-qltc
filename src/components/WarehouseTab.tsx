@@ -37,7 +37,7 @@ import { canonicalWorkCategoryId, normalizeLinkText } from '../utils/linkageInte
 import { assertSafeExcelImportFile, parseExcelNumberRecord, parseExcelStringArray, parseExcelStringRecord, readExcelFormulaByHeaders, sameStringSet } from '../utils/excelImportUtils';
 import { QuickSortBar } from './QuickSortBar';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
-import { ExcelActionMenu } from './ExcelActionMenu';
+import { DataManagementMenu } from './DataManagementMenu';
 import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';
 const LazyQuickEditGridModal = React.lazy(() => import('./QuickEditGridModal').then((m) => ({ default: m.QuickEditGridModal })));
 import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
@@ -1899,7 +1899,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <span>{hasNormManageAccess ? t('norms_button') : 'Xem định mức'}</span>
           </button>
           <div className="col-span-2 lg:col-span-1">
-            <ExcelActionMenu
+            <DataManagementMenu
               fillMobile
               triggerLabel="Quản lý dữ liệu"
               onQuickEdit={quickEditEnabled ? (() => { setQuickEditMode('norms'); setShowQuickEdit(true); }) : undefined}

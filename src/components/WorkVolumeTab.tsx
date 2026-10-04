@@ -43,7 +43,8 @@ import {
 } from '../utils/structureGroupUtils';
 
 import { QuickSortBar } from './QuickSortBar';
-import { ExcelActionMenu } from './ExcelActionMenu';
+import { DataManagementMenu } from './DataManagementMenu';
+import { AddSourceMenu } from './AddSourceMenu';
 import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';
 const LazyQuickEditGridModal = React.lazy(() => import('./QuickEditGridModal').then((m) => ({ default: m.QuickEditGridModal })));
 const LazyCatalogTemplatePickerModal = React.lazy(() => import('./CatalogTemplatePickerModal').then((m) => ({ default: m.CatalogTemplatePickerModal })));
@@ -808,9 +809,13 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
         <div className="grid w-full grid-cols-1 gap-2 sm:w-auto sm:grid-flow-col sm:auto-cols-max sm:grid-cols-none sm:items-center">
           {hasStructureManageAccess && (
-            <div className="order-first col-span-1 flex h-11 w-full sm:order-none sm:h-9 sm:w-auto">
-              <button
-                onClick={async () => {
+            <div className="order-first col-span-1 w-full sm:order-none sm:w-auto">
+              <AddSourceMenu
+                triggerLabel="Thêm hạng mục"
+                createLabel="Tạo hạng mục mới"
+                fillMobile
+                align="right"
+                onCreateNew={() => {
                   setTitle('');
                   setSelectedFloors([]);
                   setCategory('');
@@ -824,37 +829,12 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                   setEditingVolume(null);
                   setShowAddForm(true);
                 }}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-l-xl bg-blue-600 px-4 text-sm font-extrabold text-white shadow-md transition-all hover:bg-blue-700 active:scale-[0.99] sm:flex-none sm:px-3 sm:text-xs"
-              >
-                <Plus className="w-4 h-4" />
-                Thêm
-              </button>
-              <details className="group relative">
-                <summary
-                  className="flex h-full cursor-pointer list-none items-center justify-center rounded-r-xl border-l border-blue-400 bg-blue-600 px-2 text-white shadow-md transition hover:bg-blue-700 [&::-webkit-details-marker]:hidden"
-                  aria-label="Tùy chọn thêm khối lượng"
-                  title="Tùy chọn thêm khối lượng"
-                >
-                  <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
-                </summary>
-                <div className="absolute right-0 top-full z-30 mt-1 min-w-56 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      setShowTemplatePicker(true);
-                      (event.currentTarget.closest('details') as HTMLDetailsElement | null)?.removeAttribute('open');
-                    }}
-                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-bold text-indigo-700 hover:bg-indigo-50"
-                  >
-                    <Copy className="h-4 w-4 shrink-0" />
-                    Lấy từ công trình/mẫu
-                  </button>
-                </div>
-              </details>
+                onOpenSourcePicker={() => setShowTemplatePicker(true)}
+              />
             </div>
           )}
           <div className="col-span-1">
-            <ExcelActionMenu
+            <DataManagementMenu
               fillMobile
               triggerLabel="Quản lý dữ liệu"
               onQuickEdit={quickEditEnabled ? (() => setShowQuickEdit(true)) : undefined}

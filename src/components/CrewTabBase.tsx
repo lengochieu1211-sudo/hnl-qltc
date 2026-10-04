@@ -42,7 +42,8 @@ import { deleteEntityPhotos } from '../utils/photoStorage';
 import { saveWorkbookFile } from '../utils/fileExport';
 import { createEntityId } from '../utils/idUtils';
 import { QuickSortBar } from './QuickSortBar';
-import { ExcelActionMenu } from './ExcelActionMenu';
+import { DataManagementMenu } from './DataManagementMenu';
+import { AddSourceMenu } from './AddSourceMenu';
 import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';
 const LazyQuickEditGridModal = React.lazy(() => import('./QuickEditGridModal').then((m) => ({ default: m.QuickEditGridModal })));
 const LazyCatalogTemplatePickerModal = React.lazy(() => import('./CatalogTemplatePickerModal').then((m) => ({ default: m.CatalogTemplatePickerModal })));
@@ -1980,7 +1981,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </button>
 
             <div className="order-5 col-span-2 lg:order-none lg:col-span-1">
-            <ExcelActionMenu
+            <DataManagementMenu
               fillWidth
               triggerLabel="Quản lý dữ liệu"
               onQuickEdit={quickEditEnabled ? (() => { setQuickEditMode('logs'); setShowQuickEdit(true); }) : undefined}
@@ -2310,45 +2311,20 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             <div className="mt-3.5 pt-3 border-t border-slate-100">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 {canManageTeamDirectory && (
-                  <div className="flex w-full sm:w-auto">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        setEditingTeam(null);
-                        setShowTeamModal(true);
-                      }}
-                      className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-l-xl bg-indigo-600 px-3 text-xs font-bold text-white shadow-2xs transition-all hover:bg-indigo-500 active:scale-[0.99] sm:flex-none"
-                    >
-                      <Plus className="w-4 h-4 shrink-0" />
-                      <span className="truncate">Thêm đội mới</span>
-                    </button>
-                    <details className="group relative">
-                      <summary
-                        className="flex h-9 cursor-pointer list-none items-center justify-center rounded-r-xl border-l border-indigo-400 bg-indigo-600 px-2 text-white transition hover:bg-indigo-500 [&::-webkit-details-marker]:hidden"
-                        aria-label="Tùy chọn thêm đội"
-                        title="Tùy chọn thêm đội"
-                      >
-                        <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
-                      </summary>
-                      <div className="absolute left-0 top-full z-30 mt-1 min-w-56 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            setShowTeamTemplatePicker(true);
-                            (event.currentTarget.closest('details') as HTMLDetailsElement | null)?.removeAttribute('open');
-                          }}
-                          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-bold text-indigo-700 hover:bg-indigo-50"
-                        >
-                          <Copy className="h-4 w-4 shrink-0" />
-                          Lấy từ công trình/mẫu
-                        </button>
-                      </div>
-                    </details>
-                  </div>
+                  <AddSourceMenu
+                    triggerLabel="Thêm đội"
+                    createLabel="Tạo đội mới"
+                    fillMobile
+                    onCreateNew={() => {
+                      setEditingTeam(null);
+                      setShowTeamModal(true);
+                    }}
+                    onOpenSourcePicker={() => setShowTeamTemplatePicker(true)}
+                  />
                 )}
 
                 <div className="w-full sm:ml-auto sm:w-auto">
-                  <ExcelActionMenu
+                  <DataManagementMenu
                     fillMobile
                     triggerLabel="Quản lý dữ liệu"
                     onQuickEdit={quickEditEnabled ? (() => { setQuickEditMode('teams'); setShowQuickEdit(true); }) : undefined}

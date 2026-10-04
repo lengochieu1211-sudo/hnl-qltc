@@ -32,6 +32,7 @@ import { UserRole, canManageMaterialNorms, canImportData } from '../utils/securi
 
 import { QuickSortBar } from './QuickSortBar';
 import { CatalogTemplatePickerModal } from './CatalogTemplatePickerModal';
+import { AddSourceMenu } from './AddSourceMenu';
 
 interface MaterialNormModalProps {
   isOpen: boolean;
@@ -919,37 +920,13 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                 />
               </div>
               {hasManageAccess && (
-                <div className="flex shrink-0">
-                  <button
-                    onClick={handleOpenAdd}
-                    className="flex items-center gap-1 rounded-l-xl bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white shadow transition-all hover:bg-indigo-700 active:scale-[0.99]"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Thêm định mức
-                  </button>
-                  <details className="group relative">
-                    <summary
-                      className="flex h-full cursor-pointer list-none items-center justify-center rounded-r-xl border-l border-indigo-400 bg-indigo-600 px-2 text-white shadow transition hover:bg-indigo-700 [&::-webkit-details-marker]:hidden"
-                      aria-label="Tùy chọn thêm định mức"
-                      title="Tùy chọn thêm định mức"
-                    >
-                      <span className="text-xs transition-transform group-open:rotate-180">▼</span>
-                    </summary>
-                    <div className="absolute right-0 top-full z-30 mt-1 min-w-56 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          setShowNormTemplatePicker(true);
-                          (event.currentTarget.closest('details') as HTMLDetailsElement | null)?.removeAttribute('open');
-                        }}
-                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-bold text-indigo-700 hover:bg-indigo-50"
-                      >
-                        <BookOpen className="h-4 w-4 shrink-0" />
-                        Lấy từ công trình/mẫu
-                      </button>
-                    </div>
-                  </details>
-                </div>
+                <AddSourceMenu
+                  triggerLabel="Thêm định mức"
+                  createLabel="Tạo định mức mới"
+                  align="right"
+                  onCreateNew={handleOpenAdd}
+                  onOpenSourcePicker={() => setShowNormTemplatePicker(true)}
+                />
               )}
             </div>
 

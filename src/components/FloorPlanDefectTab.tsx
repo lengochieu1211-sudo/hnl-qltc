@@ -88,7 +88,7 @@ import { detectPdfRoomCandidatesFromDocument, DEFAULT_PDF_ROOM_NAME_PATTERN, Pdf
 import type { DxfFloorPlanRenderResult, DxfRoomCandidate } from '../utils/dxfRoomDetection';
 import { QuickSortBar } from './QuickSortBar';
 import { MoveOrderControls } from './MoveOrderControls';
-import { ExcelActionMenu } from './ExcelActionMenu';
+import { DataManagementMenu } from './DataManagementMenu';
 import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';
 const LazyQuickEditGridModal = React.lazy(() => import('./QuickEditGridModal').then((m) => ({ default: m.QuickEditGridModal })));
 import { UserRole, canManageFloorPlanStructure, canEditDefectData, canDeleteBusinessData } from '../utils/securityUtils';
@@ -6116,7 +6116,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 Quản lý Khu/Khối & Tầng
               </button>
             )}
-            <ExcelActionMenu
+            <DataManagementMenu
               fillMobile
               triggerLabel="Quản lý dữ liệu"
               onQuickEdit={quickEditEnabled ? (() => { setQuickEditMode('rooms'); setShowQuickEdit(true); }) : undefined}
