@@ -278,7 +278,8 @@ requireAll(androidMain, [
 ], 'Android cold start keeps native HNL splash until the rendered Web UI is ready');
 if (androidMain.includes('if (allowFallback) showStartupContent();')) fail('Android page commit/finish callbacks must not reveal WebView before React paint');
 requireAll(androidStyles, ['android:windowBackground', 'android:colorBackground', '@color/hnl_startup_background'], 'Android legacy launch preview uses branded startup background');
-requireAll(androidStyles31, ['android:windowSplashScreenBackground', 'android:colorBackground', '@color/hnl_startup_background'], 'Android 12+ launch preview and system splash share branded startup background');
+requireAll(androidStyles31, ['android:windowSplashScreenBackground', 'android:colorBackground', '@color/hnl_startup_background', '@drawable/hnl_system_splash_logo'], 'Android 12+ launch preview and system splash share branded startup background with a size-matched system icon');
+requireAll(androidBuild, ['hnl_system_splash_logo.png', 'SystemLogo = 104', 'SystemLogo = 416'], 'Android system splash uses separate safe-area padding from native splash');
 if (!indexCss.includes('html[data-hnl-theme="dark"] .text-slate-950')) fail('Dark theme must remap text-slate-950 so Home title/KPI values remain readable');
 const nativeSplashAttachIndex = androidMain.indexOf('setContentView(startupRoot);');
 const coldWebViewCreateIndex = androidMain.indexOf('webView = new WebView(this);');

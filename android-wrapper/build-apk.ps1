@@ -229,47 +229,59 @@ function Write-HnlAndroidSplashAssets {
         # density from the 1254px master so physical xxhdpi/xxxhdpi devices never
         # upscale the old 288px nodpi bitmap. Keep the same 172/288 safe-area ratio.
         $targets = [ordered]@{
-            'drawable-mdpi' = @{ Canvas = 288; Logo = 172 }
-            'drawable-hdpi' = @{ Canvas = 432; Logo = 258 }
-            'drawable-xhdpi' = @{ Canvas = 576; Logo = 344 }
-            'drawable-xxhdpi' = @{ Canvas = 864; Logo = 516 }
-            'drawable-xxxhdpi' = @{ Canvas = 1152; Logo = 688 }
+            'drawable-mdpi' = @{ Canvas = 288; Logo = 172; SystemLogo = 104 }
+            'drawable-hdpi' = @{ Canvas = 432; Logo = 258; SystemLogo = 156 }
+            'drawable-xhdpi' = @{ Canvas = 576; Logo = 344; SystemLogo = 208 }
+            'drawable-xxhdpi' = @{ Canvas = 864; Logo = 516; SystemLogo = 312 }
+            'drawable-xxxhdpi' = @{ Canvas = 1152; Logo = 688; SystemLogo = 416 }
         }
 
         # A stale nodpi output from APK #383 would shadow density-aware resources.
         $legacyNoDpiSplash = Join-Path $root 'res\drawable-nodpi\hnl_splash_logo.png'
-        if (Test-Path -LiteralPath $legacyNoDpiSplash) {
-            Remove-Item -LiteralPath $legacyNoDpiSplash -Force
+        $legacyNoDpiSystemSplash = Join-Path $root 'res\drawable-nodpi\hnl_system_splash_logo.png'
+        foreach ($legacySplash in @($legacyNoDpiSplash, $legacyNoDpiSystemSplash)) {
+            if (Test-Path -LiteralPath $legacySplash) {
+                Remove-Item -LiteralPath $legacySplash -Force
+            }
         }
 
         foreach ($entry in $targets.GetEnumerator()) {
             $canvasSize = [int]$entry.Value.Canvas
             $logoSize = [int]$entry.Value.Logo
+            $systemLogoSize = [int]$entry.Value.SystemLogo
             $folder = Join-Path $root ('res\' + $entry.Key)
             New-Item -ItemType Directory -Force -Path $folder | Out-Null
-            $outputPath = Join-Path $folder 'hnl_splash_logo.png'
-            $bitmap = New-Object System.Drawing.Bitmap($canvasSize, $canvasSize, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-            $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-            try {
-                $graphics.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceOver
-                $graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
-                $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-                $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
-                $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-                $graphics.Clear([System.Drawing.Color]::Transparent)
-                $offset = [int](($canvasSize - $logoSize) / 2)
-                $graphics.DrawImage($source, (New-Object System.Drawing.Rectangle($offset, $offset, $logoSize, $logoSize)))
-                $bitmap.Save($outputPath, [System.Drawing.Imaging.ImageFormat]::Png)
-            } finally {
-                $graphics.Dispose()
-                $bitmap.Dispose()
+
+            foreach ($asset in @(
+                @{ Name = 'hnl_splash_logo.png'; Logo = $logoSize },
+                @{ Name = 'hnl_system_splash_logo.png'; Logo = $systemLogoSize }
+            )) {
+                $outputPath = Join-Path $folder ([string]$asset.Name)
+                $assetLogoSize = [int]$asset.Logo
+                $bitmap = New-Object System.Drawing.Bitmap($canvasSize, $canvasSize, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+                $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+                try {
+                    $graphics.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceOver
+                    $graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+                    $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+                    $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+                    $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+                    $graphics.Clear([System.Drawing.Color]::Transparent)
+                    $offset = [int](($canvasSize - $assetLogoSize) / 2)
+                    $graphics.DrawImage($source, (New-Object System.Drawing.Rectangle($offset, $offset, $assetLogoSize, $assetLogoSize)))
+                    $bitmap.Save($outputPath, [System.Drawing.Imaging.ImageFormat]::Png)
+                } finally {
+                    $graphics.Dispose()
+                    $bitmap.Dispose()
+                }
             }
         }
     } finally {
         $source.Dispose()
     }
     Write-Output "Android splash source: android-wrapper/assets/HNL-QLTC-SPLASH-SOURCE.png SHA256=$expectedSplashSourceSha256"
-    Write-Output "Android splash densities: mdpi=288/172 hdpi=432/258 xhdpi=576/344 xxhdpi=864/516 xxxhdpi=1152/688"
+    Write-Output "Android native splash densities: mdpi=288/172 hdpi=432/258 xhdpi=576/344 xxhdpi=864/516 xxxhdpi=1152/688"
+    Write-Output "Android system splash densities: mdpi=288/104 hdpi=432/156 xhdpi=576/208 xxhdpi=864/312 xxxhdpi=1152/416"
 }
 
 Write-HnlAndroidSplashAssets -SourcePath $splashLogoSource

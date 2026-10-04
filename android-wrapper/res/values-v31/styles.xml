@@ -9,7 +9,7 @@
         <item name="android:colorBackground">@color/hnl_startup_background</item>
         <item name="android:windowDisablePreview">false</item>
         <item name="android:windowSplashScreenBackground">@color/hnl_startup_background</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/hnl_splash_logo</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/hnl_system_splash_logo</item>
         <item name="android:windowSplashScreenAnimationDuration">200</item>
     </style>
 </resources>

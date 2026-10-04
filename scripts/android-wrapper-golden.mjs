@@ -20,7 +20,7 @@ assert(styles.includes('@drawable/startup_window'), 'pre-Android-12 launch windo
 assert(styles.includes('android:colorBackground') && styles.includes('@color/hnl_startup_background'), 'legacy launch preview resolves the shared HNL startup background');
 assert(styles31.includes('android:colorBackground') && styles31.includes('@color/hnl_startup_background'), 'Android 12+ launch preview resolves the shared HNL startup background before system splash');
 assert(styles31.includes('android:windowSplashScreenBackground') && styles31.includes('@color/hnl_startup_background'), 'Android 12+ system splash uses the shared startup background');
-assert(styles31.includes('android:windowSplashScreenAnimatedIcon') && styles31.includes('@drawable/hnl_splash_logo'), 'Android 12+ system splash uses the generated padded HNL PNG');
+assert(styles31.includes('android:windowSplashScreenAnimatedIcon') && styles31.includes('@drawable/hnl_system_splash_logo'), 'Android 12+ system splash uses a separately padded HNL PNG sized to match the native splash');
 assert(startupWindow.includes('@color/hnl_startup_background') && startupWindow.includes('@drawable/hnl_splash_logo'), 'launch window uses the same shared background and generated padded logo');
 assert(startupColors.includes('#F8FAFC') && startupColorsNight.includes('#0F172A'), 'light/dark startup backgrounds are explicitly aligned');
 assert(mainActivity.includes('createStartupSplashView()') && mainActivity.includes('webView.setVisibility(View.INVISIBLE)'), 'native splash stays above hidden WebView during cold start');
@@ -40,7 +40,8 @@ assert(!workflow.includes('secrets.QLCT_ANDROID_KEYSTORE_BASE64'), 'DEV workflow
 assert(!workflow.includes('secrets.QLCT_ANDROID_KEYSTORE_PASSWORD'), 'DEV workflow does not consume the PROD keystore password secret');
 assert(workflow.includes('one-off DEV key'), 'DEV workflow warns when fixed signing is not configured');
 assert(androidBuild.includes('HNL-QLTC-SPLASH-SOURCE.png') && androidBuild.includes("9ab45895172034ccb4e1386a41a49e5222a32310dc30b48f5b2cea6e14a5c34d"), 'Android splash is pinned to the user-approved 1254px Drive master');
-assert(androidBuild.includes("'drawable-mdpi' = @{ Canvas = 288; Logo = 172 }") && androidBuild.includes("'drawable-xxxhdpi' = @{ Canvas = 1152; Logo = 688 }"), 'Android splash builds density-aware safe-area PNGs without high-DPI upscaling');
+assert(androidBuild.includes("'drawable-mdpi' = @{ Canvas = 288; Logo = 172; SystemLogo = 104 }") && androidBuild.includes("'drawable-xxxhdpi' = @{ Canvas = 1152; Logo = 688; SystemLogo = 416 }"), 'Android native/system splashes build density-aware PNGs from the same master without high-DPI upscaling');
+assert(androidBuild.includes("hnl_system_splash_logo.png") && androidBuild.includes('Android system splash densities: mdpi=288/104'), 'Android system splash has extra safe-area padding to avoid a large-to-small logo jump');
 assert(androidBuild.includes('legacyNoDpiSplash') && androidBuild.includes('Remove-Item -LiteralPath $legacyNoDpiSplash -Force'), 'Android build removes stale APK383 nodpi splash output');
 
 console.log('ANDROID WRAPPER GOLDEN PASS');
