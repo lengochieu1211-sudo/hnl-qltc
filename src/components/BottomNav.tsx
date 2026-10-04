@@ -83,6 +83,16 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 
   const navButtonStyle: React.CSSProperties = { touchAction: 'manipulation' };
 
+  const isOverflowTabActive = (tab: TabType) => activeTab === tab || pressedTab === tab;
+  const overflowNavItemClass = (tab: TabType, justifyBetween = false) =>
+    `flex w-full items-center ${justifyBetween ? 'justify-between' : ''} gap-2 rounded-xl px-3 py-2.5 text-xs transition active:scale-[0.99] active:bg-slate-100 ${
+      isOverflowTabActive(tab)
+        ? 'bg-blue-50 font-bold text-blue-700 ring-1 ring-blue-100'
+        : 'font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+    }`;
+  const overflowNavIconClass = (tab: TabType) =>
+    `h-4 w-4 shrink-0 ${isOverflowTabActive(tab) ? 'text-blue-600' : 'text-slate-500'}`;
+
   const renderBadge = (badge?: number, badgeLabel?: string) => badge !== undefined && badge > 0 ? (
     <span
       className="absolute -top-1.5 -right-2 rounded-full border border-white bg-rose-600 px-1 text-[8px] font-black leading-4 text-white min-w-4 text-center"
@@ -197,21 +207,21 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 
           {showMore && (
             <div className="absolute right-2 w-56 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-2xl" style={{ bottom: 'calc(68px + env(safe-area-inset-bottom))' }}>
-              <button type="button" data-hnl-nav-tab="volume" onPointerEnter={() => onPreloadTab?.('volume')} onPointerDown={() => previewTab('volume')} onClick={() => activate('volume')} style={navButtonStyle} className="flex w-full items-center gap-2 active:scale-[0.99] active:bg-slate-100 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                <BarChart3 className="h-4 w-4 text-blue-600" /> {t('volume')}
+              <button type="button" data-hnl-nav-tab="volume" onPointerEnter={() => onPreloadTab?.('volume')} onPointerDown={() => previewTab('volume')} onClick={() => activate('volume')} style={navButtonStyle} className={overflowNavItemClass('volume')}>
+                <BarChart3 className={overflowNavIconClass('volume')} /> {t('volume')}
               </button>
               {showChecklist && (
-                <button type="button" data-hnl-nav-tab="checklist" onPointerEnter={() => onPreloadTab?.('checklist')} onPointerDown={() => previewTab('checklist')} onClick={() => activate('checklist')} style={navButtonStyle} className="flex w-full items-center gap-2 active:scale-[0.99] active:bg-slate-100 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                  <ClipboardCheck className="h-4 w-4 text-blue-600" /> Checklist
+                <button type="button" data-hnl-nav-tab="checklist" onPointerEnter={() => onPreloadTab?.('checklist')} onPointerDown={() => previewTab('checklist')} onClick={() => activate('checklist')} style={navButtonStyle} className={overflowNavItemClass('checklist')}>
+                  <ClipboardCheck className={overflowNavIconClass('checklist')} /> Checklist
                 </button>
               )}
               {showAi && (
-                <button type="button" data-hnl-nav-tab="ai" onPointerEnter={() => onPreloadTab?.('ai')} onPointerDown={() => previewTab('ai')} onClick={() => activate('ai')} style={navButtonStyle} className="flex w-full items-center gap-2 active:scale-[0.99] active:bg-slate-100 rounded-xl px-3 py-2.5 text-xs font-extrabold text-blue-700 hover:bg-blue-50">
-                  <Sparkles className="h-4 w-4 text-blue-600" /> HNL AI Assistant
+                <button type="button" data-hnl-nav-tab="ai" onPointerEnter={() => onPreloadTab?.('ai')} onPointerDown={() => previewTab('ai')} onClick={() => activate('ai')} style={navButtonStyle} className={overflowNavItemClass('ai')}>
+                  <Sparkles className={overflowNavIconClass('ai')} /> HNL AI Assistant
                 </button>
               )}
-              <button type="button" data-hnl-nav-tab="chat" onPointerEnter={() => onPreloadTab?.('chat')} onPointerDown={() => previewTab('chat')} onClick={() => activate('chat')} style={navButtonStyle} className="flex w-full items-center justify-between gap-2 active:scale-[0.99] active:bg-slate-100 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                <span className="flex items-center gap-2"><MessageCircle className="h-4 w-4 text-blue-600" /> Trao đổi</span>
+              <button type="button" data-hnl-nav-tab="chat" onPointerEnter={() => onPreloadTab?.('chat')} onPointerDown={() => previewTab('chat')} onClick={() => activate('chat')} style={navButtonStyle} className={overflowNavItemClass('chat', true)}>
+                <span className="flex items-center gap-2"><MessageCircle className={overflowNavIconClass('chat')} /> Trao đổi</span>
                 {chatBadgeCount > 0 && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1.5 text-[10px] font-extrabold text-white">{chatBadgeCount > 9 ? '9+' : chatBadgeCount}</span>}
               </button>
               {showSuperAdmin && (
@@ -219,8 +229,8 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                   <ShieldCheck className="h-4 w-4 text-amber-600" /> Quản trị hệ thống
                 </button>
               )}
-              <button type="button" data-hnl-nav-tab="config" onPointerEnter={() => onPreloadTab?.('config')} onPointerDown={() => previewTab('config')} onClick={() => activate('config')} style={navButtonStyle} className="flex w-full items-center gap-2 active:scale-[0.99] active:bg-slate-100 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                <Settings className="h-4 w-4 text-slate-600" /> {t('config')}
+              <button type="button" data-hnl-nav-tab="config" onPointerEnter={() => onPreloadTab?.('config')} onPointerDown={() => previewTab('config')} onClick={() => activate('config')} style={navButtonStyle} className={overflowNavItemClass('config')}>
+                <Settings className={overflowNavIconClass('config')} /> {t('config')}
               </button>
             </div>
           )}

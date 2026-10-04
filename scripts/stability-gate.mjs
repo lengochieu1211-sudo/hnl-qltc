@@ -492,6 +492,20 @@ requireAll(bottomNav, [
   'bg-white text-slate-700',
   'bg-blue-50 text-blue-700',
 ], 'responsive desktop-left/mobile-bottom navigation');
+requireAll(bottomNav, [
+  'const isOverflowTabActive',
+  'const overflowNavItemClass',
+  'const overflowNavIconClass',
+  "overflowNavItemClass('volume')",
+  "overflowNavItemClass('checklist')",
+  "overflowNavItemClass('ai')",
+  "overflowNavItemClass('chat', true)",
+  "overflowNavItemClass('config')",
+  "isOverflowTabActive(tab) ? 'text-blue-600' : 'text-slate-500'",
+], 'mobile overflow navigation uses the same HNL blue active / slate inactive hierarchy as primary navigation');
+if (bottomNav.includes('font-extrabold text-blue-700 hover:bg-blue-50') && bottomNav.includes('data-hnl-nav-tab="ai"')) {
+  fail('mobile overflow AI entry must not be visually louder than normal navigation items');
+}
 if (bottomNav.includes('APP_VERSION') || bottomNav.includes('HNL QLTC · Trang chủ')) fail('desktop rail must not duplicate header branding/version');
 requireAll(app, [
   'STARTUP_PROJECT_ID_KEY',
