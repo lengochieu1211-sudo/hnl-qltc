@@ -471,8 +471,8 @@ const crewTab = read('src/components/CrewTabBase.tsx');
 const imageViewer = read('src/components/ImageViewerModal.tsx');
 const catalogTemplatePicker = read('src/components/CatalogTemplatePickerModal.tsx');
 
-assert(workVolumeTab.includes('grid w-full grid-cols-1 gap-2 sm:w-auto'), 'Work Volume mobile action toolbar must use one full-width column');
-assert(workVolumeTab.includes('triggerLabel="Quản lý dữ liệu"') && workVolumeTab.includes('<div className="col-span-1">'), 'Work Volume Data Manager action must not leave a half-width mobile gap');
+assert(workVolumeTab.includes('grid w-full grid-cols-[minmax(0,1fr)_auto] gap-2 sm:w-auto'), 'Work Volume mobile action toolbar must keep Add and compact Data Management on one row');
+assert(workVolumeTab.includes('triggerLabel="Quản lý dữ liệu"') && workVolumeTab.includes("col-span-2 justify-self-end"), 'Work Volume Data Manager must stay compact when Add permission is unavailable');
 assert(workVolumeTab.includes("const GLOBAL_WORK_SCOPE_LABEL = 'Toàn công trình';"), 'Work Volume must support a global floor scope');
 assert(workVolumeTab.includes('Phạm vi tầng <span className="font-medium text-slate-400">(không bắt buộc)</span>'), 'Work Volume floor scope must be visibly optional');
 assert(workVolumeTab.includes('inferWorkCategoryGroup') && workVolumeTab.includes("return 'Trần';") && workVolumeTab.includes("return 'Vách';"), 'Work Volume category group must be suggested from the typed title');

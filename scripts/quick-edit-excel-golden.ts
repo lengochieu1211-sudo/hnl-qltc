@@ -111,7 +111,7 @@ assert.match(materialNormModal, /uniqueByCanonicalId\.length !== 1/, 'Material N
 assert.match(materialNormModal, /trùng tên/, 'Material Norm remap must explain ambiguous target Work Category names instead of choosing one silently');
 assert.match(materialNormModal, /inputExpressions/, 'Material Norm editor must retain general/specific arithmetic expressions');
 assert.match(floor, /syncGroupColumns=\{quickEditMode === 'rooms'/, 'Room quick edit must synchronize shared room fields across child rows');
-assert.match(floor, /sm:grid-cols-\[minmax\(0,1fr\)_auto\][\s\S]*sm:grid-flow-col[\s\S]*Quản lý Khu\/Khối & Tầng[\s\S]*triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit/, 'Floor actions must sit horizontally to the right of the current-view context and combine Quick Edit + Excel');
+assert.match(floor, /grid w-full grid-cols-2 gap-2[\s\S]*Khu\/Tầng[\s\S]*triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit/, 'Floor mobile actions must keep Khu/Tầng and Data Management side-by-side while retaining Quick Edit + Excel');
 const acceptanceSection = floor.slice(floor.indexOf('Nghiệm thu từng Căn / Phòng'), floor.indexOf('Quick Sort Controls'));
 assert.doesNotMatch(acceptanceSection, /Thêm Căn \/ Phòng/, 'Acceptance section must not duplicate the add-room action');
 assert.doesNotMatch(acceptanceSection, /Bảng chỉnh nhanh/, 'Acceptance section must not duplicate bulk-edit actions');
@@ -143,7 +143,7 @@ assert.match(crew, /__groupPrimary: floorIndex === 0 && categoryIndex === 0/, 'C
 assert.match(crew, /syncGroupColumns=\{quickEditMode === 'logs'/, 'Crew child rows must stay synchronized with representative shift/date/team values');
 assert.match(crew, /Tầng không thuộc Khu\/Khối này/, 'Crew quick edit must reject floor/group mismatches');
 assert.match(crew, /order-1 col-span-2 lg:order-none lg:col-span-1[\s\S]*aria-label="Chọn ngày quân số"[\s\S]*order-2 col-span-2[\s\S]*Ghi nhận quân số/, 'Crew mobile must show Date first, then the highlighted full-width Record action');
-assert.match(crew, /order-5 col-span-2 lg:order-none lg:col-span-1[\s\S]*triggerLabel="Quản lý dữ liệu"/, 'Crew mobile Data Management action must occupy a full row while PC stays one toolbar column');
+assert.match(crew, /canOperate \? 'grid-cols-3' : 'grid-cols-2'[\s\S]*Sao chép[\s\S]*Chia sẻ[\s\S]*triggerLabel="Quản lý dữ liệu"/, 'Crew mobile must keep Copy / Share / Data Management in one compact utility row');
 assert.match(crew, /lg:grid-cols-\[220px_minmax\(0,1fr\)_minmax\(0,1fr\)_minmax\(0,1\.1fr\)_minmax\(0,1fr\)\][\s\S]*Chia sẻ báo cáo quân số[\s\S]*triggerLabel="Quản lý dữ liệu"/, 'Crew PC must preserve Date, Record, Copy, Share and Data Management on one aligned row');
 assert.doesNotMatch(crew, /crew-subtab-navigation[^\n]*lg:max-w/, 'Crew primary subtabs must remain full-width like the original layout');
 assert.match(crew, /triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit=\{quickEditEnabled \? \(\(\) => \{ setQuickEditMode\('teams'\); setShowQuickEdit\(true\); \}\) : undefined\}[\s\S]*reportLabel="Thống kê tất cả đội"/, 'Team directory must consolidate Quick Edit and Excel under the same data menu');
