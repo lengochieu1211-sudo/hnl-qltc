@@ -7128,7 +7128,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="text-xs font-black text-amber-400 bg-amber-400/10 px-2.5 py-1 rounded-xl border border-amber-400/30 flex items-center gap-1.5 shrink-0">
                       <Maximize2 className="w-3.5 h-3.5" />
-                      <span className="truncate max-w-[100px] sm:max-w-none">{activeFloor?.floorName || 'Toàn Màn Hình'}</span>
+                      <span className="truncate max-w-[100px] sm:max-w-none">Toàn màn hình</span>
                     </span>
 
                     <div className="flex items-center gap-1 shrink-0">

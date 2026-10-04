@@ -52,13 +52,14 @@ import { formatDateTime, parseLegacyTimestamp } from '../utils/dateFormatter';
 import { useFormatSettings } from '../utils/numberUtils';
 import { detectOrphanProjectData, cleanupOrphanProjectData, OrphanScanResult, OrphanProjectInfo } from '../utils/projectReconciliation';
 import { isStorageKeyOwnedByProject, getProjectStorageKeys } from '../utils/projectStorageUtils';
-import { deleteProjectPhotos, getProjectPhotos, saveProjectPhotos, getProjectPhotosWithBinary, restorePhotosFromBackup } from '../utils/photoStorage';
+import { deleteProjectPhotos, getProjectPhotos, saveProjectPhotos, getProjectPhotosWithBinary, restorePhotosFromBackup, type PhotoAttachment } from '../utils/photoStorage';
 import { logAuditAction, UserRole, getCurrentUserRole, canManageProjects, canEditProjectData, canManageBackups } from '../utils/securityUtils';
 import { encryptBackupData, decryptBackupData, isEncryptedBackup, EncryptedBackupContainer } from '../utils/cryptoUtils';
 import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
 import { refreshProjectPhotoMetadataFromCloud, syncProjectPhotosToCloud } from '../lib/photoCloudSync';
 import { floorPlanNeedsCloudUpload, isFloorPlanCloudBinaryReady, loadFloorPlanImageFromCloud, syncFloorPlanImageToCloud } from '../lib/floorPlanImageSync';
 import { prepareFloorPlansForBackupRestore } from '../utils/floorPlanBackupRestore';
+import { selectAuthoritativeRestorePhotos } from '../utils/backupRestoreMedia';
 
 interface ProjectManagerModalProps {
   isOpen: boolean;
@@ -1784,11 +1785,26 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             });
           }
 
-          const candidatePhotos = candData.photos
+          const rawCandidatePhotosSource = candData.photos
             || (multiProjectSyncState.rawData?.projectPhotos && multiProjectSyncState.rawData.projectPhotos[candidate.id]);
+          const rawCandidatePhotos: PhotoAttachment[] = Array.isArray(rawCandidatePhotosSource) ? rawCandidatePhotosSource : [];
           const candidatePhotoData = candData.photoData || candData.photoDataMap || candidate.photoData
             || (multiProjectSyncState.rawData?.projectPhotoData && multiProjectSyncState.rawData.projectPhotoData[candidate.id]);
-          if (Array.isArray(candidatePhotos) && candidatePhotos.length > 0) {
+          const authoritativePhotoSelection = action === 'OVERWRITE_FILE'
+            ? selectAuthoritativeRestorePhotos(rawCandidatePhotos, payload)
+            : { photos: rawCandidatePhotos, skippedParentless: [] as PhotoAttachment[] };
+          const candidatePhotos = authoritativePhotoSelection.photos;
+          if (authoritativePhotoSelection.skippedParentless.length > 0) {
+            console.warn(
+              '[JSON Restore] Skipped parentless backup media during authoritative restore:',
+              authoritativePhotoSelection.skippedParentless.map((photo: any) => ({
+                id: photo?.id || '',
+                entityType: photo?.entityType || '',
+                entityId: photo?.entityId || '',
+              }))
+            );
+          }
+          if (candidatePhotos.length > 0) {
             setMultiSyncProgress({ label: 'Chuẩn bị ảnh từ JSON…', done: 0, total: candidatePhotos.length });
             await restorePhotosFromBackup(targetId, candidatePhotos, candidatePhotoData, {
               concurrency: 2,
@@ -1796,13 +1812,23 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             });
             setMultiSyncProgress({ label: 'Đối chiếu & đồng bộ ảnh Cloud…', done: 0, total: candidatePhotos.length });
             const photoResult = await syncProjectPhotosToCloud(targetId, {
+              // During JSON restore, sync only the media selected from this backup.
+              // Stale local cache entries from earlier project history must not turn a
+              // valid business restore into an unrelated media repair attempt.
+              photoIds: candidatePhotos.map((photo: any) => String(photo?.id || '')).filter(Boolean),
               // Read-only verification can safely run in parallel for unchanged
               // content-addressed R2 objects; actual repairs/uploads remain sequential.
               readyVerifyConcurrency: 3,
               onProgress: (done, total) => setMultiSyncProgress({ label: 'Đối chiếu & đồng bộ ảnh Cloud…', done, total }),
             });
             if (Number(photoResult.failed || 0) > 0) {
-              throw new Error(`Import ảnh dự án ${targetId} còn ${photoResult.failed} ảnh chưa tải lên Firebase Storage.`);
+              const failedId = String(photoResult.lastErrorPhotoId || '').trim();
+              const failedDetail = String(photoResult.lastError || '').trim();
+              throw new Error(
+                `Đồng bộ ảnh Cloud/R2 dự án ${targetId} thất bại ${photoResult.failed}/${candidatePhotos.length}`
+                + (failedId ? ` · photoId=${failedId}` : '')
+                + (failedDetail ? ` · ${failedDetail}` : '')
+              );
             }
           }
 

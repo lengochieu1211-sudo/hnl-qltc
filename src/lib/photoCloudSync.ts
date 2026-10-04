@@ -451,11 +451,18 @@ export async function refreshProjectPhotoMetadataFromCloud(projectId: string): P
 export async function syncProjectPhotosToCloud(
   projectId: string,
   options: {
+    photoIds?: readonly string[];
     readyVerifyConcurrency?: number;
     onProgress?: (done: number, total: number) => void;
   } = {},
 ): Promise<{ uploaded: number; skipped: number; migratedToStorage?: number; failed?: number; lastError?: string; lastErrorPhotoId?: string }> {
-  const photos = await getProjectPhotos(projectId, true);
+  const requestedPhotoIds = Array.isArray(options.photoIds)
+    ? new Set(options.photoIds.map((id) => String(id || '').trim()).filter(Boolean))
+    : null;
+  const allPhotos = await getProjectPhotos(projectId, true);
+  const photos = requestedPhotoIds
+    ? allPhotos.filter((photo) => requestedPhotoIds.has(String(photo?.id || '')))
+    : allPhotos;
   let uploaded = 0;
   let skipped = 0;
   let migratedToStorage = 0;
