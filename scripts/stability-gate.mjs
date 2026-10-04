@@ -286,7 +286,7 @@ requireAll(androidStyles31, ['android:windowSplashScreenBackground', 'android:co
 requireAll(androidBuild, ['hnl_system_splash_logo.png', 'SystemLogo = 104', 'SystemLogo = 416'], 'Android system splash uses separate safe-area padding from native splash');
 if (!indexCss.includes('html[data-hnl-theme="dark"] .text-slate-950')) fail('Dark theme must remap text-slate-950 so Home title/KPI values remain readable');
 requireAll(indexCss, ['--hnl-primary: #2563eb', '--hnl-primary-hover: #1d4ed8', '--hnl-primary-soft: #eff6ff'], 'HNL UI primary palette is standardized on blue');
-requireAll(bottomNav, ['text-[10px]', 'text-blue-600" /> Checklist', 'text-blue-600" /> HNL AI Assistant', 'text-blue-600" /> Trao đổi'], 'Mobile bottom navigation uses readable labels and the unified blue primary accent');
+requireAll(bottomNav, ['text-[10px]', 'const overflowNavItemClass', 'const overflowNavIconClass', "overflowNavItemClass('checklist')", "overflowNavItemClass('ai')", "overflowNavItemClass('chat', true)"], 'Mobile bottom navigation keeps readable labels and uses the shared HNL blue active / slate inactive hierarchy');
 requireAll(authHeader, ['w-9 h-9 sm:w-10 sm:h-10', 'bg-blue-950/90 hover:bg-blue-900', 'bg-blue-600 hover:bg-blue-700'], 'Mobile header is compact and uses the unified blue primary accent');
 const nativeSplashAttachIndex = androidMain.indexOf('setContentView(startupRoot);');
 const coldWebViewCreateIndex = androidMain.indexOf('webView = new WebView(this);');
