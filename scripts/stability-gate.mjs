@@ -369,6 +369,7 @@ requireAll(warehouseTab, [
   'min-w-[780px]',
   'grid-cols-[minmax(180px,1.6fr)_120px_52px_64px_64px_120px_76px]',
   'items-center gap-2 bg-slate-50',
+  'data-hnl-warehouse-catalog-header="aligned"',
   'whitespace-nowrap text-right leading-none">Khối lượng định mức',
 ], 'Warehouse catalog keeps Khối lượng định mức on one aligned header row with Nhập / Xuất / Tồn kho');
 
