@@ -85,6 +85,9 @@ assert.doesNotMatch(floor, /<FileType[^>]*\/> Nhận diện CAD\/DXF/, 'Room too
 assert.match(floor, /Chỉ tạo tầng/, 'DXF review must let the user create the floor without auto-creating rooms');
 assert.match(floor, /Tạo tầng \+ Căn \/ Phòng/, 'DXF review must support creating the floor and detected rooms together');
 assert.match(floor, /isPolyline: false,/, 'DXF closed room boundaries must persist as polygon geometry for fill and Defect hit-testing');
+assert.match(floor, /Tự động · Khuyên dùng/, 'Smart PDF must present the default room-name rule in user-friendly language');
+assert.match(floor, /Tùy chỉnh kỹ thuật \(Regex\)/, 'Raw Smart PDF regex must stay behind an explicit technical disclosure');
+assert.match(floor, /Không cần nhập ký tự kỹ thuật/, 'Normal Smart PDF UI must tell users that technical syntax is not required');
 assert.match(floor, /Khôi phục mặc định/, 'Advanced PDF name regex must provide a safe reset action');
 assert.match(floor, /aria-invalid=\{!isSmartPdfNamePatternValid\}/, 'Advanced PDF name regex must surface invalid syntax before detection');
 assert.doesNotMatch(pdfRoomDetection, /\(\?=\.\*/, 'Default room-name regex should avoid the hard-to-read lookahead form reported on mobile');

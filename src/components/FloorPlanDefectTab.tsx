@@ -5686,7 +5686,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
       if (isPdf) {
         if (smartPdfDetectionEnabled && !isSmartPdfNamePatternValid) {
-          alert('Quy tắc tên Căn / Phòng không phải biểu thức chính quy hợp lệ. Hãy sửa hoặc bấm “Khôi phục mặc định”.');
+          alert('Quy tắc kỹ thuật tên Căn / Phòng không hợp lệ. Hãy sửa hoặc bấm “Khôi phục mặc định”.');
           return;
         }
         const pdf = await loadPdfDocument(file);
@@ -9835,7 +9835,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         type="checkbox"
                         checked={smartPdfRasterFallback}
                         onChange={(e) => setSmartPdfRasterFallback(e.target.checked)}
-                        className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600"
+                        className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600"
                       />
                       Nếu PDF đã flatten thành ảnh: dò vùng theo màu highlight
                     </label>
@@ -9932,30 +9932,52 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         </label>
 
                         <div className="col-span-2 text-[10px] font-bold text-slate-600">
-                          <span className="flex items-center justify-between gap-2">
-                            <span>Quy tắc tên Căn / Phòng (nâng cao)</span>
-                            <button
-                              type="button"
-                              onClick={() => setSmartPdfNamePattern(DEFAULT_PDF_ROOM_NAME_PATTERN)}
-                              className="shrink-0 text-[9px] font-extrabold text-indigo-700 hover:text-indigo-900"
-                            >
-                              Khôi phục mặc định
-                            </button>
-                          </span>
-                          <input
-                            type="text"
-                            value={smartPdfNamePattern}
-                            onChange={(e) => setSmartPdfNamePattern(e.target.value)}
-                            spellCheck={false}
-                            autoCorrect="off"
-                            autoCapitalize="none"
-                            dir="ltr"
-                            aria-invalid={!isSmartPdfNamePatternValid}
-                            className={`w-full mt-1 border rounded-lg px-2 py-1.5 font-mono text-[9.5px] ${isSmartPdfNamePatternValid ? 'border-slate-200' : 'border-rose-400 bg-rose-50 text-rose-700'}`}
-                          />
-                          {isSmartPdfNamePatternValid
-                            ? <span className="block text-[9px] text-slate-400 mt-1">Mặc định nhận tốt A101, A-101, P.101, WC-01, Căn 101, Phòng 01...</span>
-                            : <span className="block text-[9px] text-rose-600 mt-1 font-bold">Biểu thức không hợp lệ. Hãy sửa hoặc khôi phục mặc định trước khi nhận diện PDF.</span>}
+                          <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-extrabold text-slate-700">Quy tắc tên Căn / Phòng</span>
+                              <span className="shrink-0 rounded-full border border-blue-200 bg-white px-2 py-0.5 text-[9px] font-extrabold text-blue-700">
+                                Tự động · Khuyên dùng
+                              </span>
+                            </div>
+                            <p className="mt-1 text-[9.5px] font-medium leading-relaxed text-slate-500">
+                              Nhận các dạng phổ biến như A101, A-101, P.101, WC-01, Căn 101, Phòng 01... Không cần nhập ký tự kỹ thuật.
+                            </p>
+                          </div>
+
+                          <details className="mt-2 rounded-xl border border-slate-200 bg-white">
+                            <summary className={`cursor-pointer select-none px-2.5 py-2 text-[9.5px] font-extrabold [&::-webkit-details-marker]:hidden ${isSmartPdfNamePatternValid ? 'text-slate-500' : 'text-rose-700'}`}>
+                              Tùy chỉnh kỹ thuật (Regex)
+                              {!isSmartPdfNamePatternValid && <span className="ml-1 text-rose-600">· cần sửa</span>}
+                            </summary>
+                            <div className="border-t border-slate-100 px-2.5 pb-2.5 pt-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <span className="text-[9px] font-medium leading-relaxed text-slate-400">
+                                  Chỉ dùng khi bản vẽ có quy ước tên đặc biệt.
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setSmartPdfNamePattern(DEFAULT_PDF_ROOM_NAME_PATTERN)}
+                                  className="shrink-0 text-[9px] font-extrabold text-blue-700 hover:text-blue-900"
+                                >
+                                  Khôi phục mặc định
+                                </button>
+                              </div>
+                              <input
+                                type="text"
+                                value={smartPdfNamePattern}
+                                onChange={(e) => setSmartPdfNamePattern(e.target.value)}
+                                spellCheck={false}
+                                autoCorrect="off"
+                                autoCapitalize="none"
+                                dir="ltr"
+                                aria-invalid={!isSmartPdfNamePatternValid}
+                                className={`mt-2 w-full rounded-lg border px-2 py-1.5 font-mono text-[9.5px] ${isSmartPdfNamePatternValid ? 'border-slate-200 text-slate-600' : 'border-rose-400 bg-rose-50 text-rose-700'}`}
+                              />
+                              {isSmartPdfNamePatternValid
+                                ? <span className="mt-1 block text-[9px] font-medium text-slate-400">Quy tắc kỹ thuật đang hợp lệ.</span>
+                                : <span className="mt-1 block text-[9px] font-bold text-rose-600">Quy tắc kỹ thuật không hợp lệ. Hãy sửa hoặc khôi phục mặc định trước khi nhận diện PDF.</span>}
+                            </div>
+                          </details>
                         </div>
                       </div>
                     )}

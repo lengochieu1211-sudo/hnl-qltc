@@ -513,6 +513,13 @@ if (!floorPlanDefect.includes('operationalWorkCategoryCatalog') || !floorPlanDef
 if (!roomHighlight.includes("const [workCategory, setWorkCategory] = useState('')") || !roomHighlight.includes('projectWorkCategoryTitles')) fail('room editor still seeds a deleted/hard-coded category');
 if (!photoSync.includes('snapshotIsInitial = firstSnapshot') || !photoSync.includes('firstSnapshot = false')) fail('photo realtime initial snapshot race guard missing');
 if (!floorPlanDefect.includes('photoLoadSeqRef') || !floorPlanDefect.includes('loadSeq === photoLoadSeqRef.current')) fail('Defect photo stale-read guard missing');
+requireAll(floorPlanDefect, [
+  'Quy tắc tên Căn / Phòng',
+  'Tự động · Khuyên dùng',
+  'Không cần nhập ký tự kỹ thuật',
+  'Tùy chỉnh kỹ thuật (Regex)',
+  'Khôi phục mặc định',
+], 'Smart PDF room-name rule progressive disclosure');
 pass('known regression guards retained');
 
 requireAll(projectManager, [
