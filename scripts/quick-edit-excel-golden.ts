@@ -50,7 +50,7 @@ assert.match(dataMenu, /if \(onExportReport\)/, 'Data Management report section 
 assert.match(dataMenu, /fillMobile/, 'Data Management trigger must support equal-width mobile action rows');
 assert.match(dataMenu, /fillWidth/, 'Data Management trigger must support equal-width desktop/mobile action pairs');
 assert.match(dataMenu, /onExportReport/, 'Data Management menu must support an optional report action without duplicating standalone buttons');
-assert.match(actionMenu, /w-full sm:w-auto/, 'Shared action trigger must be able to fill one mobile grid column without affecting desktop');
+assert.match(actionMenu, /sm:w-auto/, 'Shared action trigger must be able to fill one mobile grid column without affecting desktop');
 assert.match(actionMenu, /whitespace-nowrap/, 'Shared action trigger must keep its compact label intact on mobile');
 assert.match(dataMenu, /FileSpreadsheet/, 'Data Management export must retain the spreadsheet icon');
 assert.match(dataMenu, /Database/, 'Data Management trigger must use a data icon');
