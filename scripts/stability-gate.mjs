@@ -533,8 +533,10 @@ requireAll(floorPlanDefect, [
   'Tùy chỉnh kỹ thuật (Regex)',
   'Khôi phục mặc định',
 ], 'Smart PDF room-name rule progressive disclosure');
+if (!app.includes("normalized === '#4f46e5' ? DEFAULT_SUPER_ADMIN_UI_SETTINGS.primaryColor : normalized")) {
+  fail('App must retain the one-way legacy #4f46e5 -> HNL blue migration guard');
+}
 for (const [label, source] of [
-  ['App UI', app],
   ['Floor plan UI', floorPlanDefect],
   ['PDF export', exportPdf],
   ['AI export', read('src/ai/export/aiReportExport.ts')],
