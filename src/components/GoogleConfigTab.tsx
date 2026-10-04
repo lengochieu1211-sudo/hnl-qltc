@@ -12,7 +12,7 @@ import {
   Info,
   LogOut,
   Save,
-  Building2,
+  Settings,
   MapPin,
   User,
   Download,
@@ -650,7 +650,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       {/* Title */}
       <div>
         <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-          <Building2 className="w-5 h-5 text-indigo-600" />
+          <Settings className="w-5 h-5 text-blue-600" />
           {t('config_title')}
         </h2>
         <p className="text-xs text-slate-500 mb-2">{t('config_subtitle')}</p>
