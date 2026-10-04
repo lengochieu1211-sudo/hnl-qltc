@@ -1881,24 +1881,26 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               Tạo phiếu
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => { setWarehouseCatalogTab('material'); setWarehouseCatalogSearch(''); setShowWarehouseCatalog(true); }}
-            className="flex h-9 items-center justify-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-700 transition-all hover:bg-slate-100 active:scale-95"
-            title="Xem danh mục và tồn kho vật tư, thiết bị của dự án"
-          >
-            <Layers className="w-3.5 h-3.5 text-blue-600" />
-            <span>Danh mục kho</span>
-          </button>
-          <button
-            onClick={onOpenNormModal}
-            className="flex h-9 items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-xs font-bold text-indigo-700 transition-all hover:bg-indigo-100 active:scale-95"
-            title={hasNormManageAccess ? 'Cập nhật chủng loại vật tư, ĐVT, định mức' : 'Xem định mức vật tư (chỉ ADMIN được sửa)'}
-          >
-            <Sliders className="w-3.5 h-3.5 text-indigo-600" />
-            <span>{hasNormManageAccess ? t('norms_button') : 'Xem định mức'}</span>
-          </button>
-          <div className="col-span-2 lg:col-span-1">
+          <div className="order-2 col-span-2 grid grid-cols-3 gap-2 lg:contents">
+            <button
+              type="button"
+              onClick={() => { setWarehouseCatalogTab('material'); setWarehouseCatalogSearch(''); setShowWarehouseCatalog(true); }}
+              className="flex h-10 min-w-0 items-center justify-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-700 transition-all hover:bg-slate-100 active:scale-95 lg:h-9 lg:px-3 lg:text-xs"
+              title="Xem danh mục và tồn kho vật tư, thiết bị của dự án"
+            >
+              <Layers className="w-3.5 h-3.5 shrink-0 text-blue-600" />
+              <span className="sm:hidden">Danh mục</span>
+              <span className="hidden sm:inline">Danh mục kho</span>
+            </button>
+            <button
+              onClick={onOpenNormModal}
+              className="flex h-10 min-w-0 items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-indigo-50 px-2 text-[11px] font-bold text-indigo-700 transition-all hover:bg-indigo-100 active:scale-95 lg:h-9 lg:px-3 lg:text-xs"
+              title={hasNormManageAccess ? 'Cập nhật chủng loại vật tư, ĐVT, định mức' : 'Xem định mức vật tư (chỉ ADMIN được sửa)'}
+            >
+              <Sliders className="w-3.5 h-3.5 shrink-0 text-indigo-600" />
+              <span className="sm:hidden">Định mức</span>
+              <span className="hidden sm:inline">{hasNormManageAccess ? t('norms_button') : 'Xem định mức'}</span>
+            </button>
             <DataManagementMenu
               fillMobile
               triggerLabel="Quản lý dữ liệu"

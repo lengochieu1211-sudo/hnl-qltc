@@ -207,5 +207,5 @@ assert.match(catalogTemplatePicker, /fetchUserCatalogTemplates/, 'Reusable templ
 
 console.log('Quick Edit + Excel + DXF Golden: PASS');
 
-assert.match(volume, /grid w-full grid-cols-1[\s\S]*order-first col-span-1[\s\S]*<AddSourceMenu[\s\S]*triggerLabel="Thêm hạng mục"[\s\S]*<div className="col-span-1">[\s\S]*triggerLabel="Quản lý dữ liệu"/, 'Work Volume mobile Add Source and Data Management actions must stack as full-width rows');
+assert.match(volume, /grid w-full grid-cols-\[minmax\(0,1fr\)_auto\][\s\S]*<AddSourceMenu[\s\S]*triggerLabel="Thêm hạng mục"[\s\S]*triggerLabel="Quản lý dữ liệu"/, 'Work Volume mobile Add Source and compact Data Management must share one action row');
 assert.match(volume, /sm:grid-flow-col[\s\S]*<AddSourceMenu[\s\S]*triggerLabel="Thêm hạng mục"[\s\S]*triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit/, 'Work Volume PC actions must use shared Add Source plus consolidated Data Management');

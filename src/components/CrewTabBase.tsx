@@ -1952,46 +1952,51 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </div>
 
             {canOperate && (
-              <>
-                <button
-                  onClick={async () => {
-                    setEditingRecord(null);
-                    setShowAddLogModal(true);
-                  }}
-                  className="order-2 col-span-2 flex h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-3 text-sm font-extrabold text-white shadow-md transition hover:bg-blue-700 active:scale-[0.99] lg:order-none lg:col-span-1 lg:h-10 lg:text-xs"
-                >
-                  <Plus className="w-4 h-4" /> Ghi nhận quân số
-                </button>
-                <button
-                  onClick={handleOpenCopyDatePicker}
-                  className="order-3 flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 lg:order-none"
-                  title="Chọn ngày nguồn để sao chép quân số"
-                >
-                  <Copy className="w-3.5 h-3.5" /> Sao chép quân số
-                </button>
-              </>
+              <button
+                onClick={async () => {
+                  setEditingRecord(null);
+                  setShowAddLogModal(true);
+                }}
+                className="order-2 col-span-2 flex h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-3 text-sm font-extrabold text-white shadow-md transition hover:bg-blue-700 active:scale-[0.99] lg:order-none lg:col-span-1 lg:h-10 lg:text-xs"
+              >
+                <Plus className="w-4 h-4" /> Ghi nhận quân số
+              </button>
             )}
 
-            <button
-              type="button"
-              onClick={() => setShowCrewReportShare(true)}
-              className="order-4 flex h-10 items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-extrabold text-emerald-700 shadow-sm transition hover:bg-emerald-100 lg:order-none"
-            >
-              <FileText className="h-4 w-4" /> Chia sẻ báo cáo quân số
-            </button>
+            <div className={`order-3 col-span-2 grid gap-2 ${canOperate ? 'grid-cols-3' : 'grid-cols-2'} lg:contents`}>
+              {canOperate && (
+                <button
+                  onClick={handleOpenCopyDatePicker}
+                  className="flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2 text-[11px] font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 lg:px-3 lg:text-xs"
+                  title="Chọn ngày nguồn để sao chép quân số"
+                >
+                  <Copy className="w-3.5 h-3.5 shrink-0" />
+                  <span className="sm:hidden">Sao chép</span>
+                  <span className="hidden sm:inline">Sao chép quân số</span>
+                </button>
+              )}
 
-            <div className="order-5 col-span-2 lg:order-none lg:col-span-1">
-            <DataManagementMenu
-              fillWidth
-              triggerLabel="Quản lý dữ liệu"
-              onQuickEdit={quickEditEnabled ? (() => { setQuickEditMode('logs'); setShowQuickEdit(true); }) : undefined}
-              onExportEdit={handleExportCrewLogsEdit}
-              onImportFile={canOperate ? handleImportCrewLogsExcel : undefined}
-              onDownloadTemplate={handleDownloadCrewLogTemplate}
-              exportLabel="Xuất Nhật ký để chỉnh sửa"
-              importLabel="Nhập Nhật ký đã chỉnh sửa"
-              templateLabel="Tải mẫu Nhật ký"
-            />
+              <button
+                type="button"
+                onClick={() => setShowCrewReportShare(true)}
+                className="flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-extrabold text-emerald-700 shadow-sm transition hover:bg-emerald-100 lg:px-3 lg:text-xs"
+              >
+                <FileText className="h-4 w-4 shrink-0" />
+                <span className="sm:hidden">Chia sẻ</span>
+                <span className="hidden sm:inline">Chia sẻ báo cáo quân số</span>
+              </button>
+
+              <DataManagementMenu
+                fillWidth
+                triggerLabel="Quản lý dữ liệu"
+                onQuickEdit={quickEditEnabled ? (() => { setQuickEditMode('logs'); setShowQuickEdit(true); }) : undefined}
+                onExportEdit={handleExportCrewLogsEdit}
+                onImportFile={canOperate ? handleImportCrewLogsExcel : undefined}
+                onDownloadTemplate={handleDownloadCrewLogTemplate}
+                exportLabel="Xuất Nhật ký để chỉnh sửa"
+                importLabel="Nhập Nhật ký đã chỉnh sửa"
+                templateLabel="Tải mẫu Nhật ký"
+              />
             </div>
           </div>
 
@@ -2309,7 +2314,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </p>
 
             <div className="mt-3.5 pt-3 border-t border-slate-100">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:flex sm:justify-between">
                 {canManageTeamDirectory && (
                   <AddSourceMenu
                     triggerLabel="Thêm đội"
@@ -2323,7 +2328,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   />
                 )}
 
-                <div className="w-full sm:ml-auto sm:w-auto">
+                <div className={canManageTeamDirectory ? 'min-w-0 sm:ml-auto' : 'col-span-2 justify-self-end sm:ml-auto'}>
                   <DataManagementMenu
                     fillMobile
                     triggerLabel="Quản lý dữ liệu"

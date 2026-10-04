@@ -473,8 +473,8 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
 
   return (
     <div className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
-      {/* Title */}
-      <div className="flex items-center justify-between">
+      {/* Title + compact mobile action cluster */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
             <ClipboardCheck className="w-5 h-5 text-emerald-600" />
@@ -482,28 +482,25 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
           </h2>
           <p className="text-xs text-slate-500">Tiêu chuẩn thi công &amp; Kỹ sư giám sát: <span className="font-semibold text-indigo-700">{inspectorName}</span></p>
         </div>
-        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+        <div className="flex items-center justify-end gap-2">
           {canManageStructure && (
             <button
               onClick={() => setShowAddForm(true)}
-              className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-bold shadow active:scale-95 transition-all cursor-pointer"
+              className="flex h-10 items-center gap-1 rounded-xl bg-blue-600 px-3 text-xs font-bold text-white shadow transition-all hover:bg-blue-700 active:scale-95 cursor-pointer sm:h-9"
             >
               <Plus className="w-4 h-4" />
               Thêm Tiêu Chí
             </button>
           )}
+          <DataManagementMenu
+            triggerLabel="Quản lý dữ liệu"
+            onExportEdit={handleExportChecklistTemplate}
+            onImportFile={canImport && canManageStructure ? handleImportExcelChecklist : undefined}
+            exportLabel="Tải Excel để chỉnh sửa"
+            importLabel="Nhập lại từ Excel"
+          />
         </div>
       </div>
-
-      {/* Unified bulk data actions */}
-      <DataManagementMenu
-        fillWidth
-        triggerLabel="Quản lý dữ liệu"
-        onExportEdit={handleExportChecklistTemplate}
-        onImportFile={canImport && canManageStructure ? handleImportExcelChecklist : undefined}
-        exportLabel="Tải Excel để chỉnh sửa"
-        importLabel="Nhập lại từ Excel"
-      />
 
       {/* Floor Chips */}
       <div className="flex gap-2 overflow-x-auto pb-1 text-xs no-scrollbar">

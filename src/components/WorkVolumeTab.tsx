@@ -807,9 +807,9 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           <p className="text-xs text-slate-500">{t('volume_subtitle')}</p>
         </div>
 
-        <div className="grid w-full grid-cols-1 gap-2 sm:w-auto sm:grid-flow-col sm:auto-cols-max sm:grid-cols-none sm:items-center">
+        <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] gap-2 sm:w-auto sm:grid-flow-col sm:auto-cols-max sm:grid-cols-none sm:items-center">
           {hasStructureManageAccess && (
-            <div className="order-first col-span-1 w-full sm:order-none sm:w-auto">
+            <div className="min-w-0">
               <AddSourceMenu
                 triggerLabel="Thêm hạng mục"
                 createLabel="Tạo hạng mục mới"
@@ -833,7 +833,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               />
             </div>
           )}
-          <div className="col-span-1">
+          <div className={hasStructureManageAccess ? 'min-w-0' : 'col-span-2 justify-self-end'}>
             <DataManagementMenu
               fillMobile
               triggerLabel="Quản lý dữ liệu"

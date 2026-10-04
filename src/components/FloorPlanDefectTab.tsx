@@ -6104,29 +6104,32 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             </div>
           </div>
 
-          <div className="grid w-full grid-cols-1 gap-2 sm:w-auto sm:grid-flow-col sm:auto-cols-max sm:grid-cols-none sm:items-center sm:border-l sm:border-slate-200 sm:pl-3">
+          <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-flow-col sm:auto-cols-max sm:grid-cols-none sm:items-center sm:border-l sm:border-slate-200 sm:pl-3">
             {canManageStructure && (
               <button
                 type="button"
                 onClick={() => setShowManageFloorsModal(true)}
-                className="flex h-9 w-full shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-xs font-bold text-indigo-700 shadow-xs transition-all hover:bg-indigo-100 active:scale-[0.99] sm:w-auto"
+                className="flex h-10 min-w-0 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-indigo-200 bg-indigo-50 px-2 text-[11px] font-bold text-indigo-700 shadow-xs transition-all hover:bg-indigo-100 active:scale-[0.99] sm:h-9 sm:w-auto sm:px-3 sm:text-xs"
                 title="Quản lý Khu/Khối, đổi tên, sắp xếp và quản lý tầng"
               >
                 <Settings className="w-3.5 h-3.5 shrink-0" />
-                Quản lý Khu/Khối & Tầng
+                <span className="sm:hidden">Khu/Tầng</span>
+                <span className="hidden sm:inline">Quản lý Khu/Khối &amp; Tầng</span>
               </button>
             )}
-            <DataManagementMenu
-              fillMobile
-              triggerLabel="Quản lý dữ liệu"
-              onQuickEdit={quickEditEnabled ? (() => { setQuickEditMode('rooms'); setShowQuickEdit(true); }) : undefined}
-              onExportEdit={() => downloadHighlightTemplate('all')}
-              onImportFile={canManageStructure ? handleImportExcelHighlights : undefined}
-              onDownloadTemplate={() => downloadHighlightTemplate('template')}
-              exportLabel="Xuất Căn / Hạng mục để chỉnh sửa"
-              importLabel="Nhập Excel đã chỉnh sửa"
-              templateLabel="Tải mẫu Căn / Hạng mục"
-            />
+            <div className={canManageStructure ? 'min-w-0' : 'col-span-2 justify-self-end'}>
+              <DataManagementMenu
+                fillMobile
+                triggerLabel="Quản lý dữ liệu"
+                onQuickEdit={quickEditEnabled ? (() => { setQuickEditMode('rooms'); setShowQuickEdit(true); }) : undefined}
+                onExportEdit={() => downloadHighlightTemplate('all')}
+                onImportFile={canManageStructure ? handleImportExcelHighlights : undefined}
+                onDownloadTemplate={() => downloadHighlightTemplate('template')}
+                exportLabel="Xuất Căn / Hạng mục để chỉnh sửa"
+                importLabel="Nhập Excel đã chỉnh sửa"
+                templateLabel="Tải mẫu Căn / Hạng mục"
+              />
+            </div>
           </div>
 
           <input
