@@ -746,7 +746,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       }
 
       if ((currentUrl || hasCloudPointer) && !resolved.startsWith('data:image/')) {
-        throw new Error(`Không thể đóng gói ảnh mặt bằng ${plan.floorName || plan.id || ''} của dự án ${projectId}. Từ chối tạo backup thiếu ảnh.`);
+        throw new Error(`Không thể đóng gói ảnh mặt bằng ${plan.floorName || plan.id || ''} của dự án ${projectId}. Từ chối tạo bản sao lưu thiếu ảnh.`);
       }
       result.push({ ...plan, imageUrl: resolved || '' });
     }
@@ -1627,7 +1627,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       await downloadOrShareFile(newFileName, blob, 'application/json');
 
       logAuditAction('BACKUP_EXPORT', `Đã đổi mật khẩu mã hóa cho file sao lưu: ${newFileName}`);
-      alert(`🎉 Đổi mật khẩu file backup thành công!\n\nDữ liệu đã được giải mã bằng mật khẩu cũ và mã hóa lại bằng mật khẩu mới. File mới đã được xuất với tên:\n${newFileName}`);
+      alert(`🎉 Đổi mật khẩu tệp sao lưu thành công!\n\nDữ liệu đã được giải mã bằng mật khẩu cũ và mã hóa lại bằng mật khẩu mới. Tệp mới đã được xuất với tên:\n${newFileName}`);
       
       setPendingEncryptedPayload(null);
       setDecryptPassword('');
@@ -1725,9 +1725,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       // Firebase Storage before the import is considered successful.
       if (FIREBASE_ONLY_RUNTIME) {
         if (typeof navigator !== 'undefined' && !navigator.onLine) {
-          throw new Error('Import Firebase-only cần online để kiểm tra quyền/revision và tải ảnh lên Firebase Storage.');
+          throw new Error('Khôi phục bằng Firebase cần trực tuyến để kiểm tra quyền/phiên bản và tải ảnh lên Firebase Storage.');
         }
-        if (!onRestoreData) throw new Error('Thiếu Firestore restore handler cho Firebase-only import.');
+        if (!onRestoreData) throw new Error('Thiếu bộ xử lý khôi phục Firestore cho dữ liệu Firebase.');
 
         let firebaseList = getProjectsList();
         let createdCount = 0;
@@ -1872,7 +1872,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         setProjects(firebaseList);
         setMultiProjectSyncState(null);
         logAuditAction('BACKUP_IMPORT_FIREBASE_ONLY', `Import Firestore/Storage: mới ${createdCount}, cập nhật ${updatedCount}, bỏ qua ${skippedCount}`);
-        alert(`🎉 Import Firebase-only hoàn tất!\n• Mới: ${createdCount}\n• Cập nhật/merge: ${updatedCount}\n• Bỏ qua: ${skippedCount}`);
+        alert(`🎉 Khôi phục dữ liệu Firebase hoàn tất!\n• Mới: ${createdCount}\n• Cập nhật/gộp: ${updatedCount}\n• Bỏ qua: ${skippedCount}`);
         if (firstImportedId && onSwitchProject && firstImportedId !== activeId) {
           await onSwitchProject(firstImportedId);
           setActiveId(firstImportedId);
@@ -2134,14 +2134,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const executeFullReplaceRestore = async () => {
     if (!multiProjectSyncState) return;
     if (FIREBASE_ONLY_RUNTIME) {
-      alert('Firebase-only không cho phép FULL REPLACE kiểu xóa database cục bộ. Hãy dùng Import/SMART MERGE; dữ liệu Cloud chỉ được soft-delete hoặc migrate bằng quy trình backup + dry-run + verify riêng.');
+      alert('Chế độ Firebase không cho phép khôi phục thay thế toàn bộ theo cách xóa cơ sở dữ liệu cục bộ. Hãy dùng Nhập/Gộp thông minh; dữ liệu Cloud chỉ được đánh dấu xóa hoặc di chuyển bằng quy trình sao lưu + chạy thử (dry-run) + xác minh riêng.');
       return;
     }
     const candidates = multiProjectSyncState.items.map(it => it.candidate);
     const count = candidates.length;
 
     const confirm = await confirmAsync(
-      `⚠️ CẢNH BÁO KHÔI PHỤC toàn bộ & THAY THẾ (FULL REPLACE):\n\n` +
+      `⚠️ CẢNH BÁO KHÔI PHỤC TOÀN BỘ & THAY THẾ:\n\n` +
       `Thao tác này sẽ:\n` +
       `1. XÓA HOÀN TOÀN các dự án hiện có trên máy không nằm trong tệp sao lưu này.\n` +
       `2. Ghi đè toàn bộ dữ liệu của ${count} dự án trong tệp sao lưu vào máy.\n` +
@@ -3430,10 +3430,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-[10px] text-rose-800 space-y-1">
                         <div className="font-extrabold flex items-center gap-1 text-rose-900">
                           <ShieldAlert className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                          <span>CẢNH BÁO BẢO MẬT MẬT KHẨU BACKUP:</span>
+                          <span>CẢNH BÁO BẢO MẬT MẬT KHẨU SAO LƯU:</span>
                         </div>
                         <p className="leading-normal">
-                          Mật khẩu này không thể khôi phục nếu bị quên. Hãy lưu mật khẩu ở nơi an toàn. Nếu quên mật khẩu, file backup mã hóa sẽ không thể mở hay khôi phục.
+                          Mật khẩu này không thể khôi phục nếu bị quên. Hãy lưu mật khẩu ở nơi an toàn. Nếu quên mật khẩu, tệp sao lưu mã hóa sẽ không thể mở hay khôi phục.
                         </p>
                       </div>
                     </div>
@@ -5311,14 +5311,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   className="text-[11px] text-indigo-600 font-bold hover:underline flex items-center gap-1 cursor-pointer"
                 >
                   <Key className="w-3.5 h-3.5 text-indigo-500" />
-                  <span>{showReencryptOptions ? 'Ẩn tùy chọn đổi mật khẩu file' : 'Muốn đổi mật khẩu mới cho file backup này?'}</span>
+                  <span>{showReencryptOptions ? 'Ẩn tùy chọn đổi mật khẩu file' : 'Muốn đổi mật khẩu mới cho tệp sao lưu này?'}</span>
                 </button>
 
                 {showReencryptOptions && (
                   <div className="mt-2 p-3 bg-indigo-50/60 border border-indigo-200 rounded-xl space-y-2 animate-in fade-in duration-150">
                     <div>
                       <label className="block text-[10px] font-extrabold text-indigo-950 mb-0.5">
-                        Mật Khẩu Mới Cho File Backup (Tối thiểu 4 ký tự):
+                        Mật khẩu mới cho tệp sao lưu (tối thiểu 4 ký tự):
                       </label>
                       <input
                         type="password"

@@ -38,7 +38,7 @@ export interface AiAssistantPageProps {
 }
 
 const MODE_META: Record<AiAssistantMode, { label: string; icon: React.ElementType; hint: string }> = {
-  data: { label: 'HNL Data', icon: Database, hint: 'Số liệu deterministic từ dữ liệu dự án.' },
+  data: { label: 'HNL Data', icon: Database, hint: 'Số liệu được tính trực tiếp, nhất quán từ dữ liệu dự án.' },
   audit: { label: 'Audit', icon: FileSearch, hint: 'Rule Engine kiểm tra logic và liên kết.' },
   ai: { label: 'AI chung', icon: Bot, hint: 'Kiến thức AI bên ngoài; dữ liệu HNL chỉ được gửi khi bạn cho phép cho từng câu hỏi.' },
   hybrid: { label: 'HNL + AI', icon: BrainCircuit, hint: 'Engine tính trước, AI chỉ diễn giải.' },
@@ -305,7 +305,7 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
     if (exportBusy) return;
     const input = createExportInput();
     if (!input) {
-      setExportNotice('Chưa có kết quả HNL deterministic để xuất.');
+      setExportNotice('Chưa có kết quả HNL để xuất.');
       return;
     }
     setExportBusy(kind);
@@ -401,7 +401,7 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
           {externalAiOptIn && !externalAiFullProject && <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-1.5">
             {([['progress','Tiến độ'],['quantities','Khối lượng'],['defects','Defect'],['crew','Quân số'],['inventory','Vật tư'],['checklist','Checklist']] as Array<[keyof ExternalAiDataSelection, string]>).map(([key, label]) => <label key={key} className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-white px-2 py-1.5 text-[10px] font-semibold text-slate-700"><input type="checkbox" checked={externalAiSelection[key]} onChange={(e) => setExternalAiSelection((current) => ({ ...current, [key]: e.target.checked }))} />{label}</label>)}
           </div>}
-          {externalAiOptIn && externalAiFullProject && <p className="mt-2 text-[10px] leading-4 text-indigo-800">Toàn bộ 6 nhóm dữ liệu được chọn tự động cho câu hỏi này: Tiến độ, Khối lượng, Defect, Quân số, Vật tư và Checklist. HNL vẫn áp dụng giới hạn số dòng/kích thước payload và fail-closed khi dữ liệu không đủ.</p>}
+          {externalAiOptIn && externalAiFullProject && <p className="mt-2 text-[10px] leading-4 text-indigo-800">Toàn bộ 6 nhóm dữ liệu được chọn tự động cho câu hỏi này: Tiến độ, Khối lượng, Defect, Quân số, Vật tư và Checklist. HNL vẫn giới hạn số dòng/kích thước dữ liệu gửi và sẽ dừng an toàn khi dữ liệu không đủ.</p>}
           {externalAiOptIn && !externalAiFullProject && externalAiSelection.quantities && <p className="mt-2 text-[10px] leading-4 text-amber-800">Khối lượng được gửi theo snapshot hiện tại, có liên kết đội/tầng/căn/hạng mục/đơn vị. HNL không gán khối lượng cho một khoảng ngày nếu dữ liệu nguồn không có lịch sử khối lượng theo ngày.</p>}
         </div>}
         <div className="flex flex-wrap gap-2 mb-3">
@@ -416,7 +416,7 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
 
       {error && <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800 flex gap-2"><AlertTriangle className="w-5 h-5 shrink-0" />{error}</div>}
       {exportNotice && <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">{exportNotice}</div>}
-      {!props.online && mode !== 'ai' && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">AI Cloud đang offline. HNL Data/Audit vẫn chạy từ dữ liệu Firestore cache đã có trên thiết bị.</div>}
+      {!props.online && mode !== 'ai' && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">AI Cloud đang ngoại tuyến. HNL Data/Kiểm tra vẫn dùng dữ liệu Firestore đã lưu trên thiết bị.</div>}
 
       {generalText && <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="text-xs font-black text-indigo-700 mb-2">AI</div><div className="whitespace-pre-wrap text-sm text-slate-800">{generalText}</div></section>}
 
