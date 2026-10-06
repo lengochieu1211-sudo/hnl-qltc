@@ -84,6 +84,11 @@ assert.ok(
   && shareModalSource.includes('tableLeft + (serialWidth - serialHeaderWidth) / 2'),
   'crew report STT header must stay horizontally centered in shared-image canvas like the on-screen table',
 );
+assert.ok(
+  shareModalSource.includes('const serialText = String(rowIndex + 1);')
+  && shareModalSource.includes('tableLeft + (serialWidth - ctx.measureText(serialText).width) / 2'),
+  'crew report STT body values must stay horizontally centered in exported images',
+);
 const crewTabSource = readFileSync(new URL('../src/components/CrewTabBase.tsx', import.meta.url), 'utf8');
 assert.ok(
   crewTabSource.includes('className="hidden 2xl:grid 2xl:grid-cols-2 gap-2 border-b border-slate-200 bg-slate-50/70 p-3"'),
