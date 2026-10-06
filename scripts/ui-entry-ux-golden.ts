@@ -185,7 +185,15 @@ assert(config.includes('id="catalog-template-manager-card"') && config.includes(
 const templateManagerUi = read('src/components/CatalogTemplateManager.tsx');
 assert(templateManagerUi.includes("id: 'teams'") && templateManagerUi.includes("id: 'workVolumes'") && templateManagerUi.includes("id: 'materialNorms'") && templateManagerUi.includes("id: 'materials'") && templateManagerUi.includes("id: 'equipment'"), 'Template manager must cover teams, work items, material norms, materials, and equipment');
 assert(templateManagerUi.includes('Xóa đã chọn') && templateManagerUi.includes('Lưu thay đổi') && templateManagerUi.includes('Xóa mục đã chọn'), 'Template manager must support edit, single/bulk item deletion, and bulk template deletion');
-assert(config.includes("label: 'Offline'") && config.includes("label: 'Đang đồng bộ'") && config.includes("label: 'Cần đồng bộ'") && config.includes("label: 'Đã đồng bộ'"), 'Sync Center status badge states are incomplete');
+assert(config.includes("label: 'Ngoại tuyến'") && config.includes("label: 'Đang đồng bộ'") && config.includes("label: 'Cần đồng bộ'") && config.includes("label: 'Đã đồng bộ'"), 'Sync Center status badge states are incomplete');
+assert(config.includes('title="Trung tâm kiểm tra dữ liệu (Health Center)"') && !config.includes('title="HNL Health Center"'), 'Health Center title must be user-facing Vietnamese while retaining the technical name in parentheses');
+assert(config.includes("syncDiagnostics.online === false ? 'Ngoại tuyến' : 'Trực tuyến'") && config.includes('<b>Lỗi đồng bộ gần nhất:</b>') && config.includes('<b>Cảnh báo dự án trùng tên:</b>'), 'Settings diagnostics must use consistent Vietnamese sync wording');
+
+const notificationCenterUi = read('src/components/NotificationCenterModal.tsx');
+assert(notificationCenterUi.includes('Không có tiến độ, Checklist hoặc Defect nào thuộc bộ lọc hiện tại cần cảnh báo.') && !notificationCenterUi.includes('checklist hoặc defect'), 'Notification Center must keep Checklist/Defect business terms consistently capitalized');
+const healthCenterUi = read('src/healthCenter/HealthCenterPanelBase.tsx');
+assert(healthCenterUi.includes('Xem trước sửa lỗi · chưa ghi dữ liệu') && healthCenterUi.includes('Sao lưu trước sửa') && healthCenterUi.includes('Sao lưu & áp dụng sửa an toàn'), 'Health Center repair actions must use user-facing Vietnamese copy');
+assert(healthCenterUi.includes('Trung tâm kiểm tra dữ liệu chỉ chạy sau khi quyền dự án đã được xác minh.') && !healthCenterUi.includes('Repair Preview · chưa ghi dữ liệu') && !healthCenterUi.includes('> Backup trước sửa</button>'), 'Health Center must not regress to mixed English repair copy');
 
 const appSourceForInlineSync = read('src/App.tsx');
 assert(appSourceForInlineSync.includes('syncCenterContent={('), 'App must inject the existing Sync Center engine into Settings');
@@ -218,6 +226,7 @@ const workVolumeUi = read('src/components/WorkVolumeTab.tsx');
 assert(workVolumeUi.includes("label: 'Khối lượng kế hoạch'") && workVolumeUi.includes('<span>Khối lượng kế hoạch *</span>') && !workVolumeUi.includes('<span>Khối lượng định mức *</span>'), 'Work Volume planned quantity must be labeled Khối lượng kế hoạch to avoid confusion with material norms');
 assert(workVolumeUi.includes("label: 'Khối lượng thực hiện'") && workVolumeUi.includes('<span className="truncate">Khối lượng thực hiện</span>') && !workVolumeUi.includes('Khối lượng đã làm'), 'Work Volume actual quantity must use one visible label: Khối lượng thực hiện');
 const crewUiForPc = read('src/components/CrewTabBase.tsx');
+assert(crewUiForPc.includes('statusTextStr = "Đã hoàn thành";') && !crewUiForPc.includes('statusTextStr = "Đã xong";'), 'Crew visible completion wording must match the canonical Đã hoàn thành status');
 const roomHighlightUiForPc = read('src/components/RoomHighlightModal.tsx');
 const photoAttachmentUiForPc = read('src/components/PhotoAttachmentPicker.tsx');
 assert(
