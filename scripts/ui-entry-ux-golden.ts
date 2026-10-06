@@ -308,6 +308,7 @@ const multiProjectOverviewUi = read('src/components/MultiProjectOverview.tsx');
 const homeDashboardUi = read('src/components/HomeDashboard.tsx');
 const navSource = read('src/components/BottomNav.tsx');
 assert(navSource.includes('setActiveTab(tab);'), 'Primary navigation must send the selected destination to the App navigation coordinator');
+assert(!navSource.includes('if (tab === activeTab)') && navSource.includes("Always delegate to App's authoritative activeTabRef check"), 'BottomNav must not drop a rapid next-tab click by short-circuiting against a stale activeTab prop');
 assert(navSource.includes('data-hnl-nav-tab={tab.id}') && navSource.includes('data-hnl-nav-tab="chat"'), 'Primary navigation must expose stable diagnostic tab IDs for runtime switching tests');
 assert(navSource.includes('data-hnl-nav-surface="desktop"') && navSource.includes('data-hnl-nav-surface="mobile"'), 'Runtime navigation diagnostics must distinguish desktop rail from mobile bottom bar');
 assert(navSource.includes('data-hnl-nav-tab="volume"'), 'Mobile More menu must expose Work Volume as a stable runtime navigation destination');
