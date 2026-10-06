@@ -874,28 +874,12 @@ async function verifyUiUxV3Shell(page, context, label) {
   });
   assert(reconnectProbeOk, `${label}: network stack did not recover after Playwright offline emulation`);
 
-  // Playwright's offline emulation controls the browser network stack, but Chromium's
-  // navigator.onLine flag is not a stable API contract across versions. If the flag stays
-  // stale after the network is already reachable, reload once so the new document samples
-  // the restored online state before the remaining UI checks continue.
-  if (!(await page.evaluate(() => navigator.onLine === true))) {
-    // Chromium/Playwright can keep navigator.onLine stale after network emulation even
-    // though the browser network stack is already reachable (proven by reconnectProbeOk).
-    // Align the next document's navigator flag with the verified network state so the app's
-    // native online-event watchdog can be exercised deterministically. This shim is scoped
-    // to this disposable Runtime Golden browser context only.
-    await page.addInitScript(() => {
-      Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
-    });
-    const reconnectResponse = await page.reload({ waitUntil: 'domcontentloaded', timeout: 45000 });
-    assert(reconnectResponse && reconnectResponse.status() === 200, `${label}: reconnect reload failed`);
-    await page.waitForSelector('#root', { timeout: 15000 });
-    await page.waitForFunction(() => document.querySelector('#root')?.children.length > 0, null, { timeout: 20000 });
-    await page.locator('[data-hnl-global-header]').first().waitFor({ state: 'visible', timeout: 10000 });
-  }
-  assert(await page.evaluate(() => navigator.onLine === true), `${label}: Runtime Golden online shim did not reflect verified reconnect state`);
-  await page.locator('[data-hnl-offline-banner]').first().waitFor({ state: 'hidden', timeout: 10000 });
-  pass(`${label} UI/UX V3 reconnect recovery`, 'network probe ok · offline banner cleared');
+  // Keep this shell check scoped to what Playwright offline emulation guarantees:
+  // browser network recovery. The live backend golden separately proves that Firestore
+  // pending writes survive disableNetwork -> enableNetwork and publish cross-account.
+  // Do not reload or synthesize navigator.onLine here because Chromium can retain a stale
+  // flag and reloading would discard the remembered-offline identity fixture used by this UI run.
+  pass(`${label} UI/UX V3 reconnect network recovery`, 'Firebase Hosting probe ok after offline emulation');
   await page.waitForTimeout(250);
 }
 
