@@ -610,7 +610,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
                     <tfoot>
                       <tr className="border-t-2 border-blue-200 bg-blue-50 font-black text-blue-950">
                         {showSerialNumber && <td className="sticky left-0 z-[2] border-r border-blue-200 bg-blue-50 px-2 py-2"></td>}
-                        <td style={{ left: showSerialNumber ? 52 : 0 }} className="sticky z-[1] border-r border-blue-200 bg-blue-50 px-3 py-2">TỔNG</td>
+                        <td style={{ left: showSerialNumber ? 52 : 0 }} className="sticky z-[1] border-r border-blue-200 bg-blue-50 px-3 py-2 text-center">TỔNG</td>
                         {matrix.teams.flatMap((team) => {
                           const total = matrix.teamTotals[team.teamKey] || { morning: 0, afternoon: 0, evening: 0, dailyHeadcount: 0 };
                           return [total.morning, total.afternoon, total.evening, total.dailyHeadcount].map((value, index) => (
