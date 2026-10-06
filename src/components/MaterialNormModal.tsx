@@ -1118,7 +1118,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                           <p className="font-bold text-slate-800">{norm.unit}</p>
                         </div>
                         <div>
-                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Định mức tổng theo KL kế hoạch</p>
+                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Nhu cầu vật tư theo định mức</p>
                           <p className="font-bold text-indigo-600">{formatAdaptiveDecimal(norm.quotaQuantity)} {norm.unit}</p>
                         </div>
                         <div>
@@ -1172,7 +1172,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
 
             {/* Category Select */}
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Chủng Loại Vật Tư Công Trình *</label>
+              <label className="block font-bold text-slate-700 mb-1">Chủng loại vật tư công trình *</label>
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
