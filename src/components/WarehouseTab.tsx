@@ -1603,7 +1603,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     if (!showQuickEdit) return [];
     if (quickEditMode === 'norms') return [
       { key: 'materialName', label: 'Tên vật tư', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), required: true, width: 220 },
-      { key: 'category', label: 'Nhóm', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), required: true, width: 150 },
+      { key: 'category', label: 'Chủng loại vật tư', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), required: true, width: 170 },
       { key: 'unit', label: 'ĐVT', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), required: true, width: 90 },
       {
         key: 'workCategory',
@@ -1628,7 +1628,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     ];
     if (quickEditMode === 'stock') return [
       { key: 'materialName', label: 'Tên vật tư', editable: false, width: 220 },
-      { key: 'category', label: 'Nhóm', editable: false, width: 150 },
+      { key: 'category', label: 'Chủng loại / Loại', editable: false, width: 170 },
       { key: 'unit', label: 'ĐVT', editable: false, width: 90 },
       { key: 'totalIn', label: 'Tổng nhập', editable: false, type: 'number', width: 110 },
       { key: 'totalOut', label: 'Tổng xuất', editable: false, type: 'number', width: 110 },
@@ -1981,7 +1981,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             itemCount={warehouseCatalogStockRows.length}
             options={[
               { key: 'name', label: warehouseCatalogTab === 'equipment' ? 'Tên thiết bị' : 'Tên vật tư', kind: 'alpha', defaultOrder: 'asc' },
-              { key: 'category', label: 'Nhóm', kind: 'alpha', defaultOrder: 'asc' },
+              { key: 'category', label: warehouseCatalogTab === 'material' ? 'Chủng loại vật tư' : 'Loại', kind: 'alpha', defaultOrder: 'asc' },
               { key: 'unit', label: 'ĐVT', kind: 'alpha', defaultOrder: 'asc' },
               { key: 'totalIn', label: 'Nhập', kind: 'number', defaultOrder: 'desc' },
               { key: 'totalOut', label: 'Xuất', kind: 'number', defaultOrder: 'desc' },
@@ -2002,7 +2002,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <div className="min-w-[780px]">
               <div data-hnl-warehouse-catalog-header="aligned" className="grid grid-cols-[minmax(180px,1.6fr)_120px_52px_64px_64px_120px_76px] items-center gap-2 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">
                 <span>Tên {warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'vật tư'}</span>
-                <span>Nhóm</span>
+                <span>{warehouseCatalogTab === 'material' ? 'Chủng loại vật tư' : 'Loại'}</span>
                 <span>ĐVT</span>
                 <span className="text-right">Nhập</span>
                 <span className="text-right">Xuất</span>
