@@ -1561,6 +1561,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       __rowKey: item.id,
       __recordId: item.id,
       __type: item.type,
+      itemKind: item.itemKind === 'equipment' ? 'equipment' : 'material',
       date: item.date,
       materialName: item.materialName,
       unit: item.unit,
@@ -1580,14 +1581,15 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
   const warehouseQuickStockRows = useMemo<QuickGridRow[]>(() => showQuickEdit ? stockSummaries.map((item, index) => ({
     __rowKey: `stock-${item.materialId || item.materialName}-${index}`,
+    itemKind: item.itemKind,
     materialName: item.materialName,
     category: item.category,
     unit: item.unit,
     totalIn: item.totalIn,
     totalOut: item.totalOut,
     currentStock: item.currentStock,
-    normQuantity: item.normQuantity,
-    remainingNeed: item.remainingNeed,
+    normQuantity: item.itemKind === 'material' ? item.normQuantity : '',
+    remainingNeed: item.itemKind === 'material' ? item.remainingNeed : '',
   })) : [], [showQuickEdit, stockSummaries]);
 
   const warehouseMaterialOptions = useMemo(() => showQuickEdit ? Array.from(new Set([
@@ -1627,7 +1629,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       { key: 'notes', label: 'Ghi chú / Tiêu chuẩn kỹ thuật', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), width: 300 },
     ];
     if (quickEditMode === 'stock') return [
-      { key: 'materialName', label: 'Tên vật tư', editable: false, width: 220 },
+      { key: 'materialName', label: 'Vật tư / Thiết bị', editable: false, width: 220 },
       { key: 'category', label: 'Chủng loại vật tư / Nhóm thiết bị', editable: false, width: 210 },
       { key: 'unit', label: 'ĐVT', editable: false, width: 90 },
       { key: 'totalIn', label: 'Tổng nhập', editable: false, type: 'number', width: 110 },
@@ -1638,7 +1640,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     ];
     const base: QuickGridColumn[] = [
       { key: 'date', label: 'Ngày', editable: hasImportAccess, type: 'date', required: true, width: 135 },
-      { key: 'materialName', label: 'Tên vật tư', editable: hasImportAccess, type: 'select', options: warehouseMaterialOptions, required: true, width: 220 },
+      { key: 'itemKind', label: 'Loại hàng', editable: (row) => hasImportAccess && Boolean(row.__new), type: 'select', options: [{ value: 'material', label: 'Vật tư' }, { value: 'equipment', label: 'Thiết bị' }], required: true, width: 115 },
+      { key: 'materialName', label: 'Tên vật tư / thiết bị', editable: hasImportAccess, type: 'select', options: warehouseMaterialOptions, required: true, width: 220 },
       { key: 'unit', label: 'ĐVT', editable: hasImportAccess, required: true, width: 90 },
       { key: 'quantity', label: 'Số lượng', editable: hasImportAccess, type: 'number', allowExpression: true, required: true, width: 110, validate: (value) => { const parsed = evaluateMathExpression(String(value ?? '')); return parsed !== null && parsed <= 0 ? 'Phải lớn hơn 0' : null; } },
     ];
@@ -1801,7 +1804,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     const upserts: InventoryItem[] = dirtyRows.map((row) => {
       const existing = inventory.find((item) => item.id === String(row.__recordId || row.__rowKey));
       const materialNameValue = String(row.materialName || '').trim();
-      const norm = materialNorms.find((item) => item.materialName === materialNameValue && normalizeUnit(item.unit) === normalizeUnit(String(row.unit || '')));
+      const resolvedItemKind: InventoryItemKind = existing
+        ? (existing.itemKind === 'equipment' ? 'equipment' : 'material')
+        : (row.itemKind === 'equipment' ? 'equipment' : 'material');
+      const norm = resolvedItemKind === 'material'
+        ? materialNorms.find((item) => item.materialName === materialNameValue && normalizeUnit(item.unit) === normalizeUnit(String(row.unit || '')))
+        : undefined;
       const floor = floorPlans.find((item) => item.floorName === String(row.floorName || ''));
       const room = roomProgressList.find((item) => item.roomName === String(row.roomName || '') && (!floor || item.floorId === floor.id));
       const team = teams.find((item) => item.name === String(row.teamName || ''));
@@ -1813,8 +1821,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         ...(existing || {} as InventoryItem),
         id,
         type,
-        itemKind: existing?.itemKind || 'material',
-        materialId: norm ? resolveNormMaterialId(norm) : existing?.materialId,
+        itemKind: resolvedItemKind,
+        materialId: resolvedItemKind === 'material'
+          ? (norm ? resolveNormMaterialId(norm) : existing?.materialId)
+          : undefined,
         materialName: materialNameValue,
         unit: normalizeUnit(String(row.unit || '').trim()) || String(row.unit || '').trim(),
         quantity: Math.max(0, evaluateMathExpression(String(row.quantity ?? '')) ?? 0),
@@ -2097,6 +2107,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           __new: true,
           __recordId: '',
           __type: quickEditMode,
+          itemKind: 'material',
           date: new Date().toISOString().slice(0, 10),
           materialName: warehouseMaterialOptions[0] || '',
           unit: materialNorms.find((norm) => norm.materialName === warehouseMaterialOptions[0])?.unit || '',
