@@ -214,7 +214,8 @@ async function renderCrewReportImages(params: {
         ctx.strokeRect(tableLeft, y, serialWidth, rowHeight);
         ctx.font = '600 13px Arial, sans-serif';
         ctx.fillStyle = '#475569';
-        ctx.fillText(String(rowIndex + 1), tableLeft + 18, y + 28);
+        const serialText = String(rowIndex + 1);
+        ctx.fillText(serialText, tableLeft + (serialWidth - ctx.measureText(serialText).width) / 2, y + 28);
       }
       ctx.strokeRect(dateX, y, dateWidth, rowHeight);
       ctx.font = '600 14px Arial, sans-serif';
