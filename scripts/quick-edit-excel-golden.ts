@@ -198,6 +198,9 @@ assert.match(volume, /readExcelFormulaByHeaders/, 'WorkVolume Excel import must 
 assert.match(volume, /\['KL Định Mức', 'Khối lượng định mức', 'Khối lượng kế hoạch', 'planned'\]/, 'WorkVolume Excel import must keep legacy planned-quantity aliases while accepting the new Khối lượng kế hoạch header');
 assert.match(excelExport, /'Khối lượng kế hoạch'/, 'New Excel exports must use Khối lượng kế hoạch');
 assert.match(excelExport, /'Khối lượng thực hiện \(chỉ xem - không nhập lại\)'/, 'New Excel exports must use Khối lượng thực hiện and clearly mark it read-only');
+assert.match(excelExport, /'Hạn hoàn thành'/, 'New WorkVolume Excel exports must use Hạn hoàn thành');
+assert.doesNotMatch(excelExport, /'Ngày Hạn Định'/, 'New WorkVolume Excel exports must not emit the legacy Ngày Hạn Định header');
+assert.match(volume, /row\['Ngày Hạn Định'\][\s\S]*row\['Hạn Định'\][\s\S]*row\['Hạn Hoàn Thành'\]/, 'WorkVolume Excel import must keep legacy deadline aliases for backward compatibility');
 
 assert.match(dxf, /HATCH/, 'DXF detector must support HATCH');
 assert.match(dxf, /LWPOLYLINE/, 'DXF detector must support closed polylines');
