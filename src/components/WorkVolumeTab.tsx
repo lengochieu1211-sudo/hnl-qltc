@@ -226,7 +226,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         },
       },
       { key: 'category', label: 'Nhóm hạng mục', editable: hasStructureManageAccess, required: true, width: 160 },
-      { key: 'planned', label: 'Khối lượng định mức', editable: hasStructureManageAccess, type: 'number', allowExpression: true, required: true, width: 150, validate: (value) => { const parsed = evaluateMathExpression(String(value ?? '')); return parsed !== null && parsed < 0 ? 'Không được âm' : null; } },
+      { key: 'planned', label: 'Khối lượng kế hoạch', editable: hasStructureManageAccess, type: 'number', allowExpression: true, required: true, width: 150, validate: (value) => { const parsed = evaluateMathExpression(String(value ?? '')); return parsed !== null && parsed < 0 ? 'Không được âm' : null; } },
       { key: 'actual', label: 'Khối lượng đã làm', editable: false, type: 'number', width: 150 },
       { key: 'unit', label: 'Đơn vị', editable: hasStructureManageAccess, required: true, width: 100 },
     ];
@@ -535,7 +535,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
     const parsedPlanned = evaluateMathExpression(plannedStr);
     if (plannedStr.trim() && parsedPlanned === null) {
-      alert('Khối lượng định mức có công thức/số không hợp lệ. Ví dụ: 100*5 hoặc 1220/3.');
+      alert('Khối lượng kế hoạch có công thức/số không hợp lệ. Ví dụ: 100*5 hoặc 1220/3.');
       return;
     }
     const finalPlanned = parsedPlanned ?? Number(planned);
@@ -548,7 +548,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     const finalUnitPrice = parsedUnitPrice ?? 0;
 
     if (!title.trim() || !finalPlanned || finalPlanned <= 0) {
-      alert('Vui lòng điền tên hạng mục và khối lượng định mức hợp lệ!');
+      alert('Vui lòng điền tên hạng mục và khối lượng kế hoạch hợp lệ!');
       return;
     }
 
@@ -729,7 +729,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           const priceFormula = readExcelFormulaByHeaders(worksheet, XLSX.utils, rowIndex + 1, ['Đơn Giá (VNĐ)', 'Đơn Giá', 'unitPrice']);
           const plannedFormulaValue = plannedFormula ? evaluateMathExpression(plannedFormula) : null;
           const priceFormulaValue = priceFormula ? evaluateMathExpression(priceFormula) : null;
-          if (plannedFormula && plannedFormulaValue === null) throw new Error(`Dòng ${rowIndex + 2}: công thức KL Định Mức không an toàn/hợp lệ.`);
+          if (plannedFormula && plannedFormulaValue === null) throw new Error(`Dòng ${rowIndex + 2}: công thức Khối lượng kế hoạch không an toàn/hợp lệ.`);
           if (priceFormula && priceFormulaValue === null) throw new Error(`Dòng ${rowIndex + 2}: công thức Đơn Giá không an toàn/hợp lệ.`);
           const plannedParsed = parseExcelNumber(row['KL Định Mức'] ?? row['Khối lượng định mức'] ?? row['Khối lượng kế hoạch'] ?? row['planned']);
           const priceParsed = parseExcelNumber(row['Đơn Giá (VNĐ)'] ?? row['Đơn Giá'] ?? row['unitPrice']);
@@ -1422,7 +1422,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end lg:col-span-6">
                 <div>
                   <div className="h-6 flex items-center justify-between text-slate-700 font-bold text-[11px] sm:text-xs truncate mb-1">
-                    <span>Khối lượng định mức *</span>
+                    <span>Khối lượng kế hoạch *</span>
                     {livePlannedCalc !== null && (
                       <span className="text-blue-600 bg-blue-50 px-1 py-0.5 rounded text-[9px] font-extrabold animate-pulse" title="Kết quả tính toán">
                         = {formatDecimal(livePlannedCalc)}
