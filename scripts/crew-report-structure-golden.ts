@@ -44,6 +44,12 @@ assert.equal(matrix.dates[0].totalDailyHeadcount, 13, 'daily total must sum grou
 const shareModalSource = readFileSync(new URL('../src/components/CrewReportShareModal.tsx', import.meta.url), 'utf8');
 assert.equal(shareModalSource.includes('TEAM_CHUNK'), false, 'crew share must not split one project every four teams');
 assert.ok(
+  shareModalSource.includes('text-center align-middle">Ngày</th>')
+  && shareModalSource.includes("const dateHeaderWidth = ctx.measureText(dateHeader).width;")
+  && shareModalSource.includes("dateX + (dateWidth - dateHeaderWidth) / 2"),
+  'crew report Ngày header must be horizontally centered in both HTML preview and rendered share image',
+);
+assert.ok(
   shareModalSource.includes('const [hideUnreportedTeams, setHideUnreportedTeams] = useState(false);')
   && shareModalSource.includes('const [hideZeroTeams, setHideZeroTeams] = useState(false);')
   && shareModalSource.includes('const [hideUnreportedDates, setHideUnreportedDates] = useState(false);')
