@@ -35,6 +35,10 @@ assert(!header.includes('<Wifi'), 'Header Wi-Fi badge must stay removed');
 assert(!header.includes('<WifiOff'), 'Header offline Wi-Fi badge must stay removed');
 assert(!header.includes('GoogleAuthModal'), 'Header Google login shortcut/modal must stay removed');
 assert(header.includes("onOpenProjectManager('projects')"), 'Header Project button must open Project List only');
+assert(header.includes('data-hnl-global-header'), 'Global header must expose a stable Runtime Golden measurement hook');
+assert(header.includes('lg:flex lg:items-center lg:gap-3') && header.includes('lg:mb-0 lg:min-w-0 lg:flex-1') && header.includes('lg:mt-0 lg:shrink-0'), 'Desktop header must merge identity + quick actions into one compact lg+ row while mobile keeps the two-row flow');
+assert(header.includes('data-hnl-header-actions'), 'Header quick actions must expose a stable runtime hook');
+assert(header.includes('[&>button]:min-h-9 [&>button]:min-w-9') && (header.match(/min-h-9 min-w-9/g) || []).length >= 5, 'Header mobile actions must retain >=36px touch targets');
 
 const security = read('src/components/SecurityModal.tsx');
 assert(security.includes('Tài khoản Google/Firebase'), 'Security Center must own Google/Firebase account entry');
@@ -114,6 +118,7 @@ const materialNormModal = read('src/components/MaterialNormModal.tsx');
 
 assert(warehouse.includes('<DataManagementMenu'), 'Warehouse must use the shared Data Management menu');
 assert(materialNormModal.includes('<AddSourceMenu') && materialNormModal.includes('triggerLabel="Thêm định mức"') && materialNormModal.includes('Lưu & thêm tiếp') && materialNormModal.includes('value="continue"'), 'Material Norm Add must use the shared Add Source menu and retain save-and-continue multi-entry flow');
+assert(materialNormModal.includes('bg-slate-100 text-slate-700 border border-slate-200') && !materialNormModal.includes('bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-md'), 'Material work-category tags must stay neutral, not success-green');
 assert(warehouse.includes('onImportFile={hasImportAccess ? handleFileChangeExcel : undefined}'), 'Warehouse Excel menu must hide import when the current role cannot import');
 assert(!warehouse.includes('<span>Chỉ ADMIN được nhập</span>'), 'Warehouse must hide unavailable bulk-import action instead of rendering a disabled ADMIN-only placeholder');
 assert(warehouse.includes('exportLabel="Xuất dữ liệu Kho để chỉnh sửa"'), 'Warehouse Excel export must keep the agreed editing-oriented label');
@@ -181,12 +186,20 @@ assert(!defectUi.includes('label="📷 Ảnh Báo Lỗi Ban Đầu (Trước S�
 assert(!defectUi.includes('label="🛠️ Ảnh Bằng Chứng Sau Khi Sửa (Tùy Chọn)"'), 'Defect after-photo label must not duplicate picker iconography with an emoji');
 assert((defectUi.match(/label="Ảnh Báo Lỗi Ban Đầu \(Trước Sửa\)"/g) || []).length >= 2, 'Defect before-photo label must remain available in create/detail flows');
 assert((defectUi.match(/label="Ảnh Bằng Chứng Sau Khi Sửa \(Tùy Chọn\)"/g) || []).length >= 2, 'Defect after-photo label must remain available in create/detail flows');
+assert((defectUi.match(/bg-blue-600 text-white font-black shadow-sm ring-2 ring-blue-300/g) || []).length >= 6, 'Floor-plan generic drawing selection must use HNL Blue in normal + fullscreen toolbars');
+assert(!defectUi.includes("bg-amber-500 text-slate-950 font-black shadow-sm ring-2 ring-amber-300") && !defectUi.includes("bg-amber-500 text-slate-950 font-black scale-105 shadow-sm"), 'Floor-plan generic draw selection must not use warning amber');
+assert(defectUi.includes("roomColorMode === 'palette' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-800 border border-slate-300'") && defectUi.includes("? 'bg-slate-800 text-slate-200 border border-slate-700 shadow-xs hover:bg-slate-700'"), 'Floor-plan display-mode toggles must use primary/neutral colors instead of warning amber');
+assert((defectUi.match(/!showTextOverlay[\s\S]{0,180}bg-blue-600 text-white/g) || []).length >= 3, 'Floor-plan text-overlay selection must use HNL Blue instead of success green');
+assert((defectUi.match(/min-h-9/g) || []).length >= 9 && defectUi.includes('className="h-9 w-9 inline-flex') && defectUi.includes('className="h-9 max-w-[150px]'), 'Fullscreen floor-plan controls must keep >=36px touch targets');
+assert(defectUi.includes('min-h-9 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700') && !defectUi.includes('bg-rose-600/90 hover:bg-rose-600'), 'Fullscreen Thu Nhỏ action must be neutral, not destructive rose');
+assert(defectUi.includes("isRoomPinPlacementMode") && defectUi.includes("? 'bg-blue-600 hover:bg-blue-700 text-white ring-2 ring-blue-200'") && defectUi.includes("? 'bg-blue-600 hover:bg-blue-500 text-white ring-2 ring-blue-300'"), 'Add Room must be neutral while idle and HNL Blue only while armed');
 
 assert(!defectUi.includes('✓ Bắt Đầu Cấu Hình'), 'Floor-plan action must not show a second check symbol beside the Edit icon.');
 assert(!defectUi.includes('<span>💡 <strong>Kéo Vẽ tự do:'), 'Freehand banner must not show a second leading symbol beside the Pencil icon.');
 assert(!defectUi.includes('📐 <strong>Đang vẽ lại vùng cho căn'), 'Redraw banner must not show a second leading symbol beside its Lucide icon.');
 assert(!defectUi.includes('<span>📋 Dán thường') && !defectUi.includes('<span>📝 Dán đè'), 'Paste actions must use one icon system, not Lucide plus emoji.');
 const checklistUi = read('src/components/ChecklistTab.tsx');
+assert(checklistUi.includes("selectedFloor === floor") && checklistUi.includes("? 'bg-blue-600 text-white shadow-md'"), 'Checklist selected-floor chip must use HNL Blue, not success green');
 const actionMenuButton = read('src/components/ActionMenuButton.tsx');
 assert(actionMenuButton.includes('createPortal') && actionMenuButton.includes("placement: 'above' | 'below'") && actionMenuButton.includes('naturalHeight > bestAvailable && naturalHeight > 220'), 'Shared Action Menu must open near the pressed button and fall back to a bottom sheet only when space is insufficient');
 assert(checklistUi.includes('<DataManagementMenu') && checklistUi.includes('triggerLabel="Quản lý dữ liệu"') && checklistUi.includes('exportLabel="Tải Excel để chỉnh sửa"') && checklistUi.includes('importLabel="Nhập lại từ Excel"'), 'Checklist must use the shared Data Management menu instead of two standalone Excel buttons');
@@ -439,6 +452,11 @@ const warehouseUi = read('src/components/WarehouseTab.tsx');
 assert(warehouseUi.includes('onCreateMaterialCatalog') && warehouseUi.includes("setCustomMaterialCategory('Vật tư khác')") && warehouseUi.includes('Định mức hao phí chưa khai báo (0)'), 'Warehouse custom material must create a canonical catalog item with explicit zero/unconfigured norm metadata instead of an orphan ledger name');
 assert(warehouseUi.includes('createdMaterialId') && warehouseUi.includes('materialId: createdMaterialId'), 'Warehouse custom material transaction must link the newly created canonical materialId');
 const offlineBannerUi = read('src/components/OfflineSyncBanner.tsx');
+assert(offlineBannerUi.includes('data-hnl-offline-banner') && offlineBannerUi.includes('data-hnl-offline-safety-text') && offlineBannerUi.includes('data-hnl-offline-status-chip'), 'Offline banner must expose stable runtime safety-text/status hooks');
+assert(offlineBannerUi.includes('bg-amber-50 text-amber-900 border-b border-amber-200') && !offlineBannerUi.includes('bg-amber-950'), 'Offline warning must use the light amber semantic surface');
+assert(!offlineBannerUi.includes('className="truncate"'), 'Offline safety message must never be fully truncated on mobile');
+assert(offlineBannerUi.includes('VIEWER chỉ được xem') && offlineBannerUi.includes('chờ Firestore') && offlineBannerUi.includes('chờ Firestore'), 'Offline banner must keep VIEWER safety, verified cache/snapshot and Firestore pending-write meaning visible');
+assert(offlineBannerUi.includes('bg-emerald-50 text-emerald-700 border-b border-emerald-200'), 'Reconnect status must use the lighter semantic success surface');
 const roomHighlightUi = read('src/components/RoomHighlightModal.tsx');
 assert(workVolumeUi.includes('Tổng hợp tiến độ khối lượng & giá trị') && workVolumeUi.includes('Chưa khai báo đơn giá') && workVolumeUi.includes('Giá trị đã thực hiện') && workVolumeUi.includes('Object.entries(totals.byUnit)'), 'Work Volume summary must show the same physical quantities for every role and add financial values only as supplementary ADMIN information');
 for (const source of [checklistUi, workVolumeUi]) {
@@ -483,6 +501,8 @@ assert(!crewTab.includes("subItems: ['Bắn tấm khung chìm', 'Bả matit 2 l�
 assert(!crewTab.includes("setTaskDescription(COMMON_TASKS[0])"), 'Crew create flow must not fabricate a generic task when no linked project work exists');
 assert(crewTab.includes('const defaultFloorWork = createDefaultFloorWork(availableFloors[0]);'), 'Crew create flow must derive floor/category/sub-item suggestions from live project data');
 assert(crewTab.includes('currentItems={teams.filter((team) => !team.deletedAt)}'), 'Team templates must allow saving the current team directory');
+assert(crewTab.includes('border border-slate-200 bg-white') && crewTab.includes('hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700') && crewTab.includes('<FileText className="h-4 w-4 shrink-0 text-blue-600" />'), 'Crew share report must be a neutral/blue secondary action');
+assert(!crewTab.includes('rounded-xl border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-extrabold text-emerald-700'), 'Crew share action must not use success-green styling');
 
 assert(imageViewer.includes('RotateCw') && imageViewer.includes('Xoay ảnh sang trái 90 độ') && imageViewer.includes('Xoay ảnh sang phải 90 độ'), 'Shared image viewer must expose left/right 90-degree rotation');
 assert(imageViewer.includes('rotate(${rotation}deg)'), 'Shared image viewer transform must apply rotation');
