@@ -2393,7 +2393,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     <p className="font-bold truncate">{item.name}</p>
                     <p className="text-[10px] opacity-80">
                       Tồn thực tế: <strong className="font-extrabold">{formatDecimal(item.balance)}</strong> {item.unit}
-                      {item.remainingDemand !== undefined ? ` / Còn cần theo kế hoạch: ${formatDecimal(item.remainingDemand)} ${item.unit}` : ''}
+                      {item.remainingDemand !== undefined ? ` / Còn cần theo định mức: ${formatDecimal(item.remainingDemand)} ${item.unit}` : ''}
                     </p>
                   </div>
                   <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md shrink-0 ml-1 ${
@@ -2416,7 +2416,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           <div className="flex items-center gap-1.5 text-indigo-800">
             <AlertTriangle className="w-5 h-5 text-indigo-600 shrink-0" />
             <span className="text-xs font-bold text-indigo-900">
-              Cảnh báo nhập kho so với định mức tổng kế hoạch ({quotaWarnings.length})
+              Cảnh báo nhập kho so với nhu cầu vật tư theo định mức ({quotaWarnings.length})
             </span>
           </div>
           <p className="text-[11px] text-indigo-700 leading-normal">
@@ -2437,7 +2437,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   <div className="min-w-0 flex-1 text-left">
                     <p className="font-bold truncate">{item.name}</p>
                     <p className="text-[10px] opacity-80">
-                      Tổng đã nhập: <strong className="font-extrabold">{formatDecimal(item.inQty)}</strong> / Định mức tổng kế hoạch: {formatDecimal(item.quota)} {item.unit}
+                      Tổng đã nhập: <strong className="font-extrabold">{formatDecimal(item.inQty)}</strong> / Nhu cầu định mức: {formatDecimal(item.quota)} {item.unit}
                     </p>
                   </div>
                   <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md shrink-0 ml-1 text-center ${
@@ -2498,7 +2498,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     </span>
                     {quota > 0 && (
                       <p className="text-[10px] text-slate-500 mt-0.5 font-semibold">
-                        Định mức tổng kế hoạch: <strong className="text-indigo-600">{formatDecimal(quota)}</strong> {item.unit}
+                        Nhu cầu định mức: <strong className="text-indigo-600">{formatDecimal(quota)}</strong> {item.unit}
                       </p>
                     )}
                   </div>
