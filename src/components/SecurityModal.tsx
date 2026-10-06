@@ -767,7 +767,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
     if (!u) {
       u = await signInWithGoogle();
       if (!u) {
-        throw new Error('Can dang nhap Google bang tai khoan ADMIN/Owner de dong bo phan quyen Cloud.');
+        throw new Error('Cần đăng nhập Google bằng tài khoản ADMIN/Owner để đồng bộ phân quyền Cloud.');
       }
       setCloudUser(u);
     }
@@ -780,13 +780,13 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
     const claimResult = await claimProjectOwnership(projectId, u, getSelectedProjectName(projectId));
     if (!claimResult.success) {
-      throw new Error(claimResult.message || 'Tai khoan hien tai khong co quyen ADMIN tren Cloud cho du an nay.');
+      throw new Error(claimResult.message || 'Tài khoản hiện tại không có quyền ADMIN trên Cloud cho dự án này.');
     }
 
     const refreshedInfo = await fetchProjectUserRoleFromCloud(projectId, u);
     setCloudRoleInfo(refreshedInfo);
     if (!refreshedInfo.allowed || refreshedInfo.role !== 'ADMIN') {
-      throw new Error('Da khoi phuc owner nhung chua xac nhan duoc quyen ADMIN Cloud. Hay thu dong bo lai.');
+      throw new Error('Đã khôi phục owner nhưng chưa xác nhận được quyền ADMIN Cloud. Hãy thử đồng bộ lại.');
     }
 
     return u;
@@ -835,7 +835,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       if (selectedPidRef.current === pidAtSubmit) {
         setProjectMembers((await fetchProjectMembersFromCloud(pidAtSubmit)).filter((m: any) => m?.email && m?.active !== false));
         setNewMemberEmail('');
-        setMemberMsg({ type: 'success', text: `Da luu quyen ${newMemberRole} cho ${email}.` });
+        setMemberMsg({ type: 'success', text: `Đã lưu quyền ${newMemberRole} cho ${email}.` });
         await refreshCloudStatus(pidAtSubmit);
       }
       const roleDescription = `${existingMember ? 'Đổi' : 'Gán'} quyền ${newMemberRole} cho ${email}`;
@@ -852,7 +852,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       if (selectedPidRef.current === pidAtSubmit) {
         setMemberMsg({
           type: 'error',
-          text: `Chua thay doi quyen tren Cloud: ${err?.message || err}`
+          text: `Chưa thay đổi quyền trên Cloud: ${err?.message || err}`
         });
       }
     } finally {
@@ -868,7 +868,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
     const existingMembers = (await fetchProjectMembersFromCloud(pidAtSubmit)).filter((m: any) => m?.email && m?.active !== false);
     const targetMember = existingMembers.find((m: any) => String(m.email).toLowerCase() === email.toLowerCase());
     if (targetMember?.role === 'ADMIN' && countAdmins(existingMembers) <= 1) {
-      setMemberMsg({ type: 'error', text: 'Khong the xoa ADMIN cuoi cung cua du an. Hay them/chuyen mot ADMIN khac truoc.' });
+      setMemberMsg({ type: 'error', text: 'Không thể xóa ADMIN cuối cùng của dự án. Hãy thêm/chuyển một ADMIN khác trước.' });
       return;
     }
 
@@ -884,7 +884,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
         if (selectedPidRef.current === pidAtSubmit) {
           setProjectMembers((await fetchProjectMembersFromCloud(pidAtSubmit)).filter((m: any) => m?.email && m?.active !== false));
-          setMemberMsg({ type: 'success', text: `Da xoa quyen cua ${email}.` });
+          setMemberMsg({ type: 'success', text: `Đã xóa quyền của ${email}.` });
           await refreshCloudStatus(pidAtSubmit);
         }
         const revokeDescription = `Thu hồi quyền truy cập của ${email}`;
@@ -901,7 +901,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
         if (selectedPidRef.current === pidAtSubmit) {
           setMemberMsg({
             type: 'error',
-            text: `Chua thu hoi quyen tren Cloud: ${err?.message || err}`
+            text: `Chưa thu hồi quyền trên Cloud: ${err?.message || err}`
           });
         }
       } finally {
