@@ -227,7 +227,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       },
       { key: 'category', label: 'Nhóm hạng mục', editable: hasStructureManageAccess, required: true, width: 160 },
       { key: 'planned', label: 'Khối lượng kế hoạch', editable: hasStructureManageAccess, type: 'number', allowExpression: true, required: true, width: 150, validate: (value) => { const parsed = evaluateMathExpression(String(value ?? '')); return parsed !== null && parsed < 0 ? 'Không được âm' : null; } },
-      { key: 'actual', label: 'Khối lượng đã làm', editable: false, type: 'number', width: 150 },
+      { key: 'actual', label: 'Khối lượng thực hiện', editable: false, type: 'number', width: 150 },
       { key: 'unit', label: 'Đơn vị', editable: hasStructureManageAccess, required: true, width: 100 },
     ];
     if (hasFinancialAccess) columns.push({ key: 'unitPrice', label: 'Đơn giá', editable: hasStructureManageAccess, type: 'number', allowExpression: true, width: 130, validate: (value) => { const parsed = evaluateMathExpression(String(value ?? '')); return parsed !== null && parsed < 0 ? 'Không được âm' : null; } });
@@ -302,7 +302,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       `Bảng chỉnh nhanh đã kiểm tra:\n\n` +
       `• ${upserts.length} hạng mục thêm/sửa\n` +
       `• ${deleteIds.length} hạng mục chờ xóa\n\n` +
-      'Khối lượng đã làm là dữ liệu chỉ đọc. Xóa danh mục không tự remap ID lịch sử. Tiếp tục?'
+      'Khối lượng thực hiện là dữ liệu chỉ đọc. Xóa danh mục không tự remap ID lịch sử. Tiếp tục?'
     );
     if (!confirmed) return false;
 
@@ -1448,7 +1448,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 </div>
                 <div>
                   <div className="h-6 flex items-center justify-between gap-1 text-slate-700 font-bold text-[11px] sm:text-xs truncate mb-1">
-                    <span className="truncate">Khối lượng đã làm</span>
+                    <span className="truncate">Khối lượng thực hiện</span>
                     <span className="text-[9px] text-emerald-600 font-semibold bg-emerald-50 px-1 py-0.5 rounded border border-emerald-100 shrink-0" title="Khối lượng thực hiện tự động cập nhật từ Mặt bằng">🔗 MB</span>
                   </div>
                   <input
