@@ -441,7 +441,15 @@ assert(crewUi.includes('<AddSourceMenu') && crewUi.includes('triggerLabel="Thêm
 assert(warehouse.includes('Tạo phiếu') && warehouse.indexOf('Tạo phiếu') < warehouse.indexOf('Danh mục kho'), 'Warehouse PC primary Create Voucher action must precede Catalog and Norms');
 assert(crewUi.includes('workVolumeAppliesToFloor') && crewUi.includes('crew-category-options-') && crewUi.includes('Chọn hạng mục đã khai báo hoặc nhập khác') && crewUi.includes('crew-subitem-options-') && crewUi.includes('Chọn công đoạn đã khai báo hoặc nhập khác'), 'Crew entry must suggest declared work categories/sub-items while preserving custom text entry');
 assert(crewUi.includes('openRoomOnFloorPlan') && crewUi.includes('openDefectOnFloorPlan') && crewUi.includes('qlct_diagnostic_navigation_request') && crewUi.includes('qlct_pending_defect_navigation'), 'Team detail must drill down to exact room/defect entities on the floor plan');
-assert(crewUi.includes('Xem các Căn/Phòng đội đang làm') && crewUi.includes('Mở Defect trên mặt bằng') && crewUi.includes('Căn/Phòng:'), 'Team KPI, room and defect cards must expose direct-view affordances and linked room labels');
+assert(crewUi.includes('Xem các Căn / Phòng đội đang làm') && crewUi.includes('Mở Defect trên mặt bằng') && crewUi.includes('Căn / Phòng:'), 'Team KPI, room and defect cards must expose direct-view affordances and linked room labels');
+assert(
+  crewUi.includes('Nhu cầu theo KL giao')
+  && crewUi.includes('Nhu cầu theo KL thực hiện')
+  && crewUi.includes('Chênh lệch Xuất - Nhu cầu')
+  && !crewUi.includes('ĐM theo KL giao')
+  && !crewUi.includes('ĐM theo KL đã thi công'),
+  'Team material reconciliation must label calculated quantities as material demand instead of ambiguous ĐM abbreviations'
+);
 assert(crewUi.includes("'__teamId': item.id") && crewUi.includes("'Tên Đội Thi Công': item.name") && crewUi.includes("key === '__teamId' ? { hidden: true } : {}"), 'Team Excel download must keep human team name visible and technical teamId hidden');
 assert(crewUi.includes("const teamNameAliases = new Set([") && crewUi.includes("if (!normalized || normalized.startsWith('__')) return false;") && crewUi.includes("if (rawTeamId && nameStr === rawTeamId)"), 'Team Excel re-import must never resolve __teamId as the human-facing team-name column');
 assert(defectUi.includes('activeDefectRoomName') && defectUi.includes('🏠 Căn/Phòng:'), 'Defect list/detail must show linked Căn/Phòng when roomId resolves');
