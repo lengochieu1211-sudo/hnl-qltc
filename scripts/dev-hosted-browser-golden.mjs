@@ -781,6 +781,88 @@ async function verifySignedOutGate(browser, label, viewport, screenshotPath) {
   await context.close();
 }
 
+async function verifyUiUxV3Shell(page, context, label) {
+  const viewport = page.viewportSize();
+  const header = page.locator('[data-hnl-global-header]').first();
+  await header.waitFor({ state: 'visible', timeout: 10000 });
+  const headerBox = await header.boundingBox();
+  assert(headerBox, `${label}: global header measurement failed`);
+  if (viewport && viewport.width >= 1024) {
+    assert(headerBox.height <= 84, `${label}: compact desktop header exceeded 84px (${headerBox.height.toFixed(1)}px)`);
+  }
+
+  const actionBar = header.locator('[data-hnl-header-actions]').first();
+  assert(await actionBar.count() > 0, `${label}: header quick-action bar missing`);
+  const actionMetrics = await actionBar.locator('button, a').evaluateAll((nodes) => nodes
+    .filter((node) => {
+      const style = getComputedStyle(node);
+      const rect = node.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+    })
+    .map((node) => {
+      const rect = node.getBoundingClientRect();
+      return { width: rect.width, height: rect.height, label: node.getAttribute('title') || node.getAttribute('aria-label') || node.textContent || '' };
+    }));
+  assert(actionMetrics.length >= 4, `${label}: not enough visible header actions for touch-target audit`);
+  const undersized = actionMetrics.filter((item) => item.width < 35.5 || item.height < 35.5);
+  assert(undersized.length === 0, `${label}: header action below 36px touch target — ${JSON.stringify(undersized)}`);
+  pass(`${label} UI/UX V3 compact header + touch targets`, `${Math.round(headerBox.height)}px · ${actionMetrics.length} actions`);
+
+  await context.setOffline(true);
+  const offlineBanner = page.locator('[data-hnl-offline-banner]').first();
+  await offlineBanner.waitFor({ state: 'visible', timeout: 10000 });
+  const offlineMetrics = await offlineBanner.evaluate((banner) => {
+    const text = banner.querySelector('[data-hnl-offline-safety-text]');
+    const chip = banner.querySelector('[data-hnl-offline-status-chip]');
+    if (!text || !chip) return null;
+    const textStyle = getComputedStyle(text);
+    const textRect = text.getBoundingClientRect();
+    const lineHeight = Number.parseFloat(textStyle.lineHeight) || 16;
+    return {
+      text: text.textContent || '',
+      bannerOverflow: banner.scrollWidth - banner.clientWidth,
+      whiteSpace: textStyle.whiteSpace,
+      textOverflow: textStyle.textOverflow,
+      lines: Math.ceil(textRect.height / lineHeight),
+      chipVisible: chip.getBoundingClientRect().width > 0 && chip.getBoundingClientRect().height > 0,
+    };
+  });
+  assert(offlineMetrics, `${label}: offline safety/banner hooks missing`);
+  assert(offlineMetrics.bannerOverflow <= 2, `${label}: offline banner overflows horizontally (${offlineMetrics.bannerOverflow}px)`);
+  assert(offlineMetrics.whiteSpace !== 'nowrap' && offlineMetrics.textOverflow !== 'ellipsis', `${label}: offline safety text is still truncating`);
+  assert(offlineMetrics.lines <= 2, `${label}: offline safety copy exceeded two lines (${offlineMetrics.lines})`);
+  assert(offlineMetrics.chipVisible, `${label}: offline status chip is not visible`);
+  assert(/(VIEWER chỉ được xem|chờ Firestore|tạm thời chỉ xem|tự đồng bộ)/.test(offlineMetrics.text), `${label}: offline safety meaning is not visible — ${offlineMetrics.text}`);
+
+  const previousTheme = await page.evaluate(() => document.documentElement.getAttribute('data-hnl-theme'));
+  const darkSmoke = await page.evaluate(() => {
+    document.documentElement.setAttribute('data-hnl-theme', 'dark');
+    const headerEl = document.querySelector('[data-hnl-global-header]');
+    const bannerEl = document.querySelector('[data-hnl-offline-banner]');
+    if (!headerEl || !bannerEl) return null;
+    const headerStyle = getComputedStyle(headerEl);
+    const bannerStyle = getComputedStyle(bannerEl);
+    return {
+      headerBg: headerStyle.backgroundColor,
+      headerText: headerStyle.color,
+      bannerBg: bannerStyle.backgroundColor,
+      bannerText: bannerStyle.color,
+    };
+  });
+  assert(darkSmoke, `${label}: dark-mode smoke could not inspect changed shell surfaces`);
+  assert(darkSmoke.headerBg !== 'rgba(0, 0, 0, 0)' && darkSmoke.bannerBg !== 'rgba(0, 0, 0, 0)', `${label}: dark-mode changed surface became transparent`);
+  assert(darkSmoke.headerBg !== darkSmoke.headerText && darkSmoke.bannerBg !== darkSmoke.bannerText, `${label}: dark-mode changed surface lost readable contrast`);
+  await page.evaluate((theme) => {
+    if (theme) document.documentElement.setAttribute('data-hnl-theme', theme);
+    else document.documentElement.removeAttribute('data-hnl-theme');
+  }, previousTheme);
+  pass(`${label} UI/UX V3 offline safety + dark-mode smoke`, `${offlineMetrics.lines} lines · chip visible`);
+
+  await context.setOffline(false);
+  await page.waitForFunction(() => navigator.onLine === true, null, { timeout: 10000 });
+  await page.waitForTimeout(250);
+}
+
 async function runViewport(browser, label, viewport, screenshotPath, contextOverrides = {}) {
   const context = await browser.newContext({
     viewport,
@@ -844,6 +926,7 @@ async function runViewport(browser, label, viewport, screenshotPath, contextOver
   const wifiBadge = page.locator('button[title*="Wi-Fi" i], button[title*="wifi" i]');
   assert(await wifiBadge.count() === 0, `${label}: legacy Wi-Fi header badge returned`);
   pass(`${label} header account/network badges removed`);
+  await verifyUiUxV3Shell(page, context, label);
 
   await verifyRapidPrimaryNavigation(page, label);
   await verifyMobileMoreNavigation(page, label);
@@ -1084,9 +1167,10 @@ try {
   await verifySignedOutGate(browser, 'login-mobile', { width: 393, height: 852 }, 'runtime-evidence/login-mobile.png');
   await runViewport(browser, 'desktop', { width: 1440, height: 900 }, 'runtime-evidence/desktop.png');
   await runViewport(browser, 'desktop-720p', { width: 1280, height: 720 }, 'runtime-evidence/desktop-720p.png');
-  await runViewport(browser, 'desktop-compact', { width: 1088, height: 610 }, 'runtime-evidence/desktop-compact.png');
+  await runViewport(browser, 'desktop-compact', { width: 1088, height: 706 }, 'runtime-evidence/desktop-compact.png');
   await verifyNarrowDesktopRuntime(browser);
   await runViewport(browser, 'mobile', { width: 393, height: 852 }, 'runtime-evidence/mobile.png');
+  await runViewport(browser, 'mobile-tall', { width: 393, height: 902 }, 'runtime-evidence/mobile-tall.png');
   const iPadTouchContext = {
     userAgent: 'Mozilla/5.0 (iPad; CPU OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1',
     hasTouch: true,
