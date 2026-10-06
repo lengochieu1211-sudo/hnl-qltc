@@ -175,7 +175,7 @@ for (const marker of [
 }
 if (!googleConfigTab.includes('<ProjectOfflineMirrorCard activeProjectId={activeProjectId} floorPlans={floorPlans} />')) fail('offline mirror card is not integrated into Settings');
 const syncCenterStart = googleConfigTab.indexOf('title="Trung tâm đồng bộ & sao lưu"');
-const healthCenterStart = googleConfigTab.indexOf('title="HNL Health Center"');
+const healthCenterStart = googleConfigTab.indexOf('title="Trung tâm kiểm tra dữ liệu (Health Center)"');
 const offlineCardStart = googleConfigTab.indexOf('<ProjectOfflineMirrorCard');
 const bridgeCardStart = googleConfigTab.indexOf('<WindowsDesktopSyncBridgeCard');
 if (!(syncCenterStart >= 0 && offlineCardStart > syncCenterStart && bridgeCardStart > syncCenterStart && healthCenterStart > bridgeCardStart)) fail('offline/Windows sync controls must stay in Sync & Backup Center before Health Center');

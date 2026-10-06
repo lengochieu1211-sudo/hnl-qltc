@@ -330,7 +330,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
             <div className="text-center py-12 px-4 space-y-2 text-slate-400">
               <CheckCircle2 className="w-12 h-12 mx-auto text-emerald-400 opacity-60" />
               <p className="text-sm font-bold text-slate-700">Không có thông báo nào trong danh mục này</p>
-              <p className="text-xs">Không có tiến độ, checklist hoặc defect nào thuộc bộ lọc hiện tại cần cảnh báo.</p>
+              <p className="text-xs">Không có tiến độ, Checklist hoặc Defect nào thuộc bộ lọc hiện tại cần cảnh báo.</p>
             </div>
           ) : (
             sortedFilteredAlerts.map((alert) => {
