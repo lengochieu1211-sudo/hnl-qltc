@@ -48,6 +48,8 @@ assert(security.includes('PIN được lưu theo dạng bảo mật một chiề
 assert(security.includes('Không có mã PIN chung hoặc PIN đặc biệt để mở khóa.'), 'PIN help text must clearly state there is no master/common PIN.');
 assert(security.includes('Quên PIN? Đặt lại bằng Google'), 'PIN recovery copy must use the plain Google-account wording.');
 assert(!security.includes('Mã PIN chỉ dùng để khóa màn hình ứng dụng trên thiết bị và được băm 1 chiều PBKDF2 SHA-256.'), 'User-facing PIN help must not expose PBKDF2/SHA-256 jargon.');
+assert(security.includes('Đã lưu quyền') && security.includes('Chưa thay đổi quyền trên Cloud') && security.includes('Không thể xóa ADMIN cuối cùng của dự án') && security.includes('Đã xóa quyền') && security.includes('Chưa thu hồi quyền trên Cloud'), 'Security RBAC feedback must use readable Vietnamese with full diacritics');
+assert(!security.includes('Da luu quyen') && !security.includes('Chua thay doi quyen') && !security.includes('Khong the xoa ADMIN') && !security.includes('Da xoa quyen') && !security.includes('Chua thu hoi quyen'), 'Security RBAC feedback must not regress to unaccented Vietnamese');
 const appLockOverlay = read('src/components/AppLockOverlay.tsx');
 assert(appLockOverlay.includes('Quên PIN? Đặt lại bằng Google'), 'Locked-screen PIN recovery must match Security Center wording.');
 assert(!appLockOverlay.includes('<span>Quên mã PIN? Đặt lại bằng Google Auth</span>'), 'Locked-screen PIN recovery must not expose Google Auth jargon.');
@@ -200,6 +202,7 @@ assert(appSourceForInlineSync.includes('syncCenterContent={('), 'App must inject
 assert(appSourceForInlineSync.includes('<ProjectManagerModal') && appSourceForInlineSync.includes('inline'), 'App must render ProjectManager business content in inline mode inside the shared Settings feature sheet');
 
 const defectUi = read('src/components/FloorPlanDefectTab.tsx');
+assert(defectUi.includes("{ key: 'targetDate', label: 'Hạn hoàn thành'") && !defectUi.includes("{ key: 'targetDate', label: 'Hạn xong'"), 'Floor-plan quick edit must use Hạn hoàn thành consistently');
 assert(!defectUi.includes('label="📷 Ảnh Báo Lỗi Ban Đầu (Trước Sửa)"'), 'Defect before-photo label must not duplicate the camera icon with an emoji');
 assert(!defectUi.includes('label="🛠️ Ảnh Bằng Chứng Sau Khi Sửa (Tùy Chọn)"'), 'Defect after-photo label must not duplicate picker iconography with an emoji');
 assert((defectUi.match(/label="Ảnh Báo Lỗi Ban Đầu \(Trước Sửa\)"/g) || []).length >= 2, 'Defect before-photo label must remain available in create/detail flows');
@@ -222,6 +225,7 @@ const actionMenuButton = read('src/components/ActionMenuButton.tsx');
 assert(actionMenuButton.includes('createPortal') && actionMenuButton.includes("placement: 'above' | 'below'") && actionMenuButton.includes('naturalHeight > bestAvailable && naturalHeight > 220'), 'Shared Action Menu must open near the pressed button and fall back to a bottom sheet only when space is insufficient');
 assert(checklistUi.includes('<DataManagementMenu') && checklistUi.includes('triggerLabel="Quản lý dữ liệu"') && checklistUi.includes('exportLabel="Tải Excel để chỉnh sửa"') && checklistUi.includes('importLabel="Nhập lại từ Excel"'), 'Checklist must use the shared Data Management menu instead of two standalone Excel buttons');
 assert(checklistUi.includes('flex items-center justify-end gap-2') && checklistUi.includes('Thêm Tiêu Chí'), 'Checklist mobile must keep Add Criterion and compact Data Management in one action cluster');
+assert(checklistUi.includes("{ key: 'dueDate', label: 'Hạn nghiệm thu'") && !checklistUi.includes("{ key: 'dueDate', label: 'Thời hạn'"), 'Checklist deadline terminology must remain specific: Hạn nghiệm thu');
 const workVolumeUi = read('src/components/WorkVolumeTab.tsx');
 assert(workVolumeUi.includes("label: 'Khối lượng kế hoạch'") && workVolumeUi.includes('<span>Khối lượng kế hoạch *</span>') && !workVolumeUi.includes('<span>Khối lượng định mức *</span>'), 'Work Volume planned quantity must be labeled Khối lượng kế hoạch to avoid confusion with material norms');
 assert(workVolumeUi.includes("label: 'Khối lượng thực hiện'") && workVolumeUi.includes('<span className="truncate">Khối lượng thực hiện</span>') && !workVolumeUi.includes('Khối lượng đã làm'), 'Work Volume actual quantity must use one visible label: Khối lượng thực hiện');
