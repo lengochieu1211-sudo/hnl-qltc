@@ -574,7 +574,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
         options={[
           { key: 'title', label: 'Nội dung', kind: 'alpha' },
           { key: 'status', label: 'Trạng thái', kind: 'status' },
-          { key: 'dueDate', label: 'Thời hạn', kind: 'deadline', defaultOrder: 'asc' },
+          { key: 'dueDate', label: 'Hạn nghiệm thu', kind: 'deadline', defaultOrder: 'asc' },
         ]}
         activeKey={checklistSortBy === 'none' ? null : checklistSortBy}
         order={checklistSortOrder}
