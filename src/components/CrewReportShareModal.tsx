@@ -217,7 +217,8 @@ async function renderCrewReportImages(params: {
       ctx.strokeRect(dateX, y, dateWidth, rowHeight);
       ctx.font = '600 14px Arial, sans-serif';
       ctx.fillStyle = '#334155';
-      ctx.fillText(formatDateDDMMYYYY(dateRow.date), dateX + 10, y + 28);
+      const dateText = formatDateDDMMYYYY(dateRow.date);
+      ctx.fillText(dateText, dateX + (dateWidth - ctx.measureText(dateText).width) / 2, y + 28);
 
       teams.forEach((team, teamIndex) => {
         const row = dateRow.cells[team.teamKey];
@@ -266,7 +267,8 @@ async function renderCrewReportImages(params: {
     ctx.strokeRect(dateX, totalRowY, dateWidth, rowHeight);
     ctx.fillStyle = '#1e3a8a';
     ctx.font = '700 14px Arial, sans-serif';
-    ctx.fillText('TỔNG', dateX + 10, totalRowY + 28);
+    const totalLabel = 'TỔNG';
+    ctx.fillText(totalLabel, dateX + (dateWidth - ctx.measureText(totalLabel).width) / 2, totalRowY + 28);
     teams.forEach((team, teamIndex) => {
       const total = matrix.teamTotals[team.teamKey] || { morning: 0, afternoon: 0, evening: 0, dailyHeadcount: 0 };
       [total.morning, total.afternoon, total.evening, total.dailyHeadcount].forEach((value, metricIndex) => {
@@ -579,7 +581,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
                       {matrix.dates.map((dateRow, dateIndex) => (
                         <tr key={`${matrix.projectId}-${dateRow.date}`} className="bg-white">
                           {showSerialNumber && <td className="sticky left-0 z-[2] border-r border-slate-100 bg-white px-2 py-2 text-center font-bold text-slate-500">{dateIndex + 1}</td>}
-                          <td style={{ left: showSerialNumber ? 52 : 0 }} className="sticky z-[1] border-r border-slate-100 bg-white px-3 py-2 font-bold text-slate-700">{formatDateDDMMYYYY(dateRow.date)}</td>
+                          <td style={{ left: showSerialNumber ? 52 : 0 }} className="sticky z-[1] border-r border-slate-100 bg-white px-3 py-2 text-center font-bold tabular-nums text-slate-700">{formatDateDDMMYYYY(dateRow.date)}</td>
                           {matrix.teams.flatMap((team) => {
                             const row = dateRow.cells[team.teamKey];
                             return [
