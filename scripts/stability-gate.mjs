@@ -371,8 +371,8 @@ requireAll(warehouseTab, [
   'grid-cols-[minmax(180px,1.6fr)_120px_52px_64px_64px_120px_76px]',
   'items-center gap-2 bg-slate-50',
   'data-hnl-warehouse-catalog-header="aligned"',
-  'whitespace-nowrap text-right leading-none">Khối lượng định mức',
-], 'Warehouse catalog keeps Khối lượng định mức on one aligned header row with Nhập / Xuất / Tồn kho');
+  'whitespace-nowrap text-right leading-none">Nhu cầu định mức',
+], 'Warehouse catalog keeps Nhu cầu định mức on one aligned header row with Nhập / Xuất / Tồn kho');
 
 requireAll(warehouseTab, [
   '<DataManagementMenu',
@@ -388,7 +388,7 @@ requireAll(workVolumeTab, [
   'triggerLabel="Quản lý dữ liệu"',
   'onQuickEdit={quickEditEnabled ? (() => setShowQuickEdit(true)) : undefined}',
   'onImportFile={hasStructureManageAccess ? handleImportExcelWorkVolumes : undefined}',
-  "key: 'actual', label: 'Khối lượng đã làm', editable: false",
+  "key: 'actual', label: 'Khối lượng thực hiện', editable: false",
 ], 'work-volume role-aware data-management actions');
 pass('Data-management action bars are visually consistent across ADMIN, ENGINEER and VIEWER without weakening RBAC');
 requireAll(crewTabBase, ["canOperate ? 'grid-cols-3' : 'grid-cols-2'", 'lg:contents', '<span className="sm:hidden">Sao chép</span>', '<span className="sm:hidden">Chia sẻ</span>'], 'Crew mobile groups secondary actions instead of leaving Data Management alone on a row');
