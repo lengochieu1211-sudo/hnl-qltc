@@ -122,6 +122,8 @@ assert(materialNormModal.includes('bg-slate-100 text-slate-700 border border-sla
 assert(materialNormModal.includes('const materialCategoryOptions = React.useMemo') && materialNormModal.includes('activeMaterialNorms') && materialNormModal.includes('categoriesInUse.forEach((cat) => options.add(cat))') && materialNormModal.includes('{materialCategoryOptions.map((cat) => (') && materialNormModal.includes('if (materialCategoryOptions.includes(norm.category))'), 'Saved custom material categories must reappear in the Material Norm category dropdown and edit flow');
 assert(materialNormModal.includes('Nhu cầu vật tư theo định mức') && materialNormModal.includes('Khối lượng kế hoạch hạng mục × Định mức riêng/chung') && !materialNormModal.includes('>Khối lượng định mức</label>'), 'Material Norm auto-calculated quantity must be labeled as material demand, distinct from planned work quantity');
 assert(materialNormModal.includes('Chủng loại vật tư công trình *') && !materialNormModal.includes('Chủng Loại Vật Tư Công Trình *'), 'Material Norm category form label must use Vietnamese sentence case');
+assert(materialNormModal.includes('Hạng mục thi công áp dụng *') && !materialNormModal.includes('Liên kết hạng mục thi công căn / phòng *'), 'Material Norm work-category selector must describe applicability instead of implying direct room linkage');
+assert(materialNormModal.includes('Định mức vật tư / đơn vị') && !materialNormModal.includes('>Định mức / đơn vị'), 'Material Norm per-unit factor must use the explicit Định mức vật tư / đơn vị wording');
 assert(warehouse.includes('onImportFile={hasImportAccess ? handleFileChangeExcel : undefined}'), 'Warehouse Excel menu must hide import when the current role cannot import');
 assert(!warehouse.includes('<span>Chỉ ADMIN được nhập</span>'), 'Warehouse must hide unavailable bulk-import action instead of rendering a disabled ADMIN-only placeholder');
 assert(warehouse.includes('exportLabel="Xuất dữ liệu Kho để chỉnh sửa"'), 'Warehouse Excel export must keep the agreed editing-oriented label');
@@ -326,6 +328,7 @@ assert(navSource.includes('data-hnl-nav-surface="desktop"') && navSource.include
 assert(navSource.includes('data-hnl-nav-tab="volume"'), 'Mobile More menu must expose Work Volume as a stable runtime navigation destination');
 assert(navSource.includes('Defect chưa nghiệm thu') && !navSource.includes('Defect chưa xử lý'), 'Navigation Defect badge label must match the counted status: all Defect not yet accepted');
 assert(homeDashboardUi.includes('Defect chưa nghiệm thu') && !homeDashboardUi.includes('defect chưa nghiệm thu'), 'Home dashboard must capitalize Defect consistently');
+assert(homeDashboardUi.includes('Tiến độ · Checklist · Defect') && !homeDashboardUi.includes('Tiến độ / checklist / defect'), 'Home attention summary must use consistent Checklist/Defect capitalization and separators');
 assert(!navSource.includes('startTransition(() => setActiveTab(tab))'), 'Primary navigation must not keep the old heavy screen visible through a React transition');
 assert(navSource.includes('onPointerEnter={() => onPreloadTab?.(tab.id)}'), 'Desktop pointer hover must preload the destination lazy chunk');
 assert(!navSource.includes('onPreloadTab?.(tab);'), 'Touch pointer-down feedback must not start heavy lazy chunk parsing before mobile paint');
