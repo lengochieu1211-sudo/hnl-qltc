@@ -195,6 +195,9 @@ assert.match(volume, /__floorId\/__floorIds không tồn tại/, 'WorkVolume Exc
 assert.match(volume, /canDeleteRows=\{hasStructureManageAccess\}/, 'WorkVolume quick edit must allow ADMIN-staged row deletion');
 assert.match(volume, /inputExpressions/, 'WorkVolume must retain planned and unit-price expressions');
 assert.match(volume, /readExcelFormulaByHeaders/, 'WorkVolume Excel import must round-trip real cell formulas');
+assert.match(volume, /\['KL Định Mức', 'Khối lượng định mức', 'Khối lượng kế hoạch', 'planned'\]/, 'WorkVolume Excel import must keep legacy planned-quantity aliases while accepting the new Khối lượng kế hoạch header');
+assert.match(excelExport, /'Khối lượng kế hoạch'/, 'New Excel exports must use Khối lượng kế hoạch');
+assert.match(excelExport, /'Khối lượng thực hiện \(chỉ xem - không nhập lại\)'/, 'New Excel exports must use Khối lượng thực hiện and clearly mark it read-only');
 
 assert.match(dxf, /HATCH/, 'DXF detector must support HATCH');
 assert.match(dxf, /LWPOLYLINE/, 'DXF detector must support closed polylines');
