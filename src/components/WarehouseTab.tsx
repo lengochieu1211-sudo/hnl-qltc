@@ -1999,10 +1999,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           />
 
           <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <div className="min-w-[780px]">
-              <div data-hnl-warehouse-catalog-header="aligned" className="grid grid-cols-[minmax(180px,1.6fr)_120px_52px_64px_64px_120px_76px] items-center gap-2 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">
+            <div className="min-w-[810px]">
+              <div data-hnl-warehouse-catalog-header="aligned" className="grid grid-cols-[minmax(180px,1.6fr)_150px_52px_64px_64px_120px_76px] items-center gap-2 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">
                 <span>Tên {warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'vật tư'}</span>
-                <span>{warehouseCatalogTab === 'material' ? 'Chủng loại vật tư' : 'Loại'}</span>
+                <span className="whitespace-nowrap">{warehouseCatalogTab === 'material' ? 'Chủng loại vật tư' : 'Loại thiết bị'}</span>
                 <span>ĐVT</span>
                 <span className="text-right">Nhập</span>
                 <span className="text-right">Xuất</span>
