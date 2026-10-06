@@ -42,7 +42,7 @@ mustContain(crew, 'buildCrewRecordShareText', 'daily crew deterministic share te
 mustContain(crew, 'Lưu ý: Sáng/Chiều/Tối là quân số theo ca', 'crew shift semantic warning');
 mustContain(crew, 'triggerLabel="Chia sẻ báo cáo"', 'daily crew share entry');
 mustContain(config, 'id="system-sync-card"', 'Health Center settings accordion');
-mustContain(config, 'title="HNL Health Center"', 'Health Center accordion title');
+mustContain(config, 'title="Trung tâm kiểm tra dữ liệu (Health Center)"', 'Health Center accordion title');
 mustContain(config, 'Chẩn đoán hệ thống · cảnh báo đồng bộ/ảnh/quyền · audit dữ liệu & liên kết.', 'Health Center collapsed diagnostic hint');
 mustContain(config, 'HNL Health Center', 'unified Health Center title');
 mustContain(android, 'public boolean shareFiles(String title, String text, String attachmentsJson)', 'Android shareFiles bridge');
