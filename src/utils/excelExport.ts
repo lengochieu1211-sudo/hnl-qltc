@@ -89,7 +89,7 @@ function applyWorkVolumeInputFormulas(
   items: WorkVolume[],
   canFinancials: boolean,
 ) {
-  const plannedCol = findWorksheetHeaderColumn(ws, 'KL Định Mức');
+  const plannedCol = findWorksheetHeaderColumn(ws, 'Khối lượng kế hoạch');
   const priceCol = canFinancials ? findWorksheetHeaderColumn(ws, 'Đơn Giá (VNĐ)') : null;
   items.forEach((item, index) => {
     setUserInputNumericFormula(ws, index + 1, plannedCol, item.inputExpressions?.planned, item.planned);
@@ -129,8 +129,8 @@ function applyWorkVolumeSummaryFormulas(
   rows: Array<Record<string, any>>,
   canFinancials: boolean,
 ) {
-  const plannedCol = findWorksheetHeaderColumn(ws, 'KL Định Mức');
-  const actualCol = findWorksheetHeaderColumn(ws, 'KL Thực Tế (chỉ xem - không import)');
+  const plannedCol = findWorksheetHeaderColumn(ws, 'Khối lượng kế hoạch');
+  const actualCol = findWorksheetHeaderColumn(ws, 'Khối lượng thực hiện (chỉ xem - không nhập lại)');
   const progressCol = findWorksheetHeaderColumn(ws, 'Tiến Độ (%)');
   const unitPriceCol = canFinancials ? findWorksheetHeaderColumn(ws, 'Đơn Giá (VNĐ)') : null;
   const amountCol = canFinancials ? findWorksheetHeaderColumn(ws, 'Thành Tiền (VNĐ)') : null;
@@ -490,8 +490,8 @@ export function exportAllToExcel(params: {
         'Tầng': item.floor,
         'Nhóm Hạng Mục': item.category,
         'Đơn Vị': item.unit,
-        'KL Định Mức': item.planned,
-        'KL Thực Tế (chỉ xem - không import)': item.actual,
+        'Khối lượng kế hoạch': item.planned,
+        'Khối lượng thực hiện (chỉ xem - không nhập lại)': item.actual,
       };
 
       if (canFinancials) {
@@ -714,8 +714,8 @@ export function exportAllToExcelBase64(params: {
         'Tầng': item.floor,
         'Nhóm Hạng Mục': item.category,
         'Đơn Vị': item.unit,
-        'KL Định Mức': item.planned,
-        'KL Thực Tế (chỉ xem - không import)': item.actual,
+        'Khối lượng kế hoạch': item.planned,
+        'Khối lượng thực hiện (chỉ xem - không nhập lại)': item.actual,
       };
       if (canFinancials) {
         row['Đơn Giá (VNĐ)'] = item.unitPrice || 0;
@@ -1022,8 +1022,8 @@ export function exportWorkVolumesTemplate(workVolumes?: WorkVolume[], projectNam
       'Tầng / Khu Vực': item.floor,
       'Nhóm Hạng Mục': item.category,
       'Đơn Vị Tính': item.unit,
-      'KL Định Mức': item.planned,
-      'KL Thực Tế (chỉ xem - không import)': item.actual,
+      'Khối lượng kế hoạch': item.planned,
+      'Khối lượng thực hiện (chỉ xem - không nhập lại)': item.actual,
     };
     if (canViewFinancials) {
       row['Đơn Giá (VNĐ)'] = item.unitPrice || 0;
@@ -1035,7 +1035,7 @@ export function exportWorkVolumesTemplate(workVolumes?: WorkVolume[], projectNam
   const workVolumeHeaders = [
     'STT', '__recordId', '__workCategoryId', '__floorId', '__floorIds',
     'Tên Hạng Mục Công Việc', 'Tầng / Khu Vực', 'Nhóm Hạng Mục', 'Đơn Vị Tính',
-    'KL Định Mức', 'KL Thực Tế (chỉ xem - không import)',
+    'Khối lượng kế hoạch', 'Khối lượng thực hiện (chỉ xem - không nhập lại)',
     ...(canViewFinancials ? ['Đơn Giá (VNĐ)'] : []),
     'Ngày Hạn Định',
   ];
@@ -1677,15 +1677,15 @@ export function exportWarehouseUpdateTemplate(
     'Tầng / Khu Vực': item.floor,
     'Nhóm Hạng Mục': item.category,
     'Đơn Vị Tính': item.unit,
-    'KL Định Mức': item.planned,
-    'KL Thực Tế (chỉ xem - không import)': item.actual,
+    'Khối lượng kế hoạch': item.planned,
+    'Khối lượng thực hiện (chỉ xem - không nhập lại)': item.actual,
     'Đơn Giá (VNĐ)': item.unitPrice || 0,
     'Ngày Hạn Định': item.dueDate ? formatDateDDMMYYYY(item.dueDate) : '',
   }));
   const referenceWorkHeaders = [
     'STT', '__recordId', '__workCategoryId', '__floorId', '__floorIds',
     'Tên Hạng Mục Công Việc', 'Tầng / Khu Vực', 'Nhóm Hạng Mục', 'Đơn Vị Tính',
-    'KL Định Mức', 'KL Thực Tế (chỉ xem - không import)', 'Đơn Giá (VNĐ)', 'Ngày Hạn Định',
+    'Khối lượng kế hoạch', 'Khối lượng thực hiện (chỉ xem - không nhập lại)', 'Đơn Giá (VNĐ)', 'Ngày Hạn Định',
   ];
   const wsWorkVolumes = workVolumeData.length > 0
     ? XLSX.utils.json_to_sheet(workVolumeData, { header: referenceWorkHeaders })
