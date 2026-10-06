@@ -3773,7 +3773,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                                             let statusTextStr = "Chưa làm";
                                                             let statusColorStr = "bg-slate-50 text-slate-400 border border-slate-100";
                                                             if (isDone) {
-                                                              statusTextStr = "Đã xong";
+                                                              statusTextStr = "Đã hoàn thành";
                                                               statusColorStr = "bg-emerald-50 text-emerald-700 border border-emerald-100 font-medium";
                                                             } else if (hasStarted) {
                                                               statusTextStr = "Đang làm";
