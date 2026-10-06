@@ -116,10 +116,11 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
 
   return (
     <>
-      <div className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-30 shadow-lg">
+      <div data-hnl-global-header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-30 shadow-lg">
         <div className="w-full px-3 sm:px-4 py-2 sm:py-3">
+          <div className="lg:flex lg:items-center lg:gap-3">
           {/* Top Header Row */}
-          <div className="flex items-center justify-between mb-1.5 sm:mb-2">
+          <div className="flex items-center justify-between mb-1.5 sm:mb-2 lg:mb-0 lg:min-w-0 lg:flex-1">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center overflow-hidden shrink-0 select-none bg-transparent">
                 <img
@@ -188,7 +189,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
           </div>
 
           {/* Action & Control Toolbar Row */}
-          <div className="flex items-center justify-between gap-1.5 bg-slate-800/90 rounded-xl p-1.5 border border-slate-700/70 mt-1.5 shadow-inner overflow-hidden">
+          <div data-hnl-header-actions className="flex items-center justify-between gap-1.5 bg-slate-800/90 rounded-xl p-1.5 border border-slate-700/70 mt-1.5 lg:mt-0 lg:shrink-0 shadow-inner overflow-hidden">
             {/* Left: Undo / Redo (Icon arrows only) */}
             <div className="shrink-0">
               <UndoRedoControls
@@ -198,6 +199,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
                 canRedo={canRedo}
                 variant="dark"
                 showLabel={false}
+                className="[&>button]:min-h-9 [&>button]:min-w-9"
               />
             </div>
 
@@ -207,7 +209,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
               {onOpenNotificationCenter && (
                 <button
                   onClick={onOpenNotificationCenter}
-                  className="relative p-1.5 sm:px-2.5 sm:py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg transition-all shadow-sm active:scale-95 shrink-0 border border-slate-700 cursor-pointer flex items-center justify-center"
+                  className="relative min-h-9 min-w-9 p-1.5 sm:px-2.5 sm:py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg transition-all shadow-sm active:scale-95 shrink-0 border border-slate-700 cursor-pointer flex items-center justify-center"
                   title={dueDateAlertCount > 0 ? `${dueDateAlertCount} cảnh báo đến hạn/quá hạn · mở Trung tâm thông báo` : 'Trung tâm thông báo tiến độ, checklist & defect'}
                   aria-label={dueDateAlertCount > 0 ? `Có ${dueDateAlertCount} cảnh báo đến hạn hoặc quá hạn` : 'Mở Trung tâm thông báo'}
                 >
@@ -224,7 +226,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
               {onOpenSecurity && (
                 <button
                   onClick={onOpenSecurity}
-                  className="flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-blue-200 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 border border-slate-700 cursor-pointer whitespace-nowrap"
+                  className="flex min-h-9 min-w-9 items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-blue-200 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 border border-slate-700 cursor-pointer whitespace-nowrap"
                   title="Trung tâm bảo mật, khóa mã PIN & phân quyền"
                 >
                   <Shield className="w-4 h-4 text-blue-400 shrink-0" />
@@ -247,7 +249,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
               {onOpenProjectManager && (
                 <button
                   onClick={() => onOpenProjectManager('projects')}
-                  className="flex items-center justify-center gap-1.5 bg-blue-950/90 hover:bg-blue-900 text-blue-100 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 border border-blue-800/80 cursor-pointer whitespace-nowrap"
+                  className="flex min-h-9 min-w-9 items-center justify-center gap-1.5 bg-blue-950/90 hover:bg-blue-900 text-blue-100 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 border border-blue-800/80 cursor-pointer whitespace-nowrap"
                   title="Quản lý danh sách dự án"
                 >
                   <Folder className="w-4 h-4 text-blue-300 shrink-0" />
@@ -259,7 +261,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
               {onOpenExportPdf && (
                 <button
                   onClick={onOpenExportPdf}
-                  className="flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 whitespace-nowrap"
+                  className="flex min-h-9 min-w-9 items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 whitespace-nowrap"
                   title="Xuất Báo Cáo PDF & Excel"
                 >
                   <FileText className="w-4 h-4 text-blue-100 shrink-0" />
@@ -273,7 +275,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
                   href={syncResult.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-1.5 text-xs bg-emerald-700/90 hover:bg-emerald-600 text-white p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg font-bold transition-colors shrink-0 shadow-sm whitespace-nowrap"
+                  className="flex min-h-9 min-w-9 items-center justify-center gap-1.5 text-xs bg-emerald-700/90 hover:bg-emerald-600 text-white p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg font-bold transition-colors shrink-0 shadow-sm whitespace-nowrap"
                   title="Mở Google Sheets"
                 >
                   <ExternalLink className="w-4 h-4 shrink-0" />
@@ -281,6 +283,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
                 </a>
               )}
             </div>
+          </div>
           </div>
 
 
