@@ -218,6 +218,12 @@ check(ui.includes('Chọn nhanh tầng trong chế độ toàn màn hình'), 'Fu
 check(!ui.includes('<span className="truncate max-w-[100px] sm:max-w-none">Toàn màn hình</span>'), 'Fullscreen toolbar must not waste mobile space on a redundant fullscreen mode label.');
 check(!ui.includes("<span className=\"truncate max-w-[100px] sm:max-w-none\">{activeFloor?.floorName || 'Toàn Màn Hình'}</span>"), 'Fullscreen active floor name must be rendered only by the floor selector, not duplicated in the toolbar.');
 check(ui.split('<span className="text-sm leading-none shrink-0">📦</span>').length - 1 >= 2, 'Rectangle draw tool must show the same leading icon in normal and fullscreen toolbars.');
+check((ui.match(/bg-blue-600 text-white font-black shadow-sm ring-2 ring-blue-300/g) || []).length >= 6, 'Generic room drawing tools must use HNL Blue selection styling in normal + fullscreen modes.');
+check(!ui.includes('bg-amber-500 text-slate-950 font-black shadow-sm ring-2 ring-amber-300') && !ui.includes('bg-amber-500 text-slate-950 font-black scale-105 shadow-sm'), 'Generic room drawing tools must not reuse warning amber as selection color.');
+check((ui.match(/min-h-9/g) || []).length >= 9 && ui.includes('className="h-9 w-9 inline-flex') && ui.includes('className="h-9 max-w-[150px]'), 'Fullscreen floor-plan toolbar must retain >=36px touch targets.');
+check(ui.includes('min-h-9 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700') && !ui.includes('bg-rose-600/90 hover:bg-rose-600'), 'Fullscreen minimize must remain neutral rather than destructive rose.');
+check(ui.includes("roomColorMode === 'palette' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-800 border border-slate-300'"), 'Viewer floor-plan display selection must use primary/neutral colors.');
+check((ui.match(/!showTextOverlay[\s\S]{0,180}bg-blue-600 text-white/g) || []).length >= 3, 'Floor-plan text-overlay selection must use HNL Blue instead of success green.');
 check(ui.includes('loading="lazy"') && ui.includes('decoding="async"'), 'Floor management thumbnails must avoid eager decoding every plan image.');
 check(app.includes('onInspectFloorPlanBulkTargets={handleInspectFloorPlanBulkTargets}'), 'App must expose bulk preflight to the floor-plan UI.');
 check(ui.includes('Defect, Căn/Phòng, highlight, tiến độ, checklist'), 'Bulk floor UI must warn that business data remains per-floor.');
