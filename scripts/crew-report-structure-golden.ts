@@ -73,8 +73,11 @@ assert.ok(
 );
 assert.ok(
   shareModalSource.includes('dateX + (dateWidth - dateHeaderWidth) / 2')
-  && shareModalSource.includes('min-w-[118px] border-r border-slate-200 bg-slate-100 px-3 py-2 text-center align-middle">Ngày</th>'),
-  'crew report Ngày header must be horizontally centered in both canvas export and on-screen table',
+  && shareModalSource.includes('min-w-[118px] border-r border-slate-200 bg-slate-100 px-3 py-2 text-center align-middle">Ngày</th>')
+  && shareModalSource.includes('dateX + (dateWidth - ctx.measureText(dateText).width) / 2')
+  && shareModalSource.includes('px-3 py-2 text-center font-bold tabular-nums text-slate-700">{formatDateDDMMYYYY(dateRow.date)}</td>')
+  && shareModalSource.includes('dateX + (dateWidth - ctx.measureText(totalLabel).width) / 2'),
+  'crew report date column must stay centered for header, body values and total label in both canvas export and on-screen table',
 );
 assert.ok(
   shareModalSource.includes("const serialHeaderText = 'STT';")
