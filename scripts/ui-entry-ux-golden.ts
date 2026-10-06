@@ -48,6 +48,8 @@ assert(security.includes('PIN được lưu theo dạng bảo mật một chiề
 assert(security.includes('Không có mã PIN chung hoặc PIN đặc biệt để mở khóa.'), 'PIN help text must clearly state there is no master/common PIN.');
 assert(security.includes('Quên PIN? Đặt lại bằng Google'), 'PIN recovery copy must use the plain Google-account wording.');
 assert(!security.includes('Mã PIN chỉ dùng để khóa màn hình ứng dụng trên thiết bị và được băm 1 chiều PBKDF2 SHA-256.'), 'User-facing PIN help must not expose PBKDF2/SHA-256 jargon.');
+assert(security.includes('Đã lưu quyền') && security.includes('Chưa thay đổi quyền trên Cloud') && security.includes('Không thể xóa ADMIN cuối cùng của dự án') && security.includes('Đã xóa quyền') && security.includes('Chưa thu hồi quyền trên Cloud'), 'Security RBAC feedback must use readable Vietnamese with full diacritics');
+assert(!security.includes('Da luu quyen') && !security.includes('Chua thay doi quyen') && !security.includes('Khong the xoa ADMIN') && !security.includes('Da xoa quyen') && !security.includes('Chua thu hoi quyen'), 'Security RBAC feedback must not regress to unaccented Vietnamese');
 const appLockOverlay = read('src/components/AppLockOverlay.tsx');
 assert(appLockOverlay.includes('Quên PIN? Đặt lại bằng Google'), 'Locked-screen PIN recovery must match Security Center wording.');
 assert(!appLockOverlay.includes('<span>Quên mã PIN? Đặt lại bằng Google Auth</span>'), 'Locked-screen PIN recovery must not expose Google Auth jargon.');
@@ -201,6 +203,7 @@ assert(!defectUi.includes("bg-amber-500 text-slate-950 font-black shadow-sm ring
 assert((defectUi.match(/roomColorMode === 'palette'\s*\? 'bg-blue-600 text-white/g) || []).length >= 3 && (defectUi.match(/roomColorMode === 'palette'[\s\S]{0,180}: 'bg-slate-/g) || []).length >= 3, 'Floor-plan display-mode toggles must use primary/neutral colors instead of warning amber');
 assert((defectUi.match(/!showTextOverlay[\s\S]{0,180}bg-blue-600 text-white/g) || []).length >= 3, 'Floor-plan text-overlay selection must use HNL Blue instead of success green');
 assert((defectUi.match(/min-h-9/g) || []).length >= 9 && defectUi.includes('className="h-9 w-9 inline-flex') && defectUi.includes('className="h-9 max-w-[150px]'), 'Fullscreen floor-plan controls must keep >=36px touch targets');
+assert(defectUi.includes("{ key: 'targetDate', label: 'Hạn hoàn thành'") && !defectUi.includes("{ key: 'targetDate', label: 'Hạn xong'"), 'Floor-plan quick edit must use Hạn hoàn thành consistently');
 assert(defectUi.includes('min-h-9 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700') && !defectUi.includes('bg-rose-600/90 hover:bg-rose-600'), 'Fullscreen Thu Nhỏ action must be neutral, not destructive rose');
 assert(defectUi.includes("isRoomPinPlacementMode") && defectUi.includes("? 'bg-blue-600 hover:bg-blue-700 text-white ring-2 ring-blue-200'") && defectUi.includes("? 'bg-blue-600 hover:bg-blue-500 text-white ring-2 ring-blue-300'"), 'Add Room must be neutral while idle and HNL Blue only while armed');
 
@@ -214,6 +217,7 @@ const actionMenuButton = read('src/components/ActionMenuButton.tsx');
 assert(actionMenuButton.includes('createPortal') && actionMenuButton.includes("placement: 'above' | 'below'") && actionMenuButton.includes('naturalHeight > bestAvailable && naturalHeight > 220'), 'Shared Action Menu must open near the pressed button and fall back to a bottom sheet only when space is insufficient');
 assert(checklistUi.includes('<DataManagementMenu') && checklistUi.includes('triggerLabel="Quản lý dữ liệu"') && checklistUi.includes('exportLabel="Tải Excel để chỉnh sửa"') && checklistUi.includes('importLabel="Nhập lại từ Excel"'), 'Checklist must use the shared Data Management menu instead of two standalone Excel buttons');
 assert(checklistUi.includes('flex items-center justify-end gap-2') && checklistUi.includes('Thêm Tiêu Chí'), 'Checklist mobile must keep Add Criterion and compact Data Management in one action cluster');
+assert(checklistUi.includes("{ key: 'dueDate', label: 'Hạn nghiệm thu'") && !checklistUi.includes("{ key: 'dueDate', label: 'Thời hạn'"), 'Checklist deadline terminology must remain specific: Hạn nghiệm thu');
 const workVolumeUi = read('src/components/WorkVolumeTab.tsx');
 assert(workVolumeUi.includes("label: 'Khối lượng kế hoạch'") && workVolumeUi.includes('<span>Khối lượng kế hoạch *</span>') && !workVolumeUi.includes('<span>Khối lượng định mức *</span>'), 'Work Volume planned quantity must be labeled Khối lượng kế hoạch to avoid confusion with material norms');
 assert(workVolumeUi.includes("label: 'Khối lượng thực hiện'") && workVolumeUi.includes('<span className="truncate">Khối lượng thực hiện</span>') && !workVolumeUi.includes('Khối lượng đã làm'), 'Work Volume actual quantity must use one visible label: Khối lượng thực hiện');
