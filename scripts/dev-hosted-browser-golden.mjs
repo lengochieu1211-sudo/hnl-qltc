@@ -451,7 +451,7 @@ async function verifySettingsFeatureSheets(page, label) {
 
   const settingsCards = [
     { name: 'Trung tâm đồng bộ & sao lưu dự án', selector: syncSelector, card: syncCard, closeMode: 'x' },
-    { name: 'HNL Health Center', selector: healthSelector, card: healthCard, closeMode: 'history' },
+    { name: 'Trung tâm kiểm tra dữ liệu (Health Center)', selector: healthSelector, card: healthCard, closeMode: 'history' },
     {
       name: 'Cài đặt định dạng số & ngày tháng',
       selector: null,
