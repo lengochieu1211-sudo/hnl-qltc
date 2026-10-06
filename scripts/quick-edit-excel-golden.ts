@@ -182,7 +182,7 @@ assert.match(warehouse, /canAddRows=\{quickEditMode === 'norms' \? hasNormManage
 assert.match(warehouse, /order-first col-span-2[\s\S]*Tạo phiếu/, 'Warehouse mobile primary Create Voucher action must occupy a full highlighted row');
 assert.match(warehouse, /lg:grid-flow-col[\s\S]*Tạo phiếu[\s\S]*Danh mục kho[\s\S]*triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit/, 'Warehouse PC actions must keep Create Voucher first, then Catalog/Norms, with consolidated data management');
 
-assert.match(volume, /Khối lượng đã làm/, 'WorkVolume quick table must show actual volume');
+assert.match(volume, /Khối lượng thực hiện/, 'WorkVolume quick table must show actual volume');
 assert.match(volume, /key: 'actual'.*editable: false/, 'Actual volume must be read-only');
 assert.match(volume, /Khu\/Khối tự đồng bộ từ các tầng đã gán/, 'WorkVolume structure scope must derive from floor assignments');
 assert.match(volume, /__recordId không tồn tại trong dự án hiện tại/, 'WorkVolume Excel import must reject stale record IDs');
