@@ -388,6 +388,7 @@ function AuthenticatedApp() {
   const activeTabRef = useRef<TabType>(activeTab);
   activeTabRef.current = activeTab;
   const [navigationTargetTab, setNavigationTargetTab] = useState<TabType | null>(null);
+  const navigationTargetRef = useRef<TabType | null>(null);
   const visibleTab = navigationTargetTab || activeTab;
   const navigationRequestRef = useRef(0);
   const navigationCommitTimerRef = useRef<number | null>(null);
@@ -436,11 +437,12 @@ function AuthenticatedApp() {
     const rapidMode = rapidTap || now < navigationRapidUntilRef.current;
     const commitDelayMs = rapidMode ? 48 : 0;
 
-    if (tab === activeTabRef.current) {
+    if (tab === activeTabRef.current && navigationTargetRef.current == null) {
       if (navigationCommitTimerRef.current != null) {
         window.clearTimeout(navigationCommitTimerRef.current);
         navigationCommitTimerRef.current = null;
       }
+      navigationTargetRef.current = null;
       setNavigationTargetTab(null);
       return;
     }
@@ -450,6 +452,7 @@ function AuthenticatedApp() {
     // so Android does not mount every intermediate heavy screen.
     // Paint destination feedback before starting any heavy lazy import.
     // Desktop hover/background warming already handles intent preloading.
+    navigationTargetRef.current = tab;
     setNavigationTargetTab(tab);
 
     if (navigationCommitTimerRef.current != null) {
@@ -464,16 +467,21 @@ function AuthenticatedApp() {
           return isMobileRuntime ? next.slice(-1) : next;
         });
       }
+      activeTabRef.current = tab;
       setActiveTab(tab);
     }, commitDelayMs);
   }, [isMobileRuntime]);
 
   useEffect(() => {
-    if (navigationTargetTab === activeTab) setNavigationTargetTab(null);
+    if (navigationTargetTab === activeTab) {
+      navigationTargetRef.current = null;
+      setNavigationTargetTab(null);
+    }
   }, [activeTab, navigationTargetTab]);
 
   useEffect(() => () => {
     navigationRequestRef.current += 1;
+    navigationTargetRef.current = null;
     if (navigationCommitTimerRef.current != null) {
       window.clearTimeout(navigationCommitTimerRef.current);
       navigationCommitTimerRef.current = null;
