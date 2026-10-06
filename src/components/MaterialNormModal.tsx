@@ -978,7 +978,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               itemCount={sortedFilteredNorms.length}
               options={[
                 { key: 'materialName', label: 'Tên vật tư', kind: 'alpha' },
-                { key: 'quotaQuantity', label: 'Định mức tổng kế hoạch', kind: 'number' },
+                { key: 'quotaQuantity', label: 'Nhu cầu định mức', kind: 'number' },
                 { key: 'stock', label: 'Số lượng nhập kho', kind: 'number' },
               ]}
               activeKey={normSortBy === 'none' ? null : normSortBy}
