@@ -116,8 +116,8 @@ for (const marker of [
 }
 if (app.includes('Verified offline cold-start snapshot is read-only until Cloud reconnects.')) fail('verified snapshot still blocks authorized offline edits');
 const offlineBannerSource = read('src/components/OfflineSyncBanner.tsx');
-if (!offlineBannerSource.includes('Snapshot + Local') || !offlineBannerSource.includes('Bản chụp offline đã xác minh') || !offlineBannerSource.includes('lưu bền vững trên máy')) {
-  fail('offline banner does not disclose durable snapshot working state');
+if (!offlineBannerSource.includes('Snapshot + Local') || !offlineBannerSource.includes('Snapshot offline đã xác minh; VIEWER chỉ được xem.') || !offlineBannerSource.includes('Snapshot đã xác minh; ${userRole} được sửa, thay đổi chờ Firestore.')) {
+  fail('offline banner does not disclose verified snapshot read-only/write-pending state');
 }
 pass('identity-bound snapshot + durable working delta survives EXE restart and keeps Cloud as authority');
 
@@ -136,7 +136,7 @@ for (const marker of [
 if (!firebase.includes('writeBatch(db)') || !firebase.includes('[Firestore offline queue]')) fail('Firestore SDK offline batch queue helper missing');
 if (app.includes("localStorage.setItem('construction_offline_pending'")) fail('custom localStorage offline pending queue resurrected');
 const offlineBanner = read('src/components/OfflineSyncBanner.tsx');
-if (!offlineBanner.includes('hàng chờ Firestore bền vững') || offlineBanner.includes("construction_offline_pending")) fail('offline banner still describes legacy localStorage pending behavior');
+if (!offlineBanner.includes('chờ Firestore') || offlineBanner.includes("construction_offline_pending")) fail('offline banner must surface Firestore pending writes without legacy localStorage pending behavior');
 pass('offline edits enter Firestore persistent pending writes; no React-RAM/localStorage-only queue');
 
 
