@@ -1064,7 +1064,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                                     {resolvedCats.map((wCat, wIdx) => (
                                       <span
                                         key={`${wCat}-${wIdx}`}
-                                        className={`px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-md ${wIdx > 0 && !expanded ? 'hidden sm:inline-block' : 'inline-block'}`}
+                                        className={`px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 text-[10px] font-bold rounded-md ${wIdx > 0 && !expanded ? 'hidden sm:inline-block' : 'inline-block'}`}
                                       >
                                         🏗️ {wCat}
                                       </span>
