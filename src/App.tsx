@@ -473,9 +473,9 @@ function AuthenticatedApp() {
   }, [isMobileRuntime]);
 
   useEffect(() => {
-    if (navigationTargetTab === activeTab) {
+    if (navigationTargetTab === activeTab && navigationTargetRef.current === navigationTargetTab) {
       navigationTargetRef.current = null;
-      setNavigationTargetTab(null);
+      setNavigationTargetTab((current) => current === activeTab ? null : current);
     }
   }, [activeTab, navigationTargetTab]);
 
