@@ -1028,7 +1028,7 @@ export function exportWorkVolumesTemplate(workVolumes?: WorkVolume[], projectNam
     if (canViewFinancials) {
       row['Đơn Giá (VNĐ)'] = item.unitPrice || 0;
     }
-    row['Ngày Hạn Định'] = item.dueDate ? formatDateDDMMYYYY(item.dueDate) : '';
+    row['Hạn hoàn thành'] = item.dueDate ? formatDateDDMMYYYY(item.dueDate) : '';
     return row;
   });
 
@@ -1037,7 +1037,7 @@ export function exportWorkVolumesTemplate(workVolumes?: WorkVolume[], projectNam
     'Tên Hạng Mục Công Việc', 'Tầng / Khu Vực', 'Nhóm Hạng Mục', 'Đơn Vị Tính',
     'Khối lượng kế hoạch', 'Khối lượng thực hiện (chỉ xem - không nhập lại)',
     ...(canViewFinancials ? ['Đơn Giá (VNĐ)'] : []),
-    'Ngày Hạn Định',
+    'Hạn hoàn thành',
   ];
   const ws = data.length > 0
     ? XLSX.utils.json_to_sheet(data, { header: workVolumeHeaders })
@@ -1680,12 +1680,12 @@ export function exportWarehouseUpdateTemplate(
     'Khối lượng kế hoạch': item.planned,
     'Khối lượng thực hiện (chỉ xem - không nhập lại)': item.actual,
     'Đơn Giá (VNĐ)': item.unitPrice || 0,
-    'Ngày Hạn Định': item.dueDate ? formatDateDDMMYYYY(item.dueDate) : '',
+    'Hạn hoàn thành': item.dueDate ? formatDateDDMMYYYY(item.dueDate) : '',
   }));
   const referenceWorkHeaders = [
     'STT', '__recordId', '__workCategoryId', '__floorId', '__floorIds',
     'Tên Hạng Mục Công Việc', 'Tầng / Khu Vực', 'Nhóm Hạng Mục', 'Đơn Vị Tính',
-    'Khối lượng kế hoạch', 'Khối lượng thực hiện (chỉ xem - không nhập lại)', 'Đơn Giá (VNĐ)', 'Ngày Hạn Định',
+    'Khối lượng kế hoạch', 'Khối lượng thực hiện (chỉ xem - không nhập lại)', 'Đơn Giá (VNĐ)', 'Hạn hoàn thành',
   ];
   const wsWorkVolumes = workVolumeData.length > 0
     ? XLSX.utils.json_to_sheet(workVolumeData, { header: referenceWorkHeaders })
