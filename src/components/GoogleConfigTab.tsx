@@ -124,6 +124,18 @@ interface GoogleConfigTabProps {
   };
 }
 
+const formatSyncPhaseLabel = (phase?: string) => {
+  switch (String(phase || '').toLowerCase()) {
+    case 'syncing': return 'Đang đồng bộ';
+    case 'synced': return 'Đã đồng bộ';
+    case 'error': return 'Có lỗi';
+    case 'conflict': return 'Có xung đột';
+    case 'idle':
+    default:
+      return 'Sẵn sàng';
+  }
+};
+
 export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   projectName,
   setProjectName,
@@ -793,19 +805,19 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px]">
             <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5 space-y-1">
-              <div><b>App:</b> {APP_VERSION_LABEL}</div>
-              <div><b>Project ID:</b> <span className="font-mono break-all">{activeProjectId || 'default'}</span></div>
-              <div><b>User:</b> {syncDiagnostics.firebaseUserEmail || 'Chưa xác thực Firebase'}</div>
-              <div><b>Role:</b> {userRole} · {syncDiagnostics.roleResolved ? (syncDiagnostics.roleSource === 'offline-cache' ? 'cache đã xác minh trước đó' : 'đã xác minh Cloud') : 'chưa xác minh'}</div>
-              <div><b>Data schema:</b> v{syncDiagnostics.dataSchemaVersion}</div>
+              <div><b>Ứng dụng:</b> {APP_VERSION_LABEL}</div>
+              <div><b>ID dự án:</b> <span className="font-mono break-all">{activeProjectId || 'default'}</span></div>
+              <div><b>Tài khoản:</b> {syncDiagnostics.firebaseUserEmail || 'Chưa xác thực Firebase'}</div>
+              <div><b>Quyền:</b> {userRole} · {syncDiagnostics.roleResolved ? (syncDiagnostics.roleSource === 'offline-cache' ? 'dữ liệu ngoại tuyến đã xác minh trước đó' : 'đã xác minh Cloud') : 'chưa xác minh'}</div>
+              <div><b>Phiên bản dữ liệu:</b> v{syncDiagnostics.dataSchemaVersion}</div>
             </div>
             <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5 space-y-1">
-              <div><b>Firestore:</b> {syncDiagnostics.dataCloudPhase}</div>
-              <div><b>Realtime bootstrap:</b> {syncDiagnostics.snapshotReadyCount}/9 {syncDiagnostics.cloudInitialReady ? '· sẵn sàng' : '· đang chờ'}</div>
+              <div><b>Dữ liệu Firestore:</b> {formatSyncPhaseLabel(syncDiagnostics.dataCloudPhase)}</div>
+              <div><b>Khởi tạo realtime:</b> {syncDiagnostics.snapshotReadyCount}/9 {syncDiagnostics.cloudInitialReady ? '· sẵn sàng' : '· đang chờ'}</div>
               <div><b>Dữ liệu chờ:</b> {syncDiagnostics.pendingData}</div>
-              <div><b>Ảnh chờ Cloud:</b> {displayedPhotoPending} · {displayedPhotoPhase}</div>
-              <div><b>Drive:</b> {driveSyncStatus} · pending {displayedPendingDriveUploads}</div>
-              <div><b>Sync cuối:</b> {syncDiagnostics.lastSyncAt > 0 ? formatDateTime(syncDiagnostics.lastSyncAt) : 'Chưa có'}</div>
+              <div><b>Ảnh chờ Cloud:</b> {displayedPhotoPending} · {formatSyncPhaseLabel(displayedPhotoPhase)}</div>
+              <div><b>Drive:</b> {formatSyncPhaseLabel(driveSyncStatus)} · {displayedPendingDriveUploads} tệp chờ</div>
+              <div><b>Đồng bộ gần nhất:</b> {syncDiagnostics.lastSyncAt > 0 ? formatDateTime(syncDiagnostics.lastSyncAt) : 'Chưa có'}</div>
               <div><b>Mạng:</b> {syncDiagnostics.online === false ? 'Ngoại tuyến' : 'Trực tuyến'}</div>
             </div>
           </div>
@@ -828,7 +840,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
             <div className="flex items-center justify-between gap-2">
               <div>
                 <div className="text-[11px] font-extrabold text-slate-800">Ảnh cần xử lý</div>
-                <div className="text-[10px] text-slate-500">Chỉ hiện ảnh active chưa Cloud-ready hoặc legacy không còn binary local.</div>
+                <div className="text-[10px] text-slate-500">Chỉ hiện ảnh đang dùng chưa sẵn sàng trên Cloud hoặc ảnh cũ không còn dữ liệu ảnh trên máy.</div>
               </div>
               <button type="button" onClick={() => void refreshPhotoDiagnosticSnapshot()} className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-[10px] font-bold text-slate-600 flex items-center gap-1">
                 <RefreshCw className="w-3.5 h-3.5" /> Kiểm tra lại

@@ -3481,7 +3481,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     openDefectsList.length > 0 ? 'text-rose-900' : 'text-slate-800'
                   }`}>
                     <AlertTriangle className="w-3.5 h-3.5" />
-                    <span>{openDefectsList.length} lỗi</span>
+                    <span>{openDefectsList.length} Defect</span>
                   </div>
                   <div className={`text-[10px] mt-0.5 font-medium ${
                     openDefectsList.length > 0 ? 'text-rose-700' : 'text-slate-500'
@@ -3780,7 +3780,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                                               statusColorStr = "bg-amber-50 text-amber-700 border border-amber-100 font-medium";
                                                             }
 
-                                                            let inspectionTextStr = "Chưa NT";
+                                                            let inspectionTextStr = "Chưa nghiệm thu";
                                                             let inspectionColorStr = "bg-slate-50 text-slate-400 border border-slate-100";
                                                             if (isApproved) {
                                                               inspectionTextStr = "Đạt NT";

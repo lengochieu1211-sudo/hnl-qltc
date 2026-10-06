@@ -3211,7 +3211,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     { key: 'mainCategory', label: 'Hạng mục chính', editable: (row) => canManageStructure && Boolean(row.__groupPrimary), type: 'select', options: quickWorkCategoryOptions, width: 230 },
     { key: 'mainVolume', label: 'KL Hạng mục chính', editable: (row) => canManageStructure && Boolean(row.__groupPrimary), type: 'number', width: 145, validate: (value) => Number(value || 0) < 0 ? 'Không được âm' : null },
     { key: 'subItemName', label: 'Hạng mục phụ / Công đoạn', editable: canManageStructure, width: 230 },
-    { key: 'subTeamName', label: 'Đội thi công HM phụ', editable: canManageStructure, type: 'select', options: quickTeamOptions, width: 190 },
+    { key: 'subTeamName', label: 'Đội thi công hạng mục phụ', editable: canManageStructure, type: 'select', options: quickTeamOptions, width: 190 },
     { key: 'progress', label: 'Tiến độ', editable: canManageStructure, type: 'select', options: ['Chưa làm', 'Đang làm', 'Đã hoàn thành'], width: 135 },
     {
       key: 'inspection',
@@ -3224,7 +3224,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         ? 'Chỉ Đạt nghiệm thu khi Tiến độ = Đã hoàn thành'
         : null,
     },
-    { key: 'targetDate', label: 'Hạn xong', editable: canManageStructure, type: 'date', width: 135 },
+    { key: 'targetDate', label: 'Hạn hoàn thành', editable: canManageStructure, type: 'date', width: 135 },
     { key: 'defectCount', label: 'Defect', editable: false, type: 'number', width: 85 },
   ] : [], [showQuickEdit, canManageStructure, normalizedStructureConfig.enabled, normalizedStructureConfig.label, quickStructureGroupOptions, quickWorkCategoryOptions, quickTeamOptions]);
 

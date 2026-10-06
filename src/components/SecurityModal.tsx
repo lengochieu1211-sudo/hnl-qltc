@@ -767,7 +767,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
     if (!u) {
       u = await signInWithGoogle();
       if (!u) {
-        throw new Error('Can dang nhap Google bang tai khoan ADMIN/Owner de dong bo phan quyen Cloud.');
+        throw new Error('Cần đăng nhập Google bằng tài khoản ADMIN/chủ sở hữu để đồng bộ phân quyền Cloud.');
       }
       setCloudUser(u);
     }
@@ -780,13 +780,13 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
     const claimResult = await claimProjectOwnership(projectId, u, getSelectedProjectName(projectId));
     if (!claimResult.success) {
-      throw new Error(claimResult.message || 'Tai khoan hien tai khong co quyen ADMIN tren Cloud cho du an nay.');
+      throw new Error(claimResult.message || 'Tài khoản hiện tại không có quyền ADMIN trên Cloud của dự án này.');
     }
 
     const refreshedInfo = await fetchProjectUserRoleFromCloud(projectId, u);
     setCloudRoleInfo(refreshedInfo);
     if (!refreshedInfo.allowed || refreshedInfo.role !== 'ADMIN') {
-      throw new Error('Da khoi phuc owner nhung chua xac nhan duoc quyen ADMIN Cloud. Hay thu dong bo lai.');
+      throw new Error('Đã khôi phục chủ sở hữu nhưng chưa xác nhận được quyền ADMIN trên Cloud. Hãy thử đồng bộ lại.');
     }
 
     return u;
@@ -800,11 +800,11 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
     const pidAtSubmit = selectedPid;
     const email = newMemberEmail.trim().toLowerCase();
     if (!email) {
-      setMemberMsg({ type: 'error', text: 'Vui long nhap email thanh vien.' });
+      setMemberMsg({ type: 'error', text: 'Vui lòng nhập email thành viên.' });
       return;
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setMemberMsg({ type: 'error', text: 'Email thanh vien khong hop le.' });
+      setMemberMsg({ type: 'error', text: 'Email thành viên không hợp lệ.' });
       return;
     }
 
@@ -868,7 +868,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
     const existingMembers = (await fetchProjectMembersFromCloud(pidAtSubmit)).filter((m: any) => m?.email && m?.active !== false);
     const targetMember = existingMembers.find((m: any) => String(m.email).toLowerCase() === email.toLowerCase());
     if (targetMember?.role === 'ADMIN' && countAdmins(existingMembers) <= 1) {
-      setMemberMsg({ type: 'error', text: 'Khong the xoa ADMIN cuoi cung cua du an. Hay them/chuyen mot ADMIN khac truoc.' });
+      setMemberMsg({ type: 'error', text: 'Không thể xóa ADMIN cuối cùng của dự án. Hãy thêm hoặc chuyển một ADMIN khác trước.' });
       return;
     }
 
@@ -1947,7 +1947,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                       EDITOR (Kỹ sư)
                     </div>
                     <p className="text-slate-500 leading-relaxed">
-                      Cập nhật tiến độ phòng, khối lượng, defect, chấm công, ảnh hiện trường. Không xem đơn giá và không thể xóa/quản lý dự án.
+                      Cập nhật tiến độ Căn / Phòng, khối lượng, Defect, quân số/nhật ký thi công và ảnh hiện trường. Không xem đơn giá và không thể xóa/quản lý dự án.
                     </p>
                   </div>
                   <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-1">
@@ -1956,7 +1956,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                       VIEWER (Chỉ xem)
                     </div>
                     <p className="text-slate-500 leading-relaxed">
-                      Chế độ chỉ đọc: Xem tiến độ, mặt bằng, khuyết tật, ảnh đính kèm và báo cáo. Bị khóa mọi thao tác sửa đổi dữ liệu.
+                      Chế độ chỉ đọc: Xem tiến độ, mặt bằng, Defect, ảnh đính kèm và báo cáo. Bị khóa mọi thao tác sửa đổi dữ liệu.
                     </p>
                   </div>
                 </div>
