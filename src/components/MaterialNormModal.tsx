@@ -1269,14 +1269,14 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:items-start">
               <div className="flex flex-col">
                 <div className="flex items-start justify-between gap-2 mb-1 sm:min-h-[2.75rem]">
-                  <label className="block font-bold text-slate-700 leading-tight pt-0.5">Khối lượng định mức</label>
+                  <label className="block font-bold text-slate-700 leading-tight pt-0.5">Nhu cầu vật tư theo định mức</label>
                   <span className="text-[9px] font-extrabold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-1.5 py-0.5">Tự tính</span>
                 </div>
                 <div className="w-full border border-slate-200 rounded-xl p-2.5 font-black text-indigo-700 bg-slate-50 min-h-[41px] flex items-center">
                   {computedAutoQuota !== null ? `${formatDecimal(computedAutoQuota)} ${unit === 'khac' ? customUnit : unit}` : '0'}
                 </div>
                 <span className="text-[10px] text-slate-500 mt-1 block leading-4">
-                  Tự động = Σ(Khối lượng hạng mục × Định mức riêng/chung). Không nhập tay để tránh hai nguồn dữ liệu.
+                  Tự động = Σ(Khối lượng kế hoạch hạng mục × Định mức riêng/chung). Không nhập tay để tránh hai nguồn dữ liệu.
                 </span>
               </div>
               <div className="flex flex-col">
