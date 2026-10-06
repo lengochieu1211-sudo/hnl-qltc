@@ -1628,13 +1628,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     ];
     if (quickEditMode === 'stock') return [
       { key: 'materialName', label: 'Tên vật tư', editable: false, width: 220 },
-      { key: 'category', label: 'Chủng loại / Loại', editable: false, width: 170 },
+      { key: 'category', label: 'Chủng loại', editable: false, width: 170 },
       { key: 'unit', label: 'ĐVT', editable: false, width: 90 },
       { key: 'totalIn', label: 'Tổng nhập', editable: false, type: 'number', width: 110 },
       { key: 'totalOut', label: 'Tổng xuất', editable: false, type: 'number', width: 110 },
       { key: 'currentStock', label: 'Tồn kho', editable: false, type: 'number', width: 110 },
-      { key: 'normQuantity', label: 'Định mức tổng kế hoạch', editable: false, type: 'number', width: 155 },
-      { key: 'remainingNeed', label: 'Còn cần theo kế hoạch', editable: false, type: 'number', width: 145 },
+      { key: 'normQuantity', label: 'Nhu cầu định mức', editable: false, type: 'number', width: 155 },
+      { key: 'remainingNeed', label: 'Còn cần theo định mức', editable: false, type: 'number', width: 145 },
     ];
     const base: QuickGridColumn[] = [
       { key: 'date', label: 'Ngày', editable: hasImportAccess, type: 'date', required: true, width: 135 },
@@ -1696,7 +1696,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         const nextMaterialName = String(primary.materialName || '').trim();
         const nextCategory = String(primary.category || '').trim();
         const nextUnit = normalizeUnit(String(primary.unit || '').trim()) || String(primary.unit || '').trim();
-        if (!nextMaterialName || !nextCategory || !nextUnit) throw new Error('Tên vật tư, Nhóm và ĐVT không được để trống.');
+        if (!nextMaterialName || !nextCategory || !nextUnit) throw new Error('Tên vật tư, Chủng loại và ĐVT không được để trống.');
 
         const duplicateMaterial = materialNorms.find((norm) =>
           norm.id !== normId
@@ -1784,7 +1784,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
       const confirmed = await confirmAsync(
         `Lưu thay đổi Định mức cho ${affectedNormIds.size} vật tư?\n\n`
-        + 'Tên/Nhóm/ĐVT/ĐM chung/Khối lượng/Ghi chú được lấy từ dòng đại diện; các dòng con chỉ quản lý liên kết Hạng mục và ĐM riêng. materialId được giữ nguyên.'
+        + 'Tên/Chủng loại/ĐVT/ĐM chung/Khối lượng/Ghi chú được lấy từ dòng đại diện; các dòng con chỉ quản lý liên kết Hạng mục và ĐM riêng. materialId được giữ nguyên.'
       );
       if (!confirmed) return false;
       onImportNorms(Array.from(byId.values()));
@@ -1981,7 +1981,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             itemCount={warehouseCatalogStockRows.length}
             options={[
               { key: 'name', label: warehouseCatalogTab === 'equipment' ? 'Tên thiết bị' : 'Tên vật tư', kind: 'alpha', defaultOrder: 'asc' },
-              { key: 'category', label: warehouseCatalogTab === 'material' ? 'Chủng loại vật tư' : 'Loại', kind: 'alpha', defaultOrder: 'asc' },
+              { key: 'category', label: warehouseCatalogTab === 'material' ? 'Chủng loại vật tư' : 'Loại thiết bị', kind: 'alpha', defaultOrder: 'asc' },
               { key: 'unit', label: 'ĐVT', kind: 'alpha', defaultOrder: 'asc' },
               { key: 'totalIn', label: 'Nhập', kind: 'number', defaultOrder: 'desc' },
               { key: 'totalOut', label: 'Xuất', kind: 'number', defaultOrder: 'desc' },
@@ -2047,7 +2047,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         subtitle={quickEditMode === 'stock'
           ? 'Tồn kho là số tính từ Tổng nhập - Tổng xuất và luôn chỉ đọc.'
           : quickEditMode === 'norms'
-            ? 'Mỗi vật tư là một nhóm. Dòng đại diện sửa Tên/Nhóm/ĐVT/ĐM chung/Khối lượng/Ghi chú và tự đồng bộ các dòng con; dòng con sửa Hạng mục + ĐM riêng.'
+            ? 'Mỗi vật tư là một cụm dữ liệu. Dòng đại diện sửa Tên/Chủng loại/ĐVT/ĐM chung/Khối lượng/Ghi chú và tự đồng bộ các dòng con; dòng con sửa Hạng mục + ĐM riêng.'
             : 'Chỉnh trực tiếp theo cột/dòng; dữ liệu chỉ ghi khi bấm Lưu.'}
         tabs={[
           { key: 'norms', label: 'Định mức theo Hạng mục' },
@@ -2393,7 +2393,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     <p className="font-bold truncate">{item.name}</p>
                     <p className="text-[10px] opacity-80">
                       Tồn thực tế: <strong className="font-extrabold">{formatDecimal(item.balance)}</strong> {item.unit}
-                      {item.remainingDemand !== undefined ? ` / Còn cần theo kế hoạch: ${formatDecimal(item.remainingDemand)} ${item.unit}` : ''}
+                      {item.remainingDemand !== undefined ? ` / Còn cần theo định mức: ${formatDecimal(item.remainingDemand)} ${item.unit}` : ''}
                     </p>
                   </div>
                   <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md shrink-0 ml-1 ${
@@ -2416,7 +2416,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           <div className="flex items-center gap-1.5 text-indigo-800">
             <AlertTriangle className="w-5 h-5 text-indigo-600 shrink-0" />
             <span className="text-xs font-bold text-indigo-900">
-              Cảnh báo nhập kho so với định mức tổng kế hoạch ({quotaWarnings.length})
+              Cảnh báo nhập kho so với nhu cầu vật tư theo định mức ({quotaWarnings.length})
             </span>
           </div>
           <p className="text-[11px] text-indigo-700 leading-normal">
@@ -2437,7 +2437,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   <div className="min-w-0 flex-1 text-left">
                     <p className="font-bold truncate">{item.name}</p>
                     <p className="text-[10px] opacity-80">
-                      Tổng đã nhập: <strong className="font-extrabold">{formatDecimal(item.inQty)}</strong> / Định mức tổng kế hoạch: {formatDecimal(item.quota)} {item.unit}
+                      Tổng đã nhập: <strong className="font-extrabold">{formatDecimal(item.inQty)}</strong> / Nhu cầu vật tư theo định mức: {formatDecimal(item.quota)} {item.unit}
                     </p>
                   </div>
                   <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md shrink-0 ml-1 text-center ${
@@ -2498,7 +2498,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     </span>
                     {quota > 0 && (
                       <p className="text-[10px] text-slate-500 mt-0.5 font-semibold">
-                        Định mức tổng kế hoạch: <strong className="text-indigo-600">{formatDecimal(quota)}</strong> {item.unit}
+                        Nhu cầu vật tư theo định mức: <strong className="text-indigo-600">{formatDecimal(quota)}</strong> {item.unit}
                       </p>
                     )}
                   </div>

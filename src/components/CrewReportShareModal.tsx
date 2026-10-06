@@ -138,7 +138,9 @@ async function renderCrewReportImages(params: {
     ctx.font = '700 15px Arial, sans-serif';
     if (params.showSerialNumber) {
       ctx.strokeRect(tableLeft, tableTop, serialWidth, totalHeaderHeight);
-      ctx.fillText('STT', tableLeft + 12, tableTop + Math.round(totalHeaderHeight / 2) + 5);
+      const serialHeaderText = 'STT';
+      const serialHeaderWidth = ctx.measureText(serialHeaderText).width;
+      ctx.fillText(serialHeaderText, tableLeft + (serialWidth - serialHeaderWidth) / 2, tableTop + Math.round(totalHeaderHeight / 2) + 5);
     }
     const dateX = tableLeft + serialWidth;
     ctx.strokeRect(dateX, tableTop, dateWidth, totalHeaderHeight);
