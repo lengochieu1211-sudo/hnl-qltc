@@ -81,6 +81,18 @@ assert.ok(
   && shareModalSource.includes('tableLeft + (serialWidth - serialHeaderWidth) / 2'),
   'crew report STT header must stay horizontally centered in shared-image canvas like the on-screen table',
 );
+assert.ok(
+  shareModalSource.includes('const dateText = formatDateDDMMYYYY(dateRow.date);')
+  && shareModalSource.includes('dateX + (dateWidth - ctx.measureText(dateText).width) / 2')
+  && shareModalSource.includes('text-center font-bold tabular-nums text-slate-700">{formatDateDDMMYYYY(dateRow.date)}</td>'),
+  'crew report Date body cells must stay centered on-screen and in exported images',
+);
+assert.ok(
+  shareModalSource.includes("const totalLabel = 'TỔNG';")
+  && shareModalSource.includes('dateX + (dateWidth - ctx.measureText(totalLabel).width) / 2')
+  && shareModalSource.includes('bg-blue-50 px-3 py-2 text-center">TỔNG</td>'),
+  'crew report Date total cell must use the same centered alignment as its header/body',
+);
 const crewTabSource = readFileSync(new URL('../src/components/CrewTabBase.tsx', import.meta.url), 'utf8');
 assert.ok(
   crewTabSource.includes('className="hidden 2xl:grid 2xl:grid-cols-2 gap-2 border-b border-slate-200 bg-slate-50/70 p-3"'),
