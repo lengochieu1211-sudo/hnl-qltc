@@ -71,6 +71,11 @@ assert.ok(
   shareModalSource.includes('const x = teamStartX + teamIndex * teamWidth + metricIndex * metricWidth;'),
   'crew share total row must align from teamStartX',
 );
+assert.ok(
+  shareModalSource.includes('px-3 py-2 text-center align-middle">Ngày</th>')
+  && shareModalSource.includes('px-3 py-2 text-center font-bold tabular-nums text-slate-700">{formatDateDDMMYYYY(dateRow.date)}</td>'),
+  'crew report date header and body cells must stay centered on the same column axis',
+);
 const crewTabSource = readFileSync(new URL('../src/components/CrewTabBase.tsx', import.meta.url), 'utf8');
 assert.ok(
   crewTabSource.includes('className="hidden 2xl:grid 2xl:grid-cols-2 gap-2 border-b border-slate-200 bg-slate-50/70 p-3"'),
