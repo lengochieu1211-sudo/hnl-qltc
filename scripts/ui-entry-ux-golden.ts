@@ -123,6 +123,12 @@ assert(materialNormModal.includes('const materialCategoryOptions = React.useMemo
 assert(materialNormModal.includes('Nhu cầu vật tư theo định mức') && materialNormModal.includes('Khối lượng kế hoạch hạng mục × Định mức riêng/chung') && !materialNormModal.includes('>Khối lượng định mức</label>'), 'Material Norm auto-calculated quantity must be labeled as material demand, distinct from planned work quantity');
 assert(materialNormModal.includes("{ key: 'quotaQuantity', label: 'Nhu cầu định mức', kind: 'number' }") && !materialNormModal.includes('Định mức tổng kế hoạch'), 'Material Norm quick sort must use the same Nhu cầu định mức terminology as Warehouse.');
 assert(materialNormModal.includes('Chủng loại vật tư công trình *') && !materialNormModal.includes('Chủng Loại Vật Tư Công Trình *'), 'Material Norm category form label must use Vietnamese sentence case');
+assert(
+  materialNormModal.includes('Định mức vật tư / đơn vị (không bắt buộc)')
+  && materialNormModal.includes('Hạng mục thi công áp dụng *')
+  && !materialNormModal.includes('Liên kết hạng mục thi công căn / phòng *'),
+  'Material Norm form must use explicit material-norm and applicable-work-category terminology',
+);
 assert(warehouse.includes('onImportFile={hasImportAccess ? handleFileChangeExcel : undefined}'), 'Warehouse Excel menu must hide import when the current role cannot import');
 assert(!warehouse.includes('<span>Chỉ ADMIN được nhập</span>'), 'Warehouse must hide unavailable bulk-import action instead of rendering a disabled ADMIN-only placeholder');
 assert(warehouse.includes('exportLabel="Xuất dữ liệu Kho để chỉnh sửa"'), 'Warehouse Excel export must keep the agreed editing-oriented label');
