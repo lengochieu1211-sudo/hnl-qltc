@@ -717,7 +717,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     }
     const parsed = parseInteractiveNumericInput(raw);
     if (parsed === null) {
-      alert('Công thức Định mức / đơn vị không hợp lệ. Ví dụ: 0.35, 1/2.88 hoặc 2*0.35.');
+      alert('Công thức Định mức vật tư / đơn vị không hợp lệ. Ví dụ: 0.35, 1/2.88 hoặc 2*0.35.');
       return false;
     }
     setUnitNormPerM2(parsed);
@@ -765,7 +765,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     }
 
     if (unitNormPerM2Str.trim() && parseInteractiveNumericInput(unitNormPerM2Str) === null) {
-      alert('Định mức / đơn vị có công thức hoặc số nhập không hợp lệ.');
+      alert('Định mức vật tư / đơn vị có công thức hoặc số nhập không hợp lệ.');
       return;
     }
     const invalidOverrideCategory = workCategories.find((cat) => {
@@ -778,7 +778,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     }
 
     if (workCategories.length === 0) {
-      alert('Vui lòng chọn ít nhất một hạng mục thi công liên kết!');
+      alert('Vui lòng chọn ít nhất một hạng mục thi công áp dụng!');
       return;
     }
 
@@ -1122,7 +1122,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                           <p className="font-bold text-indigo-600">{formatAdaptiveDecimal(norm.quotaQuantity)} {norm.unit}</p>
                         </div>
                         <div>
-                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Định mức / đơn vị</p>
+                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Định mức vật tư / đơn vị</p>
                           <p className="font-semibold text-slate-700">
                             {norm.unitNormPerM2 !== undefined && norm.unitNormPerM2 !== null
                               ? `${formatAdaptiveDecimal(norm.unitNormPerM2)} ${norm.unit}/${norm.normBasisUnit || 'm²'}`
@@ -1197,7 +1197,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             {/* Work Category Select (Hạng Mục Thi Công Căn Hộ) */}
             <div>
               <label className="block font-bold text-slate-700 mb-1.5 flex items-center justify-between">
-                <span>Liên kết hạng mục thi công căn / phòng *</span>
+                <span>Hạng mục thi công áp dụng *</span>
                 <span className="text-[10px] text-indigo-600 font-bold">(Chọn một hoặc nhiều hạng mục)</span>
               </label>
               
@@ -1281,7 +1281,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               </div>
               <div className="flex flex-col">
                 <div className="flex items-start justify-between gap-2 mb-1 sm:min-h-[2.75rem]">
-                  <label className="block font-bold text-slate-700 leading-tight pt-0.5">Định mức / đơn vị (không bắt buộc)</label>
+                  <label className="block font-bold text-slate-700 leading-tight pt-0.5">Định mức vật tư / đơn vị (không bắt buộc)</label>
                   <div className="flex items-center gap-1 shrink-0">
                     {evaluateMathExpression(unitNormPerM2Str) !== null && /[+\-*/xX×:÷]/.test(unitNormPerM2Str) && (
                       <span className="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded text-[10px] font-extrabold">
