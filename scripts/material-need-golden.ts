@@ -400,9 +400,9 @@ assert.notEqual(totalPlannedNorm, scopedPlanResult.lines[0]?.estimatedQty, 'Plan
 const warehouseSource = readFileSync(new URL('../src/components/WarehouseTab.tsx', import.meta.url), 'utf8');
 const materialNormSource = readFileSync(new URL('../src/components/MaterialNormModal.tsx', import.meta.url), 'utf8');
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
-assert.match(warehouseSource, /Định mức tổng theo KL kế hoạch/, 'Warehouse UI must label project-plan quota explicitly');
+assert.match(warehouseSource, /Nhu cầu vật tư theo định mức/, 'Warehouse UI must label project-plan quota explicitly');
 assert.match(warehouseSource, /Nhu cầu theo phạm vi/, 'Warehouse UI must label scoped Material Need explicitly');
-assert.match(materialNormSource, /Định mức tổng theo KL kế hoạch/, 'Material Norm UI must label planned quota explicitly');
+assert.match(materialNormSource, /Nhu cầu vật tư theo định mức/, 'Material Norm UI must label planned quota explicitly');
 assert.match(appSource, /Number\(work\.planned\) \|\| 0\) \* factor/, 'Central planned quota must remain WorkVolume.planned × norm factor');
 
 console.log('MATERIAL NEED GOLDEN PASS');
