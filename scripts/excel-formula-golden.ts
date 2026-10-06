@@ -50,8 +50,8 @@ const headerColumn = (header: string) => {
   return -1;
 };
 
-const plannedCol = headerColumn('KL Định Mức');
-const actualCol = headerColumn('KL Thực Tế (chỉ xem - không import)');
+const plannedCol = headerColumn('Khối lượng kế hoạch');
+const actualCol = headerColumn('Khối lượng thực hiện (chỉ xem - không nhập lại)');
 const priceCol = headerColumn('Đơn Giá (VNĐ)');
 const amountCol = headerColumn('Thành Tiền (VNĐ)');
 const progressCol = headerColumn('Tiến Độ (%)');
