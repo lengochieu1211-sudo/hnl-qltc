@@ -1623,7 +1623,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       { key: 'specificNorm', label: 'ĐM riêng hạng mục', editable: hasNormManageAccess, type: 'number', allowExpression: true, width: 145, validate: (value) => { const raw = String(value ?? '').trim(); const parsed = raw ? evaluateMathExpression(raw) : null; return parsed !== null && parsed < 0 ? 'Không được âm' : null; } },
       { key: 'generalNorm', label: 'ĐM chung', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), type: 'number', allowExpression: true, width: 120, validate: (value) => { const raw = String(value ?? '').trim(); const parsed = raw ? evaluateMathExpression(raw) : null; return parsed !== null && parsed < 0 ? 'Không được âm' : null; } },
       { key: 'normSource', label: 'Nguồn định mức', editable: false, width: 155 },
-      { key: 'quotaQuantity', label: 'Định mức tổng theo KL kế hoạch', editable: false, type: 'number', width: 205 },
+      { key: 'quotaQuantity', label: 'Nhu cầu vật tư theo định mức', editable: false, type: 'number', width: 205 },
       { key: 'notes', label: 'Ghi chú / Tiêu chuẩn kỹ thuật', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), width: 300 },
     ];
     if (quickEditMode === 'stock') return [
@@ -1933,7 +1933,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         icon={Layers}
         iconClassName="text-blue-600"
         title="Danh mục kho"
-        description="Tổng hợp vật tư và thiết bị theo Nhập, Xuất, Tồn kho; vật tư hiển thị thêm Định mức tổng theo KL kế hoạch."
+        description="Tổng hợp vật tư và thiết bị theo Nhập, Xuất, Tồn kho; vật tư hiển thị thêm Nhu cầu vật tư theo định mức."
         bodyClassName="space-y-3"
       >
         <div className="space-y-3">
@@ -1986,7 +1986,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               { key: 'totalIn', label: 'Nhập', kind: 'number', defaultOrder: 'desc' },
               { key: 'totalOut', label: 'Xuất', kind: 'number', defaultOrder: 'desc' },
               ...(warehouseCatalogTab === 'material'
-                ? [{ key: 'normQuantity' as const, label: 'Khối lượng định mức', kind: 'number' as const, defaultOrder: 'desc' as const }]
+                ? [{ key: 'normQuantity' as const, label: 'Nhu cầu định mức', kind: 'number' as const, defaultOrder: 'desc' as const }]
                 : []),
               { key: 'currentStock', label: 'Tồn kho', kind: 'number', defaultOrder: 'desc' },
             ]}
@@ -2006,7 +2006,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 <span>ĐVT</span>
                 <span className="text-right">Nhập</span>
                 <span className="text-right">Xuất</span>
-                <span className="whitespace-nowrap text-right leading-none">Khối lượng định mức</span>
+                <span className="whitespace-nowrap text-right leading-none">Nhu cầu định mức</span>
                 <span className="text-right">Tồn kho</span>
               </div>
               <div className="max-h-[46vh] divide-y divide-slate-100 overflow-y-auto">
@@ -2317,7 +2317,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 itemCount={materialNeedLines.length}
                 options={[
                   { key: 'material', label: 'Vật tư', kind: 'alpha', defaultOrder: 'asc' },
-                  { key: 'category', label: 'Nhóm vật tư', kind: 'alpha', defaultOrder: 'asc' },
+                  { key: 'category', label: 'Chủng loại vật tư', kind: 'alpha', defaultOrder: 'asc' },
                   { key: 'unit', label: 'ĐVT', kind: 'alpha', defaultOrder: 'asc' },
                   { key: 'remaining', label: 'Còn cần theo phạm vi', kind: 'number', defaultOrder: 'desc' },
                   { key: 'deficit', label: 'Thiếu', kind: 'number', defaultOrder: 'desc' },
@@ -2336,7 +2336,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               ) : (
                 <div className="max-h-[52vh] overflow-auto overscroll-contain rounded-xl border border-indigo-100 bg-white sm:max-h-[28rem]">
                   <table className="min-w-[900px] w-full text-[11px]">
-                    <thead className="sticky top-0 z-10 bg-slate-50 text-slate-600"><tr><th className="p-2 text-left">Vật tư</th><th className="p-2 text-left">Nhóm vật tư</th><th className="p-2 text-left">ĐVT</th><th className="p-2 text-right">Nhu cầu theo phạm vi</th><th className="p-2 text-right">Đã xuất</th>{hasMaterialAllocationFilter && <th className="p-2 text-right">Chưa phân bổ</th>}<th className="p-2 text-right">Còn cần theo phạm vi</th><th className="p-2 text-right">Tồn kho</th><th className="p-2 text-right">Thiếu</th></tr></thead>
+                    <thead className="sticky top-0 z-10 bg-slate-50 text-slate-600"><tr><th className="p-2 text-left">Vật tư</th><th className="p-2 text-left">Chủng loại vật tư</th><th className="p-2 text-left">ĐVT</th><th className="p-2 text-right">Nhu cầu theo phạm vi</th><th className="p-2 text-right">Đã xuất</th>{hasMaterialAllocationFilter && <th className="p-2 text-right">Chưa phân bổ</th>}<th className="p-2 text-right">Còn cần theo phạm vi</th><th className="p-2 text-right">Tồn kho</th><th className="p-2 text-right">Thiếu</th></tr></thead>
                     <tbody>
                       {materialNeedLines.map((line) => (
                         <tr key={line.materialKey} className="border-t border-slate-100">
@@ -2420,7 +2420,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             </span>
           </div>
           <p className="text-[11px] text-indigo-700 leading-normal">
-            Hệ thống phát hiện các vật tư đã nhập gần đủ hoặc vượt Định mức tổng theo KL kế hoạch. Vui lòng đối chiếu kỹ khi làm việc với nhà cung cấp hoặc đặt đơn cuối!
+            Hệ thống phát hiện các vật tư đã nhập gần đủ hoặc vượt Nhu cầu vật tư theo định mức. Vui lòng đối chiếu kỹ khi làm việc với nhà cung cấp hoặc đặt đơn cuối!
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto pr-1 pt-1">
             {quotaWarnings.map((item, idx) => {
@@ -3114,7 +3114,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     <div className="rounded-xl border border-blue-100 bg-blue-50 p-2.5">
                       {hasNormManageAccess ? (
                         <>
-                          <label className="block text-[10px] font-bold text-blue-800 mb-1">Nhóm vật tư mới</label>
+                          <label className="block text-[10px] font-bold text-blue-800 mb-1">Chủng loại vật tư mới</label>
                           <input
                             type="text"
                             value={customMaterialCategory}
