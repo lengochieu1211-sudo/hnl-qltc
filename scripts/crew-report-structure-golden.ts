@@ -71,6 +71,20 @@ assert.ok(
   shareModalSource.includes('const x = teamStartX + teamIndex * teamWidth + metricIndex * metricWidth;'),
   'crew share total row must align from teamStartX',
 );
+assert.ok(
+  shareModalSource.includes('text-center align-middle">Ngày</th>')
+  && shareModalSource.includes('text-center font-bold tabular-nums text-slate-700">{formatDateDDMMYYYY(dateRow.date)}</td>')
+  && shareModalSource.includes('bg-blue-50 px-3 py-2 text-center">TỔNG</td>'),
+  'crew report fixed Date column must stay centered in header, body, and total row',
+);
+assert.ok(
+  shareModalSource.includes("const dateHeaderText = 'Ngày';")
+  && shareModalSource.includes('dateX + (dateWidth - ctx.measureText(dateHeaderText).width) / 2')
+  && shareModalSource.includes('const dateText = formatDateDDMMYYYY(dateRow.date);')
+  && shareModalSource.includes('dateX + (dateWidth - ctx.measureText(dateText).width) / 2')
+  && shareModalSource.includes("const totalLabel = 'TỔNG';"),
+  'crew report image export must center Date header/body/total instead of using fixed left offsets',
+);
 const crewTabSource = readFileSync(new URL('../src/components/CrewTabBase.tsx', import.meta.url), 'utf8');
 assert.ok(
   crewTabSource.includes('className="hidden 2xl:grid 2xl:grid-cols-2 gap-2 border-b border-slate-200 bg-slate-50/70 p-3"'),
