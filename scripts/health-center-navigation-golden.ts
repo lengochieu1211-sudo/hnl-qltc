@@ -25,7 +25,7 @@ const healthBaseSource = fs.readFileSync('src/healthCenter/HealthCenterPanelBase
 assert.match(appSource, /entityType === 'room'.*'floorplan'/s);
 assert.match(panelSource, /entityType === 'room'[\s\S]*qlct_diagnostic_navigation_request[\s\S]*qlct-diagnostic-open-entity/);
 assert.match(floorSource, /HEALTH_CENTER_ROOM_OPEN/);
-assert.match(configSource, /HNL Health Center/);
+assert.match(configSource, /Trung tâm kiểm tra dữ liệu \(Health Center\)/);
 assert.match(configSource, /Trạng thái hệ thống & đồng bộ/);
 assert.match(navSource, /activate\('config'\)[\s\S]*\{t\('config'\)\}/);
 assert.match(roomModalSource, /Hạng mục mồ côi cần xử lý/);
