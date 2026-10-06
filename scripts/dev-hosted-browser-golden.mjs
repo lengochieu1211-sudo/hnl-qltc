@@ -859,7 +859,33 @@ async function verifyUiUxV3Shell(page, context, label) {
   pass(`${label} UI/UX V3 offline safety + dark-mode smoke`, `${offlineMetrics.lines} lines · chip visible`);
 
   await context.setOffline(false);
-  await page.waitForFunction(() => navigator.onLine === true, null, { timeout: 10000 });
+  const reconnectProbeOk = await page.evaluate(async () => {
+    try {
+      const response = await fetch(`/__/firebase/init.json?qlct_uiux_reconnect=${Date.now()}`, {
+        method: 'GET',
+        cache: 'no-store',
+        credentials: 'same-origin',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  });
+  assert(reconnectProbeOk, `${label}: network stack did not recover after Playwright offline emulation`);
+
+  // Playwright's offline emulation controls the browser network stack, but Chromium's
+  // navigator.onLine flag is not a stable API contract across versions. If the flag stays
+  // stale after the network is already reachable, reload once so the new document samples
+  // the restored online state before the remaining UI checks continue.
+  if (!(await page.evaluate(() => navigator.onLine === true))) {
+    const reconnectResponse = await page.reload({ waitUntil: 'domcontentloaded', timeout: 45000 });
+    assert(reconnectResponse && reconnectResponse.status() === 200, `${label}: reconnect reload failed`);
+    await page.waitForSelector('#root', { timeout: 15000 });
+    await page.waitForFunction(() => document.querySelector('#root')?.children.length > 0, null, { timeout: 20000 });
+    await page.locator('[data-hnl-global-header]').first().waitFor({ state: 'visible', timeout: 10000 });
+  }
+  assert(await page.evaluate(() => navigator.onLine === true), `${label}: browser online state did not recover after reconnect reload`);
   await page.waitForTimeout(250);
 }
 
