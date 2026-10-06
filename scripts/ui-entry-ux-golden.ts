@@ -290,6 +290,14 @@ assert(
   && !warehouse.includes("label: 'Nhóm'"),
   'Warehouse material category field must use Chủng loại terminology consistently instead of Nhóm'
 );
+assert(
+  warehouse.includes('Còn cần theo định mức')
+  && warehouse.includes('Cảnh báo nhập kho so với nhu cầu vật tư theo định mức')
+  && warehouse.includes('Nhu cầu định mức:')
+  && !warehouse.includes('Định mức tổng kế hoạch')
+  && !warehouse.includes('Còn cần theo kế hoạch'),
+  'Warehouse must use one material-demand vocabulary across stock, warnings, and material-need surfaces'
+);
 assert(warehouse.includes("{ key: 'unit', label: 'ĐVT', kind: 'alpha', defaultOrder: 'asc' }") && warehouse.includes('<th className="p-2 text-left">Chủng loại vật tư</th><th className="p-2 text-left">ĐVT</th>'), 'Gợi ý vật tư must show Chủng loại vật tư and ĐVT as separate explicit columns.');
 assert(warehouse.includes('min-w-[900px]') && warehouse.includes('{line.category}</td>') && warehouse.includes('{line.unit}</td>'), 'Gợi ý vật tư must preserve separate Chủng loại vật tư and ĐVT data on responsive tables.');
 assert(!warehouse.includes('Danh mục &amp; tồn kho'), 'Bảng tổng tồn kho must not duplicate the Danh mục kho navigation button.');
