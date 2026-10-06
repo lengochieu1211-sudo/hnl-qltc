@@ -364,7 +364,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       Number(displayedPendingDriveUploads || 0) > 0
     );
 
-    if (offline) return { label: 'Offline', className: 'border-slate-200 bg-slate-100 text-slate-600' };
+    if (offline) return { label: 'Ngoại tuyến', className: 'border-slate-200 bg-slate-100 text-slate-600' };
     if (syncing) return { label: 'Đang đồng bộ', className: 'border-sky-200 bg-sky-50 text-sky-700' };
     if (needsSync) return { label: 'Cần đồng bộ', className: 'border-amber-200 bg-amber-50 text-amber-700' };
     if (syncDiagnostics?.dataCloudPhase === 'synced' || Number(syncDiagnostics?.lastSyncAt || 0) > 0) {
@@ -772,8 +772,8 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           id="system-sync-card"
           icon={ShieldCheck}
           iconClassName="text-emerald-600"
-          title="HNL Health Center"
-          description="Chẩn đoán hệ thống · cảnh báo đồng bộ/ảnh/quyền · audit dữ liệu & liên kết."
+          title="Trung tâm kiểm tra dữ liệu (Health Center)"
+          description="Chẩn đoán hệ thống · cảnh báo đồng bộ/ảnh/quyền · kiểm tra dữ liệu & liên kết."
           badge={syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'Cloud sẵn sàng' : 'Đang kiểm tra'}
           badgeClassName={syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}
           bodyClassName="p-0"
@@ -806,17 +806,17 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
               <div><b>Ảnh chờ Cloud:</b> {displayedPhotoPending} · {displayedPhotoPhase}</div>
               <div><b>Drive:</b> {driveSyncStatus} · pending {displayedPendingDriveUploads}</div>
               <div><b>Sync cuối:</b> {syncDiagnostics.lastSyncAt > 0 ? formatDateTime(syncDiagnostics.lastSyncAt) : 'Chưa có'}</div>
-              <div><b>Mạng:</b> {syncDiagnostics.online === false ? 'Offline' : 'Online'}</div>
+              <div><b>Mạng:</b> {syncDiagnostics.online === false ? 'Ngoại tuyến' : 'Trực tuyến'}</div>
             </div>
           </div>
           {displayedLastSyncError && (
             <div className="rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-[10px] text-rose-800 break-words">
-              <b>Lỗi sync gần nhất:</b> {displayedLastSyncError}
+              <b>Lỗi đồng bộ gần nhất:</b> {displayedLastSyncError}
             </div>
           )}
           {syncDiagnostics.duplicateProjectIds.length > 0 && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-2.5 text-[10px] text-amber-900">
-              <b>Cảnh báo project trùng tên:</b> đang có {syncDiagnostics.duplicateProjectIds.length + 1} project cùng tên nhưng khác ID. Không tự gộp. ID khác: {syncDiagnostics.duplicateProjectIds.map((id) => id.slice(0, 8)).join(', ')}.
+              <b>Cảnh báo dự án trùng tên:</b> đang có {syncDiagnostics.duplicateProjectIds.length + 1} project cùng tên nhưng khác ID. Không tự gộp. ID khác: {syncDiagnostics.duplicateProjectIds.map((id) => id.slice(0, 8)).join(', ')}.
             </div>
           )}
           <div className="flex flex-wrap gap-1.5">
