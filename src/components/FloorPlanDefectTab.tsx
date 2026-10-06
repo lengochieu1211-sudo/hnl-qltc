@@ -3224,7 +3224,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         ? 'Chỉ Đạt nghiệm thu khi Tiến độ = Đã hoàn thành'
         : null,
     },
-    { key: 'targetDate', label: 'Hạn xong', editable: canManageStructure, type: 'date', width: 135 },
+    { key: 'targetDate', label: 'Hạn hoàn thành', editable: canManageStructure, type: 'date', width: 135 },
     { key: 'defectCount', label: 'Defect', editable: false, type: 'number', width: 85 },
   ] : [], [showQuickEdit, canManageStructure, normalizedStructureConfig.enabled, normalizedStructureConfig.label, quickStructureGroupOptions, quickWorkCategoryOptions, quickTeamOptions]);
 
