@@ -280,11 +280,22 @@ assert(warehouse.includes('Tổng hợp vật tư và thiết bị theo Nhập, 
 assert(warehouse.includes('text-[11px] font-bold text-slate-600') && !warehouse.includes('font-extrabold uppercase tracking-wide text-slate-500'), 'Danh mục kho table headings must use sentence case instead of forced uppercase.');
 assert(warehouse.includes("'Nhập kho' : 'Xuất kho'") && warehouse.includes("item.itemKind === 'equipment' ? 'Thiết bị'") && warehouse.includes("> Nhập kho") && warehouse.includes("> Xuất kho"), 'Warehouse visible status labels must use sentence case consistently.');
 assert(warehouse.includes('QuickSortBar<WarehouseCatalogSortKey>') && warehouse.includes("{ key: 'totalIn', label: 'Nhập', kind: 'number', defaultOrder: 'desc' }") && warehouse.includes("{ key: 'currentStock', label: 'Tồn kho', kind: 'number', defaultOrder: 'desc' }"), 'Danh mục kho must provide quick sorting for name and ledger-derived stock columns.');
-assert(warehouse.includes("{ key: 'category', label: warehouseCatalogTab === 'material' ? 'Chủng loại vật tư' : 'Loại thiết bị', kind: 'alpha', defaultOrder: 'asc' }") && warehouse.includes("{ key: 'unit', label: 'ĐVT', kind: 'alpha', defaultOrder: 'asc' }"), 'Danh mục kho must use Chủng loại vật tư for material category while using Loại thiết bị for equipment.');
-assert(warehouse.includes('min-w-[810px]') && warehouse.includes('grid-cols-[minmax(180px,1.6fr)_150px_52px_64px_64px_120px_76px]') && warehouse.includes("<span>{warehouseCatalogTab === 'material' ? 'Chủng loại vật tư' : 'Loại thiết bị'}</span>"), 'Danh mục kho must keep category, unit, Nhập, Xuất, Nhu cầu định mức and Tồn kho aligned with explicit Chủng loại vật tư / Loại thiết bị terminology.');
+assert(warehouse.includes("{ key: 'category', label: warehouseCatalogTab === 'equipment' ? 'Nhóm thiết bị' : 'Chủng loại vật tư', kind: 'alpha', defaultOrder: 'asc' }") && warehouse.includes("{ key: 'unit', label: 'ĐVT', kind: 'alpha', defaultOrder: 'asc' }"), 'Danh mục kho must use Chủng loại vật tư for material category while using Nhóm thiết bị for equipment.');
+assert(warehouse.includes('min-w-[810px]') && warehouse.includes('grid-cols-[minmax(180px,1.6fr)_150px_52px_64px_64px_120px_76px]') && warehouse.includes("<span>{warehouseCatalogTab === 'equipment' ? 'Nhóm thiết bị' : 'Chủng loại vật tư'}</span>"), 'Danh mục kho must keep category, unit, Nhập, Xuất, Nhu cầu định mức and Tồn kho aligned with explicit Chủng loại vật tư / Nhóm thiết bị terminology.');
 assert(warehouse.includes("warehouseCatalogTab === 'material'") && warehouse.includes("key: 'normQuantity' as const"), 'Danh mục kho must expose norm sorting only for materials.');
-assert(warehouse.includes("{ key: 'unit', label: 'ĐVT', kind: 'alpha', defaultOrder: 'asc' }") && warehouse.includes('<th className="p-2 text-left">Chủng loại vật tư</th><th className="p-2 text-left">ĐVT</th>'), 'Gợi ý vật tư must show Group and Unit as separate explicit columns.');
+assert(warehouse.includes("{ key: 'unit', label: 'ĐVT', kind: 'alpha', defaultOrder: 'asc' }") && warehouse.includes('<th className="p-2 text-left">Chủng loại vật tư</th><th className="p-2 text-left">ĐVT</th>'), 'Gợi ý vật tư must show Chủng loại vật tư and Unit as separate explicit columns.');
 assert(warehouse.includes("{ key: 'category', label: 'Chủng loại vật tư', editable: (row) => hasNormManageAccess") && !warehouse.includes("{ key: 'category', label: 'Nhóm', editable: (row) => hasNormManageAccess"), 'Material norm quick edit must use Chủng loại vật tư instead of the ambiguous Nhóm label.');
+assert(
+  warehouse.includes("{ key: 'category', label: 'Chủng loại vật tư / Nhóm thiết bị', editable: false")
+  && warehouse.includes("warehouseCatalogTab === 'equipment' ? 'Nhóm thiết bị' : 'Chủng loại vật tư'"),
+  'Warehouse stock/catalog category labels must distinguish Chủng loại vật tư from Nhóm thiết bị'
+);
+assert(
+  warehouse.includes('placeholder="Tìm vật tư, chủng loại vật tư, đơn vị..."')
+  && warehouse.includes('placeholder="Tìm vật tư theo tên, chủng loại hoặc đơn vị..."')
+  && !warehouse.includes('placeholder="Tìm vật tư, nhóm vật tư, đơn vị..."'),
+  'Warehouse material searches must use Chủng loại vật tư terminology consistently'
+);
 assert(warehouse.includes('Tên vật tư, Chủng loại vật tư và ĐVT không được để trống.') && warehouse.includes('Tên/Chủng loại vật tư/ĐVT/ĐM chung/Nhu cầu định mức/Ghi chú'), 'Material norm validation/help text must match the Chủng loại vật tư label and Nhu cầu định mức terminology.');
 assert(
   warehouse.includes("label: 'Nhu cầu định mức'")
@@ -295,7 +306,7 @@ assert(
   && !warehouse.includes('Tên/Nhóm'),
   'Warehouse must use one norm-demand terminology across quick edit, stock warnings and summary cards',
 );
-assert(warehouse.includes('min-w-[900px]') && warehouse.includes('{line.category}</td>') && warehouse.includes('{line.unit}</td>'), 'Gợi ý vật tư must preserve separate Group and Unit data on responsive tables.');
+assert(warehouse.includes('min-w-[900px]') && warehouse.includes('{line.category}</td>') && warehouse.includes('{line.unit}</td>'), 'Gợi ý vật tư must preserve separate material category and Unit data on responsive tables.');
 assert(!warehouse.includes('Danh mục &amp; tồn kho'), 'Bảng tổng tồn kho must not duplicate the Danh mục kho navigation button.');
 assert(warehouse.includes('whitespace-normal break-words font-bold leading-snug text-slate-800'), 'Danh mục kho must show complete material/equipment names instead of truncating them.');
 assert(warehouse.includes("itemKind === 'equipment' ? 'Tên thiết bị' : 'Tên vật tư'"), 'Warehouse form must use dynamic Vật tư/Thiết bị labels');
