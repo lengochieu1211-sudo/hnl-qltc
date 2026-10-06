@@ -1603,7 +1603,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     if (!showQuickEdit) return [];
     if (quickEditMode === 'norms') return [
       { key: 'materialName', label: 'Tên vật tư', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), required: true, width: 220 },
-      { key: 'category', label: 'Nhóm', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), required: true, width: 150 },
+      { key: 'category', label: 'Chủng loại vật tư', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), required: true, width: 170 },
       { key: 'unit', label: 'ĐVT', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), required: true, width: 90 },
       {
         key: 'workCategory',
@@ -1628,13 +1628,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     ];
     if (quickEditMode === 'stock') return [
       { key: 'materialName', label: 'Tên vật tư', editable: false, width: 220 },
-      { key: 'category', label: 'Nhóm', editable: false, width: 150 },
+      { key: 'category', label: 'Chủng loại', editable: false, width: 150 },
       { key: 'unit', label: 'ĐVT', editable: false, width: 90 },
       { key: 'totalIn', label: 'Tổng nhập', editable: false, type: 'number', width: 110 },
       { key: 'totalOut', label: 'Tổng xuất', editable: false, type: 'number', width: 110 },
       { key: 'currentStock', label: 'Tồn kho', editable: false, type: 'number', width: 110 },
-      { key: 'normQuantity', label: 'Định mức tổng kế hoạch', editable: false, type: 'number', width: 155 },
-      { key: 'remainingNeed', label: 'Còn cần theo kế hoạch', editable: false, type: 'number', width: 145 },
+      { key: 'normQuantity', label: 'Nhu cầu định mức', editable: false, type: 'number', width: 155 },
+      { key: 'remainingNeed', label: 'Còn cần theo định mức', editable: false, type: 'number', width: 155 },
     ];
     const base: QuickGridColumn[] = [
       { key: 'date', label: 'Ngày', editable: hasImportAccess, type: 'date', required: true, width: 135 },
@@ -1696,7 +1696,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         const nextMaterialName = String(primary.materialName || '').trim();
         const nextCategory = String(primary.category || '').trim();
         const nextUnit = normalizeUnit(String(primary.unit || '').trim()) || String(primary.unit || '').trim();
-        if (!nextMaterialName || !nextCategory || !nextUnit) throw new Error('Tên vật tư, Nhóm và ĐVT không được để trống.');
+        if (!nextMaterialName || !nextCategory || !nextUnit) throw new Error('Tên vật tư, Chủng loại vật tư và ĐVT không được để trống.');
 
         const duplicateMaterial = materialNorms.find((norm) =>
           norm.id !== normId
@@ -1784,7 +1784,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
       const confirmed = await confirmAsync(
         `Lưu thay đổi Định mức cho ${affectedNormIds.size} vật tư?\n\n`
-        + 'Tên/Nhóm/ĐVT/ĐM chung/Khối lượng/Ghi chú được lấy từ dòng đại diện; các dòng con chỉ quản lý liên kết Hạng mục và ĐM riêng. materialId được giữ nguyên.'
+        + 'Tên/Chủng loại vật tư/ĐVT/ĐM chung/Nhu cầu định mức/Ghi chú được lấy từ dòng đại diện; các dòng con chỉ quản lý liên kết Hạng mục và ĐM riêng. materialId được giữ nguyên.'
       );
       if (!confirmed) return false;
       onImportNorms(Array.from(byId.values()));
@@ -1981,7 +1981,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             itemCount={warehouseCatalogStockRows.length}
             options={[
               { key: 'name', label: warehouseCatalogTab === 'equipment' ? 'Tên thiết bị' : 'Tên vật tư', kind: 'alpha', defaultOrder: 'asc' },
-              { key: 'category', label: 'Nhóm', kind: 'alpha', defaultOrder: 'asc' },
+              { key: 'category', label: warehouseCatalogTab === 'material' ? 'Chủng loại vật tư' : 'Chủng loại thiết bị', kind: 'alpha', defaultOrder: 'asc' },
               { key: 'unit', label: 'ĐVT', kind: 'alpha', defaultOrder: 'asc' },
               { key: 'totalIn', label: 'Nhập', kind: 'number', defaultOrder: 'desc' },
               { key: 'totalOut', label: 'Xuất', kind: 'number', defaultOrder: 'desc' },
@@ -1999,10 +1999,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           />
 
           <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <div className="min-w-[780px]">
-              <div data-hnl-warehouse-catalog-header="aligned" className="grid grid-cols-[minmax(180px,1.6fr)_120px_52px_64px_64px_120px_76px] items-center gap-2 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">
+            <div className="min-w-[810px]">
+              <div data-hnl-warehouse-catalog-header="aligned" className="grid grid-cols-[minmax(180px,1.6fr)_150px_52px_64px_64px_120px_76px] items-center gap-2 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">
                 <span>Tên {warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'vật tư'}</span>
-                <span>Nhóm</span>
+                <span className="whitespace-nowrap">{warehouseCatalogTab === 'material' ? 'Chủng loại vật tư' : 'Chủng loại thiết bị'}</span>
                 <span>ĐVT</span>
                 <span className="text-right">Nhập</span>
                 <span className="text-right">Xuất</span>
@@ -2047,7 +2047,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         subtitle={quickEditMode === 'stock'
           ? 'Tồn kho là số tính từ Tổng nhập - Tổng xuất và luôn chỉ đọc.'
           : quickEditMode === 'norms'
-            ? 'Mỗi vật tư là một nhóm. Dòng đại diện sửa Tên/Nhóm/ĐVT/ĐM chung/Khối lượng/Ghi chú và tự đồng bộ các dòng con; dòng con sửa Hạng mục + ĐM riêng.'
+            ? 'Mỗi vật tư là một nhóm dòng. Dòng đại diện sửa Tên/Chủng loại vật tư/ĐVT/ĐM chung/Nhu cầu định mức/Ghi chú và tự đồng bộ các dòng con; dòng con sửa Hạng mục + ĐM riêng.'
             : 'Chỉnh trực tiếp theo cột/dòng; dữ liệu chỉ ghi khi bấm Lưu.'}
         tabs={[
           { key: 'norms', label: 'Định mức theo Hạng mục' },
