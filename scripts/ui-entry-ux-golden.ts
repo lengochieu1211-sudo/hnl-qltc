@@ -217,6 +217,7 @@ assert(checklistUi.includes('flex items-center justify-end gap-2') && checklistU
 const workVolumeUi = read('src/components/WorkVolumeTab.tsx');
 assert(workVolumeUi.includes("label: 'Khối lượng kế hoạch'") && workVolumeUi.includes('<span>Khối lượng kế hoạch *</span>') && !workVolumeUi.includes('<span>Khối lượng định mức *</span>'), 'Work Volume planned quantity must be labeled Khối lượng kế hoạch to avoid confusion with material norms');
 assert(workVolumeUi.includes("label: 'Khối lượng thực hiện'") && workVolumeUi.includes('<span className="truncate">Khối lượng thực hiện</span>') && !workVolumeUi.includes('Khối lượng đã làm'), 'Work Volume actual quantity must use one visible label: Khối lượng thực hiện');
+assert(workVolumeUi.includes('Căn / Phòng') && !workVolumeUi.includes('Căn/Phòng'), 'Work Volume visible room terminology must use Căn / Phòng consistently');
 const crewUiForPc = read('src/components/CrewTabBase.tsx');
 const roomHighlightUiForPc = read('src/components/RoomHighlightModal.tsx');
 const photoAttachmentUiForPc = read('src/components/PhotoAttachmentPicker.tsx');
