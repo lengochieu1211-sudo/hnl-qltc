@@ -3441,7 +3441,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
               {/* KPI Summary Strip */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 p-3 bg-white border-b border-slate-200 text-xs">
-                <button type="button" onClick={() => setDetailModalTab('rooms')} className="bg-indigo-50/80 border border-indigo-100 p-2 rounded-xl text-center hover:bg-indigo-100/80 transition cursor-pointer" title="Xem các Căn/Phòng đội đang làm">
+                <button type="button" onClick={() => setDetailModalTab('rooms')} className="bg-indigo-50/80 border border-indigo-100 p-2 rounded-xl text-center hover:bg-indigo-100/80 transition cursor-pointer" title="Xem các Căn / Phòng đội đang làm">
                   <div className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider">Căn / Phòng & Tầng</div>
                   <div className="text-sm sm:text-base font-black text-indigo-900 mt-0.5 flex items-center justify-center gap-1">
                     <Home className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
@@ -3452,7 +3452,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   </div>
                 </button>
 
-                <button type="button" onClick={() => setDetailModalTab('rooms')} className="bg-emerald-50/80 border border-emerald-100 p-2 rounded-xl text-center hover:bg-emerald-100/80 transition cursor-pointer" title="Xem chi tiết khối lượng theo Căn/Phòng và tầng">
+                <button type="button" onClick={() => setDetailModalTab('rooms')} className="bg-emerald-50/80 border border-emerald-100 p-2 rounded-xl text-center hover:bg-emerald-100/80 transition cursor-pointer" title="Xem chi tiết khối lượng theo Căn / Phòng và tầng">
                   <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Khối lượng thi công</div>
                   <div className="text-sm sm:text-base font-black text-emerald-900 mt-0.5 flex items-center justify-center gap-1 min-w-0">
                     <BarChart3 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
@@ -3868,10 +3868,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           <thead className="bg-slate-100 text-slate-700">
                             <tr>
                               <th className="p-2 text-left">Vật tư</th>
-                              <th className="p-2 text-right">ĐM theo KL giao</th>
-                              <th className="p-2 text-right">ĐM theo KL đã thi công</th>
+                              <th className="p-2 text-right">Nhu cầu theo KL giao</th>
+                              <th className="p-2 text-right">Nhu cầu theo KL thực hiện</th>
                               <th className="p-2 text-right">Đã xuất cho đội</th>
-                              <th className="p-2 text-right">Chênh lệch Xuất - ĐM</th>
+                              <th className="p-2 text-right">Chênh lệch Xuất - Nhu cầu</th>
                               <th className="p-2 text-right">Tỷ lệ</th>
                             </tr>
                           </thead>
@@ -3902,7 +3902,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       </div>
                     )}
                     <p className="text-[10px] text-slate-500">
-                      “ĐM theo KL giao” là nhu cầu lý thuyết nếu đội thi công hết toàn bộ khối lượng được giao; dùng để tham khảo kế hoạch cấp vật tư. Cột đối chiếu chính là “ĐM theo KL đã thi công”.
+                      “Nhu cầu theo KL giao” là lượng vật tư lý thuyết nếu đội thi công hết toàn bộ khối lượng được giao; dùng để tham khảo kế hoạch cấp vật tư. Cột đối chiếu chính là “Nhu cầu theo KL thực hiện”.
                     </p>
                   </div>
                 )}
@@ -4013,7 +4013,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                   {defectRoomName && (
                                     <>
                                       <span className="text-slate-300">·</span>
-                                      <span>Căn/Phòng: <strong className="text-slate-700">{defectRoomName}</strong></span>
+                                      <span>Căn / Phòng: <strong className="text-slate-700">{defectRoomName}</strong></span>
                                     </>
                                   )}
                                 </p>
