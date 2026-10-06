@@ -983,7 +983,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
     if (!isCompanySuperAdmin) return;
     const ok = await confirmAsync(`Reset PIN từ xa cho ${email}?
 
-PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nhập Google lại trước khi tiếp tục.`);
+PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng sẽ phải đăng nhập Google lại trước khi tiếp tục.`);
     if (!ok) return;
     setMemberMsg(null);
     try {
@@ -2128,7 +2128,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                               context={{ type: 'member', projectId: selectedPid, entityId: email }}
                               triggerLabel={contact?.phone ? 'Liên hệ' : 'Chia sẻ'}
                             />}
-                            {isCompanySuperAdmin && <button type="button" onClick={() => void handleRemotePinReset(m.email)} className="px-2 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 text-[9px] font-extrabold whitespace-nowrap" title="Vô hiệu hóa PIN local của user khi thiết bị online">Reset PIN</button>}
+                            {isCompanySuperAdmin && <button type="button" onClick={() => void handleRemotePinReset(m.email)} className="px-2 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 text-[9px] font-extrabold whitespace-nowrap" title="Vô hiệu hóa PIN cục bộ của người dùng khi thiết bị trực tuyến">Reset PIN</button>}
                             {canManageProjectMembers && <button
                               type="button"
                               onClick={() => handleRemoveMemberSafe(m.email)}

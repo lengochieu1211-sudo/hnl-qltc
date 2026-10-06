@@ -628,7 +628,7 @@ const DefectPhotoStrip: React.FC<DefectPhotoStripProps> = ({
           title="Mở thư viện ảnh"
         >
           <Images className="w-3.5 h-3.5" />
-          {totalCount} ảnh{pendingCount > 0 ? ` · ${pendingCount} chờ Cloud` : ''} · Bấm để xem
+          {totalCount} ảnh{pendingCount > 0 ? ` · ${pendingCount} chờ đồng bộ Cloud` : ''} · Bấm để xem
         </button>
       )}
     </div>

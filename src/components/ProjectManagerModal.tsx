@@ -1111,7 +1111,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         label: 'Nhân công & Đội thợ', 
         count: crewCount, 
         icon: History,
-        details: `${crewCount} đội & nhật ký chấm công`
+        details: `${crewCount} đội & nhật ký quân số`
       });
     }
 
@@ -1388,7 +1388,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         label: 'Nhân công & Đội thợ', 
         count: crewCount, 
         icon: History,
-        details: `${crewCount} đội & nhật ký chấm công`
+        details: `${crewCount} đội & nhật ký quân số`
       });
     }
 

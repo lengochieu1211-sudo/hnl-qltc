@@ -237,8 +237,8 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
     try {
       if (!props.accessVerified) throw new Error('Quyền truy cập dự án chưa được xác minh.');
       if (mode === 'ai') {
-        if (!props.online) throw new Error('AI Cloud đang offline. Chế độ AI chung cần có mạng.');
-        if (!provider || !model || !providerReady) throw new Error(providerId === 'cloudflare' ? 'Cloudflare HNL Managed AI chưa sẵn sàng.' : 'Provider chưa có HNL Managed API. Hãy nhập API Key riêng cho phiên này hoặc chọn provider khác.');
+        if (!props.online) throw new Error('AI Cloud đang ngoại tuyến. Chế độ AI chung cần có mạng.');
+        if (!provider || !model || !providerReady) throw new Error(providerId === 'cloudflare' ? 'Cloudflare HNL Managed AI chưa sẵn sàng.' : 'Nhà cung cấp chưa có HNL Managed API. Hãy nhập API Key riêng cho phiên này hoặc chọn nhà cung cấp khác.');
         const response = await provider.chat({
           mode: 'GENERAL_AI', model,
           messages: [
@@ -341,7 +341,7 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
           </div>
           <div className="flex items-center gap-1 text-[11px] font-semibold text-slate-600">
             {props.online ? <ShieldCheck className="w-4 h-4 text-emerald-600" /> : <WifiOff className="w-4 h-4 text-amber-600" />}
-            {props.online ? 'Online' : 'Offline cache'}
+            {props.online ? 'Trực tuyến' : 'Dữ liệu ngoại tuyến'}
           </div>
         </div>
         <div className="mt-4 grid grid-cols-4 gap-1.5">
