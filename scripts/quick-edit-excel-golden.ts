@@ -179,6 +179,11 @@ assert.match(warehouse, /Không thể đổi ĐVT/, 'Quick norm edit must block 
 assert.match(warehouse, /Không thể xóa Hạng mục cuối cùng/, 'Quick norm edit must protect the final work-category link');
 assert.match(warehouse, /requiresAnchorForInsert=\{quickEditMode === 'norms'\}/, 'Norm child insertion must require an existing material anchor');
 assert.match(warehouse, /canAddRows=\{quickEditMode === 'norms' \? hasNormManageAccess/, 'Norm quick edit may add child links only under ADMIN material-norm access');
+assert.match(warehouse, /key: 'itemKind'.*label: 'Loại hàng'.*editable: \(row\) => hasImportAccess && Boolean\(row\.__new\).*type: 'select'/, 'Warehouse ledger Quick Edit must expose item kind for new rows while keeping existing transaction kind read-only');
+assert.match(warehouse, /itemKind: item\.itemKind === 'equipment' \? 'equipment' : 'material'/, 'Warehouse Quick Edit rows must preserve existing material-vs-equipment identity');
+assert.match(warehouse, /const resolvedItemKind: InventoryItemKind = existing[\s\S]*row\.itemKind === 'equipment'/, 'Warehouse Quick Edit save must resolve item kind before creating a new ledger transaction');
+assert.match(warehouse, /materialId: resolvedItemKind === 'material'[\s\S]*: undefined/, 'Equipment Quick Edit transactions must never receive a materialId');
+assert.match(warehouse, /normQuantity: item\.itemKind === 'material' \? item\.normQuantity : ''[\s\S]*remainingNeed: item\.itemKind === 'material' \? item\.remainingNeed : ''/, 'Equipment stock rows must leave material norm-demand fields blank');
 assert.match(warehouse, /order-first col-span-2[\s\S]*Tạo phiếu/, 'Warehouse mobile primary Create Voucher action must occupy a full highlighted row');
 assert.match(warehouse, /lg:grid-flow-col[\s\S]*Tạo phiếu[\s\S]*Danh mục kho[\s\S]*triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit/, 'Warehouse PC actions must keep Create Voucher first, then Catalog/Norms, with consolidated data management');
 
