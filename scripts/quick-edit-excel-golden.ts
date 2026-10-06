@@ -170,7 +170,7 @@ assert.match(warehouse, /key: 'materialName'.*__groupPrimary/, 'Only the grouped
 assert.match(warehouse, /key: 'category'.*__groupPrimary/, 'Only the grouped primary row may edit the shared material group');
 assert.match(warehouse, /key: 'unit'.*__groupPrimary/, 'Only the grouped primary row may edit the shared material unit');
 assert.match(warehouse, /key: 'generalNorm'.*__groupPrimary/, 'Only the grouped primary row may edit the shared general norm');
-assert.match(warehouse, /Định mức tổng theo KL kế hoạch.*editable: false/, 'Derived material quota must be read-only in Quick Edit');
+assert.match(warehouse, /Nhu cầu vật tư theo định mức.*editable: false/, 'Derived material quota must be read-only in Quick Edit');
 assert.match(warehouse, /syncGroupColumns=\{quickEditMode === 'norms'/, 'Grouped norm rows must synchronize shared edits across child rows');
 assert.match(warehouse, /workCategoryNormsById/, 'Warehouse norm quick edit must persist per-work-category norms in the existing ID map');
 assert.match(warehouse, /inputExpressions/, 'Warehouse must persist quantity and norm expressions instead of flattening them to numbers');
