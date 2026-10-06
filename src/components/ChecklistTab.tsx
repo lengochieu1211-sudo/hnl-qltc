@@ -510,7 +510,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
             onClick={() => setSelectedFloor(floor)}
             className={`px-3.5 py-2 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
               selectedFloor === floor
-                ? 'bg-emerald-600 text-white shadow-md'
+                ? 'bg-blue-600 text-white shadow-md'
                 : 'bg-white text-slate-700 border border-slate-200'
             }`}
           >
