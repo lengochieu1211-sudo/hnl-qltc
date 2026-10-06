@@ -72,6 +72,7 @@ const addSourceMenu = read('src/components/AddSourceMenu.tsx');
 const dataManagementMenu = read('src/components/DataManagementMenu.tsx');
 const quickSortBar = read('src/components/QuickSortBar.tsx');
 const checklistTab = read('src/components/ChecklistTab.tsx');
+const offlineSyncBanner = read('src/components/OfflineSyncBanner.tsx');
 const healthCenterPanelBase = read('src/healthCenter/HealthCenterPanelBase.tsx');
 const runtimeDiagnostics = read('src/lib/runtimeDiagnostics.ts');
 const roomHighlight = read('src/components/RoomHighlightModal.tsx');
@@ -163,7 +164,7 @@ requireAll(firebase, ['queueProjectDiffsToFirestoreOffline', 'writeBatch(db)', '
 requireAll(app, ['canQueueOfflineFirestoreWrite', 'queueProjectDiffsToFirestoreOffline', 'Promise.allSettled(queued.commitPromises)', 'firestorePendingWriteCount'], 'App durable offline autosave');
 if (!app.includes('if (FIREBASE_ONLY_RUNTIME) return;') || !app.includes('Legacy data is migration input only')) fail('automatic legacy editor recovery is still active in Firebase-only runtime');
 const offlineBanner = read('src/components/OfflineSyncBanner.tsx');
-if (!offlineBanner.includes('hàng chờ Firestore bền vững') || offlineBanner.includes('construction_offline_pending')) fail('offline UI still depends on custom localStorage pending counter');
+if (!offlineBanner.includes('chờ Firestore') || offlineBanner.includes('construction_offline_pending')) fail('offline UI must surface Firestore pending writes without custom localStorage pending counters');
 pass('offline mutation durability uses Firestore SDK pending writes, not React/localStorage-only state');
 
 if (!exists('storage.rules') || !firebaseJson.includes('"storage"') || !firebaseJson.includes('"rules": "storage.rules"')) fail('Firebase Storage fallback rules are not retained in firebase.json');
@@ -395,6 +396,16 @@ requireAll(warehouseTab, ['grid grid-cols-3 gap-2 lg:contents', '<span className
 requireAll(workVolumeTab, ['grid w-full grid-cols-[minmax(0,1fr)_auto]', 'triggerLabel="Thêm hạng mục"', 'triggerLabel="Quản lý dữ liệu"'], 'Work Volume mobile keeps Add + Data on one row');
 requireAll(checklistTab, ['flex items-center justify-end gap-2', 'Thêm Tiêu Chí', 'triggerLabel="Quản lý dữ liệu"'], 'Checklist mobile keeps Add + Data in one action cluster');
 requireAll(floorPlanDefect, ['grid w-full grid-cols-2 gap-2', '<span className="sm:hidden">Khu/Tầng</span>', 'triggerLabel="Quản lý dữ liệu"'], 'Floor Plan mobile keeps Khu/Tầng + Data side-by-side');
+requireAll(authHeader, ['data-hnl-global-header', 'lg:flex lg:items-center lg:gap-3', 'lg:mb-0 lg:min-w-0 lg:flex-1', 'data-hnl-header-actions', '[&>button]:min-h-9 [&>button]:min-w-9'], 'compact desktop header + mobile touch-target contract');
+requireAll(offlineSyncBanner, ['data-hnl-offline-banner', 'data-hnl-offline-safety-text', 'data-hnl-offline-status-chip', 'bg-amber-50 text-amber-900 border-b border-amber-200', 'VIEWER chỉ được xem', 'chờ Firestore'], 'offline safety banner readable semantic contract');
+if (offlineSyncBanner.includes('className="truncate"') || offlineSyncBanner.includes('bg-amber-950')) fail('offline safety banner must not hide critical copy or regress to the heavy dark warning surface');
+requireAll(materialNormModal, ['bg-slate-100 text-slate-700 border border-slate-200'], 'Material work-category neutral semantic tag');
+if (materialNormModal.includes('bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-md')) fail('Material work-category tag must not look like success state');
+requireAll(crewTabBase, ['hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700', '<FileText className="h-4 w-4 shrink-0 text-blue-600" />'], 'Crew report share secondary action semantics');
+if (crewTabBase.includes('rounded-xl border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-extrabold text-emerald-700')) fail('Crew report share must not use success-green');
+requireAll(checklistTab, ["selectedFloor === floor", "? 'bg-blue-600 text-white shadow-md'"], 'Checklist floor selection uses HNL Blue');
+requireAll(floorPlanDefect, ['bg-blue-600 text-white font-black shadow-sm ring-2 ring-blue-300', 'className="h-9 w-9 inline-flex', 'className="h-9 max-w-[150px]', 'min-h-9 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700'], 'Floor Plan semantic selection + fullscreen touch-target contract');
+if (floorPlanDefect.includes('bg-rose-600/90 hover:bg-rose-600')) fail('Floor Plan minimize must not look destructive');
 
 requireAll(actionMenuButton, ['createPortal', 'data-hnl-action-menu-mode', "placement: 'above' | 'below'", 'naturalHeight > bestAvailable && naturalHeight > 220', 'scrollTopBeforeOpenRef', 'sm:w-auto', 'border-blue-600 bg-blue-600', 'border-slate-200 bg-white text-slate-600 shadow-none'], 'shared action menu adaptive near-trigger popover / bottom-sheet fallback with primary/secondary hierarchy');
 requireAll(addSourceMenu, ['Chọn cách thêm', 'Tạo mới để nhập thủ công', 'Lấy từ công trình/mẫu'], 'shared Add Source menu');
