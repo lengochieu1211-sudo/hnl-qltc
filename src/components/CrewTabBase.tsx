@@ -1979,9 +1979,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <button
                 type="button"
                 onClick={() => setShowCrewReportShare(true)}
-                className="flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-extrabold text-emerald-700 shadow-sm transition hover:bg-emerald-100 lg:px-3 lg:text-xs"
+                className="flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2 text-[11px] font-extrabold text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 lg:px-3 lg:text-xs"
               >
-                <FileText className="h-4 w-4 shrink-0" />
+                <FileText className="h-4 w-4 shrink-0 text-blue-600" />
                 <span className="sm:hidden">Chia sẻ</span>
                 <span className="hidden sm:inline">Chia sẻ báo cáo quân số</span>
               </button>
