@@ -480,7 +480,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       ? (normalizedStructureConfig.groups.find((group) => group.id === detailStructureGroupIds[0])?.name || `1 ${normalizedStructureConfig.label}`)
       : `${detailStructureGroupIds.length} ${normalizedStructureConfig.label}`;
   const detailFloorSummary = detailFloorIds.length === 0 ? 'Tất cả tầng' : detailFloorIds.length === 1 ? (detailVisibleFloorOptions.find((floor) => floor.id === detailFloorIds[0])?.floorName || '1 tầng') : `${detailFloorIds.length} tầng`;
-  const detailRoomSummary = detailRoomIds.length === 0 ? 'Tất cả Căn/Phòng' : detailRoomIds.length === 1 ? (detailVisibleRoomOptions.find((row) => row.roomId === detailRoomIds[0])?.roomName || '1 Căn/Phòng') : `${detailRoomIds.length} Căn/Phòng`;
+  const detailRoomSummary = detailRoomIds.length === 0 ? 'Tất cả Căn / Phòng' : detailRoomIds.length === 1 ? (detailVisibleRoomOptions.find((row) => row.roomId === detailRoomIds[0])?.roomName || '1 Căn / Phòng') : `${detailRoomIds.length} Căn / Phòng`;
   const detailTeamSummary = detailTeamNames.length === 0 ? 'Tất cả đội' : detailTeamNames.length === 1 ? detailTeamNames[0] : `${detailTeamNames.length} đội`;
   const hasDetailFilters = detailSearch.trim().length > 0 || detailStructureGroupIds.length > 0 || detailFloorIds.length > 0 || detailRoomIds.length > 0 || detailTeamNames.length > 0;
 
@@ -1187,7 +1187,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                             setDetailSearch('');
                           }}
                           className="text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-extrabold text-[11px]"
-                          title="Xem chi tiết khối lượng theo Khu/Khối, Tầng, Căn/Phòng và đội"
+                          title="Xem chi tiết khối lượng theo Khu/Khối, Tầng, Căn / Phòng và đội"
                         >
                           <Eye className="w-3.5 h-3.5" /> Xem chi tiết
                         </button>
@@ -1600,7 +1600,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 </div>
                 <p className="mt-1 text-[11px] text-slate-500">
                   Tổng danh mục: <strong>{formatDecimal(detailVolumeTarget.actual)}</strong> / {formatDecimal(detailVolumeTarget.planned)} {detailVolumeTarget.unit}
-                  {' · '}Phân bổ qua Căn/Phòng: <strong>{formatDecimal(detailBreakdown.totalActual)}</strong> / {formatDecimal(detailBreakdown.totalAssigned)} {detailVolumeTarget.unit}
+                  {' · '}Phân bổ qua Căn / Phòng: <strong>{formatDecimal(detailBreakdown.totalActual)}</strong> / {formatDecimal(detailBreakdown.totalAssigned)} {detailVolumeTarget.unit}
                 </p>
               </div>
               <button type="button" onClick={() => setDetailVolumeTarget(null)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-500" aria-label="Đóng chi tiết khối lượng">
@@ -1646,7 +1646,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                   </button>
                   {showDetailRoomPicker && (
                     <div className="absolute left-0 right-0 z-30 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
-                      <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50"><input type="checkbox" checked={detailRoomIds.length === 0} onChange={() => setDetailRoomIds([])} /> Tất cả Căn/Phòng</label>
+                      <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50"><input type="checkbox" checked={detailRoomIds.length === 0} onChange={() => setDetailRoomIds([])} /> Tất cả Căn / Phòng</label>
                       {detailVisibleRoomOptions.map((row) => <label key={row.roomId} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50"><input type="checkbox" checked={detailRoomIds.includes(row.roomId)} onChange={() => setDetailRoomIds((ids) => ids.includes(row.roomId) ? ids.filter((id) => id !== row.roomId) : [...ids, row.roomId])} /><span className="min-w-0 truncate"><span className="font-semibold">{row.roomName}</span><span className="text-slate-500"> · {row.floorName}</span></span></label>)}
                     </div>
                   )}
@@ -1666,7 +1666,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <div className="relative min-w-0 flex-1">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <input value={detailSearch} onChange={(event) => setDetailSearch(event.target.value)} placeholder="Tìm Căn/Phòng, tầng hoặc đội..." className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-xs font-semibold text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+                  <input value={detailSearch} onChange={(event) => setDetailSearch(event.target.value)} placeholder="Tìm Căn / Phòng, tầng hoặc đội..." className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-xs font-semibold text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
                 </div>
                 {hasDetailFilters && (
                   <button type="button" onClick={() => { setDetailSearch(''); setDetailStructureGroupIds([]); setDetailFloorIds([]); setDetailRoomIds([]); setDetailTeamNames([]); }} className="min-h-10 rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-extrabold text-indigo-700 hover:bg-indigo-50">Đặt lại bộ lọc</button>
@@ -1677,23 +1677,23 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 minItems={0}
                 options={[
                   { key: 'floor', label: 'Tầng', kind: 'floor' },
-                  { key: 'room', label: 'Căn/Phòng', kind: 'alpha' },
+                  { key: 'room', label: 'Căn / Phòng', kind: 'alpha' },
                   { key: 'team', label: 'Đội', kind: 'alpha' },
                   { key: 'assigned', label: 'Khối lượng', kind: 'number' },
-                  { key: 'actual', label: 'Đã làm', kind: 'number' },
+                  { key: 'actual', label: 'Khối lượng thực hiện', kind: 'number' },
                   { key: 'progress', label: 'Tiến độ', kind: 'number' },
                 ]}
                 activeKey={detailSortBy}
                 order={detailSortOrder}
                 onChange={(key, order) => { setDetailSortBy(key as typeof detailSortBy); setDetailSortOrder(order); }}
                 onReset={() => { setDetailSortBy('floor'); setDetailSortOrder('asc'); }}
-                summary={`${detailRows.length} Căn/Phòng`}
+                summary={`${detailRows.length} Căn / Phòng`}
               />
             </div>
 
             <div className="flex-1 overflow-auto p-3 sm:p-4">
               {detailRows.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-xs text-slate-500">Không có Căn/Phòng phù hợp phạm vi lọc.</div>
+                <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-xs text-slate-500">Không có Căn / Phòng phù hợp phạm vi lọc.</div>
               ) : (
                 <div className="min-w-[760px] overflow-hidden rounded-2xl border border-slate-200">
                   <table className="w-full text-[11px]">
@@ -1731,7 +1731,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                     </tbody>
                     <tfoot className="bg-slate-50 font-extrabold text-slate-800">
                       <tr>
-                        <td colSpan={normalizedStructureConfig.enabled ? 4 : 3} className="px-3 py-2">TỔNG TRONG PHẠM VI ĐANG XEM · {detailRows.length} Căn/Phòng</td>
+                        <td colSpan={normalizedStructureConfig.enabled ? 4 : 3} className="px-3 py-2">TỔNG TRONG PHẠM VI ĐANG XEM · {detailRows.length} Căn / Phòng</td>
                         <td className="px-3 py-2 text-right">{formatDecimal(detailRows.reduce((sum, row) => sum + row.assignedVolume, 0))} {detailVolumeTarget.unit}</td>
                         <td className="px-3 py-2 text-right text-emerald-700">{formatDecimal(detailRows.reduce((sum, row) => sum + row.actualVolume, 0))} {detailVolumeTarget.unit}</td>
                         <td className="px-3 py-2 text-right">—</td>
