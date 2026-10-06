@@ -488,7 +488,20 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     return map;
   }, [inventory, activeMaterialNorms]);
 
-  const categoriesInUse = Array.from(new Set(activeMaterialNorms.map((n) => n.category).filter(Boolean)));
+  const categoriesInUse = React.useMemo(
+    () => Array.from(new Set(
+      activeMaterialNorms
+        .map((norm) => norm.category?.trim())
+        .filter((value): value is string => Boolean(value))
+    )),
+    [activeMaterialNorms]
+  );
+
+  const materialCategoryOptions = React.useMemo(() => {
+    const options = new Set<string>(COMMON_CATEGORIES);
+    categoriesInUse.forEach((cat) => options.add(cat));
+    return Array.from(options);
+  }, [categoriesInUse]);
 
   const filteredNorms = activeMaterialNorms.filter((norm) => {
     const matchesCategory = selectedCategoryFilter === 'all' || norm.category === selectedCategoryFilter;
@@ -606,7 +619,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
 
   const handleOpenEdit = async (norm: MaterialNorm) => {
     setEditingId(norm.id);
-    if (COMMON_CATEGORIES.includes(norm.category)) {
+    if (materialCategoryOptions.includes(norm.category)) {
       setCategory(norm.category);
       setCustomCategory('');
     } else {
@@ -1165,7 +1178,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                 onChange={(e) => setCategory(e.target.value)}
                 className="w-full border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500"
               >
-                {COMMON_CATEGORIES.map((cat) => (
+                {materialCategoryOptions.map((cat) => (
                   <option key={cat} value={cat}>{cat}</option>
                 ))}
                 <option value="khac">Chủng loại khác (Nhập tùy chỉnh)</option>
