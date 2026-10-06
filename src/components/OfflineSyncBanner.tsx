@@ -84,29 +84,29 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
     <div className="w-full transition-all duration-300">
       {/* Offline Alert Banner */}
       {!isOnline && (
-        <div className="bg-amber-950 text-amber-200 border-b border-amber-800/80 px-4 py-2 text-xs flex items-center justify-between gap-2 shadow-md">
-          <div className="flex items-center gap-2 min-w-0">
-            <WifiOff className="w-4 h-4 text-amber-400 shrink-0 animate-pulse" />
-            <div className="truncate">
-              <span className="font-extrabold text-white mr-1">Đang làm việc ngoại tuyến:</span>
-              <span className="text-amber-300">
+        <div data-hnl-offline-banner className="bg-amber-50 text-amber-900 border-b border-amber-200 px-3 sm:px-4 py-2 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 shadow-sm">
+          <div className="flex items-start sm:items-center gap-2 min-w-0 flex-1">
+            <WifiOff className="w-4 h-4 text-amber-600 shrink-0 mt-0.5 sm:mt-0 animate-pulse" />
+            <div data-hnl-offline-safety-text className="min-w-0 leading-4">
+              <span className="font-extrabold text-amber-900 mr-1">Đang ngoại tuyến:</span>
+              <span className="text-amber-900">
                 {roleResolved
                   ? (userRole === 'VIEWER'
                     ? (verifiedSnapshotFallback
-                      ? 'Bản chụp offline đã xác minh đã được khôi phục; tài khoản VIEWER chỉ được xem offline.'
-                      : 'Đang dùng dữ liệu cache đã xác minh; tài khoản VIEWER chỉ được xem offline.')
+                      ? 'Snapshot offline đã xác minh; VIEWER chỉ được xem.'
+                      : 'Cache offline đã xác minh; VIEWER chỉ được xem.')
                     : firebaseOnly
                       ? (verifiedSnapshotFallback
-                        ? `Bản chụp offline đã xác minh đã được khôi phục; quyền ${userRole} có thể chỉnh sửa và thay đổi được lưu bền vững trên máy trước khi tự gửi Firestore khi có mạng lại.`
-                        : `Quyền ${userRole} đã xác minh trước đó; chỉnh sửa được đưa vào hàng chờ Firestore bền vững và tự gửi khi có mạng lại.`)
-                      : `Quyền ${userRole} đã xác minh trước đó; chỉnh sửa sẽ lưu trên thiết bị và đồng bộ khi có mạng lại.`)
-                  : 'Chưa có quyền offline đã xác minh cho đúng tài khoản + project; ứng dụng tạm thời chỉ cho xem an toàn.'}
+                        ? `Snapshot đã xác minh; ${userRole} được sửa, thay đổi chờ Firestore.`
+                        : `Quyền ${userRole} đã xác minh; thay đổi chờ Firestore khi có mạng.`)
+                      : `Quyền ${userRole} đã xác minh; thay đổi lưu trên máy và tự đồng bộ khi có mạng.`)
+                  : 'Chưa xác minh quyền offline cho tài khoản + dự án; tạm thời chỉ xem.'}
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <span className="bg-amber-900/90 text-amber-300 font-mono text-[10px] px-2 py-0.5 rounded-full border border-amber-700/60 flex items-center gap-1">
-              <Database className="w-3 h-3 text-amber-400" />
+          <div className="flex items-center gap-1.5 shrink-0 self-start sm:self-auto pl-6 sm:pl-0">
+            <span data-hnl-offline-status-chip className="bg-white/80 text-amber-900 font-mono text-[10px] px-2 py-0.5 rounded-full border border-amber-300/80 flex items-center gap-1">
+              <Database className="w-3 h-3 text-amber-600" />
               <span>{verifiedSnapshotFallback ? `Snapshot + Local${firestorePendingWriteCount > 0 ? ` · ${firestorePendingWriteCount} chờ Firestore` : ''}` : firebaseOnly ? `Firestore${firestorePendingWriteCount > 0 ? ` · ${firestorePendingWriteCount} chờ` : ''}` : (roleSource === 'offline-cache' ? 'Offline cache' : 'Đã lưu máy')}</span>
             </span>
           </div>
@@ -115,10 +115,10 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
 
       {/* Reconnected Banner */}
       {isOnline && (justReconnected || syncStatusMsg) && (
-        <div className="bg-emerald-950 text-emerald-200 border-b border-emerald-800 px-4 py-2 text-xs flex items-center justify-between gap-2 shadow-md animate-in slide-in-from-top-2">
-          <div className="flex items-center gap-2">
-            <Wifi className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span className="font-semibold text-white">{syncStatusMsg || 'Đã có kết nối Internet trở lại!'}</span>
+        <div className="bg-emerald-50 text-emerald-700 border-b border-emerald-200 px-3 sm:px-4 py-2 text-xs flex items-center justify-between gap-2 shadow-sm animate-in slide-in-from-top-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <Wifi className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span className="font-semibold text-emerald-700">{syncStatusMsg || 'Đã có kết nối Internet trở lại!'}</span>
           </div>
           {onAutoSync && retryNeeded && (
             <button
