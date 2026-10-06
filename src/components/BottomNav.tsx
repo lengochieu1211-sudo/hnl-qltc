@@ -71,13 +71,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   const activate = (tab: TabType) => {
     setShowMore(false);
     setPressedTab(tab);
-    if (tab === activeTab) {
-      setPressedTab(null);
-      return;
-    }
-    // Switch the destination immediately. If a lazy chunk still needs a moment,
-    // App's Suspense fallback appears right away instead of keeping the old screen
-    // visible until the heavy destination render finishes.
+    // Always delegate to App's authoritative activeTabRef check. The activeTab prop can
+    // be one React render behind during very rapid tab switches; short-circuiting here
+    // can otherwise drop the next click (for example Home -> Mặt bằng).
     setActiveTab(tab);
   };
 
