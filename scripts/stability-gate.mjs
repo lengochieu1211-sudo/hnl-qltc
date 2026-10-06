@@ -241,7 +241,7 @@ requireAll(floorPlanDefect, ['qlct-defect-navigation-request', "code: 'OPEN_TARG
 if (floorPlanDefect.includes('⚡ Chọn Nhanh Bằng 1 Click:') || floorPlanDefect.includes('✅ Đội Defect đang chọn:') || floorPlanDefect.includes('🏢 Đội trên mặt bằng tầng:') || floorPlanDefect.includes('📋 Đội đã khai báo:')) fail('Defect team selector still renders duplicate quick-pick blocks below the canonical selector');
 requireAll(floorPlanDefect, ['buildDefectShareText(defect, defectRoomName)', 'buildDefectShareText(activeDefectDetail, activeDefectRoomName)'], 'Defect share resolves linked room name in list and detail flows');
 requireAll(defectContactUtils, ['buildDefectShareText(defect: DefectItem, roomName =', 'Căn/Phòng:'], 'Defect share text includes resolved Căn/Phòng name');
-requireAll(crewTabBase, ['openRoomOnFloorPlan', 'openDefectOnFloorPlan', 'qlct_diagnostic_navigation_request', 'qlct_pending_defect_navigation', 'Mở Defect trên mặt bằng', 'Căn/Phòng:'], 'Team statistics can drill down from room/defect summaries to the exact floor-plan entity');
+requireAll(crewTabBase, ['openRoomOnFloorPlan', 'openDefectOnFloorPlan', 'qlct_diagnostic_navigation_request', 'qlct_pending_defect_navigation', 'Mở Defect trên mặt bằng', 'Căn / Phòng:'], 'Team statistics can drill down from room/defect summaries to the exact floor-plan entity');
 requireAll(crewTabBase, [
   "'__teamId': item.id",
   "'Tên Đội Thi Công': item.name",
