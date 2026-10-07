@@ -31,8 +31,8 @@ assert(projectManager.includes('inline?: boolean;'), 'ProjectManager must expose
 assert(projectManager.includes("inline ? 'w-full'"), 'Inline Sync Center content must not add its own fixed backdrop inside the shared Settings sheet');
 assert(projectManager.includes('{!inline && <div className="flex items-center justify-between pb-3'), 'Inline Sync Center must suppress duplicate modal chrome/header');
 
-const homeDashboardUi = read('src/components/HomeDashboard.tsx');
-assert(homeDashboardUi.includes('Đang ngoại tuyến:') && !homeDashboardUi.includes('Đang offline:'), 'Home Dashboard must use Vietnamese offline wording');
+const homeDashboardWordingUi = read('src/components/HomeDashboard.tsx');
+assert(homeDashboardWordingUi.includes('Đang ngoại tuyến:') && !homeDashboardWordingUi.includes('Đang offline:'), 'Home Dashboard must use Vietnamese offline wording');
 
 const header = read('src/components/GoogleAuthHeader.tsx');
 assert(!header.includes('<Wifi'), 'Header Wi-Fi badge must stay removed');
