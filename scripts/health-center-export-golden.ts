@@ -99,7 +99,7 @@ const aiRows = XLSX.utils.sheet_to_json<Array<string | number>>(wb.Sheets['AI nh
 assert.ok(aiRows.some((row) => row.includes(aiNarrative)), 'AI nhận xét phải nằm ở sheet riêng');
 
 const filteredWb = buildHealthCenterExcelWorkbook({ ...input, scope: 'filtered', issues: [report.issues[1]] });
-const filteredRows = XLSX.utils.sheet_to_json<Array<string | number>>(filteredWb.Sheets['Tat ca van de'], { header: 1 });
+const filteredRows = XLSX.utils.sheet_to_json<Array<string | number>>(filteredWb.Sheets['Tất cả vấn đề'], { header: 1 });
 assert.equal(filteredRows.length, 2, 'Filtered Excel chỉ gồm header + issue được lọc');
 assert.ok(filteredRows[1].includes('CREW_TASK_EMPTY_DETAIL'));
 
