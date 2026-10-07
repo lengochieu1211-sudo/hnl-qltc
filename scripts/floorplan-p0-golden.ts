@@ -196,7 +196,7 @@ check(ui.includes('không có bước chuyển PDF'), 'Image path must explicitl
 check(ui.includes('Thêm / Thay bản vẽ mặt bằng'), 'Floor-plan apply scope sheet is missing.');
 check(ui.includes("floorPlanApplyMode === 'multiple'"), 'Floor-plan apply scope must support multiple floors.');
 check(ui.includes('Chọn nhanh khoảng tầng') && ui.includes('Chọn tất cả'), 'Bulk floor picker must support range/all selection.');
-check(ui.includes('1 file Cloud/R2 dùng chung'), 'Bulk floor UI must explain the single shared binary behavior.');
+check(ui.includes('1 tệp bản vẽ dùng chung trên Cloud/R2'), 'Bulk floor UI must explain the single shared binary behavior in user-facing Vietnamese.');
 check(ui.includes('Áp dụng cho ${preflight.readyIds.length} tầng'), 'Bulk floor UI must allow an explicit safe-subset apply when true pending targets exist.');
 check(ui.includes('skippedPendingNames'), 'Bulk floor UI must name/track targets skipped because they are truly pending.');
 check(ui.includes('openFloorPlanApplyScopeForManagedSelection'), 'Selected-floor management must expose the existing safe bulk drawing replacement flow.');
