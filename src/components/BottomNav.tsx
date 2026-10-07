@@ -193,6 +193,8 @@ export const BottomNav: React.FC<BottomNavProps> = ({
           <button
             type="button"
             data-hnl-nav-tab="more"
+            aria-label="Mở thêm phân hệ"
+            aria-expanded={showMore}
             onClick={() => setShowMore((value) => !value)}
             style={navButtonStyle}
             className={`relative flex flex-col items-center justify-center transition-all active:scale-[0.96] active:opacity-75 ${activeTab === 'volume' || activeTab === 'checklist' || activeTab === 'chat' || activeTab === 'ai' || activeTab === 'config' || activeTab === 'superadmin' || showMore ? 'font-bold text-blue-600' : 'font-medium text-slate-500'}`}
