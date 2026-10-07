@@ -269,7 +269,7 @@ jobs:
           test "$audit_ok" = 1 || { echo '::error::Security audit unavailable after 3 transient retries'; exit 1; }
 
           npm run build
-          grep -R -q 'HNL AI Assistant' dist/assets || { echo '::error::AI UI marker missing from DEV build'; exit 1; }
+          grep -R -q 'Trợ lý HNL AI' dist/assets || { echo '::error::AI UI marker missing from DEV build'; exit 1; }
           grep -R -q 'hnl-qltc-ai-gateway-dev' dist/assets || { echo '::error::DEV AI gateway missing from DEV build'; exit 1; }
 
       - name: Resolve Cloudflare account
