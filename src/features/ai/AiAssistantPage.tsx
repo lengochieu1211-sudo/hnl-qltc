@@ -41,12 +41,12 @@ const MODE_META: Record<AiAssistantMode, { label: string; icon: React.ElementTyp
   data: { label: 'HNL Data', icon: Database, hint: 'Số liệu được tính trực tiếp, nhất quán từ dữ liệu dự án.' },
   audit: { label: 'Kiểm tra dữ liệu', icon: FileSearch, hint: 'Bộ quy tắc kiểm tra logic và liên kết.' },
   ai: { label: 'AI chung', icon: Bot, hint: 'Kiến thức AI bên ngoài; dữ liệu HNL chỉ được gửi khi bạn cho phép cho từng câu hỏi.' },
-  hybrid: { label: 'HNL + AI', icon: BrainCircuit, hint: 'Engine tính trước, AI chỉ diễn giải.' },
+  hybrid: { label: 'HNL + AI', icon: BrainCircuit, hint: 'Bộ tính HNL tính trước, AI chỉ diễn giải.' },
 };
 
 const QUICK_PROMPTS: Record<AiAssistantMode, string[]> = {
   data: ['Đội Nguyên đang làm gì hiện tại?', 'Tổng hợp đội Nguyên tuần này'],
-  audit: ['Audit toàn dự án', 'Kiểm tra toàn bộ Defect', 'Kiểm tra quân số bất thường', 'Kiểm tra khối lượng'],
+  audit: ['Kiểm tra toàn dự án', 'Kiểm tra toàn bộ Defect', 'Kiểm tra quân số bất thường', 'Kiểm tra khối lượng'],
   ai: ['Báo cáo khối lượng đội Nguyên', 'Biện pháp thi công trần thạch cao chống cháy', 'Viết email nhắc tổng thầu xử lý tồn tại'],
   hybrid: ['Dựa trên dữ liệu hiện tại, phân tích Defect và đề xuất ưu tiên', 'Kiểm tra toàn dự án và giải thích các rủi ro chính'],
 };
@@ -70,6 +70,21 @@ function isAuditSummary(value: unknown): value is AiAuditSummary {
   return Boolean(candidate && Array.isArray(candidate.issues) && typeof candidate.errorCount === 'number');
 }
 
+function aiFreshnessLabel(value: string): string {
+  if (value === 'live') return 'Trực tiếp';
+  if (value === 'cache') return 'Bộ nhớ đệm';
+  if (value === 'fixture') return 'Dữ liệu kiểm thử';
+  return value || '—';
+}
+
+function aiKindLabel(value: string): string {
+  if (value === 'FACT') return 'Dữ liệu nguồn';
+  if (value === 'CALCULATED') return 'Tính toán';
+  if (value === 'INFERENCE') return 'Suy luận';
+  if (value === 'RECOMMENDATION') return 'Đề xuất';
+  return value || '—';
+}
+
 function humanizeAiError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error || '');
   if (/INVALID_TEXT|PROMPT_TOO_LARGE|BODY_TOO_LARGE|HNL_AI_CONTEXT_TOO_LARGE/i.test(message)) {
@@ -77,7 +92,7 @@ function humanizeAiError(error: unknown): string {
   }
   if (/AUTH_REQUIRED|HNL_AI_AUTH_REQUIRED/i.test(message)) return 'Phiên đăng nhập AI đã hết hạn. Hãy đăng nhập lại tài khoản Google rồi thử lại.';
   if (/MODEL_NOT_AVAILABLE/i.test(message)) return 'Mô hình AI vừa chọn không còn khả dụng. Hãy chọn mô hình khác trong danh sách rồi gửi lại.';
-  if (/CLOUDFLARE_EMPTY_RESPONSE/i.test(message)) return 'Cloudflare Workers AI không trả nội dung. Hãy thử lại hoặc chọn model khác.';
+  if (/CLOUDFLARE_EMPTY_RESPONSE/i.test(message)) return 'Cloudflare Workers AI không trả nội dung. Hãy thử lại hoặc chọn mô hình khác.';
   return message || 'Không thể gửi câu hỏi đến AI.';
 }
 
@@ -378,14 +393,14 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
             </div>
             <p className="mt-1.5 text-[10px] leading-4 text-slate-500">{selectedProvider.apiHint} API Key bạn nhập không lưu vào Firestore, localStorage, APK/EXE hay log của HNL; tải lại ứng dụng sẽ phải nhập lại.</p>
           </div>}
-          <div className="mt-2 text-[10px] font-semibold text-slate-600">Trạng thái: {modelsLoading ? 'Đang đọc danh sách model...' : providerReady ? `${selectedProvider.label} · ${hasSessionApiKey ? 'API riêng phiên này' : 'HNL Managed'}` : providerId === 'cloudflare' ? 'HNL Managed chưa sẵn sàng' : 'Chưa có thông tin xác thực — nhập API Key riêng hoặc dùng HNL Managed nếu đã cấu hình'}</div>
+          <div className="mt-2 text-[10px] font-semibold text-slate-600">Trạng thái: {modelsLoading ? 'Đang đọc danh sách mô hình...' : providerReady ? `${selectedProvider.label} · ${hasSessionApiKey ? 'API riêng phiên này' : 'HNL Managed'}` : providerId === 'cloudflare' ? 'HNL Managed chưa sẵn sàng' : 'Chưa có thông tin xác thực — nhập API Key riêng hoặc dùng HNL Managed nếu đã cấu hình'}</div>
         </div>}
         {mode === 'ai' && <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
           <label className="flex items-start gap-2 text-[11px] font-bold text-amber-950">
             <input type="checkbox" checked={externalAiOptIn} onChange={(e) => setExternalAiOptIn(e.target.checked)} className="mt-0.5 h-4 w-4" />
             <span>Cho phép AI bên ngoài sử dụng dữ liệu HNL trong câu hỏi này</span>
           </label>
-          <p className="mt-1 text-[10px] leading-4 text-amber-800">Mặc định TẮT. Quyền này chỉ dùng một lần; sau khi gửi thành công sẽ tự tắt. Chỉ dữ liệu đã chọn bên dưới được gửi, ở dạng read-only và đã tối thiểu hóa.</p>
+          <p className="mt-1 text-[10px] leading-4 text-amber-800">Mặc định TẮT. Quyền này chỉ dùng một lần; sau khi gửi thành công sẽ tự tắt. Chỉ dữ liệu đã chọn bên dưới được gửi, ở dạng chỉ đọc và đã tối thiểu hóa.</p>
           {externalAiOptIn && <label className="mt-2 flex items-start gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-[10px] font-semibold text-indigo-950">
             <input
               type="checkbox"
@@ -425,21 +440,21 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
       {toolResult && <>
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-            <div className="flex items-center gap-2"><h3 className="font-black text-slate-900">Kết quả HNL</h3><span className="text-[10px] rounded-full bg-emerald-50 text-emerald-700 px-2 py-1 font-bold">{toolResult.metadata.freshness.toUpperCase()}</span></div>
+            <div className="flex items-center gap-2"><h3 className="font-black text-slate-900">Kết quả HNL</h3><span className="text-[10px] rounded-full bg-emerald-50 text-emerald-700 px-2 py-1 font-bold">{aiFreshnessLabel(toolResult.metadata.freshness)}</span></div>
             <div className="flex items-center gap-2">
               <button disabled={Boolean(exportBusy)} onClick={() => void runExport('excel')} className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-bold text-emerald-800 disabled:opacity-50 flex items-center gap-1.5">{exportBusy === 'excel' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileSpreadsheet className="w-3.5 h-3.5" />}Excel</button>
               <button disabled={Boolean(exportBusy)} onClick={() => void runExport('pdf')} className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[11px] font-bold text-rose-800 disabled:opacity-50 flex items-center gap-1.5">{exportBusy === 'pdf' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}PDF</button>
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {toolResult.facts.map((fact) => <div key={fact.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="text-[10px] font-bold text-slate-500">{fact.kind}</div><div className="text-xs text-slate-600 mt-1">{fact.label}</div><div className="text-lg font-black text-slate-900">{String(fact.value ?? '—')} {fact.unit || ''}</div></div>)}
+            {toolResult.facts.map((fact) => <div key={fact.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="text-[10px] font-bold text-slate-500">{aiKindLabel(fact.kind)}</div><div className="text-xs text-slate-600 mt-1">{fact.label}</div><div className="text-lg font-black text-slate-900">{String(fact.value ?? '—')} {fact.unit || ''}</div></div>)}
           </div>
         </section>
 
         {audit && audit.issues.length > 0 && <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-3">
             <h3 className="font-black text-slate-900">Vấn đề phát hiện</h3>
-            <p className="mt-1 text-[11px] text-slate-500">Nhấn vào từng lỗi để kiểm tra bản ghi và liên kết nguồn. Audit chỉ đọc, không tự sửa dữ liệu.</p>
+            <p className="mt-1 text-[11px] text-slate-500">Nhấn vào từng lỗi để kiểm tra bản ghi và liên kết nguồn. Bộ kiểm tra chỉ đọc, không tự sửa dữ liệu.</p>
           </div>
           <div className="space-y-2 max-h-[560px] overflow-auto">
             {audit.issues.slice(0, 100).map((issue, index) => {
@@ -469,7 +484,7 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
           </div>
         </section>}
 
-        {result.narrative?.statements?.length ? <section className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4"><h3 className="font-black text-indigo-900 mb-2">AI nhận xét</h3>{result.narrative.statements.map((statement, index) => <div key={index} className="mb-2 last:mb-0"><div className="text-[10px] font-black text-indigo-600">{statement.kind}</div><p className="text-sm text-indigo-950">{statement.text}</p></div>)}</section> : null}
+        {result.narrative?.statements?.length ? <section className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4"><h3 className="font-black text-indigo-900 mb-2">AI nhận xét</h3>{result.narrative.statements.map((statement, index) => <div key={index} className="mb-2 last:mb-0"><div className="text-[10px] font-black text-indigo-600">{aiKindLabel(statement.kind)}</div><p className="text-sm text-indigo-950">{statement.text}</p></div>)}</section> : null}
 
         <section className="rounded-2xl border border-slate-200 bg-white p-4 text-xs text-slate-600 shadow-sm"><h3 className="font-black text-slate-800 mb-2">Nguồn dữ liệu</h3><div>Công cụ: {toolResult.metadata.tool}</div><div>Bản ghi: {toolResult.metadata.recordsUsed}/{toolResult.metadata.recordsScanned}</div><div>Nguồn dữ liệu: {toolResult.metadata.sourceCollections.join(', ')}</div><div>Bằng chứng: {toolResult.evidence.length} bản ghi</div><div>Dữ liệu đến: {new Date(toolResult.metadata.asOf).toLocaleString()}</div>{result.warnings.map((warning) => <div key={warning} className="mt-1 text-amber-700">⚠ {warning}</div>)}</section>
       </>}
@@ -498,14 +513,14 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
                 <h4 className="text-xs font-black text-slate-900 mb-2">Dữ liệu nghiệp vụ của bản ghi</h4>
                 {Object.keys(inspectedMeta.record).length > 0 ? <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {Object.entries(inspectedMeta.record).filter(([key, value]) => value !== undefined && value !== null && !/image|photo|base64|password|token|secret/i.test(key)).slice(0, 36).map(([key, value]) => <div key={key} className="rounded-lg border border-slate-200 p-2"><div className="text-[10px] font-mono text-slate-500">{key}</div><div className="mt-0.5 text-xs text-slate-800 break-words">{compactText(value)}</div></div>)}
-                </div> : <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">Không tìm thấy bản ghi gốc trong bản chụp dữ liệu hiện tại. Hãy chạy Audit lại sau khi dữ liệu đồng bộ hoàn tất.</div>}
+                </div> : <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">Không tìm thấy bản ghi gốc trong bản chụp dữ liệu hiện tại. Hãy chạy kiểm tra lại sau khi dữ liệu đồng bộ hoàn tất.</div>}
               </div>
             </> : <>
               <div>
-                <h4 className="text-xs font-black text-slate-900 mb-2">Liên kết đang được Audit đối chiếu</h4>
+                <h4 className="text-xs font-black text-slate-900 mb-2">Liên kết đang được bộ kiểm tra đối chiếu</h4>
                 <div className="space-y-2 text-xs">
                   <div className="rounded-lg border border-slate-200 p-3"><span className="font-bold">Đội:</span> {inspectedMeta.teamName || '—'}<div className="mt-1 text-[10px] text-slate-500">teamId: {inspectedMeta.teamId || '—'}</div></div>
-                  <div className="rounded-lg border border-slate-200 p-3"><span className="font-bold">Tầng theo liên kết:</span> {inspectedMeta.currentFloorName || inspectedMeta.floorName || '—'}<div className="mt-1 text-[10px] text-slate-500">floorId: {inspectedMeta.floorId || '—'}</div>{inspectedMeta.savedFloorName && inspectedMeta.currentFloorName && inspectedMeta.savedFloorName !== inspectedMeta.currentFloorName && <div className="mt-2 text-amber-800">Tên lưu trong record: <b>{inspectedMeta.savedFloorName}</b> → tên tầng hiện tại: <b>{inspectedMeta.currentFloorName}</b></div>}</div>
+                  <div className="rounded-lg border border-slate-200 p-3"><span className="font-bold">Tầng theo liên kết:</span> {inspectedMeta.currentFloorName || inspectedMeta.floorName || '—'}<div className="mt-1 text-[10px] text-slate-500">floorId: {inspectedMeta.floorId || '—'}</div>{inspectedMeta.savedFloorName && inspectedMeta.currentFloorName && inspectedMeta.savedFloorName !== inspectedMeta.currentFloorName && <div className="mt-2 text-amber-800">Tên lưu trong bản ghi: <b>{inspectedMeta.savedFloorName}</b> → tên tầng hiện tại: <b>{inspectedMeta.currentFloorName}</b></div>}</div>
                   <div className="rounded-lg border border-slate-200 p-3"><span className="font-bold">Bản ghi:</span> {auditInspect.issue.entityType || '—'}<div className="mt-1 text-[10px] text-slate-500">entityId: {auditInspect.issue.entityId || '—'}</div></div>
                 </div>
               </div>
@@ -514,7 +529,7 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">{Object.entries(inspectedMeta.details).map(([key, value]) => <div key={key} className="rounded-lg border border-slate-200 p-2"><div className="text-[10px] font-mono text-slate-500">{key}</div><div className="mt-0.5 text-xs text-slate-800 break-words">{compactText(value)}</div></div>)}</div>
               </div>}
             </>}
-            <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-[11px] leading-5 text-blue-900">Panel này chỉ dùng để kiểm tra. HNL AI/Audit không tự sửa hoặc xóa bản ghi. Nếu dữ liệu cần thay đổi, hãy sửa ở màn hình nghiệp vụ tương ứng rồi chạy Audit lại.</div>
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-[11px] leading-5 text-blue-900">Bảng này chỉ dùng để kiểm tra. HNL AI/bộ kiểm tra không tự sửa hoặc xóa bản ghi. Nếu dữ liệu cần thay đổi, hãy sửa ở màn hình nghiệp vụ tương ứng rồi chạy kiểm tra lại.</div>
           </div>
         </div>
       </div>}
