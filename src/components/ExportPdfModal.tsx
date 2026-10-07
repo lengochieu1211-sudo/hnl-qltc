@@ -349,7 +349,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const roomMatchesTeamScope = (room: RoomProgressItem): boolean => allTeamsSelected || teamMatchesScope(room.teamId, room.assignedTeam) || (room.subItems || []).some((sub) => teamMatchesScope(sub.teamId, sub.assignedTeam));
 
   // Cascading options are strictly upstream -> downstream:
-  // Khu/Khối -> Tầng -> Căn/Phòng -> Đội. A selected team may filter report rows,
+  // Khu/Khối -> Tầng -> Căn / Phòng -> Đội. A selected team may filter report rows,
   // but it must never remove room options and create a cyclic/stale selection graph.
   const roomScopeOptions = baseRoomScopeOptions.slice().sort((a, b) => {
     const floorA = effectiveFloorPlans.find((floor) => floor.id === a.floorId)?.floorName || a.floorName || '';
