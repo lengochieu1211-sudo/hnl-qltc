@@ -132,8 +132,8 @@ assert.match(crew, /__recordId không tồn tại trong dự án hiện tại/, 
 assert.match(crew, /onExportReport=\{\(\) => handleExportTeamStats\(\)\}/, 'All-team statistics export must live inside the team Excel menu');
 assert.match(crew, /reportLabel="Báo cáo chi tiết tất cả đội"/, 'Team data menu must clearly distinguish the detailed all-team report from the editable team catalog');
 assert.match(excelExport, /'01-Tổng quan các đội'/, 'All-team statistics must include an overview sheet');
-assert.match(excelExport, /'02-KL theo tang'/, 'All-team statistics must include floor/category volume detail');
-assert.match(excelExport, /'03-Chi tiet phong'/, 'All-team statistics must include room detail');
+assert.match(excelExport, /'02-KL theo tầng'/, 'All-team statistics must include floor/category volume detail');
+assert.match(excelExport, /'03-Chi tiết phòng'/, 'All-team statistics must include room detail');
 assert.match(excelExport, /'04-Defect'/, 'All-team statistics must include defect detail');
 assert.match(excelExport, /'05-Nhật ký quân số'/, 'All-team statistics must include crew log detail');
 assert.match(excelExport, /'06-Vat tu doi chieu'/, 'All-team statistics must include material reconciliation');
