@@ -25,10 +25,14 @@ assert(syncCenter.includes('Cài đặt sao lưu nâng cao'), 'Advanced backup s
 assert(syncCenter.includes('Công cụ đồng bộ nâng cao'), 'Advanced sync tools must remain visible');
 assert(syncCenter.includes('Đồng bộ lại dự án này'), 'Manual project re-sync action must remain available');
 assert(syncCenter.includes('Xuất bản sao JSON') && syncCenter.includes('Khôi phục từ JSON'), 'JSON backup/restore actions must remain available');
+assert(projectManager.includes("'● Ngoại tuyến'") && !projectManager.includes("'● Offline'"), 'Project Manager must use Vietnamese offline wording');
 
 assert(projectManager.includes('inline?: boolean;'), 'ProjectManager must expose an inline mode for the Settings sheet business content');
 assert(projectManager.includes("inline ? 'w-full'"), 'Inline Sync Center content must not add its own fixed backdrop inside the shared Settings sheet');
 assert(projectManager.includes('{!inline && <div className="flex items-center justify-between pb-3'), 'Inline Sync Center must suppress duplicate modal chrome/header');
+
+const homeDashboardUi = read('src/components/HomeDashboard.tsx');
+assert(homeDashboardUi.includes('Đang ngoại tuyến:') && !homeDashboardUi.includes('Đang offline:'), 'Home Dashboard must use Vietnamese offline wording');
 
 const header = read('src/components/GoogleAuthHeader.tsx');
 assert(!header.includes('<Wifi'), 'Header Wi-Fi badge must stay removed');
@@ -194,6 +198,8 @@ assert(notificationCenterUi.includes('Không có tiến độ, Checklist hoặc 
 const healthCenterUi = read('src/healthCenter/HealthCenterPanelBase.tsx');
 assert(healthCenterUi.includes('Xem trước sửa lỗi · chưa ghi dữ liệu') && healthCenterUi.includes('Sao lưu trước sửa') && healthCenterUi.includes('Sao lưu & áp dụng sửa an toàn'), 'Health Center repair actions must use user-facing Vietnamese copy');
 assert(healthCenterUi.includes('Trung tâm kiểm tra dữ liệu chỉ chạy sau khi quyền dự án đã được xác minh.') && !healthCenterUi.includes('Repair Preview · chưa ghi dữ liệu') && !healthCenterUi.includes('> Backup trước sửa</button>'), 'Health Center must not regress to mixed English repair copy');
+assert(healthCenterUi.includes('Sao chép chẩn đoán') && healthCenterUi.includes('<b>Bằng chứng:</b>') && healthCenterUi.includes('bản ghi đã quét'), 'Health Center export/share UI must use Vietnamese wording');
+assert(!healthCenterUi.includes('Copy chẩn đoán') && !healthCenterUi.includes('<b>Evidence:</b>') && !healthCenterUi.includes('record đã quét'), 'Health Center must not regress to Copy/Evidence/record wording');
 
 const appSourceForInlineSync = read('src/App.tsx');
 assert(appSourceForInlineSync.includes('syncCenterContent={('), 'App must inject the existing Sync Center engine into Settings');
