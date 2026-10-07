@@ -93,10 +93,26 @@ function autoFit(ws: XLSX.WorkSheet): void {
   ws['!autofilter'] = { ref: ws['!ref'] };
 }
 
+function safeExcelSheetName(wb: XLSX.WorkBook, rawName: string): string {
+  const cleaned = String(rawName || 'Sheet')
+    .replace(/[:\\/?*\[\]]/g, ' - ')
+    .replace(/\s+/g, ' ')
+    .replace(/^'+|'+$/g, '')
+    .trim() || 'Sheet';
+  const base = cleaned.slice(0, 31);
+  if (!wb.SheetNames.includes(base)) return base;
+  for (let index = 2; index < 1000; index += 1) {
+    const suffix = ` (${index})`;
+    const candidate = `${base.slice(0, Math.max(1, 31 - suffix.length))}${suffix}`;
+    if (!wb.SheetNames.includes(candidate)) return candidate;
+  }
+  throw new Error(`Không thể tạo tên sheet Excel duy nhất cho: ${rawName}`);
+}
+
 function addSheet(wb: XLSX.WorkBook, name: string, rows: Array<Array<string | number>>): void {
   const ws = XLSX.utils.aoa_to_sheet(rows);
   autoFit(ws);
-  XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31));
+  XLSX.utils.book_append_sheet(wb, ws, safeExcelSheetName(wb, name));
 }
 
 function issueRows(issues: HealthCenterIssue[]): Array<Array<string | number>> {
