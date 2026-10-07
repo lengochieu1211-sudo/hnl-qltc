@@ -148,7 +148,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 
     if (!isOnline) {
       setReportLoading(false);
-      setReportError(projects.length > 1 ? 'Đang offline: Trang chủ chỉ dùng quân số đã xác minh của dự án đang mở. Kết nối mạng để tải báo cáo nhiều dự án.' : '');
+      setReportError(projects.length > 1 ? 'Đang ngoại tuyến: Trang chủ chỉ dùng quân số đã xác minh của dự án đang mở. Kết nối mạng để tải báo cáo nhiều dự án.' : '');
       setReportFailedProjects(projects.filter((project) => project.id !== activeProjectId).map((project) => project.name));
       setReportProjects(activeProjectId ? [activeFallback] : []);
       return () => { cancelled = true; };
