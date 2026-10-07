@@ -135,6 +135,7 @@ export async function runHnlAiQuestion(params: RunHnlAiQuestionParams): Promise<
     };
   }
 
+  // Giữ enum/mã kỹ thuật nội bộ ổn định; chỉ Việt hóa câu chữ hiển thị cho người dùng.
   if (params.cloudAvailable === false) {
     return {
       plan,
