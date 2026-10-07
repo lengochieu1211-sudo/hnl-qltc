@@ -116,7 +116,7 @@ for (const marker of [
 }
 if (app.includes('Verified offline cold-start snapshot is read-only until Cloud reconnects.')) fail('verified snapshot still blocks authorized offline edits');
 const offlineBannerSource = read('src/components/OfflineSyncBanner.tsx');
-if (!offlineBannerSource.includes('Snapshot + Local') || !offlineBannerSource.includes('Snapshot offline đã xác minh; VIEWER chỉ được xem.') || !offlineBannerSource.includes('Snapshot đã xác minh; ${userRole} được sửa, thay đổi chờ Firestore.')) {
+if (!offlineBannerSource.includes('Bản dữ liệu + bộ nhớ máy') || !offlineBannerSource.includes('Bản dữ liệu ngoại tuyến đã xác minh; VIEWER chỉ được xem.') || !offlineBannerSource.includes('Bản dữ liệu đã xác minh; ${userRole} được sửa, thay đổi chờ Firestore.')) {
   fail('offline banner does not disclose verified snapshot read-only/write-pending state');
 }
 pass('identity-bound snapshot + durable working delta survives EXE restart and keeps Cloud as authority');
