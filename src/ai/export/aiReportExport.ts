@@ -78,6 +78,39 @@ function reportWarnings(toolResult: AiToolResult<unknown>): string[] {
   ].filter(Boolean)));
 }
 
+function freshnessLabel(value: AiToolResult<unknown>['metadata']['freshness']): string {
+  if (value === 'live') return 'Trực tiếp';
+  if (value === 'cache') return 'Bộ nhớ đệm';
+  if (value === 'fixture') return 'Dữ liệu kiểm thử';
+  return String(value || '—');
+}
+
+function resultStatusLabel(value: AiToolResult<unknown>['status']): string {
+  if (value === 'ok') return 'Hoàn tất';
+  if (value === 'partial') return 'Một phần';
+  if (value === 'insufficient-data') return 'Thiếu dữ liệu';
+  if (value === 'forbidden') return 'Không đủ quyền';
+  if (value === 'error') return 'Có lỗi';
+  return String(value || '—');
+}
+
+function cloudStatusLabel(value: HnlAiOrchestratorResult['cloudStatus']): string {
+  if (value === 'not-requested') return 'Chưa yêu cầu';
+  if (value === 'ok') return 'Sẵn sàng';
+  if (value === 'offline') return 'Ngoại tuyến';
+  if (value === 'unavailable') return 'Không khả dụng';
+  if (value === 'invalid-response') return 'Phản hồi không hợp lệ';
+  return String(value || '—');
+}
+
+function factKindLabel(value: string): string {
+  if (value === 'FACT') return 'Dữ liệu nguồn';
+  if (value === 'CALCULATED') return 'Tính toán';
+  if (value === 'INFERENCE') return 'Suy luận';
+  if (value === 'RECOMMENDATION') return 'Đề xuất';
+  return value || '—';
+}
+
 export function buildHnlAiReportFileStem(input: HnlAiReportExportInput): string {
   const safeProject = String(input.projectName || 'HNL_QLTC')
     .normalize('NFKD')
@@ -102,7 +135,7 @@ export function buildHnlAiExcelWorkbook(input: HnlAiReportExportInput): XLSX.Wor
     ['Chế độ', input.mode || '—'],
     ['Câu hỏi', input.question || '—'],
     ['Thời điểm xuất', isoDate(generatedAt)],
-    ['Trạng thái Cloud', input.result.cloudStatus],
+    ['Trạng thái Cloud', cloudStatusLabel(input.result.cloudStatus)],
     ['Nhà cung cấp', input.result.provider || '—'],
     ['Mô hình AI', input.result.model || '—'],
   ];
@@ -110,8 +143,8 @@ export function buildHnlAiExcelWorkbook(input: HnlAiReportExportInput): XLSX.Wor
   if (toolResult) {
     summaryRows.push(
       ['Công cụ', toolResult.metadata.tool],
-      ['Trạng thái', toolResult.status],
-      ['Độ mới dữ liệu', toolResult.metadata.freshness],
+      ['Trạng thái', resultStatusLabel(toolResult.status)],
+      ['Độ mới dữ liệu', freshnessLabel(toolResult.metadata.freshness)],
       ['Bản ghi sử dụng', toolResult.metadata.recordsUsed],
       ['Bản ghi quét', toolResult.metadata.recordsScanned],
       ['Nguồn dữ liệu', toolResult.metadata.sourceCollections.join(', ') || '—'],
@@ -129,7 +162,7 @@ export function buildHnlAiExcelWorkbook(input: HnlAiReportExportInput): XLSX.Wor
     ['STT', 'Loại', 'Nội dung', 'Giá trị', 'Đơn vị', 'Phương pháp', 'ID bằng chứng'],
     ...toolResult.facts.map((fact, index) => [
       index + 1,
-      fact.kind,
+      factKindLabel(fact.kind),
       fact.label,
       displayValue(fact.value),
       fact.unit || '',
@@ -166,13 +199,13 @@ export function buildHnlAiExcelWorkbook(input: HnlAiReportExportInput): XLSX.Wor
 
   const narrativeRows = input.result.narrative?.statements?.map((statement, index) => [
     index + 1,
-    statement.kind,
+    factKindLabel(statement.kind),
     statement.text,
     statement.supportingFactIds.join(', '),
     (statement.supportingIssueIds || []).join(', '),
   ]) || [];
   appendSheet(wb, 'AI nhận xét', [
-    ['STT', 'Loại', 'Nội dung', 'Fact IDs', 'Issue IDs'],
+    ['STT', 'Loại', 'Nội dung', 'ID dữ liệu', 'ID vấn đề'],
     ...narrativeRows,
   ]);
 
@@ -190,7 +223,7 @@ export function buildHnlAiExcelWorkbook(input: HnlAiReportExportInput): XLSX.Wor
 
 function factsTable(toolResult: AiToolResult<unknown>): string {
   if (toolResult.facts.length === 0) return '<p class="muted">Không có dữ liệu tính toán trực tiếp.</p>';
-  return `<table><thead><tr><th>#</th><th>Loại</th><th>Nội dung</th><th>Giá trị</th><th>Đơn vị</th></tr></thead><tbody>${toolResult.facts.map((fact, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(fact.kind)}</td><td>${escapeHtml(fact.label)}</td><td>${escapeHtml(displayValue(fact.value))}</td><td>${escapeHtml(fact.unit || '')}</td></tr>`).join('')}</tbody></table>`;
+  return `<table><thead><tr><th>#</th><th>Loại</th><th>Nội dung</th><th>Giá trị</th><th>Đơn vị</th></tr></thead><tbody>${toolResult.facts.map((fact, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(factKindLabel(fact.kind))}</td><td>${escapeHtml(fact.label)}</td><td>${escapeHtml(displayValue(fact.value))}</td><td>${escapeHtml(fact.unit || '')}</td></tr>`).join('')}</tbody></table>`;
 }
 
 function auditTable(toolResult: AiToolResult<unknown>): string {
@@ -201,7 +234,7 @@ function auditTable(toolResult: AiToolResult<unknown>): string {
 function narrativeSection(input: HnlAiReportExportInput): string {
   const statements = input.result.narrative?.statements || [];
   if (statements.length === 0) return '';
-  return `<h2>AI nhận xét</h2>${statements.map((statement) => `<div class="note"><strong>${escapeHtml(statement.kind)}</strong><div>${escapeHtml(statement.text)}</div><small>Fact: ${escapeHtml(statement.supportingFactIds.join(', ') || '—')} · Issue: ${escapeHtml((statement.supportingIssueIds || []).join(', ') || '—')}</small></div>`).join('')}`;
+  return `<h2>AI nhận xét</h2>${statements.map((statement) => `<div class="note"><strong>${escapeHtml(factKindLabel(statement.kind))}</strong><div>${escapeHtml(statement.text)}</div><small>Dữ liệu: ${escapeHtml(statement.supportingFactIds.join(', ') || '—')} · Vấn đề: ${escapeHtml((statement.supportingIssueIds || []).join(', ') || '—')}</small></div>`).join('')}`;
 }
 
 export function buildHnlAiHtmlReport(input: HnlAiReportExportInput): string {
@@ -214,7 +247,7 @@ export function buildHnlAiHtmlReport(input: HnlAiReportExportInput): string {
   return `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>HNL AI - ${escapeHtml(input.projectName)}</title><style>
   @page{size:A4;margin:14mm}*{box-sizing:border-box}body{font-family:Arial,"Segoe UI",sans-serif;color:#0f172a;font-size:11px;line-height:1.45;margin:0}h1{font-size:20px;margin:0 0 4px}h2{font-size:14px;margin:18px 0 7px}.brand{border-bottom:3px solid #2563eb;padding-bottom:10px;margin-bottom:12px}.muted{color:#64748b}.meta{display:grid;grid-template-columns:150px 1fr;gap:4px 12px;margin:8px 0}.meta b{color:#334155}.summary{padding:8px 10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;margin:6px 0 10px}table{width:100%;border-collapse:collapse;margin-top:6px;page-break-inside:auto}tr{page-break-inside:avoid}th,td{border:1px solid #cbd5e1;padding:5px 6px;text-align:left;vertical-align:top}th{background:#f1f5f9}.note{border-left:3px solid #3b82f6;background:#eff6ff;padding:8px 10px;margin:6px 0}.note small{display:block;color:#64748b;margin-top:4px}.warning{border-left:3px solid #f59e0b;background:#fffbeb;padding:7px 9px;margin:5px 0}.footer{margin-top:18px;border-top:1px solid #cbd5e1;padding-top:8px;color:#64748b;font-size:9px}
   </style></head><body><div class="brand"><h1>HNL AI Assistant</h1><div class="muted">Báo cáo dữ liệu · ${REPORT_VERSION}</div></div>
-  <div class="meta"><b>Công trình</b><span>${escapeHtml(input.projectName || '—')}</span><b>ID dự án</b><span>${escapeHtml(input.projectId || '—')}</span><b>Chế độ</b><span>${escapeHtml(input.mode || '—')}</span><b>Câu hỏi</b><span>${escapeHtml(input.question || '—')}</span><b>Thời điểm xuất</b><span>${escapeHtml(isoDate(generatedAt))}</span><b>Cloud</b><span>${escapeHtml(input.result.cloudStatus)}</span>${toolResult ? `<b>Công cụ</b><span>${escapeHtml(toolResult.metadata.tool)}</span><b>Độ mới dữ liệu</b><span>${escapeHtml(toolResult.metadata.freshness)}</span><b>Bản ghi</b><span>${toolResult.metadata.recordsUsed}/${toolResult.metadata.recordsScanned}</span><b>Dữ liệu đến</b><span>${escapeHtml(isoDate(toolResult.metadata.asOf))}</span>` : ''}</div>
+  <div class="meta"><b>Công trình</b><span>${escapeHtml(input.projectName || '—')}</span><b>ID dự án</b><span>${escapeHtml(input.projectId || '—')}</span><b>Chế độ</b><span>${escapeHtml(input.mode || '—')}</span><b>Câu hỏi</b><span>${escapeHtml(input.question || '—')}</span><b>Thời điểm xuất</b><span>${escapeHtml(isoDate(generatedAt))}</span><b>Trạng thái Cloud</b><span>${escapeHtml(cloudStatusLabel(input.result.cloudStatus))}</span>${toolResult ? `<b>Công cụ</b><span>${escapeHtml(toolResult.metadata.tool)}</span><b>Độ mới dữ liệu</b><span>${escapeHtml(freshnessLabel(toolResult.metadata.freshness))}</span><b>Bản ghi</b><span>${toolResult.metadata.recordsUsed}/${toolResult.metadata.recordsScanned}</span><b>Dữ liệu đến</b><span>${escapeHtml(isoDate(toolResult.metadata.asOf))}</span>` : ''}</div>
   ${toolResult ? `<h2>Kết quả HNL</h2>${factsTable(toolResult)}${auditTable(toolResult)}` : '<div class="summary">Không có kết quả HNL để xuất.</div>'}
   ${narrativeSection(input)}
   ${warnings.length ? `<h2>Cảnh báo / giả định</h2>${warnings.map((item) => `<div class="warning">${escapeHtml(item)}</div>`).join('')}` : ''}
