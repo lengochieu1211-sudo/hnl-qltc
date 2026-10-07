@@ -255,15 +255,15 @@ export async function saveBlobToDownloads(blob: Blob, fileName: string, mimeType
       const chunkSize = 256 * 1024;
       try {
         if (!bridge.beginBase64File(sessionId, safeName, mimeType)) {
-          throw new Error('Android download session failed to start.');
+          throw new Error('Không thể bắt đầu phiên tải xuống trên Android.');
         }
         for (let i = 0; i < base64Data.length; i += chunkSize) {
           if (!bridge.appendBase64Chunk(sessionId, base64Data.slice(i, i + chunkSize))) {
-            throw new Error('Android download chunk failed.');
+            throw new Error('Không thể ghi phần dữ liệu tải xuống trên Android.');
           }
         }
         if (!bridge.finishBase64File(sessionId)) {
-          throw new Error('Android download failed to finish.');
+          throw new Error('Không thể hoàn tất tải xuống trên Android.');
         }
       } catch (err) {
         bridge.abortBase64File?.(sessionId);
