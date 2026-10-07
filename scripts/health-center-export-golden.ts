@@ -86,7 +86,7 @@ assert.equal(filteredJson.exportedIssueCount, 1);
 assert.equal(filteredJson.issues[0].ruleId, 'CREW_TASK_EMPTY_DETAIL');
 
 const wb = buildHealthCenterExcelWorkbook(input);
-const expectedSheets = ['Tổng quan', 'Tất cả vấn đề', 'Lỗi nghiêm trọng', 'Cảnh báo', 'Cần xác nhận', 'Mồ côi liên kết', 'Quân số', 'Defect', 'Tiến độ Căn / Phòng', 'AI nhận xét'];
+const expectedSheets = ['Tổng quan', 'Tất cả vấn đề', 'Lỗi nghiêm trọng', 'Cảnh báo', 'Cần xác nhận', 'Mồ côi liên kết', 'Quân số', 'Defect', 'Tiến độ Căn - Phòng', 'AI nhận xét'];
 for (const sheet of expectedSheets) {
   assert.ok(wb.SheetNames.includes(sheet), `Excel phải có sheet ${sheet}`);
 }
@@ -94,6 +94,7 @@ const summary = XLSX.utils.sheet_to_json<Array<string | number>>(wb.Sheets['Tổ
 assert.ok(summary.some((row) => row[0] === 'ID bản kiểm tra' && row[1] === report.auditSnapshotId), 'Excel phải chứa auditSnapshotId');
 assert.ok(summary.some((row) => row[0] === 'Độ mới dữ liệu' && row[1] === 'Trực tiếp'), 'Excel phải Việt hóa độ mới dữ liệu');
 assert.ok(summary.some((row) => row[0] === 'Phạm vi xuất' && row[1] === 'Tất cả'), 'Excel phải Việt hóa phạm vi xuất');
+assert.ok(!wb.SheetNames.some((name) => /[:\\/?*\[\]]/.test(name)), 'Excel Health Center không được có ký tự cấm trong tên sheet');
 const allIssues = XLSX.utils.sheet_to_json<Array<string | number>>(wb.Sheets['Tất cả vấn đề'], { header: 1 });
 assert.ok(allIssues.some((row) => row.includes('Đội Nguyên') && row.includes('Tầng 3')), 'Excel phải xuất metadata ngày/đội/tầng');
 assert.ok(allIssues.some((row) => row.includes('ROOM_FLOOR_NOT_FOUND')), 'Excel phải xuất orphan rule');
