@@ -166,9 +166,9 @@ for (const marker of [
   if (!offlineMirrorSettings.includes(marker)) fail(`offline mirror settings missing ${marker}`);
 }
 for (const marker of [
-  'Dữ liệu offline trên thiết bị',
-  'Giữ sẵn offline: Bật',
-  'Đồng bộ offline ngay',
+  'Dữ liệu ngoại tuyến trên thiết bị',
+  'Giữ sẵn để dùng ngoại tuyến: Bật',
+  'Đồng bộ ngoại tuyến ngay',
   'Cloud vẫn là nguồn chuẩn',
 ]) {
   if (!offlineMirrorCard.includes(marker)) fail(`offline mirror UI missing ${marker}`);
