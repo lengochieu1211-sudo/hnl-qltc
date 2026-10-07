@@ -715,7 +715,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
             <tbody>${body}</tbody>
             <tfoot>
               <tr>
-                <td colspan="${normalizedStructureConfig.enabled ? 4 : 3}"><strong>TỔNG · ${detail.rows.length} Căn/Phòng</strong></td>
+                <td colspan="${normalizedStructureConfig.enabled ? 4 : 3}"><strong>TỔNG · ${detail.rows.length} Căn / Phòng</strong></td>
                 <td style="text-align:right;"><strong>${formatDecimal(detail.totalAssigned)}</strong></td>
                 <td style="text-align:right;color:#166534;"><strong>${formatDecimal(detail.totalActual)}</strong></td>
                 <td style="text-align:right;"><strong>${formatDecimal(Math.max(0, detail.totalAssigned - detail.totalActual))}</strong></td>
@@ -1048,7 +1048,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                       ${fpRooms.length > 0 ? `
                         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 8px; margin-bottom: 6px;">
                           <p style="margin: 0 0 4px 0; font-size: 9.5px; font-weight: bold; color: #1e3a8a;">Chú giải mã vị trí khu vực / phòng (${h(formatFloorName(fp.floorName))}):</p>
-                          <p style="margin: 0 0 5px 0; font-size: 8.5px; color: #64748b;">🟣 Ký hiệu tím = Căn/Phòng. Mã trên bản vẽ khớp với cột Mã trong bảng chú giải.</p>
+                          <p style="margin: 0 0 5px 0; font-size: 8.5px; color: #64748b;">🟣 Ký hiệu tím = Căn / Phòng. Mã trên bản vẽ khớp với cột Mã trong bảng chú giải.</p>
                           <table style="width: 100%; border-collapse: collapse; margin-bottom: 0; font-size: 9px; table-layout: fixed;">
                             <thead>
                               <tr style="background: #e2e8f0;">
@@ -2000,7 +2000,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               </div>
 
               <p className="text-[10px] text-slate-500">
-                Khu/Khối → Tầng → Căn/Phòng → Đội là phạm vi chung. Bộ lọc trạng thái/hạng mục/người tạo/ngày chỉ thu hẹp phần Defect và phụ lục ảnh Defect.
+                Khu/Khối → Tầng → Căn / Phòng → Đội là phạm vi chung. Bộ lọc trạng thái/hạng mục/người tạo/ngày chỉ thu hẹp phần Defect và phụ lục ảnh Defect.
               </p>
             </div>
           </div>
@@ -2039,18 +2039,18 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   <option value="floor-asc">Tầng thấp → cao / A → Z</option>
                   <option value="floor-desc">Tầng cao → thấp / Z → A</option>
                   <option value="defect-desc">Tầng nhiều Defect → ít</option>
-                  <option value="room-desc">Tầng nhiều Căn/Phòng → ít</option>
+                  <option value="room-desc">Tầng nhiều Căn / Phòng → ít</option>
                 </select>
               </label>
               <label className="space-y-1">
                 <span className="block text-[10px] font-bold text-slate-600">Tiến độ Căn / Phòng</span>
                 <select value={roomReportSortMode} onChange={(e) => setRoomReportSortMode(e.target.value as typeof roomReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
-                  <option value="floor-room">Tầng → Căn/Phòng</option>
-                  <option value="room-floor">Căn/Phòng → Tầng</option>
-                  <option value="category-floor-room">Hạng mục → Tầng → Căn/Phòng</option>
+                  <option value="floor-room">Tầng → Căn / Phòng</option>
+                  <option value="room-floor">Căn / Phòng → Tầng</option>
+                  <option value="category-floor-room">Hạng mục → Tầng → Căn / Phòng</option>
                   <option value="work-status">Trạng thái thi công → Tầng/Phòng</option>
                   <option value="inspection-status">Nghiệm thu → Tầng/Phòng</option>
-                  <option value="team-floor-room">Đội → Tầng → Căn/Phòng</option>
+                  <option value="team-floor-room">Đội → Tầng → Căn / Phòng</option>
                 </select>
               </label>
               <label className="space-y-1">
@@ -2075,9 +2075,9 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               <label className="space-y-1">
                 <span className="block text-[10px] font-bold text-slate-600">Defect + phụ lục ảnh Defect</span>
                 <select value={defectReportSortMode} onChange={(e) => setDefectReportSortMode(e.target.value as typeof defectReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
-                  <option value="floor-room-category">Tầng → Phòng/Căn → Hạng mục</option>
-                  <option value="room-floor-category">Phòng/Căn → Tầng → Hạng mục</option>
-                  <option value="category-floor-room">Hạng mục → Tầng → Phòng/Căn</option>
+                  <option value="floor-room-category">Tầng → Căn / Phòng → Hạng mục</option>
+                  <option value="room-floor-category">Căn / Phòng → Tầng → Hạng mục</option>
+                  <option value="category-floor-room">Hạng mục → Tầng → Căn / Phòng</option>
                   <option value="created-desc">Defect mới nhất → cũ nhất</option>
                   <option value="status-due">Trạng thái → Hạn xử lý → Tầng/Phòng</option>
                   <option value="code-asc">Mã Defect 01 → 02 → 03</option>
@@ -2358,7 +2358,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </div>
 
                 <div className="flex items-center justify-between gap-2 bg-indigo-50/60 border border-indigo-100 rounded-lg p-2">
-                  <span className="text-[9.5px] text-indigo-800 leading-relaxed">Khuyến nghị in thi công: highlight 14–20%, viền 0.20–0.30, Căn/Phòng 100%, Defect 90%, giữ đường dẫn.</span>
+                  <span className="text-[9.5px] text-indigo-800 leading-relaxed">Khuyến nghị in thi công: highlight 14–20%, viền 0.20–0.30, Căn / Phòng 100%, Defect 90%, giữ đường dẫn.</span>
                   <button
                     type="button"
                     onClick={() => {
