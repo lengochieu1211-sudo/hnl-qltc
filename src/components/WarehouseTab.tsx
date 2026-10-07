@@ -2368,7 +2368,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               )}
               {materialNeedResult.warnings.length > 0 && (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-900">
-                  <div className="font-bold mb-1">Thiếu liên kết/định mức — hệ thống đang fail-closed:</div>
+                  <div className="font-bold mb-1">Thiếu liên kết/định mức — hệ thống đang dừng an toàn, chưa tự tính nhu cầu vật tư:</div>
                   <ul className="list-disc pl-4 space-y-0.5">{materialNeedResult.warnings.slice(0, 8).map((w, idx) => <li key={`${w.code}-${idx}`}>{w.message}</li>)}</ul>
                 </div>
               )}
@@ -3021,7 +3021,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   {issuePurpose === 'project-work' && (
                     <>
                       <p className="text-[10px] text-slate-500">
-                        Phạm vi dưới đây không bắt buộc nhập đủ. {itemKind === 'equipment' ? 'Thiết bị có thể ghi nhận Khu/Khối, Tầng, Căn/Phòng và Đội nhận; thiết bị không tham gia định mức.' : 'Chọn càng chi tiết thì thống kê vật tư theo Khu/Khối, Tầng, Căn/Phòng, Đội và Hạng mục càng chính xác.'}
+                        Phạm vi dưới đây không bắt buộc nhập đủ. {itemKind === 'equipment' ? 'Thiết bị có thể ghi nhận Khu/Khối, Tầng, Căn / Phòng và Đội nhận; thiết bị không tham gia định mức.' : 'Chọn càng chi tiết thì thống kê vật tư theo Khu/Khối, Tầng, Căn / Phòng, Đội và Hạng mục càng chính xác.'}
                       </p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                         {normalizedStructureConfig.enabled && (

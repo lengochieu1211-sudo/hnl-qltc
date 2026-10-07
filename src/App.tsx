@@ -3553,7 +3553,7 @@ function AuthenticatedApp() {
         const payload = buildCloudProjectPayload();
         await saveProjectToCloud({
           id: projectId,
-          name: projectName || `Du an ${projectId}`,
+          name: projectName || `Dự án ${projectId}`,
           contractorName,
           inspectorName,
           projectLocation,
@@ -4617,7 +4617,7 @@ function AuthenticatedApp() {
         setLocalAllSyncStatus('synced');
         lastSavedLocalAllSnapshotRef.current = jsonStr;
         hasUnsavedAllBackupChangesRef.current = false;
-        alert(`Da lien ket thu muc Android autosave JSON: ${displayName}`);
+        alert(`Đã liên kết thư mục tự động lưu JSON trên Android: ${displayName}`);
         return;
       }
       if (window.self !== window.top) {
@@ -5511,7 +5511,7 @@ function AuthenticatedApp() {
         setLocalSyncPermissionNeeded(false);
         setLocalSyncStatus('synced');
         lastSavedLocalSnapshotRef.current = jsonString;
-        alert(`Da lien ket thu muc Android autosave JSON: ${displayName}`);
+        alert(`Đã liên kết thư mục tự động lưu JSON trên Android: ${displayName}`);
         return;
       }
       if (window.self !== window.top) {
@@ -5611,7 +5611,7 @@ function AuthenticatedApp() {
         setLocalFileName('');
         setLocalSyncPermissionNeeded(false);
         setLocalSyncStatus('idle');
-        alert('Da huy lien ket autosave JSON tren Android.');
+        alert('Đã hủy liên kết thư mục tự động lưu JSON trên Android.');
         return;
       }
       await removeFileHandle(activeProjectId);

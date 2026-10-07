@@ -463,7 +463,7 @@ assert(
 );
 assert(crewUi.includes("'__teamId': item.id") && crewUi.includes("'Tên Đội Thi Công': item.name") && crewUi.includes("key === '__teamId' ? { hidden: true } : {}"), 'Team Excel download must keep human team name visible and technical teamId hidden');
 assert(crewUi.includes("const teamNameAliases = new Set([") && crewUi.includes("if (!normalized || normalized.startsWith('__')) return false;") && crewUi.includes("if (rawTeamId && nameStr === rawTeamId)"), 'Team Excel re-import must never resolve __teamId as the human-facing team-name column');
-assert(defectUi.includes('activeDefectRoomName') && defectUi.includes('🏠 Căn/Phòng:'), 'Defect list/detail must show linked Căn/Phòng when roomId resolves');
+assert(defectUi.includes('activeDefectRoomName') && defectUi.includes('🏠 Căn / Phòng:'), 'Defect list/detail must show linked Căn / Phòng when roomId resolves');
 assert(!defectUi.includes('⚡ Chọn Nhanh Bằng 1 Click:') && !defectUi.includes('✅ Đội Defect đang chọn:') && !defectUi.includes('🏢 Đội trên mặt bằng tầng:') && !defectUi.includes('📋 Đội đã khai báo:'), 'Defect assignee editor must not duplicate the canonical team selector with repeated quick-pick blocks');
 assert(defectUi.includes('buildDefectShareText(defect, defectRoomName)') && defectUi.includes('buildDefectShareText(activeDefectDetail, activeDefectRoomName)'), 'Defect share must use the linked Căn/Phòng name in list and detail flows');
 assert(crewShareUi.includes('Sao chép nội dung') && crewShareUi.includes('Chia sẻ ảnh') && crewShareUi.includes('Tải ảnh'), 'Crew report sharing must support content, image share and image download');
@@ -513,7 +513,7 @@ const offlineBannerUi = read('src/components/OfflineSyncBanner.tsx');
 assert(offlineBannerUi.includes('data-hnl-offline-banner') && offlineBannerUi.includes('data-hnl-offline-safety-text') && offlineBannerUi.includes('data-hnl-offline-status-chip'), 'Offline banner must expose stable runtime safety-text/status hooks');
 assert(offlineBannerUi.includes('bg-amber-50 text-amber-900 border-b border-amber-200') && !offlineBannerUi.includes('bg-amber-950'), 'Offline warning must use the light amber semantic surface');
 assert(!offlineBannerUi.includes('className="truncate"'), 'Offline safety message must never be fully truncated on mobile');
-assert(offlineBannerUi.includes('VIEWER chỉ được xem') && offlineBannerUi.includes('chờ Firestore') && offlineBannerUi.includes('chờ Firestore'), 'Offline banner must keep VIEWER safety, verified cache/snapshot and Firestore pending-write meaning visible');
+assert(offlineBannerUi.includes('VIEWER chỉ được xem') && offlineBannerUi.includes('Bản dữ liệu') && offlineBannerUi.includes('chờ Firestore'), 'Offline banner must keep VIEWER safety, verified offline data and Firestore pending-write meaning visible');
 assert(offlineBannerUi.includes('bg-emerald-50 text-emerald-700 border-b border-emerald-200'), 'Reconnect status must use the lighter semantic success surface');
 const roomHighlightUi = read('src/components/RoomHighlightModal.tsx');
 assert(workVolumeUi.includes('Tổng hợp tiến độ khối lượng & giá trị') && workVolumeUi.includes('Chưa khai báo đơn giá') && workVolumeUi.includes('Giá trị đã thực hiện') && workVolumeUi.includes('Object.entries(totals.byUnit)'), 'Work Volume summary must show the same physical quantities for every role and add financial values only as supplementary ADMIN information');

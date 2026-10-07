@@ -86,17 +86,17 @@ const input = {
 };
 
 const wb = buildHnlAiExcelWorkbook(input);
-assert.deepEqual(wb.SheetNames, ['Tong quan', 'Facts', 'Audit', 'Evidence', 'AI nhan xet', 'Canh bao']);
-const summary = XLSX.utils.sheet_to_json<any[]>(wb.Sheets['Tong quan'], { header: 1 });
+assert.deepEqual(wb.SheetNames, ['Tổng quan', 'Dữ liệu', 'Kiểm tra', 'Bằng chứng', 'AI nhận xét', 'Cảnh báo']);
+const summary = XLSX.utils.sheet_to_json<any[]>(wb.Sheets['Tổng quan'], { header: 1 });
 assert.ok(summary.some((row) => row[0] === 'Công trình' && String(row[1]).includes('Sân bay')));
-assert.ok(summary.some((row) => row[0] === 'Giới hạn' && String(row[1]).includes('READ + ANALYZE + EXPORT ONLY')));
-const facts = XLSX.utils.sheet_to_json<any[]>(wb.Sheets.Facts, { header: 1 });
+assert.ok(summary.some((row) => row[0] === 'Giới hạn' && String(row[1]).includes('Chỉ đọc, phân tích và xuất báo cáo')));
+const facts = XLSX.utils.sheet_to_json<any[]>(wb.Sheets['Dữ liệu'], { header: 1 });
 assert.ok(facts.some((row) => row.includes('Defect đang mở')));
-const audit = XLSX.utils.sheet_to_json<any[]>(wb.Sheets.Audit, { header: 1 });
+const audit = XLSX.utils.sheet_to_json<any[]>(wb.Sheets['Kiểm tra'], { header: 1 });
 assert.ok(audit.some((row) => row.includes('DEFECT_ROOM_LINK')));
 
 const html = buildHnlAiHtmlReport(input);
-assert.ok(html.includes('HNL AI READ + ANALYZE + EXPORT ONLY'));
+assert.ok(html.includes('HNL AI chỉ đọc, phân tích và xuất báo cáo'));
 assert.ok(html.includes('Sân bay &lt;script&gt;alert(1)&lt;/script&gt;'));
 assert.ok(!html.includes('<script>alert(1)</script>'));
 assert.ok(html.includes('DEFECT_ROOM_LINK'));

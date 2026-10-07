@@ -781,7 +781,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           'Không import actual/status; ID hạng mục và phạm vi tầng được giữ authoritative. Tiếp tục ghi một lần?',
         );
         if (!confirmed) return;
-        if (!onImportWorkVolumes) throw new Error('Phiên bản ứng dụng chưa hỗ trợ import atomic WorkVolume.');
+        if (!onImportWorkVolumes) throw new Error('Phiên bản ứng dụng hiện chưa hỗ trợ nhập Khối lượng theo cơ chế ghi toàn bộ hoặc không ghi.');
         if (!onImportWorkVolumes(upserts)) throw new Error('Catalog thay đổi trong lúc import; hệ thống đã hủy toàn bộ, chưa ghi dòng nào.');
         alert(`🎉 Nhập Khối lượng thành công: ${updatedCount} cập nhật, ${addedCount} thêm mới.`);
       } catch (err: any) {

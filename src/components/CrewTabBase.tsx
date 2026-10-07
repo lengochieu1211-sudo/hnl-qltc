@@ -1409,11 +1409,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         const XLSX = await import('xlsx');
         const data = new Uint8Array(event.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
-        const mainName = workbook.SheetNames.find((name) => name.toLocaleLowerCase('vi-VN').includes('nhat ky')) || workbook.SheetNames[0];
+        const normalizeSheetName = (name: string) => name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLocaleLowerCase('vi-VN');
+      const mainName = workbook.SheetNames.find((name) => normalizeSheetName(name).includes('nhat ky')) || workbook.SheetNames[0];
         const mainRows = XLSX.utils.sheet_to_json<any>(workbook.Sheets[mainName]);
         if (!mainRows.length) throw new Error('Sheet Nhật ký quân số không có dữ liệu.');
 
-        const detailName = workbook.SheetNames.find((name) => name.toLocaleLowerCase('vi-VN').includes('chi tiet cong viec'));
+        const detailName = workbook.SheetNames.find((name) => normalizeSheetName(name).includes('chi tiet cong viec'));
         const detailRows = detailName ? XLSX.utils.sheet_to_json<any>(workbook.Sheets[detailName]) : [];
         const floorByName = new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.floorName.trim().toLocaleLowerCase('vi-VN'), floor] as const));
         const mainRecordIds = new Set<string>(mainRows.map((row: any) => String(row['__recordId'] || '').trim()).filter(Boolean));
@@ -2496,7 +2497,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           setDetailModalTab('rooms');
                         }}
                         className="bg-indigo-50/70 border border-indigo-100 p-2 rounded-lg cursor-pointer hover:bg-indigo-100/70 transition text-center"
-                        title="Xem các căn/phòng & khối lượng đội đang phụ trách"
+                        title="Xem các Căn / Phòng & khối lượng đội đang phụ trách"
                       >
                         <div className="text-[10px] text-indigo-500 font-bold uppercase tracking-wider">Căn / Phòng & khối lượng</div>
                         <div className="text-xs font-black text-indigo-700 flex flex-col items-center justify-center gap-0.5 mt-0.5">
@@ -2536,7 +2537,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                             ? 'bg-rose-50/70 border-rose-200 hover:bg-rose-100/70' 
                             : 'bg-emerald-50/70 border-emerald-100 hover:bg-emerald-100/70'
                         }`}
-                        title="Xem các defect/lỗi gán cho đội"
+                        title="Xem các Defect gán cho đội"
                       >
                         <div className={`text-[10px] font-bold uppercase tracking-wider ${openDefectsCount > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
                           Defect tồn đọng
@@ -3486,7 +3487,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   <div className={`text-[10px] mt-0.5 font-medium ${
                     openDefectsList.length > 0 ? 'text-rose-700' : 'text-slate-500'
                   }`}>
-                    {teamDefects.length} tổng defect
+                    {teamDefects.length} tổng Defect
                   </div>
                 </button>
 

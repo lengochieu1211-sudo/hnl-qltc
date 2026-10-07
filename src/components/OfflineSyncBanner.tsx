@@ -93,21 +93,21 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
                 {roleResolved
                   ? (userRole === 'VIEWER'
                     ? (verifiedSnapshotFallback
-                      ? 'Snapshot offline đã xác minh; VIEWER chỉ được xem.'
-                      : 'Cache offline đã xác minh; VIEWER chỉ được xem.')
+                      ? 'Bản dữ liệu ngoại tuyến đã xác minh; VIEWER chỉ được xem.'
+                      : 'Dữ liệu ngoại tuyến đã xác minh; VIEWER chỉ được xem.')
                     : firebaseOnly
                       ? (verifiedSnapshotFallback
-                        ? `Snapshot đã xác minh; ${userRole} được sửa, thay đổi chờ Firestore.`
+                        ? `Bản dữ liệu đã xác minh; ${userRole} được sửa, thay đổi chờ Firestore.`
                         : `Quyền ${userRole} đã xác minh; thay đổi chờ Firestore khi có mạng.`)
                       : `Quyền ${userRole} đã xác minh; thay đổi lưu trên máy và tự đồng bộ khi có mạng.`)
-                  : 'Chưa xác minh quyền offline cho tài khoản + dự án; tạm thời chỉ xem.'}
+                  : 'Chưa xác minh quyền ngoại tuyến cho tài khoản và dự án; tạm thời chỉ xem.'}
               </span>
             </div>
           </div>
           <div className="flex items-center gap-1.5 shrink-0 self-start sm:self-auto pl-6 sm:pl-0">
             <span data-hnl-offline-status-chip className="bg-white/80 text-amber-900 font-mono text-[10px] px-2 py-0.5 rounded-full border border-amber-300/80 flex items-center gap-1">
               <Database className="w-3 h-3 text-amber-600" />
-              <span>{verifiedSnapshotFallback ? `Snapshot + Local${firestorePendingWriteCount > 0 ? ` · ${firestorePendingWriteCount} chờ Firestore` : ''}` : firebaseOnly ? `Firestore${firestorePendingWriteCount > 0 ? ` · ${firestorePendingWriteCount} chờ` : ''}` : (roleSource === 'offline-cache' ? 'Offline cache' : 'Đã lưu máy')}</span>
+              <span>{verifiedSnapshotFallback ? `Bản dữ liệu + bộ nhớ máy${firestorePendingWriteCount > 0 ? ` · ${firestorePendingWriteCount} chờ Firestore` : ''}` : firebaseOnly ? `Firestore${firestorePendingWriteCount > 0 ? ` · ${firestorePendingWriteCount} chờ` : ''}` : (roleSource === 'offline-cache' ? 'Dữ liệu ngoại tuyến' : 'Đã lưu máy')}</span>
             </span>
           </div>
         </div>

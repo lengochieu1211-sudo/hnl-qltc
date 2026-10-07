@@ -835,7 +835,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       if (selectedPidRef.current === pidAtSubmit) {
         setProjectMembers((await fetchProjectMembersFromCloud(pidAtSubmit)).filter((m: any) => m?.email && m?.active !== false));
         setNewMemberEmail('');
-        setMemberMsg({ type: 'success', text: `Da luu quyen ${newMemberRole} cho ${email}.` });
+        setMemberMsg({ type: 'success', text: `Đã lưu quyền ${newMemberRole} cho ${email}.` });
         await refreshCloudStatus(pidAtSubmit);
       }
       const roleDescription = `${existingMember ? 'Đổi' : 'Gán'} quyền ${newMemberRole} cho ${email}`;
@@ -852,7 +852,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       if (selectedPidRef.current === pidAtSubmit) {
         setMemberMsg({
           type: 'error',
-          text: `Chua thay doi quyen tren Cloud: ${err?.message || err}`
+          text: `Chưa thay đổi quyền trên Cloud: ${err?.message || err}`
         });
       }
     } finally {
@@ -884,7 +884,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
         if (selectedPidRef.current === pidAtSubmit) {
           setProjectMembers((await fetchProjectMembersFromCloud(pidAtSubmit)).filter((m: any) => m?.email && m?.active !== false));
-          setMemberMsg({ type: 'success', text: `Da xoa quyen cua ${email}.` });
+          setMemberMsg({ type: 'success', text: `Đã xóa quyền của ${email}.` });
           await refreshCloudStatus(pidAtSubmit);
         }
         const revokeDescription = `Thu hồi quyền truy cập của ${email}`;
@@ -901,7 +901,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
         if (selectedPidRef.current === pidAtSubmit) {
           setMemberMsg({
             type: 'error',
-            text: `Chua thu hoi quyen tren Cloud: ${err?.message || err}`
+            text: `Chưa thu hồi quyền trên Cloud: ${err?.message || err}`
           });
         }
       } finally {

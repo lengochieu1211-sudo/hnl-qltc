@@ -370,7 +370,7 @@ export async function pickAndroidAutoSaveFolder() {
   }
   const requestId = createAndroidRequestId('folder');
   if (!window.AndroidExport!.pickAutoSaveFolder!(requestId)) {
-    throw new Error('Khong the mo hop chon thu muc tu dong luu.');
+    throw new Error('Không thể mở hộp chọn thư mục tự động lưu.');
   }
   await waitForAndroidResult('android-folder-result', requestId);
   return getAndroidAutoSaveFolderName();
@@ -387,7 +387,7 @@ export async function saveTextFileToAndroidAutoFolder(text: string, fileName: st
     throw new Error('Android autosave folder bridge is not available.');
   }
   if (!hasAndroidAutoSaveFolder()) {
-    throw new Error('Chua chon thu muc tu dong luu JSON tren Android.');
+    throw new Error('Chưa chọn thư mục tự động lưu JSON trên Android.');
   }
   await saveTextChunksToAndroid(chunkText(text), sanitizeFileName(fileName), mimeType, 'autosave');
 }

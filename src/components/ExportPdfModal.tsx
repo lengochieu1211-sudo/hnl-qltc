@@ -1672,7 +1672,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
     setDriveUploadError(null);
     try {
       if (!hasApiBackend()) {
-        throw new Error('Google Drive upload can server backend. Firebase Hosting mien phi dang chay static-only nen hay tai file truc tiep ve may.');
+        throw new Error('Tải PDF lên Google Drive cần máy chủ backend. Bản Firebase Hosting hiện chạy tĩnh; hãy tải tệp trực tiếp về máy.');
       }
 
       const { exportAllToExcelBase64 } = await import('../utils/excelExport');
@@ -1742,7 +1742,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
     setDriveUploadError(null);
     try {
       if (!hasApiBackend()) {
-        throw new Error('Google Drive upload can server backend. Firebase Hosting mien phi dang chay static-only nen hay tai file truc tiep ve may.');
+        throw new Error('Tải PDF lên Google Drive cần máy chủ backend. Bản Firebase Hosting hiện chạy tĩnh; hãy tải tệp trực tiếp về máy.');
       }
 
       const htmlContent = getReportHtml();

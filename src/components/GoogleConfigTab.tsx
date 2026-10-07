@@ -479,7 +479,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   // Handle data comparison between device and cloud
   const handleCompareData = async () => {
     if (!hasApiBackend()) {
-      alert('Google Drive compare can server backend. Firebase Hosting mien phi dang chay static-only nen tinh nang nay duoc tat.');
+      alert('Đối chiếu Google Drive cần máy chủ backend. Bản Firebase Hosting hiện chạy tĩnh nên chức năng này đang tắt.');
       return;
     }
     setCheckingCloud(true);
@@ -603,7 +603,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   const handleConnect = async () => {
     try {
       if (!hasApiBackend()) {
-        alert('Google Drive/Sheets OAuth can server backend. Ban web hien dung Firebase Auth/Firestore mien phi.');
+        alert('Google Drive/Sheets OAuth cần máy chủ backend. Bản web hiện dùng Firebase Auth/Firestore.');
         return;
       }
       const res = await apiFetch('/api/auth/url');
@@ -797,7 +797,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
               <h3 className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
                 <ShieldCheck className="w-4 h-4 text-emerald-600" /> Trạng thái hệ thống & đồng bộ
               </h3>
-              <p className="text-[10px] text-slate-500 mt-1">Dùng khi thiết bị/tài khoản nhìn dữ liệu hoặc ảnh khác nhau. File chẩn đoán không chứa mật khẩu, token hay binary ảnh thật.</p>
+              <p className="text-[10px] text-slate-500 mt-1">Dùng khi thiết bị/tài khoản nhìn dữ liệu hoặc ảnh khác nhau. Tệp chẩn đoán không chứa mật khẩu, token hay dữ liệu ảnh nhị phân thực tế.</p>
             </div>
             <span className={`text-[10px] font-bold rounded-lg px-2 py-1 border ${syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
               {syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'Cloud sẵn sàng' : 'Đang kiểm tra'}

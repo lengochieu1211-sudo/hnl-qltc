@@ -83,14 +83,14 @@ const ChatImage: React.FC<{ projectId: string; attachment: ChatAttachment; onOpe
     return (
       <button type="button" onClick={onOpen} className="relative mt-2 block max-w-full text-left" title="Mở thư viện ảnh">
         <img src={src} alt={attachment.fileName || 'Ảnh trao đổi'} className="max-h-64 w-auto max-w-full rounded-xl object-contain bg-slate-100" loading="lazy" />
-        {cloudState === 'pending' && <span className="absolute bottom-1.5 left-1.5 rounded-lg border border-amber-200 bg-amber-50/95 px-2 py-1 text-[9px] font-extrabold text-amber-800">⏳ chờ Cloud</span>}
-        {cloudState === 'ready' && <span className="absolute bottom-1.5 left-1.5 rounded-lg border border-emerald-200 bg-emerald-50/90 px-2 py-1 text-[9px] font-extrabold text-emerald-700">✓ Cloud</span>}
+        {cloudState === 'pending' && <span className="absolute bottom-1.5 left-1.5 rounded-lg border border-amber-200 bg-amber-50/95 px-2 py-1 text-[9px] font-extrabold text-amber-800">⏳ chờ đồng bộ</span>}
+        {cloudState === 'ready' && <span className="absolute bottom-1.5 left-1.5 rounded-lg border border-emerald-200 bg-emerald-50/90 px-2 py-1 text-[9px] font-extrabold text-emerald-700">✓ đã đồng bộ</span>}
       </button>
     );
   }
   return (
     <div className={`mt-2 rounded-xl border px-3 py-4 text-center text-[10px] ${cloudState === 'error' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
-      <div className="font-bold">{cloudState === 'error' ? 'Không tải được ảnh từ Cloud/R2' : cloudState === 'pending' ? 'Ảnh đang chờ Cloud/R2' : 'Đang tải ảnh…'}</div>
+      <div className="font-bold">{cloudState === 'error' ? 'Không tải được ảnh từ Cloud/R2' : cloudState === 'pending' ? 'Ảnh đang chờ đồng bộ Cloud/R2' : 'Đang tải ảnh…'}</div>
       {(cloudState === 'error' || cloudState === 'pending') && (
         <button type="button" onClick={() => setReloadTick((tick) => tick + 1)} className="mt-2 rounded-lg bg-white px-2 py-1 font-extrabold shadow-sm">Tải lại</button>
       )}
@@ -482,7 +482,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
         <div className="shrink-0 px-3 py-2 border-t border-slate-200 bg-slate-50 flex gap-2 overflow-x-auto">
           {draftAttachments.map((attachment, index) => (
             <div key={`${attachment.reference?.entityId || index}`} className="relative shrink-0 rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-[10px] text-slate-600 max-w-40 truncate">
-              {attachment.fileName || 'Ảnh'} <span className="text-amber-700 font-bold">· chờ Cloud</span>
+              {attachment.fileName || 'Ảnh'} <span className="text-amber-700 font-bold">· chờ đồng bộ</span>
               <button onClick={() => setDraftAttachments((prev) => prev.filter((_, i) => i !== index))} className="ml-2 text-rose-600"><X className="w-3 h-3" /></button>
             </div>
           ))}

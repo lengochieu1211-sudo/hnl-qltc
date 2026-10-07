@@ -1557,7 +1557,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (selectedInSavedOrder.length === 0) return;
 
     const confirmed = await confirmAsync(
-      `Chuyển ${selectedInSavedOrder.length} tầng sang ${targetGroup.name}?\n\nChỉ thay Khu/Khối và thứ tự hiển thị của các tầng được chọn. floorId, Căn/Phòng, Defect, Quân số, Checklist, khối lượng, ảnh mặt bằng và lịch sử vẫn giữ nguyên.`,
+      `Chuyển ${selectedInSavedOrder.length} tầng sang ${targetGroup.name}?\n\nChỉ thay Khu/Khối và thứ tự hiển thị của các tầng được chọn. floorId, Căn / Phòng, Defect, Quân số, Checklist, khối lượng, ảnh mặt bằng và lịch sử vẫn giữ nguyên.`,
       {
         title: 'Chuyển Khu/Khối',
         confirmLabel: `Chuyển ${selectedInSavedOrder.length} tầng`,
@@ -1665,7 +1665,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     if (nextEnabled) {
       const confirmed = await confirmAsync(
-        `Bật Khu/Khối chỉ bật lớp phân nhóm hiển thị; không đổi floorId, tên tầng, Căn/Phòng, Defect, Quân số, Checklist, khối lượng hoặc ảnh mặt bằng.\n\nDự án hiện có ${floorCount} tầng. Tầng legacy chưa có Khu/Khối rõ ràng sẽ hiển thị trong “${defaultGroup?.name || 'Khu mặc định'}”; dữ liệu tầng không bị migration hoặc đổi ID.`,
+        `Bật Khu/Khối chỉ bật lớp phân nhóm hiển thị; không đổi floorId, tên tầng, Căn / Phòng, Defect, Quân số, Checklist, khối lượng hoặc ảnh mặt bằng.\n\nDự án hiện có ${floorCount} tầng. Tầng legacy chưa có Khu/Khối rõ ràng sẽ hiển thị trong “${defaultGroup?.name || 'Khu mặc định'}”; dữ liệu tầng không bị migration hoặc đổi ID.`,
         { title: 'Bật Khu/Khối', confirmLabel: 'Bật Khu/Khối' },
       );
       if (!confirmed) return;
@@ -1950,7 +1950,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   const handleBgTouchStart = (e: React.TouchEvent) => {
-    // Paste Căn/Phòng by touch belongs only to Căn/Phòng mode.
+    // Paste Căn / Phòng by touch belongs only to Căn / Phòng mode.
     if (viewMode !== 'highlight') return;
     if (drawTool !== 'none' && drawTool !== 'drag') return;
     if (e.touches.length !== 1) return;
@@ -2176,7 +2176,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   const handleStartRedraw2Point = (room: RoomProgressItem, tool: 'freehand' | 'polygon' | '2point' = '2point') => {
     if (lockedRoomIds.has(room.id)) {
-      setCopyNotification('🔒 Căn/Phòng đang khóa vị trí. Mở khóa trước khi vẽ lại vùng.');
+      setCopyNotification('🔒 Căn / Phòng đang khóa vị trí. Mở khóa trước khi vẽ lại vùng.');
       window.setTimeout(() => setCopyNotification(null), 2200);
       return;
     }
@@ -2997,7 +2997,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       setFloorPlanRangeStartId('');
       setFloorPlanRangeEndId('');
       setUpdatingFloorPlanId(null);
-      alert(`✅ Đã dùng chung bản vẽ của ${source?.floorName || 'tầng nguồn'} cho ${effectiveTargetIds.length} tầng. Không upload binary lại; Defect/Căn/Phòng/tiến độ vẫn giữ riêng từng tầng.`);
+      alert(`✅ Đã dùng chung bản vẽ của ${source?.floorName || 'tầng nguồn'} cho ${effectiveTargetIds.length} tầng. Không tải lại dữ liệu ảnh; Defect/Căn / Phòng/tiến độ vẫn giữ riêng từng tầng.`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes('SOURCE_NOT_CLOUD_READY')) {
@@ -3748,7 +3748,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const applySelectedRoomTransform = (kind: 'rotate90' | 'rotate180' | 'mirror-horizontal' | 'mirror-vertical') => {
     if (!canManageStructure || selectedRoomIdsForAction.length === 0) return;
     if (selectedRoomIdsForAction.some((id) => lockedRoomIds.has(id))) {
-      setCopyNotification('🔒 Có Căn/Phòng đang khóa vị trí. Mở khóa trước khi xoay hoặc đối xứng.');
+      setCopyNotification('🔒 Có Căn / Phòng đang khóa vị trí. Mở khóa trước khi xoay hoặc đối xứng.');
       window.setTimeout(() => setCopyNotification(null), 2400);
       return;
     }
@@ -4240,7 +4240,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           e.preventDefault();
           e.stopPropagation();
           if (roomsToNudge.some((room) => lockedRoomIds.has(room.id))) {
-            setCopyNotification('🔒 Có Căn/Phòng đang khóa vị trí. Mở khóa trước khi di chuyển.');
+            setCopyNotification('🔒 Có Căn / Phòng đang khóa vị trí. Mở khóa trước khi di chuyển.');
             window.setTimeout(() => setCopyNotification(null), 1800);
             return;
           }
@@ -4379,7 +4379,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       return;
     }
     if (isFloorNameTaken(trimmed, floorId)) {
-      alert(`Tên mặt bằng “${trimmed}” đã tồn tại. Vui lòng dùng tên khác để tránh liên kết dữ liệu nhầm tầng.`);
+      alert(`Tên tầng “${trimmed}” đã tồn tại. Vui lòng dùng tên khác để tránh liên kết dữ liệu nhầm tầng.`);
       setInlineEditingName(currentName);
       setInlineEditingFloorId(null);
       return;
@@ -4403,7 +4403,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (!duplicatingFloorTarget) return;
     const finalName = duplicateFloorNameInput.trim() || `${duplicatingFloorTarget.name} (Bản sao)`;
     if (isFloorNameTaken(finalName)) {
-      alert(`Tên mặt bằng “${finalName}” đã tồn tại. Vui lòng đổi tên bản sao trước khi tạo.`);
+      alert(`Tên tầng “${finalName}” đã tồn tại. Vui lòng đổi tên bản sao trước khi tạo.`);
       return;
     }
 
@@ -4470,7 +4470,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const floorName = quickFloorNameInput.trim();
     if (!floorName) return;
     if (isFloorNameTaken(floorName)) {
-      alert(`Tên mặt bằng “${floorName}” đã tồn tại. Vui lòng dùng tên khác.`);
+      alert(`Tên tầng “${floorName}” đã tồn tại. Vui lòng dùng tên khác.`);
       return;
     }
 
@@ -4739,7 +4739,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
       const floorNameClean = file.name.replace(/\.[^/.]+$/, '');
       if (isFloorNameTaken(floorNameClean)) {
-        alert(`Tên mặt bằng “${floorNameClean}” đã tồn tại. Vui lòng đổi tên tệp hoặc dùng chức năng cập nhật bản vẽ của tầng hiện có.`);
+        alert(`Tên tầng “${floorNameClean}” đã tồn tại. Vui lòng đổi tên tệp hoặc dùng chức năng cập nhật bản vẽ của tầng hiện có.`);
         return;
       }
       const newFloorId = createEntityId('fp-pdf');
@@ -4795,7 +4795,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           }
 
           const confirmed = await confirmAsync(
-            `Có ${preflight.blocked.length}/${targetIds.length} tầng đang có bản vẽ chờ đồng bộ thật nên phải giữ nguyên:\n\n• ${skippedPendingNames.slice(0, 8).join('\n• ')}${skippedPendingNames.length > 8 ? `\n• … và ${skippedPendingNames.length - 8} tầng khác` : ''}\n\nCó thể áp dụng bản vẽ mới cho ${preflight.readyIds.length} tầng đã sẵn sàng và bỏ qua các tầng trên. Defect, Căn/Phòng, highlight, tiến độ và checklist không bị sao chép/chỉnh sửa.`,
+            `Có ${preflight.blocked.length}/${targetIds.length} tầng đang có bản vẽ chờ đồng bộ thật nên phải giữ nguyên:\n\n• ${skippedPendingNames.slice(0, 8).join('\n• ')}${skippedPendingNames.length > 8 ? `\n• … và ${skippedPendingNames.length - 8} tầng khác` : ''}\n\nCó thể áp dụng bản vẽ mới cho ${preflight.readyIds.length} tầng đã sẵn sàng và bỏ qua các tầng trên. Defect, Căn / Phòng, highlight, tiến độ và checklist không bị sao chép/chỉnh sửa.`,
             {
               title: 'Một số tầng đang chờ đồng bộ',
               confirmLabel: `Áp dụng cho ${preflight.readyIds.length} tầng`,
@@ -4818,7 +4818,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           : legacySafeCount > 0
             ? ` Đã nhận diện an toàn ${legacySafeCount} tầng legacy.`
             : '';
-        alert(`🎉 Đã áp dụng 1 bản vẽ chung cho ${applied} tầng.${suffix} Defect, Căn/Phòng và tiến độ từng tầng vẫn giữ riêng.`);
+        alert(`🎉 Đã áp dụng 1 bản vẽ chung cho ${applied} tầng.${suffix} Defect, Căn / Phòng và tiến độ từng tầng vẫn giữ riêng.`);
       } else if (effectiveTargetIds.length === 1 && onUpdateFloorPlanImage) {
         await onUpdateFloorPlanImage(effectiveTargetIds[0], planUrl);
         const suffix = skippedPendingNames.length > 0 ? ` Bỏ qua ${skippedPendingNames.length} tầng đang đồng bộ.` : '';
@@ -4866,7 +4866,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (e.cancelable) e.preventDefault();
     const selectedIdsForDrag = selectedRoomIds.includes(room.id) && handle === 'move' ? selectedRoomIds : [room.id];
     if (selectedIdsForDrag.some((id) => lockedRoomIds.has(id))) {
-      setCopyNotification('🔒 Căn/Phòng đang khóa vị trí. Mở khóa trước khi di chuyển hoặc chỉnh kích thước.');
+      setCopyNotification('🔒 Căn / Phòng đang khóa vị trí. Mở khóa trước khi di chuyển hoặc chỉnh kích thước.');
       window.setTimeout(() => setCopyNotification(null), 2200);
       return;
     }
@@ -5668,7 +5668,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       const isDxf = /\.dxf$/i.test(file.name);
       const savedFloorName = newFloorName.trim();
       if (isFloorNameTaken(savedFloorName)) {
-        alert(`Tên mặt bằng “${savedFloorName}” đã tồn tại. Vui lòng dùng tên khác trước khi tải bản vẽ.`);
+        alert(`Tên tầng “${savedFloorName}” đã tồn tại. Vui lòng dùng tên khác trước khi tải bản vẽ.`);
         return;
       }
       const newFloorId = createEntityId(isDxf ? 'fp-dxf' : 'fp');
@@ -6458,7 +6458,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 </span>
 
                 {defectCount > 0 && (
-                  <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping" title={`${defectCount} lỗi defect`} />
+                  <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping" title={`${defectCount} Defect`} />
                 )}
 
                 {/* Direct Action Quick Buttons on Tab */}
@@ -7632,7 +7632,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       type="button"
                       onClick={focusCurrentSelection}
                       className="flex items-center gap-1 bg-indigo-900/70 hover:bg-indigo-800 text-indigo-100 text-[11px] font-extrabold px-2 py-1 rounded-lg transition-colors border border-indigo-600 shadow-xs shrink-0"
-                      title="Đưa Căn/Phòng đang chọn vào giữa màn hình"
+                      title="Đưa Căn / Phòng đang chọn vào giữa màn hình"
                     >
                       <MapPin className="w-3.5 h-3.5" />
                       <span className="hidden sm:inline">Focus</span>
@@ -7641,7 +7641,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       type="button"
                       onClick={toggleSelectedRoomLock}
                       className={`flex items-center gap-1 text-[11px] font-extrabold px-2 py-1 rounded-lg transition-colors border shadow-xs shrink-0 ${selectedRoomsAreLocked ? 'bg-amber-500 text-slate-950 border-amber-300' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-600'}`}
-                      title={selectedRoomsAreLocked ? 'Mở khóa vị trí Căn/Phòng đang chọn' : 'Khóa vị trí để tránh kéo/resize nhầm'}
+                      title={selectedRoomsAreLocked ? 'Mở khóa vị trí Căn / Phòng đang chọn' : 'Khóa vị trí để tránh kéo/resize nhầm'}
                     >
                       <ShieldCheck className="w-3.5 h-3.5" />
                       <span>{selectedRoomsAreLocked ? 'Mở khóa' : 'Khóa'}</span>
@@ -7803,8 +7803,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 </div>
                 <div className="grid grid-cols-1 gap-1.5">
                   {([
-                    ['roomRegions', 'Vùng Căn/Phòng'],
-                    ['roomLabels', 'Tên Căn/Phòng'],
+                    ['roomRegions', 'Vùng Căn / Phòng'],
+                    ['roomLabels', 'Tên Căn / Phòng'],
                     ['defects', 'Marker Defect'],
                     ['resolvedDefects', 'Defect đã hoàn thành'],
                   ] as const).map(([key, label]) => (
@@ -8175,7 +8175,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     <div
                       style={{ left: `${cx}%`, top: `${cy}%` }}
                       className="absolute -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-none bg-slate-950 text-amber-300 px-2 py-1 rounded-full shadow-xl border border-amber-400 text-[10px] font-black"
-                      title="Căn/Phòng đang khóa vị trí"
+                      title="Căn / Phòng đang khóa vị trí"
                     >
                       🔒
                     </div>
@@ -9342,7 +9342,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     type="button"
                     onClick={async () => {
                       const idsToDelete = selectedDefectIds.filter(id => filteredDefects.some(item => item.id === id));
-                      if (await confirmAsync(`Bạn có chắc muốn xóa ${idsToDelete.length} lỗi defect đã chọn?`)) {
+                      if (await confirmAsync(`Bạn có chắc muốn xóa ${idsToDelete.length} Defect đã chọn?`)) {
                         if (onDeleteMultipleDefects) {
                           onDeleteMultipleDefects(idsToDelete);
                         } else {
@@ -9441,7 +9441,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-semibold text-slate-500">
                         <span>📍 Tầng: <strong className="text-slate-700">{defect.floorName || activeFloor?.floorName || 'Chưa rõ'}</strong></span>
                         {defect.roomId && floorRoomById.get(defect.roomId)?.roomName && (
-                          <span>🏠 Căn/Phòng: <strong className="text-slate-700">{floorRoomById.get(defect.roomId)?.roomName}</strong></span>
+                          <span>🏠 Căn / Phòng: <strong className="text-slate-700">{floorRoomById.get(defect.roomId)?.roomName}</strong></span>
                         )}
                       </div>
 
@@ -9550,10 +9550,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <div className="mt-0.5 text-[10px] leading-4 text-slate-600">
                     {pendingDxfImport.cadFloorPlanDataUrl
                       ? `Render ${pendingDxfImport.cadRenderedEntities || 0} entity CAD · ${pendingDxfImport.cadLayers?.length || 0} layer. Mặt bằng và highlight dùng cùng extents nên khớp tọa độ ngay từ đầu.`
-                      : 'DXF này chưa tạo được nền CAD an toàn; vẫn có thể tạo highlight Căn/Phòng.'}
+                      : 'DXF này chưa tạo được nền CAD an toàn; vẫn có thể tạo highlight Căn / Phòng.'}
                   </div>
                   {floorPlans.find((item) => item.id === pendingDxfImport.floorId)?.imageUrl && (
-                    <div className="mt-1 text-[10px] font-bold text-amber-700">Tầng đã có mặt bằng nên hệ thống không tự ghi đè. Muốn thay nền hãy dùng chức năng Thay mặt bằng để giữ revision/sync an toàn.</div>
+                    <div className="mt-1 text-[10px] font-bold text-amber-700">Tầng đã có mặt bằng nên hệ thống không tự ghi đè. Muốn thay nền hãy dùng chức năng Thay mặt bằng để giữ phiên bản và đồng bộ an toàn.</div>
                   )}
                 </div>
               </label>
@@ -9718,7 +9718,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <div>
                 <h3 className="text-sm font-black text-slate-900">Căn chỉnh CAD với mặt bằng</h3>
                 <p className="mt-0.5 text-[10.5px] text-slate-500">
-                  Áp dụng cho {cadSourceRoomCount} Căn/Phòng nguồn DXF của {activeFloor.floorName}. Dữ liệu CAD gốc và roomId không đổi.
+                  Áp dụng cho {cadSourceRoomCount} Căn / Phòng nguồn DXF của {activeFloor.floorName}. Dữ liệu CAD gốc và roomId không đổi.
                 </p>
               </div>
               <button type="button" onClick={() => setShowCadAlignmentModal(false)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-600">Đóng</button>
@@ -10464,7 +10464,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <div className="flex items-center justify-between gap-2 mt-1 flex-wrap">
                     <p className="text-[10px] text-slate-500 font-medium">
                       📍 Vị trí trên mặt bằng: {activeDefectDetail.floorName || 'Mặt bằng'}
-                      {activeDefectRoomName ? <> · 🏠 Căn/Phòng: <strong className="text-slate-700">{activeDefectRoomName}</strong></> : null}
+                      {activeDefectRoomName ? <> · 🏠 Căn / Phòng: <strong className="text-slate-700">{activeDefectRoomName}</strong></> : null}
                       {' '}({Math.round(activeDefectDetail.x)}%, {Math.round(activeDefectDetail.y)}%)
                     </p>
                     <button
@@ -10515,7 +10515,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           setActiveDefectDetail(null);
                         }}
                         className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-800 rounded-lg text-[11px] font-black transition-all shadow-2xs shrink-0"
-                        title="Chọn vị trí mới cho ghim; hệ thống tự cập nhật liên kết Căn/Phòng và Đội theo vị trí mới"
+                        title="Chọn vị trí mới cho ghim; hệ thống tự cập nhật liên kết Căn / Phòng và Đội theo vị trí mới"
                       >
                         <Move className="w-3 h-3" />
                         <span>Di chuyển ghim</span>
@@ -10801,10 +10801,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   </div>
 
                   <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[10px] font-semibold text-amber-900">
-                    Chỉ thay <b>ảnh nền mặt bằng</b> cho {floorPlanApplySelectedIds.length} tầng. Defect, Căn/Phòng, highlight, tiến độ, checklist và dữ liệu thi công của từng tầng không bị sao chép hoặc trộn.
+                    Chỉ thay <b>ảnh nền mặt bằng</b> cho {floorPlanApplySelectedIds.length} tầng. Defect, Căn / Phòng, highlight, tiến độ, checklist và dữ liệu thi công của từng tầng không bị sao chép hoặc trộn.
                   </div>
                   <div className="text-[10px] text-slate-500">
-                    Nhiều tầng cần mạng trong lúc áp dụng để upload đúng <b>1 binary</b> và publish cùng một asset bất biến. Sau đó cache offline thông minh cũng chỉ tải asset chung một lần.
+                    Nhiều tầng cần mạng trong lúc áp dụng để upload đúng <b>1 dữ liệu ảnh</b> và công bố cùng một tài nguyên bất biến. Sau đó bộ nhớ ngoại tuyến cũng chỉ tải tài nguyên chung một lần.
                   </div>
                 </div>
               )}
@@ -11773,7 +11773,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             <form onSubmit={handleConfirmDuplicateFloor} className="space-y-3">
               <div>
                 <label className="block text-xs font-extrabold text-slate-700 mb-1">
-                  Tên mặt bằng tầng mới:
+                  Tên tầng mới:
                 </label>
                 <input
                   type="text"

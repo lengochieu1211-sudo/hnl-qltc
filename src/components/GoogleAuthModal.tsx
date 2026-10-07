@@ -46,7 +46,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
       // Redirect sign-in navigates away on mobile; desktop popup returns a User.
       if (user) onRefreshAuth();
     } catch (err: any) {
-      setErrorMsg('Khong the dang nhap Google bang Firebase Auth: ' + (err?.message || err));
+      setErrorMsg('Không thể đăng nhập Google bằng Firebase Auth: ' + (err?.message || err));
     } finally {
       setLoading(false);
     }
@@ -153,8 +153,8 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
               <p className="font-semibold text-slate-800">Quyền hạn đã kích hoạt:</p>
               <ul className="list-disc list-inside space-y-0.5 text-[11px]">
                 <li>Dang nhap Google bang Firebase Authentication</li>
-                <li>Dong bo du lieu qua Firestore free tier khi du cau hinh</li>
-                <li>Khong can server rieng, khong goi Google Drive/Sheets tren Hosting tinh</li>
+                <li>Đồng bộ dữ liệu qua Firestore khi đã cấu hình đầy đủ</li>
+                <li>Không cần máy chủ riêng; bản Hosting tĩnh không gọi trực tiếp Google Drive/Sheets</li>
               </ul>
             </div>
 

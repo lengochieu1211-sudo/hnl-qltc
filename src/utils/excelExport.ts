@@ -317,7 +317,7 @@ function appendWorkVolumeDetailSheet(
   applyWorkVolumeDetailFormulas(ws, rows, canFinancials);
   enableWorkbookRecalculation(wb);
   autoFitColumns(ws);
-  XLSX.utils.book_append_sheet(wb, ws, 'Chi Tiet Khoi Luong');
+  XLSX.utils.book_append_sheet(wb, ws, 'Chi Tiết Khối Lượng');
 }
 
 
@@ -373,7 +373,7 @@ export function exportFloorPlanToExcel(
       'Trục Tọa Độ': d.axisGrid || '',
       'Vị Trí Cụ Thể': d.positionDetail || '',
       'Hạng Mục Lỗi': d.category,
-      'Mô Tả Lỗi Chi Tiết': d.description,
+      'Mô Tả Defect Chi Tiết': d.description,
       'Người Tạo': d.createdBy || 'QC',
       'Deadline Sửa': d.dueDate ? formatDateDDMMYYYY(d.dueDate) : '-',
       'Kiểm Soát Hạn (Overdue)': overdue.statusText,
@@ -510,7 +510,7 @@ export function exportAllToExcel(params: {
     applyWorkVolumeSummaryFormulas(wsVolumes, volumeData, canFinancials);
     enableWorkbookRecalculation(wb);
     autoFitColumns(wsVolumes);
-    XLSX.utils.book_append_sheet(wb, wsVolumes, 'Khoi Luong Thi Cong');
+    XLSX.utils.book_append_sheet(wb, wsVolumes, 'Khối Lượng Thi Công');
     if (params.includeWorkVolumeDetails !== false) appendWorkVolumeDetailSheet(wb, {
       workVolumes: params.workVolumes,
       roomProgressList: params.roomProgressList,
@@ -731,7 +731,7 @@ export function exportAllToExcelBase64(params: {
     applyWorkVolumeSummaryFormulas(wsVolumes, volumeData, canFinancials);
     enableWorkbookRecalculation(wb);
     autoFitColumns(wsVolumes);
-    XLSX.utils.book_append_sheet(wb, wsVolumes, 'Khoi Luong Thi Cong');
+    XLSX.utils.book_append_sheet(wb, wsVolumes, 'Khối Lượng Thi Công');
     if (params.includeWorkVolumeDetails !== false) appendWorkVolumeDetailSheet(wb, {
       workVolumes: params.workVolumes,
       roomProgressList: params.roomProgressList,
@@ -896,7 +896,7 @@ export function exportCrewRecordsToExcel(crewRecords: CrewRecord[], teams: TeamI
     [1, 2, 3, 4].includes(index) ? { ...col, hidden: true } : col
   );
   wsMain['!autofilter'] = { ref: `A1:P${Math.max(2, mainData.length + 1)}` };
-  XLSX.utils.book_append_sheet(wb, wsMain, 'Nhat Ky Quan So');
+  XLSX.utils.book_append_sheet(wb, wsMain, 'Nhật Ký Quân Số');
 
   const detailData = sortedCrewRecords.flatMap((record) => {
     const floorWorks = record.floorWorks || [];
@@ -968,7 +968,7 @@ export function exportCrewRecordsToExcel(crewRecords: CrewRecord[], teams: TeamI
 
   const wsGuide = XLSX.utils.aoa_to_sheet([
     ['HNL QLTC - Nhật ký quân số'],
-    ['1', 'Nhat Ky Quan So: chỉnh ngày, đội, quân số theo ca và ghi chú.'],
+    ['1', 'Nhật ký quân số: chỉnh ngày, đội, quân số theo ca và ghi chú.'],
     ['2', 'Chi Tiet Cong Viec: chỉnh Tầng, Hạng Mục Chính và Hạng Mục Phụ/Công Đoạn của đúng __recordId.'],
     ['3', 'Các cột __recordId/__teamId/__floorId là khóa kỹ thuật; không xóa nếu muốn cập nhật đúng bản ghi hiện có.'],
     ['4', 'Ảnh hiện trường không nằm trong Excel và không bị thay đổi khi nhập lại nhật ký.'],
@@ -1048,7 +1048,7 @@ export function exportWorkVolumesTemplate(workVolumes?: WorkVolume[], projectNam
   ws['!cols'] = (ws['!cols'] || []).map((col, index) =>
     [1, 2, 3, 4].includes(index) ? { ...col, hidden: true } : col
   );
-  XLSX.utils.book_append_sheet(wb, ws, 'Khoi Luong Thi Cong');
+  XLSX.utils.book_append_sheet(wb, ws, 'Khối Lượng Thi Công');
   const safeName = (projectName || 'Cong_Trinh').replace(/[^a-zA-Z0-9_ -]/g, '');
   return saveWorkbookFile(wb, `Khoi_Luong_Thi_Cong_${safeName}.xlsx`);
 }
@@ -1118,7 +1118,7 @@ export function exportTeamStatisticsToExcel(params: {
     ];
     const ws1 = XLSX.utils.json_to_sheet(overviewRows);
     autoFitColumns(ws1);
-    XLSX.utils.book_append_sheet(wb, ws1, '01-Tong quan');
+    XLSX.utils.book_append_sheet(wb, ws1, '01-Tổng quan');
 
     // Sheet 2: 02-Khoi luong theo tang
     const floorRows: any[] = [];
@@ -1146,7 +1146,7 @@ export function exportTeamStatisticsToExcel(params: {
     }
     const ws2 = XLSX.utils.json_to_sheet(floorRows);
     autoFitColumns(ws2);
-    XLSX.utils.book_append_sheet(wb, ws2, '02-Khoi luong theo tang');
+    XLSX.utils.book_append_sheet(wb, ws2, '02-Khối lượng theo tầng');
 
     // Sheet 3: 03-Chi tiet phong
     const roomRows: any[] = (stat.teamRoomDetails || []).map((det, idx) => ({
@@ -1176,7 +1176,7 @@ export function exportTeamStatisticsToExcel(params: {
     }
     const ws3 = XLSX.utils.json_to_sheet(roomRows);
     autoFitColumns(ws3);
-    XLSX.utils.book_append_sheet(wb, ws3, '03-Chi tiet phong');
+    XLSX.utils.book_append_sheet(wb, ws3, '03-Chi tiết phòng');
 
     // Sheet 4: 04-Defect
     const teamDefects = (params.defects || []).filter(d => !d.archivedAt && isTeamMatch(d.assignedTo, team, d.teamId));
@@ -1185,7 +1185,7 @@ export function exportTeamStatisticsToExcel(params: {
       '__defectId': d.id,
       'Ngày Tạo': d.createdAt ? formatDateDDMMYYYY(d.createdAt) : '',
       'Tầng': d.floorName,
-      'Mô Tả Lỗi': d.description,
+      'Mô Tả Defect': d.description,
       'Mức Độ': d.severity,
       'Trạng Thái': d.status,
       'Ngày Khắc Phục': d.completedAt || '-',
@@ -1193,11 +1193,11 @@ export function exportTeamStatisticsToExcel(params: {
     }));
     if (defectRows.length === 0) {
       defectRows.push({
-        'STT': 1, '__defectId': '', 'Ngày Tạo': '-', 'Tầng': '-', 'Mô Tả Lỗi': 'Không có defect phát sinh', 'Mức Độ': '-', 'Trạng Thái': '-', 'Ngày Khắc Phục': '-', 'Ghi Chú': ''
+        'STT': 1, '__defectId': '', 'Ngày Tạo': '-', 'Tầng': '-', 'Mô Tả Defect': 'Không có Defect phát sinh', 'Mức Độ': '-', 'Trạng Thái': '-', 'Ngày Khắc Phục': '-', 'Ghi Chú': ''
       });
     }
     defectRows.push(
-      { 'STT': '', '__defectId': '', 'Ngày Tạo': 'TỔNG DEFECT', 'Tầng': teamDefects.length, 'Mô Tả Lỗi': `Đang mở: ${stat.openDefectsCount} | Đã khắc phục: ${stat.resolvedDefectsCount} | Đã nghiệm thu: ${stat.closedDefectsCount}`, 'Mức Độ': '', 'Trạng Thái': '', 'Ngày Khắc Phục': '', 'Ghi Chú': '' }
+      { 'STT': '', '__defectId': '', 'Ngày Tạo': 'TỔNG DEFECT', 'Tầng': teamDefects.length, 'Mô Tả Defect': `Đang mở: ${stat.openDefectsCount} | Đã khắc phục: ${stat.resolvedDefectsCount} | Đã nghiệm thu: ${stat.closedDefectsCount}`, 'Mức Độ': '', 'Trạng Thái': '', 'Ngày Khắc Phục': '', 'Ghi Chú': '' }
     );
     const ws4 = XLSX.utils.json_to_sheet(defectRows);
     autoFitColumns(ws4);
@@ -1228,7 +1228,7 @@ export function exportTeamStatisticsToExcel(params: {
     );
     const ws5 = XLSX.utils.json_to_sheet(logRows);
     autoFitColumns(ws5);
-    XLSX.utils.book_append_sheet(wb, ws5, '05-Nhat ky quan so');
+    XLSX.utils.book_append_sheet(wb, ws5, '05-Nhật ký quân số');
 
     // Sheet 6: material issued vs constructed-volume norm.
     const materialLines = computeTeamMaterialReconciliation({
@@ -1300,7 +1300,7 @@ export function exportTeamStatisticsToExcel(params: {
   });
   const wsSummary = XLSX.utils.json_to_sheet(summaryData);
   autoFitColumns(wsSummary);
-  XLSX.utils.book_append_sheet(wb, wsSummary, '01-Tong quan cac doi');
+  XLSX.utils.book_append_sheet(wb, wsSummary, '01-Tổng quan các đội');
 
   const floorRows: any[] = [];
   activeTeams.forEach((team) => {
@@ -1329,7 +1329,7 @@ export function exportTeamStatisticsToExcel(params: {
     'Số Phòng/Khu Vực': 0, 'KL Phụ Trách': 0, 'KL Xong Khung': 0, 'KL Xong Tấm': 0, 'KL Nghiệm Thu': 0, 'KL Còn Lại': 0,
   }]);
   autoFitColumns(wsFloors);
-  XLSX.utils.book_append_sheet(wb, wsFloors, '02-KL theo tang');
+  XLSX.utils.book_append_sheet(wb, wsFloors, '02-KL theo tầng');
 
   const roomRows: any[] = [];
   activeTeams.forEach((team) => {
@@ -1365,7 +1365,7 @@ export function exportTeamStatisticsToExcel(params: {
     'Trạng Thái Nghiệm Thu': '-', 'Hạn Hoàn Thành': '-', 'Ghi Chú': '',
   }]);
   autoFitColumns(wsRooms);
-  XLSX.utils.book_append_sheet(wb, wsRooms, '03-Chi tiet phong');
+  XLSX.utils.book_append_sheet(wb, wsRooms, '03-Chi tiết phòng');
 
   const defectRows: any[] = [];
   activeTeams.forEach((team) => {
@@ -1381,7 +1381,7 @@ export function exportTeamStatisticsToExcel(params: {
         'Đội Thi Công': team.name,
         'Ngày Tạo': defect.createdAt ? formatDateDDMMYYYY(defect.createdAt) : '',
         'Tầng': defect.floorName,
-        'Mô Tả Lỗi': defect.description,
+        'Mô Tả Defect': defect.description,
         'Mức Độ': defect.severity,
         'Trạng Thái': defect.status,
         'Ngày Khắc Phục': defect.completedAt || '-',
@@ -1395,7 +1395,7 @@ export function exportTeamStatisticsToExcel(params: {
       'Đội Thi Công': team.name,
       'Ngày Tạo': 'TỔNG ĐỘI',
       'Tầng': teamDefects.length,
-      'Mô Tả Lỗi': `Đang mở: ${stat?.openDefectsCount || 0} | Đã khắc phục: ${stat?.resolvedDefectsCount || 0} | Đã nghiệm thu: ${stat?.closedDefectsCount || 0}`,
+      'Mô Tả Defect': `Đang mở: ${stat?.openDefectsCount || 0} | Đã khắc phục: ${stat?.resolvedDefectsCount || 0} | Đã nghiệm thu: ${stat?.closedDefectsCount || 0}`,
       'Mức Độ': '',
       'Trạng Thái': '',
       'Ngày Khắc Phục': '',
@@ -1404,7 +1404,7 @@ export function exportTeamStatisticsToExcel(params: {
   });
   const wsDefects = XLSX.utils.json_to_sheet(defectRows.length > 0 ? defectRows : [{
     'STT': 1, '__teamId': '', '__defectId': '', 'Đội Thi Công': '-', 'Ngày Tạo': '-', 'Tầng': '-',
-    'Mô Tả Lỗi': 'Không có defect phát sinh', 'Mức Độ': '-', 'Trạng Thái': '-', 'Ngày Khắc Phục': '-', 'Ghi Chú': '',
+    'Mô Tả Defect': 'Không có Defect phát sinh', 'Mức Độ': '-', 'Trạng Thái': '-', 'Ngày Khắc Phục': '-', 'Ghi Chú': '',
   }]);
   autoFitColumns(wsDefects);
   XLSX.utils.book_append_sheet(wb, wsDefects, '04-Defect');
@@ -1453,7 +1453,7 @@ export function exportTeamStatisticsToExcel(params: {
     'Nhiệm Vụ / Công Việc': 'Chưa có nhật ký', 'Ghi Chú': '',
   }]);
   autoFitColumns(wsLogs);
-  XLSX.utils.book_append_sheet(wb, wsLogs, '05-Nhat ky quan so');
+  XLSX.utils.book_append_sheet(wb, wsLogs, '05-Nhật ký quân số');
 
   const materialRows: any[] = [];
   activeTeams.forEach((team) => {

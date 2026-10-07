@@ -86,16 +86,16 @@ assert.equal(filteredJson.exportedIssueCount, 1);
 assert.equal(filteredJson.issues[0].ruleId, 'CREW_TASK_EMPTY_DETAIL');
 
 const wb = buildHealthCenterExcelWorkbook(input);
-const expectedSheets = ['Tong quan', 'Tat ca van de', 'Loi nghiem trong', 'Canh bao', 'Can xac nhan', 'Mo coi lien ket', 'Quan so', 'Defect', 'Tien do Can phong', 'AI nhan xet'];
+const expectedSheets = ['Tổng quan', 'Tất cả vấn đề', 'Lỗi nghiêm trọng', 'Cảnh báo', 'Cần xác nhận', 'Mồ côi liên kết', 'Quân số', 'Defect', 'Tiến độ Căn phòng', 'AI nhận xét'];
 for (const sheet of expectedSheets) {
   assert.ok(wb.SheetNames.includes(sheet), `Excel phải có sheet ${sheet}`);
 }
-const summary = XLSX.utils.sheet_to_json<Array<string | number>>(wb.Sheets['Tong quan'], { header: 1 });
-assert.ok(summary.some((row) => row[0] === 'Audit Snapshot ID' && row[1] === report.auditSnapshotId), 'Excel phải chứa auditSnapshotId');
-const allIssues = XLSX.utils.sheet_to_json<Array<string | number>>(wb.Sheets['Tat ca van de'], { header: 1 });
+const summary = XLSX.utils.sheet_to_json<Array<string | number>>(wb.Sheets['Tổng quan'], { header: 1 });
+assert.ok(summary.some((row) => row[0] === 'ID bản kiểm tra' && row[1] === report.auditSnapshotId), 'Excel phải chứa auditSnapshotId');
+const allIssues = XLSX.utils.sheet_to_json<Array<string | number>>(wb.Sheets['Tất cả vấn đề'], { header: 1 });
 assert.ok(allIssues.some((row) => row.includes('Đội Nguyên') && row.includes('Tầng 3')), 'Excel phải xuất metadata ngày/đội/tầng');
 assert.ok(allIssues.some((row) => row.includes('ROOM_FLOOR_NOT_FOUND')), 'Excel phải xuất orphan rule');
-const aiRows = XLSX.utils.sheet_to_json<Array<string | number>>(wb.Sheets['AI nhan xet'], { header: 1 });
+const aiRows = XLSX.utils.sheet_to_json<Array<string | number>>(wb.Sheets['AI nhận xét'], { header: 1 });
 assert.ok(aiRows.some((row) => row.includes(aiNarrative)), 'AI nhận xét phải nằm ở sheet riêng');
 
 const filteredWb = buildHealthCenterExcelWorkbook({ ...input, scope: 'filtered', issues: [report.issues[1]] });
@@ -164,10 +164,10 @@ assert.equal(combinedJson.systemDiagnostics.photoDiagnostics.pending, 1, 'JSON t
 assert.equal(combinedJson.systemDiagnostics.floorPlanDiagnostics.total, 3, 'JSON tổng hợp phải chứa chẩn đoán ảnh mặt bằng');
 
 const combinedWb = buildHealthCenterExcelWorkbook(combinedInput);
-for (const sheet of ['He thong dong bo', 'Anh R2', 'Anh mat bang', 'Runtime log']) {
+for (const sheet of ['Hệ thống đồng bộ', 'Ảnh R2', 'Ảnh mặt bằng', 'Nhật ký Runtime']) {
   assert.ok(combinedWb.SheetNames.includes(sheet), `Excel tổng hợp phải có sheet ${sheet}`);
 }
-const r2Rows = XLSX.utils.sheet_to_json<Array<string | number>>(combinedWb.Sheets['Anh R2'], { header: 1 });
+const r2Rows = XLSX.utils.sheet_to_json<Array<string | number>>(combinedWb.Sheets['Ảnh R2'], { header: 1 });
 assert.ok(r2Rows.some((row) => row.includes('photo-2') && row.includes('pending')), 'Excel phải chứa ảnh R2 đang pending');
 const copyText = buildHealthCenterCopyText(combinedInput);
 assert.ok(copyText.includes('AUDIT DỮ LIỆU & LIÊN KẾT'));
@@ -176,8 +176,8 @@ assert.ok(copyText.includes('App: 6.3.0 | Env: DEV | Platform: Android | Schema:
 assert.ok(copyText.includes('Build ID: golden-build | Commit: golden-commit'), 'Copy phải có build ID và commit');
 assert.ok(copyText.includes('User: golden@example.com | Role: ADMIN | Role resolved: true | Role source: cloud'), 'Copy phải có quyền và nguồn quyền');
 assert.ok(copyText.includes('HỆ THỐNG / ĐỒNG BỘ / R2'));
-assert.ok(copyText.includes('Firestore: synced | Cloud ready: true | Realtime: 9/9 | Pending data: 0'), 'Copy phải có Firestore/realtime/pending');
-assert.ok(copyText.includes('Ảnh R2: total 2 | active 2 | ready 1 | pending 1'));
+assert.ok(copyText.includes('Firestore: synced | Cloud sẵn sàng: true | Realtime: 9/9 | Dữ liệu chờ: 0'), 'Copy phải có Firestore/realtime/pending');
+assert.ok(copyText.includes('Ảnh R2: tổng 2 | đang dùng 2 | sẵn sàng 1 | đang chờ 1'));
 assert.ok(copyText.includes('Mặt bằng ảnh: total 3 | pending 2 | outbox 0 | outbox bytes 0'), 'Copy phải giữ tổng số mặt bằng pending/outbox');
 assert.ok(copyText.includes('Record counts: projects=1 | floors=3 | rooms=2 | defects=1 | crewRecords=1'), 'Copy phải có record counts');
 assert.ok(copyText.includes('CHI TIẾT MẶT BẰNG ẢNH (TẤT CẢ)'), 'Copy phải có chi tiết tất cả mặt bằng, kể cả READY thiếu cache local');
@@ -191,12 +191,12 @@ assert.ok(copyText.includes('RUNTIME LOG GẦN NHẤT (2/2)'), 'Copy phải có 
 assert.ok(copyText.includes('WARN | floor-plan | MISSING_BINARY | Floor binary is unavailable locally'), 'Copy phải giữ runtime warning đủ mã và thông điệp');
 assert.ok(copyText.includes('[ERROR] ROOM_FLOOR_NOT_FOUND | rooms | MANUAL_REPAIR | room/room-orphan'), 'Audit copy phải có severity/rule/module/action/entity');
 assert.ok(copyText.includes('Bảo mật: nội dung copy không xuất password/token/API key/credential'), 'Copy phải ghi rõ nguyên tắc không lộ secret');
-const floorRows = XLSX.utils.sheet_to_json<Array<string | number>>(combinedWb.Sheets['Anh mat bang'], { header: 1 });
+const floorRows = XLSX.utils.sheet_to_json<Array<string | number>>(combinedWb.Sheets['Ảnh mặt bằng'], { header: 1 });
 assert.ok(floorRows.some((row) => row.includes('floor-2') && row.includes('CLOUD_POINTER_INCONSISTENT')), 'Excel phải giữ trạng thái pointer/revision bất thường');
 assert.ok(floorRows.some((row) => row.includes('floor-3') && row.includes('MISSING_BINARY')), 'Excel phải giữ trạng thái thiếu binary');
 
 const html = buildHealthCenterHtmlReport(input);
-assert.ok(html.includes(report.auditSnapshotId), 'PDF HTML phải hiển thị auditSnapshotId');
+assert.ok(html.includes(report.auditSnapshotId), 'PDF HTML phải hiển thị ID bản kiểm tra');
 assert.ok(html.includes('Đội Nguyên'));
 assert.ok(html.includes('Tầng 3'));
 assert.ok(html.includes('ROOM_FLOOR_NOT_FOUND'));

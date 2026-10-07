@@ -456,7 +456,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
               <div className="rounded-2xl border border-slate-200 bg-white p-5 text-center">
                 <Settings2 className="w-8 h-8 mx-auto text-slate-400" />
                 <div className="mt-2 text-sm font-extrabold text-slate-800">Chưa có sự kiện hệ thống</div>
-                <p className="mt-1 text-xs text-slate-500">Khi có đổi quyền, bảo mật, đồng bộ, backup/restore hoặc sự kiện dự án thật, thông báo sẽ xuất hiện tại đây.</p>
+                <p className="mt-1 text-xs text-slate-500">Khi có thay đổi quyền, bảo mật, đồng bộ, sao lưu/khôi phục hoặc sự kiện dự án thật, thông báo sẽ xuất hiện tại đây.</p>
               </div>
             ) : (
               systemEventLogs.map((log) => {
