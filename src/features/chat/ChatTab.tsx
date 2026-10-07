@@ -503,7 +503,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
         <div className="relative flex-1 flex items-end gap-2">
           {mentionOptions.length > 0 && (
             <div className="absolute bottom-12 left-0 right-0 max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl z-20 p-1">
-              {userRole === 'ADMIN' && <button type="button" onClick={() => { setText((v) => `${v.slice(0, Math.max(0, v.lastIndexOf('@')))}@mọi người `); setSelectedMentions((prev) => Array.from(new Set([...prev, 'everyone']))); setMentionOptions([]); }} className="w-full text-left px-3 py-2 rounded-lg text-xs font-bold hover:bg-slate-50">@mọi người <span className="text-[10px] text-slate-400">Admin</span></button>}
+              {userRole === 'ADMIN' && <button type="button" onClick={() => { setText((v) => `${v.slice(0, Math.max(0, v.lastIndexOf('@')))}@mọi người `); setSelectedMentions((prev) => Array.from(new Set([...prev, 'everyone']))); setMentionOptions([]); }} className="w-full text-left px-3 py-2 rounded-lg text-xs font-bold hover:bg-slate-50">@mọi người <span className="text-[10px] text-slate-400">Quản trị</span></button>}
               {mentionOptions.map((member) => <button key={member.uid || member.email} type="button" onClick={() => chooseMention(member)} className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50"><div className="text-xs font-bold text-slate-800">@{member.name}</div><div className="text-[10px] text-slate-400">{member.email} · {member.role}</div></button>)}
             </div>
           )}
