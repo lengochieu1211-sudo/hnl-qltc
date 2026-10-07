@@ -406,7 +406,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   };
 
   const processWarehouseUpdateExcel = async (file: File) => {
-    if (!hasImportAccess) { alert('Chỉ ADMIN được nhập dữ liệu kho/định mức/hạng mục hàng loạt từ Excel.'); return; }
+    if (!hasImportAccess) { alert('Chỉ ADMIN (Quản trị) được nhập dữ liệu Kho / Định mức / Hạng mục hàng loạt từ Excel.'); return; }
     try { assertSafeExcelImportFile(file); } catch (error) {
       alert(`❌ ${error instanceof Error ? error.message : 'Tệp Excel không hợp lệ.'}`);
       return;
@@ -777,7 +777,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             `  - Nhập kho: chứa chữ 'nhap' hoặc 'nhập'\n` +
             `  - Xuất kho: chứa chữ 'xuat' hoặc 'xuất'\n` +
             `  - Định Mức Vật Tư: chứa chữ 'dinh muc' hoặc 'định mức'\n` +
-            `  - Hạng Mục Thi Công (Chỉ xem): bảng tham chiếu, không nhập ngược từ module Kho/Định mức\n\n` +
+            `  - Hạng Mục Thi Công (Chỉ xem): bảng tham chiếu, không nhập ngược từ phân hệ Kho / Định mức\n\n` +
             `Vui lòng kiểm tra lại tên Sheet và đảm bảo có đúng tiêu đề cột dữ liệu.`
           );
           return;
@@ -1387,7 +1387,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     let createdMaterialId: string | null = null;
     if (itemKind === 'material' && exactNormMaterialIds.length === 0 && customMaterial.trim()) {
       if (!hasNormManageAccess) {
-        alert('Vật tư mới chưa có trong Danh mục vật tư. Tài khoản hiện tại không có quyền tạo danh mục; hãy chọn vật tư có sẵn hoặc nhờ ADMIN thêm trước.');
+        alert('Vật tư mới chưa có trong Danh mục vật tư. Tài khoản hiện tại không có quyền tạo danh mục; hãy chọn vật tư có sẵn hoặc nhờ ADMIN (Quản trị) thêm trước.');
         return;
       }
       if (!onCreateMaterialCatalog) {
@@ -1905,7 +1905,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <button
               onClick={onOpenNormModal}
               className="flex h-10 min-w-0 items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-indigo-50 px-2 text-[11px] font-bold text-indigo-700 transition-all hover:bg-indigo-100 active:scale-95 lg:h-9 lg:px-3 lg:text-xs"
-              title={hasNormManageAccess ? 'Cập nhật chủng loại vật tư, ĐVT, định mức' : 'Xem định mức vật tư (chỉ ADMIN được sửa)'}
+              title={hasNormManageAccess ? 'Cập nhật chủng loại vật tư, ĐVT, định mức' : 'Xem định mức vật tư (chỉ ADMIN (Quản trị) được sửa)'}
             >
               <Sliders className="w-3.5 h-3.5 shrink-0 text-indigo-600" />
               <span className="sm:hidden">Định mức</span>
