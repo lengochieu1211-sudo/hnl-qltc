@@ -142,7 +142,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
           </button>
 
           {showAi && (
-            <button type="button" data-hnl-nav-tab="ai" onPointerEnter={() => onPreloadTab?.('ai')} onPointerDown={() => previewTab('ai')} onClick={() => activate('ai')} style={navButtonStyle} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-2xl px-1 transition active:scale-[0.97] active:opacity-80 ${activeTab === 'ai' || pressedTab === 'ai' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title="HNL AI Assistant">
+            <button type="button" data-hnl-nav-tab="ai" onPointerEnter={() => onPreloadTab?.('ai')} onPointerDown={() => previewTab('ai')} onClick={() => activate('ai')} style={navButtonStyle} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-2xl px-1 transition active:scale-[0.97] active:opacity-80 ${activeTab === 'ai' || pressedTab === 'ai' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title="Trợ lý HNL AI">
               <Sparkles className="h-5 w-5" /><span className="text-[9px] font-bold">HNL AI</span>
             </button>
           )}
@@ -202,7 +202,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
           </button>
 
           {showMore && (
-            <div className="absolute right-2 w-56 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-2xl" style={{ bottom: 'calc(68px + env(safe-area-inset-bottom))' }}>
+            <div className="absolute right-2 max-h-[min(70dvh,26rem)] w-56 overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-1.5 shadow-2xl" style={{ bottom: 'calc(68px + env(safe-area-inset-bottom))' }}>
               <button type="button" data-hnl-nav-tab="volume" onPointerEnter={() => onPreloadTab?.('volume')} onPointerDown={() => previewTab('volume')} onClick={() => activate('volume')} style={navButtonStyle} className={overflowNavItemClass('volume')}>
                 <BarChart3 className={overflowNavIconClass('volume')} /> {t('volume')}
               </button>
@@ -213,7 +213,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               )}
               {showAi && (
                 <button type="button" data-hnl-nav-tab="ai" onPointerEnter={() => onPreloadTab?.('ai')} onPointerDown={() => previewTab('ai')} onClick={() => activate('ai')} style={navButtonStyle} className={overflowNavItemClass('ai')}>
-                  <Sparkles className={overflowNavIconClass('ai')} /> HNL AI Assistant
+                  <Sparkles className={overflowNavIconClass('ai')} /> Trợ lý HNL AI
                 </button>
               )}
               <button type="button" data-hnl-nav-tab="chat" onPointerEnter={() => onPreloadTab?.('chat')} onPointerDown={() => previewTab('chat')} onClick={() => activate('chat')} style={navButtonStyle} className={overflowNavItemClass('chat', true)}>
