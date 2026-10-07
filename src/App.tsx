@@ -1630,7 +1630,7 @@ function AuthenticatedApp() {
         } catch (_) {}
       }
       if ((currentUrl || hasCloudPointer) && !resolved.startsWith('data:image/')) {
-        throw new Error(`Không thể đóng gói ảnh mặt bằng ${plan.floorName || plan.id} của dự án ${projectId}; từ chối tạo backup thiếu ảnh.`);
+        throw new Error(`Không thể đóng gói ảnh mặt bằng ${plan.floorName || plan.id} của dự án ${projectId}; từ chối tạo bản sao lưu thiếu ảnh.`);
       }
       result.push({ ...plan, imageUrl: resolved || '' });
     }
@@ -1645,7 +1645,7 @@ function AuthenticatedApp() {
       if (FIREBASE_ONLY_RUNTIME) {
         const photoMeta = await refreshProjectPhotoMetadataFromCloud(projectId);
         if (!photoMeta.verified) {
-          throw new Error(`Không xác minh được metadata ảnh Firestore của dự án ${projectId}; từ chối tạo backup có nguy cơ thiếu ảnh.`);
+          throw new Error(`Không xác minh được thông tin ảnh Firestore của dự án ${projectId}; từ chối tạo bản sao lưu có nguy cơ thiếu ảnh.`);
         }
       }
       const photos = await getProjectPhotosWithBinary(projectId, true);
@@ -1700,11 +1700,11 @@ function AuthenticatedApp() {
 
     const cloudRecord = await fetchProjectFromCloud(activeProjectId, { serverOnly: true });
     if (!cloudRecord) {
-      throw new Error('Không đọc được snapshot Firestore server của dự án hiện tại; từ chối tạo backup không đầy đủ.');
+      throw new Error('Không đọc được bản chụp Firestore trên máy chủ của dự án hiện tại; từ chối tạo bản sao lưu không đầy đủ.');
     }
     const cloudPayload = getCloudPayload(cloudRecord);
     if (!cloudPayload) {
-      throw new Error('Snapshot Firestore server không có payload hợp lệ; từ chối tạo backup không đầy đủ.');
+      throw new Error('Bản chụp Firestore trên máy chủ không có dữ liệu hợp lệ; từ chối tạo bản sao lưu không đầy đủ.');
     }
 
     return reconcileBackupSnapshot(cloudPayload, localSnapshot);
@@ -1815,7 +1815,7 @@ function AuthenticatedApp() {
           payload = cloudRecord ? getCloudPayload(cloudRecord) : null;
         }
         if (!payload) {
-          throw new Error(`Không đọc được Firestore của dự án ${projectInfo?.name || projectId}; từ chối tạo backup toàn bộ không đầy đủ.`);
+          throw new Error(`Không đọc được Firestore của dự án ${projectInfo?.name || projectId}; từ chối tạo bản sao lưu toàn bộ không đầy đủ.`);
         }
 
         const backupFloorPlans = await hydrateFloorPlansForBackup(projectId, Array.isArray(payload.floorPlans) ? payload.floorPlans : []);
