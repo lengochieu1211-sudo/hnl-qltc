@@ -378,7 +378,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
       </div>
       <div className="text-[9px] font-semibold text-slate-500">Đang hiển thị/xuất {filtered.length}/{report.issues.length} vấn đề · {report.recordsScanned} bản ghi đã quét</div>
       {onClearSystemDiagnostics && <div className="border-t border-slate-100 pt-2">
-        <button type="button" disabled={Boolean(exporting)} onClick={() => void onClearSystemDiagnostics()} className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[9px] font-bold text-slate-500 hover:bg-slate-50 hover:text-rose-600 disabled:opacity-50"><Eraser className="h-3.5 w-3.5" /> Xóa log chẩn đoán cũ</button>
+        <button type="button" disabled={Boolean(exporting)} onClick={() => void onClearSystemDiagnostics()} className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[9px] font-bold text-slate-500 hover:bg-slate-50 hover:text-rose-600 disabled:opacity-50"><Eraser className="h-3.5 w-3.5" /> Xóa nhật ký chẩn đoán cũ</button>
       </div>}
     </div>
   </div>;
