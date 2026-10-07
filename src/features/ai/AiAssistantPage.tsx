@@ -350,7 +350,7 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shrink-0"><Sparkles className="w-6 h-6" /></div>
             <div className="min-w-0">
-              <h2 className="text-lg font-black text-slate-900">HNL AI Assistant</h2>
+              <h2 className="text-lg font-black text-slate-900">Trợ lý HNL AI</h2>
               <p className="text-xs text-slate-600 truncate">{props.projectName} · {props.role} · {timeZone}</p>
             </div>
           </div>
@@ -385,15 +385,15 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
             </label>
           </div>
           {providerId !== 'cloudflare' && <div className="mt-2">
-            <div className="flex items-center justify-between gap-2"><label className="text-[11px] font-bold text-slate-700">API Key riêng</label><span className="text-[10px] font-semibold text-emerald-700">Chỉ giữ trong bộ nhớ phiên này</span></div>
+            <div className="flex items-center justify-between gap-2"><label className="text-[11px] font-bold text-slate-700">Khóa API (API Key) riêng</label><span className="text-[10px] font-semibold text-emerald-700">Chỉ giữ trong bộ nhớ phiên này</span></div>
             <div className="mt-1 flex gap-2">
-              <input type={showApiKey ? 'text' : 'password'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" spellCheck={false} placeholder={`Nhập ${selectedProvider.label} API Key`} className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800" />
+              <input type={showApiKey ? 'text' : 'password'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" spellCheck={false} placeholder={`Nhập khóa API (API Key) ${selectedProvider.label}`} className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800" />
               <button type="button" onClick={() => setShowApiKey((value) => !value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-[11px] font-bold text-slate-700">{showApiKey ? 'Ẩn' : 'Hiện'}</button>
               {apiKey && <button type="button" onClick={() => setApiKey('')} className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-bold text-rose-700">Xóa</button>}
             </div>
-            <p className="mt-1.5 text-[10px] leading-4 text-slate-500">{selectedProvider.apiHint} API Key bạn nhập không lưu vào Firestore, localStorage, APK/EXE hay log của HNL; tải lại ứng dụng sẽ phải nhập lại.</p>
+            <p className="mt-1.5 text-[10px] leading-4 text-slate-500">{selectedProvider.apiHint} Khóa API (API Key) bạn nhập không lưu vào Firestore, localStorage, APK/EXE hay nhật ký của HNL; tải lại ứng dụng sẽ phải nhập lại.</p>
           </div>}
-          <div className="mt-2 text-[10px] font-semibold text-slate-600">Trạng thái: {modelsLoading ? 'Đang đọc danh sách mô hình...' : providerReady ? `${selectedProvider.label} · ${hasSessionApiKey ? 'API riêng phiên này' : 'HNL Managed'}` : providerId === 'cloudflare' ? 'HNL Managed chưa sẵn sàng' : 'Chưa có thông tin xác thực — nhập API Key riêng hoặc dùng HNL Managed nếu đã cấu hình'}</div>
+          <div className="mt-2 text-[10px] font-semibold text-slate-600">Trạng thái: {modelsLoading ? 'Đang đọc danh sách mô hình...' : providerReady ? `${selectedProvider.label} · ${hasSessionApiKey ? 'Khóa riêng phiên này' : 'Dịch vụ HNL'}` : providerId === 'cloudflare' ? 'Dịch vụ HNL chưa sẵn sàng' : 'Chưa có thông tin xác thực — nhập khóa API (API Key) riêng hoặc dùng dịch vụ HNL nếu đã cấu hình'}</div>
         </div>}
         {mode === 'ai' && <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
           <label className="flex items-start gap-2 text-[11px] font-bold text-amber-950">
