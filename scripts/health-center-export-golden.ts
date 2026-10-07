@@ -166,7 +166,7 @@ assert.equal(combinedJson.systemDiagnostics.photoDiagnostics.pending, 1, 'JSON t
 assert.equal(combinedJson.systemDiagnostics.floorPlanDiagnostics.total, 3, 'JSON tổng hợp phải chứa chẩn đoán ảnh mặt bằng');
 
 const combinedWb = buildHealthCenterExcelWorkbook(combinedInput);
-for (const sheet of ['Hệ thống đồng bộ', 'Ảnh R2', 'Ảnh mặt bằng', 'Nhật ký Runtime']) {
+for (const sheet of ['Hệ thống đồng bộ', 'Ảnh R2', 'Ảnh mặt bằng', 'Nhật ký chạy']) {
   assert.ok(combinedWb.SheetNames.includes(sheet), `Excel tổng hợp phải có sheet ${sheet}`);
 }
 const systemRows = XLSX.utils.sheet_to_json<Array<string | number>>(combinedWb.Sheets['Hệ thống đồng bộ'], { header: 1 });
@@ -241,6 +241,7 @@ assert.ok(html.includes('AI nhận xét (không thay thế kết luận HNL)'), 
 assert.ok(html.includes('<b>Độ mới dữ liệu:</b> Trực tiếp'), 'PDF HTML phải Việt hóa độ mới dữ liệu');
 assert.ok(html.includes('<b>Phạm vi:</b> Tất cả'), 'PDF HTML phải Việt hóa phạm vi xuất');
 assert.ok(html.includes('<th>Căn / Phòng</th>'), 'PDF HTML phải dùng thuật ngữ Căn / Phòng thống nhất');
+assert.ok(html.includes('HNL - Trung tâm kiểm tra dữ liệu (Health Center)'), 'PDF HTML phải dùng tiêu đề Health Center có diễn giải tiếng Việt');
 assert.ok(html.includes('Dữ liệu mồ côi không được tự động xóa'), 'PDF phải nêu nguyên tắc bảo toàn dữ liệu mồ côi');
 
 console.log('Health Center export golden regression PASS', {
