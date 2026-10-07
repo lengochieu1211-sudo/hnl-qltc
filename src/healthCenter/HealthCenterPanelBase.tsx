@@ -176,7 +176,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
       teamId: issue.location.teamId,
       ruleId: issue.ruleId,
     } }));
-    setMessage('Đã gửi yêu cầu mở đúng bản ghi liên quan. Nếu module chưa hỗ trợ deep-link chi tiết, HNL sẽ mở module gần nhất.');
+    setMessage('Đã gửi yêu cầu mở đúng bản ghi liên quan. Nếu phân hệ chưa hỗ trợ mở thẳng đến bản ghi chi tiết, HNL sẽ mở màn hình gần nhất.');
   };
 
   const buildCombinedExportInput = async () => ({
@@ -210,7 +210,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
     try {
       const input = await buildCombinedExportInput();
       await navigator.clipboard.writeText(buildHealthCenterCopyText(input));
-      setMessage('Đã sao chép chẩn đoán đầy đủ: bản dựng/quyền + Firebase/thời gian thực + R2/ảnh + mặt bằng/phiên bản + nhật ký runtime (thời gian chạy) + kiểm tra.');
+      setMessage('Đã sao chép chẩn đoán đầy đủ: bản dựng/quyền + Firebase/thời gian thực + R2/ảnh + mặt bằng/phiên bản + nhật ký thời gian chạy (runtime) + kiểm tra.');
     } catch (err) {
       setMessage(`Không sao chép được chẩn đoán tổng hợp: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -314,7 +314,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
         <option value="ALL">Tất cả mức độ</option><option value="ERROR">Lỗi nghiêm trọng</option><option value="WARNING">Cảnh báo</option><option value="REVIEW">Cần xác nhận</option><option value="SUGGESTION">Đề xuất</option>
       </select>
       <select value={module} onChange={(e) => { setModule(e.target.value as ModuleFilter); setShowRepairPreview(false); }} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs">
-        <option value="ALL">Tất cả mô-đun</option>{(['system','firebase','r2','sync','rooms','defects','crew','quantities','inventory','materialNorms','checklist','links'] as HealthCenterModule[]).map((x) => <option key={x} value={x}>{moduleLabel(x)}</option>)}
+        <option value="ALL">Tất cả phân hệ</option>{(['system','firebase','r2','sync','rooms','defects','crew','quantities','inventory','materialNorms','checklist','links'] as HealthCenterModule[]).map((x) => <option key={x} value={x}>{moduleLabel(x)}</option>)}
       </select>
       <input value={query} onChange={(e) => { setQuery(e.target.value); setShowRepairPreview(false); }} placeholder="Tìm ngày, đội, tầng, căn, hạng mục..." className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs" />
     </div>
@@ -339,7 +339,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
           <div className="mt-1 text-[9px] text-slate-500">{op.ruleId} · {op.reason}</div>
         </div>)}
       </div>
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[9px] font-semibold text-amber-800">Chỉ áp dụng khi bản kiểm tra Cloud đang trực tiếp (live) và bước kiểm tra trước đồng bộ an toàn: trực tuyến, không xung đột/lỗi/đang đồng bộ, không còn dữ liệu chờ và realtime đủ nguồn. Luồng bắt buộc: kiểm tra trước → bản kiểm tra còn mới → sao lưu thành công → ADMIN xác nhận → kiểm tra giá trị trước sửa → chỉ ghi Defect/Quân số qua chênh lệch Cloud chuẩn có revision (phiên bản) → kiểm tra lại realtime.</div>
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[9px] font-semibold text-amber-800">Chỉ áp dụng khi bản kiểm tra đám mây đang trực tiếp (live) và bước kiểm tra trước đồng bộ an toàn: trực tuyến, không xung đột/lỗi/đang đồng bộ, không còn dữ liệu chờ và đồng bộ thời gian thực (realtime) đủ nguồn. Luồng bắt buộc: kiểm tra trước → bản kiểm tra còn mới → sao lưu thành công → ADMIN (Quản trị) xác nhận → kiểm tra giá trị trước sửa → chỉ ghi Defect/Quân số qua chênh lệch dữ liệu đám mây chuẩn có phiên bản (revision) → kiểm tra lại đồng bộ thời gian thực.</div>
     </div>}
 
     {report.issues.length === 0 ? <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold text-emerald-700"><CheckCircle2 className="h-4 w-4" /> Không phát hiện vấn đề trong bản kiểm tra hiện tại.</div> : null}
