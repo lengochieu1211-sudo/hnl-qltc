@@ -63,7 +63,7 @@ interface HomeDashboardProps {
 const crewReportSessionCache = new Map<string, CrewReportProjectInput>();
 const crewReportCacheKey = (projectId: string, startDate: string, endDate: string) => `${projectId}::${startDate}::${endDate}`;
 
-const roleLabel = (role?: UserRole) => role === 'ADMIN' ? 'ADMIN' : role === 'EDITOR' ? 'EDITOR' : 'VIEWER';
+const roleLabel = (role?: UserRole) => role === 'ADMIN' ? 'Quản trị' : role === 'EDITOR' ? 'Biên tập' : 'Chỉ xem';
 const roleClass = (role?: UserRole) => role === 'ADMIN'
   ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
   : role === 'EDITOR'
