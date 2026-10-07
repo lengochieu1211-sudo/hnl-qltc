@@ -854,10 +854,10 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
                   <div key={photo.id} className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <div className="text-[10px] font-extrabold text-amber-900 truncate">{photo.entityType}/{photo.entityId}</div>
-                      <div className="text-[9px] text-amber-700 truncate font-mono">{photo.id} · {photo.storageProvider || 'legacy'} · {photo.binaryUploadState || 'unknown'}{photo.staleLocalCache ? ' · cache cũ' : ''}</div>
+                      <div className="text-[9px] text-amber-700 truncate font-mono">{photo.id} · {photo.storageProvider || 'dữ liệu cũ'} · {photo.binaryUploadState || 'không rõ'}{photo.staleLocalCache ? ' · bộ nhớ đệm cũ' : ''}</div>
                     </div>
                     <button type="button" onClick={() => handleGoToDiagnosticEntity(photo)} className="shrink-0 rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-1.5 text-[10px] font-extrabold flex items-center gap-1">
-                      <ExternalLink className="w-3.5 h-3.5" /> {photo.entityType === 'crewRecord' ? 'Đi tới bản ghi' : 'Mở module'}
+                      <ExternalLink className="w-3.5 h-3.5" /> {photo.entityType === 'crewRecord' ? 'Đi tới bản ghi' : 'Mở phân hệ'}
                     </button>
                   </div>
                 ))}
