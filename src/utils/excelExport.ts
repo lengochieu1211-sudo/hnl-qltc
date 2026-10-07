@@ -255,8 +255,8 @@ function prependProjectInfoSheet(wb: XLSX.WorkBook, projectName: string, project
   if (String(projectLocation || '').trim()) rows.push(['Địa điểm', String(projectLocation).trim()]);
   const ws = XLSX.utils.aoa_to_sheet([['THÔNG TIN DỰ ÁN', 'GIÁ TRỊ'], ...rows]);
   autoFitColumns(ws);
-  XLSX.utils.book_append_sheet(wb, ws, 'Thong Tin Du An');
-  wb.SheetNames = ['Thong Tin Du An', ...wb.SheetNames.filter((name) => name !== 'Thong Tin Du An')];
+  XLSX.utils.book_append_sheet(wb, ws, 'Thông tin dự án');
+  wb.SheetNames = ['Thông tin dự án', ...wb.SheetNames.filter((name) => name !== 'Thông tin dự án')];
 }
 
 
