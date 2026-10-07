@@ -33,6 +33,50 @@ function selectedIssues(input: HealthCenterExportInput): HealthCenterIssue[] {
   return input.scope === 'filtered' && Array.isArray(input.issues) ? input.issues : input.report.issues;
 }
 
+function exportScopeLabel(scope?: HealthCenterExportScope): string {
+  return scope === 'filtered' ? 'Theo bộ lọc' : 'Tất cả';
+}
+
+function freshnessLabel(value: HealthCenterSummary['freshness']): string {
+  if (value === 'live') return 'Trực tiếp';
+  if (value === 'cache') return 'Bộ nhớ đệm';
+  if (value === 'fixture') return 'Dữ liệu kiểm thử';
+  return String(value || '—');
+}
+
+const SYSTEM_DIAGNOSTIC_LABELS: Record<string, string> = {
+  appVersion: 'Phiên bản ứng dụng',
+  environment: 'Môi trường',
+  platform: 'Nền tảng',
+  dataSchemaVersion: 'Phiên bản lược đồ dữ liệu',
+  buildId: 'ID bản dựng',
+  gitCommit: 'Mã commit',
+  buildTime: 'Thời điểm bản dựng',
+  generatedAt: 'Thời điểm tạo chẩn đoán',
+  firebaseUserEmail: 'Người dùng Firebase',
+  role: 'Vai trò',
+  roleResolved: 'Đã xác định vai trò',
+  roleSource: 'Nguồn vai trò',
+  userAgent: 'Nhận diện thiết bị/trình duyệt',
+  dataCloudPhase: 'Trạng thái dữ liệu Cloud',
+  cloudInitialReady: 'Cloud sẵn sàng ban đầu',
+  snapshotReadyCount: 'Số luồng realtime sẵn sàng',
+  pendingData: 'Dữ liệu đang chờ',
+  photoPhase: 'Trạng thái đồng bộ ảnh',
+  photoPending: 'Ảnh đang chờ',
+  pendingDriveUploads: 'Lượt tải lên Drive đang chờ',
+  driveSyncStatus: 'Trạng thái đồng bộ Drive',
+  online: 'Trực tuyến',
+  lastSyncAt: 'Lần đồng bộ cuối',
+  lastSyncError: 'Lỗi đồng bộ gần nhất',
+  duplicateProjectIds: 'ID dự án trùng tên khác ID',
+  recordCounts: 'Số bản ghi',
+};
+
+function systemDiagnosticLabel(key: string): string {
+  return SYSTEM_DIAGNOSTIC_LABELS[key] || key;
+}
+
 function autoFit(ws: XLSX.WorkSheet): void {
   if (!ws['!ref']) return;
   const range = XLSX.utils.decode_range(ws['!ref']);
@@ -76,7 +120,7 @@ function issueRows(issues: HealthCenterIssue[]): Array<Array<string | number>> {
   ]);
 }
 
-const ISSUE_HEADER = ['STT', 'Mức', 'Module', 'Quy tắc', 'Cách xử lý', 'Ngày', 'Đội', 'Tầng', 'Căn / Phòng', 'Ca', 'Hạng mục/Công việc', 'Loại bản ghi', 'ID bản ghi', 'Mô tả', 'ID bằng chứng', 'Chi tiết kỹ thuật'];
+const ISSUE_HEADER = ['STT', 'Mức', 'Phân hệ', 'Quy tắc', 'Cách xử lý', 'Ngày', 'Đội', 'Tầng', 'Căn / Phòng', 'Ca', 'Hạng mục / Công việc', 'Loại bản ghi', 'ID bản ghi', 'Mô tả', 'ID bằng chứng', 'Chi tiết kỹ thuật'];
 
 export function buildHealthCenterFileStem(input: HealthCenterExportInput): string {
   const stamp = new Date(input.report.generatedAt || Date.now()).toISOString().replace(/[:.]/g, '-');
@@ -115,8 +159,8 @@ export function buildHealthCenterExcelWorkbook(input: HealthCenterExportInput): 
     ['ID dự án', r.projectId],
     ['ID bản kiểm tra', r.auditSnapshotId],
     ['Thời điểm kiểm tra', iso(r.generatedAt)],
-    ['Độ mới dữ liệu', r.freshness],
-    ['Phạm vi xuất', input.scope || 'all'],
+    ['Độ mới dữ liệu', freshnessLabel(r.freshness)],
+    ['Phạm vi xuất', exportScopeLabel(input.scope)],
     ['Bản ghi quét', r.recordsScanned],
     ['Vấn đề xuất', issues.length],
     ['LỖI', r.errorCount],
@@ -138,8 +182,8 @@ export function buildHealthCenterExcelWorkbook(input: HealthCenterExportInput): 
     ['Mồ côi liên kết', issues.filter((x) => /NOT_FOUND|ORPHAN/i.test(x.ruleId))],
     ['Quân số', issues.filter((x) => x.module === 'crew')],
     ['Defect', issues.filter((x) => x.module === 'defects')],
-    ['Tiến độ Căn phòng', issues.filter((x) => x.module === 'rooms')],
-    ['Kho Định mức', issues.filter((x) => x.module === 'inventory' || x.module === 'materialNorms')],
+    ['Tiến độ Căn / Phòng', issues.filter((x) => x.module === 'rooms')],
+    ['Kho / Định mức', issues.filter((x) => x.module === 'inventory' || x.module === 'materialNorms')],
     ['Checklist', issues.filter((x) => x.module === 'checklist')],
     ['Kỹ thuật đồng bộ', issues.filter((x) => ['system', 'firebase', 'r2', 'sync'].includes(x.module))],
   ];
@@ -157,7 +201,7 @@ export function buildHealthCenterExcelWorkbook(input: HealthCenterExportInput): 
     const systemRows: Array<Array<string | number>> = [['Trường', 'Giá trị']];
     for (const [key, value] of Object.entries(d)) {
       if (['photoDiagnostics', 'floorPlanDiagnostics', 'runtimeLog'].includes(key)) continue;
-      systemRows.push([key, typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '')]);
+      systemRows.push([systemDiagnosticLabel(key), typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '')]);
     }
     addSheet(wb, 'Hệ thống đồng bộ', systemRows);
 
@@ -202,7 +246,7 @@ export function buildHealthCenterCopyText(input: HealthCenterExportInput): strin
     const storageProvider = String(floor?.storageProvider || '').trim();
     const storagePath = String(floor?.storagePath || '').trim();
     const storage = storageProvider || storagePath ? `${storageProvider || 'storage'}${storagePath ? `:${storagePath}` : ''}` : '—';
-    return `- ${String(floor?.floorName || 'Không rõ tầng')} [${String(floor?.id || 'no-id')}] | status ${String(floor?.status || 'UNKNOWN')} | pending ${floor?.pending ? 'có' : 'không'} | localBinary ${floor?.localBinary ? 'có' : 'không'} | offlineReady ${floor?.offlineReady ? 'có' : 'không'} | cachedRev ${Number(floor?.cachedRevision || 0)} | cachedBytes ${Number(floor?.cachedBytes || 0)} | rev ${Number(floor?.effectiveImageRevision || floor?.imageRevision || 0)} | cloud ${Number(floor?.imageCloudRevision || 0)} | outbox ${Number(floor?.outboxRevision || 0)} | outboxBytes ${Number(floor?.outboxBytes || 0)} | uploadState ${String(floor?.imageUploadState || '—')} | pendingOwner ${String(floor?.imagePendingByUid || '').trim() ? 'có' : 'không'} | cloudSynced ${floor?.imageCloudSyncedAt ? iso(Number(floor.imageCloudSyncedAt)) : '—'} | storage ${storage}`;
+    return `- ${String(floor?.floorName || 'Không rõ tầng')} [${String(floor?.id || 'no-id')}] | trạng thái ${String(floor?.status || 'UNKNOWN')} | đang chờ ${floor?.pending ? 'có' : 'không'} | dữ liệu ảnh cục bộ ${floor?.localBinary ? 'có' : 'không'} | sẵn sàng ngoại tuyến ${floor?.offlineReady ? 'có' : 'không'} | phiên bản bộ nhớ đệm ${Number(floor?.cachedRevision || 0)} | byte bộ nhớ đệm ${Number(floor?.cachedBytes || 0)} | phiên bản ${Number(floor?.effectiveImageRevision || floor?.imageRevision || 0)} | Cloud ${Number(floor?.imageCloudRevision || 0)} | hàng đợi ${Number(floor?.outboxRevision || 0)} | byte hàng đợi ${Number(floor?.outboxBytes || 0)} | trạng thái tải lên ${String(floor?.imageUploadState || '—')} | có chủ nhân chờ ${String(floor?.imagePendingByUid || '').trim() ? 'có' : 'không'} | đã đồng bộ Cloud ${floor?.imageCloudSyncedAt ? iso(Number(floor.imageCloudSyncedAt)) : '—'} | lưu trữ ${storage}`;
   });
 
   const photoIssueRows = photoRows.filter((photo: any) => !photo?.deleted && (
@@ -214,7 +258,7 @@ export function buildHealthCenterCopyText(input: HealthCenterExportInput): strin
     const storageProvider = String(photo?.storageProvider || '').trim();
     const storagePath = String(photo?.storagePath || '').trim();
     const storage = storageProvider || storagePath ? `${storageProvider || 'storage'}${storagePath ? `:${storagePath}` : ''}` : '—';
-    return `- ${String(photo?.entityType || 'unknown')}/${String(photo?.entityId || 'unknown')} | photo ${String(photo?.id || 'no-id')} | cloudReady ${photo?.cloudReady === true ? 'có' : 'không'} | upload ${String(photo?.binaryUploadState || 'unknown')} | localBinary ${photo?.localBinary ? 'có' : 'không'} | bytes ${Number(photo?.bytes || photo?.fileSize || 0)} | storage ${storage}`;
+    return `- đối tượng ${String(photo?.entityType || 'unknown')}/${String(photo?.entityId || 'unknown')} | ảnh ${String(photo?.id || 'no-id')} | Cloud sẵn sàng ${photo?.cloudReady === true ? 'có' : 'không'} | tải lên ${String(photo?.binaryUploadState || 'unknown')} | dữ liệu ảnh cục bộ ${photo?.localBinary ? 'có' : 'không'} | byte ${Number(photo?.bytes || photo?.fileSize || 0)} | lưu trữ ${storage}`;
   });
 
   const runtimeLines = runtimeRows.slice(-30).map((row: any) =>
@@ -227,35 +271,35 @@ export function buildHealthCenterCopyText(input: HealthCenterExportInput): strin
     `Công trình: ${input.projectName || '—'}`,
     `ID dự án: ${r.projectId}`,
     `ID bản kiểm tra: ${r.auditSnapshotId}`,
-    `Kiểm tra lúc: ${iso(r.generatedAt)} | Độ mới dữ liệu: ${r.freshness}`,
+    `Kiểm tra lúc: ${iso(r.generatedAt)} | Độ mới dữ liệu: ${freshnessLabel(r.freshness)}`,
     `Kiểm tra: LỖI ${r.errorCount} | CẢNH BÁO ${r.warningCount} | CẦN XEM ${r.reviewCount} | Cần xác nhận ${r.needsConfirmationCount} | Có thể sửa an toàn ${r.safeRepairCount} | Sửa thủ công ${r.manualRepairCount}`,
     `Bản ghi quét: ${r.recordsScanned} | Vấn đề đang xuất: ${issues.length}`,
     '',
-    'RUNTIME / BUILD / QUYỀN',
-    `App: ${String(d.appVersion || '—')} | Env: ${String(d.environment || '—')} | Platform: ${String(d.platform || '—')} | Schema: v${String(d.dataSchemaVersion ?? '—')}`,
-    `Build ID: ${String(d.buildId || '—')} | Commit: ${String(d.gitCommit || '—')} | Build time: ${String(d.buildTime || '—')}`,
-    `Diagnostic generated: ${String(d.generatedAt || '—')}`,
-    `User: ${String(d.firebaseUserEmail || '—')} | Role: ${String(d.role || '—')} | Role resolved: ${String(d.roleResolved ?? '—')} | Role source: ${String(d.roleSource || '—')}`,
-    `User agent: ${String(d.userAgent || '—')}`,
+    'PHIÊN CHẠY / BẢN DỰNG / PHÂN QUYỀN',
+    `Ứng dụng: ${String(d.appVersion || '—')} | Môi trường: ${String(d.environment || '—')} | Nền tảng: ${String(d.platform || '—')} | Lược đồ: v${String(d.dataSchemaVersion ?? '—')}`,
+    `ID bản dựng: ${String(d.buildId || '—')} | Mã commit: ${String(d.gitCommit || '—')} | Thời điểm bản dựng: ${String(d.buildTime || '—')}`,
+    `Chẩn đoán tạo lúc: ${String(d.generatedAt || '—')}`,
+    `Người dùng: ${String(d.firebaseUserEmail || '—')} | Vai trò: ${String(d.role || '—')} | Đã xác định vai trò: ${String(d.roleResolved ?? '—')} | Nguồn vai trò: ${String(d.roleSource || '—')}`,
+    `Nhận diện thiết bị/trình duyệt: ${String(d.userAgent || '—')}`,
     '',
     'HỆ THỐNG / ĐỒNG BỘ / R2',
     `Firestore: ${String(d.dataCloudPhase || '—')} | Cloud sẵn sàng: ${String(d.cloudInitialReady ?? '—')} | Realtime: ${String(d.snapshotReadyCount ?? '—')}/9 | Dữ liệu chờ: ${String(d.pendingData ?? '—')}`,
     `Đồng bộ ảnh: trạng thái ${String(d.photoPhase || '—')} | đang chờ ${String(d.photoPending ?? '—')} | tổng lượt tải lên chờ ${String(d.pendingDriveUploads ?? '—')}`,
     `Ảnh R2: tổng ${String(photoDiagnostics.total ?? '—')} | đang dùng ${String(photoDiagnostics.active ?? '—')} | sẵn sàng ${String(photoDiagnostics.ready ?? '—')} | đang chờ ${String(photoDiagnostics.pending ?? '—')}`,
-    `Mặt bằng ảnh: total ${String(floorPlanDiagnostics.total ?? '—')} | pending ${String(floorPlanDiagnostics.pending ?? '—')} | outbox ${String(floorPlanDiagnostics.outboxCount ?? '—')} | outbox bytes ${String(floorPlanDiagnostics.outboxBytes ?? '—')} | offline ${String(floorPlanDiagnostics.offlineReady ?? '—')}/${String(floorPlanDiagnostics.offlineEligible ?? '—')} | cache ${String(floorPlanDiagnostics.cacheCount ?? '—')} phiên bản / ${String(floorPlanDiagnostics.cacheBytes ?? '—')} bytes`,
-    `Drive sync: ${String(d.driveSyncStatus || '—')} | Mạng: ${String(d.online ?? '—')} | Sync cuối: ${d.lastSyncAt ? iso(Number(d.lastSyncAt)) : '—'}`,
-    `Lỗi sync gần nhất: ${String(d.lastSyncError || 'Không')}`,
-    `Project ID trùng tên khác ID: ${duplicateProjectIds.length ? duplicateProjectIds.join(', ') : 'Không'}`,
-    `Record counts: ${recordCountLine}`,
+    `Ảnh mặt bằng: tổng ${String(floorPlanDiagnostics.total ?? '—')} | đang chờ ${String(floorPlanDiagnostics.pending ?? '—')} | hàng đợi ${String(floorPlanDiagnostics.outboxCount ?? '—')} | byte hàng đợi ${String(floorPlanDiagnostics.outboxBytes ?? '—')} | sẵn sàng ngoại tuyến ${String(floorPlanDiagnostics.offlineReady ?? '—')}/${String(floorPlanDiagnostics.offlineEligible ?? '—')} | bộ nhớ đệm ${String(floorPlanDiagnostics.cacheCount ?? '—')} phiên bản / ${String(floorPlanDiagnostics.cacheBytes ?? '—')} byte`,
+    `Đồng bộ Drive: ${String(d.driveSyncStatus || '—')} | Trạng thái mạng: ${String(d.online ?? '—')} | Đồng bộ cuối: ${d.lastSyncAt ? iso(Number(d.lastSyncAt)) : '—'}`,
+    `Lỗi đồng bộ gần nhất: ${String(d.lastSyncError || 'Không')}`,
+    `ID dự án trùng tên nhưng khác ID: ${duplicateProjectIds.length ? duplicateProjectIds.join(', ') : 'Không'}`,
+    `Số bản ghi: ${recordCountLine}`,
     ...(floorPlanDetailLines.length > 0 ? ['', 'CHI TIẾT MẶT BẰNG ẢNH (TẤT CẢ)', ...floorPlanDetailLines] : []),
     ...(photoIssueLines.length > 0 ? ['', `ẢNH R2/ẢNH ĐÍNH KÈM CẦN XỬ LÝ (${photoIssueRows.length})`, ...photoIssueLines, ...(photoIssueRows.length > photoIssueLines.length ? [`- ... còn ${photoIssueRows.length - photoIssueLines.length} ảnh chưa liệt kê`] : [])] : ['', 'ẢNH R2/ẢNH ĐÍNH KÈM CẦN XỬ LÝ: Không']),
-    ...(runtimeLines.length > 0 ? ['', `RUNTIME LOG GẦN NHẤT (${Math.min(runtimeRows.length, 30)}/${runtimeRows.length})`, ...runtimeLines] : ['', 'RUNTIME LOG GẦN NHẤT: Không có']),
+    ...(runtimeLines.length > 0 ? ['', `NHẬT KÝ RUNTIME (THỜI GIAN CHẠY) GẦN NHẤT (${Math.min(runtimeRows.length, 30)}/${runtimeRows.length})`, ...runtimeLines] : ['', 'NHẬT KÝ RUNTIME (THỜI GIAN CHẠY) GẦN NHẤT: Không có']),
     '',
-    'AUDIT DỮ LIỆU & LIÊN KẾT',
+    'KIỂM TRA DỮ LIỆU & LIÊN KẾT',
     ...issues.map((issue, index) => {
       const location = [issue.location.date, issue.location.teamName, issue.location.floorName, issue.location.roomName, issue.location.shift, issue.location.workItem].filter(Boolean).join(' · ');
       const evidence = issue.evidenceIds?.length ? issue.evidenceIds.join(',') : '—';
-      return `${index + 1}. [${issue.severity}] ${issue.ruleId} | ${issue.module} | ${issue.actionClass} | ${issue.entityType}/${issue.entityId} | ${location || '—'} | ${issue.message} | evidence ${evidence}`;
+      return `${index + 1}. [${issue.severity}] ${issue.ruleId} | ${issue.module} | ${issue.actionClass} | ${issue.entityType}/${issue.entityId} | ${location || '—'} | ${issue.message} | bằng chứng ${evidence}`;
     }),
     '',
     'Nguyên tắc: không tự xóa dữ liệu mồ côi; AI/vật tư bỏ qua liên kết đã xóa cho đến khi ADMIN xác nhận xử lý.',
@@ -272,7 +316,7 @@ export function buildHealthCenterHtmlReport(input: HealthCenterExportInput): str
   const r = input.report;
   const issues = selectedIssues(input);
   const rows = issues.map((issue, index) => `<tr><td>${index + 1}</td><td>${esc(issue.severity)}</td><td>${esc(issue.location.date || '')}</td><td>${esc(issue.location.teamName || '')}</td><td>${esc(issue.location.floorName || '')}</td><td>${esc(issue.location.roomName || '')}</td><td>${esc(issue.location.workItem || '')}</td><td>${esc(issue.ruleId)}</td><td>${esc(issue.message)}</td></tr>`).join('');
-  return `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>HNL Health Center</title><style>@page{size:A4 landscape;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,"Segoe UI",sans-serif;color:#0f172a;font-size:9px;line-height:1.4}h1{font-size:18px;margin:0}.sub{color:#64748b;margin:3px 0 12px}.summary{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.pill{border:1px solid #cbd5e1;border-radius:8px;padding:5px 8px}.meta{margin:8px 0;padding:8px;background:#f8fafc;border:1px solid #e2e8f0}table{width:100%;border-collapse:collapse;margin-top:8px}th,td{border:1px solid #cbd5e1;padding:4px;vertical-align:top}th{background:#f1f5f9}tr{page-break-inside:avoid}.ai{margin-top:14px;padding:8px;border-left:3px solid #3b82f6;background:#eff6ff;white-space:pre-wrap}.footer{margin-top:12px;color:#64748b;border-top:1px solid #cbd5e1;padding-top:6px}</style></head><body><h1>HNL Health Center</h1><div class="sub">Hệ thống · Chẩn đoán · Kiểm tra dữ liệu</div><div class="meta"><b>Công trình:</b> ${esc(input.projectName || '—')} &nbsp; <b>ID dự án:</b> ${esc(r.projectId)}<br><b>ID bản kiểm tra:</b> ${esc(r.auditSnapshotId)}<br><b>Thời điểm:</b> ${esc(iso(r.generatedAt))} · <b>Độ mới dữ liệu:</b> ${esc(r.freshness)} · <b>Bản ghi quét:</b> ${r.recordsScanned} · <b>Phạm vi:</b> ${esc(input.scope || 'all')}</div><div class="summary"><span class="pill">LỖI <b>${r.errorCount}</b></span><span class="pill">CẢNH BÁO <b>${r.warningCount}</b></span><span class="pill">CẦN XEM <b>${r.reviewCount}</b></span><span class="pill">Có thể sửa an toàn <b>${r.safeRepairCount}</b></span><span class="pill">Cần xác nhận <b>${r.needsConfirmationCount}</b></span><span class="pill">Sửa thủ công <b>${r.manualRepairCount}</b></span></div><table><thead><tr><th>#</th><th>Mức</th><th>Ngày</th><th>Đội</th><th>Tầng</th><th>Căn</th><th>Hạng mục</th><th>Quy tắc</th><th>Mô tả</th></tr></thead><tbody>${rows || '<tr><td colspan="9">Không có vấn đề trong phạm vi đang xuất.</td></tr>'}</tbody></table>${input.aiNarrative ? `<div class="ai"><b>AI nhận xét (không thay thế kết luận HNL)</b><br>${esc(input.aiNarrative)}</div>` : ''}<div class="footer">${esc(EXPORT_SCHEMA)} · Chỉ đọc, phân tích và xuất báo cáo · Dữ liệu mồ côi không được tự động xóa.</div></body></html>`;
+  return `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>HNL Health Center</title><style>@page{size:A4 landscape;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,"Segoe UI",sans-serif;color:#0f172a;font-size:9px;line-height:1.4}h1{font-size:18px;margin:0}.sub{color:#64748b;margin:3px 0 12px}.summary{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.pill{border:1px solid #cbd5e1;border-radius:8px;padding:5px 8px}.meta{margin:8px 0;padding:8px;background:#f8fafc;border:1px solid #e2e8f0}table{width:100%;border-collapse:collapse;margin-top:8px}th,td{border:1px solid #cbd5e1;padding:4px;vertical-align:top}th{background:#f1f5f9}tr{page-break-inside:avoid}.ai{margin-top:14px;padding:8px;border-left:3px solid #3b82f6;background:#eff6ff;white-space:pre-wrap}.footer{margin-top:12px;color:#64748b;border-top:1px solid #cbd5e1;padding-top:6px}</style></head><body><h1>HNL Health Center</h1><div class="sub">Hệ thống · Chẩn đoán · Kiểm tra dữ liệu</div><div class="meta"><b>Công trình:</b> ${esc(input.projectName || '—')} &nbsp; <b>ID dự án:</b> ${esc(r.projectId)}<br><b>ID bản kiểm tra:</b> ${esc(r.auditSnapshotId)}<br><b>Thời điểm:</b> ${esc(iso(r.generatedAt))} · <b>Độ mới dữ liệu:</b> ${esc(freshnessLabel(r.freshness))} · <b>Bản ghi quét:</b> ${r.recordsScanned} · <b>Phạm vi:</b> ${esc(exportScopeLabel(input.scope))}</div><div class="summary"><span class="pill">LỖI <b>${r.errorCount}</b></span><span class="pill">CẢNH BÁO <b>${r.warningCount}</b></span><span class="pill">CẦN XEM <b>${r.reviewCount}</b></span><span class="pill">Có thể sửa an toàn <b>${r.safeRepairCount}</b></span><span class="pill">Cần xác nhận <b>${r.needsConfirmationCount}</b></span><span class="pill">Sửa thủ công <b>${r.manualRepairCount}</b></span></div><table><thead><tr><th>#</th><th>Mức</th><th>Ngày</th><th>Đội</th><th>Tầng</th><th>Căn / Phòng</th><th>Hạng mục</th><th>Quy tắc</th><th>Mô tả</th></tr></thead><tbody>${rows || '<tr><td colspan="9">Không có vấn đề trong phạm vi đang xuất.</td></tr>'}</tbody></table>${input.aiNarrative ? `<div class="ai"><b>AI nhận xét (không thay thế kết luận HNL)</b><br>${esc(input.aiNarrative)}</div>` : ''}<div class="footer">${esc(EXPORT_SCHEMA)} · Chỉ đọc, phân tích và xuất báo cáo · Dữ liệu mồ côi không được tự động xóa.</div></body></html>`;
 }
 
 export async function exportHealthCenterJson(input: HealthCenterExportInput): Promise<void> {
