@@ -128,7 +128,7 @@ for (const marker of [
   'canQueueOfflineFirestoreWrite',
   "businessDataSource === 'firestore-cache'",
   "businessDataSource === 'cloud'",
-  'Offline · ${queued.queuedRecords} thay đổi đã vào hàng chờ Firestore.',
+  'Ngoại tuyến · ${queued.queuedRecords} thay đổi đã vào hàng chờ Firestore.',
   'Promise.allSettled(queued.commitPromises)',
 ]) {
   if (!app.includes(marker)) fail(`durable Firestore offline mutation queue missing ${marker}`);
