@@ -523,7 +523,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 
   const getDefectReportGroupLabel = (defect: DefectItem): string => {
     if (defectReportSortMode === 'category-floor-room') return `Hạng mục: ${defect.category || 'Chưa phân loại'}`;
-    if (defectReportSortMode === 'room-floor-category') return `Phòng/Căn: ${getDefectRoomName(defect)} · ${formatFloorName(defect.floorName)}`;
+    if (defectReportSortMode === 'room-floor-category') return `Căn / Phòng: ${getDefectRoomName(defect)} · ${formatFloorName(defect.floorName)}`;
     if (defectReportSortMode === 'created-desc') return `Ngày tạo: ${formatDateDDMMYYYY(defect.createdAt)}`;
     if (defectReportSortMode === 'status-due') return `Trạng thái: ${defect.status}`;
     if (defectReportSortMode === 'code-asc' || defectReportSortMode === 'code-desc') return 'Theo mã Defect hiển thị';
@@ -664,7 +664,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
       ? `${normalizedStructureConfig.label}: ${selectedStructureGroupIds.map((id) => getStructureGroupName(id, normalizedStructureConfig)).join(', ')}`
       : '',
     !isAllSelected ? scopedFloorPlans.map((floor) => floor.floorName).join(', ') : '',
-    !allRoomsSelected ? `Căn/Phòng: ${selectedRoomIds.map((id) => roomProgressList.find((room) => room.id === id)?.roomName || id).join(', ')}` : '',
+    !allRoomsSelected ? `Căn / Phòng: ${selectedRoomIds.map((id) => roomProgressList.find((room) => room.id === id)?.roomName || id).join(', ')}` : '',
     !allTeamsSelected ? `Đội: ${selectedTeamIds.map((id) => teams.find((team) => team.id === id)?.name || id).join(', ')}` : '',
   ].filter(Boolean);
   const reportScopeLabel = reportScopeParts.length > 0 ? reportScopeParts.join(' · ') : 'Toàn bộ công trình';
@@ -935,7 +935,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         ${includeFloorPlan && targetFloorPlans.length > 0 ? `
           <div class="section-title">🖼️ MẶT BẰNG CĂN / PHÒNG &amp; SƠ ĐỒ DEFECT</div>
           <div class="page-break-avoid" style="display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin:0 0 10px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:7px;background:#f8fafc;font-size:8.8px;color:#475569;">
-            <span><strong style="color:#2563eb;">● Căn/Phòng:</strong> ${pdfRoomCodeStyle === 'hash' ? '#1, #2…' : pdfRoomCodeStyle === 'room' ? 'C1, C2…' : '1, 2, 3…'}</span>
+            <span><strong style="color:#2563eb;">● Căn / Phòng:</strong> ${pdfRoomCodeStyle === 'hash' ? '#1, #2…' : pdfRoomCodeStyle === 'room' ? 'C1, C2…' : '1, 2, 3…'}</span>
             <span><strong style="color:#e11d48;">● Defect:</strong> ${pdfDefectCodeStyle === 'df' ? 'DF-01, DF-02…' : '01, 02, 03…'}</span>
             <span>Số/mã trên bản vẽ khớp với bảng chú giải, danh sách Defect và phụ lục ảnh.</span>
             <span style="color:#64748b;">Mã hệ thống DF-xxxx chỉ dùng để truy vết kỹ thuật.</span>
@@ -1529,7 +1529,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
       await downloadOrShareFile(`Bao_Cao_Tong_Hop_${safeProjectName}_${dateStr}.html`, blob, 'text/html');
     } catch (err) {
       console.error('Download HTML report error:', err);
-      alert('Không thể tải file báo cáo HTML.');
+      alert('Không thể tải tệp báo cáo HTML.');
     }
   };
 
@@ -1591,12 +1591,12 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         } catch (err) {
           console.warn('Iframe print error, falling back to direct file download:', err);
           handleDownloadHtmlReport();
-          alert('⚠️ Trình duyệt hạn chế cửa sổ in. Đã tải File Báo Cáo (.html) về thiết bị của bạn! Hãy mở tệp để in hoặc Lưu dưới dạng PDF.');
+          alert('⚠️ Trình duyệt hạn chế cửa sổ in. Đã tải tệp báo cáo (.html) về thiết bị của bạn! Hãy mở tệp để in hoặc Lưu dưới dạng PDF.');
         }
       }, 500);
     } else {
       handleDownloadHtmlReport();
-      alert('⚠️ Đã tự động tải File Báo Cáo (.html) về thiết bị! Mở tệp để xem và in/lưu dưới dạng PDF.');
+      alert('⚠️ Đã tự động tải tệp báo cáo (.html) về thiết bị! Mở tệp để xem và in/lưu dưới dạng PDF.');
     }
   };
 
