@@ -1265,7 +1265,7 @@ export function exportTeamStatisticsToExcel(params: {
         }];
     const ws6 = XLSX.utils.json_to_sheet(materialRows);
     autoFitColumns(ws6);
-    XLSX.utils.book_append_sheet(wb, ws6, '06-Vat tu doi chieu');
+    XLSX.utils.book_append_sheet(wb, ws6, '06-Vật tư đối chiếu');
 
     const safeProj = projectNameStr.replace(/[^a-zA-Z0-9_ -]/g, '');
     const safeTeam = team.name.replace(/[^a-zA-Z0-9_ -]/g, '');
@@ -1501,7 +1501,7 @@ export function exportTeamStatisticsToExcel(params: {
   });
   const wsMaterials = XLSX.utils.json_to_sheet(materialRows);
   autoFitColumns(wsMaterials);
-  XLSX.utils.book_append_sheet(wb, wsMaterials, '06-Vat tu doi chieu');
+  XLSX.utils.book_append_sheet(wb, wsMaterials, '06-Vật tư đối chiếu');
 
   const safeName = projectNameStr.replace(/[^a-zA-Z0-9_ -]/g, '');
   return saveWorkbookFile(wb, `Thong_Ke_Doi_Thi_Cong_${safeName}_${Date.now()}.xlsx`);
