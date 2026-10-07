@@ -260,7 +260,7 @@ requireAll(configTab, ['<Settings className="w-5 h-5 text-blue-600" />', "{t('co
 if (configTab.includes('<Building2 className="w-5 h-5')) fail('Settings screen title must not use a project/building icon');
 
 requireAll(configTab, ['Trung tâm kiểm tra dữ liệu (Health Center)', 'Trạng thái hệ thống & đồng bộ', 'getProjectPhotoDiagnosticSnapshot', 'clearRuntimeDiagnostics', 'getSystemDiagnostics={() => buildFullDiagnosticBundle()}'], 'system diagnostics stay inside unified Health Center and feed the combined export bundle');
-requireAll(healthCenterPanelBase, ['Xuất &amp; chia sẻ chẩn đoán', 'Xuất JSON', 'Xuất Excel', 'Copy chẩn đoán', 'Xóa log chẩn đoán cũ', 'Xử lý hạng mục'], 'Health Center keeps one compact combined export area at the bottom');
+requireAll(healthCenterPanelBase, ['Xuất &amp; chia sẻ chẩn đoán', 'Xuất JSON', 'Xuất Excel', 'Sao chép chẩn đoán', 'Xóa log chẩn đoán cũ', 'Xử lý hạng mục'], 'Health Center keeps one compact combined export area at the bottom');
 if (['Audit PDF', 'Chẩn đoán hệ thống JSON', 'onExportSystemDiagnostics', 'onCopySystemDiagnostics'].some((marker) => healthCenterPanelBase.includes(marker))) fail('Health Center duplicate/PDF export controls must stay removed');
 requireAll(fileExport, ['saveTextFileToDownloads', "'downloads'", 'finishTextFile'], 'Android diagnostics direct Download/QLTC export avoids zero-byte picker provider');
 requireAll(bottomNav, ["{t('config')}", "activate('config')"], 'More menu keeps original Cấu hình entry through the responsive navigation helper; Health Center lives inside Config');
