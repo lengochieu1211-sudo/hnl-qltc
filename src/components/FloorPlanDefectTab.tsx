@@ -1665,7 +1665,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     if (nextEnabled) {
       const confirmed = await confirmAsync(
-        `Bật Khu/Khối chỉ bật lớp phân nhóm hiển thị; không đổi floorId, tên tầng, Căn / Phòng, Defect, Quân số, Checklist, khối lượng hoặc ảnh mặt bằng.\n\nDự án hiện có ${floorCount} tầng. Tầng legacy chưa có Khu/Khối rõ ràng sẽ hiển thị trong “${defaultGroup?.name || 'Khu mặc định'}”; dữ liệu tầng không bị migration hoặc đổi ID.`,
+        `Bật Khu / Khối chỉ bật lớp phân nhóm hiển thị; không đổi floorId, tên tầng, Căn / Phòng, Defect, Quân số, Checklist, khối lượng hoặc ảnh mặt bằng.\n\nDự án hiện có ${floorCount} tầng. Tầng từ dữ liệu cũ (legacy) chưa có Khu / Khối rõ ràng sẽ hiển thị trong “${defaultGroup?.name || 'Khu mặc định'}”; dữ liệu tầng không bị chuyển đổi (migration) hoặc đổi ID.`,
         { title: 'Bật Khu/Khối', confirmLabel: 'Bật Khu/Khối' },
       );
       if (!confirmed) return;
@@ -4795,7 +4795,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           }
 
           const confirmed = await confirmAsync(
-            `Có ${preflight.blocked.length}/${targetIds.length} tầng đang có bản vẽ chờ đồng bộ thật nên phải giữ nguyên:\n\n• ${skippedPendingNames.slice(0, 8).join('\n• ')}${skippedPendingNames.length > 8 ? `\n• … và ${skippedPendingNames.length - 8} tầng khác` : ''}\n\nCó thể áp dụng bản vẽ mới cho ${preflight.readyIds.length} tầng đã sẵn sàng và bỏ qua các tầng trên. Defect, Căn / Phòng, highlight, tiến độ và checklist không bị sao chép/chỉnh sửa.`,
+            `Có ${preflight.blocked.length}/${targetIds.length} tầng đang có bản vẽ chờ đồng bộ thật nên phải giữ nguyên:\n\n• ${skippedPendingNames.slice(0, 8).join('\n• ')}${skippedPendingNames.length > 8 ? `\n• … và ${skippedPendingNames.length - 8} tầng khác` : ''}\n\nCó thể áp dụng bản vẽ mới cho ${preflight.readyIds.length} tầng đã sẵn sàng và bỏ qua các tầng trên. Defect, Căn / Phòng, vùng tô sáng (highlight), tiến độ và checklist không bị sao chép/chỉnh sửa.`,
             {
               title: 'Một số tầng đang chờ đồng bộ',
               confirmLabel: `Áp dụng cho ${preflight.readyIds.length} tầng`,
@@ -4816,7 +4816,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         const suffix = skippedPendingNames.length > 0
           ? ` Bỏ qua ${skippedPendingNames.length} tầng đang đồng bộ.`
           : legacySafeCount > 0
-            ? ` Đã nhận diện an toàn ${legacySafeCount} tầng legacy.`
+            ? ` Đã nhận diện an toàn ${legacySafeCount} tầng từ dữ liệu cũ (legacy).`
             : '';
         alert(`🎉 Đã áp dụng 1 bản vẽ chung cho ${applied} tầng.${suffix} Defect, Căn / Phòng và tiến độ từng tầng vẫn giữ riêng.`);
       } else if (effectiveTargetIds.length === 1 && onUpdateFloorPlanImage) {
@@ -4836,12 +4836,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       });
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes('FLOOR_PLAN_BULK_REQUIRES_ONLINE')) {
-        alert('Áp dụng cùng một bản vẽ cho nhiều tầng cần có mạng để tạo 1 asset dùng chung an toàn. Hãy kết nối mạng rồi thử lại.');
+        alert('Áp dụng cùng một bản vẽ cho nhiều tầng cần có mạng để tạo 1 tệp bản vẽ dùng chung an toàn. Hãy kết nối mạng rồi thử lại.');
       } else if (message.includes('FLOOR_PLAN_BULK_TARGET_PENDING')) {
         const pendingNames = message.split(':').slice(1).join(':').split('|').map((name) => name.trim()).filter(Boolean);
-        alert(`Có tầng đang chờ tải bản vẽ lên Cloud/R2${pendingNames.length ? `: ${pendingNames.join(', ')}` : ''}. Hãy chờ đồng bộ xong rồi thử lại; hệ thống không ghi đè revision đang chờ.`);
+        alert(`Có tầng đang chờ tải bản vẽ lên đám mây Cloud/R2${pendingNames.length ? `: ${pendingNames.join(', ')}` : ''}. Hãy chờ đồng bộ xong rồi thử lại; hệ thống không ghi đè phiên bản (revision) đang chờ.`);
       } else if (message.includes('FLOOR_PLAN_ADMIN_REQUIRED') || message.includes('FLOOR_PLAN_ROLE_VERIFICATION_UNAVAILABLE')) {
-        alert('Không xác minh được quyền ADMIN để thay mặt bằng. Hãy kiểm tra kết nối/quyền dự án rồi thử lại.');
+        alert('Không xác minh được quyền ADMIN (Quản trị) để thay mặt bằng. Hãy kiểm tra kết nối/quyền dự án rồi thử lại.');
       } else {
         alert(describePdfError(err));
       }
@@ -10743,7 +10743,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   className={`rounded-2xl border p-3 text-left transition ${floorPlanApplyMode === 'multiple' ? 'border-indigo-400 bg-indigo-50 ring-1 ring-indigo-200' : 'border-slate-200 bg-white hover:bg-slate-50'}`}
                 >
                   <div className="text-xs font-extrabold text-slate-900">○ Nhiều tầng</div>
-                  <div className="text-[10px] text-slate-500 mt-1">1 file Cloud/R2 dùng chung · dữ liệu mỗi tầng vẫn riêng</div>
+                  <div className="text-[10px] text-slate-500 mt-1">1 tệp bản vẽ dùng chung trên Cloud/R2 · dữ liệu mỗi tầng vẫn riêng</div>
                 </button>
               </div>
 
@@ -10801,7 +10801,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   </div>
 
                   <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[10px] font-semibold text-amber-900">
-                    Chỉ thay <b>ảnh nền mặt bằng</b> cho {floorPlanApplySelectedIds.length} tầng. Defect, Căn / Phòng, highlight, tiến độ, checklist và dữ liệu thi công của từng tầng không bị sao chép hoặc trộn.
+                    Chỉ thay <b>ảnh nền mặt bằng</b> cho {floorPlanApplySelectedIds.length} tầng. Defect, Căn / Phòng, vùng tô sáng (highlight), tiến độ, checklist và dữ liệu thi công của từng tầng không bị sao chép hoặc trộn.
                   </div>
                   <div className="text-[10px] text-slate-500">
                     Nhiều tầng cần mạng trong lúc áp dụng để upload đúng <b>1 dữ liệu ảnh</b> và công bố cùng một tài nguyên bất biến. Sau đó bộ nhớ ngoại tuyến cũng chỉ tải tài nguyên chung một lần.
