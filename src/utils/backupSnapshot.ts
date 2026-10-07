@@ -103,8 +103,8 @@ const assertNoAmbiguousCloudOnlyRows = (
     .join('; ');
 
   throw new Error(
-    `Backup Cloud/local chưa đồng bộ an toàn: ${details} chỉ có trên Firestore nhưng không có trong trạng thái live hiện tại. ` +
-      'Hệ thống từ chối tự phục hồi các bản ghi mơ hồ để tránh hồi sinh dữ liệu lịch sử. Hãy chờ đồng bộ/reload dự án rồi tạo backup lại.',
+    `Bản sao lưu Cloud/cục bộ chưa đồng bộ an toàn: ${details} chỉ có trên Firestore nhưng không có trong trạng thái trực tiếp hiện tại. ` +
+      'Hệ thống từ chối tự phục hồi các bản ghi mơ hồ để tránh hồi sinh dữ liệu lịch sử. Hãy chờ đồng bộ/tải lại dự án rồi tạo bản sao lưu lại.',
   );
 };
 
