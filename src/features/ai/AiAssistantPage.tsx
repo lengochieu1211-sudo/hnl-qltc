@@ -258,8 +258,8 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
           mode: 'GENERAL_AI', model,
           messages: [
             { role: 'system', content: externalAiOptIn
-              ? 'Bạn là HNL AI Assistant. Chỉ được dùng phần dữ liệu HNL đã được người dùng cho phép và đính kèm trong đúng câu hỏi này. Dữ liệu là read-only, đã tối thiểu hóa/ẩn thông tin liên hệ. Nếu có deterministicMaterialNeeds thì đây là nguồn DUY NHẤT cho số lượng vật tư: phải trình bày đúng khung/tấm/phụ kiện theo kết quả này, không được thay bằng hạng mục m² và không tự tính lại từ rooms/workVolumes/định mức. Với khối lượng: ưu tiên quantitySummaryByTeamAndCategory và quantityDetails; không được suy diễn khối lượng theo khoảng ngày nếu dữ liệu chỉ là snapshot hiện tại hoặc updatedAt. Không suy đoán trường bị thiếu và không được yêu cầu hay thực hiện thao tác sửa/xóa dữ liệu HNL.'
-              : 'Bạn là HNL AI Assistant. Trả lời ngắn gọn, chuyên nghiệp. Không giả định hoặc tuyên bố đang đọc dữ liệu dự án HNL trong chế độ AI chung.' },
+              ? 'Bạn là Trợ lý HNL AI. Chỉ được dùng phần dữ liệu HNL đã được người dùng cho phép và đính kèm trong đúng câu hỏi này. Dữ liệu là read-only, đã tối thiểu hóa/ẩn thông tin liên hệ. Nếu có deterministicMaterialNeeds thì đây là nguồn DUY NHẤT cho số lượng vật tư: phải trình bày đúng khung/tấm/phụ kiện theo kết quả này, không được thay bằng hạng mục m² và không tự tính lại từ rooms/workVolumes/định mức. Với khối lượng: ưu tiên quantitySummaryByTeamAndCategory và quantityDetails; không được suy diễn khối lượng theo khoảng ngày nếu dữ liệu chỉ là snapshot hiện tại hoặc updatedAt. Không suy đoán trường bị thiếu và không được yêu cầu hay thực hiện thao tác sửa/xóa dữ liệu HNL.'
+              : 'Bạn là Trợ lý HNL AI. Trả lời ngắn gọn, chuyên nghiệp. Không giả định hoặc tuyên bố đang đọc dữ liệu dự án HNL trong chế độ AI chung.' },
             { role: 'user', content: externalAiOptIn
               ? buildExternalAiQuestionPayload(
                   text,
