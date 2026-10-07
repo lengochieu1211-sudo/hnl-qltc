@@ -1669,7 +1669,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           `🎉 Nhập Đội Thi Công từ Excel thành công!\n\n` +
           `• Đã cập nhật/chỉnh sửa: ${updatedCount} đội\n` +
           `• Đã thêm mới: ${addedCount} đội\n` +
-          `• Bỏ qua do thiếu thông tin, tên đội trùng ID kỹ thuật hoặc tên đội legacy bị trùng/không đủ teamId: ${skippedCount} dòng`
+          `• Bỏ qua do thiếu thông tin, tên đội trùng ID kỹ thuật hoặc tên đội từ dữ liệu cũ (legacy) bị trùng/thiếu mã đội kỹ thuật (teamId): ${skippedCount} dòng`
         );
       } catch (err: any) {
         alert(`❌ Lỗi đọc hoặc phân tích tệp Excel:\n${err.message || err}`);
@@ -2411,7 +2411,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <div className="bg-white border border-dashed border-slate-300 rounded-xl p-8 text-center flex flex-col items-center justify-center shadow-sm">
                 <Users className="w-8 h-8 text-slate-300 mb-2" />
                 <p className="text-xs text-slate-400 font-medium">Chưa có đội thi công nào được thêm.</p>
-                <p className="text-[10px] text-slate-400 mt-1">{canManageTeamDirectory ? 'Bấm Thêm đội để bắt đầu.' : 'Chỉ ADMIN được quản lý danh mục đội thi công.'}</p>
+                <p className="text-[10px] text-slate-400 mt-1">{canManageTeamDirectory ? 'Bấm Thêm đội để bắt đầu.' : 'Chỉ ADMIN (Quản trị) được quản lý danh mục đội thi công.'}</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
