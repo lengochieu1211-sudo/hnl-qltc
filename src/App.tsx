@@ -1695,7 +1695,7 @@ function AuthenticatedApp() {
 
     if (!FIREBASE_ONLY_RUNTIME) return localSnapshot;
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      throw new Error('Backup Firebase-only cần online để xác minh dữ liệu Firestore server; từ chối tạo tệp có nguy cơ thiếu dữ liệu.');
+      throw new Error('Bản sao lưu Firebase-only cần trực tuyến để xác minh dữ liệu Firestore trên máy chủ; từ chối tạo tệp có nguy cơ thiếu dữ liệu.');
     }
 
     const cloudRecord = await fetchProjectFromCloud(activeProjectId, { serverOnly: true });
@@ -4343,7 +4343,7 @@ function AuthenticatedApp() {
       return;
     }
     if (FIREBASE_ONLY_RUNTIME) {
-      alert('Firebase-only không phục hồi database bằng cách ghi đè localStorage/IndexedDB. Hãy dùng Import Backup theo từng dự án để dữ liệu được kiểm tra ID/revision và ghi vào Firestore.');
+      alert('Firebase-only không phục hồi cơ sở dữ liệu bằng cách ghi đè localStorage/IndexedDB. Hãy dùng Nhập bản sao lưu theo từng dự án để dữ liệu được kiểm tra ID/phiên bản và ghi vào Firestore.');
       return;
     }
     try {
@@ -4374,7 +4374,7 @@ function AuthenticatedApp() {
 
   // Google Drive Sync Up
   const handleDriveSyncUp = async (customFolderId?: string) => {
-    if (FIREBASE_ONLY_RUNTIME) return { success: false, error: 'Google Drive runtime đã tắt trong Firebase-only. Drive chỉ còn dùng để đọc/migrate dữ liệu legacy.' };
+    if (FIREBASE_ONLY_RUNTIME) return { success: false, error: 'Google Drive ở chế độ chạy Firebase-only đã tắt. Drive chỉ còn dùng để đọc/chuyển đổi dữ liệu cũ.' };
     if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) return { success: false, error: 'Chỉ ADMIN được đồng bộ/sao lưu dữ liệu dự án lên Drive.' };
     const operationProjectId = activeProjectIdRef.current || activeProjectId;
     if (!googleServerBackendAvailable) {
@@ -4545,7 +4545,7 @@ function AuthenticatedApp() {
           };
         }
         console.warn('Drive Sync Up All Notice:', errorData);
-        throw new Error(errorData.error || `Failed to upload all data (Status: ${res.status})`);
+        throw new Error(errorData.error || `Không thể tải toàn bộ dữ liệu lên (trạng thái: ${res.status})`);
       }
       const result = await res.json();
       if (result.success) return { success: true, message: result.message };
@@ -4556,7 +4556,7 @@ function AuthenticatedApp() {
   };
 
   const handleDriveSyncDownAll = async (customFolderId?: string) => {
-    if (FIREBASE_ONLY_RUNTIME) return { success: false, error: 'Drive restore/sync hai chiều đã tắt. Dùng Import Backup thủ công hoặc migration legacy có kiểm chứng.' };
+    if (FIREBASE_ONLY_RUNTIME) return { success: false, error: 'Khôi phục/đồng bộ Drive hai chiều đã tắt. Dùng Nhập bản sao lưu thủ công hoặc chuyển đổi dữ liệu cũ có kiểm chứng.' };
     if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) return { success: false, error: 'Chỉ ADMIN được phục hồi toàn bộ dự án từ Drive.' };
     if (!googleServerBackendAvailable) {
       return {
@@ -4581,7 +4581,7 @@ function AuthenticatedApp() {
             error: errorData.error || 'Chưa kết nối tài khoản Google. Vui lòng kết nối tài khoản Google.'
           };
         }
-        throw new Error('Failed to download all data');
+        throw new Error('Không thể tải toàn bộ dữ liệu xuống.');
       }
       const result = await res.json();
       if (result.success && result.found && result.data) {
@@ -4597,7 +4597,7 @@ function AuthenticatedApp() {
 
   // Local All File Link
   const handleLinkLocalAllFile = async () => {
-    if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) { alert('Chỉ ADMIN được liên kết tệp backup toàn bộ dự án.'); return; }
+    if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) { alert('Chỉ ADMIN được liên kết tệp sao lưu toàn bộ dự án.'); return; }
     try {
       if (isAndroidAutoSaveAvailable()) {
         if (!hasAndroidAutoSaveFolder()) {
@@ -5018,8 +5018,8 @@ function AuthenticatedApp() {
                 setDataCloudStatus({
                   phase: 'syncing',
                   message: queued.queuedRecords > 0
-                    ? `Offline · ${queued.queuedRecords} thay đổi đã vào hàng chờ Firestore.`
-                    : 'Offline · thay đổi cấu hình đã vào hàng chờ Firestore.',
+                    ? `Ngoại tuyến · ${queued.queuedRecords} thay đổi đã vào hàng chờ Firestore.`
+                    : 'Ngoại tuyến · thay đổi cấu hình đã vào hàng chờ Firestore.',
                 });
 
                 if (queued.commitPromises.length > 0) {
@@ -5033,11 +5033,11 @@ function AuthenticatedApp() {
                       setDataCloudStatus({
                         phase: code === 'permission-denied' ? 'conflict' : 'error',
                         message: code === 'permission-denied'
-                          ? 'Pending offline bị Rules/revision từ chối. Dữ liệu Cloud mới hơn sẽ được realtime hòa giải; không tự ghi đè.'
-                          : `Có pending offline không gửi được: ${firstReason?.message || String(firstReason)}`,
+                          ? 'Thay đổi chờ ngoại tuyến bị Rules (quy tắc)/revision (phiên bản) từ chối. Dữ liệu Cloud mới hơn sẽ được đồng bộ thời gian thực để hòa giải; không tự ghi đè.'
+                          : `Có thay đổi chờ ngoại tuyến không gửi được: ${firstReason?.message || String(firstReason)}`,
                       });
                     } else if (firestorePendingWriteCountRef.current === 0) {
-                      setDataCloudStatus({ phase: 'synced', lastSyncAt: Date.now(), message: 'Các thay đổi offline đã được Firebase xác nhận.' });
+                      setDataCloudStatus({ phase: 'synced', lastSyncAt: Date.now(), message: 'Các thay đổi ngoại tuyến đã được Firebase xác nhận.' });
                     }
                   });
                 }
@@ -5491,7 +5491,7 @@ function AuthenticatedApp() {
   // Link local JSON file for auto sync
   const handleLinkLocalFile = async () => {
     if (FIREBASE_ONLY_RUNTIME) {
-      alert('Firebase-only: tự đồng bộ JSON đã tắt. JSON chỉ dùng Backup / Export / Import thủ công.');
+      alert('Firebase-only: tự đồng bộ JSON đã tắt. JSON chỉ dùng để Sao lưu / Xuất / Nhập thủ công.');
       return;
     }
     try {
