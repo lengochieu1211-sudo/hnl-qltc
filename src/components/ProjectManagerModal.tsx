@@ -330,7 +330,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   const purgeDeletedProjectLocal = async (entry: { projectId: string; name?: string; deletedAt: number; expiresAt: number; retentionDays: number }) => {
     if (!canManage) return;
-    if (!window.confirm(`Xóa vĩnh viễn dữ liệu cục bộ của "${entry.name || entry.projectId}"? Dự án Cloud vẫn giữ tombstone để chống tự sống lại.`)) return;
+    if (!window.confirm(`Xóa vĩnh viễn dữ liệu cục bộ của "${entry.name || entry.projectId}"? Bản ghi đánh dấu đã xóa (tombstone) trên đám mây vẫn được giữ để dữ liệu cũ không tự xuất hiện trở lại.`)) return;
     try {
       // Even an explicit local purge must verify another device has not restored the
       // Cloud project. Network/RBAC failure keeps the only local recoverable copy.
@@ -651,9 +651,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       setOrphanScanResult(refreshed);
 
       logAuditAction('PROJECT_RECOVER_LOCAL', `Đã khôi phục dự án cục bộ lên Cloud, giữ nguyên ID: ${orphan.id}`, orphan.id);
-      alert(`Đã khôi phục dự án “${restoredName}” lên Cloud với đúng ID cũ. Dự án sẽ xuất hiện lại trong danh sách và đồng bộ trên các thiết bị.`);
+      alert(`Đã khôi phục dự án “${restoredName}” lên đám mây (Cloud) với đúng ID cũ. Dự án sẽ xuất hiện lại trong danh sách và đồng bộ trên các thiết bị.`);
     } catch (e: any) {
-      setErrorMessage(`Không thể khôi phục dự án lên Cloud: ${e?.message || e}`);
+      setErrorMessage(`Không thể khôi phục dự án lên đám mây (Cloud): ${e?.message || e}`);
     } finally {
       setRecoveringOrphanId(null);
     }
@@ -1432,7 +1432,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   // 1. Export JSON based on chosen scope
   const handleExportJsonForScope = async () => {
-    if (!canBackup) { alert('Chỉ ADMIN được xuất bản sao dữ liệu dự án.'); return; }
+    if (!canBackup) { alert('Chỉ ADMIN (Quản trị) được xuất bản sao dữ liệu dự án.'); return; }
     try {
       if (exportEncrypt && (!exportPassword || exportPassword.length < 4)) {
         alert('Vui lòng nhập mật khẩu mã hóa từ 4 ký tự trở lên để bảo vệ tệp sao lưu.');
@@ -1644,7 +1644,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   // 2. Process Imported JSON Data (File or Pasted Text)
   const processImportedJsonData = async (parsedData: any, fileName?: string, fileSize?: number) => {
-    if (!canBackup) { alert('Chỉ ADMIN được khôi phục/nhập bản sao dữ liệu dự án.'); return; }
+    if (!canBackup) { alert('Chỉ ADMIN (Quản trị) được khôi phục/nhập bản sao dữ liệu dự án.'); return; }
     try {
       const candidates = extractProjectsFromImportData(parsedData);
       if (!candidates || candidates.length === 0) {
@@ -2134,7 +2134,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const executeFullReplaceRestore = async () => {
     if (!multiProjectSyncState) return;
     if (FIREBASE_ONLY_RUNTIME) {
-      alert('Chế độ Firebase không cho phép khôi phục thay thế toàn bộ theo cách xóa cơ sở dữ liệu cục bộ. Hãy dùng Nhập/Gộp thông minh; dữ liệu Cloud chỉ được đánh dấu xóa hoặc di chuyển bằng quy trình sao lưu + chạy thử (dry-run) + xác minh riêng.');
+      alert('Chế độ Firebase không cho phép khôi phục thay thế toàn bộ theo cách xóa cơ sở dữ liệu cục bộ. Hãy dùng Nhập/Gộp thông minh; dữ liệu trên đám mây chỉ được đánh dấu xóa hoặc di chuyển bằng quy trình sao lưu + chạy thử (dry-run) + xác minh riêng.');
       return;
     }
     const candidates = multiProjectSyncState.items.map(it => it.candidate);
@@ -2894,7 +2894,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       setIsCreating(false);
 
       if (hadQuotaIssue) {
-        alert('Tạo dự án mới thành công! Do bộ nhớ đầy, một số dữ liệu cache legacy lớn đã được bỏ qua.');
+        alert('Tạo dự án mới thành công! Do bộ nhớ đầy, một số dữ liệu trong bộ nhớ đệm cũ (legacy cache) có dung lượng lớn đã được bỏ qua.');
       }
 
       if (onSwitchProject) {
@@ -3409,7 +3409,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         </label>
                         <input
                           type="password"
-                          placeholder="Nhập mật khẩu bảo vệ file..."
+                          placeholder="Nhập mật khẩu bảo vệ tệp..."
                           value={exportPassword}
                           onChange={(e) => setExportPassword(e.target.value)}
                           className="w-full px-2.5 py-1.5 bg-white border border-indigo-200 rounded-lg text-xs font-mono outline-none focus:border-indigo-600"
@@ -3670,7 +3670,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               </div>
               ) : (
                 <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-[10.5px] text-slate-600">
-                  <span className="font-bold">Sao lưu/khôi phục dữ liệu:</span> chỉ ADMIN được xuất, nhập hoặc phục hồi bản sao dự án. Đồng bộ realtime Firebase vẫn hoạt động theo quyền hiện tại.
+                  <span className="font-bold">Sao lưu/khôi phục dữ liệu:</span> chỉ ADMIN (Quản trị) được xuất, nhập hoặc phục hồi bản sao dự án. Đồng bộ thời gian thực (realtime) Firebase vẫn hoạt động theo quyền hiện tại.
                 </div>
               )}
 
@@ -3703,9 +3703,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     {cloudStatusMsg.type === 'success' && cloudStatusMsg.stats && (
                       <button 
                         onClick={() => setExportedFileInfo({
-                          title: 'Chi tiết Sao Lưu Cloud',
+                          title: 'Chi tiết sao lưu đám mây',
                           fileName: `Cloud_Sync_${getActiveProjectId()}`,
-                          fileSizeStr: 'Cloud Storage',
+                          fileSizeStr: 'Lưu trữ đám mây',
                           ...cloudStatusMsg.stats
                         })}
                         className="mt-1 self-start flex items-center gap-1.5 px-3 py-1.5 bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-100 rounded-lg text-[10.5px] shadow-xs transition-colors cursor-pointer"
@@ -3750,7 +3750,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       <p className="font-bold text-slate-800 truncate">{projects.find(p => p.id === (activeProjectId || activeId))?.name || activeProjectId || activeId}</p>
                     </div>
                     <div className="bg-white border border-indigo-100 rounded-lg px-2 py-1.5">
-                      <span className="text-slate-400">Nội dung Cloud</span>
+                      <span className="text-slate-400">Nội dung đám mây</span>
                       <p className="font-bold text-slate-800">Dữ liệu + ảnh đầy đủ</p>
                     </div>
                   </div>
@@ -3817,7 +3817,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 {canBackup && cloudBackups.length > 0 && (
                 <div className="group pt-2 border-t border-slate-100">
                   <div className="select-none flex items-center justify-between mb-1.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
-                    <span>Phiên bản đám mây ({cloudBackups.length})</span>
+                    <span>Bản sao lưu trên đám mây ({cloudBackups.length})</span>
                   </div>
                   <div>
 
@@ -3891,10 +3891,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   <div className="flex items-center justify-between">
                     <span className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
                       <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                      Đồng Bộ Trực Tiếp Google Drive
+                      Đồng bộ trực tiếp Google Drive
                     </span>
                     <span className="text-[9px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-bold">
-                      Google OAuth
+                      Google OAuth (xác thực)
                     </span>
                   </div>
 
@@ -3906,7 +3906,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl font-bold flex items-center justify-center gap-1.5 text-xs transition-colors cursor-pointer shadow-xs"
                     >
                       {isDriveSyncing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CloudUpload className="w-3.5 h-3.5" />}
-                      <span>Đẩy Lên Google Drive</span>
+                      <span>Đẩy lên Google Drive</span>
                     </button>
 
                     <button
@@ -3916,7 +3916,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       className="w-full py-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 disabled:opacity-50 text-slate-800 rounded-xl font-bold flex items-center justify-center gap-1.5 text-xs transition-colors cursor-pointer"
                     >
                       {isDriveSyncing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CloudDownload className="w-3.5 h-3.5" />}
-                      <span>Tải Từ Google Drive</span>
+                      <span>Tải từ Google Drive</span>
                     </button>
                   </div>
                   {/* Google Drive Status Message */}
@@ -4940,7 +4940,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             {saveScope === 'selected' && (
               <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[10.5px] font-bold text-slate-700">Chọn dự án cần đưa vào file JSON</span>
+                  <span className="text-[10.5px] font-bold text-slate-700">Chọn dự án cần đưa vào tệp JSON</span>
                   <button
                     type="button"
                     onClick={selectAllProjects}
@@ -5014,7 +5014,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-2 shadow-xs">
                 <CheckCircle className="w-6 h-6 text-emerald-600" />
               </div>
-              <h3 className="text-sm font-extrabold text-slate-950">Xuất File JSON Thành Công!</h3>
+              <h3 className="text-sm font-extrabold text-slate-950">Xuất tệp JSON thành công!</h3>
               <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">
                 Tệp sao lưu cục bộ đã được nén hoàn tất và tải về thiết bị của bạn.
               </p>
@@ -5311,7 +5311,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   className="text-[11px] text-indigo-600 font-bold hover:underline flex items-center gap-1 cursor-pointer"
                 >
                   <Key className="w-3.5 h-3.5 text-indigo-500" />
-                  <span>{showReencryptOptions ? 'Ẩn tùy chọn đổi mật khẩu file' : 'Muốn đổi mật khẩu mới cho tệp sao lưu này?'}</span>
+                  <span>{showReencryptOptions ? 'Ẩn tùy chọn đổi mật khẩu tệp' : 'Muốn đổi mật khẩu mới cho tệp sao lưu này?'}</span>
                 </button>
 
                 {showReencryptOptions && (
