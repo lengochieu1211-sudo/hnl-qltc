@@ -416,10 +416,10 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity', { detail: { entityType, entityId } }));
     if (entityType !== 'crewRecord') {
       setSyncMsg(entityType === 'defect'
-        ? 'Đã mở module Defect. Điều hướng chính xác tới Defect sẽ được bổ sung ở lượt kế tiếp.'
+        ? 'Đã mở phân hệ Defect. Điều hướng chính xác tới Defect sẽ được bổ sung ở lượt kế tiếp.'
         : entityType === 'chat'
           ? 'Đã mở Trò chuyện. Điều hướng chính xác tới tin nhắn sẽ được bổ sung ở lượt kế tiếp.'
-          : 'Đã mở module liên quan.');
+          : 'Đã mở phân hệ liên quan.');
     }
   };
 
@@ -813,7 +813,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
             </div>
             <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5 space-y-1">
               <div><b>Dữ liệu Firestore:</b> {formatSyncPhaseLabel(syncDiagnostics.dataCloudPhase)}</div>
-              <div><b>Khởi tạo realtime:</b> {syncDiagnostics.snapshotReadyCount}/9 {syncDiagnostics.cloudInitialReady ? '· sẵn sàng' : '· đang chờ'}</div>
+              <div><b>Khởi tạo đồng bộ thời gian thực (realtime):</b> {syncDiagnostics.snapshotReadyCount}/9 {syncDiagnostics.cloudInitialReady ? '· sẵn sàng' : '· đang chờ'}</div>
               <div><b>Dữ liệu chờ:</b> {syncDiagnostics.pendingData}</div>
               <div><b>Ảnh chờ Cloud:</b> {displayedPhotoPending} · {formatSyncPhaseLabel(displayedPhotoPhase)}</div>
               <div><b>Drive:</b> {formatSyncPhaseLabel(driveSyncStatus)} · {displayedPendingDriveUploads} tệp chờ</div>
@@ -876,7 +876,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           photoDiagnostics={photoDiagnosticSnapshot}
           freshness={syncDiagnostics.cloudInitialReady ? 'live' : 'cache'}
           getSystemDiagnostics={() => buildFullDiagnosticBundle()}
-          onClearSystemDiagnostics={() => { clearRuntimeDiagnostics(); setSyncMsg('Đã xóa log chẩn đoán cũ.'); }}
+          onClearSystemDiagnostics={() => { clearRuntimeDiagnostics(); setSyncMsg('Đã xóa nhật ký chẩn đoán cũ.'); }}
         />
       
           </div>
@@ -1099,7 +1099,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
 
         {!trashSettings.enabled && (
           <div className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-2.5">
-            Thùng rác đang tắt. Các lần xóa mới sẽ không có bản khôi phục; tombstone kỹ thuật nhỏ vẫn được giữ để chống dữ liệu cũ tự sống lại khi realtime đồng bộ.
+            Thùng rác đang tắt. Các lần xóa mới sẽ không có bản khôi phục; bản ghi đánh dấu đã xóa (tombstone) kỹ thuật nhỏ vẫn được giữ để dữ liệu cũ không tự xuất hiện trở lại khi đồng bộ thời gian thực (realtime).
           </div>
         )}
 
