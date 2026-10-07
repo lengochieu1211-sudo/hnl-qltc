@@ -136,7 +136,7 @@ assert.match(excelExport, /'02-KL theo tầng'/, 'All-team statistics must inclu
 assert.match(excelExport, /'03-Chi tiết phòng'/, 'All-team statistics must include room detail');
 assert.match(excelExport, /'04-Defect'/, 'All-team statistics must include defect detail');
 assert.match(excelExport, /'05-Nhật ký quân số'/, 'All-team statistics must include crew log detail');
-assert.match(excelExport, /'06-Vat tu doi chieu'/, 'All-team statistics must include material reconciliation');
+assert.match(excelExport, /'06-Vật tư đối chiếu'/, 'All-team statistics must include material reconciliation');
 assert.match(excelExport, /'Đội Thi Công': team\.name/, 'All-team detail sheets must identify the source team on each row');
 
 assert.doesNotMatch(crew, /bg-emerald-600[\s\S]{0,220}Báo cáo chi tiết tất cả đội/, 'All-team statistics must not remain as a standalone toolbar button');
