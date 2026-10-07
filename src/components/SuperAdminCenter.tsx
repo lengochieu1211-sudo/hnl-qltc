@@ -134,7 +134,7 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
       onClick: () => openConfigSection('trash-recovery-card', onOpenHiddenHistory),
     },
     {
-      title: 'Giao diện & module',
+      title: 'Giao diện & phân hệ',
       description: `Theme: ${uiSettings.theme} · Cỡ ${uiSettings.scalePercent}% · Checklist: ${showChecklist ? 'đang hiện' : 'tự ẩn'}.`,
       icon: Palette,
       onClick: openUiSettingsPanel,
@@ -147,7 +147,7 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
     },
     {
       title: 'Đồng bộ, R2 & Chẩn đoán',
-      description: `Ảnh đang chờ: ${pendingPhotoCount}. Mở HNL Health Center để kiểm tra Firebase/R2, ảnh, đồng bộ, chẩn đoán và phục hồi.`,
+      description: `Ảnh đang chờ: ${pendingPhotoCount}. Mở Trung tâm kiểm tra dữ liệu (Health Center) để kiểm tra Firebase/R2, ảnh, đồng bộ, chẩn đoán và phục hồi.`,
       icon: CloudCog,
       onClick: () => openConfigSection('system-sync-card'),
     },
