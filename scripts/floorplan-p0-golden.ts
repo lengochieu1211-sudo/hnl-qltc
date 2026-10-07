@@ -226,7 +226,7 @@ check(ui.includes("roomColorMode === 'palette' ? 'bg-blue-600 text-white' : 'bg-
 check((ui.match(/!showTextOverlay[\s\S]{0,180}bg-blue-600 text-white/g) || []).length >= 3, 'Floor-plan text-overlay selection must use HNL Blue instead of success green.');
 check(ui.includes('loading="lazy"') && ui.includes('decoding="async"'), 'Floor management thumbnails must avoid eager decoding every plan image.');
 check(app.includes('onInspectFloorPlanBulkTargets={handleInspectFloorPlanBulkTargets}'), 'App must expose bulk preflight to the floor-plan UI.');
-check(ui.includes('Defect, Căn / Phòng, highlight, tiến độ, checklist'), 'Bulk floor UI must warn that business data remains per-floor.');
+check(ui.includes('Defect, Căn / Phòng, vùng tô sáng (highlight), tiến độ, checklist'), 'Bulk floor UI must warn that business data remains per-floor.');
 check(ui.includes('getSuggestedNewFloorStructureGroupId'), 'Add-floor flows must prefill the currently relevant Khu/Khối instead of reusing a stale/default selection.');
 check(ui.includes('setNewFloorStructureGroupId(getSuggestedNewFloorStructureGroupId())'), 'Manage-floor add actions must apply the stable Khu/Khối prefill.');
 check(ui.includes('getFloorPlanScopeLabel(plan)'), 'Multi-floor shared drawing picker must disambiguate same-named floors by Khu/Khối.');
