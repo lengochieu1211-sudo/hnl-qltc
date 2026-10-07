@@ -780,7 +780,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         payload = cloudRecord ? getCloudPayload(cloudRecord) : null;
       }
       if (!payload) {
-        throw new Error(`Không đọc được dữ liệu Firestore của dự án ${projectInfo?.name || projectId}; từ chối tạo backup không đầy đủ.`);
+        throw new Error(`Không đọc được dữ liệu Firestore của dự án ${projectInfo?.name || projectId}; từ chối tạo bản sao lưu không đầy đủ.`);
       }
 
       const floorPlansForBackup = await hydrateFloorPlansForBackup(projectId, payload.floorPlans || []);
@@ -1452,7 +1452,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         if (FIREBASE_ONLY_RUNTIME) {
           const verifiedPhotoMeta = await refreshProjectPhotoMetadataFromCloud(activeId);
           if (!verifiedPhotoMeta.verified) {
-            throw new Error('Không xác minh được metadata ảnh từ Firestore; từ chối xuất backup có nguy cơ thiếu ảnh.');
+            throw new Error('Không xác minh được thông tin ảnh từ Firestore; từ chối xuất bản sao lưu có nguy cơ thiếu ảnh.');
           }
         }
         normalized.floorPlans = await hydrateFloorPlansForBackup(activeId, normalized.floorPlans || []);
@@ -1509,7 +1509,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           if (FIREBASE_ONLY_RUNTIME) {
             const verifiedPhotoMeta = await refreshProjectPhotoMetadataFromCloud(pId);
             if (!verifiedPhotoMeta.verified) {
-              throw new Error(`Không xác minh được metadata ảnh Firestore của dự án ${pId}; từ chối xuất backup thiếu ảnh.`);
+              throw new Error(`Không xác minh được thông tin ảnh Firestore của dự án ${pId}; từ chối xuất bản sao lưu thiếu ảnh.`);
             }
           }
           const pPhotos = await getProjectPhotosWithBinary(pId, true);
@@ -2439,7 +2439,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       let normalized: any;
       let statsSource: any;
       if (FIREBASE_ONLY_RUNTIME) {
-        if (!fullAppData) throw new Error('Thiếu live Firestore-derived state; từ chối đồng bộ từ cache legacy.');
+        if (!fullAppData) throw new Error('Thiếu trạng thái Firestore trực tiếp đã xác minh; từ chối đồng bộ từ bộ nhớ đệm dữ liệu cũ.');
         normalized = normalizeImportedData({
           ...fullAppData,
           projectName: fullAppData.projectName || currentProj.name,
@@ -3757,7 +3757,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   <div className="text-[9px] text-slate-500 space-y-1">
                     {googleUser && !googleUser.isAnonymous ? (
                       <p className="flex items-center justify-between gap-2">
-                        <span>Dữ liệu nghiệp vụ đồng bộ realtime bằng Firestore; ảnh/file mới lưu qua R2 theo quyền dự án.</span>
+                        <span>Dữ liệu nghiệp vụ đồng bộ thời gian thực bằng Firestore; ảnh/tệp mới lưu qua R2 theo quyền dự án.</span>
                         {dataCloudStatus?.lastSyncAt ? <span className="shrink-0">Lần cuối {new Date(dataCloudStatus.lastSyncAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</span> : null}
                       </p>
                     ) : (
