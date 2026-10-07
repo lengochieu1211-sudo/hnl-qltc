@@ -38,8 +38,9 @@ const base64 = exportAllToExcelBase64({
 });
 
 const wb = XLSX.read(base64, { type: 'base64', cellFormula: true });
-const ws = wb.Sheets['Khoi Luong Thi Cong'];
+const ws = wb.Sheets['Khối Lượng Thi Công'];
 assert.ok(ws, 'Work Volume worksheet must exist');
+assert.ok(wb.Sheets['Thông tin dự án'], 'Project information worksheet must use localized Vietnamese wording');
 
 const headerColumn = (header: string) => {
   const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
