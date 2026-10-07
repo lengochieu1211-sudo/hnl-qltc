@@ -528,7 +528,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
     const submitMode = submitter?.value === 'continue' ? 'continue' : 'close';
     if (!hasStructureManageAccess) {
-      alert('Chỉ ADMIN được tạo hoặc sửa định nghĩa hạng mục khối lượng. Kỹ sư cập nhật tiến độ tại Mặt bằng.');
+      alert('Chỉ ADMIN (Quản trị) được tạo hoặc sửa định nghĩa hạng mục khối lượng. Kỹ sư cập nhật tiến độ tại Mặt bằng.');
       handleCloseModal();
       return;
     }
@@ -624,7 +624,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
   const handleImportExcelWorkVolumes = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!hasStructureManageAccess) {
-      alert('⚠️ Chỉ ADMIN được nhập Excel để thay đổi cấu trúc hạng mục khối lượng.');
+      alert('⚠️ Chỉ ADMIN (Quản trị) được nhập Excel để thay đổi cấu trúc hạng mục khối lượng.');
       e.target.value = '';
       return;
     }
@@ -693,7 +693,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               && work.floor.trim().toLocaleLowerCase('vi-VN') === floorText.toLocaleLowerCase('vi-VN')
               && (normalizeUnit(work.unit) || work.unit) === unit,
             );
-            if (matches.length > 1) throw new Error(`Dòng ${rowIndex + 2}: hạng mục legacy ${title} / ${floorText} / ${unit} bị mơ hồ.`);
+            if (matches.length > 1) throw new Error(`Dòng ${rowIndex + 2}: hạng mục từ dữ liệu cũ (legacy) ${title} / ${floorText} / ${unit} bị mơ hồ.`);
             existing = matches[0];
           }
 
@@ -722,7 +722,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           }
 
           const recordId = existing?.id || createEntityId('HM');
-          if (touchedIds.has(recordId)) throw new Error(`Dòng ${rowIndex + 2}: record ID ${recordId} xuất hiện nhiều lần trong cùng file.`);
+          if (touchedIds.has(recordId)) throw new Error(`Dòng ${rowIndex + 2}: ID bản ghi ${recordId} xuất hiện nhiều lần trong cùng tệp.`);
           touchedIds.add(recordId);
           const categoryId = existing ? canonicalWorkCategoryId(existing) : recordId;
           const plannedFormula = readExcelFormulaByHeaders(worksheet, XLSX.utils, rowIndex + 1, ['KL Định Mức', 'Khối lượng định mức', 'Khối lượng kế hoạch', 'planned']);
@@ -777,15 +777,15 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         if (issues.length > 0) throw new Error(issues.map((issue) => issue.message).join('\n'));
 
         const confirmed = await confirmAsync(
-          `Đã preflight toàn bộ file: ${updatedCount} cập nhật, ${addedCount} thêm mới.\n\n` +
-          'Không import actual/status; ID hạng mục và phạm vi tầng được giữ authoritative. Tiếp tục ghi một lần?',
+          `Đã kiểm tra toàn bộ tệp trước khi nhập: ${updatedCount} cập nhật, ${addedCount} thêm mới.\n\n` +
+          'Không nhập ngược khối lượng thực hiện/trạng thái; ID hạng mục và phạm vi tầng vẫn là dữ liệu chuẩn. Tiếp tục ghi một lần?',
         );
         if (!confirmed) return;
         if (!onImportWorkVolumes) throw new Error('Phiên bản ứng dụng hiện chưa hỗ trợ nhập Khối lượng theo cơ chế ghi toàn bộ hoặc không ghi.');
-        if (!onImportWorkVolumes(upserts)) throw new Error('Catalog thay đổi trong lúc import; hệ thống đã hủy toàn bộ, chưa ghi dòng nào.');
+        if (!onImportWorkVolumes(upserts)) throw new Error('Danh mục đã thay đổi trong lúc nhập Excel; hệ thống đã hủy toàn bộ, chưa ghi dòng nào.');
         alert(`🎉 Nhập Khối lượng thành công: ${updatedCount} cập nhật, ${addedCount} thêm mới.`);
       } catch (err: any) {
-        alert(`❌ Import Khối lượng bị hủy trước khi ghi dữ liệu:\n${err?.message || String(err)}`);
+        alert(`❌ Nhập Khối lượng từ Excel bị hủy trước khi ghi dữ liệu:\n${err?.message || String(err)}`);
       } finally {
         e.target.value = '';
       }
