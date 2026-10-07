@@ -210,9 +210,9 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
     try {
       const input = await buildCombinedExportInput();
       await navigator.clipboard.writeText(buildHealthCenterCopyText(input));
-      setMessage('Đã copy chẩn đoán đầy đủ: build/quyền + Firebase/realtime + R2/ảnh + mặt bằng/revision + runtime log + Audit.');
+      setMessage('Đã sao chép chẩn đoán đầy đủ: bản dựng/quyền + Firebase/thời gian thực + R2/ảnh + mặt bằng/phiên bản + nhật ký runtime (thời gian chạy) + kiểm tra.');
     } catch (err) {
-      setMessage(`Không copy được chẩn đoán tổng hợp: ${err instanceof Error ? err.message : String(err)}`);
+      setMessage(`Không sao chép được chẩn đoán tổng hợp: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setExporting(null);
     }
@@ -358,7 +358,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
               </div>
               <div className="mt-1 break-all text-[9px] text-slate-400">{issue.ruleId} · {issue.entityType}:{issue.entityId}</div>
               <div className="mt-2 flex flex-wrap gap-1.5"><button type="button" onClick={() => openIssue(issue)} className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[9px] font-bold text-indigo-700"><ExternalLink className="h-3 w-3" /> {issue.ruleId === 'ROOM_ORPHAN_WORK_CATEGORY_REFERENCE' && userRole === 'ADMIN' ? 'Xử lý hạng mục' : 'Xem bản ghi'}</button><ExpandCollapseButton expanded={isOpen} onToggle={() => setExpanded(isOpen ? null : issue.id)} expandLabel="Xem liên kết" collapseLabel="Ẩn liên kết" className="min-h-7 rounded-md border-slate-200 px-2 py-1 text-[9px] text-slate-600" /></div>
-              {isOpen && <div className="mt-2 rounded-lg bg-slate-50 p-2 text-[9px] text-slate-600"><div><b>Evidence:</b> {issue.evidenceIds.join(', ') || '—'}</div><div className="mt-1 break-all"><b>Chi tiết:</b> {JSON.stringify(issue.details || {})}</div></div>}
+              {isOpen && <div className="mt-2 rounded-lg bg-slate-50 p-2 text-[9px] text-slate-600"><div><b>Bằng chứng:</b> {issue.evidenceIds.join(', ') || '—'}</div><div className="mt-1 break-all"><b>Chi tiết:</b> {JSON.stringify(issue.details || {})}</div></div>}
             </div>
           </div>
         </div>;
@@ -369,14 +369,14 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
     <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3 space-y-2">
       <div>
         <div className="text-[10px] font-extrabold text-slate-700">Xuất &amp; chia sẻ chẩn đoán</div>
-        <div className="mt-0.5 text-[9px] font-semibold text-slate-500">Một file chứa chung Audit dữ liệu/liên kết + trạng thái hệ thống/đồng bộ + ảnh R2. PDF đã bỏ để tránh trùng.</div>
+        <div className="mt-0.5 text-[9px] font-semibold text-slate-500">Một tệp chứa chung kiểm tra dữ liệu/liên kết + trạng thái hệ thống/đồng bộ + ảnh R2. PDF đã bỏ để tránh trùng.</div>
       </div>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <button type="button" disabled={Boolean(exporting)} onClick={() => void exportReport('json')} className="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-bold disabled:opacity-50"><FileJson className="h-3.5 w-3.5" /> Xuất JSON</button>
         <button type="button" disabled={Boolean(exporting)} onClick={() => void exportReport('excel')} className="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-[10px] font-bold text-indigo-700 disabled:opacity-50"><FileSpreadsheet className="h-3.5 w-3.5" /> Xuất Excel</button>
-        <button type="button" disabled={Boolean(exporting)} onClick={() => void copyCombinedDiagnostics()} className="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50"><Copy className="h-3.5 w-3.5" /> Copy chẩn đoán</button>
+        <button type="button" disabled={Boolean(exporting)} onClick={() => void copyCombinedDiagnostics()} className="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50"><Copy className="h-3.5 w-3.5" /> Sao chép chẩn đoán</button>
       </div>
-      <div className="text-[9px] font-semibold text-slate-500">Đang hiển thị/xuất {filtered.length}/{report.issues.length} vấn đề · {report.recordsScanned} record đã quét</div>
+      <div className="text-[9px] font-semibold text-slate-500">Đang hiển thị/xuất {filtered.length}/{report.issues.length} vấn đề · {report.recordsScanned} bản ghi đã quét</div>
       {onClearSystemDiagnostics && <div className="border-t border-slate-100 pt-2">
         <button type="button" disabled={Boolean(exporting)} onClick={() => void onClearSystemDiagnostics()} className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[9px] font-bold text-slate-500 hover:bg-slate-50 hover:text-rose-600 disabled:opacity-50"><Eraser className="h-3.5 w-3.5" /> Xóa log chẩn đoán cũ</button>
       </div>}
