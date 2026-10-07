@@ -3737,7 +3737,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       'bg-emerald-50 text-emerald-700 border-emerald-200'
                     }`}>
                       {!googleUser || googleUser.isAnonymous ? 'Chưa xác thực' :
-                       typeof navigator !== 'undefined' && !navigator.onLine ? '● Offline' :
+                       typeof navigator !== 'undefined' && !navigator.onLine ? '● Ngoại tuyến' :
                        dataCloudStatus?.phase === 'conflict' ? '● Có xung đột' :
                        dataCloudStatus?.phase === 'error' ? '● Có lỗi đồng bộ' :
                        dataCloudStatus?.phase === 'syncing' ? '● Đang đồng bộ nền' : '● Đã đồng bộ'}
