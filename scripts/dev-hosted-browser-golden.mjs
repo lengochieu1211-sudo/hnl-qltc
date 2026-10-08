@@ -429,7 +429,7 @@ async function verifyMobileMoreNavigation(page, label) {
 async function verifySettingsFeatureSheets(page, label) {
   const viewport = page.viewportSize();
   const desktopRail = Boolean(viewport && viewport.width >= 1024);
-  const moreButton = page.getByRole('button', { name: 'Thêm', exact: true });
+  const moreButton = page.getByRole('button', { name: 'Mở thêm phân hệ', exact: true });
   if (!desktopRail) {
     assert(await moreButton.count() > 0, `${label}: Thêm mobile bottom-nav button not found`);
     await moreButton.click();
@@ -1168,7 +1168,7 @@ async function verifyNarrowDesktopRuntime(browser) {
   const railBox = await rail.boundingBox();
   assert(railBox && railBox.x >= -1 && railBox.width >= 80, 'desktop EXE narrow runtime left rail moved out of viewport');
 
-  const moreButton = page.getByRole('button', { name: 'Thêm', exact: true });
+  const moreButton = page.getByRole('button', { name: 'Mở thêm phân hệ', exact: true });
   const moreButtonCount = await moreButton.count();
   if (moreButtonCount > 0) {
     assert(!(await moreButton.first().isVisible()), 'desktop EXE narrow runtime incorrectly switched to mobile bottom navigation');
