@@ -1667,7 +1667,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-3">
                   <h4 className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
                     <Clock className="w-4 h-4 text-indigo-600" />
-                    <span>Cài Đặt Tự Động Khóa</span>
+                    <span>Cài đặt tự động khóa</span>
                   </h4>
 
                   <div className="grid grid-cols-4 gap-1.5">
@@ -1767,7 +1767,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
                 <div className="flex items-center justify-between">
                   <h4 className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
                     <Shield className="w-4 h-4 text-indigo-600" />
-                    <span>Chứng Thực &amp; Phân Quyền Cloud (Firebase)</span>
+                    <span>Xác thực và phân quyền trên đám mây (Firebase)</span>
                   </h4>
                   <button
                     type="button"

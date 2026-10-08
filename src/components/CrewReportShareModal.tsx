@@ -489,7 +489,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
       <div className="mx-auto w-full max-w-6xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
         <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-5">
           <div>
-            <div className="flex items-center gap-2 text-base font-black text-slate-900"><Share2 className="h-5 w-5 text-emerald-600" /> Chia sẻ báo cáo quân số</div>
+            <div className="flex items-center gap-2 text-base font-black text-slate-900"><Share2 className="h-5 w-5 text-indigo-600" /> Chia sẻ báo cáo quân số</div>
             <p className="mt-0.5 text-[10.5px] text-slate-500">Chọn 1 ngày hoặc nhiều ngày, lọc dự án/đội và chia sẻ nội dung hoặc ảnh.</p>
           </div>
           <button type="button" onClick={onClose} className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50" aria-label="Đóng"><X className="h-5 w-5" /></button>
@@ -498,8 +498,8 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
         <div className="space-y-4 p-3 sm:p-5">
           {!rangeLocked && (
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => { setMode('single'); setEndDate(startDate); }} className={`rounded-xl px-3 py-2 text-xs font-extrabold ${mode === 'single' ? 'bg-emerald-600 text-white' : 'border border-slate-200 bg-white text-slate-700'}`}>1 ngày</button>
-              <button type="button" onClick={() => setMode('range')} className={`rounded-xl px-3 py-2 text-xs font-extrabold ${mode === 'range' ? 'bg-emerald-600 text-white' : 'border border-slate-200 bg-white text-slate-700'}`}>Nhiều ngày</button>
+              <button type="button" onClick={() => { setMode('single'); setEndDate(startDate); }} className={`rounded-xl px-3 py-2 text-xs font-extrabold ${mode === 'single' ? 'bg-indigo-600 text-white' : 'border border-slate-200 bg-white text-slate-700'}`}>1 ngày</button>
+              <button type="button" onClick={() => setMode('range')} className={`rounded-xl px-3 py-2 text-xs font-extrabold ${mode === 'range' ? 'bg-indigo-600 text-white' : 'border border-slate-200 bg-white text-slate-700'}`}>Nhiều ngày</button>
             </div>
           )}
 
@@ -636,8 +636,8 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <button type="button" disabled={!rangeValid || rows.length === 0 || Boolean(busy)} onClick={copyText} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-extrabold text-slate-700 hover:bg-slate-50 disabled:opacity-40"><Copy className="h-4 w-4" /> Sao chép nội dung</button>
             <button type="button" disabled={!rangeValid || rows.length === 0 || Boolean(busy)} onClick={shareText} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-3 text-xs font-extrabold text-white hover:bg-slate-800 disabled:opacity-40"><FileText className="h-4 w-4" /> {busy === 'text' ? 'Đang chuẩn bị...' : 'Chia sẻ nội dung'}</button>
-            <button type="button" disabled={!rangeValid || rows.length === 0 || Boolean(busy)} onClick={shareImages} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-xs font-extrabold text-white hover:bg-emerald-700 disabled:opacity-40"><ImageIcon className="h-4 w-4" /> {busy === 'image' ? 'Đang tạo ảnh...' : 'Chia sẻ ảnh'}</button>
-            <button type="button" disabled={!rangeValid || rows.length === 0 || Boolean(busy)} onClick={downloadImages} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 text-xs font-extrabold text-blue-700 hover:bg-blue-100 disabled:opacity-40"><Download className="h-4 w-4" /> {busy === 'download' ? 'Đang tạo ảnh...' : 'Tải ảnh'}</button>
+            <button type="button" disabled={!rangeValid || rows.length === 0 || Boolean(busy)} onClick={shareImages} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-3 text-xs font-extrabold text-white hover:bg-indigo-700 disabled:opacity-40"><ImageIcon className="h-4 w-4" /> {busy === 'image' ? 'Đang tạo ảnh...' : 'Chia sẻ ảnh'}</button>
+            <button type="button" disabled={!rangeValid || rows.length === 0 || Boolean(busy)} onClick={downloadImages} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-extrabold text-slate-700 hover:bg-slate-50 disabled:opacity-40"><Download className="h-4 w-4" /> {busy === 'download' ? 'Đang tạo ảnh...' : 'Tải ảnh'}</button>
           </div>
           {message && <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">{message}</div>}
         </div>

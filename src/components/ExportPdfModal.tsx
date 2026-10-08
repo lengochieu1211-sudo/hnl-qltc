@@ -2406,7 +2406,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow active:scale-98 transition-all text-xs cursor-pointer"
             >
               <Download className="w-4 h-4 text-sky-200" />
-              Tải File Báo Cáo HTML (.html - Mở &amp; In / Lưu PDF Dễ Dàng)
+              Tải báo cáo HTML (.html) để mở, in hoặc lưu PDF
             </button>
 
             <button
@@ -2415,7 +2415,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow active:scale-98 transition-all text-xs cursor-pointer"
             >
               <FileSpreadsheet className="w-4 h-4" />
-              Tải File Excel (.xlsx) Các Hạng Mục Đã Chọn
+              Tải Excel (.xlsx) theo hạng mục đã chọn
             </button>
 
             <button
@@ -2424,7 +2424,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl font-bold flex items-center justify-center gap-2 active:scale-98 transition-all text-xs cursor-pointer"
             >
               {copiedText ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <Mail className="w-4 h-4 text-slate-600" />}
-              {copiedText ? 'Đã sao chép nội dung!' : 'Sao Chép Tóm Tắt Gửi Zalo / Email'}
+              {copiedText ? 'Đã sao chép nội dung!' : 'Sao chép tóm tắt để gửi Zalo hoặc email'}
             </button>
           </div>
         </div>
