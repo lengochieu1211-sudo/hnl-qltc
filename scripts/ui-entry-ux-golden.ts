@@ -584,7 +584,7 @@ assert(!crewTab.includes("subItems: ['Bắn tấm khung chìm', 'Bả matit 2 l�
 assert(!crewTab.includes("setTaskDescription(COMMON_TASKS[0])"), 'Crew create flow must not fabricate a generic task when no linked project work exists');
 assert(crewTab.includes('const defaultFloorWork = createDefaultFloorWork(availableFloors[0]);'), 'Crew create flow must derive floor/category/sub-item suggestions from live project data');
 assert(crewTab.includes('currentItems={teams.filter((team) => !team.deletedAt)}'), 'Team templates must allow saving the current team directory');
-assert(crewTab.includes('border border-slate-200 bg-white') && crewTab.includes('hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700') && crewTab.includes('<FileText className="h-4 w-4 shrink-0 text-blue-600" />'), 'Crew share report must be a neutral/blue secondary action');
+assert(crewTab.includes('border border-slate-200 bg-white') && crewTab.includes('hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900') && crewTab.includes('<FileText className="h-4 w-4 shrink-0 text-slate-600" />'), 'Crew share report must be a neutral secondary action');
 assert(!crewTab.includes('rounded-xl border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-extrabold text-emerald-700'), 'Crew share action must not use success-green styling');
 
 assert(imageViewer.includes('RotateCw') && imageViewer.includes('Xoay ảnh sang trái 90 độ') && imageViewer.includes('Xoay ảnh sang phải 90 độ'), 'Shared image viewer must expose left/right 90-degree rotation');
