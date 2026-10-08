@@ -225,13 +225,13 @@ assert(!defectUi.includes('label="📷 Ảnh Báo Lỗi Ban Đầu (Trước S�
 assert(!defectUi.includes('label="🛠️ Ảnh Bằng Chứng Sau Khi Sửa (Tùy Chọn)"'), 'Defect after-photo label must not duplicate picker iconography with an emoji');
 assert((defectUi.match(/label="Ảnh Báo Lỗi Ban Đầu \(Trước Sửa\)"/g) || []).length >= 2, 'Defect before-photo label must remain available in create/detail flows');
 assert((defectUi.match(/label="Ảnh Bằng Chứng Sau Khi Sửa \(Tùy Chọn\)"/g) || []).length >= 2, 'Defect after-photo label must remain available in create/detail flows');
-assert((defectUi.match(/bg-blue-600 text-white font-black shadow-sm ring-2 ring-blue-300/g) || []).length >= 6, 'Floor-plan generic drawing selection must use HNL Blue in normal + fullscreen toolbars');
+assert((defectUi.match(/bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300/g) || []).length >= 6, 'Floor-plan generic drawing selection must use tokenized HNL primary in normal + fullscreen toolbars');
 assert(!defectUi.includes("bg-amber-500 text-slate-950 font-black shadow-sm ring-2 ring-amber-300") && !defectUi.includes("bg-amber-500 text-slate-950 font-black scale-105 shadow-sm"), 'Floor-plan generic draw selection must not use warning amber');
-assert((defectUi.match(/roomColorMode === 'palette'\s*\? 'bg-blue-600 text-white/g) || []).length >= 3 && (defectUi.match(/roomColorMode === 'palette'[\s\S]{0,180}: 'bg-slate-/g) || []).length >= 3, 'Floor-plan display-mode toggles must use primary/neutral colors instead of warning amber');
-assert((defectUi.match(/!showTextOverlay[\s\S]{0,180}bg-blue-600 text-white/g) || []).length >= 3, 'Floor-plan text-overlay selection must use HNL Blue instead of success green');
+assert((defectUi.match(/roomColorMode === 'palette'\s*\? 'bg-indigo-600 text-white/g) || []).length >= 3 && (defectUi.match(/roomColorMode === 'palette'[\s\S]{0,180}: 'bg-slate-/g) || []).length >= 3, 'Floor-plan display-mode toggles must use primary/neutral colors instead of warning amber');
+assert((defectUi.match(/!showTextOverlay[\s\S]{0,180}bg-indigo-600 text-white/g) || []).length >= 3, 'Floor-plan text-overlay selection must use HNL primary instead of success green');
 assert((defectUi.match(/min-h-9/g) || []).length >= 9 && defectUi.includes('className="h-9 w-9 inline-flex') && defectUi.includes('className="h-9 max-w-[150px]'), 'Fullscreen floor-plan controls must keep >=36px touch targets');
 assert(defectUi.includes('min-h-9 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700') && !defectUi.includes('bg-rose-600/90 hover:bg-rose-600'), 'Fullscreen Thu Nhỏ action must be neutral, not destructive rose');
-assert(defectUi.includes("isRoomPinPlacementMode") && defectUi.includes("? 'bg-blue-600 hover:bg-blue-700 text-white ring-2 ring-blue-200'") && defectUi.includes("? 'bg-blue-600 hover:bg-blue-500 text-white ring-2 ring-blue-300'"), 'Add Room must be neutral while idle and HNL Blue only while armed');
+assert(defectUi.includes("isRoomPinPlacementMode") && defectUi.includes("? 'bg-indigo-600 hover:bg-indigo-700 text-white ring-2 ring-indigo-200'") && defectUi.includes("? 'bg-indigo-600 hover:bg-indigo-700 text-white ring-2 ring-indigo-300'"), 'Add Room must be neutral while idle and HNL primary only while armed');
 
 assert(!defectUi.includes('✓ Bắt Đầu Cấu Hình'), 'Floor-plan action must not show a second check symbol beside the Edit icon.');
 assert(!defectUi.includes('<span>💡 <strong>Kéo Vẽ tự do:'), 'Freehand banner must not show a second leading symbol beside the Pencil icon.');
