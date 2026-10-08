@@ -295,7 +295,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
   return <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:p-4">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <div className="flex items-center gap-2 font-bold text-slate-900"><ShieldCheck className="h-4 w-4 text-emerald-600" /> Kiểm tra dữ liệu & liên kết</div>
+        <div className="flex items-center gap-2 font-bold text-slate-900"><ShieldCheck className="h-4 w-4 text-indigo-600" /> Kiểm tra dữ liệu & liên kết</div>
         <div className="mt-1 text-[10px] font-semibold text-slate-500">Phát hiện dữ liệu mất liên kết · mở đúng bản ghi · sửa có xác nhận · không tự xóa lịch sử</div>
         <div className="mt-1 break-all text-[9px] text-slate-400">Mã bản kiểm tra: {report.auditSnapshotId}</div>
       </div>
