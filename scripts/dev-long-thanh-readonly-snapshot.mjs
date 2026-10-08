@@ -57,12 +57,21 @@ async function run(){
   const p='projects/'+id,root=await api(encode(p));
   const rows=[],queue=[p];let traversed=0;
   while(queue.length){
-    const parent=queue.shift();assert(++traversed<6000,'Depth cap');
-    for(const column of await columns(parent)){
-      assert(!column.includes('/'),'Bad collection');
-      const docs=await documents(parent,column,id);
-      rows.push({parent,collection:column,documents:docs});
-      for(const doc of docs)queue.push(valid(doc.name,id));
+    // Read-only bounded breadth-first scan: at most six parent documents concurrently.
+    const parents=queue.splice(0,6);
+    assert((traversed+=parents.length)<6000,'Depth cap');
+    const batches=await Promise.all(parents.map(async parent=>{
+      const groups=[];
+      for(const column of await columns(parent)){
+        assert(!column.includes('/'),'Bad collection');
+        const docs=await documents(parent,column,id);
+        groups.push({parent,collection:column,documents:docs});
+      }
+      return groups;
+    }));
+    for(const groups of batches)for(const group of groups){
+      rows.push(group);
+      for(const doc of group.documents)queue.push(valid(doc.name,id));
     }
   }
   const counts={};for(const row of rows)counts[row.collection]=(counts[row.collection]||0)+row.documents.length;

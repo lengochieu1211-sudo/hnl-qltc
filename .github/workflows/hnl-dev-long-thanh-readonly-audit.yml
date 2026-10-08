@@ -25,7 +25,7 @@ jobs:
           set -euo pipefail
           test "$GITHUB_REF_NAME" = "audit/hnl-dev-restore-readonly-7575076f-20261008"
           git merge-base --is-ancestor "$HNL_EXPECTED_DEV_HEAD" HEAD
-          test "$(git rev-list --count "$HNL_EXPECTED_DEV_HEAD"..HEAD)" -eq 2
+          test "$(git rev-list --count "$HNL_EXPECTED_DEV_HEAD"..HEAD)" -eq 3
           test -n "${FIREBASE_SERVICE_ACCOUNT:-}"
           echo "DEV read-only isolation confirmed"
       - name: Export only encrypted DEV Firestore destination
