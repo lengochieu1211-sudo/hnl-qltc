@@ -62,7 +62,7 @@ const getItemLabel = (kind: UserCatalogTemplateKind, item: any): string => {
 const cloneTemplate = (template: UserCatalogTemplate): UserCatalogTemplate =>
   JSON.parse(JSON.stringify(template));
 
-export const CatalogTemplateManager: React.FC = () => {
+export const CatalogTemplateManager: React.FC<{ onDirtyChange?: (dirty: boolean) => void }> = ({ onDirtyChange }) => {
   const [templates, setTemplates] = React.useState<UserCatalogTemplate[]>([]);
   const [selectedKind, setSelectedKind] = React.useState<UserCatalogTemplateKind>('teams');
   const [selectedTemplateId, setSelectedTemplateId] = React.useState('');
@@ -72,6 +72,37 @@ export const CatalogTemplateManager: React.FC = () => {
   const [loading, setLoading] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState('');
+
+  // Compare the currently visible draft with the last successfully loaded/saved
+  // record. Selection checkboxes are deliberately excluded (not business data).
+  const savedTemplate = templates.find((template) => template.id === selectedTemplateId);
+  const isDirty = Boolean(draft && savedTemplate && JSON.stringify(draft) !== JSON.stringify(savedTemplate));
+  React.useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
+  React.useEffect(() => {
+    if (!isDirty) return undefined;
+    const warnOnUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnOnUnload);
+    return () => window.removeEventListener('beforeunload', warnOnUnload);
+  }, [isDirty]);
+  React.useEffect(() => () => { onDirtyChange?.(false); }, [onDirtyChange]);
+
+  const confirmDiscard = async (): Promise<boolean> =>
+    !isDirty || await confirmAsync('Mẫu đang có thay đổi chưa lưu. Bỏ các thay đổi này?', {
+      title: 'Thay đổi chưa lưu', confirmLabel: 'Bỏ thay đổi', cancelLabel: 'Tiếp tục chỉnh sửa',
+    });
+
+  const switchKind = async (nextKind: UserCatalogTemplateKind) => {
+    if (nextKind === selectedKind || saving || !await confirmDiscard()) return;
+    setSelectedKind(nextKind);
+  };
+
+  const switchTemplate = async (nextId: string) => {
+    if (nextId === selectedTemplateId || saving || !await confirmDiscard()) return;
+    setSelectedTemplateId(nextId);
+  };
 
   const reload = React.useCallback(async () => {
     setLoading(true);
@@ -112,6 +143,7 @@ export const CatalogTemplateManager: React.FC = () => {
   }, [selectedKind, templates]);
 
   const createTemplate = async () => {
+    if (saving || !await confirmDiscard()) return;
     const name = window.prompt('Tên mẫu mới:', `Mẫu ${KIND_OPTIONS.find((item) => item.id === selectedKind)?.label || ''}`);
     if (!name?.trim()) return;
     setSaving(true);
@@ -151,6 +183,7 @@ export const CatalogTemplateManager: React.FC = () => {
   };
 
   const deleteOne = async (template: UserCatalogTemplate) => {
+    if (saving || !await confirmDiscard()) return;
     if (!await confirmAsync(`Xóa mẫu “${template.name}”? Dữ liệu đã lấy vào công trình sẽ không bị xóa.`)) return;
     setSaving(true);
     try {
@@ -166,7 +199,7 @@ export const CatalogTemplateManager: React.FC = () => {
 
   const deleteSelectedTemplates = async () => {
     const ids = selectedTemplateIds.filter((id) => visibleTemplates.some((item) => item.id === id));
-    if (!ids.length) return;
+    if (!ids.length || saving || !await confirmDiscard()) return;
     if (!await confirmAsync(`Xóa ${ids.length} mẫu đã chọn? Dữ liệu đã lấy vào công trình sẽ giữ nguyên.`)) return;
     setSaving(true);
     try {
@@ -221,7 +254,7 @@ export const CatalogTemplateManager: React.FC = () => {
           <button
             type="button"
             key={kind.id}
-            onClick={() => setSelectedKind(kind.id)}
+            onClick={() => void switchKind(kind.id)}
             style={{ touchAction: 'manipulation' }}
             className={`shrink-0 rounded-lg border px-2.5 py-1.5 text-[10px] font-bold active:scale-[0.97] ${selectedKind === kind.id ? 'border-indigo-300 bg-indigo-100 text-indigo-800' : 'border-slate-200 bg-white text-slate-600'}`}
           >
@@ -230,6 +263,7 @@ export const CatalogTemplateManager: React.FC = () => {
         ))}
       </div>
 
+      {isDirty && <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800">Mẫu có thay đổi chưa lưu. Hãy bấm Lưu thay đổi trước khi rời mục.</div>}
       {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-semibold text-rose-700">{error}</div>}
 
       <div className="grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
@@ -279,7 +313,7 @@ export const CatalogTemplateManager: React.FC = () => {
                 />
                 <button
                   type="button"
-                  onClick={() => setSelectedTemplateId(template.id)}
+                  onClick={() => void switchTemplate(template.id)}
                   className="min-w-0 flex-1 text-left"
                 >
                   <div className="truncate text-[11px] font-extrabold text-slate-800">{template.name}</div>

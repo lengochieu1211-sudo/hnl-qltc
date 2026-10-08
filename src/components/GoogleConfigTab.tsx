@@ -183,6 +183,10 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   const [sheetUrl, setSheetUrl] = useState<string | null>(null);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [photoDiagnosticSnapshot, setPhotoDiagnosticSnapshot] = useState<any>(null);
+  const [catalogDraftDirty, setCatalogDraftDirty] = useState(false);
+  const confirmCatalogClose = React.useCallback(() =>
+    !catalogDraftDirty || window.confirm('Mẫu có thay đổi chưa lưu. Đóng và bỏ các thay đổi này?'),
+  [catalogDraftDirty]);
 
   const isIframe = typeof window !== 'undefined' && window.self !== window.top;
 
@@ -782,6 +786,8 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       {syncDiagnostics && (
         <SettingsAccordionCard
           id="system-sync-card"
+          lazy
+          unmountOnClose
           icon={ShieldCheck}
           iconClassName="text-emerald-600"
           title="Trung tâm kiểm tra dữ liệu (Health Center)"
@@ -885,6 +891,9 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
 
       <SettingsAccordionCard
         id="catalog-template-manager-card"
+        lazy
+        unmountOnClose
+        beforeClose={confirmCatalogClose}
         icon={Layers3}
         iconClassName="text-indigo-600"
         title="Quản lý mẫu"
@@ -893,7 +902,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         badgeClassName="border-indigo-100 bg-indigo-50 text-indigo-700"
         bodyClassName="p-0"
       >
-        <CatalogTemplateManager />
+        <CatalogTemplateManager onDirtyChange={setCatalogDraftDirty} />
       </SettingsAccordionCard>
 
       {/* APP FORMATTING PREFERENCES CARD */}

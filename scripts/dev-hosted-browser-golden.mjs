@@ -465,6 +465,10 @@ async function verifySettingsFeatureSheets(page, label) {
       closeMode: 'backdrop',
     },
     { name: 'Dữ liệu đã ẩn & lịch sử', selector: trashSelector, card: trashCard, closeMode: 'x' },
+    {
+      name: 'Quản lý mẫu', selector: '#catalog-template-manager-card',
+      card: page.locator('#catalog-template-manager-card'), closeMode: 'x',
+    },
   ];
 
   for (const [index, item] of settingsCards.entries()) {
@@ -493,7 +497,7 @@ async function verifySettingsFeatureSheets(page, label) {
     assert(sharedStyles[i].boxShadow === sharedStyles[0].boxShadow, `${label}: Settings cards do not share the same shadow`);
     assert(sharedStyles[i].overflowX <= 1, `${label}: Settings card ${i + 1} overflows horizontally`);
   }
-  pass(`${label} five Settings cards share one design system`);
+  pass(`${label} six Settings cards share one design system`);
 
   const syncSummary = syncCard.locator('summary').first();
   const syncClosedBox = await syncSummary.boundingBox();
@@ -523,6 +527,17 @@ async function verifySettingsFeatureSheets(page, label) {
 
     const sheet = await waitForSettingsSheet(page, sheetKey, true);
     const backdrop = page.locator(`[data-hnl-settings-sheet-backdrop="${sheetKey}"]`);
+    if (item.name === 'Quản lý mẫu') {
+      const tabs = ['Đội thi công', 'Hạng mục thi công', 'Định mức vật tư', 'Vật tư', 'Thiết bị'];
+      const manager = sheet.locator('[data-hnl-template-manager]');
+      await manager.waitFor({ state: 'visible', timeout: 10000 });
+      for (const tabName of tabs) {
+        const tab = manager.getByRole('button', { name: tabName, exact: true });
+        await tab.click();
+        assert(await tab.count() === 1, `${label}: missing Catalog nested tab ${tabName}`);
+      }
+      pass(`${label} Catalog all 5 nested Settings tabs`);
+    }
     await backdrop.waitFor({ state: 'visible', timeout: 10000 });
 
     const metrics = await page.evaluate((key) => {
@@ -649,7 +664,7 @@ async function verifySettingsFeatureSheets(page, label) {
     assert(!historyMarker, `${label}: ${item.name} left a stale feature-sheet history marker after close`);
   }
 
-  pass(`${label} five Settings entries open in shared feature sheets`);
+  pass(`${label} six Settings entries open in shared feature sheets`);
   pass(`${label} Settings sheet close contract`, 'X + Back + Escape + backdrop');
 
   if (desktopRail) {

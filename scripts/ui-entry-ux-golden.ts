@@ -1,6 +1,21 @@
 import fs from 'node:fs';
 import { buildCrewReportMatrices, buildCrewReportRows, buildCrewReportText } from '../src/utils/crewReportUtils';
 
+// HNL theme regression: reachable AI/project gradients must stay readable in dark mode.
+const hnlThemeCss = fs.readFileSync('src/index.css', 'utf8');
+const hnlAiThemeSource = fs.readFileSync('src/features/ai/AiAssistantPage.tsx', 'utf8');
+const hnlProjectThemeSource = fs.readFileSync('src/components/ProjectManagerModal.tsx', 'utf8');
+for (const marker of ['hnl-ai-hero']) {
+  if (!hnlAiThemeSource.includes(marker) || !hnlThemeCss.includes(`html[data-hnl-theme="dark"] .${marker}`)) {
+    throw new Error(`HNL AI dark-mode gradient guard missing: ${marker}`);
+  }
+}
+for (const marker of ['hnl-project-selected-card', 'hnl-multiproject-sync-header']) {
+  if (!hnlProjectThemeSource.includes(marker) || !hnlThemeCss.includes(`html[data-hnl-theme="dark"] .${marker}`)) {
+    throw new Error(`HNL project manager dark-mode gradient guard missing: ${marker}`);
+  }
+}
+
 // Regression contract for the unified project/sync/security/settings entry UX.
 const read = (path: string) => fs.readFileSync(path, 'utf8');
 const assert = (condition: unknown, message: string) => {
@@ -537,8 +552,8 @@ assert(!projectManager.includes('🔗 Chọn Tệp Trên Máy Để Liên Kết 
 
 const hostedBrowserGolden = read('scripts/dev-hosted-browser-golden.mjs');
 assert(hostedBrowserGolden.includes("supportedEntryTypes?.includes('longtask')") && hostedBrowserGolden.includes('Long Task >200ms'), 'Hosted browser Golden must measure warm interaction long tasks, not only shell/mount timing');
-assert(hostedBrowserGolden.includes('five Settings cards share one design system'), 'Hosted browser Golden must verify all five Settings cards share one design system');
-assert(hostedBrowserGolden.includes('five Settings entries open in shared feature sheets'), 'Hosted browser Golden must verify all five Settings entries open as feature sheets');
+assert(hostedBrowserGolden.includes('six Settings cards share one design system'), 'Hosted browser Golden must verify all six Settings cards share one design system');
+assert(hostedBrowserGolden.includes('six Settings entries open in shared feature sheets'), 'Hosted browser Golden must verify all six Settings entries open as feature sheets');
 assert(hostedBrowserGolden.includes('Settings sheet close contract'), 'Hosted browser Golden must cover shared close behavior');
 assert(hostedBrowserGolden.includes('X + Back + Escape + backdrop'), 'Hosted browser Golden must cover X, Android/browser Back, Escape and backdrop close paths');
 assert(hostedBrowserGolden.includes('data-hnl-settings-sheet'), 'Hosted browser Golden must inspect the shared Settings sheet dialog');
@@ -576,3 +591,15 @@ assert(imageViewer.includes('RotateCw') && imageViewer.includes('Xoay ảnh sang
 assert(imageViewer.includes('rotate(${rotation}deg)'), 'Shared image viewer transform must apply rotation');
 assert(catalogTemplatePicker.includes('currentItems?: any[];') && catalogTemplatePicker.includes('Lưu dữ liệu hiện tại thành mẫu'), 'Catalog template picker must expose saving the current project catalog as a reusable template');
 assert(materialNormModal.includes('currentItems={activeMaterialNorms}'), 'Material Norm templates must allow saving the current norm catalog');
+
+// Nested Settings regression: 6 sheets, lazy heavy panels and unsaved Catalog edits.
+const nestedConfig = read('src/components/GoogleConfigTab.tsx');
+const nestedCatalog = read('src/components/CatalogTemplateManager.tsx');
+const nestedAccordion = read('src/components/SettingsAccordionCard.tsx');
+const nestedFeatureSheet = read('src/components/SettingsFeatureSheet.tsx');
+assert(nestedConfig.includes('id="catalog-template-manager-card"') && nestedConfig.includes('beforeClose={confirmCatalogClose}') && nestedConfig.includes('onDirtyChange={setCatalogDraftDirty}'), 'Catalog dirty-sheet close protection missing');
+assert(nestedCatalog.includes('confirmDiscard') && nestedCatalog.includes('switchKind') && nestedCatalog.includes('switchTemplate') && nestedCatalog.includes('beforeunload'), 'Catalog unsaved draft navigation protection missing');
+assert(nestedConfig.includes('id="system-sync-card"\n          lazy\n          unmountOnClose') && nestedConfig.includes('id="catalog-template-manager-card"\n        lazy\n        unmountOnClose'), 'Heavy nested Settings panels must lazy mount and unmount on close');
+assert(nestedAccordion.includes('unmountOnClose ? open : hasOpened') && nestedFeatureSheet.includes('approvedHistoryCloseRef'), 'Settings sheet must respect close guards including Android Back');
+const hostedGolden = read('scripts/dev-hosted-browser-golden.mjs');
+assert(hostedGolden.includes('Catalog all 5 nested Settings tabs') && hostedGolden.includes('six Settings cards share one design system'), 'Hosted Settings Golden must cover all 6 sheets and 5 nested Catalog tabs');

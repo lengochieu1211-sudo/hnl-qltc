@@ -4069,7 +4069,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         key={proj.id} 
                         className={`p-3 rounded-2xl border transition-all ${
                           isActive 
-                            ? 'bg-gradient-to-r from-blue-50/90 to-blue-50/50 border-indigo-300 ring-2 ring-indigo-500/20 shadow-xs' 
+                            ? 'hnl-project-selected-card bg-gradient-to-r from-blue-50/90 to-blue-50/50 border-indigo-300 ring-2 ring-indigo-500/20 shadow-xs' 
                             : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/60'
                         }`}
                       >
@@ -4531,7 +4531,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs z-[280] flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col border border-indigo-100 shadow-2xl overflow-hidden">
             {/* Header */}
-            <div className="p-4 sm:p-5 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-blue-50/40 flex items-center justify-between">
+            <div className="hnl-multiproject-sync-header p-4 sm:p-5 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-blue-50/40 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0">
                   <Layers className="w-5 h-5" />

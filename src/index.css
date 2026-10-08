@@ -343,3 +343,17 @@ html[data-hnl-radius="round"] button:not(.rounded-full),
 html[data-hnl-radius="round"] input,
 html[data-hnl-radius="round"] select,
 html[data-hnl-radius="round"] textarea { border-radius: 1rem !important; }
+
+/* HNL deep UI audit: light-mode feature gradients must not remain pale in dark mode. */
+html[data-hnl-theme="dark"] .hnl-ai-hero {
+  background-image: linear-gradient(135deg, rgb(30 64 175 / .30), var(--hnl-dark-surface) 58%, var(--hnl-dark-surface-raised)) !important;
+  border-color: var(--hnl-dark-border) !important;
+}
+html[data-hnl-theme="dark"] .hnl-project-selected-card {
+  background-image: linear-gradient(90deg, rgb(30 64 175 / .30), var(--hnl-dark-surface) 72%) !important;
+  border-color: var(--hnl-primary-ring) !important;
+}
+html[data-hnl-theme="dark"] .hnl-multiproject-sync-header {
+  background-image: linear-gradient(90deg, var(--hnl-dark-surface-raised), var(--hnl-dark-surface)) !important;
+  border-color: var(--hnl-dark-border) !important;
+}

@@ -5,6 +5,7 @@ import { X, type LucideIcon } from 'lucide-react';
 interface SettingsFeatureSheetProps {
   open: boolean;
   onClose: () => void;
+  beforeClose?: () => boolean;
   sheetKey: string;
   icon: LucideIcon;
   iconClassName?: string;
@@ -33,6 +34,7 @@ const asHistoryObject = (value: unknown): Record<string, unknown> => {
 export const SettingsFeatureSheet: React.FC<SettingsFeatureSheetProps> = ({
   open,
   onClose,
+  beforeClose,
   sheetKey,
   icon: Icon,
   iconClassName = 'text-indigo-600',
@@ -46,17 +48,21 @@ export const SettingsFeatureSheet: React.FC<SettingsFeatureSheetProps> = ({
   const titleId = `${sheetKey}-sheet-title`;
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
+  const beforeCloseRef = useRef(beforeClose);
   const openedHistoryRef = useRef(false);
+  const approvedHistoryCloseRef = useRef(false);
   onCloseRef.current = onClose;
+  beforeCloseRef.current = beforeClose;
 
   const restoreFocus = useCallback(() => {
     window.setTimeout(() => returnFocusRef?.current?.focus(), 0);
   }, [returnFocusRef]);
 
   const closeSheet = useCallback(() => {
-    if (!open || typeof window === 'undefined') return;
+    if (!open || typeof window === 'undefined' || beforeCloseRef.current?.() === false) return;
     const state = asHistoryObject(window.history.state);
     if (state[FEATURE_SHEET_HISTORY_KEY] === sheetKey) {
+      approvedHistoryCloseRef.current = true;
       window.history.back();
       return;
     }
@@ -84,6 +90,16 @@ export const SettingsFeatureSheet: React.FC<SettingsFeatureSheetProps> = ({
     };
 
     const onPopState = () => {
+      const previouslyApproved = approvedHistoryCloseRef.current;
+      approvedHistoryCloseRef.current = false;
+      if (!previouslyApproved && beforeCloseRef.current?.() === false) {
+        // Android/browser Back already changed the history entry. Re-establish
+        // the sheet sentinel without dismissing the unsaved draft.
+        const nextState = asHistoryObject(window.history.state);
+        window.history.pushState({ ...nextState, [FEATURE_SHEET_HISTORY_KEY]: sheetKey }, '');
+        openedHistoryRef.current = true;
+        return;
+      }
       openedHistoryRef.current = false;
       flushSync(() => onCloseRef.current());
       restoreFocus();

@@ -13,6 +13,8 @@ interface SettingsAccordionCardProps {
   children: React.ReactNode;
   bodyClassName?: string;
   lazy?: boolean;
+  unmountOnClose?: boolean;
+  beforeClose?: () => boolean;
 }
 
 /**
@@ -32,6 +34,8 @@ export const SettingsAccordionCard: React.FC<SettingsAccordionCardProps> = ({
   children,
   bodyClassName = 'space-y-3.5',
   lazy = false,
+  unmountOnClose = false,
+  beforeClose,
 }) => {
   const reactId = useId();
   const sheetKey = id || `settings-sheet-${reactId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
@@ -41,13 +45,14 @@ export const SettingsAccordionCard: React.FC<SettingsAccordionCardProps> = ({
   const [open, setOpen] = useState(false);
   const [hasOpened, setHasOpened] = useState(!lazy);
 
-  const setSheetOpen = useCallback((nextOpen: boolean) => {
+  const setSheetOpen = useCallback((nextOpen: boolean, skipGuard = false) => {
+    if (!skipGuard && !nextOpen && openRef.current && beforeClose?.() === false) return;
     openRef.current = nextOpen;
     if (nextOpen) setHasOpened(true);
     setOpen(nextOpen);
     const details = detailsRef.current;
     if (details && details.open !== nextOpen) details.open = nextOpen;
-  }, []);
+  }, [beforeClose]);
 
   return (
     <>
@@ -59,7 +64,10 @@ export const SettingsAccordionCard: React.FC<SettingsAccordionCardProps> = ({
         className="group w-full scroll-mt-24 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow duration-200 ease-out open:shadow-md"
         onToggle={(event) => {
           const nextOpen = event.currentTarget.open;
-          if (nextOpen !== openRef.current) setSheetOpen(nextOpen);
+          if (nextOpen !== openRef.current) {
+            setSheetOpen(nextOpen);
+            if (!nextOpen && openRef.current) event.currentTarget.open = true;
+          }
         }}
       >
         <summary
@@ -97,14 +105,15 @@ export const SettingsAccordionCard: React.FC<SettingsAccordionCardProps> = ({
 
       <SettingsFeatureSheet
         open={open}
-        onClose={() => setSheetOpen(false)}
+        onClose={() => setSheetOpen(false, true)}
+        beforeClose={beforeClose}
         sheetKey={sheetKey}
         icon={Icon}
         iconClassName={iconClassName}
         title={title}
         description={description}
         bodyClassName={bodyClassName}
-        mounted={hasOpened}
+        mounted={unmountOnClose ? open : hasOpened}
         returnFocusRef={summaryRef}
       >
         {children}
