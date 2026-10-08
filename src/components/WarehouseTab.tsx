@@ -1885,6 +1885,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           {hasEditAccess && (
             <button
               onClick={openCreateInventory}
+              data-hnl-primary-action="warehouse-create"
               className="order-first col-span-2 flex h-11 items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 text-sm font-extrabold text-white shadow-md transition-all hover:bg-blue-700 active:scale-[0.99] lg:order-none lg:col-span-1 lg:h-9 lg:px-3 lg:text-xs"
             >
               <Plus className="w-4 h-4" />
@@ -1905,7 +1906,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <button
               onClick={onOpenNormModal}
               className="flex h-10 min-w-0 items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-indigo-50 px-2 text-[11px] font-bold text-indigo-700 transition-all hover:bg-indigo-100 active:scale-95 lg:h-9 lg:px-3 lg:text-xs"
-              title={hasNormManageAccess ? 'Cập nhật chủng loại vật tư, ĐVT, định mức' : 'Xem định mức vật tư (chỉ ADMIN (Quản trị) được sửa)'}
+              title={hasNormManageAccess ? 'Cập nhật chủng loại vật tư, đơn vị tính và định mức' : 'Xem định mức vật tư (chỉ quản trị viên được sửa)'}
             >
               <Sliders className="w-3.5 h-3.5 shrink-0 text-indigo-600" />
               <span className="sm:hidden">Định mức</span>
@@ -1941,13 +1942,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         onClose={() => setShowWarehouseCatalog(false)}
         sheetKey="warehouse-catalog"
         icon={Layers}
-        iconClassName="text-blue-600"
+        iconClassName="text-indigo-600"
         title="Danh mục kho"
-        description="Tổng hợp vật tư và thiết bị theo Nhập, Xuất, Tồn kho; vật tư hiển thị thêm Nhu cầu vật tư theo định mức."
+        description="Tổng hợp vật tư và thiết bị theo nhập, xuất, tồn kho; vật tư còn có thông tin nhu cầu theo định mức."
         bodyClassName="space-y-3"
       >
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
+          <div data-hnl-nested-nav="warehouse-catalog" className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
             {(['material', 'equipment'] as InventoryItemKind[]).map((kind) => (
               <button
                 type="button"
@@ -1980,6 +1981,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               <button
                 type="button"
                 onClick={() => { setShowWarehouseCatalog(false); openCreateInventory('equipment'); setIsNewEquipment(true); setMaterialName(''); setCustomMaterial(''); }}
+                data-hnl-primary-action="warehouse-equipment-create"
                 className="inline-flex shrink-0 items-center justify-center gap-1 rounded-xl bg-blue-600 px-3 py-2.5 text-xs font-bold text-white hover:bg-blue-700"
               >
                 <Plus className="h-4 w-4" /> Thêm thiết bị mới

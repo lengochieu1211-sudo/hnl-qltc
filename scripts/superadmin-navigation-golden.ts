@@ -6,7 +6,7 @@ const check = (condition: unknown, message: string) => { if (!condition) throw n
 const admin = read('src/components/SuperAdminCenter.tsx');
 check(admin.includes("sessionStorage.setItem('qlct_config_focus_target', targetId)"), 'Super Admin must persist Config focus intent before navigation.');
 check(admin.includes("openConfigSection('trash-recovery-card', onOpenHiddenHistory)"), 'Hidden/history card must target the trash recovery panel.');
-check(admin.includes("title: 'Đồng bộ, R2 & Chẩn đoán'"), 'Sync/R2/diagnostics must be presented as one admin action.');
+check(admin.includes("title: 'Đồng bộ, R2 và chẩn đoán'"), 'Sync/R2/diagnostics must be presented as one admin action.');
 check(admin.includes("openConfigSection('system-sync-card')"), 'Merged Sync/R2/diagnostics card must target the Health Center owner panel.');
 check(!admin.includes("title: 'Đồng bộ & R2'"), 'Legacy duplicate Sync/R2 admin action must be removed.');
 check(!admin.includes("title: 'Chẩn đoán hệ thống'"), 'Legacy duplicate diagnostics admin action must be removed.');

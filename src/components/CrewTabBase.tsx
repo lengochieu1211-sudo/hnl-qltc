@@ -1958,6 +1958,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   setEditingRecord(null);
                   setShowAddLogModal(true);
                 }}
+                data-hnl-primary-action="crew-record-create"
                 className="order-2 col-span-2 flex h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-3 text-sm font-extrabold text-white shadow-md transition hover:bg-blue-700 active:scale-[0.99] lg:order-none lg:col-span-1 lg:h-10 lg:text-xs"
               >
                 <Plus className="w-4 h-4" /> Ghi nhận quân số

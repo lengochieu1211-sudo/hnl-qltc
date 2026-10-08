@@ -617,10 +617,10 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       if (data.url) {
         window.open(data.url, 'GoogleAuth', 'width=550,height=650');
       } else {
-        alert(data.message || 'Hệ thống đang hoạt động ở Chế độ Tự Do. Mọi cài đặt & dữ liệu của bạn đều được lưu 100% tự động.');
+        alert(data.message || 'Không nhận được liên kết đăng nhập Google Drive. Hãy kiểm tra kết nối và cấu hình dịch vụ rồi thử lại.');
       }
     } catch (e) {
-      alert('Không thể kết nối dịch vụ Google Auth');
+      alert('Không thể kết nối dịch vụ xác thực Google. Vui lòng thử lại.');
     }
   };
 
@@ -1036,7 +1036,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
             </div>
           </div>
         ))}
-        <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-2">Lưu ý: “Gốc/Rất cao” làm file lớn và đồng bộ chậm hơn. Với điện thoại nên giữ Mặt bằng = Tự động, Defect = Tiêu chuẩn, Quân số = Tiêu chuẩn.</p>
+        <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-2">Lưu ý: Chất lượng “Gốc” hoặc “Rất cao” làm tăng dung lượng ảnh và thời gian đồng bộ. Trên điện thoại, nên chọn Mặt bằng: Tự động; Defect: Tiêu chuẩn; Quân số: Tiêu chuẩn.</p>
         </div>
       </SettingsAccordionCard>
 

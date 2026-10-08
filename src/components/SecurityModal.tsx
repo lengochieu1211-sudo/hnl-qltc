@@ -1443,6 +1443,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
                 type="button"
                 disabled={isAccountBusy}
                 onClick={() => void handleAccountSignIn()}
+                data-hnl-primary-action="security-sign-in"
                 className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-600 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50"
               >
                 <LogIn className="h-3.5 w-3.5" /> {isAccountBusy ? 'Đang đăng nhập...' : 'Đăng nhập'}
@@ -1468,7 +1469,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
             }`}
           >
             <Lock className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Khóa Mã PIN</span>
+            <span className="truncate">Khóa PIN</span>
           </button>
 
           <button
@@ -1481,7 +1482,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
             }`}
           >
             <Users className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Phân Quyền</span>
+            <span className="truncate">Phân quyền</span>
           </button>
 
           {canReadAudit && (

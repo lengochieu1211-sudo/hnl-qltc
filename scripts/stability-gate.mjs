@@ -405,7 +405,7 @@ if (materialNormModal.includes('bg-emerald-100 text-emerald-800 text-[10px] font
 requireAll(crewTabBase, ['hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700', '<FileText className="h-4 w-4 shrink-0 text-blue-600" />'], 'Crew report share secondary action semantics');
 if (crewTabBase.includes('rounded-xl border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-extrabold text-emerald-700')) fail('Crew report share must not use success-green');
 requireAll(checklistTab, ["selectedFloor === floor", "? 'bg-blue-600 text-white shadow-md'"], 'Checklist floor selection uses HNL Blue');
-requireAll(floorPlanDefect, ['bg-blue-600 text-white font-black shadow-sm ring-2 ring-blue-300', 'className="h-9 w-9 inline-flex', 'className="h-9 max-w-[150px]', 'min-h-9 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700'], 'Floor Plan semantic selection + fullscreen touch-target contract');
+requireAll(floorPlanDefect, ['bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300', 'className="h-9 w-9 inline-flex', 'className="h-9 max-w-[150px]', 'min-h-9 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700'], 'Floor Plan semantic selection + fullscreen touch-target contract');
 if (floorPlanDefect.includes('bg-rose-600/90 hover:bg-rose-600')) fail('Floor Plan minimize must not look destructive');
 
 requireAll(actionMenuButton, ['createPortal', 'data-hnl-action-menu-mode', "placement: 'above' | 'below'", 'naturalHeight > bestAvailable && naturalHeight > 220', 'scrollTopBeforeOpenRef', 'sm:w-auto', 'border-blue-600 bg-blue-600', 'border-slate-200 bg-white text-slate-600 shadow-none'], 'shared action menu adaptive near-trigger popover / bottom-sheet fallback with primary/secondary hierarchy');
