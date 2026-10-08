@@ -44,3 +44,22 @@ jobs:
         run: npm run security:audit
       - name: Build only; NO DEPLOY
         run: npm run build
+      - name: Package audited candidate ZIPs (never deploy)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p handoff
+          git archive --format=zip --output=handoff/HNL-QLTC-DEV-a832f89a-DEEP-AUDIT-FULL-SOURCE.zip HEAD
+          zip -q -d handoff/HNL-QLTC-DEV-a832f89a-DEEP-AUDIT-FULL-SOURCE.zip .github/workflows/hnl-ui-copy-deep-audit-20261009.yml
+          zip -q handoff/HNL-QLTC-DEV-a832f89a-DEEP-AUDIT-PATCH.zip src/index.css src/components/CrewReportShareModal.tsx src/components/SecurityModal.tsx src/components/ExportPdfModal.tsx scripts/hnl-primary-color-golden.ts
+          unzip -t handoff/HNL-QLTC-DEV-a832f89a-DEEP-AUDIT-FULL-SOURCE.zip > /dev/null
+          unzip -t handoff/HNL-QLTC-DEV-a832f89a-DEEP-AUDIT-PATCH.zip > /dev/null
+          printf "BASE DEV HEAD a832f89ae1f9ae3e083097160e9ea3c1054d1fb7\nSOURCE FILES 459\nPATCH 5 FILES\nCI SHA %s\nNO DEV OR PROD DEPLOY\n" "$GITHUB_SHA" > handoff/CHECKPOINT.txt
+          sha256sum handoff/HNL-QLTC-DEV-a832f89a-DEEP-AUDIT-*.zip > handoff/SHA256SUMS.txt
+      - name: Upload audited candidate deliverables
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-DEV-a832f89a-DEEP-AUDIT-CANDIDATE
+          path: handoff/
+          if-no-files-found: error
+          retention-days: 30
