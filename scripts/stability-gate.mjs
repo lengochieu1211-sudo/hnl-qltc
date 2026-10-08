@@ -402,7 +402,7 @@ requireAll(offlineSyncBanner, ['data-hnl-offline-banner', 'data-hnl-offline-safe
 if (offlineSyncBanner.includes('className="truncate"') || offlineSyncBanner.includes('bg-amber-950')) fail('offline safety banner must not hide critical copy or regress to the heavy dark warning surface');
 requireAll(materialNormModal, ['bg-slate-100 text-slate-700 border border-slate-200'], 'Material work-category neutral semantic tag');
 if (materialNormModal.includes('bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-md')) fail('Material work-category tag must not look like success state');
-requireAll(crewTabBase, ['hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700', '<FileText className="h-4 w-4 shrink-0 text-blue-600" />'], 'Crew report share secondary action semantics');
+requireAll(crewTabBase, ['hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900', '<FileText className="h-4 w-4 shrink-0 text-slate-600" />'], 'Crew report share secondary action semantics');
 if (crewTabBase.includes('rounded-xl border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-extrabold text-emerald-700')) fail('Crew report share must not use success-green');
 requireAll(checklistTab, ["selectedFloor === floor", "? 'bg-blue-600 text-white shadow-md'"], 'Checklist floor selection uses HNL Blue');
 requireAll(floorPlanDefect, ['bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300', 'className="h-9 w-9 inline-flex', 'className="h-9 max-w-[150px]', 'min-h-9 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700'], 'Floor Plan semantic selection + fullscreen touch-target contract');

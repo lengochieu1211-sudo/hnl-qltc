@@ -62,5 +62,21 @@ assert.match(settings, /Không nhận được liên kết đăng nhập Google 
 assert.match(admin, /Áp dụng và lưu/);
 assert.match(security, /Khóa PIN/);
 assert.match(security, /Phân quyền/);
+// Secondary actions are visually neutral; meaningful sync/health states stay semantic.
+const healthPanel = fs.readFileSync(new URL('src/healthCenter/HealthCenterPanelBase.tsx', base), 'utf8');
+assert.match(warehouse, /<Layers className="[^"]*text-slate-600"/);
+assert.match(warehouse, /onClick=\{onOpenNormModal\}\s+className="[^"]*border-slate-200 bg-slate-50[^"]*text-slate-700/);
+assert.match(warehouse, /<Sliders className="[^"]*text-slate-600"/);
+assert.match(crew, /onClick=\{\(\) => setShowCrewReportShare\(true\)\}[\s\S]{0,380}hover:bg-slate-50/);
+assert.match(crew, /<FileText className="[^"]*text-slate-600"/);
+assert.match(settings, /icon=\{RefreshCw\}\s+iconClassName="text-indigo-600"\s+title="Trung tâm đồng bộ & sao lưu"/);
+assert.match(settings, /icon=\{ShieldCheck\}\s+iconClassName="text-indigo-600"\s+title="Trung tâm kiểm tra dữ liệu \(Health Center\)"/);
+assert.match(settings, /<ShieldCheck className="w-4 h-4 text-indigo-600" \/> Trạng thái hệ thống & đồng bộ/);
+assert.match(healthPanel, /<ShieldCheck className="h-4 w-4 text-indigo-600" \/> Kiểm tra dữ liệu & liên kết/);
+assert.match(settings, /bg-emerald-50 text-emerald-700 border-emerald-200/);
+assert.match(settings, /bg-amber-50 text-amber-700 border-amber-200/);
+assert.match(healthPanel, /text-emerald-600">CÓ THỂ SỬA AN TOÀN/);
+assert.match(healthPanel, /text-red-600">LỖI/);
+console.log('HNL SECONDARY ACTIONS + HEALTH SEMANTIC COLORS: PASS');
 console.log('HNL NESTED BRAND + VIETNAMESE COPY GOLDEN: PASS');
 console.log('HNL PRIMARY COLOR SOURCE GOLDEN: PASS');

@@ -1899,16 +1899,16 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               className="flex h-10 min-w-0 items-center justify-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-700 transition-all hover:bg-slate-100 active:scale-95 lg:h-9 lg:px-3 lg:text-xs"
               title="Xem danh mục và tồn kho vật tư, thiết bị của dự án"
             >
-              <Layers className="w-3.5 h-3.5 shrink-0 text-blue-600" />
+              <Layers className="w-3.5 h-3.5 shrink-0 text-slate-600" />
               <span className="sm:hidden">Danh mục</span>
               <span className="hidden sm:inline">Danh mục kho</span>
             </button>
             <button
               onClick={onOpenNormModal}
-              className="flex h-10 min-w-0 items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-indigo-50 px-2 text-[11px] font-bold text-indigo-700 transition-all hover:bg-indigo-100 active:scale-95 lg:h-9 lg:px-3 lg:text-xs"
+              className="flex h-10 min-w-0 items-center justify-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-700 transition-all hover:bg-slate-100 active:scale-95 lg:h-9 lg:px-3 lg:text-xs"
               title={hasNormManageAccess ? 'Cập nhật chủng loại vật tư, đơn vị tính và định mức' : 'Xem định mức vật tư (chỉ quản trị viên được sửa)'}
             >
-              <Sliders className="w-3.5 h-3.5 shrink-0 text-indigo-600" />
+              <Sliders className="w-3.5 h-3.5 shrink-0 text-slate-600" />
               <span className="sm:hidden">Định mức</span>
               <span className="hidden sm:inline">{hasNormManageAccess ? t('norms_button') : 'Xem định mức'}</span>
             </button>

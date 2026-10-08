@@ -768,7 +768,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         <SettingsAccordionCard
           id="sync-backup-card"
           icon={RefreshCw}
-          iconClassName="text-emerald-600"
+          iconClassName="text-indigo-600"
           title="Trung tâm đồng bộ & sao lưu"
           description="Đồng bộ dữ liệu · R2/ảnh · sao lưu · khôi phục và đối chiếu dữ liệu."
           badge={syncCenterStatus.label}
@@ -789,7 +789,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           lazy
           unmountOnClose
           icon={ShieldCheck}
-          iconClassName="text-emerald-600"
+          iconClassName="text-indigo-600"
           title="Trung tâm kiểm tra dữ liệu (Health Center)"
           description="Chẩn đoán hệ thống · cảnh báo đồng bộ/ảnh/quyền · kiểm tra dữ liệu & liên kết."
           badge={syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'Cloud sẵn sàng' : 'Đang kiểm tra'}
@@ -801,7 +801,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-2">
             <div>
               <h3 className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
-                <ShieldCheck className="w-4 h-4 text-emerald-600" /> Trạng thái hệ thống & đồng bộ
+                <ShieldCheck className="w-4 h-4 text-indigo-600" /> Trạng thái hệ thống & đồng bộ
               </h3>
               <p className="text-[10px] text-slate-500 mt-1">Dùng khi thiết bị/tài khoản nhìn dữ liệu hoặc ảnh khác nhau. Tệp chẩn đoán không chứa mật khẩu, token hay dữ liệu ảnh nhị phân thực tế.</p>
             </div>
