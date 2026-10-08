@@ -395,7 +395,7 @@ pass('Data-management action bars are visually consistent across ADMIN, ENGINEER
 requireAll(crewTabBase, ["canOperate ? 'grid-cols-3' : 'grid-cols-2'", 'lg:contents', '<span className="sm:hidden">Sao chép</span>', '<span className="sm:hidden">Chia sẻ</span>'], 'Crew mobile groups secondary actions instead of leaving Data Management alone on a row');
 requireAll(warehouseTab, ['grid grid-cols-3 gap-2 lg:contents', '<span className="sm:hidden">Danh mục</span>', '<span className="sm:hidden">Định mức</span>'], 'Warehouse mobile groups Catalog / Norm / Data under the primary voucher action');
 requireAll(workVolumeTab, ['grid w-full grid-cols-[minmax(0,1fr)_auto]', 'triggerLabel="Thêm hạng mục"', 'triggerLabel="Quản lý dữ liệu"'], 'Work Volume mobile keeps Add + Data on one row');
-requireAll(checklistTab, ['flex items-center justify-end gap-2', 'Thêm Tiêu Chí', 'triggerLabel="Quản lý dữ liệu"'], 'Checklist mobile keeps Add + Data in one action cluster');
+requireAll(checklistTab, ['flex items-center justify-end gap-2', 'Thêm tiêu chí', 'triggerLabel="Quản lý dữ liệu"'], 'Checklist mobile keeps Add + Data in one action cluster');
 requireAll(floorPlanDefect, ['grid w-full grid-cols-2 gap-2', '<span className="sm:hidden">Khu/Tầng</span>', 'triggerLabel="Quản lý dữ liệu"'], 'Floor Plan mobile keeps Khu/Tầng + Data side-by-side');
 requireAll(authHeader, ['data-hnl-global-header', 'lg:flex lg:items-center lg:gap-3', 'lg:mb-0 lg:min-w-0 lg:flex-1', 'data-hnl-header-actions', '[&>button]:min-h-9 [&>button]:min-w-9'], 'compact desktop header + mobile touch-target contract');
 requireAll(offlineSyncBanner, ['data-hnl-offline-banner', 'data-hnl-offline-safety-text', 'data-hnl-offline-status-chip', 'bg-amber-50 text-amber-900 border-b border-amber-200', 'VIEWER chỉ được xem', 'chờ Firestore'], 'offline safety banner readable semantic contract');
@@ -404,7 +404,7 @@ requireAll(materialNormModal, ['bg-slate-100 text-slate-700 border border-slate-
 if (materialNormModal.includes('bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-md')) fail('Material work-category tag must not look like success state');
 requireAll(crewTabBase, ['hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900', '<FileText className="h-4 w-4 shrink-0 text-slate-600" />'], 'Crew report share secondary action semantics');
 if (crewTabBase.includes('rounded-xl border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-extrabold text-emerald-700')) fail('Crew report share must not use success-green');
-requireAll(checklistTab, ["selectedFloor === floor", "? 'bg-blue-600 text-white shadow-md'"], 'Checklist floor selection uses HNL Blue');
+requireAll(checklistTab, ["selectedFloor === floor", "? 'bg-indigo-600 text-white shadow-md'"], 'Checklist floor selection uses tokenized HNL brand primary');
 requireAll(floorPlanDefect, ['bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300', 'className="h-9 w-9 inline-flex', 'className="h-9 max-w-[150px]', 'min-h-9 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700'], 'Floor Plan semantic selection + fullscreen touch-target contract');
 if (floorPlanDefect.includes('bg-rose-600/90 hover:bg-rose-600')) fail('Floor Plan minimize must not look destructive');
 

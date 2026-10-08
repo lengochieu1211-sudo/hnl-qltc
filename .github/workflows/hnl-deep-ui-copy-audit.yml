@@ -1,0 +1,46 @@
+name: HNL QLTC Deep Color Copy Candidate (no deploy)
+on:
+  push:
+    branches: [audit/hnl-deep-ui-copy-a832f89a-20261009]
+permissions:
+  contents: read
+jobs:
+  isolated_color_gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: "false"
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: "false"
+      VITE_FIREBASE_PROJECT_ID: hnl-qltc-dev
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify safe branch
+        shell: bash
+        run: |
+          test "$GITHUB_REF_NAME" = "audit/hnl-deep-ui-copy-a832f89a-20261009"
+          test "$VITE_FIREBASE_PROJECT_ID" = "hnl-qltc-dev"
+          test "$VITE_FIREBASE_PROJECT_ID" != "com-example-qlct-61329"
+          test -f package-lock.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Palette regression
+        run: node --experimental-strip-types scripts/hnl-primary-color-golden.ts
+      - name: Stability and RBAC
+        run: npm run test:stability
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Lint and secret scan
+        run: npm run lint
+      - name: Firebase rules regression
+        run: npm run test:rules
+      - name: Dependency security
+        run: npm run security:audit
+      - name: Build only; NO DEPLOY
+        run: npm run build
