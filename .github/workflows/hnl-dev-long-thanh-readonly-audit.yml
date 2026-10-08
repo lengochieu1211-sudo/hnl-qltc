@@ -1,0 +1,39 @@
+name: HNL QLTC DEV encrypted destination backup (read only)
+on:
+  push:
+    branches: [audit/hnl-dev-restore-readonly-7575076f-20261008]
+permissions:
+  contents: read
+jobs:
+  encrypted_preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
+      HNL_EXPECTED_DEV_HEAD: 7575076f21d44a4fab31422011659f1465ea6b5a
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify audit-only branch and canonical DEV parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "audit/hnl-dev-restore-readonly-7575076f-20261008"
+          git merge-base --is-ancestor "$HNL_EXPECTED_DEV_HEAD" HEAD
+          test "$(git rev-list --count "$HNL_EXPECTED_DEV_HEAD"..HEAD)" -eq 2
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}"
+          echo "DEV read-only isolation confirmed"
+      - name: Export only encrypted DEV Firestore destination
+        run: node scripts/dev-long-thanh-readonly-snapshot.mjs
+      - name: Upload encrypted evidence only
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-DEV-7575076f-LONG-THANH-ENCRYPTED-READONLY
+          path: readonly-evidence/
+          retention-days: 30
+          if-no-files-found: error
