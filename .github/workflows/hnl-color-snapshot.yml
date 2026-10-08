@@ -1,0 +1,45 @@
+name: HNL QLTC Exact DEV Source Snapshot (no deploy)
+on:
+  push:
+    branches: [audit/hnl-color-02785c0a-20261008]
+    paths: ['.github/workflows/hnl-color-snapshot.yml']
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout immutable DEV HEAD
+        uses: actions/checkout@v4
+        with:
+          ref: 5a4fa4b64362f90d053f4052af92368ea2d7759a
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Zip FULL, PATCH, REPORT and SHA256 only
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA=5a4fa4b64362f90d053f4052af92368ea2d7759a
+          BASE=02785c0a5cced5419c6b16f54efe31c57835e0c8
+          test "$(git rev-parse HEAD)" = "$SHA"
+          test "$(git rev-parse HEAD^)" = "$BASE"
+          test "$(git diff --name-only "$BASE" "$SHA" | wc -l)" -eq 7
+          mkdir -p out/full out/patch out/deliver
+          git archive --format=tar "$SHA" | tar -xf - -C out/full
+          while IFS= read -r -d '' p; do
+            mkdir -p "out/patch/$(dirname "$p")"
+            cp "$p" "out/patch/$p"
+          done < <(git diff --name-only --diff-filter=ACMR -z "$BASE" "$SHA")
+          (cd out/full && zip -qr -9 ../deliver/FULL-SOURCE-5a4fa4b6.zip .)
+          (cd out/patch && zip -qr -9 ../deliver/PATCH-5a4fa4b6.zip .)
+          printf 'HNL QLTC DEV 5a4fa4b6; parent 02785c0a. Seven-file HNL theme color patch. CI staging 37747083418 PASS; Deploy DEV 737, Windows DEV 510 and Android DEV 456 PASS. Physical runtime and Long Thanh restore not certified. No PROD changes.\n' > out/deliver/REPORT-5a4fa4b6.txt
+          (cd out/deliver && sha256sum *.zip *.txt > SHA256SUMS-5a4fa4b6.txt)
+          (cd out/deliver && unzip -tq FULL-SOURCE-5a4fa4b6.zip | tail -1 && unzip -tq PATCH-5a4fa4b6.zip | tail -1 && zip -qr -9 ../HNL-QLTC-DEV-5a4fa4b6-SOURCE-BACKUP.zip .)
+      - name: Upload exact DEV archive; never deploy
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-DEV-5a4fa4b6-COLOR-SOURCE-BACKUP
+          path: out/HNL-QLTC-DEV-5a4fa4b6-SOURCE-BACKUP.zip
+          retention-days: 30
+          if-no-files-found: error
