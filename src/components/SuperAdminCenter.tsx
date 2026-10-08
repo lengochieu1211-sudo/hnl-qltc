@@ -197,7 +197,7 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
       </section>
 
       {showUiSettings && (
-        <section id="superadmin-ui-settings-card" className="rounded-3xl border border-blue-200 bg-white shadow-sm overflow-hidden scroll-mt-24 transition-shadow">
+        <section id="superadmin-ui-settings-card" data-hnl-brand-panel className="rounded-3xl border border-blue-200 bg-white shadow-sm overflow-hidden scroll-mt-24 transition-shadow">
           <div className="px-4 py-3 bg-blue-50 border-b border-blue-100 flex items-center justify-between gap-3">
             <div><h3 className="text-sm font-black text-blue-950">Giao diện & phân hệ · V2</h3><p className="text-[10px] text-blue-700 mt-0.5">Xem trước tức thời. Chỉ khi bấm “Áp dụng & Lưu” mới đồng bộ lên đám mây.</p></div>
             <button type="button" onClick={() => { setShowUiSettings(false); onPreviewUiSettings(uiSettings); }} className="text-[11px] font-bold text-slate-500 px-2 py-1 rounded-lg hover:bg-white">Đóng</button>

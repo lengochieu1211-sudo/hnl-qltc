@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { getHnlPrimaryThemeColors, hnlContrastRatio } from '../src/utils/hnlPrimaryTheme.ts';
+const base = new URL('../', import.meta.url);
+const css = fs.readFileSync(new URL('src/index.css', base), 'utf8');
+const app = fs.readFileSync(new URL('src/App.tsx', base), 'utf8');
+const nav = fs.readFileSync(new URL('src/components/BottomNav.tsx', base), 'utf8');
+const admin = fs.readFileSync(new URL('src/components/SuperAdminCenter.tsx', base), 'utf8');
+const home = fs.readFileSync(new URL('src/components/HomeDashboard.tsx', base), 'utf8');
+const settings = fs.readFileSync(new URL('src/components/GoogleConfigTab.tsx', base), 'utf8');
+assert.equal(getHnlPrimaryThemeColors('#2563eb').hover, '#1d4ed8');
+for (const primary of ['#2563eb', '#9333ea', '#facc15', '#ffffff', '#000000', '#00ff00']) {
+  const palette = getHnlPrimaryThemeColors(primary);
+  assert.ok(hnlContrastRatio(palette.action, '#ffffff') >= 4.5, `button contrast ${primary}`);
+  assert.ok(hnlContrastRatio(palette.lightText, '#ffffff') >= 4.5, `light text ${primary}`);
+  assert.ok(hnlContrastRatio(palette.darkText, '#0f172a') >= 4.5, `dark text ${primary}`);
+  console.log(`${primary}: action=${palette.action}, darkText=${palette.darkText}, light=${hnlContrastRatio(palette.lightText, '#ffffff').toFixed(2)}, dark=${hnlContrastRatio(palette.darkText, '#0f172a').toFixed(2)}`);
+}
+assert.match(css, /html\[data-hnl-theme="dark"\] \.text-indigo-600/);
+assert.match(css, /\[data-hnl-nav-surface\] \.bg-blue-50/);
+assert.match(css, /\[data-hnl-brand-panel\] \.bg-blue-600/);
+assert.match(app, /getHnlPrimaryThemeColors\(superAdminUiSettings.primaryColor\)/);
+assert.match(nav, /data-hnl-nav-surface="mobile"/);
+assert.match(nav, /data-hnl-nav-surface="desktop"/);
+assert.match(admin, /data-hnl-brand-panel/);
+assert.match(home, /data-hnl-home-primary-action/);
+assert.match(settings, /data-hnl-settings-surface/);
+assert.match(css, /\.bg-rose-50/);
+assert.match(css, /\.bg-emerald-50/);
+assert.match(css, /\.bg-amber-50/);
+console.log('HNL PRIMARY COLOR SOURCE GOLDEN: PASS');

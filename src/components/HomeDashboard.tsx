@@ -289,7 +289,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                 </div>
                 <span className={`rounded-full border px-2 py-1 text-[9px] font-black ${roleClass(currentRole)}`}>{roleLabel(currentRole)}</span>
               </div>
-              <button type="button" onClick={onOpenFloorPlan} className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-xs font-extrabold text-white shadow-sm transition hover:bg-blue-700 active:scale-[0.99]">
+              <button type="button" data-hnl-home-primary-action onClick={onOpenFloorPlan} className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-xs font-extrabold text-white shadow-sm transition hover:bg-blue-700 active:scale-[0.99]">
                 Mở nhanh dự án đang làm <ArrowRight className="h-4 w-4" />
               </button>
               <label className="mt-3 flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
