@@ -135,7 +135,7 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
     },
     {
       title: 'Giao diện và phân hệ',
-      description: `Chủ đề: ${uiSettings.theme === 'system' ? 'Theo hệ thống' : uiSettings.theme === 'dark' ? 'Tối' : 'Sáng'} · Cỡ chữ ${uiSettings.scalePercent}% · Checklist: ${showChecklist ? 'đang hiện' : 'tự ẩn'}.`
+      description: `Chủ đề: ${uiSettings.theme === 'system' ? 'Theo hệ thống' : uiSettings.theme === 'dark' ? 'Tối' : 'Sáng'} · Cỡ chữ ${uiSettings.scalePercent}% · Checklist: ${showChecklist ? 'đang hiện' : 'tự ẩn'}.`,
       icon: Palette,
       onClick: openUiSettingsPanel,
     },
