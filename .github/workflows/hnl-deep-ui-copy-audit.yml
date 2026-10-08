@@ -44,3 +44,61 @@ jobs:
         run: npm run security:audit
       - name: Build only; NO DEPLOY
         run: npm run build
+      - name: Prepare audit handoff ZIPs (verified source only; no deployment)
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import pathlib, subprocess, zipfile, hashlib
+          out = pathlib.Path('audit-handoff')
+          out.mkdir(exist_ok=True)
+          excluded = {'.github/workflows/hnl-deep-ui-copy-audit.yml'}
+          changed = [
+              'src/components/HomeDashboard.tsx',
+              'src/components/WorkVolumeTab.tsx',
+              'src/components/ChecklistTab.tsx',
+              'src/components/NotificationCenterModal.tsx',
+              'src/components/DueDateToastNotifier.tsx',
+              'src/components/ExportPdfModal.tsx',
+              'scripts/stability-gate.mjs',
+              'scripts/ui-entry-ux-golden.ts',
+              'scripts/hnl-primary-color-golden.ts',
+          ]
+          files = [p.decode('utf8') for p in subprocess.check_output(['git', 'ls-files', '-z']).split(b'\x00') if p]
+          files = sorted(p for p in files if p not in excluded)
+          assert len(files) == 459, f'Unexpected tracked source file count: {len(files)}'
+          assert set(changed) <= set(files)
+          full = out / 'HNL-QLTC-DEV-a832f89a-UI-AUDIT-FULL-SOURCE.zip'
+          patch = out / 'HNL-QLTC-DEV-a832f89a-UI-AUDIT-PATCH.zip'
+          for dest, selected in ((full, files), (patch, changed)):
+              with zipfile.ZipFile(dest, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+                  for name in selected:
+                      z.write(name, arcname=name)
+              with zipfile.ZipFile(dest) as z:
+                  assert z.testzip() is None
+                  assert set(z.namelist()) == set(selected)
+          with zipfile.ZipFile(full) as src, zipfile.ZipFile(patch) as diff:
+              for name in changed:
+                  assert src.read(name) == diff.read(name)
+              assert src.read('package.json') == pathlib.Path('package.json').read_bytes()
+              assert src.read('package-lock.json') == pathlib.Path('package-lock.json').read_bytes()
+          report = out / 'HNL-QLTC-DEV-a832f89a-UI-AUDIT-REPORT.txt'
+          report.write_text(
+              'HNL QLTC v6.3.0 | DEV base a832f89ae1f9ae3e083097160e9ea3c1054d1fb7\n'
+              'Audit branch: audit/hnl-deep-ui-copy-a832f89a-20261009\n'
+              '9 source/test files adjusted: Home, WorkVolume, Checklist, Notifications, DueDateToast, Export PDF and 3 Golden guards.\n'
+              'Primary selected actions use dynamic HNL primary. Nonsemantic secondary actions use slate.\n'
+              'Semantic success-green, warning-amber, defect-red untouched. Shorter Vietnamese labels, no Excel/schema/key changes.\n'
+              'CI includes: npm ci, Palette, Stability/RBAC, TypeScript, lint/secret, Firebase Rules, security audit and build.\n'
+              'No app Firebase/R2/permission/realtime/business data edits. No DEV/PROD deploy. Runtime physical Golden PENDING.\n'
+              'Long Thanh restore remains HOLD. Not certified.\n',
+              encoding='utf8')
+          sums = out / 'HNL-QLTC-DEV-a832f89a-UI-AUDIT-SHA256SUMS.txt'
+          sums.write_text(''.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in [full, patch, report]))
+          print('SOURCE/PATCH ZIP integrity + 9/9 parity: PASS')
+          PY
+      - name: Store audit handoff (no publish)
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-DEV-a832f89a-UI-AUDIT-HANDOFF
+          path: audit-handoff/*
+          retention-days: 30
