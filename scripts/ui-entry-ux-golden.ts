@@ -200,7 +200,7 @@ assert(!config.includes('bg-emerald-50/70 p-4 text-left'), 'Old green Sync Cente
 assert(config.includes('Chất lượng ảnh & dung lượng'), 'Image quality Settings entry missing');
 assert(config.includes('Dữ liệu đã ẩn & lịch sử'), 'Hidden data/history Settings entry missing');
 assert(config.includes("title={t('formatting_settings')}"), 'Number/date formatting Settings entry missing');
-assert(config.includes('id="catalog-template-manager-card"') && config.includes('title="Quản lý mẫu"') && config.includes('<CatalogTemplateManager />'), 'Settings must expose the personal catalog template manager');
+assert(config.includes('id="catalog-template-manager-card"') && config.includes('title="Quản lý mẫu"') && config.includes('<CatalogTemplateManager onDirtyChange={setCatalogDraftDirty} />'), 'Settings must expose the personal catalog template manager');
 const templateManagerUi = read('src/components/CatalogTemplateManager.tsx');
 assert(templateManagerUi.includes("id: 'teams'") && templateManagerUi.includes("id: 'workVolumes'") && templateManagerUi.includes("id: 'materialNorms'") && templateManagerUi.includes("id: 'materials'") && templateManagerUi.includes("id: 'equipment'"), 'Template manager must cover teams, work items, material norms, materials, and equipment');
 assert(templateManagerUi.includes('Xóa đã chọn') && templateManagerUi.includes('Lưu thay đổi') && templateManagerUi.includes('Xóa mục đã chọn'), 'Template manager must support edit, single/bulk item deletion, and bulk template deletion');
