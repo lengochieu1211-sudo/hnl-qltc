@@ -388,6 +388,13 @@ html[data-hnl-theme="dark"] :where(button, a, input, select, textarea):focus-vis
   outline-color: var(--hnl-primary-on-dark);
 }
 
+/* Deep feature-sheet primary controls. Scope strictly to explicit brand action surfaces,
+ * leaving status chips, inventory quantities and FloorPlan semantic colors untouched. */
+[data-hnl-primary-action] { background-color: var(--hnl-primary-action) !important; }
+[data-hnl-primary-action]:hover { background-color: var(--hnl-primary-hover) !important; }
+[data-hnl-nested-nav] .text-blue-700 { color: var(--hnl-primary-on-light) !important; }
+html[data-hnl-theme="dark"] [data-hnl-nested-nav] .text-blue-700 { color: var(--hnl-primary-on-dark) !important; }
+
 /* Two high-traffic feature roots: only brand labels/actions, never semantic status chips. */
 [data-hnl-settings-surface] .text-blue-600 { color: var(--hnl-primary-on-light) !important; }
 [data-hnl-home-primary-action] { background-color: var(--hnl-primary-action) !important; }

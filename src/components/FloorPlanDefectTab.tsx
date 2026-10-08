@@ -6652,7 +6652,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   }}
                   className={`text-xs font-bold px-3 py-2 sm:py-1.5 rounded-xl flex items-center justify-center gap-1.5 shadow-xs active:scale-95 transition-all min-w-0 ${
                     isRoomPinPlacementMode
-                      ? 'bg-blue-600 hover:bg-blue-700 text-white ring-2 ring-blue-200'
+                      ? 'bg-indigo-600 hover:bg-indigo-700 text-white ring-2 ring-indigo-200'
                       : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
                   }`}
                 >
@@ -6728,7 +6728,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   }}
                   className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap ${
                     drawTool === 'freehand'
-                      ? 'bg-blue-600 text-white font-black shadow-sm ring-2 ring-blue-300'
+                      ? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300'
                       : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/90 shadow-2xs'
                   }`}
                   title="Nhấn giữ & kéo chuột/ngón tay để vẽ tự do trên mặt bằng"
@@ -6749,7 +6749,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   }}
                   className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap ${
                     drawTool === 'polygon'
-                      ? 'bg-blue-600 text-white font-black shadow-sm ring-2 ring-blue-300'
+                      ? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300'
                       : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/90 shadow-2xs'
                   }`}
                   title="Chấm 2 hoặc nhiều điểm để vẽ đường thẳng / đa giác, rồi bấm [Xác nhận]"
@@ -6770,7 +6770,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   }}
                   className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap ${
                     drawTool === '2point'
-                      ? 'bg-blue-600 text-white font-black shadow-sm ring-2 ring-blue-300'
+                      ? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300'
                       : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/90 shadow-2xs'
                   }`}
                   title="Bấm 2 điểm đối góc để tạo khung hình chữ nhật"
@@ -6788,13 +6788,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   onClick={() => setRoomColorMode(roomColorMode === 'palette' ? 'status' : 'palette')}
                   className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap ${
                     roomColorMode === 'palette'
-                      ? 'bg-blue-600 text-white shadow-xs hover:bg-blue-700'
+                      ? 'bg-indigo-600 text-white shadow-xs hover:bg-indigo-700'
                       : 'bg-slate-200 text-slate-800 border border-slate-300 shadow-xs hover:bg-slate-300'
                   }`}
                   title="Đổi giữa Chế độ Mỗi căn 1 màu đa sắc phân biệt (Mặc định) và Màu theo Trạng thái Nghiệm thu"
                 >
                   <Palette className="w-3.5 h-3.5 shrink-0" />
-                  <span>{roomColorMode === 'palette' ? 'Mỗi Căn / Phòng 1 màu' : 'Theo trạng thái'}</span>
+                  <span>{roomColorMode === 'palette' ? 'Mỗi căn/phòng một màu' : 'Theo trạng thái'}</span>
                 </button>
 
                 {/* Show/Hide Text Label Toggle */}
@@ -6803,7 +6803,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   onClick={() => setShowTextOverlay(!showTextOverlay)}
                   className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap ${
                     !showTextOverlay
-                      ? 'bg-blue-600 text-white shadow-xs'
+                      ? 'bg-indigo-600 text-white shadow-xs'
                       : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/90 shadow-2xs'
                   }`}
                   title="Bật/Tắt chế độ chỉ hiện màu Highlight (không hiện chữ rối)"
@@ -6822,18 +6822,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 type="button"
                 onClick={() => setRoomColorMode(roomColorMode === 'palette' ? 'status' : 'palette')}
                 className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all ${
-                  roomColorMode === 'palette' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-800 border border-slate-300'
+                  roomColorMode === 'palette' ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-800 border border-slate-300'
                 }`}
                 title="Đổi cách hiển thị màu Căn / Phòng"
               >
                 <Palette className="w-3.5 h-3.5" />
-                <span>{roomColorMode === 'palette' ? 'Mỗi Căn / Phòng 1 màu' : 'Theo trạng thái'}</span>
+                <span>{roomColorMode === 'palette' ? 'Mỗi căn/phòng một màu' : 'Theo trạng thái'}</span>
               </button>
               <button
                 type="button"
                 onClick={() => setShowTextOverlay(!showTextOverlay)}
                 className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all ${
-                  !showTextOverlay ? 'bg-blue-600 text-white' : 'bg-white text-slate-700 border border-slate-200'
+                  !showTextOverlay ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-200'
                 }`}
                 title="Bật/Tắt nhãn tên Căn / Phòng"
               >
@@ -7177,7 +7177,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           }}
                           className={`min-h-9 text-[11px] font-extrabold px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all shrink-0 ${
                             drawTool === 'freehand'
-                              ? 'bg-blue-600 text-white font-black shadow-sm ring-2 ring-blue-300'
+                              ? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300'
                               : 'bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700'
                           }`}
                           title="Nhấn giữ & kéo chuột/ngón tay để vẽ tự do"
@@ -7197,10 +7197,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           }}
                           className={`min-h-9 text-[11px] font-extrabold px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all shrink-0 cursor-pointer ${
                             drawTool === 'polygon'
-                              ? 'bg-blue-600 text-white font-black shadow-sm ring-2 ring-blue-300'
+                              ? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300'
                               : 'bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700'
                           }`}
-                          title="Chấm 2 hoặc nhiều điểm vẽ đường/được đa giác rồi chốt"
+                          title="Chấm ít nhất 2 điểm để vẽ đường hoặc đa giác, sau đó xác nhận"
                         >
                           <Sparkles className="w-3.5 h-3.5" />
                           <span>Vẽ đa giác</span>
@@ -7217,7 +7217,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           }}
                           className={`min-h-9 text-[11px] font-extrabold px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all shrink-0 cursor-pointer ${
                             drawTool === '2point'
-                              ? 'bg-blue-600 text-white font-black shadow-sm ring-2 ring-blue-300'
+                              ? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300'
                               : 'bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700'
                           }`}
                           title="Bấm 2 điểm tạo khung chữ nhật"
@@ -7232,13 +7232,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           onClick={() => setRoomColorMode(roomColorMode === 'palette' ? 'status' : 'palette')}
                           className={`min-h-9 text-[11px] font-extrabold px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all shrink-0 cursor-pointer ${
                             roomColorMode === 'palette'
-                              ? 'bg-blue-600 text-white shadow-xs hover:bg-blue-500'
+                              ? 'bg-indigo-600 text-white shadow-xs hover:bg-indigo-700'
                               : 'bg-slate-800 text-slate-200 border border-slate-700 shadow-xs hover:bg-slate-700'
                           }`}
                           title="Đổi giữa Chế độ Mỗi căn 1 màu đa sắc phân biệt và Theo Trạng thái Nghiệm thu"
                         >
                           <Palette className="w-3.5 h-3.5" />
-                          <span>{roomColorMode === 'palette' ? 'Mỗi Căn / Phòng 1 màu' : 'Theo trạng thái'}</span>
+                          <span>{roomColorMode === 'palette' ? 'Mỗi căn/phòng một màu' : 'Theo trạng thái'}</span>
                         </button>
 
                         {/* Toggle Highlight Display */}
@@ -7247,7 +7247,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           onClick={() => setShowTextOverlay(!showTextOverlay)}
                           className={`min-h-9 text-[11px] font-extrabold px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all shrink-0 cursor-pointer ${
                             !showTextOverlay
-                              ? 'bg-blue-600 text-white shadow-xs'
+                              ? 'bg-indigo-600 text-white shadow-xs'
                               : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
                           }`}
                           title="Hiện màu sạch / Hiện đầy đủ tên Căn / Phòng"
@@ -7270,7 +7270,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           }}
                           className={`min-h-9 text-[11px] font-bold px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-xs shrink-0 ${
                             isRoomPinPlacementMode
-                              ? 'bg-blue-600 hover:bg-blue-500 text-white ring-2 ring-blue-300'
+                              ? 'bg-indigo-600 hover:bg-indigo-700 text-white ring-2 ring-indigo-300'
                               : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
                           }`}
                         >

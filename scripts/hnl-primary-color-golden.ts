@@ -34,4 +34,33 @@ assert.match(settings, /data-hnl-settings-surface/);
 assert.match(css, /\.bg-rose-50/);
 assert.match(css, /\.bg-emerald-50/);
 assert.match(css, /\.bg-amber-50/);
+// Deep-sheet brand/action regression: do not globally recolor semantic blue data/status.
+const warehouse = fs.readFileSync(new URL('src/components/WarehouseTab.tsx', base), 'utf8');
+const crew = fs.readFileSync(new URL('src/components/CrewTabBase.tsx', base), 'utf8');
+const security = fs.readFileSync(new URL('src/components/SecurityModal.tsx', base), 'utf8');
+const floorPlan = fs.readFileSync(new URL('src/components/FloorPlanDefectTab.tsx', base), 'utf8');
+assert.match(css, /\[data-hnl-primary-action\] \{ background-color: var\(--hnl-primary-action\)/);
+assert.match(css, /\[data-hnl-nested-nav\] \.text-blue-700/);
+assert.match(warehouse, /data-hnl-primary-action="warehouse-create"/);
+assert.match(warehouse, /data-hnl-primary-action="warehouse-equipment-create"/);
+assert.match(warehouse, /data-hnl-nested-nav="warehouse-catalog"/);
+assert.match(crew, /data-hnl-primary-action="crew-record-create"/);
+assert.match(security, /data-hnl-primary-action="security-sign-in"/);
+assert.match(admin, /data-hnl-primary-action="superadmin-ui-save"/);
+assert.match(floorPlan, /drawTool === 'freehand'\s*\? 'bg-indigo-600/);
+assert.match(floorPlan, /drawTool === 'polygon'\s*\? 'bg-indigo-600/);
+assert.match(floorPlan, /drawTool === '2point'\s*\? 'bg-indigo-600/);
+assert.match(floorPlan, /isRoomPinPlacementMode\s*\? 'bg-indigo-600/);
+// Defect action remains semantic rose, and selected/highlight strokes must not change.
+assert.match(floorPlan, /bg-rose-600 hover:bg-rose-700/);
+assert.match(floorPlan, /stroke="#f59e0b"/);
+assert.match(warehouse, /bg-sky-100/);
+assert.match(security, /bg-rose-100 text-rose-700/);
+// Copy only: no false "100% saved" when Google authentication URL is missing.
+assert.doesNotMatch(settings, /lưu 100% tự động/i);
+assert.match(settings, /Không nhận được liên kết đăng nhập Google Drive/);
+assert.match(admin, /Áp dụng và lưu/);
+assert.match(security, /Khóa PIN/);
+assert.match(security, /Phân quyền/);
+console.log('HNL NESTED BRAND + VIETNAMESE COPY GOLDEN: PASS');
 console.log('HNL PRIMARY COLOR SOURCE GOLDEN: PASS');
