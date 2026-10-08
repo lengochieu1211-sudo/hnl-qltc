@@ -1,3 +1,4 @@
+import { getHnlPrimaryThemeColors } from './utils/hnlPrimaryTheme';
 import { GlobalConfirmModal } from './components/GlobalConfirmModal';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { HardDrive, RefreshCw } from 'lucide-react';
@@ -1401,6 +1402,18 @@ function AuthenticatedApp() {
     const pct = Math.min(120, Math.max(90, Number(superAdminUiSettings.scalePercent) || 100));
     root.style.fontSize = `${pct}%`;
     root.style.setProperty('--hnl-primary', superAdminUiSettings.primaryColor);
+    // Derived UI tokens only: never mutate the persisted Super Admin color or business data.
+    const hnlPalette = getHnlPrimaryThemeColors(superAdminUiSettings.primaryColor);
+    const applyHnlToken = (name: string, value: string) => {
+      if (hnlPalette.custom) root.style.setProperty(name, value);
+      else root.style.removeProperty(name); // Preserve certified default HNL blue shades.
+    };
+    applyHnlToken('--hnl-primary-hover', hnlPalette.hover);
+    applyHnlToken('--hnl-primary-action', hnlPalette.action);
+    applyHnlToken('--hnl-primary-soft', `color-mix(in srgb, ${hnlPalette.primary} 8%, white)`);
+    applyHnlToken('--hnl-primary-ring', `color-mix(in srgb, ${hnlPalette.primary} 32%, white)`);
+    applyHnlToken('--hnl-primary-on-light', hnlPalette.lightText);
+    applyHnlToken('--hnl-primary-on-dark', hnlPalette.darkText);
     root.style.setProperty('--hnl-secondary', superAdminUiSettings.secondaryColor);
     root.dataset.hnlButtonSize = superAdminUiSettings.buttonSize;
     root.dataset.hnlIconSize = superAdminUiSettings.iconSize;

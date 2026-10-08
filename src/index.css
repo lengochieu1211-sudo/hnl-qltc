@@ -22,6 +22,9 @@
   --hnl-primary-hover: #1d4ed8;
   --hnl-primary-soft: #eff6ff;
   --hnl-primary-ring: #bfdbfe;
+  --hnl-primary-action: var(--hnl-primary);
+  --hnl-primary-on-light: #2563eb;
+  --hnl-primary-on-dark: #93c5fd;
   --hnl-secondary: #059669;
 }
 
@@ -36,7 +39,7 @@
 .bg-indigo-300 { background-color: color-mix(in srgb, var(--hnl-primary) 40%, white) !important; }
 .bg-indigo-400 { background-color: color-mix(in srgb, var(--hnl-primary) 68%, white) !important; }
 .bg-indigo-500 { background-color: color-mix(in srgb, var(--hnl-primary) 88%, white) !important; }
-.bg-indigo-600 { background-color: var(--hnl-primary) !important; }
+.bg-indigo-600 { background-color: var(--hnl-primary-action) !important; }
 .bg-indigo-700 { background-color: var(--hnl-primary-hover) !important; }
 .bg-indigo-800 { background-color: color-mix(in srgb, var(--hnl-primary) 78%, black) !important; }
 .bg-indigo-900 { background-color: color-mix(in srgb, var(--hnl-primary) 64%, black) !important; }
@@ -47,7 +50,7 @@
 .text-indigo-300 { color: color-mix(in srgb, var(--hnl-primary) 48%, white) !important; }
 .text-indigo-400 { color: color-mix(in srgb, var(--hnl-primary) 68%, white) !important; }
 .text-indigo-500 { color: color-mix(in srgb, var(--hnl-primary) 88%, black) !important; }
-.text-indigo-600, .text-indigo-700 { color: var(--hnl-primary) !important; }
+.text-indigo-600, .text-indigo-700 { color: var(--hnl-primary-on-light) !important; }
 .text-indigo-800 { color: color-mix(in srgb, var(--hnl-primary) 82%, black) !important; }
 .text-indigo-900 { color: color-mix(in srgb, var(--hnl-primary) 68%, black) !important; }
 .text-indigo-950 { color: color-mix(in srgb, var(--hnl-primary) 54%, black) !important; }
@@ -72,7 +75,7 @@
 .hnl-secondary-action { background-color: var(--hnl-secondary) !important; }
 
 html :where(button, a, input, select, textarea):focus-visible {
-  outline: 2px solid var(--hnl-primary);
+  outline: 2px solid var(--hnl-primary-action);
   outline-offset: 2px;
 }
 
@@ -200,7 +203,8 @@ html[data-hnl-theme="dark"] .text-rose-700 { color: #fca5a5 !important; }
 html[data-hnl-theme="dark"] .text-green-700,
 html[data-hnl-theme="dark"] .text-emerald-700 { color: #6ee7b7 !important; }
 html[data-hnl-theme="dark"] .text-blue-700 { color: #93c5fd !important; }
-html[data-hnl-theme="dark"] .text-indigo-700 { color: #93c5fd !important; }
+html[data-hnl-theme="dark"] .text-indigo-600,
+html[data-hnl-theme="dark"] .text-indigo-700 { color: var(--hnl-primary-on-dark) !important; }
 
 /* Semantic borders for warning/error/success cards. */
 html[data-hnl-theme="dark"] .border-amber-200,
@@ -356,4 +360,38 @@ html[data-hnl-theme="dark"] .hnl-project-selected-card {
 html[data-hnl-theme="dark"] .hnl-multiproject-sync-header {
   background-image: linear-gradient(90deg, var(--hnl-dark-surface-raised), var(--hnl-dark-surface)) !important;
   border-color: var(--hnl-dark-border) !important;
+}
+
+/* Brand-only areas: do not globally recolor blue-* (some denote real data states). */
+[data-hnl-nav-surface] .bg-blue-50,
+[data-hnl-brand-panel] .bg-blue-50 { background-color: var(--hnl-primary-soft) !important; }
+[data-hnl-nav-surface] .text-blue-700,
+[data-hnl-nav-surface] .text-blue-600,
+[data-hnl-brand-panel] .text-blue-700,
+[data-hnl-brand-panel] .text-blue-600 { color: var(--hnl-primary-on-light) !important; }
+[data-hnl-nav-surface] .ring-blue-100 { --tw-ring-color: var(--hnl-primary-ring) !important; }
+[data-hnl-brand-panel] .bg-blue-600 { background-color: var(--hnl-primary-action) !important; }
+[data-hnl-brand-panel] .bg-blue-600:hover { background-color: var(--hnl-primary-hover) !important; }
+[data-hnl-brand-panel] .text-blue-950 { color: color-mix(in srgb, var(--hnl-primary-on-light) 68%, black) !important; }
+[data-hnl-brand-panel] .border-blue-100,
+[data-hnl-brand-panel] .border-blue-200 { border-color: var(--hnl-primary-ring) !important; }
+html[data-hnl-theme="dark"] [data-hnl-brand-panel] .text-blue-950 { color: var(--hnl-dark-text) !important; }
+html[data-hnl-theme="dark"] [data-hnl-nav-surface] .bg-blue-50,
+html[data-hnl-theme="dark"] [data-hnl-brand-panel] .bg-blue-50 {
+  background-color: color-mix(in srgb, var(--hnl-primary) 24%, var(--hnl-dark-surface)) !important;
+}
+html[data-hnl-theme="dark"] [data-hnl-nav-surface] .text-blue-700,
+html[data-hnl-theme="dark"] [data-hnl-nav-surface] .text-blue-600,
+html[data-hnl-theme="dark"] [data-hnl-brand-panel] .text-blue-700,
+html[data-hnl-theme="dark"] [data-hnl-brand-panel] .text-blue-600 { color: var(--hnl-primary-on-dark) !important; }
+html[data-hnl-theme="dark"] :where(button, a, input, select, textarea):focus-visible {
+  outline-color: var(--hnl-primary-on-dark);
+}
+
+/* Two high-traffic feature roots: only brand labels/actions, never semantic status chips. */
+[data-hnl-settings-surface] .text-blue-600 { color: var(--hnl-primary-on-light) !important; }
+[data-hnl-home-primary-action] { background-color: var(--hnl-primary-action) !important; }
+[data-hnl-home-primary-action]:hover { background-color: var(--hnl-primary-hover) !important; }
+html[data-hnl-theme="dark"] [data-hnl-settings-surface] .text-blue-600 {
+  color: var(--hnl-primary-on-dark) !important;
 }
