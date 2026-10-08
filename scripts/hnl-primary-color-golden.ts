@@ -9,6 +9,12 @@ const admin = fs.readFileSync(new URL('src/components/SuperAdminCenter.tsx', bas
 const home = fs.readFileSync(new URL('src/components/HomeDashboard.tsx', base), 'utf8');
 const settings = fs.readFileSync(new URL('src/components/GoogleConfigTab.tsx', base), 'utf8');
 assert.equal(getHnlPrimaryThemeColors('#2563eb').hover, '#1d4ed8');
+const html = fs.readFileSync(new URL('index.html', base), 'utf8');
+const manifest = JSON.parse(fs.readFileSync(new URL('public/manifest.json', base), 'utf8'));
+assert.match(html, /name="theme-color" content="#2563eb"/);
+assert.equal(manifest.theme_color, '#2563eb');
+assert.match(app, /setAttribute\('content', hnlPalette\.action\)/);
+assert.ok(!html.includes('name="theme-color" content="#4f46e5"'));
 for (const primary of ['#2563eb', '#9333ea', '#facc15', '#ffffff', '#000000', '#00ff00']) {
   const palette = getHnlPrimaryThemeColors(primary);
   assert.ok(hnlContrastRatio(palette.action, '#ffffff') >= 4.5, `button contrast ${primary}`);

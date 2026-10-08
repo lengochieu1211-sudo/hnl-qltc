@@ -1404,6 +1404,9 @@ function AuthenticatedApp() {
     root.style.setProperty('--hnl-primary', superAdminUiSettings.primaryColor);
     // Derived UI tokens only: never mutate the persisted Super Admin color or business data.
     const hnlPalette = getHnlPrimaryThemeColors(superAdminUiSettings.primaryColor);
+    // Browser/PWA address-bar color tracks the effective, contrast-safe brand action.
+    // The manifest intentionally stays at the default HNL color (static install metadata).
+    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute('content', hnlPalette.action);
     const applyHnlToken = (name: string, value: string) => {
       if (hnlPalette.custom) root.style.setProperty(name, value);
       else root.style.removeProperty(name); // Preserve certified default HNL blue shades.
