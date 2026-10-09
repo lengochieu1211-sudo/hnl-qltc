@@ -725,4 +725,16 @@ if (app.includes('Global project discovery refresh warning:')) fail('App startup
 if (!app.includes('subscribeCurrentUserProjectsRealtime already consumes/verifies invitation/index')) fail('Startup project-discovery dedupe marker missing');
 pass('DEV read amplification + full-snapshot stall guards retained');
 
+
+
+// Orphaned explicit category IDs must never enter category/unit fallback calculations.
+{
+  const needs = read('src/utils/materialNeedEngine.ts');
+  const teams = read('src/utils/teamMaterialReconciliation.ts');
+  const health = read('src/healthCenter/HealthCenterPanelBase.tsx');
+  if (!needs.includes("issue.code === 'ORPHAN_CATEGORY'") || !needs.includes('if (scope.unresolved.length > 0) return false')) throw new Error('Missing fail-closed material norm scope guard');
+  if (!teams.includes('if (scope.unresolved.length > 0) return 0')) throw new Error('Team material reconciliation must reject orphaned norms');
+  if (!health.includes('Kiểm tra lại dữ liệu hiện có') || !health.includes('Chi tiết kỹ thuật') || !health.includes("defects: 'Defect'")) throw new Error('Health Center labels and Defect terminology regression');
+}
+
 console.log('STABILITY GATE PASS – V6.3.0 Firebase-only RC architecture');

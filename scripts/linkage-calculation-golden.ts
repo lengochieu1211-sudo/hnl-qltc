@@ -239,4 +239,28 @@ assert.deepEqual(reconciled.workCategoryIds, ['DELETED-CATEGORY']);
 assert.equal(reconciled.workCategoryId, 'DELETED-CATEGORY');
 console.log('PASS lifecycle: reconciliation preserves stale authoritative IDs for Health repair');
 
+// Regression: do not apply a norm whose authoritative work-category ID is gone.
+// Even a matching source unit must not produce a fabricated team requirement.
+const orphanedTeamNorm: MaterialNorm = {
+  ...teamMaterialNorm,
+  id: 'N-TEAM-ORPHAN',
+  workCategoryId: 'CAT-MISSING',
+  workCategoryIds: ['CAT-MISSING'],
+  workCategoryNormsById: undefined,
+  unitNormPerM2: 2,
+};
+const orphanedTeam = computeTeamMaterialReconciliation({
+  team: teamA, stats: stats['TEAM-A'], inventory: [],
+  materialNorms: [orphanedTeamNorm], workVolumes: [w1],
+});
+assert.equal(orphanedTeam.find((line) => line.materialName === 'Vít đội')?.expectedAssignedQty || 0, 0);
+assert.equal(orphanedTeam.find((line) => line.materialName === 'Vít đội')?.expectedConstructedQty || 0, 0);
+const partlyOrphanedTeam = computeTeamMaterialReconciliation({
+  team: teamA, stats: stats['TEAM-A'], inventory: [], workVolumes: [w1],
+  materialNorms: [{ ...teamMaterialNorm, workCategoryIds: ['CAT-F1', 'CAT-MISSING'] }],
+});
+assert.equal(partlyOrphanedTeam.find((line) => line.materialName === 'Vít đội')?.expectedAssignedQty || 0, 0,
+  'A norm mixing valid and orphan IDs must be blocked until the catalog link is repaired');
+console.log('PASS team materials: orphaned or partially orphaned norm cannot generate demand');
+
 console.log('LINKAGE CALCULATION GOLDEN PASS');

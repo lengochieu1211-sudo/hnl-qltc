@@ -405,4 +405,20 @@ assert.match(warehouseSource, /Nhu cầu theo phạm vi/, 'Warehouse UI must lab
 assert.match(materialNormSource, /Nhu cầu vật tư theo định mức/, 'Material Norm UI must label planned quota explicitly');
 assert.match(appSource, /Number\(work\.planned\) \|\| 0\) \* factor/, 'Central planned quota must remain WorkVolume.planned × norm factor');
 
+// Regression: orphaned authoritative IDs must never use the generic compatible-unit factor.
+const missingCategoryNorm = { ...norm, id: 'N-MISSING-REF', workCategoryId: 'WC-MISSING', workCategoryIds: ['WC-MISSING'],
+  workCategoryNormsById: undefined, unitNormPerM2: 2 } as MaterialNorm;
+const missingCategoryNeed = computeMaterialNeeds({ rooms: [multiTeamRoom], materialNorms: [missingCategoryNorm],
+  inventory: [], workVolumes, teams, scope: { floorId: 'floor-3' } });
+assert.equal(missingCategoryNeed.lines.length, 0, 'Orphaned norm must not generate the misleading 200-unit estimate');
+assert.equal(missingCategoryNeed.failClosed, true);
+assert.ok(missingCategoryNeed.warnings.some((w) => w.message.includes('không hợp lệ')));
+const mixedReferenceNeed = computeMaterialNeeds({ rooms: [multiTeamRoom], materialNorms: [{ ...norm, workCategoryIds: ['wc-ceiling', 'WC-MISSING'] }],
+  inventory: [], workVolumes, teams, scope: { floorId: 'floor-3' } });
+assert.equal(mixedReferenceNeed.lines.length, 0, 'Any unresolved reference blocks the affected norm, even when one ID resolves');
+assert.equal(mixedReferenceNeed.failClosed, true);
+const stillValidNeed = computeMaterialNeeds({ rooms: [multiTeamRoom], materialNorms: [norm], inventory: [], workVolumes, teams, scope: { floorId: 'floor-3' } });
+assert.equal(stillValidNeed.lines[0]?.estimatedQty, 35, 'A valid norm must remain calculable');
+console.log('PASS material need: orphan norm fail-closed and valid norm unchanged');
+
 console.log('MATERIAL NEED GOLDEN PASS');

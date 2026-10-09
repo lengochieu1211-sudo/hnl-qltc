@@ -2378,7 +2378,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               )}
               {materialNeedResult.warnings.length > 0 && (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-900">
-                  <div className="font-bold mb-1">Thiếu liên kết/định mức — hệ thống đang dừng an toàn, chưa tự tính nhu cầu vật tư:</div>
+                  <div className="font-bold mb-1">Dữ liệu định mức/liên kết chưa đầy đủ. Hệ thống đã bỏ qua phần không xác định; các số còn hiển thị chỉ là nhu cầu tính được từ liên kết hợp lệ, KHÔNG phải tổng nhu cầu đầy đủ:</div>
                   <ul className="list-disc pl-4 space-y-0.5">{materialNeedResult.warnings.slice(0, 8).map((w, idx) => <li key={`${w.code}-${idx}`}>{w.message}</li>)}</ul>
                 </div>
               )}

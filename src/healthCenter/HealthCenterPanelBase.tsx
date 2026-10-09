@@ -48,7 +48,7 @@ function actionLabel(issue: HealthCenterIssue): string {
 function moduleLabel(value: HealthCenterModule): string {
   const labels: Record<HealthCenterModule, string> = {
     system: 'Hệ thống', firebase: 'Firebase', r2: 'R2/Ảnh', sync: 'Đồng bộ', rooms: 'Tầng/Căn', defects: 'Defect',
-    crew: 'Quân số', quantities: 'Khối lượng', inventory: 'Kho', materialNorms: 'Định mức', checklist: 'Checklist', links: 'Liên kết ID',
+    crew: 'Quân số', quantities: 'Khối lượng', inventory: 'Kho', materialNorms: 'Định mức', checklist: 'Checklist', links: 'Liên kết bản ghi',
   };
   return labels[value];
 }
@@ -299,7 +299,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
         <div className="mt-1 text-[10px] font-semibold text-slate-500">Phát hiện dữ liệu mất liên kết · mở đúng bản ghi · sửa có xác nhận · không tự xóa lịch sử</div>
         <div className="mt-1 break-all text-[9px] text-slate-400">Mã bản kiểm tra: {report.auditSnapshotId}</div>
       </div>
-      <button type="button" onClick={() => { setRunAt(Date.now()); setShowRepairPreview(false); }} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700"><RefreshCw className="h-3.5 w-3.5" /> Quét lại</button>
+      <button type="button" onClick={() => { setRunAt(Date.now()); setShowRepairPreview(false); }} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700"><RefreshCw className="h-3.5 w-3.5" /> Kiểm tra lại dữ liệu hiện có</button>
     </div>
 
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -339,7 +339,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
           <div className="mt-1 text-[9px] text-slate-500">{op.ruleId} · {op.reason}</div>
         </div>)}
       </div>
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[9px] font-semibold text-amber-800">Chỉ áp dụng khi bản kiểm tra đám mây đang trực tiếp (live) và bước kiểm tra trước đồng bộ an toàn: trực tuyến, không xung đột/lỗi/đang đồng bộ, không còn dữ liệu chờ và đồng bộ thời gian thực (realtime) đủ nguồn. Luồng bắt buộc: kiểm tra trước → bản kiểm tra còn mới → sao lưu thành công → ADMIN (Quản trị) xác nhận → kiểm tra giá trị trước sửa → chỉ ghi Defect/Quân số qua chênh lệch dữ liệu đám mây chuẩn có phiên bản (revision) → kiểm tra lại đồng bộ thời gian thực.</div>
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[9px] font-semibold text-amber-800">Chỉ sửa khi dữ liệu vừa được tải từ máy chủ, kết nối và đồng bộ ổn định, không còn nội dung đang chờ gửi. Các bước bắt buộc: kiểm tra dữ liệu → sao lưu thành công → Quản trị viên xác nhận → đối chiếu giá trị gốc trước khi sửa → chỉ cập nhật dữ liệu Defect/Quân số đã xác minh → kiểm tra lại đồng bộ. Mã phiên bản và chi tiết kỹ thuật vẫn được lưu trong báo cáo.</div>
     </div>}
 
     {report.issues.length === 0 ? <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold text-emerald-700"><CheckCircle2 className="h-4 w-4" /> Không phát hiện vấn đề trong bản kiểm tra hiện tại.</div> : null}
@@ -356,9 +356,9 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
               <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] font-semibold text-slate-600">
                 {issue.location.date && <span>Ngày: {issue.location.date}</span>}{issue.location.teamName && <span>Đội: {issue.location.teamName}</span>}{issue.location.floorName && <span>Tầng: {issue.location.floorName}</span>}{issue.location.roomName && <span>Căn: {issue.location.roomName}</span>}{issue.location.shift && <span>Ca: {issue.location.shift}</span>}{issue.location.workItem && <span>Công việc: {issue.location.workItem}</span>}
               </div>
-              <div className="mt-1 break-all text-[9px] text-slate-400">{issue.ruleId} · {issue.entityType}:{issue.entityId}</div>
-              <div className="mt-2 flex flex-wrap gap-1.5"><button type="button" onClick={() => openIssue(issue)} className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[9px] font-bold text-indigo-700"><ExternalLink className="h-3 w-3" /> {issue.ruleId === 'ROOM_ORPHAN_WORK_CATEGORY_REFERENCE' && userRole === 'ADMIN' ? 'Xử lý hạng mục' : 'Xem bản ghi'}</button><ExpandCollapseButton expanded={isOpen} onToggle={() => setExpanded(isOpen ? null : issue.id)} expandLabel="Xem liên kết" collapseLabel="Ẩn liên kết" className="min-h-7 rounded-md border-slate-200 px-2 py-1 text-[9px] text-slate-600" /></div>
-              {isOpen && <div className="mt-2 rounded-lg bg-slate-50 p-2 text-[9px] text-slate-600"><div><b>Bằng chứng:</b> {issue.evidenceIds.join(', ') || '—'}</div><div className="mt-1 break-all"><b>Chi tiết:</b> {JSON.stringify(issue.details || {})}</div></div>}
+              
+              <div className="mt-2 flex flex-wrap gap-1.5"><button type="button" onClick={() => openIssue(issue)} className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[9px] font-bold text-indigo-700"><ExternalLink className="h-3 w-3" /> {issue.ruleId === 'ROOM_ORPHAN_WORK_CATEGORY_REFERENCE' && userRole === 'ADMIN' ? 'Xử lý hạng mục' : 'Xem bản ghi'}</button><ExpandCollapseButton expanded={isOpen} onToggle={() => setExpanded(isOpen ? null : issue.id)} expandLabel="Chi tiết kỹ thuật" collapseLabel="Ẩn chi tiết kỹ thuật" className="min-h-7 rounded-md border-slate-200 px-2 py-1 text-[9px] text-slate-600" /></div>
+              {isOpen && <div className="mt-2 rounded-lg bg-slate-50 p-2 text-[9px] text-slate-600"><div className="break-all"><b>Mã kiểm tra và bản ghi:</b> {issue.ruleId} · {issue.entityType}:{issue.entityId}</div><div className="mt-1"><b>Bằng chứng:</b> {issue.evidenceIds.join(', ') || '—'}</div><div className="mt-1 break-all"><b>Chi tiết kỹ thuật:</b> {JSON.stringify(issue.details || {})}</div></div>}
             </div>
           </div>
         </div>;

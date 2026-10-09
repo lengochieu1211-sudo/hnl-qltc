@@ -27,9 +27,11 @@ function normFactorForCategory(
   workVolumes: WorkVolume[],
 ): number {
   const categoryId = String(category.workCategoryId || '').trim();
-  const scopedIds = canonicalNormCategoryIds(norm, workVolumes).ids;
-
-  if (categoryId && scopedIds.length > 0 && !scopedIds.includes(categoryId)) return 0;
+  const scope = canonicalNormCategoryIds(norm, workVolumes);
+  // Do not apply an orphaned norm to a different category sharing the same unit.
+  if (scope.unresolved.length > 0) return 0;
+  const scopedIds = scope.ids;
+  if (scopedIds.length > 0 && (!categoryId || !scopedIds.includes(categoryId))) return 0;
 
   if (categoryId && norm.workCategoryNormsById && Object.keys(norm.workCategoryNormsById).length > 0) {
     if (norm.workCategoryNormsById[categoryId] !== undefined) {

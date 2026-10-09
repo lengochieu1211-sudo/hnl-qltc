@@ -495,6 +495,21 @@ assert(crewShareUi.includes('Sao chép nội dung') && crewShareUi.includes('Chi
 assert(!crewShareUi.includes('Tải ảnh PNG') && !crewShareUi.includes('JPEG'), 'Crew report UI must not expose image file-format jargon');
 assert(crewShareUi.includes('colSpan={4}') && crewShareUi.includes('— = chưa báo') && crewShareUi.includes('Tổng QS/ngày') && crewShareUi.includes('TỔNG'), 'Crew report preview must preserve matrix semantics and expose daily/column totals');
 assert(crewShareUi.includes('relative isolate max-h-[42vh] overflow-auto overscroll-contain') && crewShareUi.includes('<tr className="h-8">') && crewShareUi.includes('sticky top-[31px]'), 'Crew share preview sticky header must stay contained and overlap by 1px so no scroll seam can show through');
+// Regression: three sticky header rows must paint fully opaque in dark mode during
+// vertical/horizontal scrolling; keep the matrix columns and their 31/62px overlap.
+assert(homeDashboardUi.includes('className="hnl-crew-report-table w-full text-left text-xs"')
+  && crewShareUi.includes('className="hnl-crew-report-table w-full text-left text-xs"'),
+  'Home and Share crew report matrices must use the same scoped seamless sticky header table');
+assert(hnlThemeCss.includes('.hnl-crew-report-table {\n  border-collapse: separate;\n  border-spacing: 0;'),
+  'Crew report sticky headers must not use the collapsed border painting model');
+for (const marker of ['thead th {', 'thead th.bg-indigo-50 {', 'thead th.bg-blue-50 {', 'thead th.bg-slate-50 {']) {
+  assert(hnlThemeCss.includes(`html[data-hnl-theme="dark"] .hnl-crew-report-table ${marker}`),
+    `Crew report dark-mode header opaque color guard missing: ${marker}`);
+}
+assert(hnlThemeCss.includes('background-color: #1d3152 !important;\n  color: #bfdbfe !important;')
+  && hnlThemeCss.includes('background-color: #19354c !important;\n  color: #bae6fd !important;'),
+  'Crew report dark-mode group and total header backgrounds must stay opaque');
+
 
 const crewReportRows = buildCrewReportRows([{
   projectId: 'p1', projectName: 'DA 1',

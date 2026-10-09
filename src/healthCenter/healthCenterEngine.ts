@@ -307,7 +307,7 @@ function crewQualityIssues(crewRecords: CrewRecord[], snapshot: HnlAiProjectSnap
       if (!floorWork.floorId || !floors.has(floorWork.floorId)) {
         issues.push(makeIssue({
           ruleId: 'CREW_FLOOR_WORK_FLOOR_NOT_FOUND', severity: 'ERROR', module: 'crew', entityType: 'crew', entityId: `${record.id}:${floorIndex}`,
-          message: `Nhật ký ${record.date} · ${record.teamName} có floorWorks tham chiếu tầng không tồn tại.`,
+          message: `Nhật ký ${record.date} · ${record.teamName} có công việc được gắn với tầng không còn tồn tại.`,
           actionClass: 'MANUAL_REPAIR', evidenceIds: [`crew_records:${record.id}`],
           location: { ...location, floorId: floorWork.floorId, floorName: floorWork.floorName },
           details: { recordId: record.id, floorWorkIndex: floorIndex, floorId: floorWork.floorId, floorName: floorWork.floorName },
@@ -317,7 +317,7 @@ function crewQualityIssues(crewRecords: CrewRecord[], snapshot: HnlAiProjectSnap
         if (floorWork.floorName && floorWork.floorName.trim() !== floor.floorName.trim()) {
           issues.push(makeIssue({
             ruleId: 'CREW_FLOOR_WORK_NAME_MISMATCH', severity: 'WARNING', module: 'crew', entityType: 'crew', entityId: `${record.id}:${floorIndex}`,
-            message: `Nhật ký ${record.date} · ${record.teamName} có tên tầng trong floorWorks không khớp floorId.`,
+            message: `Nhật ký ${record.date} · ${record.teamName} có tên tầng không khớp với tầng đã liên kết.`,
             actionClass: 'SAFE_REPAIR_CANDIDATE', evidenceIds: [`crew_records:${record.id}`, `floor_plans:${floor.id}`],
             location: { ...location, floorId: floor.id, floorName: floor.floorName },
             details: { recordId: record.id, savedFloorName: floorWork.floorName, currentFloorName: floor.floorName, floorId: floor.id },
@@ -327,7 +327,7 @@ function crewQualityIssues(crewRecords: CrewRecord[], snapshot: HnlAiProjectSnap
       if (floorWork.floorId && seenFloorIds.has(floorWork.floorId)) {
         issues.push(makeIssue({
           ruleId: 'CREW_FLOOR_WORK_DUPLICATE_FLOOR', severity: 'REVIEW', module: 'crew', entityType: 'crew', entityId: `${record.id}:${floorIndex}:duplicate`,
-          message: `Nhật ký ${record.date} · ${record.teamName} lặp cùng một tầng nhiều lần trong floorWorks; cần kiểm tra có phải tách công việc hợp lệ hay trùng dữ liệu.`,
+          message: `Nhật ký ${record.date} · ${record.teamName} lặp cùng một tầng nhiều lần trong danh sách công việc theo tầng; cần kiểm tra dữ liệu trùng hay công việc được chia riêng.`,
           actionClass: 'NEEDS_CONFIRMATION', evidenceIds: [`crew_records:${record.id}`], location,
           details: { recordId: record.id, floorId: floorWork.floorId },
         }));
@@ -337,7 +337,7 @@ function crewQualityIssues(crewRecords: CrewRecord[], snapshot: HnlAiProjectSnap
         if (!String(category.categoryName || '').trim()) {
           issues.push(makeIssue({
             ruleId: 'CREW_FLOOR_WORK_CATEGORY_EMPTY', severity: 'WARNING', module: 'crew', entityType: 'crew', entityId: `${record.id}:${floorIndex}:${categoryIndex}`,
-            message: `Nhật ký ${record.date} · ${record.teamName} có hạng mục floorWorks chưa có tên.`,
+            message: `Nhật ký ${record.date} · ${record.teamName} có công việc theo tầng chưa nhập tên hạng mục.`,
             actionClass: 'NEEDS_CONFIRMATION', evidenceIds: [`crew_records:${record.id}`], location,
             details: { recordId: record.id, floorWorkIndex: floorIndex, categoryIndex },
           }));
@@ -412,7 +412,7 @@ function lightweightBusinessQualityIssues(snapshot: HnlAiProjectSnapshot): Healt
       const labels = refs.map((ref) => ref.workCategoryName || ref.workCategoryId || 'Hạng mục không xác định');
       issues.push(makeIssue({
         ruleId: 'ROOM_ORPHAN_WORK_CATEGORY_REFERENCE', severity: 'WARNING', module: 'links', entityType: 'room', entityId: room.id,
-        message: `${room.roomName} còn tham chiếu hạng mục không resolve duy nhất theo ID/tên: ${labels.join(', ')}. Không dùng tham chiếu này để tính vật tư.`,
+        message: `${room.roomName} còn tham chiếu hạng mục chưa xác định được chính xác theo mã hoặc tên: ${labels.join(', ')}. Không dùng tham chiếu này để tính vật tư.`,
         actionClass: 'NEEDS_CONFIRMATION', evidenceIds: [`rooms:${room.id}`],
         location: { floorId: room.floorId, floorName: room.floorName, roomId: room.id, roomName: room.roomName, workItem: labels[0] },
         details: { roomId: room.id, orphanWorkCategoryRefs: refs },
@@ -435,7 +435,7 @@ function lightweightBusinessQualityIssues(snapshot: HnlAiProjectSnapshot): Healt
         issues.push(makeIssue({
           ruleId: provenance.state === 'ambiguous' ? 'INVENTORY_OUT_PROVENANCE_AMBIGUOUS' : 'INVENTORY_OUT_PROVENANCE_INVALID',
           severity: provenance.state === 'ambiguous' ? 'WARNING' : 'ERROR', module: 'links', entityType: 'inventory', entityId: item.id,
-          message: `Phiếu xuất ${item.id} không có provenance duy nhất/nhất quán: ${provenance.reason || provenance.state}.`,
+          message: `Phiếu xuất ${item.id} chưa xác định được chính xác căn/tầng/đội/hạng mục liên quan. Vui lòng mở bản ghi để kiểm tra liên kết.`,
           actionClass: 'NEEDS_CONFIRMATION', evidenceIds: [`inventory:${item.id}`],
           location: { date: item.date, floorId: item.sourceFloorId, roomId: item.sourceRoomId, teamId: item.sourceTeamId, workItem: item.materialName },
           details: { provenanceState: provenance.state, reason: provenance.reason, sourceRoomId: item.sourceRoomId, sourceFloorId: item.sourceFloorId, sourceWorkCategoryId: item.sourceWorkCategoryId, sourceTeamId: item.sourceTeamId, sourceNormId: item.sourceNormId },
@@ -448,7 +448,7 @@ function lightweightBusinessQualityIssues(snapshot: HnlAiProjectSnapshot): Healt
     if (normScope.unresolved.length > 0) {
       issues.push(makeIssue({
         ruleId: 'MATERIAL_NORM_ORPHAN_WORK_CATEGORY', severity: 'WARNING', module: 'materialNorms', entityType: 'materialNorm', entityId: norm.id,
-        message: `Định mức ${norm.materialName || norm.id} còn liên kết hạng mục không resolve duy nhất theo ID.`, actionClass: 'NEEDS_CONFIRMATION', evidenceIds: [`material_norms:${norm.id}`], location: { workItem: norm.materialName },
+        message: `Định mức ${norm.materialName || norm.id} còn liên kết đến mã hạng mục không tìm thấy hoặc không xác định duy nhất.`, actionClass: 'NEEDS_CONFIRMATION', evidenceIds: [`material_norms:${norm.id}`], location: { workItem: norm.materialName },
         details: { workCategoryId: norm.workCategoryId || null, workCategoryIds: norm.workCategoryIds || [], unresolvedWorkCategories: normScope.unresolved },
       }));
     }
@@ -535,7 +535,7 @@ function photoDiagnosticIssues(photoDiagnostics: any): HealthCenterIssue[] {
       const hasVersionMarker = Number(row.cachedRevision || row.cachedContentVersion || 0) > 0;
       issues.push(makeIssue({
         ruleId: hasVersionMarker ? 'PHOTO_BINARY_VERSION_MISMATCH' : 'PHOTO_LOCAL_CACHE_STALE', severity: 'WARNING', module: 'r2',
-        entityType, entityId, message: 'Cache ảnh trên thiết bị không khớp phiên bản Cloud/R2; ứng dụng sẽ bỏ cache cũ và tải lại ảnh đã xác minh.',
+        entityType, entityId, message: 'Bản ảnh tạm trên thiết bị không khớp bản trực tuyến; ứng dụng sẽ bỏ bản tạm cũ và tải lại ảnh đã xác minh.',
         actionClass: 'READ_ONLY', evidenceIds, location: { floorId: row.floorId || undefined, roomId: row.roomId || undefined },
         details: { ...details, autoRepair: 'invalidate-local-cache-and-redownload' },
       }));
@@ -543,21 +543,21 @@ function photoDiagnosticIssues(photoDiagnostics: any): HealthCenterIssue[] {
     if (String(row.binaryUploadState || '') === 'pending' && row.localBinary && Number(row.pendingAgeMs || 0) >= 30_000) {
       issues.push(makeIssue({
         ruleId: 'PHOTO_EDIT_PENDING_UPLOAD', severity: 'WARNING', module: 'r2', entityType, entityId,
-        message: `Ảnh đã chỉnh/chụp đang chờ đồng bộ Cloud/R2 ${Math.max(1, Math.floor(Number(row.pendingAgeMs || 0) / 1000))} giây; binary local vẫn được giữ để tự retry.`,
+        message: `Ảnh vừa chỉnh/chụp đang chờ tải lên ${Math.max(1, Math.floor(Number(row.pendingAgeMs || 0) / 1000))} giây; tệp ảnh vẫn được giữ trên thiết bị để tự thử lại.`,
         actionClass: 'READ_ONLY', evidenceIds, location: { floorId: row.floorId || undefined, roomId: row.roomId || undefined }, details,
       }));
     }
     if (String(row.binaryUploadState || '') === 'ready' && row.cloudReady !== true) {
       issues.push(makeIssue({
         ruleId: 'PHOTO_CLOUD_BINARY_NOT_READY', severity: 'ERROR', module: 'r2', entityType, entityId,
-        message: 'Metadata ảnh đang ở trạng thái ready nhưng chưa có Cloud/R2 pointer hợp lệ.', actionClass: 'MANUAL_REPAIR',
+        message: 'Thông tin ảnh báo đã sẵn sàng nhưng chưa tìm thấy đường dẫn tệp ảnh trên lưu trữ trực tuyến.', actionClass: 'MANUAL_REPAIR',
         evidenceIds, location: { floorId: row.floorId || undefined, roomId: row.roomId || undefined }, details,
       }));
     }
     if (String(row.storageProvider || '') === 'firestore-fallback' && !row.localBinary && row.cloudReady !== true) {
       issues.push(makeIssue({
         ruleId: 'PHOTO_LEGACY_BINARY_UNRECOVERABLE', severity: 'WARNING', module: 'r2', entityType, entityId,
-        message: 'Ảnh legacy không có binary local và chưa có Cloud/R2 pointer hiện đại; cần kiểm tra nguồn legacy trước khi sửa/xóa.',
+        message: 'Ảnh từ dữ liệu cũ không còn tệp trên thiết bị và chưa có đường dẫn trực tuyến; cần kiểm tra nơi lưu ảnh gốc trước khi sửa hoặc xóa.',
         actionClass: 'MANUAL_REPAIR', evidenceIds, location: { floorId: row.floorId || undefined, roomId: row.roomId || undefined }, details,
       }));
     }
@@ -593,7 +593,7 @@ export function buildHealthCenterReport(params: BuildHealthCenterParams): Health
     ...photoDiagnosticIssues(photoDiagnostics),
     ...(snapshot.freshness === 'cache' ? [makeIssue({
       ruleId: 'HEALTH_CENTER_USING_CACHED_SNAPSHOT', severity: 'WARNING', module: 'sync', entityType: 'project', entityId: snapshot.projectId,
-      message: 'Health Center đang kiểm tra snapshot cache; nên đồng bộ lại trước khi dùng kết quả làm báo cáo cuối.', actionClass: 'READ_ONLY', evidenceIds: [], location: {},
+      message: 'Đang kiểm tra dữ liệu tạm trên thiết bị, chưa xác nhận đã cập nhật từ máy chủ. Hãy đồng bộ xong rồi kiểm tra lại trước khi dùng làm báo cáo cuối.', actionClass: 'READ_ONLY', evidenceIds: [], location: {},
       details: { freshness: snapshot.freshness, asOf: snapshot.asOf },
     })] : []),
   ]);

@@ -371,8 +371,11 @@ function canonicalNormWorkCategoryIds(norm: MaterialNorm, workVolumes: WorkVolum
 
 function matchingNormsForContribution(c: NeedContribution, norms: MaterialNorm[], workVolumes: WorkVolume[]): MaterialNorm[] {
   return norms.filter((norm) => {
-    const ids = canonicalNormWorkCategoryIds(norm, workVolumes);
-    if (ids.length > 0 && c.workCategoryId) return ids.includes(c.workCategoryId);
+    const scope = canonicalNormCategoryIds(norm, workVolumes);
+    // Fail closed even if another reference in the same norm resolves correctly.
+    if (scope.unresolved.length > 0) return false;
+    const ids = scope.ids;
+    if (ids.length > 0) return Boolean(c.workCategoryId && ids.includes(c.workCategoryId));
     const names = norm.workCategories || (norm.workCategory ? [norm.workCategory] : []);
     if (ids.length === 0 && names.length === 0) return true;
     return names.some((name) => {
@@ -422,7 +425,9 @@ export function computeMaterialNeeds(params: {
       message: issue.message,
     });
   });
-  const blockedNormIds = new Set(normIntegrity.filter((issue) => issue.code === 'AMBIGUOUS_NORM' || issue.code === 'MIXED_WORK_UNIT').flatMap((issue) => issue.normIds));
+  // An orphaned/ambiguous reference must never fall through to a generic unit-based norm.
+  // Keep the original IDs untouched so ADMIN can repair the link deliberately.
+  const blockedNormIds = new Set(normIntegrity.filter((issue) => issue.code === 'AMBIGUOUS_NORM' || issue.code === 'MIXED_WORK_UNIT' || issue.code === 'ORPHAN_CATEGORY').flatMap((issue) => issue.normIds));
 
   scopeIds(scope.roomId, scope.roomIds).forEach((roomId) => {
     if (!rooms.some((room) => room.id === roomId)) {

@@ -441,3 +441,38 @@ html[data-hnl-theme="dark"] [data-hnl-secondary-action-group] > button:hover {
   background-color: #334155 !important;
   border-color: #64748b !important;
 }
+
+
+/* Crew report matrices: keep the existing 3-row sticky headers and column layout,
+ * but prevent collapsed-border seams and translucent accent cells from revealing
+ * scrolling body rows in dark mode (both Home and Share report previews). */
+.hnl-crew-report-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+html[data-hnl-theme="dark"] .hnl-crew-report-table thead th {
+  background-color: var(--hnl-dark-surface-soft) !important;
+}
+html[data-hnl-theme="dark"] .hnl-crew-report-table thead th.bg-indigo-50 {
+  background-color: #1d3152 !important;
+  color: #bfdbfe !important;
+}
+html[data-hnl-theme="dark"] .hnl-crew-report-table thead th.bg-blue-50 {
+  background-color: #19354c !important;
+  color: #bae6fd !important;
+}
+html[data-hnl-theme="dark"] .hnl-crew-report-table thead th.bg-slate-50 {
+  background-color: var(--hnl-dark-surface) !important;
+}
+
+/* Crew report matrix — palette/contrast only. Keep all cells, sticky offsets, dimensions and calculations. */
+.hnl-crew-report-table thead th { border-bottom-color: #cbd5e1; }
+.hnl-crew-report-table tfoot td { border-top-color: #bfdbfe; }
+html[data-hnl-theme="dark"] .hnl-crew-report-table thead th { border-bottom-color: #475569 !important; }
+html[data-hnl-theme="dark"] .hnl-crew-report-table tbody td.bg-blue-50\/60 {
+  background-color: #173550 !important; color: #e0f2fe !important;
+}
+html[data-hnl-theme="dark"] .hnl-crew-report-table tfoot tr,
+html[data-hnl-theme="dark"] .hnl-crew-report-table tfoot td {
+  background-color: #19354c !important; color: #e0f2fe !important; border-color: #3b82a8 !important;
+}
