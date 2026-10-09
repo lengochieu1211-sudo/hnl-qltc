@@ -1965,14 +1965,14 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </button>
             )}
 
-            <div className={`order-3 col-span-2 grid gap-2 ${canOperate ? 'grid-cols-3' : 'grid-cols-2'} lg:contents`}>
+            <div data-hnl-secondary-action-group="crew" className={`order-3 col-span-2 grid gap-2 ${canOperate ? 'grid-cols-3' : 'grid-cols-2'} lg:contents`}>
               {canOperate && (
                 <button
                   onClick={handleOpenCopyDatePicker}
-                  className="flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2 text-[11px] font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 lg:px-3 lg:text-xs"
+                  className="flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900 lg:px-3 lg:text-xs"
                   title="Chọn ngày nguồn để sao chép quân số"
                 >
-                  <Copy className="w-3.5 h-3.5 shrink-0" />
+                  <Copy className="h-4 w-4 shrink-0 text-slate-600" />
                   <span className="sm:hidden">Sao chép</span>
                   <span className="hidden sm:inline">Sao chép quân số</span>
                 </button>
@@ -1981,7 +1981,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <button
                 type="button"
                 onClick={() => setShowCrewReportShare(true)}
-                className="flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2 text-[11px] font-extrabold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 lg:px-3 lg:text-xs"
+                className="flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900 lg:px-3 lg:text-xs"
               >
                 <FileText className="h-4 w-4 shrink-0 text-slate-600" />
                 <span className="sm:hidden">Chia sẻ</span>

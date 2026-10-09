@@ -379,6 +379,20 @@ if (warehouseTab.includes('onClick={openCreateInventory}')) {
   fail('Warehouse create button must not pass a React click event as itemKind');
 }
 pass('Warehouse create default event regression: material by default, equipment/edit preserved');
+requireAll(warehouseTab, [
+  'data-hnl-warehouse-voucher-id={item.id}',
+  'title={`Mã phiếu: ${item.id}`}',
+  "current === item.id ? null : item.id",
+  "'block max-w-[108px] truncate sm:max-w-[170px]'",
+  "'block max-w-full break-all whitespace-normal select-text'",
+  'navigator.clipboard.writeText(item.id)',
+], 'Warehouse voucher ID is only visually truncated; full immutable ID remains available on click/copy');
+
+requireAll(warehouseTab, [
+  'const availableStockSummaries = editingInventory',
+  'inventory.filter((row) => row.id !== editingInventory.id)',
+  'const matchedStockSummary = availableStockSummaries.find',
+], 'Warehouse edit OUT excludes its old signed quantity before client stock check; server atomic invariant unchanged');
 
 
 requireAll(warehouseTab, [
@@ -417,7 +431,9 @@ requireAll(offlineSyncBanner, ['data-hnl-offline-banner', 'data-hnl-offline-safe
 if (offlineSyncBanner.includes('className="truncate"') || offlineSyncBanner.includes('bg-amber-950')) fail('offline safety banner must not hide critical copy or regress to the heavy dark warning surface');
 requireAll(materialNormModal, ['bg-slate-100 text-slate-700 border border-slate-200'], 'Material work-category neutral semantic tag');
 if (materialNormModal.includes('bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-md')) fail('Material work-category tag must not look like success state');
-requireAll(crewTabBase, ['hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900', '<FileText className="h-4 w-4 shrink-0 text-slate-600" />'], 'Crew report share secondary action semantics');
+requireAll(crewTabBase, ['data-hnl-secondary-action-group="crew"', 'hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900', '<FileText className="h-4 w-4 shrink-0 text-slate-600" />'], 'Crew report share secondary action semantics');
+requireAll(warehouseTab, ['data-hnl-secondary-action-group="warehouse"', '<Layers className="h-4 w-4 shrink-0 text-slate-600" />', '<Sliders className="h-4 w-4 shrink-0 text-slate-600" />'], 'Warehouse secondary catalog/norm icon and tone match Crew');
+requireAll(indexCss, ['[data-hnl-secondary-action-group] > button', 'html[data-hnl-theme="dark"] [data-hnl-secondary-action-group] > button', 'font-weight: 700;', 'box-shadow: none;'], 'Scoped secondary actions have uniform light/dark weight and surface');
 if (crewTabBase.includes('rounded-xl border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-extrabold text-emerald-700')) fail('Crew report share must not use success-green');
 requireAll(checklistTab, ["selectedFloor === floor", "? 'bg-indigo-600 text-white shadow-md'"], 'Checklist floor selection uses tokenized HNL brand primary');
 requireAll(floorPlanDefect, ['bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300', 'className="h-9 w-9 inline-flex', 'className="h-9 max-w-[150px]', 'min-h-9 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700'], 'Floor Plan semantic selection + fullscreen touch-target contract');

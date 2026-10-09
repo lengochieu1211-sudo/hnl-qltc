@@ -127,6 +127,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [editingInventory, setEditingInventory] = useState<InventoryItem | null>(null);
   const [itemKind, setItemKind] = useState<InventoryItemKind>('material');
   const [isNewEquipment, setIsNewEquipment] = useState(false);
+  const [expandedInventoryId, setExpandedInventoryId] = useState<string | null>(null);
+  const [copiedInventoryId, setCopiedInventoryId] = useState<string | null>(null);
   const [showWarehouseCatalog, setShowWarehouseCatalog] = useState(false);
   const [warehouseCatalogTab, setWarehouseCatalogTab] = useState<InventoryItemKind>('material');
   const [warehouseCatalogSearch, setWarehouseCatalogSearch] = useState('');
@@ -1343,7 +1345,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     }
 
     const normalizedFinalUnit = normalizeUnit(unit) || unit;
-    const matchedStockSummary = stockSummaries.find((summary) =>
+    // When editing a voucher, its old signed quantity is already included in
+    // current stock. Exclude that transaction before validating a replacement.
+    // The Firestore atomic update remains authoritative across users/devices.
+    const availableStockSummaries = editingInventory
+      ? calculateStockSummary(inventory.filter((row) => row.id !== editingInventory.id), materialNorms)
+      : stockSummaries;
+    const matchedStockSummary = availableStockSummaries.find((summary) =>
       summary.itemKind === itemKind &&
       summary.materialName.trim().toLocaleLowerCase('vi-VN') === finalMaterialName.trim().toLocaleLowerCase('vi-VN') &&
       (normalizeUnit(summary.unit) || summary.unit) === normalizedFinalUnit
@@ -1886,29 +1894,29 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <button
               onClick={() => openCreateInventory('material')}
               data-hnl-primary-action="warehouse-create"
-              className="order-first col-span-2 flex h-11 items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 text-sm font-extrabold text-white shadow-md transition-all hover:bg-blue-700 active:scale-[0.99] lg:order-none lg:col-span-1 lg:h-9 lg:px-3 lg:text-xs"
+              className="order-first col-span-2 flex h-11 items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 text-sm font-extrabold text-white shadow-md transition-all hover:bg-blue-700 active:scale-[0.99] lg:order-none lg:col-span-1 lg:h-10 lg:px-3 lg:text-xs"
             >
               <Plus className="w-4 h-4" />
               Tạo phiếu
             </button>
           )}
-          <div className="order-2 col-span-2 grid grid-cols-3 gap-2 lg:contents">
+          <div data-hnl-secondary-action-group="warehouse" className="order-2 col-span-2 grid grid-cols-3 gap-2 lg:contents">
             <button
               type="button"
               onClick={() => { setWarehouseCatalogTab('material'); setWarehouseCatalogSearch(''); setShowWarehouseCatalog(true); }}
-              className="flex h-10 min-w-0 items-center justify-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-700 transition-all hover:bg-slate-100 active:scale-95 lg:h-9 lg:px-3 lg:text-xs"
+              className="flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900 active:scale-[0.99] lg:px-3 lg:text-xs"
               title="Xem danh mục và tồn kho vật tư, thiết bị của dự án"
             >
-              <Layers className="w-3.5 h-3.5 shrink-0 text-slate-600" />
+              <Layers className="h-4 w-4 shrink-0 text-slate-600" />
               <span className="sm:hidden">Danh mục</span>
               <span className="hidden sm:inline">Danh mục kho</span>
             </button>
             <button
               onClick={onOpenNormModal}
-              className="flex h-10 min-w-0 items-center justify-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-700 transition-all hover:bg-slate-100 active:scale-95 lg:h-9 lg:px-3 lg:text-xs"
+              className="flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900 active:scale-[0.99] lg:px-3 lg:text-xs"
               title={hasNormManageAccess ? 'Cập nhật chủng loại vật tư, đơn vị tính và định mức' : 'Xem định mức vật tư (chỉ quản trị viên được sửa)'}
             >
-              <Sliders className="w-3.5 h-3.5 shrink-0 text-slate-600" />
+              <Sliders className="h-4 w-4 shrink-0 text-slate-600" />
               <span className="sm:hidden">Định mức</span>
               <span className="hidden sm:inline">{hasNormManageAccess ? t('norms_button') : 'Xem định mức'}</span>
             </button>
@@ -2666,7 +2674,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 flex-1 items-start gap-2">
                       <span
                         className={`p-1.5 rounded-lg shrink-0 ${
                           item.type === 'in'
@@ -2680,25 +2688,56 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                           <ArrowUpRight className="w-4 h-4" />
                         )}
                       </span>
-                      <div>
-                        <span className="text-[10px] font-bold text-slate-400 mr-1.5">
-                          [{item.id}]
-                        </span>
-                        <span
-                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
+                            data-hnl-warehouse-voucher-id={item.id}
+                            title={`Mã phiếu: ${item.id}`}
+                            aria-label={`Mã phiếu ${item.id}. ${expandedInventoryId === item.id ? 'Thu gọn' : 'Xem đầy đủ'}`}
+                            aria-expanded={expandedInventoryId === item.id}
+                            onClick={() => setExpandedInventoryId((current) => current === item.id ? null : item.id)}
+                            className="min-w-0 max-w-full rounded text-left text-[10px] font-bold text-slate-500 hover:text-indigo-700 focus-visible:outline-2 focus-visible:outline-indigo-500"
+                          >
+                            <span className={expandedInventoryId === item.id
+                              ? 'block max-w-full break-all whitespace-normal select-text'
+                              : 'block max-w-[108px] truncate sm:max-w-[170px]'}>
+                              [{item.id}]
+                            </span>
+                          </button>
+                          {expandedInventoryId === item.id && (
+                            <button
+                              type="button"
+                              title="Sao chép đầy đủ mã phiếu"
+                              onClick={async () => {
+                                try {
+                                  await navigator.clipboard.writeText(item.id);
+                                  setCopiedInventoryId(item.id);
+                                } catch {
+                                  window.prompt('Mã phiếu để sao chép:', item.id);
+                                }
+                              }}
+                              className="shrink-0 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-100"
+                            >
+                              {copiedInventoryId === item.id ? 'Đã sao chép' : 'Sao chép'}
+                            </button>
+                          )}
+                          <span
+                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
                             item.type === 'in'
                               ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                               : 'bg-amber-50 text-amber-700 border border-amber-200'
                           }`}
-                        >
-                          {item.type === 'in' ? 'Nhập kho' : 'Xuất kho'}
-                        </span>
-                        {item.itemKind === 'equipment' && (
-                          <span className="ml-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
-                            Thiết bị
+                          >
+                            {item.type === 'in' ? 'Nhập kho' : 'Xuất kho'}
                           </span>
-                        )}
-                        <h4 className="text-xs font-bold text-slate-900 mt-0.5 leading-snug">
+                          {item.itemKind === 'equipment' && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                              Thiết bị
+                            </span>
+                          )}
+                        </div>
+                        <h4 className="text-xs font-bold text-slate-900 mt-0.5 leading-snug break-words">
                           {item.materialName}
                         </h4>
                       </div>

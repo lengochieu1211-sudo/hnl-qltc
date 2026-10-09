@@ -67,7 +67,11 @@ const healthPanel = fs.readFileSync(new URL('src/healthCenter/HealthCenterPanelB
 assert.match(warehouse, /<Layers className="[^"]*text-slate-600"/);
 assert.match(warehouse, /onClick=\{onOpenNormModal\}\s+className="[^"]*border-slate-200 bg-slate-50[^"]*text-slate-700/);
 assert.match(warehouse, /<Sliders className="[^"]*text-slate-600"/);
-assert.match(crew, /onClick=\{\(\) => setShowCrewReportShare\(true\)\}[\s\S]{0,380}hover:bg-slate-50/);
+assert.match(crew, /onClick=\{\(\) => setShowCrewReportShare\(true\)\}[\s\S]{0,380}hover:bg-slate-100/);
+assert.match(crew, /data-hnl-secondary-action-group="crew"/);
+assert.match(warehouse, /data-hnl-secondary-action-group="warehouse"/);
+assert.match(css, /\[data-hnl-secondary-action-group\] > button \{/);
+assert.match(css, /html\[data-hnl-theme="dark"\] \[data-hnl-secondary-action-group\] > button \{/);
 assert.match(crew, /<FileText className="[^"]*text-slate-600"/);
 assert.match(settings, /icon=\{RefreshCw\}\s+iconClassName="text-indigo-600"\s+title="Trung tâm đồng bộ & sao lưu"/);
 assert.match(settings, /icon=\{ShieldCheck\}\s+iconClassName="text-indigo-600"\s+title="Trung tâm kiểm tra dữ liệu \(Health Center\)"/);

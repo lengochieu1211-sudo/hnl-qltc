@@ -402,3 +402,42 @@ html[data-hnl-theme="dark"] [data-hnl-nested-nav] .text-blue-700 { color: var(--
 html[data-hnl-theme="dark"] [data-hnl-settings-surface] .text-blue-600 {
   color: var(--hnl-primary-on-dark) !important;
 }
+
+/* Crew / Warehouse secondary action cluster: one weight, height, neutral surface,
+ * icon tone and interaction state for direct buttons and Data Management trigger.
+ * Scoped to these two toolbars; status colors and the primary action are unchanged. */
+[data-hnl-secondary-action-group] > button {
+  height: 2.5rem;
+  min-height: 2.5rem;
+  font-weight: 700;
+  font-size: .6875rem;
+  color: #334155;
+  background-color: #f8fafc;
+  border-color: #e2e8f0;
+  box-shadow: none;
+}
+[data-hnl-secondary-action-group] > button .lucide { color: #475569; }
+[data-hnl-secondary-action-group] > button:hover {
+  color: #0f172a;
+  background-color: #f1f5f9;
+  border-color: #cbd5e1;
+}
+[data-hnl-secondary-action-group] > button:focus-visible {
+  outline: 2px solid var(--hnl-primary-action);
+  outline-offset: 2px;
+}
+@media (min-width: 1024px) {
+  [data-hnl-secondary-action-group] > button { font-size: .75rem; }
+}
+html[data-hnl-theme="dark"] [data-hnl-secondary-action-group] > button {
+  color: var(--hnl-dark-text) !important;
+  background-color: var(--hnl-dark-surface-raised) !important;
+  border-color: var(--hnl-dark-border) !important;
+}
+html[data-hnl-theme="dark"] [data-hnl-secondary-action-group] > button .lucide {
+  color: var(--hnl-dark-text-soft) !important;
+}
+html[data-hnl-theme="dark"] [data-hnl-secondary-action-group] > button:hover {
+  background-color: #334155 !important;
+  border-color: #64748b !important;
+}

@@ -584,8 +584,18 @@ assert(!crewTab.includes("subItems: ['Bắn tấm khung chìm', 'Bả matit 2 l�
 assert(!crewTab.includes("setTaskDescription(COMMON_TASKS[0])"), 'Crew create flow must not fabricate a generic task when no linked project work exists');
 assert(crewTab.includes('const defaultFloorWork = createDefaultFloorWork(availableFloors[0]);'), 'Crew create flow must derive floor/category/sub-item suggestions from live project data');
 assert(crewTab.includes('currentItems={teams.filter((team) => !team.deletedAt)}'), 'Team templates must allow saving the current team directory');
-assert(crewTab.includes('border border-slate-200 bg-white') && crewTab.includes('hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900') && crewTab.includes('<FileText className="h-4 w-4 shrink-0 text-slate-600" />'), 'Crew share report must be a neutral secondary action');
+assert(crewTab.includes('border border-slate-200 bg-slate-50') && crewTab.includes('hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900') && crewTab.includes('<FileText className="h-4 w-4 shrink-0 text-slate-600" />'), 'Crew share report must be a neutral secondary action');
 assert(!crewTab.includes('rounded-xl border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-extrabold text-emerald-700'), 'Crew share action must not use success-green styling');
+const warehouseButtons = read('src/components/WarehouseTab.tsx');
+const actionMenuButtons = read('src/components/ActionMenuButton.tsx');
+assert(crewTab.includes('data-hnl-secondary-action-group="crew"') && warehouseButtons.includes('data-hnl-secondary-action-group="warehouse"'), 'Crew and Warehouse toolbars must opt in to one scoped secondary visual style');
+assert(crewTab.includes('font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-100') && warehouseButtons.includes('font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-100'), 'Crew Copy/Share and Warehouse Catalog/Norm must share the same visual weight and hover tone');
+assert(actionMenuButtons.includes('data-hnl-action-menu-trigger="true"') && read('src/components/DataManagementMenu.tsx').includes('triggerTone="secondary"'), 'Data button must use the shared neutral action trigger');
+for (const token of ['height: 2.5rem;', 'font-weight: 700;', 'background-color: #f8fafc;', 'border-color: #e2e8f0;', 'box-shadow: none;']) {
+  assert(hnlThemeCss.includes(token), `Secondary action theme missing ${token}`);
+}
+assert(hnlThemeCss.includes('html[data-hnl-theme="dark"] [data-hnl-secondary-action-group] > button'), 'Secondary toolbar must have dedicated dark contrast');
+assert(hnlThemeCss.includes('[data-hnl-secondary-action-group] > button:focus-visible'), 'Secondary toolbar must keep visible keyboard focus');
 
 assert(imageViewer.includes('RotateCw') && imageViewer.includes('Xoay ảnh sang trái 90 độ') && imageViewer.includes('Xoay ảnh sang phải 90 độ'), 'Shared image viewer must expose left/right 90-degree rotation');
 assert(imageViewer.includes('rotate(${rotation}deg)'), 'Shared image viewer transform must apply rotation');
