@@ -477,19 +477,19 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-            <ClipboardCheck className="w-5 h-5 text-emerald-600" />
+            <ClipboardCheck className="w-5 h-5 text-indigo-600" />
             {t('checklist_title')}
           </h2>
-          <p className="text-xs text-slate-500">Tiêu chuẩn thi công &amp; Kỹ sư giám sát: <span className="font-semibold text-indigo-700">{inspectorName}</span></p>
+          <p className="text-xs text-slate-500">Tiêu chuẩn thi công · Kỹ sư giám sát: <span className="font-semibold text-indigo-700">{inspectorName}</span></p>
         </div>
         <div className="flex items-center justify-end gap-2">
           {canManageStructure && (
             <button
               onClick={() => setShowAddForm(true)}
-              className="flex h-10 items-center gap-1 rounded-xl bg-blue-600 px-3 text-xs font-bold text-white shadow transition-all hover:bg-blue-700 active:scale-95 cursor-pointer sm:h-9"
+              className="flex h-10 items-center gap-1 rounded-xl bg-indigo-600 px-3 text-xs font-bold text-white shadow transition-all hover:bg-indigo-700 active:scale-95 cursor-pointer sm:h-9"
             >
               <Plus className="w-4 h-4" />
-              Thêm Tiêu Chí
+              Thêm tiêu chí
             </button>
           )}
           <DataManagementMenu
@@ -510,7 +510,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
             onClick={() => setSelectedFloor(floor)}
             className={`px-3.5 py-2 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
               selectedFloor === floor
-                ? 'bg-blue-600 text-white shadow-md'
+                ? 'bg-indigo-600 text-white shadow-md'
                 : 'bg-white text-slate-700 border border-slate-200'
             }`}
           >
@@ -630,7 +630,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       <div className="space-y-3">
         {sortedFilteredChecklist.length === 0 ? (
           <div className="text-center py-8 text-slate-400 text-xs bg-white rounded-2xl border border-dashed border-slate-200">
-            Chưa có tiêu chí checklist nào cho {selectedFloor}.{canManageStructure ? ' Bấm “Thêm Tiêu Chí” hoặc “Nhập Excel” để bắt đầu.' : ''}
+            Chưa có tiêu chí checklist nào cho {selectedFloor}.{canManageStructure ? ' Chọn “Thêm tiêu chí” hoặc “Nhập Excel” để bắt đầu.' : ''}
           </div>
         ) : (
           sortedFilteredChecklist.map((item) => (
@@ -797,8 +797,8 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
           <div className="bg-white w-full sm:max-w-2xl lg:max-w-3xl rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-1.5">
-                <Plus className="w-4 h-4 text-emerald-600" />
-                Thêm Tiêu Chí Kiểm Tra ({selectedFloor})
+                <Plus className="w-4 h-4 text-indigo-600" />
+                Thêm tiêu chí kiểm tra ({selectedFloor})
               </h3>
               <button onClick={() => setShowAddForm(false)} className="font-bold text-slate-500 cursor-pointer">✕</button>
             </div>
@@ -1082,7 +1082,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                   type="submit"
                   className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md cursor-pointer"
                 >
-                  Lưu Thay Đổi
+                  Lưu thay đổi
                 </button>
               </div>
             </form>

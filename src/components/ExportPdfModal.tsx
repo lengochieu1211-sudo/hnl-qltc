@@ -2403,10 +2403,10 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
             <button
               type="button"
               onClick={handleDownloadHtmlReport}
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow active:scale-98 transition-all text-xs cursor-pointer"
+              className="w-full py-2.5 border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl font-bold flex items-center justify-center gap-2 shadow active:scale-98 transition-all text-xs cursor-pointer"
             >
-              <Download className="w-4 h-4 text-sky-200" />
-              Tải File Báo Cáo HTML (.html - Mở &amp; In / Lưu PDF Dễ Dàng)
+              <Download className="w-4 h-4 text-slate-600" />
+              Tải báo cáo HTML (.html) để mở, in hoặc lưu PDF
             </button>
 
             <button
@@ -2415,7 +2415,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow active:scale-98 transition-all text-xs cursor-pointer"
             >
               <FileSpreadsheet className="w-4 h-4" />
-              Tải File Excel (.xlsx) Các Hạng Mục Đã Chọn
+              Tải Excel (.xlsx) cho các hạng mục đã chọn
             </button>
 
             <button

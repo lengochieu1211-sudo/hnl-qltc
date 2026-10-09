@@ -238,11 +238,11 @@ assert(!defectUi.includes('<span>💡 <strong>Kéo Vẽ tự do:'), 'Freehand ba
 assert(!defectUi.includes('📐 <strong>Đang vẽ lại vùng cho căn'), 'Redraw banner must not show a second leading symbol beside its Lucide icon.');
 assert(!defectUi.includes('<span>📋 Dán thường') && !defectUi.includes('<span>📝 Dán đè'), 'Paste actions must use one icon system, not Lucide plus emoji.');
 const checklistUi = read('src/components/ChecklistTab.tsx');
-assert(checklistUi.includes("selectedFloor === floor") && checklistUi.includes("? 'bg-blue-600 text-white shadow-md'"), 'Checklist selected-floor chip must use HNL Blue, not success green');
+assert(checklistUi.includes("selectedFloor === floor") && checklistUi.includes("? 'bg-indigo-600 text-white shadow-md'"), 'Checklist selected-floor chip must use HNL Blue, not success green');
 const actionMenuButton = read('src/components/ActionMenuButton.tsx');
 assert(actionMenuButton.includes('createPortal') && actionMenuButton.includes("placement: 'above' | 'below'") && actionMenuButton.includes('naturalHeight > bestAvailable && naturalHeight > 220'), 'Shared Action Menu must open near the pressed button and fall back to a bottom sheet only when space is insufficient');
 assert(checklistUi.includes('<DataManagementMenu') && checklistUi.includes('triggerLabel="Quản lý dữ liệu"') && checklistUi.includes('exportLabel="Tải Excel để chỉnh sửa"') && checklistUi.includes('importLabel="Nhập lại từ Excel"'), 'Checklist must use the shared Data Management menu instead of two standalone Excel buttons');
-assert(checklistUi.includes('flex items-center justify-end gap-2') && checklistUi.includes('Thêm Tiêu Chí'), 'Checklist mobile must keep Add Criterion and compact Data Management in one action cluster');
+assert(checklistUi.includes('flex items-center justify-end gap-2') && checklistUi.includes('Thêm tiêu chí'), 'Checklist mobile must keep Add Criterion and compact Data Management in one action cluster');
 const workVolumeUi = read('src/components/WorkVolumeTab.tsx');
 assert(workVolumeUi.includes("label: 'Khối lượng kế hoạch'") && workVolumeUi.includes('<span>Khối lượng kế hoạch *</span>') && !workVolumeUi.includes('<span>Khối lượng định mức *</span>'), 'Work Volume planned quantity must be labeled Khối lượng kế hoạch to avoid confusion with material norms');
 assert(workVolumeUi.includes("label: 'Khối lượng thực hiện'") && workVolumeUi.includes('<span className="truncate">Khối lượng thực hiện</span>') && !workVolumeUi.includes('Khối lượng đã làm'), 'Work Volume actual quantity must use one visible label: Khối lượng thực hiện');

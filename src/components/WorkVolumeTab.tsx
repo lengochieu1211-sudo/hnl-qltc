@@ -801,7 +801,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-            <BarChart3 className="w-5 h-5 text-blue-600" />
+            <BarChart3 className="w-5 h-5 text-indigo-600" />
             {t('volume_title')}
           </h2>
           <p className="text-xs text-slate-500">{t('volume_subtitle')}</p>
@@ -930,7 +930,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 onClick={() => setSelectedCategory(catId)}
                 className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all ${
                   selectedCategory === catId
-                    ? 'bg-blue-600 text-white shadow-sm'
+                    ? 'bg-indigo-600 text-white shadow-sm'
                     : 'bg-white text-slate-600 border border-slate-200'
                 }`}
               >
@@ -1570,7 +1570,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                     type="submit"
                     name="submitMode"
                     value="continue"
-                    className="py-2.5 rounded-xl border border-blue-200 bg-blue-50 font-bold text-blue-700 transition hover:bg-blue-100 active:scale-95"
+                    className="py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 font-bold text-indigo-700 transition hover:bg-indigo-100 active:scale-95"
                   >
                     Lưu & thêm tiếp
                   </button>
@@ -1579,7 +1579,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                   type="submit"
                   name="submitMode"
                   value="close"
-                  className="py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md"
+                  className="py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md"
                 >
                   {editingVolume ? 'Cập nhật hạng mục' : 'Lưu & đóng'}
                 </button>

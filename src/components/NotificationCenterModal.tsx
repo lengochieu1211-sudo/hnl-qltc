@@ -144,7 +144,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
   const systemTitle = (log: ProjectAuditCloudEntry) => {
     const action = String(log.action || '').toUpperCase();
     if (action.includes('ROLE') || action.includes('MEMBER') || action.includes('ACCESS')) return 'Phân quyền dự án';
-    if (action.includes('BACKUP') || action.includes('RESTORE')) return 'Sao lưu & khôi phục';
+    if (action.includes('BACKUP') || action.includes('RESTORE')) return 'Sao lưu và khôi phục';
     if (action.includes('SYNC')) return 'Đồng bộ hệ thống';
     if (action.includes('PIN') || action.includes('SECURITY')) return 'Bảo mật';
     if (action.includes('PROJECT') || action.includes('INVITE')) return 'Dự án';
@@ -273,7 +273,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                   : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
               }`}
             >
-              Tất Cả ({counts.all})
+              Tất cả ({counts.all})
             </button>
             <button
               onClick={() => setFilterType('overdue')}
@@ -283,7 +283,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                   : 'bg-white text-rose-700 border border-rose-200 hover:bg-rose-50'
               }`}
             >
-              <AlertTriangle className="w-3.5 h-3.5" /> Quá Hạn ({counts.overdue})
+              <AlertTriangle className="w-3.5 h-3.5" /> Quá hạn ({counts.overdue})
             </button>
             <button
               onClick={() => setFilterType('today')}
@@ -293,7 +293,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                   : 'bg-white text-amber-700 border border-amber-200 hover:bg-amber-50'
               }`}
             >
-              <Clock className="w-3.5 h-3.5" /> Đến Hạn Hôm Nay ({counts.today})
+              <Clock className="w-3.5 h-3.5" /> Đến hạn hôm nay ({counts.today})
             </button>
             <button
               onClick={() => setFilterType('soon')}
@@ -303,7 +303,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                   : 'bg-white text-blue-700 border border-blue-200 hover:bg-blue-50'
               }`}
             >
-              <Bell className="w-3.5 h-3.5" /> Sắp Tới (3 ngày) ({counts.soon})
+              <Bell className="w-3.5 h-3.5" /> Sắp đến hạn (3 ngày) ({counts.soon})
             </button>
           </div>
         </div>
