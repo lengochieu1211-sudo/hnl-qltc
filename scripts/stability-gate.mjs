@@ -365,6 +365,21 @@ requireAll(app, ['commitWarehouseTransactionAtomic', 'updateWarehouseTransaction
 const warehouseTab = read('src/components/WarehouseTab.tsx');
 if (!warehouseTab.includes('FIREBASE_ONLY_RUNTIME') || !warehouseTab.includes('Không thể xuất vượt tồn kho')) fail('warehouse UI still offers a negative-stock override in Firebase-only runtime');
 pass('warehouse transaction/derived-balance safety engine is wired into runtime');
+// React passes its click event as the first argument when a parameterized
+// inventory creator is directly bound to onClick. An event is not an item kind.
+requireAll(warehouseTab, [
+  "onClick={() => openCreateInventory('material')}",
+  "openCreateInventory('equipment')",
+  "const openCreateInventory = (kind: InventoryItemKind = 'material') =>",
+  'setItemKind(kind);',
+  "const editingKind: InventoryItemKind = item.itemKind === 'equipment' ? 'equipment' : 'material';",
+  'setItemKind(editingKind);',
+], 'Warehouse voucher default material, equipment catalog route and edit-kind preservation');
+if (warehouseTab.includes('onClick={openCreateInventory}')) {
+  fail('Warehouse create button must not pass a React click event as itemKind');
+}
+pass('Warehouse create default event regression: material by default, equipment/edit preserved');
+
 
 requireAll(warehouseTab, [
   'min-w-[810px]',
