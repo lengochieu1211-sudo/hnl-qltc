@@ -369,6 +369,12 @@ const securityModalUi = read('src/components/SecurityModal.tsx');
 const multiProjectOverviewUi = read('src/components/MultiProjectOverview.tsx');
 const homeDashboardUi = read('src/components/HomeDashboard.tsx');
 const navSource = read('src/components/BottomNav.tsx');
+// Map pin labels are z-50; isolate their stacking context instead of raising
+// the global z-40 mobile bar (which would cover unrelated z-50 dialogs).
+const floorPlanStackingSource = read('src/components/FloorPlanDefectTab.tsx');
+assert(navSource.includes('fixed bottom-0 left-0 right-0 z-40'), 'Mobile navigation must remain z-40 so ordinary z-50 modals stay above it');
+assert(floorPlanStackingSource.includes('overflow-hidden isolate border border-slate-300 select-none group shadow-inner'), 'Map viewport must isolate z-50 Defect labels beneath the global mobile navigation');
+assert(floorPlanStackingSource.includes("isFullscreen ? 'fixed inset-0 z-[100]"), 'Fullscreen map must still paint above mobile navigation');
 assert(navSource.includes('setActiveTab(tab);'), 'Primary navigation must send the selected destination to the App navigation coordinator');
 assert(!navSource.includes('if (tab === activeTab)') && navSource.includes("Always delegate to App's authoritative activeTabRef check"), 'BottomNav must not drop a rapid next-tab click by short-circuiting against a stale activeTab prop');
 assert(navSource.includes('Trợ lý HNL AI') && !navSource.includes('HNL AI Assistant'), 'BottomNav must use consistent Vietnamese HNL AI wording');
