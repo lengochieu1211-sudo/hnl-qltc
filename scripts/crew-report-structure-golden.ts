@@ -38,6 +38,32 @@ assert.equal(matrix.groups[0].structureGroupName, 'Tháp 1');
 assert.equal(matrix.groups[1].structureGroupName, 'Tháp 2');
 assert.equal(matrix.dates[0].totalDailyHeadcount, 13, 'daily total must sum group-scoped team headcounts once');
 
+// P1 legacy: name-only crew records must not be assigned to a random team ID
+// when multiple active teams have the same normalized display name.
+const duplicateNameRows = buildCrewReportRows([{
+  projectId: 'p-legacy', projectName: 'Legacy đội trùng tên',
+  teams: [
+    { id: 'TEAM-1', name: 'Đội An', leader: 'An' },
+    { id: 'TEAM-2', name: ' đội an ', leader: 'Bình' },
+  ],
+  records: [
+    { id: 'legacy-name-only', date: '2026-09-24', teamName: 'Đội An', workerCount: 7, morningCount: 7, afternoonCount: 5, eveningCount: 0 },
+    { id: 'durable-id', date: '2026-09-24', teamId: 'TEAM-2', teamName: 'Đội An', workerCount: 3, morningCount: 3, afternoonCount: 3, eveningCount: 0 },
+  ],
+}] as any, '2026-09-24', '2026-09-24');
+assert.equal(duplicateNameRows.filter((row) => row.reported).length, 2, 'name-only and durable-id logs must remain distinct');
+assert.equal(duplicateNameRows.find((row) => row.reported && !row.teamId)?.dailyHeadcount, 7, 'ambiguous legacy record headcount must be preserved');
+assert.ok(duplicateNameRows.find((row) => row.reported && !row.teamId)?.teamName.includes('chưa xác định đội'), 'ambiguous name-only log must be visible as unresolved');
+assert.equal(duplicateNameRows.find((row) => row.teamId === 'TEAM-2')?.dailyHeadcount, 3, 'authoritative ID must still win');
+assert.equal(duplicateNameRows.find((row) => row.teamId === 'TEAM-1')?.reported, false, 'legacy log cannot be fabricated for TEAM-1');
+assert.equal(duplicateNameRows.filter((row) => row.reported).reduce((sum, row) => sum + (row.dailyHeadcount || 0), 0), 10, 'P1 headcount may not be lost or duplicated');
+const uniqueNameRows = buildCrewReportRows([{
+  projectId: 'p-unique', projectName: 'Legacy duy nhất', teams: [{ id: 'TEAM-1', name: 'Đội An' }],
+  records: [{ id: 'legacy', date: '2026-09-24', teamName: 'Đội An', workerCount: 4, morningCount: 4 }],
+}] as any, '2026-09-24', '2026-09-24');
+assert.equal(uniqueNameRows.find((row) => row.reported)?.teamId, 'TEAM-1', 'unique legacy name should still map to its team');
+console.log('PASS P1: duplicate team names never reassign legacy crew logs');
+
 // Source-level UI regression guards: sharing must stay on one image per project matrix,
 // the total row must use the same X-origin as header/body, and the duplicated overview
 // must remain hidden on mobile/tablet while staying available on desktop/EXE.

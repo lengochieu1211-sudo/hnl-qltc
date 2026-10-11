@@ -189,6 +189,30 @@ assert.equal(teamMaterialLine.issuedQty, 8);
 assert.equal(teamMaterialLine.varianceQty, -2);
 console.log('PASS teams: material reconciliation compares issued project stock against constructed volume × norm');
 
+// P0: duplicate material+category norms must never double expected demand.
+// Retain issued warehouse quantity and surface the catalog warning instead.
+const duplicateTeamReconciliation = computeTeamMaterialReconciliation({
+  team: teamA,
+  stats: stats['TEAM-A'],
+  inventory: [{ id: 'OUT-DUP', type: 'out', materialId: 'MAT-TEAM', materialName: 'Vít đội', unit: 'hộp', quantity: 8, location: '', handler: '', date: '2026-09-14', issuePurpose: 'project-work', sourceTeamId: 'TEAM-A' }],
+  materialNorms: [teamMaterialNorm, { ...teamMaterialNorm, id: 'N-TEAM-DUP' }],
+  workVolumes: [w1],
+});
+const duplicateTeamLine = duplicateTeamReconciliation.find((line) => line.materialId === 'MAT-TEAM');
+assert.ok(duplicateTeamLine?.integrityWarning?.includes('trùng hạng mục'), 'duplicate norm must carry actionable warning');
+assert.equal(duplicateTeamLine?.expectedAssignedQty, 0, 'duplicate material expected assigned volume must fail closed');
+assert.equal(duplicateTeamLine?.expectedConstructedQty, 0, 'duplicate material expected constructed volume must fail closed');
+assert.equal(duplicateTeamLine?.issuedQty, 8, 'actual warehouse issues must survive duplicate norm detection');
+assert.equal(duplicateTeamLine?.issuedVsConstructedPercent, undefined, 'unsafe ratio must not be published');
+assert.ok(!teamMaterialLine.integrityWarning, 'unique material norms must retain ordinary calculations');
+const unlinkedTeamReconciliation = computeTeamMaterialReconciliation({
+  team: teamA, stats: stats['TEAM-A'], inventory: [],
+  materialNorms: [{ ...teamMaterialNorm, id: 'N-TEAM-ORPHAN-2', workCategoryId: 'CAT-MISSING', workCategoryIds: ['CAT-MISSING'] }],
+  workVolumes: [w1],
+});
+assert.ok(unlinkedTeamReconciliation.some((line) => line.integrityWarning), 'orphaned norm must surface a warning');
+console.log('PASS P0: shared catalog validation blocks duplicate norms while preserving warehouse issues');
+
 const zeroQuantityAssignedRoom = room('R-TEAM-ZERO', 'F1', {}, {
   workCategoryId: 'CAT-F1', workCategory: w1.title, workVolume: 0,
   teamId: 'TEAM-A', assignedTeam: 'Đội A',

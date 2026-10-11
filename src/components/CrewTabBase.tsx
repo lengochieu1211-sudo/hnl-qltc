@@ -3844,6 +3844,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 {/* SUB TAB 2: MATERIAL RECONCILIATION */}
                 {detailModalTab === 'materials' && (
                   <div className="space-y-3">
+                    {selectedTeamMaterialReconciliation.some((line) => line.integrityWarning) && (
+                      <div role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs font-bold text-rose-800">
+                        <AlertTriangle className="mr-1 inline h-4 w-4" /> Định mức vật tư có liên kết trùng hoặc không hợp lệ. Nhu cầu và chênh lệch của vật tư bị cảnh báo tạm ẩn; phiếu xuất kho vẫn giữ nguyên. Kiểm tra danh mục Định mức trước khi đối chiếu.
+                      </div>
+                    )}
                     <QuickSortBar
                       itemCount={selectedTeamMaterialReconciliation.length}
                       options={[
@@ -3886,12 +3891,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                   <td className="p-2">
                                     <div className="font-extrabold text-slate-900">{line.materialName}</div>
                                     <div className="text-[10px] text-slate-500">{line.category} · {line.unit}</div>
+                                    {line.integrityWarning && <div role="alert" className="mt-1 text-[10px] font-semibold text-rose-700">⚠ {line.integrityWarning}</div>}
                                   </td>
-                                  <td className="p-2 text-right font-semibold">{formatDecimal(line.expectedAssignedQty)} {line.unit}</td>
-                                  <td className="p-2 text-right font-extrabold text-indigo-700">{formatDecimal(line.expectedConstructedQty)} {line.unit}</td>
+                                  <td className="p-2 text-right font-semibold">{line.integrityWarning ? 'Chưa xác định' : `${formatDecimal(line.expectedAssignedQty)} ${line.unit}`}</td>
+                                  <td className="p-2 text-right font-extrabold text-indigo-700">{line.integrityWarning ? 'Chưa xác định' : `${formatDecimal(line.expectedConstructedQty)} ${line.unit}`}</td>
                                   <td className="p-2 text-right font-extrabold text-cyan-700">{formatDecimal(line.issuedQty)} {line.unit}</td>
                                   <td className={`p-2 text-right font-extrabold ${over ? 'text-rose-700' : under ? 'text-amber-700' : 'text-emerald-700'}`}>
-                                    {line.varianceQty > 0 ? '+' : ''}{formatDecimal(line.varianceQty)} {line.unit}
+                                    {line.integrityWarning ? 'Chưa xác định' : `${line.varianceQty > 0 ? '+' : ''}${formatDecimal(line.varianceQty)} ${line.unit}`}
                                   </td>
                                   <td className="p-2 text-right">
                                     {line.issuedVsConstructedPercent !== undefined ? `${line.issuedVsConstructedPercent}%` : '—'}
