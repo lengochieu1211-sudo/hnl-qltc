@@ -445,7 +445,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
     }
     pushUndo();
     let nextRows = cloneRows(draftRows);
-    let nextDirty = new Set(dirtyCellKeys);
+    let nextDirty: Set<string> = new Set<string>(dirtyCellKeys);
     for (const { rowKey, column, raw } of changes) {
       const normalized = resolveSelectValue(column, raw)!;
       const result = applyCellChange(nextRows, nextDirty, rowKey, column, coerceValue(column, normalized));
@@ -498,7 +498,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
       if (startRow < 0 || startColumn < 0) return;
       pushUndo();
       let nextRows = cloneRows(draftRows);
-      let nextDirty = new Set(dirtyCellKeys);
+      let nextDirty: Set<string> = new Set<string>(dirtyCellKeys);
       matrix.forEach((cells, rowOffset) => {
         const row = nextRows[startRow + rowOffset];
         if (!row) return;
