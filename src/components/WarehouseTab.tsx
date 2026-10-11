@@ -2084,6 +2084,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         canDeleteRows={quickEditMode === 'norms' ? hasNormManageAccess : quickEditMode === 'in' || quickEditMode === 'out' ? hasDeleteAccess : false}
         requiresAnchorForInsert={quickEditMode === 'norms'}
         syncGroupColumns={quickEditMode === 'norms' ? ['materialName', 'category', 'unit', 'generalNorm', 'notes'] : []}
+        spreadsheetSelection
         getRowDeleteBlockReason={(row, currentRows) => {
           if (quickEditMode !== 'norms') return null;
           const normId = String(row.__normId || '').trim();
@@ -2183,7 +2184,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           >
             <div id="material-need-details" className="flex min-w-0 flex-col gap-3">
               <p className="text-[11px] text-slate-600">
-                Có thể chọn {normalizedStructureConfig.enabled ? `${normalizedStructureConfig.label}, ` : ''}một hoặc nhiều tầng, căn, hạng mục thi công đã khai và đội. Không chọn nghĩa là Tất cả. Một Material Need Engine duy nhất tính từ dữ liệu gốc rồi mới lọc/tổng hợp để chống double-count.
+                Có thể chọn {normalizedStructureConfig.enabled ? `${normalizedStructureConfig.label}, ` : ''}một hoặc nhiều tầng, căn/phòng, hạng mục thi công đã khai và đội thi công. Để trống bộ lọc nghĩa là chọn tất cả. Hệ thống sử dụng chung một bộ tính nhu cầu vật tư từ dữ liệu gốc, sau đó mới lọc và tổng hợp để tránh tính trùng khối lượng.
               </p>
 
               <div className={`grid grid-cols-1 gap-2 sm:grid-cols-2 ${normalizedStructureConfig.enabled ? 'xl:grid-cols-5' : 'xl:grid-cols-4'}`}>
