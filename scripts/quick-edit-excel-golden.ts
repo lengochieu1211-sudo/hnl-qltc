@@ -1,3 +1,4 @@
+import { gridRectKeys, gridSelectionTSV, parseGridTSV, quickGridCellKey } from '../src/utils/quickGridClipboard';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
@@ -19,6 +20,31 @@ const dxf = fs.readFileSync('src/utils/dxfRoomDetection.ts', 'utf8');
 const pdfRoomDetection = fs.readFileSync('src/utils/pdfRoomDetection.ts', 'utf8');
 
 assert.match(quick, /Ctrl\+C \/ Ctrl\+V vùng ô từ Excel/, 'Quick grid must advertise spreadsheet paste');
+// Warehouse spreadsheet selection is opt-in; never mutate other Quick Edit workflows.
+assert.match(warehouse, /spreadsheetSelection/, 'Warehouse must enable safe spreadsheet cell selection');
+assert.match(quick, /spreadsheetSelection = false/, 'Spreadsheet selection must not change other module grids by default');
+assert.match(quick, /changeSelectedDropdown/, 'Dropdown selection must support one-action bulk change');
+assert.match(quick, /Vùng có ô chỉ đọc hoặc giá trị lựa chọn không hợp lệ/, 'Bulk paste must fail closed when a locked or unknown-select cell is encountered');
+assert.match(quick, /gridSelectionTSV/, 'Clipboard copy must export selected cells as TSV');
+assert.match(quick, /column\.options\?\.find/, 'Read-only enum cells must show Vietnamese option labels without changing stored codes');
+assert.match(warehouse, /Hệ thống sử dụng chung một bộ tính nhu cầu vật tư/, 'Material Need description must use natural Vietnamese');
+assert.doesNotMatch(warehouse, /Một Material Need Engine duy nhất/, 'Material Need description must not expose English implementation terms');
+const demoRows = [
+  { __rowKey: 'r3', itemKind: 'material', quantity: 3 },
+  { __rowKey: 'r1', itemKind: 'equipment', quantity: 1 },
+  { __rowKey: 'r2', itemKind: 'material', quantity: 2 },
+];
+const demoColumns = [{ key: 'itemKind' }, { key: 'quantity' }];
+const rectangle = gridRectKeys(demoRows, demoColumns, { rowKey: 'r3', columnKey: 'itemKind' }, { rowKey: 'r2', columnKey: 'quantity' });
+assert.equal(rectangle.size, 6, 'Shift must select a rectangular range in visible/sorted row order');
+assert.deepEqual([...gridRectKeys(demoRows, demoColumns, { rowKey: 'r1', columnKey: 'quantity' }, { rowKey: 'r2', columnKey: 'quantity' })],
+  ['r1::quantity', 'r2::quantity'], 'Shift must select consecutive cells in one column');
+const disconnected = new Set([quickGridCellKey('r3', 'itemKind'), quickGridCellKey('r2', 'quantity')]);
+assert.equal(gridSelectionTSV(demoRows, demoColumns, disconnected, (value) => String(value)), 'material\t\n\t\n\t2', 'Ctrl-selected disconnected cells must copy without leaking unselected values');
+assert.equal(gridSelectionTSV(demoRows, demoColumns, rectangle, (value, key) => key === 'itemKind' ? (value === 'material' ? 'Vật tư' : 'Thiết bị') : String(value)),
+  'Vật tư\t3\nThiết bị\t1\nVật tư\t2', 'Clipboard must copy visible localized values in row/column order');
+assert.deepEqual(parseGridTSV('Vật tư\t3\r\nThiết bị\t1\r\n'), [['Vật tư', '3'], ['Thiết bị', '1']], 'Paste must accept Excel CRLF without creating an extra row');
+
 assert.match(quick, /handlePaste/, 'Quick grid must support multi-cell paste');
 assert.match(quick, /dirtyCellKeys/, 'Quick grid edits must remain staged until save');
 assert.match(quick, /dirtyCellKeys\.size > 0/, 'Quick grid must preserve local draft across realtime/parent refreshes');

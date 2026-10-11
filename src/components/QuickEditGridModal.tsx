@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { confirmAsync } from '../utils/confirmAsync';
 import { evaluateMathExpression } from '../utils/numberUtils';
+import { gridRectKeys, gridSelectionTSV, parseGridTSV } from '../utils/quickGridClipboard';
 
 export type QuickGridCellValue = string | number | null | undefined;
 
@@ -40,6 +41,8 @@ interface QuickEditGridModalProps {
   createEmptyRow?: (index: number, anchorRow?: QuickGridRow) => QuickGridRow | null;
   getRowDeleteBlockReason?: (row: QuickGridRow, currentRows: QuickGridRow[]) => string | null;
   syncGroupColumns?: string[];
+  /** Opt-in spreadsheet-like cell range editing (warehouse only). */
+  spreadsheetSelection?: boolean;
   onClose: () => void;
   onSave: (
     rows: QuickGridRow[],
@@ -111,6 +114,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
   createEmptyRow,
   getRowDeleteBlockReason,
   syncGroupColumns = [],
+  spreadsheetSelection = false,
   onClose,
   onSave,
   saveLabel = 'Lưu thay đổi',
@@ -123,6 +127,9 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
   const [deletedRows, setDeletedRows] = useState<QuickGridRow[]>([]);
   const [dirtyCellKeys, setDirtyCellKeys] = useState<Set<string>>(new Set());
   const [selectedRowKeys, setSelectedRowKeys] = useState<Set<string>>(new Set());
+  const [selectedCellKeys, setSelectedCellKeys] = useState<Set<string>>(new Set());
+  const selectionAnchorRef = useRef<{ rowKey: string; columnKey: string } | null>(null);
+  const [clipboardNotice, setClipboardNotice] = useState('');
   const [insertCount, setInsertCount] = useState(1);
   const [sortState, setSortState] = useState<{ key: string; direction: SortDirection } | null>(null);
   const [search, setSearch] = useState('');
@@ -149,6 +156,9 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
     setDeletedRows([]);
     setDirtyCellKeys(new Set());
     setSelectedRowKeys(new Set());
+    setSelectedCellKeys(new Set());
+    selectionAnchorRef.current = null;
+    setClipboardNotice('');
     setUndoStack([]);
     setRedoStack([]);
     setSearch('');
@@ -260,6 +270,8 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
     setDirtyCellKeys(new Set(state.dirty));
     setDeletedRows(cloneRows(state.deleted));
     setSelectedRowKeys(new Set());
+    setSelectedCellKeys(new Set());
+    selectionAnchorRef.current = null;
   };
 
   const undo = () => {
@@ -283,6 +295,8 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
     setDeletedRows([]);
     setDirtyCellKeys(new Set());
     setSelectedRowKeys(new Set());
+    setSelectedCellKeys(new Set());
+    selectionAnchorRef.current = null;
     setUndoStack([]);
     setRedoStack([]);
     setSortState(null);
@@ -370,35 +384,159 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
     });
     setDirtyCellKeys((prev) => new Set<string>(Array.from(prev as Set<string>).filter((key: string) => !deleteKeys.has(key.split('::')[0]))));
     setSelectedRowKeys(new Set());
+    setSelectedCellKeys(new Set());
+    selectionAnchorRef.current = null;
     activeCellRef.current = null;
+  };
+
+  const handleCellClick = (event: React.MouseEvent, rowKey: string, columnKey: string) => {
+    if (!spreadsheetSelection) return;
+    const nextCell = { rowKey, columnKey };
+    const key = cellKey(rowKey, columnKey);
+    if (event.shiftKey && selectionAnchorRef.current) {
+      const range = gridRectKeys(filteredRows, columns, selectionAnchorRef.current, nextCell);
+      if (range.size) setSelectedCellKeys(range);
+    } else if (event.ctrlKey || event.metaKey) {
+      setSelectedCellKeys((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key); else next.add(key);
+        return next;
+      });
+      selectionAnchorRef.current = nextCell;
+    } else if (!(selectedCellKeys.size > 1 && selectedCellKeys.has(key))) {
+      setSelectedCellKeys(new Set([key]));
+      selectionAnchorRef.current = nextCell;
+    }
+    activeCellRef.current = nextCell;
+  };
+
+  const resolveSelectValue = (column: QuickGridColumn, raw: string): string | null => {
+    if (column.type !== 'select') return raw;
+    const choice = (column.options || []).find((option) => {
+      const value = typeof option === 'string' ? option : option.value;
+      const label = typeof option === 'string' ? option : option.label;
+      return value === raw || label === raw;
+    });
+    if (!choice) return raw === '' && !column.required ? '' : null;
+    return typeof choice === 'string' ? choice : choice.value;
+  };
+
+  const commitCells = (changes: Array<{ rowKey: string; column: QuickGridColumn; raw: string }>) => {
+    if (!canEdit || !changes.length) return;
+    // Fail closed: never partially paste a range, or write a locked/unknown select value.
+    for (const { rowKey, column, raw } of changes) {
+      const row = draftRows.find((item) => item.__rowKey === rowKey);
+      const selectValue = resolveSelectValue(column, raw);
+      if (!row || !isColumnEditable(column, row, canEdit) || selectValue === null) {
+        setClipboardNotice('Vùng có ô chỉ đọc hoặc giá trị lựa chọn không hợp lệ. Chưa thay đổi dữ liệu.');
+        return;
+      }
+      if (column.required && selectValue.trim() === '') {
+        setClipboardNotice('Vùng có ô bắt buộc không được để trống. Chưa thay đổi dữ liệu.');
+        return;
+      }
+      if (column.type === 'number' && selectValue.trim() !== '') {
+        const value = column.allowExpression ? evaluateMathExpression(selectValue) : Number(selectValue.trim().replace(',', '.'));
+        if (value === null || !Number.isFinite(value)) {
+          setClipboardNotice('Có số hoặc phép tính không hợp lệ. Chưa thay đổi dữ liệu.');
+          return;
+        }
+      }
+    }
+    pushUndo();
+    let nextRows = cloneRows(draftRows);
+    let nextDirty: Set<string> = new Set<string>(dirtyCellKeys);
+    for (const { rowKey, column, raw } of changes) {
+      const normalized = resolveSelectValue(column, raw)!;
+      const result = applyCellChange(nextRows, nextDirty, rowKey, column, coerceValue(column, normalized));
+      nextRows = result.rows;
+      nextDirty = result.dirty;
+    }
+    setDraftRows(nextRows);
+    setDirtyCellKeys(nextDirty);
+    setClipboardNotice(`Đã thay đổi tạm ${changes.length} ô. Bấm Lưu để ghi dữ liệu.`);
+  };
+
+  const changeSelectedDropdown = (rowKey: string, column: QuickGridColumn, raw: string) => {
+    const originKey = cellKey(rowKey, column.key);
+    if (!spreadsheetSelection || !selectedCellKeys.has(originKey) || selectedCellKeys.size < 2) {
+      setCell(rowKey, column, raw);
+      return;
+    }
+    const sameColumn = filteredRows.filter((row) => selectedCellKeys.has(cellKey(row.__rowKey, column.key)));
+    commitCells(sameColumn.map((row) => ({ rowKey: row.__rowKey, column, raw })));
+  };
+
+  const copySelected = (): string => {
+    const selection = selectedCellKeys.size > 0 ? selectedCellKeys : new Set(activeCellRef.current
+      ? [cellKey(activeCellRef.current.rowKey, activeCellRef.current.columnKey)] : []);
+    return gridSelectionTSV(filteredRows, columns, selection, (value, key) => {
+      const column = columns.find((col) => col.key === key);
+      const option = column?.options?.find((item) => (typeof item === 'string' ? item : item.value) === normalizeCell(value));
+      return typeof option === 'string' ? option : option?.label || normalizeCell(value);
+    });
+  };
+
+  const handleCopy = (event: React.ClipboardEvent) => {
+    if (!spreadsheetSelection || !selectedCellKeys.size) return;
+    event.preventDefault();
+    event.clipboardData.setData('text/plain', copySelected());
+    setClipboardNotice(`Đã sao chép ${selectedCellKeys.size} ô để dán vào Excel.`);
   };
 
   const handlePaste = (event: React.ClipboardEvent, rowKey: string, columnKey: string) => {
     if (!canEdit) return;
     const text = event.clipboardData.getData('text/plain');
-    if (!text || (!text.includes('\t') && !text.includes('\n'))) return;
+    if (!text) return;
+    // Preserve the original per-cell paste behavior in non-warehouse modules.
+    if (!spreadsheetSelection) {
+      if (!text.includes('\t') && !text.includes('\n')) return;
+      event.preventDefault();
+      const matrix = parseGridTSV(text);
+      const startRow = draftRows.findIndex((row) => row.__rowKey === rowKey);
+      const startColumn = columns.findIndex((column) => column.key === columnKey);
+      if (startRow < 0 || startColumn < 0) return;
+      pushUndo();
+      let nextRows = cloneRows(draftRows);
+      let nextDirty: Set<string> = new Set<string>(dirtyCellKeys);
+      matrix.forEach((cells, rowOffset) => {
+        const row = nextRows[startRow + rowOffset];
+        if (!row) return;
+        cells.forEach((raw, colOffset) => {
+          const col = columns[startColumn + colOffset];
+          if (!col || !isColumnEditable(col, row, canEdit)) return;
+          const result = applyCellChange(nextRows, nextDirty, row.__rowKey, col, coerceValue(col, raw));
+          nextRows = result.rows;
+          nextDirty = result.dirty;
+        });
+      });
+      setDraftRows(nextRows);
+      setDirtyCellKeys(nextDirty);
+      return;
+    }
+    const matrix = parseGridTSV(text);
+    if (!matrix.length) return;
     event.preventDefault();
-    const matrix = text.replace(/\r/g, '').split('\n').filter((line, index, arr) => line.length > 0 || index < arr.length - 1).map((line) => line.split('\t'));
-    const startRow = draftRows.findIndex((row) => row.__rowKey === rowKey);
+    const pasteRows = spreadsheetSelection ? filteredRows : draftRows;
+    const startRow = pasteRows.findIndex((row) => row.__rowKey === rowKey);
     const startColumn = columns.findIndex((column) => column.key === columnKey);
     if (startRow < 0 || startColumn < 0) return;
-
-    pushUndo();
-    let nextRows = cloneRows(draftRows);
-    let nextDirty: Set<string> = new Set<string>(dirtyCellKeys);
-    matrix.forEach((cells, rowOffset) => {
-      const row = nextRows[startRow + rowOffset];
-      if (!row) return;
-      cells.forEach((rawValue, colOffset) => {
-        const column = columns[startColumn + colOffset];
-        if (!column || !isColumnEditable(column, row, canEdit)) return;
-        const result = applyCellChange(nextRows, nextDirty, row.__rowKey, column, coerceValue(column, rawValue));
-        nextRows = result.rows;
-        nextDirty = result.dirty;
-      });
-    });
-    setDraftRows(nextRows);
-    setDirtyCellKeys(nextDirty);
+    if (spreadsheetSelection && matrix.length === 1 && matrix[0].length === 1 && selectedCellKeys.size > 1 && selectedCellKeys.has(cellKey(rowKey, columnKey))) {
+      const changes = filteredRows.flatMap((row) => columns.filter((column) => selectedCellKeys.has(cellKey(row.__rowKey, column.key)))
+        .map((column) => ({ rowKey: row.__rowKey, column, raw: matrix[0][0] })));
+      commitCells(changes);
+      return;
+    }
+    if (spreadsheetSelection && (matrix.length + startRow > pasteRows.length || matrix.some((cells) => cells.length + startColumn > columns.length))) {
+      setClipboardNotice('Vùng dán vượt khỏi bảng đang hiển thị. Chưa thay đổi dữ liệu.');
+      return;
+    }
+    const changes = matrix.flatMap((cells, rowOffset) => cells.flatMap((raw, colOffset) => {
+      const row = pasteRows[startRow + rowOffset];
+      const column = columns[startColumn + colOffset];
+      return row && column ? [{ rowKey: row.__rowKey, column, raw }] : [];
+    }));
+    commitCells(changes);
   };
 
   const handleSort = (column: QuickGridColumn) => {
@@ -419,6 +557,8 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
       setDeletedRows([]);
       setDirtyCellKeys(new Set());
       setSelectedRowKeys(new Set());
+      setSelectedCellKeys(new Set());
+      selectionAnchorRef.current = null;
       setUndoStack([]);
       setRedoStack([]);
     } finally {
@@ -490,11 +630,16 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
           )}
           <button type="button" disabled={!undoStack.length} onClick={undo} className="h-9 px-3 rounded-lg border border-slate-300 bg-white text-xs font-bold disabled:opacity-40">Hoàn tác</button>
           <button type="button" disabled={!redoStack.length} onClick={redo} className="h-9 px-3 rounded-lg border border-slate-300 bg-white text-xs font-bold disabled:opacity-40">Làm lại</button>
+          {spreadsheetSelection && (
+            <span className="text-[10px] text-slate-600" title="Bấm chọn ô; Shift + bấm chọn vùng; Ctrl + bấm chọn ô rời; Ctrl+C / Ctrl+V sao chép và dán như Excel">
+              {selectedCellKeys.size} ô chọn · Shift chọn vùng · Ctrl chọn rời · Ctrl+C/V
+            </span>
+          )}
           <span className="text-[10px] font-bold text-slate-500 ml-auto">{filteredRows.length}/{draftRows.length} dòng</span>
         </div>
 
         <div className="flex-1 overflow-auto bg-slate-100">
-          <table className="min-w-max w-full border-separate border-spacing-0 text-[11px]">
+          <table onCopy={handleCopy} className="min-w-max w-full border-separate border-spacing-0 text-[11px]">
             <thead>
               <tr>
                 {rowOperationsEnabled && (
@@ -569,19 +714,26 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
                       const changed = dirtyCellKeys.has(key);
                       const error = validation.get(key);
                       const value = row[column.key] as QuickGridCellValue;
+                      const cellSelected = spreadsheetSelection && selectedCellKeys.has(key);
                       const baseClass = `w-full h-8 px-2 border-0 outline-none bg-transparent text-[11px] ${editable ? 'text-slate-900' : 'text-slate-500 cursor-default'}`;
                       return (
                         <td
                           key={column.key}
-                          className={`border-r border-b border-slate-200 p-0 align-middle ${error ? 'bg-rose-100' : changed ? 'bg-sky-100' : editable ? 'bg-white' : 'bg-slate-100'}`}
+                          className={`border-r border-b border-slate-200 p-0 align-middle ${error ? 'bg-rose-100' : changed ? 'bg-sky-100' : editable ? 'bg-white' : 'bg-slate-100'} ${cellSelected ? 'ring-2 ring-inset ring-indigo-500' : ''}`}
                           title={error || (!editable ? 'Chỉ đọc ở dòng này' : '')}
+                          tabIndex={spreadsheetSelection ? 0 : undefined}
+                          onMouseDown={(event) => { if (spreadsheetSelection && event.shiftKey) event.preventDefault(); }}
+                          onClick={(event) => {
+                            handleCellClick(event, row.__rowKey, column.key);
+                            if (spreadsheetSelection && !editable) event.currentTarget.focus();
+                          }}
+                          onPaste={(event) => handlePaste(event, row.__rowKey, column.key)}
                           onFocus={() => { activeCellRef.current = { rowKey: row.__rowKey, columnKey: column.key }; }}
                         >
                           {column.type === 'select' && editable ? (
                             <select
                               value={normalizeCell(value)}
-                              onChange={(event) => setCell(row.__rowKey, column, event.target.value)}
-                              onPaste={(event) => handlePaste(event, row.__rowKey, column.key)}
+                              onChange={(event) => changeSelectedDropdown(row.__rowKey, column, event.target.value)}
                               className={baseClass}
                             >
                               <option value="">-- Chọn --</option>
@@ -591,6 +743,13 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
                                 return <option key={valueOption} value={valueOption}>{label}</option>;
                               })}
                             </select>
+                          ) : column.type === 'select' && !editable ? (
+                            <span className="block min-h-8 px-2 py-2 text-[11px] text-slate-600">
+                              {(() => {
+                                const option = column.options?.find((item) => (typeof item === 'string' ? item : item.value) === normalizeCell(value));
+                                return typeof option === 'string' ? option : option?.label || normalizeCell(value);
+                              })()}
+                            </span>
                           ) : (
                             <input
                               type={column.type === 'date' ? 'date' : column.type === 'number' && !column.allowExpression ? 'number' : 'text'}
@@ -598,7 +757,6 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
                               readOnly={!editable}
                               placeholder={column.placeholder}
                               onChange={(event) => setCell(row.__rowKey, column, event.target.value)}
-                              onPaste={(event) => handlePaste(event, row.__rowKey, column.key)}
                               className={baseClass}
                             />
                           )}
@@ -620,6 +778,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
             <strong>{dirtyCellKeys.size}</strong> ô · <strong>{changedRows}</strong> dòng thay đổi chưa lưu
             {deletedRows.length > 0 && <span className="ml-2 text-rose-600 font-bold">· {deletedRows.length} dòng chờ xóa</span>}
             {validation.size > 0 && <span className="ml-2 text-rose-600 font-bold">· {validation.size} lỗi cần sửa</span>}
+            {clipboardNotice && <span className="ml-2 font-semibold text-indigo-700">· {clipboardNotice}</span>}
             {sortState && <span className="ml-2 text-indigo-600 font-bold">· đang sắp xếp hiển thị</span>}
             <span className="hidden sm:inline ml-2 text-slate-400">· Có thể Ctrl+C / Ctrl+V vùng ô từ Excel</span>
           </div>
