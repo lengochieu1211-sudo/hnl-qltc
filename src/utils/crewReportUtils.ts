@@ -194,6 +194,7 @@ export function buildCrewReportRows(
     const { structureEnabled, resolveRecordGroup } = buildProjectGroupResolver(project);
     const baseTeamDirectory = new Map<string, { teamId?: string; teamName: string; leaderName?: string }>();
     const teamNameToBaseKey = new Map<string, string>();
+    const ambiguousTeamNames = new Set<string>();
 
     for (const team of project.teams || []) {
       if (team.deletedAt) continue;
@@ -206,13 +207,22 @@ export function buildCrewReportRows(
         leaderName: String(team.leader || '').trim() || undefined,
       });
       const normalizedName = normalizeKey(teamName);
-      if (normalizedName) teamNameToBaseKey.set(normalizedName, key);
+      if (normalizedName) {
+        if (teamNameToBaseKey.has(normalizedName) && teamNameToBaseKey.get(normalizedName) !== key) {
+          ambiguousTeamNames.add(normalizedName);
+        } else {
+          teamNameToBaseKey.set(normalizedName, key);
+        }
+      }
     }
 
     const canonicalRecordTeamKey = (record: CrewRecord): string => {
       const recordId = String(record.teamId || '').trim();
       if (recordId) return `id:${recordId}`;
       const normalizedName = normalizeKey(record.teamName);
+      // Legacy name-only reports must not be silently assigned to the last
+      // directory team when two distinct team IDs share a display name.
+      if (ambiguousTeamNames.has(normalizedName)) return resolveRecordTeamKey(record);
       return teamNameToBaseKey.get(normalizedName) || resolveRecordTeamKey(record);
     };
 
@@ -241,7 +251,8 @@ export function buildCrewReportRows(
           group,
           baseTeamKey,
           teamId: baseTeam?.teamId || record.teamId || undefined,
-          teamName,
+          teamName: ambiguousTeamNames.has(normalizeKey(record.teamName)) && !record.teamId
+            ? `${teamName} (chưa xác định đội)` : teamName,
           leaderName: baseTeam?.leaderName || String(record.leaderName || '').trim() || undefined,
         });
       }

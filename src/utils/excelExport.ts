@@ -1245,11 +1245,12 @@ export function exportTeamStatisticsToExcel(params: {
           'Tên Vật Tư': line.materialName,
           'Nhóm Vật Tư': line.category,
           'ĐVT': line.unit,
-          'ĐM Theo KL Giao': line.expectedAssignedQty,
-          'ĐM Theo KL Đã Thi Công': line.expectedConstructedQty,
+          'ĐM Theo KL Giao': line.integrityWarning ? '' : line.expectedAssignedQty,
+          'ĐM Theo KL Đã Thi Công': line.integrityWarning ? '' : line.expectedConstructedQty,
           'Đã Xuất Cho Đội': line.issuedQty,
-          'Chênh Lệch Xuất - ĐM Thi Công': line.varianceQty,
-          'Tỷ Lệ Xuất / ĐM Thi Công (%)': line.issuedVsConstructedPercent ?? '',
+          'Chênh Lệch Xuất - ĐM Thi Công': line.integrityWarning ? '' : line.varianceQty,
+          'Tỷ Lệ Xuất / ĐM Thi Công (%)': line.integrityWarning ? '' : (line.issuedVsConstructedPercent ?? ''),
+          'Cảnh Báo Định Mức': line.integrityWarning || '',
         }))
       : [{
           'STT': 1,
@@ -1262,6 +1263,7 @@ export function exportTeamStatisticsToExcel(params: {
           'Đã Xuất Cho Đội': 0,
           'Chênh Lệch Xuất - ĐM Thi Công': 0,
           'Tỷ Lệ Xuất / ĐM Thi Công (%)': '',
+          'Cảnh Báo Định Mức': '',
         }];
     const ws6 = XLSX.utils.json_to_sheet(materialRows);
     autoFitColumns(ws6);
@@ -1479,6 +1481,7 @@ export function exportTeamStatisticsToExcel(params: {
         'Đã Xuất Cho Đội': 0,
         'Chênh Lệch Xuất - ĐM Thi Công': 0,
         'Tỷ Lệ Xuất / ĐM Thi Công (%)': '',
+          'Cảnh Báo Định Mức': '',
       });
       return;
     }
@@ -1491,11 +1494,12 @@ export function exportTeamStatisticsToExcel(params: {
         'Tên Vật Tư': line.materialName,
         'Nhóm Vật Tư': line.category,
         'ĐVT': line.unit,
-        'ĐM Theo KL Giao': line.expectedAssignedQty,
-        'ĐM Theo KL Đã Thi Công': line.expectedConstructedQty,
+        'ĐM Theo KL Giao': line.integrityWarning ? '' : line.expectedAssignedQty,
+        'ĐM Theo KL Đã Thi Công': line.integrityWarning ? '' : line.expectedConstructedQty,
         'Đã Xuất Cho Đội': line.issuedQty,
-        'Chênh Lệch Xuất - ĐM Thi Công': line.varianceQty,
-        'Tỷ Lệ Xuất / ĐM Thi Công (%)': line.issuedVsConstructedPercent ?? '',
+        'Chênh Lệch Xuất - ĐM Thi Công': line.integrityWarning ? '' : line.varianceQty,
+        'Tỷ Lệ Xuất / ĐM Thi Công (%)': line.integrityWarning ? '' : (line.issuedVsConstructedPercent ?? ''),
+          'Cảnh Báo Định Mức': line.integrityWarning || '',
       });
     });
   });
