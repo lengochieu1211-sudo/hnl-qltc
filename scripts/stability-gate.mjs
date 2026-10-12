@@ -422,7 +422,7 @@ requireAll(workVolumeTab, [
 ], 'work-volume role-aware data-management actions');
 pass('Data-management action bars are visually consistent across ADMIN, ENGINEER and VIEWER without weakening RBAC');
 requireAll(crewTabBase, ["canOperate ? 'grid-cols-3' : 'grid-cols-2'", 'lg:contents', '<span className="sm:hidden">Sao chép</span>', '<span className="sm:hidden">Chia sẻ</span>'], 'Crew mobile groups secondary actions instead of leaving Data Management alone on a row');
-requireAll(warehouseTab, ['grid grid-cols-3 gap-2 lg:contents', '<span className="sm:hidden">Danh mục</span>', '<span className="sm:hidden">Vật tư &amp; TB</span>', '<span className="hidden sm:inline">Vật tư &amp; Thiết bị</span>', 'triggerLabel="Quản lý dữ liệu"'], 'Warehouse mobile groups Catalog / Setup / Data without title overflow');
+requireAll(warehouseTab, ['grid grid-cols-3 gap-2 lg:contents', '<span className="sm:hidden">Danh mục</span>', '<span>Thiết lập</span>', 'triggerLabel="Quản lý dữ liệu"'], 'Warehouse mobile groups Catalog / Setup / Data without title overflow');
 requireAll(workVolumeTab, ['grid w-full grid-cols-[minmax(0,1fr)_auto]', 'triggerLabel="Thêm hạng mục"', 'triggerLabel="Quản lý dữ liệu"'], 'Work Volume mobile keeps Add + Data on one row');
 requireAll(checklistTab, ['flex items-center justify-end gap-2', 'Thêm tiêu chí', 'triggerLabel="Quản lý dữ liệu"'], 'Checklist mobile keeps Add + Data in one action cluster');
 requireAll(floorPlanDefect, ['grid w-full grid-cols-2 gap-2', '<span className="sm:hidden">Khu/Tầng</span>', 'triggerLabel="Quản lý dữ liệu"'], 'Floor Plan mobile keeps Khu/Tầng + Data side-by-side');

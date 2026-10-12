@@ -211,8 +211,7 @@ assert.match(warehouse, /readOnly=\{!isNewMaterialDefinition && \(itemKind === '
 assert.match(warehouse, /isNewMaterialDefinition/, 'New material may declare its first unit only when its name is absent from catalog');
 const equipmentPanel = fs.readFileSync('src/components/EquipmentCatalogPanel.tsx', 'utf8');
 const equipmentService = fs.readFileSync('src/lib/equipmentCatalog.ts', 'utf8');
-assert.match(warehouse, /Vật tư &amp; Thiết bị/, 'Warehouse master settings must display the requested Vật tư & Thiết bị title');
-assert.match(warehouse, /Vật tư &amp; TB/, 'Warehouse mobile navigation must use compact Vật tư & TB title');
+assert.match(warehouse, /<span>Thiết lập<\\/span>/, 'Warehouse master settings use compact Thiết lập on desktop/mobile');
 assert.match(warehouse, /data-hnl-warehouse-kind-filter=\{key\}/, 'Keep equipment filter outside QuickSortBar');
 assert.doesNotMatch(warehouse, /filter=\{\{\s*label: 'Loại hàng'/, 'Warehouse type filter must not move into the quick sort bar');
 assert.doesNotMatch(warehouse, />Đổi ĐVT thiết bị<\/button>/, 'The old standalone equipment-unit action must be removed from stock catalog');
