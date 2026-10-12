@@ -201,7 +201,7 @@ assert.match(warehouse, /Đổi ĐVT thiết bị/, 'Equipment catalog must expo
 const unitMigration = fs.readFileSync('src/lib/warehouseUnitMigration.ts', 'utf8');
 assert.match(unitMigration, /runTransaction\(db/, 'Warehouse unit rename must use Firestore transaction');
 assert.match(unitMigration, /MAX_TRANSACTION_DOCUMENTS/, 'Oversized unit migrations must fail closed rather than partially write');
-assert.match(unitMigration, /target\.exists && Math\.abs\(target\.onHand\)/, 'Equipment unit rename must refuse merging unrelated destination balances');
+assert.match(unitMigration, /target\.exists \|\| targetLedgerRows\.length > 0/, 'Equipment unit rename must refuse reusing or merging historic destination balances');
 const warehouseTransactions = fs.readFileSync('src/lib/warehouseTransactions.ts', 'utf8');
 assert.match(warehouseTransactions, /assertCurrentWarehouseUnit\(balanceSnap\.data\(\), item\)/, 'New voucher writes must reject stale catalog units');
 assert.match(warehouseTransactions, /assertCurrentWarehouseUnit\(newBalanceSnap\.data\(\), nextItem\)/, 'Edited voucher writes must reject stale catalog units');
