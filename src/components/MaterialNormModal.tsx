@@ -98,7 +98,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   const activeMaterialNorms = React.useMemo(() => materialNorms.filter((norm) => norm.deletedAt === undefined || norm.deletedAt === null), [materialNorms]);
   const activeWorkVolumes = React.useMemo(() => (workVolumes || []).filter((volume) => volume.deletedAt === undefined || volume.deletedAt === null), [workVolumes]);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
-  const [normSortBy, setNormSortBy] = useState<'none' | 'materialName' | 'quotaQuantity' | 'stock'>('none');
+  const [normSortBy, setNormSortBy] = useState<'none' | 'materialName' | 'category' | 'unit' | 'quotaQuantity' | 'stock'>('none');
   const [normSortOrder, setNormSortOrder] = useState<'asc' | 'desc'>('asc');
   useFormatSettings();
   const [searchTerm, setSearchTerm] = useState('');
@@ -519,6 +519,13 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     if (normSortBy === 'none') return norms;
     
     return norms.sort((a, b) => {
+      if (normSortBy === 'category' || normSortBy === 'unit') {
+        const aKey = normSortBy === 'category' ? a.category : a.unit;
+        const bKey = normSortBy === 'category' ? b.category : b.unit;
+        const comp = String(aKey || '').localeCompare(String(bKey || ''), 'vi', { numeric: true, sensitivity: 'base' })
+          || a.materialName.localeCompare(b.materialName, 'vi', { numeric: true, sensitivity: 'base' });
+        return normSortOrder === 'asc' ? comp : -comp;
+      }
       if (normSortBy === 'materialName') {
         const comp = a.materialName.localeCompare(b.materialName, 'vi', { numeric: true, sensitivity: 'base' });
         return normSortOrder === 'asc' ? comp : -comp;
@@ -992,6 +999,8 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               itemCount={sortedFilteredNorms.length}
               options={[
                 { key: 'materialName', label: 'Tên vật tư', kind: 'alpha' },
+                { key: 'category', label: 'Chủng loại vật tư', kind: 'alpha' },
+                { key: 'unit', label: 'ĐVT', kind: 'alpha' },
                 { key: 'quotaQuantity', label: 'Nhu cầu định mức', kind: 'number' },
                 { key: 'stock', label: 'Số lượng nhập kho', kind: 'number' },
               ]}

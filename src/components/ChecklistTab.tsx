@@ -80,7 +80,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
   const activeChecklist = useMemo(() => checklist.filter((item) => !item.archivedAt), [checklist]);
   const [selectedFloor, setSelectedFloor] = useState<string>(floors[0] || 'Tầng 1');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [checklistSortBy, setChecklistSortBy] = useState<'none' | 'title' | 'status' | 'dueDate'>('none');
+  const [checklistSortBy, setChecklistSortBy] = useState<'none' | 'title' | 'category' | 'status' | 'dueDate'>('none');
   const [checklistSortOrder, setChecklistSortOrder] = useState<'asc' | 'desc'>('asc');
 
   // Keep selectedFloor in sync with floors. Reset category whenever the
@@ -198,6 +198,11 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
     if (checklistSortBy === 'none') return list;
     
     return list.sort((a, b) => {
+      if (checklistSortBy === 'category') {
+        const comp = a.category.localeCompare(b.category, 'vi', { numeric: true, sensitivity: 'base' })
+          || a.title.localeCompare(b.title, 'vi', { numeric: true, sensitivity: 'base' });
+        return checklistSortOrder === 'asc' ? comp : -comp;
+      }
       if (checklistSortBy === 'title') {
         const comp = a.title.localeCompare(b.title, 'vi', { numeric: true, sensitivity: 'base' });
         return checklistSortOrder === 'asc' ? comp : -comp;
@@ -573,6 +578,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
         itemCount={sortedFilteredChecklist.length}
         options={[
           { key: 'title', label: 'Nội dung', kind: 'alpha' },
+          { key: 'category', label: 'Hạng mục kiểm tra', kind: 'alpha' },
           { key: 'status', label: 'Trạng thái', kind: 'status' },
           { key: 'dueDate', label: 'Thời hạn', kind: 'deadline', defaultOrder: 'asc' },
         ]}

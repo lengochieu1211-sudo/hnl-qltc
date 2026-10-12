@@ -121,9 +121,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const hasImportAccess = roleResolved && canImportData(userRole);
   const hasNormManageAccess = roleResolved && canManageMaterialNorms(userRole);
   const [filterType, setFilterType] = useState<'all' | 'in' | 'out'>('all');
+  const [inventoryKindFilter, setInventoryKindFilter] = useState<'all' | InventoryItemKind>('all');
   useFormatSettings();
   const [searchTerm, setSearchTerm] = useState('');
-  const [inventorySortBy, setInventorySortBy] = useState<'date' | 'material' | 'location' | 'handler'>('date');
+  const [inventorySortBy, setInventorySortBy] = useState<'date' | 'kind' | 'material' | 'location' | 'handler'>('date');
   const [inventorySortOrder, setInventorySortOrder] = useState<'asc' | 'desc'>('desc');
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingInventory, setEditingInventory] = useState<InventoryItem | null>(null);
@@ -1224,18 +1225,28 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     const list = inventory.filter((item) => {
       const q = searchTerm.trim().toLocaleLowerCase('vi-VN');
       const matchesType = filterType === 'all' || item.type === filterType;
+      const matchesKind = inventoryKindFilter === 'all'
+        || (item.itemKind === 'equipment' ? 'equipment' : 'material') === inventoryKindFilter;
       const matchesSearch = !q ||
         (item.itemKind === 'equipment' ? 'thiết bị' : 'vật tư').includes(q) ||
         item.materialName.toLocaleLowerCase('vi-VN').includes(q) ||
         item.location.toLocaleLowerCase('vi-VN').includes(q) ||
         item.handler.toLocaleLowerCase('vi-VN').includes(q) ||
         item.id.toLocaleLowerCase('vi-VN').includes(q);
-      return matchesType && matchesSearch;
+      return matchesType && matchesKind && matchesSearch;
     });
 
     return list.sort((a, b) => {
       let result = 0;
       switch (inventorySortBy) {
+        case 'kind':
+          // Material and equipment are separate catalog identities. Sorting only
+          // changes the view, never the original inventory or transaction IDs.
+          result = naturalCompare(
+            a.itemKind === 'equipment' ? 'Thiết bị' : 'Vật tư',
+            b.itemKind === 'equipment' ? 'Thiết bị' : 'Vật tư',
+          ) || naturalCompare(a.materialName, b.materialName);
+          break;
         case 'material':
           result = naturalCompare(a.materialName, b.materialName);
           break;
@@ -1255,7 +1266,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       // Stable deterministic tie-breaker across PC/phone.
       return naturalCompare(a.id, b.id);
     });
-  }, [inventory, filterType, searchTerm, inventorySortBy, inventorySortOrder]);
+  }, [inventory, filterType, inventoryKindFilter, searchTerm, inventorySortBy, inventorySortOrder]);
 
   const openCreateInventory = (kind: InventoryItemKind = 'material') => {
     if (!hasEditAccess) return;
@@ -2584,7 +2595,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
           <input
             type="text"
-            placeholder="Tìm vật tư, vị trí kho, người giao..."
+            placeholder="Tìm vật tư, thiết bị, vị trí kho, người giao..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full bg-white text-xs pl-9 pr-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-500 shadow-sm"
@@ -2620,11 +2631,34 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           </div>
         </div>
 
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Lọc nhật ký kho theo loại hàng">
+          <span className="text-[11px] font-bold text-slate-600">Loại hàng:</span>
+          {([
+            { key: 'all', label: 'Tất cả' },
+            { key: 'material', label: 'Vật tư' },
+            { key: 'equipment', label: 'Thiết bị' },
+          ] as const).map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              data-hnl-warehouse-kind-filter={key}
+              aria-pressed={inventoryKindFilter === key}
+              onClick={() => setInventoryKindFilter(key)}
+              className={`min-h-8 rounded-lg border px-3 py-1 text-[11px] font-bold transition-colors ${inventoryKindFilter === key
+                ? 'border-indigo-600 bg-indigo-600 text-white'
+                : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-300'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         <QuickSortBar
           itemCount={filteredInventory.length}
           options={[
             { key: 'date', label: 'Ngày', kind: 'date', defaultOrder: 'desc' },
-            { key: 'material', label: 'Vật tư', kind: 'alpha' },
+            { key: 'kind', label: 'Loại hàng', kind: 'alpha' },
+            { key: 'material', label: 'Tên vật tư / thiết bị', kind: 'alpha' },
             { key: 'location', label: 'Vị trí / Tầng', kind: 'alpha' },
             { key: 'handler', label: 'Người thực hiện', kind: 'alpha' },
           ]}
