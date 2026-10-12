@@ -5860,7 +5860,7 @@ function AuthenticatedApp() {
       }
     }
 
-    const existingNormsById = new Map(present.materialNorms.map((norm) => [norm.id, norm] as const));
+    const existingNormsById = new Map<string, MaterialNorm>(present.materialNorms.map((norm: MaterialNorm) => [norm.id, norm] as const));
     const directUnitChanges = canonical.filter((norm) => {
       const existing = existingNormsById.get(norm.id);
       return existing && !areSameUnit(existing.unit, norm.unit);
@@ -5902,22 +5902,22 @@ function AuthenticatedApp() {
     // Enforce catalog units at the durable ledger boundary, not just the UI.
     // Renaming an existing unit is a separate ADMIN-only atomic Cloud operation.
     if (itemKind === 'material') {
-      const matchingNorms = present.materialNorms.filter((norm) =>
+      const matchingNorms: MaterialNorm[] = present.materialNorms.filter((norm: MaterialNorm) =>
         (norm.deletedAt === undefined || norm.deletedAt === null)
         && ((explicitId || legacyIdentity.materialId) === resolveNormMaterialId(norm)
           || (norm.materialName.trim().toLocaleLowerCase('vi-VN') === raw.materialName.trim().toLocaleLowerCase('vi-VN')
             && !raw.materialId))
       );
-      const distinctUnits = Array.from(new Set(matchingNorms.map((norm) => normalizeUnit(norm.unit) || norm.unit)));
+      const distinctUnits = Array.from(new Set<string>(matchingNorms.map((norm: MaterialNorm) => normalizeUnit(norm.unit) || norm.unit)));
       if (distinctUnits.length === 1 && !areSameUnit(distinctUnits[0], unit)) {
         throw new Error(`ĐVT phiếu kho (${unit}) phải theo Định mức vật tư (${distinctUnits[0]}). Hãy tải lại danh mục.`);
       }
     } else {
-      const knownUnits = Array.from(new Set(present.inventory.filter((row) =>
+      const knownUnits = Array.from(new Set<string>(present.inventory.filter((row: InventoryItem) =>
         row.itemKind === 'equipment'
         && row.id !== raw.id
         && row.materialName.trim().toLocaleLowerCase('vi-VN') === raw.materialName.trim().toLocaleLowerCase('vi-VN')
-      ).map((row) => normalizeUnit(row.unit) || row.unit)));
+      ).map((row: InventoryItem) => normalizeUnit(row.unit) || row.unit)));
       if (knownUnits.length === 1 && !areSameUnit(knownUnits[0], unit)) {
         throw new Error(`ĐVT thiết bị (${unit}) phải theo danh mục (${knownUnits[0]}). Hãy đổi tại Danh mục thiết bị.`);
       }
