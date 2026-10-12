@@ -169,6 +169,7 @@ import { confirmAsync } from './utils/confirmAsync';
 import { normalizeImportedData } from './utils/dataNormalizer';
 import { reconcileBackupSnapshot } from './utils/backupSnapshot';
 import { computeDerivedWorkVolumes } from './utils/workVolumeComputation';
+import { compareWorkVolumeManualOrder, reorderVisibleWorkVolumes } from './utils/catalogDisplayOrder';
 import { canonicalNormCategoryIds, canonicalWorkCategoryId, resolveUniqueMaterialIdentity, resolveWorkVolumeRef, validateInventoryOutProvenance, validateMaterialNormCatalog, validateWorkVolumeCatalog } from './utils/linkageIntegrity';
 import { reconcileMaterialNormWorkCategoryLinks } from './utils/projectReconciliation';
 import { createEntityId, createShortToken } from './utils/idUtils';
@@ -1473,7 +1474,7 @@ function AuthenticatedApp() {
   // Single source of truth for derived work-volume progress. The catalog keeps
   // authoritative IDs/floor scope/planned values; actual/status come from Room stages.
   const computedWorkVolumes = useMemo(
-    () => computeDerivedWorkVolumes(workVolumes, roomProgressList, floorPlans),
+    () => computeDerivedWorkVolumes(workVolumes, roomProgressList, floorPlans).sort(compareWorkVolumeManualOrder),
     [workVolumes, roomProgressList, floorPlans],
   );
 
@@ -6109,6 +6110,9 @@ function AuthenticatedApp() {
       ...item,
       id: newId,
       workCategoryId: item.workCategoryId || newId,
+      order: Math.max(0, ...present.workVolumes.map(work =>
+        typeof work.order === 'number' && Number.isSafeInteger(work.order) && work.order > 0 ? work.order : 0),
+        present.workVolumes.length) + 1,
       unit: normalizeUnit(item.unit) || item.unit,
       planned: Number.isFinite(Number(item.planned)) ? Math.max(0, Number(item.planned)) : 0,
       // actual/status are derived from Room/Stage progress, never authored in the catalog.
@@ -6147,6 +6151,7 @@ function AuthenticatedApp() {
       id: existing.id,
       // Durable category identity is immutable after creation.
       workCategoryId: canonicalId,
+      order: existing.order,
       unit: normalizeUnit(item.unit) || item.unit,
       planned: Number.isFinite(Number(item.planned)) ? Math.max(0, Number(item.planned)) : 0,
       actual: existing.actual || 0,
@@ -6238,6 +6243,7 @@ function AuthenticatedApp() {
         ...item,
         id: existing?.id || item.id,
         workCategoryId: existing ? canonicalWorkCategoryId(existing) : (item.workCategoryId || item.id),
+        order: existing ? existing.order : item.order,
         unit: normalizeUnit(item.unit) || item.unit,
         planned: Math.max(0, Number(item.planned) || 0),
         actual: existing?.actual || 0,
@@ -6258,6 +6264,21 @@ function AuthenticatedApp() {
       return { ...prev, workVolumes: Array.from(prevById.values()) };
     });
     return true;
+  };
+
+  /**
+   * ADMIN-only reorder. The input is a permutation of all VISIBLE item IDs;
+   * hidden category rows retain their exact positions in the full list.
+   * Assign durable numeric ranks once, so realtime/Firestore cache and multi-
+   * device reload do not fall back to the Firestore document-ID order.
+   */
+  const handleReorderWorkVolumes = (visibleOrderedIds: string[]) => {
+    if (!isProjectRoleResolved || !canManageWorkVolumeStructure(currentUserRole)) return;
+    if (visibleOrderedIds.length < 2 || new Set(visibleOrderedIds).size !== visibleOrderedIds.length) return;
+    updateAppData(prev => {
+      const next = reorderVisibleWorkVolumes(prev.workVolumes, visibleOrderedIds);
+      return next ? { ...prev, workVolumes: next } : prev;
+    });
   };
 
   const handleUpdateActualVolume = (_id: string, _newActual: number) => {
@@ -7704,6 +7725,7 @@ function AuthenticatedApp() {
               onAddWorkVolume={handleAddWorkVolume}
               onSaveWorkVolume={handleSaveWorkVolume}
               onImportWorkVolumes={handleImportWorkVolumes}
+              onReorderWorkVolumes={handleReorderWorkVolumes}
               onUpdateActualVolume={handleUpdateActualVolume}
               onDeleteWorkVolume={handleDeleteWorkVolume}
               onDeleteMultipleWorkVolumes={handleDeleteMultipleWorkVolumes}

@@ -1,4 +1,6 @@
 import { gridRectKeys, gridSelectionTSV, parseGridTSV, quickGridCellKey } from '../src/utils/quickGridClipboard';
+import { compareMaterialGroupPriority, compareWorkVolumeManualOrder, isAccessoryCategory,
+  reorderVisibleWorkVolumes } from '../src/utils/catalogDisplayOrder';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
@@ -18,6 +20,50 @@ const quickSortBar = fs.readFileSync('src/components/QuickSortBar.tsx', 'utf8');
 const catalogTemplatePicker = fs.readFileSync('src/components/CatalogTemplatePickerModal.tsx', 'utf8');
 const dxf = fs.readFileSync('src/utils/dxfRoomDetection.ts', 'utf8');
 const pdfRoomDetection = fs.readFileSync('src/utils/pdfRoomDetection.ts', 'utf8');
+
+
+/** Golden: display-order-only changes must preserve IDs, values and hidden rows. */
+assert.equal(isAccessoryCategory('Phụ kiện & Vít'), true);
+assert.equal(isAccessoryCategory('Vật tư phụ khác'), true);
+assert.equal(isAccessoryCategory('Khung xương'), false);
+assert.equal(isAccessoryCategory('Sơn bả & Mối nối'), false);
+assert.ok(compareMaterialGroupPriority('Phụ kiện & Vít', 'Khung xương') > 0);
+assert.ok(compareMaterialGroupPriority('Sơn bả', 'Vật tư phụ khác') < 0);
+const workOrderBaseline = [
+  { id: 'HM-A', title: 'Trần', order: undefined, planned: 350 },
+  { id: 'HM-B', title: 'Vách', order: undefined, planned: 200 },
+  { id: 'HM-C', title: 'Trần phụ', order: undefined, planned: 115 },
+  { id: 'HM-D', title: 'Sơn', order: undefined, planned: 80 },
+];
+const movedWorkOrder = reorderVisibleWorkVolumes(workOrderBaseline, ['HM-C', 'HM-A']);
+assert.ok(movedWorkOrder, 'Manual ordering must accept a valid visible subset');
+assert.deepEqual(movedWorkOrder.map(item => item.id), ['HM-C','HM-B','HM-A','HM-D'],
+  'Manual reorder must keep unrelated hidden categories in their original slots');
+assert.deepEqual(movedWorkOrder.map(item => item.order), [1,2,3,4],
+  'Manual rank must become durable for all legacy WorkVolume rows on first reorder');
+assert.deepEqual(movedWorkOrder.map(item => item.planned), [115,200,350,80],
+  'Manual reorder must never change planned quantities');
+assert.deepEqual([...movedWorkOrder].sort(compareWorkVolumeManualOrder).map(item => item.id),
+  ['HM-C','HM-B','HM-A','HM-D'], 'Persisted order must replay on another device');
+assert.equal(reorderVisibleWorkVolumes(workOrderBaseline, ['HM-C','HM-C']), null,
+  'Duplicate IDs must fail closed');
+assert.equal(reorderVisibleWorkVolumes(workOrderBaseline, ['HM-C','missing']), null,
+  'Stale/unknown IDs must fail closed');
+assert.equal(reorderVisibleWorkVolumes(workOrderBaseline, ['HM-A','HM-C']), null,
+  'No-op reorder must not create unnecessary Firestore writes');
+const volumeOrderApp = fs.readFileSync('src/App.tsx', 'utf8');
+const volumeOrderCloud = fs.readFileSync('src/lib/firebaseBase.ts', 'utf8');
+assert.match(volume, /<MoveOrderControls/, 'WorkVolume must reuse room-style up\/down buttons');
+assert.match(volume, /draggable=\{canReorderVolumes\}/, 'WorkVolume supports drag only when manual ordering is allowed');
+assert.match(volume, /hasStructureManageAccess && Boolean\(onReorderWorkVolumes\) && volSortBy === 'none'/,
+  'Only ADMIN may reorder, and never while viewing an alternate quick sort');
+assert.match(volume, /resetLabel="Thứ tự thủ công"/, 'Quick sort must reveal the manual order');
+assert.match(volumeOrderApp, /reorderVisibleWorkVolumes\(prev\.workVolumes, visibleOrderedIds\)/,
+  'APP must validate and persist work-volume order without changing IDs');
+assert.match(volumeOrderApp, /order: existing\.order/, 'Editing an existing work category must preserve its manual rank');
+assert.match(volumeOrderCloud, /compareWorkVolumeManualOrder/, 'Firestore cache/live streams must use stable work category order');
+assert.match(warehouse, /compareMaterialGroupPriority/, 'Warehouse must put accessory groups after main materials by default');
+assert.match(materialNormModal, /compareMaterialGroupPriority/, 'Material norm display must also place accessory groups last');
 
 assert.match(quick, /Ctrl\+C \/ Ctrl\+V vùng ô từ Excel/, 'Quick grid must advertise spreadsheet paste');
 // Warehouse spreadsheet selection is opt-in; never mutate other Quick Edit workflows.

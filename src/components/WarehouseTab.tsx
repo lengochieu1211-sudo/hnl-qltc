@@ -36,6 +36,7 @@ import { normalizeUnit } from '../utils/unitUtils';
 import { canonicalWorkCategoryId, normalizeLinkText } from '../utils/linkageIntegrity';
 import { assertSafeExcelImportFile, parseExcelNumberRecord, parseExcelStringArray, parseExcelStringRecord, readExcelFormulaByHeaders, sameStringSet } from '../utils/excelImportUtils';
 import { QuickSortBar } from './QuickSortBar';
+import { compareMaterialGroupPriority } from '../utils/catalogDisplayOrder';
 import { equipmentIdentityKey, saveEquipmentCatalogBatch, subscribeEquipmentCatalog, type EquipmentCatalogRecord, type EquipmentCatalogInput } from '../lib/equipmentCatalog';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import { DataManagementMenu } from './DataManagementMenu';
@@ -350,11 +351,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           break;
         case 'default':
         default:
-          return naturalCompare(a.category, b.category) || naturalCompare(a.materialName, b.materialName) || naturalCompare(a.materialKey, b.materialKey);
+          return compareMaterialGroupPriority(a.category, b.category) || naturalCompare(a.category, b.category) || naturalCompare(a.materialName, b.materialName) || naturalCompare(a.materialKey, b.materialKey);
       }
       if (materialNeedSortOrder === 'desc') comparison = -comparison;
       if (comparison !== 0) return comparison;
-      return naturalCompare(a.category, b.category) || naturalCompare(a.materialName, b.materialName) || naturalCompare(a.materialKey, b.materialKey);
+      return compareMaterialGroupPriority(a.category, b.category) || naturalCompare(a.category, b.category) || naturalCompare(a.materialName, b.materialName) || naturalCompare(a.materialKey, b.materialKey);
     });
   }, [materialNeedResult.lines, materialNeedSearchTerm, materialNeedSortBy, materialNeedSortOrder]);
 
@@ -932,7 +933,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     });
     return Array.from(byKey.values())
       .filter((item) => !q || normalizeMaterialSearch(`${item.name} ${item.category} ${item.unit}`).includes(q))
-      .sort((a, b) => naturalCompare(a.name, b.name));
+      .sort((a, b) => compareMaterialGroupPriority(a.category, b.category)
+        || naturalCompare(a.category, b.category) || naturalCompare(a.name, b.name));
   }, [warehouseCatalogTab, warehouseCatalogSearch, equipmentCatalog, equipmentMaster, materialNorms]);
 
 
@@ -1070,7 +1072,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     const direction = warehouseCatalogSortOrder === 'asc' ? 1 : -1;
     return rows.slice().sort((a, b) => {
       if (warehouseCatalogSortBy === 'name') {
-        return direction * naturalCompare(a.name, b.name);
+        return warehouseCatalogTab === 'material'
+          ? compareMaterialGroupPriority(a.category, b.category) || direction * naturalCompare(a.name, b.name)
+          : direction * naturalCompare(a.name, b.name);
       }
       if (warehouseCatalogSortBy === 'category') {
         return direction * (naturalCompare(a.category, b.category) || naturalCompare(a.name, b.name));
