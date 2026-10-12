@@ -40,6 +40,7 @@ import { getDeviceId, getDeviceName } from '../utils/deviceIdentity';
 import { cleanupTransientLocalStorage, estimateLocalStorageBytes } from '../utils/storage';
 import { isSuperAdminEmail } from '../config/superAdmin';
 import { REALTIME_COLLECTIONS } from '../config/realtimeCollections';
+import { compareWorkVolumeManualOrder } from '../utils/catalogDisplayOrder';
 import { formatDateTime } from '../utils/dateFormatter';
 import { CURRENT_DATA_SCHEMA_VERSION, getPendingDataSchemaMigrations, readDataSchemaVersion } from '../config/dataSchema';
 import { clearRememberedVerifiedAuthIdentity } from '../utils/offlineAccess';
@@ -1967,6 +1968,7 @@ export async function loadProjectFromFirestoreCache(projectId: string): Promise<
         .map((item) => ({ id: item.id, ...item.data() }))
         .filter((item: any) => item?.deleted !== true && !item?.deletedAt);
       if (stateKey === 'floorPlans') list.sort((a: any, b: any) => Number(a.order || 0) - Number(b.order || 0));
+      if (stateKey === 'workVolumes') list.sort(compareWorkVolumeManualOrder);
       data[stateKey] = list;
       recordCount += list.length;
     } catch (_) {
@@ -3213,6 +3215,7 @@ export async function fetchProjectFromCloud(projectId: string, options?: { serve
         if (stateKey === 'floorPlans' && Array.isArray(list)) {
           list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
         }
+        if (stateKey === 'workVolumes') list.sort(compareWorkVolumeManualOrder);
         payload[stateKey] = list;
       }
 
@@ -3313,7 +3316,8 @@ export function subscribeToProjectRealtime(
           const wasReady = financialReady;
           financialReady = true;
           if (workVolumeRaw.size > 0) {
-            const merged = Array.from(workVolumeRaw.values()).map(mergeWorkVolumeFinancials);
+            const merged = Array.from(workVolumeRaw.values()).map(mergeWorkVolumeFinancials)
+              .sort(compareWorkVolumeManualOrder);
             onSubcollectionUpdate('workVolumes', merged, workVolumeInitialPending && !wasReady, false);
             workVolumeInitialPending = false;
           }
@@ -3351,6 +3355,7 @@ export function subscribeToProjectRealtime(
             if (stateKey === 'floorPlans') {
               items.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
             }
+            if (stateKey === 'workVolumes') items.sort(compareWorkVolumeManualOrder);
             if (stateKey === 'workVolumes' && includeFinancials && !financialReady) {
               workVolumeInitialPending = true;
               isFirst = false;
