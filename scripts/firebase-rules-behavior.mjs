@@ -325,6 +325,9 @@ try {
   await expectAllowed('EDITOR updates warehouse operational record', () => updateDoc(inventoryRef, {
     quantity: 12, revision: 2, updatedAt: invUpdatedAt + 10,
   }));
+  await expectDenied('EDITOR cannot rewrite warehouse unit', () => updateDoc(inventoryRef, {
+    unit: 'Hộp', revision: 3, updatedAt: invUpdatedAt + 20,
+  }));
   await expectDenied('EDITOR cannot soft-delete warehouse business record', () => updateDoc(inventoryRef, {
     deleted: true, deletedAt: Date.now(), revision: 3, updatedAt: invUpdatedAt + 20,
   }));
