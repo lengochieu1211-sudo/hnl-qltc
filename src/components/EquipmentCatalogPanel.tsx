@@ -154,7 +154,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({ projectId, inventory, c
     {notice && <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">{notice}</p>}
     {status === 'loading' && <p className="text-xs text-slate-500">Đang tải thông tin thiết bị...</p>}
     {status === 'error' && <p role="alert" className="text-xs text-rose-700">Không thể tải danh mục thiết bị: {error}. Không cho ghi khi chưa xác minh dữ liệu Cloud.</p>}
-    {status === 'ready' && <div className="max-h-[44vh] space-y-2 overflow-y-auto">
+    {status === 'ready' && !edit && <div className="max-h-[44vh] space-y-2 overflow-y-auto">
       {items.length === 0 && <p className="rounded-lg border border-dashed p-4 text-xs text-slate-500">Chưa có thiết bị nào. ADMIN có thể thêm thiết bị mà chưa cần nhập kho.</p>}
       {items.map(item => <div key={item.id || equipmentIdentityKey(item.name)} className="flex items-start justify-between gap-2 rounded-xl border border-slate-200 bg-white p-3">
         <div className="min-w-0"><p className="text-xs font-extrabold text-slate-900 break-words">{item.name} · {item.unit}</p>
