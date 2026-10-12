@@ -6066,7 +6066,7 @@ function AuthenticatedApp() {
   const handleImportInventory = async (importedInventory: InventoryItem[]) => {
     if (!isProjectRoleResolved || !canImportData(currentUserRole)) throw new Error('Chỉ ADMIN được nhập dữ liệu kho hàng loạt.');
     // Preflight the complete batch before the first Firestore/local write.
-    const existingItemsById = new Map(present.inventory.map((item) => [item.id, item] as const));
+    const existingItemsById = new Map<string, InventoryItem>(present.inventory.map((item: InventoryItem) => [item.id, item] as const));
     const alteredUnit = importedInventory.find((item) => {
       const existing = existingItemsById.get(item.id);
       return existing && !areSameUnit(existing.unit, item.unit);
