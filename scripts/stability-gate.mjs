@@ -369,16 +369,21 @@ pass('warehouse transaction/derived-balance safety engine is wired into runtime'
 // inventory creator is directly bound to onClick. An event is not an item kind.
 requireAll(warehouseTab, [
   "onClick={() => openCreateInventory('material')}",
-  "openCreateInventory('equipment')",
+  "(['material', 'equipment'] as InventoryItemKind[]).map",
+  "onClick={() => {",
+  "setItemKind(kind);",
   "const openCreateInventory = (kind: InventoryItemKind = 'material') =>",
   'setItemKind(kind);',
   "const editingKind: InventoryItemKind = item.itemKind === 'equipment' ? 'equipment' : 'material';",
   'setItemKind(editingKind);',
-], 'Warehouse voucher default material, equipment catalog route and edit-kind preservation');
+], 'Warehouse voucher default material, chooser for equipment, and edit-kind preservation');
 if (warehouseTab.includes('onClick={openCreateInventory}')) {
   fail('Warehouse create button must not pass a React click event as itemKind');
 }
-pass('Warehouse create default event regression: material by default, equipment/edit preserved');
+if (warehouseTab.includes('data-hnl-primary-action="warehouse-equipment-create"')) {
+  fail('Stock catalogue must not create an equipment voucher as if it were equipment master data');
+}
+pass('Warehouse voucher create default event regression: material by default, item-kind chooser and edit-kind preserved; stock catalogue remains read-only');
 requireAll(warehouseTab, [
   'data-hnl-warehouse-voucher-id={item.id}',
   'title={`Mã phiếu: ${item.id}`}',
