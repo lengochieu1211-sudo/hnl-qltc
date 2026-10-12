@@ -2017,7 +2017,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               title={hasNormManageAccess ? 'Chỉnh thông tin vật tư, thiết bị và định mức' : 'Xem vật tư, thiết bị và định mức'}
             >
               <Sliders className="h-4 w-4 shrink-0 text-slate-600" />
-              <span>Thiết lập</span>
+              <span className="sm:hidden">Vật tư/T.bị</span>
+              <span className="hidden sm:inline">Vật tư &amp; Thiết bị</span>
             </button>
             <DataManagementMenu
               fillMobile
@@ -2084,16 +2085,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-xs text-slate-800"
               />
             </div>
-            {hasEditAccess && warehouseCatalogTab === 'equipment' && (
-              <button
-                type="button"
-                onClick={() => { setShowWarehouseCatalog(false); openCreateInventory('equipment'); setIsNewEquipment(true); setMaterialName(''); setCustomMaterial(''); }}
-                data-hnl-primary-action="warehouse-equipment-create"
-                className="inline-flex shrink-0 items-center justify-center gap-1 rounded-xl bg-blue-600 px-3 py-2.5 text-xs font-bold text-white hover:bg-blue-700"
-              >
-                <Plus className="h-4 w-4" /> Thêm thiết bị mới
-              </button>
-            )}
           </div>
 
           <QuickSortBar<WarehouseCatalogSortKey>
@@ -2137,13 +2128,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   <div key={item.key} className="grid grid-cols-[minmax(180px,1.6fr)_150px_52px_64px_64px_120px_76px] items-center gap-2 px-3 py-2.5 text-xs">
                     <div className="min-w-0">
                       <div className="whitespace-normal break-words font-bold leading-snug text-slate-800">{item.name}</div>
-                      {warehouseCatalogTab === 'equipment' && (
-                        <button type="button"
-                          onClick={() => { setShowWarehouseCatalog(false); onOpenNormModal('equipment'); }}
-                          className="mt-1 text-[10px] font-bold text-indigo-700 underline hover:text-indigo-900"
-                          title="Chỉnh thông tin tại Vật tư & Thiết bị">Chỉnh thông tin</button>
-                      )}
-
                     </div>
                     <span className="min-w-0 whitespace-normal break-words text-slate-500">{item.category}</span>
                     <span className="break-words text-slate-600">{item.unit}</span>
@@ -2160,7 +2144,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           </div>
           {warehouseCatalogTab === 'equipment' && (
             <p className="text-[10px] leading-relaxed text-slate-500">
-              Thiết bị được dùng lại ở các phiếu nhập/xuất nhưng không tham gia Định mức vật tư hoặc Gợi ý vật tư.
+              Chỉ xem nhập, xuất, tồn kho tại đây. Thêm hoặc sửa thông số, nhóm và ĐVT thiết bị ở Vật tư &amp; Thiết bị. Thiết bị không tham gia Định mức vật tư.
             </p>
           )}
         </div>
