@@ -557,6 +557,11 @@ service cloud.firestore {
         allow update: if canEdit(projectId)
           && request.resource.data.id == resource.data.id
           && request.resource.data.projectId == resource.data.projectId
+          // Only ADMIN may rename the catalog's authoritative unit/alias.
+          && (isAdmin(projectId) || (
+            (!('unit' in resource.data) || (('unit' in request.resource.data) && request.resource.data.unit == resource.data.unit))
+            && (!('renamedTo' in resource.data) || (('renamedTo' in request.resource.data) && request.resource.data.renamedTo == resource.data.renamedTo))
+          ))
           && request.resource.data.onHand is number
           && request.resource.data.onHand >= 0
           && request.resource.data.revision > resource.data.revision
@@ -596,6 +601,10 @@ service cloud.firestore {
           )
           && (!isCoreBusinessCollection(collectionName) || coreCreateLifecycleIsValid(recordId));
         allow update: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
+          // Operational editors may correct a voucher, but cannot change its unit.
+          // Atomic catalog rename writes are ADMIN-owned.
+          && (collectionName != 'inventory' || isAdmin(projectId)
+            || (!('unit' in resource.data) || (('unit' in request.resource.data) && request.resource.data.unit == resource.data.unit)))
           && !isLegacyReadOnlyCollection(collectionName)
           && (collectionName != 'work_volumes' || !('unitPrice' in request.resource.data))
           && (
