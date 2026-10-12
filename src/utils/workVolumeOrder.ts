@@ -2,7 +2,7 @@ import type { WorkVolume } from '../types';
 
 /** Stable order on every device. Legacy records without rank preserve their
  * incoming sequence until an ADMIN explicitly orders the entire catalog. */
-export function sortWorkVolumesByManualOrder<T extends Pick<WorkVolume, 'displayOrder'>>(items: readonly T[]): T[] {
+export function sortWorkVolumesByManualOrder<T extends Pick<WorkVolume, 'id' | 'displayOrder'>>(items: readonly T[]): T[] {
   const maxRank = items.reduce((max, item) =>
     typeof item.displayOrder === 'number' && Number.isFinite(item.displayOrder)
       ? Math.max(max, item.displayOrder) : max, -1);
