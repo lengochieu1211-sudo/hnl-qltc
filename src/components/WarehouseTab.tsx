@@ -2137,32 +2137,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   <div key={item.key} className="grid grid-cols-[minmax(180px,1.6fr)_150px_52px_64px_64px_120px_76px] items-center gap-2 px-3 py-2.5 text-xs">
                     <div className="min-w-0">
                       <div className="whitespace-normal break-words font-bold leading-snug text-slate-800">{item.name}</div>
-                      {warehouseCatalogTab === 'equipment' && hasNormManageAccess && onRenameWarehouseUnit && (
-                        <button
-                          type="button"
-                          className="mt-1 text-[10px] font-bold text-indigo-700 underline hover:text-indigo-900"
-                          onClick={async () => {
-                            const entered = window.prompt(
-                              `Đổi ĐVT cho thiết bị “${item.name}” (hiện tại: ${item.unit}).\nChỉ đổi NHÃN đơn vị theo tỷ lệ 1:1; không quy đổi số lượng. Nhập ĐVT mới:`,
-                              item.unit,
-                            );
-                            if (entered === null) return;
-                            const newUnit = normalizeUnit(entered) || entered.trim();
-                            if (!newUnit || newUnit === (normalizeUnit(item.unit) || item.unit)) return;
-                            if (!(await confirmAsync(
-                              `Đổi ĐVT của “${item.name}” từ ${item.unit} thành ${newUnit} trên TẤT CẢ phiếu Nhập/Xuất và tồn kho?\n\nSố lượng không đổi (1:1). Không thực hiện nếu cần quy đổi Hộp/Con, Bộ/Cái, v.v.`
-                            ))) return;
-                            try {
-                              const result = await onRenameWarehouseUnit({
-                                kind: 'equipment', materialName: item.name, fromUnit: item.unit, toUnit: newUnit,
-                              });
-                              alert(`Đã đổi ĐVT ${result.vouchers} phiếu thiết bị. Dữ liệu sẽ cập nhật realtime.`);
-                            } catch (error: any) {
-                              alert(`Đổi ĐVT thiết bị thất bại: ${error?.message || String(error)}\nKhông có thay đổi một phần.`);
-                            }
-                          }}
-                        >Đổi ĐVT thiết bị</button>
-                      )}
+
                     </div>
                     <span className="min-w-0 whitespace-normal break-words text-slate-500">{item.category}</span>
                     <span className="break-words text-slate-600">{item.unit}</span>
@@ -2192,7 +2167,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         open={showQuickEdit}
         title="Bảng chỉnh nhanh · Kho vật tư & thiết bị"
         subtitle={quickEditMode === 'equipment'
-          ? 'Khai báo nhanh thông số thiết bị. ĐVT và tên cũ được khóa; không thay đổi phiếu/tồn kho.'
+          ? 'Chỉnh nhanh thông số thiết bị. Tên và ĐVT cũ được khóa để bảo vệ lịch sử nhập/xuất và tồn kho.'
           : quickEditMode === 'stock'
           ? 'Tồn kho là số tính từ Tổng nhập - Tổng xuất và luôn chỉ đọc.'
           : quickEditMode === 'norms'
