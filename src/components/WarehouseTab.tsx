@@ -2012,12 +2012,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               <span className="hidden sm:inline">Danh mục kho</span>
             </button>
             <button
-              onClick={onOpenNormModal}
+              onClick={() => onOpenNormModal('material')}
               className="flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900 active:scale-[0.99] lg:px-3 lg:text-xs"
-              title={hasNormManageAccess ? 'Quản lý danh mục vật tư, thiết bị và định mức' : 'Xem danh mục vật tư, thiết bị và định mức'}
+              title={hasNormManageAccess ? 'Chỉnh thông tin vật tư, thiết bị và định mức' : 'Xem vật tư, thiết bị và định mức'}
             >
               <Sliders className="h-4 w-4 shrink-0 text-slate-600" />
-              <span>Thiết lập</span>
+              <span>Vật tư &amp; Thiết bị</span>
             </button>
             <DataManagementMenu
               fillMobile
@@ -2131,12 +2131,18 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               <div className="max-h-[46vh] divide-y divide-slate-100 overflow-y-auto">
                 {warehouseCatalogStockRows.length === 0 ? (
                   <div className="px-3 py-8 text-center text-xs text-slate-500">
-                    {warehouseCatalogTab === 'equipment' ? 'Chưa có thiết bị. Thiết bị sẽ được lưu vào danh mục sau giao dịch đầu tiên.' : 'Không có vật tư phù hợp.'}
+                    {warehouseCatalogTab === 'equipment' ? 'Chưa có thiết bị. Bạn có thể thêm trước trong Vật tư & Thiết bị.' : 'Không có vật tư phù hợp.'}
                   </div>
                 ) : warehouseCatalogStockRows.map((item) => (
                   <div key={item.key} className="grid grid-cols-[minmax(180px,1.6fr)_150px_52px_64px_64px_120px_76px] items-center gap-2 px-3 py-2.5 text-xs">
                     <div className="min-w-0">
                       <div className="whitespace-normal break-words font-bold leading-snug text-slate-800">{item.name}</div>
+                      {warehouseCatalogTab === 'equipment' && (
+                        <button type="button"
+                          onClick={() => { setShowWarehouseCatalog(false); onOpenNormModal('equipment'); }}
+                          className="mt-1 text-[10px] font-bold text-indigo-700 underline hover:text-indigo-900"
+                          title="Chỉnh thông tin tại Vật tư & Thiết bị">Chỉnh thông tin</button>
+                      )}
 
                     </div>
                     <span className="min-w-0 whitespace-normal break-words text-slate-500">{item.category}</span>
