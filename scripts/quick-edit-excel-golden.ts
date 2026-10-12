@@ -188,13 +188,13 @@ assert.match(crew, /triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit=\{qu
 assert.match(warehouse, /inventoryKindFilter, setInventoryKindFilter/, 'Warehouse must have an independent material/equipment filter');
 assert.match(warehouse, /matchesType && matchesKind && matchesSearch/, 'Warehouse kind filtering must combine with receipt/issue and search filters');
 assert.match(warehouse, /data-hnl-warehouse-kind-filter=\{key\}/, 'Warehouse must expose the type filter on PC and mobile');
-assert.match(warehouse, /key: 'kind', label: 'Loại hàng'/, 'Warehouse must support quick sort by material/equipment kind');
+assert.doesNotMatch(warehouse, /key: 'kind', label: 'Loại hàng'/, 'Warehouse must NOT duplicate the separate material/equipment filter in QuickSortBar');
 assert.match(warehouse, /key: 'material', label: 'Tên vật tư \/ thiết bị'/, 'Warehouse sort label must cover both materials and equipment');
 assert.match(materialNormModal, /key: 'category', label: 'Chủng loại vật tư'/, 'Material catalog quick sort must support category');
 assert.match(materialNormModal, /key: 'unit', label: 'ĐVT'/, 'Material catalog quick sort must support unit');
 assert.match(checklist, /key: 'category', label: 'Hạng mục kiểm tra'/, 'Checklist quick sort must support category without changing stored order');
 
-assert.match(warehouse, /Định mức theo Hạng mục/, 'Warehouse quick edit must expose the safe per-work-category norm table');
+assert.match(warehouse, /Định mức vật tư/, 'Warehouse quick edit must expose the safe per-work-category norm table');
 assert.match(warehouse, /Nhập kho/, 'Warehouse quick edit must have inbound ledger table');
 assert.match(warehouse, /Xuất kho/, 'Warehouse quick edit must have outbound ledger table');
 assert.match(warehouse, /Tồn kho 🔒/, 'Warehouse stock must be visibly read-only');
