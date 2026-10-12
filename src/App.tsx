@@ -5796,6 +5796,10 @@ function AuthenticatedApp() {
     if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được sửa định mức vật tư.'); return; }
     const existing = present.materialNorms.find((norm) => norm.id === id);
     if (!existing) return;
+    if (!areSameUnit(existing.unit, updated.unit)) {
+      alert('Đổi ĐVT phải dùng chức năng Đổi đơn vị tại Định mức để đồng bộ toàn bộ phiếu kho; không sửa riêng định mức.');
+      return;
+    }
     const candidate = normalizeMaterialNormCandidate({
       ...existing,
       ...updated,
@@ -5856,6 +5860,15 @@ function AuthenticatedApp() {
       }
     }
 
+    const existingNormsById = new Map(present.materialNorms.map((norm) => [norm.id, norm] as const));
+    const directUnitChanges = canonical.filter((norm) => {
+      const existing = existingNormsById.get(norm.id);
+      return existing && !areSameUnit(existing.unit, norm.unit);
+    });
+    if (directUnitChanges.length) {
+      alert('Không nhập đè ĐVT qua Excel/Bảng chỉnh nhanh. Hãy đổi ĐVT tại từng vật tư trong Định mức để cập nhật phiếu nhập/xuất và số dư cùng lúc.');
+      return;
+    }
     const issues = validateMaterialNormCatalog(canonical, present.workVolumes);
     if (issues.length > 0) {
       alert(`Import định mức bị hủy trước khi ghi:\n${issues.map((issue) => `• ${issue.message}`).join('\n')}`);
@@ -5884,6 +5897,30 @@ function AuthenticatedApp() {
       throw new Error(legacyIdentity.state === 'ambiguous'
         ? `Vật tư ${raw.materialName} (${unit}) khớp nhiều materialId; không được first-match.`
         : `Vật tư ${raw.materialName} (${unit}) chưa có materialId/định mức duy nhất.`);
+    }
+
+    // Enforce catalog units at the durable ledger boundary, not just the UI.
+    // Renaming an existing unit is a separate ADMIN-only atomic Cloud operation.
+    if (itemKind === 'material') {
+      const matchingNorms = present.materialNorms.filter((norm) =>
+        (norm.deletedAt === undefined || norm.deletedAt === null)
+        && ((explicitId || legacyIdentity.materialId) === resolveNormMaterialId(norm)
+          || (norm.materialName.trim().toLocaleLowerCase('vi-VN') === raw.materialName.trim().toLocaleLowerCase('vi-VN')
+            && !raw.materialId))
+      );
+      const distinctUnits = Array.from(new Set(matchingNorms.map((norm) => normalizeUnit(norm.unit) || norm.unit)));
+      if (distinctUnits.length === 1 && !areSameUnit(distinctUnits[0], unit)) {
+        throw new Error(`ĐVT phiếu kho (${unit}) phải theo Định mức vật tư (${distinctUnits[0]}). Hãy tải lại danh mục.`);
+      }
+    } else {
+      const knownUnits = Array.from(new Set(present.inventory.filter((row) =>
+        row.itemKind === 'equipment'
+        && row.id !== raw.id
+        && row.materialName.trim().toLocaleLowerCase('vi-VN') === raw.materialName.trim().toLocaleLowerCase('vi-VN')
+      ).map((row) => normalizeUnit(row.unit) || row.unit)));
+      if (knownUnits.length === 1 && !areSameUnit(knownUnits[0], unit)) {
+        throw new Error(`ĐVT thiết bị (${unit}) phải theo danh mục (${knownUnits[0]}). Hãy đổi tại Danh mục thiết bị.`);
+      }
     }
 
     let normalized: InventoryItem = {
