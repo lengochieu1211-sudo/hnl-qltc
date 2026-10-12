@@ -1867,8 +1867,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       const candidateEquipment = resolvedItemKind === 'equipment'
         ? equipmentCatalog.filter((item) => normalizeLinkText(item.name) === normalizeLinkText(materialNameValue))
         : [];
-      const knownEquipment = candidateEquipment.length === 1 ? candidateEquipment[0] : undefined;
-      if (candidateEquipment.length > 1) throw new Error('Thiết bị “' + materialNameValue + '” có nhiều ĐVT trong lịch sử. Cần đối chiếu danh mục trước.');
+      const knownEquipment = candidateEquipment.find((item) =>
+        (normalizeUnit(item.unit) || item.unit) === (normalizeUnit(String(row.unit || '')) || String(row.unit || ''))
+      ) || (candidateEquipment.length === 1 ? candidateEquipment[0] : undefined);
+      if (candidateEquipment.length > 1 && !knownEquipment) {
+        throw new Error('Thiết bị “' + materialNameValue + '” có nhiều ĐVT. Hãy chọn đúng thiết bị và ĐVT trong form chi tiết.');
+      }
       const effectiveUnit = norm?.unit || knownEquipment?.unit || String(row.unit || '').trim();
       if (resolvedItemKind === 'material' && !norm) {
         throw new Error('Vật tư “' + materialNameValue + '” chưa có định mức duy nhất hoặc đang trùng mã/ĐVT; hãy đối chiếu danh mục trước.');

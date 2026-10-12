@@ -5920,7 +5920,7 @@ function AuthenticatedApp() {
         item.itemKind === 'equipment'
         && normalizeMaterialNameKey(item.materialName) === normalizeMaterialNameKey(raw.materialName)
       ).map((item) => normalizeUnit(item.unit) || item.unit)));
-      if (equipmentUnits.length > 1 || (equipmentUnits.length && !equipmentUnits.some((known) => areSameUnit(String(known), unit)))) {
+      if (equipmentUnits.length && !equipmentUnits.some((known) => areSameUnit(String(known), unit))) {
         throw new Error('Thiết bị đã tồn tại với ĐVT khác. Dùng Đổi ĐVT tại Danh mục thiết bị.');
       }
     }
@@ -6063,16 +6063,25 @@ function AuthenticatedApp() {
     if (!isProjectRoleResolved || !canImportData(currentUserRole)) throw new Error('Chỉ ADMIN được nhập dữ liệu kho hàng loạt.');
     // Preflight the complete batch before the first Firestore/local write.
     const normalizedItems = importedInventory.map((item) => prepareInventoryLedgerItem(item));
-    const equipmentUnitsByName = new Map<string, string>();
-    [...present.inventory, ...normalizedItems].forEach((item) => {
-      if (item.itemKind !== 'equipment') return;
+    // Existing legacy equipment may legitimately have several packages/units
+    // under one name. Keep those identities usable, but do not invent a new one
+    // through Excel: a new unit needs explicit catalog workflow.
+    const equipmentUnitsByName = new Map<string, Set<string>>();
+    present.inventory.filter((item) => item.itemKind === 'equipment').forEach((item) => {
+      const nameKey = normalizeMaterialNameKey(item.materialName);
+      const units = equipmentUnitsByName.get(nameKey) || new Set<string>();
+      units.add(normalizeUnit(item.unit) || item.unit);
+      equipmentUnitsByName.set(nameKey, units);
+    });
+    normalizedItems.filter((item) => item.itemKind === 'equipment').forEach((item) => {
       const nameKey = normalizeMaterialNameKey(item.materialName);
       const unit = normalizeUnit(item.unit) || item.unit;
-      const existingUnit = equipmentUnitsByName.get(nameKey);
-      if (existingUnit && !areSameUnit(existingUnit, unit)) {
-        throw new Error('Import kho bị hủy: thiết bị “' + item.materialName + '” xuất hiện với nhiều ĐVT khác nhau.');
+      const units = equipmentUnitsByName.get(nameKey) || new Set<string>();
+      if (units.size && !Array.from(units).some((existing) => areSameUnit(existing, unit))) {
+        throw new Error('Import kho bị hủy: thiết bị “' + item.materialName + '” có ĐVT chưa khai báo trong Danh mục.');
       }
-      equipmentUnitsByName.set(nameKey, unit);
+      units.add(unit);
+      equipmentUnitsByName.set(nameKey, units);
     });
     const duplicateIds = normalizedItems.map((item) => item.id).filter((id, index, all) => all.indexOf(id) !== index);
     if (duplicateIds.length > 0) throw new Error(`File import có Mã Phiếu trùng: ${Array.from(new Set(duplicateIds)).join(', ')}`);
