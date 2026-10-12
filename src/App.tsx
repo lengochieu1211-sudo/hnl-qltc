@@ -5994,6 +5994,9 @@ function AuthenticatedApp() {
 
     if (FIREBASE_ONLY_RUNTIME) {
       const existing = present.inventory.find((inv) => inv.id === newId);
+      if (existing && !areSameUnit(existing.unit, normalized.unit)) {
+        throw new Error('Không đổi ĐVT của giao dịch đã tồn tại; hãy đổi qua Danh mục.');
+      }
       if (existing) {
         const next = prepareInventoryLedgerItem({
           ...existing,
@@ -6027,6 +6030,9 @@ function AuthenticatedApp() {
     if (!isProjectRoleResolved || !canEditWarehouseData(currentUserRole)) throw new Error('Tài khoản không có quyền sửa giao dịch kho.');
     const current = present.inventory.find((inv) => inv.id === id);
     if (!current) throw new Error('Không tìm thấy giao dịch kho hiện tại. Hãy chờ đồng bộ rồi thử lại.');
+    if (!areSameUnit(current.unit, item.unit)) {
+      throw new Error('Không sửa ĐVT riêng trên phiếu. Hãy đổi tại Danh mục vật tư/thiết bị để cập nhật toàn bộ lịch sử.');
+    }
     const normalized = prepareInventoryLedgerItem({ ...current, ...item, id });
     if (FIREBASE_ONLY_RUNTIME) {
       await updateWarehouseTransactionAtomic(activeProjectIdRef.current, id, normalized);
@@ -6060,6 +6066,14 @@ function AuthenticatedApp() {
   const handleImportInventory = async (importedInventory: InventoryItem[]) => {
     if (!isProjectRoleResolved || !canImportData(currentUserRole)) throw new Error('Chỉ ADMIN được nhập dữ liệu kho hàng loạt.');
     // Preflight the complete batch before the first Firestore/local write.
+    const existingItemsById = new Map(present.inventory.map((item) => [item.id, item] as const));
+    const alteredUnit = importedInventory.find((item) => {
+      const existing = existingItemsById.get(item.id);
+      return existing && !areSameUnit(existing.unit, item.unit);
+    });
+    if (alteredUnit) {
+      throw new Error(`Import không được đổi ĐVT riêng trên phiếu ${alteredUnit.id}; hãy đổi tại danh mục để đồng bộ lịch sử.`);
+    }
     const normalizedItems = importedInventory.map((item) => prepareInventoryLedgerItem(item));
     const duplicateIds = normalizedItems.map((item) => item.id).filter((id, index, all) => all.indexOf(id) !== index);
     if (duplicateIds.length > 0) throw new Error(`File import có Mã Phiếu trùng: ${Array.from(new Set(duplicateIds)).join(', ')}`);
