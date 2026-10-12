@@ -193,6 +193,7 @@ import { shouldAutoMirrorProjectBinaries } from './lib/offlineMirrorSettings';
 import { DEFAULT_TRASH_SETTINGS, TrashOperation, TrashSettings, TrashCollectionKey, deleteTrashOperationFromCloud, estimateTrashBytes, getTrashCollectionLabel, normalizeTrashSettings, sanitizeTrashSnapshot, saveTrashOperationToCloud, subscribeProjectTrash } from './lib/trash';
 import { commitWarehouseTransactionAtomic, updateWarehouseTransactionAtomic, softDeleteWarehouseTransactionAtomic } from './lib/warehouseTransactions';
 import { renameWarehouseUnitAtomic, type WarehouseUnitRenameInput } from './lib/warehouseUnitMigration';
+import { sortWorkVolumesByManualOrder, validateWorkVolumeOrder } from './utils/workVolumeOrder';
 import { drainBinaryPurgeRetryQueues, purgeTrashOperationBinaries } from './lib/cloudBinaryPurge';
 
 // Heavy screens are code-split so Android does not parse XLSX/PDF-heavy modules at startup.
@@ -1473,7 +1474,7 @@ function AuthenticatedApp() {
   // Single source of truth for derived work-volume progress. The catalog keeps
   // authoritative IDs/floor scope/planned values; actual/status come from Room stages.
   const computedWorkVolumes = useMemo(
-    () => computeDerivedWorkVolumes(workVolumes, roomProgressList, floorPlans),
+    () => computeDerivedWorkVolumes(sortWorkVolumesByManualOrder(workVolumes), roomProgressList, floorPlans),
     [workVolumes, roomProgressList, floorPlans],
   );
 
@@ -6225,6 +6226,27 @@ function AuthenticatedApp() {
     });
   };
 
+  const handleReorderWorkVolumes = (orderedIds: string[]): void => {
+    if (!isProjectRoleResolved || !canManageWorkVolumeStructure(currentUserRole)) return;
+    if (!isOnline || businessDataSource !== 'cloud') {
+      alert('Sắp xếp Hạng mục cần kết nối Cloud để tránh xung đột thứ tự giữa các thiết bị.');
+      return;
+    }
+    if (!validateWorkVolumeOrder(orderedIds, present.workVolumes)) {
+      alert('Danh sách Hạng mục đã thay đổi. Hãy tải lại trước khi sắp xếp.');
+      return;
+    }
+    const newIndex = new Map(orderedIds.map((id, index) => [id, index] as const));
+    updateAppData(prev => {
+      if (!validateWorkVolumeOrder(orderedIds, prev.workVolumes)) return prev;
+      const next = prev.workVolumes.map(item => ({
+        ...item, displayOrder: newIndex.get(item.id)!,
+      }));
+      if (prev.workVolumes.every((item, index) => item.displayOrder === next[index].displayOrder)) return prev;
+      return { ...prev, workVolumes: next };
+    });
+  };
+
   const handleImportWorkVolumes = (items: WorkVolume[]): boolean => {
     if (!isProjectRoleResolved || !canManageWorkVolumeStructure(currentUserRole)) {
       console.warn('[RBAC] Chỉ ADMIN được nhập thay đổi cấu trúc hạng mục khối lượng.');
@@ -7704,6 +7726,7 @@ function AuthenticatedApp() {
               onAddWorkVolume={handleAddWorkVolume}
               onSaveWorkVolume={handleSaveWorkVolume}
               onImportWorkVolumes={handleImportWorkVolumes}
+              onReorderWorkVolumes={handleReorderWorkVolumes}
               onUpdateActualVolume={handleUpdateActualVolume}
               onDeleteWorkVolume={handleDeleteWorkVolume}
               onDeleteMultipleWorkVolumes={handleDeleteMultipleWorkVolumes}
