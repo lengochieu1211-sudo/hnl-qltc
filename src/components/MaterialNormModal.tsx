@@ -500,7 +500,8 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       activeMaterialNorms
         .map((norm) => norm.category?.trim())
         .filter((value): value is string => Boolean(value))
-    )),
+    )).sort((a, b) => compareMaterialGroupPriority(a, b)
+      || a.localeCompare(b, 'vi', { numeric: true, sensitivity: 'base' })),
     [activeMaterialNorms]
   );
 
