@@ -37,6 +37,7 @@ import { AddSourceMenu } from './AddSourceMenu';
 
 interface MaterialNormModalProps {
   isOpen: boolean;
+  initialTab?: 'material' | 'equipment';
   userRole: UserRole;
   roleResolved: boolean;
   currentProjectId?: string;
@@ -78,6 +79,7 @@ export const WORK_CATEGORIES_LIST = [
 
 export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   isOpen,
+  initialTab = 'material',
   userRole,
   roleResolved,
   currentProjectId,
@@ -95,7 +97,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   onImportInventory,
 }) => {
   const hasManageAccess = roleResolved && canManageMaterialNorms(userRole);
-  const [catalogTab, setCatalogTab] = useState<'material' | 'equipment'>('material');
+  const [catalogTab, setCatalogTab] = useState<'material' | 'equipment'>(initialTab);
   const hasImportAccess = roleResolved && canImportData(userRole);
   const activeMaterialNorms = React.useMemo(() => materialNorms.filter((norm) => norm.deletedAt === undefined || norm.deletedAt === null), [materialNorms]);
   const activeWorkVolumes = React.useMemo(() => (workVolumes || []).filter((volume) => volume.deletedAt === undefined || volume.deletedAt === null), [workVolumes]);
@@ -928,8 +930,8 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               <Sliders className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900">Danh mục &amp; Định mức</h3>
-              <p className="text-xs text-slate-500">{hasManageAccess ? 'Vật tư, định mức và thông số thiết bị' : 'Xem danh mục · chỉ ADMIN được chỉnh sửa'}</p>
+              <h3 className="text-base font-bold text-slate-900">Quản lý vật tư, thiết bị &amp; định mức</h3>
+              <p className="text-xs text-slate-500">{hasManageAccess ? 'Quản lý thông số vật tư, định mức và thiết bị' : 'Xem danh mục · chỉ ADMIN được chỉnh sửa'}</p>
             </div>
           </div>
           <button
@@ -940,7 +942,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1" role="tablist" aria-label="Danh mục và định mức">
+        <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1" role="tablist" aria-label="Vật tư, thiết bị và định mức">
           {([
             { key: 'material', label: 'Vật tư · Định mức' },
             { key: 'equipment', label: 'Thiết bị' },
