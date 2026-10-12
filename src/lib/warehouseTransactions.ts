@@ -2,6 +2,7 @@ import { collection, doc, getDocFromServer, getDocsFromServer, runTransaction } 
 import type { InventoryItem } from '../types';
 import { db, getCurrentRealFirebaseUser, sanitizePayloadForCloud } from './firebase';
 import { calculateWarehouseLedgerOnHand, getWarehouseMaterialKey, getWarehouseSignedDelta, type WarehouseLedgerItem } from '../utils/warehouseLedgerMath';
+import { areSameUnit } from '../utils/unitUtils';
 
 export { getWarehouseMaterialKey } from '../utils/warehouseLedgerMath';
 
@@ -39,6 +40,22 @@ function sanitizeWarehouseWritePayload<T extends Record<string, unknown>>(payloa
   return sanitizePayloadForCloud(payload) as T;
 }
 
+/** Prevent stale PC/Android clients from resurrecting an old unit after a catalog rename. */
+function assertCurrentWarehouseUnit(
+  balance: Record<string, any> | undefined,
+  item: Pick<InventoryItem, 'itemKind' | 'materialName' | 'unit'>,
+): void {
+  if (!balance) return;
+  if (balance.renamedTo) {
+    throw new Error('UNIT_RENAMED: Đơn vị này đã đổi trên thiết bị khác. Hãy tải lại danh mục kho.');
+  }
+  // Material balances are keyed by stable materialId, so a mismatched unit
+  // must never be accepted as a second denomination of the same material.
+  if (item.itemKind !== 'equipment' && balance.unit && !areSameUnit(String(balance.unit), item.unit)) {
+    throw new Error('UNIT_NOT_CANONICAL: Đơn vị không khớp Định mức hiện tại; hãy chọn lại vật tư.');
+  }
+}
+
 function signedDelta(item: Pick<InventoryItem, 'type' | 'quantity'>): number {
   try {
     return getWarehouseSignedDelta(item);
@@ -70,6 +87,7 @@ export async function commitWarehouseTransactionAtomic(
     const existing = await tx.get(transactionRef);
     const balanceSnap = await tx.get(balanceRef);
     const currentOnHand = Number(balanceSnap.data()?.onHand || 0);
+    assertCurrentWarehouseUnit(balanceSnap.data(), item);
 
     if (existing.exists() && !existing.data()?.deleted) {
       return { transactionId: item.id, materialKey, onHand: currentOnHand, duplicate: true };
@@ -138,6 +156,10 @@ export async function updateWarehouseTransactionAtomic(
     const newBalanceRef = doc(db, 'projects', projectId, 'inventory_balances', newKey);
     const oldBalanceSnap = await tx.get(oldBalanceRef);
     const newBalanceSnap = oldKey === newKey ? oldBalanceSnap : await tx.get(newBalanceRef);
+    if (oldBalanceSnap.data()?.renamedTo && oldKey === newKey) {
+      throw new Error('UNIT_RENAMED: Giao dịch đã đổi ĐVT trên Cloud. Hãy tải lại.');
+    }
+    assertCurrentWarehouseUnit(newBalanceSnap.data(), nextItem);
 
     const oldOnHand = Number(oldBalanceSnap.data()?.onHand || 0);
     const newOnHandBase = oldKey === newKey ? oldOnHand : Number(newBalanceSnap.data()?.onHand || 0);

@@ -43,6 +43,7 @@ interface MaterialNormModalProps {
   materialNorms: MaterialNorm[];
   onAddNorm: (norm: Omit<MaterialNorm, 'id'>) => void;
   onUpdateNorm: (id: string, updated: Omit<MaterialNorm, 'id'>) => void;
+  onRenameWarehouseUnit?: (input: { kind: 'material' | 'equipment'; materialId?: string; materialName: string; fromUnit: string; toUnit: string }) => Promise<{ norms: number; vouchers: number }>;
   onDeleteNorm: (id: string) => void;
   onDeleteMultipleNorms?: (ids: string[]) => void;
   onImportNorms?: (norms: MaterialNorm[]) => void;
@@ -83,6 +84,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   materialNorms,
   onAddNorm,
   onUpdateNorm,
+  onRenameWarehouseUnit,
   onDeleteNorm,
   onDeleteMultipleNorms,
   onImportNorms,
@@ -743,7 +745,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     return true;
   };
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!hasManageAccess) return;
     const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
@@ -783,24 +785,36 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     }
 
     if (mode === 'edit' && editingId) {
-      const editingNorm = materialNorms.find(n => n.id === editingId);
+      const editingNorm = materialNorms.find((n) => n.id === editingId);
       if (editingNorm && !areSameUnit(editingNorm.unit, finalUnit)) {
-        const normKey = editingNorm.materialName.trim().toLocaleLowerCase('vi-VN');
-        const stableMaterialId = resolveNormMaterialId(editingNorm);
-        const existingTransactions = inventory.filter((i) =>
-          (stableMaterialId && (i.materialId === stableMaterialId || i.materialId === editingNorm.id || i.materialId === `MAT-${editingNorm.id}`)) ||
-          (!i.materialId
-            && i.materialName.trim().toLocaleLowerCase('vi-VN') === normKey
-            && areSameUnit(i.unit, editingNorm.unit))
-        ).length;
-        if (existingTransactions > 0) {
-          alert(
-            `Không thể đổi trực tiếp đơn vị tính của vật tư "${editingNorm.materialName}" vì đã có ${existingTransactions} giao dịch kho.\n\n` +
-            `ĐVT hiện tại: ${editingNorm.unit}\nĐVT muốn đổi: ${finalUnit}\n\n` +
-            'Để tránh làm sai tồn kho lịch sử, hãy tạo một vật tư mới hoặc thực hiện quy đổi bằng phiếu điều chỉnh có hệ số rõ ràng.'
-          );
+        if (!onRenameWarehouseUnit) {
+          alert('Không có dịch vụ đổi ĐVT Cloud an toàn. Dữ liệu chưa được thay đổi.');
           return;
         }
+        const materialId = resolveNormMaterialId(editingNorm);
+        if (!materialId) {
+          alert('Vật tư chưa có materialId hợp lệ. Không được đổi ĐVT để tránh mất liên kết.');
+          return;
+        }
+        const confirmed = await confirmAsync(
+          `Đổi ĐVT cho toàn bộ “${editingNorm.materialName}” từ ${editingNorm.unit} thành ${finalUnit}?\n\n`
+          + 'Tất cả định mức cùng materialId, các phiếu nhập/xuất và số dư tồn kho liên quan sẽ cập nhật cùng lúc trên Firebase.\n'
+          + 'Đây CHỈ là đổi tên đơn vị tỷ lệ 1:1; số lượng và định mức hao phí không đổi.\n'
+          + 'Nếu Hộp ↔ Con, Bao ↔ kg, Bộ ↔ Cái cần quy đổi số lượng, hãy HỦY.\n\n'
+          + 'Các trường khác trong biểu mẫu không được lưu trong lần đổi ĐVT này; hãy chỉnh lại sau.'
+        );
+        if (!confirmed) return;
+        try {
+          const result = await onRenameWarehouseUnit({
+            kind: 'material', materialId, materialName: editingNorm.materialName,
+            fromUnit: editingNorm.unit, toUnit: finalUnit,
+          });
+          alert(`Đã cập nhật ${result.norms} định mức và ${result.vouchers} phiếu Nhập/Xuất. Chờ đồng bộ tự động để thấy ĐVT mới.`);
+          setMode('list');
+        } catch (error: any) {
+          alert(`Không thể đổi ĐVT: ${error?.message || String(error)}\nDữ liệu chưa được thay đổi.`);
+        }
+        return;
       }
     }
 
