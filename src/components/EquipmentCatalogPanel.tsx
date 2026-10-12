@@ -248,7 +248,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({ projectId, inventory, c
         </button>}
         <button type="submit" disabled={busy || status !== 'ready'}
           data-hnl-equipment-save="true"
-          className={`min-h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-2.5 text-xs font-extrabold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50 ${edit.id ? 'col-span-1 sm:col-span-2' : ''}`}>
+          className={`min-h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-2.5 text-xs font-extrabold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50 ${edit.id ? 'col-span-1 sm:col-span-2' : 'col-span-2 sm:col-span-1'}`}>
           <Save className="h-4 w-4" /> {busy ? 'Đang lưu...' : edit.id ? 'Lưu thay đổi' : 'Lưu & đóng'}
         </button>
       </div>
