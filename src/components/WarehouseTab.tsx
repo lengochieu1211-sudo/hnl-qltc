@@ -2017,7 +2017,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               title={hasNormManageAccess ? 'Quản lý danh mục vật tư, thiết bị và định mức' : 'Xem danh mục vật tư, thiết bị và định mức'}
             >
               <Sliders className="h-4 w-4 shrink-0 text-slate-600" />
-              <span>Khai báo</span>
+              <span>Thiết lập</span>
             </button>
             <DataManagementMenu
               fillMobile
