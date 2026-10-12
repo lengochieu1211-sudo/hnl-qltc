@@ -1946,7 +1946,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               title={hasNormManageAccess ? 'Quản lý danh mục vật tư, thiết bị và định mức' : 'Xem danh mục vật tư, thiết bị và định mức'}
             >
               <Sliders className="h-4 w-4 shrink-0 text-slate-600" />
-              <span>Danh mục</span>
+              <span>Khai báo</span>
             </button>
             <DataManagementMenu
               fillMobile
@@ -2630,19 +2630,30 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           </div>
         </div>
 
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Lọc nhật ký kho theo loại hàng">
+          <span className="text-[11px] font-bold text-slate-600">Loại hàng:</span>
+          {([
+            { key: 'all', label: 'Tất cả' },
+            { key: 'material', label: 'Vật tư' },
+            { key: 'equipment', label: 'Thiết bị' },
+          ] as const).map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              data-hnl-warehouse-kind-filter={key}
+              aria-pressed={inventoryKindFilter === key}
+              onClick={() => setInventoryKindFilter(key)}
+              className={`min-h-8 rounded-lg border px-3 py-1 text-[11px] font-bold transition-colors ${inventoryKindFilter === key
+                ? 'border-indigo-600 bg-indigo-600 text-white'
+                : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-300'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         <QuickSortBar
           itemCount={filteredInventory.length}
-          minItems={0}
-          filter={{
-            label: 'Loại hàng',
-            value: inventoryKindFilter,
-            options: [
-              { value: 'all', label: 'Tất cả' },
-              { value: 'material', label: 'Vật tư' },
-              { value: 'equipment', label: 'Thiết bị' },
-            ],
-            onChange: (value) => setInventoryKindFilter(value as 'all' | InventoryItemKind),
-          }}
           options={[
             { key: 'date', label: 'Ngày', kind: 'date', defaultOrder: 'desc' },
             { key: 'kind', label: 'Loại hàng', kind: 'alpha' },
