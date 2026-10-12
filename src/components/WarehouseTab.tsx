@@ -2144,7 +2144,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           </div>
           {warehouseCatalogTab === 'equipment' && (
             <p className="text-[10px] leading-relaxed text-slate-500">
-              Danh mục kho chỉ hiển thị nhập, xuất và tồn. Để thêm hoặc sửa thông số thiết bị, mở “Vật tư & Thiết bị” ở màn Kho. Thiết bị không tham gia Định mức vật tư hoặc Gợi ý vật tư.
+              Thiết bị được dùng lại ở các phiếu nhập/xuất nhưng không tham gia Định mức vật tư hoặc Gợi ý vật tư. Thông số thiết bị chỉ chỉnh ở mục Thiết lập → Thiết bị.
             </p>
           )}
         </div>
