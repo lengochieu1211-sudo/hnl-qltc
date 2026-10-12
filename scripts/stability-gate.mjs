@@ -369,12 +369,13 @@ pass('warehouse transaction/derived-balance safety engine is wired into runtime'
 // inventory creator is directly bound to onClick. An event is not an item kind.
 requireAll(warehouseTab, [
   "onClick={() => openCreateInventory('material')}",
-  "openCreateInventory('equipment')",
+  "onOpenNormModal('equipment')",
+  "if (kind === 'equipment') {",
   "const openCreateInventory = (kind: InventoryItemKind = 'material') =>",
   'setItemKind(kind);',
   "const editingKind: InventoryItemKind = item.itemKind === 'equipment' ? 'equipment' : 'material';",
   'setItemKind(editingKind);',
-], 'Warehouse voucher default material, equipment catalog route and edit-kind preservation');
+], 'Warehouse voucher default material, equipment selector and single master setup route');
 if (warehouseTab.includes('onClick={openCreateInventory}')) {
   fail('Warehouse create button must not pass a React click event as itemKind');
 }

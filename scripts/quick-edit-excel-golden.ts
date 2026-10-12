@@ -216,6 +216,20 @@ assert.match(warehouse, /data-hnl-warehouse-kind-filter=\{key\}/, 'Keep equipmen
 assert.doesNotMatch(warehouse, /filter=\{\{\s*label: 'Loại hàng'/, 'Warehouse type filter must not move into the quick sort bar');
 assert.doesNotMatch(warehouse, />Đổi ĐVT thiết bị<\/button>/, 'The old standalone equipment-unit action must be removed from stock catalog');
 assert.match(equipmentPanel, /Đổi ĐVT \(1:1\)/, 'Equipment unit action must live in the equipment editor');
+assert.match(equipmentPanel, /const groupOptions = useMemo/, 'Equipment group choices must be derived from existing master categories');
+assert.match(equipmentPanel, /records\.forEach\(\(record\) =>/, 'Existing groups must feed the equipment group dropdown');
+assert.match(equipmentPanel, /<select value=\{customGroup \? '__new_group__' : edit\.category\}/, 'Equipment editor must offer saved equipment groups');
+assert.match(equipmentPanel, /<option value="__new_group__">/, 'Equipment group list must allow an optional new custom group');
+assert.match(equipmentPanel, /setCustomGroup\(true\)/, 'Custom equipment groups must be entered within the editor');
+assert.match(equipmentPanel, /startNew\(\{ category: equipment\.category, unit: equipment\.unit \}\)/, 'Save and add another must preserve group and unit but not reuse the equipment identity');
+assert.match(equipmentPanel, /Lưu &amp; thêm tiếp/, 'Equipment editor must provide Save and Add Next');
+assert.match(equipmentPanel, />\s*Hủy\s*</, 'Equipment editor must offer Cancel');
+assert.match(equipmentPanel, />\s*Lưu\s*</, 'Equipment editor must provide an explicit Save action');
+assert.match(equipmentPanel, /data-hnl-equipment-editor="true"/, 'The equipment setup editor must use the normal application form');
+assert.match(warehouse, /data-hnl-equipment-settings-link="true"/, 'Warehouse catalog must redirect to the single equipment setup editor');
+assert.doesNotMatch(warehouse, />Chỉnh thông tin<\/button>/, 'Warehouse catalog must not repeat editing on each equipment row');
+assert.doesNotMatch(warehouse, /data-hnl-primary-action="warehouse-equipment-create"/, 'Warehouse catalog must not mistakenly open a stock voucher for creating metadata');
+
 assert.match(equipmentService, /saveEquipmentCatalogBatch/, 'Equipment master edits must write separately from the inventory ledger');
 assert.match(warehouse, /key: 'equipment', label: 'Thiết bị'/, 'Warehouse quick edit must contain an equipment master tab');
 const unitMigration = fs.readFileSync('src/lib/warehouseUnitMigration.ts', 'utf8');
