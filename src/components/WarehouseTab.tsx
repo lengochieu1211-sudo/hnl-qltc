@@ -1817,9 +1817,23 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       const resolvedItemKind: InventoryItemKind = existing
         ? (existing.itemKind === 'equipment' ? 'equipment' : 'material')
         : (row.itemKind === 'equipment' ? 'equipment' : 'material');
-      const norm = resolvedItemKind === 'material'
-        ? materialNorms.find((item) => item.materialName === materialNameValue && normalizeUnit(item.unit) === normalizeUnit(String(row.unit || '')))
-        : undefined;
+      // Unit comes from the selected catalog identity, NEVER a stale spreadsheet cell.
+      const candidateNorms = resolvedItemKind === 'material'
+        ? materialNorms.filter((item) => normalizeLinkText(item.materialName) === normalizeLinkText(materialNameValue))
+        : [];
+      const existingNorm = candidateNorms.find((item) => resolveNormMaterialId(item) === existing?.materialId);
+      const uniqueUnits = Array.from(new Set(candidateNorms.map((item) => normalizeUnit(item.unit) || item.unit)));
+      const norm = existingNorm || (uniqueUnits.length === 1 ? candidateNorms[0] : undefined);
+      if (resolvedItemKind === 'material' && !norm) {
+        throw new Error(`Không xác định được duy nhất ĐVT cho “${materialNameValue}”. Hãy chọn tại phiếu hoặc Định mức.`);
+      }
+      const equipmentUnits = resolvedItemKind === 'equipment'
+        ? Array.from(new Set(equipmentCatalog.filter((item) => normalizeLinkText(item.name) === normalizeLinkText(materialNameValue)).map((item) => normalizeUnit(item.unit) || item.unit)))
+        : [];
+      if (resolvedItemKind === 'equipment' && equipmentUnits.length !== 1) {
+        throw new Error(`Thiết bị “${materialNameValue}” chưa có ĐVT danh mục duy nhất. Hãy tạo/chỉnh trong Danh mục thiết bị.`);
+      }
+      const canonicalUnit = norm?.unit || equipmentUnits[0];
       const floor = floorPlans.find((item) => item.floorName === String(row.floorName || ''));
       const room = roomProgressList.find((item) => item.roomName === String(row.roomName || '') && (!floor || item.floorId === floor.id));
       const team = teams.find((item) => item.name === String(row.teamName || ''));
@@ -1836,7 +1850,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           ? (norm ? resolveNormMaterialId(norm) : existing?.materialId)
           : undefined,
         materialName: materialNameValue,
-        unit: normalizeUnit(String(row.unit || '').trim()) || String(row.unit || '').trim(),
+        unit: normalizeUnit(canonicalUnit) || canonicalUnit,
         quantity: Math.max(0, evaluateMathExpression(String(row.quantity ?? '')) ?? 0),
         inputExpressions: (() => {
           const next = { ...(existing?.inputExpressions || {}) };
@@ -2995,16 +3009,15 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                       )}
                     </div>
                     <select
-                      value={materialName}
+                      value={materialNorms.find((m) => m.materialName === materialName && (normalizeUnit(m.unit) || m.unit) === (normalizeUnit(unit) || unit))?.id || ''}
                       onChange={(e) => {
-                        setMaterialName(e.target.value);
-                        const matched = materialNorms.find((m) => m.materialName === e.target.value);
-                        if (matched) { setUnit(matched.unit); setCustomMaterial(''); }
+                        const matched = materialNorms.find((m) => m.id === e.target.value);
+                        if (matched) { setMaterialName(matched.materialName); setUnit(matched.unit); setCustomMaterial(''); }
                       }}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-medium text-slate-800"
                     >
                       <option value="">— Chọn vật tư —</option>
-                      {filteredMaterialNorms.map((m) => <option key={m.id} value={m.materialName}>[{m.category}] {m.materialName} ({m.unit})</option>)}
+                      {filteredMaterialNorms.map((m) => <option key={m.id} value={m.id}>[{m.category}] {m.materialName} ({m.unit})</option>)}
                     </select>
                     {normalizedMaterialPickerSearch && filteredMaterialNorms.length === 0 && (
                       <p className="text-[10px] text-amber-700 lg:col-span-2">Không tìm thấy vật tư phù hợp. Có thể nhập tên mới ở ô “Tên vật tư khác”.</p>
