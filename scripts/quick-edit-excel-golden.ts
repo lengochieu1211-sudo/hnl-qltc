@@ -211,11 +211,21 @@ assert.match(warehouse, /readOnly=\{!isNewMaterialDefinition && \(itemKind === '
 assert.match(warehouse, /isNewMaterialDefinition/, 'New material may declare its first unit only when its name is absent from catalog');
 const equipmentPanel = fs.readFileSync('src/components/EquipmentCatalogPanel.tsx', 'utf8');
 const equipmentService = fs.readFileSync('src/lib/equipmentCatalog.ts', 'utf8');
-assert.match(warehouse, /<span>Thiết lập<\/span>/, 'Warehouse master settings use compact Thiết lập on desktop/mobile');
+assert.match(warehouse, /sm:hidden">Thiết lập<\/span>/, 'Warehouse master settings retain short Thiết lập on phones');
+assert.match(warehouse, /sm:inline">Vật tư &amp; Thiết bị<\/span>/, 'Desktop toolbar must clearly identify material/equipment master settings');
 assert.match(warehouse, /data-hnl-warehouse-kind-filter=\{key\}/, 'Keep equipment filter outside QuickSortBar');
 assert.doesNotMatch(warehouse, /filter=\{\{\s*label: 'Loại hàng'/, 'Warehouse type filter must not move into the quick sort bar');
 assert.doesNotMatch(warehouse, />Đổi ĐVT thiết bị<\/button>/, 'The old standalone equipment-unit action must be removed from stock catalog');
 assert.match(equipmentPanel, /Đổi ĐVT \(1:1\)/, 'Equipment unit action must live in the equipment editor');
+assert.doesNotMatch(warehouse, /title="Chỉnh thông tin tại Vật tư & Thiết bị"/, 'Warehouse stock catalogue must not duplicate equipment editor actions');
+assert.doesNotMatch(warehouse, /data-hnl-primary-action="warehouse-equipment-create"/, 'Stock catalogue must not create inventory vouchers when user intends to create equipment metadata');
+assert.match(equipmentPanel, /groupOptions = useMemo/, 'Equipment groups must be derived from saved equipment master records');
+assert.match(equipmentPanel, /\+ Nhập nhóm thiết bị mới/, 'Equipment group picker must offer custom new groups');
+assert.match(equipmentPanel, /Lưu & thêm tiếp/, 'Equipment creation form must have Save and Add Another');
+assert.match(equipmentPanel, /setEdit\(\{ \.\.\.empty, category: candidate.category \}\)/, 'Save and Add Another must not duplicate model or the previous equipment identity');
+assert.match(equipmentPanel, /data-hnl-equipment-rename="true"/, 'Equipment unit changes must use a visible controlled editor, not a native prompt');
+assert.doesNotMatch(equipmentPanel, /window.prompt/, 'Equipment unit editor must not fall back to a native prompt');
+
 assert.match(equipmentService, /saveEquipmentCatalogBatch/, 'Equipment master edits must write separately from the inventory ledger');
 assert.match(warehouse, /key: 'equipment', label: 'Thiết bị'/, 'Warehouse quick edit must contain an equipment master tab');
 const unitMigration = fs.readFileSync('src/lib/warehouseUnitMigration.ts', 'utf8');
