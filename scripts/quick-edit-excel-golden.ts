@@ -223,8 +223,8 @@ assert.match(equipmentPanel, /<option value="__new_group__">/, 'Equipment group 
 assert.match(equipmentPanel, /setCustomGroup\(true\)/, 'Custom equipment groups must be entered within the editor');
 assert.match(equipmentPanel, /startNew\(\{ category: equipment\.category, unit: equipment\.unit \}\)/, 'Save and add another must preserve group and unit but not reuse the equipment identity');
 assert.match(equipmentPanel, /Lưu &amp; thêm tiếp/, 'Equipment editor must provide Save and Add Next');
-assert.match(equipmentPanel, /> Hủy\s*</, 'Equipment editor must offer Cancel');
-assert.match(equipmentPanel, /> Lưu\s*</, 'Equipment editor must provide an explicit Save action');
+assert.match(equipmentPanel, />\s*Hủy\s*</, 'Equipment editor must offer Cancel');
+assert.match(equipmentPanel, />\s*Lưu\s*</, 'Equipment editor must provide an explicit Save action');
 assert.match(equipmentPanel, /data-hnl-equipment-editor="true"/, 'The equipment setup editor must use the normal application form');
 assert.match(warehouse, /data-hnl-equipment-settings-link="true"/, 'Warehouse catalog must redirect to the single equipment setup editor');
 assert.doesNotMatch(warehouse, />Chỉnh thông tin<\/button>/, 'Warehouse catalog must not repeat editing on each equipment row');
