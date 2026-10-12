@@ -191,7 +191,7 @@ assert.match(volume, /volSortBy === 'none'/, 'Moving categories must not operate
 assert.match(volume, /onReorderWorkVolumes\?\.\(ids\)/, 'The Work Volume tab sends only a full ID permutation');
 assert.match(app, /validateWorkVolumeOrder\(orderedIds, present\.workVolumes\)/, 'Reordering must reject stale or incomplete ID sets');
 assert.match(app, /displayOrder: newIndex\.get\(item\.id\)!/, 'Cloud order must persist per WorkVolume without changing IDs');
-assert.match(app, /sortWorkVolumesByManualOrder\(workVolumes\)/, 'All app consumers must receive a consistent project-wide order');
+assert.match(app, /sortWorkVolumesByManualOrder\(computeDerivedWorkVolumes\(workVolumes, roomProgressList, floorPlans\)\)/, 'Apply display order AFTER the existing derived WorkVolume engine');
 assert.match(warehouse, /compareMaterialAccessoryLast\(a\.category, b\.category\)/, 'Default material-needs display puts accessories last');
 assert.match(materialNormModal, /compareMaterialAccessoryLast\(a\.category, b\.category\)/, 'Material Norm list puts accessories last by default');
 
