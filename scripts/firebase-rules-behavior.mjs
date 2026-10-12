@@ -216,6 +216,11 @@ try {
     id: 'NORM-RULE-1', materialName: 'Tấm TC', category: 'Tấm', unit: 'tấm', quotaQuantity: 10,
     revision: 1, createdAt: Date.now(), updatedAt: Date.now(), deleted: false, deletedAt: null,
   }));
+  const unitBalanceRef = doc(db, 'projects', pid, 'inventory_balances', 'equipment-rule-1');
+  await expectAllowed('ADMIN creates stock balance with canonical unit', () => setDoc(unitBalanceRef, {
+    id: 'equipment-rule-1', projectId: pid, materialName: 'Máy khoan',
+    itemKind: 'equipment', unit: 'Cái', onHand: 3, revision: 1, updatedAt: Date.now(),
+  }));
   await expectAllowed('ADMIN creates team directory structure', () => setDoc(teamRef, {
     id: 'TEAM-RULE-1', name: 'Đội A', leader: 'Anh A', defaultCount: 5,
     revision: 1, createdAt: Date.now(), updatedAt: Date.now(), deleted: false, deletedAt: null,
@@ -324,6 +329,17 @@ try {
   const invUpdatedAt = Number(invSnap.data()?.updatedAt || 0);
   await expectAllowed('EDITOR updates warehouse operational record', () => updateDoc(inventoryRef, {
     quantity: 12, revision: 2, updatedAt: invUpdatedAt + 10,
+  }));
+  await expectDenied('EDITOR cannot rename a warehouse voucher unit', () => updateDoc(inventoryRef, {
+    unit: 'Hộp', revision: 3, updatedAt: invUpdatedAt + 20,
+  }));
+  const unitBalanceSnap = await getDoc(unitBalanceRef);
+  const unitBalanceUpdatedAt = Number(unitBalanceSnap.data()?.updatedAt || 0);
+  await expectAllowed('EDITOR may change balance quantity with unchanged unit', () => updateDoc(unitBalanceRef, {
+    onHand: 4, revision: 2, updatedAt: unitBalanceUpdatedAt + 10,
+  }));
+  await expectDenied('EDITOR cannot rename canonical balance unit', () => updateDoc(unitBalanceRef, {
+    unit: 'Bộ', onHand: 4, revision: 3, updatedAt: unitBalanceUpdatedAt + 20,
   }));
   await expectDenied('EDITOR cannot soft-delete warehouse business record', () => updateDoc(inventoryRef, {
     deleted: true, deletedAt: Date.now(), revision: 3, updatedAt: invUpdatedAt + 20,
