@@ -155,8 +155,13 @@ export async function renameWarehouseUnitAtomic(input: WarehouseUnitRenameInput)
     }
     if (group.oldKey !== group.newKey) {
       const target = balancePreflight.get(group.newKey)!;
-      if (target.exists && Math.abs(target.onHand) > EPSILON) {
-        throw new Error('Đơn vị đích đã có tồn kho hoặc lịch sử độc lập. Hệ thống không tự gộp.');
+      // A previously renamed-away balance is a tombstone for stale devices.
+      // Never reuse it: merge:true would retain renamedTo and brick the new unit.
+      const targetLedgerRows = ledger.filter(({ value }) =>
+        (value.materialKey || getWarehouseMaterialKey(value)) === group.newKey
+      );
+      if (target.exists || targetLedgerRows.length > 0) {
+        throw new Error('Đơn vị đích đã có bản ghi số dư/lịch sử (kể cả đã đổi ĐVT trước đây). Không gộp hoặc dùng lại balance cũ.');
       }
     }
   }
