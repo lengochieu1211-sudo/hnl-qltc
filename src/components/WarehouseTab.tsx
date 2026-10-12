@@ -140,6 +140,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [showQuickEdit, setShowQuickEdit] = useState(false);
   const [quickEditMode, setQuickEditMode] = useState<'norms' | 'in' | 'out' | 'stock'>('norms');
   const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
+  const isNewMaterialDefinition = itemKind === 'material' && Boolean(customMaterial.trim())
+    && !materialNorms.some((norm) => normalizeLinkText(norm.materialName) === normalizeLinkText(customMaterial));
   const [materialNeedStructureGroupIds, setMaterialNeedStructureGroupIds] = useState<string[]>([]);
   const [materialNeedFloorIds, setMaterialNeedFloorIds] = useState<string[]>([]);
   const [materialNeedRoomIds, setMaterialNeedRoomIds] = useState<string[]>([]);
@@ -3265,15 +3267,18 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   <input
                     type="text"
                     value={unit}
-                    readOnly={itemKind === 'material' || !isNewEquipment}
+                    readOnly={!isNewMaterialDefinition && (itemKind === 'material' || !isNewEquipment)}
                     onChange={(e) => {
-                      if (itemKind === 'equipment' && isNewEquipment) setUnit(e.target.value);
+                      if (isNewMaterialDefinition || (itemKind === 'equipment' && isNewEquipment)) setUnit(e.target.value);
                     }}
-                    className={`w-full rounded-xl border border-slate-200 p-2.5 ${itemKind === 'material' || !isNewEquipment ? 'bg-slate-100 text-slate-600 cursor-not-allowed' : 'bg-white'}`}
+                    className={`w-full rounded-xl border border-slate-200 p-2.5 ${!isNewMaterialDefinition && (itemKind === 'material' || !isNewEquipment) ? 'bg-slate-100 text-slate-600 cursor-not-allowed' : 'bg-white'}`}
                     required
                   />
-                  {(itemKind === 'material' || !isNewEquipment) && (
+                  {!isNewMaterialDefinition && (itemKind === 'material' || !isNewEquipment) && (
                     <p className="mt-1 text-[10px] text-slate-500">ĐVT theo danh mục; không sửa riêng trên phiếu.</p>
+                  )}
+                  {isNewMaterialDefinition && (
+                    <p className="mt-1 text-[10px] text-indigo-600">Vật tư mới: nhập ĐVT khi tạo danh mục; chỉ ADMIN được thêm vật tư mới.</p>
                   )}
                 </div>
               </div>
