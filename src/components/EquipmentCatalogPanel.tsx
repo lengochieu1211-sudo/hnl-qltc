@@ -55,6 +55,14 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({ projectId, inventory, c
     setBusy(true);
     try {
       if (edit.id && !records.some(x => x.id === edit.id)) throw new Error('Thiết bị đã thay đổi trên Cloud, vui lòng tải lại.');
+      const historicalUnits = new Set(inventory.filter(item =>
+        item.itemKind === 'equipment'
+        && equipmentIdentityKey(item.materialName) === equipmentIdentityKey(edit.name)
+      ).map(item => normalizeUnit(item.unit) || item.unit));
+      if (historicalUnits.size > 1 || (historicalUnits.size === 1
+        && !historicalUnits.has(normalizeUnit(edit.unit) || edit.unit))) {
+        throw new Error('Thiết bị đã có lịch sử kho với ĐVT khác hoặc không duy nhất. Hãy đối chiếu phiếu trước khi lưu danh mục.');
+      }
       await saveEquipmentCatalogBatch(projectId, [edit]);
       setEdit(null);
     } catch (err) { alert('Không thể lưu thiết bị: ' + (err instanceof Error ? err.message : String(err))); }
