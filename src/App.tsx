@@ -192,6 +192,7 @@ import { applyFloorPlanImageToMultipleFloors, inspectFloorPlanBulkTargets, cache
 import { shouldAutoMirrorProjectBinaries } from './lib/offlineMirrorSettings';
 import { DEFAULT_TRASH_SETTINGS, TrashOperation, TrashSettings, TrashCollectionKey, deleteTrashOperationFromCloud, estimateTrashBytes, getTrashCollectionLabel, normalizeTrashSettings, sanitizeTrashSnapshot, saveTrashOperationToCloud, subscribeProjectTrash } from './lib/trash';
 import { commitWarehouseTransactionAtomic, updateWarehouseTransactionAtomic, softDeleteWarehouseTransactionAtomic } from './lib/warehouseTransactions';
+import { renameWarehouseUnitAtomic, type WarehouseUnitRename } from './lib/warehouseUnitMigration';
 import { drainBinaryPurgeRetryQueues, purgeTrashOperationBinaries } from './lib/cloudBinaryPurge';
 
 // Heavy screens are code-split so Android does not parse XLSX/PDF-heavy modules at startup.
@@ -5779,10 +5780,26 @@ function AuthenticatedApp() {
     return materialId || null;
   };
 
+  // ADMIN-only online unit-label rename: one Firestore transaction updates linked
+  // norms, all warehouse receipts and derived balance metadata together.
+  const handleRenameWarehouseUnit = async (input: WarehouseUnitRename): Promise<void> => {
+    if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) {
+      throw new Error('Chỉ ADMIN được đồng bộ đổi ĐVT.');
+    }
+    if (businessDataSource === 'legacy-migration-fallback') {
+      throw new Error('Dữ liệu legacy chỉ đọc; không đổi ĐVT khi chưa xác minh nguồn Firestore.');
+    }
+    await renameWarehouseUnitAtomic(activeProjectIdRef.current, input);
+  };
+
   const handleUpdateNorm = (id: string, updated: Omit<MaterialNorm, 'id'>) => {
     if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được sửa định mức vật tư.'); return; }
     const existing = present.materialNorms.find((norm) => norm.id === id);
     if (!existing) return;
+    if (!areSameUnit(existing.unit, updated.unit)) {
+      alert('Đổi ĐVT phải qua chức năng đồng bộ phiếu và tồn kho; không được cập nhật riêng định mức.');
+      return;
+    }
     const candidate = normalizeMaterialNormCandidate({
       ...existing,
       ...updated,
@@ -5814,6 +5831,21 @@ function AuthenticatedApp() {
   const handleImportNorms = (importedNorms: MaterialNorm[]) => {
     if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được nhập định mức vật tư.'); return; }
 
+    // Excel/import is not an atomic warehouse unit migration. Reject changes to
+    // established catalog units, otherwise old vouchers would split stock totals.
+    const existingByMaterialId = new Map<string, string>();
+    present.materialNorms.forEach((norm) => {
+      const id = resolveNormMaterialId(norm);
+      if (id) existingByMaterialId.set(id, normalizeUnit(norm.unit) || norm.unit);
+    });
+    for (const row of importedNorms) {
+      const oldById = present.materialNorms.find((norm) => norm.id === row.id);
+      const oldUnit = oldById?.unit || existingByMaterialId.get(String(row.materialId || ''));
+      if (oldUnit && !areSameUnit(oldUnit, row.unit)) {
+        alert('Import định mức bị hủy: không được thay đổi ĐVT của vật tư đã có. Hãy dùng Đổi ĐVT đồng bộ tại Danh mục.');
+        return;
+      }
+    }
     const canonical: MaterialNorm[] = [];
     const materialIdsByLegacyKey = new Map<string, Set<string>>();
     present.materialNorms.forEach((norm) => {
@@ -5871,6 +5903,26 @@ function AuthenticatedApp() {
       throw new Error(legacyIdentity.state === 'ambiguous'
         ? `Vật tư ${raw.materialName} (${unit}) khớp nhiều materialId; không được first-match.`
         : `Vật tư ${raw.materialName} (${unit}) chưa có materialId/định mức duy nhất.`);
+    }
+
+    // The catalog owns the unit. Never accept a different unit from a voucher,
+    // imported Excel row or Quick Edit payload, even when a materialId is supplied.
+    if (itemKind === 'material') {
+      const linkedNorms = present.materialNorms.filter((norm) =>
+        (norm.deletedAt === undefined || norm.deletedAt === null)
+        && resolveNormMaterialId(norm) === (explicitId || legacyIdentity.materialId)
+      );
+      if (linkedNorms.some((norm) => !areSameUnit(norm.unit, unit))) {
+        throw new Error('ĐVT phiếu không khớp Định mức. Đổi ĐVT tại Danh mục trước, không đổi riêng trên phiếu.');
+      }
+    } else {
+      const equipmentUnits = Array.from(new Set(present.inventory.filter((item) =>
+        item.itemKind === 'equipment'
+        && normalizeMaterialNameKey(item.materialName) === normalizeMaterialNameKey(raw.materialName)
+      ).map((item) => normalizeUnit(item.unit) || item.unit)));
+      if (equipmentUnits.length && !equipmentUnits.some((known) => areSameUnit(String(known), unit))) {
+        throw new Error('Thiết bị đã tồn tại với ĐVT khác. Dùng Đổi ĐVT tại Danh mục thiết bị.');
+      }
     }
 
     let normalized: InventoryItem = {
@@ -6011,6 +6063,26 @@ function AuthenticatedApp() {
     if (!isProjectRoleResolved || !canImportData(currentUserRole)) throw new Error('Chỉ ADMIN được nhập dữ liệu kho hàng loạt.');
     // Preflight the complete batch before the first Firestore/local write.
     const normalizedItems = importedInventory.map((item) => prepareInventoryLedgerItem(item));
+    // Existing legacy equipment may legitimately have several packages/units
+    // under one name. Keep those identities usable, but do not invent a new one
+    // through Excel: a new unit needs explicit catalog workflow.
+    const equipmentUnitsByName = new Map<string, Set<string>>();
+    present.inventory.filter((item) => item.itemKind === 'equipment').forEach((item) => {
+      const nameKey = normalizeMaterialNameKey(item.materialName);
+      const units = equipmentUnitsByName.get(nameKey) || new Set<string>();
+      units.add(normalizeUnit(item.unit) || item.unit);
+      equipmentUnitsByName.set(nameKey, units);
+    });
+    normalizedItems.filter((item) => item.itemKind === 'equipment').forEach((item) => {
+      const nameKey = normalizeMaterialNameKey(item.materialName);
+      const unit = normalizeUnit(item.unit) || item.unit;
+      const units = equipmentUnitsByName.get(nameKey) || new Set<string>();
+      if (units.size && !Array.from(units).some((existing) => areSameUnit(existing, unit))) {
+        throw new Error('Import kho bị hủy: thiết bị “' + item.materialName + '” có ĐVT chưa khai báo trong Danh mục.');
+      }
+      units.add(unit);
+      equipmentUnitsByName.set(nameKey, units);
+    });
     const duplicateIds = normalizedItems.map((item) => item.id).filter((id, index, all) => all.indexOf(id) !== index);
     if (duplicateIds.length > 0) throw new Error(`File import có Mã Phiếu trùng: ${Array.from(new Set(duplicateIds)).join(', ')}`);
 
@@ -7602,6 +7674,7 @@ function AuthenticatedApp() {
               defaultHandler={inspectorName}
               onImportInventory={handleImportInventory}
               onImportNorms={handleImportNorms}
+              onRenameWarehouseUnit={handleRenameWarehouseUnit}
               onCreateMaterialCatalog={({ materialName, unit, category }) => handleAddNorm({
                 materialName,
                 unit,
@@ -8102,6 +8175,7 @@ function AuthenticatedApp() {
               onDeleteNorm={handleDeleteNorm}
               onDeleteMultipleNorms={handleDeleteMultipleNorms}
               onImportNorms={handleImportNorms}
+              onRenameWarehouseUnit={handleRenameWarehouseUnit}
               inventory={inventory}
               workVolumes={computedWorkVolumes}
               onImportInventory={handleImportInventory}

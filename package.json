@@ -55,7 +55,7 @@
     "test:excel-security": "tsx scripts/excel-import-security-golden.ts && npm run test:excel-formula",
     "test:structure-group": "tsx scripts/structure-group-golden.ts",
     "test:room-highlight-transform": "tsx scripts/room-highlight-transform-golden.ts",
-    "test:warehouse-ledger": "tsx scripts/warehouse-ledger-reconcile-golden.ts",
+    "test:warehouse-ledger": "tsx scripts/warehouse-ledger-reconcile-golden.ts && tsx scripts/warehouse-unit-golden.ts",
     "test:material-norm-display": "tsx scripts/material-norm-display-golden.ts",
     "test:excel-formula": "tsx scripts/excel-formula-golden.ts"
   },
