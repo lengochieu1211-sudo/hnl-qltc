@@ -43,6 +43,8 @@ import {
 } from '../utils/structureGroupUtils';
 
 import { QuickSortBar } from './QuickSortBar';
+import { MoveOrderControls } from './MoveOrderControls';
+import { compareWorkVolumeManualOrder } from '../utils/catalogDisplayOrder';
 import { DataManagementMenu } from './DataManagementMenu';
 import { AddSourceMenu } from './AddSourceMenu';
 import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';
@@ -88,6 +90,8 @@ interface WorkVolumeTabProps {
   onUpdateActualVolume: (id: string, newActual: number) => void;
   onDeleteWorkVolume: (id: string) => void;
   onDeleteMultipleWorkVolumes?: (ids: string[]) => void;
+  /** ADMIN-only persistent ordering; ids are the entire current visible subset. */
+  onReorderWorkVolumes?: (visibleOrderedIds: string[]) => void;
   onOpenExportPdf?: () => void;
   onExportExcel?: () => void;
   onUndo?: () => void;
@@ -112,6 +116,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   onUpdateActualVolume,
   onDeleteWorkVolume,
   onDeleteMultipleWorkVolumes,
+  onReorderWorkVolumes,
   onOpenExportPdf,
   onExportExcel,
   onUndo,
@@ -486,7 +491,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
     const sortedFilteredVolumes = useMemo(() => {
     const volumes = [...filteredVolumes];
-    if (volSortBy === 'none') return volumes;
+    if (volSortBy === 'none') return volumes.sort(compareWorkVolumeManualOrder);
     
     return volumes.sort((a, b) => {
       if (volSortBy === 'title') {
@@ -506,6 +511,30 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       return 0;
     });
   }, [filteredVolumes, volSortBy, volSortOrder]);
+
+  const canReorderVolumes = hasStructureManageAccess && Boolean(onReorderWorkVolumes) && volSortBy === 'none';
+  const reorderVisibleWorkVolumes = (draggedId: string, targetId: string, placeAfter = false) => {
+    if (!canReorderVolumes || draggedId === targetId) return;
+    const reordered = sortedFilteredVolumes.map(item => item.id);
+    const sourceIndex = reordered.indexOf(draggedId);
+    const destinationIndex = reordered.indexOf(targetId);
+    if (sourceIndex < 0 || destinationIndex < 0) return;
+    reordered.splice(sourceIndex, 1);
+    const insertAt = reordered.indexOf(targetId) + (placeAfter ? 1 : 0);
+    reordered.splice(insertAt, 0, draggedId);
+    if (reordered.some((id, index) => id !== sortedFilteredVolumes[index]?.id)) {
+      onReorderWorkVolumes?.(reordered);
+    }
+  };
+  const moveVisibleWorkVolume = (id: string, direction: -1 | 1) => {
+    if (!canReorderVolumes) return;
+    const ordered = sortedFilteredVolumes.map(item => item.id);
+    const source = ordered.indexOf(id);
+    const destination = source + direction;
+    if (source < 0 || destination < 0 || destination >= ordered.length) return;
+    [ordered[source], ordered[destination]] = [ordered[destination], ordered[source]];
+    onReorderWorkVolumes?.(ordered);
+  };
 
   const handleCloseModal = async () => {
     setShowAddForm(false);
@@ -954,7 +983,11 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         onChange={(key, order) => { setVolSortBy(key); setVolSortOrder(order); }}
         onToggleOrder={() => setVolSortOrder((order) => order === 'asc' ? 'desc' : 'asc')}
         onReset={() => { setVolSortBy('none'); setVolSortOrder('asc'); }}
+        resetLabel="Thứ tự thủ công"
       />
+      {hasStructureManageAccess && volSortBy !== 'none' && (
+        <p className="text-[11px] text-slate-500">Chọn “Thứ tự thủ công” để di chuyển hạng mục lên/xuống hoặc kéo thả.</p>
+      )}
 
       {/* Items List */}
       <div className="space-y-3">
@@ -1010,13 +1043,25 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
-          {sortedFilteredVolumes.map((item) => {
+          {sortedFilteredVolumes.map((item, index) => {
             const itemPercent = item.planned > 0 ? Math.min(100, Math.round((item.actual / item.planned) * 100)) : 0;
             const isDone = item.planned > 0 && item.actual >= item.planned;
 
             return (
               <div
                 key={item.id}
+                draggable={canReorderVolumes}
+                onDragStart={canReorderVolumes ? event => {
+                  event.dataTransfer.effectAllowed = 'move';
+                  event.dataTransfer.setData('text/plain', item.id);
+                } : undefined}
+                onDragOver={canReorderVolumes ? event => event.preventDefault() : undefined}
+                onDrop={canReorderVolumes ? event => {
+                  event.preventDefault();
+                  const draggedId = event.dataTransfer.getData('text/plain');
+                  // Drop BEFORE this item, preserving all hidden category rows.
+                  if (draggedId) reorderVisibleWorkVolumes(draggedId, item.id);
+                } : undefined}
                 className={`bg-white rounded-2xl p-3.5 border transition-all duration-150 space-y-2.5 ${
                   selectedItemIds.includes(item.id)
                     ? 'border-indigo-300 bg-indigo-50/10 shadow-xs'
@@ -1057,6 +1102,17 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                           </span>
                         </div>
                         <h4 className="text-xs font-bold text-slate-900 leading-snug">{item.title}</h4>
+                        {canReorderVolumes && (
+                          <MoveOrderControls
+                            showDragHandle
+                            label={`Sắp xếp thứ tự hạng mục ${item.title}`}
+                            disableUp={index === 0}
+                            disableDown={index === sortedFilteredVolumes.length - 1}
+                            onMoveUp={() => moveVisibleWorkVolume(item.id, -1)}
+                            onMoveDown={() => moveVisibleWorkVolume(item.id, 1)}
+                            className="mt-1"
+                          />
+                        )}
 
                         {/* Due Date Badge */}
                         {item.dueDate && (
