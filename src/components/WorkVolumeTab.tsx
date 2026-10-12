@@ -43,6 +43,7 @@ import {
 } from '../utils/structureGroupUtils';
 
 import { QuickSortBar } from './QuickSortBar';
+import { MoveOrderControls } from './MoveOrderControls';
 import { DataManagementMenu } from './DataManagementMenu';
 import { AddSourceMenu } from './AddSourceMenu';
 import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';
@@ -85,6 +86,7 @@ interface WorkVolumeTabProps {
   onAddWorkVolume: (item: Omit<WorkVolume, 'id'>) => void;
   onSaveWorkVolume?: (item: Omit<WorkVolume, 'id'> & { id?: string }) => void;
   onImportWorkVolumes?: (items: WorkVolume[]) => boolean;
+  onReorderWorkVolumes?: (orderedIds: string[]) => void;
   onUpdateActualVolume: (id: string, newActual: number) => void;
   onDeleteWorkVolume: (id: string) => void;
   onDeleteMultipleWorkVolumes?: (ids: string[]) => void;
@@ -109,6 +111,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   onAddWorkVolume,
   onSaveWorkVolume,
   onImportWorkVolumes,
+  onReorderWorkVolumes,
   onUpdateActualVolume,
   onDeleteWorkVolume,
   onDeleteMultipleWorkVolumes,
@@ -506,6 +509,20 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       return 0;
     });
   }, [filteredVolumes, volSortBy, volSortOrder]);
+
+  // Moving is available only in the entire unsorted master view. Moving an
+  // A–Z/filtered row would otherwise unexpectedly shuffle hidden categories.
+  const canManuallyReorder = hasStructureManageAccess && Boolean(onReorderWorkVolumes)
+    && volSortBy === 'none' && selectedCategory === 'all';
+  const moveWorkCategory = (id: string, direction: 'up' | 'down') => {
+    if (!canManuallyReorder) return;
+    const ids = sortedFilteredVolumes.map(item => item.id);
+    const current = ids.indexOf(id);
+    const target = current + (direction === 'up' ? -1 : 1);
+    if (current < 0 || target < 0 || target >= ids.length) return;
+    [ids[current], ids[target]] = [ids[target], ids[current]];
+    onReorderWorkVolumes?.(ids);
+  };
 
   const handleCloseModal = async () => {
     setShowAddForm(false);
@@ -956,6 +973,12 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         onReset={() => { setVolSortBy('none'); setVolSortOrder('asc'); }}
       />
 
+      {hasStructureManageAccess && (
+        <p className="text-[11px] text-slate-500" data-hnl-work-volume-order-guide="true">
+          Sắp xếp thủ công lên/xuống: mở “Tất cả”, bấm “Mặc định” ở Sắp xếp nhanh, sau đó dùng mũi tên trên từng hạng mục.
+        </p>
+      )}
+
       {/* Items List */}
       <div className="space-y-3">
         {sortedFilteredVolumes.length > 0 && (
@@ -1010,7 +1033,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
-          {sortedFilteredVolumes.map((item) => {
+          {sortedFilteredVolumes.map((item, itemIndex) => {
             const itemPercent = item.planned > 0 ? Math.min(100, Math.round((item.actual / item.planned) * 100)) : 0;
             const isDone = item.planned > 0 && item.actual >= item.planned;
 
@@ -1056,7 +1079,18 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                             {isDone ? 'Đã hoàn thành' : item.actual > 0 ? 'Đang thi công' : 'Chưa làm'}
                           </span>
                         </div>
-                        <h4 className="text-xs font-bold text-slate-900 leading-snug">{item.title}</h4>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-xs font-bold text-slate-900 leading-snug">{item.title}</h4>
+                          {canManuallyReorder && (
+                            <MoveOrderControls
+                              label={`Đổi thứ tự hạng mục ${item.title}`}
+                              disableUp={itemIndex === 0}
+                              disableDown={itemIndex === sortedFilteredVolumes.length - 1}
+                              onMoveUp={() => moveWorkCategory(item.id, 'up')}
+                              onMoveDown={() => moveWorkCategory(item.id, 'down')}
+                            />
+                          )}
+                        </div>
 
                         {/* Due Date Badge */}
                         {item.dueDate && (

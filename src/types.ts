@@ -59,6 +59,8 @@ export type CategoryType = string;
 export interface WorkVolume {
   id: string;
   workCategoryId?: string;
+  /** Project-wide display rank assigned by ADMIN. Older records remain valid without it. */
+  displayOrder?: number;
   title: string;
   floor: string;
   floorId?: string;
