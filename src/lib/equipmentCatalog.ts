@@ -1,4 +1,4 @@
-import { collection, doc, onSnapshot, runTransaction, type Unsubscribe } from 'firebase/firestore';
+import { collection, doc, getDocsFromServer, onSnapshot, runTransaction, type Unsubscribe } from 'firebase/firestore';
 import { db, getCurrentRealFirebaseUser } from './firebase';
 import { normalizeMaterialNameKey } from '../utils/inventoryUtils';
 import { normalizeUnit } from '../utils/unitUtils';
@@ -74,6 +74,18 @@ export async function saveEquipmentCatalogBatch(projectId: string, entries: Equi
     };
   });
   if (new Set(payload.map(p => p.id)).size !== payload.length) throw new Error('Danh sách có tên thiết bị trùng nhau.');
+  // Historical equipment had no independent catalog. Verify its canonical unit
+  // from the server before creating metadata, including restorable deleted rows.
+  // A client-only inventory cache can be stale or incomplete across devices.
+  const ledger = await getDocsFromServer(collection(db, 'projects', projectId, 'inventory'));
+  for (const record of ledger.docs) {
+    const voucher = record.data();
+    if (voucher.itemKind !== 'equipment') continue;
+    const existing = payload.find(p => equipmentIdentityKey(p.name) === equipmentIdentityKey(String(voucher.materialName || '')));
+    if (existing && (normalizeUnit(String(voucher.unit || '')) || String(voucher.unit || '')) !== existing.unit) {
+      throw new Error(`Thiết bị “${existing.name}” có lịch sử phiếu với ĐVT khác trên Cloud. Phải đối chiếu kho, không thể tạo danh mục trùng tên.`);
+    }
+  }
   await runTransaction(db, async tx => {
     const refs = payload.map(p => doc(db, 'projects', projectId, 'equipment_catalog', p.id));
     const snaps = [];
