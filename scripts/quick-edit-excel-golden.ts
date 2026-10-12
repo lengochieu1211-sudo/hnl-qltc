@@ -209,7 +209,15 @@ assert.match(warehouse, /key: 'unit'.*editable: false.*required: true/, 'Warehou
 assert.match(warehouse, /key: 'unit'.*label: 'ĐVT \(tự lấy\)'.*editable: false/, 'Ledger Quick Edit must never change unit on a voucher');
 assert.match(warehouse, /readOnly=\{!isNewMaterialDefinition && \(itemKind === 'material' \|\| !isNewEquipment\)\}/, 'Voucher form must lock units for catalog material and equipment');
 assert.match(warehouse, /isNewMaterialDefinition/, 'New material may declare its first unit only when its name is absent from catalog');
-assert.match(warehouse, /Đổi ĐVT thiết bị/, 'Equipment catalog must expose an ADMIN-controlled unit rename action');
+const equipmentPanel = fs.readFileSync('src/components/EquipmentCatalogPanel.tsx', 'utf8');
+const equipmentService = fs.readFileSync('src/lib/equipmentCatalog.ts', 'utf8');
+assert.match(warehouse, /<span>Thiết lập<\/span>/, 'Warehouse master setup label must be compact and distinct from Danh mục kho');
+assert.match(warehouse, /data-hnl-warehouse-kind-filter=\{key\}/, 'Keep equipment filter outside QuickSortBar');
+assert.doesNotMatch(warehouse, /filter=\{\{\s*label: 'Loại hàng'/, 'Warehouse type filter must not move into the quick sort bar');
+assert.doesNotMatch(warehouse, />Đổi ĐVT thiết bị<\/button>/, 'The old standalone equipment-unit action must be removed from stock catalog');
+assert.match(equipmentPanel, /Đổi ĐVT \(1:1\)/, 'Equipment unit action must live in the equipment editor');
+assert.match(equipmentService, /saveEquipmentCatalogBatch/, 'Equipment master edits must write separately from the inventory ledger');
+assert.match(warehouse, /key: 'equipment', label: 'Thiết bị'/, 'Warehouse quick edit must contain an equipment master tab');
 const unitMigration = fs.readFileSync('src/lib/warehouseUnitMigration.ts', 'utf8');
 assert.match(unitMigration, /runTransaction\(db/, 'Warehouse unit rename must use Firestore transaction');
 assert.match(unitMigration, /MAX_TRANSACTION_DOCUMENTS/, 'Oversized unit migrations must fail closed rather than partially write');
