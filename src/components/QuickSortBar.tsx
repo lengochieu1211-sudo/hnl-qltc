@@ -23,6 +23,8 @@ interface QuickSortBarProps<K extends string = string> {
   onReset?: () => void;
   resetLabel?: string;
   summary?: React.ReactNode;
+  /** Optional view-only filter, displayed inside the same sort bar on PC and mobile. */
+  filter?: { label: string; value: string; options: { value: string; label: string }[]; onChange: (value: string) => void };
   className?: string;
   /** Hide the bar while the current list is still short. */
   itemCount?: number;
@@ -58,6 +60,7 @@ export function QuickSortBar<K extends string>({
   onReset,
   resetLabel = 'Mặc định',
   summary,
+  filter,
   className = '',
   itemCount,
   minItems = DEFAULT_QUICK_SORT_MIN_ITEMS,
@@ -117,6 +120,21 @@ export function QuickSortBar<K extends string>({
             </button>
           )}
         </div>
+        {filter && (
+          <div className="mt-2 flex min-w-0 items-center gap-2 border-t border-slate-100 pt-2">
+            <label htmlFor="quick-sort-kind-filter" className="shrink-0 text-[11px] font-bold text-slate-600">{filter.label}:</label>
+            <select
+              id="quick-sort-kind-filter"
+              data-hnl-warehouse-kind-filter="mobile"
+              aria-label={filter.label}
+              value={filter.value}
+              onChange={(event) => filter.onChange(event.target.value)}
+              className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] font-bold text-slate-700"
+            >
+              {filter.options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </div>
+        )}
         {summary && <div className="mt-1.5 truncate text-[10px] font-semibold text-slate-500">{summary}</div>}
       </div>
 
@@ -177,6 +195,24 @@ export function QuickSortBar<K extends string>({
             </span>
           )}
         </div>
+        {filter && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-indigo-100 pt-2" role="group" aria-label={filter.label}>
+            <span className="text-[11px] font-bold text-indigo-800">{filter.label}:</span>
+            {filter.options.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                data-hnl-warehouse-kind-filter={option.value}
+                aria-pressed={filter.value === option.value}
+                onClick={() => filter.onChange(option.value)}
+                className={`min-h-8 rounded-lg border px-3 py-1 text-[11px] font-bold transition-colors ${filter.value === option.value
+                  ? 'border-indigo-600 bg-indigo-600 text-white'
+                  : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-300'}`}
+              >{option.label}</button>
+            ))}
+          </div>
+        )}
+      </div>
       </div>
     </>
   );
