@@ -5796,6 +5796,10 @@ function AuthenticatedApp() {
     if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được sửa định mức vật tư.'); return; }
     const existing = present.materialNorms.find((norm) => norm.id === id);
     if (!existing) return;
+    if (!areSameUnit(existing.unit, updated.unit)) {
+      alert('Đổi ĐVT phải qua chức năng đồng bộ phiếu và tồn kho; không được cập nhật riêng định mức.');
+      return;
+    }
     const candidate = normalizeMaterialNormCandidate({
       ...existing,
       ...updated,
@@ -5827,6 +5831,21 @@ function AuthenticatedApp() {
   const handleImportNorms = (importedNorms: MaterialNorm[]) => {
     if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được nhập định mức vật tư.'); return; }
 
+    // Excel/import is not an atomic warehouse unit migration. Reject changes to
+    // established catalog units, otherwise old vouchers would split stock totals.
+    const existingByMaterialId = new Map<string, string>();
+    present.materialNorms.forEach((norm) => {
+      const id = resolveNormMaterialId(norm);
+      if (id) existingByMaterialId.set(id, normalizeUnit(norm.unit) || norm.unit);
+    });
+    for (const row of importedNorms) {
+      const oldById = present.materialNorms.find((norm) => norm.id === row.id);
+      const oldUnit = oldById?.unit || existingByMaterialId.get(String(row.materialId || ''));
+      if (oldUnit && !areSameUnit(oldUnit, row.unit)) {
+        alert('Import định mức bị hủy: không được thay đổi ĐVT của vật tư đã có. Hãy dùng Đổi ĐVT đồng bộ tại Danh mục.');
+        return;
+      }
+    }
     const canonical: MaterialNorm[] = [];
     const materialIdsByLegacyKey = new Map<string, Set<string>>();
     present.materialNorms.forEach((norm) => {
@@ -6044,6 +6063,17 @@ function AuthenticatedApp() {
     if (!isProjectRoleResolved || !canImportData(currentUserRole)) throw new Error('Chỉ ADMIN được nhập dữ liệu kho hàng loạt.');
     // Preflight the complete batch before the first Firestore/local write.
     const normalizedItems = importedInventory.map((item) => prepareInventoryLedgerItem(item));
+    const equipmentUnitsByName = new Map<string, string>();
+    [...present.inventory, ...normalizedItems].forEach((item) => {
+      if (item.itemKind !== 'equipment') return;
+      const nameKey = normalizeMaterialNameKey(item.materialName);
+      const unit = normalizeUnit(item.unit) || item.unit;
+      const existingUnit = equipmentUnitsByName.get(nameKey);
+      if (existingUnit && !areSameUnit(existingUnit, unit)) {
+        throw new Error('Import kho bị hủy: thiết bị “' + item.materialName + '” xuất hiện với nhiều ĐVT khác nhau.');
+      }
+      equipmentUnitsByName.set(nameKey, unit);
+    });
     const duplicateIds = normalizedItems.map((item) => item.id).filter((id, index, all) => all.indexOf(id) !== index);
     if (duplicateIds.length > 0) throw new Error(`File import có Mã Phiếu trùng: ${Array.from(new Set(duplicateIds)).join(', ')}`);
 
