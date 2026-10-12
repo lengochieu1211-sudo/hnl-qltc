@@ -595,18 +595,7 @@ service cloud.firestore {
             ))
           )
           && (!isCoreBusinessCollection(collectionName) || coreCreateLifecycleIsValid(recordId));
-        // Inventory updates have a focused branch so EDITOR can correct quantities
-        // without changing canonical unit. Keep this outside the complex catch-all
-        // to stay below Firebase Rules' 1000-expression per-request budget.
-        allow update: if collectionName == 'inventory'
-          && (canAdminOperate(projectId)
-            || (isEditor(projectId) && projectIsActive(projectId) && editorKeepsActiveLifecycle()))
-          && coreIdentityUpdateIsValid(recordId)
-          && lifecycleUpdateIsMonotonic()
-          && (isAdmin(projectId) || request.resource.data.unit == resource.data.unit);
-
-        allow update: if collectionName != 'inventory'
-          && collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
+        allow update: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
           && !isLegacyReadOnlyCollection(collectionName)
           && (collectionName != 'work_volumes' || !('unitPrice' in request.resource.data))
           && (
