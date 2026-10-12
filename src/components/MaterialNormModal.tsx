@@ -495,8 +495,8 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     return map;
   }, [inventory, activeMaterialNorms]);
 
-  const categoriesInUse = React.useMemo(
-    () => Array.from(new Set(
+  const categoriesInUse = React.useMemo<string[]>(
+    () => Array.from(new Set<string>(
       activeMaterialNorms
         .map((norm) => norm.category?.trim())
         .filter((value): value is string => Boolean(value))
