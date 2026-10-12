@@ -1072,7 +1072,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     const direction = warehouseCatalogSortOrder === 'asc' ? 1 : -1;
     return rows.slice().sort((a, b) => {
       if (warehouseCatalogSortBy === 'name') {
-        return direction * naturalCompare(a.name, b.name);
+        return warehouseCatalogTab === 'material'
+          ? compareMaterialGroupPriority(a.category, b.category) || direction * naturalCompare(a.name, b.name)
+          : direction * naturalCompare(a.name, b.name);
       }
       if (warehouseCatalogSortBy === 'category') {
         return direction * (naturalCompare(a.category, b.category) || naturalCompare(a.name, b.name));
