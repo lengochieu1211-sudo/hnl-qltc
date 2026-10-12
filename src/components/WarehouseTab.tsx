@@ -140,8 +140,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [showQuickEdit, setShowQuickEdit] = useState(false);
   const [quickEditMode, setQuickEditMode] = useState<'norms' | 'in' | 'out' | 'stock'>('norms');
   const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
-  const isNewMaterialDefinition = itemKind === 'material' && Boolean(customMaterial.trim())
-    && !materialNorms.some((norm) => normalizeLinkText(norm.materialName) === normalizeLinkText(customMaterial));
   const [materialNeedStructureGroupIds, setMaterialNeedStructureGroupIds] = useState<string[]>([]);
   const [materialNeedFloorIds, setMaterialNeedFloorIds] = useState<string[]>([]);
   const [materialNeedRoomIds, setMaterialNeedRoomIds] = useState<string[]>([]);
@@ -819,6 +817,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [type, setType] = useState<TransactionType>('in');
   const [materialName, setMaterialName] = useState(materialNorms[0]?.materialName || '');
   const [customMaterial, setCustomMaterial] = useState('');
+  const isNewMaterialDefinition = itemKind === 'material' && Boolean(customMaterial.trim())
+    && !materialNorms.some((norm) => normalizeLinkText(norm.materialName) === normalizeLinkText(customMaterial));
   const [customMaterialCategory, setCustomMaterialCategory] = useState('Vật tư khác');
   const [materialPickerSearch, setMaterialPickerSearch] = useState('');
   const [unit, setUnit] = useState(materialNorms[0]?.unit || 'Tấm');
