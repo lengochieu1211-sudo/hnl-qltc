@@ -72,6 +72,8 @@ export interface WorkVolume {
   inputExpressions?: NumericInputExpressions;
   status: 'Chưa thi công' | 'Đang thi công' | 'Đã hoàn thành';
   dueDate?: string; // Hạn định hoàn thành (YYYY-MM-DD)
+  /** ADMIN-managed presentation rank; legacy rows without order remain valid. */
+  order?: number;
   subItems?: string[]; // Hạng mục con / công đoạn lấy từ căn hộ
   updatedAt?: number;
   revision?: number;
