@@ -75,6 +75,7 @@ interface WarehouseTabProps {
   onImportInventory?: (inventory: InventoryItem[]) => void | Promise<void>;
   onImportNorms?: (norms: MaterialNorm[]) => void;
   onCreateMaterialCatalog?: (input: { materialName: string; unit: string; category: string }) => string | null | Promise<string | null>;
+  onRenameWarehouseUnit?: (input: { kind: 'material' | 'equipment'; materialId?: string; materialName: string; fromUnit: string; toUnit: string }) => Promise<{ norms: number; vouchers: number }>;
   onImportWorkVolumes?: (volumes: WorkVolume[]) => void;
   roomProgressList?: RoomProgressItem[];
   teams?: TeamInfo[];
@@ -106,6 +107,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   onImportInventory,
   onImportNorms,
   onCreateMaterialCatalog,
+  onRenameWarehouseUnit,
   onImportWorkVolumes,
   roomProgressList = [],
   teams = [],
@@ -1614,7 +1616,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     if (quickEditMode === 'norms') return [
       { key: 'materialName', label: 'Tên vật tư', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), required: true, width: 220 },
       { key: 'category', label: 'Chủng loại vật tư', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), required: true, width: 170 },
-      { key: 'unit', label: 'ĐVT', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), required: true, width: 90 },
+      { key: 'unit', label: 'ĐVT (đổi tại Danh mục)', editable: false, required: true, width: 120 },
       {
         key: 'workCategory',
         label: 'Hạng mục thi công',
@@ -1650,7 +1652,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       { key: 'date', label: 'Ngày', editable: hasImportAccess, type: 'date', required: true, width: 135 },
       { key: 'itemKind', label: 'Loại hàng', editable: (row) => hasImportAccess && Boolean(row.__new), type: 'select', options: [{ value: 'material', label: 'Vật tư' }, { value: 'equipment', label: 'Thiết bị' }], required: true, width: 115 },
       { key: 'materialName', label: 'Tên vật tư / thiết bị', editable: hasImportAccess, type: 'select', options: warehouseMaterialOptions, required: true, width: 220 },
-      { key: 'unit', label: 'ĐVT', editable: hasImportAccess, required: true, width: 90 },
+      { key: 'unit', label: 'ĐVT (tự lấy)', editable: false, required: true, width: 120 },
       { key: 'quantity', label: 'Số lượng', editable: hasImportAccess, type: 'number', allowExpression: true, required: true, width: 110, validate: (value) => { const parsed = evaluateMathExpression(String(value ?? '')); return parsed !== null && parsed <= 0 ? 'Phải lớn hơn 0' : null; } },
     ];
     if (quickEditMode === 'out') {
@@ -2036,7 +2038,35 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   </div>
                 ) : warehouseCatalogStockRows.map((item) => (
                   <div key={item.key} className="grid grid-cols-[minmax(180px,1.6fr)_150px_52px_64px_64px_120px_76px] items-center gap-2 px-3 py-2.5 text-xs">
-                    <div className="min-w-0 whitespace-normal break-words font-bold leading-snug text-slate-800">{item.name}</div>
+                    <div className="min-w-0">
+                      <div className="whitespace-normal break-words font-bold leading-snug text-slate-800">{item.name}</div>
+                      {warehouseCatalogTab === 'equipment' && hasNormManageAccess && onRenameWarehouseUnit && (
+                        <button
+                          type="button"
+                          className="mt-1 text-[10px] font-bold text-indigo-700 underline hover:text-indigo-900"
+                          onClick={async () => {
+                            const entered = window.prompt(
+                              `Đổi ĐVT cho thiết bị “${item.name}” (hiện tại: ${item.unit}).\nChỉ đổi NHÃN đơn vị theo tỷ lệ 1:1; không quy đổi số lượng. Nhập ĐVT mới:`,
+                              item.unit,
+                            );
+                            if (entered === null) return;
+                            const newUnit = normalizeUnit(entered) || entered.trim();
+                            if (!newUnit || newUnit === (normalizeUnit(item.unit) || item.unit)) return;
+                            if (!(await confirmAsync(
+                              `Đổi ĐVT của “${item.name}” từ ${item.unit} thành ${newUnit} trên TẤT CẢ phiếu Nhập/Xuất và tồn kho?\n\nSố lượng không đổi (1:1). Không thực hiện nếu cần quy đổi Hộp/Con, Bộ/Cái, v.v.`
+                            ))) return;
+                            try {
+                              const result = await onRenameWarehouseUnit({
+                                kind: 'equipment', materialName: item.name, fromUnit: item.unit, toUnit: newUnit,
+                              });
+                              alert(`Đã đổi ĐVT ${result.vouchers} phiếu thiết bị. Dữ liệu sẽ cập nhật realtime.`);
+                            } catch (error: any) {
+                              alert(`Đổi ĐVT thiết bị thất bại: ${error?.message || String(error)}\nKhông có thay đổi một phần.`);
+                            }
+                          }}
+                        >Đổi ĐVT thiết bị</button>
+                      )}
+                    </div>
                     <span className="min-w-0 whitespace-normal break-words text-slate-500">{item.category}</span>
                     <span className="break-words text-slate-600">{item.unit}</span>
                     <span className="text-right font-semibold text-emerald-700">{formatDecimal(item.totalIn)}</span>
@@ -3222,10 +3252,16 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   <input
                     type="text"
                     value={unit}
-                    onChange={(e) => setUnit(e.target.value)}
-                    className="w-full border border-slate-200 rounded-xl p-2.5"
+                    readOnly={itemKind === 'material' || !isNewEquipment}
+                    onChange={(e) => {
+                      if (itemKind === 'equipment' && isNewEquipment) setUnit(e.target.value);
+                    }}
+                    className={`w-full rounded-xl border border-slate-200 p-2.5 ${itemKind === 'material' || !isNewEquipment ? 'bg-slate-100 text-slate-600 cursor-not-allowed' : 'bg-white'}`}
                     required
                   />
+                  {(itemKind === 'material' || !isNewEquipment) && (
+                    <p className="mt-1 text-[10px] text-slate-500">ĐVT theo danh mục; không sửa riêng trên phiếu.</p>
+                  )}
                 </div>
               </div>
 
