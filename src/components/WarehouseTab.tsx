@@ -2051,7 +2051,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         icon={Layers}
         iconClassName="text-indigo-600"
         title="Danh mục kho"
-        description="Xem tổng nhập, tổng xuất và tồn kho vật tư / thiết bị. Thông số được quản lý tại Vật tư & Thiết bị."
+        description="Tổng hợp vật tư và thiết bị theo nhập, xuất, tồn kho; vật tư còn có thông tin nhu cầu theo định mức."
         bodyClassName="space-y-3"
       >
         <div className="space-y-3">
