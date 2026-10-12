@@ -52,9 +52,9 @@ export async function renameWarehouseUnitAtomic(input: WarehouseUnitRenameInput)
   const norms = rawNormSnap.docs
     .map((row) => ({ ref: row.ref, value: { ...row.data(), id: row.id } as MaterialNorm & { deleted?: boolean } }))
     .filter((row) => active(row.value));
-  const ledger = rawInventorySnap.docs
-    .map((row) => ({ ref: row.ref, value: { ...row.data(), id: row.id } as WarehouseCloudRow }))
-    .filter((row) => active(row.value));
+  const allLedgerRows = rawInventorySnap.docs
+    .map((row) => ({ ref: row.ref, value: { ...row.data(), id: row.id } as WarehouseCloudRow }));
+  const ledger = allLedgerRows.filter((row) => active(row.value));
 
   const relatedNorms = input.kind === 'material'
     ? norms.filter((row) => resolveNormMaterialId(row.value) === input.materialId)
@@ -99,6 +99,13 @@ export async function renameWarehouseUnitAtomic(input: WarehouseUnitRenameInput)
     && areSameUnit(value.unit, toUnit)
   )) {
     throw new Error('Thiết bị cùng tên đã tồn tại với ĐVT đích. Không được gộp hai lịch sử.');
+  }
+  // Deleted vouchers can be restored; do not leave hidden old-unit receipts
+  // behind that would re-enter the ledger under an obsolete denomination.
+  if (allLedgerRows.some(({ value }) =>
+    !active(value) && matchesIdentity(value) && areSameUnit(value.unit, fromUnit)
+  )) {
+    throw new Error('Có phiếu liên quan trong thùng rác. Chưa thể đổi ĐVT an toàn vì khi khôi phục sẽ phát sinh đơn vị cũ; cần xử lý lịch sử khôi phục trước.');
   }
   const vouchers = ledger.filter(({ value }) => matchesIdentity(value) && areSameUnit(value.unit, fromUnit));
   // Legacy ledger rows without canonical materialId are keyed by name + unit.
