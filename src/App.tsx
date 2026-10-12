@@ -5920,7 +5920,7 @@ function AuthenticatedApp() {
         item.itemKind === 'equipment'
         && normalizeMaterialNameKey(item.materialName) === normalizeMaterialNameKey(raw.materialName)
       ).map((item) => normalizeUnit(item.unit) || item.unit)));
-      if (equipmentUnits.length && !equipmentUnits.some((known) => areSameUnit(String(known), unit))) {
+      if (equipmentUnits.length > 1 || (equipmentUnits.length && !equipmentUnits.some((known) => areSameUnit(String(known), unit)))) {
         throw new Error('Thiết bị đã tồn tại với ĐVT khác. Dùng Đổi ĐVT tại Danh mục thiết bị.');
       }
     }

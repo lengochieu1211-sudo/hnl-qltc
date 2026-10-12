@@ -1844,15 +1844,23 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       const resolvedItemKind: InventoryItemKind = existing
         ? (existing.itemKind === 'equipment' ? 'equipment' : 'material')
         : (row.itemKind === 'equipment' ? 'equipment' : 'material');
-      const norm = resolvedItemKind === 'material'
-        ? materialNorms.find((item) => normalizeLinkText(item.materialName) === normalizeLinkText(materialNameValue))
+      const candidateNorms = resolvedItemKind === 'material'
+        ? materialNorms.filter((item) => normalizeLinkText(item.materialName) === normalizeLinkText(materialNameValue))
+        : [];
+      const candidateIds = Array.from(new Set(candidateNorms.map(resolveNormMaterialId).filter(Boolean)));
+      const candidateUnits = Array.from(new Set(candidateNorms.map((item) => normalizeUnit(item.unit) || item.unit)));
+      const linkedNorm = existing?.materialId
+        ? candidateNorms.find((item) => resolveNormMaterialId(item) === existing.materialId)
         : undefined;
-      const knownEquipment = resolvedItemKind === 'equipment'
-        ? equipmentCatalog.find((item) => normalizeLinkText(item.name) === normalizeLinkText(materialNameValue))
-        : undefined;
+      const norm = linkedNorm || (candidateIds.length === 1 && candidateUnits.length === 1 ? candidateNorms[0] : undefined);
+      const candidateEquipment = resolvedItemKind === 'equipment'
+        ? equipmentCatalog.filter((item) => normalizeLinkText(item.name) === normalizeLinkText(materialNameValue))
+        : [];
+      const knownEquipment = candidateEquipment.length === 1 ? candidateEquipment[0] : undefined;
+      if (candidateEquipment.length > 1) throw new Error('Thiết bị “' + materialNameValue + '” có nhiều ĐVT trong lịch sử. Cần đối chiếu danh mục trước.');
       const effectiveUnit = norm?.unit || knownEquipment?.unit || String(row.unit || '').trim();
       if (resolvedItemKind === 'material' && !norm) {
-        throw new Error('Vật tư “' + materialNameValue + '” chưa có Định mức, hãy tạo danh mục trước.');
+        throw new Error('Vật tư “' + materialNameValue + '” chưa có định mức duy nhất hoặc đang trùng mã/ĐVT; hãy đối chiếu danh mục trước.');
       }
       if (resolvedItemKind === 'equipment' && knownEquipment
           && (normalizeUnit(knownEquipment.unit) || knownEquipment.unit) !== (normalizeUnit(String(row.unit || '')) || String(row.unit || ''))) {
