@@ -192,6 +192,7 @@ import { applyFloorPlanImageToMultipleFloors, inspectFloorPlanBulkTargets, cache
 import { shouldAutoMirrorProjectBinaries } from './lib/offlineMirrorSettings';
 import { DEFAULT_TRASH_SETTINGS, TrashOperation, TrashSettings, TrashCollectionKey, deleteTrashOperationFromCloud, estimateTrashBytes, getTrashCollectionLabel, normalizeTrashSettings, sanitizeTrashSnapshot, saveTrashOperationToCloud, subscribeProjectTrash } from './lib/trash';
 import { commitWarehouseTransactionAtomic, updateWarehouseTransactionAtomic, softDeleteWarehouseTransactionAtomic } from './lib/warehouseTransactions';
+import { renameWarehouseUnitAtomic, type WarehouseUnitRenameInput } from './lib/warehouseUnitMigration';
 import { drainBinaryPurgeRetryQueues, purgeTrashOperationBinaries } from './lib/cloudBinaryPurge';
 
 // Heavy screens are code-split so Android does not parse XLSX/PDF-heavy modules at startup.
@@ -5779,6 +5780,18 @@ function AuthenticatedApp() {
     return materialId || null;
   };
 
+  const handleRenameWarehouseUnit = async (input: Omit<WarehouseUnitRenameInput, 'projectId'>) => {
+    if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) {
+      throw new Error('Chỉ ADMIN được đổi ĐVT vật tư/thiết bị.');
+    }
+    if (!FIREBASE_ONLY_RUNTIME) {
+      throw new Error('Đổi ĐVT hàng loạt chỉ hỗ trợ dự án Firebase DEV/Cloud đang online.');
+    }
+    const projectId = activeProjectIdRef.current;
+    if (!projectId) throw new Error('Chưa chọn dự án Cloud.');
+    return renameWarehouseUnitAtomic({ ...input, projectId });
+  };
+
   const handleUpdateNorm = (id: string, updated: Omit<MaterialNorm, 'id'>) => {
     if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được sửa định mức vật tư.'); return; }
     const existing = present.materialNorms.find((norm) => norm.id === id);
@@ -7602,6 +7615,7 @@ function AuthenticatedApp() {
               defaultHandler={inspectorName}
               onImportInventory={handleImportInventory}
               onImportNorms={handleImportNorms}
+              onRenameWarehouseUnit={handleRenameWarehouseUnit}
               onCreateMaterialCatalog={({ materialName, unit, category }) => handleAddNorm({
                 materialName,
                 unit,
@@ -8099,6 +8113,7 @@ function AuthenticatedApp() {
               materialNorms={computedMaterialNorms}
               onAddNorm={handleAddNorm}
               onUpdateNorm={handleUpdateNorm}
+              onRenameWarehouseUnit={handleRenameWarehouseUnit}
               onDeleteNorm={handleDeleteNorm}
               onDeleteMultipleNorms={handleDeleteMultipleNorms}
               onImportNorms={handleImportNorms}
