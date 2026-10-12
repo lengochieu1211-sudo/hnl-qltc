@@ -4,6 +4,7 @@ import { normalizeMaterialNameKey, resolveNormMaterialId } from '../utils/invent
 import { getWarehouseMaterialKey, getWarehouseSignedDelta } from '../utils/warehouseLedgerMath';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
 import { db, getCurrentRealFirebaseUser, sanitizePayloadForCloud } from './firebase';
+import { equipmentCatalogId, type EquipmentCatalogRecord } from './equipmentCatalog';
 
 /**
  * One-to-one unit-label rename. Never silently convert a package into its contents.
@@ -44,6 +45,18 @@ export async function renameWarehouseUnitAtomic(input: WarehouseUnitRenameInput)
   if (!projectId || !fromUnit || !toUnit || !input.materialName.trim()) throw new Error('Thiếu dữ liệu đổi đơn vị.');
   if (areSameUnit(fromUnit, toUnit)) return { norms: 0, vouchers: 0 };
   if (input.kind === 'material' && !input.materialId) throw new Error('Vật tư thiếu materialId. Không thể đồng bộ an toàn.');
+
+  // A catalog record, when present, participates in the SAME atomic unit rename
+  // as every affected voucher and inventory balance. Never leave stale master data.
+  const catalogRef = input.kind === 'equipment'
+    ? doc(db, 'projects', projectId, 'equipment_catalog', equipmentCatalogId(input.materialName))
+    : null;
+  const catalogBeforeSnap = catalogRef ? await getDocFromServer(catalogRef) : null;
+  const catalogBefore = catalogBeforeSnap?.exists()
+    ? catalogBeforeSnap.data() as EquipmentCatalogRecord : null;
+  if (catalogBefore && !areSameUnit(catalogBefore.unit, fromUnit)) {
+    throw new Error('ĐVT danh mục thiết bị đã thay đổi hoặc không khớp phiếu kho; hủy đổi.');
+  }
 
   const [rawNormSnap, rawInventorySnap] = await Promise.all([
     getDocsFromServer(collection(db, 'projects', projectId, 'material_norms')),
@@ -182,10 +195,12 @@ export async function renameWarehouseUnitAtomic(input: WarehouseUnitRenameInput)
   const time = Date.now();
   await runTransaction(db, async (tx) => {
     // Firestore requires all reads before the first write.
-    const [normCurrent, voucherCurrent, balanceCurrent] = await Promise.all([
+    const [normCurrent, voucherCurrent, balanceCurrent, catalogCurrent] = await Promise.all([
+
       Promise.all(relatedNorms.map(({ ref }) => tx.get(ref))),
       Promise.all(vouchers.map(({ ref }) => tx.get(ref))),
       Promise.all(allKeys.map((key) => tx.get(balancePreflight.get(key)!.ref))),
+      catalogRef ? tx.get(catalogRef) : Promise.resolve(null),
     ]);
     const assertUnchanged = (before: any, now: any, label: string) => {
       if (!now.exists() || now.data()?.deleted === true
@@ -206,6 +221,13 @@ export async function renameWarehouseUnitAtomic(input: WarehouseUnitRenameInput)
         throw new Error('Tồn kho vừa thay đổi trên thiết bị khác; hủy đổi ĐVT.');
       }
     });
+    if (catalogRef && catalogCurrent) {
+      if (catalogCurrent.exists() !== Boolean(catalogBefore)
+        || (catalogBefore && (Number(catalogCurrent.data()?.revision || 0) !== Number(catalogBefore.revision || 0)
+          || !areSameUnit(String(catalogCurrent.data()?.unit || ''), fromUnit)))) {
+        throw new Error('Danh mục thiết bị thay đổi đồng thời; hủy đổi ĐVT.');
+      }
+    }
     relatedNorms.forEach(({ ref, value }) => {
       tx.set(ref, sanitizePayloadForCloud({
         unit: toUnit, materialId: resolveNormMaterialId(value),
@@ -214,6 +236,13 @@ export async function renameWarehouseUnitAtomic(input: WarehouseUnitRenameInput)
         updatedByUid: user.uid,
       }), { merge: true });
     });
+    if (catalogRef && catalogBefore) {
+      tx.set(catalogRef, sanitizePayloadForCloud({
+        unit: toUnit,
+        revision: Math.max(Number(catalogBefore.revision || 0) + 1, 1),
+        updatedAt: Math.max(time, Number(catalogBefore.updatedAt || 0) + 1),
+      }), { merge: true });
+    }
     vouchers.forEach(({ ref, value }) => {
       const newKey = getWarehouseMaterialKey({ ...value, unit: toUnit });
       tx.set(ref, sanitizePayloadForCloud({

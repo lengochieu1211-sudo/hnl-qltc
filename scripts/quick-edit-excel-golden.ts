@@ -188,13 +188,13 @@ assert.match(crew, /triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit=\{qu
 assert.match(warehouse, /inventoryKindFilter, setInventoryKindFilter/, 'Warehouse must have an independent material/equipment filter');
 assert.match(warehouse, /matchesType && matchesKind && matchesSearch/, 'Warehouse kind filtering must combine with receipt/issue and search filters');
 assert.match(warehouse, /data-hnl-warehouse-kind-filter=\{key\}/, 'Warehouse must expose the type filter on PC and mobile');
-assert.match(warehouse, /key: 'kind', label: 'Loại hàng'/, 'Warehouse must support quick sort by material/equipment kind');
+assert.doesNotMatch(warehouse, /key: 'kind', label: 'Loại hàng'/, 'Warehouse must NOT duplicate the separate material/equipment filter in QuickSortBar');
 assert.match(warehouse, /key: 'material', label: 'Tên vật tư \/ thiết bị'/, 'Warehouse sort label must cover both materials and equipment');
 assert.match(materialNormModal, /key: 'category', label: 'Chủng loại vật tư'/, 'Material catalog quick sort must support category');
 assert.match(materialNormModal, /key: 'unit', label: 'ĐVT'/, 'Material catalog quick sort must support unit');
 assert.match(checklist, /key: 'category', label: 'Hạng mục kiểm tra'/, 'Checklist quick sort must support category without changing stored order');
 
-assert.match(warehouse, /Định mức theo Hạng mục/, 'Warehouse quick edit must expose the safe per-work-category norm table');
+assert.match(warehouse, /Định mức vật tư/, 'Warehouse quick edit must expose the safe per-work-category norm table');
 assert.match(warehouse, /Nhập kho/, 'Warehouse quick edit must have inbound ledger table');
 assert.match(warehouse, /Xuất kho/, 'Warehouse quick edit must have outbound ledger table');
 assert.match(warehouse, /Tồn kho 🔒/, 'Warehouse stock must be visibly read-only');
@@ -209,7 +209,15 @@ assert.match(warehouse, /key: 'unit'.*editable: false.*required: true/, 'Warehou
 assert.match(warehouse, /key: 'unit'.*label: 'ĐVT \(tự lấy\)'.*editable: false/, 'Ledger Quick Edit must never change unit on a voucher');
 assert.match(warehouse, /readOnly=\{!isNewMaterialDefinition && \(itemKind === 'material' \|\| !isNewEquipment\)\}/, 'Voucher form must lock units for catalog material and equipment');
 assert.match(warehouse, /isNewMaterialDefinition/, 'New material may declare its first unit only when its name is absent from catalog');
-assert.match(warehouse, /Đổi ĐVT thiết bị/, 'Equipment catalog must expose an ADMIN-controlled unit rename action');
+const equipmentPanel = fs.readFileSync('src/components/EquipmentCatalogPanel.tsx', 'utf8');
+const equipmentService = fs.readFileSync('src/lib/equipmentCatalog.ts', 'utf8');
+assert.match(warehouse, /<span>Thiết lập<\/span>/, 'Warehouse master settings use compact Thiết lập on desktop/mobile');
+assert.match(warehouse, /data-hnl-warehouse-kind-filter=\{key\}/, 'Keep equipment filter outside QuickSortBar');
+assert.doesNotMatch(warehouse, /filter=\{\{\s*label: 'Loại hàng'/, 'Warehouse type filter must not move into the quick sort bar');
+assert.doesNotMatch(warehouse, />Đổi ĐVT thiết bị<\/button>/, 'The old standalone equipment-unit action must be removed from stock catalog');
+assert.match(equipmentPanel, /Đổi ĐVT \(1:1\)/, 'Equipment unit action must live in the equipment editor');
+assert.match(equipmentService, /saveEquipmentCatalogBatch/, 'Equipment master edits must write separately from the inventory ledger');
+assert.match(warehouse, /key: 'equipment', label: 'Thiết bị'/, 'Warehouse quick edit must contain an equipment master tab');
 const unitMigration = fs.readFileSync('src/lib/warehouseUnitMigration.ts', 'utf8');
 assert.match(unitMigration, /runTransaction\(db/, 'Warehouse unit rename must use Firestore transaction');
 assert.match(unitMigration, /MAX_TRANSACTION_DOCUMENTS/, 'Oversized unit migrations must fail closed rather than partially write');

@@ -543,7 +543,43 @@ service cloud.firestore {
         }
       }
 
-      // Derived warehouse balances. Inventory transaction rows remain the ledger/source;
+      // ADMIN-owned metadata; warehouse vouchers remain the ONLY source of stock.
+      // Explicit path is excluded from generic writes to enforce the schema and
+      // prevent hard-deletion of a catalog identity on any device.
+      match /equipment_catalog/{equipmentId} {
+        allow read: if isMember(projectId);
+        allow create: if canAdminOperate(projectId)
+          && request.resource.data.id == equipmentId
+          && request.resource.data.projectId == projectId
+          && request.resource.data.name is string && request.resource.data.name.size() > 0
+          && request.resource.data.unit is string && request.resource.data.unit.size() > 0
+          && request.resource.data.category is string
+          && request.resource.data.brand is string
+          && request.resource.data.model is string
+          && request.resource.data.specifications is string
+          && request.resource.data.notes is string
+          && request.resource.data.revision == 1
+          && request.resource.data.createdAt is number
+          && request.resource.data.updatedAt is number
+          && request.resource.data.keys().hasOnly([
+            'id','projectId','name','unit','category','brand','model',
+            'specifications','notes','revision','createdAt','updatedAt'
+          ]);
+        allow update: if canAdminOperate(projectId)
+          && request.resource.data.id == resource.data.id
+          && request.resource.data.projectId == resource.data.projectId
+          && request.resource.data.name == resource.data.name
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.unit is string && request.resource.data.unit.size() > 0
+          && request.resource.data.revision == resource.data.revision + 1
+          && request.resource.data.updatedAt >= resource.data.updatedAt
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'unit','category','brand','model','specifications','notes','revision','updatedAt'
+          ]);
+        allow delete: if false;
+      }
+
+            // Derived warehouse balances. Inventory transaction rows remain the ledger/source;
       // this aggregate exists only for online atomic stock validation and fast reads.
       // Clients may read it, but normal generic autosave cannot hard-delete it.
       match /inventory_balances/{balanceId} {
@@ -577,13 +613,13 @@ service cloud.firestore {
       // overwrites. Shared settings/trash metadata are ADMIN-owned structure; legacy
       // floor_plan_images Firestore fallback is read-only until verified purge.
       match /{collectionName}/{recordId} {
-        allow read: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
+        allow read: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog'
           && isMember(projectId)
           && (collectionName != 'work_volumes' || !('unitPrice' in resource.data) || isAdmin(projectId));
         // Master project structure is ADMIN-only. EDITOR may create operational records
         // (defect, warehouse transaction, crew log, photo metadata) and may update only
         // explicitly allowed operational fields on rooms/checklist. VIEWER remains read-only.
-        allow create: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
+        allow create: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog'
           && !isLegacyReadOnlyCollection(collectionName)
           && (collectionName != 'work_volumes' || !('unitPrice' in request.resource.data))
           && (
@@ -595,7 +631,7 @@ service cloud.firestore {
             ))
           )
           && (!isCoreBusinessCollection(collectionName) || coreCreateLifecycleIsValid(recordId));
-        allow update: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
+        allow update: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog'
           && !isLegacyReadOnlyCollection(collectionName)
           && (collectionName != 'work_volumes' || !('unitPrice' in request.resource.data))
           && (
@@ -609,7 +645,7 @@ service cloud.firestore {
             ))
           )
           && (!isCoreBusinessCollection(collectionName) || (coreIdentityUpdateIsValid(recordId) && lifecycleUpdateIsMonotonic()));
-        allow delete: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
+        allow delete: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog'
           && canAdminOperate(projectId)
           && !isCoreBusinessCollection(collectionName);
 

@@ -557,6 +557,7 @@ function AuthenticatedApp() {
   const [businessDataSource, setBusinessDataSource] = useState<'cloud' | 'firestore-cache' | 'verified-offline-snapshot' | 'legacy-migration-fallback' | 'empty'>('empty');
   const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
   const [isMaterialNormOpen, setIsMaterialNormOpen] = useState(false);
+  const [materialNormInitialTab, setMaterialNormInitialTab] = useState<'material' | 'equipment'>('material');
   const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
   const [projectManagerInitialTab, setProjectManagerInitialTab] = useState<'projects' | 'sync'>('projects');
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
@@ -7642,6 +7643,7 @@ function AuthenticatedApp() {
             <WarehouseTab
               isActive={visibleTab === 'warehouse'}
               quickEditEnabled={!isMobileRuntime}
+              currentProjectId={activeProjectId}
               inventory={inventory}
               userRole={currentUserRole}
               roleResolved={isProjectRoleResolved}
@@ -7651,7 +7653,7 @@ function AuthenticatedApp() {
               onDeleteMultipleInventory={handleDeleteMultipleInventory}
               onSyncSheets={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleSyncAll : undefined}
               materialNorms={computedMaterialNorms}
-              onOpenNormModal={() => setIsMaterialNormOpen(true)}
+              onOpenNormModal={(tab = 'material') => { setMaterialNormInitialTab(tab); setIsMaterialNormOpen(true); }}
               onOpenExportPdf={() => setIsExportPdfOpen(true)}
               onExportExcel={handleExportExcel}
               onUndo={handleUndo}
@@ -8157,6 +8159,7 @@ function AuthenticatedApp() {
           <React.Suspense fallback={<div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/55"><div className="rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-xl"><RefreshCw className="mr-2 inline h-4 w-4 animate-spin" />Đang mở định mức...</div></div>}>
             <MaterialNormModal
               isOpen={true}
+              initialTab={materialNormInitialTab}
               userRole={currentUserRole}
               roleResolved={isProjectRoleResolved}
               currentProjectId={activeProjectId}

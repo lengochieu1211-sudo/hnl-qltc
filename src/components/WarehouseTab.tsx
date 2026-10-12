@@ -36,6 +36,7 @@ import { normalizeUnit } from '../utils/unitUtils';
 import { canonicalWorkCategoryId, normalizeLinkText } from '../utils/linkageIntegrity';
 import { assertSafeExcelImportFile, parseExcelNumberRecord, parseExcelStringArray, parseExcelStringRecord, readExcelFormulaByHeaders, sameStringSet } from '../utils/excelImportUtils';
 import { QuickSortBar } from './QuickSortBar';
+import { equipmentIdentityKey, saveEquipmentCatalogBatch, subscribeEquipmentCatalog, type EquipmentCatalogRecord, type EquipmentCatalogInput } from '../lib/equipmentCatalog';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import { DataManagementMenu } from './DataManagementMenu';
 import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';
@@ -55,6 +56,7 @@ type WarehouseCatalogSortKey = 'name' | 'category' | 'unit' | 'totalIn' | 'total
 interface WarehouseTabProps {
   isActive?: boolean;
   quickEditEnabled?: boolean;
+  currentProjectId?: string;
   inventory: InventoryItem[];
   userRole: UserRole;
   roleResolved: boolean;
@@ -64,7 +66,7 @@ interface WarehouseTabProps {
   onDeleteMultipleInventory?: (ids: string[]) => void | Promise<void>;
   onSyncSheets?: () => void;
   materialNorms: MaterialNorm[];
-  onOpenNormModal: () => void;
+  onOpenNormModal: (tab?: 'material' | 'equipment') => void;
   onOpenExportPdf?: () => void;
   onExportExcel?: () => void;
   onUndo?: () => void;
@@ -87,6 +89,7 @@ interface WarehouseTabProps {
 export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   isActive = true,
   quickEditEnabled = true,
+  currentProjectId = '',
   inventory,
   userRole,
   roleResolved,
@@ -124,7 +127,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [inventoryKindFilter, setInventoryKindFilter] = useState<'all' | InventoryItemKind>('all');
   useFormatSettings();
   const [searchTerm, setSearchTerm] = useState('');
-  const [inventorySortBy, setInventorySortBy] = useState<'date' | 'kind' | 'material' | 'location' | 'handler'>('date');
+  const [inventorySortBy, setInventorySortBy] = useState<'date' | 'material' | 'location' | 'handler'>('date');
   const [inventorySortOrder, setInventorySortOrder] = useState<'asc' | 'desc'>('desc');
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingInventory, setEditingInventory] = useState<InventoryItem | null>(null);
@@ -139,7 +142,21 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [warehouseCatalogSortOrder, setWarehouseCatalogSortOrder] = useState<'asc' | 'desc'>('asc');
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [showQuickEdit, setShowQuickEdit] = useState(false);
-  const [quickEditMode, setQuickEditMode] = useState<'norms' | 'in' | 'out' | 'stock'>('norms');
+  const [quickEditMode, setQuickEditMode] = useState<'norms' | 'equipment' | 'in' | 'out' | 'stock'>('norms');
+  const [equipmentMaster, setEquipmentMaster] = useState<EquipmentCatalogRecord[]>([]);
+  const [equipmentMasterReady, setEquipmentMasterReady] = useState(false);
+  useEffect(() => {
+    setEquipmentMasterReady(false);
+    setEquipmentMaster([]);
+    if (!currentProjectId || !roleResolved) return;
+    return subscribeEquipmentCatalog(currentProjectId, rows => {
+      setEquipmentMaster(rows);
+      setEquipmentMasterReady(true);
+    }, error => {
+      setEquipmentMasterReady(false);
+      console.warn('[Equipment catalog] Read denied/unavailable; editing disabled', error);
+    });
+  }, [currentProjectId, roleResolved]);
   const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
   const [materialNeedStructureGroupIds, setMaterialNeedStructureGroupIds] = useState<string[]>([]);
   const [materialNeedFloorIds, setMaterialNeedFloorIds] = useState<string[]>([]);
@@ -869,6 +886,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   // its first real warehouse transaction. This keeps multi-user/offline stock as one ledger.
   const equipmentCatalog = useMemo(() => {
     const byKey = new Map<string, { name: string; unit: string; lastDate: string }>();
+    equipmentMaster.forEach(item => {
+      const key = `${normalizeMaterialSearch(item.name)}|${normalizeMaterialSearch(item.unit)}`;
+      byKey.set(key, { name: item.name, unit: item.unit, lastDate: '' });
+    });
     inventory
       .filter((item) => item.itemKind === 'equipment')
       .forEach((item) => {
@@ -884,7 +905,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     return Array.from(byKey.values()).sort((a, b) =>
       compareDateValues(b.lastDate, a.lastDate) || naturalCompare(a.name, b.name),
     );
-  }, [inventory]);
+  }, [inventory, equipmentMaster]);
 
   const filteredEquipmentCatalog = useMemo(() => {
     if (!normalizedMaterialPickerSearch) return equipmentCatalog;
@@ -898,7 +919,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     if (warehouseCatalogTab === 'equipment') {
       return equipmentCatalog
         .filter((item) => !q || normalizeMaterialSearch(`${item.name} ${item.unit}`).includes(q))
-        .map((item) => ({ key: `equipment:${item.name}:${item.unit}`, name: item.name, unit: item.unit, category: 'Thiết bị', hasNorm: false }));
+        .map((item) => ({
+          key: `equipment:${item.name}:${item.unit}`, name: item.name, unit: item.unit,
+          category: equipmentMaster.find(master => equipmentIdentityKey(master.name) === equipmentIdentityKey(item.name))?.category || 'Thiết bị',
+          hasNorm: false,
+        }));
     }
     const byKey = new Map<string, { key: string; name: string; unit: string; category: string; hasNorm: boolean }>();
     materialNorms.forEach((norm) => {
@@ -908,7 +933,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     return Array.from(byKey.values())
       .filter((item) => !q || normalizeMaterialSearch(`${item.name} ${item.category} ${item.unit}`).includes(q))
       .sort((a, b) => naturalCompare(a.name, b.name));
-  }, [warehouseCatalogTab, warehouseCatalogSearch, equipmentCatalog, materialNorms]);
+  }, [warehouseCatalogTab, warehouseCatalogSearch, equipmentCatalog, equipmentMaster, materialNorms]);
 
 
   const issueFloorOptions = useMemo(() => {
@@ -1239,14 +1264,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     return list.sort((a, b) => {
       let result = 0;
       switch (inventorySortBy) {
-        case 'kind':
-          // Material and equipment are separate catalog identities. Sorting only
-          // changes the view, never the original inventory or transaction IDs.
-          result = naturalCompare(
-            a.itemKind === 'equipment' ? 'Thiết bị' : 'Vật tư',
-            b.itemKind === 'equipment' ? 'Thiết bị' : 'Vật tư',
-          ) || naturalCompare(a.materialName, b.materialName);
-          break;
         case 'material':
           result = naturalCompare(a.materialName, b.materialName);
           break;
@@ -1602,6 +1619,22 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   });
   }, [showQuickEdit, inventory, floorPlans, roomProgressList, teams, workVolumes, materialNorms, normalizedStructureConfig]);
 
+  const warehouseQuickEquipmentRows = useMemo<QuickGridRow[]>(() => {
+    if (!showQuickEdit) return [];
+    return equipmentCatalog.map(item => {
+      const master = equipmentMaster.find(x => equipmentIdentityKey(x.name) === equipmentIdentityKey(item.name));
+      return {
+        __rowKey: master?.id || `historical-${equipmentIdentityKey(item.name)}`,
+        __catalogId: master?.id || '',
+        __catalogRevision: master?.revision,
+        name: item.name, unit: item.unit,
+        category: master?.category || 'Thiết bị',
+        brand: master?.brand || '', model: master?.model || '',
+        specifications: master?.specifications || '', notes: master?.notes || '',
+      };
+    });
+  }, [showQuickEdit, equipmentCatalog, equipmentMaster]);
+
   const warehouseQuickStockRows = useMemo<QuickGridRow[]>(() => showQuickEdit ? stockSummaries.map((item, index) => ({
     __rowKey: `stock-${item.materialId || item.materialName}-${index}`,
     itemKind: item.itemKind,
@@ -1626,6 +1659,15 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
   const warehouseQuickColumns = useMemo<QuickGridColumn[]>(() => {
     if (!showQuickEdit) return [];
+    if (quickEditMode === 'equipment') return [
+      { key: 'name', label: 'Tên thiết bị', editable: (row) => hasNormManageAccess && Boolean(row.__new), required: true, width: 220 },
+      { key: 'unit', label: 'ĐVT (khóa khi đã có)', editable: (row) => hasNormManageAccess && Boolean(row.__new), required: true, width: 150 },
+      { key: 'category', label: 'Nhóm thiết bị', editable: hasNormManageAccess, width: 165 },
+      { key: 'brand', label: 'Hãng', editable: hasNormManageAccess, width: 160 },
+      { key: 'model', label: 'Model / Mã hiệu', editable: hasNormManageAccess, width: 160 },
+      { key: 'specifications', label: 'Thông số kỹ thuật', editable: hasNormManageAccess, width: 265 },
+      { key: 'notes', label: 'Ghi chú', editable: hasNormManageAccess, width: 245 },
+    ];
     if (quickEditMode === 'norms') return [
       { key: 'materialName', label: 'Tên vật tư', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), required: true, width: 220 },
       { key: 'category', label: 'Chủng loại vật tư', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), required: true, width: 170 },
@@ -1686,7 +1728,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     return base;
   }, [showQuickEdit, quickEditMode, hasNormManageAccess, hasImportAccess, warehouseMaterialOptions, warehouseFloorOptions, warehouseRoomOptions, warehouseTeamOptions, warehouseWorkOptions, normalizedStructureConfig]);
 
-  const warehouseActiveQuickRows = quickEditMode === 'norms'
+  const warehouseActiveQuickRows = quickEditMode === 'equipment'
+    ? warehouseQuickEquipmentRows
+    : quickEditMode === 'norms'
     ? warehouseQuickNormRows
     : quickEditMode === 'stock'
       ? warehouseQuickStockRows
@@ -1698,6 +1742,33 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     deletedRows: QuickGridRow[] = [],
   ) => {
     if (quickEditMode === 'stock') return;
+    if (quickEditMode === 'equipment') {
+      if (!hasNormManageAccess || !equipmentMasterReady || !currentProjectId) {
+        throw new Error('Chưa xác minh danh mục thiết bị Cloud hoặc không có quyền ADMIN.');
+      }
+      if (deletedRows.length > 0) throw new Error('Không được xóa trực tiếp danh mục thiết bị có lịch sử.');
+      const changedRows = rows.filter(row => Array.from(dirtyCellKeys).some(cell => cell.startsWith(row.__rowKey + '::')));
+      if (!changedRows.length) return;
+      const drafts: EquipmentCatalogInput[] = changedRows.map(row => {
+        const name = String(row.name || '').trim();
+        const unit = normalizeUnit(String(row.unit || '').trim()) || String(row.unit || '').trim();
+        const sameNameInLedger = inventory.filter(item =>
+          item.itemKind === 'equipment' && equipmentIdentityKey(item.materialName) === equipmentIdentityKey(name));
+        if (sameNameInLedger.some(item => (normalizeUnit(item.unit) || item.unit) !== unit)) {
+          throw new Error(`Thiết bị “${name}” đang có phiếu kho ĐVT khác. Không tạo thêm danh mục sai ĐVT.`);
+        }
+        return {
+          id: String(row.__catalogId || '') || undefined,
+          revision: row.__catalogRevision === undefined ? undefined : Number(row.__catalogRevision),
+          name, unit, category: String(row.category || 'Thiết bị'),
+          brand: String(row.brand || ''), model: String(row.model || ''),
+          specifications: String(row.specifications || ''), notes: String(row.notes || ''),
+        };
+      });
+      if (!(await confirmAsync(`Lưu thông số ${drafts.length} thiết bị? Không chỉnh phiếu kho/tồn kho.`))) return false;
+      await saveEquipmentCatalogBatch(currentProjectId, drafts);
+      return;
+    }
     const dirtyRowKeys = new Set(Array.from(dirtyCellKeys).map((key) => key.split('::')[0]));
     const dirtyRows = rows.filter((row) => dirtyRowKeys.has(row.__rowKey));
 
@@ -1941,13 +2012,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               <span className="hidden sm:inline">Danh mục kho</span>
             </button>
             <button
-              onClick={onOpenNormModal}
+              onClick={() => onOpenNormModal('material')}
               className="flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900 active:scale-[0.99] lg:px-3 lg:text-xs"
-              title={hasNormManageAccess ? 'Cập nhật chủng loại vật tư, đơn vị tính và định mức' : 'Xem định mức vật tư (chỉ quản trị viên được sửa)'}
+              title={hasNormManageAccess ? 'Chỉnh thông tin vật tư, thiết bị và định mức' : 'Xem vật tư, thiết bị và định mức'}
             >
               <Sliders className="h-4 w-4 shrink-0 text-slate-600" />
-              <span className="sm:hidden">Định mức</span>
-              <span className="hidden sm:inline">{hasNormManageAccess ? t('norms_button') : 'Xem định mức'}</span>
+              <span>Thiết lập</span>
             </button>
             <DataManagementMenu
               fillMobile
@@ -2061,38 +2131,19 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               <div className="max-h-[46vh] divide-y divide-slate-100 overflow-y-auto">
                 {warehouseCatalogStockRows.length === 0 ? (
                   <div className="px-3 py-8 text-center text-xs text-slate-500">
-                    {warehouseCatalogTab === 'equipment' ? 'Chưa có thiết bị. Thiết bị sẽ được lưu vào danh mục sau giao dịch đầu tiên.' : 'Không có vật tư phù hợp.'}
+                    {warehouseCatalogTab === 'equipment' ? 'Chưa có thiết bị. Bạn có thể thêm trước trong Vật tư & Thiết bị.' : 'Không có vật tư phù hợp.'}
                   </div>
                 ) : warehouseCatalogStockRows.map((item) => (
                   <div key={item.key} className="grid grid-cols-[minmax(180px,1.6fr)_150px_52px_64px_64px_120px_76px] items-center gap-2 px-3 py-2.5 text-xs">
                     <div className="min-w-0">
                       <div className="whitespace-normal break-words font-bold leading-snug text-slate-800">{item.name}</div>
-                      {warehouseCatalogTab === 'equipment' && hasNormManageAccess && onRenameWarehouseUnit && (
-                        <button
-                          type="button"
+                      {warehouseCatalogTab === 'equipment' && (
+                        <button type="button"
+                          onClick={() => { setShowWarehouseCatalog(false); onOpenNormModal('equipment'); }}
                           className="mt-1 text-[10px] font-bold text-indigo-700 underline hover:text-indigo-900"
-                          onClick={async () => {
-                            const entered = window.prompt(
-                              `Đổi ĐVT cho thiết bị “${item.name}” (hiện tại: ${item.unit}).\nChỉ đổi NHÃN đơn vị theo tỷ lệ 1:1; không quy đổi số lượng. Nhập ĐVT mới:`,
-                              item.unit,
-                            );
-                            if (entered === null) return;
-                            const newUnit = normalizeUnit(entered) || entered.trim();
-                            if (!newUnit || newUnit === (normalizeUnit(item.unit) || item.unit)) return;
-                            if (!(await confirmAsync(
-                              `Đổi ĐVT của “${item.name}” từ ${item.unit} thành ${newUnit} trên TẤT CẢ phiếu Nhập/Xuất và tồn kho?\n\nSố lượng không đổi (1:1). Không thực hiện nếu cần quy đổi Hộp/Con, Bộ/Cái, v.v.`
-                            ))) return;
-                            try {
-                              const result = await onRenameWarehouseUnit({
-                                kind: 'equipment', materialName: item.name, fromUnit: item.unit, toUnit: newUnit,
-                              });
-                              alert(`Đã đổi ĐVT ${result.vouchers} phiếu thiết bị. Dữ liệu sẽ cập nhật realtime.`);
-                            } catch (error: any) {
-                              alert(`Đổi ĐVT thiết bị thất bại: ${error?.message || String(error)}\nKhông có thay đổi một phần.`);
-                            }
-                          }}
-                        >Đổi ĐVT thiết bị</button>
+                          title="Chỉnh thông tin tại Vật tư & Thiết bị">Chỉnh thông tin</button>
                       )}
+
                     </div>
                     <span className="min-w-0 whitespace-normal break-words text-slate-500">{item.category}</span>
                     <span className="break-words text-slate-600">{item.unit}</span>
@@ -2120,24 +2171,27 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       {quickEditEnabled && showQuickEdit && <React.Suspense fallback={null}>
       <LazyQuickEditGridModal
         open={showQuickEdit}
-        title="Bảng chỉnh nhanh · Kho vật tư"
-        subtitle={quickEditMode === 'stock'
+        title="Bảng chỉnh nhanh · Kho vật tư & thiết bị"
+        subtitle={quickEditMode === 'equipment'
+          ? 'Chỉnh nhanh thông số thiết bị. Tên và ĐVT cũ được khóa để bảo vệ lịch sử nhập/xuất và tồn kho.'
+          : quickEditMode === 'stock'
           ? 'Tồn kho là số tính từ Tổng nhập - Tổng xuất và luôn chỉ đọc.'
           : quickEditMode === 'norms'
             ? 'Mỗi vật tư là một cụm dữ liệu. Dòng đại diện sửa Tên/Chủng loại vật tư/ĐVT/ĐM chung/Nhu cầu định mức/Ghi chú và tự đồng bộ các dòng con; dòng con sửa Hạng mục + ĐM riêng.'
             : 'Chỉnh trực tiếp theo cột/dòng; dữ liệu chỉ ghi khi bấm Lưu.'}
         tabs={[
-          { key: 'norms', label: 'Định mức theo Hạng mục' },
+          { key: 'norms', label: 'Định mức vật tư' },
+          { key: 'equipment', label: 'Thiết bị' },
           { key: 'in', label: 'Nhập kho' },
           { key: 'out', label: 'Xuất kho' },
           { key: 'stock', label: 'Tồn kho 🔒' },
         ]}
         activeTab={quickEditMode}
-        onTabChange={(key) => setQuickEditMode(key as 'norms' | 'in' | 'out' | 'stock')}
+        onTabChange={(key) => setQuickEditMode(key as 'norms' | 'equipment' | 'in' | 'out' | 'stock')}
         columns={warehouseQuickColumns}
         rows={warehouseActiveQuickRows}
-        canEdit={quickEditMode === 'stock' ? false : quickEditMode === 'norms' ? hasNormManageAccess : hasImportAccess}
-        canAddRows={quickEditMode === 'norms' ? hasNormManageAccess : quickEditMode === 'in' || quickEditMode === 'out' ? hasImportAccess : false}
+        canEdit={quickEditMode === 'stock' ? false : quickEditMode === 'norms' || quickEditMode === 'equipment' ? hasNormManageAccess && (quickEditMode !== 'equipment' || equipmentMasterReady) : hasImportAccess}
+        canAddRows={quickEditMode === 'norms' ? hasNormManageAccess : quickEditMode === 'equipment' ? hasNormManageAccess && equipmentMasterReady : quickEditMode === 'in' || quickEditMode === 'out' ? hasImportAccess : false}
         canDeleteRows={quickEditMode === 'norms' ? hasNormManageAccess : quickEditMode === 'in' || quickEditMode === 'out' ? hasDeleteAccess : false}
         requiresAnchorForInsert={quickEditMode === 'norms'}
         syncGroupColumns={quickEditMode === 'norms' ? ['materialName', 'category', 'unit', 'generalNorm', 'notes'] : []}
@@ -2154,7 +2208,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             ? 'Không thể xóa Hạng mục cuối cùng của vật tư trong Bảng chỉnh nhanh. Hãy quản lý liên kết này ở màn Định mức vật tư.'
             : null;
         }}
-        createEmptyRow={(index, anchorRow) => quickEditMode === 'norms' ? (anchorRow ? ({
+        createEmptyRow={(index, anchorRow) => quickEditMode === 'equipment' ? ({
+          __rowKey: `new-equipment-${Date.now()}-${index}`, __new: true,
+          name: '', unit: 'Cái', category: 'Thiết bị', brand: '', model: '',
+          specifications: '', notes: '',
+        }) : quickEditMode === 'norms' ? (anchorRow ? ({
           __rowKey: `new-norm-${String(anchorRow.__normId || anchorRow.__groupKey || 'unknown')}-${Date.now()}-${index}`,
           __new: true,
           __normId: String(anchorRow.__normId || anchorRow.__groupKey || ''),
@@ -2657,7 +2715,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           itemCount={filteredInventory.length}
           options={[
             { key: 'date', label: 'Ngày', kind: 'date', defaultOrder: 'desc' },
-            { key: 'kind', label: 'Loại hàng', kind: 'alpha' },
             { key: 'material', label: 'Tên vật tư / thiết bị', kind: 'alpha' },
             { key: 'location', label: 'Vị trí / Tầng', kind: 'alpha' },
             { key: 'handler', label: 'Người thực hiện', kind: 'alpha' },
