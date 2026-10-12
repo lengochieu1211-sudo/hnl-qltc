@@ -169,7 +169,7 @@ import { confirmAsync } from './utils/confirmAsync';
 import { normalizeImportedData } from './utils/dataNormalizer';
 import { reconcileBackupSnapshot } from './utils/backupSnapshot';
 import { computeDerivedWorkVolumes } from './utils/workVolumeComputation';
-import { compareWorkVolumeManualOrder } from './utils/catalogDisplayOrder';
+import { compareWorkVolumeManualOrder, reorderVisibleWorkVolumes } from './utils/catalogDisplayOrder';
 import { canonicalNormCategoryIds, canonicalWorkCategoryId, resolveUniqueMaterialIdentity, resolveWorkVolumeRef, validateInventoryOutProvenance, validateMaterialNormCatalog, validateWorkVolumeCatalog } from './utils/linkageIntegrity';
 import { reconcileMaterialNormWorkCategoryLinks } from './utils/projectReconciliation';
 import { createEntityId, createShortToken } from './utils/idUtils';
@@ -6276,18 +6276,8 @@ function AuthenticatedApp() {
     if (!isProjectRoleResolved || !canManageWorkVolumeStructure(currentUserRole)) return;
     if (visibleOrderedIds.length < 2 || new Set(visibleOrderedIds).size !== visibleOrderedIds.length) return;
     updateAppData(prev => {
-      const ordered = [...prev.workVolumes].sort(compareWorkVolumeManualOrder);
-      const ids = new Set(visibleOrderedIds);
-      const visibleExisting = ordered.filter(work => ids.has(work.id));
-      if (visibleExisting.length !== visibleOrderedIds.length) return prev;
-      if (visibleExisting.every((work, index) => work.id === visibleOrderedIds[index])) return prev;
-      const byId = new Map(ordered.map(work => [work.id, work] as const));
-      const replacement = visibleOrderedIds.map(id => byId.get(id)!);
-      let slot = 0;
-      const next = ordered.map(work => ids.has(work.id) ? replacement[slot++] : work);
-      return { ...prev, workVolumes: next.map((work, index) => ({
-        ...work, order: index + 1,
-      })) };
+      const next = reorderVisibleWorkVolumes(prev.workVolumes, visibleOrderedIds);
+      return next ? { ...prev, workVolumes: next } : prev;
     });
   };
 
