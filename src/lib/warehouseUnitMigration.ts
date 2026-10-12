@@ -54,6 +54,13 @@ export async function renameWarehouseUnitAtomic(
 
   // Server snapshots, not an offline/local cache. All docs are checked again inside
   // the transaction before any write; a competing stock operation must change balance.
+  // Read the balance generation BEFORE inventory. Any concurrent voucher write,
+  // even an IN+OUT pair with net zero, increments balance revision and is rejected.
+  const balanceBefore = await getDocsFromServer(collection(db, 'projects', projectId, 'inventory_balances'));
+  const initialBalances = new Map(balanceBefore.docs.map((snap) => [snap.id, {
+    revision: Number(snap.data().revision || 0),
+    onHand: Number(snap.data().onHand || 0),
+  }]));
   const [ledgerSnapshot, normsSnapshot] = await Promise.all([
     getDocsFromServer(inventoryCollection), getDocsFromServer(normCollection),
   ]);
@@ -71,8 +78,9 @@ export async function renameWarehouseUnitAtomic(
   }
   if (!isEquipment && catalog.some(({ data }) =>
     data.deletedAt == null && resolveNormMaterialId(data) !== materialId &&
-    sameName(data.materialName, input.materialName) && areSameUnit(data.unit, newUnit)
-  )) throw new Error('ĐVT mới đã được dùng bởi vật tư khác cùng tên. Không được gộp nhầm materialId.');
+    sameName(data.materialName, input.materialName) &&
+    (areSameUnit(data.unit, newUnit) || areSameUnit(data.unit, oldUnit))
+  )) throw new Error('Tên vật tư và ĐVT liên quan đến nhiều materialId. Phải làm rõ định danh trước, không được gộp.');
 
   const aliases = new Set<string>([materialId]);
   linkedNorms.forEach(({ data }) => {
@@ -161,6 +169,11 @@ export async function renameWarehouseUnitAtomic(
     balances.forEach((snap, i) => {
       const key = balanceRefs[i].key;
       const observed = Number(snap.data()?.onHand || 0);
+      const before = initialBalances.get(key);
+      if (Number(snap.data()?.revision || 0) !== (before?.revision || 0)
+          || Math.abs(observed - (before?.onHand || 0)) > 1e-7) {
+        throw new Error('Số dư kho vừa bị cập nhật bởi thiết bị khác. Tải lại và thử lại.');
+      }
       const expected = oldTotals.get(key) || 0;
       if (Math.abs(observed - expected) > 1e-7) {
         throw new Error('Số dư Firestore không khớp sổ phiếu tại ' + key + '. Không sửa khi chưa đối chiếu.');
