@@ -196,7 +196,8 @@ assert.match(warehouse, /key: 'materialName'.*__groupPrimary/, 'Only the grouped
 assert.match(warehouse, /key: 'category'.*__groupPrimary/, 'Only the grouped primary row may edit the shared material group');
 assert.match(warehouse, /key: 'unit'.*editable: false.*required: true/, 'Warehouse Quick Edit must lock catalog-controlled unit cells');
 assert.match(warehouse, /key: 'unit'.*label: 'ĐVT \(tự lấy\)'.*editable: false/, 'Ledger Quick Edit must never change unit on a voucher');
-assert.match(warehouse, /readOnly=\{itemKind === 'material' \|\| !isNewEquipment\}/, 'Voucher form must lock units for existing material and equipment');
+assert.match(warehouse, /readOnly=\{!isNewMaterialDefinition && \(itemKind === 'material' \|\| !isNewEquipment\)\}/, 'Voucher form must lock units for catalog material and equipment');
+assert.match(warehouse, /isNewMaterialDefinition/, 'New material may declare its first unit only when its name is absent from catalog');
 assert.match(warehouse, /Đổi ĐVT thiết bị/, 'Equipment catalog must expose an ADMIN-controlled unit rename action');
 const unitMigration = fs.readFileSync('src/lib/warehouseUnitMigration.ts', 'utf8');
 assert.match(unitMigration, /runTransaction\(db/, 'Warehouse unit rename must use Firestore transaction');
