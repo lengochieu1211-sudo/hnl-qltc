@@ -31,6 +31,7 @@ import { assertSafeExcelImportFile, parseExcelNumberRecord, parseExcelStringArra
 import { UserRole, canManageMaterialNorms, canImportData } from '../utils/securityUtils';
 
 import { QuickSortBar } from './QuickSortBar';
+import { compareMaterialAccessoryLast } from '../utils/materialDisplayOrder';
 import { EquipmentCatalogPanel } from './EquipmentCatalogPanel';
 import { CatalogTemplatePickerModal } from './CatalogTemplatePickerModal';
 import { AddSourceMenu } from './AddSourceMenu';
@@ -499,14 +500,14 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       activeMaterialNorms
         .map((norm) => norm.category?.trim())
         .filter((value): value is string => Boolean(value))
-    )),
+    )).sort((a, b) => compareMaterialAccessoryLast(a, b)),
     [activeMaterialNorms]
   );
 
   const materialCategoryOptions = React.useMemo(() => {
     const options = new Set<string>(COMMON_CATEGORIES);
     categoriesInUse.forEach((cat) => options.add(cat));
-    return Array.from(options);
+    return Array.from(options).sort((a, b) => compareMaterialAccessoryLast(a, b));
   }, [categoriesInUse]);
 
   const filteredNorms = activeMaterialNorms.filter((norm) => {
@@ -520,7 +521,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
 
   const sortedFilteredNorms = React.useMemo(() => {
     const norms = [...filteredNorms];
-    if (normSortBy === 'none') return norms;
+    if (normSortBy === 'none') return norms.sort((a, b) => compareMaterialAccessoryLast(a.category, b.category));
     
     return norms.sort((a, b) => {
       if (normSortBy === 'category' || normSortBy === 'unit') {
