@@ -256,6 +256,6 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({ projectId, inventory, c
         && equipmentIdentityKey(item.materialName) === equipmentIdentityKey(edit.name)))
         && onRenameWarehouseUnit && <button type="button" disabled={busy} onClick={() => { void rename(); }}
           className="text-xs font-bold text-amber-700 underline disabled:opacity-40">Đổi ĐVT (1:1) sau khi đối chiếu phiếu kho</button>}
-    </form>
+    </form>}
   </div>;
 };
