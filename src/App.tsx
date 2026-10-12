@@ -1474,7 +1474,7 @@ function AuthenticatedApp() {
   // Single source of truth for derived work-volume progress. The catalog keeps
   // authoritative IDs/floor scope/planned values; actual/status come from Room stages.
   const computedWorkVolumes = useMemo(
-    () => computeDerivedWorkVolumes(sortWorkVolumesByManualOrder(workVolumes), roomProgressList, floorPlans),
+    () => sortWorkVolumesByManualOrder(computeDerivedWorkVolumes(workVolumes, roomProgressList, floorPlans)),
     [workVolumes, roomProgressList, floorPlans],
   );
 
