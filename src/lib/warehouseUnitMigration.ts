@@ -101,6 +101,13 @@ export async function renameWarehouseUnitAtomic(input: WarehouseUnitRenameInput)
     throw new Error('Thiết bị cùng tên đã tồn tại với ĐVT đích. Không được gộp hai lịch sử.');
   }
   const vouchers = ledger.filter(({ value }) => matchesIdentity(value) && areSameUnit(value.unit, fromUnit));
+  // Legacy ledger rows without canonical materialId are keyed by name + unit.
+  // Renaming just their unit while preserving an absent/alias materialId would
+  // split old stock from new id-keyed vouchers. Require a dedicated alias
+  // reconciliation first; never silently change a business identity.
+  if (input.kind === 'material' && vouchers.some(({ value }) => value.materialId !== input.materialId)) {
+    throw new Error('Giao dịch vật tư cũ còn thiếu materialId chuẩn hoặc dùng mã alias. Đã hủy đổi ĐVT để tránh tách tồn kho; cần đối chiếu/migration ID legacy trước.');
+  }
   if (input.kind === 'equipment' && vouchers.length === 0) throw new Error('Không tìm thấy lịch sử thiết bị trên Cloud.');
 
   const keyGroups = new Map<string, {
