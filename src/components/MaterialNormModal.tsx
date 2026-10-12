@@ -31,6 +31,7 @@ import { assertSafeExcelImportFile, parseExcelNumberRecord, parseExcelStringArra
 import { UserRole, canManageMaterialNorms, canImportData } from '../utils/securityUtils';
 
 import { QuickSortBar } from './QuickSortBar';
+import { compareMaterialGroupPriority } from '../utils/catalogDisplayOrder';
 import { EquipmentCatalogPanel } from './EquipmentCatalogPanel';
 import { CatalogTemplatePickerModal } from './CatalogTemplatePickerModal';
 import { AddSourceMenu } from './AddSourceMenu';
@@ -506,7 +507,8 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   const materialCategoryOptions = React.useMemo(() => {
     const options = new Set<string>(COMMON_CATEGORIES);
     categoriesInUse.forEach((cat) => options.add(cat));
-    return Array.from(options);
+    return Array.from(options).sort((a, b) => compareMaterialGroupPriority(a, b)
+      || a.localeCompare(b, 'vi', { numeric: true, sensitivity: 'base' }));
   }, [categoriesInUse]);
 
   const filteredNorms = activeMaterialNorms.filter((norm) => {
@@ -520,7 +522,11 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
 
   const sortedFilteredNorms = React.useMemo(() => {
     const norms = [...filteredNorms];
-    if (normSortBy === 'none') return norms;
+    if (normSortBy === 'none') {
+      // Only the default view groups consumable accessories last; explicit
+      // Quick Sort options still follow the administrator's selected criterion.
+      return norms.sort((a, b) => compareMaterialGroupPriority(a.category, b.category));
+    }
     
     return norms.sort((a, b) => {
       if (normSortBy === 'category' || normSortBy === 'unit') {
