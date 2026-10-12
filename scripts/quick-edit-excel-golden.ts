@@ -216,6 +216,19 @@ assert.match(warehouse, /data-hnl-warehouse-kind-filter=\{key\}/, 'Keep equipmen
 assert.doesNotMatch(warehouse, /filter=\{\{\s*label: 'Loại hàng'/, 'Warehouse type filter must not move into the quick sort bar');
 assert.doesNotMatch(warehouse, />Đổi ĐVT thiết bị<\/button>/, 'The old standalone equipment-unit action must be removed from stock catalog');
 assert.match(equipmentPanel, /Đổi ĐVT \(1:1\)/, 'Equipment unit action must live in the equipment editor');
+assert.match(equipmentPanel, /const groupOptions = useMemo\(/, 'Equipment groups must be derived from current saved Cloud catalog');
+assert.match(equipmentPanel, /\.\.\.records\.map\(item => item\.category\)/, 'Previously used equipment groups must appear in dropdown');
+assert.match(equipmentPanel, /data-hnl-equipment-group-select="true"/, 'Equipment category must be a dropdown, not a free text field only');
+assert.match(equipmentPanel, /data-hnl-equipment-custom-group="true"/, 'Equipment category must also support creating a new group');
+assert.match(equipmentPanel, /setEdit\(\{ \.\.\.empty, category: edit\.category\.trim\(\) \}\)/, 'Save and add another should keep the equipment group');
+assert.match(equipmentPanel, /data-hnl-equipment-save-continue="true"/, 'Equipment editor must support Save & Add Another');
+assert.match(equipmentPanel, /data-hnl-equipment-save="true"/, 'Equipment editor must provide a primary Save action');
+assert.match(equipmentPanel, /Đã lưu thông tin thiết bị vào Firebase/, 'Equipment editor must acknowledge a Cloud save');
+assert.doesNotMatch(warehouse, /data-hnl-primary-action="warehouse-equipment-create"/, 'Warehouse stock catalog must not create a misleading voucher for new master equipment');
+assert.doesNotMatch(warehouse, /title="Chỉnh thông tin tại Vật tư & Thiết bị"/, 'Warehouse catalog must not duplicate equipment editing controls');
+assert.match(warehouse, /role="group" aria-label="Lọc nhật ký kho theo loại hàng"/, 'Keep the standalone material-equipment filter');
+assert.doesNotMatch(warehouse, /key: 'kind', label: 'Loại hàng'/, 'Do not duplicate kind filter inside quick sort');
+
 assert.match(equipmentService, /saveEquipmentCatalogBatch/, 'Equipment master edits must write separately from the inventory ledger');
 assert.match(warehouse, /key: 'equipment', label: 'Thiết bị'/, 'Warehouse quick edit must contain an equipment master tab');
 const unitMigration = fs.readFileSync('src/lib/warehouseUnitMigration.ts', 'utf8');
