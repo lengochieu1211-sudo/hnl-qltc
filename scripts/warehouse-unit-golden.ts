@@ -46,7 +46,7 @@ for (const expected of [
   'getDocsFromServer(inventoryCollection)', 'getDocsFromServer(normCollection)',
   'runTransaction(db, async (tx)', 'balanceBefore', 'currentLedger',
   'currentNorms', 'initialBalances', 'MAX_ATOMIC_ROWS', 'tx.update(ref',
-  'nextOnHand', 'onHand: isTarget ? nextOnHand : 0',
+  'nextOnHand', 'onHand: isTarget ? nextOnHand : 0', 'retiredTo: isTarget ? null : targetMaterialKey',
   'Tên vật tư và ĐVT liên quan đến nhiều materialId',
 ]) assert.ok(migration.includes(expected), 'Missing unit rename guard: ' + expected);
 assert.match(warehouse, /onRenameWarehouseUnit\?\:/);

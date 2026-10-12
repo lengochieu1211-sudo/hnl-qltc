@@ -1,5 +1,6 @@
 import { collection, doc, getDocFromServer, getDocsFromServer, runTransaction } from 'firebase/firestore';
 import type { InventoryItem } from '../types';
+import { areSameUnit } from '../utils/unitUtils';
 import { db, getCurrentRealFirebaseUser, sanitizePayloadForCloud } from './firebase';
 import { calculateWarehouseLedgerOnHand, getWarehouseMaterialKey, getWarehouseSignedDelta, type WarehouseLedgerItem } from '../utils/warehouseLedgerMath';
 
@@ -69,6 +70,12 @@ export async function commitWarehouseTransactionAtomic(
   return runTransaction(db, async (tx) => {
     const existing = await tx.get(transactionRef);
     const balanceSnap = await tx.get(balanceRef);
+    if (balanceSnap.data()?.retiredTo) {
+      throw new Error('ĐVT cũ đã được thay thế trong Danh mục. Tải lại dữ liệu kho trước khi lập phiếu.');
+    }
+    if (balanceSnap.exists() && balanceSnap.data()?.unit && !areSameUnit(String(balanceSnap.data()?.unit), item.unit)) {
+      throw new Error('ĐVT phiếu không khớp ĐVT hiện hành của số dư kho.');
+    }
     const currentOnHand = Number(balanceSnap.data()?.onHand || 0);
 
     if (existing.exists() && !existing.data()?.deleted) {
@@ -138,6 +145,16 @@ export async function updateWarehouseTransactionAtomic(
     const newBalanceRef = doc(db, 'projects', projectId, 'inventory_balances', newKey);
     const oldBalanceSnap = await tx.get(oldBalanceRef);
     const newBalanceSnap = oldKey === newKey ? oldBalanceSnap : await tx.get(newBalanceRef);
+    if (newBalanceSnap.data()?.retiredTo) {
+      throw new Error('ĐVT trên phiếu đã được thay thế; vui lòng tải lại dữ liệu.');
+    }
+    if (newBalanceSnap.exists() && newBalanceSnap.data()?.unit && !areSameUnit(String(newBalanceSnap.data()?.unit), nextItem.unit)) {
+      throw new Error('ĐVT sửa phiếu khác với ĐVT hiện hành của số dư kho.');
+    }
+    if (current.itemKind === nextItem.itemKind && current.materialName === nextItem.materialName
+        && current.materialId === nextItem.materialId && !areSameUnit(current.unit, nextItem.unit)) {
+      throw new Error('Không được đổi đơn vị trên phiếu; hãy đổi tại Danh mục kho.');
+    }
 
     const oldOnHand = Number(oldBalanceSnap.data()?.onHand || 0);
     const newOnHandBase = oldKey === newKey ? oldOnHand : Number(newBalanceSnap.data()?.onHand || 0);

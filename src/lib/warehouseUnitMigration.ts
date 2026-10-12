@@ -213,6 +213,7 @@ export async function renameWarehouseUnitAtomic(
         materialId: materialId || null,
         materialName: input.materialName,
         unit: isTarget ? newUnit : oldUnit,
+        retiredTo: isTarget ? null : targetMaterialKey,
         onHand: isTarget ? nextOnHand : 0,
         revision: Math.max(Number(current.revision || 0) + 1, 1),
         updatedAt: Math.max(now, Number(current.updatedAt || 0) + 1),
