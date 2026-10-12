@@ -1347,6 +1347,17 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     }
 
     const normalizedFinalUnit = normalizeUnit(unit) || unit;
+    if (itemKind === 'material' && customMaterial.trim()) {
+      const existingNamedMaterials = materialNorms.filter((norm) =>
+        normalizeLinkText(norm.materialName) === normalizeLinkText(finalMaterialName)
+      );
+      if (existingNamedMaterials.length && !existingNamedMaterials.some((norm) =>
+        (normalizeUnit(norm.unit) || norm.unit) === normalizedFinalUnit
+      )) {
+        alert('Vật tư đã tồn tại với ĐVT khác. Hãy chọn vật tư trong Danh mục; không tạo mã mới chỉ để đổi ĐVT.');
+        return;
+      }
+    }
     // When editing a voucher, its old signed quantity is already included in
     // current stock. Exclude that transaction before validating a replacement.
     // The Firestore atomic update remains authoritative across users/devices.
