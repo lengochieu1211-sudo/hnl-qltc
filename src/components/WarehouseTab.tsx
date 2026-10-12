@@ -36,6 +36,7 @@ import { normalizeUnit } from '../utils/unitUtils';
 import { canonicalWorkCategoryId, normalizeLinkText } from '../utils/linkageIntegrity';
 import { assertSafeExcelImportFile, parseExcelNumberRecord, parseExcelStringArray, parseExcelStringRecord, readExcelFormulaByHeaders, sameStringSet } from '../utils/excelImportUtils';
 import { QuickSortBar } from './QuickSortBar';
+import { compareMaterialAccessoryLast } from '../utils/materialDisplayOrder';
 import { equipmentIdentityKey, saveEquipmentCatalogBatch, subscribeEquipmentCatalog, type EquipmentCatalogRecord, type EquipmentCatalogInput } from '../lib/equipmentCatalog';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import { DataManagementMenu } from './DataManagementMenu';
@@ -350,7 +351,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           break;
         case 'default':
         default:
-          return naturalCompare(a.category, b.category) || naturalCompare(a.materialName, b.materialName) || naturalCompare(a.materialKey, b.materialKey);
+          return compareMaterialAccessoryLast(a.category, b.category)
+            || naturalCompare(a.category, b.category) || naturalCompare(a.materialName, b.materialName) || naturalCompare(a.materialKey, b.materialKey);
       }
       if (materialNeedSortOrder === 'desc') comparison = -comparison;
       if (comparison !== 0) return comparison;
@@ -2599,7 +2601,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         </div>
 
         <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-          {stockSummaries.map((item) => {
+          {stockSummaries.slice().sort((a, b) =>
+            Number(a.itemKind === 'equipment') - Number(b.itemKind === 'equipment')
+            || compareMaterialAccessoryLast(a.category, b.category)
+          ).map((item) => {
             const quota = item.normQuantity;
             const category = item.category;
 
