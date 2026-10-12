@@ -27,3 +27,30 @@ export function compareWorkVolumeManualOrder(
   return rank(a.order) - rank(b.order)
     || String(a.id).localeCompare(String(b.id), 'vi', { numeric: true, sensitivity: 'base' });
 }
+
+/**
+ * Move only the visible/filtered subset through the full ordered catalog.
+ * Hidden rows keep their positions; no document IDs or business quantities change.
+ * Returns null for stale, duplicate or unchanged requests (fail closed).
+ */
+export function reorderVisibleWorkVolumes<T extends { id: string; order?: number }>(
+  items: T[],
+  visibleOrderedIds: string[],
+): T[] | null {
+  if (visibleOrderedIds.length < 2 ||
+    new Set(visibleOrderedIds).size !== visibleOrderedIds.length ||
+    new Set(items.map(item => item.id)).size !== items.length) return null;
+  const sorted = [...items].sort(compareWorkVolumeManualOrder);
+  const visible = new Set(visibleOrderedIds);
+  const currentVisible = sorted.filter(item => visible.has(item.id));
+  if (currentVisible.length !== visibleOrderedIds.length) return null;
+  if (currentVisible.every((item, index) => item.id === visibleOrderedIds[index])) return null;
+  const byId = new Map(currentVisible.map(item => [item.id, item] as const));
+  const desired = visibleOrderedIds.map(id => byId.get(id));
+  if (desired.some(item => !item)) return null;
+  let offset = 0;
+  return sorted.map((item, index) => {
+    const next = visible.has(item.id) ? desired[offset++]! : item;
+    return next.order === index + 1 ? next : { ...next, order: index + 1 };
+  });
+}
