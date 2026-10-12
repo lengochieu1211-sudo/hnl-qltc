@@ -74,6 +74,7 @@ interface WarehouseTabProps {
   workVolumes?: WorkVolume[];
   onImportInventory?: (inventory: InventoryItem[]) => void | Promise<void>;
   onImportNorms?: (norms: MaterialNorm[]) => void;
+  onRenameWarehouseUnit?: (input: { itemKind: 'material' | 'equipment'; materialName: string; oldUnit: string; newUnit: string; materialId?: string }) => Promise<void>;
   onCreateMaterialCatalog?: (input: { materialName: string; unit: string; category: string }) => string | null | Promise<string | null>;
   onImportWorkVolumes?: (volumes: WorkVolume[]) => void;
   roomProgressList?: RoomProgressItem[];
@@ -105,6 +106,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   workVolumes,
   onImportInventory,
   onImportNorms,
+  onRenameWarehouseUnit,
   onCreateMaterialCatalog,
   onImportWorkVolumes,
   roomProgressList = [],
@@ -1650,7 +1652,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       { key: 'date', label: 'Ngày', editable: hasImportAccess, type: 'date', required: true, width: 135 },
       { key: 'itemKind', label: 'Loại hàng', editable: (row) => hasImportAccess && Boolean(row.__new), type: 'select', options: [{ value: 'material', label: 'Vật tư' }, { value: 'equipment', label: 'Thiết bị' }], required: true, width: 115 },
       { key: 'materialName', label: 'Tên vật tư / thiết bị', editable: hasImportAccess, type: 'select', options: warehouseMaterialOptions, required: true, width: 220 },
-      { key: 'unit', label: 'ĐVT', editable: hasImportAccess, required: true, width: 90 },
+      { key: 'unit', label: 'ĐVT', editable: (row) => hasImportAccess && Boolean(row.__new) && row.itemKind === 'equipment' && !equipmentCatalog.some((item) => normalizeLinkText(item.name) === normalizeLinkText(String(row.materialName || ''))), required: true, width: 90 },
       { key: 'quantity', label: 'Số lượng', editable: hasImportAccess, type: 'number', allowExpression: true, required: true, width: 110, validate: (value) => { const parsed = evaluateMathExpression(String(value ?? '')); return parsed !== null && parsed <= 0 ? 'Phải lớn hơn 0' : null; } },
     ];
     if (quickEditMode === 'out') {
@@ -1669,7 +1671,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       { key: 'notes', label: 'Ghi chú', editable: hasImportAccess, width: 260 },
     );
     return base;
-  }, [showQuickEdit, quickEditMode, hasNormManageAccess, hasImportAccess, warehouseMaterialOptions, warehouseFloorOptions, warehouseRoomOptions, warehouseTeamOptions, warehouseWorkOptions, normalizedStructureConfig]);
+  }, [showQuickEdit, quickEditMode, hasNormManageAccess, hasImportAccess, warehouseMaterialOptions, warehouseFloorOptions, warehouseRoomOptions, warehouseTeamOptions, warehouseWorkOptions, equipmentCatalog, normalizedStructureConfig]);
 
   const warehouseActiveQuickRows = quickEditMode === 'norms'
     ? warehouseQuickNormRows
@@ -1688,6 +1690,33 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
     if (quickEditMode === 'norms') {
       if (!hasNormManageAccess || !onImportNorms) return;
+      const unitChanges = dirtyRows.filter((row) => {
+        const existing = materialNorms.find((norm) => norm.id === String(row.__normId || ''));
+        return existing && (normalizeUnit(existing.unit) || existing.unit) !== (normalizeUnit(String(row.unit || '')) || String(row.unit || ''));
+      });
+      if (unitChanges.length) {
+        const changedNormIds = new Set(unitChanges.map((row) => String(row.__normId || '')));
+        if (changedNormIds.size !== 1 || deletedRows.length ||
+          Array.from(dirtyCellKeys).some((key) => !key.endsWith('::unit'))) {
+          throw new Error('Đổi ĐVT phải lưu riêng một vật tư, không kèm sửa ô khác hoặc xóa dòng. Hãy lưu các thay đổi khác trước.');
+        }
+        if (!onRenameWarehouseUnit) throw new Error('Chưa có chức năng đổi ĐVT đồng bộ.');
+        const first = unitChanges[0];
+        const norm = materialNorms.find((item) => item.id === String(first.__normId));
+        if (!norm) throw new Error('Không tìm thấy định mức gốc.');
+        const toUnit = normalizeUnit(String(first.unit || '').trim()) || String(first.unit || '').trim();
+        if (!toUnit) throw new Error('ĐVT mới không được trống.');
+        const confirmed = await confirmAsync(
+          'Đổi ĐVT “' + norm.materialName + '” từ ' + norm.unit + ' thành ' + toUnit +
+          '?\\nĐồng bộ toàn bộ phiếu và tồn kho; không quy đổi số lượng. Các thay đổi khác phải lưu riêng.'
+        );
+        if (!confirmed) return false;
+        await onRenameWarehouseUnit({
+          itemKind: 'material', materialName: norm.materialName,
+          oldUnit: norm.unit, newUnit: toUnit, materialId: resolveNormMaterialId(norm),
+        });
+        return;
+      }
       const affectedNormIds = new Set<string>([
         ...dirtyRows.map((row) => String(row.__normId || '').trim()),
         ...deletedRows.map((row) => String(row.__normId || '').trim()),
@@ -1816,8 +1845,19 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         ? (existing.itemKind === 'equipment' ? 'equipment' : 'material')
         : (row.itemKind === 'equipment' ? 'equipment' : 'material');
       const norm = resolvedItemKind === 'material'
-        ? materialNorms.find((item) => item.materialName === materialNameValue && normalizeUnit(item.unit) === normalizeUnit(String(row.unit || '')))
+        ? materialNorms.find((item) => normalizeLinkText(item.materialName) === normalizeLinkText(materialNameValue))
         : undefined;
+      const knownEquipment = resolvedItemKind === 'equipment'
+        ? equipmentCatalog.find((item) => normalizeLinkText(item.name) === normalizeLinkText(materialNameValue))
+        : undefined;
+      const effectiveUnit = norm?.unit || knownEquipment?.unit || String(row.unit || '').trim();
+      if (resolvedItemKind === 'material' && !norm) {
+        throw new Error('Vật tư “' + materialNameValue + '” chưa có Định mức, hãy tạo danh mục trước.');
+      }
+      if (resolvedItemKind === 'equipment' && knownEquipment
+          && (normalizeUnit(knownEquipment.unit) || knownEquipment.unit) !== (normalizeUnit(String(row.unit || '')) || String(row.unit || ''))) {
+        throw new Error('Thiết bị “' + materialNameValue + '” đã có ĐVT ' + knownEquipment.unit + '. Không đổi ĐVT trên phiếu.');
+      }
       const floor = floorPlans.find((item) => item.floorName === String(row.floorName || ''));
       const room = roomProgressList.find((item) => item.roomName === String(row.roomName || '') && (!floor || item.floorId === floor.id));
       const team = teams.find((item) => item.name === String(row.teamName || ''));
@@ -1834,7 +1874,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           ? (norm ? resolveNormMaterialId(norm) : existing?.materialId)
           : undefined,
         materialName: materialNameValue,
-        unit: normalizeUnit(String(row.unit || '').trim()) || String(row.unit || '').trim(),
+        unit: normalizeUnit(effectiveUnit) || effectiveUnit,
         quantity: Math.max(0, evaluateMathExpression(String(row.quantity ?? '')) ?? 0),
         inputExpressions: (() => {
           const next = { ...(existing?.inputExpressions || {}) };
@@ -2036,7 +2076,26 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   </div>
                 ) : warehouseCatalogStockRows.map((item) => (
                   <div key={item.key} className="grid grid-cols-[minmax(180px,1.6fr)_150px_52px_64px_64px_120px_76px] items-center gap-2 px-3 py-2.5 text-xs">
-                    <div className="min-w-0 whitespace-normal break-words font-bold leading-snug text-slate-800">{item.name}</div>
+                    <div className="min-w-0">
+                      <div className="whitespace-normal break-words font-bold leading-snug text-slate-800">{item.name}</div>
+                      {warehouseCatalogTab === 'equipment' && hasNormManageAccess && onRenameWarehouseUnit && (
+                        <button type="button" className="mt-1 text-[10px] font-semibold text-indigo-700 underline"
+                          onClick={async () => {
+                            const raw = window.prompt('Đổi ĐVT thiết bị “' + item.name + '” (hiện tại ' + item.unit + '). Nhập ĐVT mới:', item.unit);
+                            if (!raw || !(normalizeUnit(raw) || raw.trim())) return;
+                            const target = normalizeUnit(raw) || raw.trim();
+                            if (target === (normalizeUnit(item.unit) || item.unit)) return;
+                            const ok = await confirmAsync('Đổi ĐVT của “' + item.name + '” từ ' + item.unit + ' thành ' + target +
+                              '?\\nToàn bộ phiếu và tồn kho sẽ đồng bộ; chỉ đổi nhãn, không quy đổi số lượng.');
+                            if (!ok) return;
+                            try {
+                              await onRenameWarehouseUnit({ itemKind: 'equipment', materialName: item.name, oldUnit: item.unit, newUnit: target });
+                            } catch (error: any) {
+                              alert('Không thể đổi ĐVT thiết bị: ' + (error?.message || String(error)));
+                            }
+                          }}>Đổi ĐVT</button>
+                      )}
+                    </div>
                     <span className="min-w-0 whitespace-normal break-words text-slate-500">{item.category}</span>
                     <span className="break-words text-slate-600">{item.unit}</span>
                     <span className="text-right font-semibold text-emerald-700">{formatDecimal(item.totalIn)}</span>
@@ -2965,16 +3024,15 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                       )}
                     </div>
                     <select
-                      value={materialName}
+                      value={materialName ? (materialName + '|||' + unit) : ''}
                       onChange={(e) => {
-                        setMaterialName(e.target.value);
-                        const matched = materialNorms.find((m) => m.materialName === e.target.value);
-                        if (matched) { setUnit(matched.unit); setCustomMaterial(''); }
+                        const matched = materialNorms.find((m) => (m.materialName + '|||' + m.unit) === e.target.value);
+                        if (matched) { setMaterialName(matched.materialName); setUnit(matched.unit); setCustomMaterial(''); }
                       }}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-medium text-slate-800"
                     >
                       <option value="">— Chọn vật tư —</option>
-                      {filteredMaterialNorms.map((m) => <option key={m.id} value={m.materialName}>[{m.category}] {m.materialName} ({m.unit})</option>)}
+                      {filteredMaterialNorms.map((m) => <option key={m.id} value={m.materialName + '|||' + m.unit}>[{m.category}] {m.materialName} ({m.unit})</option>)}
                     </select>
                     {normalizedMaterialPickerSearch && filteredMaterialNorms.length === 0 && (
                       <p className="text-[10px] text-amber-700 lg:col-span-2">Không tìm thấy vật tư phù hợp. Có thể nhập tên mới ở ô “Tên vật tư khác”.</p>
@@ -3222,8 +3280,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   <input
                     type="text"
                     value={unit}
+                    readOnly={itemKind === 'equipment'
+                      ? (!isNewEquipment || equipmentCatalog.some((item) => normalizeLinkText(item.name) === normalizeLinkText(customMaterial)))
+                      : (!customMaterial.trim() || materialNorms.some((norm) => normalizeLinkText(norm.materialName) === normalizeLinkText(customMaterial)))}
                     onChange={(e) => setUnit(e.target.value)}
-                    className="w-full border border-slate-200 rounded-xl p-2.5"
+                    className="w-full border border-slate-200 rounded-xl p-2.5 bg-slate-50 read-only:cursor-not-allowed"
+                    title="ĐVT lấy từ Danh mục, không đổi riêng trên phiếu."
                     required
                   />
                 </div>

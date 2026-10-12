@@ -46,6 +46,7 @@ interface MaterialNormModalProps {
   onDeleteNorm: (id: string) => void;
   onDeleteMultipleNorms?: (ids: string[]) => void;
   onImportNorms?: (norms: MaterialNorm[]) => void;
+  onRenameWarehouseUnit?: (input: { itemKind: 'material' | 'equipment'; materialName: string; oldUnit: string; newUnit: string; materialId?: string }) => Promise<void>;
   inventory: InventoryItem[];
   workVolumes?: WorkVolume[];
   onImportWorkVolumes?: (volumes: WorkVolume[]) => void;
@@ -86,6 +87,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   onDeleteNorm,
   onDeleteMultipleNorms,
   onImportNorms,
+  onRenameWarehouseUnit,
   inventory,
   workVolumes,
   onImportWorkVolumes,
@@ -743,7 +745,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     return true;
   };
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!hasManageAccess) return;
     const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
@@ -785,25 +787,39 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     if (mode === 'edit' && editingId) {
       const editingNorm = materialNorms.find(n => n.id === editingId);
       if (editingNorm && !areSameUnit(editingNorm.unit, finalUnit)) {
-        const normKey = editingNorm.materialName.trim().toLocaleLowerCase('vi-VN');
-        const stableMaterialId = resolveNormMaterialId(editingNorm);
-        const existingTransactions = inventory.filter((i) =>
-          (stableMaterialId && (i.materialId === stableMaterialId || i.materialId === editingNorm.id || i.materialId === `MAT-${editingNorm.id}`)) ||
-          (!i.materialId
-            && i.materialName.trim().toLocaleLowerCase('vi-VN') === normKey
-            && areSameUnit(i.unit, editingNorm.unit))
+        if (!onRenameWarehouseUnit) {
+          alert('Chức năng đổi ĐVT đồng bộ chưa sẵn sàng; chưa thay đổi dữ liệu.');
+          return;
+        }
+        const affectedCount = inventory.filter((item) =>
+          item.itemKind !== 'equipment'
+          && ((item.materialId && item.materialId === resolveNormMaterialId(editingNorm))
+            || (!item.materialId && item.materialName.trim().toLocaleLowerCase('vi-VN') === editingNorm.materialName.trim().toLocaleLowerCase('vi-VN')
+              && areSameUnit(item.unit, editingNorm.unit)))
         ).length;
-        if (existingTransactions > 0) {
-          alert(
-            `Không thể đổi trực tiếp đơn vị tính của vật tư "${editingNorm.materialName}" vì đã có ${existingTransactions} giao dịch kho.\n\n` +
-            `ĐVT hiện tại: ${editingNorm.unit}\nĐVT muốn đổi: ${finalUnit}\n\n` +
-            'Để tránh làm sai tồn kho lịch sử, hãy tạo một vật tư mới hoặc thực hiện quy đổi bằng phiếu điều chỉnh có hệ số rõ ràng.'
-          );
+        const confirmed = await confirmAsync(
+          'Đổi ĐVT vật tư “' + editingNorm.materialName + '”: ' + editingNorm.unit + ' → ' + finalUnit + '\\n\\n'
+          + 'Đồng bộ tất cả định mức có cùng materialId, ' + affectedCount + ' phiếu liên quan và số dư kho bằng một giao dịch Firestore.\\n'
+          + 'Chỉ đổi cách gọi ĐVT, KHÔNG quy đổi số lượng hoặc định mức hao phí.\\n'
+          + 'Các ô khác đang chỉnh trên biểu mẫu sẽ KHÔNG lưu trong lần đổi ĐVT này.\\n\\nTiếp tục?'
+        );
+        if (!confirmed) return;
+        try {
+          await onRenameWarehouseUnit({
+            itemKind: 'material',
+            materialName: editingNorm.materialName,
+            oldUnit: editingNorm.unit,
+            newUnit: finalUnit,
+            materialId: resolveNormMaterialId(editingNorm),
+          });
+          setMode('list');
+          return;
+        } catch (error: any) {
+          alert('Không thể đổi ĐVT: ' + (error?.message || String(error)) + '\\nKhông phiếu nào được sửa.');
           return;
         }
       }
     }
-
 
     const generalNormValue = unitNormPerM2 === '' ? 0 : Number(unitNormPerM2);
     if (hasMixedBasisUnits && generalNormValue > 0) {

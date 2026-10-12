@@ -192,6 +192,7 @@ import { applyFloorPlanImageToMultipleFloors, inspectFloorPlanBulkTargets, cache
 import { shouldAutoMirrorProjectBinaries } from './lib/offlineMirrorSettings';
 import { DEFAULT_TRASH_SETTINGS, TrashOperation, TrashSettings, TrashCollectionKey, deleteTrashOperationFromCloud, estimateTrashBytes, getTrashCollectionLabel, normalizeTrashSettings, sanitizeTrashSnapshot, saveTrashOperationToCloud, subscribeProjectTrash } from './lib/trash';
 import { commitWarehouseTransactionAtomic, updateWarehouseTransactionAtomic, softDeleteWarehouseTransactionAtomic } from './lib/warehouseTransactions';
+import { renameWarehouseUnitAtomic, type WarehouseUnitRename } from './lib/warehouseUnitMigration';
 import { drainBinaryPurgeRetryQueues, purgeTrashOperationBinaries } from './lib/cloudBinaryPurge';
 
 // Heavy screens are code-split so Android does not parse XLSX/PDF-heavy modules at startup.
@@ -5779,6 +5780,18 @@ function AuthenticatedApp() {
     return materialId || null;
   };
 
+  // ADMIN-only online unit-label rename: one Firestore transaction updates linked
+  // norms, all warehouse receipts and derived balance metadata together.
+  const handleRenameWarehouseUnit = async (input: WarehouseUnitRename): Promise<void> => {
+    if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) {
+      throw new Error('Chỉ ADMIN được đồng bộ đổi ĐVT.');
+    }
+    if (businessDataSource === 'legacy-migration-fallback') {
+      throw new Error('Dữ liệu legacy chỉ đọc; không đổi ĐVT khi chưa xác minh nguồn Firestore.');
+    }
+    await renameWarehouseUnitAtomic(activeProjectIdRef.current, input);
+  };
+
   const handleUpdateNorm = (id: string, updated: Omit<MaterialNorm, 'id'>) => {
     if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được sửa định mức vật tư.'); return; }
     const existing = present.materialNorms.find((norm) => norm.id === id);
@@ -5871,6 +5884,26 @@ function AuthenticatedApp() {
       throw new Error(legacyIdentity.state === 'ambiguous'
         ? `Vật tư ${raw.materialName} (${unit}) khớp nhiều materialId; không được first-match.`
         : `Vật tư ${raw.materialName} (${unit}) chưa có materialId/định mức duy nhất.`);
+    }
+
+    // The catalog owns the unit. Never accept a different unit from a voucher,
+    // imported Excel row or Quick Edit payload, even when a materialId is supplied.
+    if (itemKind === 'material') {
+      const linkedNorms = present.materialNorms.filter((norm) =>
+        (norm.deletedAt === undefined || norm.deletedAt === null)
+        && resolveNormMaterialId(norm) === (explicitId || legacyIdentity.materialId)
+      );
+      if (linkedNorms.some((norm) => !areSameUnit(norm.unit, unit))) {
+        throw new Error('ĐVT phiếu không khớp Định mức. Đổi ĐVT tại Danh mục trước, không đổi riêng trên phiếu.');
+      }
+    } else {
+      const equipmentUnits = Array.from(new Set(present.inventory.filter((item) =>
+        item.itemKind === 'equipment'
+        && normalizeMaterialNameKey(item.materialName) === normalizeMaterialNameKey(raw.materialName)
+      ).map((item) => normalizeUnit(item.unit) || item.unit)));
+      if (equipmentUnits.length && !equipmentUnits.some((known) => areSameUnit(known, unit))) {
+        throw new Error('Thiết bị đã tồn tại với ĐVT khác. Dùng Đổi ĐVT tại Danh mục thiết bị.');
+      }
     }
 
     let normalized: InventoryItem = {
@@ -7602,6 +7635,7 @@ function AuthenticatedApp() {
               defaultHandler={inspectorName}
               onImportInventory={handleImportInventory}
               onImportNorms={handleImportNorms}
+              onRenameWarehouseUnit={handleRenameWarehouseUnit}
               onCreateMaterialCatalog={({ materialName, unit, category }) => handleAddNorm({
                 materialName,
                 unit,
@@ -8102,6 +8136,7 @@ function AuthenticatedApp() {
               onDeleteNorm={handleDeleteNorm}
               onDeleteMultipleNorms={handleDeleteMultipleNorms}
               onImportNorms={handleImportNorms}
+              onRenameWarehouseUnit={handleRenameWarehouseUnit}
               inventory={inventory}
               workVolumes={computedWorkVolumes}
               onImportInventory={handleImportInventory}
