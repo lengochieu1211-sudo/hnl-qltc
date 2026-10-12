@@ -12,6 +12,7 @@ const floor = fs.readFileSync('src/components/FloorPlanDefectTab.tsx', 'utf8');
 const crew = fs.readFileSync('src/components/CrewTabBase.tsx', 'utf8');
 const warehouse = fs.readFileSync('src/components/WarehouseTab.tsx', 'utf8');
 const volume = fs.readFileSync('src/components/WorkVolumeTab.tsx', 'utf8');
+const app = fs.readFileSync('src/App.tsx', 'utf8');
 const projectManager = fs.readFileSync('src/components/ProjectManagerModal.tsx', 'utf8');
 const materialNormModal = fs.readFileSync('src/components/MaterialNormModal.tsx', 'utf8');
 const quickSortBar = fs.readFileSync('src/components/QuickSortBar.tsx', 'utf8');
@@ -182,6 +183,17 @@ assert.match(crew, /canOperate \? 'grid-cols-3' : 'grid-cols-2'[\s\S]*Sao chép[
 assert.match(crew, /lg:grid-cols-\[220px_minmax\(0,1fr\)_minmax\(0,1fr\)_minmax\(0,1\.1fr\)_minmax\(0,1fr\)\][\s\S]*Chia sẻ báo cáo quân số[\s\S]*triggerLabel="Quản lý dữ liệu"/, 'Crew PC must preserve Date, Record, Copy, Share and Data Management on one aligned row');
 assert.doesNotMatch(crew, /crew-subtab-navigation[^\n]*lg:max-w/, 'Crew primary subtabs must remain full-width like the original layout');
 assert.match(crew, /triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit=\{quickEditEnabled \? \(\(\) => \{ setQuickEditMode\('teams'\); setShowQuickEdit\(true\); \}\) : undefined\}[\s\S]*reportLabel="Báo cáo chi tiết tất cả đội"/, 'Team directory must consolidate Quick Edit and Excel under the same data menu');
+
+// Work catalog is ADMIN-only and cannot silently reorder a filtered or A-Z view.
+assert.match(volume, /<MoveOrderControls/, 'Work Volume cards must support the same move-up/down controls as rooms');
+assert.match(volume, /selectedCategory === 'all'/, 'Moving categories must require a full unfiltered catalog');
+assert.match(volume, /volSortBy === 'none'/, 'Moving categories must not operate over a Quick Sort projection');
+assert.match(volume, /onReorderWorkVolumes\?\.\(ids\)/, 'The Work Volume tab sends only a full ID permutation');
+assert.match(app, /validateWorkVolumeOrder\(orderedIds, present\.workVolumes\)/, 'Reordering must reject stale or incomplete ID sets');
+assert.match(app, /displayOrder: newIndex\.get\(item\.id\)!/, 'Cloud order must persist per WorkVolume without changing IDs');
+assert.match(app, /sortWorkVolumesByManualOrder\(workVolumes\)/, 'All app consumers must receive a consistent project-wide order');
+assert.match(warehouse, /compareMaterialAccessoryLast\(a\.category, b\.category\)/, 'Default material-needs display puts accessories last');
+assert.match(materialNormModal, /compareMaterialAccessoryLast\(a\.category, b\.category\)/, 'Material Norm list puts accessories last by default');
 
 // Read-only sorting/filtering: different inventory kinds must never share a hidden
 // view or silently be treated as an alternative unit of the same product.
