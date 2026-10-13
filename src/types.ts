@@ -235,6 +235,8 @@ export interface MaterialNorm {
   workCategories?: string[]; // Danh sách các hạng mục thi công áp dụng (chọn nhiều)
   workCategoryIds?: string[]; // Danh sách ID các hạng mục thi công áp dụng
   materialName: string; // Tên vật tư
+  /** Optional display rank only; does not affect warehouse IDs or quantities. */
+  order?: number;
   unit: string; // Tên đơn vị tính (Tấm, Thanh, Hộp, Bao, Bộ, m2...)
   quotaQuantity: number; // Số lượng định mức công trình
   unitNormPerM2?: number; // Legacy field name: hao phí trên 1 đơn vị khối lượng nguồn (VD: 0.35 Tấm/m²)
