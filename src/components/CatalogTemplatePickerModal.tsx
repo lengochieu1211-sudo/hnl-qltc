@@ -1,8 +1,10 @@
 import React from 'react';
+import { collection, getDocsFromServer } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import { X, Search, Download, FolderOpen } from 'lucide-react';
 import { fetchCurrentUserProjectsFromCloud, fetchProjectFromCloud, getCloudPayload, fetchUserCatalogTemplates, saveUserCatalogTemplate, deleteUserCatalogTemplate, type UserCatalogTemplate } from '../lib/firebaseBase';
 
-export type CatalogTemplateKind = 'workVolumes' | 'teams' | 'materialNorms';
+export type CatalogTemplateKind = 'workVolumes' | 'teams' | 'materialNorms' | 'equipment';
 
 interface BasketItem {
   key: string;
@@ -30,6 +32,7 @@ const itemLabel = (kind: CatalogTemplateKind, item: any) => {
 const itemMeta = (kind: CatalogTemplateKind, item: any) => {
   if (kind === 'workVolumes') return [item?.category, item?.unit].filter(Boolean).join(' · ');
   if (kind === 'teams') return [item?.leader, item?.phone].filter(Boolean).join(' · ');
+  if (kind === 'equipment') return [item?.unit, item?.category, item?.brand, item?.model].filter(Boolean).join(' · ');
   const categories = Array.isArray(item?.workCategories) ? item.workCategories : (item?.workCategory ? [item.workCategory] : []);
   return [item?.unit, ...categories.slice(0, 2)].filter(Boolean).join(' · ');
 };
@@ -86,11 +89,17 @@ export const CatalogTemplatePickerModal: React.FC<CatalogTemplatePickerModalProp
       : undefined;
     const sourcePromise = savedTemplate
       ? Promise.resolve(savedTemplate.items)
-      : fetchProjectFromCloud(sourceProjectId, { serverOnly: true }).then((record) => {
-          if (!record) throw new Error('Không đọc được công trình nguồn hoặc bạn không còn quyền.');
-          const payload: any = getCloudPayload(record);
-          return Array.isArray(payload?.[kind]) ? payload[kind].filter((item: any) => item && item.deleted !== true && !item.deletedAt) : [];
-        });
+      : kind === 'equipment'
+        // Equipment metadata lives in a separate Firestore subcollection, not
+        // in the project snapshot payload used by material norms and teams.
+        ? getDocsFromServer(collection(db, 'projects', sourceProjectId, 'equipment_catalog'))
+          .then((snapshot) => snapshot.docs.map(docSnap => ({ ...docSnap.data(), id: docSnap.id }))
+            .filter((item: any) => item && item.name && item.unit && item.deletedAt == null))
+        : fetchProjectFromCloud(sourceProjectId, { serverOnly: true }).then((record) => {
+            if (!record) throw new Error('Không đọc được công trình nguồn hoặc bạn không còn quyền.');
+            const payload: any = getCloudPayload(record);
+            return Array.isArray(payload?.[kind]) ? payload[kind].filter((item: any) => item && item.deleted !== true && !item.deletedAt) : [];
+          });
     sourcePromise
       .then((rows) => {
         if (cancelled) return;
@@ -262,7 +271,18 @@ export const CatalogTemplatePickerModal: React.FC<CatalogTemplatePickerModalProp
             >
               Lưu giỏ thành mẫu
             </button>
-            <button type="button" disabled={basket.length === 0} onClick={async () => { await onImport(basket); onClose(); }} className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-40">
+            <button type="button" disabled={basket.length === 0 || loading} onClick={async () => {
+              setLoading(true);
+              setError('');
+              try {
+                await onImport(basket);
+                onClose();
+              } catch (err) {
+                setError(err instanceof Error ? err.message : 'Không lấy được dữ liệu; chưa cập nhật danh mục.');
+              } finally {
+                setLoading(false);
+              }
+            }} className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-40">
               <Download className="h-4 w-4" /> Lấy {basket.length || ''} mục
             </button>
           </div>
