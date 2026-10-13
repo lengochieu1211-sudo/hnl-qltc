@@ -573,8 +573,21 @@ service cloud.firestore {
           && request.resource.data.unit is string && request.resource.data.unit.size() > 0
           && request.resource.data.revision == resource.data.revision + 1
           && request.resource.data.updatedAt >= resource.data.updatedAt
+          // Only ADMIN can soft-delete/restore; never hard-delete catalog identities.
+          // A trashed row is immutable except for a lifecycle restore.
+          && (!('deletedAt' in resource.data) || resource.data.deletedAt == null
+            || request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'deletedAt','deletedByUid','revision','updatedAt'
+            ]))
+          && (!('deletedAt' in request.resource.data)
+            || request.resource.data.deletedAt == null
+            || (request.resource.data.deletedAt is number && request.resource.data.deletedAt > 0))
+          && (!('deletedByUid' in request.resource.data)
+            || request.resource.data.deletedByUid == null
+            || request.resource.data.deletedByUid == request.auth.uid)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'unit','category','brand','model','specifications','notes','revision','updatedAt'
+            'unit','category','brand','model','specifications','notes','revision','updatedAt',
+            'deletedAt','deletedByUid'
           ]);
         allow delete: if false;
       }

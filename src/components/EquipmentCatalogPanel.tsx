@@ -1,10 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Edit2, Plus, Search, Save, X } from 'lucide-react';
+import { AlertTriangle, Edit2, Plus, Search, Save, Trash2, RotateCcw, X } from 'lucide-react';
+import { AddSourceMenu } from './AddSourceMenu';
+import { QuickSortBar } from './QuickSortBar';
+import { CatalogTemplatePickerModal } from './CatalogTemplatePickerModal';
 import type { InventoryItem } from '../types';
 import { confirmAsync } from '../utils/confirmAsync';
 import { normalizeUnit } from '../utils/unitUtils';
 import {
-  equipmentIdentityKey, saveEquipmentCatalogBatch, subscribeEquipmentCatalog,
+  equipmentIdentityKey, saveEquipmentCatalogBatch, softDeleteEquipmentCatalogBatch,
+  restoreEquipmentCatalog, subscribeEquipmentCatalog,
   type EquipmentCatalogRecord, type EquipmentCatalogInput,
 } from '../lib/equipmentCatalog';
 
@@ -33,6 +37,13 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [edit, setEdit] = useState<EquipmentCatalogInput | null>(null);
+  // A voucher-backed legacy item may not have a catalog ID; edit mode is explicit.
+  const [editingExisting, setEditingExisting] = useState(false);
+  const [selectedEquipmentIds, setSelectedEquipmentIds] = useState<string[]>([]);
+  const [showEquipmentSourcePicker, setShowEquipmentSourcePicker] = useState(false);
+  const [equipmentSortBy, setEquipmentSortBy] = useState<'none' | 'name' | 'category' | 'unit' | 'brand'>('none');
+  const [equipmentSortOrder, setEquipmentSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [showDeleted, setShowDeleted] = useState(false);
   const [customGroup, setCustomGroup] = useState(false);
   const [renameUnitOpen, setRenameUnitOpen] = useState(false);
   const [newUnit, setNewUnit] = useState('');
@@ -42,6 +53,9 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
   useEffect(() => {
     setRecords([]);
     setEdit(null);
+    setEditingExisting(false);
+    setSelectedEquipmentIds([]);
+    setShowDeleted(false);
     setStatus('loading');
     setNotice('');
     if (!projectId) {
@@ -56,22 +70,30 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
     }, (err) => {
       setStatus('error');
       setError(err.message);
-    });
+    }, { includeDeleted: true });
   }, [projectId]);
+
+  const activeRecords = useMemo(() => records.filter(item => item.deletedAt == null), [records]);
+  const deletedRecords = useMemo(() => records.filter(item => item.deletedAt != null), [records]);
+  const historicalNames = useMemo(() => new Set(
+    inventory.filter(item => item.itemKind === 'equipment')
+      .map(item => equipmentIdentityKey(String(item.materialName || ''))),
+  ), [inventory]);
+  const editingHasHistory = Boolean(edit && historicalNames.has(equipmentIdentityKey(edit.name)));
 
   // Equipment groups are derived exclusively from the saved master data.
   // No second mutable "groups" table is created; new groups become selectable
   // for all users as soon as an ADMIN saves the first equipment of that group.
   const groupOptions = useMemo(() => {
     const byKey = new Map<string, string>();
-    records.forEach((record) => {
+    activeRecords.forEach((record) => {
       const group = String(record.category || '').trim();
       if (group && !byKey.has(normalizeCategory(group))) byKey.set(normalizeCategory(group), group);
     });
     if (!byKey.size) byKey.set(normalizeCategory('Thiết bị'), 'Thiết bị');
     return Array.from(byKey.values()).sort((a, b) =>
       a.localeCompare(b, 'vi', { numeric: true, sensitivity: 'base' }));
-  }, [records]);
+  }, [activeRecords]);
 
   const items = useMemo(() => {
     const map = new Map<string, EquipmentCatalogInput & { historical: boolean }>();
@@ -83,7 +105,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
         map.set(key, { ...EMPTY_EQUIPMENT, name, unit, historical: true });
       }
     });
-    records.forEach(item =>
+    activeRecords.forEach(item =>
       map.set(equipmentIdentityKey(item.name), {
         ...item, historical: map.has(equipmentIdentityKey(item.name)),
       }));
@@ -92,10 +114,25 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
       .filter(item => !q || [
         item.name, item.unit, item.category, item.brand, item.model, item.specifications,
       ].join(' ').toLocaleLowerCase('vi-VN').includes(q))
-      .sort((a, b) => a.name.localeCompare(b.name, 'vi', { numeric: true }));
-  }, [inventory, records, search]);
+      .sort((a, b) => {
+        const key = equipmentSortBy === 'none' ? 'name' : equipmentSortBy;
+        const compared = String(a[key] || '').localeCompare(String(b[key] || ''), 'vi', {
+          numeric: true, sensitivity: 'base',
+        });
+        const named = a.name.localeCompare(b.name, 'vi', { numeric: true, sensitivity: 'base' });
+        return (equipmentSortOrder === 'desc' && equipmentSortBy !== 'none' ? -compared : compared) || named;
+      });
+  }, [inventory, activeRecords, search, equipmentSortBy, equipmentSortOrder]);
+
+  const deletableVisibleItems = useMemo(() => items.filter(item =>
+    Boolean(item.id) && !historicalNames.has(equipmentIdentityKey(item.name))),
+  [items, historicalNames]);
+  const selectedVisibleItems = useMemo(() => deletableVisibleItems.filter(item =>
+    item.id && selectedEquipmentIds.includes(item.id)),
+  [deletableVisibleItems, selectedEquipmentIds]);
 
   const startNew = (keep?: Pick<EquipmentCatalogInput, 'category' | 'unit'>) => {
+    setEditingExisting(false);
     setEdit({
       ...EMPTY_EQUIPMENT,
       category: keep?.category || groupOptions[0] || 'Thiết bị',
@@ -108,6 +145,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
   };
 
   const startEdit = (item: EquipmentCatalogInput) => {
+    setEditingExisting(true);
     setEdit({ ...item });
     setCustomGroup(false);
     setRenameUnitOpen(false);
@@ -160,6 +198,46 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
     }
   };
 
+  const deleteCatalogItems = async (targets: EquipmentCatalogRecord[]) => {
+    if (!canManage || busy || status !== 'ready' || !targets.length) return;
+    const approved = await confirmAsync(
+      'Chuyển ' + targets.length + ' thiết bị vào thùng rác?\n'
+      + 'Chỉ xóa thiết bị chưa có lịch sử nhập/xuất (kể cả phiếu đã xóa). '
+      + 'Dữ liệu và mã gốc được giữ để khôi phục.',
+    );
+    if (!approved) return;
+    setBusy(true);
+    setNotice('');
+    try {
+      await softDeleteEquipmentCatalogBatch(projectId, targets.map(item => ({
+        id: item.id, name: item.name, revision: item.revision,
+      })));
+      setSelectedEquipmentIds([]);
+      setNotice('Đã chuyển ' + targets.length + ' thiết bị vào thùng rác; có thể khôi phục bằng mã gốc.');
+    } catch (err) {
+      setNotice('Chưa xóa thiết bị: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const restoreCatalogItem = async (item: EquipmentCatalogRecord) => {
+    if (!canManage || busy || status !== 'ready') return;
+    if (!(await confirmAsync('Khôi phục thiết bị “' + item.name + '” bằng mã đã lưu?'))) return;
+    setBusy(true);
+    setNotice('');
+    try {
+      await restoreEquipmentCatalog(projectId, {
+        id: item.id, name: item.name, unit: item.unit, revision: item.revision,
+      });
+      setNotice('Đã khôi phục thiết bị “' + item.name + '”.');
+    } catch (err) {
+      setNotice('Chưa khôi phục thiết bị: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const rename = async () => {
     if (!edit || !edit.name || !canManage || busy || !onRenameWarehouseUnit) return;
     const currentUnit = normalizeUnit(edit.unit) || edit.unit;
@@ -201,11 +279,13 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
           placeholder="Tìm tên, nhóm, hãng, model..."
           value={search} onChange={event => setSearch(event.target.value)} />
       </div>
-      {canManage && !edit && <button type="button" disabled={status !== 'ready' || busy}
-        onClick={() => startNew()}
-        className="inline-flex min-h-9 items-center gap-1 rounded-xl bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-40">
-        <Plus className="h-4 w-4" /> Thêm thiết bị
-      </button>}
+      {canManage && !edit && <AddSourceMenu
+        triggerLabel="Thêm thiết bị"
+        createLabel="Tạo mới"
+        onCreateNew={() => startNew()}
+        onOpenSourcePicker={() => setShowEquipmentSourcePicker(true)}
+        disabled={status !== 'ready' || busy}
+      />}
     </div>
 
     {status === 'loading' && <p className="text-xs text-slate-500">Đang tải thiết bị...</p>}
@@ -216,7 +296,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
     {edit && <section className="space-y-3 rounded-2xl border border-indigo-200 bg-indigo-50/40 p-3 sm:p-4" data-hnl-equipment-editor="true">
       <div className="flex items-center justify-between gap-2 border-b border-indigo-100 pb-2">
         <strong className="text-sm font-extrabold text-slate-900">
-          {edit.id ? 'Chỉnh thông tin thiết bị' : 'Thêm thiết bị'}
+          {editingExisting ? (edit.id ? 'Chỉnh thông tin thiết bị' : 'Bổ sung thông tin thiết bị từ phiếu kho') : 'Thêm thiết bị'}
         </strong>
         <button type="button" disabled={busy} onClick={() => setEdit(null)}
           aria-label="Đóng thông tin thiết bị" className="rounded-lg p-1.5 text-slate-600 hover:bg-white disabled:opacity-40">
@@ -226,7 +306,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="block text-xs font-semibold text-slate-700 sm:col-span-2">
           Tên thiết bị <span className="text-rose-600">*</span>
-          <input value={edit.name} disabled={busy || Boolean(edit.id)}
+          <input value={edit.name} disabled={busy || editingExisting}
             onChange={event => setEdit(prev => prev ? { ...prev, name: event.target.value } : prev)}
             placeholder="Ví dụ: Máy cắt thạch cao" className={FIELD_CLASS} />
         </label>
@@ -258,7 +338,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
         </label>
         <label className="block text-xs font-semibold text-slate-700">
           Đơn vị tính <span className="text-rose-600">*</span>
-          <input value={edit.unit} disabled={busy || Boolean(edit.id)}
+          <input value={edit.unit} disabled={busy || (editingExisting && editingHasHistory)}
             onChange={event => setEdit(prev => prev ? { ...prev, unit: event.target.value } : prev)}
             placeholder="Cái, Bộ, Chiếc..." className={FIELD_CLASS} />
         </label>
@@ -286,12 +366,13 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
         )}
       </div>
 
-      {Boolean(edit.id) && <p className="flex items-start gap-2 text-[11px] text-amber-800">
+      {editingExisting && <p className="flex items-start gap-2 text-[11px] text-amber-800">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-        Tên và ĐVT đã lưu được khóa để bảo vệ phiếu kho. Đổi ĐVT chỉ qua quy trình đồng bộ 1:1, không đổi số lượng.
+        {editingHasHistory
+          ? 'Tên và ĐVT đang có phiếu kho được khóa. Đổi ĐVT bằng quy trình 1:1, không tự quy đổi số lượng hoặc phá dữ liệu cũ.'
+          : 'Tên thiết bị được giữ nguyên để bảo toàn mã. Chưa có phiếu kho nên có thể chỉnh trực tiếp ĐVT và lưu thay đổi.'}
       </p>}
-      {edit.id && canManage && onRenameWarehouseUnit &&
-        inventory.some(item => item.itemKind === 'equipment' && equipmentIdentityKey(item.materialName) === equipmentIdentityKey(edit.name)) &&
+      {editingExisting && editingHasHistory && canManage && onRenameWarehouseUnit &&
         <div className="space-y-2 rounded-xl border border-amber-200 bg-white p-3">
           {!renameUnitOpen
             ? <button type="button" disabled={busy} onClick={() => { setNewUnit(''); setRenameUnitOpen(true); }}
@@ -316,35 +397,160 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
         </button>
         <button type="button" disabled={busy || status !== 'ready'} onClick={() => { void save(false); }}
           className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-indigo-300 bg-white px-4 py-2 text-xs font-extrabold text-indigo-700 disabled:opacity-40">
-          <Save className="h-4 w-4" /> Lưu
+          <Save className="h-4 w-4" /> {editingExisting ? 'Lưu thay đổi' : 'Lưu'}
         </button>
-        {!edit.id && <button type="button" disabled={busy || status !== 'ready'} onClick={() => { void save(true); }}
+        {!editingExisting && <button type="button" disabled={busy || status !== 'ready'} onClick={() => { void save(true); }}
           className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-extrabold text-white hover:bg-indigo-700 disabled:opacity-40">
           <Plus className="h-4 w-4" /> Lưu &amp; thêm tiếp
         </button>}
       </div>
     </section>}
 
-    {status === 'ready' && !edit && <div className="max-h-[44vh] space-y-2 overflow-y-auto">
-      {items.length === 0 && <p className="rounded-xl border border-dashed border-slate-300 p-4 text-xs text-slate-500">
-        Chưa có thiết bị. ADMIN có thể thêm thiết bị trước khi nhập kho.
-      </p>}
-      {items.map(item => <div key={item.id || equipmentIdentityKey(item.name)}
-        className="flex items-start justify-between gap-2 rounded-xl border border-slate-200 bg-white p-3">
-        <div className="min-w-0">
-          <p className="break-words text-xs font-extrabold text-slate-900">{item.name} · {item.unit}</p>
-          <p className="text-[11px] text-slate-600">
-            {item.category || 'Thiết bị'}{item.brand ? ' · ' + item.brand : ''}{item.model ? ' · ' + item.model : ''}
-          </p>
-          {item.specifications && <p className="break-words text-[11px] text-slate-600">{item.specifications}</p>}
-          {!item.id && <p className="text-[10px] text-amber-700">Phiếu lịch sử: chưa có thông số thiết bị</p>}
+    {status === 'ready' && !edit && <div className="space-y-2">
+      <QuickSortBar
+        itemCount={items.length}
+        options={[
+          { key: 'name', label: 'Tên thiết bị', kind: 'alpha', defaultOrder: 'asc' },
+          { key: 'category', label: 'Nhóm thiết bị', kind: 'alpha', defaultOrder: 'asc' },
+          { key: 'unit', label: 'ĐVT', kind: 'alpha', defaultOrder: 'asc' },
+          { key: 'brand', label: 'Hãng sản xuất', kind: 'alpha', defaultOrder: 'asc' },
+        ]}
+        activeKey={equipmentSortBy === 'none' ? null : equipmentSortBy}
+        order={equipmentSortOrder}
+        onChange={(key, order) => { setEquipmentSortBy(key); setEquipmentSortOrder(order); }}
+        onToggleOrder={() => setEquipmentSortOrder(value => value === 'asc' ? 'desc' : 'asc')}
+        onReset={() => { setEquipmentSortBy('none'); setEquipmentSortOrder('asc'); }}
+      />
+      {canManage && <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
+        <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-bold text-slate-700">
+          <input type="checkbox" disabled={busy || deletableVisibleItems.length === 0}
+            checked={deletableVisibleItems.length > 0 && deletableVisibleItems.every(item => selectedEquipmentIds.includes(item.id!))}
+            onChange={event => {
+              const visible = deletableVisibleItems.map(item => item.id!);
+              setSelectedEquipmentIds(previous => event.target.checked
+                ? Array.from(new Set([...previous, ...visible]))
+                : previous.filter(id => !visible.includes(id)));
+            }}
+            className="h-4 w-4 rounded border-slate-300 text-indigo-600" />
+          Chọn tất cả ({deletableVisibleItems.length})
+        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          {selectedVisibleItems.length > 0 && <button type="button" disabled={busy}
+            onClick={() => { void deleteCatalogItems(activeRecords.filter(record =>
+              selectedVisibleItems.some(item => item.id === record.id))); }}
+            className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-2 text-xs font-bold text-rose-700 disabled:opacity-40">
+            <Trash2 className="h-4 w-4" /> Xóa đã chọn ({selectedVisibleItems.length})
+          </button>}
+          {deletedRecords.length > 0 && <button type="button" disabled={busy}
+            onClick={() => setShowDeleted(previous => !previous)}
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-700">
+            <RotateCcw className="h-4 w-4" /> Thùng rác ({deletedRecords.length})
+          </button>}
         </div>
-        {canManage && <button type="button" onClick={() => startEdit(item)}
-          className="shrink-0 rounded-lg border border-indigo-200 p-2 text-indigo-700"
-          title="Chỉnh thông tin thiết bị" aria-label={'Chỉnh thiết bị ' + item.name}>
-          <Edit2 className="h-4 w-4" />
-        </button>}
-      </div>)}
+      </div>}
+      <div className="max-h-[44vh] space-y-2 overflow-y-auto">
+        {items.length === 0 && <p className="rounded-xl border border-dashed border-slate-300 p-4 text-xs text-slate-500">
+          Chưa có thiết bị. ADMIN có thể thêm thiết bị trước khi nhập kho.
+        </p>}
+        {items.map(item => {
+          const historyProtected = historicalNames.has(equipmentIdentityKey(item.name));
+          const deletable = Boolean(item.id) && !historyProtected;
+          const target = item.id ? activeRecords.find(record => record.id === item.id) : undefined;
+          return <div key={item.id || equipmentIdentityKey(item.name)}
+            className="flex items-start gap-2 rounded-xl border border-slate-200 bg-white p-3">
+            {canManage && <input type="checkbox"
+              aria-label={'Chọn thiết bị ' + item.name}
+              disabled={busy || !deletable}
+              title={!deletable ? 'Chỉ được xóa thiết bị đã lưu, không có phiếu kho' : 'Chọn để xóa'}
+              checked={Boolean(item.id && selectedEquipmentIds.includes(item.id))}
+              onChange={event => setSelectedEquipmentIds(previous =>
+                event.target.checked ? (previous.includes(item.id!) ? previous : [...previous, item.id!])
+                  : previous.filter(id => id !== item.id))}
+              className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600" />}
+            <div className="min-w-0 flex-1">
+              <p className="break-words text-xs font-extrabold text-slate-900">{item.name} · {item.unit}</p>
+              <p className="text-[11px] text-slate-600">
+                {item.category || 'Thiết bị'}{item.brand ? ' · ' + item.brand : ''}{item.model ? ' · ' + item.model : ''}
+              </p>
+              {item.specifications && <p className="break-words text-[11px] text-slate-600">{item.specifications}</p>}
+              {!item.id && <p className="text-[10px] text-amber-700">Phiếu lịch sử: chưa có thông số thiết bị</p>}
+            </div>
+            {canManage && <div className="flex shrink-0 items-start gap-1">
+              <button type="button" disabled={busy} onClick={() => startEdit(item)}
+                className="rounded-lg border border-indigo-200 p-2 text-indigo-700 disabled:opacity-40"
+                title="Sửa thông tin thiết bị" aria-label={'Sửa thiết bị ' + item.name}>
+                <Edit2 className="h-4 w-4" />
+              </button>
+              <button type="button" disabled={busy || !deletable || !target}
+                onClick={() => { if (target) void deleteCatalogItems([target]); }}
+                className="rounded-lg border border-rose-200 p-2 text-rose-700 disabled:opacity-30"
+                title={deletable ? 'Chuyển thiết bị vào thùng rác' : 'Không thể xóa thiết bị có lịch sử phiếu kho'}
+                aria-label={'Xóa thiết bị ' + item.name}>
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>}
+          </div>;
+        })}
+      </div>
+      {canManage && showDeleted && deletedRecords.length > 0 && <section className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+        <h3 className="text-xs font-extrabold text-amber-900">Thiết bị đã xóa (giữ mã gốc)</h3>
+        {deletedRecords.map(item => <div key={item.id} className="flex items-center justify-between gap-2 rounded-lg bg-white p-2">
+          <span className="min-w-0 break-words text-xs text-slate-700">{item.name} · {item.unit}</span>
+          <button type="button" disabled={busy} onClick={() => { void restoreCatalogItem(item); }}
+            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-amber-200 px-2 py-1.5 text-xs font-bold text-amber-800 disabled:opacity-40">
+            <RotateCcw className="h-3.5 w-3.5" /> Khôi phục
+          </button>
+        </div>)}
+      </section>}
     </div>}
+    <CatalogTemplatePickerModal
+      open={showEquipmentSourcePicker && canManage}
+      onClose={() => setShowEquipmentSourcePicker(false)}
+      currentProjectId={projectId}
+      currentItems={activeRecords.map(item => ({
+        id: item.id, name: item.name, unit: item.unit, category: item.category,
+        brand: item.brand, model: item.model, specifications: item.specifications, notes: item.notes,
+      }))}
+      kind="equipment"
+      title="Lấy thiết bị từ công trình/mẫu"
+      onImport={async (rows) => {
+        if (!canManage || status !== 'ready' || busy) throw new Error('Chỉ ADMIN có thể thêm thiết bị khi dữ liệu Cloud sẵn sàng.');
+        if (!rows.length) return;
+        const seen = new Set<string>();
+        const existing = new Set(records.map(item => equipmentIdentityKey(item.name)));
+        const unique: EquipmentCatalogInput[] = [];
+        let skipped = 0;
+        rows.forEach(row => {
+          const source = row.item as Partial<EquipmentCatalogInput>;
+          const name = String(source.name || '').trim();
+          const identity = equipmentIdentityKey(name);
+          if (!name || !String(source.unit || '').trim() || !identity || seen.has(identity) || existing.has(identity)) {
+            skipped += 1;
+            return;
+          }
+          seen.add(identity);
+          unique.push({
+            name, unit: String(source.unit).trim(), category: String(source.category || 'Thiết bị').trim(),
+            brand: String(source.brand || ''), model: String(source.model || ''),
+            specifications: String(source.specifications || ''), notes: String(source.notes || ''),
+          });
+        });
+        if (unique.length > 50) throw new Error('Mỗi lần lấy tối đa 50 thiết bị. Hãy chọn ít mục hơn.');
+        if (!unique.length) {
+          setNotice('Không có thiết bị mới để thêm; các tên trùng hoặc không hợp lệ đã được bỏ qua.');
+          return;
+        }
+        setBusy(true);
+        try {
+          // Save is an admin-only Firestore transaction and revalidates names/units
+          // against the target server ledger; never copy source IDs/revisions.
+          await saveEquipmentCatalogBatch(projectId, unique);
+          setNotice('Đã lấy ' + unique.length + ' thiết bị mới vào danh mục.'
+            + (skipped ? ' Bỏ qua ' + skipped + ' thiết bị trùng/không hợp lệ.' : ''));
+        } finally {
+          setBusy(false);
+        }
+      }}
+    />
   </div>;
 };

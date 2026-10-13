@@ -2088,15 +2088,16 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-xs text-slate-800"
               />
             </div>
-            {warehouseCatalogTab === 'equipment' && roleResolved && (
+            {roleResolved && (
               <button
                 type="button"
-                onClick={() => { setShowWarehouseCatalog(false); onOpenNormModal('equipment'); }}
-                data-hnl-equipment-settings-link="true"
+                onClick={() => { setShowWarehouseCatalog(false); onOpenNormModal(warehouseCatalogTab); }}
+                data-hnl-catalog-settings-link="true"
                 className="inline-flex shrink-0 items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100"
-                title="Mở Vật tư & Thiết bị để thêm hoặc chỉnh thông số thiết bị"
+                title={warehouseCatalogTab === 'equipment' ? 'Mở quản lý thông số thiết bị' : 'Mở quản lý vật tư và định mức'}
               >
-                <Sliders className="h-4 w-4" /> Thiết lập thiết bị
+                <Sliders className="h-4 w-4" />
+                {warehouseCatalogTab === 'equipment' ? 'Thiết lập thiết bị' : 'Thiết lập vật tư'}
               </button>
             )}
           </div>
