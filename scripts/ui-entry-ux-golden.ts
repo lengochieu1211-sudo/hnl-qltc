@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { buildCrewReportMatrices, buildCrewReportRows, buildCrewReportText } from '../src/utils/crewReportUtils';
+import { catalogOrderRank, reorderVisibleCatalogItems } from '../src/utils/catalogDisplayOrder';
 
 // HNL theme regression: reachable AI/project gradients must stay readable in dark mode.
 const hnlThemeCss = fs.readFileSync('src/index.css', 'utf8');
@@ -408,6 +409,48 @@ assert(
   && equipmentCatalogRules.includes("'deletedAt','deletedByUid'")
   && equipmentCatalogRules.includes('allow delete: if false;'),
   'Equipment catalog requires ADMIN-only lifecycle updates and hard-delete denial',
+);
+
+
+// Manual catalog order: authoritative IDs remain stable, hidden rows keep slots.
+const manualOrderFixture = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }];
+const manualOrderMoved = reorderVisibleCatalogItems(manualOrderFixture, ['d', 'b']);
+assert(
+  manualOrderMoved?.map(item => item.id).join(',') === 'a,d,c,b',
+  'Filtered manual sort must preserve hidden catalog slots and exact IDs',
+);
+assert(reorderVisibleCatalogItems(manualOrderFixture, ['b', 'b']) === null,
+  'Manual sort must reject duplicated selections');
+assert(reorderVisibleCatalogItems(manualOrderFixture, ['b', 'missing']) === null,
+  'Manual sort must fail closed for stale/missing IDs');
+assert(reorderVisibleCatalogItems(manualOrderFixture, ['b', 'd']) === null,
+  'Manual sort must reject unchanged order');
+assert(catalogOrderRank(undefined) === Number.MAX_SAFE_INTEGER && catalogOrderRank(2) === 2,
+  'Legacy unranked items must retain stable fallback ordering');
+
+const manualMaterialUi = read('src/components/MaterialNormModal.tsx');
+const manualApp = read('src/App.tsx');
+const manualCatalogType = read('src/types.ts');
+assert(
+  manualMaterialUi.includes('reorderVisibleCatalogItems(fullManualNormOrder, visibleIds)')
+  && manualMaterialUi.includes('onReorderNorms?.(result.map(item => item.id))')
+  && manualMaterialUi.includes('<MoveOrderControls')
+  && manualMaterialUi.includes('onDragStart={() => setDraggedNormId(norm.id)}')
+  && manualApp.includes('onReorderNorms={handleReorderMaterialNorms}')
+  && manualApp.includes('const handleReorderMaterialNorms')
+  && manualCatalogType.includes('order?: number;'),
+  'Material manual order must be ID-safe, ADMIN-only, Cloud-synchronized, keyboard/touch accessible',
+);
+assert(
+  equipmentCatalogUi.includes('reorderVisibleCatalogItems(orderedSavedRecords, ids)')
+  && equipmentCatalogUi.includes('await reorderEquipmentCatalog(projectId,')
+  && equipmentCatalogUi.includes('<MoveOrderControls')
+  && equipmentCatalogUi.includes('draggable={canReorderEquipment && Boolean(item.id)}')
+  && equipmentCatalogLogic.includes('export async function reorderEquipmentCatalog')
+  && equipmentCatalogLogic.includes('record.revision !== revisions.get(orderedIds[index])')
+  && equipmentCatalogLogic.includes("existing && typeof existing.order === 'number'")
+  && equipmentCatalogRules.includes("'deletedAt','deletedByUid','order'"),
+  'Equipment manual order must persist to Firestore with revision checks without dropping ranking on edit',
 );
 
 assert(!crewUiForPc.includes('value={logStructureGroupId}'), 'Crew add/edit form must keep the Khu/Khối selector hidden');
