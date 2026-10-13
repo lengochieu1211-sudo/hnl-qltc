@@ -7,7 +7,7 @@ import { MoveOrderControls } from './MoveOrderControls';
 import { catalogOrderRank, reorderVisibleCatalogItems } from '../utils/catalogDisplayOrder';
 import type { InventoryItem } from '../types';
 import { confirmAsync } from '../utils/confirmAsync';
-import { normalizeUnit } from '../utils/unitUtils';
+import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
 import {
   equipmentIdentityKey, saveEquipmentCatalogBatch, softDeleteEquipmentCatalogBatch,
   restoreEquipmentCatalog, reorderEquipmentCatalog, subscribeEquipmentCatalog,
@@ -83,6 +83,10 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
       .map(item => equipmentIdentityKey(String(item.materialName || ''))),
   ), [inventory]);
   const editingHasHistory = Boolean(edit && historicalNames.has(equipmentIdentityKey(edit.name)));
+  const editingHistoricalUnits = useMemo(() => edit ? Array.from(new Set(inventory
+    .filter(item => item.itemKind === 'equipment'
+      && equipmentIdentityKey(item.materialName) === equipmentIdentityKey(edit.name))
+    .map(item => normalizeUnit(item.unit) || item.unit))) : [], [edit?.name, inventory]);
 
   // Equipment groups are derived exclusively from the saved master data.
   // No second mutable "groups" table is created; new groups become selectable
@@ -116,17 +120,17 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
     });
     activeRecords.forEach(item =>
       map.set(equipmentIdentityKey(item.name), {
-        ...item, historical: map.has(equipmentIdentityKey(item.name)),
+        ...item, displayName: item.displayName || item.name, historical: map.has(equipmentIdentityKey(item.name)),
       }));
     const q = search.trim().toLocaleLowerCase('vi-VN');
     return Array.from(map.values())
       .filter(item => !q || [
-        item.name, item.unit, item.category, item.brand, item.model, item.specifications,
+        item.name, item.displayName, item.unit, item.category, item.brand, item.model, item.specifications,
       ].join(' ').toLocaleLowerCase('vi-VN').includes(q))
       .sort((a, b) => {
-        if (equipmentSortBy === 'none') return sortManualEquipment(a, b);
-        const compared = String(a[equipmentSortBy] || '').localeCompare(
-          String(b[equipmentSortBy] || ''), 'vi', { numeric: true, sensitivity: 'base' });
+        if (equipmentSortBy === 'none') return sortManualEquipment({ ...a, name: a.displayName || a.name }, { ...b, name: b.displayName || b.name });
+        const compared = String(equipmentSortBy === 'name' ? (a.displayName || a.name) : a[equipmentSortBy] || '').localeCompare(
+          String(equipmentSortBy === 'name' ? (b.displayName || b.name) : b[equipmentSortBy] || ''), 'vi', { numeric: true, sensitivity: 'base' });
         const named = a.name.localeCompare(b.name, 'vi', { numeric: true, sensitivity: 'base' });
         return (equipmentSortOrder === 'desc' ? -compared : compared) || named;
       });
@@ -183,7 +187,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
 
   const startEdit = (item: EquipmentCatalogInput) => {
     setEditingExisting(true);
-    setEdit({ ...item });
+    setEdit({ ...item, displayName: item.displayName || item.name });
     setCustomGroup(false);
     setRenameUnitOpen(false);
     setNewUnit('');
@@ -194,11 +198,12 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
     if (!edit || !canManage || status !== 'ready' || busy) return;
     const equipment = {
       ...edit,
+      displayName: editingExisting ? String(edit.displayName ?? edit.name).trim() : String(edit.name || '').trim(),
       name: String(edit.name || '').trim(),
       category: String(edit.category || '').trim(),
       unit: normalizeUnit(edit.unit) || String(edit.unit || '').trim(),
     };
-    if (!equipment.name || !equipment.unit || !equipment.category) {
+    if (!equipment.name || !equipment.displayName || !equipment.unit || !equipment.category) {
       setNotice('Cần nhập tên, đơn vị tính và nhóm thiết bị trước khi lưu.');
       return;
     }
@@ -208,15 +213,12 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
       if (equipment.id && !records.some(item => item.id === equipment.id)) {
         throw new Error('Thiết bị đã thay đổi trên Cloud, vui lòng tải lại.');
       }
-      // Retain the fail-closed check for ALL historical equipment vouchers,
-      // including restorable deleted transactions. The server also verifies
-      // the ledger so a stale device cannot establish a conflicting unit.
-      const historicalUnits = new Set(inventory.filter(item =>
-        item.itemKind === 'equipment'
-        && equipmentIdentityKey(item.materialName) === equipmentIdentityKey(equipment.name)
-      ).map(item => normalizeUnit(item.unit) || item.unit));
-      if (historicalUnits.size > 1 || (historicalUnits.size === 1 && !historicalUnits.has(equipment.unit))) {
-        throw new Error('Thiết bị đã có lịch sử kho với ĐVT khác hoặc không duy nhất. Hãy đối chiếu phiếu trước khi lưu.');
+      // Metadata-only saves must not be held hostage by unrelated legacy
+      // voucher unit discrepancies. The Cloud transaction guards real changes.
+      const existingRecord = equipment.id ? records.find(item => item.id === equipment.id) : undefined;
+      const changingUnit = Boolean(existingRecord && !areSameUnit(existingRecord.unit, equipment.unit));
+      if (changingUnit && editingHasHistory) {
+        throw new Error('Thiết bị đã có phiếu kho. Hãy dùng nút “Đổi ĐVT (1:1)” và đối chiếu phiếu thay vì sửa trực tiếp.');
       }
       await saveEquipmentCatalogBatch(projectId, [equipment]);
       if (addAnother && !equipment.id) {
@@ -342,10 +344,15 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="block text-xs font-semibold text-slate-700 sm:col-span-2">
-          Tên thiết bị <span className="text-rose-600">*</span>
-          <input value={edit.name} disabled={busy || editingExisting}
-            onChange={event => setEdit(prev => prev ? { ...prev, name: event.target.value } : prev)}
+          {editingExisting ? 'Tên thiết bị hiển thị' : 'Tên thiết bị'} <span className="text-rose-600">*</span>
+          <input value={editingExisting ? (edit.displayName ?? edit.name) : edit.name} disabled={busy}
+            onChange={event => setEdit(prev => prev ? (editingExisting
+              ? { ...prev, displayName: event.target.value }
+              : { ...prev, name: event.target.value, displayName: event.target.value }) : prev)}
             placeholder="Ví dụ: Máy cắt thạch cao" className={FIELD_CLASS} />
+          {editingExisting && <span className="mt-1 block text-[10px] font-normal text-slate-500">
+            Tên định danh trên phiếu kho: <strong>{edit.name}</strong>. Việc đổi tên hiển thị không thay đổi mã thiết bị hoặc lịch sử nhập/xuất.
+          </span>}
         </label>
         <label className="block text-xs font-semibold text-slate-700">
           Nhóm thiết bị <span className="text-rose-600">*</span>
@@ -403,11 +410,14 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
         )}
       </div>
 
+      {editingExisting && editingHistoricalUnits.length > 1 && <p className="text-[11px] font-semibold text-amber-800">
+        Chú ý: phiếu kho của thiết bị này đang có nhiều ĐVT ({editingHistoricalUnits.join(', ')}). Chỉ sửa tên hiển thị / thông tin; các ĐVT kho vẫn được giữ riêng, không tự gộp hoặc quy đổi.
+      </p>}
       {editingExisting && <p className="flex items-start gap-2 text-[11px] text-amber-800">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
         {editingHasHistory
-          ? 'Tên và ĐVT đang có phiếu kho được khóa. Đổi ĐVT bằng quy trình 1:1, không tự quy đổi số lượng hoặc phá dữ liệu cũ.'
-          : 'Tên thiết bị được giữ nguyên để bảo toàn mã. Chưa có phiếu kho nên có thể chỉnh trực tiếp ĐVT và lưu thay đổi.'}
+          ? 'Có phiếu kho: bạn có thể đổi tên hiển thị, hãng, model, ghi chú và lưu bình thường. ĐVT kho phải đổi qua quy trình 1:1; dữ liệu cũ có nhiều ĐVT thì cần đối chiếu trước.'
+          : 'Đổi tên hiển thị không thay đổi mã và phiếu kho. Nếu thật sự chưa có lịch sử trên Cloud, có thể sửa trực tiếp ĐVT rồi lưu.'}
       </p>}
       {editingExisting && editingHasHistory && canManage && onRenameWarehouseUnit &&
         <div className="space-y-2 rounded-xl border border-amber-200 bg-white p-3">
@@ -523,7 +533,8 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
                   : previous.filter(id => id !== item.id))}
               className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600" />}
             <div className="min-w-0 flex-1">
-              <p className="break-words text-xs font-extrabold text-slate-900">{item.name} · {item.unit}</p>
+              <p className="break-words text-xs font-extrabold text-slate-900">{item.displayName || item.name} · {item.unit}</p>
+              {item.displayName && item.displayName !== item.name && <p className="text-[10px] text-slate-500">Tên phiếu kho: {item.name}</p>}
               <p className="text-[11px] text-slate-600">
                 {item.category || 'Thiết bị'}{item.brand ? ' · ' + item.brand : ''}{item.model ? ' · ' + item.model : ''}
               </p>
@@ -565,7 +576,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
       {canManage && showDeleted && deletedRecords.length > 0 && <section className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
         <h3 className="text-xs font-extrabold text-amber-900">Thiết bị đã xóa (giữ mã gốc)</h3>
         {deletedRecords.map(item => <div key={item.id} className="flex items-center justify-between gap-2 rounded-lg bg-white p-2">
-          <span className="min-w-0 break-words text-xs text-slate-700">{item.name} · {item.unit}</span>
+          <span className="min-w-0 break-words text-xs text-slate-700">{item.displayName || item.name} · {item.unit}</span>
           <button type="button" disabled={busy} onClick={() => { void restoreCatalogItem(item); }}
             className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-amber-200 px-2 py-1.5 text-xs font-bold text-amber-800 disabled:opacity-40">
             <RotateCcw className="h-3.5 w-3.5" /> Khôi phục
@@ -578,7 +589,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
       onClose={() => setShowEquipmentSourcePicker(false)}
       currentProjectId={projectId}
       currentItems={activeRecords.map(item => ({
-        id: item.id, name: item.name, unit: item.unit, category: item.category,
+        id: item.id, name: item.name, displayName: item.displayName || item.name, unit: item.unit, category: item.category,
         brand: item.brand, model: item.model, specifications: item.specifications, notes: item.notes,
       }))}
       kind="equipment"
@@ -600,7 +611,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
           }
           seen.add(identity);
           unique.push({
-            name, unit: String(source.unit).trim(), category: String(source.category || 'Thiết bị').trim(),
+            name, displayName: String(source.displayName || name).trim(), unit: String(source.unit).trim(), category: String(source.category || 'Thiết bị').trim(),
             brand: String(source.brand || ''), model: String(source.model || ''),
             specifications: String(source.specifications || ''), notes: String(source.notes || ''),
           });
