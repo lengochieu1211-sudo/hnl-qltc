@@ -526,6 +526,15 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [taskDescription, setTaskDescription] = useState('');
   const [notes, setNotes] = useState('');
   const [floorWorks, setFloorWorks] = useState<CrewFloorWork[]>([]);
+  const [crewPicker, setCrewPicker] = useState<{ floorIndex: number; categoryIndex: number; kind: 'category' | 'subitem' } | null>(null);
+  const [crewPickerQuery, setCrewPickerQuery] = useState('');
+  const [crewCustomEntry, setCrewCustomEntry] = useState(false);
+  const openCrewPicker = (floorIndex: number, categoryIndex: number, kind: 'category' | 'subitem') => {
+    setCrewPicker({ floorIndex, categoryIndex, kind });
+    setCrewPickerQuery('');
+    setCrewCustomEntry(false);
+  };
+
 
   const activeWorkVolumeCatalog = useMemo(
     () => workVolumes.filter((item) => isActiveRecord(item) && String(item.title || '').trim()),
@@ -2865,6 +2874,50 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           )}
                         </div>
 
+                        {crewPicker?.floorIndex === fIdx && (() => {
+                          const selected = fw.categories[crewPicker.categoryIndex];
+                          if (!selected) return null;
+                          const options = crewPicker.kind === 'category'
+                            ? getWorkVolumeOptionsForFloor(fw.floorId, fw.floorName).map(item => item.title)
+                            : getSubItemSuggestions(fw.floorId, fw.floorName, selected.categoryName);
+                          const uniqueOptions = Array.from(new Set(options.filter(Boolean)));
+                          const matches = uniqueOptions.filter(name => normalizeLinkText(name).includes(normalizeLinkText(crewPickerQuery)));
+                          const selectName = (name: string) => {
+                            if (crewPicker.kind === 'category') updateCategoryName(fIdx, crewPicker.categoryIndex, name);
+                            else if (!selected.subItems.some(existing => normalizeLinkText(existing) === normalizeLinkText(name))) {
+                              addSubItemToCategory(fIdx, crewPicker.categoryIndex, name);
+                            }
+                            setCrewPicker(null);
+                          };
+                          return (
+                            <div className="fixed inset-0 z-[110] flex items-end sm:items-center sm:justify-center bg-black/50" onClick={() => setCrewPicker(null)}>
+                              <div role="dialog" aria-modal="true" aria-label={crewPicker.kind === 'category' ? 'Chọn hạng mục thi công' : 'Chọn công đoạn'} onClick={e => e.stopPropagation()} className="w-full sm:max-w-lg bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[70dvh] min-h-0 overflow-hidden">
+                                <div className="flex justify-between items-center gap-3 p-4 border-b border-slate-200">
+                                  <h3 className="font-bold text-slate-800 text-sm">{crewPicker.kind === 'category' ? 'Chọn hạng mục thi công' : 'Chọn công đoạn'}</h3>
+                                  <button type="button" onClick={() => setCrewPicker(null)} aria-label="Đóng danh sách" className="p-2 rounded hover:bg-slate-100"><X className="w-5 h-5" /></button>
+                                </div>
+                                <div className="p-3 border-b border-slate-100 space-y-2">
+                                  {crewCustomEntry ? (
+                                    <form onSubmit={e => { e.preventDefault(); const name = crewPickerQuery.trim(); if (name) selectName(uniqueOptions.find(item => normalizeLinkText(item) === normalizeLinkText(name)) || name); }} className="flex gap-2">
+                                      <input autoFocus value={crewPickerQuery} onChange={e => setCrewPickerQuery(e.target.value)} placeholder="Nhập tên mới..." className="min-w-0 flex-1 border rounded-lg px-3 py-2 text-sm" />
+                                      <button type="submit" disabled={!crewPickerQuery.trim()} className="bg-indigo-600 disabled:opacity-50 text-white px-3 rounded-lg text-sm">Xác nhận</button>
+                                    </form>
+                                  ) : (
+                                    <input value={crewPickerQuery} onChange={e => setCrewPickerQuery(e.target.value)} placeholder="Tìm trong danh sách..." className="w-full border rounded-lg px-3 py-2 text-sm" />
+                                  )}
+                                  <button type="button" onClick={() => { setCrewCustomEntry(!crewCustomEntry); setCrewPickerQuery(''); }} className="text-sm font-medium text-indigo-700">
+                                    {crewCustomEntry ? '← Quay lại danh sách' : '+ Nhập tên mới'}
+                                  </button>
+                                </div>
+                                {!crewCustomEntry && <div className="overflow-y-auto overscroll-contain flex-1 min-h-0 p-2">
+                                  {matches.length ? matches.map(name => (
+                                    <button key={name} type="button" onClick={() => selectName(name)} className="w-full text-left break-words px-3 py-3 border-b border-slate-100 hover:bg-indigo-50 text-sm text-slate-800">{name}</button>
+                                  )) : <p className="p-3 text-sm text-slate-500">Không có mục phù hợp. Chọn “Nhập tên mới” để thêm.</p>}
+                                </div>}
+                              </div>
+                            </div>
+                          );
+                        })()}
                         {/* Categories on this floor */}
                         <div className="space-y-2 pt-1 border-t border-slate-100">
                           <div className="flex items-center justify-between">
@@ -2881,19 +2934,14 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           {fw.categories.map((cat, cIdx) => (
                             <div key={cIdx} className="bg-slate-50 p-2 rounded border border-slate-200 space-y-2">
                               <div className="flex items-center gap-2">
-                                <input
-                                  type="text"
-                                  list={`crew-category-options-${fIdx}`}
-                                  placeholder="Chọn hạng mục đã khai báo hoặc nhập khác..."
-                                  value={cat.categoryName}
-                                  onChange={(e) => updateCategoryName(fIdx, cIdx, e.target.value)}
-                                  className="flex-1 text-xs bg-white border border-slate-200 px-2 py-1 rounded font-medium focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                                />
-                                <datalist id={`crew-category-options-${fIdx}`}>
-                                  {getWorkVolumeOptionsForFloor(fw.floorId, fw.floorName).map((item) => (
-                                    <option key={item.id} value={item.title} />
-                                  ))}
-                                </datalist>
+                                <button
+                                  type="button"
+                                  onClick={() => openCrewPicker(fIdx, cIdx, 'category')}
+                                  className="flex-1 min-w-0 flex items-center justify-between gap-2 text-left text-xs bg-white border border-slate-200 px-3 py-2.5 rounded font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                >
+                                  <span className="min-w-0 break-words">{cat.categoryName || 'Chọn hạng mục thi công...'}</span>
+                                  <ChevronDown className="w-4 h-4 shrink-0" />
+                                </button>
                                 {fw.categories.length > 1 && (
                                   <button
                                     type="button"
@@ -2922,40 +2970,14 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                       </button>
                                     </span>
                                   ))}
-                                  <div className="flex items-center gap-1">
-                                    <input
-                                      id={`sub-input-${fIdx}-${cIdx}`}
-                                      type="text"
-                                      list={`crew-subitem-options-${fIdx}-${cIdx}`}
-                                      placeholder="Chọn công đoạn đã khai báo hoặc nhập khác..."
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                          e.preventDefault();
-                                          addSubItemToCategory(fIdx, cIdx, (e.target as HTMLInputElement).value);
-                                          (e.target as HTMLInputElement).value = '';
-                                        }
-                                      }}
-                                      className="text-[10px] bg-white border border-slate-200 px-2 py-0.5 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 w-52 max-w-full"
-                                    />
-                                    <datalist id={`crew-subitem-options-${fIdx}-${cIdx}`}>
-                                      {getSubItemSuggestions(fw.floorId, fw.floorName, cat.categoryName).map((name) => (
-                                        <option key={name} value={name} />
-                                      ))}
-                                    </datalist>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const inputEl = document.getElementById(`sub-input-${fIdx}-${cIdx}`) as HTMLInputElement;
-                                        if (inputEl && inputEl.value.trim()) {
-                                          addSubItemToCategory(fIdx, cIdx, inputEl.value);
-                                          inputEl.value = '';
-                                        }
-                                      }}
-                                      className="bg-indigo-600 hover:bg-indigo-700 text-white rounded px-2 py-0.5 text-[10px] font-bold shrink-0 transition"
-                                    >
-                                      Thêm
-                                    </button>
-                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => openCrewPicker(fIdx, cIdx, 'subitem')}
+                                    className="flex items-center justify-between gap-2 text-left text-xs bg-white border border-slate-200 px-3 py-2.5 rounded min-h-10 w-full"
+                                  >
+                                    <span>Chọn hoặc thêm công đoạn...</span>
+                                    <ChevronDown className="w-4 h-4 shrink-0" />
+                                  </button>
                                 </div>
                               </div>
                             </div>
@@ -3140,17 +3162,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Buttons */}
-              <div className={`grid gap-2.5 pt-2 sm:col-span-2 ${editingTeam ? 'grid-cols-2' : 'grid-cols-1 sm:grid-cols-3'}`}>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setShowTeamModal(false);
-                    setEditingTeam(null);
-                  }}
-                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-lg text-xs transition"
-                >
-                  Hủy bỏ
-                </button>
+              <div className={`grid gap-2.5 pt-2 sm:col-span-2 ${editingTeam ? 'grid-cols-1' : 'grid-cols-2'}`}>
                 {!editingTeam && (
                   <button
                     type="submit"
