@@ -14,6 +14,8 @@ export interface EquipmentCatalogRecord {
   model: string;
   specifications: string;
   notes: string;
+  /** Optional Cloud-synchronized display rank; no relation to inventory identity. */
+  order?: number;
   revision: number;
   createdAt: number;
   updatedAt: number;
@@ -124,6 +126,7 @@ export async function saveEquipmentCatalogBatch(projectId: string, entries: Equi
       const { expectedRevision: _ignored, ...data } = next;
       tx.set(refs[index], {
         ...data,
+        ...(existing && typeof existing.order === 'number' ? { order: existing.order } : {}),
         revision: existing ? existing.revision + 1 : 1,
         createdAt: existing?.createdAt || timestamp,
         updatedAt: timestamp,
@@ -223,6 +226,58 @@ export async function restoreEquipmentCatalog(
       deletedAt: null, deletedByUid: null,
       revision: current.revision + 1,
       updatedAt: Math.max(now, current.updatedAt + 1),
+    });
+  }, { maxAttempts: 3 });
+}
+
+
+/**
+ * ADMIN-only atomic ordering of existing ACTIVE equipment master records.
+ * Never updates voucher, stock, display name, stable ID or business quantities.
+ * The revisions are verified inside the transaction, so a concurrent editor
+ * cannot silently overwrite another account's metadata/ordering.
+ */
+export async function reorderEquipmentCatalog(
+  projectId: string,
+  current: Pick<EquipmentCatalogRecord, 'id' | 'revision'>[],
+  orderedIds: string[],
+): Promise<void> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    throw new Error('Sắp xếp thiết bị cần có mạng.');
+  }
+  if (!getCurrentRealFirebaseUser()) throw new Error('Vui lòng đăng nhập Firebase.');
+  if (!projectId) throw new Error('Chưa chọn dự án.');
+  if (current.length < 2 || current.length > 100) {
+    throw new Error('Chỉ sắp xếp đồng bộ tối đa 100 thiết bị trong một lần để bảo đảm ghi nguyên tử.');
+  }
+  const revisions = new Map(current.map(item => [item.id, item.revision] as const));
+  if (new Set(current.map(item => item.id)).size !== current.length
+    || new Set(orderedIds).size !== orderedIds.length
+    || orderedIds.length !== current.length
+    || orderedIds.some(id => !revisions.has(id))) {
+    throw new Error('Danh sách thiết bị thay đổi; vui lòng tải lại trước khi sắp xếp.');
+  }
+
+  await runTransaction(db, async tx => {
+    const refs = orderedIds.map(id => doc(db, 'projects', projectId, 'equipment_catalog', id));
+    const snaps = await Promise.all(refs.map(ref => tx.get(ref)));
+    snaps.forEach((snapshot, index) => {
+      if (!snapshot.exists()) throw new Error('Thiết bị không còn trên Cloud. Hãy tải lại.');
+      const record = snapshot.data() as EquipmentCatalogRecord;
+      if (record.deletedAt != null || record.revision !== revisions.get(orderedIds[index])) {
+        throw new Error('Danh mục thiết bị đã thay đổi trên máy khác. Hãy tải lại trước khi sắp xếp.');
+      }
+    });
+    const now = Date.now();
+    snaps.forEach((snapshot, index) => {
+      const record = snapshot.data() as EquipmentCatalogRecord;
+      const order = index + 1;
+      if (record.order === order) return;
+      tx.update(refs[index], {
+        order,
+        revision: record.revision + 1,
+        updatedAt: Math.max(now, record.updatedAt + 1),
+      });
     });
   }, { maxAttempts: 3 });
 }
