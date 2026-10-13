@@ -8211,6 +8211,7 @@ function AuthenticatedApp() {
               onRenameWarehouseUnit={handleRenameWarehouseUnit}
               onDeleteNorm={handleDeleteNorm}
               onDeleteMultipleNorms={handleDeleteMultipleNorms}
+              onReorderNorms={handleReorderMaterialNorms}
               onImportNorms={handleImportNorms}
               inventory={inventory}
               workVolumes={computedWorkVolumes}
