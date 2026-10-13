@@ -115,7 +115,32 @@ assert.ok(
   && shareModalSource.includes('tableLeft + (serialWidth - ctx.measureText(serialText).width) / 2'),
   'crew report STT body values must stay horizontally centered in exported images',
 );
+// Android APK regression: both entry points share the exact export component.
+// Canvas data: anchor downloads are unreliable in WebView, so route PNG through
+// the existing chunked native exporter and preserve browser/desktop fallback.
+const homeSource = readFileSync(new URL('../src/components/HomeDashboard.tsx', import.meta.url), 'utf8');
+const exportSource = readFileSync(new URL('../src/utils/fileExport.ts', import.meta.url), 'utf8');
+const androidSource = readFileSync(new URL('../android-wrapper/src/com/qlct/app/MainActivity.java', import.meta.url), 'utf8');
+assert.ok(homeSource.includes('<CrewReportShareModal'), 'Trang chủ must use the shared crew report modal');
+assert.ok(shareModalSource.includes('isAndroidExportBridgeAvailable()')
+  && shareModalSource.includes("await saveBlobToDownloads(new Blob([bytes], { type: 'image/png' }), fileName, 'image/png')")
+  && shareModalSource.includes('await downloadDataUrl(attachment.dataUrl, attachment.fileName)')
+  && shareModalSource.includes('let savedCount = 0;')
+  && shareModalSource.includes('Đã lưu ${savedCount} ảnh báo cáo vào Tải xuống/QLTC'),
+  'APK crew report Tải ảnh must save PNGs sequentially via native Download/QLTC and only show completion after save',
+);
+assert.ok(shareModalSource.includes("const link = document.createElement('a');")
+  && shareModalSource.includes('Đã yêu cầu trình duyệt tải 1 ảnh.'),
+  'Web/Windows crew image downloads must preserve their browser download fallback',
+);
+assert.ok(exportSource.includes('export async function saveBlobToDownloads')
+  && exportSource.includes('bridge.finishBase64File(sessionId)')
+  && androidSource.includes('saveFileToDownloads(export.fileName, export.mimeType, export.tempFile)'),
+  'APK crew reports must reuse the native chunked MediaStore writer rather than data: link taps',
+);
 const crewTabSource = readFileSync(new URL('../src/components/CrewTabBase.tsx', import.meta.url), 'utf8');
+assert.ok(crewTabSource.includes('<CrewReportShareModal'),
+  'Mục Quân số must use the shared crew report modal');
 assert.ok(
   crewTabSource.includes('className="hidden 2xl:grid 2xl:grid-cols-2 gap-2 border-b border-slate-200 bg-slate-50/70 p-3"'),
   'team detail duplicate overview must stay hidden on ordinary laptop/EXE widths',
