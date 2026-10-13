@@ -81,8 +81,15 @@ export async function saveEquipmentCatalogBatch(projectId: string, entries: Equi
   // Historical equipment had no independent catalog. Verify its canonical unit
   // from the server before creating metadata, including restorable deleted rows.
   // A client-only inventory cache can be stale or incomplete across devices.
-  const ledger = await getDocsFromServer(collection(db, 'projects', projectId, 'inventory'));
+  const [ledger, balanceSnapshot] = await Promise.all([
+    getDocsFromServer(collection(db, 'projects', projectId, 'inventory')),
+    getDocsFromServer(collection(db, 'projects', projectId, 'inventory_balances')),
+  ]);
   const historicalNames = new Set<string>();
+  balanceSnapshot.docs.forEach(row => {
+    const balance = row.data();
+    if (balance.itemKind === 'equipment') historicalNames.add(equipmentIdentityKey(String(balance.materialName || '')));
+  });
   for (const record of ledger.docs) {
     const voucher = record.data();
     if (voucher.itemKind !== 'equipment') continue;
@@ -143,9 +150,17 @@ export async function softDeleteEquipmentCatalogBatch(
 
   // Never remove an equipment identity that can still be referenced by an
   // inventory voucher, even a voucher presently in the trash.
-  const ledger = await getDocsFromServer(collection(db, 'projects', projectId, 'inventory'));
+  const [ledger, balances] = await Promise.all([
+    getDocsFromServer(collection(db, 'projects', projectId, 'inventory')),
+    getDocsFromServer(collection(db, 'projects', projectId, 'inventory_balances')),
+  ]);
   const occupied = new Set(ledger.docs.filter(row => row.data().itemKind === 'equipment')
     .map(row => equipmentIdentityKey(String(row.data().materialName || ''))));
+  // Even a stale/renamed balance tombstone is an identity dependency.
+  balances.docs.forEach(row => {
+    const balance = row.data();
+    if (balance.itemKind === 'equipment') occupied.add(equipmentIdentityKey(String(balance.materialName || '')));
+  });
   const referenced = targets.filter(item => occupied.has(equipmentIdentityKey(item.name)));
   if (referenced.length) {
     throw new Error('Không thể xóa thiết bị đã có lịch sử nhập/xuất (kể cả phiếu trong thùng rác): '
