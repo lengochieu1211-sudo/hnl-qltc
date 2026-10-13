@@ -561,9 +561,10 @@ service cloud.firestore {
           && request.resource.data.revision == 1
           && request.resource.data.createdAt is number
           && request.resource.data.updatedAt is number
+          && (!('order' in request.resource.data) || (request.resource.data.order is int && request.resource.data.order > 0))
           && request.resource.data.keys().hasOnly([
             'id','projectId','name','unit','category','brand','model',
-            'specifications','notes','revision','createdAt','updatedAt'
+            'specifications','notes','revision','createdAt','updatedAt','order'
           ]);
         allow update: if canAdminOperate(projectId)
           && request.resource.data.id == resource.data.id
@@ -573,6 +574,7 @@ service cloud.firestore {
           && request.resource.data.unit is string && request.resource.data.unit.size() > 0
           && request.resource.data.revision == resource.data.revision + 1
           && request.resource.data.updatedAt >= resource.data.updatedAt
+          && (!('order' in request.resource.data) || (request.resource.data.order is int && request.resource.data.order > 0))
           // Only ADMIN can soft-delete/restore; never hard-delete catalog identities.
           // A trashed row is immutable except for a lifecycle restore.
           && (!('deletedAt' in resource.data) || resource.data.deletedAt == null
@@ -587,7 +589,7 @@ service cloud.firestore {
             || request.resource.data.deletedByUid == request.auth.uid)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'unit','category','brand','model','specifications','notes','revision','updatedAt',
-            'deletedAt','deletedByUid'
+            'deletedAt','deletedByUid','order'
           ]);
         allow delete: if false;
       }
