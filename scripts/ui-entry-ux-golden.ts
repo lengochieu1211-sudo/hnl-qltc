@@ -453,6 +453,33 @@ assert(
   'Equipment manual order must persist to Firestore with revision checks without dropping ranking on edit',
 );
 
+// Regression: legacy Máy hàn voucher units cannot block metadata-only saves.
+assert(
+  equipmentCatalogLogic.includes('if (!existsOnServer && units && !units.has(next.unit))')
+  && equipmentCatalogLogic.includes('if ((normalizeUnit(existing.unit) || existing.unit) !== next.unit && historicalNames.has(')
+  && equipmentCatalogLogic.includes('tx.update(refs[index], {')
+  && equipmentCatalogLogic.includes('displayName = clean(entry.displayName || name, 180)')
+  && equipmentCatalogLogic.includes('const catalogSnapshot = await getDocsFromServer('),
+  'Existing equipment metadata must be editable regardless of mismatched old voucher units; new catalogs must preserve existing unit identity',
+);
+assert(
+  equipmentCatalogUi.includes('Tên thiết bị hiển thị')
+  && equipmentCatalogUi.includes('Tên định danh trên phiếu kho:')
+  && equipmentCatalogUi.includes("{ ...prev, displayName: event.target.value }")
+  && equipmentCatalogUi.includes('Chú ý: phiếu kho của thiết bị này đang có nhiều ĐVT')
+  && equipmentCatalogUi.includes('editingHasHistory && canManage && onRenameWarehouseUnit')
+  && warehouse.includes('displayName: master?.displayName || item.name')
+  && warehouse.includes('Tên hiển thị (sửa được)')
+  && warehouse.includes('item.displayName || item.name'),
+  'Display-name edits must be visible in management, stock catalog, picker and quick editor without changing voucher identity',
+);
+assert(
+  equipmentCatalogRules.includes("'name','displayName','unit'")
+  && equipmentCatalogRules.includes("'displayName','unit','category'")
+  && equipmentCatalogRules.includes('request.resource.data.name == resource.data.name'),
+  'ADMIN may edit display label while immutable warehouse name and RULES remain protected',
+);
+
 assert(!crewUiForPc.includes('value={logStructureGroupId}'), 'Crew add/edit form must keep the Khu/Khối selector hidden');
 assert(crewUiForPc.includes('hnl-crew-date-input') && crewUiForPc.includes('aria-label="Chọn ngày quân số"'), 'Crew date must remain directly clickable while hiding the redundant browser dropdown icon');
 const globalThemeCss = read('src/index.css');
