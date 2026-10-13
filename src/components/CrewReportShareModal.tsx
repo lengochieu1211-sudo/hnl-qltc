@@ -83,10 +83,15 @@ async function renderCrewReportImages(params: {
     const right = 30;
     const serialWidth = params.showSerialNumber ? 46 : 0;
     const dateWidth = 132;
-    const metricWidth = teams.length >= 8 ? 48 : teams.length >= 5 ? 54 : 62;
-    const teamWidth = metricWidth * 4;
     const totalWidth = 100;
     const detailWidth = params.showWorkDetails ? 300 : 0;
+    const baseMetricWidth = teams.length >= 8 ? 48 : teams.length >= 5 ? 54 : 62;
+    const minimumTableWidth = 800;
+    const fixedColumnsWidth = serialWidth + dateWidth + totalWidth + detailWidth;
+    // A short report should fill the image rather than leave a large blank right margin.
+    // Keep the normal minimum metric width for reports with many teams.
+    const metricWidth = Math.max(baseMetricWidth, Math.ceil((minimumTableWidth - fixedColumnsWidth) / (Math.max(1, teams.length) * 4)));
+    const teamWidth = metricWidth * 4;
     const tableWidth = serialWidth + dateWidth + Math.max(1, teams.length) * teamWidth + totalWidth + detailWidth;
     const width = Math.max(860, left + tableWidth + right);
     const headerHeight = matrix.projectLocation ? 180 : 154;
@@ -129,7 +134,7 @@ async function renderCrewReportImages(params: {
 
     const tableTop = headerHeight;
     const tableLeft = left;
-    ctx.fillStyle = '#f1f5f9';
+    ctx.fillStyle = '#eff6ff';
     ctx.fillRect(tableLeft, tableTop, tableWidth, totalHeaderHeight);
     ctx.strokeStyle = '#cbd5e1';
     ctx.lineWidth = 1;
@@ -462,11 +467,15 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
         title,
         text: `${title}\n${startDate === effectiveEndDate ? formatDateDDMMYYYY(startDate) : `${formatDateDDMMYYYY(startDate)} → ${formatDateDDMMYYYY(effectiveEndDate)}`}`,
         attachments,
-        allowTextFallback: true,
+        allowTextFallback: false,
       });
-      if (attachments.length > 6) setMessage(`Báo cáo có ${attachments.length} trang ảnh; hệ thống chia sẻ tối đa 6 ảnh/lần. Có thể dùng “Tải ảnh” để lấy đủ các trang.`);
-      else if (result.status === 'shared') setMessage('Đã mở bảng chia sẻ ảnh báo cáo.');
-      else if (result.status !== 'cancelled') setMessage('Thiết bị không hỗ trợ chia sẻ ảnh trực tiếp; có thể dùng “Tải ảnh”.');
+      if (result.status === 'shared') {
+        setMessage(attachments.length > 6
+          ? `Đã mở chia sẻ tối đa 6/${attachments.length} ảnh. Dùng “Tải ảnh” để lấy toàn bộ.`
+          : 'Đã mở bảng chia sẻ ảnh báo cáo.');
+      } else if (result.status !== 'cancelled') {
+        setMessage('Không thể chia sẻ ảnh trực tiếp trên thiết bị này. Hãy dùng “Tải ảnh”; không tự chuyển sang chia sẻ văn bản.');
+      }
     } finally {
       setBusy('');
     }
@@ -477,8 +486,16 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
     setMessage('');
     try {
       const attachments = await makeImages();
-      attachments.forEach((attachment, index) => window.setTimeout(() => downloadDataUrl(attachment.dataUrl, attachment.fileName), index * 120));
-      setMessage(`Đã tạo ${attachments.length} ảnh báo cáo.`);
+      if (attachments.length === 1) {
+        downloadDataUrl(attachments[0].dataUrl, attachments[0].fileName);
+        setMessage('Đã yêu cầu trình duyệt tải 1 ảnh. Kiểm tra thư mục Tải xuống trên thiết bị.');
+      } else if (attachments.length > 1) {
+        // Browsers may block multiple automatic downloads. Do not report them as saved.
+        attachments.forEach((attachment, index) => window.setTimeout(() => downloadDataUrl(attachment.dataUrl, attachment.fileName), index * 250));
+        setMessage(`Đã yêu cầu tải ${attachments.length} ảnh. Nếu trình duyệt chặn tải nhiều tệp, hãy cho phép tải nhiều tệp hoặc chọn khoảng ngày/dự án nhỏ hơn.`);
+      } else {
+        setMessage('Không tạo được ảnh báo cáo. Vui lòng kiểm tra dữ liệu và thử lại.');
+      }
     } finally {
       setBusy('');
     }

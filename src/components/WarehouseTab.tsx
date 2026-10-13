@@ -3440,14 +3440,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               )}
 
               {/* Buttons */}
-              <div className="sticky bottom-0 z-10 -mx-5 lg:-mx-6 -mb-5 lg:-mb-6 mt-1 grid grid-cols-1 sm:grid-cols-3 gap-2 border-t border-slate-100 bg-white px-5 lg:px-6 py-4 lg:col-span-6">
-                <button
-                  type="button"
-                  onClick={() => setShowAddForm(false)}
-                  className="py-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-slate-700"
-                >
-                  Hủy
-                </button>
+              <div className={`sticky bottom-0 z-10 -mx-5 lg:-mx-6 -mb-5 lg:-mb-6 mt-1 grid gap-2 border-t border-slate-100 bg-white px-5 lg:px-6 py-4 lg:col-span-6 ${editingInventory ? 'grid-cols-1' : 'grid-cols-2'}`}>
                 {!editingInventory && (
                   <button
                     type="submit"
