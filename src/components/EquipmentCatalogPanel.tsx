@@ -391,26 +391,88 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
       </div>
     </section>}
 
-    {status === 'ready' && !edit && <div className="max-h-[44vh] space-y-2 overflow-y-auto">
-      {items.length === 0 && <p className="rounded-xl border border-dashed border-slate-300 p-4 text-xs text-slate-500">
-        Chưa có thiết bị. ADMIN có thể thêm thiết bị trước khi nhập kho.
-      </p>}
-      {items.map(item => <div key={item.id || equipmentIdentityKey(item.name)}
-        className="flex items-start justify-between gap-2 rounded-xl border border-slate-200 bg-white p-3">
-        <div className="min-w-0">
-          <p className="break-words text-xs font-extrabold text-slate-900">{item.name} · {item.unit}</p>
-          <p className="text-[11px] text-slate-600">
-            {item.category || 'Thiết bị'}{item.brand ? ' · ' + item.brand : ''}{item.model ? ' · ' + item.model : ''}
-          </p>
-          {item.specifications && <p className="break-words text-[11px] text-slate-600">{item.specifications}</p>}
-          {!item.id && <p className="text-[10px] text-amber-700">Phiếu lịch sử: chưa có thông số thiết bị</p>}
+    {status === 'ready' && !edit && <div className="space-y-2">
+      {canManage && <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
+        <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-bold text-slate-700">
+          <input type="checkbox" disabled={busy || deletableVisibleItems.length === 0}
+            checked={deletableVisibleItems.length > 0 && deletableVisibleItems.every(item => selectedEquipmentIds.includes(item.id!))}
+            onChange={event => {
+              const visible = deletableVisibleItems.map(item => item.id!);
+              setSelectedEquipmentIds(previous => event.target.checked
+                ? Array.from(new Set([...previous, ...visible]))
+                : previous.filter(id => !visible.includes(id)));
+            }}
+            className="h-4 w-4 rounded border-slate-300 text-indigo-600" />
+          Chọn tất cả ({deletableVisibleItems.length})
+        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          {selectedVisibleItems.length > 0 && <button type="button" disabled={busy}
+            onClick={() => { void deleteCatalogItems(activeRecords.filter(record =>
+              selectedVisibleItems.some(item => item.id === record.id))); }}
+            className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-2 text-xs font-bold text-rose-700 disabled:opacity-40">
+            <Trash2 className="h-4 w-4" /> Xóa đã chọn ({selectedVisibleItems.length})
+          </button>}
+          {deletedRecords.length > 0 && <button type="button" disabled={busy}
+            onClick={() => setShowDeleted(previous => !previous)}
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-700">
+            <RotateCcw className="h-4 w-4" /> Thùng rác ({deletedRecords.length})
+          </button>}
         </div>
-        {canManage && <button type="button" onClick={() => startEdit(item)}
-          className="shrink-0 rounded-lg border border-indigo-200 p-2 text-indigo-700"
-          title="Chỉnh thông tin thiết bị" aria-label={'Chỉnh thiết bị ' + item.name}>
-          <Edit2 className="h-4 w-4" />
-        </button>}
-      </div>)}
+      </div>}
+      <div className="max-h-[44vh] space-y-2 overflow-y-auto">
+        {items.length === 0 && <p className="rounded-xl border border-dashed border-slate-300 p-4 text-xs text-slate-500">
+          Chưa có thiết bị. ADMIN có thể thêm thiết bị trước khi nhập kho.
+        </p>}
+        {items.map(item => {
+          const historyProtected = historicalNames.has(equipmentIdentityKey(item.name));
+          const deletable = Boolean(item.id) && !historyProtected;
+          const target = item.id ? activeRecords.find(record => record.id === item.id) : undefined;
+          return <div key={item.id || equipmentIdentityKey(item.name)}
+            className="flex items-start gap-2 rounded-xl border border-slate-200 bg-white p-3">
+            {canManage && <input type="checkbox"
+              aria-label={'Chọn thiết bị ' + item.name}
+              disabled={busy || !deletable}
+              title={!deletable ? 'Chỉ được xóa thiết bị đã lưu, không có phiếu kho' : 'Chọn để xóa'}
+              checked={Boolean(item.id && selectedEquipmentIds.includes(item.id))}
+              onChange={event => setSelectedEquipmentIds(previous =>
+                event.target.checked ? (previous.includes(item.id!) ? previous : [...previous, item.id!])
+                  : previous.filter(id => id !== item.id))}
+              className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600" />}
+            <div className="min-w-0 flex-1">
+              <p className="break-words text-xs font-extrabold text-slate-900">{item.name} · {item.unit}</p>
+              <p className="text-[11px] text-slate-600">
+                {item.category || 'Thiết bị'}{item.brand ? ' · ' + item.brand : ''}{item.model ? ' · ' + item.model : ''}
+              </p>
+              {item.specifications && <p className="break-words text-[11px] text-slate-600">{item.specifications}</p>}
+              {!item.id && <p className="text-[10px] text-amber-700">Phiếu lịch sử: chưa có thông số thiết bị</p>}
+            </div>
+            {canManage && <div className="flex shrink-0 items-start gap-1">
+              <button type="button" disabled={busy} onClick={() => startEdit(item)}
+                className="rounded-lg border border-indigo-200 p-2 text-indigo-700 disabled:opacity-40"
+                title="Sửa thông tin thiết bị" aria-label={'Sửa thiết bị ' + item.name}>
+                <Edit2 className="h-4 w-4" />
+              </button>
+              <button type="button" disabled={busy || !deletable || !target}
+                onClick={() => { if (target) void deleteCatalogItems([target]); }}
+                className="rounded-lg border border-rose-200 p-2 text-rose-700 disabled:opacity-30"
+                title={deletable ? 'Chuyển thiết bị vào thùng rác' : 'Không thể xóa thiết bị có lịch sử phiếu kho'}
+                aria-label={'Xóa thiết bị ' + item.name}>
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>}
+          </div>;
+        })}
+      </div>
+      {canManage && showDeleted && deletedRecords.length > 0 && <section className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+        <h3 className="text-xs font-extrabold text-amber-900">Thiết bị đã xóa (giữ mã gốc)</h3>
+        {deletedRecords.map(item => <div key={item.id} className="flex items-center justify-between gap-2 rounded-lg bg-white p-2">
+          <span className="min-w-0 break-words text-xs text-slate-700">{item.name} · {item.unit}</span>
+          <button type="button" disabled={busy} onClick={() => { void restoreCatalogItem(item); }}
+            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-amber-200 px-2 py-1.5 text-xs font-bold text-amber-800 disabled:opacity-40">
+            <RotateCcw className="h-3.5 w-3.5" /> Khôi phục
+          </button>
+        </div>)}
+      </section>}
     </div>}
   </div>;
 };
