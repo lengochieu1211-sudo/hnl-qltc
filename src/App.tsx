@@ -5830,6 +5830,25 @@ function AuthenticatedApp() {
     updateAppData((prev) => ({ ...prev, materialNorms: prev.materialNorms.filter((norm) => !deleteSet.has(norm.id)) }));
   };
 
+  const handleReorderMaterialNorms = (orderedActiveIds: string[]) => {
+    if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) return;
+    if (orderedActiveIds.length < 2 || new Set(orderedActiveIds).size !== orderedActiveIds.length) return;
+    updateAppData((prev) => {
+      const active = prev.materialNorms.filter(item => item.deletedAt == null);
+      if (active.length !== orderedActiveIds.length
+        || active.some(item => !orderedActiveIds.includes(item.id))) return prev;
+      const ranks = new Map(orderedActiveIds.map((id, index) => [id, index + 1]));
+      let changed = false;
+      const materialNorms = prev.materialNorms.map(item => {
+        const nextOrder = ranks.get(item.id);
+        if (nextOrder === undefined || item.order === nextOrder) return item;
+        changed = true;
+        return { ...item, order: nextOrder };
+      });
+      return changed ? { ...prev, materialNorms } : prev;
+    });
+  };
+
   const handleImportNorms = (importedNorms: MaterialNorm[]) => {
     if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được nhập định mức vật tư.'); return; }
 
