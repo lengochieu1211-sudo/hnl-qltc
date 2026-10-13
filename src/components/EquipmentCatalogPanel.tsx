@@ -64,7 +64,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
     }, (err) => {
       setStatus('error');
       setError(err.message);
-    });
+    }, { includeDeleted: true });
   }, [projectId]);
 
   const activeRecords = useMemo(() => records.filter(item => item.deletedAt == null), [records]);
