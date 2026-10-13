@@ -185,6 +185,46 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
     }
   };
 
+  const deleteCatalogItems = async (targets: EquipmentCatalogRecord[]) => {
+    if (!canManage || busy || status !== 'ready' || !targets.length) return;
+    const approved = await confirmAsync(
+      'Chuyển ' + targets.length + ' thiết bị vào thùng rác?\n'
+      + 'Chỉ xóa thiết bị chưa có lịch sử nhập/xuất (kể cả phiếu đã xóa). '
+      + 'Dữ liệu và mã gốc được giữ để khôi phục.',
+    );
+    if (!approved) return;
+    setBusy(true);
+    setNotice('');
+    try {
+      await softDeleteEquipmentCatalogBatch(projectId, targets.map(item => ({
+        id: item.id, name: item.name, revision: item.revision,
+      })));
+      setSelectedEquipmentIds([]);
+      setNotice('Đã chuyển ' + targets.length + ' thiết bị vào thùng rác; có thể khôi phục bằng mã gốc.');
+    } catch (err) {
+      setNotice('Chưa xóa thiết bị: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const restoreCatalogItem = async (item: EquipmentCatalogRecord) => {
+    if (!canManage || busy || status !== 'ready') return;
+    if (!(await confirmAsync('Khôi phục thiết bị “' + item.name + '” bằng mã đã lưu?'))) return;
+    setBusy(true);
+    setNotice('');
+    try {
+      await restoreEquipmentCatalog(projectId, {
+        id: item.id, name: item.name, unit: item.unit, revision: item.revision,
+      });
+      setNotice('Đã khôi phục thiết bị “' + item.name + '”.');
+    } catch (err) {
+      setNotice('Chưa khôi phục thiết bị: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const rename = async () => {
     if (!edit || !edit.name || !canManage || busy || !onRenameWarehouseUnit) return;
     const currentUnit = normalizeUnit(edit.unit) || edit.unit;
