@@ -54,3 +54,34 @@ export function reorderVisibleWorkVolumes<T extends { id: string; order?: number
     return next.order === index + 1 ? next : { ...next, order: index + 1 };
   });
 }
+
+
+/**
+ * Reorder only the visible subset of a currently ordered catalog. The hidden
+ * items keep exactly their original slots. This is presentation metadata only:
+ * callers persist ranks, never remap IDs or mutate inventory/norm quantities.
+ */
+export function reorderVisibleCatalogItems<T extends { id: string }>(
+  orderedCatalog: readonly T[],
+  visibleOrderedIds: readonly string[],
+): T[] | null {
+  const allIds = orderedCatalog.map(item => item.id);
+  if (visibleOrderedIds.length < 2 || new Set(allIds).size !== allIds.length
+    || new Set(visibleOrderedIds).size !== visibleOrderedIds.length) return null;
+  const visible = new Set(visibleOrderedIds);
+  const present = allIds.filter(id => visible.has(id));
+  if (present.length !== visibleOrderedIds.length) return null;
+  if (present.every((id, index) => id === visibleOrderedIds[index])) return null;
+  const byId = new Map(orderedCatalog.map(item => [item.id, item] as const));
+  if (visibleOrderedIds.some(id => !byId.has(id))) return null;
+  let offset = 0;
+  return orderedCatalog.map(item => visible.has(item.id)
+    ? byId.get(visibleOrderedIds[offset++])!
+    : item);
+}
+
+/** Saved Cloud ranks are positive safe integers; legacy rows remain unranked. */
+export function catalogOrderRank(value?: number): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+    ? value : Number.MAX_SAFE_INTEGER;
+}
