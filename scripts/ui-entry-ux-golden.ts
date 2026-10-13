@@ -375,7 +375,7 @@ assert(
 assert(
   equipmentCatalogUi.includes('Chọn tất cả (')
   && equipmentCatalogUi.includes('Xóa đã chọn (')
-  && equipmentCatalogUi.includes('aria-label={\\'Xóa thiết bị \\' + item.name}')
+   && equipmentCatalogUi.includes("aria-label={'Xóa thiết bị ' + item.name}")
   && equipmentCatalogUi.includes('restoreCatalogItem(item)')
   && equipmentCatalogUi.includes('disabled={busy || !deletable || !target}'),
   'Equipment catalog must offer safe single/bulk delete and restore while disabling legacy/history deletions',
