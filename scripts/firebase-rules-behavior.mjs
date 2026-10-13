@@ -150,6 +150,40 @@ try {
     revision: 1, createdAt: Date.now(), updatedAt: Date.now(), deleted: false, deletedAt: null,
   }));
 
+  // Equipment catalog: ADMIN-only metadata, reversible soft delete, never hard delete.
+  const equipmentRef = doc(db, 'projects', pid, 'equipment_catalog', 'EQ-RULE-TEST-1');
+  const equipmentFixture = {
+    id: 'EQ-RULE-TEST-1', projectId: pid, name: 'Máy cắt kiểm thử', unit: 'Cái',
+    category: 'Thiết bị', brand: '', model: '', specifications: '', notes: '',
+    revision: 1, createdAt: Date.now(), updatedAt: Date.now(),
+  };
+  await expectAllowed('ADMIN creates equipment master', () => setDoc(equipmentRef, equipmentFixture));
+  await expectAllowed('ADMIN changes equipment metadata unit with revision', () => updateDoc(equipmentRef, {
+    unit: 'Bộ', revision: 2, updatedAt: Date.now() + 10,
+  }));
+  await expectAllowed('ADMIN soft-deletes equipment identity', () => updateDoc(equipmentRef, {
+    deletedAt: Date.now(), deletedByUid: ownerUid, revision: 3, updatedAt: Date.now() + 20,
+  }));
+  await expectDenied('ADMIN cannot edit trashed equipment metadata', () => updateDoc(equipmentRef, {
+    category: 'Đổi trái phép', revision: 4, updatedAt: Date.now() + 30,
+  }));
+  await expectDenied('ADMIN cannot hard-delete equipment master', () => deleteDoc(equipmentRef));
+  await expectAllowed('ADMIN restores equipment by original identity', () => updateDoc(equipmentRef, {
+    deletedAt: null, deletedByUid: null, revision: 4, updatedAt: Date.now() + 40,
+  }));
+  await expectDenied('ADMIN cannot mark deletedAt as unsafe string', () => updateDoc(equipmentRef, {
+    deletedAt: 'unsafe', deletedByUid: ownerUid, revision: 5, updatedAt: Date.now() + 50,
+  }));
+  await expectAllowed('ADMIN assigns equipment manual order without changing inventory', () => updateDoc(equipmentRef, {
+    order: 2, revision: 5, updatedAt: Date.now() + 60,
+  }));
+  await expectDenied('ADMIN cannot assign invalid negative manual order', () => updateDoc(equipmentRef, {
+    order: -1, revision: 6, updatedAt: Date.now() + 70,
+  }));
+  await expectDenied('ADMIN cannot assign fractional manual order', () => updateDoc(equipmentRef, {
+    order: 1.5, revision: 6, updatedAt: Date.now() + 80,
+  }));
+
   await signIn(editorEmail);
   const editorUid = auth.currentUser.uid;
 
@@ -168,6 +202,14 @@ try {
   }));
   await signIn(editorEmail);
 
+  await expectAllowed('EDITOR may read equipment master', () => getDoc(equipmentRef));
+  await expectDenied('EDITOR cannot soft-delete equipment master', () => updateDoc(equipmentRef, {
+    deletedAt: Date.now(), deletedByUid: editorUid, revision: 5, updatedAt: Date.now() + 60,
+  }));
+  await expectDenied('EDITOR cannot reorder equipment master', () => updateDoc(equipmentRef, {
+    order: 1, revision: 6, updatedAt: Date.now() + 90,
+  }));
+  await expectDenied('EDITOR cannot hard-delete equipment master', () => deleteDoc(equipmentRef));
   await expectAllowed('EDITOR reads work-volume master definition', () => getDoc(workVolumeRef));
   await expectDenied('EDITOR cannot read isolated work-volume financial record', () => getDoc(workVolumeFinancialRef));
   await expectDenied('EDITOR cannot create work-volume master definition', () => setDoc(doc(db, 'projects', pid, 'work_volumes', 'WV-RULE-EDITOR'), {
@@ -421,6 +463,10 @@ try {
   }));
 
   await signIn(viewerEmail);
+  await expectAllowed('VIEWER may read equipment master', () => getDoc(equipmentRef));
+  await expectDenied('VIEWER cannot restore or delete equipment master', () => updateDoc(equipmentRef, {
+    deletedAt: Date.now(), deletedByUid: viewerUid, revision: 5, updatedAt: Date.now() + 70,
+  }));
   await expectAllowed('VIEWER reads project/core record', () => getDoc(recordRef));
   await expectDenied('VIEWER cannot read isolated work-volume financial record', () => getDoc(workVolumeFinancialRef));
   await expectAllowed('VIEWER reads shared settings', () => getDoc(sharedSettingsRef));

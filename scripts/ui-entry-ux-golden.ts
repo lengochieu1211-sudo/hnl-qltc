@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { buildCrewReportMatrices, buildCrewReportRows, buildCrewReportText } from '../src/utils/crewReportUtils';
+import { catalogOrderRank, reorderVisibleCatalogItems } from '../src/utils/catalogDisplayOrder';
 
 // HNL theme regression: reachable AI/project gradients must stay readable in dark mode.
 const hnlThemeCss = fs.readFileSync('src/index.css', 'utf8');
@@ -351,6 +352,107 @@ assert(warehouse.includes('Thêm thiết bị mới') && warehouse.includes('Ch�
 assert(warehouse.includes("itemKind === 'material' && (") && warehouse.includes('Tên vật tư khác'), 'Custom Tên vật tư khác input must stay material-only');
 assert(warehouse.includes("itemKind === 'material' && issuePurpose === 'project-work' && finalIssueWorkCategoryId"), 'Equipment must never persist material work-category linkage');
 assert(warehouse.includes('Thiết bị được dùng lại ở các phiếu nhập/xuất nhưng không tham gia Định mức vật tư hoặc Gợi ý vật tư.'), 'Warehouse catalog must state the equipment/material-norm separation');
+
+const equipmentCatalogUi = read('src/components/EquipmentCatalogPanel.tsx');
+const equipmentCatalogLogic = read('src/lib/equipmentCatalog.ts');
+const equipmentCatalogRules = read('firestore.rules');
+const equipmentTemplatePicker = read('src/components/CatalogTemplatePickerModal.tsx');
+assert(
+  equipmentCatalogUi.includes('<AddSourceMenu')
+  && equipmentCatalogUi.includes('kind="equipment"')
+  && equipmentCatalogUi.includes('await saveEquipmentCatalogBatch(projectId, unique)')
+  && equipmentTemplatePicker.includes("kind === 'equipment'")
+  && equipmentTemplatePicker.includes("'equipment_catalog'"),
+  'Equipment must support safe Create New or Import from another project/template using canonical Firestore catalog',
+);
+assert(
+  equipmentCatalogUi.includes('<QuickSortBar')
+  && equipmentCatalogUi.includes('itemCount={items.length}')
+  && equipmentCatalogUi.includes("key: 'category', label: 'Nhóm thiết bị'")
+  && equipmentCatalogUi.includes("key: 'unit', label: 'ĐVT'"),
+  'Equipment quick-sort must follow common 6+ item rule and sort by name, group, unit and brand',
+);
+assert(
+  warehouse.includes('data-hnl-catalog-settings-link="true"')
+  && warehouse.includes('onOpenNormModal(warehouseCatalogTab)')
+  && warehouse.includes("'Thiết lập thiết bị' : 'Thiết lập vật tư'"),
+  'Warehouse catalog setup button must open the correct Vật tư / Thiết bị tab',
+);
+assert(
+  equipmentCatalogUi.includes('editingExisting ?')
+  && equipmentCatalogUi.includes("editingExisting ? 'Lưu thay đổi' : 'Lưu'")
+  && equipmentCatalogUi.includes('{!editingExisting && <button'),
+  'Equipment edit mode, including legacy voucher-backed rows, must not expose Save & add another',
+);
+assert(
+  equipmentCatalogUi.includes('disabled={busy || (editingExisting && editingHasHistory)}')
+  && equipmentCatalogUi.includes("editingExisting && editingHasHistory && canManage && onRenameWarehouseUnit"),
+  'Equipment unit must allow safe edits without history and use atomic 1:1 migration with history',
+);
+assert(
+  equipmentCatalogUi.includes('Chọn tất cả (')
+  && equipmentCatalogUi.includes('Xóa đã chọn (')
+   && equipmentCatalogUi.includes("aria-label={'Xóa thiết bị ' + item.name}")
+  && equipmentCatalogUi.includes('restoreCatalogItem(item)')
+  && equipmentCatalogUi.includes('disabled={busy || !deletable || !target}'),
+  'Equipment catalog must offer safe single/bulk delete and restore while disabling legacy/history deletions',
+);
+assert(
+  equipmentCatalogLogic.includes("getDocsFromServer(collection(db, 'projects', projectId, 'inventory_balances'))")
+  && equipmentCatalogLogic.includes('softDeleteEquipmentCatalogBatch')
+  && equipmentCatalogLogic.includes('restoreEquipmentCatalog')
+  && equipmentCatalogLogic.includes('(options.includeDeleted || item.deletedAt == null)'),
+  'Equipment soft delete must preflight ledger and balances, while warehouse listeners exclude deleted metadata',
+);
+assert(
+  equipmentCatalogRules.includes("match /equipment_catalog/{equipmentId}")
+  && equipmentCatalogRules.includes("'deletedAt','deletedByUid'")
+  && equipmentCatalogRules.includes('allow delete: if false;'),
+  'Equipment catalog requires ADMIN-only lifecycle updates and hard-delete denial',
+);
+
+
+// Manual catalog order: authoritative IDs remain stable, hidden rows keep slots.
+const manualOrderFixture = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }];
+const manualOrderMoved = reorderVisibleCatalogItems(manualOrderFixture, ['d', 'b']);
+assert(
+  manualOrderMoved?.map(item => item.id).join(',') === 'a,d,c,b',
+  'Filtered manual sort must preserve hidden catalog slots and exact IDs',
+);
+assert(reorderVisibleCatalogItems(manualOrderFixture, ['b', 'b']) === null,
+  'Manual sort must reject duplicated selections');
+assert(reorderVisibleCatalogItems(manualOrderFixture, ['b', 'missing']) === null,
+  'Manual sort must fail closed for stale/missing IDs');
+assert(reorderVisibleCatalogItems(manualOrderFixture, ['b', 'd']) === null,
+  'Manual sort must reject unchanged order');
+assert(catalogOrderRank(undefined) === Number.MAX_SAFE_INTEGER && catalogOrderRank(2) === 2,
+  'Legacy unranked items must retain stable fallback ordering');
+
+const manualMaterialUi = read('src/components/MaterialNormModal.tsx');
+const manualApp = read('src/App.tsx');
+const manualCatalogType = read('src/types.ts');
+assert(
+  manualMaterialUi.includes('reorderVisibleCatalogItems(fullManualNormOrder, visibleIds)')
+  && manualMaterialUi.includes('onReorderNorms?.(result.map(item => item.id))')
+  && manualMaterialUi.includes('<MoveOrderControls')
+  && manualMaterialUi.includes('onDragStart={() => setDraggedNormId(norm.id)}')
+  && manualApp.includes('onReorderNorms={handleReorderMaterialNorms}')
+  && manualApp.includes('const handleReorderMaterialNorms')
+  && manualCatalogType.includes('order?: number;'),
+  'Material manual order must be ID-safe, ADMIN-only, Cloud-synchronized, keyboard/touch accessible',
+);
+assert(
+  equipmentCatalogUi.includes('reorderVisibleCatalogItems(orderedSavedRecords, ids)')
+  && equipmentCatalogUi.includes('await reorderEquipmentCatalog(projectId,')
+  && equipmentCatalogUi.includes('<MoveOrderControls')
+  && equipmentCatalogUi.includes('draggable={canReorderEquipment && Boolean(item.id)}')
+  && equipmentCatalogLogic.includes('export async function reorderEquipmentCatalog')
+  && equipmentCatalogLogic.includes('record.revision !== revisions.get(orderedIds[index])')
+  && equipmentCatalogLogic.includes("existing && typeof existing.order === 'number'")
+  && equipmentCatalogRules.includes("'deletedAt','deletedByUid','order'"),
+  'Equipment manual order must persist to Firestore with revision checks without dropping ranking on edit',
+);
+
 assert(!crewUiForPc.includes('value={logStructureGroupId}'), 'Crew add/edit form must keep the Khu/Khối selector hidden');
 assert(crewUiForPc.includes('hnl-crew-date-input') && crewUiForPc.includes('aria-label="Chọn ngày quân số"'), 'Crew date must remain directly clickable while hiding the redundant browser dropdown icon');
 const globalThemeCss = read('src/index.css');
