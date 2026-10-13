@@ -42,12 +42,13 @@ export function subscribeEquipmentCatalog(
   projectId: string,
   onData: (items: EquipmentCatalogRecord[]) => void,
   onError: (error: Error) => void,
+  options: { includeDeleted?: boolean } = {},
 ): Unsubscribe {
   if (!projectId) { onData([]); return () => {}; }
   return onSnapshot(collection(db, 'projects', projectId, 'equipment_catalog'), (snapshot) => {
     const entries = snapshot.docs.map((snapshotDoc) =>
       ({ ...snapshotDoc.data(), id: snapshotDoc.id }) as EquipmentCatalogRecord
-    ).filter(item => Boolean(item.name && item.unit));
+    ).filter(item => Boolean(item.name && item.unit) && (options.includeDeleted || item.deletedAt == null));
     onData(entries.sort((a, b) => a.name.localeCompare(b.name, 'vi', { numeric: true })));
   }, (error) => onError(error));
 }
