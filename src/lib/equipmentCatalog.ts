@@ -8,6 +8,8 @@ export interface EquipmentCatalogRecord {
   id: string;
   projectId: string;
   name: string;
+  /** Editable user-facing label; immutable name remains the warehouse identity. */
+  displayName?: string;
   unit: string;
   category: string;
   brand: string;
@@ -25,7 +27,7 @@ export interface EquipmentCatalogRecord {
 }
 
 export type EquipmentCatalogInput = Pick<EquipmentCatalogRecord,
-  'name' | 'unit' | 'category' | 'brand' | 'model' | 'specifications' | 'notes'>
+  'name' | 'unit' | 'category' | 'brand' | 'model' | 'specifications' | 'notes' | 'displayName'>
   & { id?: string; revision?: number };
 
 const clean = (v: unknown, max = 500) => String(v ?? '').trim().slice(0, max);
@@ -67,10 +69,12 @@ export async function saveEquipmentCatalogBatch(projectId: string, entries: Equi
     const name = clean(entry.name, 180);
     const unit = normalizeUnit(clean(entry.unit, 60)) || clean(entry.unit, 60);
     if (!name || !unit) throw new Error('Tên và ĐVT thiết bị không được trống.');
+    const displayName = clean(entry.displayName || name, 180);
+    if (!displayName) throw new Error('Tên hiển thị thiết bị không được để trống.');
     const id = equipmentCatalogId(name);
     if (entry.id && entry.id !== id) throw new Error('Không được sửa mã hoặc tên thiết bị cũ qua bảng. Tạo thiết bị mới nếu là mặt hàng khác.');
     return {
-      id, projectId, name, unit,
+      id, projectId, name, displayName, unit,
       category: clean(entry.category, 120) || 'Thiết bị',
       brand: clean(entry.brand, 120),
       model: clean(entry.model, 120),
@@ -88,18 +92,66 @@ export async function saveEquipmentCatalogBatch(projectId: string, entries: Equi
     getDocsFromServer(collection(db, 'projects', projectId, 'inventory_balances')),
   ]);
   const historicalNames = new Set<string>();
+  const historicalUnits = new Map<string, Set<string>>();
+  const trackUnit = (name: string, unit: string) => {
+    const key = equipmentIdentityKey(name);
+    if (!key) return;
+    historicalNames.add(key);
+    const set = historicalUnits.get(key) || new Set<string>();
+    set.add(normalizeUnit(unit) || unit);
+    historicalUnits.set(key, set);
+  };
   balanceSnapshot.docs.forEach(row => {
     const balance = row.data();
-    if (balance.itemKind === 'equipment') historicalNames.add(equipmentIdentityKey(String(balance.materialName || '')));
+    if (balance.itemKind === 'equipment') trackUnit(String(balance.materialName || ''), String(balance.unit || ''));
   });
   for (const record of ledger.docs) {
     const voucher = record.data();
     if (voucher.itemKind !== 'equipment') continue;
-    historicalNames.add(equipmentIdentityKey(String(voucher.materialName || '')));
-    const existing = payload.find(p => equipmentIdentityKey(p.name) === equipmentIdentityKey(String(voucher.materialName || '')));
-    if (existing && (normalizeUnit(String(voucher.unit || '')) || String(voucher.unit || '')) !== existing.unit) {
-      throw new Error(`Thiết bị “${existing.name}” có lịch sử phiếu với ĐVT khác trên Cloud. Phải đối chiếu kho, không thể tạo danh mục trùng tên.`);
+    trackUnit(String(voucher.materialName || ''), String(voucher.unit || ''));
+  }
+  // Preflight display-label duplicates with server-authoritative catalog data.
+  // Names used by vouchers remain immutable, so a changed displayName can never
+  // silently merge or redirect an inventory identity.
+  const catalogSnapshot = await getDocsFromServer(collection(db, 'projects', projectId, 'equipment_catalog'));
+  const usedLabels = new Map<string, string>();
+  catalogSnapshot.docs.forEach(row => {
+    const value = row.data() as EquipmentCatalogRecord;
+    if (value.deletedAt != null) return;
+    for (const label of [value.name, value.displayName || value.name]) {
+      const key = equipmentIdentityKey(label);
+      if (!usedLabels.has(key)) usedLabels.set(key, row.id);
     }
+  });
+  const stagedLabels = new Map<string, string>();
+  for (const next of payload) {
+    for (const label of [next.name, next.displayName]) {
+      const labelKey = equipmentIdentityKey(label);
+      const otherDraft = stagedLabels.get(labelKey);
+      if (otherDraft && otherDraft !== next.id) throw new Error(`Tên thiết bị “${label}” trùng với thiết bị khác trong lần lưu này.`);
+      stagedLabels.set(labelKey, next.id);
+      if (historicalNames.has(labelKey) && labelKey !== equipmentIdentityKey(next.name)) {
+        throw new Error(`Tên hiển thị “${label}” trùng với tên thiết bị trên phiếu kho khác. Hãy chọn tên khác.`);
+      }
+      const holder = usedLabels.get(equipmentIdentityKey(label));
+      if (holder && holder !== next.id) {
+        throw new Error(`Tên thiết bị “${label}” đã được sử dụng. Hãy chọn tên khác để tránh nhầm phiếu kho.`);
+      }
+    }
+  }
+  for (const next of payload) {
+    const key = equipmentIdentityKey(next.name);
+    const units = historicalUnits.get(key);
+    // Existing catalog record may have old inconsistent vouchers: editing its
+    // notes/brand/displayName MUST NOT be blocked by that unrelated mismatch.
+    const existsOnServer = catalogSnapshot.docs.some(row => row.id === next.id && row.data().deletedAt == null);
+    if (!existsOnServer && units && !units.has(next.unit)) {
+      throw new Error(`Thiết bị “${next.name}” có lịch sử kho với ĐVT ${[...units].join(', ')}. Hãy chọn đúng một ĐVT đang có trên phiếu trước khi bổ sung thông tin, không tự quy đổi số lượng.`);
+    }
+    // Old vouchers may legitimately contain multiple different unit keys for
+    // one legacy equipment name. Recording metadata against one EXISTING unit
+    // does not merge those warehouse keys or rewrite historical quantities.
+    // Subsequent unit migration remains forbidden until the ledger is audited.
   }
   await runTransaction(db, async tx => {
     const refs = payload.map(p => doc(db, 'projects', projectId, 'equipment_catalog', p.id));
@@ -124,13 +176,23 @@ export async function saveEquipmentCatalogBatch(projectId: string, entries: Equi
         throw new Error('Thiết bị không còn trong danh mục Cloud. Hãy tải lại.');
       }
       const { expectedRevision: _ignored, ...data } = next;
-      tx.set(refs[index], {
-        ...data,
-        ...(existing && typeof existing.order === 'number' ? { order: existing.order } : {}),
-        revision: existing ? existing.revision + 1 : 1,
-        createdAt: existing?.createdAt || timestamp,
-        updatedAt: timestamp,
-      });
+      if (existing) {
+        // Update just metadata fields. Never drop soft-delete / order / immutable
+        // identity fields of a previously created catalog row.
+        const { id: _id, projectId: _pid, name: _name, ...metadata } = data;
+        tx.update(refs[index], {
+          ...metadata,
+          revision: existing.revision + 1,
+          updatedAt: Math.max(timestamp, existing.updatedAt + 1),
+        });
+      } else {
+        tx.set(refs[index], {
+          ...data,
+          revision: 1,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        });
+      }
     });
   }, { maxAttempts: 3 });
 }
