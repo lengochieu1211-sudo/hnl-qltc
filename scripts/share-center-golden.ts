@@ -49,4 +49,21 @@ mustContain(android, 'public boolean shareFiles(String title, String text, Strin
 mustContain(android, 'Intent.ACTION_SEND_MULTIPLE', 'Android multi-image share');
 mustContain(android, 'Intent.FLAG_GRANT_READ_URI_PERMISSION', 'Android temporary attachment permission');
 
+const crewReportModal = read('src/components/CrewReportShareModal.tsx');
+const homeDashboard = read('src/components/HomeDashboard.tsx');
+const crewTabBase = read('src/components/CrewTabBase.tsx');
+const fileExport = read('src/utils/fileExport.ts');
+// Both "Trang chủ" and "Quân số" must invoke this same modal (one fixed path).
+mustContain(homeDashboard, '<CrewReportShareModal', 'Home crew report export entry');
+mustContain(crewTabBase, '<CrewReportShareModal', 'Crew tab crew report export entry');
+mustContain(crewReportModal, 'isAndroidExportBridgeAvailable()', 'APK download path detects the native export bridge');
+mustContain(crewReportModal, "await saveBlobToDownloads(new Blob([bytes], { type: 'image/png' }), fileName, 'image/png')", 'APK report PNG uses native Downloads saving');
+mustContain(crewReportModal, 'await downloadDataUrl(attachment.dataUrl, attachment.fileName)', 'APK report files save sequentially');
+mustContain(crewReportModal, 'Đã lưu ${savedCount} ảnh báo cáo vào Tải xuống/QLTC', 'APK success only after native write completes');
+mustContain(crewReportModal, 'Không tải được ảnh báo cáo:', 'APK export failure must be shown to the user');
+mustContain(fileExport, 'bridge.finishBase64File(sessionId)', 'Android download export finishes the chunked native file');
+mustContain(android, 'saveFileToDownloads(export.fileName, export.mimeType, export.tempFile)', 'Android native layer commits export to MediaStore');
+mustContain(android, 'Environment.DIRECTORY_DOWNLOADS + "/QLTC"', 'APK download target is Download/QLTC');
+
+
 console.log('HNL QLTC share center golden: PASS');
