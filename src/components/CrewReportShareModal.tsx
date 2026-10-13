@@ -83,10 +83,15 @@ async function renderCrewReportImages(params: {
     const right = 30;
     const serialWidth = params.showSerialNumber ? 46 : 0;
     const dateWidth = 132;
-    const metricWidth = teams.length >= 8 ? 48 : teams.length >= 5 ? 54 : 62;
-    const teamWidth = metricWidth * 4;
     const totalWidth = 100;
     const detailWidth = params.showWorkDetails ? 300 : 0;
+    const baseMetricWidth = teams.length >= 8 ? 48 : teams.length >= 5 ? 54 : 62;
+    const minimumTableWidth = 800;
+    const fixedColumnsWidth = serialWidth + dateWidth + totalWidth + detailWidth;
+    // A short report should fill the image rather than leave a large blank right margin.
+    // Keep the normal minimum metric width for reports with many teams.
+    const metricWidth = Math.max(baseMetricWidth, Math.ceil((minimumTableWidth - fixedColumnsWidth) / (Math.max(1, teams.length) * 4)));
+    const teamWidth = metricWidth * 4;
     const tableWidth = serialWidth + dateWidth + Math.max(1, teams.length) * teamWidth + totalWidth + detailWidth;
     const width = Math.max(860, left + tableWidth + right);
     const headerHeight = matrix.projectLocation ? 180 : 154;
@@ -129,7 +134,7 @@ async function renderCrewReportImages(params: {
 
     const tableTop = headerHeight;
     const tableLeft = left;
-    ctx.fillStyle = '#f1f5f9';
+    ctx.fillStyle = '#eff6ff';
     ctx.fillRect(tableLeft, tableTop, tableWidth, totalHeaderHeight);
     ctx.strokeStyle = '#cbd5e1';
     ctx.lineWidth = 1;
@@ -142,7 +147,9 @@ async function renderCrewReportImages(params: {
     }
     const dateX = tableLeft + serialWidth;
     ctx.strokeRect(dateX, tableTop, dateWidth, totalHeaderHeight);
-    ctx.fillText('Ngày', dateX + 10, tableTop + Math.round(totalHeaderHeight / 2) + 5);
+    const dateHeaderText = 'Ngày';
+    const dateHeaderWidth = ctx.measureText(dateHeaderText).width;
+    ctx.fillText(dateHeaderText, dateX + (dateWidth - dateHeaderWidth) / 2, tableTop + Math.round(totalHeaderHeight / 2) + 5);
     const teamStartX = dateX + dateWidth;
 
     let teamOffset = 0;
@@ -210,12 +217,14 @@ async function renderCrewReportImages(params: {
         ctx.strokeRect(tableLeft, y, serialWidth, rowHeight);
         ctx.font = '600 13px Arial, sans-serif';
         ctx.fillStyle = '#475569';
-        ctx.fillText(String(rowIndex + 1), tableLeft + 18, y + 28);
+        const serialText = String(rowIndex + 1);
+        ctx.fillText(serialText, tableLeft + (serialWidth - ctx.measureText(serialText).width) / 2, y + 28);
       }
       ctx.strokeRect(dateX, y, dateWidth, rowHeight);
       ctx.font = '600 14px Arial, sans-serif';
       ctx.fillStyle = '#334155';
-      ctx.fillText(formatDateDDMMYYYY(dateRow.date), dateX + 10, y + 28);
+      const dateText = formatDateDDMMYYYY(dateRow.date);
+      ctx.fillText(dateText, dateX + (dateWidth - ctx.measureText(dateText).width) / 2, y + 28);
 
       teams.forEach((team, teamIndex) => {
         const row = dateRow.cells[team.teamKey];
@@ -264,7 +273,8 @@ async function renderCrewReportImages(params: {
     ctx.strokeRect(dateX, totalRowY, dateWidth, rowHeight);
     ctx.fillStyle = '#1e3a8a';
     ctx.font = '700 14px Arial, sans-serif';
-    ctx.fillText('TỔNG', dateX + 10, totalRowY + 28);
+    const totalLabel = 'TỔNG';
+    ctx.fillText(totalLabel, dateX + (dateWidth - ctx.measureText(totalLabel).width) / 2, totalRowY + 28);
     teams.forEach((team, teamIndex) => {
       const total = matrix.teamTotals[team.teamKey] || { morning: 0, afternoon: 0, evening: 0, dailyHeadcount: 0 };
       [total.morning, total.afternoon, total.evening, total.dailyHeadcount].forEach((value, metricIndex) => {
@@ -514,11 +524,11 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
                   {matrix.projectLocation && <div className="mt-0.5 text-[10px] font-semibold text-slate-500">Địa điểm: {matrix.projectLocation}</div>}
                 </div>
                 <div className="relative isolate max-h-[42vh] overflow-auto overscroll-contain">
-                  <table className="w-full text-left text-xs" style={{ minWidth: `${Math.max(570, 230 + matrix.teams.length * 248 + (showSerialNumber ? 52 : 0) + (showWorkDetails ? 300 : 0))}px` }}>
+                  <table className="hnl-crew-report-table w-full text-left text-xs" style={{ minWidth: `${Math.max(570, 230 + matrix.teams.length * 248 + (showSerialNumber ? 52 : 0) + (showWorkDetails ? 300 : 0))}px` }}>
                     <thead className="bg-slate-100 text-[9.5px] font-black text-slate-500">
                       <tr className="h-8">
                         {showSerialNumber && <th rowSpan={3} className="sticky left-0 top-0 z-[6] min-w-[52px] border-r border-slate-200 bg-slate-100 px-2 py-2 text-center align-middle">STT</th>}
-                        <th rowSpan={3} style={{ left: showSerialNumber ? 52 : 0 }} className="sticky top-0 z-[5] min-w-[118px] border-r border-slate-200 bg-slate-100 px-3 py-2 align-middle">Ngày</th>
+                        <th rowSpan={3} style={{ left: showSerialNumber ? 52 : 0 }} className="sticky top-0 z-[5] min-w-[118px] border-r border-slate-200 bg-slate-100 px-3 py-2 text-center align-middle">Ngày</th>
                         {matrix.groups.map((group) => (
                           <th key={group.structureGroupId} colSpan={Math.max(1, group.teams.length * 4)} className="sticky top-0 z-[4] h-8 border-r border-indigo-200 bg-indigo-50 px-2 py-0 text-center text-indigo-800">{group.structureGroupName}</th>
                         ))}
@@ -536,7 +546,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
                       {matrix.dates.map((dateRow, dateIndex) => (
                         <tr key={`${matrix.projectId}-${dateRow.date}`} className="bg-white">
                           {showSerialNumber && <td className="sticky left-0 z-[2] border-r border-slate-100 bg-white px-2 py-2 text-center font-bold text-slate-500">{dateIndex + 1}</td>}
-                          <td style={{ left: showSerialNumber ? 52 : 0 }} className="sticky z-[1] border-r border-slate-100 bg-white px-3 py-2 font-bold text-slate-700">{formatDateDDMMYYYY(dateRow.date)}</td>
+                          <td style={{ left: showSerialNumber ? 52 : 0 }} className="sticky z-[1] border-r border-slate-100 bg-white px-3 py-2 text-center font-bold tabular-nums text-slate-700">{formatDateDDMMYYYY(dateRow.date)}</td>
                           {matrix.teams.flatMap((team) => {
                             const row = dateRow.cells[team.teamKey];
                             return [
@@ -563,7 +573,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
                     <tfoot>
                       <tr className="border-t-2 border-blue-200 bg-blue-50 font-black text-blue-950">
                         {showSerialNumber && <td className="sticky left-0 z-[2] border-r border-blue-200 bg-blue-50 px-2 py-2"></td>}
-                        <td style={{ left: showSerialNumber ? 52 : 0 }} className="sticky z-[1] border-r border-blue-200 bg-blue-50 px-3 py-2">TỔNG</td>
+                        <td style={{ left: showSerialNumber ? 52 : 0 }} className="sticky z-[1] border-r border-blue-200 bg-blue-50 px-3 py-2 text-center">TỔNG</td>
                         {matrix.teams.flatMap((team) => {
                           const total = matrix.teamTotals[team.teamKey] || { morning: 0, afternoon: 0, evening: 0, dailyHeadcount: 0 };
                           return [total.morning, total.afternoon, total.evening, total.dailyHeadcount].map((value, index) => (

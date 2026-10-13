@@ -294,3 +294,38 @@ html[data-hnl-radius="round"] button:not(.rounded-full),
 html[data-hnl-radius="round"] input,
 html[data-hnl-radius="round"] select,
 html[data-hnl-radius="round"] textarea { border-radius: 1rem !important; }
+
+
+/* Crew report matrices: preserve the DEV report-table presentation in PROD
+ * without changing crew data, report calculations or sticky offsets. */
+.hnl-crew-report-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.hnl-crew-report-table thead th { border-bottom-color: #cbd5e1; }
+.hnl-crew-report-table tfoot td { border-top-color: #bfdbfe; }
+html[data-hnl-theme="dark"] .hnl-crew-report-table thead th {
+  background-color: var(--hnl-dark-surface-soft) !important;
+  border-bottom-color: #475569 !important;
+}
+html[data-hnl-theme="dark"] .hnl-crew-report-table thead th.bg-indigo-50 {
+  background-color: #1d3152 !important;
+  color: #bfdbfe !important;
+}
+html[data-hnl-theme="dark"] .hnl-crew-report-table thead th.bg-blue-50 {
+  background-color: #19354c !important;
+  color: #bae6fd !important;
+}
+html[data-hnl-theme="dark"] .hnl-crew-report-table thead th.bg-slate-50 {
+  background-color: var(--hnl-dark-surface) !important;
+}
+html[data-hnl-theme="dark"] .hnl-crew-report-table tbody td.bg-blue-50\/60 {
+  background-color: #173550 !important;
+  color: #e0f2fe !important;
+}
+html[data-hnl-theme="dark"] .hnl-crew-report-table tfoot tr,
+html[data-hnl-theme="dark"] .hnl-crew-report-table tfoot td {
+  background-color: #19354c !important;
+  color: #e0f2fe !important;
+  border-color: #3b82a8 !important;
+}
