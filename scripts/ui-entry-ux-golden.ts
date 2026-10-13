@@ -355,6 +355,22 @@ assert(warehouse.includes('Thiết bị được dùng lại ở các phiếu nh
 const equipmentCatalogUi = read('src/components/EquipmentCatalogPanel.tsx');
 const equipmentCatalogLogic = read('src/lib/equipmentCatalog.ts');
 const equipmentCatalogRules = read('firestore.rules');
+const equipmentTemplatePicker = read('src/components/CatalogTemplatePickerModal.tsx');
+assert(
+  equipmentCatalogUi.includes('<AddSourceMenu')
+  && equipmentCatalogUi.includes('kind="equipment"')
+  && equipmentCatalogUi.includes('await saveEquipmentCatalogBatch(projectId, unique)')
+  && equipmentTemplatePicker.includes("kind === 'equipment'")
+  && equipmentTemplatePicker.includes("'equipment_catalog'"),
+  'Equipment must support safe Create New or Import from another project/template using canonical Firestore catalog',
+);
+assert(
+  equipmentCatalogUi.includes('<QuickSortBar')
+  && equipmentCatalogUi.includes('itemCount={items.length}')
+  && equipmentCatalogUi.includes("key: 'category', label: 'Nhóm thiết bị'")
+  && equipmentCatalogUi.includes("key: 'unit', label: 'ĐVT'"),
+  'Equipment quick-sort must follow common 6+ item rule and sort by name, group, unit and brand',
+);
 assert(
   warehouse.includes('data-hnl-catalog-settings-link="true"')
   && warehouse.includes('onOpenNormModal(warehouseCatalogTab)')
