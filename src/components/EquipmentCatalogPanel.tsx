@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Edit2, Plus, Search, Save, X } from 'lucide-react';
+import { AlertTriangle, Edit2, Plus, Search, Save, Trash2, RotateCcw, X } from 'lucide-react';
 import type { InventoryItem } from '../types';
 import { confirmAsync } from '../utils/confirmAsync';
 import { normalizeUnit } from '../utils/unitUtils';
 import {
-  equipmentIdentityKey, saveEquipmentCatalogBatch, subscribeEquipmentCatalog,
+  equipmentIdentityKey, saveEquipmentCatalogBatch, softDeleteEquipmentCatalogBatch,
+  restoreEquipmentCatalog, subscribeEquipmentCatalog,
   type EquipmentCatalogRecord, type EquipmentCatalogInput,
 } from '../lib/equipmentCatalog';
 
@@ -33,6 +34,10 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [edit, setEdit] = useState<EquipmentCatalogInput | null>(null);
+  // A voucher-backed legacy item may not have a catalog ID; edit mode is explicit.
+  const [editingExisting, setEditingExisting] = useState(false);
+  const [selectedEquipmentIds, setSelectedEquipmentIds] = useState<string[]>([]);
+  const [showDeleted, setShowDeleted] = useState(false);
   const [customGroup, setCustomGroup] = useState(false);
   const [renameUnitOpen, setRenameUnitOpen] = useState(false);
   const [newUnit, setNewUnit] = useState('');
@@ -42,6 +47,9 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
   useEffect(() => {
     setRecords([]);
     setEdit(null);
+    setEditingExisting(false);
+    setSelectedEquipmentIds([]);
+    setShowDeleted(false);
     setStatus('loading');
     setNotice('');
     if (!projectId) {
@@ -59,19 +67,27 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
     });
   }, [projectId]);
 
+  const activeRecords = useMemo(() => records.filter(item => item.deletedAt == null), [records]);
+  const deletedRecords = useMemo(() => records.filter(item => item.deletedAt != null), [records]);
+  const historicalNames = useMemo(() => new Set(
+    inventory.filter(item => item.itemKind === 'equipment')
+      .map(item => equipmentIdentityKey(String(item.materialName || ''))),
+  ), [inventory]);
+  const editingHasHistory = Boolean(edit && historicalNames.has(equipmentIdentityKey(edit.name)));
+
   // Equipment groups are derived exclusively from the saved master data.
   // No second mutable "groups" table is created; new groups become selectable
   // for all users as soon as an ADMIN saves the first equipment of that group.
   const groupOptions = useMemo(() => {
     const byKey = new Map<string, string>();
-    records.forEach((record) => {
+    activeRecords.forEach((record) => {
       const group = String(record.category || '').trim();
       if (group && !byKey.has(normalizeCategory(group))) byKey.set(normalizeCategory(group), group);
     });
     if (!byKey.size) byKey.set(normalizeCategory('Thiết bị'), 'Thiết bị');
     return Array.from(byKey.values()).sort((a, b) =>
       a.localeCompare(b, 'vi', { numeric: true, sensitivity: 'base' }));
-  }, [records]);
+  }, [activeRecords]);
 
   const items = useMemo(() => {
     const map = new Map<string, EquipmentCatalogInput & { historical: boolean }>();
@@ -83,7 +99,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
         map.set(key, { ...EMPTY_EQUIPMENT, name, unit, historical: true });
       }
     });
-    records.forEach(item =>
+    activeRecords.forEach(item =>
       map.set(equipmentIdentityKey(item.name), {
         ...item, historical: map.has(equipmentIdentityKey(item.name)),
       }));
@@ -93,9 +109,17 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
         item.name, item.unit, item.category, item.brand, item.model, item.specifications,
       ].join(' ').toLocaleLowerCase('vi-VN').includes(q))
       .sort((a, b) => a.name.localeCompare(b.name, 'vi', { numeric: true }));
-  }, [inventory, records, search]);
+  }, [inventory, activeRecords, search]);
+
+  const deletableVisibleItems = useMemo(() => items.filter(item =>
+    Boolean(item.id) && !historicalNames.has(equipmentIdentityKey(item.name))),
+  [items, historicalNames]);
+  const selectedVisibleItems = useMemo(() => deletableVisibleItems.filter(item =>
+    item.id && selectedEquipmentIds.includes(item.id)),
+  [deletableVisibleItems, selectedEquipmentIds]);
 
   const startNew = (keep?: Pick<EquipmentCatalogInput, 'category' | 'unit'>) => {
+    setEditingExisting(false);
     setEdit({
       ...EMPTY_EQUIPMENT,
       category: keep?.category || groupOptions[0] || 'Thiết bị',
@@ -108,6 +132,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
   };
 
   const startEdit = (item: EquipmentCatalogInput) => {
+    setEditingExisting(true);
     setEdit({ ...item });
     setCustomGroup(false);
     setRenameUnitOpen(false);
@@ -216,7 +241,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
     {edit && <section className="space-y-3 rounded-2xl border border-indigo-200 bg-indigo-50/40 p-3 sm:p-4" data-hnl-equipment-editor="true">
       <div className="flex items-center justify-between gap-2 border-b border-indigo-100 pb-2">
         <strong className="text-sm font-extrabold text-slate-900">
-          {edit.id ? 'Chỉnh thông tin thiết bị' : 'Thêm thiết bị'}
+          {editingExisting ? (edit.id ? 'Chỉnh thông tin thiết bị' : 'Bổ sung thông tin thiết bị từ phiếu kho') : 'Thêm thiết bị'}
         </strong>
         <button type="button" disabled={busy} onClick={() => setEdit(null)}
           aria-label="Đóng thông tin thiết bị" className="rounded-lg p-1.5 text-slate-600 hover:bg-white disabled:opacity-40">
@@ -226,7 +251,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="block text-xs font-semibold text-slate-700 sm:col-span-2">
           Tên thiết bị <span className="text-rose-600">*</span>
-          <input value={edit.name} disabled={busy || Boolean(edit.id)}
+          <input value={edit.name} disabled={busy || editingExisting}
             onChange={event => setEdit(prev => prev ? { ...prev, name: event.target.value } : prev)}
             placeholder="Ví dụ: Máy cắt thạch cao" className={FIELD_CLASS} />
         </label>
@@ -258,7 +283,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
         </label>
         <label className="block text-xs font-semibold text-slate-700">
           Đơn vị tính <span className="text-rose-600">*</span>
-          <input value={edit.unit} disabled={busy || Boolean(edit.id)}
+          <input value={edit.unit} disabled={busy || (editingExisting && editingHasHistory)}
             onChange={event => setEdit(prev => prev ? { ...prev, unit: event.target.value } : prev)}
             placeholder="Cái, Bộ, Chiếc..." className={FIELD_CLASS} />
         </label>
@@ -286,12 +311,13 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
         )}
       </div>
 
-      {Boolean(edit.id) && <p className="flex items-start gap-2 text-[11px] text-amber-800">
+      {editingExisting && <p className="flex items-start gap-2 text-[11px] text-amber-800">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-        Tên và ĐVT đã lưu được khóa để bảo vệ phiếu kho. Đổi ĐVT chỉ qua quy trình đồng bộ 1:1, không đổi số lượng.
+        {editingHasHistory
+          ? 'Tên và ĐVT đang có phiếu kho được khóa. Đổi ĐVT bằng quy trình 1:1, không tự quy đổi số lượng hoặc phá dữ liệu cũ.'
+          : 'Tên thiết bị được giữ nguyên để bảo toàn mã. Chưa có phiếu kho nên có thể chỉnh trực tiếp ĐVT và lưu thay đổi.'}
       </p>}
-      {edit.id && canManage && onRenameWarehouseUnit &&
-        inventory.some(item => item.itemKind === 'equipment' && equipmentIdentityKey(item.materialName) === equipmentIdentityKey(edit.name)) &&
+      {editingExisting && editingHasHistory && canManage && onRenameWarehouseUnit &&
         <div className="space-y-2 rounded-xl border border-amber-200 bg-white p-3">
           {!renameUnitOpen
             ? <button type="button" disabled={busy} onClick={() => { setNewUnit(''); setRenameUnitOpen(true); }}
@@ -316,9 +342,9 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
         </button>
         <button type="button" disabled={busy || status !== 'ready'} onClick={() => { void save(false); }}
           className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-indigo-300 bg-white px-4 py-2 text-xs font-extrabold text-indigo-700 disabled:opacity-40">
-          <Save className="h-4 w-4" /> Lưu
+          <Save className="h-4 w-4" /> {editingExisting ? 'Lưu thay đổi' : 'Lưu'}
         </button>
-        {!edit.id && <button type="button" disabled={busy || status !== 'ready'} onClick={() => { void save(true); }}
+        {!editingExisting && <button type="button" disabled={busy || status !== 'ready'} onClick={() => { void save(true); }}
           className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-extrabold text-white hover:bg-indigo-700 disabled:opacity-40">
           <Plus className="h-4 w-4" /> Lưu &amp; thêm tiếp
         </button>}
