@@ -448,7 +448,8 @@ assert(
   && equipmentCatalogUi.includes('draggable={canReorderEquipment && Boolean(item.id)}')
   && equipmentCatalogLogic.includes('export async function reorderEquipmentCatalog')
   && equipmentCatalogLogic.includes('record.revision !== revisions.get(orderedIds[index])')
-  && equipmentCatalogLogic.includes("existing && typeof existing.order === 'number'")
+  && equipmentCatalogLogic.includes('tx.update(refs[index], {')
+  && equipmentCatalogLogic.includes('identity fields of a previously created catalog row')
   && equipmentCatalogRules.includes("'deletedAt','deletedByUid','order'"),
   'Equipment manual order must persist to Firestore with revision checks without dropping ranking on edit',
 );
