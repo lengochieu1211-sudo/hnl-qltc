@@ -3,12 +3,14 @@ import { AlertTriangle, Edit2, Plus, Search, Save, Trash2, RotateCcw, X } from '
 import { AddSourceMenu } from './AddSourceMenu';
 import { QuickSortBar } from './QuickSortBar';
 import { CatalogTemplatePickerModal } from './CatalogTemplatePickerModal';
+import { MoveOrderControls } from './MoveOrderControls';
+import { catalogOrderRank, reorderVisibleCatalogItems } from '../utils/catalogDisplayOrder';
 import type { InventoryItem } from '../types';
 import { confirmAsync } from '../utils/confirmAsync';
 import { normalizeUnit } from '../utils/unitUtils';
 import {
   equipmentIdentityKey, saveEquipmentCatalogBatch, softDeleteEquipmentCatalogBatch,
-  restoreEquipmentCatalog, subscribeEquipmentCatalog,
+  restoreEquipmentCatalog, reorderEquipmentCatalog, subscribeEquipmentCatalog,
   type EquipmentCatalogRecord, type EquipmentCatalogInput,
 } from '../lib/equipmentCatalog';
 
@@ -44,6 +46,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
   const [equipmentSortBy, setEquipmentSortBy] = useState<'none' | 'name' | 'category' | 'unit' | 'brand'>('none');
   const [equipmentSortOrder, setEquipmentSortOrder] = useState<'asc' | 'desc'>('asc');
   const [showDeleted, setShowDeleted] = useState(false);
+  const [draggedEquipmentId, setDraggedEquipmentId] = useState<string | null>(null);
   const [customGroup, setCustomGroup] = useState(false);
   const [renameUnitOpen, setRenameUnitOpen] = useState(false);
   const [newUnit, setNewUnit] = useState('');
@@ -95,8 +98,14 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
       a.localeCompare(b, 'vi', { numeric: true, sensitivity: 'base' }));
   }, [activeRecords]);
 
+  const hasSavedOrder = activeRecords.some(item => catalogOrderRank(item.order) !== Number.MAX_SAFE_INTEGER);
+  const sortManualEquipment = (a: { name: string; order?: number }, b: { name: string; order?: number }) =>
+    (hasSavedOrder ? catalogOrderRank(a.order) - catalogOrderRank(b.order) : 0)
+      || a.name.localeCompare(b.name, 'vi', { numeric: true, sensitivity: 'base' });
+  const orderedSavedRecords = [...activeRecords].sort(sortManualEquipment);
+
   const items = useMemo(() => {
-    const map = new Map<string, EquipmentCatalogInput & { historical: boolean }>();
+    const map = new Map<string, EquipmentCatalogInput & { historical: boolean; order?: number }>();
     inventory.filter(item => item.itemKind === 'equipment' && item.deletedAt == null).forEach(item => {
       const name = String(item.materialName || '').trim();
       const unit = normalizeUnit(item.unit) || item.unit;
@@ -115,14 +124,13 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
         item.name, item.unit, item.category, item.brand, item.model, item.specifications,
       ].join(' ').toLocaleLowerCase('vi-VN').includes(q))
       .sort((a, b) => {
-        const key = equipmentSortBy === 'none' ? 'name' : equipmentSortBy;
-        const compared = String(a[key] || '').localeCompare(String(b[key] || ''), 'vi', {
-          numeric: true, sensitivity: 'base',
-        });
+        if (equipmentSortBy === 'none') return sortManualEquipment(a, b);
+        const compared = String(a[equipmentSortBy] || '').localeCompare(
+          String(b[equipmentSortBy] || ''), 'vi', { numeric: true, sensitivity: 'base' });
         const named = a.name.localeCompare(b.name, 'vi', { numeric: true, sensitivity: 'base' });
-        return (equipmentSortOrder === 'desc' && equipmentSortBy !== 'none' ? -compared : compared) || named;
+        return (equipmentSortOrder === 'desc' ? -compared : compared) || named;
       });
-  }, [inventory, activeRecords, search, equipmentSortBy, equipmentSortOrder]);
+  }, [inventory, activeRecords, search, equipmentSortBy, equipmentSortOrder, hasSavedOrder]);
 
   const deletableVisibleItems = useMemo(() => items.filter(item =>
     Boolean(item.id) && !historicalNames.has(equipmentIdentityKey(item.name))),
@@ -130,6 +138,35 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
   const selectedVisibleItems = useMemo(() => deletableVisibleItems.filter(item =>
     item.id && selectedEquipmentIds.includes(item.id)),
   [deletableVisibleItems, selectedEquipmentIds]);
+
+  const visibleSavedIds = items.filter(item => Boolean(item.id)).map(item => item.id!);
+  const canReorderEquipment = canManage && status === 'ready' && !busy
+    && equipmentSortBy === 'none' && orderedSavedRecords.length >= 2
+    && orderedSavedRecords.length <= 100;
+
+  const moveVisibleEquipment = async (sourceId: string, targetId: string) => {
+    if (!canReorderEquipment || sourceId === targetId) return;
+    const ids = [...visibleSavedIds];
+    const from = ids.indexOf(sourceId);
+    const to = ids.indexOf(targetId);
+    if (from < 0 || to < 0 || from === to) return;
+    ids.splice(from, 1);
+    ids.splice(to, 0, sourceId);
+    const next = reorderVisibleCatalogItems(orderedSavedRecords, ids);
+    if (!next) return;
+    setBusy(true);
+    setNotice('');
+    try {
+      await reorderEquipmentCatalog(projectId,
+        activeRecords.map(item => ({ id: item.id, revision: item.revision })),
+        next.map(item => item.id));
+      setNotice('Đã lưu thứ tự thiết bị lên Cloud cho các tài khoản.');
+    } catch (error) {
+      setNotice('Chưa thể sắp xếp thiết bị: ' + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const startNew = (keep?: Pick<EquipmentCatalogInput, 'category' | 'unit'>) => {
     setEditingExisting(false);
@@ -421,6 +458,15 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
         onToggleOrder={() => setEquipmentSortOrder(value => value === 'asc' ? 'desc' : 'asc')}
         onReset={() => { setEquipmentSortBy('none'); setEquipmentSortOrder('asc'); }}
       />
+      {canManage && equipmentSortBy === 'none' && orderedSavedRecords.length > 1 && orderedSavedRecords.length <= 100 && (
+        <p className="text-[11px] text-slate-500">Sắp xếp thủ công: kéo-thả trên PC hoặc bấm mũi tên lên/xuống. Vị trí được lưu trên Cloud.</p>
+      )}
+      {canManage && equipmentSortBy !== 'none' && (
+        <p className="text-[11px] text-slate-500">Tắt Sắp xếp nhanh để thay đổi vị trí thủ công, thứ tự Cloud đã lưu vẫn được giữ.</p>
+      )}
+      {canManage && orderedSavedRecords.length > 100 && (
+        <p className="text-[11px] text-amber-700">Danh mục có hơn 100 thiết bị: khóa sắp xếp hàng loạt để tránh ghi Cloud không nguyên tử.</p>
+      )}
       {canManage && <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
         <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-bold text-slate-700">
           <input type="checkbox" disabled={busy || deletableVisibleItems.length === 0}
@@ -457,6 +503,15 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
           const deletable = Boolean(item.id) && !historyProtected;
           const target = item.id ? activeRecords.find(record => record.id === item.id) : undefined;
           return <div key={item.id || equipmentIdentityKey(item.name)}
+            draggable={canReorderEquipment && Boolean(item.id)}
+            onDragStart={() => { if (item.id) setDraggedEquipmentId(item.id); }}
+            onDragEnd={() => setDraggedEquipmentId(null)}
+            onDragOver={event => { if (canReorderEquipment && item.id && draggedEquipmentId) event.preventDefault(); }}
+            onDrop={event => {
+              event.preventDefault();
+              if (item.id && draggedEquipmentId) void moveVisibleEquipment(draggedEquipmentId, item.id);
+              setDraggedEquipmentId(null);
+            }}
             className="flex items-start gap-2 rounded-xl border border-slate-200 bg-white p-3">
             {canManage && <input type="checkbox"
               aria-label={'Chọn thiết bị ' + item.name}
@@ -476,6 +531,21 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
               {!item.id && <p className="text-[10px] text-amber-700">Phiếu lịch sử: chưa có thông số thiết bị</p>}
             </div>
             {canManage && <div className="flex shrink-0 items-start gap-1">
+              {canReorderEquipment && item.id && <MoveOrderControls
+                label={'Sắp xếp ' + item.name}
+                showDragHandle
+                onMoveUp={() => {
+                  const index = visibleSavedIds.indexOf(item.id!);
+                  if (index > 0) void moveVisibleEquipment(item.id!, visibleSavedIds[index - 1]);
+                }}
+                onMoveDown={() => {
+                  const index = visibleSavedIds.indexOf(item.id!);
+                  if (index >= 0 && index + 1 < visibleSavedIds.length)
+                    void moveVisibleEquipment(item.id!, visibleSavedIds[index + 1]);
+                }}
+                disableUp={visibleSavedIds[0] === item.id}
+                disableDown={visibleSavedIds[visibleSavedIds.length - 1] === item.id}
+              />}
               <button type="button" disabled={busy} onClick={() => startEdit(item)}
                 className="rounded-lg border border-indigo-200 p-2 text-indigo-700 disabled:opacity-40"
                 title="Sửa thông tin thiết bị" aria-label={'Sửa thiết bị ' + item.name}>
