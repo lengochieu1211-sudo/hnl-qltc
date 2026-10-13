@@ -481,7 +481,25 @@ const crewShareUi = read('src/components/CrewReportShareModal.tsx');
 assert(crewUi.includes('Chia sẻ báo cáo quân số') && !crewUi.includes('1 ngày / nhiều ngày · nội dung / ảnh'), 'Crew screen must expose the concise consolidated share-report entry');
 assert(crewUi.includes('<AddSourceMenu') && crewUi.includes('triggerLabel="Thêm đội"') && crewUi.includes('Lưu & thêm tiếp') && crewUi.includes('value="continue"'), 'Team Directory Add must use the shared Add Source menu and retain save-and-continue multi-entry flow');
 assert(warehouse.includes('Tạo phiếu') && warehouse.indexOf('Tạo phiếu') < warehouse.indexOf('Danh mục kho'), 'Warehouse PC primary Create Voucher action must precede Catalog and Norms');
-assert(crewUi.includes('workVolumeAppliesToFloor') && crewUi.includes('crew-category-options-') && crewUi.includes('Chọn hạng mục đã khai báo hoặc nhập khác') && crewUi.includes('crew-subitem-options-') && crewUi.includes('Chọn công đoạn đã khai báo hoặc nhập khác'), 'Crew entry must suggest declared work categories/sub-items while preserving custom text entry');
+assert(
+  crewUi.includes('workVolumeAppliesToFloor')
+  && crewUi.includes('getWorkVolumeOptionsForFloor')
+  && crewUi.includes('getSubItemSuggestions')
+  && crewUi.includes("openCrewPicker(fIdx, cIdx, 'category')")
+  && crewUi.includes("openCrewPicker(fIdx, cIdx, 'subitem')")
+  && crewUi.includes('crewCustomEntry')
+  && crewUi.includes('uniqueOptions')
+  && crewUi.includes('normalizeLinkText(existing) === normalizeLinkText(name)')
+  && crewUi.includes('role="dialog" aria-modal="true"')
+  && !crewUi.includes('crew-category-options-')
+  && !crewUi.includes('crew-subitem-options-'),
+  'Crew entry must use the accessible category/sub-item picker with declared suggestions, custom entry and normalized duplicate prevention',
+);
+const reportTotalWidthIndex = crewShareUi.indexOf('const totalWidth = 100;');
+const reportDetailWidthIndex = crewShareUi.indexOf('const detailWidth = params.showWorkDetails ? 300 : 0;');
+const reportFixedWidthIndex = crewShareUi.indexOf('const fixedColumnsWidth = serialWidth + dateWidth + totalWidth + detailWidth;');
+assert(reportTotalWidthIndex >= 0 && reportDetailWidthIndex >= 0 && reportFixedWidthIndex > reportTotalWidthIndex && reportFixedWidthIndex > reportDetailWidthIndex,
+  'Crew report image widths must be declared before use');
 assert(crewUi.includes('openRoomOnFloorPlan') && crewUi.includes('openDefectOnFloorPlan') && crewUi.includes('qlct_diagnostic_navigation_request') && crewUi.includes('qlct_pending_defect_navigation'), 'Team detail must drill down to exact room/defect entities on the floor plan');
 assert(crewUi.includes('Xem các Căn / Phòng đội đang làm') && crewUi.includes('Mở Defect trên mặt bằng') && crewUi.includes('Căn / Phòng:'), 'Team KPI, room and defect cards must expose direct-view affordances and linked room labels');
 assert(
