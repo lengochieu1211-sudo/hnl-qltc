@@ -1,5 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Edit2, Plus, Search, Save, Trash2, RotateCcw, X } from 'lucide-react';
+import { AddSourceMenu } from './AddSourceMenu';
+import { QuickSortBar } from './QuickSortBar';
+import { CatalogTemplatePickerModal } from './CatalogTemplatePickerModal';
 import type { InventoryItem } from '../types';
 import { confirmAsync } from '../utils/confirmAsync';
 import { normalizeUnit } from '../utils/unitUtils';
@@ -37,6 +40,9 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
   // A voucher-backed legacy item may not have a catalog ID; edit mode is explicit.
   const [editingExisting, setEditingExisting] = useState(false);
   const [selectedEquipmentIds, setSelectedEquipmentIds] = useState<string[]>([]);
+  const [showEquipmentSourcePicker, setShowEquipmentSourcePicker] = useState(false);
+  const [equipmentSortBy, setEquipmentSortBy] = useState<'none' | 'name' | 'category' | 'unit' | 'brand'>('none');
+  const [equipmentSortOrder, setEquipmentSortOrder] = useState<'asc' | 'desc'>('asc');
   const [showDeleted, setShowDeleted] = useState(false);
   const [customGroup, setCustomGroup] = useState(false);
   const [renameUnitOpen, setRenameUnitOpen] = useState(false);
@@ -108,8 +114,15 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
       .filter(item => !q || [
         item.name, item.unit, item.category, item.brand, item.model, item.specifications,
       ].join(' ').toLocaleLowerCase('vi-VN').includes(q))
-      .sort((a, b) => a.name.localeCompare(b.name, 'vi', { numeric: true }));
-  }, [inventory, activeRecords, search]);
+      .sort((a, b) => {
+        const key = equipmentSortBy === 'none' ? 'name' : equipmentSortBy;
+        const compared = String(a[key] || '').localeCompare(String(b[key] || ''), 'vi', {
+          numeric: true, sensitivity: 'base',
+        });
+        const named = a.name.localeCompare(b.name, 'vi', { numeric: true, sensitivity: 'base' });
+        return (equipmentSortOrder === 'desc' && equipmentSortBy !== 'none' ? -compared : compared) || named;
+      });
+  }, [inventory, activeRecords, search, equipmentSortBy, equipmentSortOrder]);
 
   const deletableVisibleItems = useMemo(() => items.filter(item =>
     Boolean(item.id) && !historicalNames.has(equipmentIdentityKey(item.name))),
@@ -266,11 +279,13 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
           placeholder="Tìm tên, nhóm, hãng, model..."
           value={search} onChange={event => setSearch(event.target.value)} />
       </div>
-      {canManage && !edit && <button type="button" disabled={status !== 'ready' || busy}
-        onClick={() => startNew()}
-        className="inline-flex min-h-9 items-center gap-1 rounded-xl bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-40">
-        <Plus className="h-4 w-4" /> Thêm thiết bị
-      </button>}
+      {canManage && !edit && <AddSourceMenu
+        triggerLabel="Thêm thiết bị"
+        createLabel="Tạo mới"
+        onCreateNew={() => startNew()}
+        onOpenSourcePicker={() => setShowEquipmentSourcePicker(true)}
+        disabled={status !== 'ready' || busy}
+      />}
     </div>
 
     {status === 'loading' && <p className="text-xs text-slate-500">Đang tải thiết bị...</p>}
@@ -392,6 +407,20 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
     </section>}
 
     {status === 'ready' && !edit && <div className="space-y-2">
+      <QuickSortBar
+        itemCount={items.length}
+        options={[
+          { key: 'name', label: 'Tên thiết bị', kind: 'alpha', defaultOrder: 'asc' },
+          { key: 'category', label: 'Nhóm thiết bị', kind: 'alpha', defaultOrder: 'asc' },
+          { key: 'unit', label: 'ĐVT', kind: 'alpha', defaultOrder: 'asc' },
+          { key: 'brand', label: 'Hãng sản xuất', kind: 'alpha', defaultOrder: 'asc' },
+        ]}
+        activeKey={equipmentSortBy === 'none' ? null : equipmentSortBy}
+        order={equipmentSortOrder}
+        onChange={(key, order) => { setEquipmentSortBy(key); setEquipmentSortOrder(order); }}
+        onToggleOrder={() => setEquipmentSortOrder(value => value === 'asc' ? 'desc' : 'asc')}
+        onReset={() => { setEquipmentSortBy('none'); setEquipmentSortOrder('asc'); }}
+      />
       {canManage && <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
         <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-bold text-slate-700">
           <input type="checkbox" disabled={busy || deletableVisibleItems.length === 0}
@@ -474,5 +503,54 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
         </div>)}
       </section>}
     </div>}
+    <CatalogTemplatePickerModal
+      open={showEquipmentSourcePicker && canManage}
+      onClose={() => setShowEquipmentSourcePicker(false)}
+      currentProjectId={projectId}
+      currentItems={activeRecords.map(item => ({
+        id: item.id, name: item.name, unit: item.unit, category: item.category,
+        brand: item.brand, model: item.model, specifications: item.specifications, notes: item.notes,
+      }))}
+      kind="equipment"
+      title="Lấy thiết bị từ công trình/mẫu"
+      onImport={async (rows) => {
+        if (!canManage || status !== 'ready' || busy) throw new Error('Chỉ ADMIN có thể thêm thiết bị khi dữ liệu Cloud sẵn sàng.');
+        if (!rows.length) return;
+        const seen = new Set<string>();
+        const existing = new Set(records.map(item => equipmentIdentityKey(item.name)));
+        const unique: EquipmentCatalogInput[] = [];
+        let skipped = 0;
+        rows.forEach(row => {
+          const source = row.item as Partial<EquipmentCatalogInput>;
+          const name = String(source.name || '').trim();
+          const identity = equipmentIdentityKey(name);
+          if (!name || !String(source.unit || '').trim() || !identity || seen.has(identity) || existing.has(identity)) {
+            skipped += 1;
+            return;
+          }
+          seen.add(identity);
+          unique.push({
+            name, unit: String(source.unit).trim(), category: String(source.category || 'Thiết bị').trim(),
+            brand: String(source.brand || ''), model: String(source.model || ''),
+            specifications: String(source.specifications || ''), notes: String(source.notes || ''),
+          });
+        });
+        if (unique.length > 50) throw new Error('Mỗi lần lấy tối đa 50 thiết bị. Hãy chọn ít mục hơn.');
+        if (!unique.length) {
+          setNotice('Không có thiết bị mới để thêm; các tên trùng hoặc không hợp lệ đã được bỏ qua.');
+          return;
+        }
+        setBusy(true);
+        try {
+          // Save is an admin-only Firestore transaction and revalidates names/units
+          // against the target server ledger; never copy source IDs/revisions.
+          await saveEquipmentCatalogBatch(projectId, unique);
+          setNotice('Đã lấy ' + unique.length + ' thiết bị mới vào danh mục.'
+            + (skipped ? ' Bỏ qua ' + skipped + ' thiết bị trùng/không hợp lệ.' : ''));
+        } finally {
+          setBusy(false);
+        }
+      }}
+    />
   </div>;
 };
