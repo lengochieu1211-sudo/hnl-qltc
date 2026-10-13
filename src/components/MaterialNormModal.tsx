@@ -31,7 +31,8 @@ import { assertSafeExcelImportFile, parseExcelNumberRecord, parseExcelStringArra
 import { UserRole, canManageMaterialNorms, canImportData } from '../utils/securityUtils';
 
 import { QuickSortBar } from './QuickSortBar';
-import { compareMaterialGroupPriority } from '../utils/catalogDisplayOrder';
+import { compareMaterialGroupPriority, catalogOrderRank, reorderVisibleCatalogItems } from '../utils/catalogDisplayOrder';
+import { MoveOrderControls } from './MoveOrderControls';
 import { EquipmentCatalogPanel } from './EquipmentCatalogPanel';
 import { CatalogTemplatePickerModal } from './CatalogTemplatePickerModal';
 import { AddSourceMenu } from './AddSourceMenu';
@@ -49,6 +50,7 @@ interface MaterialNormModalProps {
   onRenameWarehouseUnit?: (input: { kind: 'material' | 'equipment'; materialId?: string; materialName: string; fromUnit: string; toUnit: string }) => Promise<{ norms: number; vouchers: number }>;
   onDeleteNorm: (id: string) => void;
   onDeleteMultipleNorms?: (ids: string[]) => void;
+  onReorderNorms?: (orderedActiveIds: string[]) => void;
   onImportNorms?: (norms: MaterialNorm[]) => void;
   inventory: InventoryItem[];
   workVolumes?: WorkVolume[];
@@ -91,6 +93,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   onRenameWarehouseUnit,
   onDeleteNorm,
   onDeleteMultipleNorms,
+  onReorderNorms,
   onImportNorms,
   inventory,
   workVolumes,
@@ -108,6 +111,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   useFormatSettings();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedNormIds, setSelectedNormIds] = useState<string[]>([]);
+  const [draggedNormId, setDraggedNormId] = useState<string | null>(null);
   const [expandedNormTagIds, setExpandedNormTagIds] = useState<Set<string>>(() => new Set());
   const [showNormTemplatePicker, setShowNormTemplatePicker] = useState(false);
   
@@ -521,12 +525,21 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     return matchesCategory && matchesSearch;
   });
 
+  const hasSavedNormOrder = activeMaterialNorms.some(item => catalogOrderRank(item.order) !== Number.MAX_SAFE_INTEGER);
+  const compareDefaultNorms = (a: MaterialNorm, b: MaterialNorm) => {
+    if (hasSavedNormOrder) {
+      const rank = catalogOrderRank(a.order) - catalogOrderRank(b.order);
+      if (rank) return rank;
+    }
+    return compareMaterialGroupPriority(a.category, b.category);
+  };
+  const fullManualNormOrder = [...activeMaterialNorms].sort(compareDefaultNorms);
+
   const sortedFilteredNorms = React.useMemo(() => {
     const norms = [...filteredNorms];
     if (normSortBy === 'none') {
-      // Only the default view groups consumable accessories last; explicit
-      // Quick Sort options still follow the administrator's selected criterion.
-      return norms.sort((a, b) => compareMaterialGroupPriority(a.category, b.category));
+      // Cloud order wins when present; legacy catalogs retain accessories last.
+      return norms.sort(compareDefaultNorms);
     }
     
     return norms.sort((a, b) => {
@@ -553,7 +566,20 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       }
       return 0;
     });
-  }, [filteredNorms, normSortBy, normSortOrder, stockMap]);
+  }, [filteredNorms, normSortBy, normSortOrder, stockMap, hasSavedNormOrder]);
+
+  const canReorderNorms = hasManageAccess && Boolean(onReorderNorms) && normSortBy === 'none';
+  const moveVisibleNorm = (sourceId: string, targetId: string) => {
+    if (!canReorderNorms || sourceId === targetId) return;
+    const visibleIds = sortedFilteredNorms.map(item => item.id);
+    const from = visibleIds.indexOf(sourceId);
+    const to = visibleIds.indexOf(targetId);
+    if (from < 0 || to < 0 || from === to) return;
+    visibleIds.splice(from, 1);
+    visibleIds.splice(to, 0, sourceId);
+    const result = reorderVisibleCatalogItems(fullManualNormOrder, visibleIds);
+    if (result) onReorderNorms?.(result.map(item => item.id));
+  };
 
   const [workCategories, setWorkCategories] = useState<string[]>([]);
 
@@ -1045,6 +1071,12 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               onReset={() => { setNormSortBy('none'); setNormSortOrder('asc'); }}
             />
 
+            {canReorderNorms && sortedFilteredNorms.length > 1 && (
+              <p className="text-[11px] text-slate-500">Sắp xếp thủ công: kéo-thả trên PC hoặc dùng mũi tên lên/xuống trên điện thoại. Thứ tự được đồng bộ theo dự án.</p>
+            )}
+            {hasManageAccess && normSortBy !== 'none' && (
+              <p className="text-[11px] text-slate-500">Tắt Sắp xếp nhanh để đổi vị trí thủ công; thứ tự đã lưu không bị mất.</p>
+            )}
             {/* Material Norm List */}
             {sortedFilteredNorms.length === 0 ? (
               <div className="text-center py-8 text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200 p-4">
@@ -1095,7 +1127,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                   </div>
                 </div>}
 
-                {sortedFilteredNorms.map((norm) => {
+                {sortedFilteredNorms.map((norm, normIndex) => {
                   const stockKey = getMaterialIdentityKey(resolveNormMaterialId(norm), norm.materialName, norm.unit);
                   const actualStock = stockMap[stockKey]?.inQty || 0;
                   const percent = norm.quotaQuantity > 0 ? Math.round((actualStock / norm.quotaQuantity) * 100) : 0;
@@ -1104,6 +1136,15 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                   return (
                     <div
                       key={norm.id}
+                      draggable={canReorderNorms}
+                      onDragStart={() => setDraggedNormId(norm.id)}
+                      onDragEnd={() => setDraggedNormId(null)}
+                      onDragOver={event => { if (canReorderNorms && draggedNormId) event.preventDefault(); }}
+                      onDrop={event => {
+                        event.preventDefault();
+                        if (draggedNormId) moveVisibleNorm(draggedNormId, norm.id);
+                        setDraggedNormId(null);
+                      }}
                       className="bg-slate-50 border border-slate-200/80 hover:border-indigo-300 rounded-2xl p-3 space-y-2 transition-all shadow-xs"
                     >
                       <div className="flex items-start justify-between gap-2">
@@ -1163,6 +1204,14 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                           </div>
                         </div>
                         {hasManageAccess && <div className="flex items-center gap-1 shrink-0 justify-end">
+                          {canReorderNorms && <MoveOrderControls
+                            label={'Sắp xếp ' + norm.materialName}
+                            showDragHandle
+                            onMoveUp={() => { if (normIndex > 0) moveVisibleNorm(norm.id, sortedFilteredNorms[normIndex - 1].id); }}
+                            onMoveDown={() => { if (normIndex + 1 < sortedFilteredNorms.length) moveVisibleNorm(norm.id, sortedFilteredNorms[normIndex + 1].id); }}
+                            disableUp={normIndex === 0}
+                            disableDown={normIndex === sortedFilteredNorms.length - 1}
+                          />}
                           <button onClick={() => handleOpenEdit(norm)} className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Sửa định mức"><Edit3 className="w-3.5 h-3.5" /></button>
                           <button onClick={() => setDeletingNormTarget(norm)} className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors" title="Xóa định mức"><Trash2 className="w-3.5 h-3.5" /></button>
                         </div>}
