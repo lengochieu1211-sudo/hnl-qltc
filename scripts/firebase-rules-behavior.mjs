@@ -174,6 +174,15 @@ try {
   await expectDenied('ADMIN cannot mark deletedAt as unsafe string', () => updateDoc(equipmentRef, {
     deletedAt: 'unsafe', deletedByUid: ownerUid, revision: 5, updatedAt: Date.now() + 50,
   }));
+  await expectAllowed('ADMIN assigns equipment manual order without changing inventory', () => updateDoc(equipmentRef, {
+    order: 2, revision: 5, updatedAt: Date.now() + 60,
+  }));
+  await expectDenied('ADMIN cannot assign invalid negative manual order', () => updateDoc(equipmentRef, {
+    order: -1, revision: 6, updatedAt: Date.now() + 70,
+  }));
+  await expectDenied('ADMIN cannot assign fractional manual order', () => updateDoc(equipmentRef, {
+    order: 1.5, revision: 6, updatedAt: Date.now() + 80,
+  }));
 
   await signIn(editorEmail);
   const editorUid = auth.currentUser.uid;
@@ -196,6 +205,9 @@ try {
   await expectAllowed('EDITOR may read equipment master', () => getDoc(equipmentRef));
   await expectDenied('EDITOR cannot soft-delete equipment master', () => updateDoc(equipmentRef, {
     deletedAt: Date.now(), deletedByUid: editorUid, revision: 5, updatedAt: Date.now() + 60,
+  }));
+  await expectDenied('EDITOR cannot reorder equipment master', () => updateDoc(equipmentRef, {
+    order: 1, revision: 6, updatedAt: Date.now() + 90,
   }));
   await expectDenied('EDITOR cannot hard-delete equipment master', () => deleteDoc(equipmentRef));
   await expectAllowed('EDITOR reads work-volume master definition', () => getDoc(workVolumeRef));
