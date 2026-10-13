@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Copy, Download, FileText, Image as ImageIcon, Share2, Users, X } from 'lucide-react';
 import type { ShareAttachmentPayload } from '../utils/shareUtils';
 import { sharePreparedContent } from '../utils/shareUtils';
+import { isAndroidExportBridgeAvailable, saveBlobToDownloads } from '../utils/fileExport';
 import {
   buildCrewReportRows,
   buildCrewReportMatrices,
@@ -314,7 +315,23 @@ async function renderCrewReportImages(params: {
   return attachments;
 }
 
-const downloadDataUrl = (dataUrl: string, fileName: string) => {
+const downloadDataUrl = async (dataUrl: string, fileName: string): Promise<void> => {
+  if (isAndroidExportBridgeAvailable()) {
+    // Android WebView does not reliably honor <a download> for canvas data: URLs.
+    // Use the existing chunked native exporter which writes into Download/QLTC.
+    // Decode only inside the Android path; desktop/Web keep the browser download.
+    const match = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
+    if (!match) throw new Error('Dữ liệu PNG báo cáo không hợp lệ.');
+    const binary = atob(match[1]);
+    if (!binary.length) throw new Error('Ảnh báo cáo không có dữ liệu.');
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    await saveBlobToDownloads(new Blob([bytes], { type: 'image/png' }), fileName, 'image/png');
+    return;
+  }
+
   const link = document.createElement('a');
   link.href = dataUrl;
   link.download = fileName;
@@ -484,18 +501,34 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
   const downloadImages = async () => {
     setBusy('download');
     setMessage('');
+    let savedCount = 0;
     try {
       const attachments = await makeImages();
-      if (attachments.length === 1) {
-        downloadDataUrl(attachments[0].dataUrl, attachments[0].fileName);
-        setMessage('Đã yêu cầu trình duyệt tải 1 ảnh. Kiểm tra thư mục Tải xuống trên thiết bị.');
-      } else if (attachments.length > 1) {
-        // Browsers may block multiple automatic downloads. Do not report them as saved.
-        attachments.forEach((attachment, index) => window.setTimeout(() => downloadDataUrl(attachment.dataUrl, attachment.fileName), index * 250));
-        setMessage(`Đã yêu cầu tải ${attachments.length} ảnh. Nếu trình duyệt chặn tải nhiều tệp, hãy cho phép tải nhiều tệp hoặc chọn khoảng ngày/dự án nhỏ hơn.`);
-      } else {
+      if (!attachments.length) {
         setMessage('Không tạo được ảnh báo cáo. Vui lòng kiểm tra dữ liệu và thử lại.');
+      } else if (isAndroidExportBridgeAvailable()) {
+        // Process reports one by one to limit Android WebView memory pressure,
+        // preserve order and stop on the first native save failure.
+        for (const attachment of attachments) {
+          await downloadDataUrl(attachment.dataUrl, attachment.fileName);
+          savedCount += 1;
+        }
+        setMessage(`Đã lưu ${savedCount} ảnh báo cáo vào Tải xuống/QLTC trên điện thoại.`);
+      } else if (attachments.length === 1) {
+        await downloadDataUrl(attachments[0].dataUrl, attachments[0].fileName);
+        setMessage('Đã yêu cầu trình duyệt tải 1 ảnh. Kiểm tra thư mục Tải xuống trên thiết bị.');
+      } else {
+        // Browsers may block multiple automatic downloads. Do not report them as saved.
+        attachments.forEach((attachment, index) => window.setTimeout(() => {
+          void downloadDataUrl(attachment.dataUrl, attachment.fileName).catch((error: unknown) => {
+            setMessage('Không tải được một ảnh báo cáo: ' + (error instanceof Error ? error.message : String(error)));
+          });
+        }, index * 250));
+        setMessage(`Đã yêu cầu tải ${attachments.length} ảnh. Nếu trình duyệt chặn tải nhiều tệp, hãy cho phép tải nhiều tệp hoặc chọn khoảng ngày/dự án nhỏ hơn.`);
       }
+    } catch (error) {
+      setMessage((savedCount ? `Đã lưu ${savedCount} ảnh; ảnh tiếp theo không lưu được: ` : 'Không tải được ảnh báo cáo: ')
+        + (error instanceof Error ? error.message : String(error)));
     } finally {
       setBusy('');
     }
