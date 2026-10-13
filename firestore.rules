@@ -552,6 +552,7 @@ service cloud.firestore {
           && request.resource.data.id == equipmentId
           && request.resource.data.projectId == projectId
           && request.resource.data.name is string && request.resource.data.name.size() > 0
+          && (!('displayName' in request.resource.data) || (request.resource.data.displayName is string && request.resource.data.displayName.size() > 0 && request.resource.data.displayName.size() <= 180))
           && request.resource.data.unit is string && request.resource.data.unit.size() > 0
           && request.resource.data.category is string
           && request.resource.data.brand is string
@@ -563,13 +564,14 @@ service cloud.firestore {
           && request.resource.data.updatedAt is number
           && (!('order' in request.resource.data) || (request.resource.data.order is int && request.resource.data.order > 0))
           && request.resource.data.keys().hasOnly([
-            'id','projectId','name','unit','category','brand','model',
+            'id','projectId','name','displayName','unit','category','brand','model',
             'specifications','notes','revision','createdAt','updatedAt','order'
           ]);
         allow update: if canAdminOperate(projectId)
           && request.resource.data.id == resource.data.id
           && request.resource.data.projectId == resource.data.projectId
           && request.resource.data.name == resource.data.name
+          && (!('displayName' in request.resource.data) || (request.resource.data.displayName is string && request.resource.data.displayName.size() > 0 && request.resource.data.displayName.size() <= 180))
           && request.resource.data.createdAt == resource.data.createdAt
           && request.resource.data.unit is string && request.resource.data.unit.size() > 0
           && request.resource.data.revision == resource.data.revision + 1
@@ -588,7 +590,7 @@ service cloud.firestore {
             || request.resource.data.deletedByUid == null
             || request.resource.data.deletedByUid == request.auth.uid)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'unit','category','brand','model','specifications','notes','revision','updatedAt',
+            'displayName','unit','category','brand','model','specifications','notes','revision','updatedAt',
             'deletedAt','deletedByUid','order'
           ]);
         allow delete: if false;

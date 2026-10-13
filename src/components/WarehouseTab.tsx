@@ -886,10 +886,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   // another mutable collection. Materials come from norms; equipment becomes reusable after
   // its first real warehouse transaction. This keeps multi-user/offline stock as one ledger.
   const equipmentCatalog = useMemo(() => {
-    const byKey = new Map<string, { name: string; unit: string; lastDate: string }>();
+    const byKey = new Map<string, { name: string; displayName: string; unit: string; lastDate: string }>();
     equipmentMaster.forEach(item => {
       const key = `${normalizeMaterialSearch(item.name)}|${normalizeMaterialSearch(item.unit)}`;
-      byKey.set(key, { name: item.name, unit: item.unit, lastDate: '' });
+      byKey.set(key, { name: item.name, displayName: item.displayName || item.name, unit: item.unit, lastDate: '' });
     });
     inventory
       .filter((item) => item.itemKind === 'equipment')
@@ -900,7 +900,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         const key = `${normalizeMaterialSearch(name)}|${normalizeMaterialSearch(unitValue)}`;
         const existing = byKey.get(key);
         if (!existing || compareDateValues(existing.lastDate, item.date) < 0) {
-          byKey.set(key, { name, unit: unitValue, lastDate: item.date || '' });
+          const alias = equipmentMaster.find(master => equipmentIdentityKey(master.name) === equipmentIdentityKey(name));
+          byKey.set(key, { name, displayName: alias?.displayName || name, unit: unitValue, lastDate: item.date || '' });
         }
       });
     return Array.from(byKey.values()).sort((a, b) =>
@@ -911,7 +912,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const filteredEquipmentCatalog = useMemo(() => {
     if (!normalizedMaterialPickerSearch) return equipmentCatalog;
     return equipmentCatalog.filter((item) =>
-      normalizeMaterialSearch(`${item.name} ${item.unit}`).includes(normalizedMaterialPickerSearch),
+      normalizeMaterialSearch(`${item.name} ${item.displayName} ${item.unit}`).includes(normalizedMaterialPickerSearch),
     );
   }, [equipmentCatalog, normalizedMaterialPickerSearch]);
 
@@ -919,9 +920,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     const q = normalizeMaterialSearch(warehouseCatalogSearch);
     if (warehouseCatalogTab === 'equipment') {
       return equipmentCatalog
-        .filter((item) => !q || normalizeMaterialSearch(`${item.name} ${item.unit}`).includes(q))
+        .filter((item) => !q || normalizeMaterialSearch(`${item.name} ${item.displayName} ${item.unit}`).includes(q))
         .map((item) => ({
-          key: `equipment:${item.name}:${item.unit}`, name: item.name, unit: item.unit,
+          key: `equipment:${item.name}:${item.unit}`, name: item.displayName || item.name, unit: item.unit,
           category: equipmentMaster.find(master => equipmentIdentityKey(master.name) === equipmentIdentityKey(item.name))?.category || 'Thiết bị',
           hasNorm: false,
         }));
@@ -1631,7 +1632,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         __rowKey: master?.id || `historical-${equipmentIdentityKey(item.name)}`,
         __catalogId: master?.id || '',
         __catalogRevision: master?.revision,
-        name: item.name, unit: item.unit,
+        name: item.name, displayName: master?.displayName || item.name, unit: item.unit,
         category: master?.category || 'Thiết bị',
         brand: master?.brand || '', model: master?.model || '',
         specifications: master?.specifications || '', notes: master?.notes || '',
@@ -1664,7 +1665,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const warehouseQuickColumns = useMemo<QuickGridColumn[]>(() => {
     if (!showQuickEdit) return [];
     if (quickEditMode === 'equipment') return [
-      { key: 'name', label: 'Tên thiết bị', editable: (row) => hasNormManageAccess && Boolean(row.__new), required: true, width: 220 },
+      { key: 'name', label: 'Tên định danh kho (khóa)', editable: (row) => hasNormManageAccess && Boolean(row.__new), required: true, width: 220 },
+      { key: 'displayName', label: 'Tên hiển thị (sửa được)', editable: hasNormManageAccess, width: 220 },
       { key: 'unit', label: 'ĐVT (khóa khi đã có)', editable: (row) => hasNormManageAccess && Boolean(row.__new), required: true, width: 150 },
       { key: 'category', label: 'Nhóm thiết bị', editable: hasNormManageAccess, width: 165 },
       { key: 'brand', label: 'Hãng', editable: hasNormManageAccess, width: 160 },
@@ -1758,13 +1760,19 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         const unit = normalizeUnit(String(row.unit || '').trim()) || String(row.unit || '').trim();
         const sameNameInLedger = inventory.filter(item =>
           item.itemKind === 'equipment' && equipmentIdentityKey(item.materialName) === equipmentIdentityKey(name));
-        if (sameNameInLedger.some(item => (normalizeUnit(item.unit) || item.unit) !== unit)) {
-          throw new Error(`Thiết bị “${name}” đang có phiếu kho ĐVT khác. Không tạo thêm danh mục sai ĐVT.`);
+        // Legacy multiple-unit histories are only a problem for creating a
+        // canonical unit or changing it, not for editing saved metadata.
+        const master = equipmentMaster.find(item => item.id === String(row.__catalogId || ''));
+        if (!master && sameNameInLedger.some(item => (normalizeUnit(item.unit) || item.unit) !== unit)) {
+          throw new Error(`Thiết bị “${name}” có nhiều ĐVT lịch sử. Hãy đối chiếu trước khi tạo danh mục mới.`);
+        }
+        if (master && (normalizeUnit(master.unit) || master.unit) !== unit && sameNameInLedger.length) {
+          throw new Error(`Thiết bị “${name}” đã có phiếu kho. Hãy dùng nút Đổi ĐVT (1:1) trong Thiết lập thiết bị.`);
         }
         return {
           id: String(row.__catalogId || '') || undefined,
           revision: row.__catalogRevision === undefined ? undefined : Number(row.__catalogRevision),
-          name, unit, category: String(row.category || 'Thiết bị'),
+          name, displayName: String(row.displayName || name).trim(), unit, category: String(row.category || 'Thiết bị'),
           brand: String(row.brand || ''), model: String(row.model || ''),
           specifications: String(row.specifications || ''), notes: String(row.notes || ''),
         };
@@ -3160,7 +3168,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-medium text-slate-800"
                     >
                       <option value="|||">— Chọn thiết bị —</option>
-                      {filteredEquipmentCatalog.map((item) => <option key={`${item.name}|${item.unit}`} value={`${item.name}|||${item.unit}`}>{item.name} ({item.unit})</option>)}
+                      {filteredEquipmentCatalog.map((item) => <option key={`${item.name}|${item.unit}`} value={`${item.name}|||${item.unit}`}>{item.displayName || item.name} ({item.unit}){item.displayName !== item.name ? ' · ' + item.name : ''}</option>)}
                     </select>
                     {normalizedMaterialPickerSearch && filteredEquipmentCatalog.length === 0 && (
                       <button type="button" onClick={() => { setIsNewEquipment(true); setCustomMaterial(materialPickerSearch.trim()); setMaterialPickerSearch(''); }} className="text-left text-[10px] font-bold text-blue-700 lg:col-span-2">
