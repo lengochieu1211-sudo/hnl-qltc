@@ -178,7 +178,7 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
       <p className="text-xs font-bold text-slate-700">Loại phiếu</p>
       <div className="flex flex-wrap gap-2">{([['all','Nhập và xuất'],['in','Nhập kho'],['out','Xuất kho']] as const).map(([v,label])=>
         <button type="button" key={v} className={choice(direction===v)} aria-pressed={direction===v} onClick={()=>{setDirection(v);setChecked([]);}}>{label}</button>)}</div>
-      <p className="text-xs font-bold text-slate-700">Chọn số phiếu</p>
+      <p className="text-xs font-bold text-slate-700">Chọn giao dịch in phiếu</p>
       <div className="flex flex-wrap gap-2">{([['one','Một phiếu'],['many','Nhiều phiếu'],['all','Tất cả']] as const).map(([v,label])=>
         <button type="button" key={v} className={choice(pick===v)} aria-pressed={pick===v} onClick={()=>setPick(v)}>{label}</button>)}</div>
       <p className="text-xs text-slate-500">Đã chọn {chosen.length}/{visible.length} phiếu.</p>
