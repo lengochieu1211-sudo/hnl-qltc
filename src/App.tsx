@@ -7684,6 +7684,8 @@ function AuthenticatedApp() {
               isActive={visibleTab === 'warehouse'}
               quickEditEnabled={!isMobileRuntime}
               currentProjectId={activeProjectId}
+              projectName={projectName}
+              projectLocation={projectLocation}
               inventory={inventory}
               userRole={currentUserRole}
               roleResolved={isProjectRoleResolved}
