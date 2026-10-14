@@ -138,6 +138,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [expandedInventoryId, setExpandedInventoryId] = useState<string | null>(null);
   const [copiedInventoryId, setCopiedInventoryId] = useState<string | null>(null);
   const [showWarehouseCatalog, setShowWarehouseCatalog] = useState(false);
+  const [catalogHistory, setCatalogHistory] = useState<{
+    kind: InventoryItemKind; name: string; displayName: string; unit: string;
+    type: TransactionType; expectedTotal: number;
+  } | null>(null);
+  const [catalogHistoryStart, setCatalogHistoryStart] = useState('');
+  const [catalogHistoryEnd, setCatalogHistoryEnd] = useState('');
+  const [expandedHistoryDate, setExpandedHistoryDate] = useState<string | null>(null);
   const [warehouseCatalogTab, setWarehouseCatalogTab] = useState<InventoryItemKind>('material');
   const [warehouseCatalogSearch, setWarehouseCatalogSearch] = useState('');
   const [warehouseCatalogSortBy, setWarehouseCatalogSortBy] = useState<WarehouseCatalogSortKey>('name');
@@ -923,7 +930,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       return equipmentCatalog
         .filter((item) => !q || normalizeMaterialSearch(`${item.name} ${item.displayName} ${item.unit}`).includes(q))
         .map((item) => ({
-          key: `equipment:${item.name}:${item.unit}`, name: item.displayName || item.name, unit: item.unit,
+          key: `equipment:${item.name}:${item.unit}`, name: item.displayName || item.name, sourceName: item.name, unit: item.unit,
           category: equipmentMaster.find(master => equipmentIdentityKey(master.name) === equipmentIdentityKey(item.name))?.category || 'Thiết bị',
           hasNorm: false,
         }));
@@ -1059,7 +1066,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       const expectedKind: InventoryItemKind = warehouseCatalogTab === 'equipment' ? 'equipment' : 'material';
       const summary = stockSummaries.find((stock) =>
         stock.itemKind === expectedKind &&
-        normalizeMaterialSearch(stock.materialName) === normalizedName &&
+        normalizeMaterialSearch(stock.materialName) === normalizeMaterialSearch('sourceName' in item ? item.sourceName : item.name) &&
         normalizeMaterialSearch(normalizeUnit(stock.unit) || stock.unit) === normalizedUnit
       );
       return {
@@ -1090,6 +1097,32 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       return naturalCompare(a.name, b.name);
     });
   }, [warehouseCatalogRows, warehouseCatalogTab, warehouseCatalogSortBy, warehouseCatalogSortOrder, stockSummaries]);
+
+  // Drill-down reads only the already verified inventory for the active project.
+  // Same identity/unit/type keys as the stock ledger; never merge legacy Cái/Bộ.
+  const catalogHistoryRows = useMemo(() => {
+    if (!catalogHistory) return [];
+    const key = normalizeMaterialSearch(catalogHistory.name);
+    const unitKey = normalizeMaterialSearch(normalizeUnit(catalogHistory.unit) || catalogHistory.unit);
+    return inventory.filter((entry) =>
+      entry.deletedAt == null
+      && (entry.itemKind === 'equipment' ? 'equipment' : 'material') === catalogHistory.kind
+      && entry.type === catalogHistory.type
+      && normalizeMaterialSearch(entry.materialName) === key
+      && normalizeMaterialSearch(normalizeUnit(entry.unit) || entry.unit) === unitKey
+    ).sort((a, b) => compareDateValues(b.date, a.date) || a.id.localeCompare(b.id));
+  }, [catalogHistory, inventory]);
+  const catalogHistoryDates = useMemo(() => {
+    const grouped = new Map<string, InventoryItem[]>();
+    catalogHistoryRows.forEach((entry) => {
+      if (catalogHistoryStart && entry.date < catalogHistoryStart) return;
+      if (catalogHistoryEnd && entry.date > catalogHistoryEnd) return;
+      const date = String(entry.date || 'Không có ngày');
+      grouped.set(date, [...(grouped.get(date) || []), entry]);
+    });
+    return Array.from(grouped.entries()).sort(([a], [b]) => compareDateValues(b, a));
+  }, [catalogHistoryRows, catalogHistoryStart, catalogHistoryEnd]);
+  const catalogHistoryTotal = catalogHistoryRows.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
 
   const stockBalance = useMemo(() => {
     const balances: Record<string, { materialId?: string; displayName: string; inQty: number; outQty: number; balance: number; unit: string; normQuantity: number }> = {};
@@ -2225,8 +2258,16 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     </div>
                     <span className="min-w-0 whitespace-normal break-words text-slate-500">{item.category}</span>
                     <span className="break-words text-slate-600">{item.unit}</span>
-                    <span className="text-right font-semibold text-emerald-700">{formatDecimal(item.totalIn)}</span>
-                    <span className="text-right font-semibold text-amber-700">{formatDecimal(item.totalOut)}</span>
+                    <button type="button" data-hnl-catalog-in-history={item.key}
+                      onClick={() => { setCatalogHistory({ kind: warehouseCatalogTab, name: 'sourceName' in item ? item.sourceName : item.name, displayName: item.name, unit: item.unit, type: 'in', expectedTotal: item.totalIn }); setCatalogHistoryStart(''); setCatalogHistoryEnd(''); setExpandedHistoryDate(null); }}
+                      className="min-h-8 rounded px-1 text-right font-semibold text-emerald-700 underline decoration-dotted underline-offset-2 hover:bg-emerald-50 focus-visible:outline-2 focus-visible:outline-emerald-600"
+                      aria-label={`Xem chi tiết nhập kho ${item.name}: ${formatDecimal(item.totalIn)} ${item.unit}`}>
+                      {formatDecimal(item.totalIn)}</button>
+                    <button type="button" data-hnl-catalog-out-history={item.key}
+                      onClick={() => { setCatalogHistory({ kind: warehouseCatalogTab, name: 'sourceName' in item ? item.sourceName : item.name, displayName: item.name, unit: item.unit, type: 'out', expectedTotal: item.totalOut }); setCatalogHistoryStart(''); setCatalogHistoryEnd(''); setExpandedHistoryDate(null); }}
+                      className="min-h-8 rounded px-1 text-right font-semibold text-amber-700 underline decoration-dotted underline-offset-2 hover:bg-amber-50 focus-visible:outline-2 focus-visible:outline-amber-600"
+                      aria-label={`Xem chi tiết xuất kho ${item.name}: ${formatDecimal(item.totalOut)} ${item.unit}`}>
+                      {formatDecimal(item.totalOut)}</button>
                     <span className="text-right font-semibold text-indigo-700">
                       {warehouseCatalogTab === 'material' ? formatDecimal(item.normQuantity || 0) : '—'}
                     </span>
@@ -2236,6 +2277,42 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               </div>
             </div>
           </div>
+          {catalogHistory && (
+            <div data-hnl-catalog-history="readonly" role="dialog" aria-modal="false" aria-label="Chi tiết lịch sử nhập xuất kho" className="rounded-xl border border-indigo-200 bg-white p-3 shadow-sm space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <h4 className="text-sm font-extrabold text-slate-800">{catalogHistory.type === 'in' ? 'Chi tiết nhập kho' : 'Chi tiết xuất kho'}</h4>
+                  <p className="text-xs text-slate-600 break-words">{catalogHistory.displayName} · {catalogHistory.unit} · {catalogHistory.kind === 'equipment' ? 'Thiết bị' : 'Vật tư'}</p>
+                </div>
+                <button type="button" onClick={() => setCatalogHistory(null)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700">Đóng</button>
+              </div>
+              <p className="text-xs font-bold text-slate-700">Tổng {catalogHistory.type === 'in' ? 'nhập' : 'xuất'}: {formatDecimal(catalogHistory.expectedTotal)} {catalogHistory.unit} · {catalogHistoryRows.length} giao dịch</p>
+              {Math.abs(catalogHistoryTotal - catalogHistory.expectedTotal) > 0.000001 && (
+                <p role="alert" className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800">Dữ liệu chi tiết hiện tại ({formatDecimal(catalogHistoryTotal)}) chưa khớp tổng danh mục. Vui lòng đồng bộ lại trước khi đối chiếu; không tự điều chỉnh phiếu.</p>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <label className="text-xs font-semibold text-slate-600">Từ ngày<input type="date" value={catalogHistoryStart} max={catalogHistoryEnd || undefined} onChange={(e) => setCatalogHistoryStart(e.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white p-2 text-slate-900" /></label>
+                <label className="text-xs font-semibold text-slate-600">Đến ngày<input type="date" value={catalogHistoryEnd} min={catalogHistoryStart || undefined} onChange={(e) => setCatalogHistoryEnd(e.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white p-2 text-slate-900" /></label>
+              </div>
+              <div className="max-h-64 space-y-2 overflow-y-auto">
+                {catalogHistoryDates.length === 0 ? <p className="text-xs text-slate-500">Không có giao dịch phù hợp khoảng ngày đã chọn.</p> : catalogHistoryDates.map(([date, entries]) => (
+                  <div key={date} className="rounded-lg border border-slate-200">
+                    <button type="button" aria-expanded={expandedHistoryDate === date} onClick={() => setExpandedHistoryDate(current => current === date ? null : date)} className="flex w-full items-center justify-between gap-2 rounded-lg bg-slate-50 p-2 text-left text-xs font-bold text-slate-800">
+                      <span>{formatDateDDMMYYYY(date)} · {entries.length} lần</span>
+                      <span>{formatDecimal(entries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0))} {catalogHistory.unit} {expandedHistoryDate === date ? '▲' : '▼'}</span>
+                    </button>
+                    {expandedHistoryDate === date && <div className="divide-y divide-slate-100">
+                      {entries.map(entry => <div key={entry.id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 p-2 text-xs">
+                        <div className="min-w-0 space-y-1"><p className="break-all font-semibold text-slate-700">Mã phiếu: {entry.id}</p><p className="text-slate-600">{entry.handler || 'Chưa ghi người thực hiện'}{entry.location ? ` · ${entry.location}` : ''}</p>{entry.notes && <p className="break-words text-slate-500">{entry.notes}</p>}</div>
+                        <span className="font-extrabold text-slate-800">{formatDecimal(entry.quantity)} {entry.unit}</span>
+                      </div>)}
+                    </div>}
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-slate-500">Chỉ xem lịch sử; không tạo phiếu mới, không thay đổi tồn kho hoặc quyền chỉnh sửa.</p>
+            </div>
+          )}
           {warehouseCatalogTab === 'equipment' && (
             <p className="text-[10px] leading-relaxed text-slate-500">
               Thiết bị được dùng lại ở các phiếu nhập/xuất nhưng không tham gia Định mức vật tư hoặc Gợi ý vật tư.
