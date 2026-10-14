@@ -385,9 +385,11 @@ assert(
   'Equipment edit mode, including legacy voucher-backed rows, must not expose Save & add another',
 );
 assert(
-  equipmentCatalogUi.includes('disabled={busy || (editingExisting && editingHasHistory)}')
-  && equipmentCatalogUi.includes('editingExisting && (editingHasHistory || (edit.id && records.some(item => item.id === edit.id))) && canManage && onRenameWarehouseUnit'),
-  'Equipment unit must allow safe edits without history and use atomic 1:1 migration with history',
+  equipmentCatalogUi.includes('value={edit.unit} disabled={busy}')
+  && equipmentCatalogUi.includes('const migrateUnit = async (fromUnit: string)')
+  && equipmentCatalogUi.includes('equipmentMetadata,')
+  && !equipmentCatalogUi.includes('ĐVT mới (chỉ đổi nhãn 1:1)'),
+  'Equipment uses one editable unit field and guarded atomic migration on Save',
 );
 assert(
   equipmentCatalogUi.includes('Chọn tất cả (')
