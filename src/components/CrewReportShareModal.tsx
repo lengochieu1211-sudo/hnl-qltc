@@ -576,7 +576,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
         },index*250));
         setMessage('Đã yêu cầu tải '+attachments.length+' ảnh. Hãy cho phép tải nhiều file nếu trình duyệt hỏi.');
       }
-    }catch(e){setMessage((savedCount?'Đã lưu '+savedCount+' ảnh; ':'')+'Lỗi tải ảnh: '+(e instanceof Error?e.message:String(e)));}
+    }catch(e){setMessage((savedCount ? 'Đã lưu '+savedCount+' ảnh; ảnh tiếp theo không tải được: ' : 'Không tải được ảnh báo cáo: ')+(e instanceof Error?e.message:String(e)));}
     finally{setBusy('');}
   };
 
