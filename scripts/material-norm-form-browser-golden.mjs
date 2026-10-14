@@ -46,7 +46,7 @@ try {
         const b = form.getBoundingClientRect();
         const dlg = form.parentElement.getBoundingClientRect();
         const grid = form.querySelector('.lg\\:grid-cols-2');
-        const columns = grid ? getComputedStyle(grid).gridTemplateColumns.trim().split(/\\s+/).length : 0;
+        const columns = grid ? getComputedStyle(grid).gridTemplateColumns.trim().split(/\s+/).length : 0;
         const docWidth = document.documentElement.scrollWidth;
         return { x: b.x, width: b.width, dlgWidth: dlg.width, columns, docWidth, viewport: window.innerWidth, height: b.height };
       });
