@@ -19,9 +19,8 @@ const normalize = (value: unknown) => String(value ?? '').trim();
 
 function estimatedRowHeight(item: InventoryItem): number {
   const nameLines = Math.max(1, Math.ceil(normalize(item.materialName).length / 39));
-  const idLines = Math.max(1, Math.ceil(normalize(item.id).length / 20));
   const noteLines = normalize(item.notes) ? Math.ceil(normalize(item.notes).length / 58) : 0;
-  return Math.max(68, 26 + nameLines * 28 + noteLines * 22, 26 + idLines * 22);
+  return Math.max(68, 26 + nameLines * 28 + noteLines * 22);
 }
 
 export function paginateWarehouseVouchers(rows: InventoryItem[]): WarehouseVoucherPrintPage[] {
@@ -73,7 +72,8 @@ const HEIGHT = 1754;
 const LEFT = 64;
 const RIGHT = WIDTH - LEFT;
 const TABLE_TOP = 407;
-const COLUMN_WIDTHS = [62, 602, 108, 122, 218];
+// Printed voucher has 4 user-facing columns; original transaction IDs stay in data/hidden Excel.
+const COLUMN_WIDTHS = [62, 742, 134, 174];
 
 function wrapLines(ctx: CanvasRenderingContext2D, value: unknown, maxWidth: number): string[] {
   const lines: string[] = [];
@@ -168,7 +168,7 @@ export function drawWarehouseVoucherPage(page: WarehouseVoucherPrintPage, projec
   ctx.strokeStyle = '#94a3b8';
   ctx.strokeRect(LEFT, tableTop, tableWidth, 63);
   let x = LEFT;
-  const labels = ['STT', 'Tên vật tư / thiết bị (quy cách, ghi chú)', 'ĐVT', 'Số lượng', 'Mã tham chiếu'];
+  const labels = ['STT', 'Tên vật tư / thiết bị (quy cách, ghi chú)', 'ĐVT', 'Số lượng'];
   ctx.font = 'bold 21px Arial, sans-serif';
   ctx.fillStyle = '#1e293b';
   labels.forEach((label, index) => {
@@ -188,11 +188,9 @@ export function drawWarehouseVoucherPage(page: WarehouseVoucherPrintPage, projec
   page.rows.forEach((item, index) => {
     ctx.font = '23px Arial, sans-serif';
     const name = wrapLines(ctx, item.materialName, COLUMN_WIDTHS[1] - 26);
-    ctx.font = '18px Arial, sans-serif';
-    const id = wrapLines(ctx, item.id, COLUMN_WIDTHS[4] - 22);
     const notes = normalize(item.notes);
     const noteLines = notes ? wrapLines(ctx, 'Ghi chú: ' + notes, COLUMN_WIDTHS[1] - 26) : [];
-    const h = Math.max(68, 25 + name.length * 29 + noteLines.length * 22, 24 + id.length * 23);
+    const h = Math.max(68, 25 + name.length * 29 + noteLines.length * 22);
     if (rowTop + h > 1378) throw new Error('Bảng kê vượt chiều cao A4. Cần chia trang trước khi xuất.');
     ctx.fillStyle = index % 2 ? '#f8fafc' : '#ffffff';
     ctx.fillRect(LEFT, rowTop, tableWidth, h);
@@ -226,12 +224,7 @@ export function drawWarehouseVoucherPage(page: WarehouseVoucherPrintPage, projec
     offset += COLUMN_WIDTHS[2];
     ctx.font = 'bold 21px Arial, sans-serif';
     ctx.fillText(formatDecimal(Number(item.quantity || 0)), offset + COLUMN_WIDTHS[3] / 2, rowTop + 35, COLUMN_WIDTHS[3] - 14);
-    offset += COLUMN_WIDTHS[3];
-    ctx.font = '17px Arial, sans-serif';
-    // Quantity uses center alignment; switch back BEFORE drawing the transaction ID.
-    // Otherwise UUID segments are centered on the left edge of this column and overlap quantity.
     ctx.textAlign = 'left';
-    drawTextLines(ctx, id, offset + 11, rowTop + 28, 23);
     rowTop += h;
   });
 
@@ -261,6 +254,6 @@ export function drawWarehouseVoucherPage(page: WarehouseVoucherPrintPage, projec
   ctx.textAlign = 'left';
   ctx.fillStyle = '#64748b';
   ctx.font = '17px Arial, sans-serif';
-  ctx.fillText('Bản in từ các giao dịch kho hiện có • Mã tham chiếu từng dòng giữ nguyên ID gốc để đối chiếu', LEFT, HEIGHT - 65, tableWidth);
+  ctx.fillText('Bản in từ các giao dịch kho hiện có • Chi tiết giao dịch lưu trong phần mềm', LEFT, HEIGHT - 65, tableWidth);
   return canvas;
 }

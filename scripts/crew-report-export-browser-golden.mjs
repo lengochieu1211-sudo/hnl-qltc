@@ -42,24 +42,34 @@ try{
     const page=await context.newPage();const errors=[];
     page.on('pageerror',err=>errors.push(err.message));
     await page.goto(url,{waitUntil:'domcontentloaded'});
-    const dialog=page.getByRole('dialog',{name:'Chia sẻ báo cáo quân số'});
+    const dialog=page.getByRole('dialog',{name:'Chia sẻ báo cáo quân số',exact:true});
     await dialog.waitFor({state:'visible',timeout:20000});
-
+    // Reproduce Android screenshot: user scrolls to the export buttons below long tables.
+    await dialog.evaluate(el=>{el.scrollTop=el.scrollHeight;});
+    const scrollBefore=await dialog.evaluate(el=>el.scrollTop);
+    assert(scrollBefore>0,name+': fixture must exercise real modal scrolling');
     await dialog.getByRole('button',{name:'Nội dung',exact:true}).click();
-    assert(await dialog.getByRole('button',{name:'Sao chép nội dung'}).isVisible());
-    assert(await dialog.getByRole('button',{name:'Chia sẻ nội dung'}).isVisible());
-    const textActions=dialog.locator('[data-hnl-crew-action-menu="text"]');
+    assert(await page.getByRole('button',{name:'Sao chép nội dung'}).isVisible());
+    assert(await page.getByRole('button',{name:'Chia sẻ nội dung'}).isVisible());
+    const textActions=page.locator('[data-hnl-crew-action-menu="text"]');
+    assert(await textActions.evaluate(el=>el.parentElement?.parentElement===document.body),
+      name+': overlay must be portaled directly under document.body, outside scroll containers');
+    assert(Math.abs((await dialog.evaluate(el=>el.scrollTop))-scrollBefore)<=2,
+      name+': clicking Content must not jump scrolled report to top');
     const textBounds=await textActions.boundingBox();
     assert(textBounds&&textBounds.y>=0&&textBounds.y+textBounds.height<=viewport.height+2,
       name+': text share popup must be within viewport');
     await textActions.getByRole('button',{name:'Đóng tùy chọn'}).click();
 
     await dialog.getByRole('button',{name:'Excel',exact:true}).click();
-    const excelActions=dialog.locator('[data-hnl-crew-action-menu="excel"]');
+    const excelActions=page.locator('[data-hnl-crew-action-menu="excel"]');
+    assert(Math.abs((await dialog.evaluate(el=>el.scrollTop))-scrollBefore)<=2,
+      name+': switching to Excel must retain report scroll position');
     const excelBounds=await excelActions.boundingBox();
+    await page.screenshot({path:'runtime-evidence/crew-share-overlay-'+name+'.png'});
     assert(excelBounds&&excelBounds.y>=0&&excelBounds.y+excelBounds.height<=viewport.height+2,
       name+': Excel share popup must be within viewport');
-    const dlExcel=dialog.getByRole('button',{name:'Tải Excel'});
+    const dlExcel=page.getByRole('button',{name:'Tải Excel'});
     await ready(dlExcel);
     const excelPromise=page.waitForEvent('download',{timeout:30000});
     await dlExcel.click();
@@ -73,17 +83,19 @@ try{
     assert.match(String(ws['J9']?.f),/^SUM\(/,'Total daily must have SUM formula');
     results.push({viewport:name,format:'xlsx',bytes:bytes.length,file:excelDownload.suggestedFilename()});
 
-    await dialog.getByRole('button',{name:'Chia sẻ Excel'}).click();
+    await page.getByRole('button',{name:'Chia sẻ Excel'}).click();
     assert((await page.evaluate(()=>window.__crewShareEvents)).some(evt=>evt.files.some(f=>f.type.includes('spreadsheetml'))),
       'Browser Web Share API must receive actual XLSX attachment');
 
     await excelActions.getByRole('button',{name:'Đóng tùy chọn'}).click();
     await dialog.getByRole('button',{name:'Ảnh',exact:true}).click();
-    const imageActions=dialog.locator('[data-hnl-crew-action-menu="image"]');
+    const imageActions=page.locator('[data-hnl-crew-action-menu="image"]');
+    assert(Math.abs((await dialog.evaluate(el=>el.scrollTop))-scrollBefore)<=2,
+      name+': switching to Image must retain report scroll position');
     const imageBounds=await imageActions.boundingBox();
     assert(imageBounds&&imageBounds.y>=0&&imageBounds.y+imageBounds.height<=viewport.height+2,
       name+': Image share popup must be within viewport');
-    const dlPng=dialog.getByRole('button',{name:'Tải ảnh'});
+    const dlPng=page.getByRole('button',{name:'Tải ảnh'});
     await ready(dlPng);
     const pngPromise=page.waitForEvent('download',{timeout:30000});
     await dlPng.click();
@@ -92,11 +104,13 @@ try{
     assert(png.length>3000&&png.subarray(1,4).toString()==='PNG','Crew share PNG invalid');
     results.push({viewport:name,format:'png',bytes:png.length,file:imageDownload.suggestedFilename()});
 
-    await dialog.getByRole('button',{name:'Chia sẻ ảnh'}).click();
+    await page.getByRole('button',{name:'Chia sẻ ảnh'}).click();
     assert((await page.evaluate(()=>window.__crewShareEvents)).some(evt=>evt.files.some(f=>f.type==='image/png')),
       'Browser Web Share API must receive actual PNG attachment');
     await imageActions.getByRole('button',{name:'Đóng tùy chọn'}).click();
-    assert.equal(await dialog.locator('[data-hnl-crew-action-menu]').count(),0,'Dismiss overlay without losing report');
+    assert.equal(await page.locator('[data-hnl-crew-action-menu]').count(),0,'Dismiss overlay without losing report');
+    assert(Math.abs((await dialog.evaluate(el=>el.scrollTop))-scrollBefore)<=2,
+      name+': closing overlay must restore previous report scroll position');
     assert.deepEqual(errors,[],'Browser JS errors');
     await page.screenshot({path:'runtime-evidence/crew-share-'+name+'.png',fullPage:true});
     await context.close();

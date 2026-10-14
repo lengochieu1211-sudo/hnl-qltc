@@ -15,7 +15,7 @@ const textCell = (value: unknown) => clean(value) || '—';
 
 /**
  * A4 voucher worksheet: same facts, column order, page grouping and signature
- * areas as the PNG/PDF version. All business IDs and quantities remain intact;
+ * areas as the PNG/PDF version. The technical ID column is hidden, never deleted;
  * no new receipt number, warehouse write or synthetic recipient is introduced.
  */
 export async function buildWarehouseVoucherExcel(pages: WarehouseVoucherPrintPage[], project: WarehouseVoucherProject = {}) {
@@ -58,15 +58,16 @@ export async function buildWarehouseVoucherExcel(pages: WarehouseVoucherPrintPag
     row(['Số dòng trên trang: ' + page.rows.length, 'Số liệu theo đơn vị từng dòng, không cộng khác ĐVT'], 31);
     merge(table.length-1,1,4);
     row([], 32);
-    row(['Người lập phiếu',null,page.direction === 'in' ? 'Người giao hàng' : 'Người nhận hàng',null,'Thủ kho'], 30);
-    row(['(Ký, ghi rõ họ tên)',null,'(Ký, ghi rõ họ tên)',null,'(Ký, ghi rõ họ tên)'], 24);
+    row(['Người lập phiếu',null,page.direction === 'in' ? 'Người giao hàng' : 'Người nhận hàng','Thủ kho',null], 30);
+    row(['(Ký, ghi rõ họ tên)',null,'(Ký, ghi rõ họ tên)','(Ký, ghi rõ họ tên)',null], 24);
     row([], 62);
-    row(['Mã tham chiếu từng dòng giữ nguyên ID giao dịch gốc để đối chiếu'], 26);
+    row(['Chi tiết giao dịch và mã nội bộ được lưu trong phần mềm'], 26);
     merge(table.length-1,0,4);
 
     const ws = XLSX.utils.aoa_to_sheet(table);
     ws['!merges'] = merges;
-    ws['!cols'] = [{wch:9},{wch:62},{wch:16},{wch:17},{wch:38}];
+    // Hide technical source IDs on print/display while retaining exact values in E.
+    ws['!cols'] = [{wch:9},{wch:62},{wch:16},{wch:17},{wch:38,hidden:true}];
     ws['!rows'] = rowHeights.map(hpt=>({hpt}));
     ws['!margins'] = {left:0.3,right:0.3,top:0.4,bottom:0.4,header:0.15,footer:0.15};
     ws['!autofilter'] = {ref:'A'+(headerRow+1)+':E'+Math.max(firstDataRow+1,lastDataRow+1)};
