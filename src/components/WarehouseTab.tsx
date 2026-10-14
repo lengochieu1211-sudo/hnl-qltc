@@ -60,6 +60,8 @@ interface WarehouseTabProps {
   isActive?: boolean;
   quickEditEnabled?: boolean;
   currentProjectId?: string;
+  projectName?: string;
+  projectLocation?: string;
   inventory: InventoryItem[];
   userRole: UserRole;
   roleResolved: boolean;
@@ -93,6 +95,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   isActive = true,
   quickEditEnabled = true,
   currentProjectId = '',
+  projectName = '',
+  projectLocation = '',
   inventory,
   userRole,
   roleResolved,
@@ -3110,6 +3114,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       {voucherShareOpen && <WarehouseVoucherShareSheet
         open={voucherShareOpen}
         inventory={inventory}
+        projectName={projectName}
+        projectLocation={projectLocation}
         onClose={() => setVoucherShareOpen(false)} />}
       {/* Delete Inventory Confirmation Modal */}
       {hasDeleteAccess && deletingInventoryTarget && (
