@@ -31,7 +31,6 @@ try {
  for(const viewport of [{width:1280,height:800},{width:393,height:852}]){
   const tag=viewport.width+'x'+viewport.height;
   const context=await browser.newContext({viewport,acceptDownloads:true,isMobile:viewport.width<500,hasTouch:viewport.width<500});
-  await context.grantPermissions(['clipboard-read','clipboard-write']);
   await context.addInitScript(()=>{
     window.__voucherPrintText=[];
     const original=CanvasRenderingContext2D.prototype.fillText;
@@ -58,14 +57,14 @@ try {
   await sheet.getByRole('button',{name:'Một phiếu'}).click();
   await sheet.locator('label').filter({hasText:'P0-IN-20261013-001'}).locator('input[type="radio"]').check();
   assert.match(await sheet.innerText(),/Đã chọn 1\/\d+ phiếu/,'Single voucher selection missing');
-  // Text, image, editable workbook and PDF all share the same selected transaction.
-  await sheet.locator('[data-hnl-voucher-format="text"]').click();
-  const textMenu=sheet.locator('[data-hnl-voucher-action-menu="text"]');
-  const textBox=await textMenu.boundingBox();
-  assert(textBox&&textBox.y>=0&&textBox.y+textBox.height<=viewport.height+2,tag+': text actions must stay visible without scroll');
-  await sheet.locator('[data-hnl-voucher-action="text-copy"]').click();
-  const copied=await page.evaluate(()=>navigator.clipboard.readText());
-  assert(copied.includes('PHIẾU NHẬP KHO')&&copied.includes('P0-IN-20261013-001'),tag+': text must keep original receipt ID');
+  // Only Image, Excel and PDF remain; preserve the existing file download flows.
+  assert.equal(await sheet.locator('[data-hnl-voucher-format]').count(),3,
+    'Warehouse share should expose exactly three formats');
+  assert.equal(await sheet.locator('[data-hnl-voucher-format="text"]').count(),0,
+    'Remove Content format without touching file exports');
+  assert.equal(await sheet.locator('[data-hnl-voucher-format="png"]').count(),1);
+  assert.equal(await sheet.locator('[data-hnl-voucher-format="xlsx"]').count(),1);
+  assert.equal(await sheet.locator('[data-hnl-voucher-format="pdf"]').count(),1);
   await sheet.locator('[data-hnl-voucher-format="xlsx"]').click();
   const excelAction=sheet.locator('[data-hnl-voucher-action="xlsx-download"]');
   await assertEventuallyEnabled(excelAction);
