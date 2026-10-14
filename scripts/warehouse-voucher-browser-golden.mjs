@@ -68,19 +68,31 @@ try {
   assert.equal(await sheet.locator('[data-hnl-voucher-format="pdf"]').count(),1);
   // Check actual rendered Tailwind colors on both PC and phone, not just CSS classes.
   const palette={
-    png:'rgb(5, 150, 105)',
-    xlsx:'rgb(37, 99, 235)',
-    pdf:'rgb(220, 38, 38)',
+    png:'bg-emerald-600',
+    xlsx:'bg-blue-600',
+    pdf:'bg-red-600',
   };
-  const formatBoxes=[];
-  for(const [format,expected] of Object.entries(palette)){
+  const formatBoxes=[];const actualColors=[];
+  for(const [format,colorClass] of Object.entries(palette)){
     const control=sheet.locator('[data-hnl-voucher-format="'+format+'"]');
-    const actual=await control.evaluate(el=>getComputedStyle(el).backgroundColor);
-    assert.equal(actual,expected,tag+': '+format+' must have expected recognizable color');
+    const {actual,expected}=await control.evaluate((el,expectedClass)=>{
+      const swatch=document.createElement('span');
+      swatch.className=expectedClass;
+      document.body.appendChild(swatch);
+      const expected=getComputedStyle(swatch).backgroundColor;
+      const actual=getComputedStyle(el).backgroundColor;
+      swatch.remove();
+      return {actual,expected};
+    },colorClass);
+    // Tailwind v4 commonly returns OKLCH instead of RGB: compare computed styles.
+    assert.notEqual(expected,'rgba(0, 0, 0, 0)',tag+': expected Tailwind color must be compiled');
+    assert.equal(actual,expected,tag+': '+format+' should match its semantic color utility');
+    actualColors.push(actual);
     const bounds=await control.boundingBox();
     assert(bounds && bounds.width>=65 && bounds.height>=44,tag+': '+format+' format button must remain touch-friendly');
     formatBoxes.push(bounds);
   }
+  assert.equal(new Set(actualColors).size,3,tag+': Image/Excel/PDF need three distinct colors');
   assert(formatBoxes.every(box=>Math.abs(box.width-formatBoxes[0].width)<2 && Math.abs(box.height-formatBoxes[0].height)<2),
     tag+': Image, Excel and PDF buttons must share dimensions');
 
