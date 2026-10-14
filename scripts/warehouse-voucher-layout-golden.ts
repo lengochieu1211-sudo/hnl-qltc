@@ -34,23 +34,27 @@ const sheet=fs.readFileSync('src/components/WarehouseVoucherShareSheet.tsx','utf
 const printed=fs.readFileSync('src/utils/warehouseVoucherPrint.ts','utf8');
 const warehouse=fs.readFileSync('src/components/WarehouseTab.tsx','utf8');
 const app=fs.readFileSync('src/App.tsx','utf8');
-assert(app.includes('projectName={projectName}') && app.includes('projectLocation={projectLocation}'),
+assert(app.includes('projectName={projectName}') && app.includes('projectLocation={projectLocation}') && app.includes('contractorName={contractorName}'),
   'Active project metadata must be passed from App to warehouse');
-assert(warehouse.includes('projectName={projectName}') && warehouse.includes('projectLocation={projectLocation}'),
+assert(warehouse.includes('projectName={projectName}') && warehouse.includes('projectLocation={projectLocation}') && warehouse.includes('contractorName={contractorName}'),
   'Warehouse must provide active project metadata to printed vouchers');
-assert(sheet.includes('drawWarehouseVoucherPage(page, { projectName, projectLocation })'),
+assert(sheet.includes('drawWarehouseVoucherPage(page, { projectName, projectLocation, contractorName })'),
   'Both PNG and PDF render must receive project metadata');
 assert(renderer.includes("ctx.fillText('Công trình:', LEFT, 83)")
   && renderer.includes("ctx.fillText('Địa điểm:', LEFT, 123)")
   && !renderer.includes("ctx.fillText('Đơn vị:")
   && !renderer.includes("ctx.fillText('Bộ phận:"),
   'Voucher headings must use project name/location instead of generic empty unit/department');
+assert(renderer.includes("ctx.fillText('Đơn vị thi công:', LEFT, 166)") && renderer.includes('if (contractor) {'),
+  'Only show contractor when active project contractorName is available');
+assert(renderer.includes('const tableTop = TABLE_TOP + headerShift'),
+  'Optional contractor header must move the table down without overlapping it');
 assert(!warehouse.includes('data-hnl-voucher-share-id='),'Per-journal export action must be removed');
 assert(warehouse.includes('data-hnl-warehouse-export-open="all"'),'Central journal export action must remain');
 assert(!sheet.includes('initialVoucherId'),'Central export should not assume one item on open');
 assert(printed.includes('handlerValueX = Math.ceil(LEFT + ctx.measureText('),
   'Printed handler value must not overlap its longer generic label');
-assert(printed.includes("ctx.fillText('Người thực hiện:', LEFT, 346)"),
+assert(printed.includes("ctx.fillText('Người thực hiện:', LEFT, 346 + headerShift)"),
   'Legacy generic handler must not be assigned an unverified sender or recipient role');
 assert(printed.includes("ctx.textAlign = 'left';\n    drawTextLines(ctx, id"),
   'Full transaction ID must be left-aligned within its own column');
@@ -58,7 +62,7 @@ assert(printed.includes('Math.min(rowTop + 60 + 110, HEIGHT - 180)'),
   'Signature section should stay near the last table row with bottom-page safety');
 
 assert(!renderer.includes('HNL QLTC'),'No app brand may be printed on warehouse vouchers');
-assert(renderer.includes('Tên vật tư / thiết bị') && renderer.includes('Số lượng') && renderer.includes('Mã giao dịch'));
+assert(renderer.includes('Tên vật tư / thiết bị') && renderer.includes('Số lượng') && renderer.includes('Mã tham chiếu'));
 assert(sheet.includes('paginateWarehouseVouchers(chosen)'),'Export must group selected material rows');
 assert(sheet.includes("allowTextFallback:false"),'Sharing files cannot silently send text instead');
 console.log('Warehouse multi-line A4 grouped receipt / continuous IDs / branding golden: PASS');

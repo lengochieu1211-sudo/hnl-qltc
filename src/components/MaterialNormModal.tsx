@@ -1262,7 +1262,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
           </div>
         ) : (
           /* Add / Edit Form */
-          <form onSubmit={handleSubmit} className="mx-auto w-full max-w-3xl flex-1 overflow-y-auto space-y-3.5 pr-1 text-xs">
+          <form onSubmit={handleSubmit} data-hnl-norm-editor="true" className="mx-auto w-full max-w-3xl lg:max-w-none flex-1 overflow-y-auto space-y-3.5 pr-1 text-xs">
             <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-200">
               <span className="font-bold text-slate-800">
                 {mode === 'add' ? 'Tạo định mức mới' : 'Cập nhật định mức vật tư'}
@@ -1276,6 +1276,8 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               </button>
             </div>
 
+            {/* Single column on mobile; paired core fields fill the equipment-sized desktop dialog. */}
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:items-start">
             {/* Category Select */}
             <div>
               <label className="block font-bold text-slate-700 mb-1">Chủng loại vật tư công trình *</label>
@@ -1369,6 +1371,8 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                   className="w-full border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 mt-2 bg-white focus:ring-2 focus:ring-indigo-500"
                 />
               )}
+            </div>
+
             </div>
 
             {/* Quotas Input Grid */}

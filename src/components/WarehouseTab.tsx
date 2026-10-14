@@ -62,6 +62,7 @@ interface WarehouseTabProps {
   currentProjectId?: string;
   projectName?: string;
   projectLocation?: string;
+  contractorName?: string;
   inventory: InventoryItem[];
   userRole: UserRole;
   roleResolved: boolean;
@@ -97,6 +98,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   currentProjectId = '',
   projectName = '',
   projectLocation = '',
+  contractorName = '',
   inventory,
   userRole,
   roleResolved,
@@ -3116,6 +3118,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         inventory={inventory}
         projectName={projectName}
         projectLocation={projectLocation}
+        contractorName={contractorName}
         onClose={() => setVoucherShareOpen(false)} />}
       {/* Delete Inventory Confirmation Modal */}
       {hasDeleteAccess && deletingInventoryTarget && (

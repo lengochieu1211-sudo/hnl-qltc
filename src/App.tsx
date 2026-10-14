@@ -7686,6 +7686,7 @@ function AuthenticatedApp() {
               currentProjectId={activeProjectId}
               projectName={projectName}
               projectLocation={projectLocation}
+              contractorName={contractorName}
               inventory={inventory}
               userRole={currentUserRole}
               roleResolved={isProjectRoleResolved}

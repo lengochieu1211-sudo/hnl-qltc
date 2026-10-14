@@ -5,6 +5,8 @@ on:
     paths:
       - 'src/components/WarehouseTab.tsx'
       - 'scripts/warehouse-catalog-browser-golden.mjs'
+      - 'scripts/material-norm-form-browser-golden.mjs'
+      - 'src/components/MaterialNormModal.tsx'
       - 'scripts/fixtures/warehouse-catalog/**'
       - '.github/workflows/warehouse-catalog-click-golden.yml'
   workflow_dispatch:
@@ -26,6 +28,8 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Real WarehouseTab click on desktop and phone
         run: node scripts/warehouse-catalog-browser-golden.mjs
+      - name: Norm Add/Edit width on 1280 desktop, 1024 laptop and 393 mobile
+        run: node scripts/material-norm-form-browser-golden.mjs
       - name: Warehouse voucher date/type selection regression
         run: npx tsx scripts/warehouse-voucher-selection-golden.ts
       - name: Warehouse vouchers PNG/PDF real download desktop and phone
@@ -37,6 +41,7 @@ jobs:
           path: |
             runtime-evidence/catalog-click-*
             runtime-evidence/voucher-*
+            runtime-evidence/norm-layout-*
 
           if-no-files-found: warn
           retention-days: 30
