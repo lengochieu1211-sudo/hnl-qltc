@@ -42,7 +42,7 @@ try{
     const page=await context.newPage();const errors=[];
     page.on('pageerror',err=>errors.push(err.message));
     await page.goto(url,{waitUntil:'domcontentloaded'});
-    const dialog=page.getByRole('dialog',{name:'Chia sẻ báo cáo quân số'});
+    const dialog=page.getByRole('dialog',{name:'Chia sẻ báo cáo quân số',exact:true});
     await dialog.waitFor({state:'visible',timeout:20000});
     // Reproduce Android screenshot: user scrolls to the export buttons below long tables.
     await dialog.evaluate(el=>{el.scrollTop=el.scrollHeight;});
