@@ -4265,8 +4265,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           floorPlans,
           structureConfig: normalizedStructureConfig,
         }]}
-        initialStartDate={selectedDate}
-        initialEndDate={selectedDate}
+        initialStartDate={getTodayString()}
+        initialEndDate={getTodayString()}
         maxDate={getTodayString()}
         title="Báo cáo quân số"
       />
