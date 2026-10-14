@@ -22,7 +22,6 @@ export async function buildWarehouseVoucherExcel(pages: WarehouseVoucherPrintPag
   if (!pages.length) throw new Error('Chưa có phiếu kho để xuất Excel.');
   const XLSX = await import('xlsx');
   const wb = XLSX.utils.book_new();
-  const letters = ['A', 'B', 'C', 'D', 'E'];
 
   for (const [index, page] of pages.entries()) {
     const table: Array<Array<string | number | null>> = [];
@@ -59,7 +58,7 @@ export async function buildWarehouseVoucherExcel(pages: WarehouseVoucherPrintPag
     row(['Số dòng trên trang: ' + page.rows.length, 'Số liệu theo đơn vị từng dòng, không cộng khác ĐVT'], 31);
     merge(table.length-1,1,4);
     row([], 32);
-    row(['Người lập phiếu',null,'Người giao/nhận',null,'Thủ kho'], 30);
+    row(['Người lập phiếu',null,page.direction === 'in' ? 'Người giao hàng' : 'Người nhận hàng',null,'Thủ kho'], 30);
     row(['(Ký, ghi rõ họ tên)',null,'(Ký, ghi rõ họ tên)',null,'(Ký, ghi rõ họ tên)'], 24);
     row([], 62);
     row(['Mã tham chiếu từng dòng giữ nguyên ID giao dịch gốc để đối chiếu'], 26);
@@ -86,4 +85,23 @@ export async function buildWarehouseVoucherExcel(pages: WarehouseVoucherPrintPag
   if (!blob.size) throw new Error('Excel phiếu kho rỗng (0 byte).');
   const fileName = 'PHIEU_NHAP_XUAT_KHO_' + pages.length + '_TRANG.xlsx';
   return {workbook:wb,blob,fileName,mimeType:WAREHOUSE_EXCEL_MIME};
+}
+
+/** Human-readable text uses exactly the same grouped pages and original UUIDs. */
+export function buildWarehouseVoucherText(pages: WarehouseVoucherPrintPage[], project: WarehouseVoucherProject = {}): string {
+  return pages.map(page => [
+    page.direction === 'in' ? 'PHIẾU NHẬP KHO' : 'PHIẾU XUẤT KHO',
+    'Công trình: ' + textCell(project.projectName),
+    'Địa điểm: ' + textCell(project.projectLocation),
+    ...(clean(project.contractorName) ? ['Đơn vị thi công: ' + clean(project.contractorName)] : []),
+    'Ngày: ' + formatDateDDMMYYYY(page.date) + ' · Trang ' + page.pageIndex + '/' + page.pageCount,
+    'Kho / Vị trí: ' + textCell(page.location),
+    'Người thực hiện: ' + textCell(page.handler),
+    'STT | Tên vật tư / thiết bị | ĐVT | Số lượng | Mã tham chiếu',
+    ...page.rows.map((item,i) =>
+      [page.rowOffset+i+1, textCell(item.materialName), textCell(item.unit), formatDecimal(Number(item.quantity || 0)), textCell(item.id)].join(' | ')
+      + (clean(item.notes) ? '\\nGhi chú: '+clean(item.notes) : '')),
+    'Số dòng trên trang: ' + page.rows.length,
+    'Người lập phiếu | ' + (page.direction === 'in' ? 'Người giao hàng' : 'Người nhận hàng') + ' | Thủ kho',
+  ].join('\\n')).join('\\n\\n-----\\n\\n');
 }
