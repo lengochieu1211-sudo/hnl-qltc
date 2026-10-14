@@ -2170,7 +2170,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     }}
                     className="text-slate-500 hover:text-rose-600 font-bold flex items-center gap-1 cursor-pointer transition-colors"
                   >
-                    <Trash2 className="w-3.5 h-3.5 text-slate-400 hover:text-rose-500" /> Xóa Tất Cả
+                    <Trash2 className="w-3.5 h-3.5 text-rose-600" /> Xóa Tất Cả
                   </button>
                 </div>
               </div>
@@ -2289,7 +2289,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                             setEditingRecord(record);
                             setShowAddLogModal(true);
                           }}
-                          className="flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 transition"
+                          className="flex items-center gap-1 text-xs text-indigo-700 hover:text-indigo-800 transition"
                           title="Sửa bản ghi"
                         >
                           <Edit2 className="w-3.5 h-3.5" /> <span>Sửa</span>
@@ -2299,7 +2299,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           onClick={() => {
                             setDeletingRecordTarget(record);
                           }}
-                          className="flex items-center gap-1 text-xs text-slate-500 hover:text-rose-600 transition"
+                          className="flex items-center gap-1 text-xs text-rose-600 hover:text-rose-700 transition"
                           title={canDelete ? 'Xóa bản ghi' : 'Xóa bản ghi do bạn tạo (có thể khôi phục trong Thùng rác)'}
                         >
                           <Trash2 className="w-3.5 h-3.5" /> <span className="text-rose-500 font-semibold">Xóa</span>
@@ -2649,7 +2649,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           setEditingTeam(team);
                           setShowTeamModal(true);
                         }}
-                        className="flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 transition"
+                        className="flex items-center gap-1 text-xs text-indigo-700 hover:text-indigo-800 transition"
                         title="Sửa thông tin đội"
                       >
                         <Edit2 className="w-3.5 h-3.5" /> <span>Sửa</span>
@@ -2658,7 +2658,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         onClick={async () => {
                           setDeletingTeamTarget(team);
                         }}
-                        className="flex items-center gap-1 text-xs text-slate-500 hover:text-rose-600 transition"
+                        className="flex items-center gap-1 text-xs text-rose-600 hover:text-rose-700 transition"
                         title="Xóa đội"
                       >
                         <Trash2 className="w-3.5 h-3.5" /> <span className="text-rose-500 font-semibold">Xóa</span>
@@ -2866,7 +2866,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                             <button
                               type="button"
                               onClick={() => removeFloorWork(fIdx)}
-                              className="text-slate-400 hover:text-rose-600 p-1 rounded transition mt-4"
+                              className="text-rose-600 hover:text-rose-700 p-1 rounded transition mt-4"
                               title="Xoá tầng này"
                             >
                               <Trash2 className="w-4 h-4" />

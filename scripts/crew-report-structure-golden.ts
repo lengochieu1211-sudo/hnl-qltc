@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { buildCrewReportMatrices, buildCrewReportRows } from '../src/utils/crewReportUtils';
+import { buildCrewReportMatrices, buildCrewReportRows, getCrewReportPresetRange, listCrewReportDates } from '../src/utils/crewReportUtils';
 
 const projects = [{
   projectId: 'p1',
@@ -64,6 +64,17 @@ const uniqueNameRows = buildCrewReportRows([{
 assert.equal(uniqueNameRows.find((row) => row.reported)?.teamId, 'TEAM-1', 'unique legacy name should still map to its team');
 console.log('PASS P1: duplicate team names never reassign legacy crew logs');
 
+// The Home dashboard and Crew share modal must agree on local-calendar presets,
+// including cross-month/year and leap-year days (no UTC date drift).
+const reference = new Date(2026, 9, 14, 12);
+assert.deepEqual(getCrewReportPresetRange('today', reference), { startDate: '2026-10-14', endDate: '2026-10-14' });
+assert.deepEqual(getCrewReportPresetRange('yesterday', reference), { startDate: '2026-10-13', endDate: '2026-10-13' });
+assert.deepEqual(getCrewReportPresetRange('7days', reference), { startDate: '2026-10-08', endDate: '2026-10-14' });
+assert.deepEqual(getCrewReportPresetRange('month', reference), { startDate: '2026-10-01', endDate: '2026-10-14' });
+assert.deepEqual(getCrewReportPresetRange('7days', new Date(2026, 0, 3, 12)), { startDate: '2025-12-28', endDate: '2026-01-03' });
+assert.deepEqual(getCrewReportPresetRange('month', new Date(2024, 1, 29, 12)), { startDate: '2024-02-01', endDate: '2024-02-29' });
+assert.equal(listCrewReportDates(...Object.values(getCrewReportPresetRange('7days', reference))).length, 7);
+
 // Source-level UI regression guards: sharing must stay on one image per project matrix,
 // the total row must use the same X-origin as header/body, and the duplicated overview
 // must remain hidden on mobile/tablet while staying available on desktop/EXE.
@@ -99,9 +110,10 @@ assert.ok(
 );
 assert.ok(
   shareModalSource.includes('dateX + (dateWidth - dateHeaderWidth) / 2')
-  && shareModalSource.includes('min-w-[118px] border-r border-slate-200 bg-slate-100 px-3 py-2 text-center align-middle">Ngày</th>')
+  && shareModalSource.includes('min-w-[118px] border-r border-slate-200 bg-blue-50 px-3 py-2 text-center align-middle">Ngày</th>')
   && shareModalSource.includes('dateX + (dateWidth - ctx.measureText(dateText).width) / 2')
-  && shareModalSource.includes('px-3 py-2 text-center font-bold tabular-nums text-slate-700">{formatDateDDMMYYYY(dateRow.date)}</td>')
+  && shareModalSource.includes('text-slate-700 ${dateIndex % 2 === 0 ?')
+  && shareModalSource.includes('>{formatDateDDMMYYYY(dateRow.date)}</td>')
   && shareModalSource.includes('dateX + (dateWidth - ctx.measureText(totalLabel).width) / 2'),
   'crew report date column must stay centered for header, body values and total label in both canvas export and on-screen table',
 );
@@ -122,6 +134,20 @@ const homeSource = readFileSync(new URL('../src/components/HomeDashboard.tsx', i
 const exportSource = readFileSync(new URL('../src/utils/fileExport.ts', import.meta.url), 'utf8');
 const androidSource = readFileSync(new URL('../android-wrapper/src/com/qlct/app/MainActivity.java', import.meta.url), 'utf8');
 assert.ok(homeSource.includes('<CrewReportShareModal'), 'Trang chủ must use the shared crew report modal');
+
+assert.ok(homeSource.includes('getCrewReportPresetRange(preset)')
+  && shareModalSource.includes('getCrewReportPresetRange(preset)'),
+  'Trang chủ and Quân số share modal must use the same quick date range resolver');
+for (const label of ['Hôm nay', 'Hôm qua', '7 ngày', 'Tháng này', 'Khoảng ngày']) {
+  assert.ok(shareModalSource.includes(label), `Crew modal must offer ${label}`);
+}
+assert.ok(shareModalSource.includes('!rangeLocked && (')
+  && shareModalSource.includes("setMode(range.startDate === range.endDate ? 'single' : 'range')")
+  && shareModalSource.includes("setDatePreset('custom')")
+  && shareModalSource.includes('datePreset === preset')
+  && shareModalSource.includes('getCrewReportPresetRange(preset).endDate > resolvedMaxDate'),
+  'Preset buttons must respect locked Home range, manual edits, active state and maxDate');
+
 assert.ok(shareModalSource.includes('isAndroidExportBridgeAvailable()')
   && shareModalSource.includes("await saveBlobToDownloads(new Blob([bytes], { type: 'image/png' }), fileName, 'image/png')")
   && shareModalSource.includes('await downloadDataUrl(attachment.dataUrl, attachment.fileName)')

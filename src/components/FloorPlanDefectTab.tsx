@@ -6472,7 +6472,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         setInlineEditingFloorId(fp.id);
                         setInlineEditingName(fp.floorName);
                       }}
-                      className={`p-1 rounded hover:bg-black/10 transition-colors ${isSelected ? 'text-indigo-100' : 'text-slate-400 hover:text-slate-700'}`}
+                      className={`p-1 rounded hover:bg-black/10 transition-colors ${isSelected ? 'text-indigo-100' : 'text-indigo-700 hover:text-indigo-800'}`}
                       title="Sửa tên tầng trực tiếp"
                     >
                       <Edit3 className="w-3 h-3" />
@@ -6498,7 +6498,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         e.stopPropagation();
                         handleDeleteFloor(fp.id, fp.floorName);
                       }}
-                      className={`p-1 rounded hover:bg-rose-500/20 transition-colors ${isSelected ? 'text-rose-200 hover:text-white' : 'text-slate-400 hover:text-rose-600'}`}
+                      className={`p-1 rounded hover:bg-rose-500/20 transition-colors ${isSelected ? 'text-rose-200 hover:text-white' : 'text-rose-600 hover:text-rose-700'}`}
                       title="Xóa tầng này"
                     >
                       <Trash2 className="w-3 h-3" />
@@ -9053,7 +9053,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             className="text-[11px] font-semibold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100/80 px-2.5 py-1.5 rounded-lg border border-indigo-200/60 transition-all flex items-center gap-1 cursor-pointer shadow-3xs active:scale-95"
                             title={canManageStructure ? 'Chỉnh sửa Căn / Phòng và hạng mục thi công' : 'Cập nhật tiến độ, nghiệm thu và ghi chú hiện trường'}
                           >
-                            <Pencil className="w-3.5 h-3.5 text-indigo-500" />
+                            <Pencil className="w-3.5 h-3.5 text-indigo-700" />
                             <span>{canManageStructure ? 'Chỉnh sửa' : 'Cập nhật'}</span>
                           </button>
 

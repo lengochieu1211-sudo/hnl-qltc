@@ -60,6 +60,27 @@ export const toCrewReportDateKey = (date: Date): string => {
   return `${year}-${month}-${day}`;
 };
 
+/** Shared date ranges for the Home and Crew-report quick selectors (device-local calendar days). */
+export type CrewReportDatePreset = 'today' | 'yesterday' | '7days' | 'month';
+
+export const getCrewReportPresetRange = (
+  preset: CrewReportDatePreset,
+  referenceDate = new Date(),
+): { startDate: string; endDate: string } => {
+  // Noon avoids DST transitions around midnight while retaining local calendar dates.
+  const localDay = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate(), 12);
+  const today = toCrewReportDateKey(localDay);
+  if (preset === 'today') return { startDate: today, endDate: today };
+  if (preset === 'month') return {
+    startDate: toCrewReportDateKey(new Date(localDay.getFullYear(), localDay.getMonth(), 1, 12)),
+    endDate: today,
+  };
+  const first = new Date(localDay);
+  first.setDate(first.getDate() - (preset === 'yesterday' ? 1 : 6));
+  const startDate = toCrewReportDateKey(first);
+  return { startDate, endDate: preset === 'yesterday' ? startDate : today };
+};
+
 export const listCrewReportDates = (startDate: string, endDate: string): string[] => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) return [];
   const start = new Date(`${startDate}T12:00:00`);

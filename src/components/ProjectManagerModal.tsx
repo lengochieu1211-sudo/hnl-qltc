@@ -3655,7 +3655,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                                     setProjects(getProjectsList());
                                   }
                                 }}
-                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                                className="p-1 text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded transition-colors cursor-pointer"
                                 title="Xóa bản sao lưu"
                               >
                                 <Trash2 className="w-3 h-3" />
@@ -3870,7 +3870,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                             <button
                               type="button"
                               onClick={() => handleDeleteCloudBackup({ id: b.id, name: b.backupName || 'Bản sao lưu' })}
-                              className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors cursor-pointer"
+                              className="p-1 text-rose-600 hover:text-rose-700 rounded transition-colors cursor-pointer"
                               title="Xóa bản sao lưu"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -4173,7 +4173,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                                 <button
                                   type="button"
                                   onClick={(e) => handleStartRename(proj, e)}
-                                  className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                                  className="p-1 text-indigo-700 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
                                   title="Đổi tên dự án"
                                 >
                                   <Edit3 className="w-3.5 h-3.5" />
@@ -4196,7 +4196,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteProject(proj.id)}
-                                  className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                  className="p-1 text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                                   title="Xóa dự án"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
