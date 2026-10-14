@@ -38,7 +38,7 @@ try {
     await page.goto(address, { waitUntil: 'domcontentloaded' });
     await page.locator('[data-hnl-open-norm-fixture]').click();
     await page.getByRole('button', { name: /Thêm định mức.*chọn cách thêm/ }).click();
-    await page.getByRole('button', { name: 'Tạo định mức mới' }).click();
+    await page.getByRole('menuitem', { name: 'Tạo định mức mới' }).click();
     const editor = page.locator('[data-hnl-norm-editor]');
     await editor.waitFor({ state: 'visible' });
     for (const mode of ['add', 'edit']) {
