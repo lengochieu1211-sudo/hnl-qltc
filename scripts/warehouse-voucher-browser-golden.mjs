@@ -144,7 +144,7 @@ try {
         'Mã tham chiếu','P0-IN-20261013-001','Người thực hiện']) {
         assert(pdfText.includes(required),tag+': PDF native text not extractable: '+required+'; got '+pdfText.slice(0,400));
       }
-      await pdfDoc.destroy();
+      await task.destroy();
     }
     assert(!download.suggestedFilename().includes('HNL'),'Printed voucher must be unbranded');
     results.push({viewport:tag,format,mode:'single',bytes:bytes.length,file:download.suggestedFilename()});
