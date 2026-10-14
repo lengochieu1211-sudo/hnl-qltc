@@ -194,6 +194,7 @@ async function saveTextChunksToAndroid(chunks: Iterable<string>, fileName: strin
 
 export async function saveBlob(blob: Blob, fileName: string, mimeType = blob.type || 'application/octet-stream') {
   const safeName = sanitizeFileName(fileName);
+  if (blob.size <= 0) throw new Error('Không thể xuất tệp rỗng (0 byte).');
 
   if (isAndroidExportBridgeAvailable()) {
     const base64Data = await blobToBase64(blob);
@@ -242,6 +243,7 @@ export async function saveBlob(blob: Blob, fileName: string, mimeType = blob.typ
 // Browser/desktop keeps the normal download attribute behavior.
 export async function saveBlobToDownloads(blob: Blob, fileName: string, mimeType = blob.type || 'application/octet-stream') {
   const safeName = sanitizeFileName(fileName);
+  if (blob.size <= 0) throw new Error('Không thể xuất tệp rỗng (0 byte).');
 
   if (isAndroidExportBridgeAvailable()) {
     const base64Data = await blobToBase64(blob);
