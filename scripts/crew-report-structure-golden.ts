@@ -168,6 +168,8 @@ assert.ok(exportSource.includes('export async function saveBlobToDownloads')
 const crewTabSource = readFileSync(new URL('../src/components/CrewTabBase.tsx', import.meta.url), 'utf8');
 assert.ok(crewTabSource.includes('<CrewReportShareModal'),
   'Mục Quân số must use the shared crew report modal');
+assert.ok(crewTabSource.includes('initialStartDate={getTodayString()}') && crewTabSource.includes('initialEndDate={getTodayString()}'), 'Crew sharing must initially open today');
+assert.ok(!shareModalSource.includes('>1 ngày</button>') && !shareModalSource.includes('>Nhiều ngày</button>'), 'Hide duplicate period controls');
 assert.ok(
   crewTabSource.includes('className="hidden 2xl:grid 2xl:grid-cols-2 gap-2 border-b border-slate-200 bg-slate-50/70 p-3"'),
   'team detail duplicate overview must stay hidden on ordinary laptop/EXE widths',

@@ -509,11 +509,14 @@ requireAll(homeDashboard, [
   'TỔNG',
 ], 'Trang chủ dashboard');
 requireAll(crewReportShare, [
-  '1 ngày',
+  'Hôm nay',
+  'Hôm qua',
+  '7 ngày',
+  'Tháng này',
+  'Khoảng ngày',
   'relative isolate max-h-[42vh] overflow-auto overscroll-contain',
   '<tr className="h-8">',
   'sticky top-[31px]',
-  'Nhiều ngày',
   'Sao chép nội dung',
   'Chia sẻ nội dung',
   'Chia sẻ ảnh',
@@ -522,6 +525,7 @@ requireAll(crewReportShare, [
   'Tổng QS/ngày',
   'TỔNG',
 ], 'crew report share center');
+if (crewReportShare.includes('>1 ngày</button>') || crewReportShare.includes('>Nhiều ngày</button>')) fail('Crew report must not duplicate quick date presets with 1 ngày / Nhiều ngày buttons');
 requireAll(crewReportUtils, [
   'buildCrewReportRows',
   'buildCrewReportText',
