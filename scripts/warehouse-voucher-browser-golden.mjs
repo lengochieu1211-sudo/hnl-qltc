@@ -4,6 +4,7 @@ import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
 import * as XLSX from 'xlsx';
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 const port=await new Promise((resolve,reject)=>{
   const server=net.createServer();server.once('error',reject);
   server.listen(0,'127.0.0.1',()=>{const p=server.address().port;server.close(()=>resolve(p));});
@@ -130,7 +131,21 @@ try {
       const signature=draws.find(x=>x.text==='Người lập phiếu');
       assert(summary && signature && signature.y>summary.y+50 && signature.y-summary.y<250,
         'Signature must follow the actual table instead of being pinned near A4 bottom');
-    }else assert.equal(bytes.subarray(0,4).toString(),'%PDF','PDF header');
+    }else {
+      assert.equal(bytes.subarray(0,4).toString(),'%PDF','PDF header');
+      assert(!bytes.toString('latin1').includes('/Subtype /Image'),
+        'PDF must use native selectable text, not one PNG image for each page');
+      const task=getDocument({data:new Uint8Array(bytes),disableFontFace:true,useSystemFonts:false});
+      const pdfDoc=await task.promise;
+      const firstPage=await pdfDoc.getPage(1);
+      const content=await firstPage.getTextContent();
+      const pdfText=content.items.map(item=>('str' in item ? item.str : '')).join(' ');
+      for(const required of ['PHIẾU NHẬP KHO','Công trình Trung tâm Kiểm thử QLTC',
+        'Mã tham chiếu','P0-IN-20261013-001','Người thực hiện']) {
+        assert(pdfText.includes(required),tag+': PDF native text not extractable: '+required+'; got '+pdfText.slice(0,400));
+      }
+      await pdfDoc.destroy();
+    }
     assert(!download.suggestedFilename().includes('HNL'),'Printed voucher must be unbranded');
     results.push({viewport:tag,format,mode:'single',bytes:bytes.length,file:download.suggestedFilename()});
   }
@@ -161,5 +176,5 @@ try {
  }
  assert.equal(results.length,10);
  fs.writeFileSync('runtime-evidence/voucher-export-report.json',JSON.stringify({status:'PASS',results},null,2));
- console.log('WAREHOUSE VOUCHER TEXT/PNG/XLSX/PDF REAL DOWNLOAD PASS',JSON.stringify(results));
+ console.log('WAREHOUSE VOUCHER IMAGE/EXCEL/SEARCHABLE-PDF REAL DOWNLOAD PASS',JSON.stringify(results));
 } finally {await browser?.close();vite.kill('SIGTERM');}
