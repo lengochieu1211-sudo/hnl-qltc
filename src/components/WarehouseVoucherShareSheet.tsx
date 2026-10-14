@@ -45,13 +45,13 @@ const toDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
 });
 const safeFile = (name: string) => name.replace(/[\\/:*?"<>|]/g, '_').slice(0, 110);
 
-async function prepareVoucherFiles(rows: InventoryItem[], format: 'png' | 'pdf', projectName: string, projectLocation: string): Promise<VoucherFile[]> {
+async function prepareVoucherFiles(rows: InventoryItem[], format: 'png' | 'pdf', projectName: string, projectLocation: string, contractorName: string): Promise<VoucherFile[]> {
   const pages = paginateWarehouseVouchers(rows);
   if (!pages.length) throw new Error('Chưa có giao dịch kho để xuất.');
   if (format === 'png') {
     const files: VoucherFile[] = [];
     for (const [index, page] of pages.entries()) {
-      const blob = await makeBlob(drawWarehouseVoucherPage(page, { projectName, projectLocation }));
+      const blob = await makeBlob(drawWarehouseVoucherPage(page, { projectName, projectLocation, contractorName }));
       const fileName = safeFile('PHIEU_' + (page.direction === 'in' ? 'NHAP' : 'XUAT') + '_KHO_' + page.date + '_TRANG_' + (index + 1) + '.png');
       files.push({ id: 'page-' + (index + 1), fileName, mimeType: 'image/png', blob, dataUrl: await toDataUrl(blob) });
     }
@@ -61,15 +61,15 @@ async function prepareVoucherFiles(rows: InventoryItem[], format: 'png' | 'pdf',
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
   for (const [index, page] of pages.entries()) {
     if (index) pdf.addPage();
-    pdf.addImage(drawWarehouseVoucherPage(page, { projectName, projectLocation }).toDataURL('image/png'), 'PNG', 0, 0, 210, 297, undefined, 'FAST');
+    pdf.addImage(drawWarehouseVoucherPage(page, { projectName, projectLocation, contractorName }).toDataURL('image/png'), 'PNG', 0, 0, 210, 297, undefined, 'FAST');
   }
   const blob = pdf.output('blob');
   if (blob.size <= 0) throw new Error('PDF phiếu kho rỗng (0 byte).');
   const fileName = safeFile('PHIEU_KHO_' + rows.length + '_DONG_' + pages.length + '_TRANG.pdf');
   return [{ id: 'voucher-pdf', fileName, mimeType: 'application/pdf', blob, dataUrl: await toDataUrl(blob) }];
 }
-export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='',projectLocation=''}:{
-  open:boolean;onClose:()=>void;inventory:InventoryItem[];projectName?:string;projectLocation?:string;
+export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='',projectLocation='',contractorName=''}:{
+  open:boolean;onClose:()=>void;inventory:InventoryItem[];projectName?:string;projectLocation?:string;contractorName?:string;
 }) {
   // One shared export entry point: users explicitly select one, many or all items.
   const [period,setPeriod]=useState<Period>('today');
@@ -88,7 +88,7 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
   const chosen=useMemo(()=>pick==='all'?visible:pick==='one'
     ?visible.filter(v=>v.id===checked.find(id=>visible.some(x=>x.id===id))).slice(0,1)
     :visible.filter(v=>checked.includes(v.id)),[pick,visible,checked]);
-  const selectionSignature=[projectName,projectLocation,...chosen.map(item=>[item.id,item.type,item.date,item.location,item.handler,item.materialName,item.unit,item.quantity,item.notes].join('|'))].join('\n');
+  const selectionSignature=[projectName,projectLocation,contractorName,...chosen.map(item=>[item.id,item.type,item.date,item.location,item.handler,item.materialName,item.unit,item.quantity,item.notes].join('|'))].join('\n');
   const pages=useMemo(()=>paginateWarehouseVouchers(chosen),[chosen]);
   useEffect(()=>{setPrepared(null);setMenu(null);setError('');setMessage('');},[selectionSignature]);
   const choice=(current:boolean)=>'min-h-10 rounded-lg border px-3 py-2 text-xs font-semibold '+(current?'border-indigo-600 bg-indigo-600 text-white':'border-slate-300 bg-white text-slate-700');
@@ -99,7 +99,7 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
     if(prepared?.format===format && prepared.signature===selectionSignature)return;
     setPrepared(null);setBusy(true);
     try{
-      const files=await prepareVoucherFiles(chosen,format,projectName,projectLocation);
+      const files=await prepareVoucherFiles(chosen,format,projectName,projectLocation,contractorName);
       setPrepared({format,signature:selectionSignature,files});
     }catch(e){setError(e instanceof Error?e.message:'Không chuẩn bị được phiếu kho.');}
     finally{setBusy(false);}
