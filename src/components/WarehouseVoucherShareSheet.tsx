@@ -63,13 +63,10 @@ async function prepareVoucherFiles(rows: InventoryItem[], format: VoucherFormat,
     }
     return files;
   }
-  const { jsPDF } = await import('jspdf');
-  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
-  for (const [index, page] of pages.entries()) {
-    if (index) pdf.addPage();
-    pdf.addImage(drawWarehouseVoucherPage(page, { projectName, projectLocation, contractorName }).toDataURL('image/png'), 'PNG', 0, 0, 210, 297, undefined, 'FAST');
-  }
-  const blob = pdf.output('blob');
+  // Text PDF: unlike the PNG renderer, this uses native PDF text with an
+  // embedded Unicode font (offline, searchable/selectable, no raster screenshot).
+  const {buildWarehouseVoucherTextPdf} = await import('../utils/warehouseVoucherTextPdf');
+  const blob = await buildWarehouseVoucherTextPdf(pages, {projectName, projectLocation, contractorName});
   if (blob.size <= 0) throw new Error('PDF phiếu kho rỗng (0 byte).');
   const fileName = safeFile('PHIEU_KHO_' + rows.length + '_DONG_' + pages.length + '_TRANG.pdf');
   return [{ id: 'voucher-pdf', fileName, mimeType: 'application/pdf', blob, dataUrl: await toDataUrl(blob) }];
@@ -218,7 +215,7 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
           </div>
         </div>
       </div>}
-      <p className="text-[11px] text-slate-500">Một phiếu chứa bảng nhiều dòng. Ảnh và Excel theo trang; PDF gộp mọi trang. Chia sẻ ảnh tối đa 6 trang/lần.</p>
+      <p className="text-[11px] text-slate-500">Một phiếu chứa bảng nhiều dòng. Ảnh và Excel theo trang; PDF chữ thật, tìm kiếm và sao chép được. Chia sẻ ảnh tối đa 6 trang/lần.</p>
     </div>
   </SettingsFeatureSheet>;
 }
