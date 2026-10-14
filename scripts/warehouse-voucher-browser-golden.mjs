@@ -4,6 +4,7 @@ import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
 import * as XLSX from 'xlsx';
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 const port=await new Promise((resolve,reject)=>{
   const server=net.createServer();server.once('error',reject);
   server.listen(0,'127.0.0.1',()=>{const p=server.address().port;server.close(()=>resolve(p));});
@@ -31,7 +32,6 @@ try {
  for(const viewport of [{width:1280,height:800},{width:393,height:852}]){
   const tag=viewport.width+'x'+viewport.height;
   const context=await browser.newContext({viewport,acceptDownloads:true,isMobile:viewport.width<500,hasTouch:viewport.width<500});
-  await context.grantPermissions(['clipboard-read','clipboard-write']);
   await context.addInitScript(()=>{
     window.__voucherPrintText=[];
     const original=CanvasRenderingContext2D.prototype.fillText;
@@ -58,14 +58,14 @@ try {
   await sheet.getByRole('button',{name:'Một phiếu'}).click();
   await sheet.locator('label').filter({hasText:'P0-IN-20261013-001'}).locator('input[type="radio"]').check();
   assert.match(await sheet.innerText(),/Đã chọn 1\/\d+ phiếu/,'Single voucher selection missing');
-  // Text, image, editable workbook and PDF all share the same selected transaction.
-  await sheet.locator('[data-hnl-voucher-format="text"]').click();
-  const textMenu=sheet.locator('[data-hnl-voucher-action-menu="text"]');
-  const textBox=await textMenu.boundingBox();
-  assert(textBox&&textBox.y>=0&&textBox.y+textBox.height<=viewport.height+2,tag+': text actions must stay visible without scroll');
-  await sheet.locator('[data-hnl-voucher-action="text-copy"]').click();
-  const copied=await page.evaluate(()=>navigator.clipboard.readText());
-  assert(copied.includes('PHIẾU NHẬP KHO')&&copied.includes('P0-IN-20261013-001'),tag+': text must keep original receipt ID');
+  // Only Image, Excel and PDF remain; preserve the existing file download flows.
+  assert.equal(await sheet.locator('[data-hnl-voucher-format]').count(),3,
+    'Warehouse share should expose exactly three formats');
+  assert.equal(await sheet.locator('[data-hnl-voucher-format="text"]').count(),0,
+    'Remove Content format without touching file exports');
+  assert.equal(await sheet.locator('[data-hnl-voucher-format="png"]').count(),1);
+  assert.equal(await sheet.locator('[data-hnl-voucher-format="xlsx"]').count(),1);
+  assert.equal(await sheet.locator('[data-hnl-voucher-format="pdf"]').count(),1);
   await sheet.locator('[data-hnl-voucher-format="xlsx"]').click();
   const excelAction=sheet.locator('[data-hnl-voucher-action="xlsx-download"]');
   await assertEventuallyEnabled(excelAction);
@@ -131,7 +131,22 @@ try {
       const signature=draws.find(x=>x.text==='Người lập phiếu');
       assert(summary && signature && signature.y>summary.y+50 && signature.y-summary.y<250,
         'Signature must follow the actual table instead of being pinned near A4 bottom');
-    }else assert.equal(bytes.subarray(0,4).toString(),'%PDF','PDF header');
+    }else {
+      assert.equal(bytes.subarray(0,4).toString(),'%PDF','PDF header');
+      fs.writeFileSync('runtime-evidence/voucher-selectable-'+tag+'.pdf',bytes);
+      assert(!bytes.toString('latin1').includes('/Subtype /Image'),
+        'PDF must use native selectable text, not one PNG image for each page');
+      const task=getDocument({data:new Uint8Array(bytes),disableFontFace:true,useSystemFonts:false});
+      const pdfDoc=await task.promise;
+      const firstPage=await pdfDoc.getPage(1);
+      const content=await firstPage.getTextContent();
+      const pdfText=content.items.map(item=>('str' in item ? item.str : '')).join(' ');
+      for(const required of ['PHIẾU NHẬP KHO','Công trình Trung tâm Kiểm thử QLTC',
+        'Mã tham chiếu','P0-IN-20261013-001','Người thực hiện']) {
+        assert(pdfText.includes(required),tag+': PDF native text not extractable: '+required+'; got '+pdfText.slice(0,400));
+      }
+      await task.destroy();
+    }
     assert(!download.suggestedFilename().includes('HNL'),'Printed voucher must be unbranded');
     results.push({viewport:tag,format,mode:'single',bytes:bytes.length,file:download.suggestedFilename()});
   }
@@ -162,5 +177,5 @@ try {
  }
  assert.equal(results.length,10);
  fs.writeFileSync('runtime-evidence/voucher-export-report.json',JSON.stringify({status:'PASS',results},null,2));
- console.log('WAREHOUSE VOUCHER TEXT/PNG/XLSX/PDF REAL DOWNLOAD PASS',JSON.stringify(results));
+ console.log('WAREHOUSE VOUCHER IMAGE/EXCEL/SEARCHABLE-PDF REAL DOWNLOAD PASS',JSON.stringify(results));
 } finally {await browser?.close();vite.kill('SIGTERM');}

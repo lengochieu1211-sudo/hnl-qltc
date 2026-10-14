@@ -67,9 +67,12 @@ assert(sheet.includes('paginateWarehouseVouchers(chosen)'),'Export must group se
 assert(sheet.includes("allowTextFallback:false"),'Sharing files cannot silently send text instead');
 assert(sheet.includes('Chia sẻ phiếu nhập/xuất kho') && warehouse.includes('Chia sẻ phiếu nhập/xuất kho'),
   'Warehouse share action and dialog must use one concise label');
-assert(sheet.includes("['text','Nội dung',FileText]") && sheet.includes("['png','Ảnh',ImageIcon]")
+assert(!sheet.includes("['text','Nội dung',FileText]") && !sheet.includes('data-hnl-voucher-action="text-copy"')
+  && sheet.includes('className="grid grid-cols-3 gap-2" role="group"'),
+  'Voucher share must show only three equally sized format buttons without Content');
+assert(sheet.includes("['png','Ảnh',ImageIcon]")
   && sheet.includes("['xlsx','Excel',FileSpreadsheet]") && sheet.includes("['pdf','PDF',FileDown]"),
-  'Keep content/image/Excel/PDF formats together and preserve PDF');
+  'Preserve Image/Excel/PDF formats and their export paths');
 assert(sheet.includes('data-hnl-voucher-action-menu') && sheet.includes('fixed inset-0 z-[160]'),
   'The share/download menu must be viewport-fixed, not appended offscreen below form');
 const excel = fs.readFileSync('src/utils/warehouseVoucherExcel.ts', 'utf8');
@@ -81,4 +84,15 @@ assert(excel.includes('page.rows.forEach') && excel.includes('item.id')
   && excel.includes('Number(item.quantity || 0)'),
   'Excel must retain full line IDs and numeric quantities without affecting warehouse data');
 
+const searchablePdf=fs.readFileSync('src/utils/warehouseVoucherTextPdf.ts','utf8');
+assert(searchablePdf.includes("addFileToVFS('VoucherRoboto.ttf'")
+    && searchablePdf.includes('doc.addFont(')
+    && searchablePdf.includes('doc.text(')
+    && !searchablePdf.includes('doc.addImage('),
+  'PDF must have Unicode native text; a full-page PNG is not searchable');
+assert(sheet.includes('buildWarehouseVoucherTextPdf(pages, {projectName, projectLocation, contractorName})'),
+  'Warehouse PDF exporter must use native text renderer and the active project metadata');
+assert(searchablePdf.includes('item.id') && searchablePdf.includes('item.quantity')
+  && searchablePdf.includes('Người lập phiếu') && searchablePdf.includes('Mã tham chiếu'),
+  'Searchable PDF must retain original transaction IDs, quantities and signatures');
 console.log('Warehouse multi-line A4 grouped receipt / continuous IDs / branding golden: PASS');

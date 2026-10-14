@@ -4,6 +4,12 @@ on:
     branches: [dev]
     paths:
       - 'src/components/WarehouseTab.tsx'
+      - 'src/components/WarehouseVoucherShareSheet.tsx'
+      - 'src/utils/warehouseVoucherPrint.ts'
+      - 'src/utils/warehouseVoucherTextPdf.ts'
+      - 'src/utils/warehouseVoucherPdfFont.ts'
+      - 'scripts/warehouse-voucher-browser-golden.mjs'
+      - 'scripts/warehouse-voucher-layout-golden.ts'
       - 'scripts/warehouse-catalog-browser-golden.mjs'
       - 'scripts/material-norm-form-browser-golden.mjs'
       - 'src/components/MaterialNormModal.tsx'
@@ -32,7 +38,7 @@ jobs:
         run: node scripts/material-norm-form-browser-golden.mjs
       - name: Warehouse voucher date/type selection regression
         run: npx tsx scripts/warehouse-voucher-selection-golden.ts
-      - name: Warehouse vouchers PNG/PDF real download desktop and phone
+      - name: Warehouse vouchers PNG/Excel/searchable Unicode PDF desktop and phone
         run: node scripts/warehouse-voucher-browser-golden.mjs
       - if: always()
         uses: actions/upload-artifact@v4
