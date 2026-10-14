@@ -135,7 +135,8 @@ export function drawWarehouseVoucherPage(page: WarehouseVoucherPrintPage): HTMLC
   ctx.font = 'bold 22px Arial, sans-serif';
   ctx.fillStyle = '#334155';
   ctx.fillText('Kho / Vị trí:', LEFT, 298);
-  ctx.fillText(page.direction === 'in' ? 'Người giao:' : 'Người nhận:', LEFT, 346);
+  // The persisted 'handler' is a generic giao/nhận/engineer field, not a verified sender or recipient.
+  ctx.fillText('Người thực hiện:', LEFT, 346);
   ctx.font = '23px Arial, sans-serif';
   ctx.fillStyle = '#0f172a';
   ctx.fillText(normalize(page.location) || '—', 228, 298, 945);
@@ -207,8 +208,10 @@ export function drawWarehouseVoucherPage(page: WarehouseVoucherPrintPage): HTMLC
     ctx.fillText(formatDecimal(Number(item.quantity || 0)), offset + COLUMN_WIDTHS[3] / 2, rowTop + 35, COLUMN_WIDTHS[3] - 14);
     offset += COLUMN_WIDTHS[3];
     ctx.font = '17px Arial, sans-serif';
-    drawTextLines(ctx, id, offset + 11, rowTop + 28, 23);
+    // Quantity uses center alignment; switch back BEFORE drawing the transaction ID.
+    // Otherwise UUID segments are centered on the left edge of this column and overlap quantity.
     ctx.textAlign = 'left';
+    drawTextLines(ctx, id, offset + 11, rowTop + 28, 23);
     rowTop += h;
   });
 
@@ -220,7 +223,9 @@ export function drawWarehouseVoucherPage(page: WarehouseVoucherPrintPage): HTMLC
   ctx.font = '18px Arial, sans-serif';
   ctx.fillText('Số liệu theo đơn vị từng dòng, không cộng khác ĐVT', LEFT + 410, rowTop + 38);
 
-  const signTop = 1480;
+  // Keep signatures directly below the actual material table instead of fixed near A4 bottom.
+  // Reserve the summary row (60px), a breathing gap (110px) and a footer safe area.
+  const signTop = Math.min(rowTop + 60 + 110, HEIGHT - 180);
   ctx.fillStyle = '#0f172a';
   ctx.textAlign = 'center';
   const signatures = ['Người lập phiếu', page.direction === 'in' ? 'Người giao hàng' : 'Người nhận hàng', 'Thủ kho'];
