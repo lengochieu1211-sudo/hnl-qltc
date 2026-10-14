@@ -36,7 +36,7 @@
     "test:share-center": "tsx scripts/share-center-golden.ts",
     "test:ai-external-context": "tsx scripts/ai-external-context-golden.ts",
     "test:crew-task-description": "node --experimental-strip-types scripts/crew-task-description-golden.ts",
-    "test:crew-report-structure": "tsx scripts/crew-report-structure-golden.ts",
+    "test:crew-report-structure": "tsx scripts/crew-report-structure-golden.ts && tsx scripts/crew-report-excel-golden.ts",
     "test:material-need": "tsx scripts/material-need-golden.ts && tsx scripts/material-need-legacy-team-golden.ts && tsx scripts/material-need-scope-hardening-golden.ts",
     "test:floorplan-p0": "tsx scripts/floorplan-p0-golden.ts && tsx scripts/dxf-room-detection-golden.ts && tsx scripts/quick-edit-excel-golden.ts",
     "test:media-p0": "tsx scripts/media-p0-golden.ts",

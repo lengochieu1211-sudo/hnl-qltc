@@ -48,6 +48,9 @@ mustContain(config, 'Trung tâm kiểm tra dữ liệu (Health Center)', 'unifie
 mustContain(android, 'public boolean shareFiles(String title, String text, String attachmentsJson)', 'Android shareFiles bridge');
 mustContain(android, 'Intent.ACTION_SEND_MULTIPLE', 'Android multi-image share');
 mustContain(android, 'Intent.FLAG_GRANT_READ_URI_PERMISSION', 'Android temporary attachment permission');
+mustContain(android, 'private boolean openNativeShareChooser', 'Android chooser launch acknowledgement');
+mustContain(android, 'finished.await(8, TimeUnit.SECONDS) && opened.get()', 'Do not report success before Android dispatched chooser');
+mustContain(android, 'return openNativeShareChooser(Intent.createChooser(share, safeTitle)', 'File share must use launch acknowledgement');
 
 const crewReportModal = read('src/components/CrewReportShareModal.tsx');
 const homeDashboard = read('src/components/HomeDashboard.tsx');

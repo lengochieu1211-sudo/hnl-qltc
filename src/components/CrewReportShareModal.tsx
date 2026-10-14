@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Copy, Download, FileText, Image as ImageIcon, Share2, Users, X } from 'lucide-react';
+import { Copy, Download, FileSpreadsheet, FileText, Image as ImageIcon, Share2, Users, X } from 'lucide-react';
 import type { ShareAttachmentPayload } from '../utils/shareUtils';
 import { sharePreparedContent } from '../utils/shareUtils';
 import { isAndroidExportBridgeAvailable, saveBlobToDownloads } from '../utils/fileExport';
@@ -365,7 +365,10 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
   const [hideZeroDates, setHideZeroDates] = useState(false);
   const [showSerialNumber, setShowSerialNumber] = useState(false);
   const [showWorkDetails, setShowWorkDetails] = useState(false);
-  const [busy, setBusy] = useState<'text' | 'image' | 'download' | ''>('');
+  const [busy, setBusy] = useState<'text' | 'image' | 'download' | 'excel' | ''>('');
+  const [actionMenu, setActionMenu] = useState<'text' | 'image' | 'excel' | null>(null);
+  const [preparedImages, setPreparedImages] = useState<{signature:string; attachments:ShareAttachmentPayload[]}|null>(null);
+  const [preparedExcel, setPreparedExcel] = useState<{signature:string; fileName:string; mimeType:string; blob:Blob; dataUrl:string}|null>(null);
   const [message, setMessage] = useState('');
 
   useEffect(() => {
@@ -388,6 +391,9 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
     setShowSerialNumber(false);
     setShowWorkDetails(false);
     setMessage('');
+    setActionMenu(null);
+    setPreparedImages(null);
+    setPreparedExcel(null);
   }, [isOpen, initialStartDate, initialEndDate]);
 
   const effectiveEndDate = mode === 'single' ? startDate : endDate;
@@ -468,6 +474,12 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
   const dailySummary = useMemo(() => summarizeCrewReportRows(rows), [rows]);
   const reportMatrices = useMemo(() => buildCrewReportMatrices(rows), [rows]);
   const reportText = useMemo(() => buildCrewReportText({ rows, startDate, endDate: effectiveEndDate, title, includeSerial: showSerialNumber, includeDetails: showWorkDetails }), [rows, startDate, effectiveEndDate, title, showSerialNumber, showWorkDetails]);
+  const preparationSignature = reportText + '|' + showSerialNumber + '|' + showWorkDetails;
+  useEffect(() => {
+    setActionMenu(null);
+    setPreparedImages(null);
+    setPreparedExcel(null);
+  }, [preparationSignature]);
 
   if (!isOpen) return null;
 
@@ -476,7 +488,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
       await navigator.clipboard.writeText(reportText);
       setMessage('Đã sao chép nội dung báo cáo.');
     } catch (_) {
-      setMessage('Không sao chép tự động được. Hãy dùng nút Chia sẻ nội dung.');
+      setMessage('Không sao chép tự động được. Hãy thử Chia sẻ nội dung.');
     }
   };
 
@@ -485,8 +497,10 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
     setMessage('');
     try {
       const result = await sharePreparedContent({ title, text: reportText });
-      if (result.status === 'shared') setMessage('Đã mở bảng chia sẻ nội dung báo cáo.');
-      else if (result.status !== 'cancelled') setMessage('Không mở được bảng chia sẻ; bạn vẫn có thể sao chép nội dung.');
+      if (result.status === 'shared') setMessage('Đã yêu cầu mở bảng chia sẻ nội dung.');
+      else if (result.status === 'copied') setMessage('Thiết bị không hỗ trợ chia sẻ; đã sao chép nội dung thay thế.');
+      else if (result.status === 'cancelled') setMessage('Đã hủy chia sẻ.');
+      else setMessage('Không chia sẻ được nội dung. Hãy chọn Sao chép nội dung.');
     } finally {
       setBusy('');
     }
@@ -494,63 +508,96 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
 
   const makeImages = async () => renderCrewReportImages({ rows, startDate, endDate: effectiveEndDate, title, showSerialNumber, showWorkDetails });
 
+  const openActionMenu = async (type:'text'|'image'|'excel') => {
+    if(busy)return;
+    if(actionMenu===type){setActionMenu(null);return;}
+    setActionMenu(type);
+    setMessage('');
+    if(type==='text')return;
+    if(type==='image' && preparedImages?.signature===preparationSignature)return;
+    if(type==='excel' && preparedExcel?.signature===preparationSignature)return;
+    setBusy(type);
+    try{
+      if(type==='image'){
+        const attachments=await makeImages();
+        if(!attachments.length)throw new Error('Không có dữ liệu để tạo ảnh quân số.');
+        setPreparedImages({signature:preparationSignature,attachments});
+      }else{
+        const {buildCrewReportExcel}=await import('../utils/crewReportExcel');
+        const {blob,fileName,mimeType}=await buildCrewReportExcel({rows,startDate,endDate:effectiveEndDate,
+          includeSerial:showSerialNumber,includeDetails:showWorkDetails,title});
+        const dataUrl=await new Promise<string>((resolve,reject)=>{
+          const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||''));
+          reader.onerror=()=>reject(reader.error);reader.readAsDataURL(blob);
+        });
+        setPreparedExcel({signature:preparationSignature,blob,fileName,mimeType,dataUrl});
+      }
+    }catch(e){setMessage('Không chuẩn bị được '+(type==='image'?'ảnh':'Excel')+': '+(e instanceof Error?e.message:String(e)));}
+    finally{setBusy('');}
+  };
+
   const shareImages = async () => {
+    const attachments=preparedImages?.signature===preparationSignature?preparedImages.attachments:[];
+    if(!attachments.length)return;
+    if(attachments.length>6){setMessage('Chia sẻ ảnh tối đa 6 trang/lần. Hãy chọn ngày hoặc dự án ít hơn, hoặc tải ảnh.');return;}
     setBusy('image');
     setMessage('');
-    try {
-      const attachments = await makeImages();
-      const result = await sharePreparedContent({
-        title,
-        text: `${title}\n${startDate === effectiveEndDate ? formatDateDDMMYYYY(startDate) : `${formatDateDDMMYYYY(startDate)} → ${formatDateDDMMYYYY(effectiveEndDate)}`}`,
-        attachments,
-        allowTextFallback: false,
-      });
-      if (result.status === 'shared') {
-        setMessage(attachments.length > 6
-          ? `Đã mở chia sẻ tối đa 6/${attachments.length} ảnh. Dùng “Tải ảnh” để lấy toàn bộ.`
-          : 'Đã mở bảng chia sẻ ảnh báo cáo.');
-      } else if (result.status !== 'cancelled') {
-        setMessage('Không thể chia sẻ ảnh trực tiếp trên thiết bị này. Hãy dùng “Tải ảnh”; không tự chuyển sang chia sẻ văn bản.');
-      }
-    } finally {
-      setBusy('');
-    }
+    try{
+      const result=await sharePreparedContent({title,
+        text:title+'\n'+(startDate===effectiveEndDate?formatDateDDMMYYYY(startDate):formatDateDDMMYYYY(startDate)+' → '+formatDateDDMMYYYY(effectiveEndDate)),
+        attachments,allowTextFallback:false});
+      if(result.status==='shared')setMessage('Đã yêu cầu mở chia sẻ '+attachments.length+' ảnh báo cáo.');
+      else if(result.status==='cancelled')setMessage('Đã hủy chia sẻ ảnh.');
+      else setMessage('Thiết bị không hỗ trợ chia sẻ ảnh trực tiếp; hãy chọn Tải ảnh.');
+    }finally{setBusy('');}
   };
 
   const downloadImages = async () => {
+    const attachments=preparedImages?.signature===preparationSignature?preparedImages.attachments:[];
+    if(!attachments.length)return;
     setBusy('download');
     setMessage('');
     let savedCount = 0;
-    try {
-      const attachments = await makeImages();
-      if (!attachments.length) {
-        setMessage('Không tạo được ảnh báo cáo. Vui lòng kiểm tra dữ liệu và thử lại.');
-      } else if (isAndroidExportBridgeAvailable()) {
-        // Process reports one by one to limit Android WebView memory pressure,
-        // preserve order and stop on the first native save failure.
-        for (const attachment of attachments) {
+    try{
+      if(isAndroidExportBridgeAvailable()){
+        for(const attachment of attachments){
           await downloadDataUrl(attachment.dataUrl, attachment.fileName);
-          savedCount += 1;
+          savedCount+=1;
         }
         setMessage(`Đã lưu ${savedCount} ảnh báo cáo vào Tải xuống/QLTC trên điện thoại.`);
-      } else if (attachments.length === 1) {
-        await downloadDataUrl(attachments[0].dataUrl, attachments[0].fileName);
+      }else if(attachments.length===1){
+        await downloadDataUrl(attachments[0].dataUrl,attachments[0].fileName);
         setMessage('Đã yêu cầu trình duyệt tải 1 ảnh. Kiểm tra thư mục Tải xuống trên thiết bị.');
-      } else {
-        // Browsers may block multiple automatic downloads. Do not report them as saved.
-        attachments.forEach((attachment, index) => window.setTimeout(() => {
-          void downloadDataUrl(attachment.dataUrl, attachment.fileName).catch((error: unknown) => {
-            setMessage('Không tải được một ảnh báo cáo: ' + (error instanceof Error ? error.message : String(error)));
+      }else{
+        attachments.forEach((attachment,index)=>window.setTimeout(()=>{
+          void downloadDataUrl(attachment.dataUrl,attachment.fileName).catch(err=>{
+            setMessage('Một ảnh không tải được: '+(err instanceof Error?err.message:String(err)));
           });
-        }, index * 250));
-        setMessage(`Đã yêu cầu tải ${attachments.length} ảnh. Nếu trình duyệt chặn tải nhiều tệp, hãy cho phép tải nhiều tệp hoặc chọn khoảng ngày/dự án nhỏ hơn.`);
+        },index*250));
+        setMessage('Đã yêu cầu tải '+attachments.length+' ảnh. Hãy cho phép tải nhiều file nếu trình duyệt hỏi.');
       }
-    } catch (error) {
-      setMessage((savedCount ? `Đã lưu ${savedCount} ảnh; ảnh tiếp theo không lưu được: ` : 'Không tải được ảnh báo cáo: ')
-        + (error instanceof Error ? error.message : String(error)));
-    } finally {
-      setBusy('');
-    }
+    }catch(e){setMessage((savedCount ? 'Đã lưu '+savedCount+' ảnh; ảnh tiếp theo không tải được: ' : 'Không tải được ảnh báo cáo: ')+(e instanceof Error?e.message:String(e)));}
+    finally{setBusy('');}
+  };
+
+  const handleExcel = async(action:'download'|'share')=>{
+    const item=preparedExcel?.signature===preparationSignature?preparedExcel:null;
+    if(!item||busy)return;
+    setBusy('excel');setMessage('');
+    try{
+      if(action==='download'){
+        await saveBlobToDownloads(item.blob,item.fileName,item.mimeType);
+        setMessage('Đã yêu cầu tải Excel quân số với công thức MAX/SUM.');
+      }else{
+        const result=await sharePreparedContent({title:'Báo cáo quân số',text:title,
+          attachments:[{id:'crew-excel',fileName:item.fileName,mimeType:item.mimeType,dataUrl:item.dataUrl}],
+          allowTextFallback:false});
+        if(result.status==='shared')setMessage('Đã yêu cầu mở chia sẻ file Excel.');
+        else if(result.status==='cancelled')setMessage('Đã hủy chia sẻ Excel.');
+        else setMessage('Không chia sẻ Excel được trên thiết bị này. Hãy chọn Tải Excel.');
+      }
+    }catch(e){setMessage('Không xuất/chia sẻ Excel: '+(e instanceof Error?e.message:String(e)));}
+    finally{setBusy('');}
   };
 
   return (
@@ -718,12 +765,34 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
             <Users className="mr-1 inline h-3.5 w-3.5" /> 0 = đã báo, không có người · — = chưa báo · Tổng ngày = cộng QS các đội · TỔNG = cộng từng cột; ô cuối = tổng lượt người-ngày.
           </div>
 
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            <button type="button" disabled={!rangeValid || rows.length === 0 || Boolean(busy)} onClick={copyText} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-extrabold text-slate-700 hover:bg-slate-50 disabled:opacity-40"><Copy className="h-4 w-4" /> Sao chép nội dung</button>
-            <button type="button" disabled={!rangeValid || rows.length === 0 || Boolean(busy)} onClick={shareText} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-3 text-xs font-extrabold text-white hover:bg-slate-800 disabled:opacity-40"><FileText className="h-4 w-4" /> {busy === 'text' ? 'Đang chuẩn bị...' : 'Chia sẻ nội dung'}</button>
-            <button type="button" disabled={!rangeValid || rows.length === 0 || Boolean(busy)} onClick={shareImages} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-xs font-extrabold text-white hover:bg-emerald-700 disabled:opacity-40"><ImageIcon className="h-4 w-4" /> {busy === 'image' ? 'Đang tạo ảnh...' : 'Chia sẻ ảnh'}</button>
-            <button type="button" disabled={!rangeValid || rows.length === 0 || Boolean(busy)} onClick={downloadImages} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 text-xs font-extrabold text-blue-700 hover:bg-blue-100 disabled:opacity-40"><Download className="h-4 w-4" /> {busy === 'download' ? 'Đang tạo ảnh...' : 'Tải ảnh'}</button>
+          <div className="grid grid-cols-3 gap-2" data-hnl-crew-export-menu="unified">
+            <button type="button" disabled={!rangeValid || rows.length===0||Boolean(busy)} onClick={()=>void openActionMenu('text')}
+              aria-expanded={actionMenu==='text'} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-slate-800 px-2 text-xs font-bold text-white disabled:opacity-40">
+              <FileText className="h-4 w-4" /> Nội dung
+            </button>
+            <button type="button" disabled={!rangeValid || rows.length===0||Boolean(busy)} onClick={()=>void openActionMenu('image')}
+              aria-expanded={actionMenu==='image'} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-2 text-xs font-bold text-white disabled:opacity-40">
+              <ImageIcon className="h-4 w-4" /> {busy==='image'?'Tạo ảnh…':'Ảnh'}
+            </button>
+            <button type="button" disabled={!rangeValid || rows.length===0||Boolean(busy)} onClick={()=>void openActionMenu('excel')}
+              aria-expanded={actionMenu==='excel'} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-2 text-xs font-bold text-white disabled:opacity-40">
+              <FileSpreadsheet className="h-4 w-4" /> {busy==='excel'?'Tạo Excel…':'Excel'}
+            </button>
           </div>
+          {actionMenu&&<div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            {actionMenu==='text'&&<>
+              <button type="button" onClick={()=>void copyText()} disabled={Boolean(busy)} className="min-h-11 rounded-lg border border-slate-300 bg-white px-2 text-xs font-bold text-slate-700 disabled:opacity-40"><Copy className="mr-1 inline h-4 w-4" /> Sao chép nội dung</button>
+              <button type="button" onClick={()=>void shareText()} disabled={Boolean(busy)} className="min-h-11 rounded-lg bg-slate-800 px-2 text-xs font-bold text-white disabled:opacity-40"><Share2 className="mr-1 inline h-4 w-4" /> Chia sẻ nội dung</button>
+            </>}
+            {actionMenu==='image'&&<>
+              <button type="button" onClick={()=>void downloadImages()} disabled={Boolean(busy)||preparedImages?.signature!==preparationSignature} className="min-h-11 rounded-lg border border-emerald-200 bg-white px-2 text-xs font-bold text-emerald-700 disabled:opacity-40"><Download className="mr-1 inline h-4 w-4" /> Tải ảnh</button>
+              <button type="button" onClick={()=>void shareImages()} disabled={Boolean(busy)||preparedImages?.signature!==preparationSignature} className="min-h-11 rounded-lg bg-emerald-600 px-2 text-xs font-bold text-white disabled:opacity-40"><Share2 className="mr-1 inline h-4 w-4" /> Chia sẻ ảnh</button>
+            </>}
+            {actionMenu==='excel'&&<>
+              <button type="button" onClick={()=>void handleExcel('download')} disabled={Boolean(busy)||preparedExcel?.signature!==preparationSignature} className="min-h-11 rounded-lg border border-indigo-200 bg-white px-2 text-xs font-bold text-indigo-700 disabled:opacity-40"><Download className="mr-1 inline h-4 w-4" /> Tải Excel</button>
+              <button type="button" onClick={()=>void handleExcel('share')} disabled={Boolean(busy)||preparedExcel?.signature!==preparationSignature} className="min-h-11 rounded-lg bg-indigo-600 px-2 text-xs font-bold text-white disabled:opacity-40"><Share2 className="mr-1 inline h-4 w-4" /> Chia sẻ Excel</button>
+            </>}
+          </div>}
           {message && <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">{message}</div>}
         </div>
       </div>

@@ -59,6 +59,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.json.JSONObject;
 import org.json.JSONArray;
@@ -680,6 +683,30 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Android JavaScriptInterface calls run off the main thread. Never tell the Web
+    // UI a share chooser was opened before startActivity has actually returned.
+    // This reports dispatch success, NOT that the user selected a recipient.
+    private boolean openNativeShareChooser(Intent chooser, String failureMessage) {
+        final CountDownLatch finished = new CountDownLatch(1);
+        final AtomicBoolean opened = new AtomicBoolean(false);
+        runOnUiThread(() -> {
+            try {
+                startActivity(chooser);
+                opened.set(true);
+            } catch (Exception error) {
+                showToast(failureMessage + ": " + error.getMessage());
+            } finally {
+                finished.countDown();
+            }
+        });
+        try {
+            return finished.await(8, TimeUnit.SECONDS) && opened.get();
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
     public class AndroidContactBridge {
         @JavascriptInterface
         public boolean pickContact(String requestId) {
@@ -707,18 +734,11 @@ public class MainActivity extends Activity {
                 final String safeTitle = title == null || title.trim().isEmpty() ? "HNL QLTC" : title.trim();
                 final String safeText = text == null ? "" : text;
                 if (safeText.trim().isEmpty()) return false;
-                runOnUiThread(() -> {
-                    try {
-                        Intent sendIntent = new Intent(Intent.ACTION_SEND);
-                        sendIntent.setType("text/plain");
-                        sendIntent.putExtra(Intent.EXTRA_SUBJECT, safeTitle);
-                        sendIntent.putExtra(Intent.EXTRA_TEXT, safeText);
-                        startActivity(Intent.createChooser(sendIntent, "Chia se tu HNL QLTC"));
-                    } catch (Exception error) {
-                        showToast("Khong the mo chia se he thong: " + error.getMessage());
-                    }
-                });
-                return true;
+                Intent sendIntent = new Intent(Intent.ACTION_SEND);
+                sendIntent.setType("text/plain");
+                sendIntent.putExtra(Intent.EXTRA_SUBJECT, safeTitle);
+                sendIntent.putExtra(Intent.EXTRA_TEXT, safeText);
+                return openNativeShareChooser(Intent.createChooser(sendIntent, "Chia se tu HNL QLTC"), "Khong the mo chia se he thong");
             } catch (Exception error) {
                 return false;
             }
@@ -766,24 +786,17 @@ public class MainActivity extends Activity {
                 }
                 if (uris.isEmpty()) return false;
 
-                runOnUiThread(() -> {
-                    try {
-                        Intent share = new Intent(uris.size() > 1 ? Intent.ACTION_SEND_MULTIPLE : Intent.ACTION_SEND);
-                        share.setType(uris.size() > 1 ? "image/*" : mimeTypes.get(0));
-                        share.putExtra(Intent.EXTRA_TEXT, safeText);
-                        share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                        if (uris.size() > 1) share.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
-                        else share.putExtra(Intent.EXTRA_STREAM, uris.get(0));
+                Intent share = new Intent(uris.size() > 1 ? Intent.ACTION_SEND_MULTIPLE : Intent.ACTION_SEND);
+                share.setType(uris.size() > 1 ? "image/*" : mimeTypes.get(0));
+                share.putExtra(Intent.EXTRA_TEXT, safeText);
+                share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                if (uris.size() > 1) share.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
+                else share.putExtra(Intent.EXTRA_STREAM, uris.get(0));
 
-                        ClipData clip = ClipData.newUri(getContentResolver(), "HNL QLTC share", uris.get(0));
-                        for (int i = 1; i < uris.size(); i++) clip.addItem(new ClipData.Item(uris.get(i)));
-                        share.setClipData(clip);
-                        startActivity(Intent.createChooser(share, safeTitle));
-                    } catch (Exception error) {
-                        showToast("Khong the chia se anh: " + error.getMessage());
-                    }
-                });
-                return true;
+                ClipData clip = ClipData.newUri(getContentResolver(), "Phiếu và ảnh chia sẻ", uris.get(0));
+                for (int i = 1; i < uris.size(); i++) clip.addItem(new ClipData.Item(uris.get(i)));
+                share.setClipData(clip);
+                return openNativeShareChooser(Intent.createChooser(share, safeTitle), "Khong the mo chia se tep");
             } catch (Exception error) {
                 showToast("Khong the chuan bi anh chia se: " + error.getMessage());
                 return false;

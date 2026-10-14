@@ -213,6 +213,9 @@ jobs:
       - name: Warehouse voucher PNG/PDF binary golden
         run: npx tsx scripts/warehouse-voucher-selection-golden.ts && npx tsx scripts/warehouse-voucher-layout-golden.ts && node scripts/warehouse-voucher-browser-golden.mjs
 
+      - name: Crew report text, PNG, XLSX formulas and share browser golden
+        run: node scripts/crew-report-export-browser-golden.mjs
+
       - name: Warehouse catalog actual click golden (desktop + mobile)
         run: node scripts/warehouse-catalog-browser-golden.mjs
 
