@@ -80,6 +80,9 @@ try {
       assert(draws.some(x=>x.text==='Công trình Trung tâm Kiểm thử QLTC')
         && draws.some(x=>x.text==='123 Đường Thử Nghiệm, Quận 1, TP.HCM'),
         'Printed PNG must use the active project metadata, not a warehouse address');
+      assert(draws.some(x=>x.text==='Đơn vị thi công:') && draws.some(x=>x.text==='Công ty Thi công Kiểm thử'),
+        'Optional contractor must come from the current project, not a guessed warehouse recipient');
+      assert(draws.some(x=>x.text==='Mã tham chiếu'), 'Transaction UUID column should be labeled Mã tham chiếu');
       assert(!draws.some(x=>x.text.startsWith('Đơn vị:')||x.text.startsWith('Bộ phận:')),
         'Old blank unit/department placeholders must not appear');
       const handlerLabel=draws.find(x=>x.text==='Người thực hiện:');
