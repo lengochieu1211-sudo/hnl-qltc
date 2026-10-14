@@ -99,10 +99,13 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
   const pages=useMemo(()=>paginateWarehouseVouchers(chosen),[chosen]);
   useEffect(()=>{setPrepared(null);setMenu(null);setError('');setMessage('');},[selectionSignature]);
   const choice=(current:boolean)=>'min-h-10 rounded-lg border px-3 py-2 text-xs font-semibold '+(current?'border-indigo-600 bg-indigo-600 text-white':'border-slate-300 bg-white text-slate-700');
-  const openActions=async(format:'png'|'pdf')=>{
+  const formattedText=useMemo(()=>buildWarehouseVoucherText(pages,{projectName,projectLocation,contractorName}),[pages,projectName,projectLocation,contractorName]);
+  const formatLabel=(format:VoucherFormat) => format==='text'?'nội dung':format==='png'?'ảnh':format==='xlsx'?'Excel':'PDF';
+  const openActions=async(format:VoucherFormat)=>{
     if(!chosen.length||busy)return;
     if(menu===format){setMenu(null);return;}
     setMenu(format);setError('');setMessage('');
+    if(format==='text')return;
     if(prepared?.format===format && prepared.signature===selectionSignature)return;
     setPrepared(null);setBusy(true);
     try{
@@ -111,11 +114,30 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
     }catch(e){setError(e instanceof Error?e.message:'Không chuẩn bị được phiếu kho.');}
     finally{setBusy(false);}
   };
-  const act=async(action:'download'|'share')=>{
-    if(!menu||!prepared||prepared.signature!==selectionSignature||prepared.format!==menu||busy)return;
+  const act=async(action:'download'|'share'|'copy')=>{
+    if(!menu||busy)return;
+    if(menu==='text'){
+      if(!formattedText)return;
+      setBusy(true);setError('');setMessage('');
+      try{
+        if(action==='copy'){
+          await navigator.clipboard.writeText(formattedText);
+          setMessage('Đã sao chép nội dung phiếu kho.');
+        } else if(action==='share'){
+          const result=await sharePreparedContent({title:'Phiếu nhập/xuất kho',text:formattedText});
+          if(result.status==='shared')setMessage('Đã yêu cầu mở chia sẻ nội dung phiếu.');
+          else if(result.status==='cancelled')setMessage('Đã hủy chia sẻ.');
+          else throw new Error('Không chia sẻ được nội dung. Hãy dùng Sao chép nội dung.');
+        }
+        setMenu(null);
+      }catch(e){setError(e instanceof Error?e.message:'Không thể sao chép/chia sẻ nội dung.');}
+      finally{setBusy(false);}
+      return;
+    }
+    if(!prepared||prepared.signature!==selectionSignature||prepared.format!==menu)return;
     const files=prepared.files;
     if(action==='share'&&files.length>6){
-      setError('Chia sẻ PNG tối đa 6 trang mỗi lần. Hãy chọn PDF để chia sẻ toàn bộ.');
+      setError('Chia sẻ tối đa 6 ảnh/trang mỗi lần. Hãy chọn PDF hoặc Excel để chia sẻ toàn bộ.');
       return;
     }
     setBusy(true);setError('');setMessage('');
@@ -126,17 +148,17 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
           isAndroidExportBridgeAvailable()
             ? 'Đã lưu '+files.length+' ảnh phiếu kho vào Tải xuống/QLTC.'
             : 'Đã yêu cầu tải '+files.length+' ảnh; trình duyệt có thể yêu cầu cấp quyền tải nhiều file.');
-      }else{
-        // All image/PDF bytes are prepared on the earlier PNG/PDF click, so the
-        // final Share click can invoke navigator.share with transient activation.
+      }else if(action==='share'){
+        // File bytes are prepared before the final click to preserve native share activation.
         const result=await sharePreparedContent({title:'Phiếu nhập/xuất kho',
           text:'Phiếu kho · '+chosen.length+' dòng vật tư · '+pages.length+' trang A4',
           attachments:files.map(file=>({id:file.id,fileName:file.fileName,mimeType:file.mimeType,dataUrl:file.dataUrl})),
           allowTextFallback:false});
-        if(result.status==='shared')setMessage('Đã yêu cầu mở bảng chia sẻ '+menu.toUpperCase()+'.');
+        if(result.status==='shared')setMessage('Đã yêu cầu mở bảng chia sẻ '+formatLabel(menu)+'.');
         else if(result.status==='cancelled')setMessage('Đã hủy chia sẻ.');
-        else setError('Thiết bị hoặc trình duyệt không hỗ trợ chia sẻ file trực tiếp. Hãy chọn Tải '+menu.toUpperCase()+'.');
+        else throw new Error('Thiết bị không hỗ trợ chia sẻ file trực tiếp. Hãy chọn Tải '+formatLabel(menu)+'.');
       }
+      setMenu(null);
     }catch(e){setError(e instanceof Error?e.message:'Không thể tải hoặc chia sẻ phiếu kho.');}
     finally{setBusy(false);}
   };
