@@ -42,7 +42,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: 0cd3c209d0d47a0529930b0de5de1f5bfc00b0b3
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Verify exact source and approved scope
         shell: bash
