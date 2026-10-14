@@ -32,12 +32,13 @@ import { confirmAsync } from '../utils/confirmAsync';
 import { calculateStockSummary, resolveNormMaterialId } from '../utils/inventoryUtils';
 import { compareDateValues, naturalCompare } from '../utils/sortUtils';
 import { createEntityId } from '../utils/idUtils';
-import { normalizeUnit } from '../utils/unitUtils';
+import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
 import { canonicalWorkCategoryId, normalizeLinkText } from '../utils/linkageIntegrity';
 import { assertSafeExcelImportFile, parseExcelNumberRecord, parseExcelStringArray, parseExcelStringRecord, readExcelFormulaByHeaders, sameStringSet } from '../utils/excelImportUtils';
 import { QuickSortBar } from './QuickSortBar';
 import { compareMaterialGroupPriority } from '../utils/catalogDisplayOrder';
-import { equipmentIdentityKey, saveEquipmentCatalogBatch, subscribeEquipmentCatalog, type EquipmentCatalogRecord, type EquipmentCatalogInput } from '../lib/equipmentCatalog';
+import { equipmentIdentityKey, EquipmentUnitMigrationRequiredError, saveEquipmentCatalogBatch, subscribeEquipmentCatalog, type EquipmentCatalogRecord, type EquipmentCatalogInput } from '../lib/equipmentCatalog';
+import type { WarehouseUnitRenameInput } from '../lib/warehouseUnitMigration';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import { DataManagementMenu } from './DataManagementMenu';
 import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';
@@ -78,7 +79,7 @@ interface WarehouseTabProps {
   onImportInventory?: (inventory: InventoryItem[]) => void | Promise<void>;
   onImportNorms?: (norms: MaterialNorm[]) => void;
   onCreateMaterialCatalog?: (input: { materialName: string; unit: string; category: string }) => string | null | Promise<string | null>;
-  onRenameWarehouseUnit?: (input: { kind: 'material' | 'equipment'; materialId?: string; materialName: string; fromUnit: string; toUnit: string }) => Promise<{ norms: number; vouchers: number }>;
+  onRenameWarehouseUnit?: (input: Omit<WarehouseUnitRenameInput, 'projectId'>) => Promise<{ norms: number; vouchers: number }>;
   onImportWorkVolumes?: (volumes: WorkVolume[]) => void;
   roomProgressList?: RoomProgressItem[];
   teams?: TeamInfo[];
@@ -1678,7 +1679,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     if (quickEditMode === 'equipment') return [
       { key: 'name', label: 'Tên định danh kho (khóa)', editable: (row) => hasNormManageAccess && Boolean(row.__new), required: true, width: 220 },
       { key: 'displayName', label: 'Tên hiển thị (sửa được)', editable: hasNormManageAccess, width: 220 },
-      { key: 'unit', label: 'ĐVT (khóa khi đã có)', editable: (row) => hasNormManageAccess && Boolean(row.__new), required: true, width: 150 },
+      { key: 'unit', label: 'ĐVT (sửa 1:1 an toàn)', editable: hasNormManageAccess, required: true, width: 150 },
       { key: 'category', label: 'Nhóm thiết bị', editable: hasNormManageAccess, width: 165 },
       { key: 'brand', label: 'Hãng', editable: hasNormManageAccess, width: 160 },
       { key: 'model', label: 'Model / Mã hiệu', editable: hasNormManageAccess, width: 160 },
@@ -1766,18 +1767,22 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       if (deletedRows.length > 0) throw new Error('Không được xóa trực tiếp danh mục thiết bị có lịch sử.');
       const changedRows = rows.filter(row => Array.from(dirtyCellKeys).some(cell => cell.startsWith(row.__rowKey + '::')));
       if (!changedRows.length) return;
+      // A catalog metadata batch is one transaction, but voucher/balance unit migrations
+      // are separate transactions per identity. Never partially save a mixed bulk edit.
+      const changedUnitRows = changedRows.filter(row => {
+        const original = warehouseQuickEquipmentRows.find(item => item.__rowKey === row.__rowKey);
+        return original && !row.__new && !areSameUnit(String(original.unit || ''), String(row.unit || ''));
+      });
+      if (changedUnitRows.length && changedRows.length !== 1) {
+        alert('Có thiết bị đổi ĐVT trong nhiều dòng chỉnh sửa. Để tránh lưu một phần dữ liệu, hãy lưu riêng từng thiết bị cần đổi ĐVT; các dòng chỉ sửa thông tin có thể lưu chung.');
+        return false;
+      }
       const drafts: EquipmentCatalogInput[] = changedRows.map(row => {
         const name = String(row.name || '').trim();
         const unit = normalizeUnit(String(row.unit || '').trim()) || String(row.unit || '').trim();
-        const sameNameInLedger = inventory.filter(item =>
-          item.itemKind === 'equipment' && equipmentIdentityKey(item.materialName) === equipmentIdentityKey(name));
         // A new metadata row for legacy vouchers may select ONE unit already
         // present in Cloud history. saveEquipmentCatalogBatch checks that on
         // the server; mismatched other vouchers must not block metadata edits.
-        const master = equipmentMaster.find(item => item.id === String(row.__catalogId || ''));
-        if (master && (normalizeUnit(master.unit) || master.unit) !== unit && sameNameInLedger.length) {
-          throw new Error(`Thiết bị “${name}” đã có phiếu kho. Hãy dùng nút Đổi ĐVT (1:1) trong Thiết lập thiết bị.`);
-        }
         return {
           id: String(row.__catalogId || '') || undefined,
           revision: row.__catalogRevision === undefined ? undefined : Number(row.__catalogRevision),
@@ -1786,6 +1791,63 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           specifications: String(row.specifications || ''), notes: String(row.notes || ''),
         };
       });
+
+      if (changedUnitRows.length) {
+        // The only dirty row is a 1:1 unit correction; keep its metadata in the
+        // same atomic operation as all affected vouchers and balances.
+        const row = changedUnitRows[0];
+        const draft = drafts[0];
+        const original = warehouseQuickEquipmentRows.find(item => item.__rowKey === row.__rowKey);
+        const fromUnit = normalizeUnit(String(original?.unit || '')) || String(original?.unit || '').trim();
+        if (!original || !fromUnit || !onRenameWarehouseUnit) {
+          alert('Chưa thể đổi ĐVT: thiếu đơn vị gốc hoặc chức năng đồng bộ phiếu kho. Chưa lưu dữ liệu.');
+          return false;
+        }
+        const approved = await confirmAsync(
+          `Đổi ĐVT thiết bị “${draft.name}” từ “${fromUnit}” thành “${draft.unit}”?\n`
+          + 'Nếu có phiếu kho, danh mục, phiếu nhập/xuất và tồn kho sẽ được đồng bộ trong MỘT giao dịch. '
+          + 'Chỉ sửa nhãn ghi nhầm theo tỷ lệ 1:1, KHÔNG quy đổi số lượng (Bộ không mặc định bằng Cái).',
+          { title: 'Xác nhận đổi ĐVT thiết bị', confirmLabel: 'Kiểm tra và lưu', cancelLabel: 'Hủy' },
+        );
+        if (!approved) return false;
+        const master = equipmentMaster.find(item => item.id === String(row.__catalogId || ''));
+        const equipmentMetadata = {
+          displayName: draft.displayName || draft.name, category: draft.category,
+          brand: draft.brand || '', model: draft.model || '',
+          specifications: draft.specifications || '', notes: draft.notes || '',
+          expectedRevision: master?.revision,
+        };
+        const migrate = async (unitOnCloud: string) => {
+          if (!areSameUnit(unitOnCloud, fromUnit)) {
+            throw new Error('ĐVT gốc đã thay đổi trên Cloud. Hãy tải lại trước khi sửa.');
+          }
+          await onRenameWarehouseUnit({
+            kind: 'equipment', materialName: draft.name,
+            fromUnit: unitOnCloud, toUnit: draft.unit, equipmentMetadata,
+          });
+        };
+        try {
+          const hasLocalVouchers = inventory.some(item =>
+            item.itemKind === 'equipment'
+            && equipmentIdentityKey(item.materialName) === equipmentIdentityKey(draft.name));
+          if (hasLocalVouchers) {
+            await migrate(fromUnit);
+          } else {
+            try {
+              await saveEquipmentCatalogBatch(currentProjectId, drafts);
+            } catch (error) {
+              // Cloud history may be absent from the local cache. A typed
+              // conflict means the server demands an atomic ledger migration.
+              if (!(error instanceof EquipmentUnitMigrationRequiredError)) throw error;
+              await migrate(error.storedUnit);
+            }
+          }
+        } catch (error) {
+          alert('Chưa lưu ĐVT thiết bị: ' + (error instanceof Error ? error.message : String(error)));
+          return false;
+        }
+        return;
+      }
       if (!(await confirmAsync(`Lưu thông số ${drafts.length} thiết bị? Không chỉnh phiếu kho/tồn kho.`))) return false;
       await saveEquipmentCatalogBatch(currentProjectId, drafts);
       return;
@@ -2190,7 +2252,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         open={showQuickEdit}
         title="Bảng chỉnh nhanh · Kho vật tư & thiết bị"
         subtitle={quickEditMode === 'equipment'
-          ? 'Chỉnh nhanh thông số thiết bị. Tên và ĐVT cũ được khóa để bảo vệ lịch sử nhập/xuất và tồn kho.'
+          ? 'Sửa Tên hiển thị, ĐVT và thông số thiết bị. Tên định danh kho vẫn khóa; đổi ĐVT có phiếu phải xác nhận đồng bộ 1:1 từng thiết bị.'
           : quickEditMode === 'stock'
           ? 'Tồn kho là số tính từ Tổng nhập - Tổng xuất và luôn chỉ đọc.'
           : quickEditMode === 'norms'
