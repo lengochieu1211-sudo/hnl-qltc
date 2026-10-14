@@ -84,4 +84,15 @@ assert(excel.includes('page.rows.forEach') && excel.includes('item.id')
   && excel.includes('Number(item.quantity || 0)'),
   'Excel must retain full line IDs and numeric quantities without affecting warehouse data');
 
+const searchablePdf=fs.readFileSync('src/utils/warehouseVoucherTextPdf.ts','utf8');
+assert(searchablePdf.includes("addFileToVFS('VoucherRoboto.ttf'")
+    && searchablePdf.includes('doc.addFont(')
+    && searchablePdf.includes('doc.text(')
+    && !searchablePdf.includes('doc.addImage('),
+  'PDF must have Unicode native text; a full-page PNG is not searchable');
+assert(sheet.includes('buildWarehouseVoucherTextPdf(pages, {projectName, projectLocation, contractorName})'),
+  'Warehouse PDF exporter must use native text renderer and the active project metadata');
+assert(searchablePdf.includes('item.id') && searchablePdf.includes('item.quantity')
+  && searchablePdf.includes('Người lập phiếu') && searchablePdf.includes('Mã tham chiếu'),
+  'Searchable PDF must retain original transaction IDs, quantities and signatures');
 console.log('Warehouse multi-line A4 grouped receipt / continuous IDs / branding golden: PASS');
