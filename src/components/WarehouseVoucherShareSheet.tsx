@@ -195,28 +195,63 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
       </p>
       {error&&<p role="alert" className="rounded-lg bg-rose-50 p-2 text-xs text-rose-700">{error}</p>}
       {message&&<p role="status" className="rounded-lg bg-emerald-50 p-2 text-xs text-emerald-800">{message}</p>}
-      <div className="grid grid-cols-2 gap-2">
-        {(['png','pdf'] as const).map(format=>
+      <div className="grid grid-cols-4 gap-2" role="group" aria-label="Định dạng chia sẻ phiếu kho">
+        {([
+          ['text','Nội dung',FileText],
+          ['png','Ảnh',ImageIcon],
+          ['xlsx','Excel',FileSpreadsheet],
+          ['pdf','PDF',FileDown],
+        ] as const).map(([format,label,Icon])=>
           <button key={format} data-hnl-voucher-format={format} type="button" disabled={busy||!chosen.length}
             aria-expanded={menu===format} onClick={()=>void openActions(format)}
-            className="min-h-11 rounded-xl border border-indigo-200 bg-indigo-600 px-3 text-xs font-bold text-white disabled:opacity-50">
-            {busy&&menu===format?'Đang chuẩn bị...':format==='png'?'Ảnh PNG':'Tài liệu PDF'}
+            className="flex min-h-11 items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-indigo-600 px-1 text-[11px] font-bold text-white disabled:opacity-50 sm:text-xs">
+            <Icon className="h-4 w-4 shrink-0" /> {busy&&menu===format?'Đang tạo...':label}
           </button>)}
       </div>
-      {menu&&<div className="rounded-xl border border-indigo-100 bg-indigo-50 p-3">
-        <p className="mb-2 text-xs font-semibold text-slate-700">{menu.toUpperCase()} · {prepared?.format===menu?prepared.files.length:'Đang tạo'} file</p>
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" data-hnl-voucher-action={menu+'-download'} disabled={busy||!prepared||prepared.format!==menu}
-            onClick={()=>void act('download')} className="min-h-11 rounded-lg bg-white px-3 text-xs font-bold text-indigo-700 disabled:opacity-50">
-            Tải {menu.toUpperCase()}
-          </button>
-          <button type="button" data-hnl-voucher-action={menu+'-share'} disabled={busy||!prepared||prepared.format!==menu}
-            onClick={()=>void act('share')} className="min-h-11 rounded-lg bg-indigo-700 px-3 text-xs font-bold text-white disabled:opacity-50">
-            Chia sẻ {menu.toUpperCase()}
-          </button>
+      {menu&&<div data-hnl-voucher-action-overlay="true" className="fixed inset-0 z-[160] flex items-end justify-center sm:items-center">
+        <button type="button" data-hnl-voucher-action-backdrop="true" onClick={()=>!busy&&setMenu(null)}
+          className="absolute inset-0 bg-slate-950/45" aria-label="Đóng tùy chọn xuất phiếu kho" />
+        <div role="dialog" aria-label="Tùy chọn xuất và chia sẻ phiếu kho"
+          data-hnl-voucher-action-menu={menu}
+          className="relative z-10 mb-[calc(0.75rem+env(safe-area-inset-bottom))] w-[calc(100%-1.5rem)] max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl sm:mb-0">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <p className="text-sm font-bold text-slate-900">Phiếu kho · {formatLabel(menu)}</p>
+            <button type="button" disabled={busy} onClick={()=>setMenu(null)}
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600"
+              aria-label="Đóng tùy chọn"><X className="h-4 w-4" /></button>
+          </div>
+          <p className="mb-3 text-xs text-slate-500">
+            {menu==='text'?'Sao chép hoặc chia sẻ nội dung nhiều dòng':
+              busy?'Đang chuẩn bị file...':prepared?.format===menu&&prepared.signature===selectionSignature?
+                prepared.files.length+' file đã sẵn sàng':'Định dạng chưa sẵn sàng'}
+          </p>
+          {error&&<p role="alert" className="mb-2 rounded-lg bg-rose-50 p-2 text-xs text-rose-700">{error}</p>}
+          <div className="grid grid-cols-2 gap-2">
+            {menu==='text'?<>
+              <button type="button" data-hnl-voucher-action="text-copy" disabled={busy}
+                onClick={()=>void act('copy')} className="flex min-h-12 items-center justify-center gap-1 rounded-xl border border-slate-200 bg-white px-2 text-xs font-bold text-slate-700 disabled:opacity-50">
+                <Copy className="h-4 w-4" /> Sao chép nội dung
+              </button>
+              <button type="button" data-hnl-voucher-action="text-share" disabled={busy}
+                onClick={()=>void act('share')} className="flex min-h-12 items-center justify-center gap-1 rounded-xl bg-indigo-700 px-2 text-xs font-bold text-white disabled:opacity-50">
+                <Share2 className="h-4 w-4" /> Chia sẻ nội dung
+              </button>
+            </>:<>
+              <button type="button" data-hnl-voucher-action={menu+'-download'}
+                disabled={busy||!prepared||prepared.signature!==selectionSignature||prepared.format!==menu}
+                onClick={()=>void act('download')} className="flex min-h-12 items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-white px-2 text-xs font-bold text-indigo-700 disabled:opacity-50">
+                <Download className="h-4 w-4" /> Tải {formatLabel(menu)}
+              </button>
+              <button type="button" data-hnl-voucher-action={menu+'-share'}
+                disabled={busy||!prepared||prepared.signature!==selectionSignature||prepared.format!==menu}
+                onClick={()=>void act('share')} className="flex min-h-12 items-center justify-center gap-1 rounded-xl bg-indigo-700 px-2 text-xs font-bold text-white disabled:opacity-50">
+                <Share2 className="h-4 w-4" /> Chia sẻ {formatLabel(menu)}
+              </button>
+            </>}
+          </div>
         </div>
       </div>}
-      <p className="text-[11px] text-slate-500">Một phiếu in chứa bảng nhiều dòng; PNG theo trang, PDF gộp mọi trang. Chia sẻ PNG tối đa 6 trang/lần.</p>
+      <p className="text-[11px] text-slate-500">Một phiếu chứa bảng nhiều dòng. Ảnh và Excel theo trang; PDF gộp mọi trang. Chia sẻ ảnh tối đa 6 trang/lần.</p>
     </div>
   </SettingsFeatureSheet>;
 }
