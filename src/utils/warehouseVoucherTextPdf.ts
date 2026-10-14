@@ -7,10 +7,11 @@ import { warehouseVoucherPdfFontBase64 } from './warehouseVoucherPdfFont';
 type ProjectMeta = { projectName?: string; projectLocation?: string; contractorName?: string };
 const safe = (value: unknown) => String(value ?? '').trim() || '—';
 const W = 210, H = 297, LEFT = 12, RIGHT = 198;
-const COL = [10, 94, 16, 18, 48] as const;
-const HEADERS = ['STT', 'Tên vật tư / thiết bị (quy cách, ghi chú)', 'ĐVT', 'Số lượng', 'Mã tham chiếu'];
+// Four visible columns, keep original IDs only in persisted data/hidden Excel.
+const COL = [10, 112, 24, 40] as const;
+const HEADERS = ['STT', 'Tên vật tư / thiết bị (quy cách, ghi chú)', 'ĐVT', 'Số lượng'];
 
-type TextBlock = { lines: string[]; notes: string[]; ids: string[]; height: number };
+type TextBlock = { lines: string[]; notes: string[]; height: number };
 const wrap = (doc: jsPDF, text: string, width: number, size: number) => {
   doc.setFontSize(size);
   const lines = doc.splitTextToSize(text, width) as string[];
@@ -32,9 +33,8 @@ export async function buildWarehouseVoucherTextPdf(pages: WarehouseVoucherPrintP
     const block = page.rows.map((item): TextBlock => {
       const name = wrap(doc,safe(item.materialName),COL[1]-5,9);
       const notes = item.notes ? wrap(doc,'Ghi chú: '+String(item.notes),COL[1]-5,7.5) : [];
-      const ids = wrap(doc,safe(item.id),COL[4]-3.5,7.3);
-      const height = Math.max(11,4+name.length*4.6+notes.length*3.9,4+ids.length*4.1);
-      return {lines:name,notes,ids,height};
+      const height = Math.max(11,4+name.length*4.6+notes.length*3.9);
+      return {lines:name,notes,height};
     });
     let currentY = 0;
     let pageLines = 0;
@@ -114,7 +114,7 @@ export async function buildWarehouseVoucherTextPdf(pages: WarehouseVoucherPrintP
       });
       doc.setTextColor(100,116,139);
       doc.setFontSize(7.6);
-      doc.text('Mã tham chiếu từng dòng giữ nguyên ID giao dịch gốc để đối chiếu',LEFT,H-8);
+      doc.text('Chi tiết giao dịch và mã nội bộ được lưu trong phần mềm',LEFT,H-8);
     };
     start();
     for(const [index,item] of page.rows.entries()){
@@ -143,9 +143,7 @@ export async function buildWarehouseVoucherTextPdf(pages: WarehouseVoucherPrintP
       doc.text(safe(item.unit),x+COL[2]/2,y+6,{align:'center',maxWidth:COL[2]-2});
       x+=COL[2];
       doc.text(formatDecimal(Number(item.quantity||0)),x+COL[3]/2,y+6,{align:'center',maxWidth:COL[3]-2});
-      x+=COL[3]+1.5;
-      doc.setFontSize(7.3);
-      data.ids.forEach((line,i)=>doc.text(line,x,y+5.4+i*4.1));
+
       currentY+=data.height;
       pageLines++;
     }
