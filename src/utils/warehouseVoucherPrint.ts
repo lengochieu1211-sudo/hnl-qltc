@@ -11,6 +11,7 @@ export type WarehouseVoucherPrintPage = {
   rows: InventoryItem[];
   pageIndex: number;
   pageCount: number;
+  rowOffset: number;
 };
 
 const PAGE_BODY_BUDGET = 830;
@@ -49,15 +50,20 @@ export function paginateWarehouseVouchers(rows: InventoryItem[]): WarehouseVouch
       used += cost;
     }
     if (current.length) chunks.push(current);
-    chunks.forEach((chunk, index) => pages.push({
-      direction: first.type,
-      date: first.date,
-      location: first.location,
-      handler: first.handler,
-      rows: chunk,
-      pageIndex: index + 1,
-      pageCount: chunks.length,
-    }));
+    let rowOffset = 0;
+    chunks.forEach((chunk, index) => {
+      pages.push({
+        direction: first.type,
+        date: first.date,
+        location: first.location,
+        handler: first.handler,
+        rows: chunk,
+        pageIndex: index + 1,
+        pageCount: chunks.length,
+        rowOffset,
+      });
+      rowOffset += chunk.length;
+    });
   }
   return pages;
 }
@@ -182,7 +188,7 @@ export function drawWarehouseVoucherPage(page: WarehouseVoucherPrintPage): HTMLC
     ctx.fillStyle = '#0f172a';
     ctx.font = '21px Arial, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(String(index + 1 + page.rows.length * (page.pageIndex - 1)), LEFT + COLUMN_WIDTHS[0] / 2, rowTop + 35);
+    ctx.fillText(String(index + 1 + page.rowOffset), LEFT + COLUMN_WIDTHS[0] / 2, rowTop + 35);
     ctx.textAlign = 'left';
     ctx.font = '23px Arial, sans-serif';
     drawTextLines(ctx, name, LEFT + COLUMN_WIDTHS[0] + 13, rowTop + 34, 29);
