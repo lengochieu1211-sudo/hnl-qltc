@@ -33,6 +33,18 @@ const renderer=fs.readFileSync('src/utils/warehouseVoucherPrint.ts','utf8');
 const sheet=fs.readFileSync('src/components/WarehouseVoucherShareSheet.tsx','utf8');
 const printed=fs.readFileSync('src/utils/warehouseVoucherPrint.ts','utf8');
 const warehouse=fs.readFileSync('src/components/WarehouseTab.tsx','utf8');
+const app=fs.readFileSync('src/App.tsx','utf8');
+assert(app.includes('projectName={projectName}') && app.includes('projectLocation={projectLocation}'),
+  'Active project metadata must be passed from App to warehouse');
+assert(warehouse.includes('projectName={projectName}') && warehouse.includes('projectLocation={projectLocation}'),
+  'Warehouse must provide active project metadata to printed vouchers');
+assert(sheet.includes('drawWarehouseVoucherPage(page, { projectName, projectLocation })'),
+  'Both PNG and PDF render must receive project metadata');
+assert(renderer.includes("ctx.fillText('Công trình:', LEFT, 83)")
+  && renderer.includes("ctx.fillText('Địa điểm:', LEFT, 123)")
+  && !renderer.includes("ctx.fillText('Đơn vị:")
+  && !renderer.includes("ctx.fillText('Bộ phận:"),
+  'Voucher headings must use project name/location instead of generic empty unit/department');
 assert(!warehouse.includes('data-hnl-voucher-share-id='),'Per-journal export action must be removed');
 assert(warehouse.includes('data-hnl-warehouse-export-open="all"'),'Central journal export action must remain');
 assert(!sheet.includes('initialVoucherId'),'Central export should not assume one item on open');

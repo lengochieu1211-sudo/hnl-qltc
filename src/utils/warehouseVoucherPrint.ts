@@ -104,7 +104,7 @@ function drawTextLines(ctx: CanvasRenderingContext2D, lines: string[], x: number
   lines.forEach((line, index) => ctx.fillText(line, x, y + index * step));
 }
 
-export function drawWarehouseVoucherPage(page: WarehouseVoucherPrintPage): HTMLCanvasElement {
+export function drawWarehouseVoucherPage(page: WarehouseVoucherPrintPage, project: { projectName?: string; projectLocation?: string } = {}): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = WIDTH;
   canvas.height = HEIGHT;
@@ -113,10 +113,16 @@ export function drawWarehouseVoucherPage(page: WarehouseVoucherPrintPage): HTMLC
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
+  // Project metadata comes from the active project, never inferred from a warehouse
+  // location or transaction. maxWidth keeps long project names within the A4 page.
   ctx.fillStyle = '#334155';
-  ctx.font = '500 21px Arial, sans-serif';
-  ctx.fillText('Đơn vị: ............................................................', LEFT, 83);
-  ctx.fillText('Bộ phận: ........................................................', LEFT, 123);
+  ctx.font = 'bold 21px Arial, sans-serif';
+  ctx.fillText('Công trình:', LEFT, 83);
+  ctx.fillText('Địa điểm:', LEFT, 123);
+  ctx.fillStyle = '#0f172a';
+  ctx.font = '23px Arial, sans-serif';
+  ctx.fillText(normalize(project.projectName) || 'Chưa cập nhật', 205, 83, RIGHT - 205);
+  ctx.fillText(normalize(project.projectLocation) || 'Chưa cập nhật', 205, 123, RIGHT - 205);
   ctx.fillStyle = '#0f172a';
   ctx.textAlign = 'center';
   ctx.font = 'bold 40px Arial, sans-serif';
