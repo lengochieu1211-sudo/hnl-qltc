@@ -585,17 +585,13 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
                 ))}
                 <button type="button" onClick={() => { setDatePreset('custom'); setMode('range'); setEndDate((current) => current < startDate ? startDate : current); }} aria-pressed={datePreset === 'custom'} className={`min-h-10 rounded-xl px-3 py-2 text-xs font-extrabold ${datePreset === 'custom' ? 'bg-slate-900 text-white' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}>Khoảng ngày</button>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={() => { setDatePreset('custom'); setMode('single'); setEndDate(startDate); }} className={`rounded-xl px-3 py-2 text-xs font-extrabold ${mode === 'single' ? 'bg-emerald-600 text-white' : 'border border-slate-200 bg-white text-slate-700'}`}>1 ngày</button>
-                <button type="button" onClick={() => { setDatePreset('custom'); setMode('range'); }} className={`rounded-xl px-3 py-2 text-xs font-extrabold ${mode === 'range' ? 'bg-emerald-600 text-white' : 'border border-slate-200 bg-white text-slate-700'}`}>Nhiều ngày</button>
-              </div>
             </div>
           )}
 
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <label className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-[10px] font-bold text-slate-500">
               <span className="mb-1 block">{mode === 'single' ? 'Ngày báo cáo' : 'Từ ngày'}</span>
-              <input type="date" value={startDate} max={resolvedMaxDate} disabled={rangeLocked} onChange={(event) => { setDatePreset('custom'); setStartDate(event.target.value); if (mode === 'single' || event.target.value > endDate) setEndDate(event.target.value); }} className="w-full bg-transparent text-sm font-extrabold text-slate-800 outline-none disabled:opacity-70" />
+              <input type="date" value={startDate} max={resolvedMaxDate} disabled={rangeLocked} onChange={(event) => { setDatePreset('custom'); setStartDate(event.target.value); if (mode === 'single') { setEndDate(event.target.value); setMode('range'); } else if (event.target.value > endDate) setEndDate(event.target.value); }} className="w-full bg-transparent text-sm font-extrabold text-slate-800 outline-none disabled:opacity-70" />
             </label>
             {mode === 'range' && (
               <label className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-[10px] font-bold text-slate-500">
