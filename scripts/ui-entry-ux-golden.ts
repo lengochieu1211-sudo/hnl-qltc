@@ -135,6 +135,22 @@ assert(!featureSheet.includes('rounded-full border border-slate-200 bg-white'), 
 
 const warehouse = read('src/components/WarehouseTab.tsx');
 const materialNormModal = read('src/components/MaterialNormModal.tsx');
+const crewFormUi = read('src/components/CrewTabBase.tsx');
+const workVolumeCreateUi = read('src/components/WorkVolumeTab.tsx');
+const equipmentFormUi = read('src/components/EquipmentCatalogPanel.tsx');
+assert(materialNormModal.includes('max-w-5xl') && materialNormModal.includes('max-w-3xl')
+  && materialNormModal.includes("'Tạo định mức mới'"), 'Material Norm desktop editor must use unified wide modal with readable centered form');
+assert(crewFormUi.includes('triggerLabel="Thêm đội"') && crewFormUi.includes("'Thêm đội'") 
+  && !crewFormUi.includes('Thêm Đội Thi Công Mới'), 'Crew directory action must use concise Thêm đội label');
+assert(crewFormUi.includes("submitter?.value === 'continue'") && crewFormUi.includes('Lưu &amp; thêm tiếp')
+  && crewFormUi.includes("'Lưu & đóng'") && crewFormUi.includes("'Lưu thay đổi'"),
+  'Daily crew edit/new form must support Save-and-continue or Save-and-close safely');
+assert(crewFormUi.includes("setActiveLogEntityId(createEntityId('crew'))")
+  && crewFormUi.includes('key={activeLogEntityId}')
+  && crewFormUi.includes("setFloorWorks([])") && crewFormUi.includes("setNotes('')"),
+  'Save-and-continue must isolate fresh entity/photos and clear prior log work');
+assert(workVolumeCreateUi.includes("'Tạo hạng mục mới'") && equipmentFormUi.includes("'Tạo thiết bị mới'"),
+  'Dialog create titles must match Add Source menu semantics');
 
 assert(warehouse.includes('<DataManagementMenu'), 'Warehouse must use the shared Data Management menu');
 assert(materialNormModal.includes('<AddSourceMenu') && materialNormModal.includes('triggerLabel="Thêm định mức"') && materialNormModal.includes('Lưu & thêm tiếp') && materialNormModal.includes('value="continue"'), 'Material Norm Add must use the shared Add Source menu and retain save-and-continue multi-entry flow');

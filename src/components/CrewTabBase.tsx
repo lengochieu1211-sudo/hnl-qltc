@@ -743,6 +743,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
   // Synchronize Daily Log Form values
   const [activeLogEntityId, setActiveLogEntityId] = useState<string>(`crew_${Date.now()}`);
+  const [crewSaveMessage, setCrewSaveMessage] = useState('');
 
   useEffect(() => {
     if (!isActive) return;
@@ -782,6 +783,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       setNotes(editingRecord.notes || '');
     } else {
       setActiveLogEntityId(`crew_${Date.now()}`);
+      setCrewSaveMessage('');
       const defaultGroupId = normalizedStructureConfig.defaultGroupId;
       setSelectedLogStructureGroupId(defaultGroupId);
       // Set to first team in directory if available, otherwise blank
@@ -1093,6 +1095,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const handleLogSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canOperate) return;
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const saveAndContinue = !editingRecord && submitter?.value === 'continue';
     if (!teamName.trim()) {
       alert('Vui lòng chọn hoặc nhập tên đội thi công!');
       return;
@@ -1216,6 +1220,25 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       setEditingRecord(null);
     } else {
       onAddCrewRecord({ ...recordData, id: activeLogEntityId });
+    }
+    if (saveAndContinue) {
+      // A follow-up crew record is a NEW independent entity. Never reuse the
+      // saved photo/entity ID, work details, team identity or count values.
+      // Keep only the selected date/structure group/floor for fast site entry.
+      setActiveLogEntityId(createEntityId('crew'));
+      setTeamName('');
+      setTeamId('');
+      setLeaderName('');
+      setWorkerCount(0);
+      setMorningCount(0);
+      setAfternoonCount(0);
+      setEveningCount(0);
+      setTaskDescription('');
+      setFloorWorks([]);
+      setNotes('');
+      setCrewPicker(null);
+      setCrewSaveMessage('Đã gửi ghi nhận để lưu. Chọn đội tiếp theo và nhập quân số mới.');
+      return;
     }
     setShowAddLogModal(false);
     returnToHealthCenterIfPending();
@@ -3003,6 +3026,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               {/* Hình ảnh đính kèm */}
               <div className="pt-1 md:col-span-2 lg:col-span-4">
                 <PhotoAttachmentPicker
+                  key={activeLogEntityId}
                   projectId={projectId}
                   entityType="crewRecord"
                   entityId={activeLogEntityId}
@@ -3011,29 +3035,18 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 />
               </div>
 
-              {/* Buttons */}
+              {/* One-step close / multi-entry actions; the header X remains available for cancelling. */}
+              {crewSaveMessage && <p role="status" className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 md:col-span-2 lg:col-span-4">{crewSaveMessage}</p>}
               <div className="sticky bottom-0 z-10 -mx-4 lg:-mx-5 -mb-4 lg:-mb-5 mt-1 flex gap-2.5 border-t border-slate-100 bg-white px-4 lg:px-5 py-3 md:col-span-2 lg:col-span-4">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!editingRecord && activeLogEntityId && projectId) {
-                      try {
-                        await deleteEntityPhotos(projectId, 'crewRecord', activeLogEntityId);
-                      } catch (_) {}
-                    }
-                    setShowAddLogModal(false);
-                    setEditingRecord(null);
-                    returnToHealthCenterIfPending();
-                  }}
-                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-lg text-xs transition"
-                >
-                  Hủy bỏ
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 px-4 rounded-lg text-xs transition"
-                >
-                  {editingRecord ? 'Lưu thay đổi' : 'Ghi nhận'}
+                {!editingRecord && (
+                  <button type="submit" name="submitMode" value="continue"
+                    className="flex-1 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100">
+                    Lưu &amp; thêm tiếp
+                  </button>
+                )}
+                <button type="submit" name="submitMode" value="close"
+                  className="flex-1 rounded-lg bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-indigo-500">
+                  {editingRecord ? 'Lưu thay đổi' : 'Lưu & đóng'}
                 </button>
               </div>
             </form>
@@ -3051,7 +3064,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             {/* Modal Header */}
             <div className="shrink-0 flex justify-between items-center bg-slate-900 px-4 py-3 text-white">
               <h3 className="font-bold text-sm">
-                {editingTeam ? '✍️ Sửa Thông Tin Đội' : '👥 Thêm Đội Thi Công Mới'}
+                {editingTeam ? 'Sửa thông tin đội' : 'Thêm đội'}
               </h3>
               <button 
                 onClick={async () => {

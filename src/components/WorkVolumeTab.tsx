@@ -1370,7 +1370,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           <div className="bg-white w-full sm:max-w-2xl lg:max-w-[1100px] rounded-t-3xl sm:rounded-2xl max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col shadow-2xl">
             <div className="shrink-0 flex items-center justify-between border-b border-slate-100 px-5 pt-5 pb-3">
               <h3 className="text-base font-bold text-slate-900">
-                {editingVolume ? 'Sửa hạng mục khối lượng' : 'Thêm hạng mục khối lượng'}
+                {editingVolume ? 'Sửa hạng mục khối lượng' : 'Tạo hạng mục mới'}
               </h3>
               <button
                 onClick={handleCloseModal}
