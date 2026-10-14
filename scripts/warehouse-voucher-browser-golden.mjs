@@ -75,6 +75,10 @@ try {
       const uuid=draws.find(x=>x.text==='P0-IN-20261013-001');
       assert(uuid&&uuid.align==='left','Transaction ID must be LEFT aligned, not centered into quantity column');
       assert(draws.some(x=>x.text==='Người thực hiện:'),'A generic handler cannot be mislabeled sender/receiver');
+      const handlerLabel=draws.find(x=>x.text==='Người thực hiện:');
+      const handlerName=draws.find(x=>x.text==='Người nhập P0');
+      assert(handlerLabel&&handlerName&&handlerName.x-handlerLabel.x>170,
+        'Printed handler name must clear the longer label rather than overlap it');
       assert(!draws.some(x=>x.text==='Người giao:'||x.text==='Người nhận:'),
         'Do not invent whether handler is sender or recipient');
       assert(!draws.some(x=>/HNL QLTC/.test(x.text)),'No application brand in printed voucher');
