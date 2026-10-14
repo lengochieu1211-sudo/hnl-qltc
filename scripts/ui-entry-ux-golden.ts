@@ -354,6 +354,21 @@ assert(warehouse.includes("itemKind === 'material' && issuePurpose === 'project-
 assert(warehouse.includes('Thiết bị được dùng lại ở các phiếu nhập/xuất nhưng không tham gia Định mức vật tư hoặc Gợi ý vật tư.'), 'Warehouse catalog must state the equipment/material-norm separation');
 
 const equipmentCatalogUi = read('src/components/EquipmentCatalogPanel.tsx');
+const normEditorTextSize = materialNormModal.match(/<form onSubmit=\{handleSubmit\} className="[^"]*\b(text-(?:xs|sm|base))\b/);
+const equipmentEditorControl = equipmentCatalogUi.match(/const FIELD_CLASS = '([^']+)'/);
+assert(normEditorTextSize?.[1] === 'text-xs' && equipmentEditorControl?.[1].split(' ').includes(normEditorTextSize[1]),
+  'Thêm thiết bị input/select must match text-xs (12px) of Thêm định mức mới');
+assert(equipmentEditorControl?.[1].includes('p-2.5') && equipmentEditorControl[1].includes('font-semibold')
+  && equipmentCatalogUi.includes("const TEXTAREA_CLASS = FIELD_CLASS.replace('font-semibold', 'font-medium')"),
+  'Equipment fields should match material norm input padding and input/textarea weights');
+const equipmentForm = equipmentCatalogUi.slice(equipmentCatalogUi.indexOf('{edit && <section'), equipmentCatalogUi.indexOf('{status === \'ready\' && !edit'));
+assert(equipmentForm.includes('<strong className="text-xs font-bold text-slate-900">')
+  && equipmentForm.includes('className="block text-xs font-bold text-slate-700')
+  && !equipmentForm.includes('className="block text-xs font-semibold text-slate-700'),
+  'Thêm thiết bị title and labels must match Add Material Norm 12px/bold typography');
+assert(equipmentForm.includes('text-xs font-bold text-indigo-700') && equipmentForm.includes('text-xs font-bold text-white')
+  && equipmentForm.includes('min-h-10') && equipmentForm.includes('sm:grid-cols-2'),
+  'Equipment editor actions must retain accessible touch size and responsive layout with consistent bold text');
 const equipmentCatalogLogic = read('src/lib/equipmentCatalog.ts');
 const equipmentCatalogRules = read('firestore.rules');
 const equipmentTemplatePicker = read('src/components/CatalogTemplatePickerModal.tsx');

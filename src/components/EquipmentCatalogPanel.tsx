@@ -27,7 +27,9 @@ const EMPTY_EQUIPMENT: EquipmentCatalogInput = {
   brand: '', model: '', specifications: '', notes: '',
 };
 
-const FIELD_CLASS = 'mt-1 block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100 disabled:text-slate-500';
+// Match the 12px typography and field spacing used by the Add Material Norm form.
+const FIELD_CLASS = 'mt-1 block w-full rounded-xl border border-slate-300 bg-white p-2.5 text-xs font-semibold text-slate-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100 disabled:text-slate-500';
+const TEXTAREA_CLASS = FIELD_CLASS.replace('font-semibold', 'font-medium');
 const normalizeCategory = (text: string) => text.trim().toLocaleLowerCase('vi-VN');
 
 export const EquipmentCatalogPanel: React.FC<Props> = ({
@@ -347,9 +349,9 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
       Không tải được thông tin thiết bị: {error}. Chức năng chỉnh sửa được khóa để bảo vệ dữ liệu.
     </p>}
 
-    {edit && <section className="space-y-3 rounded-2xl border border-indigo-200 bg-indigo-50/40 p-3 sm:p-4" data-hnl-equipment-editor="true">
+    {edit && <section className="space-y-3.5 rounded-2xl border border-indigo-200 bg-indigo-50/40 p-3 sm:p-4" data-hnl-equipment-editor="true">
       <div className="flex items-center justify-between gap-2 border-b border-indigo-100 pb-2">
-        <strong className="text-sm font-extrabold text-slate-900">
+        <strong className="text-xs font-bold text-slate-900">
           {editingExisting ? (edit.id ? 'Chỉnh thông tin thiết bị' : 'Bổ sung thông tin thiết bị từ phiếu kho') : 'Thêm thiết bị'}
         </strong>
         <button type="button" disabled={busy} onClick={() => setEdit(null)}
@@ -358,7 +360,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
         </button>
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <label className="block text-xs font-semibold text-slate-700 sm:col-span-2">
+        <label className="block text-xs font-bold text-slate-700 sm:col-span-2">
           {editingExisting ? 'Tên thiết bị hiển thị' : 'Tên thiết bị'} <span className="text-rose-600">*</span>
           <input value={editingExisting ? (edit.displayName ?? edit.name) : edit.name} disabled={busy}
             onChange={event => setEdit(prev => prev ? (editingExisting
@@ -369,7 +371,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
             Tên định danh trên phiếu kho: <strong>{edit.name}</strong>. Việc đổi tên hiển thị không thay đổi mã thiết bị hoặc lịch sử nhập/xuất.
           </span>}
         </label>
-        <label className="block text-xs font-semibold text-slate-700">
+        <label className="block text-xs font-bold text-slate-700">
           Nhóm thiết bị <span className="text-rose-600">*</span>
           <select value={customGroup ? '__new_group__' : edit.category}
             disabled={busy} className={FIELD_CLASS}
@@ -395,7 +397,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
             Nhóm mới sẽ xuất hiện trong danh sách chọn sau khi lưu thiết bị.
           </span>
         </label>
-        <label className="block text-xs font-semibold text-slate-700">
+        <label className="block text-xs font-bold text-slate-700">
           Đơn vị tính <span className="text-rose-600">*</span>
           <input value={edit.unit} disabled={busy}
             onChange={event => setEdit(prev => prev ? { ...prev, unit: event.target.value } : prev)}
@@ -405,7 +407,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
           ['brand', 'Hãng sản xuất', 'Ví dụ: Bosch'],
           ['model', 'Model / Mã hiệu', 'Ví dụ: GWS 750'],
         ] as const).map(([key, label, placeholder]) =>
-          <label key={key} className="block text-xs font-semibold text-slate-700">
+          <label key={key} className="block text-xs font-bold text-slate-700">
             {label}
             <input value={edit[key] || ''} disabled={busy} placeholder={placeholder}
               onChange={event => setEdit(prev => prev ? { ...prev, [key]: event.target.value } : prev)}
@@ -416,11 +418,11 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
           ['specifications', 'Quy cách / Công suất / Thông số kỹ thuật'],
           ['notes', 'Ghi chú'],
         ] as const).map(([key, label]) =>
-          <label key={key} className="block text-xs font-semibold text-slate-700 sm:col-span-2">
+          <label key={key} className="block text-xs font-bold text-slate-700 sm:col-span-2">
             {label}
             <textarea value={edit[key] || ''} disabled={busy} rows={2}
               onChange={event => setEdit(prev => prev ? { ...prev, [key]: event.target.value } : prev)}
-              className={FIELD_CLASS} />
+              className={TEXTAREA_CLASS} />
           </label>
         )}
       </div>
@@ -440,11 +442,11 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
           Hủy
         </button>
         <button type="button" disabled={busy || status !== 'ready'} onClick={() => { void save(false); }}
-          className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-indigo-300 bg-white px-4 py-2 text-xs font-extrabold text-indigo-700 disabled:opacity-40">
+          className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-indigo-300 bg-white px-4 py-2 text-xs font-bold text-indigo-700 disabled:opacity-40">
           <Save className="h-4 w-4" /> {editingExisting ? 'Lưu thay đổi' : 'Lưu'}
         </button>
         {!editingExisting && <button type="button" disabled={busy || status !== 'ready'} onClick={() => { void save(true); }}
-          className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-extrabold text-white hover:bg-indigo-700 disabled:opacity-40">
+          className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-40">
           <Plus className="h-4 w-4" /> Lưu &amp; thêm tiếp
         </button>}
       </div>
