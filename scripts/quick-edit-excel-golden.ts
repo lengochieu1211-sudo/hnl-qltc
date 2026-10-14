@@ -232,6 +232,16 @@ assert.match(crew, /triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit=\{qu
 // Read-only sorting/filtering: different inventory kinds must never share a hidden
 // view or silently be treated as an alternative unit of the same product.
 assert.match(warehouse, /inventoryKindFilter, setInventoryKindFilter/, 'Warehouse must have an independent material/equipment filter');
+assert.match(warehouse, /data-hnl-catalog-in-history=\{item\.key\}/, 'Catalog inbound totals must open read-only history');
+assert.match(warehouse, /data-hnl-catalog-out-history=\{item\.key\}/, 'Catalog outbound totals must open read-only history');
+assert.match(warehouse, /data-hnl-catalog-history="readonly"/, 'Catalog history must be view-only');
+assert.match(warehouse, /normalizeMaterialSearch\('sourceName' in item \? item\.sourceName : item\.name\)/, 'Equipment aliases must resolve original ledger identity');
+assert.match(warehouse, /entry\.deletedAt == null/, 'Catalog history excludes deleted transactions');
+assert.match(warehouse, /entry\.type === catalogHistory\.type/, 'Catalog history filters IN vs OUT');
+assert.match(warehouse, /entry\.itemKind === 'equipment'/, 'Catalog history never merges materials with equipment');
+assert.match(warehouse, /normalizeUnit\(entry\.unit\)/, 'Catalog history keeps separate ledger units');
+assert.match(warehouse, /catalogHistoryStart && entry\.date < catalogHistoryStart/, 'Catalog history offers date range');
+assert.match(warehouse, /Math\.abs\(catalogHistoryTotal - catalogHistory\.expectedTotal\)/, 'Catalog warns on summary mismatch');
 assert.match(warehouse, /matchesType && matchesKind && matchesSearch/, 'Warehouse kind filtering must combine with receipt/issue and search filters');
 assert.match(warehouse, /data-hnl-warehouse-kind-filter=\{key\}/, 'Warehouse must expose the type filter on PC and mobile');
 assert.doesNotMatch(warehouse, /key: 'kind', label: 'Loại hàng'/, 'Warehouse must NOT duplicate the separate material/equipment filter in QuickSortBar');
