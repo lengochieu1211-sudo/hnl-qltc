@@ -352,7 +352,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
     {edit && <section className="space-y-3.5 rounded-2xl border border-indigo-200 bg-indigo-50/40 p-3 sm:p-4" data-hnl-equipment-editor="true">
       <div className="flex items-center justify-between gap-2 border-b border-indigo-100 pb-2">
         <strong className="text-xs font-bold text-slate-900">
-          {editingExisting ? (edit.id ? 'Chỉnh thông tin thiết bị' : 'Bổ sung thông tin thiết bị từ phiếu kho') : 'Thêm thiết bị'}
+          {editingExisting ? (edit.id ? 'Chỉnh thông tin thiết bị' : 'Bổ sung thông tin thiết bị từ phiếu kho') : 'Tạo thiết bị mới'}
         </strong>
         <button type="button" disabled={busy} onClick={() => setEdit(null)}
           aria-label="Đóng thông tin thiết bị" className="rounded-lg p-1.5 text-slate-600 hover:bg-white disabled:opacity-40">
