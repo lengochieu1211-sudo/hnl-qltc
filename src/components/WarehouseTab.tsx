@@ -1791,7 +1791,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           specifications: String(row.specifications || ''), notes: String(row.notes || ''),
         };
       });
-
       if (changedUnitRows.length) {
         // The only dirty row is a 1:1 unit correction; keep its metadata in the
         // same atomic operation as all affected vouchers and balances.
