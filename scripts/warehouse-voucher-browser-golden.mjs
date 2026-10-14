@@ -30,13 +30,31 @@ try {
  for(const viewport of [{width:1280,height:800},{width:393,height:852}]){
   const tag=viewport.width+'x'+viewport.height;
   const context=await browser.newContext({viewport,acceptDownloads:true,isMobile:viewport.width<500,hasTouch:viewport.width<500});
+  await context.addInitScript(()=>{
+    window.__voucherPrintText=[];
+    const original=CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText=function(text,x,y,...rest){
+      if(this.canvas.width===1240 && this.canvas.height===1754)
+        window.__voucherPrintText.push({text:String(text),x,y,align:this.textAlign,font:this.font});
+      return original.call(this,text,x,y,...rest);
+    };
+  });
   const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto(url,{waitUntil:'domcontentloaded'});
-  const open=page.locator('[data-hnl-voucher-share-id="P0-IN-20261013-001"]');
+  assert.equal(await page.locator('[data-hnl-voucher-share-id]').count(),0,
+    'Individual warehouse journal entries must not have a separate PNG/PDF export button');
+  const open=page.locator('[data-hnl-warehouse-export-open="all"]');
+  assert.equal(await open.count(),1,'Keep exactly one centralized export action at journal heading');
   await open.waitFor({state:'visible',timeout:15000});await open.click();
   const sheet=page.locator('[data-hnl-settings-sheet="warehouse-voucher-share"]');
   await sheet.waitFor({state:'visible'});
-  assert.match(await sheet.innerText(),/P0-IN-20261013-001/,'Single voucher ID missing');
+  await sheet.getByRole('button',{name:'Khoảng ngày'}).click();
+  const dates=sheet.locator('input[type="date"]');
+  await dates.nth(0).fill('2026-10-13');
+  await dates.nth(1).fill('2026-10-13');
+  await sheet.getByRole('button',{name:'Một phiếu'}).click();
+  await sheet.locator('label').filter({hasText:'P0-IN-20261013-001'}).locator('input[type="radio"]').check();
+  assert.match(await sheet.innerText(),/Đã chọn 1\/\d+ phiếu/,'Single voucher selection missing');
   // The first single-entry view must still download valid PNG/PDF.
   for(const format of ['png','pdf']){
     await sheet.locator('[data-hnl-voucher-format="'+format+'"]').click();
@@ -50,8 +68,21 @@ try {
     assert(filepath,'download not saved');
     const bytes=fs.readFileSync(filepath);
     assert(bytes.length>3000,format+' export was empty/tiny: '+bytes.length);
-    if(format==='png')assert.equal(bytes.subarray(1,4).toString(),'PNG','PNG header');
-    else assert.equal(bytes.subarray(0,4).toString(),'%PDF','PDF header');
+    if(format==='png'){
+      assert.equal(bytes.subarray(1,4).toString(),'PNG','PNG header');
+      fs.writeFileSync('runtime-evidence/voucher-paper-'+tag+'.png',bytes);
+      const draws=await page.evaluate(()=>window.__voucherPrintText||[]);
+      const uuid=draws.find(x=>x.text==='P0-IN-20261013-001');
+      assert(uuid&&uuid.align==='left','Transaction ID must be LEFT aligned, not centered into quantity column');
+      assert(draws.some(x=>x.text==='Người thực hiện:'),'A generic handler cannot be mislabeled sender/receiver');
+      assert(!draws.some(x=>x.text==='Người giao:'||x.text==='Người nhận:'),
+        'Do not invent whether handler is sender or recipient');
+      assert(!draws.some(x=>/HNL QLTC/.test(x.text)),'No application brand in printed voucher');
+      const summary=draws.find(x=>x.text.startsWith('Số dòng trên trang:'));
+      const signature=draws.find(x=>x.text==='Người lập phiếu');
+      assert(summary && signature && signature.y>summary.y+50 && signature.y-summary.y<250,
+        'Signature must follow the actual table instead of being pinned near A4 bottom');
+    }else assert.equal(bytes.subarray(0,4).toString(),'%PDF','PDF header');
     assert(!download.suggestedFilename().includes('HNL'),'Printed voucher must be unbranded');
     results.push({viewport:tag,format,mode:'single',bytes:bytes.length,file:download.suggestedFilename()});
   }
