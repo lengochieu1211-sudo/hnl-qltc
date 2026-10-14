@@ -40,6 +40,7 @@ import { compareMaterialGroupPriority } from '../utils/catalogDisplayOrder';
 import { equipmentIdentityKey, EquipmentUnitMigrationRequiredError, saveEquipmentCatalogBatch, subscribeEquipmentCatalog, type EquipmentCatalogRecord, type EquipmentCatalogInput } from '../lib/equipmentCatalog';
 import type { WarehouseUnitRenameInput } from '../lib/warehouseUnitMigration';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
+import { WarehouseVoucherShareSheet } from './WarehouseVoucherShareSheet';
 import { DataManagementMenu } from './DataManagementMenu';
 import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';
 const LazyQuickEditGridModal = React.lazy(() => import('./QuickEditGridModal').then((m) => ({ default: m.QuickEditGridModal })));
@@ -138,6 +139,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [expandedInventoryId, setExpandedInventoryId] = useState<string | null>(null);
   const [copiedInventoryId, setCopiedInventoryId] = useState<string | null>(null);
   const [showWarehouseCatalog, setShowWarehouseCatalog] = useState(false);
+  const [voucherShareOpen, setVoucherShareOpen] = useState(false);
+  const [voucherShareId, setVoucherShareId] = useState<string | null>(null);
   const [catalogHistory, setCatalogHistory] = useState<{
     kind: InventoryItemKind; name: string; displayName: string; unit: string;
     type: TransactionType; expectedTotal: number;
@@ -2899,6 +2902,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           <h3 className="text-xs font-bold text-slate-600">
             Nhật ký nhập/xuất ({filteredInventory.length})
           </h3>
+          {roleResolved && <button type="button" data-hnl-warehouse-export-open="all"
+            onClick={() => {setVoucherShareId(null);setVoucherShareOpen(true);}}
+            className="min-h-10 rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-xs font-bold text-indigo-700">
+            Xuất / Chia sẻ phiếu PNG/PDF
+          </button>}
         </div>
 
         {hasDeleteAccess && filteredInventory.length > 0 && (
@@ -3073,6 +3081,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   </div>
 
                   <div className="flex justify-end gap-3 pt-1">
+                    {roleResolved && <button type="button" data-hnl-voucher-share-id={item.id}
+                      onClick={() => {setVoucherShareId(item.id);setVoucherShareOpen(true);}}
+                      className="text-[11px] font-semibold text-indigo-700">Xuất phiếu PNG/PDF</button>}
                     {hasEditAccess && onUpdateInventory && (
                       <button
                         type="button"
@@ -3100,6 +3111,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         )}
       </div>
 
+      {voucherShareOpen && <WarehouseVoucherShareSheet
+        key={voucherShareId || 'warehouse-all'} open={voucherShareOpen}
+        inventory={inventory} initialVoucherId={voucherShareId}
+        onClose={() => setVoucherShareOpen(false)} />}
       {/* Delete Inventory Confirmation Modal */}
       {hasDeleteAccess && deletingInventoryTarget && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
