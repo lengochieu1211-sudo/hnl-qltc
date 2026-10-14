@@ -56,13 +56,14 @@ assert(printed.includes('handlerValueX = Math.ceil(LEFT + ctx.measureText('),
   'Printed handler value must not overlap its longer generic label');
 assert(printed.includes("ctx.fillText('Người thực hiện:', LEFT, 346 + headerShift)"),
   'Legacy generic handler must not be assigned an unverified sender or recipient role');
-assert(printed.includes("ctx.textAlign = 'left';\n    drawTextLines(ctx, id"),
-  'Full transaction ID must be left-aligned within its own column');
+assert(!printed.includes('drawTextLines(ctx, id') && printed.includes('const COLUMN_WIDTHS = [62, 742, 134, 174]'),
+  'PNG voucher must show four columns and no printed internal IDs');
 assert(printed.includes('Math.min(rowTop + 60 + 110, HEIGHT - 180)'),
   'Signature section should stay near the last table row with bottom-page safety');
 
 assert(!renderer.includes('HNL QLTC'),'No app brand may be printed on warehouse vouchers');
-assert(renderer.includes('Tên vật tư / thiết bị') && renderer.includes('Số lượng') && renderer.includes('Mã tham chiếu'));
+assert(renderer.includes('Tên vật tư / thiết bị') && renderer.includes('Số lượng') && !renderer.includes('Mã tham chiếu'),
+  'Printed PNG voucher must omit Mã tham chiếu');
 assert(sheet.includes('paginateWarehouseVouchers(chosen)'),'Export must group selected material rows');
 assert(sheet.includes("allowTextFallback:false"),'Sharing files cannot silently send text instead');
 assert(sheet.includes('Chia sẻ phiếu nhập/xuất kho') && warehouse.includes('Chia sẻ phiếu nhập/xuất kho'),
@@ -80,7 +81,7 @@ for (const heading of ['Công trình:', 'Địa điểm:', 'PHIẾU NHẬP KHO',
   'Kho / Vị trí:', 'Người thực hiện:', 'Mã tham chiếu', 'Người lập phiếu', 'Thủ kho']) {
   assert(excel.includes(heading), 'Excel must preserve voucher paper heading ' + heading);
 }
-assert(excel.includes('page.rows.forEach') && excel.includes('item.id')
+assert(excel.includes('hidden:true') && excel.includes('page.rows.forEach') && excel.includes('item.id')
   && excel.includes('Number(item.quantity || 0)'),
   'Excel must retain full line IDs and numeric quantities without affecting warehouse data');
 
@@ -92,7 +93,8 @@ assert(searchablePdf.includes("addFileToVFS('VoucherRoboto.ttf'")
   'PDF must have Unicode native text; a full-page PNG is not searchable');
 assert(sheet.includes('buildWarehouseVoucherTextPdf(pages, {projectName, projectLocation, contractorName})'),
   'Warehouse PDF exporter must use native text renderer and the active project metadata');
-assert(searchablePdf.includes('item.id') && searchablePdf.includes('item.quantity')
-  && searchablePdf.includes('Người lập phiếu') && searchablePdf.includes('Mã tham chiếu'),
-  'Searchable PDF must retain original transaction IDs, quantities and signatures');
+assert(searchablePdf.includes('item.quantity')
+  && searchablePdf.includes('Người lập phiếu') && !searchablePdf.includes('Mã tham chiếu')
+  && searchablePdf.includes('const COL = [10, 112, 24, 40]'),
+  'Text PDF must retain quantities/signatures but no visible technical IDs');
 console.log('Warehouse multi-line A4 grouped receipt / continuous IDs / branding golden: PASS');
