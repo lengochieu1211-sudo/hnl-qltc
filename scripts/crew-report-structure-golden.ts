@@ -73,7 +73,8 @@ assert.deepEqual(getCrewReportPresetRange('7days', reference), { startDate: '202
 assert.deepEqual(getCrewReportPresetRange('month', reference), { startDate: '2026-10-01', endDate: '2026-10-14' });
 assert.deepEqual(getCrewReportPresetRange('7days', new Date(2026, 0, 3, 12)), { startDate: '2025-12-28', endDate: '2026-01-03' });
 assert.deepEqual(getCrewReportPresetRange('month', new Date(2024, 1, 29, 12)), { startDate: '2024-02-01', endDate: '2024-02-29' });
-assert.equal(listCrewReportDates(...Object.values(getCrewReportPresetRange('7days', reference))).length, 7);
+const sevenDayPreset = getCrewReportPresetRange('7days', reference);
+assert.equal(listCrewReportDates(sevenDayPreset.startDate, sevenDayPreset.endDate).length, 7);
 
 // Source-level UI regression guards: sharing must stay on one image per project matrix,
 // the total row must use the same X-origin as header/body, and the duplicated overview
