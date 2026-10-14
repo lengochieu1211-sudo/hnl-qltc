@@ -6,6 +6,7 @@ import { CatalogTemplatePickerModal } from './CatalogTemplatePickerModal';
 import { MoveOrderControls } from './MoveOrderControls';
 import { catalogOrderRank, reorderVisibleCatalogItems } from '../utils/catalogDisplayOrder';
 import type { InventoryItem } from '../types';
+import type { WarehouseUnitRenameInput } from '../lib/warehouseUnitMigration';
 import { confirmAsync } from '../utils/confirmAsync';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
 import {
@@ -18,9 +19,7 @@ interface Props {
   projectId: string;
   inventory: InventoryItem[];
   canManage: boolean;
-  onRenameWarehouseUnit?: (input: {
-    kind: 'material' | 'equipment'; materialName: string; fromUnit: string; toUnit: string;
-  }) => Promise<{ norms: number; vouchers: number }>;
+  onRenameWarehouseUnit?: (input: Omit<WarehouseUnitRenameInput, 'projectId'>) => Promise<{ norms: number; vouchers: number }>;
 }
 
 const EMPTY_EQUIPMENT: EquipmentCatalogInput = {
@@ -48,8 +47,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
   const [showDeleted, setShowDeleted] = useState(false);
   const [draggedEquipmentId, setDraggedEquipmentId] = useState<string | null>(null);
   const [customGroup, setCustomGroup] = useState(false);
-  const [renameUnitOpen, setRenameUnitOpen] = useState(false);
-  const [newUnit, setNewUnit] = useState('');
+  const [originalEditUnit, setOriginalEditUnit] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
 
@@ -180,8 +178,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
       unit: keep?.unit || EMPTY_EQUIPMENT.unit,
     });
     setCustomGroup(false);
-    setRenameUnitOpen(false);
-    setNewUnit('');
+    setOriginalEditUnit('');
     setNotice('');
   };
 
@@ -189,8 +186,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
     setEditingExisting(true);
     setEdit({ ...item, displayName: item.displayName || item.name });
     setCustomGroup(false);
-    setRenameUnitOpen(false);
-    setNewUnit('');
+    setOriginalEditUnit(normalizeUnit(item.unit) || item.unit);
     setNotice('');
   };
 
@@ -212,26 +208,65 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
       return;
     }
     const existingRecord = equipment.id ? records.find(item => item.id === equipment.id) : undefined;
-    const changingUnit = Boolean(existingRecord && !areSameUnit(existingRecord.unit, equipment.unit));
-    const confirmKeepUnit = (storedUnit: string) => confirmAsync(
-      `Thiết bị “${equipment.name}” có lịch sử kho. ĐVT ${storedUnit} → ${equipment.unit} không được sửa trực tiếp.\n`
-      + `Đồng ý = chỉ lưu tên hiển thị, hãng, model, ghi chú và GIỮ ĐVT “${storedUnit}”.\n`
-      + 'Hủy = chưa lưu; nếu thật sự đổi ĐVT, dùng “Đổi ĐVT (1:1)” sau khi đối chiếu phiếu kho.',
-      { title: 'Bảo vệ dữ liệu kho', confirmLabel: 'Giữ ĐVT cũ và lưu', cancelLabel: 'Hủy' },
-    );
-    // Local inventory is a cache. If known vouchers already exist, don't send a
-    // forbidden unit mutation and mistakenly block unrelated metadata edits.
-    if (changingUnit && editingHasHistory && existingRecord) {
-      if (!(await confirmKeepUnit(existingRecord.unit))) {
-        setNotice('Chưa lưu vì ĐVT đang thay đổi. Có thể giữ ĐVT cũ để lưu thông tin, hoặc dùng Đổi ĐVT (1:1).');
-        return;
+    const storedUnit = originalEditUnit || existingRecord?.unit || '';
+    const changingUnit = editingExisting && Boolean(storedUnit) && !areSameUnit(storedUnit, equipment.unit);
+    const hasVouchersLocally = editingHasHistory;
+    const equipmentMetadata = {
+      displayName: equipment.displayName, category: equipment.category,
+      brand: equipment.brand || '', model: equipment.model || '',
+      specifications: equipment.specifications || '', notes: equipment.notes || '',
+      expectedRevision: existingRecord?.revision,
+    };
+    // A direct edit to a voucher-backed unit is a *single* confirmed action.
+    // The backend migrates vouchers, balances and catalog metadata atomically;
+    // never write the new unit through saveEquipmentCatalogBatch.
+    const migrateUnit = async (fromUnit: string): Promise<boolean> => {
+      if (!onRenameWarehouseUnit) {
+        setNotice('Chưa thể đổi ĐVT: thiếu chức năng đồng bộ phiếu kho.');
+        return false;
       }
-      equipment.unit = existingRecord.unit;
-    }
+      if (!areSameUnit(fromUnit, storedUnit)) {
+        setNotice('ĐVT đã thay đổi trên Cloud. Hãy đóng rồi mở lại thiết bị trước khi sửa.');
+        return false;
+      }
+      const approved = await confirmAsync(
+        `Sửa ĐVT thiết bị “${equipment.name}” từ “${fromUnit}” thành “${equipment.unit}”?\n`
+        + 'Thao tác này đồng bộ danh mục, phiếu nhập/xuất và số dư trong một giao dịch. '
+        + 'Chỉ sửa đơn vị ghi nhầm theo tỷ lệ 1:1, KHÔNG quy đổi số lượng. '
+        + 'Nếu Cái và Bộ có số lượng thực tế khác nhau, hãy hủy để đối chiếu trước.',
+        { title: 'Xác nhận sửa ĐVT có lịch sử kho', confirmLabel: 'Đồng bộ và lưu', cancelLabel: 'Hủy' },
+      );
+      if (!approved) {
+        setNotice('Chưa thay đổi ĐVT hoặc thông tin thiết bị.');
+        return false;
+      }
+      await onRenameWarehouseUnit({
+        kind: 'equipment', materialName: equipment.name,
+        fromUnit, toUnit: equipment.unit, equipmentMetadata,
+      });
+      setEdit(null);
+      setNotice(`Đã đồng bộ ĐVT “${fromUnit}” → “${equipment.unit}” và lưu thông tin thiết bị.`);
+      return true;
+    };
     setBusy(true);
     setNotice('');
-    const persist = async () => {
-      await saveEquipmentCatalogBatch(projectId, [equipment]);
+    try {
+      if (changingUnit && hasVouchersLocally) {
+        await migrateUnit(storedUnit);
+        return;
+      }
+      try {
+        await saveEquipmentCatalogBatch(projectId, [equipment]);
+      } catch (err) {
+        // Local cache may miss vouchers that exist on the authoritative server.
+        // Treat the typed Cloud guard as proof that this is a migration, not a
+        // metadata-only edit. Never discard the user's new unit silently.
+        if (changingUnit && err instanceof EquipmentUnitMigrationRequiredError) {
+          await migrateUnit(err.storedUnit);
+          return;
+        }
+        throw err;
+      }
       if (addAnother && !equipment.id) {
         startNew({ category: equipment.category, unit: equipment.unit });
         setNotice('Đã lưu “' + equipment.name + '”. Bạn có thể thêm thiết bị tiếp theo.');
@@ -239,28 +274,8 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
         setEdit(null);
         setNotice('Đã lưu thông tin thiết bị “' + equipment.name + '”.');
       }
-    };
-    try {
-      await persist();
     } catch (err) {
-      // Firestore may know vouchers that have not reached the current device's
-      // local inventory cache. On its explicit unit-history rejection, offer a
-      // consented metadata-only retry using the unit returned by the Cloud.
-      if (err instanceof EquipmentUnitMigrationRequiredError && existingRecord
-        && !areSameUnit(err.storedUnit, equipment.unit)) {
-        try {
-          if (await confirmKeepUnit(err.storedUnit)) {
-            equipment.unit = err.storedUnit;
-            await persist();
-          } else {
-            setNotice('Chưa lưu. ĐVT lịch sử vẫn được giữ nguyên trên Cloud.');
-          }
-        } catch (retryError) {
-          setNotice('Không thể lưu thiết bị: ' + (retryError instanceof Error ? retryError.message : String(retryError)));
-        }
-      } else {
-        setNotice('Không thể lưu thiết bị: ' + (err instanceof Error ? err.message : String(err)));
-      }
+      setNotice('Chưa lưu thiết bị: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setBusy(false);
     }
@@ -301,35 +316,6 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
       setNotice('Đã khôi phục thiết bị “' + item.name + '”.');
     } catch (err) {
       setNotice('Chưa khôi phục thiết bị: ' + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const rename = async () => {
-    if (!edit || !edit.name || !canManage || busy || !onRenameWarehouseUnit) return;
-    const currentUnit = normalizeUnit(edit.unit) || edit.unit;
-    const next = normalizeUnit(newUnit) || newUnit.trim();
-    if (!next || next === currentUnit) {
-      setNotice('Hãy nhập ĐVT mới khác ĐVT hiện tại.');
-      return;
-    }
-    if (!(await confirmAsync(
-      'Đổi ĐVT toàn bộ phiếu nhập/xuất, số dư và thông tin thiết bị?\n'
-      + currentUnit + ' → ' + next + '\nChỉ đổi nhãn đơn vị tỷ lệ 1:1; không quy đổi số lượng.'
-    ))) return;
-    setBusy(true);
-    setNotice('');
-    try {
-      await onRenameWarehouseUnit({
-        kind: 'equipment', materialName: edit.name,
-        fromUnit: currentUnit, toUnit: next,
-      });
-      setEdit(null);
-      setRenameUnitOpen(false);
-      setNotice('Đã đổi ĐVT. Dữ liệu sẽ cập nhật qua đồng bộ Firebase.');
-    } catch (err) {
-      setNotice('Chưa đổi ĐVT: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setBusy(false);
     }
@@ -411,7 +397,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
         </label>
         <label className="block text-xs font-semibold text-slate-700">
           Đơn vị tính <span className="text-rose-600">*</span>
-          <input value={edit.unit} disabled={busy || (editingExisting && editingHasHistory)}
+          <input value={edit.unit} disabled={busy}
             onChange={event => setEdit(prev => prev ? { ...prev, unit: event.target.value } : prev)}
             placeholder="Cái, Bộ, Chiếc..." className={FIELD_CLASS} />
         </label>
@@ -442,30 +428,12 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
       {editingExisting && editingHistoricalUnits.length > 1 && <p className="text-[11px] font-semibold text-amber-800">
         Chú ý: phiếu kho của thiết bị này đang có nhiều ĐVT ({editingHistoricalUnits.join(', ')}). Chỉ sửa tên hiển thị / thông tin; các ĐVT kho vẫn được giữ riêng, không tự gộp hoặc quy đổi.
       </p>}
-      {editingExisting && <p className="flex items-start gap-2 text-[11px] text-amber-800">
+      {editingExisting && <p className="flex items-start gap-2 text-[11px] text-amber-800" data-hnl-equipment-unit-guidance="true">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
         {editingHasHistory
-          ? 'Có phiếu kho: bạn có thể đổi tên hiển thị, hãng, model, ghi chú và lưu bình thường. ĐVT kho phải đổi qua quy trình 1:1; dữ liệu cũ có nhiều ĐVT thì cần đối chiếu trước.'
-          : 'Đổi tên hiển thị không thay đổi mã và phiếu kho. Nếu thật sự chưa có lịch sử trên Cloud, có thể sửa trực tiếp ĐVT rồi lưu.'}
+          ? 'Có phiếu kho: sửa ngay tại Đơn vị tính rồi bấm Lưu thay đổi. Hệ thống sẽ yêu cầu xác nhận và chỉ đồng bộ 1:1 khi phiếu/số dư hợp lệ. Nếu Cái và Bộ khác nhau thực tế hoặc có nhiều ĐVT lịch sử, cần đối chiếu trước.'
+          : 'Có thể sửa Đơn vị tính trực tiếp tại ô trên. Nếu Cloud phát hiện phiếu cũ, hệ thống sẽ yêu cầu xác nhận đồng bộ an toàn trước khi lưu.'}
       </p>}
-      {editingExisting && (editingHasHistory || (edit.id && records.some(item => item.id === edit.id))) && canManage && onRenameWarehouseUnit &&
-        <div className="space-y-2 rounded-xl border border-amber-200 bg-white p-3">
-          {!renameUnitOpen
-            ? <button type="button" disabled={busy} onClick={() => { setNewUnit(''); setRenameUnitOpen(true); }}
-                className="text-xs font-bold text-amber-800 underline">Đổi ĐVT (1:1)</button>
-            : <div className="space-y-2">
-                <label className="text-xs font-semibold text-slate-700">ĐVT mới (chỉ đổi nhãn 1:1)
-                  <input value={newUnit} disabled={busy} onChange={event => setNewUnit(event.target.value)}
-                    className={FIELD_CLASS} placeholder="Nhập ĐVT mới" />
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  <button type="button" disabled={busy} onClick={() => { void rename(); }}
-                    className="rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white">Xác nhận đổi ĐVT</button>
-                  <button type="button" disabled={busy} onClick={() => setRenameUnitOpen(false)}
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs">Hủy đổi ĐVT</button>
-                </div>
-              </div>}
-        </div>}
       <div className="flex flex-wrap items-center justify-end gap-2 border-t border-indigo-100 pt-3">
         <button type="button" disabled={busy} onClick={() => setEdit(null)}
           className="min-h-10 rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 disabled:opacity-50">

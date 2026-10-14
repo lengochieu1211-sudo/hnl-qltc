@@ -4,7 +4,7 @@ import { normalizeMaterialNameKey, resolveNormMaterialId } from '../utils/invent
 import { getWarehouseMaterialKey, getWarehouseSignedDelta } from '../utils/warehouseLedgerMath';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
 import { db, getCurrentRealFirebaseUser, sanitizePayloadForCloud } from './firebase';
-import { equipmentCatalogId, type EquipmentCatalogRecord } from './equipmentCatalog';
+import { equipmentCatalogId, equipmentIdentityKey, type EquipmentCatalogRecord } from './equipmentCatalog';
 
 /**
  * One-to-one unit-label rename. Never silently convert a package into its contents.
@@ -19,6 +19,12 @@ export interface WarehouseUnitRenameInput {
   materialName: string;
   fromUnit: string;
   toUnit: string;
+  /** Optional ADMIN master-data update included in the same atomic equipment unit correction. */
+  equipmentMetadata?: {
+    displayName: string; category: string; brand: string;
+    model: string; specifications: string; notes: string;
+    expectedRevision?: number;
+  };
 }
 
 type WarehouseCloudRow = InventoryItem & {
@@ -45,6 +51,17 @@ export async function renameWarehouseUnitAtomic(input: WarehouseUnitRenameInput)
   if (!projectId || !fromUnit || !toUnit || !input.materialName.trim()) throw new Error('Thiếu dữ liệu đổi đơn vị.');
   if (areSameUnit(fromUnit, toUnit)) return { norms: 0, vouchers: 0 };
   if (input.kind === 'material' && !input.materialId) throw new Error('Vật tư thiếu materialId. Không thể đồng bộ an toàn.');
+  if (input.kind !== 'equipment' && input.equipmentMetadata) throw new Error('Chỉ được đính kèm thông tin thiết bị khi sửa ĐVT thiết bị.');
+  const clean = (value: unknown, max: number) => String(value ?? '').trim().slice(0, max);
+  const equipmentMetadata = input.equipmentMetadata ? {
+    displayName: clean(input.equipmentMetadata.displayName, 180),
+    category: clean(input.equipmentMetadata.category, 120) || 'Thiết bị',
+    brand: clean(input.equipmentMetadata.brand, 120),
+    model: clean(input.equipmentMetadata.model, 120),
+    specifications: clean(input.equipmentMetadata.specifications, 1200),
+    notes: clean(input.equipmentMetadata.notes, 1200),
+  } : null;
+  if (equipmentMetadata && !equipmentMetadata.displayName) throw new Error('Tên hiển thị thiết bị không được để trống.');
 
   // A catalog record, when present, participates in the SAME atomic unit rename
   // as every affected voucher and inventory balance. Never leave stale master data.
@@ -57,6 +74,11 @@ export async function renameWarehouseUnitAtomic(input: WarehouseUnitRenameInput)
   if (catalogBefore && !areSameUnit(catalogBefore.unit, fromUnit)) {
     throw new Error('ĐVT danh mục thiết bị đã thay đổi hoặc không khớp phiếu kho; hủy đổi.');
   }
+  if (catalogBefore?.deletedAt != null) throw new Error('Thiết bị đang ở thùng rác, không được đổi ĐVT.');
+  if (input.equipmentMetadata?.expectedRevision !== undefined
+    && (catalogBefore?.revision !== input.equipmentMetadata.expectedRevision)) {
+    throw new Error('Thiết bị đã thay đổi trên tài khoản khác. Vui lòng tải lại trước khi sửa ĐVT.');
+  }
 
   const [rawNormSnap, rawInventorySnap] = await Promise.all([
     getDocsFromServer(collection(db, 'projects', projectId, 'material_norms')),
@@ -68,6 +90,26 @@ export async function renameWarehouseUnitAtomic(input: WarehouseUnitRenameInput)
   const allLedgerRows = rawInventorySnap.docs
     .map((row) => ({ ref: row.ref, value: { ...row.data(), id: row.id } as WarehouseCloudRow }));
   const ledger = allLedgerRows.filter((row) => active(row.value));
+
+  // The unit migration also writes display metadata when invoked by the editor.
+  // Protect its user-facing label against the same canonical-name collisions as
+  // saveEquipmentCatalogBatch; do not bypass that invariant inside migration.
+  if (equipmentMetadata) {
+    const requestedNameKey = equipmentIdentityKey(input.materialName);
+    const requestedLabelKey = equipmentIdentityKey(equipmentMetadata.displayName);
+    if (requestedLabelKey !== requestedNameKey && allLedgerRows.some(({ value }) =>
+      value.itemKind === 'equipment'
+      && equipmentIdentityKey(String(value.materialName || '')) === requestedLabelKey
+    )) throw new Error('Tên hiển thị trùng với thiết bị khác có phiếu kho. Hãy đặt tên khác.');
+    const catalogSnapshot = await getDocsFromServer(collection(db, 'projects', projectId, 'equipment_catalog'));
+    if (catalogSnapshot.docs.some((row) => {
+      if (row.id === equipmentCatalogId(input.materialName)) return false;
+      const candidate = row.data();
+      return [candidate.name, candidate.displayName].some((label) =>
+        Boolean(label) && equipmentIdentityKey(String(label)) === requestedLabelKey);
+    })) throw new Error('Tên hiển thị trùng với thiết bị khác trong danh mục Cloud.');
+  }
+
 
   const relatedNorms = input.kind === 'material'
     ? norms.filter((row) => resolveNormMaterialId(row.value) === input.materialId)
@@ -144,7 +186,7 @@ export async function renameWarehouseUnitAtomic(input: WarehouseUnitRenameInput)
     keyGroups.set(oldKey, group);
   }
   const allKeys = Array.from(new Set(Array.from(keyGroups.values()).flatMap((group) => [group.oldKey, group.newKey])));
-  if (relatedNorms.length + vouchers.length + allKeys.length > MAX_TRANSACTION_DOCUMENTS) {
+  if (relatedNorms.length + vouchers.length + allKeys.length + (catalogRef ? 1 : 0) > MAX_TRANSACTION_DOCUMENTS) {
     throw new Error(`Có ${vouchers.length} phiếu liên quan, vượt giới hạn cập nhật nguyên tử (${MAX_TRANSACTION_DOCUMENTS} bản ghi). Chưa thay đổi dữ liệu; cần xử lý qua công cụ migration chuyên dụng.`);
   }
   // A group can share the destination only if it is the same logical item.
@@ -237,11 +279,21 @@ export async function renameWarehouseUnitAtomic(input: WarehouseUnitRenameInput)
       }), { merge: true });
     });
     if (catalogRef && catalogBefore) {
+      // A unit correction and the edited display metadata become visible together.
+      // Preserve stable ID/name, order, tombstone and createdAt.
       tx.set(catalogRef, sanitizePayloadForCloud({
-        unit: toUnit,
+        ...(equipmentMetadata || {}), unit: toUnit,
         revision: Math.max(Number(catalogBefore.revision || 0) + 1, 1),
         updatedAt: Math.max(time, Number(catalogBefore.updatedAt || 0) + 1),
       }), { merge: true });
+    } else if (catalogRef && equipmentMetadata) {
+      // Voucher-only legacy equipment has no master record yet. Create one
+      // atomically rather than migrating vouchers but losing the edited metadata.
+      tx.set(catalogRef, sanitizePayloadForCloud({
+        id: equipmentCatalogId(input.materialName), projectId,
+        name: String(input.materialName).trim(), unit: toUnit,
+        ...equipmentMetadata, revision: 1, createdAt: time, updatedAt: time,
+      }));
     }
     vouchers.forEach(({ ref, value }) => {
       const newKey = getWarehouseMaterialKey({ ...value, unit: toUnit });
