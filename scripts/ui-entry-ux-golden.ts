@@ -309,7 +309,7 @@ assert(
   warehouse.includes('grid grid-cols-1 lg:grid-cols-2 gap-3 items-end'),
   'Warehouse material/equipment search and selector must sit directly below receipt type in one aligned desktop row'
 );
-assert(warehouse.includes('title="Danh mục kho"') && warehouse.includes("(['material', 'equipment'] as InventoryItemKind[]).map"), 'Warehouse must expose the combined Danh mục kho view with separate Vật tư/Thiết bị tabs without renaming material norms');
+assert((warehouse.includes('title="Danh mục kho"') || warehouse.includes("'Chi tiết nhập kho' : 'Chi tiết xuất kho') : 'Danh mục kho'")) && warehouse.includes("(['material', 'equipment'] as InventoryItemKind[]).map"), 'Warehouse must expose the combined Danh mục kho view with separate Vật tư/Thiết bị tabs without renaming material norms');
 assert(warehouse.includes('warehouseCatalogStockRows') && warehouse.includes('totalIn: Number(summary?.totalIn || 0)') && warehouse.includes("normQuantity: expectedKind === 'material' ? Number(summary?.normQuantity || 0) : null") && warehouse.includes('currentStock: Number(summary?.currentStock || 0)'), 'Danh mục kho must derive Nhập/Xuất/Định mức/Tồn read-only from the existing warehouse ledger/norm summaries');
 assert(warehouse.includes('Nhu cầu vật tư theo định mức') && warehouse.includes("warehouseCatalogTab === 'material' ? formatDecimal(item.normQuantity || 0) : '—'"), 'Danh mục kho must show total planned material norm while equipment stays outside norm logic');
 assert(warehouse.includes('<span className="text-right">Tồn kho</span>') && warehouse.includes('formatDecimal(item.currentStock)'), 'Danh mục kho must show current stock on both desktop and mobile layouts');

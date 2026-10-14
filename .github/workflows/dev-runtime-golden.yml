@@ -210,6 +210,9 @@ jobs:
           npm install --no-save --package-lock=false playwright@1.55.0
           npx playwright install --with-deps chromium
 
+      - name: Warehouse catalog actual click golden (desktop + mobile)
+        run: node scripts/warehouse-catalog-browser-golden.mjs
+
       - name: Hosted DEV desktop + mobile browser golden
         run: node scripts/dev-hosted-browser-golden.mjs
 
