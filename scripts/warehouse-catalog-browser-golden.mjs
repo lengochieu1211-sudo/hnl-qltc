@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';import net from 'node:net';import {spawn} from 'node:child_process';import {chromium} from 'playwright';
 const port=await new Promise((resolve,reject)=>{const s=net.createServer();s.once('error',reject);s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>resolve(p));});});
 const url=`http://127.0.0.1:${port}/scripts/fixtures/warehouse-catalog/index.html`;
-const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port',String(port),'--strictPort'],{stdio:['ignore','pipe','pipe'],env:{...process.env,VITE_APP_ENV:'DEV',VITE_RUNTIME_BACKEND:'firebase-only'}});
+const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port',String(port),'--strictPort'],{stdio:['ignore','pipe','pipe'],env:{...process.env,VITE_APP_ENV:'DEV',VITE_RUNTIME_BACKEND:'firebase-only',VITE_USE_FIREBASE_EMULATORS:'true',VITE_FIREBASE_EMULATOR_PROJECT_ID:'demo-hnl-qltc-dev'}});
 let log='';for(const stream of [server.stdout,server.stderr])stream.on('data',d=>log+=String(d));
 const checks=[],errors=[];fs.mkdirSync('runtime-evidence',{recursive:true});let browser;
 try{
