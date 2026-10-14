@@ -11,7 +11,16 @@ browser=await chromium.launch({headless:true});
 for(const size of [{width:1280,height:800},{width:393,height:852},{width:360,height:640}]){
 const label=`${size.width}x${size.height}`;
 const ctx=await browser.newContext({viewport:size,locale:'vi-VN',isMobile:size.width<500,hasTouch:size.width<500});const page=await ctx.newPage();page.on('pageerror',e=>errors.push(label+': '+e.message));
-await page.goto(url,{waitUntil:'domcontentloaded'});await page.getByRole('button',{name:/Danh mục kho|Danh mục/}).first().click();
+await page.goto(url,{waitUntil:'domcontentloaded'});
+const catalogOpener=page.getByRole('button',{name:/Danh mục kho|Danh mục/}).first();
+try{await catalogOpener.waitFor({state:'visible',timeout:12000});}catch(error){
+  const html=await page.locator('body').innerText().catch(()=>'<no body>');
+  const markup=await page.locator('body').innerHTML().catch(()=>'<no body html>');
+  console.error('FIXTURE_DIAGNOSTIC',JSON.stringify({label,errors,body:html.slice(0,2500),markup:markup.slice(0,1500),url:page.url()}));
+  await page.screenshot({path:`runtime-evidence/catalog-click-error-${label}.png`}).catch(()=>{});
+  throw error;
+}
+await catalogOpener.click();
 const sheet=page.locator('[data-hnl-settings-sheet="warehouse-catalog"]');await sheet.waitFor({state:'visible'});
 const button=sheet.locator('[data-hnl-catalog-in-history^="material:"]').first();await button.waitFor({state:'visible'});
 const rect=await button.boundingBox();assert(rect&&rect.height>=39&&rect.width>=40,label+': touch area');await button.click();
