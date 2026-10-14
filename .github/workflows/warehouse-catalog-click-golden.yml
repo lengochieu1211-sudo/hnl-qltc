@@ -34,6 +34,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: HNL-WAREHOUSE-CATALOG-P0-CLICK-${{ github.run_number }}
-          path: runtime-evidence/catalog-click-*
+          path: |
+            runtime-evidence/catalog-click-*
+            runtime-evidence/voucher-*
+
           if-no-files-found: warn
           retention-days: 30

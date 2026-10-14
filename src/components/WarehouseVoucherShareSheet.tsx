@@ -68,17 +68,17 @@ async function prepareVoucherFiles(rows: InventoryItem[], format: 'png' | 'pdf')
   const fileName = safeFile('PHIEU_KHO_' + rows.length + '_DONG_' + pages.length + '_TRANG.pdf');
   return [{ id: 'voucher-pdf', fileName, mimeType: 'application/pdf', blob, dataUrl: await toDataUrl(blob) }];
 }
-export function WarehouseVoucherShareSheet({open,onClose,inventory,initialVoucherId}:{
-  open:boolean;onClose:()=>void;inventory:InventoryItem[];initialVoucherId?:string|null;
+export function WarehouseVoucherShareSheet({open,onClose,inventory}:{
+  open:boolean;onClose:()=>void;inventory:InventoryItem[];
 }) {
-  const first=inventory.find(x=>x.id===initialVoucherId && x.deletedAt==null);
-  const [period,setPeriod]=useState<Period>(first?'range':'today');
-  const [start,setStart]=useState(first?.date||localDay());
-  const [end,setEnd]=useState(first?.date||localDay());
+  // One shared export entry point: users explicitly select one, many or all items.
+  const [period,setPeriod]=useState<Period>('today');
+  const [start,setStart]=useState(localDay());
+  const [end,setEnd]=useState(localDay());
   const [kind,setKind]=useState<Kind>('all');
   const [direction,setDirection]=useState<Direction>('all');
-  const [pick,setPick]=useState<Pick>(first?'one':'all');
-  const [checked,setChecked]=useState<string[]>(first?[first.id]:[]);
+  const [pick,setPick]=useState<Pick>('all');
+  const [checked,setChecked]=useState<string[]>([]);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [message,setMessage]=useState('');

@@ -140,7 +140,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [copiedInventoryId, setCopiedInventoryId] = useState<string | null>(null);
   const [showWarehouseCatalog, setShowWarehouseCatalog] = useState(false);
   const [voucherShareOpen, setVoucherShareOpen] = useState(false);
-  const [voucherShareId, setVoucherShareId] = useState<string | null>(null);
   const [catalogHistory, setCatalogHistory] = useState<{
     kind: InventoryItemKind; name: string; displayName: string; unit: string;
     type: TransactionType; expectedTotal: number;
@@ -2903,7 +2902,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             Nhật ký nhập/xuất ({filteredInventory.length})
           </h3>
           {roleResolved && <button type="button" data-hnl-warehouse-export-open="all"
-            onClick={() => {setVoucherShareId(null);setVoucherShareOpen(true);}}
+            onClick={() => setVoucherShareOpen(true)}
             className="min-h-10 rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-xs font-bold text-indigo-700">
             Xuất / Chia sẻ phiếu PNG/PDF
           </button>}
@@ -3081,9 +3080,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   </div>
 
                   <div className="flex justify-end gap-3 pt-1">
-                    {roleResolved && <button type="button" data-hnl-voucher-share-id={item.id}
-                      onClick={() => {setVoucherShareId(item.id);setVoucherShareOpen(true);}}
-                      className="text-[11px] font-semibold text-indigo-700">Xuất phiếu PNG/PDF</button>}
                     {hasEditAccess && onUpdateInventory && (
                       <button
                         type="button"
@@ -3113,7 +3109,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
       {voucherShareOpen && <WarehouseVoucherShareSheet
         open={voucherShareOpen}
-        inventory={inventory} initialVoucherId={voucherShareId}
+        inventory={inventory}
         onClose={() => setVoucherShareOpen(false)} />}
       {/* Delete Inventory Confirmation Modal */}
       {hasDeleteAccess && deletingInventoryTarget && (
