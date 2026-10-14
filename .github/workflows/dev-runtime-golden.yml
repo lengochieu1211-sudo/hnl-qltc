@@ -211,7 +211,7 @@ jobs:
           npx playwright install --with-deps chromium
 
       - name: Warehouse voucher PNG/PDF binary golden
-        run: npx tsx scripts/warehouse-voucher-selection-golden.ts && node scripts/warehouse-voucher-browser-golden.mjs
+        run: npx tsx scripts/warehouse-voucher-selection-golden.ts && npx tsx scripts/warehouse-voucher-layout-golden.ts && node scripts/warehouse-voucher-browser-golden.mjs
 
       - name: Warehouse catalog actual click golden (desktop + mobile)
         run: node scripts/warehouse-catalog-browser-golden.mjs
