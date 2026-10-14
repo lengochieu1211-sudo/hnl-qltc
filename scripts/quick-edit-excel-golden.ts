@@ -288,6 +288,7 @@ assert.match(warehouse, /onRenameWarehouseUnit\(\{[\s\S]*kind: 'equipment'[\s\S]
 assert.match(warehouse, /error instanceof EquipmentUnitMigrationRequiredError/, 'Cloud-only history must trigger an atomic correction rather than silent overwrite');
 assert.match(warehouse, /return false;[\s\S]*if \(changedUnitRows\.length\)/, 'Rejected bulk correction must retain dirty cells');
 assert.doesNotMatch(warehouse, /Hãy dùng nút Đổi ĐVT \(1:1\) trong Thiết lập thiết bị/, 'No reference to obsolete equipment unit button');
+
 const unitMigration = fs.readFileSync('src/lib/warehouseUnitMigration.ts', 'utf8');
 assert.match(unitMigration, /runTransaction\(db/, 'Warehouse unit rename must use Firestore transaction');
 assert.match(unitMigration, /MAX_TRANSACTION_DOCUMENTS/, 'Oversized unit migrations must fail closed rather than partially write');
