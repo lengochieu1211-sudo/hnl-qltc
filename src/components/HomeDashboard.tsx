@@ -23,6 +23,8 @@ import { fetchProjectCrewReportData } from '../lib/firebase';
 import {
   buildCrewReportMatrices,
   buildCrewReportRows,
+  getCrewReportPresetRange,
+  toCrewReportDateKey,
   filterCrewReportRows,
   summarizeCrewReportRows,
   type CrewReportProjectInput,
@@ -70,24 +72,6 @@ const roleClass = (role?: UserRole) => role === 'ADMIN'
     ? 'border-blue-200 bg-blue-50 text-blue-700'
     : 'border-slate-200 bg-slate-100 text-slate-600';
 
-const toLocalDateKey = (date = new Date()) => {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-};
-
-const shiftDate = (date: Date, days: number) => {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return toLocalDateKey(next);
-};
-
-const currentMonthStart = () => {
-  const now = new Date();
-  return toLocalDateKey(new Date(now.getFullYear(), now.getMonth(), 1));
-};
-
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   projects,
   activeProjectId,
@@ -111,7 +95,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   onOpenCrew,
   onOpenFloorPlan,
 }) => {
-  const todayKey = toLocalDateKey();
+  const todayKey = toCrewReportDateKey(new Date());
   const [reportStartDate, setReportStartDate] = useState(todayKey);
   const [reportEndDate, setReportEndDate] = useState(todayKey);
   const [reportPreset, setReportPreset] = useState<'today' | 'yesterday' | '7days' | 'month' | 'custom'>('today');
@@ -231,21 +215,9 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const endDateSummary = dailySummaries.find((item) => item.date === reportEndDate);
 
   const setPreset = (preset: 'today' | 'yesterday' | '7days' | 'month') => {
-    const now = new Date();
-    if (preset === 'today') {
-      setReportStartDate(todayKey);
-      setReportEndDate(todayKey);
-    } else if (preset === 'yesterday') {
-      const key = shiftDate(now, -1);
-      setReportStartDate(key);
-      setReportEndDate(key);
-    } else if (preset === '7days') {
-      setReportStartDate(shiftDate(now, -6));
-      setReportEndDate(todayKey);
-    } else {
-      setReportStartDate(currentMonthStart());
-      setReportEndDate(todayKey);
-    }
+    const { startDate, endDate } = getCrewReportPresetRange(preset);
+    setReportStartDate(startDate);
+    setReportEndDate(endDate);
     setReportPreset(preset);
     setReportProjectFilter('all');
     setReportTeamFilter('all');

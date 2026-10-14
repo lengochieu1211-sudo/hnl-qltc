@@ -9,7 +9,7 @@ import type { InventoryItem } from '../types';
 import { confirmAsync } from '../utils/confirmAsync';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
 import {
-  equipmentIdentityKey, saveEquipmentCatalogBatch, softDeleteEquipmentCatalogBatch,
+  equipmentIdentityKey, EquipmentUnitMigrationRequiredError, saveEquipmentCatalogBatch, softDeleteEquipmentCatalogBatch,
   restoreEquipmentCatalog, reorderEquipmentCatalog, subscribeEquipmentCatalog,
   type EquipmentCatalogRecord, type EquipmentCatalogInput,
 } from '../lib/equipmentCatalog';
@@ -128,7 +128,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
         item.name, item.displayName, item.unit, item.category, item.brand, item.model, item.specifications,
       ].join(' ').toLocaleLowerCase('vi-VN').includes(q))
       .sort((a, b) => {
-        if (equipmentSortBy === 'none') return sortManualEquipment({ ...a, name: a.displayName || a.name }, { ...b, name: b.displayName || b.name });
+        if (equipmentSortBy === 'none') return sortManualEquipment(a, b); // Same canonical order as Cloud reorder base.
         const compared = String(equipmentSortBy === 'name' ? (a.displayName || a.name) : a[equipmentSortBy] || '').localeCompare(
           String(equipmentSortBy === 'name' ? (b.displayName || b.name) : b[equipmentSortBy] || ''), 'vi', { numeric: true, sensitivity: 'base' });
         const named = a.name.localeCompare(b.name, 'vi', { numeric: true, sensitivity: 'base' });
@@ -207,31 +207,60 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
       setNotice('Cần nhập tên, đơn vị tính và nhóm thiết bị trước khi lưu.');
       return;
     }
+    if (equipment.id && !records.some(item => item.id === equipment.id)) {
+      setNotice('Thiết bị đã thay đổi trên Cloud, vui lòng tải lại.');
+      return;
+    }
+    const existingRecord = equipment.id ? records.find(item => item.id === equipment.id) : undefined;
+    const changingUnit = Boolean(existingRecord && !areSameUnit(existingRecord.unit, equipment.unit));
+    const confirmKeepUnit = (storedUnit: string) => confirmAsync(
+      `Thiết bị “${equipment.name}” có lịch sử kho. ĐVT ${storedUnit} → ${equipment.unit} không được sửa trực tiếp.\n`
+      + `Đồng ý = chỉ lưu tên hiển thị, hãng, model, ghi chú và GIỮ ĐVT “${storedUnit}”.\n`
+      + 'Hủy = chưa lưu; nếu thật sự đổi ĐVT, dùng “Đổi ĐVT (1:1)” sau khi đối chiếu phiếu kho.',
+      { title: 'Bảo vệ dữ liệu kho', confirmLabel: 'Giữ ĐVT cũ và lưu', cancelLabel: 'Hủy' },
+    );
+    // Local inventory is a cache. If known vouchers already exist, don't send a
+    // forbidden unit mutation and mistakenly block unrelated metadata edits.
+    if (changingUnit && editingHasHistory && existingRecord) {
+      if (!(await confirmKeepUnit(existingRecord.unit))) {
+        setNotice('Chưa lưu vì ĐVT đang thay đổi. Có thể giữ ĐVT cũ để lưu thông tin, hoặc dùng Đổi ĐVT (1:1).');
+        return;
+      }
+      equipment.unit = existingRecord.unit;
+    }
     setBusy(true);
     setNotice('');
-    try {
-      if (equipment.id && !records.some(item => item.id === equipment.id)) {
-        throw new Error('Thiết bị đã thay đổi trên Cloud, vui lòng tải lại.');
-      }
-      // Metadata-only saves must not be held hostage by unrelated legacy
-      // voucher unit discrepancies. The Cloud transaction guards real changes.
-      const existingRecord = equipment.id ? records.find(item => item.id === equipment.id) : undefined;
-      const changingUnit = Boolean(existingRecord && !areSameUnit(existingRecord.unit, equipment.unit));
-      if (changingUnit && editingHasHistory) {
-        throw new Error('Thiết bị đã có phiếu kho. Hãy dùng nút “Đổi ĐVT (1:1)” và đối chiếu phiếu thay vì sửa trực tiếp.');
-      }
+    const persist = async () => {
       await saveEquipmentCatalogBatch(projectId, [equipment]);
       if (addAnother && !equipment.id) {
-        // Keep the selected group and unit for repeated entry; never repeat
-        // name, model, technical specs or the previous record's Cloud ID.
         startNew({ category: equipment.category, unit: equipment.unit });
         setNotice('Đã lưu “' + equipment.name + '”. Bạn có thể thêm thiết bị tiếp theo.');
       } else {
         setEdit(null);
         setNotice('Đã lưu thông tin thiết bị “' + equipment.name + '”.');
       }
+    };
+    try {
+      await persist();
     } catch (err) {
-      setNotice('Không thể lưu thiết bị: ' + (err instanceof Error ? err.message : String(err)));
+      // Firestore may know vouchers that have not reached the current device's
+      // local inventory cache. On its explicit unit-history rejection, offer a
+      // consented metadata-only retry using the unit returned by the Cloud.
+      if (err instanceof EquipmentUnitMigrationRequiredError && existingRecord
+        && !areSameUnit(err.storedUnit, equipment.unit)) {
+        try {
+          if (await confirmKeepUnit(err.storedUnit)) {
+            equipment.unit = err.storedUnit;
+            await persist();
+          } else {
+            setNotice('Chưa lưu. ĐVT lịch sử vẫn được giữ nguyên trên Cloud.');
+          }
+        } catch (retryError) {
+          setNotice('Không thể lưu thiết bị: ' + (retryError instanceof Error ? retryError.message : String(retryError)));
+        }
+      } else {
+        setNotice('Không thể lưu thiết bị: ' + (err instanceof Error ? err.message : String(err)));
+      }
     } finally {
       setBusy(false);
     }
@@ -419,7 +448,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
           ? 'Có phiếu kho: bạn có thể đổi tên hiển thị, hãng, model, ghi chú và lưu bình thường. ĐVT kho phải đổi qua quy trình 1:1; dữ liệu cũ có nhiều ĐVT thì cần đối chiếu trước.'
           : 'Đổi tên hiển thị không thay đổi mã và phiếu kho. Nếu thật sự chưa có lịch sử trên Cloud, có thể sửa trực tiếp ĐVT rồi lưu.'}
       </p>}
-      {editingExisting && editingHasHistory && canManage && onRenameWarehouseUnit &&
+      {editingExisting && (editingHasHistory || (edit.id && records.some(item => item.id === edit.id))) && canManage && onRenameWarehouseUnit &&
         <div className="space-y-2 rounded-xl border border-amber-200 bg-white p-3">
           {!renameUnitOpen
             ? <button type="button" disabled={busy} onClick={() => { setNewUnit(''); setRenameUnitOpen(true); }}

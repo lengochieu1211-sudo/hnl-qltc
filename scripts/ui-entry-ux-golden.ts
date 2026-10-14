@@ -386,7 +386,7 @@ assert(
 );
 assert(
   equipmentCatalogUi.includes('disabled={busy || (editingExisting && editingHasHistory)}')
-  && equipmentCatalogUi.includes("editingExisting && editingHasHistory && canManage && onRenameWarehouseUnit"),
+  && equipmentCatalogUi.includes('editingExisting && (editingHasHistory || (edit.id && records.some(item => item.id === edit.id))) && canManage && onRenameWarehouseUnit'),
   'Equipment unit must allow safe edits without history and use atomic 1:1 migration with history',
 );
 assert(
@@ -454,6 +454,30 @@ assert(
   'Equipment manual order must persist to Firestore with revision checks without dropping ranking on edit',
 );
 
+// Quick Edit must expose exactly one row per canonical equipment identity, even
+// when old vouchers use both Cái and Bộ. Duplicate row keys corrupt grid edits.
+assert(
+  warehouse.includes('const seenEquipmentIdentityKeys = new Set<string>();')
+  && warehouse.includes('if (!key || seenEquipmentIdentityKeys.has(key)) return [];')
+  && warehouse.includes('unit: master?.unit || item.unit,')
+  && !warehouse.includes('!master && sameNameInLedger.some('),
+  'Quick Edit must dedupe legacy equipment by identity, preserve the master unit and allow safe metadata entry for multiple historical units',
+);
+assert(
+  equipmentCatalogUi.includes("if (equipmentSortBy === 'none') return sortManualEquipment(a, b);")
+  && !equipmentCatalogUi.includes('name: a.displayName || a.name'),
+  'Manual equipment display and Cloud reorder must use the same canonical order, even after displayName changes',
+);
+
+// Regression: a changed unit with historical vouchers must offer a safe,
+// explicit metadata-only save, never silently rewrite Cái/Bộ ledger identity.
+assert(equipmentCatalogUi.includes('confirmKeepUnit')
+  && equipmentCatalogUi.includes('equipment.unit = existingRecord.unit;')
+  && equipmentCatalogUi.includes('equipment.unit = err.storedUnit;')
+  && equipmentCatalogLogic.includes('export class EquipmentUnitMigrationRequiredError extends Error')
+  && equipmentCatalogLogic.includes('throw new EquipmentUnitMigrationRequiredError(existing.unit);'),
+  'Equipment metadata can save without rewriting old voucher units, with Cloud-stale guard and explicit consent');
+
 // Regression: legacy Máy hàn voucher units cannot block metadata-only saves.
 assert(
   equipmentCatalogLogic.includes('if (!existsOnServer && units && !units.has(next.unit))')
@@ -468,7 +492,7 @@ assert(
   && equipmentCatalogUi.includes('Tên định danh trên phiếu kho:')
   && equipmentCatalogUi.includes("{ ...prev, displayName: event.target.value }")
   && equipmentCatalogUi.includes('Chú ý: phiếu kho của thiết bị này đang có nhiều ĐVT')
-  && equipmentCatalogUi.includes('editingHasHistory && canManage && onRenameWarehouseUnit')
+  && equipmentCatalogUi.includes('editingHasHistory || (edit.id && records.some(item => item.id === edit.id))')
   && warehouse.includes('displayName: master?.displayName || item.name')
   && warehouse.includes('Tên hiển thị (sửa được)')
   && warehouse.includes('item.displayName || item.name'),
@@ -608,6 +632,15 @@ assert(homeDashboardUi.includes('relative isolate max-h-[440px] overflow-auto ov
 assert(homeDashboardUi.includes('min-w-[118px] border-r border-slate-200 bg-slate-100 px-3 py-2 text-center align-middle">Ngày</th>'), 'Trang chủ crew report Ngày header must stay horizontally centered.');
 const crewUi = read('src/components/CrewTabBase.tsx');
 const crewShareUi = read('src/components/CrewReportShareModal.tsx');
+// Regression: shared PNG and preview tables must paint consistent rows.
+assert(crewShareUi.includes('All cells in the TỔNG row must share the SAME blue fill')
+  && crewShareUi.includes("ctx.fillStyle = '#dbeafe';\n      ctx.fillRect(detailX, totalRowY")
+  && crewShareUi.includes("dateIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50'")
+  && !crewShareUi.includes("ctx.fillStyle = '#e2e8f0';\n      ctx.fillRect(detailX, totalRowY")
+  && !crewShareUi.includes('border-r border-blue-100 bg-blue-50/60'),
+  'Crew share total and date-row backgrounds must remain uniform in PNG and preview');
+
+
 assert(crewUi.includes('Chia sẻ báo cáo quân số') && !crewUi.includes('1 ngày / nhiều ngày · nội dung / ảnh'), 'Crew screen must expose the concise consolidated share-report entry');
 assert(crewUi.includes('<AddSourceMenu') && crewUi.includes('triggerLabel="Thêm đội"') && crewUi.includes('Lưu & thêm tiếp') && crewUi.includes('value="continue"'), 'Team Directory Add must use the shared Add Source menu and retain save-and-continue multi-entry flow');
 assert(warehouse.includes('Tạo phiếu') && warehouse.indexOf('Tạo phiếu') < warehouse.indexOf('Danh mục kho'), 'Warehouse PC primary Create Voucher action must precede Catalog and Norms');

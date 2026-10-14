@@ -1267,7 +1267,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                               setUnitPriceStr(item.inputExpressions?.unitPrice || item.unitPrice.toString());
                               setDueDate(item.dueDate || '');
                             }}
-                            className="text-amber-600 hover:text-amber-800 flex items-center gap-1 font-semibold text-[11px]"
+                            className="text-indigo-700 hover:text-indigo-800 flex items-center gap-1 font-semibold text-[11px]"
                             title="Chỉnh sửa thông tin hạng mục"
                           >
                             <Edit2 className="w-3 h-3" /> Sửa thông tin

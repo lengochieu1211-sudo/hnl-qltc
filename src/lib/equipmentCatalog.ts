@@ -33,6 +33,15 @@ export type EquipmentCatalogInput = Pick<EquipmentCatalogRecord,
 const clean = (v: unknown, max = 500) => String(v ?? '').trim().slice(0, max);
 export const equipmentIdentityKey = (name: string) => normalizeMaterialNameKey(name);
 
+/** Typed Cloud guard so the editor can offer to save metadata WITHOUT touching the unit. */
+export class EquipmentUnitMigrationRequiredError extends Error {
+  constructor(public readonly storedUnit: string) {
+    super('Thiết bị có lịch sử kho: phải đổi ĐVT qua quy trình đồng bộ 1:1.');
+    this.name = 'EquipmentUnitMigrationRequiredError';
+  }
+}
+
+
 // Stable deterministic document ID means competing device creations for the
 // same equipment NAME contend on one document instead of silently duplicating it.
 export function equipmentCatalogId(name: string): string {
@@ -170,7 +179,7 @@ export async function saveEquipmentCatalogBatch(projectId: string, entries: Equi
           throw new Error('Không được đổi tên hoặc mã thiết bị đã có.');
         }
         if ((normalizeUnit(existing.unit) || existing.unit) !== next.unit && historicalNames.has(equipmentIdentityKey(next.name))) {
-          throw new Error('Thiết bị có lịch sử kho: phải đổi ĐVT qua quy trình đồng bộ 1:1.');
+          throw new EquipmentUnitMigrationRequiredError(existing.unit);
         }
       } else if (next.expectedRevision !== undefined) {
         throw new Error('Thiết bị không còn trong danh mục Cloud. Hãy tải lại.');

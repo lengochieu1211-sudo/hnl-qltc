@@ -1626,17 +1626,28 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
   const warehouseQuickEquipmentRows = useMemo<QuickGridRow[]>(() => {
     if (!showQuickEdit) return [];
-    return equipmentCatalog.map(item => {
-      const master = equipmentMaster.find(x => equipmentIdentityKey(x.name) === equipmentIdentityKey(item.name));
-      return {
-        __rowKey: master?.id || `historical-${equipmentIdentityKey(item.name)}`,
+    // Inventory may contain Cái and Bộ vouchers for the same legacy name, but
+    // metadata has ONE canonical equipment ID. Never give Quick Edit duplicate
+    // __rowKey values (selection/dirty edits are keyed by this identity).
+    const seenEquipmentIdentityKeys = new Set<string>();
+    return equipmentCatalog.flatMap(item => {
+      const key = equipmentIdentityKey(item.name);
+      if (!key || seenEquipmentIdentityKeys.has(key)) return [];
+      seenEquipmentIdentityKeys.add(key);
+      const master = equipmentMaster.find(x => equipmentIdentityKey(x.name) === key);
+      return [{
+        __rowKey: master?.id || `historical-${key}`,
         __catalogId: master?.id || '',
         __catalogRevision: master?.revision,
-        name: item.name, displayName: master?.displayName || item.name, unit: item.unit,
+        name: master?.name || item.name,
+        displayName: master?.displayName || item.name,
+        // Existing master unit is authoritative; unregistered legacy names use
+        // one actual voucher unit, never a fabricated 1:1 conversion.
+        unit: master?.unit || item.unit,
         category: master?.category || 'Thiết bị',
         brand: master?.brand || '', model: master?.model || '',
         specifications: master?.specifications || '', notes: master?.notes || '',
-      };
+      }];
     });
   }, [showQuickEdit, equipmentCatalog, equipmentMaster]);
 
@@ -1760,12 +1771,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         const unit = normalizeUnit(String(row.unit || '').trim()) || String(row.unit || '').trim();
         const sameNameInLedger = inventory.filter(item =>
           item.itemKind === 'equipment' && equipmentIdentityKey(item.materialName) === equipmentIdentityKey(name));
-        // Legacy multiple-unit histories are only a problem for creating a
-        // canonical unit or changing it, not for editing saved metadata.
+        // A new metadata row for legacy vouchers may select ONE unit already
+        // present in Cloud history. saveEquipmentCatalogBatch checks that on
+        // the server; mismatched other vouchers must not block metadata edits.
         const master = equipmentMaster.find(item => item.id === String(row.__catalogId || ''));
-        if (!master && sameNameInLedger.some(item => (normalizeUnit(item.unit) || item.unit) !== unit)) {
-          throw new Error(`Thiết bị “${name}” có nhiều ĐVT lịch sử. Hãy đối chiếu trước khi tạo danh mục mới.`);
-        }
         if (master && (normalizeUnit(master.unit) || master.unit) !== unit && sameNameInLedger.length) {
           throw new Error(`Thiết bị “${name}” đã có phiếu kho. Hãy dùng nút Đổi ĐVT (1:1) trong Thiết lập thiết bị.`);
         }

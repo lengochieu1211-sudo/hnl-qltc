@@ -1212,8 +1212,8 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                             disableUp={normIndex === 0}
                             disableDown={normIndex === sortedFilteredNorms.length - 1}
                           />}
-                          <button onClick={() => handleOpenEdit(norm)} className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Sửa định mức"><Edit3 className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => setDeletingNormTarget(norm)} className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors" title="Xóa định mức"><Trash2 className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => handleOpenEdit(norm)} className="p-1 text-indigo-700 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-colors" title="Sửa định mức"><Edit3 className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => setDeletingNormTarget(norm)} className="p-1 text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors" title="Xóa định mức"><Trash2 className="w-3.5 h-3.5" /></button>
                         </div>}
                       </div>
 
