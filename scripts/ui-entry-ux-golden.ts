@@ -471,14 +471,16 @@ assert(
   'Manual equipment display and Cloud reorder must use the same canonical order, even after displayName changes',
 );
 
-// Regression: a changed unit with historical vouchers must offer a safe,
-// explicit metadata-only save, never silently rewrite Cái/Bộ ledger identity.
-assert(equipmentCatalogUi.includes('confirmKeepUnit')
-  && equipmentCatalogUi.includes('equipment.unit = existingRecord.unit;')
-  && equipmentCatalogUi.includes('equipment.unit = err.storedUnit;')
+// Regression: direct unit edits use one field, and real warehouse history is
+// migrated atomically with the metadata after an explicit 1:1 confirmation.
+assert(equipmentCatalogUi.includes('const migrateUnit = async (fromUnit: string)')
+  && equipmentCatalogUi.includes('if (changingUnit && hasVouchersLocally)')
+  && equipmentCatalogUi.includes('await migrateUnit(err.storedUnit);')
+  && equipmentCatalogUi.includes('equipmentMetadata,')
+  && equipmentCatalogUi.includes('Chỉ sửa đơn vị ghi nhầm theo tỷ lệ 1:1')
   && equipmentCatalogLogic.includes('export class EquipmentUnitMigrationRequiredError extends Error')
   && equipmentCatalogLogic.includes('throw new EquipmentUnitMigrationRequiredError(existing.unit);'),
-  'Equipment metadata can save without rewriting old voucher units, with Cloud-stale guard and explicit consent');
+  'Equipment unit changes must use one input and explicit Cloud-guarded atomic migration');
 
 // Regression: legacy Máy hàn voucher units cannot block metadata-only saves.
 assert(
@@ -494,7 +496,7 @@ assert(
   && equipmentCatalogUi.includes('Tên định danh trên phiếu kho:')
   && equipmentCatalogUi.includes("{ ...prev, displayName: event.target.value }")
   && equipmentCatalogUi.includes('Chú ý: phiếu kho của thiết bị này đang có nhiều ĐVT')
-  && equipmentCatalogUi.includes('editingHasHistory || (edit.id && records.some(item => item.id === edit.id))')
+  && equipmentCatalogUi.includes('data-hnl-equipment-unit-guidance="true"')
   && warehouse.includes('displayName: master?.displayName || item.name')
   && warehouse.includes('Tên hiển thị (sửa được)')
   && warehouse.includes('item.displayName || item.name'),
