@@ -136,7 +136,7 @@ assert(!featureSheet.includes('rounded-full border border-slate-200 bg-white'), 
 const warehouse = read('src/components/WarehouseTab.tsx');
 const materialNormModal = read('src/components/MaterialNormModal.tsx');
 const crewFormUi = read('src/components/CrewTabBase.tsx');
-const workVolumeUi = read('src/components/WorkVolumeTab.tsx');
+const workVolumeCreateUi = read('src/components/WorkVolumeTab.tsx');
 const equipmentFormUi = read('src/components/EquipmentCatalogPanel.tsx');
 assert(materialNormModal.includes('max-w-5xl') && materialNormModal.includes('max-w-3xl')
   && materialNormModal.includes("'Tạo định mức mới'"), 'Material Norm desktop editor must use unified wide modal with readable centered form');
@@ -149,7 +149,7 @@ assert(crewFormUi.includes("setActiveLogEntityId(createEntityId('crew'))")
   && crewFormUi.includes('key={activeLogEntityId}')
   && crewFormUi.includes("setFloorWorks([])") && crewFormUi.includes("setNotes('')"),
   'Save-and-continue must isolate fresh entity/photos and clear prior log work');
-assert(workVolumeUi.includes("'Tạo hạng mục mới'") && equipmentFormUi.includes("'Tạo thiết bị mới'"),
+assert(workVolumeCreateUi.includes("'Tạo hạng mục mới'") && equipmentFormUi.includes("'Tạo thiết bị mới'"),
   'Dialog create titles must match Add Source menu semantics');
 
 assert(warehouse.includes('<DataManagementMenu'), 'Warehouse must use the shared Data Management menu');
