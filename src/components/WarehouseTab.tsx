@@ -2910,7 +2910,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           {roleResolved && <button type="button" data-hnl-warehouse-export-open="all"
             onClick={() => setVoucherShareOpen(true)}
             className="min-h-10 rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-xs font-bold text-indigo-700">
-            Xuất / Chia sẻ phiếu PNG/PDF
+            Chia sẻ phiếu nhập/xuất kho
           </button>}
         </div>
 

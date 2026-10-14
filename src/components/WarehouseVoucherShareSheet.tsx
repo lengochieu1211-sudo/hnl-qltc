@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FileText } from 'lucide-react';
+import { Copy, FileSpreadsheet, FileText, Image as ImageIcon, FileDown, X, Download, Share2 } from 'lucide-react';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import type { InventoryItem, InventoryItemKind, TransactionType } from '../types';
 import { formatDateDDMMYYYY } from '../utils/dateFormatter';
@@ -8,7 +8,9 @@ import { saveBlobToDownloads } from '../utils/fileExport';
 import { sharePreparedContent } from '../utils/shareUtils';
 import { isAndroidExportBridgeAvailable } from '../utils/fileExport';
 import { drawWarehouseVoucherPage, paginateWarehouseVouchers } from '../utils/warehouseVoucherPrint';
+import { buildWarehouseVoucherText } from '../utils/warehouseVoucherExcel';
 
+type VoucherFormat = 'text' | 'png' | 'xlsx' | 'pdf';
 type Period = 'today' | 'yesterday' | 'range';
 type Pick = 'one' | 'many' | 'all';
 type Kind = 'all' | InventoryItemKind;
@@ -45,9 +47,14 @@ const toDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
 });
 const safeFile = (name: string) => name.replace(/[\\/:*?"<>|]/g, '_').slice(0, 110);
 
-async function prepareVoucherFiles(rows: InventoryItem[], format: 'png' | 'pdf', projectName: string, projectLocation: string, contractorName: string): Promise<VoucherFile[]> {
+async function prepareVoucherFiles(rows: InventoryItem[], format: Exclude<VoucherFormat, 'text'>, projectName: string, projectLocation: string, contractorName: string): Promise<VoucherFile[]> {
   const pages = paginateWarehouseVouchers(rows);
   if (!pages.length) throw new Error('Chưa có giao dịch kho để xuất.');
+  if (format === 'xlsx') {
+    const {buildWarehouseVoucherExcel} = await import('../utils/warehouseVoucherExcel');
+    const {blob,fileName,mimeType} = await buildWarehouseVoucherExcel(pages, {projectName, projectLocation, contractorName});
+    return [{id:'voucher-excel',fileName,mimeType,blob,dataUrl:await toDataUrl(blob)}];
+  }
   if (format === 'png') {
     const files: VoucherFile[] = [];
     for (const [index, page] of pages.entries()) {
@@ -82,8 +89,8 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [message,setMessage]=useState('');
-  const [menu,setMenu]=useState<'png'|'pdf'|null>(null);
-  const [prepared,setPrepared]=useState<{format:'png'|'pdf';signature:string;files:VoucherFile[]}|null>(null);
+  const [menu,setMenu]=useState<VoucherFormat|null>(null);
+  const [prepared,setPrepared]=useState<{format:Exclude<VoucherFormat,'text'>;signature:string;files:VoucherFile[]}|null>(null);
   const visible=useMemo(()=>selectWarehouseVouchers(inventory,{period,start,end,kind,direction}),[inventory,period,start,end,kind,direction]);
   const chosen=useMemo(()=>pick==='all'?visible:pick==='one'
     ?visible.filter(v=>v.id===checked.find(id=>visible.some(x=>x.id===id))).slice(0,1)
@@ -92,10 +99,13 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
   const pages=useMemo(()=>paginateWarehouseVouchers(chosen),[chosen]);
   useEffect(()=>{setPrepared(null);setMenu(null);setError('');setMessage('');},[selectionSignature]);
   const choice=(current:boolean)=>'min-h-10 rounded-lg border px-3 py-2 text-xs font-semibold '+(current?'border-indigo-600 bg-indigo-600 text-white':'border-slate-300 bg-white text-slate-700');
-  const openActions=async(format:'png'|'pdf')=>{
+  const formattedText=useMemo(()=>buildWarehouseVoucherText(pages,{projectName,projectLocation,contractorName}),[pages,projectName,projectLocation,contractorName]);
+  const formatLabel=(format:VoucherFormat) => format==='text'?'nội dung':format==='png'?'ảnh':format==='xlsx'?'Excel':'PDF';
+  const openActions=async(format:VoucherFormat)=>{
     if(!chosen.length||busy)return;
     if(menu===format){setMenu(null);return;}
     setMenu(format);setError('');setMessage('');
+    if(format==='text')return;
     if(prepared?.format===format && prepared.signature===selectionSignature)return;
     setPrepared(null);setBusy(true);
     try{
@@ -104,11 +114,30 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
     }catch(e){setError(e instanceof Error?e.message:'Không chuẩn bị được phiếu kho.');}
     finally{setBusy(false);}
   };
-  const act=async(action:'download'|'share')=>{
-    if(!menu||!prepared||prepared.signature!==selectionSignature||prepared.format!==menu||busy)return;
+  const act=async(action:'download'|'share'|'copy')=>{
+    if(!menu||busy)return;
+    if(menu==='text'){
+      if(!formattedText)return;
+      setBusy(true);setError('');setMessage('');
+      try{
+        if(action==='copy'){
+          await navigator.clipboard.writeText(formattedText);
+          setMessage('Đã sao chép nội dung phiếu kho.');
+        } else if(action==='share'){
+          const result=await sharePreparedContent({title:'Phiếu nhập/xuất kho',text:formattedText});
+          if(result.status==='shared')setMessage('Đã yêu cầu mở chia sẻ nội dung phiếu.');
+          else if(result.status==='cancelled')setMessage('Đã hủy chia sẻ.');
+          else throw new Error('Không chia sẻ được nội dung. Hãy dùng Sao chép nội dung.');
+        }
+        setMenu(null);
+      }catch(e){setError(e instanceof Error?e.message:'Không thể sao chép/chia sẻ nội dung.');}
+      finally{setBusy(false);}
+      return;
+    }
+    if(!prepared||prepared.signature!==selectionSignature||prepared.format!==menu)return;
     const files=prepared.files;
     if(action==='share'&&files.length>6){
-      setError('Chia sẻ PNG tối đa 6 trang mỗi lần. Hãy chọn PDF để chia sẻ toàn bộ.');
+      setError('Chia sẻ tối đa 6 ảnh/trang mỗi lần. Hãy chọn PDF hoặc Excel để chia sẻ toàn bộ.');
       return;
     }
     setBusy(true);setError('');setMessage('');
@@ -119,22 +148,22 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
           isAndroidExportBridgeAvailable()
             ? 'Đã lưu '+files.length+' ảnh phiếu kho vào Tải xuống/QLTC.'
             : 'Đã yêu cầu tải '+files.length+' ảnh; trình duyệt có thể yêu cầu cấp quyền tải nhiều file.');
-      }else{
-        // All image/PDF bytes are prepared on the earlier PNG/PDF click, so the
-        // final Share click can invoke navigator.share with transient activation.
+      }else if(action==='share'){
+        // File bytes are prepared before the final click to preserve native share activation.
         const result=await sharePreparedContent({title:'Phiếu nhập/xuất kho',
           text:'Phiếu kho · '+chosen.length+' dòng vật tư · '+pages.length+' trang A4',
           attachments:files.map(file=>({id:file.id,fileName:file.fileName,mimeType:file.mimeType,dataUrl:file.dataUrl})),
           allowTextFallback:false});
-        if(result.status==='shared')setMessage('Đã yêu cầu mở bảng chia sẻ '+menu.toUpperCase()+'.');
+        if(result.status==='shared')setMessage('Đã yêu cầu mở bảng chia sẻ '+formatLabel(menu)+'.');
         else if(result.status==='cancelled')setMessage('Đã hủy chia sẻ.');
-        else setError('Thiết bị hoặc trình duyệt không hỗ trợ chia sẻ file trực tiếp. Hãy chọn Tải '+menu.toUpperCase()+'.');
+        else throw new Error('Thiết bị không hỗ trợ chia sẻ file trực tiếp. Hãy chọn Tải '+formatLabel(menu)+'.');
       }
+      setMenu(null);
     }catch(e){setError(e instanceof Error?e.message:'Không thể tải hoặc chia sẻ phiếu kho.');}
     finally{setBusy(false);}
   };
   return <SettingsFeatureSheet open={open} onClose={onClose} sheetKey="warehouse-voucher-share" icon={FileText}
-    title="Xuất / Chia sẻ phiếu kho" description="Phiếu chỉ đọc, không chỉnh sửa tồn kho hoặc dữ liệu.">
+    title="Chia sẻ phiếu nhập/xuất kho" description="Chọn Nội dung, Ảnh, Excel hoặc PDF. Phiếu chỉ đọc, không ảnh hưởng tồn kho.">
     <div data-hnl-warehouse-voucher-share="readonly" className="space-y-4">
       <p className="text-xs font-bold text-slate-700">Khoảng ngày</p>
       <div className="flex flex-wrap gap-2">{([['today','Hôm nay'],['yesterday','Hôm qua'],['range','Khoảng ngày']] as const).map(([v,label])=>
@@ -149,7 +178,7 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
       <p className="text-xs font-bold text-slate-700">Loại phiếu</p>
       <div className="flex flex-wrap gap-2">{([['all','Nhập và xuất'],['in','Nhập kho'],['out','Xuất kho']] as const).map(([v,label])=>
         <button type="button" key={v} className={choice(direction===v)} aria-pressed={direction===v} onClick={()=>{setDirection(v);setChecked([]);}}>{label}</button>)}</div>
-      <p className="text-xs font-bold text-slate-700">Chọn số phiếu</p>
+      <p className="text-xs font-bold text-slate-700">Chọn giao dịch in phiếu</p>
       <div className="flex flex-wrap gap-2">{([['one','Một phiếu'],['many','Nhiều phiếu'],['all','Tất cả']] as const).map(([v,label])=>
         <button type="button" key={v} className={choice(pick===v)} aria-pressed={pick===v} onClick={()=>setPick(v)}>{label}</button>)}</div>
       <p className="text-xs text-slate-500">Đã chọn {chosen.length}/{visible.length} phiếu.</p>
@@ -162,32 +191,67 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
         </label>)}</div>}
       <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700" data-hnl-voucher-layout="multirow-a4">
         {chosen.length} dòng vật tư/thiết bị → {pages.length} trang A4. Các dòng cùng ngày, loại nhập/xuất,
-        kho và người thực hiện được xếp chung một phiếu in; mã giao dịch gốc vẫn được giữ trong bảng.
+        kho và người thực hiện được xếp chung một phiếu; mã tham chiếu gốc vẫn được giữ trong bảng.
       </p>
       {error&&<p role="alert" className="rounded-lg bg-rose-50 p-2 text-xs text-rose-700">{error}</p>}
       {message&&<p role="status" className="rounded-lg bg-emerald-50 p-2 text-xs text-emerald-800">{message}</p>}
-      <div className="grid grid-cols-2 gap-2">
-        {(['png','pdf'] as const).map(format=>
+      <div className="grid grid-cols-4 gap-2" role="group" aria-label="Định dạng chia sẻ phiếu kho">
+        {([
+          ['text','Nội dung',FileText],
+          ['png','Ảnh',ImageIcon],
+          ['xlsx','Excel',FileSpreadsheet],
+          ['pdf','PDF',FileDown],
+        ] as const).map(([format,label,Icon])=>
           <button key={format} data-hnl-voucher-format={format} type="button" disabled={busy||!chosen.length}
             aria-expanded={menu===format} onClick={()=>void openActions(format)}
-            className="min-h-11 rounded-xl border border-indigo-200 bg-indigo-600 px-3 text-xs font-bold text-white disabled:opacity-50">
-            {busy&&menu===format?'Đang chuẩn bị...':format==='png'?'Ảnh PNG':'Tài liệu PDF'}
+            className="flex min-h-11 items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-indigo-600 px-1 text-[11px] font-bold text-white disabled:opacity-50 sm:text-xs">
+            <Icon className="h-4 w-4 shrink-0" /> {busy&&menu===format?'Đang tạo...':label}
           </button>)}
       </div>
-      {menu&&<div className="rounded-xl border border-indigo-100 bg-indigo-50 p-3">
-        <p className="mb-2 text-xs font-semibold text-slate-700">{menu.toUpperCase()} · {prepared?.format===menu?prepared.files.length:'Đang tạo'} file</p>
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" data-hnl-voucher-action={menu+'-download'} disabled={busy||!prepared||prepared.format!==menu}
-            onClick={()=>void act('download')} className="min-h-11 rounded-lg bg-white px-3 text-xs font-bold text-indigo-700 disabled:opacity-50">
-            Tải {menu.toUpperCase()}
-          </button>
-          <button type="button" data-hnl-voucher-action={menu+'-share'} disabled={busy||!prepared||prepared.format!==menu}
-            onClick={()=>void act('share')} className="min-h-11 rounded-lg bg-indigo-700 px-3 text-xs font-bold text-white disabled:opacity-50">
-            Chia sẻ {menu.toUpperCase()}
-          </button>
+      {menu&&<div data-hnl-voucher-action-overlay="true" className="fixed inset-0 z-[160] flex items-end justify-center sm:items-center">
+        <button type="button" data-hnl-voucher-action-backdrop="true" onClick={()=>!busy&&setMenu(null)}
+          className="absolute inset-0 bg-slate-950/45" aria-label="Đóng tùy chọn xuất phiếu kho" />
+        <div role="dialog" aria-label="Tùy chọn xuất và chia sẻ phiếu kho"
+          data-hnl-voucher-action-menu={menu}
+          className="relative z-10 mb-[calc(0.75rem+env(safe-area-inset-bottom))] w-[calc(100%-1.5rem)] max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl sm:mb-0">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <p className="text-sm font-bold text-slate-900">Phiếu kho · {formatLabel(menu)}</p>
+            <button type="button" disabled={busy} onClick={()=>setMenu(null)}
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600"
+              aria-label="Đóng tùy chọn"><X className="h-4 w-4" /></button>
+          </div>
+          <p className="mb-3 text-xs text-slate-500">
+            {menu==='text'?'Sao chép hoặc chia sẻ nội dung nhiều dòng':
+              busy?'Đang chuẩn bị file...':prepared?.format===menu&&prepared.signature===selectionSignature?
+                prepared.files.length+' file đã sẵn sàng':'Định dạng chưa sẵn sàng'}
+          </p>
+          {error&&<p role="alert" className="mb-2 rounded-lg bg-rose-50 p-2 text-xs text-rose-700">{error}</p>}
+          <div className="grid grid-cols-2 gap-2">
+            {menu==='text'?<>
+              <button type="button" data-hnl-voucher-action="text-copy" disabled={busy}
+                onClick={()=>void act('copy')} className="flex min-h-12 items-center justify-center gap-1 rounded-xl border border-slate-200 bg-white px-2 text-xs font-bold text-slate-700 disabled:opacity-50">
+                <Copy className="h-4 w-4" /> Sao chép nội dung
+              </button>
+              <button type="button" data-hnl-voucher-action="text-share" disabled={busy}
+                onClick={()=>void act('share')} className="flex min-h-12 items-center justify-center gap-1 rounded-xl bg-indigo-700 px-2 text-xs font-bold text-white disabled:opacity-50">
+                <Share2 className="h-4 w-4" /> Chia sẻ nội dung
+              </button>
+            </>:<>
+              <button type="button" data-hnl-voucher-action={menu+'-download'}
+                disabled={busy||!prepared||prepared.signature!==selectionSignature||prepared.format!==menu}
+                onClick={()=>void act('download')} className="flex min-h-12 items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-white px-2 text-xs font-bold text-indigo-700 disabled:opacity-50">
+                <Download className="h-4 w-4" /> Tải {formatLabel(menu)}
+              </button>
+              <button type="button" data-hnl-voucher-action={menu+'-share'}
+                disabled={busy||!prepared||prepared.signature!==selectionSignature||prepared.format!==menu}
+                onClick={()=>void act('share')} className="flex min-h-12 items-center justify-center gap-1 rounded-xl bg-indigo-700 px-2 text-xs font-bold text-white disabled:opacity-50">
+                <Share2 className="h-4 w-4" /> Chia sẻ {formatLabel(menu)}
+              </button>
+            </>}
+          </div>
         </div>
       </div>}
-      <p className="text-[11px] text-slate-500">Một phiếu in chứa bảng nhiều dòng; PNG theo trang, PDF gộp mọi trang. Chia sẻ PNG tối đa 6 trang/lần.</p>
+      <p className="text-[11px] text-slate-500">Một phiếu chứa bảng nhiều dòng. Ảnh và Excel theo trang; PDF gộp mọi trang. Chia sẻ ảnh tối đa 6 trang/lần.</p>
     </div>
   </SettingsFeatureSheet>;
 }

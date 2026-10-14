@@ -65,4 +65,20 @@ assert(!renderer.includes('HNL QLTC'),'No app brand may be printed on warehouse 
 assert(renderer.includes('Tên vật tư / thiết bị') && renderer.includes('Số lượng') && renderer.includes('Mã tham chiếu'));
 assert(sheet.includes('paginateWarehouseVouchers(chosen)'),'Export must group selected material rows');
 assert(sheet.includes("allowTextFallback:false"),'Sharing files cannot silently send text instead');
+assert(sheet.includes('Chia sẻ phiếu nhập/xuất kho') && warehouse.includes('Chia sẻ phiếu nhập/xuất kho'),
+  'Warehouse share action and dialog must use one concise label');
+assert(sheet.includes("['text','Nội dung',FileText]") && sheet.includes("['png','Ảnh',ImageIcon]")
+  && sheet.includes("['xlsx','Excel',FileSpreadsheet]") && sheet.includes("['pdf','PDF',FileDown]"),
+  'Keep content/image/Excel/PDF formats together and preserve PDF');
+assert(sheet.includes('data-hnl-voucher-action-menu') && sheet.includes('fixed inset-0 z-[160]'),
+  'The share/download menu must be viewport-fixed, not appended offscreen below form');
+const excel = fs.readFileSync('src/utils/warehouseVoucherExcel.ts', 'utf8');
+for (const heading of ['Công trình:', 'Địa điểm:', 'PHIẾU NHẬP KHO', 'PHIẾU XUẤT KHO',
+  'Kho / Vị trí:', 'Người thực hiện:', 'Mã tham chiếu', 'Người lập phiếu', 'Thủ kho']) {
+  assert(excel.includes(heading), 'Excel must preserve voucher paper heading ' + heading);
+}
+assert(excel.includes('page.rows.forEach') && excel.includes('item.id')
+  && excel.includes('Number(item.quantity || 0)'),
+  'Excel must retain full line IDs and numeric quantities without affecting warehouse data');
+
 console.log('Warehouse multi-line A4 grouped receipt / continuous IDs / branding golden: PASS');
