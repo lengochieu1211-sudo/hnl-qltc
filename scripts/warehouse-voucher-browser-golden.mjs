@@ -133,6 +133,7 @@ try {
         'Signature must follow the actual table instead of being pinned near A4 bottom');
     }else {
       assert.equal(bytes.subarray(0,4).toString(),'%PDF','PDF header');
+      fs.writeFileSync('runtime-evidence/voucher-selectable-'+tag+'.pdf',bytes);
       assert(!bytes.toString('latin1').includes('/Subtype /Image'),
         'PDF must use native selectable text, not one PNG image for each page');
       const task=getDocument({data:new Uint8Array(bytes),disableFontFace:true,useSystemFonts:false});
