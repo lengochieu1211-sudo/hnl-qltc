@@ -48,8 +48,17 @@ try{
     await dialog.getByRole('button',{name:'Nội dung',exact:true}).click();
     assert(await dialog.getByRole('button',{name:'Sao chép nội dung'}).isVisible());
     assert(await dialog.getByRole('button',{name:'Chia sẻ nội dung'}).isVisible());
+    const textActions=dialog.locator('[data-hnl-crew-action-menu="text"]');
+    const textBounds=await textActions.boundingBox();
+    assert(textBounds&&textBounds.y>=0&&textBounds.y+textBounds.height<=viewport.height+2,
+      name+': text share popup must be within viewport');
+    await textActions.getByRole('button',{name:'Đóng tùy chọn'}).click();
 
     await dialog.getByRole('button',{name:'Excel',exact:true}).click();
+    const excelActions=dialog.locator('[data-hnl-crew-action-menu="excel"]');
+    const excelBounds=await excelActions.boundingBox();
+    assert(excelBounds&&excelBounds.y>=0&&excelBounds.y+excelBounds.height<=viewport.height+2,
+      name+': Excel share popup must be within viewport');
     const dlExcel=dialog.getByRole('button',{name:'Tải Excel'});
     await ready(dlExcel);
     const excelPromise=page.waitForEvent('download',{timeout:30000});
@@ -68,7 +77,12 @@ try{
     assert((await page.evaluate(()=>window.__crewShareEvents)).some(evt=>evt.files.some(f=>f.type.includes('spreadsheetml'))),
       'Browser Web Share API must receive actual XLSX attachment');
 
+    await excelActions.getByRole('button',{name:'Đóng tùy chọn'}).click();
     await dialog.getByRole('button',{name:'Ảnh',exact:true}).click();
+    const imageActions=dialog.locator('[data-hnl-crew-action-menu="image"]');
+    const imageBounds=await imageActions.boundingBox();
+    assert(imageBounds&&imageBounds.y>=0&&imageBounds.y+imageBounds.height<=viewport.height+2,
+      name+': Image share popup must be within viewport');
     const dlPng=dialog.getByRole('button',{name:'Tải ảnh'});
     await ready(dlPng);
     const pngPromise=page.waitForEvent('download',{timeout:30000});
@@ -81,6 +95,8 @@ try{
     await dialog.getByRole('button',{name:'Chia sẻ ảnh'}).click();
     assert((await page.evaluate(()=>window.__crewShareEvents)).some(evt=>evt.files.some(f=>f.type==='image/png')),
       'Browser Web Share API must receive actual PNG attachment');
+    await imageActions.getByRole('button',{name:'Đóng tùy chọn'}).click();
+    assert.equal(await dialog.locator('[data-hnl-crew-action-menu]').count(),0,'Dismiss overlay without losing report');
     assert.deepEqual(errors,[],'Browser JS errors');
     await page.screenshot({path:'runtime-evidence/crew-share-'+name+'.png',fullPage:true});
     await context.close();
