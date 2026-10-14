@@ -235,6 +235,9 @@ assert.match(warehouse, /inventoryKindFilter, setInventoryKindFilter/, 'Warehous
 assert.match(warehouse, /data-hnl-catalog-in-history=\{item\.key\}/, 'Catalog inbound totals must open read-only history');
 assert.match(warehouse, /data-hnl-catalog-out-history=\{item\.key\}/, 'Catalog outbound totals must open read-only history');
 assert.match(warehouse, /data-hnl-catalog-history="readonly"/, 'Catalog history must be view-only');
+assert.match(warehouse, /data-hnl-catalog-history-view="visible"/, 'Catalog history must replace table');
+assert.match(warehouse, /activeCatalogHistoryDate/, 'Newest date must auto-expand');
+assert.match(warehouse, /scrollBody instanceof HTMLElement\) scrollBody.scrollTop = 0/, 'Open history scroll reset');
 assert.match(warehouse, /normalizeMaterialSearch\('sourceName' in item \? item\.sourceName : item\.name\)/, 'Equipment aliases must resolve original ledger identity');
 assert.match(warehouse, /entry\.deletedAt == null/, 'Catalog history excludes deleted transactions');
 assert.match(warehouse, /entry\.type === catalogHistory\.type/, 'Catalog history filters IN vs OUT');
