@@ -1,0 +1,15 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const android = fs.readFileSync('android-wrapper/src/com/qlct/app/MainActivity.java','utf8');
+const js = fs.readFileSync('src/utils/fileExport.ts','utf8');
+const count = (s,part) => s.split(part).length-1;
+assert(count(android,'requireNonEmptyExport(export.tempFile)') >= 3,'All native chunk finish paths must reject zero-byte temp files');
+assert(android.includes('verifySavedFile(uri, export.tempFile)'), 'Android SAF must verify written file with readback SHA256');
+assert(android.includes('verifySavedFile(uri, sourceFile)'), 'Android Downloads must verify file after write');
+assert(android.includes('MessageDigest.isEqual(expected, actual)'), 'Readback must check content integrity not only entry creation');
+assert(count(android,'MediaStore.MediaColumns.IS_PENDING, 1')===2,'Downloads must remain pending until verified');
+assert(count(android,'MediaStore.MediaColumns.IS_PENDING, 0')===2,'Downloads are published only after verify');
+assert(count(android,'if (!published) getContentResolver().delete(uri, null, null)')===2,'Failed pending downloads must be cleaned up');
+assert(count(js,'blob.size <= 0')===2,'Both export and download routes must reject empty blobs');
+assert(android.indexOf('verifySavedFile(uri, export.tempFile)')<android.indexOf('private Uri getAutoSaveTreeUri()'),'SAF readback is part of savePendingExportToUri');
+console.log('ANDROID 0-BYTE EXPORT GUARDS: PASS');
