@@ -76,7 +76,7 @@ try {
   const excelDl=await excelPromise;
   const excelBytes=fs.readFileSync(await excelDl.path());
   assert(excelBytes.length>3000&&excelBytes.subarray(0,2).toString()==='PK',tag+': valid XLSX binary');
-  const workbook=XLSX.read(excelBytes,{type:'buffer',cellFormula:true});
+  const workbook=XLSX.read(excelBytes,{type:'buffer',cellFormula:true,cellStyles:true});
   assert.equal(workbook.SheetNames.length,1,tag+': 1 selected invoice should have 1 sheet');
   const firstSheet=workbook.Sheets[workbook.SheetNames[0]];
   const cells=Object.values(firstSheet).filter(c=>c&&typeof c==='object'&&'v' in c).map(c=>c.v);
