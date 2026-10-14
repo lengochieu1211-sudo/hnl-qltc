@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Copy, Download, FileSpreadsheet, FileText, Image as ImageIcon, Share2, Users, X } from 'lucide-react';
 import type { ShareAttachmentPayload } from '../utils/shareUtils';
 import { sharePreparedContent } from '../utils/shareUtils';
@@ -779,10 +780,12 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
               <FileSpreadsheet className="h-4 w-4" /> {busy==='excel'?'Tạo Excel…':'Excel'}
             </button>
           </div>
-          {actionMenu&&<div data-hnl-crew-action-overlay="true" className="fixed inset-0 z-[160] flex items-end justify-center sm:items-center">
+          {/* A scrollable/backdrop-filter parent traps fixed children in Android WebView. */}
+          {actionMenu && typeof document !== 'undefined' && createPortal(
+            <div data-hnl-crew-action-overlay="true" className="fixed inset-0 z-[160] flex items-end justify-center sm:items-center">
             <button type="button" data-hnl-crew-action-backdrop="true" onClick={()=>!busy&&setActionMenu(null)}
               className="absolute inset-0 bg-slate-950/45" aria-label="Đóng tùy chọn chia sẻ quân số" />
-            <div role="dialog" aria-label="Tùy chọn xuất và chia sẻ báo cáo quân số"
+            <div role="dialog" aria-modal="true" aria-label="Tùy chọn xuất và chia sẻ báo cáo quân số"
               data-hnl-crew-action-menu={actionMenu}
               className="relative z-10 mb-[calc(0.75rem+env(safe-area-inset-bottom))] w-[calc(100%-1.5rem)] max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl sm:mb-0">
               <div className="mb-3 flex items-center justify-between gap-2">
@@ -806,7 +809,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
             </>}
               </div>
             </div>
-          </div>}
+          </div>, document.body)}
           {message && <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">{message}</div>}
         </div>
       </div>
