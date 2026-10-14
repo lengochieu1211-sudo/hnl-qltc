@@ -13,7 +13,7 @@ const inventory:InventoryItem[]=[
 {id:'P0-OUT-20261013-003',itemKind:'material',materialId:'MAT-P0-001',type:'out',materialName:name,unit:'Tấm',quantity:5,date:'2026-10-13',location:'Tầng 2',handler:'Người xuất P0'},
 {id:'P0-EQUIP-IN-004',itemKind:'equipment',type:'in',materialName:'Máy bắn vít Golden P0',unit:'Cái',quantity:3,date:'2026-10-11',location:'Kho A',handler:'Người nhập P0'}];
 createRoot(document.getElementById('root')!).render(<div className="min-h-screen bg-slate-100 p-4">
-<WarehouseTab isActive quickEditEnabled={false} currentProjectId="" projectName="Công trình Trung tâm Kiểm thử QLTC" projectLocation="123 Đường Thử Nghiệm, Quận 1, TP.HCM" inventory={inventory} userRole="VIEWER" roleResolved
+<WarehouseTab isActive quickEditEnabled={false} currentProjectId="" projectName="Công trình Trung tâm Kiểm thử QLTC" projectLocation="123 Đường Thử Nghiệm, Quận 1, TP.HCM" contractorName="Công ty Thi công Kiểm thử" inventory={inventory} userRole="VIEWER" roleResolved
 materialNorms={materialNorms} structureConfig={DEFAULT_STRUCTURE_CONFIG}
 onAddInventory={()=>{throw new Error('Read-only fixture');}}
 onDeleteInventory={()=>{throw new Error('Read-only fixture');}}
