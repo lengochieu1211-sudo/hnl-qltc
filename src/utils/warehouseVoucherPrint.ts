@@ -137,10 +137,13 @@ export function drawWarehouseVoucherPage(page: WarehouseVoucherPrintPage): HTMLC
   ctx.fillText('Kho / Vị trí:', LEFT, 298);
   // The persisted 'handler' is a generic giao/nhận/engineer field, not a verified sender or recipient.
   ctx.fillText('Người thực hiện:', LEFT, 346);
+  // Offset the longer generic label dynamically: a fixed 228px value x would
+  // overlap the handler name on narrow/large-font canvas implementations.
+  const handlerValueX = Math.ceil(LEFT + ctx.measureText('Người thực hiện:').width + 24);
   ctx.font = '23px Arial, sans-serif';
   ctx.fillStyle = '#0f172a';
-  ctx.fillText(normalize(page.location) || '—', 228, 298, 945);
-  ctx.fillText(normalize(page.handler) || '—', 228, 346, 945);
+  ctx.fillText(normalize(page.location) || '—', 228, 298, RIGHT - 228);
+  ctx.fillText(normalize(page.handler) || '—', handlerValueX, 346, RIGHT - handlerValueX);
 
   const tableWidth = COLUMN_WIDTHS.reduce((total, width) => total + width, 0);
   ctx.fillStyle = '#e2e8f0';
