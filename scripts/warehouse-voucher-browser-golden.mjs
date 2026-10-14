@@ -85,6 +85,7 @@ try {
   }
   assert(cells.includes(12),tag+': Excel quantity must be numeric');
   assert(firstSheet['!merges']?.length>2,tag+': expected print layout merges');
+  assert.equal(firstSheet['!cols']?.[4]?.hidden,true,tag+': original ID must be retained in the hidden fifth Excel column');
   results.push({viewport:tag,format:'xlsx',mode:'single',bytes:excelBytes.length,file:excelDl.suggestedFilename()});
   // The existing PNG/PDF paths must remain operational.
   
@@ -107,8 +108,7 @@ try {
       assert.equal(bytes.subarray(1,4).toString(),'PNG','PNG header');
       fs.writeFileSync('runtime-evidence/voucher-paper-'+tag+'.png',bytes);
       const draws=await page.evaluate(()=>window.__voucherPrintText||[]);
-      const uuid=draws.find(x=>x.text==='P0-IN-20261013-001');
-      assert(uuid&&uuid.align==='left','Transaction ID must be LEFT aligned, not centered into quantity column');
+      assert(!draws.some(x=>x.text==='P0-IN-20261013-001'),'Printed PNG must omit internal transaction IDs');
       assert(draws.some(x=>x.text==='Người thực hiện:'),'A generic handler cannot be mislabeled sender/receiver');
       assert(draws.some(x=>x.text==='Công trình:') && draws.some(x=>x.text==='Địa điểm:'),
         'Printed voucher must display project name/location labels instead of empty unit/department');
@@ -117,7 +117,7 @@ try {
         'Printed PNG must use the active project metadata, not a warehouse address');
       assert(draws.some(x=>x.text==='Đơn vị thi công:') && draws.some(x=>x.text==='Công ty Thi công Kiểm thử'),
         'Optional contractor must come from the current project, not a guessed warehouse recipient');
-      assert(draws.some(x=>x.text==='Mã tham chiếu'), 'Transaction UUID column should be labeled Mã tham chiếu');
+      assert(!draws.some(x=>x.text.includes('Mã tham chiếu')),'No reference column or footer on printed PNG');
       assert(!draws.some(x=>x.text.startsWith('Đơn vị:')||x.text.startsWith('Bộ phận:')),
         'Old blank unit/department placeholders must not appear');
       const handlerLabel=draws.find(x=>x.text==='Người thực hiện:');
@@ -142,9 +142,10 @@ try {
       const content=await firstPage.getTextContent();
       const pdfText=content.items.map(item=>('str' in item ? item.str : '')).join(' ');
       for(const required of ['PHIẾU NHẬP KHO','Công trình Trung tâm Kiểm thử QLTC',
-        'Mã tham chiếu','P0-IN-20261013-001','Người thực hiện']) {
+        'Tên vật tư / thiết bị','Số lượng','Người thực hiện']) {
         assert(pdfText.includes(required),tag+': PDF native text not extractable: '+required+'; got '+pdfText.slice(0,400));
       }
+      assert(!pdfText.includes('P0-IN-20261013-001')&&!pdfText.includes('Mã tham chiếu'),tag+': PDF must omit technical IDs');
       await task.destroy();
     }
     assert(!download.suggestedFilename().includes('HNL'),'Printed voucher must be unbranded');
