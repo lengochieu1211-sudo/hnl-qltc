@@ -557,17 +557,17 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
     if(!attachments.length)return;
     setBusy('download');
     setMessage('');
-    let savedCount=0;
+    let savedCount = 0;
     try{
       if(isAndroidExportBridgeAvailable()){
         for(const attachment of attachments){
           await downloadDataUrl(attachment.dataUrl,attachment.fileName);
           savedCount+=1;
         }
-        setMessage('Đã lưu '+savedCount+' ảnh vào Tải xuống/QLTC.');
+        setMessage(`Đã lưu ${savedCount} ảnh báo cáo vào Tải xuống/QLTC trên điện thoại.`);
       }else if(attachments.length===1){
         await downloadDataUrl(attachments[0].dataUrl,attachments[0].fileName);
-        setMessage('Đã yêu cầu tải 1 ảnh báo cáo.');
+        setMessage('Đã yêu cầu trình duyệt tải 1 ảnh. Kiểm tra thư mục Tải xuống trên thiết bị.');
       }else{
         attachments.forEach((attachment,index)=>window.setTimeout(()=>{
           void downloadDataUrl(attachment.dataUrl,attachment.fileName).catch(err=>{
