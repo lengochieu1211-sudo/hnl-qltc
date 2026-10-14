@@ -26,6 +26,8 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Real WarehouseTab click on desktop and phone
         run: node scripts/warehouse-catalog-browser-golden.mjs
+      - name: Warehouse vouchers PNG/PDF real download desktop and phone
+        run: node scripts/warehouse-voucher-browser-golden.mjs
       - if: always()
         uses: actions/upload-artifact@v4
         with:
