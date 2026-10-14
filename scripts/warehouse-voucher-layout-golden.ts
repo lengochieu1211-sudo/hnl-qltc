@@ -67,9 +67,12 @@ assert(sheet.includes('paginateWarehouseVouchers(chosen)'),'Export must group se
 assert(sheet.includes("allowTextFallback:false"),'Sharing files cannot silently send text instead');
 assert(sheet.includes('Chia sẻ phiếu nhập/xuất kho') && warehouse.includes('Chia sẻ phiếu nhập/xuất kho'),
   'Warehouse share action and dialog must use one concise label');
-assert(sheet.includes("['text','Nội dung',FileText]") && sheet.includes("['png','Ảnh',ImageIcon]")
+assert(!sheet.includes("['text','Nội dung',FileText]") && !sheet.includes('data-hnl-voucher-action="text-copy"')
+  && sheet.includes('className="grid grid-cols-3 gap-2" role="group"'),
+  'Voucher share must show only three equally sized format buttons without Content');
+assert(sheet.includes("['png','Ảnh',ImageIcon]")
   && sheet.includes("['xlsx','Excel',FileSpreadsheet]") && sheet.includes("['pdf','PDF',FileDown]"),
-  'Keep content/image/Excel/PDF formats together and preserve PDF');
+  'Preserve Image/Excel/PDF formats and their export paths');
 assert(sheet.includes('data-hnl-voucher-action-menu') && sheet.includes('fixed inset-0 z-[160]'),
   'The share/download menu must be viewport-fixed, not appended offscreen below form');
 const excel = fs.readFileSync('src/utils/warehouseVoucherExcel.ts', 'utf8');
