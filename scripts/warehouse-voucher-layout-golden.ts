@@ -36,6 +36,8 @@ const warehouse=fs.readFileSync('src/components/WarehouseTab.tsx','utf8');
 assert(!warehouse.includes('data-hnl-voucher-share-id='),'Per-journal export action must be removed');
 assert(warehouse.includes('data-hnl-warehouse-export-open="all"'),'Central journal export action must remain');
 assert(!sheet.includes('initialVoucherId'),'Central export should not assume one item on open');
+assert(printed.includes('handlerValueX = Math.ceil(LEFT + ctx.measureText('),
+  'Printed handler value must not overlap its longer generic label');
 assert(printed.includes("ctx.fillText('Người thực hiện:', LEFT, 346)"),
   'Legacy generic handler must not be assigned an unverified sender or recipient role');
 assert(printed.includes("ctx.textAlign = 'left';\n    drawTextLines(ctx, id"),
