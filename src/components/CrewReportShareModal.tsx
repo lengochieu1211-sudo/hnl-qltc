@@ -561,7 +561,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
     try{
       if(isAndroidExportBridgeAvailable()){
         for(const attachment of attachments){
-          await downloadDataUrl(attachment.dataUrl,attachment.fileName);
+          await downloadDataUrl(attachment.dataUrl, attachment.fileName);
           savedCount+=1;
         }
         setMessage(`Đã lưu ${savedCount} ảnh báo cáo vào Tải xuống/QLTC trên điện thoại.`);
