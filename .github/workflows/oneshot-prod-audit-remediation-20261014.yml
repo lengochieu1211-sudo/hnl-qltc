@@ -1,0 +1,44 @@
+name: One-shot PROD dependency audit remediation generator 2026-10-14
+
+on:
+  push:
+    branches:
+      - security/prod-audit-remediation-20261014
+
+permissions:
+  contents: read
+
+jobs:
+  generate_and_verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Generate lockfile from approved security pins
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Install exact regenerated lock
+        run: npm ci
+      - name: Verify vulnerable package resolutions
+        run: |
+          npm ls @grpc/grpc-js brace-expansion dompurify multer proxy-addr source-map-js || true
+      - name: Security audit
+        run: npm audit --omit=dev --audit-level=high
+      - name: Core release gates
+        run: |
+          npm run test:stability
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run build
+      - name: Upload regenerated package files
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-security-remediation-package-files
+          path: |
+            package.json
+            package-lock.json
+          retention-days: 7
