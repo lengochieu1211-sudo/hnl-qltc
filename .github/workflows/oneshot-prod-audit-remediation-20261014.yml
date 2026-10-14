@@ -4,15 +4,19 @@ on:
   push:
     branches:
       - security/prod-audit-remediation-20261014
+    paths:
+      - '.github/workflows/oneshot-prod-audit-remediation-20261014.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   generate_and_verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: security/prod-audit-remediation-20261014
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -23,8 +27,7 @@ jobs:
       - name: Install exact regenerated lock
         run: npm ci
       - name: Verify vulnerable package resolutions
-        run: |
-          npm ls @grpc/grpc-js brace-expansion dompurify multer proxy-addr source-map-js || true
+        run: npm ls @grpc/grpc-js brace-expansion dompurify multer proxy-addr source-map-js || true
       - name: Security audit
         run: npm audit --omit=dev --audit-level=high
       - name: Core release gates
@@ -34,6 +37,19 @@ jobs:
           npm run lint
           npm run test:rules
           npm run build
+      - name: Commit regenerated lockfile to security branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          if git diff --cached --quiet; then
+            echo "No package-file changes to commit."
+          else
+            git commit -m "chore(security): lock audited PROD dependency fixes"
+            git push origin HEAD:security/prod-audit-remediation-20261014
+          fi
       - name: Upload regenerated package files
         uses: actions/upload-artifact@v4
         with:
