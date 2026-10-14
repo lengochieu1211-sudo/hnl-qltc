@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
+import * as XLSX from 'xlsx';
 const port=await new Promise((resolve,reject)=>{
   const server=net.createServer();server.once('error',reject);
   server.listen(0,'127.0.0.1',()=>{const p=server.address().port;server.close(()=>resolve(p));});
@@ -30,6 +31,7 @@ try {
  for(const viewport of [{width:1280,height:800},{width:393,height:852}]){
   const tag=viewport.width+'x'+viewport.height;
   const context=await browser.newContext({viewport,acceptDownloads:true,isMobile:viewport.width<500,hasTouch:viewport.width<500});
+  await context.grantPermissions(['clipboard-read','clipboard-write']);
   await context.addInitScript(()=>{
     window.__voucherPrintText=[];
     const original=CanvasRenderingContext2D.prototype.fillText;
@@ -48,6 +50,7 @@ try {
   await open.waitFor({state:'visible',timeout:15000});await open.click();
   const sheet=page.locator('[data-hnl-settings-sheet="warehouse-voucher-share"]');
   await sheet.waitFor({state:'visible'});
+  assert(await sheet.getByRole('heading',{name:'Chia sẻ phiếu nhập/xuất kho'}).isVisible(),'Voucher share modal heading must match renamed action');
   await sheet.getByRole('button',{name:'Khoảng ngày'}).click();
   const dates=sheet.locator('input[type="date"]');
   await dates.nth(0).fill('2026-10-13');
@@ -55,12 +58,44 @@ try {
   await sheet.getByRole('button',{name:'Một phiếu'}).click();
   await sheet.locator('label').filter({hasText:'P0-IN-20261013-001'}).locator('input[type="radio"]').check();
   assert.match(await sheet.innerText(),/Đã chọn 1\/\d+ phiếu/,'Single voucher selection missing');
-  // The first single-entry view must still download valid PNG/PDF.
+  // Text, image, editable workbook and PDF all share the same selected transaction.
+  await sheet.locator('[data-hnl-voucher-format="text"]').click();
+  const textMenu=sheet.locator('[data-hnl-voucher-action-menu="text"]');
+  const textBox=await textMenu.boundingBox();
+  assert(textBox&&textBox.y>=0&&textBox.y+textBox.height<=viewport.height+2,tag+': text actions must stay visible without scroll');
+  await sheet.locator('[data-hnl-voucher-action="text-copy"]').click();
+  const copied=await page.evaluate(()=>navigator.clipboard.readText());
+  assert(copied.includes('PHIẾU NHẬP KHO')&&copied.includes('P0-IN-20261013-001'),tag+': text must keep original receipt ID');
+  await sheet.locator('[data-hnl-voucher-format="xlsx"]').click();
+  const excelAction=sheet.locator('[data-hnl-voucher-action="xlsx-download"]');
+  await assertEventuallyEnabled(excelAction);
+  const excelBox=await excelAction.boundingBox();
+  assert(excelBox&&excelBox.y>=0&&excelBox.y+excelBox.height<=viewport.height+2,tag+': Excel action must fit viewport');
+  const excelPromise=page.waitForEvent('download',{timeout:30000});
+  await excelAction.click();
+  const excelDl=await excelPromise;
+  const excelBytes=fs.readFileSync(await excelDl.path());
+  assert(excelBytes.length>3000&&excelBytes.subarray(0,2).toString()==='PK',tag+': valid XLSX binary');
+  const workbook=XLSX.read(excelBytes,{type:'buffer',cellFormula:true});
+  assert.equal(workbook.SheetNames.length,1,tag+': 1 selected invoice should have 1 sheet');
+  const firstSheet=workbook.Sheets[workbook.SheetNames[0]];
+  const cells=Object.values(firstSheet).filter(c=>c&&typeof c==='object'&&'v' in c).map(c=>c.v);
+  for(const value of ['PHIẾU NHẬP KHO','Công trình Trung tâm Kiểm thử QLTC','Công ty Thi công Kiểm thử','Mã tham chiếu','P0-IN-20261013-001']){
+    assert(cells.includes(value),tag+': missing Excel voucher value '+value);
+  }
+  assert(cells.includes(12),tag+': Excel quantity must be numeric');
+  assert(firstSheet['!merges']?.length>2,tag+': expected print layout merges');
+  results.push({viewport:tag,format:'xlsx',mode:'single',bytes:excelBytes.length,file:excelDl.suggestedFilename()});
+  // The existing PNG/PDF paths must remain operational.
+  
   for(const format of ['png','pdf']){
     await sheet.locator('[data-hnl-voucher-format="'+format+'"]').click();
     const action=sheet.locator('[data-hnl-voucher-action="'+format+'-download"]');
     await action.waitFor({state:'visible'});
     await assertEventuallyEnabled(action);
+    const box=await action.boundingBox();
+    assert(box&&box.y>=0&&box.y+box.height<=viewport.height+2,
+      tag+': '+format+' action buttons must be visible in viewport without user scroll');
     const promise=page.waitForEvent('download',{timeout:30000});
     await action.click();
     const download=await promise;
@@ -125,7 +160,7 @@ try {
   assert.deepEqual(errors,[],'React errors: '+errors.join(', '));
   await context.close();
  }
- assert.equal(results.length,8);
+ assert.equal(results.length,10);
  fs.writeFileSync('runtime-evidence/voucher-export-report.json',JSON.stringify({status:'PASS',results},null,2));
- console.log('WAREHOUSE VOUCHER PNG/PDF REAL DOWNLOAD PASS',JSON.stringify(results));
+ console.log('WAREHOUSE VOUCHER TEXT/PNG/XLSX/PDF REAL DOWNLOAD PASS',JSON.stringify(results));
 } finally {await browser?.close();vite.kill('SIGTERM');}
