@@ -3112,7 +3112,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       </div>
 
       {voucherShareOpen && <WarehouseVoucherShareSheet
-        key={voucherShareId || 'warehouse-all'} open={voucherShareOpen}
+        open={voucherShareOpen}
         inventory={inventory} initialVoucherId={voucherShareId}
         onClose={() => setVoucherShareOpen(false)} />}
       {/* Delete Inventory Confirmation Modal */}
