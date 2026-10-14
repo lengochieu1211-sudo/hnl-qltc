@@ -51,6 +51,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -817,6 +819,7 @@ public class MainActivity extends Activity {
         public void saveBase64File(String fileName, String mimeType, String base64Data) {
             try {
                 byte[] bytes = Base64.decode(base64Data, Base64.DEFAULT);
+                if (bytes.length == 0) throw new IOException("Empty export: refusing zero-byte download");
                 saveBytesToDownloads(fileName, mimeType, bytes);
                 showToast("Da luu file vao Download/QLTC: " + fileName);
             } catch (Exception error) {
@@ -921,6 +924,7 @@ public class MainActivity extends Activity {
 
             try {
                 export.output.close();
+                requireNonEmptyExport(export.tempFile);
                 saveFileToDownloads(export.fileName, export.mimeType, export.tempFile);
                 showToast("Da luu file vao Download/QLTC: " + export.fileName);
                 return true;
@@ -945,6 +949,7 @@ public class MainActivity extends Activity {
 
             try {
                 export.output.close();
+                requireNonEmptyExport(export.tempFile);
                 startCreateDocumentForExport(new PendingExport(requestId, export.fileName, export.mimeType, export.tempFile));
                 return true;
             } catch (Exception error) {
@@ -977,6 +982,7 @@ public class MainActivity extends Activity {
 
             try {
                 export.output.close();
+                requireNonEmptyExport(export.tempFile);
                 writeFileToAutoSaveFolder(export.fileName, export.mimeType, export.tempFile);
                 showToast("Da tu dong luu JSON: " + export.fileName);
                 dispatchAndroidEvent("android-autosave-result", requestId, true, "Saved", export.fileName);
@@ -1222,7 +1228,40 @@ public class MainActivity extends Activity {
         showToast("Chon 'Luu thanh PDF' de xuat bao cao");
     }
 
+    private void requireNonEmptyExport(File source) throws IOException {
+        if (source == null || !source.isFile() || source.length() <= 0) {
+            throw new IOException("Empty export: no content to save");
+        }
+    }
+
+    // A successful SAF picker can still leave a 0-byte document. Verify actual stored bytes.
+    private byte[] hashStream(InputStream input) throws IOException {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[64 * 1024];
+            int count;
+            while ((count = input.read(buffer)) != -1) digest.update(buffer, 0, count);
+            return digest.digest();
+        } catch (NoSuchAlgorithmException error) {
+            throw new IOException("SHA-256 unavailable", error);
+        } finally {
+            input.close();
+        }
+    }
+
+    private void verifySavedFile(Uri uri, File expectedFile) throws IOException {
+        requireNonEmptyExport(expectedFile);
+        InputStream saved = getContentResolver().openInputStream(uri);
+        if (saved == null) throw new IOException("Cannot read back exported document");
+        byte[] expected = hashStream(new FileInputStream(expectedFile));
+        byte[] actual = hashStream(saved);
+        if (!MessageDigest.isEqual(expected, actual)) {
+            throw new IOException("Saved content differs from export source (possibly 0 bytes)");
+        }
+    }
+
     private Uri saveBytesToDownloads(String fileName, String mimeType, byte[] bytes) throws IOException {
+        if (bytes == null || bytes.length == 0) throw new IOException("Empty export: no content to save");
         String safeFileName = sanitizeFileName(fileName);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -1230,22 +1269,33 @@ public class MainActivity extends Activity {
             values.put(MediaStore.MediaColumns.DISPLAY_NAME, safeFileName);
             values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
             values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/QLTC");
+            values.put(MediaStore.MediaColumns.IS_PENDING, 1);
 
             Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
             if (uri == null) {
                 throw new IOException("MediaStore insert failed");
             }
 
-            OutputStream output = getContentResolver().openOutputStream(uri);
-            if (output == null) {
-                throw new IOException("Cannot open output stream");
-            }
+            boolean published = false;
             try {
-                output.write(bytes);
+                OutputStream output = getContentResolver().openOutputStream(uri, "wt");
+                if (output == null) throw new IOException("Cannot open output stream");
+                try { output.write(bytes); } finally { output.close(); }
+                InputStream saved = getContentResolver().openInputStream(uri);
+                if (saved == null) throw new IOException("Cannot read back download");
+                byte[] actual = hashStream(saved);
+                MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                if (!MessageDigest.isEqual(digest.digest(bytes), actual)) throw new IOException("Download content mismatch");
+                ContentValues done = new ContentValues();
+                done.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                if (getContentResolver().update(uri, done, null, null) != 1) throw new IOException("Cannot publish verified download");
+                published = true;
+                return uri;
+            } catch (NoSuchAlgorithmException error) {
+                throw new IOException("SHA-256 unavailable", error);
             } finally {
-                output.close();
+                if (!published) getContentResolver().delete(uri, null, null);
             }
-            return uri;
         }
 
         File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "QLTC");
@@ -1274,22 +1324,27 @@ public class MainActivity extends Activity {
             values.put(MediaStore.MediaColumns.DISPLAY_NAME, safeFileName);
             values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
             values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/QLTC");
+            values.put(MediaStore.MediaColumns.IS_PENDING, 1);
 
             Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
             if (uri == null) {
                 throw new IOException("MediaStore insert failed");
             }
 
-            OutputStream output = getContentResolver().openOutputStream(uri);
-            if (output == null) {
-                throw new IOException("Cannot open output stream");
-            }
+            boolean published = false;
             try {
-                copyFileToOutput(sourceFile, output);
+                OutputStream output = getContentResolver().openOutputStream(uri, "wt");
+                if (output == null) throw new IOException("Cannot open output stream");
+                try { copyFileToOutput(sourceFile, output); } finally { output.close(); }
+                verifySavedFile(uri, sourceFile);
+                ContentValues done = new ContentValues();
+                done.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                if (getContentResolver().update(uri, done, null, null) != 1) throw new IOException("Cannot publish verified download");
+                published = true;
+                return uri;
             } finally {
-                output.close();
+                if (!published) getContentResolver().delete(uri, null, null);
             }
-            return uri;
         }
 
         File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "QLTC");
@@ -1325,6 +1380,7 @@ public class MainActivity extends Activity {
         } finally {
             output.close();
         }
+        verifySavedFile(uri, export.tempFile);
     }
 
     private Uri getAutoSaveTreeUri() {
@@ -1431,6 +1487,7 @@ public class MainActivity extends Activity {
     }
 
     private void copyFileToOutput(File sourceFile, OutputStream output) throws IOException {
+        requireNonEmptyExport(sourceFile);
         FileInputStream input = new FileInputStream(sourceFile);
         try {
             byte[] buffer = new byte[64 * 1024];
