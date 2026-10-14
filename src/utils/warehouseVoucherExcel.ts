@@ -100,8 +100,8 @@ export function buildWarehouseVoucherText(pages: WarehouseVoucherPrintPage[], pr
     'STT | Tên vật tư / thiết bị | ĐVT | Số lượng | Mã tham chiếu',
     ...page.rows.map((item,i) =>
       [page.rowOffset+i+1, textCell(item.materialName), textCell(item.unit), formatDecimal(Number(item.quantity || 0)), textCell(item.id)].join(' | ')
-      + (clean(item.notes) ? '\\nGhi chú: '+clean(item.notes) : '')),
+      + (clean(item.notes) ? '\nGhi chú: '+clean(item.notes) : '')),
     'Số dòng trên trang: ' + page.rows.length,
     'Người lập phiếu | ' + (page.direction === 'in' ? 'Người giao hàng' : 'Người nhận hàng') + ' | Thủ kho',
-  ].join('\\n')).join('\\n\\n-----\\n\\n');
+  ].join('\n')).join('\n\n-----\n\n');
 }
