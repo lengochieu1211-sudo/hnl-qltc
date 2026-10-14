@@ -779,7 +779,19 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
               <FileSpreadsheet className="h-4 w-4" /> {busy==='excel'?'Tạo Excel…':'Excel'}
             </button>
           </div>
-          {actionMenu&&<div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          {actionMenu&&<div data-hnl-crew-action-overlay="true" className="fixed inset-0 z-[160] flex items-end justify-center sm:items-center">
+            <button type="button" data-hnl-crew-action-backdrop="true" onClick={()=>!busy&&setActionMenu(null)}
+              className="absolute inset-0 bg-slate-950/45" aria-label="Đóng tùy chọn chia sẻ quân số" />
+            <div role="dialog" aria-label="Tùy chọn xuất và chia sẻ báo cáo quân số"
+              data-hnl-crew-action-menu={actionMenu}
+              className="relative z-10 mb-[calc(0.75rem+env(safe-area-inset-bottom))] w-[calc(100%-1.5rem)] max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl sm:mb-0">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <p className="text-sm font-bold text-slate-900">Báo cáo quân số · {actionMenu==='text'?'nội dung':actionMenu==='image'?'ảnh':'Excel'}</p>
+                <button type="button" disabled={Boolean(busy)} onClick={()=>setActionMenu(null)}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600"
+                  aria-label="Đóng tùy chọn"><X className="h-4 w-4" /></button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
             {actionMenu==='text'&&<>
               <button type="button" onClick={()=>void copyText()} disabled={Boolean(busy)} className="min-h-11 rounded-lg border border-slate-300 bg-white px-2 text-xs font-bold text-slate-700 disabled:opacity-40"><Copy className="mr-1 inline h-4 w-4" /> Sao chép nội dung</button>
               <button type="button" onClick={()=>void shareText()} disabled={Boolean(busy)} className="min-h-11 rounded-lg bg-slate-800 px-2 text-xs font-bold text-white disabled:opacity-40"><Share2 className="mr-1 inline h-4 w-4" /> Chia sẻ nội dung</button>
@@ -792,6 +804,8 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
               <button type="button" onClick={()=>void handleExcel('download')} disabled={Boolean(busy)||preparedExcel?.signature!==preparationSignature} className="min-h-11 rounded-lg border border-indigo-200 bg-white px-2 text-xs font-bold text-indigo-700 disabled:opacity-40"><Download className="mr-1 inline h-4 w-4" /> Tải Excel</button>
               <button type="button" onClick={()=>void handleExcel('share')} disabled={Boolean(busy)||preparedExcel?.signature!==preparationSignature} className="min-h-11 rounded-lg bg-indigo-600 px-2 text-xs font-bold text-white disabled:opacity-40"><Share2 className="mr-1 inline h-4 w-4" /> Chia sẻ Excel</button>
             </>}
+              </div>
+            </div>
           </div>}
           {message && <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">{message}</div>}
         </div>
