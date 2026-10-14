@@ -104,7 +104,7 @@ function drawTextLines(ctx: CanvasRenderingContext2D, lines: string[], x: number
   lines.forEach((line, index) => ctx.fillText(line, x, y + index * step));
 }
 
-export function drawWarehouseVoucherPage(page: WarehouseVoucherPrintPage, project: { projectName?: string; projectLocation?: string } = {}): HTMLCanvasElement {
+export function drawWarehouseVoucherPage(page: WarehouseVoucherPrintPage, project: { projectName?: string; projectLocation?: string; contractorName?: string } = {}): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = WIDTH;
   canvas.height = HEIGHT;
@@ -112,6 +112,9 @@ export function drawWarehouseVoucherPage(page: WarehouseVoucherPrintPage, projec
   if (!ctx) throw new Error('Không thể tạo bản in phiếu kho trên thiết bị.');
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
+  const contractor = normalize(project.contractorName);
+  const headerShift = contractor ? 45 : 0;
+  const tableTop = TABLE_TOP + headerShift;
 
   // Project metadata comes from the active project, never inferred from a warehouse
   // location or transaction. maxWidth keeps long project names within the A4 page.
@@ -123,57 +126,65 @@ export function drawWarehouseVoucherPage(page: WarehouseVoucherPrintPage, projec
   ctx.font = '23px Arial, sans-serif';
   ctx.fillText(normalize(project.projectName) || 'Chưa cập nhật', 205, 83, RIGHT - 205);
   ctx.fillText(normalize(project.projectLocation) || 'Chưa cập nhật', 205, 123, RIGHT - 205);
+  if (contractor) {
+    ctx.font = 'bold 21px Arial, sans-serif';
+    ctx.fillStyle = '#334155';
+    ctx.fillText('Đơn vị thi công:', LEFT, 166);
+    ctx.font = '23px Arial, sans-serif';
+    ctx.fillStyle = '#0f172a';
+    ctx.fillText(contractor, 275, 166, RIGHT - 275);
+  }
   ctx.fillStyle = '#0f172a';
   ctx.textAlign = 'center';
   ctx.font = 'bold 40px Arial, sans-serif';
-  ctx.fillText(page.direction === 'in' ? 'PHIẾU NHẬP KHO' : 'PHIẾU XUẤT KHO', WIDTH / 2, 188);
+  ctx.fillText(page.direction === 'in' ? 'PHIẾU NHẬP KHO' : 'PHIẾU XUẤT KHO', WIDTH / 2, 188 + headerShift);
   ctx.font = '22px Arial, sans-serif';
   ctx.fillStyle = '#475569';
-  ctx.fillText('Ngày ' + formatDateDDMMYYYY(page.date) + '  •  Trang ' + page.pageIndex + '/' + page.pageCount, WIDTH / 2, 226);
+  ctx.fillText('Ngày ' + formatDateDDMMYYYY(page.date) + '  •  Trang ' + page.pageIndex + '/' + page.pageCount, WIDTH / 2, 226 + headerShift);
   ctx.textAlign = 'left';
   ctx.strokeStyle = '#94a3b8';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(LEFT, 252);
-  ctx.lineTo(RIGHT, 252);
+  ctx.moveTo(LEFT, 252 + headerShift);
+  ctx.lineTo(RIGHT, 252 + headerShift);
   ctx.stroke();
 
   ctx.font = 'bold 22px Arial, sans-serif';
   ctx.fillStyle = '#334155';
-  ctx.fillText('Kho / Vị trí:', LEFT, 298);
+  ctx.fillText('Kho / Vị trí:', LEFT, 298 + headerShift);
   // The persisted 'handler' is a generic giao/nhận/engineer field, not a verified sender or recipient.
-  ctx.fillText('Người thực hiện:', LEFT, 346);
+  ctx.fillText('Người thực hiện:', LEFT, 346 + headerShift);
   // Offset the longer generic label dynamically: a fixed 228px value x would
   // overlap the handler name on narrow/large-font canvas implementations.
   const handlerValueX = Math.ceil(LEFT + ctx.measureText('Người thực hiện:').width + 24);
   ctx.font = '23px Arial, sans-serif';
   ctx.fillStyle = '#0f172a';
-  ctx.fillText(normalize(page.location) || '—', 228, 298, RIGHT - 228);
-  ctx.fillText(normalize(page.handler) || '—', handlerValueX, 346, RIGHT - handlerValueX);
+  ctx.fillText(normalize(page.location) || '—', 228, 298 + headerShift, RIGHT - 228);
+  ctx.fillText(normalize(page.handler) || '—', handlerValueX, 346 + headerShift, RIGHT - handlerValueX);
 
   const tableWidth = COLUMN_WIDTHS.reduce((total, width) => total + width, 0);
   ctx.fillStyle = '#e2e8f0';
-  ctx.fillRect(LEFT, TABLE_TOP, tableWidth, 63);
+  ctx.fillRect(LEFT, tableTop, tableWidth, 63);
   ctx.strokeStyle = '#94a3b8';
-  ctx.strokeRect(LEFT, TABLE_TOP, tableWidth, 63);
+  ctx.strokeRect(LEFT, tableTop, tableWidth, 63);
   let x = LEFT;
-  const labels = ['STT', 'Tên vật tư / thiết bị (quy cách, ghi chú)', 'ĐVT', 'Số lượng', 'Mã giao dịch'];
+  const labels = ['STT', 'Tên vật tư / thiết bị (quy cách, ghi chú)', 'ĐVT', 'Số lượng', 'Mã tham chiếu'];
   ctx.font = 'bold 21px Arial, sans-serif';
   ctx.fillStyle = '#1e293b';
   labels.forEach((label, index) => {
     if (index > 0) {
       ctx.beginPath();
-      ctx.moveTo(x, TABLE_TOP);
-      ctx.lineTo(x, TABLE_TOP + 63);
+      ctx.moveTo(x, tableTop);
+      ctx.lineTo(x, tableTop + 63);
       ctx.stroke();
     }
     ctx.textAlign = index === 1 ? 'left' : 'center';
-    ctx.fillText(label, index === 1 ? x + 13 : x + COLUMN_WIDTHS[index] / 2, TABLE_TOP + 40, COLUMN_WIDTHS[index] - 14);
+    ctx.fillText(label, index === 1 ? x + 13 : x + COLUMN_WIDTHS[index] / 2, tableTop + 40, COLUMN_WIDTHS[index] - 14);
     x += COLUMN_WIDTHS[index];
   });
   ctx.textAlign = 'left';
 
-  let rowTop = TABLE_TOP + 63;
+  let rowTop = tableTop + 63;
   page.rows.forEach((item, index) => {
     ctx.font = '23px Arial, sans-serif';
     const name = wrapLines(ctx, item.materialName, COLUMN_WIDTHS[1] - 26);
@@ -250,6 +261,6 @@ export function drawWarehouseVoucherPage(page: WarehouseVoucherPrintPage, projec
   ctx.textAlign = 'left';
   ctx.fillStyle = '#64748b';
   ctx.font = '17px Arial, sans-serif';
-  ctx.fillText('Bản in từ các giao dịch kho hiện có • Mã giao dịch từng dòng được giữ để đối chiếu', LEFT, HEIGHT - 65, tableWidth);
+  ctx.fillText('Bản in từ các giao dịch kho hiện có • Mã tham chiếu từng dòng giữ nguyên ID gốc để đối chiếu', LEFT, HEIGHT - 65, tableWidth);
   return canvas;
 }
