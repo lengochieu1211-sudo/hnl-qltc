@@ -75,6 +75,13 @@ try {
       const uuid=draws.find(x=>x.text==='P0-IN-20261013-001');
       assert(uuid&&uuid.align==='left','Transaction ID must be LEFT aligned, not centered into quantity column');
       assert(draws.some(x=>x.text==='Người thực hiện:'),'A generic handler cannot be mislabeled sender/receiver');
+      assert(draws.some(x=>x.text==='Công trình:') && draws.some(x=>x.text==='Địa điểm:'),
+        'Printed voucher must display project name/location labels instead of empty unit/department');
+      assert(draws.some(x=>x.text==='Công trình Trung tâm Kiểm thử QLTC')
+        && draws.some(x=>x.text==='123 Đường Thử Nghiệm, Quận 1, TP.HCM'),
+        'Printed PNG must use the active project metadata, not a warehouse address');
+      assert(!draws.some(x=>x.text.startsWith('Đơn vị:')||x.text.startsWith('Bộ phận:')),
+        'Old blank unit/department placeholders must not appear');
       const handlerLabel=draws.find(x=>x.text==='Người thực hiện:');
       const handlerName=draws.find(x=>x.text==='Người nhập P0');
       assert(handlerLabel&&handlerName&&handlerName.x-handlerLabel.x>170,
