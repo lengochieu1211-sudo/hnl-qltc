@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FileText } from 'lucide-react';
+import { Copy, FileSpreadsheet, FileText, Image as ImageIcon, FileDown, X, Download, Share2 } from 'lucide-react';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import type { InventoryItem, InventoryItemKind, TransactionType } from '../types';
 import { formatDateDDMMYYYY } from '../utils/dateFormatter';
@@ -8,7 +8,9 @@ import { saveBlobToDownloads } from '../utils/fileExport';
 import { sharePreparedContent } from '../utils/shareUtils';
 import { isAndroidExportBridgeAvailable } from '../utils/fileExport';
 import { drawWarehouseVoucherPage, paginateWarehouseVouchers } from '../utils/warehouseVoucherPrint';
+import { buildWarehouseVoucherText } from '../utils/warehouseVoucherExcel';
 
+type VoucherFormat = 'text' | 'png' | 'xlsx' | 'pdf';
 type Period = 'today' | 'yesterday' | 'range';
 type Pick = 'one' | 'many' | 'all';
 type Kind = 'all' | InventoryItemKind;
@@ -45,9 +47,14 @@ const toDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
 });
 const safeFile = (name: string) => name.replace(/[\\/:*?"<>|]/g, '_').slice(0, 110);
 
-async function prepareVoucherFiles(rows: InventoryItem[], format: 'png' | 'pdf', projectName: string, projectLocation: string, contractorName: string): Promise<VoucherFile[]> {
+async function prepareVoucherFiles(rows: InventoryItem[], format: Exclude<VoucherFormat, 'text'>, projectName: string, projectLocation: string, contractorName: string): Promise<VoucherFile[]> {
   const pages = paginateWarehouseVouchers(rows);
   if (!pages.length) throw new Error('Chưa có giao dịch kho để xuất.');
+  if (format === 'xlsx') {
+    const {buildWarehouseVoucherExcel} = await import('../utils/warehouseVoucherExcel');
+    const {blob,fileName,mimeType} = await buildWarehouseVoucherExcel(pages, {projectName, projectLocation, contractorName});
+    return [{id:'voucher-excel',fileName,mimeType,blob,dataUrl:await toDataUrl(blob)}];
+  }
   if (format === 'png') {
     const files: VoucherFile[] = [];
     for (const [index, page] of pages.entries()) {
@@ -82,8 +89,8 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [message,setMessage]=useState('');
-  const [menu,setMenu]=useState<'png'|'pdf'|null>(null);
-  const [prepared,setPrepared]=useState<{format:'png'|'pdf';signature:string;files:VoucherFile[]}|null>(null);
+  const [menu,setMenu]=useState<VoucherFormat|null>(null);
+  const [prepared,setPrepared]=useState<{format:Exclude<VoucherFormat,'text'>;signature:string;files:VoucherFile[]}|null>(null);
   const visible=useMemo(()=>selectWarehouseVouchers(inventory,{period,start,end,kind,direction}),[inventory,period,start,end,kind,direction]);
   const chosen=useMemo(()=>pick==='all'?visible:pick==='one'
     ?visible.filter(v=>v.id===checked.find(id=>visible.some(x=>x.id===id))).slice(0,1)
@@ -134,7 +141,7 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
     finally{setBusy(false);}
   };
   return <SettingsFeatureSheet open={open} onClose={onClose} sheetKey="warehouse-voucher-share" icon={FileText}
-    title="Xuất / Chia sẻ phiếu kho" description="Phiếu chỉ đọc, không chỉnh sửa tồn kho hoặc dữ liệu.">
+    title="Chia sẻ phiếu nhập/xuất kho" description="Chọn Nội dung, Ảnh, Excel hoặc PDF. Phiếu chỉ đọc, không ảnh hưởng tồn kho.">
     <div data-hnl-warehouse-voucher-share="readonly" className="space-y-4">
       <p className="text-xs font-bold text-slate-700">Khoảng ngày</p>
       <div className="flex flex-wrap gap-2">{([['today','Hôm nay'],['yesterday','Hôm qua'],['range','Khoảng ngày']] as const).map(([v,label])=>
@@ -162,7 +169,7 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
         </label>)}</div>}
       <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700" data-hnl-voucher-layout="multirow-a4">
         {chosen.length} dòng vật tư/thiết bị → {pages.length} trang A4. Các dòng cùng ngày, loại nhập/xuất,
-        kho và người thực hiện được xếp chung một phiếu in; mã giao dịch gốc vẫn được giữ trong bảng.
+        kho và người thực hiện được xếp chung một phiếu; mã tham chiếu gốc vẫn được giữ trong bảng.
       </p>
       {error&&<p role="alert" className="rounded-lg bg-rose-50 p-2 text-xs text-rose-700">{error}</p>}
       {message&&<p role="status" className="rounded-lg bg-emerald-50 p-2 text-xs text-emerald-800">{message}</p>}
