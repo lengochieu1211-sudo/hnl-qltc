@@ -357,8 +357,11 @@ export async function exportHtmlPdfFileOnAndroid(html: string, fileName: string,
   const resultEvent = destination === 'picker' ? 'android-export-result' : 'android-report-pdf-result';
   const result = waitForAndroidResult(resultEvent, requestId, 180000);
   if (!bridge.exportHtmlPdfFile(sanitizeFileName(fileName), utf8ToBase64(html), destination, requestId)) {
-    // The listener will expire harmlessly if the native call rejects synchronously.
-    throw new Error('Không thể bắt đầu xuất báo cáo PDF trên Android.');
+    // Settle the already-registered listener synchronously; never leave a timer
+    // or an unhandled rejection after the native bridge rejects an export.
+    window.dispatchEvent(new CustomEvent(resultEvent, {detail:{
+      requestId,success:false,message:'Không thể bắt đầu xuất báo cáo PDF trên Android.',
+    }}));
   }
   await result;
 }
