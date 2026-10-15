@@ -17,8 +17,11 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
+import android.os.CancellationSignal;
+import android.os.ParcelFileDescriptor;
 import android.provider.OpenableColumns;
 import android.print.PrintAttributes;
+import android.print.PageRange;
 import android.print.PrintDocumentAdapter;
 import android.print.PrintManager;
 import android.provider.DocumentsContract;
@@ -88,6 +91,9 @@ public class MainActivity extends Activity {
     };
     private WebView authPopupWebView;
     private WebView printWebView;
+    // The Android print adapter needs a fully rendered, attached WebView until
+    // the system print transaction finishes (including Save as PDF).
+    private boolean pdfPrintInProgress = false;
     private ValueCallback<Uri[]> filePathCallback;
     private Uri pendingCameraImageUri;
     private boolean fileChooserDirectCamera = false;
@@ -1192,26 +1198,59 @@ public class MainActivity extends Activity {
     }
 
     private void renderHtmlToPdf(final String fileName, String html) {
+        // Never replace the WebView backing an active Android print transaction.
+        if (pdfPrintInProgress) {
+            showToast("Dang xu ly PDF truoc. Vui long cho hoan tat.");
+            return;
+        }
+        if (html == null || html.trim().isEmpty()) {
+            showToast("Bao cao PDF khong co noi dung de in");
+            return;
+        }
+        pdfPrintInProgress = true;
         destroyTemporaryWebView(printWebView);
-        printWebView = new WebView(this);
-        printWebView.setAlpha(0f);
-        printWebView.getSettings().setJavaScriptEnabled(false);
-        printWebView.getSettings().setDomStorageEnabled(true);
-        addContentView(printWebView, new ViewGroup.LayoutParams(1, 1));
+        final WebView pdfView = new WebView(this);
+        printWebView = pdfView;
+        pdfView.setBackgroundColor(Color.WHITE);
+        pdfView.setVisibility(View.VISIBLE);
+        pdfView.getSettings().setJavaScriptEnabled(false);
+        pdfView.getSettings().setDomStorageEnabled(true);
 
-        printWebView.setWebViewClient(new WebViewClient() {
+        // Important: a 1x1 transparent WebView can produce an empty A4 PDF.
+        // Give Chromium a real, attached, visible full-size rendering surface.
+        addContentView(pdfView, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+        pdfView.setWebViewClient(new WebViewClient() {
+            private boolean printRequested = false;
+
             @Override
-            public void onPageFinished(WebView view, String url) {
-                new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+            public void onPageFinished(final WebView view, String url) {
+                if (printRequested || view != printWebView) return;
+                printRequested = true;
+                // onPageFinished means HTML loaded, not that Chromium has painted.
+                // Wait for the next compositor frame before creating the adapter.
+                view.post(new Runnable() {
                     @Override
                     public void run() {
-                        openPrintManager(fileName);
+                        if (view != printWebView) return;
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            view.postVisualStateCallback(System.nanoTime(), new WebView.VisualStateCallback() {
+                                @Override
+                                public void onComplete(long requestId) {
+                                    if (view == printWebView) {
+                                        view.postDelayed(() -> openPrintManager(fileName, view), 350L);
+                                    }
+                                }
+                            });
+                        } else {
+                            view.postDelayed(() -> openPrintManager(fileName, view), 700L);
+                        }
                     }
-                }, 1000);
+                });
             }
         });
-
-        printWebView.loadDataWithBaseURL(
+        pdfView.loadDataWithBaseURL(
                 "file:///android_asset/www/",
                 html,
                 "text/html",
@@ -1219,26 +1258,65 @@ public class MainActivity extends Activity {
                 null);
     }
 
-    private void openPrintManager(String fileName) {
-        if (printWebView == null) {
-            showToast("Khong co noi dung PDF de in");
+    private void openPrintManager(final String fileName, final WebView pdfView) {
+        if (pdfView == null || pdfView != printWebView || !pdfPrintInProgress) {
             return;
         }
-
         PrintManager printManager = (PrintManager) getSystemService(PRINT_SERVICE);
         if (printManager == null) {
             showToast("Thiet bi khong ho tro in/luu PDF");
+            finishReportPrinting(pdfView);
             return;
         }
+        try {
+            final PrintDocumentAdapter contentAdapter = pdfView.createPrintDocumentAdapter(fileName);
+            // Do not destroy the rendered page until the print service has fully
+            // finished layout/write; otherwise saving PDF may yield a blank page.
+            PrintDocumentAdapter adapter = new PrintDocumentAdapter() {
+                @Override
+                public void onStart() {
+                    contentAdapter.onStart();
+                }
 
-        PrintDocumentAdapter adapter = printWebView.createPrintDocumentAdapter(fileName);
-        PrintAttributes attributes = new PrintAttributes.Builder()
-                .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
-                .setResolution(new PrintAttributes.Resolution("qlct_pdf", "QLCT PDF", 300, 300))
-                .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
-                .build();
-        printManager.print(fileName, adapter, attributes);
-        showToast("Chon 'Luu thanh PDF' de xuat bao cao");
+                @Override
+                public void onLayout(PrintAttributes oldAttributes, PrintAttributes newAttributes,
+                        CancellationSignal cancellationSignal, LayoutResultCallback callback, Bundle extras) {
+                    contentAdapter.onLayout(oldAttributes, newAttributes, cancellationSignal, callback, extras);
+                }
+
+                @Override
+                public void onWrite(PageRange[] pages, ParcelFileDescriptor destination,
+                        CancellationSignal cancellationSignal, WriteResultCallback callback) {
+                    contentAdapter.onWrite(pages, destination, cancellationSignal, callback);
+                }
+
+                @Override
+                public void onFinish() {
+                    try {
+                        contentAdapter.onFinish();
+                    } finally {
+                        runOnUiThread(() -> finishReportPrinting(pdfView));
+                    }
+                }
+            };
+            PrintAttributes attributes = new PrintAttributes.Builder()
+                    .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
+                    .setResolution(new PrintAttributes.Resolution("qlct_pdf", "QLCT PDF", 300, 300))
+                    .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
+                    .build();
+            printManager.print(fileName, adapter, attributes);
+            showToast("Chon 'Luu thanh PDF' de xuat bao cao");
+        } catch (Exception error) {
+            finishReportPrinting(pdfView);
+            showToast("Khong the mo man hinh PDF: " + error.getMessage());
+        }
+    }
+
+    private void finishReportPrinting(WebView pdfView) {
+        if (pdfView == printWebView) {
+            destroyTemporaryWebView(pdfView);
+            pdfPrintInProgress = false;
+        }
     }
 
     private void requireNonEmptyExport(File source) throws IOException {
