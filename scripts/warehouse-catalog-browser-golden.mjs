@@ -40,6 +40,54 @@ await sheet.getByRole('button',{name:'Thiết bị',exact:true}).click();
 await sheet.locator('[data-hnl-catalog-in-history^="equipment:"]').first().click();
 await history.getByText('Mã phiếu: P0-EQUIP-IN-004').waitFor({state:'visible'});
 assert((await history.innerText()).includes('3 Cái'),label+': equipment unit');
+
+// Test the new name-only navigation, without any added icon next to item names.
+// In VIEWER role the matching catalog is opened read-only; no edit form is mounted.
+await sheet.getByRole('button',{name:/Danh mục kho/}).last().click();
+await sheet.getByRole('button',{name:'Vật tư',exact:true}).click();
+const materialName=sheet.locator('[data-hnl-catalog-open-master^="material:"]').first();
+assert.equal(await materialName.locator('svg').count(),0,label+': no extra icon beside material name');
+await materialName.click();
+await page.locator('[data-hnl-master-catalog-tab="material"]').waitFor({state:'visible'});
+assert.equal(await page.locator('[data-hnl-norm-editor]').count(),0,label+': VIEWER cannot edit a norm');
+await page.getByRole('button',{name:'Đóng quản lý vật tư thiết bị'}).click();
+
+// ADMIN with exactly one matching name+unit lands in the existing edit form.
+await page.locator('[data-hnl-fixture-admin]').click();
+await catalogOpener.click();
+await sheet.locator('[data-hnl-catalog-open-master^="material:"]').first().click();
+await page.locator('[data-hnl-norm-editor]').waitFor({state:'visible'});
+assert((await page.locator('[data-hnl-norm-editor]').innerText()).includes('Cập nhật định mức vật tư'),
+  label+': ADMIN should open existing edit form for the correct material');
+await page.getByRole('button',{name:'Đóng quản lý vật tư thiết bị'}).click();
+
+// Two norms may share a warehouse name/unit but belong to different categories.
+// Never auto-select and overwrite the wrong underlying norm ID.
+await page.locator('[data-hnl-fixture-duplicate]').click();
+await catalogOpener.click();
+await sheet.locator('[data-hnl-catalog-open-master^="material:"]').first().click();
+await page.locator('[data-hnl-catalog-target-ambiguous]').waitFor({state:'visible'});
+assert.equal(await page.locator('[data-hnl-norm-editor]').count(),0,label+': ambiguous norm must not auto-edit');
+const normEditButton=page.getByRole('button',{name:'Sửa định mức '+ 'Tấm thạch cao Golden P0'}).first();
+const editBox=await normEditButton.boundingBox();
+assert(editBox && editBox.height>=40 && editBox.width>=40,label+': norm editor touch target');
+await page.getByRole('button',{name:'Đóng quản lý vật tư thiết bị'}).click();
+
+// The same name click on equipment targets the equipment master, not material norms.
+await catalogOpener.click();
+await sheet.getByRole('button',{name:'Thiết bị',exact:true}).click();
+const equipmentName=sheet.locator('[data-hnl-catalog-open-master^="equipment:"]').first();
+assert.equal(await equipmentName.locator('svg').count(),0,label+': no extra icon beside equipment name');
+await equipmentName.click();
+const equipmentTab=page.locator('[data-hnl-master-catalog-tab="equipment"]');
+await equipmentTab.waitFor({state:'visible'});
+assert.equal(await equipmentTab.getAttribute('aria-selected'),'true',label+': equipment must open equipment master');
+const equipmentEdit=page.getByRole('button',{name:'Sửa thiết bị Máy bắn vít Golden P0'}).first();
+const equipmentBox=await equipmentEdit.boundingBox();
+assert(equipmentBox && equipmentBox.height>=40 && equipmentBox.width>=40,label+': equipment editor touch target');
+assert((await equipmentEdit.locator('svg').getAttribute('class')||'').includes('h-3.5'),
+  label+': equipment edit icon should match material 14px glyph');
+await page.getByRole('button',{name:'Đóng quản lý vật tư thiết bị'}).click();
 const shot=`runtime-evidence/catalog-click-${label}.png`;await page.screenshot({path:shot});checks.push({viewport:label,result:'PASS',screenshot:shot});await ctx.close();
 }assert.equal(errors.length,0,errors.join(' | '));console.log('WAREHOUSE CATALOG CLICK GOLDEN PASS',JSON.stringify(checks));
 }catch(e){console.error(log.slice(-1200));throw e;}finally{fs.writeFileSync('runtime-evidence/catalog-click-report.json',JSON.stringify({checks,errors,date:new Date().toISOString()},null,2));await browser?.close();server.kill('SIGTERM');}
