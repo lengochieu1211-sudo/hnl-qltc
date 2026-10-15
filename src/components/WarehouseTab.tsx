@@ -73,7 +73,7 @@ interface WarehouseTabProps {
   onSyncSheets?: () => void;
   materialNorms: MaterialNorm[];
   returnToCatalogToken?: number;
-  onOpenNormModal: (tab?: 'material' | 'equipment', target?: { name: string; unit: string }) => void;
+  onOpenNormModal: (tab?: 'material' | 'equipment', target?: { name: string; unit: string }, fromWarehouseCatalog?: boolean) => void;
   onOpenExportPdf?: () => void;
   onExportExcel?: () => void;
   onUndo?: () => void;
@@ -2280,7 +2280,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             {roleResolved && (
               <button
                 type="button"
-                onClick={() => { setShowWarehouseCatalog(false); onOpenNormModal(warehouseCatalogTab); }}
+                onClick={() => { setShowWarehouseCatalog(false); onOpenNormModal(warehouseCatalogTab, undefined, true); }}
                 data-hnl-catalog-settings-link="true"
                 className="inline-flex shrink-0 items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100"
                 title={warehouseCatalogTab === 'equipment' ? 'Mở quản lý thông số thiết bị' : 'Mở quản lý vật tư và định mức'}
@@ -2341,7 +2341,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                           onOpenNormModal(warehouseCatalogTab, {
                             name: 'sourceName' in item ? item.sourceName : item.name,
                             unit: item.unit,
-                          });
+                          }, true);
                         }}
                         className="flex min-h-10 w-full min-w-0 items-center rounded-md text-left whitespace-normal break-words font-bold leading-snug text-slate-800 transition-colors hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-2 focus-visible:outline-indigo-600"
                         aria-label={`Mở quản lý ${warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'định mức vật tư'} ${item.name}, đơn vị ${item.unit}`}

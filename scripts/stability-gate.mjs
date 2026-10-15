@@ -58,6 +58,7 @@ const security = read('src/utils/securityUtils.ts');
 const offlineAccess = read('src/utils/offlineAccess.ts');
 const diagnostics = read('src/lib/runtimeDiagnostics.ts');
 const authHeader = read('src/components/GoogleAuthHeader.tsx');
+const contextBackButton = read('src/components/ContextBackButton.tsx');
 const floorPlanDefect = read('src/components/FloorPlanDefectTab.tsx');
 const defectContactUtils = read('src/utils/defectContactUtils.ts');
 const crewTabBase = read('src/components/CrewTabBase.tsx');
@@ -293,6 +294,10 @@ if (!indexCss.includes('html[data-hnl-theme="dark"] .text-slate-950')) fail('Dar
 requireAll(indexCss, ['--hnl-primary: #2563eb', '--hnl-primary-hover: #1d4ed8', '--hnl-primary-soft: #eff6ff'], 'HNL UI primary palette is standardized on blue');
 requireAll(bottomNav, ['text-[10px]', 'const overflowNavItemClass', 'const overflowNavIconClass', "overflowNavItemClass('checklist')", "overflowNavItemClass('ai')", "overflowNavItemClass('chat', true)"], 'Mobile bottom navigation keeps readable labels and uses the shared HNL blue active / slate inactive hierarchy');
 requireAll(authHeader, ['w-9 h-9 sm:w-10 sm:h-10', 'bg-indigo-700 hover:bg-indigo-800', 'border border-indigo-500', 'bg-green-700 hover:bg-green-800'], 'Mobile header remains compact with a high-contrast Project action and forest-green Report button');
+requireAll(contextBackButton, ['data-hnl-context-back-button="true"', 'min-h-10', 'focus-visible:ring-2', 'Quay lại {label}'], 'Shared accessible context-return action');
+requireAll(app, ['contextReturnFrames', 'navigateFromLink', 'handleContextReturn', 'data-hnl-cross-module-return="true"', 'getActiveProjectId(), kind', 'setContextReturnFrames([])', "navigateFromLink('floorplan', kind)", "navigateFromLink('checklist', kind)", "navigateFromLink('crew')", "navigateFromLink('config')"], 'Contextual cross-module return to the proper source, reset on project and direct nav');
+requireAll(read('src/components/WarehouseTab.tsx'), ['onOpenNormModal(warehouseCatalogTab, undefined, true)', '}, true);'], 'Catalog settings and item drill-down both preserve the warehouse return origin');
+requireAll(read('src/components/MaterialNormModal.tsx'), ['ContextBackButton', 'data-hnl-back-to-warehouse-catalog="true"', 'returnToWarehouseCatalog()'], 'Material Norm uses shared return control with unsaved edits guard');
 const nativeSplashAttachIndex = androidMain.indexOf('setContentView(startupRoot);');
 const coldWebViewCreateIndex = androidMain.indexOf('webView = new WebView(this);');
 if (nativeSplashAttachIndex < 0 || coldWebViewCreateIndex <= nativeSplashAttachIndex) fail('Android cold start must attach native HNL splash before constructing WebView');
@@ -369,7 +374,7 @@ pass('warehouse transaction/derived-balance safety engine is wired into runtime'
 // inventory creator is directly bound to onClick. An event is not an item kind.
 requireAll(warehouseTab, [
   "onClick={() => openCreateInventory('material')}",
-  "onOpenNormModal(warehouseCatalogTab)",
+  "onOpenNormModal(warehouseCatalogTab, undefined, true)",
   "data-hnl-catalog-settings-link",
   "if (kind === 'equipment') {",
   "const openCreateInventory = (kind: InventoryItemKind = 'material') =>",

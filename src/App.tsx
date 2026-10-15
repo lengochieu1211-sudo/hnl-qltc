@@ -1,5 +1,6 @@
 import { getHnlPrimaryThemeColors } from './utils/hnlPrimaryTheme';
 import { GlobalConfirmModal } from './components/GlobalConfirmModal';
+import { ContextBackButton } from './components/ContextBackButton';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { HardDrive, RefreshCw } from 'lucide-react';
 import { safeSetLocalStorageItem } from './utils/storage';
@@ -219,6 +220,13 @@ const ExportPdfModal = React.lazy(() => loadExportPdfModal().then(m => ({ defaul
 const MaterialNormModal = React.lazy(() => loadMaterialNormModal().then(m => ({ default: m.MaterialNormModal })));
 
 const PRIMARY_TAB_IDS: TabType[] = ['home', 'floorplan', 'crew', 'warehouse', 'volume', 'config'];
+type ContextReturnKind = 'tab' | 'notifications' | 'health-center';
+interface ContextReturnFrame { tab: TabType; projectId: string; kind: ContextReturnKind; }
+const CONTEXT_TAB_LABEL: Record<TabType, string> = {
+  home: 'Trang chủ', warehouse: 'Kho', volume: 'Khối lượng',
+  floorplan: 'Mặt bằng', checklist: 'Checklist', crew: 'Quân số',
+  chat: 'Trao đổi', ai: 'AI', config: 'Cấu hình', superadmin: 'Super Admin',
+};
 const getRememberedTab = (): TabType => {
   if (typeof window === 'undefined') return 'home';
   try {
@@ -392,6 +400,8 @@ function AuthenticatedApp() {
   activeTabRef.current = activeTab;
   const [navigationTargetTab, setNavigationTargetTab] = useState<TabType | null>(null);
   const navigationTargetRef = useRef<TabType | null>(null);
+  // History is only for explicit contextual links; normal tab taps never add a frame.
+  const [contextReturnFrames, setContextReturnFrames] = useState<ContextReturnFrame[]>([]);
   const visibleTab = navigationTargetTab || activeTab;
   const navigationRequestRef = useRef(0);
   const navigationCommitTimerRef = useRef<number | null>(null);
@@ -428,7 +438,8 @@ function AuthenticatedApp() {
   // for a short quiet window. Each new tap cancels the previous commit, so a user moving
   // Home -> Floor -> Crew -> Warehouse mounts only the final destination instead of
   // blocking the main thread with every intermediate screen.
-  const navigateToTab = React.useCallback((tab: TabType) => {
+  const navigateToTab = React.useCallback((tab: TabType, preserveContextReturn = false) => {
+    if (!preserveContextReturn) setContextReturnFrames([]);
     const requestId = ++navigationRequestRef.current;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const sinceLastRequest = navigationLastRequestAtRef.current > 0
@@ -474,6 +485,17 @@ function AuthenticatedApp() {
       setActiveTab(tab);
     }, commitDelayMs);
   }, [isMobileRuntime]);
+
+  const navigateFromLink = React.useCallback((tab: TabType, kind: ContextReturnKind = 'tab') => {
+    const origin = navigationTargetRef.current || activeTabRef.current;
+    // A shortcut within the same module does not create an unusable return loop.
+    if (origin !== tab || kind !== 'tab') {
+      setContextReturnFrames((frames) => [...frames, {
+        tab: origin, projectId: getActiveProjectId(), kind,
+      }].slice(-6));
+    }
+    navigateToTab(tab, true);
+  }, [navigateToTab]);
 
   useEffect(() => {
     if (navigationTargetTab === activeTab && navigationTargetRef.current === navigationTargetTab) {
@@ -540,7 +562,15 @@ function AuthenticatedApp() {
           : detail.entityType === 'chat'
             ? 'chat'
             : null;
-      if (nextTab) navigateToTab(nextTab);
+      if (nextTab) {
+        let source: ContextReturnKind = 'tab';
+        if (activeTabRef.current === 'config') {
+          try {
+            if (sessionStorage.getItem('qlct_health_center_return_state')) source = 'health-center';
+          } catch (_) { /* storage can be unavailable */ }
+        }
+        navigateFromLink(nextTab, source);
+      }
     };
     const handleHealthCenterReturn = () => navigateToTab('config');
     window.addEventListener('qlct-diagnostic-open-entity', handleDiagnosticOpenTab);
@@ -549,9 +579,11 @@ function AuthenticatedApp() {
       window.removeEventListener('qlct-diagnostic-open-entity', handleDiagnosticOpenTab);
       window.removeEventListener('qlct-health-center-return', handleHealthCenterReturn);
     };
-  }, [navigateToTab]);
+  }, [navigateFromLink, navigateToTab]);
   const [activeProjectId, setActiveProjectId] = useState<string>(() => getActiveProjectId());
   const activeProjectIdRef = useRef<string>(activeProjectId);
+  // Never reuse a return path after a project switch (especially in multi-project mode).
+  useEffect(() => { setContextReturnFrames([]); }, [activeProjectId]);
   // Firebase-only business data must come from Firestore/its official cache. Legacy
   // localforage may be displayed only as a migration candidate and is read-only until
   // an explicit online Import writes it through the Firestore validation path.
@@ -560,6 +592,7 @@ function AuthenticatedApp() {
   const [isMaterialNormOpen, setIsMaterialNormOpen] = useState(false);
   const [materialNormInitialTab, setMaterialNormInitialTab] = useState<'material' | 'equipment'>('material');
   const [materialNormInitialTarget, setMaterialNormInitialTarget] = useState<{ name: string; unit: string } | undefined>();
+  const [materialNormFromWarehouseCatalog, setMaterialNormFromWarehouseCatalog] = useState(false);
   const [warehouseCatalogReturnToken, setWarehouseCatalogReturnToken] = useState(0);
   const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
   const [projectManagerInitialTab, setProjectManagerInitialTab] = useState<'projects' | 'sync'>('projects');
@@ -7451,11 +7484,12 @@ function AuthenticatedApp() {
     return collectDueDateAlerts(workVolumes, checklist, activeDefects);
   }, [workVolumes, checklist, activeDefects]);
 
-  const handleNavigateFromAlert = (alertItem: DueDateAlertItem) => {
+  const handleNavigateFromAlert = (alertItem: DueDateAlertItem, fromNotificationCenter = false) => {
+    const kind: ContextReturnKind = fromNotificationCenter ? 'notifications' : 'tab';
     if (alertItem.type === 'workVolume') {
-      setActiveTab('volume');
+      navigateFromLink('volume', kind);
     } else if (alertItem.type === 'checklist') {
-      setActiveTab('checklist');
+      navigateFromLink('checklist', kind);
     } else if (alertItem.type === 'defect') {
       const defect = alertItem.originalItem as DefectItem;
       const navigationRequest = {
@@ -7476,13 +7510,26 @@ function AuthenticatedApp() {
         code: 'REQUEST',
         message: `request defect=${defect.id} floor=${defect.floorId || ''} x=${Number(defect.x || 0)} y=${Number(defect.y || 0)}`,
       });
-      setActiveTab('floorplan');
+      navigateFromLink('floorplan', kind);
       // sessionStorage covers the not-yet-mounted FloorPlan tab. The event covers the
       // important case where the user is ALREADY on Mặt bằng: setActiveTab('floorplan')
       // does not remount the component, so storage-only navigation previously did nothing.
       window.setTimeout(() => {
         window.dispatchEvent(new CustomEvent('qlct-defect-navigation-request', { detail: navigationRequest }));
       }, 50);
+    }
+  };
+
+  const handleContextReturn = () => {
+    const frame = contextReturnFrames[contextReturnFrames.length - 1];
+    if (!frame) return;
+    setContextReturnFrames((previous) => previous.slice(0, -1));
+    if (frame.projectId !== activeProjectId) return;
+    // Return without creating another history frame, preserving a prior step for multi-hop links.
+    navigateToTab(frame.tab, true);
+    if (frame.kind === 'notifications') setIsNotificationCenterOpen(true);
+    if (frame.kind === 'health-center') {
+      window.setTimeout(() => window.dispatchEvent(new Event('qlct-health-center-return')), 60);
     }
   };
 
@@ -7624,6 +7671,20 @@ function AuthenticatedApp() {
         {/* Offline & Sync Status Banner */}
         <OfflineSyncBanner onAutoSync={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleSyncAll : undefined} isSyncing={isSyncing} userRole={currentUserRole} roleResolved={isProjectRoleResolved} roleSource={projectRoleSource} firestorePendingWriteCount={firestorePendingWriteCount} firebaseOnly={FIREBASE_ONLY_RUNTIME} verifiedSnapshotFallback={businessDataSource === 'verified-offline-snapshot'} />
 
+        {/* Contextual return is shown only after following a link, never on primary-tab navigation. */}
+        {contextReturnFrames.length > 0 && contextReturnFrames[contextReturnFrames.length - 1].projectId === activeProjectId && (
+          <div className="px-4 pt-3" data-hnl-cross-module-return="true">
+            <ContextBackButton
+              label={contextReturnFrames[contextReturnFrames.length - 1].kind === 'notifications'
+                ? 'Trung tâm thông báo'
+                : contextReturnFrames[contextReturnFrames.length - 1].kind === 'health-center'
+                  ? 'Trung tâm kiểm tra dữ liệu'
+                  : CONTEXT_TAB_LABEL[contextReturnFrames[contextReturnFrames.length - 1].tab]}
+              onClick={handleContextReturn}
+            />
+          </div>
+        )}
+
         {/* Tab Content */}
         <main
           className="animate-in fade-in duration-150"
@@ -7669,8 +7730,8 @@ function AuthenticatedApp() {
               }}
               onManageProjects={() => handleOpenProjectManager('projects')}
               onOpenNotifications={() => setIsNotificationCenterOpen(true)}
-              onOpenCrew={() => navigateToTab('crew')}
-              onOpenFloorPlan={() => navigateToTab('floorplan')}
+              onOpenCrew={() => navigateFromLink('crew')}
+              onOpenFloorPlan={() => navigateFromLink('floorplan')}
             />
             </div>
           )}
@@ -7699,7 +7760,8 @@ function AuthenticatedApp() {
               onSyncSheets={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleSyncAll : undefined}
               materialNorms={computedMaterialNorms}
               returnToCatalogToken={warehouseCatalogReturnToken}
-              onOpenNormModal={(tab = 'material', target) => {
+              onOpenNormModal={(tab = 'material', target, fromWarehouseCatalog = false) => {
+                setMaterialNormFromWarehouseCatalog(fromWarehouseCatalog);
                 setMaterialNormInitialTab(tab);
                 setMaterialNormInitialTarget(target);
                 setIsMaterialNormOpen(true);
@@ -7996,9 +8058,9 @@ function AuthenticatedApp() {
               showChecklist={showChecklistModule}
               onOpenProjectManager={() => handleOpenProjectManager('sync')}
               onOpenSecurity={() => setIsSecurityModalOpen(true)}
-              onOpenConfig={() => navigateToTab('config')}
+              onOpenConfig={() => navigateFromLink('config')}
               onOpenHiddenHistory={() => {
-                navigateToTab('config');
+                navigateFromLink('config');
                 let attempts = 0;
                 const focusTrash = () => {
                   const target = document.getElementById('trash-recovery-card');
@@ -8212,15 +8274,20 @@ function AuthenticatedApp() {
               isOpen={true}
               initialTab={materialNormInitialTab}
               initialTarget={materialNormInitialTarget}
-              onBackToWarehouseCatalog={materialNormInitialTarget ? () => {
+              onBackToWarehouseCatalog={materialNormFromWarehouseCatalog ? () => {
                 setIsMaterialNormOpen(false);
                 setMaterialNormInitialTarget(undefined);
+                setMaterialNormFromWarehouseCatalog(false);
                 setWarehouseCatalogReturnToken(previous => previous + 1);
               } : undefined}
               userRole={currentUserRole}
               roleResolved={isProjectRoleResolved}
               currentProjectId={activeProjectId}
-              onClose={() => setIsMaterialNormOpen(false)}
+              onClose={() => {
+                setIsMaterialNormOpen(false);
+                setMaterialNormInitialTarget(undefined);
+                setMaterialNormFromWarehouseCatalog(false);
+              }}
               materialNorms={computedMaterialNorms}
               onAddNorm={handleAddNorm}
               onUpdateNorm={handleUpdateNorm}
@@ -8257,10 +8324,10 @@ function AuthenticatedApp() {
           workVolumes={workVolumes}
           checklist={activeChecklist}
           defects={activeDefects}
-          onNavigateToItem={handleNavigateFromAlert}
+          onNavigateToItem={(alert) => handleNavigateFromAlert(alert, true)}
           chatUnreadCount={chatUnreadCount}
           chatMentioned={chatMentioned}
-          onOpenChat={() => { setIsNotificationCenterOpen(false); navigateToTab('chat'); }}
+          onOpenChat={() => { setIsNotificationCenterOpen(false); navigateFromLink('chat', 'notifications'); }}
           floatingAlertsEnabled={floatingAlertsEnabled}
           onFloatingAlertsEnabledChange={updateFloatingAlertsEnabled}
         />
@@ -8268,7 +8335,7 @@ function AuthenticatedApp() {
         {chatToast && activeTab !== 'chat' && !isSoftKeyboardOpen && (
           <button
             type="button"
-            onClick={() => { setChatToast(null); navigateToTab('chat'); }}
+            onClick={() => { setChatToast(null); navigateFromLink('chat'); }}
             className="fixed z-50 right-3 left-3 sm:left-auto sm:w-80 bottom-20 sm:bottom-20 rounded-2xl border border-indigo-200 bg-white p-3 shadow-2xl text-left animate-in slide-in-from-bottom-2"
           >
             <div className="text-[11px] font-extrabold text-indigo-700">{chatToast.sender}</div>
@@ -8281,7 +8348,7 @@ function AuthenticatedApp() {
           <BottomNav
             activeTab={navigationTargetTab || activeTab}
             forceDesktopRail={isDesktopRuntime}
-            setActiveTab={navigateToTab}
+            setActiveTab={(tab) => navigateToTab(tab)}
             onPreloadTab={preloadTab}
             defectBadgeCount={unhandledDefectsCount}
             chatBadgeCount={chatUnreadCount}
