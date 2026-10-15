@@ -72,6 +72,7 @@ interface WarehouseTabProps {
   onDeleteMultipleInventory?: (ids: string[]) => void | Promise<void>;
   onSyncSheets?: () => void;
   materialNorms: MaterialNorm[];
+  returnToCatalogToken?: number;
   onOpenNormModal: (tab?: 'material' | 'equipment', target?: { name: string; unit: string }) => void;
   onOpenExportPdf?: () => void;
   onExportExcel?: () => void;
@@ -108,6 +109,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   onDeleteMultipleInventory,
   onSyncSheets,
   materialNorms,
+  returnToCatalogToken = 0,
   onOpenNormModal,
   onOpenExportPdf,
   onExportExcel,
@@ -157,6 +159,29 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [warehouseCatalogSearch, setWarehouseCatalogSearch] = useState('');
   const [warehouseCatalogSortBy, setWarehouseCatalogSortBy] = useState<WarehouseCatalogSortKey>('name');
   const [warehouseCatalogSortOrder, setWarehouseCatalogSortOrder] = useState<'asc' | 'desc'>('asc');
+  const previousReturnTokenRef = useRef(returnToCatalogToken);
+  const catalogScrollReturnTopRef = useRef<number | null>(null);
+  const catalogReturnItemKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (returnToCatalogToken === previousReturnTokenRef.current) return;
+    previousReturnTokenRef.current = returnToCatalogToken;
+    setCatalogHistory(null);
+    setShowWarehouseCatalog(true);
+  }, [returnToCatalogToken]);
+  useEffect(() => {
+    if (!showWarehouseCatalog || catalogScrollReturnTopRef.current == null) return;
+    const id = window.requestAnimationFrame(() => {
+      const body = document.querySelector<HTMLElement>('[data-hnl-settings-sheet-scrollbody="warehouse-catalog"]');
+      if (body) body.scrollTop = catalogScrollReturnTopRef.current ?? 0;
+      const focusKey = catalogReturnItemKeyRef.current;
+      const name = Array.from(document.querySelectorAll<HTMLElement>('[data-hnl-catalog-open-master]'))
+        .find(node => node.dataset.hnlCatalogOpenMaster === focusKey);
+      name?.focus({preventScroll: true});
+      catalogScrollReturnTopRef.current = null;
+      catalogReturnItemKeyRef.current = null;
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [showWarehouseCatalog, returnToCatalogToken]);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [showQuickEdit, setShowQuickEdit] = useState(false);
   const [quickEditMode, setQuickEditMode] = useState<'norms' | 'equipment' | 'in' | 'out' | 'stock'>('norms');
@@ -2309,6 +2334,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                       <button type="button"
                         data-hnl-catalog-open-master={item.key}
                         onClick={() => {
+                          const scrollBody = document.querySelector<HTMLElement>('[data-hnl-settings-sheet-scrollbody="warehouse-catalog"]');
+                          catalogScrollReturnTopRef.current = scrollBody?.scrollTop ?? 0;
+                          catalogReturnItemKeyRef.current = item.key;
                           setShowWarehouseCatalog(false);
                           onOpenNormModal(warehouseCatalogTab, {
                             name: 'sourceName' in item ? item.sourceName : item.name,
