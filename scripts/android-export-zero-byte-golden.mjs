@@ -14,12 +14,12 @@ assert(count(js,'blob.size <= 0')===2,'Both export and download routes must reje
 assert(android.indexOf('verifySavedFile(uri, export.tempFile)')<android.indexOf('private Uri getAutoSaveTreeUri()'),'SAF readback is part of savePendingExportToUri');
 const report=fs.readFileSync('src/components/ExportPdfModal.tsx','utf8');
 const excel=fs.readFileSync('src/utils/excelExport.ts','utf8');
-assert(android.includes('public void saveHtmlPdf(') && android.includes('openPrintManager(fileName)')
+assert(android.includes('public void saveHtmlPdf(') && android.includes('openPrintManager(fileName, view)')
   && android.includes('printManager.print(fileName, adapter, attributes)'),
   'Android report PDF must use supported PrintManager and show the system Save as PDF option');
 assert(!report.includes('exportHtmlPdfFileOnAndroid') && !android.includes('public boolean exportHtmlPdfFile('),
   'Never pretend direct PDF saving is supported through inaccessible hidden print callbacks');
-assert(report.includes('Lưu HTML vào Tải xuống/QLTC')
+assert(report.includes('Tải HTML (.html)')
   && report.includes('Lưu Excel vào Tải xuống/QLTC')
   && report.includes('saveTextFileToDownloads(getReportHtml()')
   && report.includes("await handleExportExcel(isAndroidExportBridgeAvailable() ? 'downloads' : 'picker')")
@@ -32,9 +32,13 @@ assert(['text', 'pdf', 'xlsx'].every(format => report.includes('data-hnl-report-
   && !report.includes('data-hnl-report-format="html"')
   && report.includes('data-hnl-report-secondary-format="html"')
   && report.includes('data-hnl-report-other-save="true"')
-  && report.includes('Nội dung: sao chép tóm tắt')
+  && report.includes('aria-label="Tùy chọn xuất khác"')
   && report.includes('handleCopySummaryText()'),
   'Report must keep only Content/PDF/Excel as primary buttons and preserve optional HTML');
+assert(!report.includes('Nội dung: sao chép tóm tắt')
+  && !report.includes('Tùy chọn khác: tải HTML / chọn nơi lưu')
+  && !report.includes('Chia sẻ / chọn nơi lưu HTML'),
+  'Report footer must not clutter the three primary buttons with duplicated explanations');
 assert(report.includes('reportExportInFlightRef.current = true')
   && report.includes('await waitForReportPaint()')
   && report.includes('data-hnl-report-export-pending="true"')
@@ -51,6 +55,14 @@ assert(report.includes("await navigator.clipboard.writeText(text)")
   && report.includes("setCopiedText(true)")
   && report.includes("setCopiedText(false)"),
   'Content button must copy actual report text and show success only after clipboard confirmation');
+assert(!android.includes('printWebView.setAlpha(0f)')
+  && android.includes('ViewGroup.LayoutParams.MATCH_PARENT,')
+  && android.includes('postVisualStateCallback(')
+  && android.includes('contentAdapter.onWrite(pages, destination, cancellationSignal, callback)')
+  && android.includes('contentAdapter.onFinish()')
+  && android.includes('finishReportPrinting(pdfView)')
+  && android.includes('pdfPrintInProgress = true'),
+  'Android PDF must print from a full-size rendered WebView and keep it alive until PrintManager finishes');
 const warehouseShare = fs.readFileSync('src/components/WarehouseVoucherShareSheet.tsx', 'utf8');
 const header = fs.readFileSync('src/components/GoogleAuthHeader.tsx', 'utf8');
 assert(report.includes('border border-red-600 bg-red-600')
@@ -58,6 +70,6 @@ assert(report.includes('border border-red-600 bg-red-600')
   && warehouseShare.includes('border-red-600 bg-red-600')
   && warehouseShare.includes('border-blue-600 bg-blue-600'),
   'Report PDF and Excel buttons must reuse the exact warehouse share color/hover/focus styling');
-assert(header.includes('bg-slate-700 hover:bg-slate-600') && !header.includes('ring-1 ring-sky-300/60'),
+assert(header.includes('bg-indigo-700 hover:bg-indigo-800') && header.includes('border border-indigo-500') && !header.includes('ring-1 ring-sky-300/60'),
   'Project header action must remain clear without an unrelated bright cyan ring');
 console.log('ANDROID 0-BYTE EXPORT GUARDS: PASS');
