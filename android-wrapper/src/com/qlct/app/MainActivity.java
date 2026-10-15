@@ -1030,6 +1030,32 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public boolean exportHtmlPdfFile(String fileName, String htmlBase64, String destination, String requestId) {
+            if (!"downloads".equals(destination) && !"picker".equals(destination) && !"share".equals(destination)) return false;
+            if (requestId == null || requestId.trim().isEmpty()) return false;
+            try {
+                byte[] bytes=Base64.decode(htmlBase64,Base64.DEFAULT);
+                if (bytes.length==0) return false;
+                final String html=new String(bytes,StandardCharsets.UTF_8);
+                final String safeName=sanitizeFileName(fileName).replaceAll("(?i)\\.pdf$","")+".pdf";
+                runOnUiThread(() -> ReportPdfRenderer.render(MainActivity.this,html,safeName,
+                    new ReportPdfRenderer.Result() {
+                        @Override
+                        public void onReady(File output) {
+                            publishReportPdf(output,safeName,destination,requestId);
+                        }
+                        @Override
+                        public void onFailure(String message) {
+                            dispatchAndroidEvent("android-report-pdf-result",requestId,false,message,safeName);
+                        }
+                    }));
+                return true;
+            } catch (Exception error) {
+                return false;
+            }
+        }
+
+        @JavascriptInterface
         public void saveHtmlPdf(String fileName, String htmlBase64) {
             try {
                 byte[] bytes = Base64.decode(htmlBase64, Base64.DEFAULT);
