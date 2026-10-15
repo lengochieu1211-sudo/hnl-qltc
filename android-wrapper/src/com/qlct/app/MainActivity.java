@@ -1217,6 +1217,60 @@ public class MainActivity extends Activity {
         return true;
     }
 
+    private void publishReportPdf(File file, String fileName, String destination, String requestId) {
+        boolean handedToPicker=false;
+        try {
+            requireNonEmptyExport(file);
+            try (FileInputStream input=new FileInputStream(file)) {
+                byte[] header=new byte[4];
+                if (input.read(header)!=4 || !"%PDF".equals(new String(header,StandardCharsets.US_ASCII))) {
+                    throw new IOException("Rendered report is not a valid PDF header");
+                }
+            }
+            if ("picker".equals(destination)) {
+                // Existing SAF flow confirms bytes on the chosen document URI.
+                // The pending export takes ownership of this temporary file.
+                handedToPicker=true;
+                startCreateDocumentForExport(new PendingExport(requestId,fileName,"application/pdf",file));
+                return;
+            }
+            if ("downloads".equals(destination)) {
+                saveFileToDownloads(fileName,"application/pdf",file);
+                showToast("Da luu PDF vao Tai xuong/QLTC: "+fileName);
+            } else if ("share".equals(destination)) {
+                File dir=new File(getCacheDir(),PickerCacheProvider.CACHE_DIR);
+                if (!dir.exists() && !dir.mkdirs()) throw new IOException("Cannot create PDF share cache");
+                File shareFile=new File(dir,"share_"+System.nanoTime()+"_"+sanitizeFileName(fileName));
+                try (FileOutputStream dest=new FileOutputStream(shareFile)) {
+                    copyFileToOutput(file,dest);
+                }
+                requireNonEmptyExport(shareFile);
+                try (FileInputStream source=new FileInputStream(file);
+                     FileInputStream copied=new FileInputStream(shareFile)) {
+                    if (!MessageDigest.isEqual(hashStream(source),hashStream(copied))) {
+                        shareFile.delete();
+                        throw new IOException("Shared PDF content mismatch");
+                    }
+                }
+                Uri uri=new Uri.Builder().scheme("content").authority(PickerCacheProvider.AUTHORITY)
+                    .appendPath(shareFile.getName()).build();
+                Intent intent=new Intent(Intent.ACTION_SEND);
+                intent.setType("application/pdf");
+                intent.putExtra(Intent.EXTRA_STREAM,uri);
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                intent.setClipData(ClipData.newUri(getContentResolver(),"Bao cao QLTC",uri));
+                if (!openNativeShareChooser(Intent.createChooser(intent,"Chia se bao cao PDF"),
+                        "Khong mo duoc chia se PDF")) throw new IOException("PDF share chooser unavailable");
+            }
+            dispatchAndroidEvent("android-report-pdf-result",requestId,true,"PDF ready",fileName);
+        } catch (Exception error) {
+            dispatchAndroidEvent("android-report-pdf-result",requestId,false,error.getMessage(),fileName);
+            showToast("Khong luu/chia se duoc PDF: "+error.getMessage());
+        } finally {
+            if (!handedToPicker && file!=null && file.exists()) file.delete();
+        }
+    }
+
     private void renderHtmlToPdf(final String fileName, String html) {
         destroyTemporaryWebView(printWebView);
         printWebView = new WebView(this);
