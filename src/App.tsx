@@ -560,6 +560,8 @@ function AuthenticatedApp() {
   const [isMaterialNormOpen, setIsMaterialNormOpen] = useState(false);
   const [materialNormInitialTab, setMaterialNormInitialTab] = useState<'material' | 'equipment'>('material');
   const [materialNormInitialTarget, setMaterialNormInitialTarget] = useState<{ name: string; unit: string } | undefined>();
+  const [materialNormFromWarehouseCatalog, setMaterialNormFromWarehouseCatalog] = useState(false);
+  const [warehouseCatalogReturnToken, setWarehouseCatalogReturnToken] = useState(0);
   const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
   const [projectManagerInitialTab, setProjectManagerInitialTab] = useState<'projects' | 'sync'>('projects');
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
@@ -7697,9 +7699,11 @@ function AuthenticatedApp() {
               onDeleteMultipleInventory={handleDeleteMultipleInventory}
               onSyncSheets={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleSyncAll : undefined}
               materialNorms={computedMaterialNorms}
-              onOpenNormModal={(tab = 'material', target) => {
+              catalogReturnToken={warehouseCatalogReturnToken}
+              onOpenNormModal={(tab = 'material', target, fromCatalog = false) => {
                 setMaterialNormInitialTab(tab);
                 setMaterialNormInitialTarget(target);
+                setMaterialNormFromWarehouseCatalog(fromCatalog);
                 setIsMaterialNormOpen(true);
               }}
               onOpenExportPdf={() => setIsExportPdfOpen(true)}
@@ -8213,7 +8217,16 @@ function AuthenticatedApp() {
               userRole={currentUserRole}
               roleResolved={isProjectRoleResolved}
               currentProjectId={activeProjectId}
-              onClose={() => setIsMaterialNormOpen(false)}
+              onClose={() => {
+                setIsMaterialNormOpen(false);
+                setMaterialNormFromWarehouseCatalog(false);
+              }}
+              onReturnToWarehouseCatalog={materialNormFromWarehouseCatalog ? () => {
+                setIsMaterialNormOpen(false);
+                setMaterialNormFromWarehouseCatalog(false);
+                setMaterialNormInitialTarget(undefined);
+                setWarehouseCatalogReturnToken(token => token + 1);
+              } : undefined}
               materialNorms={computedMaterialNorms}
               onAddNorm={handleAddNorm}
               onUpdateNorm={handleUpdateNorm}
