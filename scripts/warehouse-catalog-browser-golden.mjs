@@ -70,6 +70,7 @@ await sheet.waitFor({state:'hidden'});
 // ADMIN with exactly one matching name+unit lands in the existing edit form.
 await page.locator('[data-hnl-fixture-admin]').click();
 await catalogOpener.click();
+await sheet.locator('input[type="search"]').fill(preservedSearch);
 await sheet.locator('[data-hnl-catalog-open-master^="material:"]').first().click();
 await page.locator('[data-hnl-norm-editor]').waitFor({state:'visible'});
 assert((await page.locator('[data-hnl-norm-editor]').innerText()).includes('Cập nhật định mức vật tư'),
