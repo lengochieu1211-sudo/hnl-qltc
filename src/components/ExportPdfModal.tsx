@@ -2420,7 +2420,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
                 Trên APK: chọn <strong>Lưu thành PDF</strong> trong màn hình in của Android, sau đó chọn thư mục <strong>Tải xuống/QLTC</strong>. Cách này giữ nguyên bố cục báo cáo và ảnh.
               </p>
-            )
+            )}
 
             <button
               type="button"
