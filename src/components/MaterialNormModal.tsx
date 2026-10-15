@@ -40,6 +40,7 @@ import { AddSourceMenu } from './AddSourceMenu';
 interface MaterialNormModalProps {
   isOpen: boolean;
   initialTab?: 'material' | 'equipment';
+  initialTarget?: { name: string; unit: string };
   userRole: UserRole;
   roleResolved: boolean;
   currentProjectId?: string;
@@ -83,6 +84,7 @@ export const WORK_CATEGORIES_LIST = [
 export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   isOpen,
   initialTab = 'material',
+  initialTarget,
   userRole,
   roleResolved,
   currentProjectId,
@@ -138,6 +140,8 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   // Modal mode: 'list' | 'add' | 'edit'
   const [mode, setMode] = useState<'list' | 'add' | 'edit'>('list');
   const [editingId, setEditingId] = useState<string | null>(null);
+  const directCatalogTargetHandled = React.useRef(false);
+  const [directCatalogMatchCount, setDirectCatalogMatchCount] = useState(0);
   const [deletingNormTarget, setDeletingNormTarget] = useState<MaterialNorm | null>(null);
 
   useEffect(() => {
@@ -732,6 +736,27 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     setMode('edit');
   };
 
+  // Warehouse rows group norms by name and unit, not by normative record ID.
+  // Multiple hạng mục may legitimately share that identity; never pick one.
+  useEffect(() => {
+    if (!isOpen || !initialTarget || initialTab !== 'material' || catalogTab !== 'material'
+        || directCatalogTargetHandled.current || !roleResolved) return;
+    directCatalogTargetHandled.current = true;
+    const sameName = (value: string) => value.trim().toLocaleLowerCase('vi-VN')
+      === initialTarget.name.trim().toLocaleLowerCase('vi-VN');
+    const expectedUnit = unitKey(normalizeUnit(initialTarget.unit) || initialTarget.unit);
+    const matches = activeMaterialNorms.filter(norm => sameName(norm.materialName)
+      && unitKey(normalizeUnit(norm.unit) || norm.unit) === expectedUnit);
+    setDirectCatalogMatchCount(matches.length);
+    setSearchTerm(initialTarget.name);
+    setSelectedCategoryFilter('all');
+    if (hasManageAccess && matches.length === 1) {
+      void handleOpenEdit(matches[0]);
+    } else {
+      setMode('list');
+    }
+  }, [isOpen, initialTarget, initialTab, catalogTab, roleResolved, hasManageAccess, activeMaterialNorms]);
+
   const parseInteractiveNumericInput = (raw: string): number | null => {
     const trimmed = String(raw || '').trim();
     if (!trimmed) return null;
@@ -967,8 +992,9 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               <p className="text-xs text-slate-500">{hasManageAccess ? 'Quản lý thông số vật tư, định mức và thiết bị' : 'Xem danh mục · chỉ ADMIN được chỉnh sửa'}</p>
             </div>
           </div>
-          <button
+          <button type="button"
             onClick={onClose}
+            aria-label="Đóng quản lý vật tư thiết bị"
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -993,6 +1019,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
         {catalogTab === 'equipment' ? (
           <div className="min-h-0 flex-1 overflow-y-auto">
             <EquipmentCatalogPanel
+              initialTarget={initialTab === 'equipment' ? initialTarget : undefined}
               projectId={currentProjectId || ''}
               inventory={inventory}
               canManage={hasManageAccess}
@@ -1001,6 +1028,12 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
           </div>
         ) : mode === 'list' ? (
           <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+            {initialTarget && initialTab === 'material' && directCatalogMatchCount > 1 && (
+              <p data-hnl-catalog-target-ambiguous="true" className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                Có {directCatalogMatchCount} định mức cho “{initialTarget.name}” ({initialTarget.unit}).
+                Hãy chọn đúng hạng mục để xem hoặc chỉnh sửa.
+              </p>
+            )}
             
             {/* Top Action & Search Bar */}
             <div className="flex items-center gap-2">
@@ -1212,8 +1245,12 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                             disableUp={normIndex === 0}
                             disableDown={normIndex === sortedFilteredNorms.length - 1}
                           />}
-                          <button onClick={() => handleOpenEdit(norm)} className="p-1 text-indigo-700 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-colors" title="Sửa định mức"><Edit3 className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => setDeletingNormTarget(norm)} className="p-1 text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors" title="Xóa định mức"><Trash2 className="w-3.5 h-3.5" /></button>
+                          <button type="button" onClick={() => void handleOpenEdit(norm)}
+                             className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-lg text-indigo-700 transition-colors hover:bg-indigo-50 hover:text-indigo-800"
+                             title="Sửa định mức" aria-label={`Sửa định mức ${norm.materialName}`}><Edit3 className="h-3.5 w-3.5" /></button>
+                          <button type="button" onClick={() => setDeletingNormTarget(norm)}
+                             className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-lg text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
+                             title="Xóa định mức" aria-label={`Xóa định mức ${norm.materialName}`}><Trash2 className="h-3.5 w-3.5" /></button>
                         </div>}
                       </div>
 

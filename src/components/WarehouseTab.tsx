@@ -72,7 +72,7 @@ interface WarehouseTabProps {
   onDeleteMultipleInventory?: (ids: string[]) => void | Promise<void>;
   onSyncSheets?: () => void;
   materialNorms: MaterialNorm[];
-  onOpenNormModal: (tab?: 'material' | 'equipment') => void;
+  onOpenNormModal: (tab?: 'material' | 'equipment', target?: { name: string; unit: string }) => void;
   onOpenExportPdf?: () => void;
   onExportExcel?: () => void;
   onUndo?: () => void;
@@ -2306,8 +2306,19 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 ) : warehouseCatalogStockRows.map((item) => (
                   <div key={item.key} className="grid grid-cols-[minmax(180px,1.6fr)_150px_52px_64px_64px_120px_76px] items-center gap-2 px-3 py-2.5 text-xs">
                     <div className="min-w-0">
-                      <div className="whitespace-normal break-words font-bold leading-snug text-slate-800">{item.name}</div>
-
+                      <button type="button"
+                        data-hnl-catalog-open-master={item.key}
+                        onClick={() => {
+                          setShowWarehouseCatalog(false);
+                          onOpenNormModal(warehouseCatalogTab, {
+                            name: 'sourceName' in item ? item.sourceName : item.name,
+                            unit: item.unit,
+                          });
+                        }}
+                        className="flex min-h-10 w-full min-w-0 items-center rounded-md text-left whitespace-normal break-words font-bold leading-snug text-slate-800 transition-colors hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-2 focus-visible:outline-indigo-600"
+                        aria-label={`Mở quản lý ${warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'định mức vật tư'} ${item.name}, đơn vị ${item.unit}`}
+                        title={warehouseCatalogTab === 'equipment' ? 'Mở thông tin thiết bị' : 'Mở định mức vật tư'}
+                      >{item.name}</button>
                     </div>
                     <span className="min-w-0 whitespace-normal break-words text-slate-500">{item.category}</span>
                     <span className="break-words text-slate-600">{item.unit}</span>

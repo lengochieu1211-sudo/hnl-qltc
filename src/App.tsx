@@ -559,6 +559,7 @@ function AuthenticatedApp() {
   const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
   const [isMaterialNormOpen, setIsMaterialNormOpen] = useState(false);
   const [materialNormInitialTab, setMaterialNormInitialTab] = useState<'material' | 'equipment'>('material');
+  const [materialNormInitialTarget, setMaterialNormInitialTarget] = useState<{ name: string; unit: string } | undefined>();
   const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
   const [projectManagerInitialTab, setProjectManagerInitialTab] = useState<'projects' | 'sync'>('projects');
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
@@ -7696,7 +7697,11 @@ function AuthenticatedApp() {
               onDeleteMultipleInventory={handleDeleteMultipleInventory}
               onSyncSheets={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleSyncAll : undefined}
               materialNorms={computedMaterialNorms}
-              onOpenNormModal={(tab = 'material') => { setMaterialNormInitialTab(tab); setIsMaterialNormOpen(true); }}
+              onOpenNormModal={(tab = 'material', target) => {
+                setMaterialNormInitialTab(tab);
+                setMaterialNormInitialTarget(target);
+                setIsMaterialNormOpen(true);
+              }}
               onOpenExportPdf={() => setIsExportPdfOpen(true)}
               onExportExcel={handleExportExcel}
               onUndo={handleUndo}
@@ -8204,6 +8209,7 @@ function AuthenticatedApp() {
             <MaterialNormModal
               isOpen={true}
               initialTab={materialNormInitialTab}
+              initialTarget={materialNormInitialTarget}
               userRole={currentUserRole}
               roleResolved={isProjectRoleResolved}
               currentProjectId={activeProjectId}
