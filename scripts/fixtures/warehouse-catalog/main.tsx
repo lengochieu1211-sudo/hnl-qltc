@@ -32,13 +32,13 @@ function NormLayoutFixture() {
     <button type="button" data-hnl-fixture-admin="true" onClick={() => setRole('ADMIN')}>Chế độ ADMIN kiểm thử</button>
     <button type="button" data-hnl-fixture-viewer="true" onClick={() => setRole('VIEWER')}>Chế độ VIEWER kiểm thử</button>
     <button type="button" data-hnl-fixture-duplicate="true" onClick={() => setDuplicate(value => !value)}>Định mức trùng tên/ĐVT</button>
-    <MaterialNormModal
-      isOpen={open} onClose={() => setOpen(false)}
+    {open && <MaterialNormModal
+      isOpen={true} onClose={() => setOpen(false)}
       initialTab={tab} initialTarget={target} currentProjectId=""
       userRole={role} roleResolved={true}
       materialNorms={norms} inventory={inventory}
       onAddNorm={() => {}} onUpdateNorm={() => {}} onDeleteNorm={() => {}}
-    />
+    />}
     <WarehouseTab isActive quickEditEnabled={false} currentProjectId=""
       projectName="Công trình Trung tâm Kiểm thử QLTC"
       projectLocation="123 Đường Thử Nghiệm, Quận 1, TP.HCM"
