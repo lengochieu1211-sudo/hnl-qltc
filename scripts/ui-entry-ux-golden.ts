@@ -405,7 +405,8 @@ assert(
 );
 assert(
   warehouse.includes('data-hnl-catalog-settings-link="true"')
-  && warehouse.includes('onOpenNormModal(warehouseCatalogTab)')
+  && warehouse.includes('onClick={() => openCatalogMaster(warehouseCatalogTab)}')
+  && warehouse.includes('onOpenNormModal(tab, target, true)')
   && warehouse.includes("'Thiết lập thiết bị' : 'Thiết lập vật tư'"),
   'Warehouse catalog setup button must open the correct Vật tư / Thiết bị tab',
 );
