@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Edit2, Plus, Search, Save, Trash2, RotateCcw, X } from 'lucide-react';
+import { AlertTriangle, Edit3, Plus, Search, Save, Trash2, RotateCcw, X } from 'lucide-react';
 import { AddSourceMenu } from './AddSourceMenu';
 import { QuickSortBar } from './QuickSortBar';
 import { CatalogTemplatePickerModal } from './CatalogTemplatePickerModal';
@@ -19,6 +19,7 @@ interface Props {
   projectId: string;
   inventory: InventoryItem[];
   canManage: boolean;
+  initialTarget?: { name: string; unit: string };
   onRenameWarehouseUnit?: (input: Omit<WarehouseUnitRenameInput, 'projectId'>) => Promise<{ norms: number; vouchers: number }>;
 }
 
@@ -33,12 +34,14 @@ const TEXTAREA_CLASS = FIELD_CLASS.replace('font-semibold', 'font-medium');
 const normalizeCategory = (text: string) => text.trim().toLocaleLowerCase('vi-VN');
 
 export const EquipmentCatalogPanel: React.FC<Props> = ({
-  projectId, inventory, canManage, onRenameWarehouseUnit,
+  projectId, inventory, canManage, initialTarget, onRenameWarehouseUnit,
 }) => {
   const [records, setRecords] = useState<EquipmentCatalogRecord[]>([]);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const initialTargetHandled = React.useRef(false);
+  const [targetNotFound, setTargetNotFound] = useState(false);
   const [edit, setEdit] = useState<EquipmentCatalogInput | null>(null);
   // A voucher-backed legacy item may not have a catalog ID; edit mode is explicit.
   const [editingExisting, setEditingExisting] = useState(false);
@@ -192,6 +195,21 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
     setNotice('');
   };
 
+  // The equipment master can be populated asynchronously from Cloud, or an
+  // equipment may exist only in legacy vouchers. Match canonical name AND unit.
+  // Only open edit when uniquely identified and current user may manage it.
+  useEffect(() => {
+    if (!initialTarget || status !== 'ready' || initialTargetHandled.current) return;
+    initialTargetHandled.current = true;
+    setSearch(initialTarget.name);
+    const requestedName = equipmentIdentityKey(initialTarget.name);
+    const requestedUnit = normalizeUnit(initialTarget.unit) || initialTarget.unit;
+    const matches = items.filter(item => equipmentIdentityKey(item.name) === requestedName
+      && (normalizeUnit(item.unit) || item.unit) === requestedUnit);
+    setTargetNotFound(matches.length !== 1);
+    if (canManage && matches.length === 1) startEdit(matches[0]);
+  }, [initialTarget, status, canManage, items]);
+
   const save = async (addAnother: boolean) => {
     if (!edit || !canManage || status !== 'ready' || busy) return;
     const equipment = {
@@ -328,6 +346,12 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
       Quản lý thông số thiết bị tại đây. Nhật ký Nhập/Xuất và tồn kho giữ nguyên, không đưa thiết bị vào định mức hao phí vật tư.
     </p>
     {notice && <p role="status" className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">{notice}</p>}
+    {initialTarget && targetNotFound && status === 'ready' && (
+      <p data-hnl-equipment-target-not-found="true" className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+        Không xác định được duy nhất “{initialTarget.name}” ({initialTarget.unit}).
+        Hãy chọn đúng thiết bị trong danh sách; chưa mở màn hình chỉnh sửa.
+      </p>
+    )}
     <div className="flex flex-wrap gap-2">
       <div className="relative min-w-0 flex-1">
         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
@@ -557,16 +581,16 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
                 disableDown={visibleSavedIds[visibleSavedIds.length - 1] === item.id}
               />}
               <button type="button" disabled={busy} onClick={() => startEdit(item)}
-                className="rounded-lg border border-indigo-200 p-2 text-indigo-700 disabled:opacity-40"
+                className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-lg text-indigo-700 transition-colors hover:bg-indigo-50 hover:text-indigo-800 disabled:opacity-40"
                 title="Sửa thông tin thiết bị" aria-label={'Sửa thiết bị ' + item.name}>
-                <Edit2 className="h-4 w-4" />
+                <Edit3 className="h-3.5 w-3.5" />
               </button>
               <button type="button" disabled={busy || !deletable || !target}
                 onClick={() => { if (target) void deleteCatalogItems([target]); }}
-                className="rounded-lg border border-rose-200 p-2 text-rose-700 disabled:opacity-30"
+                className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-lg text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700 disabled:opacity-30"
                 title={deletable ? 'Chuyển thiết bị vào thùng rác' : 'Không thể xóa thiết bị có lịch sử phiếu kho'}
                 aria-label={'Xóa thiết bị ' + item.name}>
-                <Trash2 className="h-4 w-4" />
+                <Trash2 className="h-3.5 w-3.5" />
               </button>
             </div>}
           </div>;
