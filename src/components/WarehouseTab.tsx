@@ -72,7 +72,8 @@ interface WarehouseTabProps {
   onDeleteMultipleInventory?: (ids: string[]) => void | Promise<void>;
   onSyncSheets?: () => void;
   materialNorms: MaterialNorm[];
-  onOpenNormModal: (tab?: 'material' | 'equipment', target?: { name: string; unit: string }) => void;
+  onOpenNormModal: (tab?: 'material' | 'equipment', target?: { name: string; unit: string }, fromCatalog?: boolean) => void;
+  catalogReturnToken?: number;
   onOpenExportPdf?: () => void;
   onExportExcel?: () => void;
   onUndo?: () => void;
@@ -109,6 +110,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   onSyncSheets,
   materialNorms,
   onOpenNormModal,
+  catalogReturnToken = 0,
   onOpenExportPdf,
   onExportExcel,
   onUndo,
@@ -145,6 +147,28 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [expandedInventoryId, setExpandedInventoryId] = useState<string | null>(null);
   const [copiedInventoryId, setCopiedInventoryId] = useState<string | null>(null);
   const [showWarehouseCatalog, setShowWarehouseCatalog] = useState(false);
+  const catalogSavedScrollTopRef = useRef<number | null>(null);
+  const openCatalogMaster = (tab: InventoryItemKind, target?: { name: string; unit: string }) => {
+    const body = document.querySelector<HTMLElement>('[data-hnl-settings-sheet-scrollbody="warehouse-catalog"]');
+    catalogSavedScrollTopRef.current = body?.scrollTop ?? 0;
+    setShowWarehouseCatalog(false);
+    onOpenNormModal(tab, target, true);
+  };
+  useEffect(() => {
+    if (!catalogReturnToken) return;
+    setCatalogHistory(null);
+    setShowWarehouseCatalog(true);
+  }, [catalogReturnToken]);
+  useEffect(() => {
+    if (!showWarehouseCatalog || catalogSavedScrollTopRef.current === null) return;
+    const scrollTop = catalogSavedScrollTopRef.current;
+    const id = window.requestAnimationFrame(() => {
+      const body = document.querySelector<HTMLElement>('[data-hnl-settings-sheet-scrollbody="warehouse-catalog"]');
+      if (body) body.scrollTop = scrollTop;
+      catalogSavedScrollTopRef.current = null;
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [showWarehouseCatalog, catalogReturnToken]);
   const [voucherShareOpen, setVoucherShareOpen] = useState(false);
   const [catalogHistory, setCatalogHistory] = useState<{
     kind: InventoryItemKind; name: string; displayName: string; unit: string;
@@ -2255,7 +2279,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             {roleResolved && (
               <button
                 type="button"
-                onClick={() => { setShowWarehouseCatalog(false); onOpenNormModal(warehouseCatalogTab); }}
+                onClick={() => openCatalogMaster(warehouseCatalogTab)}
                 data-hnl-catalog-settings-link="true"
                 className="inline-flex shrink-0 items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100"
                 title={warehouseCatalogTab === 'equipment' ? 'Mở quản lý thông số thiết bị' : 'Mở quản lý vật tư và định mức'}
@@ -2309,8 +2333,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                       <button type="button"
                         data-hnl-catalog-open-master={item.key}
                         onClick={() => {
-                          setShowWarehouseCatalog(false);
-                          onOpenNormModal(warehouseCatalogTab, {
+                          openCatalogMaster(warehouseCatalogTab, {
                             name: 'sourceName' in item ? item.sourceName : item.name,
                             unit: item.unit,
                           });
