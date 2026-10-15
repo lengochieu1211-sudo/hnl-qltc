@@ -78,10 +78,20 @@ assert(report.indexOf('data-hnl-report-export-pending="true"') < report.indexOf(
 assert(report.includes('margin: 14mm 12mm 15mm 12mm') && report.includes('class="report-meta"')
   && report.includes('text-align: center; text-transform: uppercase'),
   'PDF must have balanced paper margins and a centered title');
-assert(header.includes('bg-teal-700 hover:bg-teal-800') && header.includes('bg-indigo-700 hover:bg-indigo-800'),
+assert(header.includes('bg-green-700 hover:bg-green-800') && header.includes('bg-indigo-700 hover:bg-indigo-800'),
   'Project and Report actions must be visually distinct');
 assert(js.includes("destination: 'picker' | 'downloads' = 'downloads'")
   && js.includes("jsonRecordChunks(data), safeName, mimeType, 'downloads'")
   && js.includes("chunkText(text), safeName, mimeType, 'downloads'"),
   'Manual Excel and JSON exports must default to verified Download/QLTC on APK');
+// Hiding the redundant menu must not remove HTML/picker source paths or the three main actions.
+assert(report.includes('const SHOW_LEGACY_REPORT_EXPORT_MENU = false;')
+  && report.includes('{SHOW_LEGACY_REPORT_EXPORT_MENU && (')
+  && report.includes('data-hnl-report-other-save="true"')
+  && report.includes('handleExportExcel(\'picker\')')
+  && report.includes('handleDownloadHtmlReport()')
+  && report.includes('data-hnl-report-secondary-format="html"'),
+  'Hide extra export menu on all platforms but preserve source fallback handlers');
+assert(['text', 'pdf', 'xlsx'].every(format => report.includes('data-hnl-report-format="'+format+'"')),
+  'Content, PDF and Excel actions must stay present');
 console.log('ANDROID 0-BYTE EXPORT GUARDS: PASS');

@@ -22,6 +22,11 @@ import {
   type ProjectStructureConfig,
 } from '../utils/structureGroupUtils';
 
+// Keep optional HTML and Android picker exports available in source as a fallback,
+// but hide the redundant '...' menu in the normal Report UI on all platforms.
+// Do not remove the handlers: this is a reversible, presentation-only change.
+const SHOW_LEGACY_REPORT_EXPORT_MENU = false;
+
 const escapeHtml = (value: unknown): string => String(value ?? '')
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
@@ -2518,11 +2523,12 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
             </details>
           </div>
 
-          {/* Keep three primary actions (copy text, PDF and Excel); HTML stays available as a secondary format. */}
+          {/* Keep only three primary actions visible. Legacy HTML/picker routes remain intact. */}
           <section data-hnl-report-export-actions="true" aria-label="Xuất và chia sẻ báo cáo" className="space-y-2 border-t border-slate-200 pt-3">
             <div className="flex items-center justify-between gap-2">
               <h4 className="text-sm font-extrabold text-slate-800">Xuất báo cáo</h4>
-              {/* Rarely needed export destinations remain available but do not crowd the 3 actions. */}
+              {/* Temporarily hide the complete legacy menu (including its trigger) on Web, Windows and APK. */}
+              {SHOW_LEGACY_REPORT_EXPORT_MENU && (
               <details data-hnl-report-other-save="true" className="relative">
                 <summary title="Tùy chọn xuất khác" aria-label="Tùy chọn xuất khác" className="flex h-8 w-9 cursor-pointer list-none items-center justify-center rounded-lg text-lg font-extrabold text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400">⋯</summary>
                 <div className="absolute bottom-full right-0 z-30 mb-1 grid w-52 gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
@@ -2548,6 +2554,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   )}
                 </div>
               </details>
+              )}
             </div>
             {includeFloorPlan && isResolvingFloorPlansForExport && (
               <p role="status" className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-700">

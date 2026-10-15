@@ -292,7 +292,7 @@ requireAll(androidBuild, ['hnl_system_splash_logo.png', 'SystemLogo = 104', 'Sys
 if (!indexCss.includes('html[data-hnl-theme="dark"] .text-slate-950')) fail('Dark theme must remap text-slate-950 so Home title/KPI values remain readable');
 requireAll(indexCss, ['--hnl-primary: #2563eb', '--hnl-primary-hover: #1d4ed8', '--hnl-primary-soft: #eff6ff'], 'HNL UI primary palette is standardized on blue');
 requireAll(bottomNav, ['text-[10px]', 'const overflowNavItemClass', 'const overflowNavIconClass', "overflowNavItemClass('checklist')", "overflowNavItemClass('ai')", "overflowNavItemClass('chat', true)"], 'Mobile bottom navigation keeps readable labels and uses the shared HNL blue active / slate inactive hierarchy');
-requireAll(authHeader, ['w-9 h-9 sm:w-10 sm:h-10', 'bg-indigo-700 hover:bg-indigo-800', 'border border-indigo-500', 'bg-teal-700 hover:bg-teal-800'], 'Mobile header remains compact with a high-contrast Project action and blue report button');
+requireAll(authHeader, ['w-9 h-9 sm:w-10 sm:h-10', 'bg-indigo-700 hover:bg-indigo-800', 'border border-indigo-500', 'bg-green-700 hover:bg-green-800'], 'Mobile header remains compact with a high-contrast Project action and forest-green Report button');
 const nativeSplashAttachIndex = androidMain.indexOf('setContentView(startupRoot);');
 const coldWebViewCreateIndex = androidMain.indexOf('webView = new WebView(this);');
 if (nativeSplashAttachIndex < 0 || coldWebViewCreateIndex <= nativeSplashAttachIndex) fail('Android cold start must attach native HNL splash before constructing WebView');
