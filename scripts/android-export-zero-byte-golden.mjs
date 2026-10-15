@@ -28,21 +28,29 @@ assert(report.includes('Lưu HTML vào Tải xuống/QLTC')
 assert(excel.includes("destination: 'picker' | 'downloads' = 'picker'")
   && js.includes("destination === 'downloads'"),
   'Excel must retain legacy picker and support verified direct downloads');
-assert(['pdf', 'xlsx', 'html'].every(format => report.includes('data-hnl-report-format="'+format+'"'))
+assert(['text', 'pdf', 'xlsx'].every(format => report.includes('data-hnl-report-format="'+format+'"'))
+  && !report.includes('data-hnl-report-format="html"')
+  && report.includes('data-hnl-report-secondary-format="html"')
   && report.includes('data-hnl-report-other-save="true"')
-  && report.includes('Sao chép tóm tắt để gửi Zalo / Email'),
-  'Report UI must keep three concise formats and optional Android export destinations');
+  && report.includes('Nội dung: sao chép tóm tắt')
+  && report.includes('handleCopySummaryText()'),
+  'Report must keep only Content/PDF/Excel as primary buttons and preserve optional HTML');
 assert(report.includes('reportExportInFlightRef.current = true')
   && report.includes('await waitForReportPaint()')
   && report.includes('data-hnl-report-export-pending="true"')
   && report.includes("runReportExport('pdf')")
   && report.includes("runReportExport('xlsx')")
   && report.includes("runReportExport('html')"),
-  'The three export buttons must respond with a pending state before heavy work and prevent duplicate taps');
+  'PDF/Excel and optional HTML must respond with a pending state before heavy work and prevent duplicate taps');
 assert(report.includes("window.open('about:blank', '_blank')")
   && report.includes('readyPrintWindow.location.replace(blobUrl)')
   && report.includes("typeof window.AndroidExport?.saveHtmlPdf !== 'function'"),
   'PDF must keep popup activation on the original browser click and leave native Android PrintManager unchanged');
+assert(report.includes("await navigator.clipboard.writeText(text)")
+  && report.includes("document.execCommand('copy')")
+  && report.includes("setCopiedText(true)")
+  && report.includes("setCopiedText(false)"),
+  'Content button must copy actual report text and show success only after clipboard confirmation');
 const warehouseShare = fs.readFileSync('src/components/WarehouseVoucherShareSheet.tsx', 'utf8');
 const header = fs.readFileSync('src/components/GoogleAuthHeader.tsx', 'utf8');
 assert(report.includes('border border-red-600 bg-red-600')
