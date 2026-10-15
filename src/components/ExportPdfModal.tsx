@@ -173,6 +173,9 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 
   // Module checkboxes
   const [androidReportBusy, setAndroidReportBusy] = useState(false);
+  // Synchronously gate repeated taps, including before React renders a busy state.
+  const reportExportInFlightRef = React.useRef(false);
+  const [reportExportBusy, setReportExportBusy] = useState<'pdf' | 'xlsx' | 'html' | null>(null);
   const [includeWarehouse, setIncludeWarehouse] = useState(true);
   const [includeWorkVolumes, setIncludeWorkVolumes] = useState(true);
   const [includeFloorPlan, setIncludeFloorPlan] = useState(true);
@@ -1551,9 +1554,9 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   };
 
   // High-fidelity HTML Print / Save as PDF with FULL Unicode Vietnamese support (Có dấu 100%)
-  const handlePrintHTML = () => {
-    if (!ensureReportPhotosReady()) return;
-    if (includeFloorPlan && isResolvingFloorPlansForExport) {
+  const handlePrintHTML = (readyPrintWindow: Window | null = null, preflightPassed = false) => {
+    if (!preflightPassed && !ensureReportPhotosReady()) return;
+    if (!preflightPassed && includeFloorPlan && isResolvingFloorPlansForExport) {
       alert('Đang tải ảnh mặt bằng từ Cloud để xuất PDF. Vui lòng chờ hoàn tất.');
       return;
     }
@@ -1565,6 +1568,19 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     }
     const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
     const blobUrl = URL.createObjectURL(blob);
+
+    // A popup is opened in the original click gesture before yielding for a paint.
+    // Navigate that same window after report generation; do not open a second popup.
+    if (readyPrintWindow && !readyPrintWindow.closed) {
+      try {
+        readyPrintWindow.location.replace(blobUrl);
+        readyPrintWindow.focus();
+        window.setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+        return;
+      } catch (error) {
+        console.warn('Prepared PDF window unavailable; falling back to standard print:', error);
+      }
+    }
 
     try {
       const printWindow = window.open(blobUrl, '_blank');
@@ -1682,6 +1698,62 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
         crew: includeCrew,
       },
     }, destination);
+  };
+
+  // Permit the browser to show the pending state before blocking on large report
+  // HTML/base64 or XLSX generation. Keep a timer fallback for a background tab.
+  const waitForReportPaint = (): Promise<void> => new Promise(resolve => {
+    let finished = false;
+    const done = () => {
+      if (finished) return;
+      finished = true;
+      window.clearTimeout(timeout);
+      resolve();
+    };
+    const timeout = window.setTimeout(done, 250);
+    window.requestAnimationFrame(() => window.requestAnimationFrame(done));
+  });
+
+  const runReportExport = async (format: 'pdf' | 'xlsx' | 'html') => {
+    if (reportExportInFlightRef.current || androidReportBusy) return;
+    // Keep PDF popup creation in the original user gesture on PC/Web. Android
+    // uses the native PrintManager bridge, not a browser window.
+    if (format === 'pdf') {
+      if (!ensureReportPhotosReady()) return;
+      if (includeFloorPlan && isResolvingFloorPlansForExport) {
+        alert('Đang tải ảnh mặt bằng từ Cloud để xuất PDF. Vui lòng chờ hoàn tất.');
+        return;
+      }
+    }
+    reportExportInFlightRef.current = true;
+    setReportExportBusy(format);
+    let printWindow: Window | null = null;
+    if (format === 'pdf' && typeof window.AndroidExport?.saveHtmlPdf !== 'function') {
+      try {
+        printWindow = window.open('about:blank', '_blank');
+        if (printWindow) {
+          printWindow.document.write('<!doctype html><html lang="vi"><meta charset="utf-8"><title>Đang chuẩn bị PDF</title><body style="font: 16px system-ui,sans-serif;padding:24px">Đang chuẩn bị báo cáo PDF…</body></html>');
+          printWindow.document.close();
+        }
+      } catch (error) {
+        console.warn('Cannot prepare the PDF print window:', error);
+        printWindow = null;
+      }
+    }
+    try {
+      await waitForReportPaint();
+      if (format === 'pdf') handlePrintHTML(printWindow, true);
+      else if (format === 'xlsx') await handleExportExcel(isAndroidExportBridgeAvailable() ? 'downloads' : 'picker');
+      else if (isAndroidExportBridgeAvailable()) await handleDownloadHtmlToQLTC();
+      else await handleDownloadHtmlReport();
+    } catch (error) {
+      if (printWindow && !printWindow.closed) printWindow.close();
+      console.error('Report export failed:', error);
+      alert('Không thể chuẩn bị báo cáo. ' + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      reportExportInFlightRef.current = false;
+      setReportExportBusy(null);
+    }
   };
 
   const handleUploadExcelToDrive = async () => {
@@ -2416,34 +2488,39 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               <button
                 type="button"
                 data-hnl-report-format="pdf"
-                onClick={handlePrintHTML}
-                disabled={androidReportBusy}
+                onClick={() => void runReportExport('pdf')}
+                disabled={androidReportBusy || reportExportBusy !== null}
                 title="Mở màn hình xem/in để lưu PDF"
-                className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-red-700 bg-red-600 px-2 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 focus-visible:ring-offset-2 disabled:opacity-50"
+                className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-red-600 bg-red-600 px-2 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 focus-visible:ring-offset-2 disabled:opacity-50"
               >
-                <Printer className="h-4 w-4 shrink-0" /> PDF
+                <Printer className="h-4 w-4 shrink-0" /> {reportExportBusy === 'pdf' ? 'Đang tạo…' : 'PDF'}
               </button>
               <button
                 type="button"
                 data-hnl-report-format="xlsx"
-                onClick={() => void handleExportExcel(isAndroidExportBridgeAvailable() ? 'downloads' : 'picker')}
-                disabled={androidReportBusy}
+                onClick={() => void runReportExport('xlsx')}
+                disabled={androidReportBusy || reportExportBusy !== null}
                 title={isAndroidExportBridgeAvailable() ? 'Lưu Excel vào Tải xuống/QLTC' : 'Tải Excel (.xlsx)'}
-                className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-blue-700 bg-blue-600 px-2 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 focus-visible:ring-offset-2 disabled:opacity-50"
+                className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-blue-600 bg-blue-600 px-2 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 focus-visible:ring-offset-2 disabled:opacity-50"
               >
-                <FileSpreadsheet className="h-4 w-4 shrink-0" /> Excel
+                <FileSpreadsheet className="h-4 w-4 shrink-0" /> {reportExportBusy === 'xlsx' ? 'Đang tạo…' : 'Excel'}
               </button>
               <button
                 type="button"
                 data-hnl-report-format="html"
-                onClick={() => { if (isAndroidExportBridgeAvailable()) void handleDownloadHtmlToQLTC(); else void handleDownloadHtmlReport(); }}
-                disabled={androidReportBusy}
+                onClick={() => void runReportExport('html')}
+                disabled={androidReportBusy || reportExportBusy !== null}
                 title={isAndroidExportBridgeAvailable() ? 'Lưu HTML vào Tải xuống/QLTC' : 'Tải báo cáo HTML (.html)'}
                 className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-slate-700 px-2 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:opacity-50"
               >
-                <Download className="h-4 w-4 shrink-0" /> HTML
+                <Download className="h-4 w-4 shrink-0" /> {reportExportBusy === 'html' ? 'Đang tạo…' : 'HTML'}
               </button>
             </div>
+            {reportExportBusy && (
+              <p role="status" aria-live="polite" data-hnl-report-export-pending="true" className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800">
+                Đang chuẩn bị {reportExportBusy === 'pdf' ? 'PDF' : reportExportBusy === 'xlsx' ? 'Excel' : 'HTML'}… Vui lòng chờ.
+              </p>
+            )}
             {isAndroidExportBridgeAvailable() && (
               <p className="text-xs leading-relaxed text-slate-600" data-hnl-report-android-hint="true">
                 PDF: chọn <strong>Lưu thành PDF</strong> trong màn hình in. Excel và HTML: lưu vào <strong>Tải xuống/QLTC</strong>.
@@ -2466,7 +2543,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   <button
                     type="button"
                     onClick={() => void handleExportExcel('picker')}
-                    disabled={androidReportBusy}
+                    disabled={androidReportBusy || reportExportBusy !== null}
                     className="min-h-11 rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-800 disabled:opacity-50"
                   >
                     Chọn nơi lưu Excel
@@ -2474,7 +2551,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   <button
                     type="button"
                     onClick={() => void handleDownloadHtmlReport()}
-                    disabled={androidReportBusy}
+                    disabled={androidReportBusy || reportExportBusy !== null}
                     className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-800 disabled:opacity-50"
                   >
                     Chia sẻ / chọn nơi lưu HTML
