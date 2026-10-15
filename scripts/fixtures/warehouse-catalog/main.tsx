@@ -15,7 +15,7 @@ const inventory:InventoryItem[]=[
 {id:'P0-EQUIP-IN-004',itemKind:'equipment',type:'in',materialName:'Máy bắn vít Golden P0',unit:'Cái',quantity:3,date:'2026-10-11',location:'Kho A',handler:'Người nhập P0'}];
 function NormLayoutFixture() {
   const [open, setOpen] = React.useState(false);
-  const [role, setRole] = React.useState<'VIEWER' | 'ADMIN'>('VIEWER');
+  const [role, setRole] = React.useState<'VIEWER' | 'ADMIN'>('ADMIN');
   const [tab, setTab] = React.useState<'material' | 'equipment'>('material');
   const [target, setTarget] = React.useState<{name:string;unit:string}>();
   const [duplicate, setDuplicate] = React.useState(false);
