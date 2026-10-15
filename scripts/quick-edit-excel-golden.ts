@@ -287,7 +287,8 @@ assert.match(equipmentPanel, />\s*Hủy\s*</, 'Equipment editor must offer Cance
 assert.match(equipmentPanel, /editingExisting \? 'Lưu thay đổi' : 'Lưu'/, 'Equipment editor must show Save Changes in edit mode and Save in create mode');
 assert.match(equipmentPanel, /data-hnl-equipment-editor="true"/, 'The equipment setup editor must use the normal application form');
 assert.match(warehouse, /data-hnl-catalog-settings-link="true"/, 'Warehouse catalog must open contextual material/equipment master editor');
-assert.match(warehouse, /onOpenNormModal\(warehouseCatalogTab\)/, 'Warehouse setup route must follow currently selected tab');
+assert.match(warehouse, /onClick=\{\(\) => openCatalogMaster\(warehouseCatalogTab\)\}/, 'Warehouse setup route must follow currently selected tab');
+assert.match(warehouse, /onOpenNormModal\(tab, target, true\)/, 'Warehouse master route must retain catalog origin for return');
 assert.doesNotMatch(warehouse, />Chỉnh thông tin<\/button>/, 'Warehouse catalog must not repeat editing on each equipment row');
 assert.doesNotMatch(warehouse, /data-hnl-primary-action="warehouse-equipment-create"/, 'Warehouse catalog must not mistakenly open a stock voucher for creating metadata');
 
