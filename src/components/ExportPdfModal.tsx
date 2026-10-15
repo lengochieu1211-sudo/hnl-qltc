@@ -1,6 +1,6 @@
 import { downloadOrShareFile } from '../utils/downloadUtils';
 import React, { useState, useEffect, useMemo } from 'react';
-import { FileText, Download, Printer, X, CheckCircle2, Filter, Mail, Package, BarChart3, Building2, ClipboardCheck, FileSpreadsheet, Users, Copy, HelpCircle, Camera, Image as ImageIcon, ChevronDown, Share2, FolderOpen } from 'lucide-react';
+import { FileText, Download, Printer, X, CheckCircle2, Filter, Mail, Package, BarChart3, Building2, ClipboardCheck, FileSpreadsheet, Users, Copy, HelpCircle, Camera, Image as ImageIcon, ChevronDown } from 'lucide-react';
 import { InventoryItem, WorkVolume, DefectItem, ChecklistItem, FloorPlan, RoomProgressItem, MaterialNorm, CrewRecord, TeamInfo } from '../types';
 import { formatDateDDMMYYYY, formatDateTime, formatFloorName, parseLegacyTimestamp } from '../utils/dateFormatter';
 import { getCrewShiftCounts } from '../utils/crewUtils';
@@ -11,7 +11,7 @@ import { getProjectPhotosWithBinary } from '../utils/photoStorage';
 import { computeDefectLabelPositions, computeRoomLabelPositions } from '../utils/pdfMapUtils';
 import { canViewFinancials, getCurrentUserRole, UserRole } from '../utils/securityUtils';
 import { apiFetch, hasApiBackend } from '../utils/api';
-import { saveHtmlPdf, saveTextFileToDownloads, exportHtmlPdfFileOnAndroid, isNativeAndroidReportPdfAvailable } from '../utils/fileExport';
+import { saveHtmlPdf, saveTextFileToDownloads, isAndroidExportBridgeAvailable } from '../utils/fileExport';
 import { calculateStockSummary } from '../utils/inventoryUtils';
 import { isDisplayableFloorPlanUrl, loadFloorPlanImageFromCloud } from '../lib/floorPlanImageSync';
 import { computeWorkVolumeDetailBreakdown } from '../utils/workVolumeComputation';
@@ -1536,33 +1536,18 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 
   const handleDownloadHtmlToQLTC = async () => {
     if (!ensureReportPhotosReady()) return;
-    if (includeFloorPlan && isResolvingFloorPlansForExport) return;
-    try {
-      setAndroidReportBusy(true);
-      const fileName = 'Bao_Cao_Tong_Hop_' + (projectName || 'Du_An')
-        .replace(/[^a-zA-Z0-9_-\s]/g, '').trim().replace(/\s+/g,'_')
-        + '_' + new Date().toISOString().slice(0,10) + '.html';
-      await saveTextFileToDownloads(getReportHtml(),fileName,'text/html;charset=utf-8');
-    } catch(e) {
-      alert('Không lưu được HTML vào QLTC: '+(e instanceof Error?e.message:String(e)));
-    } finally {setAndroidReportBusy(false);}
-  };
-
-  const handleAndroidPdfFileAction = async (destination:'downloads'|'picker'|'share') => {
-    if (!ensureReportPhotosReady()) return;
     if (includeFloorPlan && isResolvingFloorPlansForExport) {
-      alert('Đang tải ảnh mặt bằng từ Cloud để xuất PDF. Vui lòng chờ hoàn tất.');
+      alert('Đang tải ảnh mặt bằng từ Cloud. Vui lòng chờ hoàn tất.');
       return;
     }
     try {
       setAndroidReportBusy(true);
-      const fileName='Bao_Cao_Tong_Hop_'+(projectName || 'Du_An')
-        .replace(/[^a-zA-Z0-9_-\s]/g,'').trim().replace(/\s+/g,'_')
-        +'_'+new Date().toISOString().slice(0,10)+'.pdf';
-      await exportHtmlPdfFileOnAndroid(getReportHtml(),fileName,destination);
+      const safeName = (projectName || 'Du_An').replace(/[^a-zA-Z0-9_-\s]/g,'').trim().replace(/\s+/g,'_');
+      const fileName='Bao_Cao_Tong_Hop_'+safeName+'_'+new Date().toISOString().slice(0,10)+'.html';
+      await saveTextFileToDownloads(getReportHtml(),fileName,'text/html;charset=utf-8');
     } catch(e) {
-      alert('Không thể xuất PDF: '+(e instanceof Error?e.message:String(e))+' . Có thể chọn Xem/In để lưu thủ công.');
-    } finally {setAndroidReportBusy(false);}
+      alert('Không lưu được HTML vào QLTC: '+(e instanceof Error?e.message:String(e)));
+    } finally { setAndroidReportBusy(false); }
   };
 
   // High-fidelity HTML Print / Save as PDF with FULL Unicode Vietnamese support (Có dấu 100%)
@@ -1670,7 +1655,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
     }
   };
 
-  const handleExportExcel = async (destination:'picker'|'downloads' = 'picker') => {
+  const handleExportExcel = async (destination: 'picker' | 'downloads' = 'picker') => {
     const { exportAllToExcel } = await import('../utils/excelExport');
     await exportAllToExcel({
       projectName,
@@ -2423,39 +2408,19 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 Đang tải ảnh mặt bằng cần thiết từ Cloud… Xuất PDF/HTML sẽ sẵn sàng ngay sau khi hoàn tất.
               </div>
             )}
-            {isNativeAndroidReportPdfAvailable() ? (
-              <div data-hnl-android-report-pdf-actions="true" className="space-y-2 rounded-xl border border-indigo-200 bg-indigo-50/60 p-3">
-                <div className="text-sm font-bold text-slate-900">Báo cáo PDF (A4)</div>
-                <div className="grid grid-cols-2 gap-2">
-                  <button type="button" disabled={androidReportBusy} onClick={()=>void handleAndroidPdfFileAction('downloads')}
-                    className="min-h-11 rounded-lg bg-indigo-600 px-2 py-2 text-xs font-bold text-white disabled:opacity-50">
-                    <Download className="mr-1 inline h-4 w-4" /> Lưu vào QLTC
-                  </button>
-                  <button type="button" disabled={androidReportBusy} onClick={()=>void handleAndroidPdfFileAction('share')}
-                    className="min-h-11 rounded-lg bg-emerald-700 px-2 py-2 text-xs font-bold text-white disabled:opacity-50">
-                    <Share2 className="mr-1 inline h-4 w-4" /> Chia sẻ PDF
-                  </button>
-                  <button type="button" disabled={androidReportBusy} onClick={()=>void handleAndroidPdfFileAction('picker')}
-                    className="min-h-11 rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs font-bold text-slate-800 disabled:opacity-50">
-                    <FolderOpen className="mr-1 inline h-4 w-4" /> Chọn nơi lưu
-                  </button>
-                  <button type="button" disabled={androidReportBusy} onClick={handlePrintHTML}
-                    className="min-h-11 rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs font-bold text-slate-800 disabled:opacity-50">
-                    <Printer className="mr-1 inline h-4 w-4" /> Xem / In
-                  </button>
-                </div>
-                <p className="text-xs text-slate-600">Lưu vào QLTC: Tải xuống/QLTC · Không ghi đè tệp cũ.</p>
-              </div>
-            ) : (
-                          <button
+            <button
               type="button"
               onClick={handlePrintHTML}
               className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl font-black flex items-center justify-center gap-2 shadow-md active:scale-98 transition-all text-xs border border-indigo-400 cursor-pointer"
             >
               <Printer className="w-4 h-4 text-amber-300" />
-              <span>Xuất PDF</span>
+              <span>Xuất PDF · Xem / In</span>
             </button>
-            )}
+            {isAndroidExportBridgeAvailable() && (
+              <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                Trên APK: chọn <strong>Lưu thành PDF</strong> trong màn hình in của Android, sau đó chọn thư mục <strong>Tải xuống/QLTC</strong>. Cách này giữ nguyên bố cục báo cáo và ảnh.
+              </p>
+            )
 
             <button
               type="button"
@@ -2465,10 +2430,10 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               <Download className="w-4 h-4 text-slate-600" />
               Tải báo cáo HTML (.html) để mở, in hoặc lưu PDF
             </button>
-            {isNativeAndroidReportPdfAvailable() && (
+            {isAndroidExportBridgeAvailable() && (
               <button type="button" disabled={androidReportBusy} onClick={()=>void handleDownloadHtmlToQLTC()}
-                className="w-full min-h-11 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800 disabled:opacity-50">
-                <Download className="mr-2 inline h-4 w-4" /> Lưu HTML vào QLTC
+                className="w-full min-h-11 rounded-xl border border-slate-200 bg-white px-2 text-xs font-bold text-slate-800 disabled:opacity-50">
+                <Download className="mr-2 inline h-4 w-4" /> Lưu HTML vào Tải xuống/QLTC
               </button>
             )}
 
@@ -2480,10 +2445,10 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               <FileSpreadsheet className="w-4 h-4" />
               Tải Excel (.xlsx) cho các hạng mục đã chọn
             </button>
-            {isNativeAndroidReportPdfAvailable() && (
+            {isAndroidExportBridgeAvailable() && (
               <button type="button" disabled={androidReportBusy} onClick={()=>void handleExportExcel('downloads')}
-                className="w-full min-h-11 rounded-xl border border-blue-200 bg-blue-50 text-xs font-bold text-blue-800 disabled:opacity-50">
-                <Download className="mr-2 inline h-4 w-4" /> Lưu Excel vào QLTC
+                className="w-full min-h-11 rounded-xl border border-blue-200 bg-blue-50 px-2 text-xs font-bold text-blue-800 disabled:opacity-50">
+                <Download className="mr-2 inline h-4 w-4" /> Lưu Excel vào Tải xuống/QLTC
               </button>
             )}
 
