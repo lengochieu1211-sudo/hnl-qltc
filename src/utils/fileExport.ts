@@ -323,13 +323,16 @@ export async function writeJsonRecordToWritable(writable: { write: (data: string
   }
 }
 
-export async function saveWorkbookFile(workbook: WorkBook, fileName: string) {
+export async function saveWorkbookFile(workbook: WorkBook, fileName: string,
+  destination: 'picker' | 'downloads' = 'picker') {
   // XLSX is a large library. Keep it out of normal app/navigation startup and load it
   // only when the user actually requests an Excel export.
   const XLSX = await import('xlsx');
   const data = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
   const blob = new Blob([data], { type: EXCEL_MIME });
-  return saveBlob(blob, fileName, EXCEL_MIME);
+  return destination === 'downloads'
+    ? saveBlobToDownloads(blob, fileName, EXCEL_MIME)
+    : saveBlob(blob, fileName, EXCEL_MIME);
 }
 
 export function saveHtmlPdf(html: string, fileName: string) {

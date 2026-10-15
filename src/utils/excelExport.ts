@@ -440,7 +440,7 @@ export function exportAllToExcel(params: {
     checklist?: boolean;
     crew?: boolean;
   };
-}) {
+}, destination: 'picker' | 'downloads' = 'picker') {
   const wb = XLSX.utils.book_new();
   const mods = params.selectedModules || { inventory: true, workVolumes: true, floorPlan: true, checklist: true, crew: true };
   const canFinancials = params.canViewFinancials !== false;
@@ -643,7 +643,7 @@ export function exportAllToExcel(params: {
     return;
   }
   prependProjectInfoSheet(wb, params.projectName, params.projectLocation);
-  return saveWorkbookFile(wb, `Bao_Cao_Tong_Hop_${safeName}_${Date.now()}.xlsx`);
+  return saveWorkbookFile(wb, `Bao_Cao_Tong_Hop_${safeName}_${Date.now()}.xlsx`, destination);
 }
 
 export function exportAllToExcelBase64(params: {
