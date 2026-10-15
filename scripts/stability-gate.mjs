@@ -369,7 +369,9 @@ pass('warehouse transaction/derived-balance safety engine is wired into runtime'
 // inventory creator is directly bound to onClick. An event is not an item kind.
 requireAll(warehouseTab, [
   "onClick={() => openCreateInventory('material')}",
-  "onOpenNormModal(warehouseCatalogTab)",
+  "onClick={() => openCatalogMaster(warehouseCatalogTab)}",
+  "onOpenNormModal(tab, target, true)",
+  "catalogReturnToken",
   "data-hnl-catalog-settings-link",
   "if (kind === 'equipment') {",
   "const openCreateInventory = (kind: InventoryItemKind = 'material') =>",
