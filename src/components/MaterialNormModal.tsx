@@ -45,6 +45,7 @@ interface MaterialNormModalProps {
   roleResolved: boolean;
   currentProjectId?: string;
   onClose: () => void;
+  onReturnToWarehouseCatalog?: () => void;
   materialNorms: MaterialNorm[];
   onAddNorm: (norm: Omit<MaterialNorm, 'id'>) => void;
   onUpdateNorm: (id: string, updated: Omit<MaterialNorm, 'id'>) => void;
@@ -89,6 +90,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   roleResolved,
   currentProjectId,
   onClose,
+  onReturnToWarehouseCatalog,
   materialNorms,
   onAddNorm,
   onUpdateNorm,
@@ -1000,6 +1002,15 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {onReturnToWarehouseCatalog && (
+          <button type="button" data-hnl-return-to-warehouse-catalog="true"
+            onClick={onReturnToWarehouseCatalog}
+            className="inline-flex min-h-10 shrink-0 items-center self-start rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700 transition-colors hover:bg-indigo-100 focus-visible:outline-2 focus-visible:outline-indigo-600"
+            title="Quay lại danh sách vật tư hoặc thiết bị trong Danh mục kho">
+            ← Về Danh mục kho
+          </button>
+        )}
 
         <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1" role="tablist" aria-label="Vật tư, thiết bị và định mức">
           {([
