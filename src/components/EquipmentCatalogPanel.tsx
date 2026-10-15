@@ -20,6 +20,8 @@ interface Props {
   inventory: InventoryItem[];
   canManage: boolean;
   initialTarget?: { name: string; unit: string };
+  onDraftDirtyChange?: (dirty: boolean) => void;
+  onBusyChange?: (busy: boolean) => void;
   onRenameWarehouseUnit?: (input: Omit<WarehouseUnitRenameInput, 'projectId'>) => Promise<{ norms: number; vouchers: number }>;
 }
 
@@ -34,7 +36,7 @@ const TEXTAREA_CLASS = FIELD_CLASS.replace('font-semibold', 'font-medium');
 const normalizeCategory = (text: string) => text.trim().toLocaleLowerCase('vi-VN');
 
 export const EquipmentCatalogPanel: React.FC<Props> = ({
-  projectId, inventory, canManage, initialTarget, onRenameWarehouseUnit,
+  projectId, inventory, canManage, initialTarget, onDraftDirtyChange, onBusyChange, onRenameWarehouseUnit,
 }) => {
   const [records, setRecords] = useState<EquipmentCatalogRecord[]>([]);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -43,6 +45,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
   const initialTargetHandled = React.useRef(false);
   const [targetNotFound, setTargetNotFound] = useState(false);
   const [edit, setEdit] = useState<EquipmentCatalogInput | null>(null);
+  const [editBaseline, setEditBaseline] = useState('');
   // A voucher-backed legacy item may not have a catalog ID; edit mode is explicit.
   const [editingExisting, setEditingExisting] = useState(false);
   const [selectedEquipmentIds, setSelectedEquipmentIds] = useState<string[]>([]);
@@ -55,6 +58,10 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
   const [originalEditUnit, setOriginalEditUnit] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  useEffect(() => {
+    onDraftDirtyChange?.(edit !== null && JSON.stringify(edit) !== editBaseline);
+  }, [edit, editBaseline, onDraftDirtyChange]);
+  useEffect(() => { onBusyChange?.(busy); }, [busy, onBusyChange]);
 
   useEffect(() => {
     setRecords([]);
@@ -177,11 +184,13 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
 
   const startNew = (keep?: Pick<EquipmentCatalogInput, 'category' | 'unit'>) => {
     setEditingExisting(false);
-    setEdit({
+    const next = {
       ...EMPTY_EQUIPMENT,
       category: keep?.category || groupOptions[0] || 'Thiết bị',
       unit: keep?.unit || EMPTY_EQUIPMENT.unit,
-    });
+    };
+    setEdit(next);
+    setEditBaseline(JSON.stringify(next));
     setCustomGroup(false);
     setOriginalEditUnit('');
     setNotice('');
@@ -189,7 +198,9 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
 
   const startEdit = (item: EquipmentCatalogInput) => {
     setEditingExisting(true);
-    setEdit({ ...item, displayName: item.displayName || item.name });
+    const next = { ...item, displayName: item.displayName || item.name };
+    setEdit(next);
+    setEditBaseline(JSON.stringify(next));
     setCustomGroup(false);
     setOriginalEditUnit(normalizeUnit(item.unit) || item.unit);
     setNotice('');
