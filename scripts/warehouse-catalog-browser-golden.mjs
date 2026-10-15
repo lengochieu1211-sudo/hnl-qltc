@@ -12,6 +12,8 @@ for(const size of [{width:1280,height:800},{width:393,height:852},{width:360,hei
 const label=`${size.width}x${size.height}`;
 const ctx=await browser.newContext({viewport:size,locale:'vi-VN',isMobile:size.width<500,hasTouch:size.width<500});const page=await ctx.newPage();page.on('pageerror',e=>errors.push(label+': '+e.message));
 await page.goto(url,{waitUntil:'domcontentloaded'});
+// Warehouse history and no-edit checks exercise VIEWER; norm add/edit fixture defaults to ADMIN.
+await page.locator('[data-hnl-fixture-viewer]').click();
 const catalogOpener=page.getByRole('button',{name:/Danh mục kho|Danh mục/}).first();
 try{await catalogOpener.waitFor({state:'visible',timeout:12000});}catch(error){
   const html=await page.locator('body').innerText().catch(()=>'<no body>');
