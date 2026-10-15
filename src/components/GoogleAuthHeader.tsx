@@ -249,7 +249,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
               {onOpenProjectManager && (
                 <button
                   onClick={() => onOpenProjectManager('projects')}
-                  className="flex min-h-9 min-w-9 items-center justify-center gap-1.5 bg-indigo-700 hover:bg-indigo-800 text-white p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 border border-indigo-500 cursor-pointer whitespace-nowrap"
+                  className="flex min-h-9 min-w-9 items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 border border-blue-500 cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 focus-visible:ring-offset-2"
                   title="Quản lý danh sách dự án"
                 >
                   <Folder className="w-4 h-4 text-white shrink-0" />
@@ -261,10 +261,10 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
               {onOpenExportPdf && (
                 <button
                   onClick={onOpenExportPdf}
-                  className="flex min-h-9 min-w-9 items-center justify-center gap-1.5 bg-green-700 hover:bg-green-800 text-white p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 border border-green-500 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300 focus-visible:ring-offset-2"
+                  className="flex min-h-9 min-w-9 items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 border border-emerald-500 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2"
                   title="Xuất Báo Cáo PDF & Excel"
                 >
-                  <FileText className="w-4 h-4 text-green-100 shrink-0" />
+                  <FileText className="w-4 h-4 text-emerald-100 shrink-0" />
                   <span className="hidden sm:inline">Báo Cáo</span>
                 </button>
               )}

@@ -371,10 +371,23 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
         <div className="text-[10px] font-extrabold text-slate-700">Xuất &amp; chia sẻ chẩn đoán</div>
         <div className="mt-0.5 text-[9px] font-semibold text-slate-500">Một tệp chứa chung kiểm tra dữ liệu/liên kết + trạng thái hệ thống/đồng bộ + ảnh R2. PDF đã bỏ để tránh trùng.</div>
       </div>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <button type="button" disabled={Boolean(exporting)} onClick={() => void exportReport('json')} className="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-bold disabled:opacity-50"><FileJson className="h-3.5 w-3.5" /> Xuất JSON</button>
-        <button type="button" disabled={Boolean(exporting)} onClick={() => void exportReport('excel')} className="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-[10px] font-bold text-indigo-700 disabled:opacity-50"><FileSpreadsheet className="h-3.5 w-3.5" /> Xuất Excel</button>
-        <button type="button" disabled={Boolean(exporting)} onClick={() => void copyCombinedDiagnostics()} className="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50"><Copy className="h-3.5 w-3.5" /> Sao chép chẩn đoán</button>
+      {/* Match Crew share report: Content (slate), JSON (emerald), Excel (indigo). Actions unchanged. */}
+      <div className="grid grid-cols-3 gap-2" role="group" aria-label="Nội dung, JSON và Excel" data-hnl-health-export-actions="true">
+        <button type="button" data-hnl-health-export-format="text" disabled={Boolean(exporting)}
+          onClick={() => void copyCombinedDiagnostics()} title="Sao chép chẩn đoán đầy đủ" aria-label="Sao chép chẩn đoán"
+          className="inline-flex min-h-11 min-w-0 items-center justify-center gap-1 rounded-xl bg-slate-800 px-1.5 text-xs font-bold text-white transition-colors hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:opacity-40">
+          <Copy className="h-4 w-4 shrink-0" /> {exporting === 'copy' ? 'Đang chép…' : 'Nội dung'}
+        </button>
+        <button type="button" data-hnl-health-export-format="json" disabled={Boolean(exporting)}
+          onClick={() => void exportReport('json')} title="Xuất chẩn đoán ra tệp JSON" aria-label="Xuất JSON"
+          className="inline-flex min-h-11 min-w-0 items-center justify-center gap-1 rounded-xl bg-emerald-600 px-1.5 text-xs font-bold text-white transition-colors hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2 disabled:opacity-40">
+          <FileJson className="h-4 w-4 shrink-0" /> {exporting === 'json' ? 'Đang xuất…' : 'JSON'}
+        </button>
+        <button type="button" data-hnl-health-export-format="excel" disabled={Boolean(exporting)}
+          onClick={() => void exportReport('excel')} title="Xuất chẩn đoán ra Excel" aria-label="Xuất Excel"
+          className="inline-flex min-h-11 min-w-0 items-center justify-center gap-1 rounded-xl bg-indigo-600 px-1.5 text-xs font-bold text-white transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-2 disabled:opacity-40">
+          <FileSpreadsheet className="h-4 w-4 shrink-0" /> {exporting === 'excel' ? 'Đang xuất…' : 'Excel'}
+        </button>
       </div>
       <div className="text-[9px] font-semibold text-slate-500">Đang hiển thị/xuất {filtered.length}/{report.issues.length} vấn đề · {report.recordsScanned} bản ghi đã quét</div>
       {onClearSystemDiagnostics && <div className="border-t border-slate-100 pt-2">
