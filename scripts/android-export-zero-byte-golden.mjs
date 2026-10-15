@@ -70,6 +70,6 @@ assert(report.includes('border border-red-600 bg-red-600')
   && warehouseShare.includes('border-red-600 bg-red-600')
   && warehouseShare.includes('border-blue-600 bg-blue-600'),
   'Report PDF and Excel buttons must reuse the exact warehouse share color/hover/focus styling');
-assert(header.includes('bg-slate-700 hover:bg-slate-600') && !header.includes('ring-1 ring-sky-300/60'),
+assert(header.includes('bg-indigo-700 hover:bg-indigo-800') && header.includes('border border-indigo-500') && !header.includes('ring-1 ring-sky-300/60'),
   'Project header action must remain clear without an unrelated bright cyan ring');
 console.log('ANDROID 0-BYTE EXPORT GUARDS: PASS');
