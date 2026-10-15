@@ -83,8 +83,13 @@ export async function buildWarehouseVoucherTextPdf(pages: WarehouseVoucherPrintP
         doc.setTextColor(30,41,59);
         if(i) doc.line(x,y,x,y+9);
         const lines=wrap(doc,label,COL[i]-2,i===1?7.7:8.3);
-        doc.text(lines.slice(0,2), i===1?x+2:x+COL[i]/2,y+3.3,
-          {align:i===1?'left':'center',lineHeightFactor:1.08});
+        const heading = lines.slice(0,2);
+        // Center heading lines horizontally and as a group inside the 9 mm band.
+        const step = 3.3;
+        heading.forEach((line,index)=>{
+          const lineCenter = y + 9/2 + (index - (heading.length-1)/2)*step;
+          doc.text(line,x+COL[i]/2,lineCenter,{align:'center',baseline:'middle'});
+        });
         x+=COL[i];
       });
       currentY=y+9;
@@ -128,21 +133,24 @@ export async function buildWarehouseVoucherTextPdf(pages: WarehouseVoucherPrintP
       doc.rect(LEFT,y,RIGHT-LEFT,data.height,'FD');
       let x=LEFT;
       COL.slice(0,-1).forEach(c=>{x+=c;doc.line(x,y,x,y+data.height);});
+      const centerY = y + data.height/2;
+      const textHeight = data.lines.length*4.6 + data.notes.length*3.9;
+      const textTop = centerY - textHeight/2;
       doc.setTextColor(15,23,42);
       doc.setFontSize(8.5);
-      doc.text(String(page.rowOffset+index+1),LEFT+COL[0]/2,y+6,{align:'center'});
+      doc.text(String(page.rowOffset+index+1),LEFT+COL[0]/2,centerY,{align:'center',baseline:'middle'});
       x=LEFT+COL[0]+2;
       doc.setFontSize(9);
-      data.lines.forEach((line,i)=>doc.text(line,x,y+5.4+i*4.6));
+      data.lines.forEach((line,i)=>doc.text(line,x,textTop+(i+0.5)*4.6,{baseline:'middle'}));
       doc.setFontSize(7.5);
       doc.setTextColor(71,85,105);
-      data.notes.forEach((line,i)=>doc.text(line,x,y+5.4+data.lines.length*4.6+i*3.9));
+      data.notes.forEach((line,i)=>doc.text(line,x,textTop+data.lines.length*4.6+(i+0.5)*3.9,{baseline:'middle'}));
       x=LEFT+COL[0]+COL[1];
       doc.setTextColor(15,23,42);
       doc.setFontSize(8.5);
-      doc.text(safe(item.unit),x+COL[2]/2,y+6,{align:'center',maxWidth:COL[2]-2});
+      doc.text(safe(item.unit),x+COL[2]/2,centerY,{align:'center',baseline:'middle',maxWidth:COL[2]-2});
       x+=COL[2];
-      doc.text(formatDecimal(Number(item.quantity||0)),x+COL[3]/2,y+6,{align:'center',maxWidth:COL[3]-2});
+      doc.text(formatDecimal(Number(item.quantity||0)),x+COL[3]/2,centerY,{align:'center',baseline:'middle',maxWidth:COL[3]-2});
 
       currentY+=data.height;
       pageLines++;

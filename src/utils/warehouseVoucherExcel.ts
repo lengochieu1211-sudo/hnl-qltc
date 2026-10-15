@@ -69,6 +69,31 @@ export async function buildWarehouseVoucherExcel(pages: WarehouseVoucherPrintPag
     // Hide technical source IDs on print/display while retaining exact values in E.
     ws['!cols'] = [{wch:9},{wch:62},{wch:16},{wch:17},{wch:38,hidden:true}];
     ws['!rows'] = rowHeights.map(hpt=>({hpt}));
+    // Mirror the A4 cell alignment rules in the worksheet model:
+    // headings centered; STT/ĐVT/quantity centered; multiline name left;
+    // all content vertically middle-aligned. The hidden ID column is untouched.
+    const centerStyle = {alignment:{horizontal:'center',vertical:'center',wrapText:true}} as const;
+    const leftStyle = {alignment:{horizontal:'left',vertical:'center',wrapText:true}} as const;
+    for (let col = 0; col < 4; col++) {
+      const address = XLSX.utils.encode_cell({r:headerRow,c:col});
+      const cell = ws[address];
+      if (cell) cell.s = centerStyle;
+    }
+    for (let r = firstDataRow; r <= lastDataRow; r++) {
+      for (let col = 0; col < 4; col++) {
+        const address = XLSX.utils.encode_cell({r,c:col});
+        const cell = ws[address];
+        if (cell) cell.s = col === 1 ? leftStyle : centerStyle;
+      }
+    }
+    const signTitle = table.findIndex(row => row[0] === 'Người lập phiếu');
+    if (signTitle >= 0) {
+      for (let r = signTitle; r <= signTitle+1; r++) for (let c = 0; c < 4; c++) {
+        const cell = ws[XLSX.utils.encode_cell({r,c})];
+        if (cell) cell.s = centerStyle;
+      }
+    }
+
     ws['!margins'] = {left:0.3,right:0.3,top:0.4,bottom:0.4,header:0.15,footer:0.15};
     ws['!autofilter'] = {ref:'A'+(headerRow+1)+':E'+Math.max(firstDataRow+1,lastDataRow+1)};
     // Preserve each user-supplied value strictly as text; do not run formula-looking
@@ -81,7 +106,7 @@ export async function buildWarehouseVoucherExcel(pages: WarehouseVoucherPrintPag
     const sheetName = (page.direction==='in'?'NHAP':'XUAT') + '-' + String(index+1).padStart(2,'0');
     XLSX.utils.book_append_sheet(wb,ws,sheetName);
   }
-  const bytes = XLSX.write(wb,{bookType:'xlsx',type:'array'});
+  const bytes = XLSX.write(wb,{bookType:'xlsx',type:'array',cellStyles:true});
   const blob = new Blob([bytes],{type:WAREHOUSE_EXCEL_MIME});
   if (!blob.size) throw new Error('Excel phiếu kho rỗng (0 byte).');
   const fileName = 'PHIEU_NHAP_XUAT_KHO_' + pages.length + '_TRANG.xlsx';

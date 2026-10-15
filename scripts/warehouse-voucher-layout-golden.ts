@@ -58,6 +58,13 @@ assert(printed.includes("ctx.fillText('Người thực hiện:', LEFT, 346 + hea
   'Legacy generic handler must not be assigned an unverified sender or recipient role');
 assert(!printed.includes('drawTextLines(ctx, id') && printed.includes('const COLUMN_WIDTHS = [62, 742, 134, 174]'),
   'PNG voucher must show four columns and no printed internal IDs');
+assert(printed.includes("ctx.textBaseline = 'middle'")
+  && printed.includes('const centerY = rowTop + h / 2')
+  && printed.includes("ctx.fillText(label, x + COLUMN_WIDTHS[index] / 2, tableTop + 63 / 2"),
+  'Printed PNG table should center headings and every cell vertically');
+assert(fs.readFileSync('src/utils/warehouseVoucherTextPdf.ts','utf8').includes("baseline:'middle'")
+  && fs.readFileSync('src/utils/warehouseVoucherTextPdf.ts','utf8').includes('const centerY = y + data.height/2'),
+  'Searchable PDF should center headings and every cell vertically without rasterizing text');
 assert(printed.includes('Math.min(rowTop + 60 + 110, HEIGHT - 180)'),
   'Signature section should stay near the last table row with bottom-page safety');
 
@@ -71,9 +78,9 @@ assert(sheet.includes('Chia sẻ phiếu nhập/xuất kho') && warehouse.includ
 assert(!sheet.includes("['text','Nội dung',FileText]") && !sheet.includes('data-hnl-voucher-action="text-copy"')
   && sheet.includes('className="grid grid-cols-3 gap-2" role="group"'),
   'Voucher share must show only three equally sized format buttons without Content');
-assert(sheet.includes("['png','Ảnh',ImageIcon]")
-  && sheet.includes("['xlsx','Excel',FileSpreadsheet]") && sheet.includes("['pdf','PDF',FileDown]"),
-  'Preserve Image/Excel/PDF formats and their export paths');
+assert(sheet.includes("['png','Ảnh',ImageIcon,")
+  && sheet.includes("['xlsx','Excel',FileSpreadsheet,") && sheet.includes("['pdf','PDF',FileDown,"),
+  'Preserve Image/Excel/PDF formats and their export paths after attaching per-button color styles');
 assert(sheet.includes("'border-emerald-600 bg-emerald-600")
   && sheet.includes("'border-blue-600 bg-blue-600")
   && sheet.includes("'border-red-600 bg-red-600")
