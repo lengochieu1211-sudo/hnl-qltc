@@ -81,7 +81,7 @@ assert(!sheet.includes("['text','Nội dung',FileText]") && !sheet.includes('dat
 assert(sheet.includes("['png','Ảnh',ImageIcon,")
   && sheet.includes("['xlsx','Excel',FileSpreadsheet,") && sheet.includes("['pdf','PDF',FileDown,"),
   'Preserve Image/Excel/PDF formats and their export paths after attaching per-button color styles');
-assert(sheet.includes("'border-emerald-600 bg-emerald-600")
+assert(sheet.includes("'border-emerald-700 bg-emerald-700")
   && sheet.includes("'border-blue-600 bg-blue-600")
   && sheet.includes("'border-red-600 bg-red-600")
   && sheet.includes('data-hnl-voucher-format={format}'),

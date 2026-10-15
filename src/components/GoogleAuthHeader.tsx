@@ -249,10 +249,10 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
               {onOpenProjectManager && (
                 <button
                   onClick={() => onOpenProjectManager('projects')}
-                  className="flex min-h-9 min-w-9 items-center justify-center gap-1.5 bg-blue-950/90 hover:bg-blue-900 text-blue-100 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 border border-blue-800/80 cursor-pointer whitespace-nowrap"
+                  className="flex min-h-9 min-w-9 items-center justify-center gap-1.5 bg-sky-700 hover:bg-sky-800 text-white p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-md active:scale-95 shrink-0 border border-sky-400 ring-1 ring-sky-300/60 cursor-pointer whitespace-nowrap"
                   title="Quản lý danh sách dự án"
                 >
-                  <Folder className="w-4 h-4 text-blue-300 shrink-0" />
+                  <Folder className="w-4 h-4 text-white shrink-0" />
                   <span className="hidden sm:inline">Dự án</span>
                 </button>
               )}

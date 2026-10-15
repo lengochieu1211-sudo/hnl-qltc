@@ -22,9 +22,14 @@ assert(!report.includes('exportHtmlPdfFileOnAndroid') && !android.includes('publ
 assert(report.includes('Lưu HTML vào Tải xuống/QLTC')
   && report.includes('Lưu Excel vào Tải xuống/QLTC')
   && report.includes('saveTextFileToDownloads(getReportHtml()')
-  && report.includes("handleExportExcel('downloads')"),
+  && report.includes("handleExportExcel(isAndroidExportBridgeAvailable() ? 'downloads' : 'picker')")
+  && report.includes("handleExportExcel('picker')"),
   'Both HTML and Excel need direct QLTC download actions on APK, without changing report data');
 assert(excel.includes("destination: 'picker' | 'downloads' = 'picker'")
   && js.includes("destination === 'downloads'"),
   'Excel must retain legacy picker and support verified direct downloads');
+assert(['pdf', 'xlsx', 'html'].every(format => report.includes('data-hnl-report-format="'+format+'"'))
+  && report.includes('data-hnl-report-other-save="true"')
+  && report.includes('Sao chép tóm tắt để gửi Zalo / Email'),
+  'Report UI must keep three concise formats and optional Android export destinations');
 console.log('ANDROID 0-BYTE EXPORT GUARDS: PASS');
