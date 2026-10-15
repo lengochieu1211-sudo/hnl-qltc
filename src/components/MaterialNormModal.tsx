@@ -1323,7 +1323,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
           </div>
         ) : (
           /* Add / Edit Form */
-          <form onSubmit={handleSubmit} onChangeCapture={() => setMaterialDraftDirty(true)} data-hnl-norm-editor="true" className="mx-auto w-full max-w-3xl lg:max-w-none flex-1 overflow-y-auto space-y-3.5 pr-1 text-xs">
+          <form onSubmit={handleSubmit} data-hnl-norm-editor="true" className="mx-auto w-full max-w-3xl lg:max-w-none flex-1 overflow-y-auto space-y-3.5 pr-1 text-xs" onChangeCapture={() => setMaterialDraftDirty(true)}>
             <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-200">
               <span className="font-bold text-slate-800">
                 {mode === 'add' ? 'Tạo định mức mới' : 'Cập nhật định mức vật tư'}
