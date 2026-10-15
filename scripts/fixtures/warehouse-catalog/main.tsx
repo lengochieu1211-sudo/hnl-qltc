@@ -15,6 +15,7 @@ const inventory:InventoryItem[]=[
 {id:'P0-EQUIP-IN-004',itemKind:'equipment',type:'in',materialName:'Máy bắn vít Golden P0',unit:'Cái',quantity:3,date:'2026-10-11',location:'Kho A',handler:'Người nhập P0'}];
 function NormLayoutFixture() {
   const [open, setOpen] = React.useState(false);
+  const [returnToken, setReturnToken] = React.useState(0);
   const [role, setRole] = React.useState<'VIEWER' | 'ADMIN'>('ADMIN');
   const [tab, setTab] = React.useState<'material' | 'equipment'>('material');
   const [target, setTarget] = React.useState<{name:string;unit:string}>();
@@ -34,6 +35,10 @@ function NormLayoutFixture() {
     <button type="button" data-hnl-fixture-duplicate="true" onClick={() => setDuplicate(value => !value)}>Định mức trùng tên/ĐVT</button>
     {open && <MaterialNormModal
       isOpen={true} onClose={() => setOpen(false)}
+      onBackToWarehouseCatalog={target ? () => {
+        setOpen(false);
+        setReturnToken(previous => previous + 1);
+      } : undefined}
       initialTab={tab} initialTarget={target} currentProjectId=""
       userRole={role} roleResolved={true}
       materialNorms={norms} inventory={inventory}
@@ -47,7 +52,7 @@ function NormLayoutFixture() {
       materialNorms={norms} structureConfig={DEFAULT_STRUCTURE_CONFIG}
       onAddInventory={()=>{throw new Error('Read-only fixture');}}
       onDeleteInventory={()=>{throw new Error('Read-only fixture');}}
-      onOpenNormModal={openMaster}/>
+      onOpenNormModal={openMaster} returnToCatalogToken={returnToken}/>
   </>;
 }
 createRoot(document.getElementById('root')!).render(<div className="min-h-screen bg-slate-100 p-4">

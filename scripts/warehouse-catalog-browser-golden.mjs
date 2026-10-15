@@ -47,24 +47,43 @@ assert((await history.innerText()).includes('3 Cái'),label+': equipment unit');
 // In VIEWER role the matching catalog is opened read-only; no edit form is mounted.
 await sheet.getByRole('button',{name:/Danh mục kho/}).last().click();
 await sheet.getByRole('button',{name:'Vật tư',exact:true}).click();
+const preservedSearch='Golden P0';
+await sheet.locator('input[type="search"]').fill(preservedSearch);
 const materialName=sheet.locator('[data-hnl-catalog-open-master^="material:"]').first();
 assert.equal(await materialName.locator('svg').count(),0,label+': no extra icon beside material name');
 await materialName.click();
 await page.locator('[data-hnl-master-catalog-tab="material"]').waitFor({state:'visible'});
 assert.equal(await page.locator('[data-hnl-norm-editor]').count(),0,label+': VIEWER cannot edit a norm');
-await page.getByRole('button',{name:'Đóng quản lý vật tư thiết bị'}).click();
+const back=page.locator('[data-hnl-back-to-warehouse-catalog="true"]');
+await back.waitFor({state:'visible'});
+await back.click();
+await sheet.waitFor({state:'visible'});
+assert.equal(await sheet.locator('input[type="search"]').inputValue(),preservedSearch,
+  label+': back must preserve catalog search and filters');
+assert.equal(await sheet.getByRole('button',{name:'Vật tư',exact:true}).count(),1,
+  label+': returned to Material catalog');
 
+// Close the sheet before changing a fixture-only role control behind its
+// backdrop, then reopen with the normal Warehouse button.
+await sheet.getByRole('button',{name:'Đóng Danh mục kho'}).click();
+await sheet.waitFor({state:'hidden'});
 // ADMIN with exactly one matching name+unit lands in the existing edit form.
 await page.locator('[data-hnl-fixture-admin]').click();
 await catalogOpener.click();
+await sheet.locator('input[type="search"]').fill(preservedSearch);
 await sheet.locator('[data-hnl-catalog-open-master^="material:"]').first().click();
 await page.locator('[data-hnl-norm-editor]').waitFor({state:'visible'});
 assert((await page.locator('[data-hnl-norm-editor]').innerText()).includes('Cập nhật định mức vật tư'),
   label+': ADMIN should open existing edit form for the correct material');
-await page.getByRole('button',{name:'Đóng quản lý vật tư thiết bị'}).click();
+await back.click();
+await sheet.waitFor({state:'visible'});
+assert.equal(await sheet.locator('input[type="search"]').inputValue(),preservedSearch,
+  label+': admin back should preserve catalog search');
 
 // Two norms may share a warehouse name/unit but belong to different categories.
 // Never auto-select and overwrite the wrong underlying norm ID.
+await sheet.getByRole('button',{name:'Đóng Danh mục kho'}).click();
+await sheet.waitFor({state:'hidden'});
 await page.locator('[data-hnl-fixture-duplicate]').click();
 await catalogOpener.click();
 await sheet.locator('[data-hnl-catalog-open-master^="material:"]').first().click();
@@ -73,10 +92,10 @@ assert.equal(await page.locator('[data-hnl-norm-editor]').count(),0,label+': amb
 const normEditButton=page.getByRole('button',{name:'Sửa định mức '+ 'Tấm thạch cao Golden P0'}).first();
 const editBox=await normEditButton.boundingBox();
 assert(editBox && editBox.height>=40 && editBox.width>=40,label+': norm editor touch target');
-await page.getByRole('button',{name:'Đóng quản lý vật tư thiết bị'}).click();
+await back.click();
+await sheet.waitFor({state:'visible'});
 
 // The same name click on equipment targets the equipment master, not material norms.
-await catalogOpener.click();
 await sheet.getByRole('button',{name:'Thiết bị',exact:true}).click();
 const equipmentName=sheet.locator('[data-hnl-catalog-open-master^="equipment:"]').first();
 assert.equal(await equipmentName.locator('svg').count(),0,label+': no extra icon beside equipment name');
@@ -91,7 +110,10 @@ const panel=page.locator('[data-hnl-equipment-master="true"]');
 await panel.waitFor({state:'visible'});
 assert((await panel.innerText()).includes('Không tải được thông tin thiết bị'),
   label+': missing project must not bypass the equipment load/permission guard');
-await page.getByRole('button',{name:'Đóng quản lý vật tư thiết bị'}).click();
+await back.click();
+await sheet.waitFor({state:'visible'});
+assert.equal(await sheet.getByRole('button',{name:'Thiết bị',exact:true}).count(),1,
+  label+': back returns to equipment catalog instead of default material tab');
 const shot=`runtime-evidence/catalog-click-${label}.png`;await page.screenshot({path:shot});checks.push({viewport:label,result:'PASS',screenshot:shot});await ctx.close();
 }
 // Source-level guard for matching icons; browser equipment editor cannot load
