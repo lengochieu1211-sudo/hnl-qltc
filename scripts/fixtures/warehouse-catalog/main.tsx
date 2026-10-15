@@ -18,13 +18,16 @@ function NormLayoutFixture() {
   const [role, setRole] = React.useState<'VIEWER' | 'ADMIN'>('ADMIN');
   const [tab, setTab] = React.useState<'material' | 'equipment'>('material');
   const [target, setTarget] = React.useState<{name:string;unit:string}>();
+  const [fromCatalog, setFromCatalog] = React.useState(false);
+  const [catalogReturnToken, setCatalogReturnToken] = React.useState(0);
   const [duplicate, setDuplicate] = React.useState(false);
   const norms = React.useMemo(() => duplicate
     ? [...materialNorms, {...materialNorms[0],id:'NORM-P0-002',category:'Phụ kiện & Vít',workCategory:'Trần khác'}]
     : materialNorms, [duplicate]);
-  const openMaster = (nextTab:'material'|'equipment'='material', nextTarget?:{name:string;unit:string}) => {
+  const openMaster = (nextTab:'material'|'equipment'='material', nextTarget?:{name:string;unit:string}, returnToCatalog=false) => {
     setTab(nextTab);
     setTarget(nextTarget);
+    setFromCatalog(returnToCatalog);
     setOpen(true);
   };
   return <>
@@ -34,6 +37,7 @@ function NormLayoutFixture() {
     <button type="button" data-hnl-fixture-duplicate="true" onClick={() => setDuplicate(value => !value)}>Định mức trùng tên/ĐVT</button>
     {open && <MaterialNormModal
       isOpen={true} onClose={() => setOpen(false)}
+      onReturnToWarehouseCatalog={fromCatalog ? () => {setOpen(false);setCatalogReturnToken(v=>v+1);} : undefined}
       initialTab={tab} initialTarget={target} currentProjectId=""
       userRole={role} roleResolved={true}
       materialNorms={norms} inventory={inventory}
@@ -45,6 +49,7 @@ function NormLayoutFixture() {
       contractorName="Công ty Thi công Kiểm thử"
       inventory={inventory} userRole={role} roleResolved
       materialNorms={norms} structureConfig={DEFAULT_STRUCTURE_CONFIG}
+      catalogReturnToken={catalogReturnToken}
       onAddInventory={()=>{throw new Error('Read-only fixture');}}
       onDeleteInventory={()=>{throw new Error('Read-only fixture');}}
       onOpenNormModal={openMaster}/>
