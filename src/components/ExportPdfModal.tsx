@@ -2498,9 +2498,34 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
           {/* Keep three primary actions (copy text, PDF and Excel); HTML stays available as a secondary format. */}
           <section data-hnl-report-export-actions="true" aria-label="Xuất và chia sẻ báo cáo" className="space-y-2 border-t border-slate-200 pt-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center justify-between gap-2">
               <h4 className="text-sm font-extrabold text-slate-800">Xuất báo cáo</h4>
-              <span className="text-xs font-medium text-slate-500">Theo hạng mục và bộ lọc đã chọn</span>
+              {/* Rarely needed export destinations remain available but do not crowd the 3 actions. */}
+              <details data-hnl-report-other-save="true" className="relative">
+                <summary title="Tùy chọn xuất khác" aria-label="Tùy chọn xuất khác" className="flex h-8 w-9 cursor-pointer list-none items-center justify-center rounded-lg text-lg font-extrabold text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400">⋯</summary>
+                <div className="absolute bottom-full right-0 z-30 mb-1 grid w-52 gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                  <button type="button" data-hnl-report-secondary-format="html"
+                    onClick={() => void runReportExport('html')}
+                    disabled={androidReportBusy || reportExportBusy !== null}
+                    className="min-h-10 rounded-lg px-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50">
+                    Tải HTML (.html)
+                  </button>
+                  {isAndroidExportBridgeAvailable() && (
+                    <>
+                      <button type="button" onClick={() => void handleExportExcel('picker')}
+                        disabled={androidReportBusy || reportExportBusy !== null}
+                        className="min-h-10 rounded-lg px-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50">
+                        Excel: chọn nơi lưu
+                      </button>
+                      <button type="button" onClick={() => void handleDownloadHtmlReport()}
+                        disabled={androidReportBusy || reportExportBusy !== null}
+                        className="min-h-10 rounded-lg px-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50">
+                        HTML: chia sẻ file
+                      </button>
+                    </>
+                  )}
+                </div>
+              </details>
             </div>
             {includeFloorPlan && isResolvingFloorPlansForExport && (
               <p role="status" className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-700">
@@ -2544,48 +2569,6 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 Đang chuẩn bị {reportExportBusy === 'pdf' ? 'PDF' : reportExportBusy === 'xlsx' ? 'Excel' : 'HTML'}… Vui lòng chờ.
               </p>
             )}
-            <p className="text-xs leading-relaxed text-slate-600">
-              Nội dung: sao chép tóm tắt, gồm quân số nếu đã chọn, để gửi Zalo / Email.
-              {isAndroidExportBridgeAvailable() && <> PDF: chọn <strong>Lưu thành PDF</strong> trong màn hình in; Excel lưu vào <strong>Tải xuống/QLTC</strong>.</>}
-            </p>
-
-            <details data-hnl-report-other-save="true" className="rounded-xl border border-slate-200 bg-slate-50">
-              <summary className="cursor-pointer px-3 py-2.5 text-xs font-semibold text-slate-700">
-                Tùy chọn khác: tải HTML / chọn nơi lưu
-              </summary>
-              <div className="grid grid-cols-1 gap-2 border-t border-slate-200 p-2 sm:grid-cols-2">
-                <button
-                  type="button"
-                  data-hnl-report-secondary-format="html"
-                  onClick={() => void runReportExport('html')}
-                  disabled={androidReportBusy || reportExportBusy !== null}
-                  title={isAndroidExportBridgeAvailable() ? 'Lưu HTML vào Tải xuống/QLTC' : 'Tải báo cáo HTML (.html)'}
-                  className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-800 disabled:opacity-50"
-                >
-                  {reportExportBusy === 'html' ? 'Đang tạo HTML…' : 'Tải báo cáo HTML (.html)'}
-                </button>
-                {isAndroidExportBridgeAvailable() && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => void handleExportExcel('picker')}
-                      disabled={androidReportBusy || reportExportBusy !== null}
-                      className="min-h-11 rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-800 disabled:opacity-50"
-                    >
-                      Chọn nơi lưu Excel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleDownloadHtmlReport()}
-                      disabled={androidReportBusy || reportExportBusy !== null}
-                      className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-800 disabled:opacity-50"
-                    >
-                      Chia sẻ / chọn nơi lưu HTML
-                    </button>
-                  </>
-                )}
-              </div>
-            </details>
           </section>
         </div>
       </div>
