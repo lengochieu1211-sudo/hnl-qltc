@@ -560,6 +560,7 @@ function AuthenticatedApp() {
   const [isMaterialNormOpen, setIsMaterialNormOpen] = useState(false);
   const [materialNormInitialTab, setMaterialNormInitialTab] = useState<'material' | 'equipment'>('material');
   const [materialNormInitialTarget, setMaterialNormInitialTarget] = useState<{ name: string; unit: string } | undefined>();
+  const [warehouseCatalogReturnToken, setWarehouseCatalogReturnToken] = useState(0);
   const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
   const [projectManagerInitialTab, setProjectManagerInitialTab] = useState<'projects' | 'sync'>('projects');
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
@@ -7697,6 +7698,7 @@ function AuthenticatedApp() {
               onDeleteMultipleInventory={handleDeleteMultipleInventory}
               onSyncSheets={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleSyncAll : undefined}
               materialNorms={computedMaterialNorms}
+              returnToCatalogToken={warehouseCatalogReturnToken}
               onOpenNormModal={(tab = 'material', target) => {
                 setMaterialNormInitialTab(tab);
                 setMaterialNormInitialTarget(target);
@@ -8210,6 +8212,11 @@ function AuthenticatedApp() {
               isOpen={true}
               initialTab={materialNormInitialTab}
               initialTarget={materialNormInitialTarget}
+              onBackToWarehouseCatalog={materialNormInitialTarget ? () => {
+                setIsMaterialNormOpen(false);
+                setMaterialNormInitialTarget(undefined);
+                setWarehouseCatalogReturnToken(previous => previous + 1);
+              } : undefined}
               userRole={currentUserRole}
               roleResolved={isProjectRoleResolved}
               currentProjectId={activeProjectId}
