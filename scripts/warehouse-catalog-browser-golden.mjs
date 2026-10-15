@@ -63,8 +63,13 @@ assert.equal(await sheet.locator('input[type="search"]').inputValue(),preservedS
 assert.equal(await sheet.getByRole('button',{name:'Vật tư',exact:true}).count(),1,
   label+': returned to Material catalog');
 
+// Close the sheet before changing a fixture-only role control behind its
+// backdrop, then reopen with the normal Warehouse button.
+await sheet.getByRole('button',{name:'Đóng Danh mục kho'}).click();
+await sheet.waitFor({state:'hidden'});
 // ADMIN with exactly one matching name+unit lands in the existing edit form.
 await page.locator('[data-hnl-fixture-admin]').click();
+await catalogOpener.click();
 await sheet.locator('[data-hnl-catalog-open-master^="material:"]').first().click();
 await page.locator('[data-hnl-norm-editor]').waitFor({state:'visible'});
 assert((await page.locator('[data-hnl-norm-editor]').innerText()).includes('Cập nhật định mức vật tư'),
@@ -76,7 +81,10 @@ assert.equal(await sheet.locator('input[type="search"]').inputValue(),preservedS
 
 // Two norms may share a warehouse name/unit but belong to different categories.
 // Never auto-select and overwrite the wrong underlying norm ID.
+await sheet.getByRole('button',{name:'Đóng Danh mục kho'}).click();
+await sheet.waitFor({state:'hidden'});
 await page.locator('[data-hnl-fixture-duplicate]').click();
+await catalogOpener.click();
 await sheet.locator('[data-hnl-catalog-open-master^="material:"]').first().click();
 await page.locator('[data-hnl-catalog-target-ambiguous]').waitFor({state:'visible'});
 assert.equal(await page.locator('[data-hnl-norm-editor]').count(),0,label+': ambiguous norm must not auto-edit');
