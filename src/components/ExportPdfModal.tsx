@@ -1540,7 +1540,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     try {
       setAndroidReportBusy(true);
       const fileName = 'Bao_Cao_Tong_Hop_' + (projectName || 'Du_An')
-        .replace(/[^a-zA-Z0-9_-\\s]/g, '').trim().replace(/\\s+/g,'_')
+        .replace(/[^a-zA-Z0-9_-\s]/g, '').trim().replace(/\s+/g,'_')
         + '_' + new Date().toISOString().slice(0,10) + '.html';
       await saveBlobToDownloads(new Blob([getReportHtml()],{type:'text/html;charset=utf-8'}),fileName,'text/html');
     } catch(e) {
@@ -1557,7 +1557,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     try {
       setAndroidReportBusy(true);
       const fileName='Bao_Cao_Tong_Hop_'+(projectName || 'Du_An')
-        .replace(/[^a-zA-Z0-9_-\\s]/g,'').trim().replace(/\\s+/g,'_')
+        .replace(/[^a-zA-Z0-9_-\s]/g,'').trim().replace(/\s+/g,'_')
         +'_'+new Date().toISOString().slice(0,10)+'.pdf';
       await exportHtmlPdfFileOnAndroid(getReportHtml(),fileName,destination);
     } catch(e) {
@@ -2474,7 +2474,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
             <button
               type="button"
-              onClick={handleExportExcel}
+              onClick={()=>void handleExportExcel()}
               className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow active:scale-98 transition-all text-xs cursor-pointer"
             >
               <FileSpreadsheet className="w-4 h-4" />
