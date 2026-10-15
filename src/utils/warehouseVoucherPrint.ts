@@ -178,11 +178,14 @@ export function drawWarehouseVoucherPage(page: WarehouseVoucherPrintPage, projec
       ctx.lineTo(x, tableTop + 63);
       ctx.stroke();
     }
-    ctx.textAlign = index === 1 ? 'left' : 'center';
-    ctx.fillText(label, index === 1 ? x + 13 : x + COLUMN_WIDTHS[index] / 2, tableTop + 40, COLUMN_WIDTHS[index] - 14);
+    // All table headings are centered both horizontally and vertically.
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, x + COLUMN_WIDTHS[index] / 2, tableTop + 63 / 2, COLUMN_WIDTHS[index] - 14);
     x += COLUMN_WIDTHS[index];
   });
   ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
 
   let rowTop = tableTop + 63;
   page.rows.forEach((item, index) => {
@@ -204,27 +207,35 @@ export function drawWarehouseVoucherPage(page: WarehouseVoucherPrintPage, projec
       ctx.lineTo(cx, rowTop + h);
       ctx.stroke();
     });
+    // A single shared vertical center for STT, unit, quantity and the wrapped
+    // name+notes group. This also works for unusually tall rows.
+    const centerY = rowTop + h / 2;
+    const textHeight = name.length * 29 + noteLines.length * 22;
+    const textTop = centerY - textHeight / 2;
+    ctx.textBaseline = 'middle';
     ctx.fillStyle = '#0f172a';
     ctx.font = '21px Arial, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(String(index + 1 + page.rowOffset), LEFT + COLUMN_WIDTHS[0] / 2, rowTop + 35);
+    ctx.fillText(String(index + 1 + page.rowOffset), LEFT + COLUMN_WIDTHS[0] / 2, centerY);
     ctx.textAlign = 'left';
     ctx.font = '23px Arial, sans-serif';
-    drawTextLines(ctx, name, LEFT + COLUMN_WIDTHS[0] + 13, rowTop + 34, 29);
+    name.forEach((line, i) => ctx.fillText(line, LEFT + COLUMN_WIDTHS[0] + 13, textTop + (i + 0.5) * 29));
     if (noteLines.length) {
       ctx.font = '18px Arial, sans-serif';
       ctx.fillStyle = '#475569';
-      drawTextLines(ctx, noteLines, LEFT + COLUMN_WIDTHS[0] + 13, rowTop + 34 + name.length * 29, 22);
+      noteLines.forEach((line, i) => ctx.fillText(line, LEFT + COLUMN_WIDTHS[0] + 13,
+        textTop + name.length * 29 + (i + 0.5) * 22));
     }
     let offset = LEFT + COLUMN_WIDTHS[0] + COLUMN_WIDTHS[1];
     ctx.fillStyle = '#0f172a';
     ctx.textAlign = 'center';
     ctx.font = '21px Arial, sans-serif';
-    ctx.fillText(normalize(item.unit) || '—', offset + COLUMN_WIDTHS[2] / 2, rowTop + 35, COLUMN_WIDTHS[2] - 14);
+    ctx.fillText(normalize(item.unit) || '—', offset + COLUMN_WIDTHS[2] / 2, centerY, COLUMN_WIDTHS[2] - 14);
     offset += COLUMN_WIDTHS[2];
     ctx.font = 'bold 21px Arial, sans-serif';
-    ctx.fillText(formatDecimal(Number(item.quantity || 0)), offset + COLUMN_WIDTHS[3] / 2, rowTop + 35, COLUMN_WIDTHS[3] - 14);
+    ctx.fillText(formatDecimal(Number(item.quantity || 0)), offset + COLUMN_WIDTHS[3] / 2, centerY, COLUMN_WIDTHS[3] - 14);
     ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
     rowTop += h;
   });
 
