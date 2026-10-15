@@ -107,8 +107,11 @@ assert.match(notifications, /Quá hạn \(\{counts\.overdue\}\)/);
 assert.match(notifications, /Đến hạn hôm nay \(\{counts\.today\}\)/);
 assert.match(notifications, /Sắp đến hạn \(3 ngày\) \(\{counts\.soon\}\)/);
 assert.match(dueToast, /bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5/);
-assert.match(exportPdf, /data-hnl-report-format="html"/);
-assert.match(exportPdf, /handleDownloadHtmlToQLTC\(\); else void handleDownloadHtmlReport\(\)/);
+assert.match(exportPdf, /data-hnl-report-secondary-format="html"/);
+assert.doesNotMatch(exportPdf, /data-hnl-report-format="html"/);
+assert.match(exportPdf, /data-hnl-report-format="text"/);
+assert.match(exportPdf, /await handleDownloadHtmlToQLTC\(\)/);
+assert.match(exportPdf, /await handleDownloadHtmlReport\(\)/);
 assert.match(exportPdf, /'Lưu HTML vào Tải xuống\/QLTC' : 'Tải báo cáo HTML \(\.html\)'/);
 // Semantic tones are excluded from brand recoloring (zero false success / error cues).
 assert.match(home, /isOnline \? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'/);
