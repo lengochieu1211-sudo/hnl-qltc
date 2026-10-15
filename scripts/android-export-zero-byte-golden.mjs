@@ -84,4 +84,14 @@ assert(js.includes("destination: 'picker' | 'downloads' = 'downloads'")
   && js.includes("jsonRecordChunks(data), safeName, mimeType, 'downloads'")
   && js.includes("chunkText(text), safeName, mimeType, 'downloads'"),
   'Manual Excel and JSON exports must default to verified Download/QLTC on APK');
+// Hiding the redundant menu must not remove HTML/picker source paths or the three main actions.
+assert(report.includes('const SHOW_LEGACY_REPORT_EXPORT_MENU = false;')
+  && report.includes('{SHOW_LEGACY_REPORT_EXPORT_MENU && (')
+  && report.includes('data-hnl-report-other-save="true"')
+  && report.includes('handleExportExcel(\'picker\')')
+  && report.includes('handleDownloadHtmlReport()')
+  && report.includes('data-hnl-report-secondary-format="html"'),
+  'Hide extra export menu on all platforms but preserve source fallback handlers');
+assert(['text', 'pdf', 'xlsx'].every(format => report.includes('data-hnl-report-format="'+format+'"')),
+  'Content, PDF and Excel actions must stay present');
 console.log('ANDROID 0-BYTE EXPORT GUARDS: PASS');
