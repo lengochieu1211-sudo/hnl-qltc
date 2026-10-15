@@ -112,7 +112,7 @@ assert.doesNotMatch(exportPdf, /data-hnl-report-format="html"/);
 assert.match(exportPdf, /data-hnl-report-format="text"/);
 assert.match(exportPdf, /await handleDownloadHtmlToQLTC\(\)/);
 assert.match(exportPdf, /await handleDownloadHtmlReport\(\)/);
-assert.match(exportPdf, /'Lưu HTML vào Tải xuống\/QLTC' : 'Tải báo cáo HTML \(\.html\)'/);
+assert.match(exportPdf, /data-hnl-report-secondary-format="html"/);
 // Semantic tones are excluded from brand recoloring (zero false success / error cues).
 assert.match(home, /isOnline \? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'/);
 assert.match(checklist, /<div className="bg-emerald-500 h-full/);
