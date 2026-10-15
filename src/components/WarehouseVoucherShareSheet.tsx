@@ -173,13 +173,13 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
       {message&&<p role="status" className="rounded-lg bg-emerald-50 p-2 text-xs text-emerald-800">{message}</p>}
       <div className="grid grid-cols-3 gap-2" role="group" aria-label="Định dạng chia sẻ phiếu kho">
         {([
-          ['png','Ảnh',ImageIcon],
-          ['xlsx','Excel',FileSpreadsheet],
-          ['pdf','PDF',FileDown],
-        ] as const).map(([format,label,Icon])=>
+          ['png','Ảnh',ImageIcon,'border-emerald-600 bg-emerald-600 hover:bg-emerald-700 focus-visible:ring-emerald-300'],
+          ['xlsx','Excel',FileSpreadsheet,'border-blue-600 bg-blue-600 hover:bg-blue-700 focus-visible:ring-blue-300'],
+          ['pdf','PDF',FileDown,'border-red-600 bg-red-600 hover:bg-red-700 focus-visible:ring-red-300'],
+        ] as const).map(([format,label,Icon,buttonColor])=>
           <button key={format} data-hnl-voucher-format={format} type="button" disabled={busy||!chosen.length}
             aria-expanded={menu===format} onClick={()=>void openActions(format)}
-            className="flex min-h-11 items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-indigo-600 px-1 text-[11px] font-bold text-white disabled:opacity-50 sm:text-xs">
+            className={`flex min-h-11 items-center justify-center gap-1 rounded-xl border px-1 text-[11px] font-bold text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 sm:text-xs ${buttonColor}`}>
             <Icon className="h-4 w-4 shrink-0" /> {busy&&menu===format?'Đang tạo...':label}
           </button>)}
       </div>

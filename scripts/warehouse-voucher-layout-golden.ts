@@ -74,6 +74,12 @@ assert(!sheet.includes("['text','Nội dung',FileText]") && !sheet.includes('dat
 assert(sheet.includes("['png','Ảnh',ImageIcon]")
   && sheet.includes("['xlsx','Excel',FileSpreadsheet]") && sheet.includes("['pdf','PDF',FileDown]"),
   'Preserve Image/Excel/PDF formats and their export paths');
+assert(sheet.includes("'border-emerald-600 bg-emerald-600")
+  && sheet.includes("'border-blue-600 bg-blue-600")
+  && sheet.includes("'border-red-600 bg-red-600")
+  && sheet.includes('data-hnl-voucher-format={format}'),
+  'Voucher buttons must use shared layout and distinct green/image, blue/excel and red/PDF colors');
+
 assert(sheet.includes('data-hnl-voucher-action-menu') && sheet.includes('fixed inset-0 z-[160]'),
   'The share/download menu must be viewport-fixed, not appended offscreen below form');
 const excel = fs.readFileSync('src/utils/warehouseVoucherExcel.ts', 'utf8');
