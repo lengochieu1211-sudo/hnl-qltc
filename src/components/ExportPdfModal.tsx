@@ -176,6 +176,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   // Synchronously gate repeated taps, including before React renders a busy state.
   const reportExportInFlightRef = React.useRef(false);
   const [reportExportBusy, setReportExportBusy] = useState<'pdf' | 'xlsx' | 'html' | null>(null);
+  const [reportExportMessage, setReportExportMessage] = useState('');
   const [includeWarehouse, setIncludeWarehouse] = useState(true);
   const [includeWorkVolumes, setIncludeWorkVolumes] = useState(true);
   const [includeFloorPlan, setIncludeFloorPlan] = useState(true);
@@ -769,11 +770,14 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         <meta charset="UTF-8">
         <title>Báo cáo tổng hợp thi công &amp; nghiệm thu - ${h(projectName || 'Công trình')}</title>
         <style>
-          @page { size: ${pdfPaperSize} ${pdfOrientation}; margin: 10mm 10mm 12mm 10mm; }
+          @page { size: ${pdfPaperSize} ${pdfOrientation}; margin: 14mm 12mm 15mm 12mm; }
           * { box-sizing: border-box; }
           body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 0; padding: 12px; color: #0f172a; line-height: 1.4; background: #fff; font-size: 10px; }
-          .header { border-bottom: 2.5px solid #2563eb; padding-bottom: 10px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: flex-start; }
-          .header h1 { margin: 0; color: #1e3a8a; font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: -0.2px; }
+          .header { border-bottom: 2.5px solid #2563eb; padding-bottom: 9px; margin-bottom: 12px; page-break-inside: avoid; break-inside: avoid; }
+          .header .report-meta { display: flex; gap: 12px; justify-content: space-between; margin-top: 9px; text-align: left; }
+          .header .report-meta > div:first-child { flex: 1.7; min-width: 0; }
+          .header .report-meta > div:last-child { flex: 1; min-width: 0; text-align: right; }
+          .header h1 { margin: 0; color: #1e3a8a; font-size: 16px; line-height: 1.35; font-weight: 800; text-align: center; text-transform: uppercase; letter-spacing: -0.2px; }
           .header p { margin: 2px 0 0; color: #475569; font-size: 10.5px; }
           .badge { display: inline-block; max-width: 100%; padding: 2px 5px; border-radius: 4px; font-weight: 700; font-size: 8.8px; white-space: normal; word-break: break-word; overflow-wrap: anywhere; line-height: 1.25; text-align: center; vertical-align: middle; }
           .badge-passed { background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }
@@ -813,8 +817,9 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         </div>
 
         <div class="header">
-          <div>
-            <h1>Báo cáo tổng hợp thi công &amp; nghiệm thu</h1>
+          <h1>Báo cáo tổng hợp thi công &amp; nghiệm thu</h1>
+          <div class="report-meta">
+            <div>
             <p><strong>Dự án:</strong> ${h(projectName || '—')} | <strong>Khu vực:</strong> ${h(areaText)}</p>
             ${displayProjectLocation ? `<p><strong>Địa điểm:</strong> ${h(displayProjectLocation)}</p>` : ''}
             ${displayContractor !== '—' ? `<p><strong>Đơn vị thi công:</strong> ${h(displayContractor)}</p>` : ''}
@@ -823,6 +828,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           <div style="text-align: right;">
             <p><strong>Ngày xuất:</strong> ${formatDateTime(new Date())}</p>
             <p style="color: #2563eb; font-weight: bold;">Hệ thống quản lý thi công &amp; nghiệm thu</p>
+            </div>
           </div>
         </div>
 
@@ -980,7 +986,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
             );
 
             return `
-              <div class="page-break-avoid" style="margin-bottom: 20px; border: 1px solid #cbd5e1; border-radius: 10px; padding: 12px; background: #fff;">
+              <div style="margin-bottom: 20px; border: 1px solid #cbd5e1; border-radius: 10px; padding: 12px; background: #fff;">
                 <h4 style="margin: 0 0 10px 0; font-size: 12.5px; color: #1e3a8a; font-weight: bold; border-bottom: 2px solid #2563eb; padding-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
                   <span>📍 Sơ đồ mặt bằng: <strong>${h(formatFloorName(fp.floorName))}</strong></span>
                   <span style="font-size: 10px; font-weight: normal; color: #475569;">(${fpRooms.length} khu vực/phòng, ${fpDefects.length} defect)</span>
@@ -1672,6 +1678,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
         }
       }
       setCopiedText(true);
+      setReportExportMessage('Đã sao chép nội dung báo cáo. Có thể dán vào Zalo hoặc Email.');
       setTimeout(() => setCopiedText(false), 3000);
     } catch (error) {
       console.warn('Copy report summary failed:', error);
@@ -1750,6 +1757,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
     }
     reportExportInFlightRef.current = true;
     setReportExportBusy(format);
+    setReportExportMessage('');
     let printWindow: Window | null = null;
     if (format === 'pdf' && typeof window.AndroidExport?.saveHtmlPdf !== 'function') {
       try {
@@ -1765,13 +1773,27 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
     }
     try {
       await waitForReportPaint();
-      if (format === 'pdf') handlePrintHTML(printWindow, true);
-      else if (format === 'xlsx') await handleExportExcel(isAndroidExportBridgeAvailable() ? 'downloads' : 'picker');
-      else if (isAndroidExportBridgeAvailable()) await handleDownloadHtmlToQLTC();
-      else await handleDownloadHtmlReport();
+      if (format === 'pdf') {
+        handlePrintHTML(printWindow, true);
+        setReportExportMessage(isAndroidExportBridgeAvailable()
+          ? 'Đã mở màn hình in PDF. Hãy chọn nơi lưu; nếu Tải xuống tạo file 0 byte, chọn thư mục khác và kiểm tra file đã lưu.'
+          : 'Đã mở bản xem trước để in hoặc lưu PDF.');
+      } else if (format === 'xlsx') {
+        await handleExportExcel(isAndroidExportBridgeAvailable() ? 'downloads' : 'picker');
+        setReportExportMessage(isAndroidExportBridgeAvailable()
+          ? 'Đã lưu Excel vào Tải xuống/QLTC.'
+          : 'Đã yêu cầu tải Excel. Hãy kiểm tra thư mục tải xuống.');
+      } else if (isAndroidExportBridgeAvailable()) {
+        await handleDownloadHtmlToQLTC();
+        setReportExportMessage('Đã yêu cầu lưu HTML vào Tải xuống/QLTC.');
+      } else {
+        await handleDownloadHtmlReport();
+        setReportExportMessage('Đã yêu cầu tải HTML. Hãy kiểm tra thư mục tải xuống.');
+      }
     } catch (error) {
       if (printWindow && !printWindow.closed) printWindow.close();
       console.error('Report export failed:', error);
+      setReportExportMessage('Lỗi xuất báo cáo: ' + (error instanceof Error ? error.message : String(error)));
       alert('Không thể chuẩn bị báo cáo. ' + (error instanceof Error ? error.message : String(error)));
     } finally {
       reportExportInFlightRef.current = false;
@@ -2532,6 +2554,13 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 Đang tải ảnh mặt bằng từ Cloud. Vui lòng chờ trước khi xuất PDF/HTML.
               </p>
             )}
+            {(reportExportBusy || reportExportMessage) && (
+              <p role="status" aria-live="polite" data-hnl-report-export-pending="true" className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800">
+                {reportExportBusy
+                  ? `Đang chuẩn bị ${reportExportBusy === 'pdf' ? 'PDF' : reportExportBusy === 'xlsx' ? 'Excel' : 'HTML'}… Vui lòng chờ.`
+                  : reportExportMessage}
+              </p>
+            )}
             <div className="grid grid-cols-3 gap-2" role="group" aria-label="Nội dung, PDF và Excel">
               <button
                 type="button"
@@ -2564,11 +2593,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 <FileSpreadsheet className="h-4 w-4 shrink-0" /> {reportExportBusy === 'xlsx' ? 'Đang tạo…' : 'Excel'}
               </button>
             </div>
-            {reportExportBusy && (
-              <p role="status" aria-live="polite" data-hnl-report-export-pending="true" className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800">
-                Đang chuẩn bị {reportExportBusy === 'pdf' ? 'PDF' : reportExportBusy === 'xlsx' ? 'Excel' : 'HTML'}… Vui lòng chờ.
-              </p>
-            )}
+
           </section>
         </div>
       </div>

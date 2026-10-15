@@ -284,7 +284,7 @@ export async function saveBlobToDownloads(blob: Blob, fileName: string, mimeType
 export function saveTextFile(text: string, fileName: string, mimeType = 'application/json;charset=utf-8') {
   const safeName = sanitizeFileName(fileName);
   if (hasAndroidTextBridge()) {
-    return saveTextChunksToAndroid(chunkText(text), safeName, mimeType, 'picker');
+    return saveTextChunksToAndroid(chunkText(text), safeName, mimeType, 'downloads');
   }
 
   const blob = new Blob([text], { type: mimeType });
@@ -309,7 +309,7 @@ export async function saveJsonRecordFile(data: Record<string, string>, fileName:
   const mimeType = 'application/json;charset=utf-8';
 
   if (hasAndroidTextBridge()) {
-    await saveTextChunksToAndroid(jsonRecordChunks(data), safeName, mimeType, 'picker');
+    await saveTextChunksToAndroid(jsonRecordChunks(data), safeName, mimeType, 'downloads');
     return;
   }
 
@@ -324,7 +324,7 @@ export async function writeJsonRecordToWritable(writable: { write: (data: string
 }
 
 export async function saveWorkbookFile(workbook: WorkBook, fileName: string,
-  destination: 'picker' | 'downloads' = 'picker') {
+  destination: 'picker' | 'downloads' = 'downloads') {
   // XLSX is a large library. Keep it out of normal app/navigation startup and load it
   // only when the user actually requests an Excel export.
   const XLSX = await import('xlsx');

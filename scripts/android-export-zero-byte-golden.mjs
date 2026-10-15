@@ -72,4 +72,16 @@ assert(report.includes('border border-red-600 bg-red-600')
   'Report PDF and Excel buttons must reuse the exact warehouse share color/hover/focus styling');
 assert(header.includes('bg-indigo-700 hover:bg-indigo-800') && header.includes('border border-indigo-500') && !header.includes('ring-1 ring-sky-300/60'),
   'Project header action must remain clear without an unrelated bright cyan ring');
+// Export UI regression: status above actions, balanced print margins, distinct actions.
+assert(report.indexOf('data-hnl-report-export-pending="true"') < report.indexOf('data-hnl-report-format="text"'),
+  'Report status must be above the three buttons rather than below the scroll fold');
+assert(report.includes('margin: 14mm 12mm 15mm 12mm') && report.includes('class="report-meta"')
+  && report.includes('text-align: center; text-transform: uppercase'),
+  'PDF must have balanced paper margins and a centered title');
+assert(header.includes('bg-teal-700 hover:bg-teal-800') && header.includes('bg-indigo-700 hover:bg-indigo-800'),
+  'Project and Report actions must be visually distinct');
+assert(js.includes("destination: 'picker' | 'downloads' = 'downloads'")
+  && js.includes("jsonRecordChunks(data), safeName, mimeType, 'downloads'")
+  && js.includes("chunkText(text), safeName, mimeType, 'downloads'"),
+  'Manual Excel and JSON exports must default to verified Download/QLTC on APK');
 console.log('ANDROID 0-BYTE EXPORT GUARDS: PASS');
