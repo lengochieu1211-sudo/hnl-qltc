@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ContextBackButton } from './ContextBackButton';
 import { 
   X, 
   Plus, 
@@ -1017,11 +1018,13 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
         </div>
 
         {onBackToWarehouseCatalog && (
-          <button type="button" data-hnl-back-to-warehouse-catalog="true"
-            disabled={equipmentBusy} onClick={() => void returnToWarehouseCatalog()}
-            className="inline-flex min-h-10 shrink-0 items-center self-start rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-xs font-bold text-indigo-800 transition hover:bg-indigo-100 focus-visible:outline-2 focus-visible:outline-indigo-600 disabled:opacity-50">
-            ← Quay lại Danh mục kho
-          </button>
+          <ContextBackButton
+            data-hnl-back-to-warehouse-catalog="true"
+            label="Danh mục kho"
+            disabled={equipmentBusy}
+            onClick={() => void returnToWarehouseCatalog()}
+            className="self-start"
+          />
         )}
         <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1" role="tablist" aria-label="Vật tư, thiết bị và định mức">
           {([
