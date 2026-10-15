@@ -11,7 +11,7 @@ import { getProjectPhotosWithBinary } from '../utils/photoStorage';
 import { computeDefectLabelPositions, computeRoomLabelPositions } from '../utils/pdfMapUtils';
 import { canViewFinancials, getCurrentUserRole, UserRole } from '../utils/securityUtils';
 import { apiFetch, hasApiBackend } from '../utils/api';
-import { saveHtmlPdf, saveBlobToDownloads, exportHtmlPdfFileOnAndroid, isNativeAndroidReportPdfAvailable } from '../utils/fileExport';
+import { saveHtmlPdf, saveTextFileToDownloads, exportHtmlPdfFileOnAndroid, isNativeAndroidReportPdfAvailable } from '../utils/fileExport';
 import { calculateStockSummary } from '../utils/inventoryUtils';
 import { isDisplayableFloorPlanUrl, loadFloorPlanImageFromCloud } from '../lib/floorPlanImageSync';
 import { computeWorkVolumeDetailBreakdown } from '../utils/workVolumeComputation';
@@ -1542,7 +1542,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
       const fileName = 'Bao_Cao_Tong_Hop_' + (projectName || 'Du_An')
         .replace(/[^a-zA-Z0-9_-\s]/g, '').trim().replace(/\s+/g,'_')
         + '_' + new Date().toISOString().slice(0,10) + '.html';
-      await saveBlobToDownloads(new Blob([getReportHtml()],{type:'text/html;charset=utf-8'}),fileName,'text/html');
+      await saveTextFileToDownloads(getReportHtml(),fileName,'text/html;charset=utf-8');
     } catch(e) {
       alert('Không lưu được HTML vào QLTC: '+(e instanceof Error?e.message:String(e)));
     } finally {setAndroidReportBusy(false);}
