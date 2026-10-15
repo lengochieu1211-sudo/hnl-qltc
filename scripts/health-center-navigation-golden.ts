@@ -34,9 +34,11 @@ assert.match(roomModalSource, /availableWorkCategories = React\.useMemo\(\(\) =>
 assert.match(roomModalSource, /⚠️ Đã xóa: \{catName\} — chọn hạng mục mới/);
 assert.match(floorSource, /focusOrphanRepair=/);
 assert.match(healthBaseSource, /Xuất &amp; chia sẻ chẩn đoán/);
-assert.match(healthBaseSource, /Xuất JSON/);
-assert.match(healthBaseSource, /Xuất Excel/);
-assert.match(healthBaseSource, /Sao chép chẩn đoán/);
+assert.match(healthBaseSource, /aria-label="Xuất JSON"/);
+assert.match(healthBaseSource, /aria-label="Xuất Excel"/);
+assert.match(healthBaseSource, /aria-label="Sao chép chẩn đoán"/);
+assert.match(healthBaseSource, /data-hnl-health-export-format="text"[\s\S]*data-hnl-health-export-format="json"[\s\S]*data-hnl-health-export-format="excel"/,
+  'Three diagnostic export buttons follow Content, JSON, Excel order');
 assert.doesNotMatch(healthBaseSource, /Audit PDF|Chẩn đoán hệ thống JSON|Copy chẩn đoán|Evidence:|record đã quét/);
 assert.match(configSource, /getSystemDiagnostics=\{\(\) => buildFullDiagnosticBundle\(\)\}/);
 console.log('health-center-navigation-golden: PASS');

@@ -122,5 +122,16 @@ assert.match(notifications, /filterType === 'overdue'[\s\S]{0,165}'bg-rose-600 t
 assert.match(notifications, /filterType === 'today'[\s\S]{0,165}'bg-amber-600 text-white shadow-sm'/);
 assert.match(settings, /bg-emerald-50 text-emerald-700 border-emerald-200/);
 assert.match(settings, /bg-amber-50 text-amber-700 border-amber-200/);
+const header = fs.readFileSync(new URL('src/components/GoogleAuthHeader.tsx', base), 'utf8');
+const diagnostic = fs.readFileSync(new URL('src/healthCenter/HealthCenterPanelBase.tsx', base), 'utf8');
+const backup = fs.readFileSync(new URL('src/components/ProjectManagerModal.tsx', base), 'utf8');
+const crewShare = fs.readFileSync(new URL('src/components/CrewReportShareModal.tsx', base), 'utf8');
+assert.match(header, /bg-blue-600 hover:bg-blue-700 text-white/);
+assert.match(header, /bg-emerald-600 hover:bg-emerald-700 text-white/);
+assert.match(backup, /bg-emerald-600 hover:bg-emerald-700 text-white/);
+for (const color of ['slate-800', 'emerald-600', 'indigo-600']) {
+  assert.ok(diagnostic.includes('bg-' + color) && crewShare.includes('bg-' + color),
+    'Diagnostic buttons must share Crew report semantic colors: ' + color);
+}
 console.log('HNL HOME/CHECKLIST/WORK VOLUME/NOTIFICATION/EXPORT BRAND + COPY: PASS');
 console.log('HNL PRIMARY COLOR SOURCE GOLDEN: PASS');
