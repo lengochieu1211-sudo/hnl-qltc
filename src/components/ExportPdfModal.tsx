@@ -2401,66 +2401,88 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
             </details>
           </div>
 
-          {/* Action Buttons */}
-          <div className="space-y-2 pt-2">
+          {/* Keep the three report formats prominent; native APK destination options are secondary. */}
+          <section data-hnl-report-export-actions="true" aria-label="Xuất và chia sẻ báo cáo" className="space-y-2 border-t border-slate-200 pt-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h4 className="text-sm font-extrabold text-slate-800">Xuất báo cáo</h4>
+              <span className="text-xs font-medium text-slate-500">Theo hạng mục và bộ lọc đã chọn</span>
+            </div>
             {includeFloorPlan && isResolvingFloorPlansForExport && (
-              <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[10px] font-semibold text-sky-700">
-                Đang tải ảnh mặt bằng cần thiết từ Cloud… Xuất PDF/HTML sẽ sẵn sàng ngay sau khi hoàn tất.
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={handlePrintHTML}
-              className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl font-black flex items-center justify-center gap-2 shadow-md active:scale-98 transition-all text-xs border border-indigo-400 cursor-pointer"
-            >
-              <Printer className="w-4 h-4 text-amber-300" />
-              <span>Xuất PDF · Xem / In</span>
-            </button>
-            {isAndroidExportBridgeAvailable() && (
-              <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
-                Trên APK: chọn <strong>Lưu thành PDF</strong> trong màn hình in của Android, sau đó chọn thư mục <strong>Tải xuống/QLTC</strong>. Cách này giữ nguyên bố cục báo cáo và ảnh.
+              <p role="status" className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-700">
+                Đang tải ảnh mặt bằng từ Cloud. Vui lòng chờ trước khi xuất PDF/HTML.
               </p>
             )}
-
-            <button
-              type="button"
-              onClick={handleDownloadHtmlReport}
-              className="w-full py-2.5 border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl font-bold flex items-center justify-center gap-2 shadow active:scale-98 transition-all text-xs cursor-pointer"
-            >
-              <Download className="w-4 h-4 text-slate-600" />
-              Tải báo cáo HTML (.html) để mở, in hoặc lưu PDF
-            </button>
-            {isAndroidExportBridgeAvailable() && (
-              <button type="button" disabled={androidReportBusy} onClick={()=>void handleDownloadHtmlToQLTC()}
-                className="w-full min-h-11 rounded-xl border border-slate-200 bg-white px-2 text-xs font-bold text-slate-800 disabled:opacity-50">
-                <Download className="mr-2 inline h-4 w-4" /> Lưu HTML vào Tải xuống/QLTC
+            <div className="grid grid-cols-3 gap-2" role="group" aria-label="Chọn định dạng báo cáo">
+              <button
+                type="button"
+                data-hnl-report-format="pdf"
+                onClick={handlePrintHTML}
+                disabled={androidReportBusy}
+                title="Mở màn hình xem/in để lưu PDF"
+                className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-red-700 bg-red-600 px-2 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 focus-visible:ring-offset-2 disabled:opacity-50"
+              >
+                <Printer className="h-4 w-4 shrink-0" /> PDF
               </button>
-            )}
-
-            <button
-              type="button"
-              onClick={()=>void handleExportExcel()}
-              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow active:scale-98 transition-all text-xs cursor-pointer"
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              Tải Excel (.xlsx) cho các hạng mục đã chọn
-            </button>
-            {isAndroidExportBridgeAvailable() && (
-              <button type="button" disabled={androidReportBusy} onClick={()=>void handleExportExcel('downloads')}
-                className="w-full min-h-11 rounded-xl border border-blue-200 bg-blue-50 px-2 text-xs font-bold text-blue-800 disabled:opacity-50">
-                <Download className="mr-2 inline h-4 w-4" /> Lưu Excel vào Tải xuống/QLTC
+              <button
+                type="button"
+                data-hnl-report-format="xlsx"
+                onClick={() => void handleExportExcel(isAndroidExportBridgeAvailable() ? 'downloads' : 'picker')}
+                disabled={androidReportBusy}
+                title={isAndroidExportBridgeAvailable() ? 'Lưu Excel vào Tải xuống/QLTC' : 'Tải Excel (.xlsx)'}
+                className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-blue-700 bg-blue-600 px-2 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 focus-visible:ring-offset-2 disabled:opacity-50"
+              >
+                <FileSpreadsheet className="h-4 w-4 shrink-0" /> Excel
               </button>
+              <button
+                type="button"
+                data-hnl-report-format="html"
+                onClick={() => { if (isAndroidExportBridgeAvailable()) void handleDownloadHtmlToQLTC(); else void handleDownloadHtmlReport(); }}
+                disabled={androidReportBusy}
+                title={isAndroidExportBridgeAvailable() ? 'Lưu HTML vào Tải xuống/QLTC' : 'Tải báo cáo HTML (.html)'}
+                className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-slate-700 px-2 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:opacity-50"
+              >
+                <Download className="h-4 w-4 shrink-0" /> HTML
+              </button>
+            </div>
+            {isAndroidExportBridgeAvailable() && (
+              <p className="text-xs leading-relaxed text-slate-600" data-hnl-report-android-hint="true">
+                PDF: chọn <strong>Lưu thành PDF</strong> trong màn hình in. Excel và HTML: lưu vào <strong>Tải xuống/QLTC</strong>.
+              </p>
             )}
-
             <button
               type="button"
               onClick={handleCopySummaryText}
-              className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl font-bold flex items-center justify-center gap-2 active:scale-98 transition-all text-xs cursor-pointer"
+              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
             >
-              {copiedText ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <Mail className="w-4 h-4 text-slate-600" />}
-              {copiedText ? 'Đã sao chép nội dung!' : 'Sao Chép Tóm Tắt Gửi Zalo / Email'}
+              {copiedText ? <CheckCircle2 className="h-4 w-4 text-emerald-700" /> : <Copy className="h-4 w-4" />}
+              {copiedText ? 'Đã sao chép tóm tắt' : 'Sao chép tóm tắt để gửi Zalo / Email'}
             </button>
-          </div>
+            {isAndroidExportBridgeAvailable() && (
+              <details data-hnl-report-other-save="true" className="rounded-xl border border-slate-200 bg-slate-50">
+                <summary className="cursor-pointer px-3 py-2.5 text-xs font-semibold text-slate-700">
+                  Tùy chọn khác: chọn nơi lưu hoặc chia sẻ tệp
+                </summary>
+                <div className="grid grid-cols-1 gap-2 border-t border-slate-200 p-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleExportExcel('picker')}
+                    disabled={androidReportBusy}
+                    className="min-h-11 rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-800 disabled:opacity-50"
+                  >
+                    Chọn nơi lưu Excel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadHtmlReport()}
+                    disabled={androidReportBusy}
+                    className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-800 disabled:opacity-50"
+                  >
+                    Chia sẻ / chọn nơi lưu HTML
+                  </button>
+                </div>
+              </details>
+            )}
+          </section>
         </div>
       </div>
     </div>

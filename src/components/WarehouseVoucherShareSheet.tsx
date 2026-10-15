@@ -173,7 +173,7 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
       {message&&<p role="status" className="rounded-lg bg-emerald-50 p-2 text-xs text-emerald-800">{message}</p>}
       <div className="grid grid-cols-3 gap-2" role="group" aria-label="Định dạng chia sẻ phiếu kho">
         {([
-          ['png','Ảnh',ImageIcon,'border-emerald-600 bg-emerald-600 hover:bg-emerald-700 focus-visible:ring-emerald-300'],
+          ['png','Ảnh',ImageIcon,'border-emerald-700 bg-emerald-700 hover:bg-emerald-800 focus-visible:ring-emerald-300'],
           ['xlsx','Excel',FileSpreadsheet,'border-blue-600 bg-blue-600 hover:bg-blue-700 focus-visible:ring-blue-300'],
           ['pdf','PDF',FileDown,'border-red-600 bg-red-600 hover:bg-red-700 focus-visible:ring-red-300'],
         ] as const).map(([format,label,Icon,buttonColor])=>
