@@ -2315,7 +2315,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                             unit: item.unit,
                           });
                         }}
-                        className="flex min-h-10 w-full min-w-0 items-center rounded-md text-left font-bold leading-snug text-slate-800 transition-colors hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-2 focus-visible:outline-indigo-600"
+                        className="flex min-h-10 w-full min-w-0 items-center rounded-md text-left whitespace-normal break-words font-bold leading-snug text-slate-800 transition-colors hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-2 focus-visible:outline-indigo-600"
                         aria-label={`Mở quản lý ${warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'định mức vật tư'} ${item.name}, đơn vị ${item.unit}`}
                         title={warehouseCatalogTab === 'equipment' ? 'Mở thông tin thiết bị' : 'Mở định mức vật tư'}
                       >{item.name}</button>
