@@ -1018,6 +1018,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
         {catalogTab === 'equipment' ? (
           <div className="min-h-0 flex-1 overflow-y-auto">
             <EquipmentCatalogPanel
+              initialTarget={initialTab === 'equipment' ? initialTarget : undefined}
               projectId={currentProjectId || ''}
               inventory={inventory}
               canManage={hasManageAccess}
