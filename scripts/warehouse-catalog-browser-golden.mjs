@@ -47,12 +47,19 @@ assert((await history.innerText()).includes('3 Cái'),label+': equipment unit');
 // In VIEWER role the matching catalog is opened read-only; no edit form is mounted.
 await sheet.getByRole('button',{name:/Danh mục kho/}).last().click();
 await sheet.getByRole('button',{name:'Vật tư',exact:true}).click();
+await sheet.getByPlaceholder('Tìm vật tư...').fill('Golden');
 const materialName=sheet.locator('[data-hnl-catalog-open-master^="material:"]').first();
 assert.equal(await materialName.locator('svg').count(),0,label+': no extra icon beside material name');
 await materialName.click();
 await page.locator('[data-hnl-master-catalog-tab="material"]').waitFor({state:'visible'});
 assert.equal(await page.locator('[data-hnl-norm-editor]').count(),0,label+': VIEWER cannot edit a norm');
-await page.getByRole('button',{name:'Đóng quản lý vật tư thiết bị'}).click();
+await page.locator('[data-hnl-return-to-warehouse-catalog]').click();
+await sheet.waitFor({state:'visible'});
+assert.equal(await sheet.getByPlaceholder('Tìm vật tư...').inputValue(),'Golden',
+  label+': return must preserve original catalog search');
+assert(await sheet.locator('[data-hnl-catalog-open-master^="material:"]').first().isVisible(),
+  label+': returning should keep material category');
+await sheet.getByRole('button',{name:'Đóng Danh mục kho'}).click();
 
 // ADMIN with exactly one matching name+unit lands in the existing edit form.
 await page.locator('[data-hnl-fixture-admin]').click();
@@ -61,7 +68,9 @@ await sheet.locator('[data-hnl-catalog-open-master^="material:"]').first().click
 await page.locator('[data-hnl-norm-editor]').waitFor({state:'visible'});
 assert((await page.locator('[data-hnl-norm-editor]').innerText()).includes('Cập nhật định mức vật tư'),
   label+': ADMIN should open existing edit form for the correct material');
-await page.getByRole('button',{name:'Đóng quản lý vật tư thiết bị'}).click();
+await page.locator('[data-hnl-return-to-warehouse-catalog]').click();
+await sheet.waitFor({state:'visible'});
+await sheet.getByRole('button',{name:'Đóng Danh mục kho'}).click();
 
 // Two norms may share a warehouse name/unit but belong to different categories.
 // Never auto-select and overwrite the wrong underlying norm ID.
@@ -73,7 +82,9 @@ assert.equal(await page.locator('[data-hnl-norm-editor]').count(),0,label+': amb
 const normEditButton=page.getByRole('button',{name:'Sửa định mức '+ 'Tấm thạch cao Golden P0'}).first();
 const editBox=await normEditButton.boundingBox();
 assert(editBox && editBox.height>=40 && editBox.width>=40,label+': norm editor touch target');
-await page.getByRole('button',{name:'Đóng quản lý vật tư thiết bị'}).click();
+await page.locator('[data-hnl-return-to-warehouse-catalog]').click();
+await sheet.waitFor({state:'visible'});
+await sheet.getByRole('button',{name:'Đóng Danh mục kho'}).click();
 
 // The same name click on equipment targets the equipment master, not material norms.
 await catalogOpener.click();
@@ -91,6 +102,16 @@ const panel=page.locator('[data-hnl-equipment-master="true"]');
 await panel.waitFor({state:'visible'});
 assert((await panel.innerText()).includes('Không tải được thông tin thiết bị'),
   label+': missing project must not bypass the equipment load/permission guard');
+await page.locator('[data-hnl-return-to-warehouse-catalog]').click();
+await sheet.waitFor({state:'visible'});
+assert(await sheet.getByRole('button',{name:'Thiết bị',exact:true}).getAttribute('class').then(c=>c?.includes('bg-white')),
+  label+': return must preserve equipment tab');
+assert(await sheet.locator('[data-hnl-catalog-open-master^="equipment:"]').first().isVisible(),
+  label+': equipment catalog must reopen');
+await sheet.getByRole('button',{name:'Đóng Danh mục kho'}).click();
+await page.locator('[data-hnl-open-norm-fixture]').click();
+assert.equal(await page.locator('[data-hnl-return-to-warehouse-catalog]').count(),0,
+  label+': return action must not appear when management was opened independently');
 await page.getByRole('button',{name:'Đóng quản lý vật tư thiết bị'}).click();
 const shot=`runtime-evidence/catalog-click-${label}.png`;await page.screenshot({path:shot});checks.push({viewport:label,result:'PASS',screenshot:shot});await ctx.close();
 }
