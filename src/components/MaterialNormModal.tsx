@@ -992,8 +992,9 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               <p className="text-xs text-slate-500">{hasManageAccess ? 'Quản lý thông số vật tư, định mức và thiết bị' : 'Xem danh mục · chỉ ADMIN được chỉnh sửa'}</p>
             </div>
           </div>
-          <button
+          <button type="button"
             onClick={onClose}
+            aria-label="Đóng quản lý vật tư thiết bị"
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
           >
             <X className="w-5 h-5" />
