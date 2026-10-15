@@ -78,7 +78,7 @@ assert(report.indexOf('data-hnl-report-export-pending="true"') < report.indexOf(
 assert(report.includes('margin: 14mm 12mm 15mm 12mm') && report.includes('class="report-meta"')
   && report.includes('text-align: center; text-transform: uppercase'),
   'PDF must have balanced paper margins and a centered title');
-assert(header.includes('bg-teal-700 hover:bg-teal-800') && header.includes('bg-indigo-700 hover:bg-indigo-800'),
+assert(header.includes('bg-green-700 hover:bg-green-800') && header.includes('bg-indigo-700 hover:bg-indigo-800'),
   'Project and Report actions must be visually distinct');
 assert(js.includes("destination: 'picker' | 'downloads' = 'downloads'")
   && js.includes("jsonRecordChunks(data), safeName, mimeType, 'downloads'")

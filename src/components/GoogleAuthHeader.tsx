@@ -261,10 +261,10 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
               {onOpenExportPdf && (
                 <button
                   onClick={onOpenExportPdf}
-                  className="flex min-h-9 min-w-9 items-center justify-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 border border-teal-500 whitespace-nowrap"
+                  className="flex min-h-9 min-w-9 items-center justify-center gap-1.5 bg-green-700 hover:bg-green-800 text-white p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 border border-green-500 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300 focus-visible:ring-offset-2"
                   title="Xuất Báo Cáo PDF & Excel"
                 >
-                  <FileText className="w-4 h-4 text-teal-100 shrink-0" />
+                  <FileText className="w-4 h-4 text-green-100 shrink-0" />
                   <span className="hidden sm:inline">Báo Cáo</span>
                 </button>
               )}
