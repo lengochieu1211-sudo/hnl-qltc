@@ -41,6 +41,7 @@ interface MaterialNormModalProps {
   isOpen: boolean;
   initialTab?: 'material' | 'equipment';
   initialTarget?: { name: string; unit: string };
+  onBackToWarehouseCatalog?: () => void;
   userRole: UserRole;
   roleResolved: boolean;
   currentProjectId?: string;
@@ -85,6 +86,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   isOpen,
   initialTab = 'material',
   initialTarget,
+  onBackToWarehouseCatalog,
   userRole,
   roleResolved,
   currentProjectId,
@@ -104,6 +106,19 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
 }) => {
   const hasManageAccess = roleResolved && canManageMaterialNorms(userRole);
   const [catalogTab, setCatalogTab] = useState<'material' | 'equipment'>(initialTab);
+  const [materialDraftDirty, setMaterialDraftDirty] = useState(false);
+  const [equipmentDraftDirty, setEquipmentDraftDirty] = useState(false);
+  const [equipmentBusy, setEquipmentBusy] = useState(false);
+  const returnToWarehouseCatalog = async () => {
+    if (!onBackToWarehouseCatalog || equipmentBusy) return;
+    const dirty = catalogTab === 'equipment' ? equipmentDraftDirty
+      : mode !== 'list' && materialDraftDirty;
+    if (dirty && !(await confirmAsync(
+      'Bạn có thay đổi chưa lưu. Quay lại Danh mục kho sẽ hủy phần chỉnh sửa chưa lưu. Tiếp tục?',
+      {title:'Xác nhận quay lại Danh mục kho',confirmLabel:'Quay lại',cancelLabel:'Tiếp tục chỉnh sửa'}
+    ))) return;
+    onBackToWarehouseCatalog();
+  };
   const hasImportAccess = roleResolved && canImportData(userRole);
   const activeMaterialNorms = React.useMemo(() => materialNorms.filter((norm) => norm.deletedAt === undefined || norm.deletedAt === null), [materialNorms]);
   const activeWorkVolumes = React.useMemo(() => (workVolumes || []).filter((volume) => volume.deletedAt === undefined || volume.deletedAt === null), [workVolumes]);
@@ -1001,6 +1016,13 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
           </button>
         </div>
 
+        {onBackToWarehouseCatalog && (
+          <button type="button" data-hnl-back-to-warehouse-catalog="true"
+            disabled={equipmentBusy} onClick={() => void returnToWarehouseCatalog()}
+            className="inline-flex min-h-10 shrink-0 items-center self-start rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-xs font-bold text-indigo-800 transition hover:bg-indigo-100 focus-visible:outline-2 focus-visible:outline-indigo-600 disabled:opacity-50">
+            ← Quay lại Danh mục kho
+          </button>
+        )}
         <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1" role="tablist" aria-label="Vật tư, thiết bị và định mức">
           {([
             { key: 'material', label: 'Vật tư · Định mức' },
@@ -1020,6 +1042,8 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
           <div className="min-h-0 flex-1 overflow-y-auto">
             <EquipmentCatalogPanel
               initialTarget={initialTab === 'equipment' ? initialTarget : undefined}
+              onDraftDirtyChange={setEquipmentDraftDirty}
+              onBusyChange={setEquipmentBusy}
               projectId={currentProjectId || ''}
               inventory={inventory}
               canManage={hasManageAccess}
@@ -1299,7 +1323,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
           </div>
         ) : (
           /* Add / Edit Form */
-          <form onSubmit={handleSubmit} data-hnl-norm-editor="true" className="mx-auto w-full max-w-3xl lg:max-w-none flex-1 overflow-y-auto space-y-3.5 pr-1 text-xs">
+          <form onSubmit={handleSubmit} onChangeCapture={() => setMaterialDraftDirty(true)} data-hnl-norm-editor="true" className="mx-auto w-full max-w-3xl lg:max-w-none flex-1 overflow-y-auto space-y-3.5 pr-1 text-xs">
             <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-200">
               <span className="font-bold text-slate-800">
                 {mode === 'add' ? 'Tạo định mức mới' : 'Cập nhật định mức vật tư'}
