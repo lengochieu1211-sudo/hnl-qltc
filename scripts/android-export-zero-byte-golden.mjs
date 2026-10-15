@@ -22,7 +22,7 @@ assert(!report.includes('exportHtmlPdfFileOnAndroid') && !android.includes('publ
 assert(report.includes('Lưu HTML vào Tải xuống/QLTC')
   && report.includes('Lưu Excel vào Tải xuống/QLTC')
   && report.includes('saveTextFileToDownloads(getReportHtml()')
-  && report.includes("handleExportExcel(isAndroidExportBridgeAvailable() ? 'downloads' : 'picker')")
+  && report.includes("await handleExportExcel(isAndroidExportBridgeAvailable() ? 'downloads' : 'picker')")
   && report.includes("handleExportExcel('picker')"),
   'Both HTML and Excel need direct QLTC download actions on APK, without changing report data');
 assert(excel.includes("destination: 'picker' | 'downloads' = 'picker'")
@@ -32,4 +32,24 @@ assert(['pdf', 'xlsx', 'html'].every(format => report.includes('data-hnl-report-
   && report.includes('data-hnl-report-other-save="true"')
   && report.includes('Sao chép tóm tắt để gửi Zalo / Email'),
   'Report UI must keep three concise formats and optional Android export destinations');
+assert(report.includes('reportExportInFlightRef.current = true')
+  && report.includes('await waitForReportPaint()')
+  && report.includes('data-hnl-report-export-pending="true"')
+  && report.includes("runReportExport('pdf')")
+  && report.includes("runReportExport('xlsx')")
+  && report.includes("runReportExport('html')"),
+  'The three export buttons must respond with a pending state before heavy work and prevent duplicate taps');
+assert(report.includes("window.open('about:blank', '_blank')")
+  && report.includes('readyPrintWindow.location.replace(blobUrl)')
+  && report.includes("typeof window.AndroidExport?.saveHtmlPdf !== 'function'"),
+  'PDF must keep popup activation on the original browser click and leave native Android PrintManager unchanged');
+const warehouseShare = fs.readFileSync('src/components/WarehouseVoucherShareSheet.tsx', 'utf8');
+const header = fs.readFileSync('src/components/GoogleAuthHeader.tsx', 'utf8');
+assert(report.includes('border border-red-600 bg-red-600')
+  && report.includes('border border-blue-600 bg-blue-600')
+  && warehouseShare.includes('border-red-600 bg-red-600')
+  && warehouseShare.includes('border-blue-600 bg-blue-600'),
+  'Report PDF and Excel buttons must reuse the exact warehouse share color/hover/focus styling');
+assert(header.includes('bg-slate-700 hover:bg-slate-600') && !header.includes('ring-1 ring-sky-300/60'),
+  'Project header action must remain clear without an unrelated bright cyan ring');
 console.log('ANDROID 0-BYTE EXPORT GUARDS: PASS');
