@@ -73,7 +73,7 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
   const [preparingImages, setPreparingImages] = useState(false);
   const [preparedAttachments, setPreparedAttachments] = useState<ShareAttachmentPayload[]>([]);
   const [sharing, setSharing] = useState(false);
-  const [savingAttachment, setSavingAttachment] = useState(false);
+  const [savingAttachment, setSavingAttachment] = useState<number | null>(null);
   const [shareFailed, setShareFailed] = useState(false);
   const [status, setStatus] = useState('');
 
@@ -200,10 +200,14 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
     }).then((result) => {
       if (result.status === 'shared') {
         if (result.fallbackToText) setStatus('Thiết bị không hỗ trợ gửi kèm file; đã mở chia sẻ phần nội dung chữ.');
-        else if (result.sharedFiles > 0) setStatus(imageFormat === 'report'
-          ? 'Đã mở bảng chia sẻ ảnh báo cáo có chữ.'
-          : `Đã mở bảng chia sẻ với ${result.sharedFiles} ảnh gốc. Ứng dụng nhận có thể bỏ phần chữ.`);
-        else setStatus('Đã mở bảng chia sẻ hệ thống.');
+        else if (result.sharedFiles > 0) {
+          if (result.sharedFiles < result.requestedFiles) setShareFailed(true);
+          setStatus(result.sharedFiles < result.requestedFiles
+            ? `Thiết bị chỉ mở chia sẻ ${result.sharedFiles}/${result.requestedFiles} ảnh. Các ảnh còn lại có thể lưu riêng bên dưới.`
+          : imageFormat === 'report'
+            ? 'Đã mở bảng chia sẻ ảnh báo cáo có chữ.'
+            : `Đã mở bảng chia sẻ với ${result.sharedFiles} ảnh gốc. Ứng dụng nhận có thể bỏ phần chữ.`);
+        } else setStatus('Đã mở bảng chia sẻ hệ thống.');
       } else if (result.status === 'copied') {
         setStatus(result.fallbackToText
           ? 'Không gửi kèm ảnh được trên trình duyệt này. Nội dung chữ đã được sao chép.'
@@ -212,7 +216,11 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
         setStatus('Đã hủy bảng chia sẻ.');
       } else {
         setShareFailed(true);
-        setStatus('Thiết bị hoặc trình duyệt không mở được chia sẻ ảnh. Bấm “Lưu ảnh” để gửi thủ công, hoặc thử trong APK HNL QLTC.');
+        setStatus(result.failureReason === 'native-file-limit'
+          ? 'Tổng dung lượng ảnh vượt giới hạn chia sẻ của APK (12 MB). Hãy chọn ảnh báo cáo có chữ hoặc lưu riêng từng ảnh.'
+          : result.failureReason === 'native-share-failed'
+            ? 'APK không mở được bảng chia sẻ ảnh. Hãy lưu từng ảnh và gửi thủ công; cần kiểm tra nhật ký Android để xác định lỗi hệ thống.'
+            : 'Trình duyệt không hỗ trợ gửi ảnh này qua bảng chia sẻ. Hãy lưu từng ảnh hoặc thử APK HNL QLTC.');
       }
     }).catch((error: any) => {
       setShareFailed(true);
@@ -222,10 +230,10 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
     });
   };
 
-  const handleSaveAttachment = async () => {
-    const attachment = preparedAttachments[0];
-    if (!attachment || savingAttachment) return;
-    setSavingAttachment(true);
+  const handleSaveAttachment = async (index: number) => {
+    const attachment = preparedAttachments[index];
+    if (!attachment || savingAttachment !== null) return;
+    setSavingAttachment(index);
     setStatus('Đang lưu ảnh để chia sẻ thủ công…');
     try {
       const response = await fetch(attachment.dataUrl);
@@ -233,13 +241,11 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
       const blob = await response.blob();
       if (blob.size <= 0) throw new Error('Ảnh chia sẻ bị rỗng.');
       await saveBlobToDownloads(blob, attachment.fileName, attachment.mimeType || blob.type);
-      setStatus(preparedAttachments.length > 1
-        ? `Đã gửi lệnh lưu ảnh đầu tiên vào Tải xuống. Còn ${preparedAttachments.length - 1} ảnh có thể chia sẻ bằng chế độ Ảnh báo cáo có chữ.`
-        : 'Đã gửi lệnh lưu ảnh vào Tải xuống. Hãy đính kèm ảnh từ Zalo hoặc ứng dụng bạn chọn.');
+      setStatus(`Đã yêu cầu lưu ảnh ${index + 1}/${preparedAttachments.length} vào Tải xuống. Mở Zalo và đính kèm ảnh đã lưu.`);
     } catch (error: any) {
       setStatus(`Không lưu được ảnh: ${error?.message || String(error)}`);
     } finally {
-      setSavingAttachment(false);
+      setSavingAttachment(null);
     }
   };
 
@@ -337,9 +343,15 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
               </div>
 
               {shareFailed && includeImages && preparedAttachments.length > 0 && (
-                <button type="button" disabled={savingAttachment} onClick={() => void handleSaveAttachment()} className="w-full rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2.5 text-xs font-extrabold text-indigo-700 disabled:opacity-50">
-                  {savingAttachment ? 'Đang lưu ảnh…' : 'Lưu ảnh để gửi thủ công'}
-                </button>
+                <div className="grid grid-cols-2 gap-2" aria-label="Lưu từng ảnh để gửi thủ công">
+                  {preparedAttachments.map((attachment, index) => (
+                    <button key={`${attachment.id}-${index}`} type="button" disabled={savingAttachment !== null}
+                      onClick={() => void handleSaveAttachment(index)}
+                      className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2.5 text-xs font-extrabold text-indigo-700 disabled:opacity-50">
+                      {savingAttachment === index ? 'Đang lưu…' : preparedAttachments.length === 1 ? 'Lưu ảnh để gửi thủ công' : `Lưu ảnh ${index + 1}/${preparedAttachments.length}`}
+                    </button>
+                  ))}
+                </div>
               )}
 
               <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-semibold leading-relaxed text-slate-600">

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
@@ -13,10 +14,17 @@ assert(source.includes("url: includeImages && imageFormat === 'report' ? '' : sh
 assert(!source.includes('Zalo · Messenger · Telegram · Gmail · SMS'), 'Remove redundant messaging app list');
 assert(source.includes('Lưu ảnh để gửi thủ công') && source.includes('saveBlobToDownloads'), 'Keep an explicit image save path when native file share is unavailable');
 assert(shared.includes('NotAllowedError') && shared.includes('navigator.userActivation'), 'Do not retry Web Share after user activation was denied');
-assert(shared.includes('If it could not open') && shared.includes("status: 'failed'"), 'Native APK errors must not fake a Web Share success');
+assert(shared.includes('The app-owned native bridge already attempted startActivity') && shared.includes("status: 'failed'"), 'Native APK errors must not fake a Web Share success');
 const native = fs.readFileSync('android-wrapper/src/com/qlct/app/MainActivity.java', 'utf8');
 assert(native.includes('if (!safeText.trim().isEmpty()) share.putExtra(Intent.EXTRA_TEXT, safeText);'), 'Native report-card share must not emit an empty text bubble');
 assert(shared.includes('bridge.shareFiles') && shared.includes('navigator.share'), 'Keep native and web share paths');
+assert(shared.includes('decoded.length > 1 && nativeShare([decoded[0]])'), 'APK retries with one photo if multi-photo sharing is refused');
+assert(shared.includes('if (files.length > 1 && canSend([files[0]]))'), 'Single-photo browser share must be reachable if canShare rejects multiple photos');
+assert(shared.includes('sharedFiles: webShare.sharedFiles'), 'Report only the photo count actually accepted by native Web Share');
+assert(source.includes('onClick={() => void handleSaveAttachment(index)}'), 'Every original photo needs a separate save action');
+assert(source.includes('result.sharedFiles < result.requestedFiles'), 'Never tell user two photos were sent when only one was shared');
+assert(source.includes("failureReason === 'native-share-failed'"), 'Show native bridge failure separately from browser limitations');
+
 
 let context = null;
 let canvasHeight = 0;
@@ -57,3 +65,5 @@ for (const [entityType, label] of [['defect', 'BÁO CÁO DEFECT'], ['crewRecord'
 await assert.rejects(() => renderEntityShareCard({ entityType: 'defect', title: '', text: 'x', attachments: [] }), /Không có ảnh/);
 await assert.rejects(() => renderEntityShareCard({ entityType: 'defect', title: '', text: 'x', attachments: [{...picture, dataUrl:'bad'}] }), /Không đọc được ảnh/);
 console.log('HNL QLTC entity share card golden: PASS');
+
+execFileSync(process.execPath, ['--experimental-strip-types', 'scripts/share-browser-runtime-golden.mjs'], { stdio: 'inherit' });
