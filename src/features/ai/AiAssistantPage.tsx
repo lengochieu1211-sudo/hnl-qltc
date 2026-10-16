@@ -365,18 +365,18 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
             return <button key={key} onClick={() => { setMode(key); if (key !== 'ai') { setExternalAiOptIn(false); setExternalAiFullProject(false); } setResult(null); setGeneralText(''); setError(''); setExportNotice(''); setAuditInspect(null); }} className={`rounded-xl px-2 py-2 text-[11px] font-bold flex flex-col sm:flex-row items-center justify-center gap-1 ${active ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}><Icon className="w-4 h-4" />{item.label}</button>;
           })}
         </div>
-        <p className="mt-2 text-sm text-slate-500">{MODE_META[mode].hint}</p>
+        <p className="mt-2 text-[11px] text-slate-500">{MODE_META[mode].hint}</p>
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
         {(mode === 'ai' || mode === 'hybrid') && <div className="mb-3 rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <label className="text-sm font-bold text-slate-700">Nhà cung cấp AI
+            <label className="text-[11px] font-bold text-slate-700">Nhà cung cấp AI
               <select value={providerId} onChange={(e) => { setProviderId(e.target.value as HnlManagedProviderId); setApiKey(''); setShowApiKey(false); setModel(''); setError(''); }} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-800">
                 {(Object.keys(PROVIDER_META) as HnlManagedProviderId[]).map((id) => <option key={id} value={id}>{PROVIDER_META[id].label}</option>)}
               </select>
             </label>
-            <label className="text-sm font-bold text-slate-700">Mô hình AI
+            <label className="text-[11px] font-bold text-slate-700">Mô hình AI
               <select value={model} disabled={modelsLoading || models.length === 0} onChange={(e) => setModel(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-800 disabled:opacity-60">
                 {modelsLoading && <option value="">Đang tải mô hình...</option>}
                 {!modelsLoading && models.length === 0 && <option value="">Chưa có mô hình</option>}
@@ -385,13 +385,13 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
             </label>
           </div>
           {providerId !== 'cloudflare' && <div className="mt-2">
-            <div className="flex items-center justify-between gap-2"><label className="text-sm font-bold text-slate-700">Khóa API (API Key) riêng</label><span className="text-[10px] font-semibold text-emerald-700">Chỉ giữ trong bộ nhớ phiên này</span></div>
+            <div className="flex items-center justify-between gap-2"><label className="text-[11px] font-bold text-slate-700">Khóa API (API Key) riêng</label><span className="text-[10px] font-semibold text-emerald-700">Chỉ giữ trong bộ nhớ phiên này</span></div>
             <div className="mt-1 flex gap-2">
               <input type={showApiKey ? 'text' : 'password'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" spellCheck={false} placeholder={`Nhập khóa API (API Key) ${selectedProvider.label}`} className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800" />
               <button type="button" onClick={() => setShowApiKey((value) => !value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-[11px] font-bold text-slate-700">{showApiKey ? 'Ẩn' : 'Hiện'}</button>
               {apiKey && <button type="button" onClick={() => setApiKey('')} className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-bold text-rose-700">Xóa</button>}
             </div>
-            <p className="mt-1.5 text-xs leading-relaxed text-slate-500">{selectedProvider.apiHint} Khóa API (API Key) bạn nhập không lưu vào Firestore, localStorage, APK/EXE hay nhật ký của HNL; tải lại ứng dụng sẽ phải nhập lại.</p>
+            <p className="mt-1.5 text-[10px] leading-4 text-slate-500">{selectedProvider.apiHint} Khóa API (API Key) bạn nhập không lưu vào Firestore, localStorage, APK/EXE hay nhật ký của HNL; tải lại ứng dụng sẽ phải nhập lại.</p>
           </div>}
           <div className="mt-2 text-[10px] font-semibold text-slate-600">Trạng thái: {modelsLoading ? 'Đang đọc danh sách mô hình...' : providerReady ? `${selectedProvider.label} · ${hasSessionApiKey ? 'Khóa riêng phiên này' : 'Dịch vụ HNL'}` : providerId === 'cloudflare' ? 'Dịch vụ HNL chưa sẵn sàng' : 'Chưa có thông tin xác thực — nhập khóa API (API Key) riêng hoặc dùng dịch vụ HNL nếu đã cấu hình'}</div>
         </div>}
@@ -400,7 +400,7 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
             <input type="checkbox" checked={externalAiOptIn} onChange={(e) => setExternalAiOptIn(e.target.checked)} className="mt-0.5 h-4 w-4" />
             <span>Cho phép AI bên ngoài sử dụng dữ liệu HNL trong câu hỏi này</span>
           </label>
-          <p className="mt-1 text-sm leading-relaxed text-amber-900">Mặc định TẮT. Quyền này chỉ dùng một lần; sau khi gửi thành công sẽ tự tắt. Chỉ dữ liệu đã chọn bên dưới được gửi, ở dạng chỉ đọc và đã tối thiểu hóa.</p>
+          <p className="mt-1 text-[10px] leading-4 text-amber-800">Mặc định TẮT. Quyền này chỉ dùng một lần; sau khi gửi thành công sẽ tự tắt. Chỉ dữ liệu đã chọn bên dưới được gửi, ở dạng chỉ đọc và đã tối thiểu hóa.</p>
           {externalAiOptIn && <label className="mt-2 flex items-start gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-[10px] font-semibold text-indigo-950">
             <input
               type="checkbox"
@@ -454,7 +454,7 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
         {audit && audit.issues.length > 0 && <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-3">
             <h3 className="font-black text-slate-900">Vấn đề phát hiện</h3>
-            <p className="mt-1 text-sm text-slate-500">Nhấn vào từng lỗi để kiểm tra bản ghi và liên kết nguồn. Bộ kiểm tra chỉ đọc, không tự sửa dữ liệu.</p>
+            <p className="mt-1 text-[11px] text-slate-500">Nhấn vào từng lỗi để kiểm tra bản ghi và liên kết nguồn. Bộ kiểm tra chỉ đọc, không tự sửa dữ liệu.</p>
           </div>
           <div className="space-y-2 max-h-[560px] overflow-auto">
             {audit.issues.slice(0, 100).map((issue, index) => {

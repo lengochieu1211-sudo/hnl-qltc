@@ -2036,7 +2036,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
           {showCopyDatePicker && (
             <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50/70 p-3">
-              <div className="text-sm font-bold text-indigo-800 mb-2">Chọn ngày cần sao chép quân số</div>
+              <div className="text-[11px] font-bold text-indigo-800 mb-2">Chọn ngày cần sao chép quân số</div>
               <div className="flex items-center gap-2">
                 <input
                   type="date"
@@ -2598,7 +2598,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     </div>
 
                     {teamFloorNames.length > 0 && (
-                      <div className="text-sm bg-slate-50 border border-slate-100 rounded-lg p-2 mt-2 flex items-center justify-between text-slate-600">
+                      <div className="text-[11px] bg-slate-50 border border-slate-100 rounded-lg p-2 mt-2 flex items-center justify-between text-slate-600">
                         <span className="font-semibold flex items-center gap-1 text-slate-500 shrink-0">
                           <MapPin className="w-3 h-3 text-indigo-500" />
                           Tầng thi công ({teamFloorNames.length}):
@@ -2610,7 +2610,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     )}
 
                     {teamWorkCategories.length > 0 && (
-                      <div className="text-sm bg-indigo-50/20 border border-indigo-100/50 rounded-lg p-2 my-2 space-y-1 text-slate-600">
+                      <div className="text-[11px] bg-indigo-50/20 border border-indigo-100/50 rounded-lg p-2 my-2 space-y-1 text-slate-600">
                         <span className="font-semibold flex items-center gap-1 text-indigo-700 shrink-0">
                           <Briefcase className="w-3 h-3 text-indigo-500" />
                           Hạng mục thi công ({teamWorkCategories.length}):
@@ -2839,7 +2839,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     </div>
                   ))}
                 </div>
-                <div className="mt-1.5 text-xs text-slate-500">Quân số ngày dùng giá trị lớn nhất giữa các ca: <strong>{formatDecimal(workerCount)}</strong> người.</div>
+                <div className="mt-1.5 text-[10px] text-slate-400">Quân số ngày dùng giá trị lớn nhất giữa các ca: <strong>{formatDecimal(workerCount)}</strong> người.</div>
               </div>
 
               {/* Multi-floor & Multi-category Work Configuration */}
@@ -2868,7 +2868,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       <div key={fIdx} className="bg-white p-3 rounded-lg border border-slate-200 space-y-2.5 relative shadow-sm">
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex-1">
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-0.5">Tầng</label>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">Tầng</label>
                             <select
                               value={fw.floorId}
                               onChange={(e) => updateFloorWorkFloor(fIdx, e.target.value)}
@@ -2979,7 +2979,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
                               {/* Sub-items / Hạng mục phụ */}
                               <div className="pl-2 space-y-1">
-                                <div className="text-xs text-slate-500 font-semibold">Hạng mục phụ / Công đoạn:</div>
+                                <div className="text-[10px] text-slate-500 font-semibold">Hạng mục phụ / Công đoạn:</div>
                                 <div className="flex flex-wrap gap-1 items-center">
                                   {cat.subItems.map((sub, sIdx) => (
                                     <span key={sIdx} className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 text-[10px] px-2 py-0.5 rounded-full font-medium">

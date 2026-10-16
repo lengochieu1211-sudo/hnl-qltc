@@ -296,10 +296,10 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
         <div className="flex items-center gap-2 font-bold text-slate-900"><ShieldCheck className="h-4 w-4 text-indigo-600" /> Kiểm tra dữ liệu & liên kết</div>
-        <div className="mt-1 text-xs font-semibold text-slate-500">Phát hiện dữ liệu mất liên kết · mở đúng bản ghi · sửa có xác nhận · không tự xóa lịch sử</div>
+        <div className="mt-1 text-[10px] font-semibold text-slate-500">Phát hiện dữ liệu mất liên kết · mở đúng bản ghi · sửa có xác nhận · không tự xóa lịch sử</div>
         <div className="mt-1 break-all text-[9px] text-slate-400">Mã bản kiểm tra: {report.auditSnapshotId}</div>
       </div>
-      <button type="button" onClick={() => { setRunAt(Date.now()); setShowRepairPreview(false); }} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-bold text-slate-700"><RefreshCw className="h-3.5 w-3.5" /> Kiểm tra lại dữ liệu hiện có</button>
+      <button type="button" onClick={() => { setRunAt(Date.now()); setShowRepairPreview(false); }} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700"><RefreshCw className="h-3.5 w-3.5" /> Kiểm tra lại dữ liệu hiện có</button>
     </div>
 
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -321,15 +321,15 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
 
 
     {userRole === 'ADMIN' && repairPreview && repairPreview.operations.length > 0 && <div className="flex justify-end">
-      <button type="button" onClick={() => setShowRepairPreview((value) => !value)} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-sm font-bold text-emerald-700"><Wrench className="h-3.5 w-3.5" /> {showRepairPreview ? 'Ẩn sửa an toàn' : `Xem sửa an toàn (${repairPreview.operations.length})`}</button>
+      <button type="button" onClick={() => setShowRepairPreview((value) => !value)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[10px] font-bold text-emerald-700"><Wrench className="h-3.5 w-3.5" /> {showRepairPreview ? 'Ẩn sửa an toàn' : `Xem sửa an toàn (${repairPreview.operations.length})`}</button>
     </div>}
 
     {showRepairPreview && repairPreview && <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div><div className="text-xs font-black text-emerald-800">Xem trước sửa lỗi · chưa ghi dữ liệu</div><div className="mt-0.5 text-[9px] font-semibold text-emerald-700">Chỉ liệt kê thay đổi có đích xác định duy nhất. Dữ liệu mất liên kết thật, trường hợp mơ hồ và lỗi nghiệp vụ không được tự sửa.</div></div>
         <div className="flex flex-wrap gap-1.5">
-          <button type="button" disabled={Boolean(exporting)} onClick={() => void exportRepairBackup()} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-emerald-300 bg-white px-2.5 py-1.5 text-sm font-bold text-emerald-800"><Download className="h-3.5 w-3.5" /> Sao lưu trước sửa</button>
-          <button type="button" disabled={Boolean(exporting) || !repairPreview.canApply || freshness !== 'live'} onClick={() => void applySafeRepair()} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-emerald-700 bg-emerald-700 px-2.5 py-1.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"><Wrench className="h-3.5 w-3.5" /> {exporting === 'repair-apply' ? 'Đang kiểm tra...' : 'Sao lưu & áp dụng sửa an toàn'}</button>
+          <button type="button" disabled={Boolean(exporting)} onClick={() => void exportRepairBackup()} className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-white px-2.5 py-1.5 text-[10px] font-bold text-emerald-800"><Download className="h-3.5 w-3.5" /> Sao lưu trước sửa</button>
+          <button type="button" disabled={Boolean(exporting) || !repairPreview.canApply || freshness !== 'live'} onClick={() => void applySafeRepair()} className="inline-flex items-center gap-1 rounded-lg border border-emerald-700 bg-emerald-700 px-2.5 py-1.5 text-[10px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"><Wrench className="h-3.5 w-3.5" /> {exporting === 'repair-apply' ? 'Đang kiểm tra...' : 'Sao lưu & áp dụng sửa an toàn'}</button>
         </div>
       </div>
       <div className="space-y-1.5">
@@ -364,11 +364,11 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
         </div>;
       })}
     </div>
-    {message && <div className="rounded-lg border border-slate-200 bg-white p-2 text-sm font-semibold text-slate-600">{message}</div>}
+    {message && <div className="rounded-lg border border-slate-200 bg-white p-2 text-[10px] font-semibold text-slate-600">{message}</div>}
 
     <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3 space-y-2">
       <div>
-        <div className="text-sm font-extrabold text-slate-700">Xuất &amp; chia sẻ chẩn đoán</div>
+        <div className="text-[10px] font-extrabold text-slate-700">Xuất &amp; chia sẻ chẩn đoán</div>
         <div className="mt-0.5 text-[9px] font-semibold text-slate-500">Một tệp chứa chung kiểm tra dữ liệu/liên kết + trạng thái hệ thống/đồng bộ + ảnh R2. PDF đã bỏ để tránh trùng.</div>
       </div>
       {/* Match Crew share report: Content (slate), JSON (emerald), Excel (indigo). Actions unchanged. */}
