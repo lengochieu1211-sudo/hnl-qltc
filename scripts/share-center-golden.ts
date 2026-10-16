@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 
 const read = (path: string) => fs.readFileSync(path, 'utf8');
@@ -69,4 +70,5 @@ mustContain(android, 'saveFileToDownloads(export.fileName, export.mimeType, expo
 mustContain(android, 'Environment.DIRECTORY_DOWNLOADS + "/QLTC"', 'APK download target is Download/QLTC');
 
 
+execFileSync(process.execPath, ['--experimental-strip-types', 'scripts/entity-share-card-golden.mjs'], { stdio: 'inherit' });
 console.log('HNL QLTC share center golden: PASS');
