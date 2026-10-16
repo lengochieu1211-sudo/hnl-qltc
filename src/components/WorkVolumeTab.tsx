@@ -904,7 +904,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           {Object.entries(totals.byUnit).length > 0 ? (Object.entries(totals.byUnit) as Array<[string, { planned: number; actual: number; displayUnit: string }]>).map(([unitName, values]) => (
             <div key={unitName} className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] text-slate-400">Khối lượng · {unitName}</p>
+                <p className="text-xs text-slate-300">Khối lượng · {unitName}</p>
                 <span className="text-[10px] font-extrabold text-emerald-300">
                   {values.planned > 0 ? Math.min(100, Math.round((values.actual / values.planned) * 100)) : 0}%
                 </span>
@@ -923,11 +923,11 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
             <div className="space-y-1.5 pt-1">
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60">
-                  <p className="text-[10px] text-slate-400">Giá trị định mức</p>
+                  <p className="text-xs text-slate-300">Giá trị định mức</p>
                   <p className="text-sm font-extrabold text-slate-100">{formatVND(totals.plannedValue)}</p>
                 </div>
                 <div className="bg-emerald-950/60 p-2.5 rounded-xl border border-emerald-700/40">
-                  <p className="text-[10px] text-emerald-300">Giá trị đã thực hiện</p>
+                  <p className="text-xs text-emerald-300">Giá trị đã thực hiện</p>
                   <p className="text-sm font-extrabold text-emerald-400">{formatVND(totals.actualValue)}</p>
                 </div>
               </div>
@@ -986,7 +986,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         resetLabel="Thứ tự thủ công"
       />
       {hasStructureManageAccess && volSortBy !== 'none' && (
-        <p className="text-[11px] text-slate-500">Chọn “Thứ tự thủ công” để di chuyển hạng mục lên/xuống hoặc kéo thả.</p>
+        <p className="text-sm text-slate-500">Chọn “Thứ tự thủ công” để di chuyển hạng mục lên/xuống hoặc kéo thả.</p>
       )}
 
       {/* Items List */}
@@ -1182,7 +1182,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                     {/* Numerical breakdown */}
                     <div className="flex flex-wrap items-center justify-between text-xs bg-slate-50 p-2 rounded-xl gap-2">
                       <div>
-                        <span className="text-slate-500 text-[11px]">Thực hiện: </span>
+                        <span className="text-slate-500 text-sm">Thực hiện: </span>
                         <span className="font-extrabold text-slate-900">
                           {formatDecimal(item.actual)} / {formatDecimal(item.planned)} {item.unit}
                         </span>

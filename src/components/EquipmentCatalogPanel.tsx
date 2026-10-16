@@ -353,7 +353,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
   };
 
   return <div className="space-y-3" data-hnl-equipment-master="true">
-    <p className="text-[11px] leading-relaxed text-slate-600">
+    <p className="text-sm leading-relaxed text-slate-600">
       Quản lý thông số thiết bị tại đây. Nhật ký Nhập/Xuất và tồn kho giữ nguyên, không đưa thiết bị vào định mức hao phí vật tư.
     </p>
     {notice && <p role="status" className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">{notice}</p>}
@@ -402,7 +402,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
               ? { ...prev, displayName: event.target.value }
               : { ...prev, name: event.target.value, displayName: event.target.value }) : prev)}
             placeholder="Ví dụ: Máy cắt thạch cao" className={FIELD_CLASS} />
-          {editingExisting && <span className="mt-1 block text-[10px] font-normal text-slate-500">
+          {editingExisting && <span className="mt-1 block text-xs font-normal text-slate-500">
             Tên định danh trên phiếu kho: <strong>{edit.name}</strong>. Việc đổi tên hiển thị không thay đổi mã thiết bị hoặc lịch sử nhập/xuất.
           </span>}
         </label>
@@ -428,7 +428,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
           {customGroup && <input value={edit.category} disabled={busy} className={FIELD_CLASS}
             placeholder="Nhập tên nhóm thiết bị mới"
             onChange={event => setEdit(prev => prev ? { ...prev, category: event.target.value } : prev)} />}
-          <span className="mt-1 block text-[10px] font-normal text-slate-500">
+          <span className="mt-1 block text-xs font-normal text-slate-500">
             Nhóm mới sẽ xuất hiện trong danh sách chọn sau khi lưu thiết bị.
           </span>
         </label>
@@ -462,10 +462,10 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
         )}
       </div>
 
-      {editingExisting && editingHistoricalUnits.length > 1 && <p className="text-[11px] font-semibold text-amber-800">
+      {editingExisting && editingHistoricalUnits.length > 1 && <p className="text-sm font-semibold text-amber-800">
         Chú ý: phiếu kho của thiết bị này đang có nhiều ĐVT ({editingHistoricalUnits.join(', ')}). Chỉ sửa tên hiển thị / thông tin; các ĐVT kho vẫn được giữ riêng, không tự gộp hoặc quy đổi.
       </p>}
-      {editingExisting && <p className="flex items-start gap-2 text-[11px] text-amber-800" data-hnl-equipment-unit-guidance="true">
+      {editingExisting && <p className="flex items-start gap-2 text-sm text-amber-800" data-hnl-equipment-unit-guidance="true">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
         {editingHasHistory
           ? 'Có phiếu kho: sửa ngay tại Đơn vị tính rồi bấm Lưu thay đổi. Hệ thống sẽ yêu cầu xác nhận và chỉ đồng bộ 1:1 khi phiếu/số dư hợp lệ. Nếu Cái và Bộ khác nhau thực tế hoặc có nhiều ĐVT lịch sử, cần đối chiếu trước.'
@@ -509,7 +509,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
         <p className="text-[11px] text-slate-500">Tắt Sắp xếp nhanh để thay đổi vị trí thủ công, thứ tự Cloud đã lưu vẫn được giữ.</p>
       )}
       {canManage && orderedSavedRecords.length > 100 && (
-        <p className="text-[11px] text-amber-700">Danh mục có hơn 100 thiết bị: khóa sắp xếp hàng loạt để tránh ghi Cloud không nguyên tử.</p>
+        <p className="text-sm text-amber-700">Danh mục có hơn 100 thiết bị: khóa sắp xếp hàng loạt để tránh ghi Cloud không nguyên tử.</p>
       )}
       {canManage && <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
         <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-bold text-slate-700">

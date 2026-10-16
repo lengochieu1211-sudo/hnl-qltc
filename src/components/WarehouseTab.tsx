@@ -2243,7 +2243,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   </div>
                 ))}
               </div>
-              <p className="text-[11px] text-slate-500">Chỉ xem lịch sử; không tạo phiếu mới, không thay đổi tồn kho hoặc quyền chỉnh sửa.</p>
+              <p className="text-sm text-slate-500">Chỉ xem lịch sử; không tạo phiếu mới, không thay đổi tồn kho hoặc quyền chỉnh sửa.</p>
             </div>
             </div>
           ) : (
@@ -2370,7 +2370,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             </div>
           </div>
           {warehouseCatalogTab === 'equipment' && (
-            <p className="text-[10px] leading-relaxed text-slate-500">
+            <p className="text-xs leading-relaxed text-slate-500">
               Thiết bị được dùng lại ở các phiếu nhập/xuất nhưng không tham gia Định mức vật tư hoặc Gợi ý vật tư.
             </p>
           )}
@@ -2484,7 +2484,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           >
             <div className="min-w-0">
               <h3 className="text-sm font-extrabold text-slate-900">Gợi ý vật tư tổng hợp · Nhu cầu theo phạm vi</h3>
-              <p className="text-[11px] leading-relaxed text-slate-600">
+              <p className="text-sm leading-relaxed text-slate-600">
                 {normalizedStructureConfig.enabled ? `${materialNeedStructureGroupSummary} · ` : ''}{materialNeedFloorSummary} · {materialNeedRoomSummary} · {materialNeedWorkCategorySummary} · {materialNeedTeamSummary} · {materialNeedLines.length} loại vật tư
               </p>
             </div>
@@ -2511,7 +2511,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             bodyClassName="space-y-3"
           >
             <div id="material-need-details" className="flex min-w-0 flex-col gap-3">
-              <p className="text-[11px] text-slate-600">
+              <p className="text-sm text-slate-600">
                 Có thể chọn {normalizedStructureConfig.enabled ? `${normalizedStructureConfig.label}, ` : ''}một hoặc nhiều tầng, căn/phòng, hạng mục thi công đã khai và đội thi công. Để trống bộ lọc nghĩa là chọn tất cả. Hệ thống sử dụng chung một bộ tính nhu cầu vật tư từ dữ liệu gốc, sau đó mới lọc và tổng hợp để tránh tính trùng khối lượng.
               </p>
 
@@ -2656,7 +2656,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                       setMaterialNeedTeamIds([]);
                       setMaterialNeedWorkCategoryIds([]);
                     }}
-                    className="min-h-10 rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-extrabold text-indigo-700 hover:bg-indigo-50"
+                    className="min-h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-extrabold text-indigo-700 hover:bg-indigo-50"
                   >
                     Đặt lại bộ lọc
                   </button>
