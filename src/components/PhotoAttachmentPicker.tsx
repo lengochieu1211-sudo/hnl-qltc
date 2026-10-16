@@ -19,6 +19,9 @@ interface PhotoAttachmentPickerProps {
   /** Compact Crew count button that opens the same full-screen viewer as Defect photos. */
   compactViewerButton?: boolean;
   onPhotosChanged?: (photos: PhotoAttachment[]) => void;
+  /** Only used by Warehouse: staged local files are imported after voucher commit. */
+  initialFiles?: File[];
+  onInitialFilesProcessed?: () => void;
 }
 
 const notifyPhotoAttachmentsChanged = (detail?: Record<string, any>) => {
@@ -54,7 +57,9 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   maxPhotos = 10,
   readOnly = false,
   compactViewerButton = false,
-  onPhotosChanged
+  onPhotosChanged,
+  initialFiles,
+  onInitialFilesProcessed
 }) => {
   const [photos, setPhotos] = useState<PhotoAttachment[]>([]);
   const [photoDataUrls, setPhotoDataUrls] = useState<Record<string, string>>({});
@@ -354,6 +359,14 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       if (libraryInputRef.current) libraryInputRef.current.value = '';
     }
   };
+
+  const initialImportStartedRef = useRef(false);
+  useEffect(() => {
+    if (loading || readOnly || initialImportStartedRef.current || !initialFiles?.length) return;
+    initialImportStartedRef.current = true;
+    // Use the same compression, IndexedDB outbox, Cloud ready checks and retries as manual selection.
+    void processSelectedFiles(initialFiles).finally(() => onInitialFilesProcessed?.());
+  }, [loading, readOnly, initialFiles, projectId, entityId]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     await processSelectedFiles(e.target.files);

@@ -49,6 +49,8 @@ import { getFloorPlanImageCacheSnapshot, getFloorPlanImageOutboxSnapshot } from 
 import { getProjectPhotoDiagnosticSnapshot } from '../utils/photoStorage';
 import { HealthCenterPanel } from '../healthCenter/HealthCenterPanel';
 import { SettingsAccordionCard } from './SettingsAccordionCard';
+import { WarehouseDeletedVoucherRecovery } from './WarehouseDeletedVoucherRecovery';
+import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
 import { WindowsDesktopSyncBridgeCard } from './WindowsDesktopSyncBridgeCard';
 import { ProjectOfflineMirrorCard } from './ProjectOfflineMirrorCard';
 import { CatalogTemplateManager } from './CatalogTemplateManager';
@@ -98,6 +100,7 @@ interface GoogleConfigTabProps {
 
   // Lightweight project trash (metadata only; no Base64/blob duplication).
   userRole?: UserRole;
+  roleResolved?: boolean;
   trashSettings?: TrashSettings;
   trashOperations?: TrashOperation[];
   onTrashSettingsChange?: (settings: TrashSettings) => void;
@@ -170,6 +173,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   onRequestLocalFilePermission,
   syncCenterContent,
   userRole = 'VIEWER',
+  roleResolved = false,
   trashSettings = { enabled: true, retentionDays: 7 },
   trashOperations = [],
   onTrashSettingsChange,
@@ -1057,7 +1061,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
               Thùng rác chung lưu 8 nhóm: Tầng, Căn/Phòng, Defect, Checklist, Quân số, Đội, Khối lượng và Định mức. Không nhân đôi ảnh nhị phân; mặc định giữ 7 ngày.
             </p>
             <p className="text-[10px] text-amber-700 mt-1">
-              Phiếu nhập/xuất khôi phục riêng tại Kho (kiểm soát tồn kho nguyên tử); danh mục thiết bị và Dự án có Thùng rác riêng. Chat, mẫu danh mục và bản autosave KHÔNG thuộc Thùng rác này; một số thao tác xóa chưa có chức năng khôi phục.
+              Phiếu Nhập/Xuất đã xóa được khôi phục bên dưới bằng giao dịch tồn kho riêng; danh mục thiết bị và Dự án có Thùng rác riêng. Chat, mẫu danh mục và bản autosave KHÔNG thuộc Thùng rác này; một số thao tác xóa chưa có chức năng khôi phục.
             </p>
           </div>
 
@@ -1156,6 +1160,10 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
               );
             })}
           </div>
+        )}
+
+        {userRole === 'ADMIN' && roleResolved && FIREBASE_ONLY_RUNTIME && activeProjectId && (
+          <WarehouseDeletedVoucherRecovery key={activeProjectId} projectId={activeProjectId} />
         )}
 
         {userRole !== 'ADMIN' && (

@@ -8228,6 +8228,7 @@ function AuthenticatedApp() {
                 />
               )}
               userRole={currentUserRole}
+              roleResolved={isProjectRoleResolved}
               trashSettings={trashSettings}
               trashOperations={trashOperations}
               onTrashSettingsChange={handleTrashSettingsChange}

@@ -15,6 +15,8 @@ assert.throws(() => stock('in', 0, 5), /INVENTORY_LEDGER_INVALID_QUANTITY/, 'inv
 assert.equal(getWarehouseSignedDelta({ type: 'out', quantity: 7 }), -7);
 const transaction = read('src/lib/warehouseTransactions.ts');
 const warehouse = read('src/components/WarehouseTab.tsx');
+const recovery = read('src/components/WarehouseDeletedVoucherRecovery.tsx');
+const config = read('src/components/GoogleConfigTab.tsx');
 const rules = read('firestore.rules');
 const photo = read('src/utils/photoStorage.ts');
 assert.match(transaction, /export async function restoreWarehouseTransactionAtomic\(/);
@@ -30,10 +32,12 @@ assert.match(transaction, /calculateRestoredWarehouseBalance\(currentOnHand, cur
 assert.match(transaction, /tx\.set\(balanceRef,[\s\S]*?tx\.set\(transactionRef/, 'balance and voucher update in same transaction');
 assert.match(transaction, /deleted: false, deletedAt: null, deletedByUid: null, deletedBy: null/);
 assert.match(transaction, /if \(current\.deleted !== true\)\s*\{\s*return \{ transactionId, materialKey, onHand: currentOnHand, duplicate: true \}/, 'already restored voucher is idempotent');
-assert.match(warehouse, /hasDeleteAccess && FIREBASE_ONLY_RUNTIME && \(/, 'only ADMIN sees cloud recovery');
-assert.match(warehouse, /data-hnl-warehouse-deleted-recovery="true"/);
-assert.match(warehouse, /await restoreWarehouseTransactionAtomic\(currentProjectId, row\.id\)/);
-assert.match(warehouse, /deletedVoucherRequestRef\.current/, 'project switch cancels stale recovery results');
+assert.doesNotMatch(warehouse, /data-hnl-warehouse-deleted-recovery/, 'warehouse main tab must not display recovery actions');
+assert.match(config, /userRole === 'ADMIN' && roleResolved && FIREBASE_ONLY_RUNTIME && activeProjectId/, 'only verified ADMIN sees cloud recovery');
+assert.match(config, /<WarehouseDeletedVoucherRecovery key=\{activeProjectId\} projectId=\{activeProjectId\}/, 'recovery belongs under global Trash');
+assert.match(recovery, /data-hnl-warehouse-deleted-recovery="true"/);
+assert.match(recovery, /await restoreWarehouseTransactionAtomic\(projectId, row\.id\)/);
+assert.match(recovery, /requestRef\.current/, 'project switch invalidates stale cloud results');
 assert.match(photo, /'crewRecord' \| 'defect' \| 'chat' \| 'inventory'/);
 assert.match(rules, /coreIdentityUpdateIsValid\(recordId\) && lifecycleUpdateIsMonotonic\(\)/);
 assert.doesNotMatch(transaction, /deleteEntityPhotos|purgeBinaryObject|deleteDoc\(/, 'recovery cannot purge media');

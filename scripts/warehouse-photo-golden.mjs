@@ -25,11 +25,14 @@ assert(warehouse.includes('maxPhotos={10}'), 'Warehouse attachment count is capp
 assert(warehouse.includes("const savedVoucherId = editingInventory?.id || createEntityId(type === 'in' ? 'NK' : 'XK')"), 'ID must be assigned before committing new warehouse voucher');
 const saveStart = warehouse.indexOf('const savedVoucherId = editingInventory?.id');
 const commit = warehouse.indexOf('await onAddInventory({ ...payload, id: savedVoucherId });', saveStart);
-const photoOpen = warehouse.indexOf('setPhotoVoucher({ projectId: currentProjectId, id: savedVoucherId, type, materialName: finalMaterialName });', commit);
+const photoOpen = warehouse.indexOf('setPhotoVoucher({ projectId: currentProjectId, id: savedVoucherId, type, materialName: finalMaterialName, initialFiles: [...pendingVoucherPhotos] });', commit);
 const errorCatch = warehouse.indexOf('} catch (err: any) {', photoOpen);
 assert(saveStart !== -1 && commit > saveStart && photoOpen > commit && errorCatch > photoOpen, 'Upload flow is unavailable until the stock transaction successfully commits');
 assert(warehouse.includes('inventorySaveInFlightRef.current'), 'Duplicate submit attempts must not create duplicate vouchers');
-assert(warehouse.includes('Ảnh giao nhận (tùy chọn): lưu phiếu thành công trước'), 'New form cannot upload before voucher commit');
+assert(warehouse.includes('data-hnl-warehouse-staged-photos="true"'), 'New form supports optional camera/gallery draft selection before saving');
+assert(warehouse.includes('setPendingVoucherPhotos([]);'), 'Photo drafts are cleared only after committing or deliberate cancel');
+assert(warehouse.includes('initialFiles={photoVoucher.initialFiles}'), 'Staged files are handed to the existing photo picker only after voucher commit');
+assert(photoPicker.includes('void processSelectedFiles(initialFiles)'), 'Staged files must reuse the existing R2/cloud-ready photo processing');
 assert(!warehouse.includes('deleteEntityPhotos('), 'Soft deleting warehouse vouchers cannot eagerly delete recoverable photos');
 assert(app.includes('commitWarehouseTransactionAtomic(activeProjectIdRef.current, normalized)'), 'Creation remains atomic, enforcing stock rules');
 assert(app.includes('const newId = item.id || createEntityId'), 'App must preserve the explicit pre-allocated transaction ID');
@@ -54,4 +57,4 @@ assert.deepEqual(selectAuthoritativeRestorePhotos(photoRows,{}).photos.map(p=>p.
 const legacyAudit = read('scripts/firebase-only-legacy-audit.mjs');
 assert(legacyAudit.includes("if (p.entityType === 'inventory') return !inventoryIds.has"), 'Audit recognizes missing inventory photo parent');
 assert(legacyAudit.includes('new Set(collections.inventory.map'), 'Soft-deleted voucher photos must remain recoverable in legacy audit');
-console.log('WAREHOUSE PHOTO GOLDEN PASS – commit-first, ID, RBAC, R2, restore, no ledger mutation');
+console.log('WAREHOUSE PHOTO GOLDEN PASS – stage-first/commit-before-upload, ID, RBAC, R2, restore, no ledger mutation');

@@ -13,7 +13,6 @@ import {
   FileSpreadsheet,
   FileText,
   Trash2,
-  RotateCcw,
   Filter,
   Sliders,
   ArrowUpDown,
@@ -43,7 +42,6 @@ import { equipmentIdentityKey, EquipmentUnitMigrationRequiredError, saveEquipmen
 import type { WarehouseUnitRenameInput } from '../lib/warehouseUnitMigration';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import { WarehouseVoucherShareSheet } from './WarehouseVoucherShareSheet';
-import { listDeletedWarehouseVouchers, restoreWarehouseTransactionAtomic, type DeletedWarehouseVoucher } from '../lib/warehouseTransactions';
 import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
 import { DataManagementMenu } from './DataManagementMenu';
 import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';
@@ -96,6 +94,54 @@ interface WarehouseTabProps {
   structureConfig: ProjectStructureConfig;
   defaultHandler?: string;
 }
+
+/** Select photos before creating a voucher, but never publish orphan photo metadata. */
+const WarehouseVoucherPhotoDraft: React.FC<{ files: File[]; onChange: (files: File[]) => void }> = ({ files, onChange }) => {
+  const [urls, setUrls] = useState<string[]>([]);
+  useEffect(() => {
+    const previews = files.map((file) => { try { return URL.createObjectURL(file); } catch { return ''; } });
+    setUrls(previews);
+    return () => previews.forEach((url) => { if (url) URL.revokeObjectURL(url); });
+  }, [files]);
+  const addFiles = (list: FileList | null) => {
+    if (!list?.length) return;
+    const chosen = Array.from(list);
+    if (files.length + chosen.length > 10) { window.alert('Mỗi phiếu chỉ được tối đa 10 ảnh.'); return; }
+    const invalid = chosen.find((f) =>
+      (f.type ? !['image/jpeg', 'image/png', 'image/webp', 'image/bmp', 'image/gif'].includes(f.type.toLowerCase())
+        : !/\.(jpe?g|png|webp|bmp|gif)$/i.test(f.name)) || f.size > 25 * 1024 * 1024
+    );
+    if (invalid) { window.alert(`Ảnh ${invalid.name} không hợp lệ (JPG/PNG/WebP, tối đa 25 MB/ảnh).`); return; }
+    onChange([...files, ...chosen]);
+  };
+  return (
+    <div className="space-y-2" data-hnl-warehouse-staged-photos="true">
+      <p className="text-[11px] font-bold text-sky-800">ẢNH GIAO NHẬN VẬT TƯ / THIẾT BỊ ({files.length}/10) · Không bắt buộc</p>
+      <div className="flex flex-wrap gap-2">
+        <label className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 text-xs font-bold text-blue-700">
+          <Images className="h-4 w-4" /> Chụp ảnh
+          <input type="file" className="hidden" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
+        </label>
+        <label className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-700">
+          <Images className="h-4 w-4" /> Thư viện
+          <input type="file" className="hidden" accept="image/*" multiple onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
+        </label>
+      </div>
+      {files.length > 0 && (
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+          {files.map((file, i) => (
+            <div key={`${file.name}-${file.lastModified}-${i}`} className="relative overflow-hidden rounded-lg border border-slate-200 bg-white">
+              {urls[i] ? <img alt={`Ảnh giao nhận ${i + 1}`} src={urls[i]} className="h-20 w-full object-cover" /> : <div className="flex h-20 items-center justify-center text-xs text-slate-400">Ảnh {i + 1}</div>}
+              <button type="button" aria-label={`Bỏ ảnh ${i + 1}`} onClick={() => onChange(files.filter((_, j) => j !== i))}
+                className="absolute right-1 top-1 rounded-full bg-rose-600 px-2 py-1 text-[10px] font-bold text-white">✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="text-[10px] text-slate-600">Ảnh chỉ tạm lưu trên thiết bị khi chưa lưu phiếu. Sau khi giao dịch tồn kho thành công, ảnh sẽ được thêm vào phiếu đúng mã và đồng bộ Cloud/R2.</p>
+    </div>
+  );
+};
 
 export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   isActive = true,
@@ -152,52 +198,14 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [copiedInventoryId, setCopiedInventoryId] = useState<string | null>(null);
   const [showWarehouseCatalog, setShowWarehouseCatalog] = useState(false);
   const [voucherShareOpen, setVoucherShareOpen] = useState(false);
-  const [showDeletedVouchers, setShowDeletedVouchers] = useState(false);
-  const [deletedVouchers, setDeletedVouchers] = useState<DeletedWarehouseVoucher[]>([]);
-  const [deletedVoucherBusy, setDeletedVoucherBusy] = useState(false);
-  const [deletedVoucherError, setDeletedVoucherError] = useState('');
-  const deletedVoucherRequestRef = useRef(0);
-  const refreshDeletedVouchers = async () => {
-    if (!hasDeleteAccess || !currentProjectId || !FIREBASE_ONLY_RUNTIME) return;
-    const requestId = ++deletedVoucherRequestRef.current;
-    setDeletedVoucherBusy(true);
-    setDeletedVoucherError('');
-    try {
-      const rows = await listDeletedWarehouseVouchers(currentProjectId);
-      if (requestId === deletedVoucherRequestRef.current) setDeletedVouchers(rows);
-    } catch (error) {
-      if (requestId === deletedVoucherRequestRef.current) {
-        setDeletedVoucherError(error instanceof Error ? error.message : String(error));
-      }
-    } finally {
-      if (requestId === deletedVoucherRequestRef.current) setDeletedVoucherBusy(false);
-    }
-  };
-  const restoreDeletedVoucher = async (row: DeletedWarehouseVoucher) => {
-    if (!hasDeleteAccess || !currentProjectId || !FIREBASE_ONLY_RUNTIME || deletedVoucherBusy) return;
-    if (!(await confirmAsync(`Khôi phục phiếu ${row.type === 'in' ? 'Nhập' : 'Xuất'} ${row.materialName} (${formatDecimal(row.quantity)} ${row.unit})? Tồn kho sẽ được điều chỉnh nguyên tử trên Cloud.`))) return;
-    setDeletedVoucherBusy(true);
-    setDeletedVoucherError('');
-    try {
-      await restoreWarehouseTransactionAtomic(currentProjectId, row.id);
-      setDeletedVouchers((rows) => rows.filter((item) => item.id !== row.id));
-    } catch (error) {
-      setDeletedVoucherError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setDeletedVoucherBusy(false);
-    }
-  };
-
-  // A photo session may start only after the Firestore stock transaction commits.
-  // Never stage a photo for an unsaved voucher (an OUT transaction can be rejected).
-  const [photoVoucher, setPhotoVoucher] = useState<(Pick<InventoryItem, 'id' | 'type' | 'materialName'> & { projectId: string }) | null>(null);
+  // Draft images remain in-memory, never in R2/Firestore until the ledger commits.
+  const [pendingVoucherPhotos, setPendingVoucherPhotos] = useState<File[]>([]);
+  const [photoVoucher, setPhotoVoucher] = useState<(Pick<InventoryItem, 'id' | 'type' | 'materialName'> & { projectId: string; initialFiles?: File[] }) | null>(null);
   useEffect(() => {
-    deletedVoucherRequestRef.current += 1;
     setPhotoVoucher(null);
-    setShowDeletedVouchers(false);
-    setDeletedVouchers([]);
-    setDeletedVoucherError('');
-    setDeletedVoucherBusy(false);
+    setPendingVoucherPhotos([]);
+    setShowAddForm(false);
+    setEditingInventory(null);
   }, [currentProjectId]);
   const inventorySaveInFlightRef = useRef(false);
   const [catalogHistory, setCatalogHistory] = useState<{
@@ -1418,6 +1426,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const openCreateInventory = (kind: InventoryItemKind = 'material') => {
     if (!hasEditAccess) return;
     setEditingInventory(null);
+    setPendingVoucherPhotos([]);
     setItemKind(kind);
     setType('in');
     setCustomMaterial('');
@@ -1449,6 +1458,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
   const openEditInventory = (item: InventoryItem) => {
     if (!hasEditAccess) return;
+    setPendingVoucherPhotos([]);
     setEditingInventory(item);
     const editingKind: InventoryItemKind = item.itemKind === 'equipment' ? 'equipment' : 'material';
     setItemKind(editingKind);
@@ -1636,7 +1646,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       }
       // Receipt photos use the exact committed ledger document ID across all devices.
       if (!editingInventory && currentProjectId) {
-        setPhotoVoucher({ projectId: currentProjectId, id: savedVoucherId, type, materialName: finalMaterialName });
+        setPhotoVoucher({ projectId: currentProjectId, id: savedVoucherId, type, materialName: finalMaterialName, initialFiles: [...pendingVoucherPhotos] });
+        setPendingVoucherPhotos([]);
       }
 
       if (keepOpen) {
@@ -2927,35 +2938,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       </div>
 
 
-      {hasDeleteAccess && FIREBASE_ONLY_RUNTIME && (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5" data-hnl-warehouse-deleted-recovery="true">
-          <button type="button" className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-100"
-            onClick={() => { if (showDeletedVouchers) { setShowDeletedVouchers(false); } else { setShowDeletedVouchers(true); void refreshDeletedVouchers(); } }}
-            aria-expanded={showDeletedVouchers}>
-            <RotateCcw className="h-4 w-4" /> Phiếu kho đã xóa · Khôi phục
-          </button>
-          {showDeletedVouchers && (
-            <div className="mt-2 space-y-2" data-hnl-deleted-voucher-list="true">
-              <p className="text-[11px] text-slate-600">Chỉ ADMIN. Khôi phục online điều chỉnh tồn kho bằng một giao dịch Firestore; ảnh giao nhận giữ theo mã phiếu cũ. Mỗi lần truy vấn tải tối đa 100 phiếu đã xóa; chưa có xóa ảnh vĩnh viễn tự động.</p>
-              <button type="button" disabled={deletedVoucherBusy} onClick={() => void refreshDeletedVouchers()} className="min-h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-indigo-700 disabled:opacity-50">Kiểm tra lại</button>
-              {deletedVoucherError && <div role="alert" className="break-words rounded-lg border border-rose-200 bg-rose-50 p-2 text-xs text-rose-800">{deletedVoucherError}</div>}
-              {deletedVoucherBusy && <p className="text-xs text-slate-500">Đang xác minh Cloud…</p>}
-              {!deletedVoucherBusy && deletedVouchers.length === 0 && !deletedVoucherError && <p className="text-xs text-slate-500">Không có phiếu đã xóa trong phạm vi truy vấn.</p>}
-              <div className="max-h-56 space-y-1.5 overflow-y-auto">
-                {deletedVouchers.map((row) => (
-                  <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
-                    <div className="min-w-0 flex-1 break-words"><b>{row.type === 'in' ? 'Nhập' : 'Xuất'} · {row.materialName}</b> · {formatDecimal(row.quantity)} {row.unit}
-                      <div className="text-[10px] text-slate-500">{formatDateDDMMYYYY(row.date)} · Mã phiếu: {row.id}</div>
-                    </div>
-                    <button type="button" disabled={deletedVoucherBusy} onClick={() => void restoreDeletedVoucher(row)} className="min-h-9 rounded-lg bg-indigo-600 px-3 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-50">Khôi phục</button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Filter and Search controls */}
       <div className="space-y-2">
         <div className="relative">
@@ -3272,8 +3254,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 <h3 className="flex items-center gap-2 text-sm font-extrabold text-slate-900"><Images className="h-4 w-4 text-sky-600" /> Ảnh giao nhận · {photoVoucher.type === 'in' ? 'Nhập kho' : 'Xuất kho'}</h3>
                 <p className="mt-1 break-words text-xs text-slate-600">{photoVoucher.materialName} · Mã phiếu: <span className="break-all font-mono">{photoVoucher.id}</span></p>
               </div>
-              <button type="button" onClick={() => setPhotoVoucher(null)}
-                className="min-h-10 shrink-0 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50">Đóng</button>
+              <button type="button" onClick={() => setPhotoVoucher(null)} disabled={Boolean(photoVoucher.initialFiles?.length)}
+                className="min-h-10 shrink-0 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50">{photoVoucher.initialFiles?.length ? 'Đang lưu ảnh…' : 'Đóng'}</button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 sm:p-4">
               <PhotoAttachmentPicker
@@ -3281,6 +3263,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 entityType="inventory" entityId={photoVoucher.id} category="warehouse_receipt"
                 label="ẢNH GIAO NHẬN (TỐI ĐA 10 ẢNH)" maxPhotos={10}
                 readOnly={!hasEditAccess}
+                initialFiles={photoVoucher.initialFiles}
+                onInitialFilesProcessed={() => setPhotoVoucher((current) => current?.id === photoVoucher.id ? { ...current, initialFiles: [] } : current)}
               />
               <p className="mt-2 text-[11px] text-slate-500">Ảnh gắn riêng theo mã phiếu; không ảnh hưởng số lượng nhập, xuất hoặc tồn kho. Khi mạng yếu, ảnh sẽ chờ đồng bộ và chỉ hiển thị trên thiết bị khác sau khi Cloud sẵn sàng.</p>
             </div>
@@ -3338,7 +3322,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 {editingInventory ? 'Chỉnh sửa phiếu kho' : 'Tạo phiếu nhập / xuất kho'}
               </h3>
               <button
-                onClick={() => { setShowAddForm(false); setEditingInventory(null); }}
+                onClick={() => {
+                  if (pendingVoucherPhotos.length > 0 && !window.confirm('Hủy phiếu chưa lưu và bỏ các ảnh đã chọn?')) return;
+                  setPendingVoucherPhotos([]); setShowAddForm(false); setEditingInventory(null);
+                }}
                 className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-500 hover:bg-slate-200"
               >
                 ✕
@@ -3797,9 +3784,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                       readOnly={!hasEditAccess}
                     />
                   ) : (
-                    <p className="text-[11px] font-medium text-slate-600">
-                      <Images className="mr-1 inline h-4 w-4 text-sky-700" /> Ảnh giao nhận (tùy chọn): lưu phiếu thành công trước, hệ thống sẽ mở mục chụp/chọn ảnh để tránh tạo ảnh mồ côi khi giao dịch kho bị từ chối.
-                    </p>
+                    <WarehouseVoucherPhotoDraft files={pendingVoucherPhotos} onChange={setPendingVoucherPhotos} />
                   )}
                 </div>
               )}
