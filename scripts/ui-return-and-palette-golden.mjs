@@ -11,7 +11,7 @@ const warehouse = read('src/components/WarehouseTab.tsx');
 const crewShare = read('src/components/CrewReportShareModal.tsx');
 const voucher = read('src/components/WarehouseVoucherShareSheet.tsx');
 const report = read('src/components/ExportPdfModal.tsx');
-for (const marker of ['crew-detail','volume-detail','health-center','data-hnl-context-floating-return','qlct_health_center_reopen_v1', 'qlct_crew_detail_return_v1', 'qlct_volume_detail_return_v1']) {
+for (const marker of ['crew-detail','volume-detail','health-center','qlct_health_center_reopen_v1', 'qlct_crew_detail_return_v1', 'qlct_volume_detail_return_v1']) {
   assert.ok(app.includes(marker), `Missing contextual return in App: ${marker}`);
 }
 assert.ok(crew.includes("contextReturn: 'crew-detail'") && crew.includes('setSelectedTeamForDetail(team)'), 'Crew return restores the original modal');
@@ -25,4 +25,12 @@ assert.ok(header.includes('bg-blue-800 hover:bg-blue-900') && header.includes('b
 assert.ok(warehouse.includes('py-0.5 text-xs') && warehouse.includes('% Nhập/ĐM') && warehouse.includes("warehouseCatalogTab === 'material'"), 'Compact catalog, read-only import ratio');
 assert.ok(crewShare.includes('bg-sky-600') && crewShare.includes('bg-green-600') && report.includes('bg-green-600'), 'Crew/report format palette');
 assert.ok(voucher.includes('bg-sky-600') && voucher.includes('bg-green-600'), 'Warehouse voucher format palette');
+
+// Linked Căn/Defect/Health-Center screens must expose exactly one source-aware
+// return control. A second fixed-position control previously covered mobile UI
+// after dismissing the room/defect dialog with X.
+assert.equal((app.match(/<ContextBackButton\b/g) || []).length, 1, 'App shows only one contextual back control');
+assert.ok(!app.includes('data-hnl-context-floating-return'), 'no duplicate fixed mobile return overlay');
+assert.ok(app.includes('data-hnl-cross-module-return="true"'), 'single top return remains visible');
+assert.ok(app.includes('onClick={handleContextReturn}'), 'single top return restores the originating module');
 console.log('UI RETURN AND PALETTE GOLDEN: PASS');

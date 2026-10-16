@@ -7721,21 +7721,6 @@ function AuthenticatedApp() {
           </div>
         )}
 
-        {/* Visible return for deep-linked Căn/Defect and Health Center, including scrolling/fullscreen.
-            z-180 stays BELOW unsaved edit dialogs (z-200+) so it cannot bypass their guards. */}
-        {contextReturnFrames.length > 0 && contextReturnFrames[contextReturnFrames.length - 1].projectId === activeProjectId &&
-          ['crew-detail', 'volume-detail', 'health-center'].includes(contextReturnFrames[contextReturnFrames.length - 1].kind) && (
-          <div className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom))] left-3 z-[180] lg:bottom-5 lg:left-[100px]" data-hnl-context-floating-return="true">
-            <ContextBackButton
-              label={contextReturnFrames[contextReturnFrames.length - 1].kind === 'crew-detail' ? 'Thống kê Quân số'
-                : contextReturnFrames[contextReturnFrames.length - 1].kind === 'volume-detail' ? 'Chi tiết khối lượng'
-                  : 'Trung tâm kiểm tra dữ liệu'}
-              onClick={handleContextReturn}
-              className="bg-white shadow-xl ring-1 ring-indigo-100"
-            />
-          </div>
-        )}
-
         {/* Tab Content */}
         <main
           className="animate-in fade-in duration-150"
