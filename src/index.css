@@ -39,6 +39,8 @@
 }
 
 html, body, #root { font-family: var(--hnl-font-family); }
+/* Inherited 14px at 100% for unstyled application text on PC and mobile. */
+#root { font-size: var(--hnl-font-body); }
 /* Scoped role classes: never force text sizes on PDF, canvas or floor-plan markers. */
 .hnl-type-page { font-size: var(--hnl-font-page); line-height: 1.3; }
 .hnl-type-section { font-size: var(--hnl-font-section); line-height: 1.4; }
