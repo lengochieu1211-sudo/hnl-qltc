@@ -8,6 +8,14 @@ assert(source.includes("renderEntityShareCard({ title, text, entityType, attachm
 assert(source.includes("allowTextFallback: !includeImages"), 'Do not silently drop requested media');
 assert(source.includes('Kèm hình ảnh') && source.includes('Ảnh gốc'), 'Retain original image option');
 assert(source.includes('transient user activation'), 'Share call must not wait for network/image generation');
+assert(source.includes("text: includeImages && imageFormat === 'report' ? '' : text"), 'Report image shares must not duplicate its embedded text in Zalo');
+assert(source.includes("url: includeImages && imageFormat === 'report' ? '' : shareUrl"), 'Report image shares must not repeat the embedded URL');
+assert(!source.includes('Zalo · Messenger · Telegram · Gmail · SMS'), 'Remove redundant messaging app list');
+assert(source.includes('Lưu ảnh để gửi thủ công') && source.includes('saveBlobToDownloads'), 'Keep an explicit image save path when native file share is unavailable');
+assert(shared.includes('NotAllowedError') && shared.includes('navigator.userActivation'), 'Do not retry Web Share after user activation was denied');
+assert(shared.includes('If it could not open') && shared.includes("status: 'failed'"), 'Native APK errors must not fake a Web Share success');
+const native = fs.readFileSync('android-wrapper/src/com/qlct/app/MainActivity.java', 'utf8');
+assert(native.includes('if (!safeText.trim().isEmpty()) share.putExtra(Intent.EXTRA_TEXT, safeText);'), 'Native report-card share must not emit an empty text bubble');
 assert(shared.includes('bridge.shareFiles') && shared.includes('navigator.share'), 'Keep native and web share paths');
 
 let context = null;

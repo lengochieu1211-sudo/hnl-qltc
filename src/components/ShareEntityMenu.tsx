@@ -4,6 +4,7 @@ import { getEntityPhotos, getPhotoDataUrl, PhotoAttachment } from '../utils/phot
 import { copyText } from '../utils/contactUtils';
 import { ShareAttachmentPayload, sharePreparedContent } from '../utils/shareUtils';
 import { renderEntityShareCard } from '../utils/entityShareCard';
+import { saveBlobToDownloads } from '../utils/fileExport';
 
 type ShareEntityType = 'defect' | 'crewRecord';
 
@@ -72,6 +73,8 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
   const [preparingImages, setPreparingImages] = useState(false);
   const [preparedAttachments, setPreparedAttachments] = useState<ShareAttachmentPayload[]>([]);
   const [sharing, setSharing] = useState(false);
+  const [savingAttachment, setSavingAttachment] = useState(false);
+  const [shareFailed, setShareFailed] = useState(false);
   const [status, setStatus] = useState('');
 
   const legacyUrls = useMemo(
@@ -182,13 +185,16 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
     }
 
     setSharing(true);
+    setShareFailed(false);
     setStatus('Đang mở bảng chia sẻ…');
     // Do not await any photo/network work before this call. Keeping this call directly in the
     // click stack preserves Chromium transient activation required by navigator.share({files}).
     void sharePreparedContent({
       title,
-      text,
-      url: shareUrl,
+      // A report card already contains every line of text. Sending the same caption
+      // again creates a duplicate text bubble in Zalo and some other receivers.
+      text: includeImages && imageFormat === 'report' ? '' : text,
+      url: includeImages && imageFormat === 'report' ? '' : shareUrl,
       attachments: includeImages ? preparedAttachments : [],
       allowTextFallback: !includeImages,
     }).then((result) => {
@@ -205,13 +211,36 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
       } else if (result.status === 'cancelled') {
         setStatus('Đã hủy bảng chia sẻ.');
       } else {
-        setStatus('Không thể mở bảng chia sẻ. Hãy dùng nút Sao chép nội dung.');
+        setShareFailed(true);
+        setStatus('Thiết bị hoặc trình duyệt không mở được chia sẻ ảnh. Bấm “Lưu ảnh” để gửi thủ công, hoặc thử trong APK HNL QLTC.');
       }
     }).catch((error: any) => {
-      setStatus(`Không thể chia sẻ: ${error?.message || String(error)}`);
+      setShareFailed(true);
+      setStatus(`Không thể chia sẻ: ${error?.message || String(error)}. Có thể lưu ảnh rồi gửi thủ công.`);
     }).finally(() => {
       setSharing(false);
     });
+  };
+
+  const handleSaveAttachment = async () => {
+    const attachment = preparedAttachments[0];
+    if (!attachment || savingAttachment) return;
+    setSavingAttachment(true);
+    setStatus('Đang lưu ảnh để chia sẻ thủ công…');
+    try {
+      const response = await fetch(attachment.dataUrl);
+      if (!response.ok) throw new Error('Không đọc được ảnh đã chuẩn bị.');
+      const blob = await response.blob();
+      if (blob.size <= 0) throw new Error('Ảnh chia sẻ bị rỗng.');
+      await saveBlobToDownloads(blob, attachment.fileName, attachment.mimeType || blob.type);
+      setStatus(preparedAttachments.length > 1
+        ? `Đã gửi lệnh lưu ảnh đầu tiên vào Tải xuống. Còn ${preparedAttachments.length - 1} ảnh có thể chia sẻ bằng chế độ Ảnh báo cáo có chữ.`
+        : 'Đã gửi lệnh lưu ảnh vào Tải xuống. Hãy đính kèm ảnh từ Zalo hoặc ứng dụng bạn chọn.');
+    } catch (error: any) {
+      setStatus(`Không lưu được ảnh: ${error?.message || String(error)}`);
+    } finally {
+      setSavingAttachment(false);
+    }
   };
 
   const handleCopy = async () => {
@@ -221,7 +250,7 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
 
   return (
     <>
-      <button type="button" onClick={() => { setStatus(''); setIncludeImages(false); setImageFormat('report'); setPreparedAttachments([]); setOpen(true); }} className={triggerClassName}>
+      <button type="button" onClick={() => { setStatus(''); setShareFailed(false); setIncludeImages(false); setImageFormat('report'); setPreparedAttachments([]); setOpen(true); }} className={triggerClassName}>
         <Share2 className="w-3.5 h-3.5" />
         <span>{triggerLabel}</span>
       </button>
@@ -233,7 +262,6 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
               <div className="min-w-0">
                 <div className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-600">Chia sẻ qua ứng dụng trên thiết bị</div>
                 <div className="mt-0.5 truncate text-base font-black text-slate-900">{title}</div>
-                <div className="mt-0.5 text-[10px] font-semibold text-slate-500">Zalo · Messenger · Telegram · Gmail · SMS · ứng dụng khác</div>
               </div>
               <button type="button" onClick={() => setOpen(false)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Đóng">
                 <X className="w-4 h-4" />
@@ -264,6 +292,7 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
                   disabled={availableImageCount === 0 || loadingPhotos}
                   onChange={(event) => {
                     setPreparedAttachments([]);
+                    setShareFailed(false);
                     setIncludeImages(event.target.checked);
                     setPreparingImages(event.target.checked);
                     if (!event.target.checked) setStatus('');
@@ -277,12 +306,12 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
                   <legend className="px-1 text-[10px] font-extrabold text-indigo-700">Kiểu ảnh chia sẻ</legend>
                   <label className="flex items-start gap-2 py-1 text-xs font-semibold text-slate-800">
                     <input type="radio" name={`share-image-${entityType}-${entityId}`} value="report" checked={imageFormat === 'report'}
-                      onChange={() => { setPreparedAttachments([]); setPreparingImages(true); setImageFormat('report'); }} className="mt-0.5 accent-indigo-600" />
+                      onChange={() => { setShareFailed(false); setPreparedAttachments([]); setPreparingImages(true); setImageFormat('report'); }} className="mt-0.5 accent-indigo-600" />
                     <span>Ảnh báo cáo có chữ <span className="block text-[10px] font-normal text-slate-500">Một ảnh gồm nội dung và ảnh hiện trường, phù hợp Zalo.</span></span>
                   </label>
                   <label className="flex items-start gap-2 py-1 text-xs font-semibold text-slate-800">
                     <input type="radio" name={`share-image-${entityType}-${entityId}`} value="original" checked={imageFormat === 'original'}
-                      onChange={() => { setPreparedAttachments([]); setPreparingImages(true); setImageFormat('original'); }} className="mt-0.5 accent-indigo-600" />
+                      onChange={() => { setShareFailed(false); setPreparedAttachments([]); setPreparingImages(true); setImageFormat('original'); }} className="mt-0.5 accent-indigo-600" />
                     <span>Ảnh gốc <span className="block text-[10px] font-normal text-slate-500">Tối đa 6 ảnh; ứng dụng nhận có thể bỏ phần chữ.</span></span>
                   </label>
                 </fieldset>
@@ -306,6 +335,12 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
                   <Share2 className="h-4 w-4" /> {preparingImages ? 'Chuẩn bị ảnh…' : sharing ? 'Đang mở…' : 'Chia sẻ'}
                 </button>
               </div>
+
+              {shareFailed && includeImages && preparedAttachments.length > 0 && (
+                <button type="button" disabled={savingAttachment} onClick={() => void handleSaveAttachment()} className="w-full rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2.5 text-xs font-extrabold text-indigo-700 disabled:opacity-50">
+                  {savingAttachment ? 'Đang lưu ảnh…' : 'Lưu ảnh để gửi thủ công'}
+                </button>
+              )}
 
               <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-semibold leading-relaxed text-slate-600">
                 HNL QLTC chỉ gửi nội dung sau khi bạn bấm Chia sẻ. Khi bật “Kèm hình ảnh”, chọn “Ảnh báo cáo có chữ” để nội dung nằm trực tiếp trong ảnh. Ảnh gốc vẫn có thể chia sẻ riêng, không thay đổi dữ liệu dự án.

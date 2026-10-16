@@ -106,7 +106,11 @@ async function tryWebFileShare(title: string, text: string, url: string, files: 
       return 'shared';
     } catch (error: any) {
       if (error?.name === 'AbortError') return 'cancelled';
-      // Retry a more conservative payload for DataError/NotAllowedError/TypeError.
+      // NotAllowedError means user activation was denied/consumed. Calling share()
+      // again without a NEW tap cannot work and often hides the first error.
+      if (error?.name === 'NotAllowedError' || error?.name === 'SecurityError') return 'unsupported';
+      // Retry files-only only when activation is still held (OEM payload mismatch).
+      if (typeof navigator.userActivation?.isActive === 'boolean' && !navigator.userActivation.isActive) return 'unsupported';
     }
   }
 
@@ -120,6 +124,7 @@ async function tryWebFileShare(title: string, text: string, url: string, files: 
       }
     } catch (error: any) {
       if (error?.name === 'AbortError') return 'cancelled';
+      if (error?.name === 'NotAllowedError' || error?.name === 'SecurityError') return 'unsupported';
     }
   }
   return 'unsupported';
@@ -158,7 +163,17 @@ export async function sharePreparedContent(params: {
         if (ok !== false) {
           return { status: 'shared', requestedFiles: requested.length, sharedFiles: payload.length, fallbackToText: false };
         }
-      } catch (_) {}
+        // AndroidContact is present only inside the APK. If it could not open
+        // a native chooser, do not fall through to Web Share: the synchronous
+        // bridge call may already have consumed the click's transient activation.
+        if (params.allowTextFallback === false) {
+          return { status: 'failed', requestedFiles: requested.length, sharedFiles: 0, fallbackToText: false };
+        }
+      } catch (_) {
+        if (params.allowTextFallback === false) {
+          return { status: 'failed', requestedFiles: requested.length, sharedFiles: 0, fallbackToText: false };
+        }
+      }
     }
 
     const files = requested.map(dataUrlToFile).filter((file): file is File => Boolean(file));
