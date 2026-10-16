@@ -2102,28 +2102,28 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               <div className="border-t border-slate-200 pt-3">
                 <div className="mb-2 text-[10px] font-extrabold text-slate-600">Defect trong phạm vi trên</div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                  <select value={defectStatusFilter} onChange={(e) => setDefectStatusFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-sm font-semibold text-slate-700">
+                  <select value={defectStatusFilter} onChange={(e) => setDefectStatusFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700">
                     <option value="all">Tất cả trạng thái Defect</option>
                     <option value="Mới phát hiện">Mới phát hiện</option>
                     <option value="Đang sửa">Đang sửa</option>
                     <option value="Đã khắc phục">Đã khắc phục</option>
                     <option value="Đã nghiệm thu">Đã nghiệm thu</option>
                   </select>
-                  <select value={defectCategoryFilter} onChange={(e) => setDefectCategoryFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-sm font-semibold text-slate-700">
+                  <select value={defectCategoryFilter} onChange={(e) => setDefectCategoryFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700">
                     <option value="all">Tất cả hạng mục lỗi</option>
                     {defectCategoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
                   </select>
-                  <select value={defectCreatorFilter} onChange={(e) => setDefectCreatorFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-sm font-semibold text-slate-700">
+                  <select value={defectCreatorFilter} onChange={(e) => setDefectCreatorFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700">
                     <option value="all">Tất cả người tạo</option>
                     {defectCreatorOptions.map((creator) => <option key={creator} value={creator}>{creator}</option>)}
                   </select>
                   <label className="space-y-1">
                     <span className="block text-[9.5px] font-bold text-slate-500">Defect tạo từ ngày</span>
-                    <input type="date" value={defectCreatedFrom} onChange={(e) => setDefectCreatedFrom(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-sm" />
+                    <input type="date" value={defectCreatedFrom} onChange={(e) => setDefectCreatedFrom(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px]" />
                   </label>
                   <label className="space-y-1">
                     <span className="block text-[9.5px] font-bold text-slate-500">Defect tạo đến ngày</span>
-                    <input type="date" value={defectCreatedTo} onChange={(e) => setDefectCreatedTo(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-sm" />
+                    <input type="date" value={defectCreatedTo} onChange={(e) => setDefectCreatedTo(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px]" />
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     <label className="space-y-1">
@@ -2148,13 +2148,13 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
           <details open className="group bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden">
             <summary className="cursor-pointer select-none px-3 py-2.5 text-[11px] font-extrabold text-slate-800 flex items-center justify-between gap-2">
               <span>↕️ Sắp xếp từng phần trong PDF</span>
-              <span className="text-xs text-slate-500 group-open:hidden">Mở</span>
-              <span className="text-xs text-slate-500 hidden group-open:inline">Thu gọn</span>
+              <span className="text-[10px] text-slate-400 group-open:hidden">Mở</span>
+              <span className="text-[10px] text-slate-400 hidden group-open:inline">Thu gọn</span>
             </summary>
             <div className="border-t border-slate-200 p-3 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <label className="space-y-1">
-                <span className="block text-sm font-bold text-slate-600">Kho vật tư</span>
-                <select value={warehouseReportSortMode} onChange={(e) => setWarehouseReportSortMode(e.target.value as typeof warehouseReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm font-semibold">
+                <span className="block text-[10px] font-bold text-slate-600">Kho vật tư</span>
+                <select value={warehouseReportSortMode} onChange={(e) => setWarehouseReportSortMode(e.target.value as typeof warehouseReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
                   <option value="material-asc">Tên vật tư A → Z</option>
                   <option value="material-desc">Tên vật tư Z → A</option>
                   <option value="stock-desc">Tồn kho nhiều → ít</option>
@@ -2163,8 +2163,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-sm font-bold text-slate-600">Khối lượng thi công</span>
-                <select value={workVolumeReportSortMode} onChange={(e) => setWorkVolumeReportSortMode(e.target.value as typeof workVolumeReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm font-semibold">
+                <span className="block text-[10px] font-bold text-slate-600">Khối lượng thi công</span>
+                <select value={workVolumeReportSortMode} onChange={(e) => setWorkVolumeReportSortMode(e.target.value as typeof workVolumeReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
                   <option value="category-title">Phân loại → Hạng mục</option>
                   <option value="title-asc">Hạng mục A → Z</option>
                   <option value="planned-desc">KL kế hoạch lớn → nhỏ</option>
@@ -2173,8 +2173,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-sm font-bold text-slate-600">Mặt bằng</span>
-                <select value={floorPlanReportSortMode} onChange={(e) => setFloorPlanReportSortMode(e.target.value as typeof floorPlanReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm font-semibold">
+                <span className="block text-[10px] font-bold text-slate-600">Mặt bằng</span>
+                <select value={floorPlanReportSortMode} onChange={(e) => setFloorPlanReportSortMode(e.target.value as typeof floorPlanReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
                   <option value="floor-asc">Tầng thấp → cao / A → Z</option>
                   <option value="floor-desc">Tầng cao → thấp / Z → A</option>
                   <option value="defect-desc">Tầng nhiều Defect → ít</option>
@@ -2182,8 +2182,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-sm font-bold text-slate-600">Tiến độ Căn / Phòng</span>
-                <select value={roomReportSortMode} onChange={(e) => setRoomReportSortMode(e.target.value as typeof roomReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm font-semibold">
+                <span className="block text-[10px] font-bold text-slate-600">Tiến độ Căn / Phòng</span>
+                <select value={roomReportSortMode} onChange={(e) => setRoomReportSortMode(e.target.value as typeof roomReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
                   <option value="floor-room">Tầng → Căn / Phòng</option>
                   <option value="room-floor">Căn / Phòng → Tầng</option>
                   <option value="category-floor-room">Hạng mục → Tầng → Căn / Phòng</option>
@@ -2193,8 +2193,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-sm font-bold text-slate-600">Nhật ký nhân công + phụ lục ảnh</span>
-                <select value={crewReportSortMode} onChange={(e) => setCrewReportSortMode(e.target.value as typeof crewReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm font-semibold">
+                <span className="block text-[10px] font-bold text-slate-600">Nhật ký nhân công + phụ lục ảnh</span>
+                <select value={crewReportSortMode} onChange={(e) => setCrewReportSortMode(e.target.value as typeof crewReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
                   <option value="date-desc">Ngày mới → cũ</option>
                   <option value="date-asc">Ngày cũ → mới</option>
                   <option value="team-date">Đội → Ngày mới nhất</option>
@@ -2203,8 +2203,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-sm font-bold text-slate-600">Checklist</span>
-                <select value={checklistReportSortMode} onChange={(e) => setChecklistReportSortMode(e.target.value as typeof checklistReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm font-semibold">
+                <span className="block text-[10px] font-bold text-slate-600">Checklist</span>
+                <select value={checklistReportSortMode} onChange={(e) => setChecklistReportSortMode(e.target.value as typeof checklistReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
                   <option value="floor-category">Tầng → Hạng mục</option>
                   <option value="category-floor">Hạng mục → Tầng</option>
                   <option value="status-floor">Kết quả → Tầng</option>
@@ -2212,8 +2212,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-sm font-bold text-slate-600">Defect + phụ lục ảnh Defect</span>
-                <select value={defectReportSortMode} onChange={(e) => setDefectReportSortMode(e.target.value as typeof defectReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm font-semibold">
+                <span className="block text-[10px] font-bold text-slate-600">Defect + phụ lục ảnh Defect</span>
+                <select value={defectReportSortMode} onChange={(e) => setDefectReportSortMode(e.target.value as typeof defectReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
                   <option value="floor-room-category">Tầng → Căn / Phòng → Hạng mục</option>
                   <option value="room-floor-category">Căn / Phòng → Tầng → Hạng mục</option>
                   <option value="category-floor-room">Hạng mục → Tầng → Căn / Phòng</option>
@@ -2343,7 +2343,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 <select
                   value={pdfPaperSize}
                   onChange={(e) => setPdfPaperSize(e.target.value as 'A4' | 'A3')}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm font-semibold"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold"
                 >
                   <option value="A4">A4</option>
                   <option value="A3">A3</option>
@@ -2354,7 +2354,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 <select
                   value={pdfOrientation}
                   onChange={(e) => setPdfOrientation(e.target.value as 'portrait' | 'landscape')}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm font-semibold"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold"
                 >
                   <option value="portrait">Dọc (Dọc)</option>
                   <option value="landscape">Ngang (Ngang)</option>
@@ -2384,8 +2384,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
             <details className="group bg-white border border-indigo-100 rounded-xl overflow-hidden">
               <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-extrabold text-indigo-800 flex items-center justify-between gap-2">
                 <span>🎨 Tùy chỉnh highlight & ký hiệu trên PDF</span>
-                <span className="text-xs text-slate-500 group-open:hidden">Mở</span>
-                <span className="text-xs text-slate-500 hidden group-open:inline">Thu gọn</span>
+                <span className="text-[10px] text-slate-400 group-open:hidden">Mở</span>
+                <span className="text-[10px] text-slate-400 hidden group-open:inline">Thu gọn</span>
               </summary>
               <div className="border-t border-indigo-100 p-3 space-y-3">
                 <p className="text-[10px] text-slate-500 leading-relaxed">
@@ -2433,16 +2433,16 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
                 <div className="grid grid-cols-2 gap-2">
                   <label className="space-y-1">
-                    <span className="block text-sm font-bold text-slate-600">Ký hiệu Căn / Phòng</span>
-                    <select value={pdfRoomCodeStyle} onChange={(e) => setPdfRoomCodeStyle(e.target.value as 'number' | 'hash' | 'room')} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm font-semibold">
+                    <span className="block text-[10px] font-bold text-slate-600">Ký hiệu Căn / Phòng</span>
+                    <select value={pdfRoomCodeStyle} onChange={(e) => setPdfRoomCodeStyle(e.target.value as 'number' | 'hash' | 'room')} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
                       <option value="number">Số ngắn: 1, 2, 11</option>
                       <option value="hash">Dạng #: #1, #2</option>
                       <option value="room">Dạng C: C1, C2</option>
                     </select>
                   </label>
                   <label className="space-y-1">
-                    <span className="block text-sm font-bold text-slate-600">Ký hiệu Defect</span>
-                    <select value={pdfDefectCodeStyle} onChange={(e) => setPdfDefectCodeStyle(e.target.value as 'number' | 'df')} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm font-semibold">
+                    <span className="block text-[10px] font-bold text-slate-600">Ký hiệu Defect</span>
+                    <select value={pdfDefectCodeStyle} onChange={(e) => setPdfDefectCodeStyle(e.target.value as 'number' | 'df')} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
                       <option value="number">Số ngắn: 01, 02</option>
                       <option value="df">Mã ngắn: DF-01, DF-02</option>
                     </select>

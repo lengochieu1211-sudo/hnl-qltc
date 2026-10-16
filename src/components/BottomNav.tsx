@@ -126,24 +126,24 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                     <span className="absolute -top-1.5 -right-2 min-w-4 rounded-full border border-slate-900 bg-rose-600 px-1 text-center text-[8px] font-black leading-4 text-white" title={`${tab.badge} ${tab.badgeLabel || 'Defect chưa nghiệm thu'}`}>D{tab.badge}</span>
                   ) : null}
                 </span>
-                <span className="hnl-nav-label max-w-full px-0.5 font-bold">{tab.label}</span>
+                <span className="max-w-full truncate text-[9px] font-bold leading-3">{tab.label}</span>
               </button>
             );
           })}
 
           {showChecklist && (
             <button type="button" data-hnl-nav-tab="checklist" onPointerEnter={() => onPreloadTab?.('checklist')} onPointerDown={() => previewTab('checklist')} onClick={() => activate('checklist')} style={navButtonStyle} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-2xl px-1 transition active:scale-[0.97] active:opacity-80 ${activeTab === 'checklist' || pressedTab === 'checklist' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title="Checklist">
-              <ClipboardCheck className="h-5 w-5" /><span className="hnl-nav-label font-bold">Checklist</span>
+              <ClipboardCheck className="h-5 w-5" /><span className="text-[9px] font-bold">Checklist</span>
             </button>
           )}
 
           <button type="button" data-hnl-nav-tab="chat" onPointerEnter={() => onPreloadTab?.('chat')} onPointerDown={() => previewTab('chat')} onClick={() => activate('chat')} style={navButtonStyle} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-2xl px-1 transition active:scale-[0.97] active:opacity-80 ${activeTab === 'chat' || pressedTab === 'chat' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title="Trao đổi">
-            <span className="relative"><MessageCircle className="h-5 w-5" />{renderBadge(chatBadgeCount, 'tin chưa đọc')}</span><span className="hnl-nav-label font-bold">Trao đổi</span>
+            <span className="relative"><MessageCircle className="h-5 w-5" />{renderBadge(chatBadgeCount, 'tin chưa đọc')}</span><span className="text-[9px] font-bold">Trao đổi</span>
           </button>
 
           {showAi && (
             <button type="button" data-hnl-nav-tab="ai" onPointerEnter={() => onPreloadTab?.('ai')} onPointerDown={() => previewTab('ai')} onClick={() => activate('ai')} style={navButtonStyle} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-2xl px-1 transition active:scale-[0.97] active:opacity-80 ${activeTab === 'ai' || pressedTab === 'ai' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title="Trợ lý HNL AI">
-              <Sparkles className="h-5 w-5" /><span className="hnl-nav-label font-bold">HNL AI</span>
+              <Sparkles className="h-5 w-5" /><span className="text-[9px] font-bold">HNL AI</span>
             </button>
           )}
         </nav>
@@ -151,11 +151,11 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         <div className="space-y-1 border-t border-slate-200 px-1.5 py-2">
           {showSuperAdmin && (
             <button type="button" data-hnl-nav-tab="superadmin" onPointerEnter={() => onPreloadTab?.('superadmin')} onPointerDown={() => previewTab('superadmin')} onClick={() => activate('superadmin')} style={navButtonStyle} className={`flex min-h-[58px] w-full flex-col items-center justify-center gap-1 rounded-2xl transition active:scale-[0.97] active:opacity-80 ${activeTab === 'superadmin' || pressedTab === 'superadmin' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-200' : 'text-amber-700 hover:bg-amber-50'}`} title="Quản trị hệ thống">
-              <ShieldCheck className="h-5 w-5" /><span className="hnl-nav-label font-bold">Hệ thống</span>
+              <ShieldCheck className="h-5 w-5" /><span className="text-[8.5px] font-bold">Hệ thống</span>
             </button>
           )}
           <button type="button" data-hnl-nav-tab="config" onPointerEnter={() => onPreloadTab?.('config')} onPointerDown={() => previewTab('config')} onClick={() => activate('config')} style={navButtonStyle} className={`flex min-h-[58px] w-full flex-col items-center justify-center gap-1 rounded-2xl transition active:scale-[0.97] active:opacity-80 ${activeTab === 'config' || pressedTab === 'config' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title={t('config')}>
-            <Settings className="h-5 w-5" /><span className="hnl-nav-label font-bold">{t('config')}</span>
+            <Settings className="h-5 w-5" /><span className="text-[9px] font-bold">{t('config')}</span>
           </button>
         </div>
       </aside>
@@ -184,7 +184,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 className={`relative flex flex-col items-center justify-center transition-all active:scale-[0.96] active:opacity-75 ${isActive ? 'font-bold text-blue-600' : 'font-medium text-slate-500 hover:text-slate-800'}`}
               >
                 <div className="relative"><Icon className={`h-5 w-5 ${isActive ? 'scale-110' : ''}`} />{tab.badge !== undefined && tab.badge > 0 ? <span className="absolute -top-1.5 -right-2 min-w-4 rounded-full border border-white bg-rose-600 px-1 text-center text-[8px] font-black leading-4 text-white" title={`${tab.badge} ${tab.badgeLabel || 'Defect chưa nghiệm thu'}`}>D{tab.badge}</span> : null}</div>
-                <span className="hnl-nav-label mt-1 max-w-full px-0.5">{tab.label}</span>
+                <span className="mt-1 max-w-full truncate px-1 text-[10px]">{tab.label}</span>
                 {isActive && <span className="absolute top-0 h-1 w-8 rounded-b-full bg-blue-600" />}
               </button>
             );
@@ -200,7 +200,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
             className={`relative flex flex-col items-center justify-center transition-all active:scale-[0.96] active:opacity-75 ${activeTab === 'volume' || activeTab === 'checklist' || activeTab === 'chat' || activeTab === 'ai' || activeTab === 'config' || activeTab === 'superadmin' || showMore ? 'font-bold text-blue-600' : 'font-medium text-slate-500'}`}
           >
             <MoreHorizontal className="h-5 w-5" />
-            <span className="hnl-nav-label mt-1">Thêm</span>
+            <span className="mt-1 text-[10px]">Thêm</span>
           </button>
 
           {showMore && (

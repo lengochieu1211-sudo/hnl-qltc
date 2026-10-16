@@ -1132,10 +1132,10 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             />
 
             {canReorderNorms && sortedFilteredNorms.length > 1 && (
-              <p className="text-sm text-slate-500">Sắp xếp thủ công: kéo-thả trên PC hoặc dùng mũi tên lên/xuống trên điện thoại. Thứ tự được đồng bộ theo dự án.</p>
+              <p className="text-[11px] text-slate-500">Sắp xếp thủ công: kéo-thả trên PC hoặc dùng mũi tên lên/xuống trên điện thoại. Thứ tự được đồng bộ theo dự án.</p>
             )}
             {hasManageAccess && normSortBy !== 'none' && (
-              <p className="text-sm text-slate-500">Tắt Sắp xếp nhanh để đổi vị trí thủ công; thứ tự đã lưu không bị mất.</p>
+              <p className="text-[11px] text-slate-500">Tắt Sắp xếp nhanh để đổi vị trí thủ công; thứ tự đã lưu không bị mất.</p>
             )}
             {/* Material Norm List */}
             {sortedFilteredNorms.length === 0 ? (
@@ -1284,15 +1284,15 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                       {/* Norm details grid */}
                       <div className="grid grid-cols-3 gap-1.5 bg-white p-2 rounded-xl border border-slate-100 text-[11px]">
                         <div>
-                          <p className="text-xs text-slate-500 font-semibold uppercase">Đơn vị tính</p>
+                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Đơn vị tính</p>
                           <p className="font-bold text-slate-800">{norm.unit}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-slate-500 font-semibold uppercase">Nhu cầu vật tư theo định mức</p>
+                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Nhu cầu vật tư theo định mức</p>
                           <p className="font-bold text-indigo-600">{formatAdaptiveDecimal(norm.quotaQuantity)} {norm.unit}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-slate-500 font-semibold uppercase">Định mức vật tư / đơn vị</p>
+                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Định mức vật tư / đơn vị</p>
                           <p className="font-semibold text-slate-700">
                             {norm.unitNormPerM2 !== undefined && norm.unitNormPerM2 !== null
                               ? `${formatAdaptiveDecimal(norm.unitNormPerM2)} ${norm.unit}/${norm.normBasisUnit || 'm²'}`
@@ -1370,7 +1370,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             <div>
               <label className="block font-bold text-slate-700 mb-1.5 flex items-center justify-between">
                 <span>Hạng mục thi công áp dụng *</span>
-                <span className="text-xs text-indigo-600 font-bold">(Chọn một hoặc nhiều hạng mục)</span>
+                <span className="text-[10px] text-indigo-600 font-bold">(Chọn một hoặc nhiều hạng mục)</span>
               </label>
               
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2 max-h-48 overflow-y-auto">
@@ -1396,7 +1396,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                 })}
               </div>
               {workCategories.length === 0 && (
-                <p className="text-sm text-rose-700 font-bold mt-1">⚠️ Vui lòng chọn ít nhất 1 hạng mục thi công liên kết.</p>
+                <p className="text-[10px] text-rose-500 font-bold mt-1">⚠️ Vui lòng chọn ít nhất 1 hạng mục thi công liên kết.</p>
               )}
             </div>
 
