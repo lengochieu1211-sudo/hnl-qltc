@@ -4,6 +4,14 @@ import { catalogOrderRank, reorderVisibleCatalogItems } from '../src/utils/catal
 
 // HNL theme regression: reachable AI/project gradients must stay readable in dark mode.
 const hnlThemeCss = fs.readFileSync('src/index.css', 'utf8');
+// Typography Gate 1: role-based sizing follows scalePercent, compact mobile remains usable.
+const navTypography = fs.readFileSync('src/components/BottomNav.tsx', 'utf8');
+for (const token of ['--hnl-font-family:', '--hnl-font-body: .875rem;', '--hnl-font-nav:', '.hnl-nav-label', 'font-size: max(1rem, 16px);']) {
+  if (!hnlThemeCss.includes(token)) throw new Error(`Typography Gate 1 missing ${token}`);
+}
+if (!navTypography.includes('hnl-nav-label') || navTypography.includes('text-[9px] font-bold')) throw new Error('Main navigation must not use unreadable fixed 9px labels');
+if (!hnlThemeCss.includes('html[data-hnl-button-size="compact"] [data-hnl-secondary-action-group] > button')) throw new Error('Compact touch correction must stay scoped to mobile toolbars');
+
 const hnlAiThemeSource = fs.readFileSync('src/features/ai/AiAssistantPage.tsx', 'utf8');
 const hnlProjectThemeSource = fs.readFileSync('src/components/ProjectManagerModal.tsx', 'utf8');
 for (const marker of ['hnl-ai-hero']) {

@@ -17,7 +17,17 @@
 
 
 /* HNL SUPER ADMIN UI V2 */
+/* HNL Typography v1: platform-native families (no external fonts / no network).
+ * All role tokens are rem-based so Super Admin 90–120% text scaling applies.
+ * Keep floor-plan coordinates, print/PDF and canvas annotations outside this scope. */
 :root {
+  --hnl-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --hnl-font-page: 1.25rem;
+  --hnl-font-section: 1rem;
+  --hnl-font-body: .875rem;
+  --hnl-font-label: .8125rem;
+  --hnl-font-note: .75rem;
+  --hnl-font-nav: .71875rem;
   --hnl-primary: #2563eb;
   --hnl-primary-hover: #1d4ed8;
   --hnl-primary-soft: #eff6ff;
@@ -26,6 +36,29 @@
   --hnl-primary-on-light: #2563eb;
   --hnl-primary-on-dark: #93c5fd;
   --hnl-secondary: #059669;
+}
+
+html, body, #root { font-family: var(--hnl-font-family); }
+/* Scoped role classes: never force text sizes on PDF, canvas or floor-plan markers. */
+.hnl-type-page { font-size: var(--hnl-font-page); line-height: 1.3; }
+.hnl-type-section { font-size: var(--hnl-font-section); line-height: 1.4; }
+.hnl-type-body { font-size: var(--hnl-font-body); line-height: 1.5; }
+.hnl-type-label { font-size: var(--hnl-font-label); line-height: 1.4; }
+.hnl-type-note { font-size: var(--hnl-font-note); line-height: 1.45; }
+.hnl-nav-label { font-size: var(--hnl-font-nav); line-height: 1.15; overflow-wrap: anywhere; text-align: center; }
+
+/* Mobile shares the same data and features, with a larger interactive hit area.
+ * Do not increase every button globally: compact tables have their own geometry. */
+@media (max-width: 1023px) {
+  :root {
+    --hnl-font-page: 1.125rem;
+    --hnl-font-body: .875rem; /* User-approved mobile body: 14px at 100% */
+    --hnl-font-label: .875rem;
+    --hnl-font-nav: .75rem;
+  }
+  html[data-hnl-button-size="compact"] [data-hnl-secondary-action-group] > button { min-height: 2.75rem; }
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  textarea, select { font-size: max(1rem, 16px); }
 }
 
 /* HNL primary compatibility layer.
