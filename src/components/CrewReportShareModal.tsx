@@ -637,24 +637,24 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
           )}
 
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            <label className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-[10px] font-bold text-slate-500">
+            <label className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-bold text-slate-500">
               <span className="mb-1 block">{mode === 'single' ? 'Ngày báo cáo' : 'Từ ngày'}</span>
               <input type="date" value={startDate} max={resolvedMaxDate} disabled={rangeLocked} onChange={(event) => { setDatePreset('custom'); setStartDate(event.target.value); if (mode === 'single') { setEndDate(event.target.value); setMode('range'); } else if (event.target.value > endDate) setEndDate(event.target.value); }} className="w-full bg-transparent text-sm font-extrabold text-slate-800 outline-none disabled:opacity-70" />
             </label>
             {mode === 'range' && (
-              <label className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-[10px] font-bold text-slate-500">
+              <label className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-bold text-slate-500">
                 <span className="mb-1 block">Đến ngày</span>
                 <input type="date" value={endDate} min={startDate} max={resolvedMaxDate} disabled={rangeLocked} onChange={(event) => { setDatePreset('custom'); setEndDate(event.target.value); }} className="w-full bg-transparent text-sm font-extrabold text-slate-800 outline-none disabled:opacity-70" />
               </label>
             )}
-            <label className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-[10px] font-bold text-slate-500">
+            <label className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-bold text-slate-500">
               <span className="mb-1 block">Dự án</span>
               <select value={projectFilter} onChange={(event) => { setProjectFilter(event.target.value); setTeamFilter('all'); }} className="w-full bg-transparent text-sm font-extrabold text-slate-800 outline-none">
                 <option value="all">Tất cả dự án</option>
                 {projects.map((project) => <option key={project.projectId} value={project.projectId}>{project.projectName}</option>)}
               </select>
             </label>
-            <label className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-[10px] font-bold text-slate-500">
+            <label className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-bold text-slate-500">
               <span className="mb-1 block">Đội thi công</span>
               <select value={teamFilter} onChange={(event) => setTeamFilter(event.target.value)} className="w-full bg-transparent text-sm font-extrabold text-slate-800 outline-none">
                 <option value="all">Tất cả đội</option>
@@ -664,14 +664,14 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
-            <div className="mb-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Tùy chọn hiển thị báo cáo</div>
+            <div className="mb-2 text-xs font-extrabold uppercase tracking-wider text-slate-500">Tùy chọn hiển thị báo cáo</div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={hideUnreportedTeams} onChange={(event) => setHideUnreportedTeams(event.target.checked)} /> Ẩn đội chưa báo</label>
-              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={hideZeroTeams} onChange={(event) => setHideZeroTeams(event.target.checked)} /> Ẩn đội quân số = 0</label>
-              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={hideUnreportedDates} onChange={(event) => setHideUnreportedDates(event.target.checked)} /> Ẩn ngày chưa báo</label>
-              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={hideZeroDates} onChange={(event) => setHideZeroDates(event.target.checked)} /> Ẩn ngày quân số = 0</label>
-              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={showSerialNumber} onChange={(event) => setShowSerialNumber(event.target.checked)} /> Thêm cột STT</label>
-              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={showWorkDetails} onChange={(event) => setShowWorkDetails(event.target.checked)} /> Chi tiết Tầng / Hạng mục / HM con / Ghi chú</label>
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700"><input type="checkbox" checked={hideUnreportedTeams} onChange={(event) => setHideUnreportedTeams(event.target.checked)} /> Ẩn đội chưa báo</label>
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700"><input type="checkbox" checked={hideZeroTeams} onChange={(event) => setHideZeroTeams(event.target.checked)} /> Ẩn đội quân số = 0</label>
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700"><input type="checkbox" checked={hideUnreportedDates} onChange={(event) => setHideUnreportedDates(event.target.checked)} /> Ẩn ngày chưa báo</label>
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700"><input type="checkbox" checked={hideZeroDates} onChange={(event) => setHideZeroDates(event.target.checked)} /> Ẩn ngày quân số = 0</label>
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700"><input type="checkbox" checked={showSerialNumber} onChange={(event) => setShowSerialNumber(event.target.checked)} /> Thêm cột STT</label>
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700"><input type="checkbox" checked={showWorkDetails} onChange={(event) => setShowWorkDetails(event.target.checked)} /> Chi tiết Tầng / Hạng mục / HM con / Ghi chú</label>
             </div>
             <div className="mt-2 text-[9.5px] font-semibold text-slate-500">
               Mặc định không ẩn dữ liệu. “Ẩn đội quân số = 0” chỉ ẩn đội đã báo nhưng toàn bộ khoảng ngày đang xem đều bằng 0.
@@ -801,7 +801,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
             </>}
             {actionMenu==='image'&&<>
               <button type="button" onClick={()=>void downloadImages()} disabled={Boolean(busy)||preparedImages?.signature!==preparationSignature} className="min-h-11 rounded-lg border border-emerald-200 bg-white px-2 text-xs font-bold text-emerald-700 disabled:opacity-40"><Download className="mr-1 inline h-4 w-4" /> Tải ảnh</button>
-              <button type="button" onClick={()=>void shareImages()} disabled={Boolean(busy)||preparedImages?.signature!==preparationSignature} className="min-h-11 rounded-lg bg-emerald-600 px-2 text-xs font-bold text-white disabled:opacity-40"><Share2 className="mr-1 inline h-4 w-4" /> Chia sẻ ảnh</button>
+              <button type="button" onClick={()=>void shareImages()} disabled={Boolean(busy)||preparedImages?.signature!==preparationSignature} className="min-h-11 rounded-lg bg-emerald-700 px-2 text-sm font-bold text-white disabled:opacity-40"><Share2 className="mr-1 inline h-4 w-4" /> Chia sẻ ảnh</button>
             </>}
             {actionMenu==='excel'&&<>
               <button type="button" onClick={()=>void handleExcel('download')} disabled={Boolean(busy)||preparedExcel?.signature!==preparationSignature} className="min-h-11 rounded-lg border border-indigo-200 bg-white px-2 text-xs font-bold text-indigo-700 disabled:opacity-40"><Download className="mr-1 inline h-4 w-4" /> Tải Excel</button>

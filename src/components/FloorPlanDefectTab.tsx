@@ -6099,7 +6099,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               </div>
             )}
 
-            <div className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">
+            <div className="text-xs font-semibold text-slate-500 whitespace-nowrap">
               {visibleFloorPlans.length}/{floorPlans.length} tầng
             </div>
           </div>
@@ -6181,13 +6181,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     const state = getFloorTargetState(field.value);
                     return (
                       <label key={field.key} className="space-y-1">
-                        <span className="text-[10px] font-bold text-slate-600">{field.label}</span>
+                        <span className="text-xs font-bold text-slate-600">{field.label}</span>
                         <input
                           type="date"
                           value={field.value || ''}
                           disabled={!canManageStructure}
                           onChange={(event) => onUpdateFloorPlan?.(activeFloor.id, { [field.key]: event.target.value })}
-                          className="w-full border border-slate-200 bg-white rounded-lg px-2 py-1.5 text-[11px] font-bold disabled:bg-slate-100 disabled:text-slate-500"
+                          className="w-full border border-slate-200 bg-white rounded-lg px-2 py-1.5 text-sm font-bold disabled:bg-slate-100 disabled:text-slate-500"
                         />
                         <span className={`inline-flex px-1.5 py-0.5 rounded-md border text-[9px] font-bold ${state.className}`}>{state.label}</span>
                       </label>
@@ -6228,7 +6228,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               </div>
 
               {!canManageStructure && (
-                <p className="text-[10px] text-slate-500">Ngày mục tiêu là kế hoạch dùng chung của dự án. Kỹ sư/Viewer được xem cảnh báo; chỉ ADMIN được đổi ngày.</p>
+                <p className="text-xs text-slate-500">Ngày mục tiêu là kế hoạch dùng chung của dự án. Kỹ sư/Viewer được xem cảnh báo; chỉ ADMIN được đổi ngày.</p>
               )}
             </div>
           )}
@@ -6267,7 +6267,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             <span className="font-bold block">
               {floorPlanProcessingKind === 'pdf' ? '🔄 Đang render PDF thành ảnh mặt bằng...' : '🖼️ Đang tối ưu ảnh mặt bằng...'}
             </span>
-            <span className="text-[11px] text-amber-700">
+            <span className="text-sm text-amber-700">
               {floorPlanProcessingKind === 'pdf'
                 ? 'Đang chuyển trang PDF đã chọn thành ảnh mặt bằng; không tự tạo Căn / Phòng hoặc dữ liệu mẫu.'
                 : 'Đang nén và chuẩn bị ảnh JPG/PNG/WebP để lưu mặt bằng; không có bước chuyển PDF.'}
@@ -9892,7 +9892,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           />
                         </div>
 
-                        <label className="text-[10px] font-bold text-slate-600">
+                        <label className="text-xs font-bold text-slate-600">
                           Sai số màu: {smartPdfColorTolerance}
                           <input
                             type="range" min="5" max="70" step="1"
@@ -9902,7 +9902,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           />
                         </label>
 
-                        <label className="text-[10px] font-bold text-slate-600">
+                        <label className="text-xs font-bold text-slate-600">
                           Diện tích nhỏ nhất (% trang)
                           <input
                             type="number" min="0.01" max="10" step="0.01"
@@ -9912,7 +9912,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           />
                         </label>
 
-                        <label className="text-[10px] font-bold text-slate-600">
+                        <label className="text-xs font-bold text-slate-600">
                           Vùng tìm tên quanh tâm: {smartPdfCenterSearchMarginPercent}%
                           <input
                             type="range" min="0" max="30" step="1"
@@ -9922,7 +9922,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           />
                         </label>
 
-                        <label className="text-[10px] font-bold text-slate-600">
+                        <label className="text-xs font-bold text-slate-600">
                           Diện tích lớn nhất (% trang)
                           <input
                             type="number" min="1" max="100" step="1"
