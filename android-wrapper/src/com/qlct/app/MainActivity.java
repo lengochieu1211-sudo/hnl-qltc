@@ -794,7 +794,9 @@ public class MainActivity extends Activity {
 
                 Intent share = new Intent(uris.size() > 1 ? Intent.ACTION_SEND_MULTIPLE : Intent.ACTION_SEND);
                 share.setType(uris.size() > 1 ? "image/*" : mimeTypes.get(0));
-                share.putExtra(Intent.EXTRA_TEXT, safeText);
+                // Self-contained report cards already have readable text in the image.
+                // Omit empty EXTRA_TEXT to avoid an empty/duplicate Zalo message bubble.
+                if (!safeText.trim().isEmpty()) share.putExtra(Intent.EXTRA_TEXT, safeText);
                 share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 if (uris.size() > 1) share.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
                 else share.putExtra(Intent.EXTRA_STREAM, uris.get(0));

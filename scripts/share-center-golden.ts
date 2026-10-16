@@ -33,7 +33,7 @@ mustContain(shareMenu, 'preparedAttachments', 'preloaded attachment cache');
 mustContain(shareMenu, 'transient user activation', 'Web Share activation safeguard');
 mustContain(shareMenu, 'attachments: includeImages ? preparedAttachments : []', 'click-time share uses preloaded files');
 mustContain(shareMenu, 'Đã chuẩn bị ${items.length} ảnh', 'prepared image readiness feedback');
-mustContain(shareMenu, 'Zalo · Messenger · Telegram · Gmail · SMS', 'generic messaging explanation');
+mustNotContain(shareMenu, 'Zalo · Messenger · Telegram · Gmail · SMS', 'redundant messaging-app list');
 mustContain(contactMenu, 'Chia sẻ / Nhắn qua ứng dụng', 'generic contact share action');
 mustNotContain(contactMenu, 'Mở Zalo', 'hard-coded Zalo primary action');
 mustNotContain(contactMenu, 'openZalo', 'hard-coded Zalo helper import');
