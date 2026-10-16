@@ -18,7 +18,7 @@ assert.ok(crew.includes("contextReturn: 'crew-detail'") && crew.includes('setSel
 assert.ok(volume.includes('onOpenRoomFromDetail') && volume.includes('setDetailVolumeTarget(item)'), 'Volume return restores selected breakdown');
 assert.ok(!app.includes("window.setTimeout(() => window.dispatchEvent(new Event('qlct-health-center-return')), 60);\n    };\n    window.addEventListener('qlct-diagnostic-open-entity'") && app.includes("navigateToTab('config', true)"), 'Health return event cannot recursively redispatch or wipe multi-hop stack');
 assert.ok(volume.includes('if (!isActive || !detailBreakdown) return'), 'Preserve volume filters until selected item breakdown is restored');
-assert.ok(crew.includes('bg-green-600 hover:bg-green-700'), 'Team Excel detail export is green');
+assert.match(crew, /w-full sm:w-auto min-h-10 bg-(?:green|emerald)-600 hover:bg-(?:green|emerald)-700/, 'Team Excel detail export stays bright green and fills mobile column');
 assert.ok(configSheet.includes('qlct-health-center-navigate-out') && configSheet.includes('qlct-health-center-return'), 'Health Center feature sheet reopen');
 assert.ok(health.includes('buildHealthCenterNavigationRequest') && health.includes('qlct_health_center_return_state'), 'Canonical diagnostic navigation and filter return');
 assert.ok(header.includes('bg-blue-800 hover:bg-blue-900') && header.includes('bg-teal-700 hover:bg-teal-800'), 'Muted header colors');
