@@ -63,14 +63,14 @@ const ContactPhoneEditor: React.FC<{
         value={value}
         onChange={(e) => setValue(e.target.value)}
         placeholder="Số điện thoại / Zalo"
-        className="flex-1 min-w-0 px-2.5 py-2 bg-white border border-slate-300 rounded-lg text-[11px] font-semibold focus:ring-2 focus:ring-indigo-500"
+        className="flex-1 min-w-0 px-2.5 py-2 bg-white border border-slate-300 rounded-lg text-sm font-semibold focus:ring-2 focus:ring-indigo-500"
       />
       <div className="flex gap-1.5">
         <button
           type="button"
           onClick={() => onSave(value)}
           disabled={saving}
-          className="flex-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-extrabold disabled:opacity-50"
+          className="flex-1 px-2.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-sm font-extrabold disabled:opacity-50"
         >
           {saving ? 'Đang lưu...' : 'Lưu'}
         </button>
@@ -78,7 +78,7 @@ const ContactPhoneEditor: React.FC<{
           type="button"
           onClick={onCancel}
           disabled={saving}
-          className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-extrabold disabled:opacity-50"
+          className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-extrabold disabled:opacity-50"
         >
           Hủy
         </button>
@@ -1423,7 +1423,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
                 <UserCheck className="h-4 w-4" />
               </div>
               <div className="min-w-0">
-                <div className="text-[11px] font-extrabold text-slate-800">Tài khoản Google/Firebase</div>
+                <div className="text-sm font-extrabold text-slate-800">Tài khoản Google/Firebase</div>
                 <div className={`truncate text-[10px] font-semibold ${cloudUser ? 'text-emerald-700' : 'text-slate-500'}`}>
                   {cloudUser ? `${cloudUser.email || cloudUser.displayName || 'Đã đăng nhập'} · ${auditRoleLabel(currentRole)}` : 'Chưa đăng nhập'}
                 </div>
@@ -1434,7 +1434,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
                 type="button"
                 disabled={isAccountBusy}
                 onClick={() => void handleAccountSignOut()}
-                className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl border border-rose-200 bg-white px-3 py-2 text-[10px] font-bold text-rose-700 disabled:opacity-50"
+                className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm font-bold text-rose-700 disabled:opacity-50"
               >
                 <LogOut className="h-3.5 w-3.5" /> Đăng xuất
               </button>
@@ -1444,7 +1444,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
                 disabled={isAccountBusy}
                 onClick={() => void handleAccountSignIn()}
                 data-hnl-primary-action="security-sign-in"
-                className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-600 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50"
+                className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
               >
                 <LogIn className="h-3.5 w-3.5" /> {isAccountBusy ? 'Đang đăng nhập...' : 'Đăng nhập'}
               </button>

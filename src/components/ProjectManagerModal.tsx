@@ -3290,7 +3290,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               <h2 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
                 {modalTab === 'sync' ? 'Trung tâm đồng bộ & sao lưu dự án' : 'Quản lý danh sách dự án'}
               </h2>
-              <p className="text-[11px] text-slate-500 font-medium">
+              <p className="text-xs text-slate-500 font-medium">
                 {modalTab === 'sync' 
                   ? 'Đồng bộ dữ liệu, R2/ảnh, sao lưu, khôi phục và đối chiếu dự án.'
                   : 'Tạo mới, chuyển đổi, tìm kiếm và quản lý danh sách dự án công trình'}
@@ -3404,7 +3404,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   {exportEncrypt && (
                     <div className="mt-2 p-2.5 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-2 animate-in fade-in duration-150">
                       <div>
-                        <label className="block text-[10px] font-extrabold text-indigo-900 mb-0.5">
+                        <label className="block text-sm font-extrabold text-indigo-900 mb-0.5">
                           Mật khẩu mã hóa (Tối thiểu 4 ký tự):
                         </label>
                         <input
@@ -3416,7 +3416,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                        <label className="block text-sm font-bold text-slate-600 mb-0.5">
                           Gợi ý mật khẩu (Tùy chọn - Hiển thị khi mở tệp):
                         </label>
                         <input
@@ -3427,7 +3427,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                           className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-600"
                         />
                       </div>
-                      <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-[10px] text-rose-800 space-y-1">
+                      <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-800 space-y-1">
                         <div className="font-extrabold flex items-center gap-1 text-rose-900">
                           <ShieldAlert className="w-3.5 h-3.5 text-rose-600 shrink-0" />
                           <span>CẢNH BÁO BẢO MẬT MẬT KHẨU SAO LƯU:</span>
@@ -3454,7 +3454,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     <div className="bg-slate-50 p-2.5 rounded-xl border border-indigo-200 space-y-2 animate-in fade-in duration-150">
                       <div className="flex items-center justify-between">
                         <span className="text-[10.5px] font-bold text-indigo-950">Dán nội dung tệp JSON:</span>
-                        <button onClick={() => setShowPasteArea(false)} className="text-[10px] text-slate-400 font-bold hover:text-slate-700">Đóng</button>
+                        <button onClick={() => setShowPasteArea(false)} className="text-sm text-slate-500 font-bold hover:text-slate-700">Đóng</button>
                       </div>
                       <textarea
                         rows={3}
@@ -3525,7 +3525,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       </div>
                     ) : (
                       <div className="space-y-1.5">
-                        <p className="text-[10px] text-slate-500 leading-normal">
+                        <p className="text-xs text-slate-500 leading-normal">
                           Tự động ghi đè và lưu dữ liệu dự án trực tiếp vào file <code className="font-mono text-indigo-600 bg-slate-100 px-1 py-0.5 rounded font-bold">.json</code> trên đĩa cứng máy tính.
                         </p>
                         <button
@@ -5329,7 +5329,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                      <label className="block text-sm font-bold text-slate-600 mb-0.5">
                         Gợi Ý Mật Khẩu Mới (Tùy chọn):
                       </label>
                       <input
