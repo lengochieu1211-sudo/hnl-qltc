@@ -108,6 +108,9 @@ assert.equal(await equipmentTab.getAttribute('aria-selected'),'true',label+': eq
 // the editor's icons in source; the actual editor requires Cloud ready state.
 const panel=page.locator('[data-hnl-equipment-master="true"]');
 await panel.waitFor({state:'visible'});
+// Wait for the React effect to resolve the absent project into its fail-closed error state.
+// A visible panel may still contain its initial loading placeholder for a few frames.
+await panel.getByText('Không tải được thông tin thiết bị', {exact:false}).waitFor({state:'visible',timeout:10000});
 assert((await panel.innerText()).includes('Không tải được thông tin thiết bị'),
   label+': missing project must not bypass the equipment load/permission guard');
 await back.click();
