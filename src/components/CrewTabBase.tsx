@@ -4199,7 +4199,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <div className="bg-white border-t border-slate-200 p-3 grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-between shrink-0">
                 <button
                   onClick={() => handleExportTeamStats(team.name)}
-                  className="w-full sm:w-auto min-h-10 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition shadow-2xs active:scale-95 whitespace-nowrap"
+                  className="w-full sm:w-auto min-h-10 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition shadow-2xs active:scale-95 whitespace-nowrap"
                   title="Tải báo cáo Excel thống kê chi tiết cho đội thi công này"
                 >
                   <Download className="w-4 h-4 shrink-0" />
