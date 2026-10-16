@@ -3,6 +3,7 @@ import { Copy, Image as ImageIcon, Share2, X } from 'lucide-react';
 import { getEntityPhotos, getPhotoDataUrl, PhotoAttachment } from '../utils/photoStorage';
 import { copyText } from '../utils/contactUtils';
 import { ShareAttachmentPayload, sharePreparedContent } from '../utils/shareUtils';
+import { renderEntityShareCard } from '../utils/entityShareCard';
 
 type ShareEntityType = 'defect' | 'crewRecord';
 
@@ -66,6 +67,7 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
   const [open, setOpen] = useState(false);
   const [photos, setPhotos] = useState<PhotoAttachment[]>([]);
   const [includeImages, setIncludeImages] = useState(false);
+  const [imageFormat, setImageFormat] = useState<'report' | 'original'>('report');
   const [loadingPhotos, setLoadingPhotos] = useState(false);
   const [preparingImages, setPreparingImages] = useState(false);
   const [preparedAttachments, setPreparedAttachments] = useState<ShareAttachmentPayload[]>([]);
@@ -90,7 +92,7 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
   }, [open, projectId, entityType, entityId]);
 
   const resolveAttachments = async (): Promise<ShareAttachmentPayload[]> => {
-    const attachments: ShareAttachmentPayload[] = [];
+    const attachments: Array<ShareAttachmentPayload & { caption?: string }> = [];
     const seen = new Set<string>();
 
     for (const photo of photos.slice(0, 6)) {
@@ -104,6 +106,7 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
       seen.add(dataUrl);
       attachments.push({
         id: photo.id,
+        caption: categoryLabel(photo),
         fileName: safeFileName(photo.fileName, `HNL-QLTC-${entityType}-${photo.id}.jpg`),
         mimeType: photo.mimeType || 'image/jpeg',
         dataUrl,
@@ -117,6 +120,7 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
         seen.add(dataUrl);
         attachments.push({
           id: `legacy-${index}`,
+          caption: entityType === 'defect' ? (index === 0 ? 'Ảnh trước sửa' : 'Ảnh sau sửa') : 'Ảnh hiện trường',
           fileName: `HNL-QLTC-${entityType}-${index + 1}.jpg`,
           mimeType: dataUrl.match(/^data:([^;,]+)/)?.[1] || 'image/jpeg',
           dataUrl,
@@ -140,11 +144,17 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
     setPreparingImages(true);
     setStatus('Đang chuẩn bị ảnh để chia sẻ…');
     void resolveAttachments()
+      .then(async (items) => {
+        if (!items.length || imageFormat === 'original') return items;
+        return [await renderEntityShareCard({ title, text, entityType, attachments: items })];
+      })
       .then((items) => {
         if (cancelled) return;
         setPreparedAttachments(items);
         setStatus(items.length > 0
-          ? `Đã chuẩn bị ${items.length} ảnh. Bấm Chia sẻ để mở bảng chia sẻ hệ thống.`
+          ? imageFormat === 'report'
+            ? 'Đã tạo ảnh báo cáo có chữ và ảnh hiện trường. Bấm Chia sẻ để gửi.'
+            : `Đã chuẩn bị ${items.length} ảnh gốc. Ứng dụng nhận có thể không giữ phần chữ kèm theo.`
           : 'Không đọc được ảnh để chia sẻ. Hãy kiểm tra đồng bộ ảnh rồi thử lại.');
       })
       .catch((error: any) => {
@@ -155,7 +165,7 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
       })
       .finally(() => { if (!cancelled) setPreparingImages(false); });
     return () => { cancelled = true; };
-  }, [open, includeImages, availableImageCount, loadingPhotos, photos, projectId, entityType, entityId, legacyUrls]);
+  }, [open, includeImages, imageFormat, title, text, availableImageCount, loadingPhotos, photos, projectId, entityType, entityId, legacyUrls]);
 
   const handleShare = () => {
     if (!text.trim() && !shareUrl?.trim()) {
@@ -180,10 +190,13 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
       text,
       url: shareUrl,
       attachments: includeImages ? preparedAttachments : [],
+      allowTextFallback: !includeImages,
     }).then((result) => {
       if (result.status === 'shared') {
         if (result.fallbackToText) setStatus('Thiết bị không hỗ trợ gửi kèm file; đã mở chia sẻ phần nội dung chữ.');
-        else if (result.sharedFiles > 0) setStatus(`Đã mở bảng chia sẻ với ${result.sharedFiles} ảnh.`);
+        else if (result.sharedFiles > 0) setStatus(imageFormat === 'report'
+          ? 'Đã mở bảng chia sẻ ảnh báo cáo có chữ.'
+          : `Đã mở bảng chia sẻ với ${result.sharedFiles} ảnh gốc. Ứng dụng nhận có thể bỏ phần chữ.`);
         else setStatus('Đã mở bảng chia sẻ hệ thống.');
       } else if (result.status === 'copied') {
         setStatus(result.fallbackToText
@@ -208,7 +221,7 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
 
   return (
     <>
-      <button type="button" onClick={() => { setStatus(''); setIncludeImages(false); setPreparedAttachments([]); setOpen(true); }} className={triggerClassName}>
+      <button type="button" onClick={() => { setStatus(''); setIncludeImages(false); setImageFormat('report'); setPreparedAttachments([]); setOpen(true); }} className={triggerClassName}>
         <Share2 className="w-3.5 h-3.5" />
         <span>{triggerLabel}</span>
       </button>
@@ -252,11 +265,28 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
                   onChange={(event) => {
                     setPreparedAttachments([]);
                     setIncludeImages(event.target.checked);
+                    setPreparingImages(event.target.checked);
                     if (!event.target.checked) setStatus('');
                   }}
                   className="h-4 w-4 accent-indigo-600"
                 />
               </label>
+
+              {includeImages && availableImageCount > 0 && (
+                <fieldset className="rounded-xl border border-indigo-100 bg-white px-3 py-2.5" aria-label="Kiểu ảnh chia sẻ">
+                  <legend className="px-1 text-[10px] font-extrabold text-indigo-700">Kiểu ảnh chia sẻ</legend>
+                  <label className="flex items-start gap-2 py-1 text-xs font-semibold text-slate-800">
+                    <input type="radio" name={`share-image-${entityType}-${entityId}`} value="report" checked={imageFormat === 'report'}
+                      onChange={() => { setPreparedAttachments([]); setPreparingImages(true); setImageFormat('report'); }} className="mt-0.5 accent-indigo-600" />
+                    <span>Ảnh báo cáo có chữ <span className="block text-[10px] font-normal text-slate-500">Một ảnh gồm nội dung và ảnh hiện trường, phù hợp Zalo.</span></span>
+                  </label>
+                  <label className="flex items-start gap-2 py-1 text-xs font-semibold text-slate-800">
+                    <input type="radio" name={`share-image-${entityType}-${entityId}`} value="original" checked={imageFormat === 'original'}
+                      onChange={() => { setPreparedAttachments([]); setPreparingImages(true); setImageFormat('original'); }} className="mt-0.5 accent-indigo-600" />
+                    <span>Ảnh gốc <span className="block text-[10px] font-normal text-slate-500">Tối đa 6 ảnh; ứng dụng nhận có thể bỏ phần chữ.</span></span>
+                  </label>
+                </fieldset>
+              )}
 
               {photos.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
@@ -278,7 +308,7 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-semibold leading-relaxed text-slate-600">
-                HNL QLTC chỉ gửi nội dung sau khi bạn bấm Chia sẻ. Khi bật “Kèm hình ảnh”, HNL chuẩn bị file trước để Chrome/Android có thể mở bảng chia sẻ với ảnh thật.
+                HNL QLTC chỉ gửi nội dung sau khi bạn bấm Chia sẻ. Khi bật “Kèm hình ảnh”, chọn “Ảnh báo cáo có chữ” để nội dung nằm trực tiếp trong ảnh. Ảnh gốc vẫn có thể chia sẻ riêng, không thay đổi dữ liệu dự án.
               </div>
               {status && <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-[10px] font-semibold text-indigo-800">{status}</div>}
             </div>
