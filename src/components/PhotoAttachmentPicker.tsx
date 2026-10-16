@@ -10,9 +10,9 @@ import { QuickSortBar } from './QuickSortBar';
 
 interface PhotoAttachmentPickerProps {
   projectId: string;
-  entityType: 'crewRecord' | 'defect' | 'chat';
+  entityType: 'crewRecord' | 'defect' | 'chat' | 'inventory';
   entityId: string;
-  category?: 'crew_progress' | 'defect_before' | 'defect_after';
+  category?: 'crew_progress' | 'defect_before' | 'defect_after' | 'warehouse_receipt';
   label?: string;
   maxPhotos?: number;
   readOnly?: boolean;

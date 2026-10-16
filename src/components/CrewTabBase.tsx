@@ -367,9 +367,44 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [teamListSortBy, setTeamListSortBy] = useState<'structure' | 'name' | 'leader' | 'count'>('structure');
   const [teamListSortOrder, setTeamListSortOrder] = useState<TeamSortOrder>('asc');
 
+  const rememberCrewDetailForReturn = () => {
+    if (!selectedTeamForDetail || !projectId) return;
+    try {
+      sessionStorage.setItem('qlct_crew_detail_return_v1', JSON.stringify({
+        projectId, teamId: selectedTeamForDetail.id, tab: detailModalTab,
+        defectFilter, teamDefectSortBy, teamDefectSortOrder,
+        createdAt: Date.now(), restore: false,
+      }));
+    } catch (_) { /* navigation still works when storage is unavailable */ }
+  };
+
+  // Mobile unmounts inactive modules. Recreate only the requested, same-project modal.
+  useEffect(() => {
+    if (!isActive) return;
+    try {
+      const raw = sessionStorage.getItem('qlct_crew_detail_return_v1');
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (!saved?.restore) return;
+      if (saved.projectId !== projectId || Date.now() - Number(saved.createdAt || 0) > 15 * 60_000) {
+        sessionStorage.removeItem('qlct_crew_detail_return_v1');
+        return;
+      }
+      const team = teams.find((item) => item.id === saved.teamId);
+      if (!team) return; // Wait for authorized team data; never synthesize a team.
+      setSelectedTeamForDetail(team);
+      setDetailModalTab(['rooms', 'materials', 'defects', 'logs'].includes(saved.tab) ? saved.tab : 'rooms');
+      setDefectFilter(['all', 'open', 'resolved'].includes(saved.defectFilter) ? saved.defectFilter : 'all');
+      if (['floor', 'room', 'status', 'due'].includes(saved.teamDefectSortBy)) setTeamDefectSortBy(saved.teamDefectSortBy);
+      if (['asc', 'desc'].includes(saved.teamDefectSortOrder)) setTeamDefectSortOrder(saved.teamDefectSortOrder);
+      sessionStorage.removeItem('qlct_crew_detail_return_v1');
+    } catch (_) { try { sessionStorage.removeItem('qlct_crew_detail_return_v1'); } catch (_) {} }
+  }, [isActive, projectId, teams]);
+
   const openRoomOnFloorPlan = (room: RoomProgressItem) => {
     const request = {
       entityType: 'room',
+      contextReturn: 'crew-detail',
       projectId: projectId || '',
       entityId: room.id,
       roomId: room.id,
@@ -378,6 +413,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     try {
       sessionStorage.setItem('qlct_diagnostic_navigation_request', JSON.stringify(request));
     } catch (_) {}
+    rememberCrewDetailForReturn();
     setSelectedTeamForDetail(null);
     window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity', { detail: request }));
   };
@@ -385,6 +421,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const openDefectOnFloorPlan = (defect: DefectItem) => {
     const request = {
       entityType: 'defect',
+      contextReturn: 'crew-detail',
       projectId: projectId || '',
       defectId: defect.id,
       floorId: defect.floorId,
@@ -395,6 +432,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     try {
       sessionStorage.setItem('qlct_pending_defect_navigation', JSON.stringify(request));
     } catch (_) {}
+    rememberCrewDetailForReturn();
     setSelectedTeamForDetail(null);
     window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity', { detail: request }));
   };
@@ -1328,19 +1366,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const executeDeleteRecord = async () => {
     if (!deletingRecordTarget || !canDeleteRecord(deletingRecordTarget)) return;
     if (deletingRecordTarget) {
-      if (projectId) {
-        let trashEnabled = true;
-        try {
-          const settingsKey = projectId === 'default' ? 'construction_trash_settings' : `construction_trash_settings_${projectId}`;
-          const settings = JSON.parse(localStorage.getItem(settingsKey) || '{}');
-          trashEnabled = settings?.enabled !== false;
-        } catch (_) {}
-        if (!trashEnabled) {
-          try {
-            await deleteEntityPhotos(projectId, 'crewRecord', deletingRecordTarget.id);
-          } catch (_) {}
-        }
-      }
+      // Retain photos until the Cloud confirms deletion and reference-safe purge.
+      // With Trash OFF there is no recovery snapshot, so deleting binary or photo
+      // metadata first would irreversibly lose evidence if the log write fails.
       onDeleteCrewRecord(deletingRecordTarget.id);
       setDeletingRecordTarget(null);
     }
@@ -4171,7 +4199,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <div className="bg-white border-t border-slate-200 p-3 grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-between shrink-0">
                 <button
                   onClick={() => handleExportTeamStats(team.name)}
-                  className="w-full sm:w-auto min-h-10 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition shadow-2xs active:scale-95 whitespace-nowrap"
+                  className="w-full sm:w-auto min-h-10 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition shadow-2xs active:scale-95 whitespace-nowrap"
                   title="Tải báo cáo Excel thống kê chi tiết cho đội thi công này"
                 >
                   <Download className="w-4 h-4 shrink-0" />

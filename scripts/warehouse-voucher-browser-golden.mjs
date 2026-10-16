@@ -68,8 +68,8 @@ try {
   assert.equal(await sheet.locator('[data-hnl-voucher-format="pdf"]').count(),1);
   // Check actual rendered Tailwind colors on both PC and phone, not just CSS classes.
   const palette={
-    png:'bg-emerald-700',
-    xlsx:'bg-blue-600',
+    png:'bg-sky-600',
+    xlsx:'bg-green-600',
     pdf:'bg-red-600',
   };
   const formatBoxes=[];const actualColors=[];

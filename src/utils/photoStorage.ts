@@ -9,12 +9,12 @@ import { getCurrentRealFirebaseUser } from '../lib/firebase';
 export interface PhotoAttachment {
   id: string; // UUID photo ID
   projectId: string;
-  entityType: 'crewRecord' | 'defect' | 'chat';
+  entityType: 'crewRecord' | 'defect' | 'chat' | 'inventory';
   entityId: string;
   teamId?: string;
   floorId?: string;
   roomId?: string;
-  category?: 'crew_progress' | 'defect_before' | 'defect_after' | 'chat_attachment' | 'chat_attachment';
+  category?: 'crew_progress' | 'defect_before' | 'defect_after' | 'chat_attachment' | 'warehouse_receipt';
   fileName: string;
   mimeType: string;
   localBlobKey?: string;
@@ -320,9 +320,9 @@ export async function saveProjectPhotos(projectId: string, photos: PhotoAttachme
 
 export async function getEntityPhotos(
   projectId: string,
-  entityType: 'crewRecord' | 'defect' | 'chat',
+  entityType: 'crewRecord' | 'defect' | 'chat' | 'inventory',
   entityId: string,
-  category?: 'crew_progress' | 'defect_before' | 'defect_after' | 'chat_attachment'
+  category?: 'crew_progress' | 'defect_before' | 'defect_after' | 'chat_attachment' | 'warehouse_receipt'
 ): Promise<PhotoAttachment[]> {
   const photos = await getProjectPhotos(projectId);
   return photos.filter(p => p.entityType === entityType && p.entityId === entityId && (!category || p.category === category));
@@ -925,7 +925,7 @@ export async function updatePhotoAttachmentBlob(
   return thumbBlob ? await blobToDataUrl(thumbBlob) : '';
 }
 
-export async function deleteEntityPhotos(projectId: string, entityType: 'crewRecord' | 'defect' | 'chat', entityId: string): Promise<void> {
+export async function deleteEntityPhotos(projectId: string, entityType: 'crewRecord' | 'defect' | 'chat' | 'inventory', entityId: string): Promise<void> {
   if (!projectId || !entityId) return;
   const photos = await getProjectPhotos(projectId, true);
   const now = Date.now();

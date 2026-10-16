@@ -13,6 +13,7 @@ import {
   FileSpreadsheet,
   FileText,
   Trash2,
+  RotateCcw,
   Filter,
   Sliders,
   ArrowUpDown,
@@ -21,6 +22,7 @@ import {
   AlertCircle,
   Download,
   Upload,
+  Images,
   Edit2,
   ChevronDown,
   PackageSearch
@@ -41,6 +43,8 @@ import { equipmentIdentityKey, EquipmentUnitMigrationRequiredError, saveEquipmen
 import type { WarehouseUnitRenameInput } from '../lib/warehouseUnitMigration';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import { WarehouseVoucherShareSheet } from './WarehouseVoucherShareSheet';
+import { listDeletedWarehouseVouchers, restoreWarehouseTransactionAtomic, type DeletedWarehouseVoucher } from '../lib/warehouseTransactions';
+import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
 import { DataManagementMenu } from './DataManagementMenu';
 import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';
 const LazyQuickEditGridModal = React.lazy(() => import('./QuickEditGridModal').then((m) => ({ default: m.QuickEditGridModal })));
@@ -148,6 +152,54 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [copiedInventoryId, setCopiedInventoryId] = useState<string | null>(null);
   const [showWarehouseCatalog, setShowWarehouseCatalog] = useState(false);
   const [voucherShareOpen, setVoucherShareOpen] = useState(false);
+  const [showDeletedVouchers, setShowDeletedVouchers] = useState(false);
+  const [deletedVouchers, setDeletedVouchers] = useState<DeletedWarehouseVoucher[]>([]);
+  const [deletedVoucherBusy, setDeletedVoucherBusy] = useState(false);
+  const [deletedVoucherError, setDeletedVoucherError] = useState('');
+  const deletedVoucherRequestRef = useRef(0);
+  const refreshDeletedVouchers = async () => {
+    if (!hasDeleteAccess || !currentProjectId || !FIREBASE_ONLY_RUNTIME) return;
+    const requestId = ++deletedVoucherRequestRef.current;
+    setDeletedVoucherBusy(true);
+    setDeletedVoucherError('');
+    try {
+      const rows = await listDeletedWarehouseVouchers(currentProjectId);
+      if (requestId === deletedVoucherRequestRef.current) setDeletedVouchers(rows);
+    } catch (error) {
+      if (requestId === deletedVoucherRequestRef.current) {
+        setDeletedVoucherError(error instanceof Error ? error.message : String(error));
+      }
+    } finally {
+      if (requestId === deletedVoucherRequestRef.current) setDeletedVoucherBusy(false);
+    }
+  };
+  const restoreDeletedVoucher = async (row: DeletedWarehouseVoucher) => {
+    if (!hasDeleteAccess || !currentProjectId || !FIREBASE_ONLY_RUNTIME || deletedVoucherBusy) return;
+    if (!(await confirmAsync(`Khôi phục phiếu ${row.type === 'in' ? 'Nhập' : 'Xuất'} ${row.materialName} (${formatDecimal(row.quantity)} ${row.unit})? Tồn kho sẽ được điều chỉnh nguyên tử trên Cloud.`))) return;
+    setDeletedVoucherBusy(true);
+    setDeletedVoucherError('');
+    try {
+      await restoreWarehouseTransactionAtomic(currentProjectId, row.id);
+      setDeletedVouchers((rows) => rows.filter((item) => item.id !== row.id));
+    } catch (error) {
+      setDeletedVoucherError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDeletedVoucherBusy(false);
+    }
+  };
+
+  // A photo session may start only after the Firestore stock transaction commits.
+  // Never stage a photo for an unsaved voucher (an OUT transaction can be rejected).
+  const [photoVoucher, setPhotoVoucher] = useState<(Pick<InventoryItem, 'id' | 'type' | 'materialName'> & { projectId: string }) | null>(null);
+  useEffect(() => {
+    deletedVoucherRequestRef.current += 1;
+    setPhotoVoucher(null);
+    setShowDeletedVouchers(false);
+    setDeletedVouchers([]);
+    setDeletedVoucherError('');
+    setDeletedVoucherBusy(false);
+  }, [currentProjectId]);
+  const inventorySaveInFlightRef = useRef(false);
   const [catalogHistory, setCatalogHistory] = useState<{
     kind: InventoryItemKind; name: string; displayName: string; unit: string;
     type: TransactionType; expectedTotal: number;
@@ -1436,7 +1488,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!hasEditAccess) return;
+    if (!hasEditAccess || inventorySaveInFlightRef.current) return;
     const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
     const keepOpen = !editingInventory && submitter?.value === 'continue';
     const finalMaterialName = itemKind === 'equipment'
@@ -1574,11 +1626,17 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       } : {}),
     };
 
+    const savedVoucherId = editingInventory?.id || createEntityId(type === 'in' ? 'NK' : 'XK');
+    inventorySaveInFlightRef.current = true;
     try {
       if (editingInventory && onUpdateInventory) {
         await onUpdateInventory(editingInventory.id, payload);
       } else {
-        await onAddInventory(payload);
+        await onAddInventory({ ...payload, id: savedVoucherId });
+      }
+      // Receipt photos use the exact committed ledger document ID across all devices.
+      if (!editingInventory && currentProjectId) {
+        setPhotoVoucher({ projectId: currentProjectId, id: savedVoucherId, type, materialName: finalMaterialName });
       }
 
       if (keepOpen) {
@@ -1603,6 +1661,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       }
     } catch (err: any) {
       alert(`Không thể ghi giao dịch kho: ${err?.message || String(err)}`);
+    } finally {
+      inventorySaveInFlightRef.current = false;
     }
   };
 
@@ -2313,8 +2373,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           />
 
           <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <div className="min-w-[810px]">
-              <div data-hnl-warehouse-catalog-header="aligned" className="grid grid-cols-[minmax(180px,1.6fr)_150px_52px_64px_64px_120px_76px] items-center gap-2 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">
+            <div className="min-w-[900px]">
+              <div data-hnl-warehouse-catalog-header="aligned" className="grid grid-cols-[minmax(180px,1.6fr)_150px_52px_64px_64px_120px_76px_82px] items-center gap-2 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">
                 <span>Tên {warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'vật tư'}</span>
                 <span>{warehouseCatalogTab === 'equipment' ? 'Nhóm thiết bị' : 'Chủng loại vật tư'}</span>
                 <span>ĐVT</span>
@@ -2322,6 +2382,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 <span className="text-right">Xuất</span>
                 <span className="whitespace-nowrap text-right leading-none">Nhu cầu định mức</span>
                 <span className="text-right">Tồn kho</span>
+                <span className="text-right" title="Tổng nhập / Nhu cầu định mức toàn dự án">% Nhập/ĐM</span>
               </div>
               <div className="max-h-[46vh] divide-y divide-slate-100 overflow-y-auto">
                 {warehouseCatalogStockRows.length === 0 ? (
@@ -2329,7 +2390,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     {warehouseCatalogTab === 'equipment' ? 'Chưa có thiết bị. Bạn có thể thêm trước trong Vật tư & Thiết bị.' : 'Không có vật tư phù hợp.'}
                   </div>
                 ) : warehouseCatalogStockRows.map((item) => (
-                  <div key={item.key} className="grid grid-cols-[minmax(180px,1.6fr)_150px_52px_64px_64px_120px_76px] items-center gap-2 px-3 py-2.5 text-xs">
+                  <div key={item.key} className="grid grid-cols-[minmax(180px,1.6fr)_150px_52px_64px_64px_120px_76px_82px] items-center gap-2 px-3 py-0.5 text-xs">
                     <div className="min-w-0">
                       <button type="button"
                         data-hnl-catalog-open-master={item.key}
@@ -2364,6 +2425,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                       {warehouseCatalogTab === 'material' ? formatDecimal(item.normQuantity || 0) : '—'}
                     </span>
                     <span className="text-right font-extrabold text-blue-700">{formatDecimal(item.currentStock)}</span>
+                    <span className={`text-right font-bold tabular-nums ${warehouseCatalogTab !== 'material' || !Number.isFinite(Number(item.normQuantity)) || Number(item.normQuantity) <= 0 ? 'text-slate-400' : item.totalIn > Number(item.normQuantity) ? 'text-rose-700' : item.totalIn >= Number(item.normQuantity) * 0.9 ? 'text-amber-700' : 'text-emerald-700'}`}
+                      title={warehouseCatalogTab === 'material' && Number(item.normQuantity) > 0 ? `Tổng nhập ${formatDecimal(item.totalIn)} / Nhu cầu định mức ${formatDecimal(item.normQuantity)} toàn dự án` : 'Không áp dụng / chưa có nhu cầu định mức'}>
+                      {warehouseCatalogTab === 'material' && Number.isFinite(Number(item.normQuantity)) && Number(item.normQuantity) > 0
+                        ? `${formatDecimal(Math.round((item.totalIn / Number(item.normQuantity)) * 10_000) / 100)}%`
+                        : '—'}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -2860,6 +2927,35 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       </div>
 
 
+      {hasDeleteAccess && FIREBASE_ONLY_RUNTIME && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5" data-hnl-warehouse-deleted-recovery="true">
+          <button type="button" className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-100"
+            onClick={() => { if (showDeletedVouchers) { setShowDeletedVouchers(false); } else { setShowDeletedVouchers(true); void refreshDeletedVouchers(); } }}
+            aria-expanded={showDeletedVouchers}>
+            <RotateCcw className="h-4 w-4" /> Phiếu kho đã xóa · Khôi phục
+          </button>
+          {showDeletedVouchers && (
+            <div className="mt-2 space-y-2" data-hnl-deleted-voucher-list="true">
+              <p className="text-[11px] text-slate-600">Chỉ ADMIN. Khôi phục online điều chỉnh tồn kho bằng một giao dịch Firestore; ảnh giao nhận giữ theo mã phiếu cũ. Mỗi lần truy vấn tải tối đa 100 phiếu đã xóa; chưa có xóa ảnh vĩnh viễn tự động.</p>
+              <button type="button" disabled={deletedVoucherBusy} onClick={() => void refreshDeletedVouchers()} className="min-h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-indigo-700 disabled:opacity-50">Kiểm tra lại</button>
+              {deletedVoucherError && <div role="alert" className="break-words rounded-lg border border-rose-200 bg-rose-50 p-2 text-xs text-rose-800">{deletedVoucherError}</div>}
+              {deletedVoucherBusy && <p className="text-xs text-slate-500">Đang xác minh Cloud…</p>}
+              {!deletedVoucherBusy && deletedVouchers.length === 0 && !deletedVoucherError && <p className="text-xs text-slate-500">Không có phiếu đã xóa trong phạm vi truy vấn.</p>}
+              <div className="max-h-56 space-y-1.5 overflow-y-auto">
+                {deletedVouchers.map((row) => (
+                  <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
+                    <div className="min-w-0 flex-1 break-words"><b>{row.type === 'in' ? 'Nhập' : 'Xuất'} · {row.materialName}</b> · {formatDecimal(row.quantity)} {row.unit}
+                      <div className="text-[10px] text-slate-500">{formatDateDDMMYYYY(row.date)} · Mã phiếu: {row.id}</div>
+                    </div>
+                    <button type="button" disabled={deletedVoucherBusy} onClick={() => void restoreDeletedVoucher(row)} className="min-h-9 rounded-lg bg-indigo-600 px-3 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-50">Khôi phục</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Filter and Search controls */}
       <div className="space-y-2">
         <div className="relative">
@@ -3124,7 +3220,15 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex justify-end gap-3 pt-1">
+                  <div className="flex flex-wrap justify-end gap-3 pt-1">
+                    {currentProjectId && roleResolved && (
+                      <button type="button" data-hnl-warehouse-photo-voucher={item.id}
+                        onClick={() => setPhotoVoucher({ projectId: currentProjectId, id: item.id, type: item.type, materialName: item.materialName })}
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-700 hover:text-sky-900"
+                        title={`Xem ảnh giao nhận của phiếu ${item.id}`}>
+                        <Images className="h-3.5 w-3.5" /> Ảnh giao nhận
+                      </button>
+                    )}
                     {hasEditAccess && onUpdateInventory && (
                       <button
                         type="button"
@@ -3159,6 +3263,30 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         projectLocation={projectLocation}
         contractorName={contractorName}
         onClose={() => setVoucherShareOpen(false)} />}
+      {photoVoucher && photoVoucher.projectId === currentProjectId && roleResolved && (
+        <div className="fixed inset-0 z-[96] flex items-end justify-center bg-slate-900/70 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+          data-hnl-warehouse-photo-modal="true" role="dialog" aria-modal="true" aria-label="Ảnh giao nhận phiếu kho">
+          <div className="flex max-h-[95dvh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-w-3xl sm:rounded-2xl">
+            <div className="flex shrink-0 items-start justify-between gap-2 border-b border-slate-200 p-3 sm:p-4">
+              <div className="min-w-0">
+                <h3 className="flex items-center gap-2 text-sm font-extrabold text-slate-900"><Images className="h-4 w-4 text-sky-600" /> Ảnh giao nhận · {photoVoucher.type === 'in' ? 'Nhập kho' : 'Xuất kho'}</h3>
+                <p className="mt-1 break-words text-xs text-slate-600">{photoVoucher.materialName} · Mã phiếu: <span className="break-all font-mono">{photoVoucher.id}</span></p>
+              </div>
+              <button type="button" onClick={() => setPhotoVoucher(null)}
+                className="min-h-10 shrink-0 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50">Đóng</button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 sm:p-4">
+              <PhotoAttachmentPicker
+                key={`${currentProjectId}:${photoVoucher.id}`} projectId={currentProjectId}
+                entityType="inventory" entityId={photoVoucher.id} category="warehouse_receipt"
+                label="ẢNH GIAO NHẬN (TỐI ĐA 10 ẢNH)" maxPhotos={10}
+                readOnly={!hasEditAccess}
+              />
+              <p className="mt-2 text-[11px] text-slate-500">Ảnh gắn riêng theo mã phiếu; không ảnh hưởng số lượng nhập, xuất hoặc tồn kho. Khi mạng yếu, ảnh sẽ chờ đồng bộ và chỉ hiển thị trên thiết bị khác sau khi Cloud sẵn sàng.</p>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Delete Inventory Confirmation Modal */}
       {hasDeleteAccess && deletingInventoryTarget && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
@@ -3658,6 +3786,23 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   className="w-full border border-slate-200 rounded-xl p-2.5"
                 />
               </div>
+
+              {currentProjectId && (
+                <div className="lg:col-span-6 rounded-xl border border-sky-100 bg-sky-50/40 p-2.5" data-hnl-warehouse-form-photos="true">
+                  {editingInventory ? (
+                    <PhotoAttachmentPicker
+                      key={`${currentProjectId}:${editingInventory.id}`} projectId={currentProjectId}
+                      entityType="inventory" entityId={editingInventory.id} category="warehouse_receipt"
+                      label="ẢNH GIAO NHẬN VẬT TƯ / THIẾT BỊ (KHÔNG BẮT BUỘC)" maxPhotos={10}
+                      readOnly={!hasEditAccess}
+                    />
+                  ) : (
+                    <p className="text-[11px] font-medium text-slate-600">
+                      <Images className="mr-1 inline h-4 w-4 text-sky-700" /> Ảnh giao nhận (tùy chọn): lưu phiếu thành công trước, hệ thống sẽ mở mục chụp/chọn ảnh để tránh tạo ảnh mồ côi khi giao dịch kho bị từ chối.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {quickAddMessage && !editingInventory && (
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-semibold text-emerald-800 lg:col-span-6">

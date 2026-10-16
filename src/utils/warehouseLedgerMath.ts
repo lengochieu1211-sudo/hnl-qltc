@@ -46,6 +46,26 @@ export function getWarehouseSignedDelta(item: Pick<InventoryItem, 'type' | 'quan
 }
 
 /**
+ * A deleted voucher can only be reactivated by applying its original signed delta
+ * to the current, server-verified stock balance. An OUT restore must never create
+ * negative stock, even if other accounts have issued material since deletion.
+ * Pure helper shared by the atomic restore and its regression tests.
+ */
+export function calculateRestoredWarehouseBalance(
+  currentOnHand: number,
+  item: Pick<InventoryItem, 'type' | 'quantity'>,
+): number {
+  if (!Number.isFinite(currentOnHand) || currentOnHand < -1e-9) {
+    throw new Error('INVENTORY_RESTORE_INVALID_BALANCE: Tồn kho hiện tại không hợp lệ; cần đối chiếu trước.');
+  }
+  const next = currentOnHand + getWarehouseSignedDelta(item);
+  if (next < -1e-9) {
+    throw new Error('INSUFFICIENT_STOCK_RESTORE: Khôi phục phiếu xuất sẽ làm tồn kho âm. Cần nhập bổ sung hoặc điều chỉnh giao dịch hợp lệ trước.');
+  }
+  return Math.abs(next) < 1e-9 ? 0 : next;
+}
+
+/**
  * Rebuild one derived balance from the immutable inventory ledger.
  * This is intentionally pure so it can be golden-tested without Firebase.
  */

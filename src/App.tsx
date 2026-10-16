@@ -185,17 +185,18 @@ import {
   pickAndroidAutoSaveFolder,
   saveTextFileToAndroidAutoFolder
 } from './utils/fileExport';
-import { deleteEntityPhotos, getProjectPhotos, getProjectPhotosWithBinary, restorePhotosFromBackup } from './utils/photoStorage';
+import { getProjectPhotos, getProjectPhotosWithBinary, restorePhotosFromBackup } from './utils/photoStorage';
 import { refreshProjectPhotoMetadataFromCloud, subscribeProjectPhotosRealtime, syncProjectPhotosToCloud, PhotoCloudSyncStatus } from './lib/photoCloudSync';
 import { appendRuntimeDiagnostic } from './lib/runtimeDiagnostics';
 import { isPrimaryDriveReady, PRIMARY_DRIVE_OWNER_EMAIL, uploadProjectBackupToPrimaryDrive } from './lib/primaryDriveBridge';
 import { subscribeConversationReadState, subscribeConversationSummary } from './lib/chatService';
-import { applyFloorPlanImageToMultipleFloors, inspectFloorPlanBulkTargets, cacheFloorPlansForOffline, floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, isFloorPlanAutoCacheNetworkSuitable, isFloorPlanCloudBinaryReady, loadFloorPlanImageFromCloud, resolveFloorPlanImageForDisplay, stageFloorPlanImageOutbox, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
+import { applyFloorPlanImageToMultipleFloors, inspectFloorPlanBulkTargets, cacheFloorPlansForOffline, floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, isFloorPlanAutoCacheNetworkSuitable, isFloorPlanCloudBinaryReady, loadFloorPlanImageFromCloud, resolveFloorPlanImageForDisplay, stageFloorPlanImageOutbox, syncFloorPlanImageToCloud } from './lib/floorPlanImageSync';
 import { shouldAutoMirrorProjectBinaries } from './lib/offlineMirrorSettings';
 import { DEFAULT_TRASH_SETTINGS, TrashOperation, TrashSettings, TrashCollectionKey, deleteTrashOperationFromCloud, estimateTrashBytes, getTrashCollectionLabel, normalizeTrashSettings, sanitizeTrashSnapshot, saveTrashOperationToCloud, subscribeProjectTrash } from './lib/trash';
 import { commitWarehouseTransactionAtomic, updateWarehouseTransactionAtomic, softDeleteWarehouseTransactionAtomic } from './lib/warehouseTransactions';
 import { renameWarehouseUnitAtomic, type WarehouseUnitRenameInput } from './lib/warehouseUnitMigration';
 import { drainBinaryPurgeRetryQueues, purgeTrashOperationBinaries } from './lib/cloudBinaryPurge';
+import { restoreProjectTrashAtomic } from './lib/trashRestore';
 
 // Heavy screens are code-split so Android does not parse XLSX/PDF-heavy modules at startup.
 const loadWarehouseTab = () => import('./components/WarehouseTab');
@@ -220,7 +221,7 @@ const ExportPdfModal = React.lazy(() => loadExportPdfModal().then(m => ({ defaul
 const MaterialNormModal = React.lazy(() => loadMaterialNormModal().then(m => ({ default: m.MaterialNormModal })));
 
 const PRIMARY_TAB_IDS: TabType[] = ['home', 'floorplan', 'crew', 'warehouse', 'volume', 'config'];
-type ContextReturnKind = 'tab' | 'notifications' | 'health-center';
+type ContextReturnKind = 'tab' | 'notifications' | 'health-center' | 'crew-detail' | 'volume-detail';
 interface ContextReturnFrame { tab: TabType; projectId: string; kind: ContextReturnKind; }
 const CONTEXT_TAB_LABEL: Record<TabType, string> = {
   home: 'Trang chủ', warehouse: 'Kho', volume: 'Khối lượng',
@@ -554,17 +555,22 @@ function AuthenticatedApp() {
   // stores the entity request in sessionStorage, while App only switches modules.
   useEffect(() => {
     const handleDiagnosticOpenTab = (event: Event) => {
-      const detail = (event as CustomEvent<{ entityType?: string }>).detail || {};
+      const detail = (event as CustomEvent<{ entityType?: string; contextReturn?: string }>).detail || {};
+      // WorkVolume already created its volume-detail frame; this event only locates the room.
+      if (detail.contextReturn === 'volume-detail') return;
       const nextTab: TabType | null = detail.entityType === 'crewRecord'
         ? 'crew'
         : detail.entityType === 'defect' || detail.entityType === 'room' || detail.entityType === 'floor'
           ? 'floorplan'
-          : detail.entityType === 'chat'
-            ? 'chat'
-            : null;
+          : detail.entityType === 'inventory' || detail.entityType === 'materialNorm'
+            ? 'warehouse'
+            : detail.entityType === 'checklist' ? 'checklist'
+              : detail.entityType === 'workVolume' ? 'volume'
+                : detail.entityType === 'chat' ? 'chat' : null;
       if (nextTab) {
         let source: ContextReturnKind = 'tab';
-        if (activeTabRef.current === 'config') {
+        if (detail.contextReturn === 'crew-detail' && activeTabRef.current === 'crew') source = 'crew-detail';
+        else if (activeTabRef.current === 'config') {
           try {
             if (sessionStorage.getItem('qlct_health_center_return_state')) source = 'health-center';
           } catch (_) { /* storage can be unavailable */ }
@@ -572,7 +578,15 @@ function AuthenticatedApp() {
         navigateFromLink(nextTab, source);
       }
     };
-    const handleHealthCenterReturn = () => navigateToTab('config');
+    const handleHealthCenterReturn = () => {
+      try {
+        const saved = JSON.parse(sessionStorage.getItem('qlct_health_center_return_state') || 'null');
+        if (saved?.projectId === getActiveProjectId()) sessionStorage.setItem('qlct_health_center_reopen_v1', saved.projectId);
+      } catch (_) {}
+      // This event is also observed by the Settings sheet. Never re-dispatch the
+      // same event from its own handler (would queue an infinite return loop).
+      navigateToTab('config', true);
+    };
     window.addEventListener('qlct-diagnostic-open-entity', handleDiagnosticOpenTab);
     window.addEventListener('qlct-health-center-return', handleHealthCenterReturn);
     return () => {
@@ -3172,6 +3186,25 @@ function AuthenticatedApp() {
     }
     const operation = trashOperationsRef.current.find((item) => item.id === operationId);
     if (!operation) return;
+    if (FIREBASE_ONLY_RUNTIME) {
+      if (!isOnline) {
+        alert('Khôi phục Thùng rác cần online và ADMIN được máy chủ xác minh. Dữ liệu chưa thay đổi.');
+        return;
+      }
+      try {
+        const receipt = await restoreProjectTrashAtomic(activeProjectIdRef.current, operationId);
+        // The Firestore realtime listener updates all business arrays and the Trash list.
+        // Do NOT call updateAppData: it could resurrect stale rows or bypass stock checks.
+        const remaining = trashOperationsRef.current.filter((item) => item.id !== operationId);
+        persistTrashOperations(remaining, operation.projectId);
+        alert(`Đã khôi phục ${receipt.restored} mục trên Firestore. Liên kết phục hồi: ${receipt.relatedReconnected}; bỏ qua ${receipt.relatedSkipped} liên kết đã thay đổi trên thiết bị khác.`);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        console.warn('[Trash restore] Verified Cloud transaction rejected:', detail);
+        alert(`Chưa thể khôi phục an toàn: ${detail}. Mục Thùng rác vẫn được giữ để thử lại.`);
+      }
+      return;
+    }
     trashCaptureSuppressedRef.current = true;
     try {
       updateAppData((prev) => {
@@ -6684,11 +6717,9 @@ function AuthenticatedApp() {
         void syncFloorPlanImageToCloud(activeProjectIdRef.current, targetPlan).catch((err) =>
           console.warn('Trash pre-delete floor-plan upload warning:', err)
         );
-      } else if (!trashSettingsRef.current.enabled) {
-        void deleteFloorPlanImageFromCloud(activeProjectIdRef.current, targetPlan).catch((err) =>
-          console.warn('Delete floor-plan cloud image warning:', err)
-        );
       }
+      // When Trash is OFF, preserve the original binary. A local/UI delete is
+      // not a verified server tombstone, so physical deletion would be premature.
     }
   };
 
@@ -6770,11 +6801,8 @@ function AuthenticatedApp() {
         void syncFloorPlanImageToCloud(activeProjectIdRef.current, plan).catch((err) =>
           console.warn('Trash pre-delete floor-plan upload warning:', err)
         );
-      } else if (!trashSettingsRef.current.enabled) {
-        void deleteFloorPlanImageFromCloud(activeProjectIdRef.current, plan).catch((err) =>
-          console.warn('Delete floor-plan cloud image warning:', err)
-        );
       }
+      // Preserve the Cloud binary when Trash is OFF; only verified purge may delete.
     });
   };
 
@@ -6998,9 +7026,8 @@ function AuthenticatedApp() {
       ...prev,
       defects: prev.defects.filter((d) => d.id !== id),
     }));
-    if (!trashSettingsRef.current.enabled) {
-      void deleteEntityPhotos(activeProjectIdRef.current, 'defect', id).catch(() => {});
-    }
+    // Do not tombstone photo metadata before the Defect deletion is confirmed
+    // on Firestore. Photos stay available for forensic recovery even with Trash OFF.
   };
 
   const handleDeleteMultipleDefects = (ids: string[]) => {
@@ -7009,9 +7036,7 @@ function AuthenticatedApp() {
       ...prev,
       defects: prev.defects.filter((d) => !ids.includes(d.id)),
     }));
-    if (!trashSettingsRef.current.enabled) {
-      ids.forEach((id) => void deleteEntityPhotos(activeProjectIdRef.current, 'defect', id).catch(() => {}));
-    }
+    // Multiple Defect deletes follow the same fail-closed photo-retention policy.
   };
 
   // Handlers for Room Progress / Acceptance
@@ -7525,6 +7550,15 @@ function AuthenticatedApp() {
     if (!frame) return;
     setContextReturnFrames((previous) => previous.slice(0, -1));
     if (frame.projectId !== activeProjectId) return;
+    try {
+      const storageKey = frame.kind === 'crew-detail' ? 'qlct_crew_detail_return_v1'
+        : frame.kind === 'volume-detail' ? 'qlct_volume_detail_return_v1' : '';
+      if (storageKey) {
+        const saved = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
+        if (saved?.projectId === activeProjectId) sessionStorage.setItem(storageKey, JSON.stringify({ ...saved, restore: true }));
+      }
+      if (frame.kind === 'health-center') sessionStorage.setItem('qlct_health_center_reopen_v1', activeProjectId);
+    } catch (_) {}
     // Return without creating another history frame, preserving a prior step for multi-hop links.
     navigateToTab(frame.tab, true);
     if (frame.kind === 'notifications') setIsNotificationCenterOpen(true);
@@ -7679,8 +7713,25 @@ function AuthenticatedApp() {
                 ? 'Trung tâm thông báo'
                 : contextReturnFrames[contextReturnFrames.length - 1].kind === 'health-center'
                   ? 'Trung tâm kiểm tra dữ liệu'
-                  : CONTEXT_TAB_LABEL[contextReturnFrames[contextReturnFrames.length - 1].tab]}
+                  : contextReturnFrames[contextReturnFrames.length - 1].kind === 'crew-detail' ? 'Thống kê Quân số'
+                  : contextReturnFrames[contextReturnFrames.length - 1].kind === 'volume-detail' ? 'Chi tiết khối lượng'
+                    : CONTEXT_TAB_LABEL[contextReturnFrames[contextReturnFrames.length - 1].tab]}
               onClick={handleContextReturn}
+            />
+          </div>
+        )}
+
+        {/* Visible return for deep-linked Căn/Defect and Health Center, including scrolling/fullscreen.
+            z-180 stays BELOW unsaved edit dialogs (z-200+) so it cannot bypass their guards. */}
+        {contextReturnFrames.length > 0 && contextReturnFrames[contextReturnFrames.length - 1].projectId === activeProjectId &&
+          ['crew-detail', 'volume-detail', 'health-center'].includes(contextReturnFrames[contextReturnFrames.length - 1].kind) && (
+          <div className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom))] left-3 z-[180] lg:bottom-5 lg:left-[100px]" data-hnl-context-floating-return="true">
+            <ContextBackButton
+              label={contextReturnFrames[contextReturnFrames.length - 1].kind === 'crew-detail' ? 'Thống kê Quân số'
+                : contextReturnFrames[contextReturnFrames.length - 1].kind === 'volume-detail' ? 'Chi tiết khối lượng'
+                  : 'Trung tâm kiểm tra dữ liệu'}
+              onClick={handleContextReturn}
+              className="bg-white shadow-xl ring-1 ring-indigo-100"
             />
           </div>
         )}
@@ -7821,6 +7872,13 @@ function AuthenticatedApp() {
               onDeleteWorkVolume={handleDeleteWorkVolume}
               onDeleteMultipleWorkVolumes={handleDeleteMultipleWorkVolumes}
               onOpenExportPdf={() => setIsExportPdfOpen(true)}
+              onOpenRoomFromDetail={(roomId, floorId) => {
+                const request = { entityType: 'room', contextReturn: 'volume-detail',
+                  projectId: activeProjectId, entityId: roomId, roomId, floorId };
+                try { sessionStorage.setItem('qlct_diagnostic_navigation_request', JSON.stringify(request)); } catch (_) {}
+                navigateFromLink('floorplan', 'volume-detail');
+                window.setTimeout(() => window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity', { detail: request })), 50);
+              }}
               onExportExcel={handleExportExcel}
               onUndo={handleUndo}
               onRedo={handleRedo}

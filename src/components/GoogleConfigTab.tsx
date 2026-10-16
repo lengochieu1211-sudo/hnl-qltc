@@ -1054,10 +1054,10 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         <div className="space-y-3.5">
           <div>
             <p className="text-[10px] text-slate-500">
-              Chỉ lưu metadata cần khôi phục, không nhân đôi Base64/blob/ảnh nhị phân. Mặc định giữ 7 ngày.
+              Thùng rác chung lưu 8 nhóm: Tầng, Căn/Phòng, Defect, Checklist, Quân số, Đội, Khối lượng và Định mức. Không nhân đôi ảnh nhị phân; mặc định giữ 7 ngày.
             </p>
             <p className="text-[10px] text-amber-700 mt-1">
-              Phiếu nhập/xuất kho là lịch sử giao dịch: nếu xóa nhầm hãy ưu tiên Khôi phục rồi Hủy/Điều chỉnh trong Kho; chỉ xóa vĩnh viễn khi chắc chắn không cần đối chiếu.
+              Phiếu nhập/xuất khôi phục riêng tại Kho (kiểm soát tồn kho nguyên tử); danh mục thiết bị và Dự án có Thùng rác riêng. Chat, mẫu danh mục và bản autosave KHÔNG thuộc Thùng rác này; một số thao tác xóa chưa có chức năng khôi phục.
             </p>
           </div>
 
@@ -1108,7 +1108,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
 
         {!trashSettings.enabled && (
           <div className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-2.5">
-            Thùng rác đang tắt. Các lần xóa mới sẽ không có bản khôi phục; bản ghi đánh dấu đã xóa (tombstone) kỹ thuật nhỏ vẫn được giữ để dữ liệu cũ không tự xuất hiện trở lại khi đồng bộ thời gian thực (realtime).
+            Thùng rác đang tắt. Các lần xóa mới không tạo bản khôi phục; tombstone dữ liệu vẫn giữ để tránh hiện lại trên thiết bị khác. Ảnh R2/Storage không bị xóa ngay theo thao tác UI, nhằm tránh mất ảnh khi giao dịch Cloud bị từ chối.
           </div>
         )}
 

@@ -126,12 +126,14 @@ const header = fs.readFileSync(new URL('src/components/GoogleAuthHeader.tsx', ba
 const diagnostic = fs.readFileSync(new URL('src/healthCenter/HealthCenterPanelBase.tsx', base), 'utf8');
 const backup = fs.readFileSync(new URL('src/components/ProjectManagerModal.tsx', base), 'utf8');
 const crewShare = fs.readFileSync(new URL('src/components/CrewReportShareModal.tsx', base), 'utf8');
-assert.match(header, /bg-blue-600 hover:bg-blue-700 text-white/);
-assert.match(header, /bg-emerald-600 hover:bg-emerald-700 text-white/);
+assert.match(header, /bg-blue-800 hover:bg-blue-900 text-white/);
+assert.match(header, /bg-teal-700 hover:bg-teal-800 text-white/);
 assert.match(backup, /bg-emerald-600 hover:bg-emerald-700 text-white/);
-for (const color of ['slate-800', 'emerald-600', 'indigo-600']) {
+for (const color of ['slate-800', 'green-700']) {
   assert.ok(diagnostic.includes('bg-' + color) && crewShare.includes('bg-' + color),
-    'Diagnostic buttons must share Crew report semantic colors: ' + color);
+    'Diagnostic buttons must share neutral/Excel colors: ' + color);
 }
+assert.ok(diagnostic.includes('bg-violet-600') && crewShare.includes('bg-sky-600'),
+  'JSON and Image must have distinct semantic colors from Excel');
 console.log('HNL HOME/CHECKLIST/WORK VOLUME/NOTIFICATION/EXPORT BRAND + COPY: PASS');
 console.log('HNL PRIMARY COLOR SOURCE GOLDEN: PASS');

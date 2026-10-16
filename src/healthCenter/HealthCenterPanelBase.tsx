@@ -8,6 +8,7 @@ import { createHnlAiProjectSnapshot } from '../ai/data/projectSnapshot';
 import { buildHealthCenterReport, type HealthCenterIssue, type HealthCenterModule, type HealthCenterSeverity } from './healthCenterEngine';
 import { buildHealthCenterCopyText, exportHealthCenterExcel, exportHealthCenterJson } from './healthCenterExport';
 import { buildHealthCenterRepairPreview } from './healthCenterRepair';
+import { buildHealthCenterNavigationRequest } from './healthCenterNavigation';
 import { buildHealthCenterRepairBackupPayload, type HealthCenterRepairBackupPayload } from './healthCenterRepairApply';
 import { commitHealthCenterRepair } from './healthCenterRepairCommit';
 import { persistHealthCenterRepairToCloud } from './healthCenterRepairCloudPersist';
@@ -153,30 +154,31 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
   };
 
   const openIssue = (issue: HealthCenterIssue) => {
+    const request = buildHealthCenterNavigationRequest(projectId, issue);
+    const routable = ['crewRecord', 'room', 'defect', 'floor', 'inventory', 'materialNorm', 'checklist', 'workVolume'].includes(request.entityType);
+    if (!routable) {
+      setMessage('Đây là thông tin chẩn đoán hệ thống hoặc lỗi chưa có màn hình điều hướng phù hợp. Không thay đổi dữ liệu.');
+      return;
+    }
     try {
       sessionStorage.setItem('qlct_health_center_return_state', JSON.stringify({
         projectId, severity, module, query, issueId: issue.id, createdAt: Date.now(),
       }));
-      sessionStorage.setItem('qlct_diagnostic_navigation_request', JSON.stringify({
-        projectId,
-        entityType: issue.entityType,
-        entityId: issue.entityId,
-        floorId: issue.location.floorId || '',
-        roomId: issue.location.roomId || '',
-        teamId: issue.location.teamId || '',
-        ruleId: issue.ruleId,
-        createdAt: Date.now(),
-      }));
-    } catch { /* best effort */ }
-    window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity', { detail: {
-      entityType: issue.entityType,
-      entityId: issue.entityId,
-      floorId: issue.location.floorId,
-      roomId: issue.location.roomId,
-      teamId: issue.location.teamId,
-      ruleId: issue.ruleId,
-    } }));
-    setMessage('Đã gửi yêu cầu mở đúng bản ghi liên quan. Nếu phân hệ chưa hỗ trợ mở thẳng đến bản ghi chi tiết, HNL sẽ mở màn hình gần nhất.');
+      if (request.entityType === 'defect') {
+        sessionStorage.setItem('qlct_pending_defect_navigation', JSON.stringify({
+          projectId, defectId: request.entityId, floorId: request.floorId || '',
+          requestedAt: Date.now(),
+        }));
+      } else if (request.entityType === 'room' || request.entityType === 'crewRecord') {
+        sessionStorage.setItem('qlct_diagnostic_navigation_request', JSON.stringify(request));
+      }
+    } catch (_) { /* still permit viewing without session persistence */ }
+    // Close the source feature sheet, otherwise its portal blocks the destination.
+    window.dispatchEvent(new Event('qlct-health-center-navigate-out'));
+    window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity', { detail: request }));
+    setMessage(['crewRecord', 'room', 'defect'].includes(request.entityType)
+      ? 'Đang mở bản ghi liên quan. Dùng Quay về Trung tâm kiểm tra dữ liệu để tiếp tục.'
+      : 'Đã mở phân hệ liên quan. Bản ghi cần tìm được nêu trong chi tiết lỗi; dùng Quay về Trung tâm kiểm tra dữ liệu để tiếp tục.');
   };
 
   const buildCombinedExportInput = async () => ({
@@ -371,7 +373,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
         <div className="text-[10px] font-extrabold text-slate-700">Xuất &amp; chia sẻ chẩn đoán</div>
         <div className="mt-0.5 text-[9px] font-semibold text-slate-500">Một tệp chứa chung kiểm tra dữ liệu/liên kết + trạng thái hệ thống/đồng bộ + ảnh R2. PDF đã bỏ để tránh trùng.</div>
       </div>
-      {/* Match Crew share report: Content (slate), JSON (emerald), Excel (indigo). Actions unchanged. */}
+      {/* Consistent format palette: Content (slate), JSON (violet), Excel (green). Actions unchanged. */}
       <div className="grid grid-cols-3 gap-2" role="group" aria-label="Nội dung, JSON và Excel" data-hnl-health-export-actions="true">
         <button type="button" data-hnl-health-export-format="text" disabled={Boolean(exporting)}
           onClick={() => void copyCombinedDiagnostics()} title="Sao chép chẩn đoán đầy đủ" aria-label="Sao chép chẩn đoán"
@@ -380,12 +382,12 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
         </button>
         <button type="button" data-hnl-health-export-format="json" disabled={Boolean(exporting)}
           onClick={() => void exportReport('json')} title="Xuất chẩn đoán ra tệp JSON" aria-label="Xuất JSON"
-          className="inline-flex min-h-11 min-w-0 items-center justify-center gap-1 rounded-xl bg-emerald-600 px-1.5 text-xs font-bold text-white transition-colors hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2 disabled:opacity-40">
+          className="inline-flex min-h-11 min-w-0 items-center justify-center gap-1 rounded-xl bg-violet-600 px-1.5 text-xs font-bold text-white transition-colors hover:bg-violet-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 focus-visible:ring-offset-2 disabled:opacity-40">
           <FileJson className="h-4 w-4 shrink-0" /> {exporting === 'json' ? 'Đang xuất…' : 'JSON'}
         </button>
         <button type="button" data-hnl-health-export-format="excel" disabled={Boolean(exporting)}
           onClick={() => void exportReport('excel')} title="Xuất chẩn đoán ra Excel" aria-label="Xuất Excel"
-          className="inline-flex min-h-11 min-w-0 items-center justify-center gap-1 rounded-xl bg-indigo-600 px-1.5 text-xs font-bold text-white transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-2 disabled:opacity-40">
+          className="inline-flex min-h-11 min-w-0 items-center justify-center gap-1 rounded-xl bg-green-600 px-1.5 text-xs font-bold text-white transition-colors hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300 focus-visible:ring-offset-2 disabled:opacity-40">
           <FileSpreadsheet className="h-4 w-4 shrink-0" /> {exporting === 'excel' ? 'Đang xuất…' : 'Excel'}
         </button>
       </div>

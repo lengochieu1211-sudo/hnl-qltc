@@ -93,6 +93,7 @@ interface WorkVolumeTabProps {
   /** ADMIN-only persistent ordering; ids are the entire current visible subset. */
   onReorderWorkVolumes?: (visibleOrderedIds: string[]) => void;
   onOpenExportPdf?: () => void;
+  onOpenRoomFromDetail?: (roomId: string, floorId: string) => void;
   onExportExcel?: () => void;
   onUndo?: () => void;
   onRedo?: () => void;
@@ -118,6 +119,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   onDeleteMultipleWorkVolumes,
   onReorderWorkVolumes,
   onOpenExportPdf,
+  onOpenRoomFromDetail,
   onExportExcel,
   onUndo,
   onRedo,
@@ -171,6 +173,46 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   const [showDetailRoomPicker, setShowDetailRoomPicker] = useState(false);
   const [showDetailTeamPicker, setShowDetailTeamPicker] = useState(false);
   const [showQuickEdit, setShowQuickEdit] = useState(false);
+
+  useEffect(() => {
+    if (!isActive) return;
+    try {
+      const raw = sessionStorage.getItem('qlct_volume_detail_return_v1');
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (!saved?.restore) return;
+      if (saved.projectId !== currentProjectId || Date.now() - Number(saved.createdAt || 0) > 15 * 60_000) {
+        sessionStorage.removeItem('qlct_volume_detail_return_v1');
+        return;
+      }
+      const item = workVolumes.find((value) => value.id === saved.volumeId);
+      if (!item) return;
+      setDetailVolumeTarget(item);
+      setDetailSearch(typeof saved.search === 'string' ? saved.search : '');
+      setDetailStructureGroupIds(Array.isArray(saved.structureGroupIds) ? saved.structureGroupIds : []);
+      setDetailFloorIds(Array.isArray(saved.floorIds) ? saved.floorIds : []);
+      setDetailRoomIds(Array.isArray(saved.roomIds) ? saved.roomIds : []);
+      setDetailTeamNames(Array.isArray(saved.teamNames) ? saved.teamNames : []);
+      if (['floor', 'room', 'team', 'assigned', 'actual', 'progress'].includes(saved.sortBy)) setDetailSortBy(saved.sortBy);
+      if (['asc', 'desc'].includes(saved.sortOrder)) setDetailSortOrder(saved.sortOrder);
+      sessionStorage.removeItem('qlct_volume_detail_return_v1');
+    } catch (_) { try { sessionStorage.removeItem('qlct_volume_detail_return_v1'); } catch (_) {} }
+  }, [isActive, currentProjectId, workVolumes]);
+
+  const openRoomFromVolumeDetail = (roomId: string, floorId: string) => {
+    if (!detailVolumeTarget || !onOpenRoomFromDetail || !currentProjectId) return;
+    try {
+      sessionStorage.setItem('qlct_volume_detail_return_v1', JSON.stringify({
+        projectId: currentProjectId, volumeId: detailVolumeTarget.id,
+        search: detailSearch, structureGroupIds: detailStructureGroupIds,
+        floorIds: detailFloorIds, roomIds: detailRoomIds, teamNames: detailTeamNames,
+        sortBy: detailSortBy, sortOrder: detailSortOrder,
+        createdAt: Date.now(), restore: false,
+      }));
+    } catch (_) { /* contextual navigation remains available */ }
+    setDetailVolumeTarget(null);
+    onOpenRoomFromDetail(roomId, floorId);
+  };
 
   const quickEditFloorNameToId = useMemo(() => {
     const map = new Map<string, string>();
@@ -475,9 +517,11 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     });
   }, [detailBreakdown, detailSearch, detailStructureGroupIds, detailFloorIds, detailRoomIds, detailTeamNames, detailSortBy, detailSortOrder, floorPlans, normalizedStructureConfig]);
 
-  useEffect(() => { if (!isActive) return; setDetailFloorIds((ids) => ids.filter((id) => detailVisibleFloorOptions.some((floor) => floor.id === id))); }, [isActive, detailVisibleFloorOptions]);
-  useEffect(() => { if (!isActive) return; setDetailRoomIds((ids) => ids.filter((id) => detailVisibleRoomOptions.some((row) => row.roomId === id))); }, [isActive, detailVisibleRoomOptions]);
-  useEffect(() => { if (!isActive) return; setDetailTeamNames((names) => names.filter((name) => detailVisibleTeamOptions.includes(name))); }, [isActive, detailVisibleTeamOptions]);
+  // Do not clear a saved breakdown's filters during the first render of a contextual return:
+  // the selected volume is restored by an effect and its computed rows arrive one render later.
+  useEffect(() => { if (!isActive || !detailBreakdown) return; setDetailFloorIds((ids) => ids.filter((id) => detailVisibleFloorOptions.some((floor) => floor.id === id))); }, [isActive, detailBreakdown, detailVisibleFloorOptions]);
+  useEffect(() => { if (!isActive || !detailBreakdown) return; setDetailRoomIds((ids) => ids.filter((id) => detailVisibleRoomOptions.some((row) => row.roomId === id))); }, [isActive, detailBreakdown, detailVisibleRoomOptions]);
+  useEffect(() => { if (!isActive || !detailBreakdown) return; setDetailTeamNames((names) => names.filter((name) => detailVisibleTeamOptions.includes(name))); }, [isActive, detailBreakdown, detailVisibleTeamOptions]);
 
   const detailStructureSummary = detailStructureGroupIds.length === 0
     ? `Tất cả ${normalizedStructureConfig.label}`
@@ -1765,7 +1809,15 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                           <tr key={row.roomId} className="bg-white hover:bg-indigo-50/40">
                             {normalizedStructureConfig.enabled && <td className="px-3 py-2 font-bold text-indigo-700">{getStructureGroupName(groupId, normalizedStructureConfig)}</td>}
                             <td className="px-3 py-2 font-semibold text-slate-700">{row.floorName}</td>
-                            <td className="px-3 py-2 font-extrabold text-slate-900">{row.roomName}</td>
+                            <td className="px-3 py-2 font-extrabold text-slate-900">
+                              {onOpenRoomFromDetail ? (
+                                <button type="button" onClick={() => openRoomFromVolumeDetail(row.roomId, row.floorId)}
+                                  className="min-h-10 rounded-md px-1 text-left text-indigo-700 underline decoration-dotted underline-offset-2 hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-indigo-500"
+                                  title={`Mở căn/phòng ${row.roomName} trên Mặt bằng; có thể quay lại Chi tiết khối lượng`}>
+                                  {row.roomName}
+                                </button>
+                              ) : row.roomName}
+                            </td>
                             <td className="px-3 py-2 text-slate-600">{row.teamNames.length > 0 ? row.teamNames.join(', ') : 'Chưa gán đội'}</td>
                             <td className="px-3 py-2 text-right font-semibold">{formatDecimal(row.assignedVolume)} {detailVolumeTarget.unit}</td>
                             <td className="px-3 py-2 text-right font-extrabold text-emerald-700">{formatDecimal(row.actualVolume)} {detailVolumeTarget.unit}</td>

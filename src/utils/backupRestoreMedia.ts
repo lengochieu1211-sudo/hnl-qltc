@@ -12,7 +12,7 @@ export interface AuthoritativeRestorePhotoSelection<T extends BackupRestorePhoto
 
 /**
  * Full/authoritative JSON restore may only reactivate media whose business parent is
- * present in the same authoritative backup. Defect/Crew parents are part of the nine
+ * present in the same authoritative backup. Defect/Crew/Inventory parents are part of the nine
  * business collections, so a photo that points at a missing parent is historical/orphan
  * media and must not be staged back into the active photo outbox.
  *
@@ -26,8 +26,10 @@ export function selectAuthoritativeRestorePhotos<T extends BackupRestorePhotoLik
   const source = Array.isArray(photos) ? photos : [];
   const defects = Array.isArray(payload?.defects) ? payload!.defects : [];
   const crewRecords = Array.isArray(payload?.crewRecords) ? payload!.crewRecords : [];
+  const inventory = Array.isArray(payload?.inventory) ? payload!.inventory : [];
   const defectIds = new Set(defects.map((item: any) => String(item?.id || '').trim()).filter(Boolean));
   const crewRecordIds = new Set(crewRecords.map((item: any) => String(item?.id || '').trim()).filter(Boolean));
+  const inventoryIds = new Set(inventory.map((item: any) => String(item?.id || '').trim()).filter(Boolean));
 
   const kept: T[] = [];
   const skippedParentless: T[] = [];
@@ -46,6 +48,11 @@ export function selectAuthoritativeRestorePhotos<T extends BackupRestorePhotoLik
       continue;
     }
     if (entityType === 'crewRecord' && (!entityId || !crewRecordIds.has(entityId))) {
+      skippedParentless.push(photo);
+      continue;
+    }
+
+    if (entityType === 'inventory' && (!entityId || !inventoryIds.has(entityId))) {
       skippedParentless.push(photo);
       continue;
     }

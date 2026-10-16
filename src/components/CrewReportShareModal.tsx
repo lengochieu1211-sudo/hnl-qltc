@@ -772,11 +772,11 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
               <FileText className="h-4 w-4" /> Nội dung
             </button>
             <button type="button" disabled={!rangeValid || rows.length===0||Boolean(busy)} onClick={()=>void openActionMenu('image')}
-              aria-expanded={actionMenu==='image'} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-2 text-xs font-bold text-white disabled:opacity-40">
+              aria-expanded={actionMenu==='image'} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-sky-600 px-2 text-xs font-bold text-white disabled:opacity-40">
               <ImageIcon className="h-4 w-4" /> {busy==='image'?'Tạo ảnh…':'Ảnh'}
             </button>
             <button type="button" disabled={!rangeValid || rows.length===0||Boolean(busy)} onClick={()=>void openActionMenu('excel')}
-              aria-expanded={actionMenu==='excel'} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-2 text-xs font-bold text-white disabled:opacity-40">
+              aria-expanded={actionMenu==='excel'} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-green-600 px-2 text-xs font-bold text-white disabled:opacity-40">
               <FileSpreadsheet className="h-4 w-4" /> {busy==='excel'?'Tạo Excel…':'Excel'}
             </button>
           </div>
@@ -800,12 +800,12 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
               <button type="button" onClick={()=>void shareText()} disabled={Boolean(busy)} className="min-h-11 rounded-lg bg-slate-800 px-2 text-xs font-bold text-white disabled:opacity-40"><Share2 className="mr-1 inline h-4 w-4" /> Chia sẻ nội dung</button>
             </>}
             {actionMenu==='image'&&<>
-              <button type="button" onClick={()=>void downloadImages()} disabled={Boolean(busy)||preparedImages?.signature!==preparationSignature} className="min-h-11 rounded-lg border border-emerald-200 bg-white px-2 text-xs font-bold text-emerald-700 disabled:opacity-40"><Download className="mr-1 inline h-4 w-4" /> Tải ảnh</button>
-              <button type="button" onClick={()=>void shareImages()} disabled={Boolean(busy)||preparedImages?.signature!==preparationSignature} className="min-h-11 rounded-lg bg-emerald-600 px-2 text-xs font-bold text-white disabled:opacity-40"><Share2 className="mr-1 inline h-4 w-4" /> Chia sẻ ảnh</button>
+              <button type="button" onClick={()=>void downloadImages()} disabled={Boolean(busy)||preparedImages?.signature!==preparationSignature} className="min-h-11 rounded-lg border border-sky-200 bg-white px-2 text-xs font-bold text-sky-700 disabled:opacity-40"><Download className="mr-1 inline h-4 w-4" /> Tải ảnh</button>
+              <button type="button" onClick={()=>void shareImages()} disabled={Boolean(busy)||preparedImages?.signature!==preparationSignature} className="min-h-11 rounded-lg bg-sky-600 px-2 text-xs font-bold text-white disabled:opacity-40"><Share2 className="mr-1 inline h-4 w-4" /> Chia sẻ ảnh</button>
             </>}
             {actionMenu==='excel'&&<>
-              <button type="button" onClick={()=>void handleExcel('download')} disabled={Boolean(busy)||preparedExcel?.signature!==preparationSignature} className="min-h-11 rounded-lg border border-indigo-200 bg-white px-2 text-xs font-bold text-indigo-700 disabled:opacity-40"><Download className="mr-1 inline h-4 w-4" /> Tải Excel</button>
-              <button type="button" onClick={()=>void handleExcel('share')} disabled={Boolean(busy)||preparedExcel?.signature!==preparationSignature} className="min-h-11 rounded-lg bg-indigo-600 px-2 text-xs font-bold text-white disabled:opacity-40"><Share2 className="mr-1 inline h-4 w-4" /> Chia sẻ Excel</button>
+              <button type="button" onClick={()=>void handleExcel('download')} disabled={Boolean(busy)||preparedExcel?.signature!==preparationSignature} className="min-h-11 rounded-lg border border-green-200 bg-white px-2 text-xs font-bold text-green-700 disabled:opacity-40"><Download className="mr-1 inline h-4 w-4" /> Tải Excel</button>
+              <button type="button" onClick={()=>void handleExcel('share')} disabled={Boolean(busy)||preparedExcel?.signature!==preparationSignature} className="min-h-11 rounded-lg bg-green-600 px-2 text-xs font-bold text-white disabled:opacity-40"><Share2 className="mr-1 inline h-4 w-4" /> Chia sẻ Excel</button>
             </>}
               </div>
             </div>

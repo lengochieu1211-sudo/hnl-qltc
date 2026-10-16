@@ -2595,7 +2595,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 onClick={() => void runReportExport('xlsx')}
                 disabled={androidReportBusy || reportExportBusy !== null}
                 title={isAndroidExportBridgeAvailable() ? 'Lưu Excel vào Tải xuống/QLTC' : 'Tải Excel (.xlsx)'}
-                className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-blue-600 bg-blue-600 px-2 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 focus-visible:ring-offset-2 disabled:opacity-50"
+                className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-green-600 bg-green-600 px-2 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300 focus-visible:ring-offset-2 disabled:opacity-50"
               >
                 <FileSpreadsheet className="h-4 w-4 shrink-0" /> {reportExportBusy === 'xlsx' ? 'Đang tạo…' : 'Excel'}
               </button>

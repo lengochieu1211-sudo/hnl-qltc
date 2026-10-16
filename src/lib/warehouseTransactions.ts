@@ -1,7 +1,7 @@
-import { collection, doc, getDocFromServer, getDocsFromServer, runTransaction } from 'firebase/firestore';
+import { collection, doc, getDocFromServer, getDocsFromServer, limit, query, runTransaction, where } from 'firebase/firestore';
 import type { InventoryItem } from '../types';
-import { db, getCurrentRealFirebaseUser, sanitizePayloadForCloud } from './firebase';
-import { calculateWarehouseLedgerOnHand, getWarehouseMaterialKey, getWarehouseSignedDelta, type WarehouseLedgerItem } from '../utils/warehouseLedgerMath';
+import { db, fetchProjectUserRoleFromCloud, getCurrentRealFirebaseUser, sanitizePayloadForCloud } from './firebase';
+import { calculateRestoredWarehouseBalance, calculateWarehouseLedgerOnHand, getWarehouseMaterialKey, getWarehouseSignedDelta, type WarehouseLedgerItem } from '../utils/warehouseLedgerMath';
 import { areSameUnit } from '../utils/unitUtils';
 
 export { getWarehouseMaterialKey } from '../utils/warehouseLedgerMath';
@@ -89,7 +89,13 @@ export async function commitWarehouseTransactionAtomic(
     const currentOnHand = Number(balanceSnap.data()?.onHand || 0);
     assertCurrentWarehouseUnit(balanceSnap.data(), item);
 
-    if (existing.exists() && !existing.data()?.deleted) {
+    if (existing.exists() && existing.data()?.deleted === true) {
+      // A tombstoned voucher may still own recoverable R2 photographs. Reusing
+      // that ID for a new transaction would silently reattach old evidence.
+      // Only the admin-only atomic restore path may reactivate it.
+      throw new Error('INVENTORY_DELETED_ID_REUSE_BLOCKED: Mã phiếu thuộc một phiếu đã xóa. Hãy khôi phục phiếu cũ, không tạo đè mã này.');
+    }
+    if (existing.exists()) {
       return { transactionId: item.id, materialKey, onHand: currentOnHand, duplicate: true };
     }
 
@@ -363,4 +369,77 @@ export async function softDeleteWarehouseTransactionAtomic(projectId: string, tr
   }
 
   await softDeleteWarehouseTransactionAtomicOnce(projectId, transactionId);
+}
+
+/** Cloud-only recovery of deleted warehouse vouchers.
+ * Do NOT route inventory through generic App Trash: that would restore a record
+ * without the matching inventory_balances delta and may corrupt stock.
+ * Binary photos remain attached to the original (projectId, inventory, voucherId);
+ * neither this read nor restore deletes or rewrites media metadata.
+ */
+export type DeletedWarehouseVoucher = InventoryItem & { deleted: true; deletedAt: number };
+
+async function requireWarehouseRecoveryAdmin(projectId: string) {
+  assertOnlineForStrictStock();
+  const user = getCurrentRealFirebaseUser();
+  if (!projectId || !user?.uid || !user.email) throw new Error('INVENTORY_RESTORE_AUTH_REQUIRED');
+  const role = await fetchProjectUserRoleFromCloud(projectId, user);
+  if (role.verification !== 'verified' || !role.allowed || role.role !== 'ADMIN') {
+    throw new Error('INVENTORY_RESTORE_ADMIN_REQUIRED: Chỉ ADMIN xác minh trên Cloud được khôi phục phiếu kho.');
+  }
+  return user;
+}
+
+export async function listDeletedWarehouseVouchers(projectId: string): Promise<DeletedWarehouseVoucher[]> {
+  await requireWarehouseRecoveryAdmin(projectId);
+  const deletedQuery = query(collection(db, 'projects', projectId, 'inventory'), where('deleted', '==', true), limit(100));
+  const snapshot = await getDocsFromServer(deletedQuery);
+  return snapshot.docs
+    .map((entry) => ({ ...entry.data(), id: entry.id }) as DeletedWarehouseVoucher)
+    .filter((entry) => entry.deleted === true)
+    .sort((a, b) => Number(b.deletedAt || 0) - Number(a.deletedAt || 0));
+}
+
+/** Admin-only, online atomic recovery. Revalidates voucher and onHand in the same
+ * Firestore transaction; idempotent if another administrator already restored it.
+ * Never rewrites voucher identity/quantity/unit, and never touches R2 images.
+ */
+export async function restoreWarehouseTransactionAtomic(projectId: string, transactionId: string): Promise<WarehouseCommitResult> {
+  const user = await requireWarehouseRecoveryAdmin(projectId);
+  if (!transactionId) throw new Error('Thiếu transactionId cần khôi phục.');
+  const transactionRef = doc(db, 'projects', projectId, 'inventory', transactionId);
+  return runTransaction(db, async (tx) => {
+    const snap = await tx.get(transactionRef);
+    if (!snap.exists()) throw new Error('INVENTORY_RESTORE_NOT_FOUND: Phiếu kho không còn trên Cloud.');
+    const current = snap.data() as InventoryItem & { deleted?: boolean; materialKey?: string };
+    if (current.id !== transactionId) throw new Error('INVENTORY_RESTORE_ID_MISMATCH');
+    const materialKey = current.materialKey || getWarehouseMaterialKey(current);
+    const balanceRef = doc(db, 'projects', projectId, 'inventory_balances', materialKey);
+    const balanceSnap = await tx.get(balanceRef);
+    if (!balanceSnap.exists()) throw new Error('INVENTORY_RESTORE_BALANCE_MISSING: Chưa có tồn kho đã xác minh. Cần đối chiếu sổ kho trước khi khôi phục.');
+    if (balanceSnap.data()?.renamedTo) throw new Error('UNIT_RENAMED: ĐVT đã thay đổi; cần đối chiếu danh mục trước khi khôi phục.');
+    assertCurrentWarehouseUnit(balanceSnap.data(), current);
+    const currentOnHand = Number(balanceSnap.data()?.onHand);
+    if (!Number.isFinite(currentOnHand) || currentOnHand < -BALANCE_EPSILON) {
+      throw new Error('INVENTORY_RESTORE_INVALID_BALANCE: Tồn kho trên Cloud không hợp lệ.');
+    }
+    if (current.deleted !== true) {
+      return { transactionId, materialKey, onHand: currentOnHand, duplicate: true };
+    }
+    const nextOnHand = calculateRestoredWarehouseBalance(currentOnHand, current);
+    const now = Math.max(Date.now(), Number(current.updatedAt || 0) + 1, Number(balanceSnap.data()?.updatedAt || 0) + 1);
+    tx.set(balanceRef, sanitizeWarehouseWritePayload({
+      ...balanceSnap.data(),
+      id: materialKey, projectId,
+      onHand: nextOnHand,
+      revision: Math.max(Number(balanceSnap.data()?.revision || 0) + 1, 1),
+      updatedAt: now, updatedByUid: user.uid,
+    }), { merge: true });
+    tx.set(transactionRef, sanitizeWarehouseWritePayload({
+      deleted: false, deletedAt: null, deletedByUid: null, deletedBy: null,
+      revision: Math.max(Number(current.revision || 0) + 1, 1),
+      updatedAt: now, updatedByUid: user.uid,
+    }), { merge: true });
+    return { transactionId, materialKey, onHand: nextOnHand, duplicate: false };
+  });
 }

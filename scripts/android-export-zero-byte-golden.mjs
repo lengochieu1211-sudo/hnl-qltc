@@ -66,11 +66,11 @@ assert(!android.includes('printWebView.setAlpha(0f)')
 const warehouseShare = fs.readFileSync('src/components/WarehouseVoucherShareSheet.tsx', 'utf8');
 const header = fs.readFileSync('src/components/GoogleAuthHeader.tsx', 'utf8');
 assert(report.includes('border border-red-600 bg-red-600')
-  && report.includes('border border-blue-600 bg-blue-600')
+  && report.includes('border border-green-600 bg-green-600')
   && warehouseShare.includes('border-red-600 bg-red-600')
-  && warehouseShare.includes('border-blue-600 bg-blue-600'),
+  && warehouseShare.includes('border-green-600 bg-green-600'),
   'Report PDF and Excel buttons must reuse the exact warehouse share color/hover/focus styling');
-assert(header.includes('bg-blue-600 hover:bg-blue-700') && header.includes('border border-blue-500') && !header.includes('ring-1 ring-sky-300/60'),
+assert(header.includes('bg-blue-800 hover:bg-blue-900') && header.includes('border border-blue-700') && !header.includes('ring-1 ring-sky-300/60'),
   'Project header must use the HNL blue while keeping unrelated cyan ring absent');
 // Export UI regression: status above actions, balanced print margins, distinct actions.
 assert(report.indexOf('data-hnl-report-export-pending="true"') < report.indexOf('data-hnl-report-format="text"'),
@@ -78,8 +78,8 @@ assert(report.indexOf('data-hnl-report-export-pending="true"') < report.indexOf(
 assert(report.includes('margin: 14mm 12mm 15mm 12mm') && report.includes('class="report-meta"')
   && report.includes('text-align: center; text-transform: uppercase'),
   'PDF must have balanced paper margins and a centered title');
-assert(header.includes('bg-emerald-600 hover:bg-emerald-700') && header.includes('bg-blue-600 hover:bg-blue-700'),
-  'Report matches JSON-backup emerald and Project matches HNL blue');
+assert(header.includes('bg-teal-700 hover:bg-teal-800') && header.includes('bg-blue-800 hover:bg-blue-900'),
+  'Report uses teal and Project uses muted blue; backup JSON remains unchanged');
 assert(js.includes("destination: 'picker' | 'downloads' = 'downloads'")
   && js.includes("jsonRecordChunks(data), safeName, mimeType, 'downloads'")
   && js.includes("chunkText(text), safeName, mimeType, 'downloads'"),

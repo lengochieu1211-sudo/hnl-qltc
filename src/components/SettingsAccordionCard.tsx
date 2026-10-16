@@ -54,6 +54,27 @@ export const SettingsAccordionCard: React.FC<SettingsAccordionCardProps> = ({
     if (details && details.open !== nextOpen) details.open = nextOpen;
   }, [beforeClose]);
 
+  React.useEffect(() => {
+    if (id !== 'system-sync-card') return;
+    const onLeave = () => setSheetOpen(false, true);
+    const onReturn = () => {
+      try {
+        const marker = sessionStorage.getItem('qlct_health_center_reopen_v1');
+        const saved = JSON.parse(sessionStorage.getItem('qlct_health_center_return_state') || 'null');
+        if (!marker || saved?.projectId !== marker) return;
+        sessionStorage.removeItem('qlct_health_center_reopen_v1');
+        setSheetOpen(true, true);
+      } catch (_) { /* stale state must not open the wrong project */ }
+    };
+    window.addEventListener('qlct-health-center-navigate-out', onLeave);
+    window.addEventListener('qlct-health-center-return', onReturn);
+    onReturn(); // Covers lazy Config mount after Android/PC navigation.
+    return () => {
+      window.removeEventListener('qlct-health-center-navigate-out', onLeave);
+      window.removeEventListener('qlct-health-center-return', onReturn);
+    };
+  }, [id, setSheetOpen]);
+
   return (
     <>
       <details
