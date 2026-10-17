@@ -365,7 +365,7 @@ assert(
 );
 assert(warehouse.includes('min-w-[900px]') && warehouse.includes('{line.category}</td>') && warehouse.includes('{line.unit}</td>'), 'Gợi ý vật tư must preserve separate material category and Unit data on responsive tables.');
 assert(!warehouse.includes('Danh mục &amp; tồn kho'), 'Bảng tổng tồn kho must not duplicate the Danh mục kho navigation button.');
-assert(warehouse.includes('whitespace-normal break-words font-bold leading-snug text-slate-800'), 'Danh mục kho must show complete material/equipment names instead of truncating them.');
+assert(warehouse.includes('whitespace-nowrap font-bold text-slate-800') && warehouse.includes('w-max min-w-full table-auto whitespace-nowrap'), 'Danh mục kho must show complete material/equipment names instead of truncating them.');
 assert(warehouse.includes("itemKind === 'equipment' ? 'Tên thiết bị' : 'Tên vật tư'"), 'Warehouse form must use dynamic Vật tư/Thiết bị labels');
 assert(warehouse.includes('Thêm thiết bị mới') && warehouse.includes('Chọn thiết bị có sẵn'), 'Equipment must be reusable after first declaration without a Tên khác flow');
 assert(warehouse.includes("itemKind === 'material' && (") && warehouse.includes('Tên vật tư khác'), 'Custom Tên vật tư khác input must stay material-only');
