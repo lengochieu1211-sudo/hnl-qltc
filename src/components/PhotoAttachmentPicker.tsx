@@ -131,7 +131,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       // Firestore event/tab change. The auth UID is part of the key so account switching
       // on the same phone gets an independent first refresh. Photo binaries remain lazy.
       const authUid = getCurrentRealFirebaseUser()?.uid || 'signed-out';
-      const isWarehousePhoto = entityType === 'inventory' && category === 'warehouse_receipt';
+      const isWarehousePhoto = entityType === 'inventory';
       const refreshKey = isWarehousePhoto
         ? `${authUid}:${projectId}:inventory:${category}`
         : `${authUid}:${projectId}:${entityType}:${entityId}:${category}`;
@@ -594,7 +594,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
 
   if (compactViewerButton) {
     const pendingCount = photos.filter((photoItem) => !isPhotoSharedCloudReady(photoItem)).length;
-    const isWarehouseVoucher = entityType === 'inventory' && category === 'warehouse_receipt';
+    const isWarehouseVoucher = entityType === 'inventory';
     const canOpenViewer = viewablePhotos.length > 0;
     const openViewer = () => {
       if (!canOpenViewer) return;
