@@ -368,7 +368,15 @@ assert(!warehouse.includes('Danh mục &amp; tồn kho'), 'Bảng tổng tồn k
 assert(warehouse.includes('whitespace-nowrap font-bold text-slate-800') && warehouse.includes('w-max min-w-full table-auto whitespace-nowrap'), 'Danh mục kho must show complete material/equipment names instead of truncating them.');
 assert(warehouse.includes("itemKind === 'equipment' ? 'Tên thiết bị' : 'Tên vật tư'"), 'Warehouse form must use dynamic Vật tư/Thiết bị labels');
 assert(warehouse.includes('Thêm thiết bị mới') && warehouse.includes('Chọn thiết bị có sẵn'), 'Equipment must be reusable after first declaration without a Tên khác flow');
-assert(warehouse.includes("itemKind === 'material' && (") && warehouse.includes('Tên vật tư khác'), 'Custom Tên vật tư khác input must stay material-only');
+assert(
+  warehouse.includes("itemKind === 'material' && hasNormManageAccess && !isAddingMaterial")
+  && warehouse.includes('data-hnl-add-material="true"')
+  && warehouse.includes('data-hnl-new-material-name="true"')
+  && warehouse.includes('data-hnl-select-existing-material="true"')
+  && warehouse.includes("setIsAddingMaterial(editingKind === 'material' && !matched)")
+  && !warehouse.includes('Tên vật tư khác'),
+  'Explicit ADMIN-only material-create flow must replace legacy free-name input without breaking historical vouchers'
+);
 assert(warehouse.includes("itemKind === 'material' && issuePurpose === 'project-work' && finalIssueWorkCategoryId"), 'Equipment must never persist material work-category linkage');
 assert(warehouse.includes('Thiết bị được dùng lại ở các phiếu nhập/xuất nhưng không tham gia Định mức vật tư hoặc Gợi ý vật tư.'), 'Warehouse catalog must state the equipment/material-norm separation');
 
