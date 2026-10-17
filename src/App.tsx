@@ -4,7 +4,6 @@ import { ContextBackButton } from './components/ContextBackButton';
 import { captureScopedUndoStep, applyScopedUndoStep, type ScopedUndoStep } from './utils/undoRedoScoped';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { DesktopWorkspaceHeader, type DesktopWorkspaceMode } from './components/DesktopWorkspaceHeader';
-import './styles/desktopWorkspace.css';
 import { HardDrive, RefreshCw } from 'lucide-react';
 import { safeSetLocalStorageItem } from './utils/storage';
 import { prepareFloorPlansForBackupRestore } from './utils/floorPlanBackupRestore';
