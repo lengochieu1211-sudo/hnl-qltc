@@ -134,7 +134,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   structureReadOnly = false,
   focusOrphanRepair = false,
 }) => {
-  const roomDraftDirtyRef = useRef(false);
+  const roomDraftDirtyRef = React.useRef(false);
   useEffect(() => { roomDraftDirtyRef.current = false; }, [isOpen, roomItem?.id, floorId]);
   const closeRoomWithDraftGuard = (label: string) => {
     if (roomDraftDirtyRef.current && !window.confirm(`${label}? Các thay đổi chưa nhấn Lưu sẽ không được lưu. Tiếp tục?`)) return;
