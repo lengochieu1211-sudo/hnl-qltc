@@ -3226,8 +3226,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                         type="button"
                         onClick={() => openEditInventory(item)}
                         className="text-[11px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-semibold"
+                        title={`Sửa phiếu ${item.type === 'in' ? 'nhập kho' : 'xuất kho'}`}
+                        aria-label={`Sửa phiếu ${item.type === 'in' ? 'nhập kho' : 'xuất kho'}: ${item.materialName}`}
                       >
-                        <Edit2 className="w-3 h-3" /> Chỉnh phiếu
+                        <Edit2 className="w-3 h-3" /> Sửa
                       </button>
                     )}
                     {hasDeleteAccess && (
@@ -3235,8 +3237,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                         type="button"
                         onClick={() => setDeletingInventoryTarget(item)}
                         className="text-[11px] text-rose-500 hover:text-rose-700 flex items-center gap-1 font-semibold"
+                        title={`Xóa phiếu ${item.type === 'in' ? 'nhập kho' : 'xuất kho'}`}
+                        aria-label={`Xóa phiếu ${item.type === 'in' ? 'nhập kho' : 'xuất kho'}: ${item.materialName}`}
                       >
-                        <Trash2 className="w-3 h-3" /> Xóa phiếu
+                        <Trash2 className="w-3 h-3" /> Xóa
                       </button>
                     )}
                   </div>

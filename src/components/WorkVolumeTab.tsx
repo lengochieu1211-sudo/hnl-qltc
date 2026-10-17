@@ -1312,16 +1312,18 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                               setDueDate(item.dueDate || '');
                             }}
                             className="text-indigo-700 hover:text-indigo-800 flex items-center gap-1 font-semibold text-[11px]"
-                            title="Chỉnh sửa thông tin hạng mục"
+                            title="Sửa thông tin hạng mục khối lượng"
+                            aria-label={`Sửa hạng mục khối lượng ${item.title}`}
                           >
-                            <Edit2 className="w-3 h-3" /> Sửa thông tin
+                            <Edit2 className="w-3 h-3" /> Sửa
                           </button>
                           <button
                             onClick={() => setDeletingVolumeTarget(item)}
-                            className="text-rose-500 hover:text-rose-700 p-1"
+                            className="text-rose-500 hover:text-rose-700 flex items-center gap-1 font-semibold text-[11px]"
                             title="Xóa hạng mục khối lượng"
+                            aria-label={`Xóa hạng mục khối lượng ${item.title}`}
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-3.5 h-3.5" /> Xóa
                           </button>
                         </div>
                       )}

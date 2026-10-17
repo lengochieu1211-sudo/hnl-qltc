@@ -9051,10 +9051,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               setIsRoomModalOpen(true);
                             }}
                             className="text-[11px] font-semibold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100/80 px-2.5 py-1.5 rounded-lg border border-indigo-200/60 transition-all flex items-center gap-1 cursor-pointer shadow-3xs active:scale-95"
-                            title={canManageStructure ? 'Chỉnh sửa Căn / Phòng và hạng mục thi công' : 'Cập nhật tiến độ, nghiệm thu và ghi chú hiện trường'}
+                            title={canManageStructure ? 'Sửa Căn / Phòng và hạng mục thi công' : 'Cập nhật tiến độ, nghiệm thu và ghi chú hiện trường'}
+                            aria-label={canManageStructure ? `Sửa Căn / Phòng ${room.roomName}` : `Cập nhật tiến độ Căn / Phòng ${room.roomName}`}
                           >
                             <Pencil className="w-3.5 h-3.5 text-indigo-700" />
-                            <span>{canManageStructure ? 'Chỉnh sửa' : 'Cập nhật'}</span>
+                            <span>{canManageStructure ? 'Sửa' : 'Cập nhật'}</span>
                           </button>
 
                           {canManageStructure && (
@@ -9063,6 +9064,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               onClick={() => setDeletingRoomTarget({ id: room.id, name: room.roomName })}
                               className="text-[11px] font-semibold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100/80 px-2.5 py-1.5 rounded-lg border border-rose-200/60 transition-all flex items-center gap-1 cursor-pointer shadow-3xs active:scale-95"
                               title="Xóa Căn / Phòng / vùng highlight này"
+                              aria-label={`Xóa Căn / Phòng ${room.roomName}`}
                             >
                               <Trash2 className="w-3.5 h-3.5 text-rose-500" />
                               <span>Xóa</span>

@@ -781,12 +781,14 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                 <span className="truncate max-w-[200px]">👤 GS: <strong className="text-slate-700">{item.inspectedBy || inspectorName}</strong></span>
                 <div className="flex items-center gap-2">
                   {canManageStructure && (
-                    <button onClick={() => setEditingChecklistItem(item)} className="text-indigo-600 hover:underline font-bold flex items-center gap-0.5 cursor-pointer">
-                      <Edit className="w-3 h-3" /> Sửa cấu trúc
+                    <button onClick={() => setEditingChecklistItem(item)} className="text-indigo-600 hover:underline font-bold flex items-center gap-0.5 cursor-pointer"
+                      title="Sửa cấu trúc tiêu chí Checklist" aria-label="Sửa tiêu chí Checklist">
+                      <Edit className="w-3 h-3" /> Sửa
                     </button>
                   )}
                   {canDelete && (
-                    <button onClick={() => setDeletingChecklistTarget(item)} className="text-rose-500 hover:underline font-bold flex items-center gap-0.5 cursor-pointer">
+                    <button onClick={() => setDeletingChecklistTarget(item)} className="text-rose-500 hover:underline font-bold flex items-center gap-0.5 cursor-pointer"
+                      title="Xóa tiêu chí Checklist" aria-label="Xóa tiêu chí Checklist">
                       <Trash2 className="w-3 h-3" /> Xóa
                     </button>
                   )}

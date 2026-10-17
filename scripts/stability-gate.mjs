@@ -404,13 +404,13 @@ requireAll(warehouseTab, [
 
 
 requireAll(warehouseTab, [
-  'min-w-[900px]',
-  'grid-cols-[minmax(180px,1.6fr)_150px_52px_64px_64px_120px_76px_82px]',
-  'items-center gap-2 bg-slate-50',
+  'data-hnl-warehouse-catalog-scroll="true"',
+  'data-hnl-warehouse-catalog-table="auto-width"',
+  'w-max min-w-full table-auto whitespace-nowrap',
   'data-hnl-warehouse-catalog-header="aligned"',
   "warehouseCatalogTab === 'equipment' ? 'Nhóm thiết bị' : 'Chủng loại vật tư'",
-  'whitespace-nowrap text-right leading-none">Nhu cầu định mức',
-], 'Warehouse catalog keeps Chủng loại vật tư / Nhóm thiết bị and Nhu cầu định mức on one aligned header row with Nhập / Xuất / Tồn kho');
+  '>Nhu cầu định mức</th>',
+], 'Warehouse catalog uses one auto-width table: full Chủng loại vật tư / Nhóm thiết bị and Nhu cầu định mức stay aligned with Nhập / Xuất / Tồn kho');
 
 requireAll(warehouseTab, [
   '<DataManagementMenu',
