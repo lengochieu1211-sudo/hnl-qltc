@@ -47,6 +47,17 @@ const isLegacyFirestorePhoto = (photo: PhotoAttachment) => {
 };
 
 const photoPickerServerRefreshKeys = new Set<string>();
+// All warehouse voucher badges read the same project photo index. Share a single
+// in-flight server refresh instead of rereading every photo document per voucher.
+const warehousePhotoMetadataRefreshes = new Map<string, Promise<{ verified: boolean; count: number }>>();
+const refreshWarehousePhotoMetadataOnce = (projectId: string, refreshKey: string) => {
+  const existing = warehousePhotoMetadataRefreshes.get(refreshKey);
+  if (existing) return existing;
+  const request = refreshProjectPhotoMetadataFromCloud(projectId)
+    .finally(() => { warehousePhotoMetadataRefreshes.delete(refreshKey); });
+  warehousePhotoMetadataRefreshes.set(refreshKey, request);
+  return request;
+};
 
 export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   projectId,
@@ -120,9 +131,14 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       // Firestore event/tab change. The auth UID is part of the key so account switching
       // on the same phone gets an independent first refresh. Photo binaries remain lazy.
       const authUid = getCurrentRealFirebaseUser()?.uid || 'signed-out';
-      const refreshKey = `${authUid}:${projectId}:${entityType}:${entityId}:${category}`;
+      const isWarehousePhoto = entityType === 'inventory' && category === 'warehouse_receipt';
+      const refreshKey = isWarehousePhoto
+        ? `${authUid}:${projectId}:inventory:${category}`
+        : `${authUid}:${projectId}:${entityType}:${entityId}:${category}`;
       if (items.length === 0 && typeof navigator !== 'undefined' && navigator.onLine && !photoPickerServerRefreshKeys.has(refreshKey)) {
-        const refreshed = await refreshProjectPhotoMetadataFromCloud(projectId).catch(() => ({ verified: false, count: 0 }));
+        const refreshed = await (isWarehousePhoto
+          ? refreshWarehousePhotoMetadataOnce(projectId, refreshKey)
+          : refreshProjectPhotoMetadataFromCloud(projectId)).catch(() => ({ verified: false, count: 0 }));
         // Cache a refresh decision only after a real server read succeeds. A transient
         // auth/network failure must never permanently turn an existing gallery into 0/10
         // for the rest of this app session.
@@ -146,7 +162,9 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       let unresolved = items.filter((p) => !urlMap[p.id]);
       const binaryRecoveryKey = `${refreshKey}:binary`;
       if (unresolved.length > 0 && typeof navigator !== 'undefined' && navigator.onLine && !photoPickerServerRefreshKeys.has(binaryRecoveryKey)) {
-        const refreshed = await refreshProjectPhotoMetadataFromCloud(projectId).catch(() => ({ verified: false, count: 0 }));
+        const refreshed = await (isWarehousePhoto
+          ? refreshWarehousePhotoMetadataOnce(projectId, binaryRecoveryKey)
+          : refreshProjectPhotoMetadataFromCloud(projectId)).catch(() => ({ verified: false, count: 0 }));
         if (refreshed.verified) photoPickerServerRefreshKeys.add(binaryRecoveryKey);
         items = await getEntityPhotos(projectId, entityType, entityId, category);
         urlMap = await resolveUrls(items);
@@ -576,6 +594,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
 
   if (compactViewerButton) {
     const pendingCount = photos.filter((photoItem) => !isPhotoSharedCloudReady(photoItem)).length;
+    const isWarehouseVoucher = entityType === 'inventory' && category === 'warehouse_receipt';
     const canOpenViewer = viewablePhotos.length > 0;
     const openViewer = () => {
       if (!canOpenViewer) return;
@@ -598,14 +617,18 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
                 ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
                 : 'bg-slate-50 border-slate-200 text-slate-500'
           } disabled:cursor-default`}
-          title={photos.length > 0 ? 'Mở ảnh hiện trường toàn màn hình' : 'Chưa có ảnh hiện trường'}
+          title={isWarehouseVoucher
+            ? photos.length > 0 ? 'Xem ảnh giao nhận toàn màn hình' : 'Không có ảnh giao nhận'
+            : photos.length > 0 ? 'Mở ảnh hiện trường toàn màn hình' : 'Chưa có ảnh hiện trường'}
         >
           <Images className="w-3.5 h-3.5" />
           {loading
             ? 'Đang kiểm tra ảnh...'
             : photos.length > 0
-              ? `${photos.length} ảnh hiện trường${pendingCount > 0 ? ` · ${pendingCount} chờ Cloud` : ''} · Bấm để xem`
-              : 'Chưa có ảnh hiện trường'}
+              ? isWarehouseVoucher
+                ? `Có ảnh (${photos.length})${pendingCount > 0 ? ` · ${pendingCount} chờ Cloud` : ''} · Xem ảnh`
+                : `${photos.length} ảnh hiện trường${pendingCount > 0 ? ` · ${pendingCount} chờ Cloud` : ''} · Bấm để xem`
+              : isWarehouseVoucher ? 'Không có ảnh' : 'Chưa có ảnh hiện trường'}
         </button>
 
         {viewingIndex !== null && (

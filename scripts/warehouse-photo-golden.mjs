@@ -17,6 +17,17 @@ assert(photoPicker.includes("'crewRecord' | 'defect' | 'chat' | 'inventory'"), '
 assert(photoPicker.includes("'defect_before' | 'defect_after' | 'warehouse_receipt'"), 'Picker must filter warehouse attachments from other categories');
 assert(warehouse.includes('data-hnl-warehouse-photo-modal="true"'), 'Warehouse must have a photo gallery');
 assert(warehouse.includes('data-hnl-warehouse-photo-voucher={item.id}'), 'Existing voucher must expose a photo action');
+// Warehouse vouchers reuse Crew's read-only image-count chip. Opening the chip must
+// launch the full-screen viewer; only the separate pencil opens photo management.
+assert(warehouse.includes('data-hnl-warehouse-photo-status={item.id}'), 'Each voucher exposes its photo status');
+assert(/data-hnl-warehouse-photo-status=\{item\.id\}[\s\S]*?<PhotoAttachmentPicker[\s\S]*?readOnly compactViewerButton/.test(warehouse), 'Warehouse status button uses the Crew read-only, full-screen photo viewer');
+assert(warehouse.includes('data-hnl-warehouse-photo-edit={item.id}'), 'A separate pencil controls photo editing');
+assert(/\{currentProjectId && hasEditAccess && \(\s*<button type="button" data-hnl-warehouse-photo-edit=\{item\.id\}/.test(warehouse), 'Photo editing is not available to VIEWER');
+assert(warehouse.includes('photoVoucher.projectId === currentProjectId && hasEditAccess'), 'Photo management modal stays protected when role changes');
+assert(photoPicker.includes("isWarehouseVoucher ? 'Không có ảnh' : 'Chưa có ảnh hiện trường'"), 'Show a specific no-photo indicator for inventory vouchers');
+assert(photoPicker.includes('`Có ảnh (${photos.length})'), 'Show a clickable positive photo count');
+assert(photoPicker.includes('refreshWarehousePhotoMetadataOnce'), 'Many warehouse cards share a single metadata refresh instead of hammering Firestore');
+assert(warehouse.includes('Chỉnh phiếu'), 'Editing the voucher itself remains a distinct action');
 assert(warehouse.includes('entityType="inventory" entityId={photoVoucher.id} category="warehouse_receipt"'), 'Gallery photos must bind to stable voucher ID');
 assert(warehouse.includes('entityType="inventory" entityId={editingInventory.id} category="warehouse_receipt"'), 'Edit form must show existing voucher photos');
 assert(warehouse.includes('readOnly={!hasEditAccess}'), 'VIEWER must have no upload or deletion controls');

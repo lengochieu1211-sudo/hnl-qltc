@@ -3204,11 +3204,22 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
                   <div className="flex flex-wrap justify-end gap-3 pt-1">
                     {currentProjectId && roleResolved && (
-                      <button type="button" data-hnl-warehouse-photo-voucher={item.id}
+                      <div data-hnl-warehouse-photo-voucher={item.id} data-hnl-warehouse-photo-status={item.id} className="mr-auto min-w-0 max-w-full">
+                        {/* Same read-only, full-screen photo count/viewer as Crew. Never open editing from this badge. */}
+                        <PhotoAttachmentPicker
+                          key={`${currentProjectId}:${item.id}`}
+                          projectId={currentProjectId} entityType="inventory" entityId={item.id}
+                          category="warehouse_receipt" label="Ảnh giao nhận" maxPhotos={10}
+                          readOnly compactViewerButton
+                        />
+                      </div>
+                    )}
+                    {currentProjectId && hasEditAccess && (
+                      <button type="button" data-hnl-warehouse-photo-edit={item.id}
                         onClick={() => setPhotoVoucher({ projectId: currentProjectId, id: item.id, type: item.type, materialName: item.materialName })}
-                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-700 hover:text-sky-900"
-                        title={`Xem ảnh giao nhận của phiếu ${item.id}`}>
-                        <Images className="h-3.5 w-3.5" /> Ảnh giao nhận
+                        className="inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-[11px] font-bold text-sky-700 hover:bg-sky-50 hover:text-sky-900"
+                        title={`Chỉnh sửa ảnh giao nhận phiếu ${item.id}`} aria-label={`Sửa ảnh giao nhận phiếu ${item.id}`}>
+                        <Edit2 className="h-3.5 w-3.5" /> Sửa ảnh
                       </button>
                     )}
                     {hasEditAccess && onUpdateInventory && (
@@ -3245,7 +3256,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         projectLocation={projectLocation}
         contractorName={contractorName}
         onClose={() => setVoucherShareOpen(false)} />}
-      {photoVoucher && photoVoucher.projectId === currentProjectId && roleResolved && (
+      {photoVoucher && photoVoucher.projectId === currentProjectId && hasEditAccess && (
         <div className="fixed inset-0 z-[96] flex items-end justify-center bg-slate-900/70 p-0 backdrop-blur-sm sm:items-center sm:p-4"
           data-hnl-warehouse-photo-modal="true" role="dialog" aria-modal="true" aria-label="Ảnh giao nhận phiếu kho">
           <div className="flex max-h-[95dvh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-w-3xl sm:rounded-2xl">
