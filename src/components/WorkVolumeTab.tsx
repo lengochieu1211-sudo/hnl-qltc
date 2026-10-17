@@ -1,3 +1,4 @@
+import { DesktopWorkspaceMetrics } from './DesktopWorkspaceMetrics';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { assertSafeExcelImportFile, readExcelFormulaByHeaders } from '../utils/excelImportUtils';
@@ -893,9 +894,16 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   useFormatSettings();
 
   return (
-    <div className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
+    <div data-hnl-workspace-module="volume" className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
+      <DesktopWorkspaceMetrics eyebrow="THI CÔNG · KHỐI LƯỢNG"
+        title="Theo dõi thực hiện" description="Số liệu từ hạng mục hiện có; quyền xem giá trị vẫn tuân theo vai trò người dùng."
+        metrics={[
+          { label: 'Hạng mục', value: workVolumes.length, detail: 'Đang theo dõi' },
+          { label: 'Hạng mục phù hợp lọc', value: filteredVolumes.length, detail: 'Theo loại công việc' },
+          { label: 'Tiến độ tổng hợp', value: `${totals.percent}%`, detail: 'Theo dữ liệu hiện tại', tone: 'success' },
+        ]} />
       {/* Title + horizontal PC actions */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div data-hnl-pc-region="commands" className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
             <BarChart3 className="w-5 h-5 text-indigo-600" />
@@ -947,7 +955,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       </div>
 
       {/* Contract & Progress Overview Dashboard */}
-      <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-blue-950 text-white rounded-2xl p-4 shadow-lg space-y-3">
+      <div data-hnl-pc-region="progress" className="bg-gradient-to-br from-slate-900 via-slate-800 to-blue-950 text-white rounded-2xl p-4 shadow-lg space-y-3">
         <div className="flex items-center justify-between border-b border-slate-700/80 pb-2">
           <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
             <TrendingUp className="w-4 h-4 text-emerald-400" />

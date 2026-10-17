@@ -1,3 +1,4 @@
+import { DesktopWorkspaceMetrics } from './DesktopWorkspaceMetrics';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { 
@@ -2263,9 +2264,16 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   };
 
   return (
-    <div className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
+    <div data-hnl-workspace-module="warehouse" className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
+      <DesktopWorkspaceMetrics eyebrow="VẬT TƯ · NHẬP XUẤT"
+        title="Điều hành kho vật tư" description="Theo dõi chứng từ, tình trạng tồn và cảnh báo theo dữ liệu đang hiển thị."
+        metrics={[
+          { label: 'Phiếu kho đang lọc', value: filteredInventory.length, detail: 'Theo bộ lọc hiện tại' },
+          { label: 'Danh mục có phát sinh', value: stockSummaries.length, detail: 'Vật tư & thiết bị' },
+          { label: 'Mức tồn cần chú ý', value: lowStockItems.length, detail: 'Theo cảnh báo hiện hành', tone: lowStockItems.length ? 'warning' : 'success' },
+        ]} />
       {/* Title & horizontal PC actions */}
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div data-hnl-pc-region="commands" className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0">
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
             <PackageCheck className="w-5 h-5 text-blue-600" />
@@ -2959,7 +2967,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
 
       {/* Stock Summary Balance Cards */}
-      <div className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-sm space-y-3">
+      <div data-hnl-pc-region="stock-summary" className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-sm space-y-3">
         <div className="flex items-center justify-between border-b border-slate-100 pb-2">
           <div className="flex items-center gap-1.5">
             <Layers className="w-4 h-4 text-blue-600" />
@@ -3123,7 +3131,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       </div>
 
       {/* Transaction List */}
-      <div className="space-y-2.5">
+      <div data-hnl-pc-region="records" className="space-y-2.5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1">
           <h3 className="text-xs font-bold text-slate-600">
             Nhật ký nhập/xuất ({filteredInventory.length})

@@ -49,3 +49,238 @@
 @media(min-width:1024px){html[data-hnl-theme="dark"] [data-hnl-desktop-design="modern"]{--pc-bg:#020617;--pc-card:#0f172a;--pc-soft:#1e293b;--pc-border:#334155;--pc-text:#f1f5f9;--pc-muted:#cbd5e1}
 html[data-hnl-theme="dark"] [data-hnl-desktop-design="modern"] .hnl-pc-breadcrumb strong,html[data-hnl-theme="dark"] [data-hnl-desktop-design="modern"] .hnl-pc-mode-switch,html[data-hnl-theme="dark"] [data-hnl-desktop-design="modern"] .hnl-pc-quick-nav button.is-current{color:var(--hnl-primary-on-dark)}
 html[data-hnl-theme="dark"] .hnl-pc-classic-return{background:#0f172a;color:#e2e8f0;border-color:#334155}}
+
+/* PC Workspace V2 — true module-level layout, while maintaining the classic DOM
+ * and every original business event handler. No selector applies on mobile/classic. */
+@media (min-width: 1024px) {
+  [data-hnl-desktop-design="modern"] {
+    --pc-v2-brand: var(--hnl-primary-action, #2563eb);
+    --pc-v2-ink: var(--pc-text, #0f172a);
+    --pc-v2-muted: var(--pc-muted, #475569);
+    --pc-v2-divider: var(--pc-border, #dbe3ef);
+    --pc-v2-card: var(--pc-card, white);
+    --pc-v2-glow: 0 3px 14px rgb(15 23 42 / 5%);
+    background: var(--pc-bg);
+  }
+  [data-hnl-desktop-design="modern"] .hnl-pc-workspace-heading {
+    margin: 18px 20px 14px; padding: 20px 24px 14px;
+    border-radius: 20px; border-top: 4px solid var(--pc-v2-brand);
+    box-shadow: var(--pc-v2-glow);
+  }
+  [data-hnl-desktop-design="modern"] .hnl-pc-heading-main h1 { font-size: 25px; letter-spacing: -.025em; }
+  [data-hnl-desktop-design="modern"] .hnl-pc-quick-nav { margin-top: 12px; padding-top: 12px; }
+  [data-hnl-desktop-design="modern"] main[data-hnl-pc-workspace="true"] {
+    padding: 0 0 30px; min-width: 0;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] {
+    max-width: 1680px; width: 100%; margin: 0 auto;
+    padding: 0 20px 48px; background: transparent;
+    color: var(--pc-v2-ink);
+  }
+  /* KPI deck appears only in the modern desktop mode; the original controls stay live. */
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview {
+    display: grid; grid-template-columns: minmax(240px, .96fr) minmax(0, 2.25fr);
+    gap: 16px; align-items: stretch; margin: 0 0 18px;
+  }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro {
+    position: relative; overflow: hidden; border: 1px solid var(--pc-v2-divider);
+    background: linear-gradient(130deg, color-mix(in srgb, var(--pc-v2-brand) 10%, var(--pc-v2-card)),var(--pc-v2-card) 72%);
+    padding: 19px 21px; border-radius: 18px;
+  }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    background: var(--pc-v2-brand);
+  }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-eyebrow { display: block; font-weight: 800; letter-spacing: .12em; font-size: 10px; color: var(--pc-v2-brand); }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro h3 { margin-top: 8px; font-size: 18px; line-height: 1.3; font-weight: 850; color: var(--pc-v2-ink); }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro p { margin-top: 7px; font-size: 12px; line-height: 1.55; color: var(--pc-v2-muted); }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric {
+    border: 1px solid var(--pc-v2-divider); border-radius: 18px; padding: 17px 18px;
+    background: var(--pc-v2-card); box-shadow: var(--pc-v2-glow);
+    display: flex; flex-direction: column; justify-content: center; min-width: 0;
+  }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric-label { font-size: 12px; font-weight: 750; color: var(--pc-v2-muted); }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric-value { font-size: clamp(19px,2vw,27px); font-weight: 850; letter-spacing: -.035em; color: var(--pc-v2-ink); margin-top: 7px; overflow-wrap: anywhere; }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric small { margin-top: 5px; font-size: 11px; color: var(--pc-v2-muted); }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric--success { border-top: 3px solid #059669; }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric--warning { border-top: 3px solid #d97706; }
+  /* Toolbars and filter decks: same spacing, height and color in all modules. */
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-region="commands"] {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: 16px; padding: 14px 18px; border: 1px solid var(--pc-v2-divider);
+    background: var(--pc-v2-card); border-radius: 17px; box-shadow: var(--pc-v2-glow);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-region="commands"] > div:first-child > h2 { font-size: 14px; font-weight: 800; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-region="commands"] > div:first-child > p { font-size: 11px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-region="commands"] button:not([disabled]),
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-region="commands"] select,
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-region="commands"] input[type="date"] {
+    min-height: 38px;
+  }
+  [data-hnl-desktop-design="modern"] :is([data-hnl-warehouse-filter-layout],[data-hnl-volume-filter-sort]) {
+    border: 1px solid var(--pc-v2-divider); border-radius: 16px;
+    padding: 16px 18px; background: var(--pc-v2-card); box-shadow: var(--pc-v2-glow);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-warehouse-filter-layout] [data-hnl-warehouse-primary-toolbar="type-search-dates"] {
+    grid-template-columns: minmax(220px,.85fr) minmax(220px,1.5fr) minmax(260px,1.1fr);
+    gap: 14px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-warehouse-kind-sort] { border-top: 1px solid var(--pc-v2-divider); padding-top: 12px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-region="stock-summary"],
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-region="inspection"] {
+    border: 1px solid var(--pc-v2-divider); border-radius: 17px; padding: 20px;
+    background: var(--pc-v2-card); box-shadow: var(--pc-v2-glow);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-region="records"] {
+    padding: 18px; border-radius: 18px; border: 1px solid var(--pc-v2-divider);
+    background: var(--pc-v2-card); box-shadow: var(--pc-v2-glow);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-region="records"] > div > h3 { font-size: 14px; font-weight: 800; color: var(--pc-v2-ink); }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-region="records"] > div.grid > div { border-radius: 13px; box-shadow: none; }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="volume"] [data-hnl-pc-region="progress"] {
+    border-radius: 17px; padding: 21px 23px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="crew"] [data-hnl-pc-region="subtabs"] {
+    border: 1px solid var(--pc-v2-divider); border-radius: 13px; background: var(--pc-v2-card);
+    max-width: 470px; padding: 5px; box-shadow: var(--pc-v2-glow);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="crew"] [data-hnl-pc-region="commands"] {
+    display: grid; grid-template-columns: minmax(210px,.9fr) repeat(4,minmax(0,1fr));
+    padding: 16px; align-items: stretch;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="crew"] [data-hnl-pc-region="commands"] > * { min-width: 0; }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="floorplan"] [data-hnl-pc-region="commands"] {
+    display: block;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="floorplan"] [data-hnl-pc-region="commands"] > h2 { display: none; }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="floorplan"] [data-hnl-pc-region="commands"] > div { margin: 0; border: 0; padding: 3px 0; box-shadow: none; }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="floorplan"] [data-hnl-pc-plan-viewport="true"]:not(.fixed) {
+    height: min(70vh, 760px); max-height: none; min-height: 460px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="checklist"] [data-hnl-pc-region="floor-tabs"] {
+    background: var(--pc-v2-card); padding: 11px; border: 1px solid var(--pc-v2-divider);
+    border-radius: 15px; box-shadow: var(--pc-v2-glow);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="checklist"] [data-hnl-pc-region="floor-tabs"] button { min-height: 38px; }
+  /* Existing secondary tab bars and data tables across ALL inner panes. */
+  [data-hnl-desktop-design="modern"] [data-hnl-nested-nav],
+  [data-hnl-desktop-design="modern"] #crew-subtab-navigation {
+    border: 1px solid var(--pc-v2-divider); background: var(--pc-v2-card);
+    border-radius: 13px; padding: 5px; box-shadow: var(--pc-v2-glow);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-nested-nav] button,
+  [data-hnl-desktop-design="modern"] #crew-subtab-navigation button { min-height: 38px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] table { border-collapse: separate; border-spacing: 0; }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] table thead th {
+    font-size: 11px; font-weight: 800; letter-spacing: .018em;
+    background: color-mix(in srgb,var(--pc-v2-brand) 5%,var(--pc-v2-card));
+    border-bottom: 1px solid var(--pc-v2-divider); padding-top: 10px; padding-bottom: 10px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] table tbody tr:hover td {
+    background: color-mix(in srgb,var(--pc-v2-brand) 4%,var(--pc-v2-card));
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] table :is(th,td) { font-size: 12px; vertical-align: middle; }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+    accent-color: var(--pc-v2-brand);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] :is(button,input,select,textarea):focus-visible {
+    outline: 2px solid var(--pc-v2-brand); outline-offset: 2px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="system-center"] {
+    max-width: 1640px; padding: 0 20px 60px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="system-center"] > section:first-child { border-radius: 18px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="system-center"] > section > div.grid { gap: 15px; }
+  /* Native popups/portals need HTML mode class because they attach to document.body. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-module="project-manager"] > div:not(.relative),
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-module="security-center"] > div,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-module="notification-center"] > div {
+    width: min(94vw, 1150px); max-width: 1150px;
+    max-height: min(91vh, 980px); border-radius: 20px;
+    box-shadow: 0 25px 85px rgb(2 6 23 / 25%);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-module="notification-center"] > div > div:first-child {
+    padding: 19px 24px; background: linear-gradient(90deg,#0f172a,#1d4ed8);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet] {
+    width: min(94vw, 1220px); max-width: 1220px;
+    top: 5vh; bottom: 5vh; border-radius: 18px; box-shadow: 0 28px 95px rgb(2 6 23 / 28%);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet] > header { min-height: 78px; padding: 14px 24px; border-bottom: 1px solid #dbe3ef; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet-scrollbody] > div { padding: 22px 28px 30px; }
+}
+@media (min-width: 1024px) and (max-width: 1399px) {
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview { grid-template-columns: 1fr; }
+  [data-hnl-desktop-design="modern"] [data-hnl-warehouse-filter-layout] [data-hnl-warehouse-primary-toolbar="type-search-dates"] {
+    grid-template-columns: minmax(200px,1fr) minmax(230px,1.2fr);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-warehouse-date-filter] { grid-column: 1 / -1; }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="crew"] [data-hnl-pc-region="commands"] {
+    grid-template-columns: repeat(3,minmax(0,1fr));
+  }
+}
+@media (max-width: 1023px) {
+  /* The KPI node is present but entirely inert and hidden on mobile and tablets. */
+  .hnl-pc-v2-overview { display: none !important; }
+}
+@media (min-width: 1024px) {
+  /* Classic PC remains visually unchanged. */
+  [data-hnl-desktop-design="classic"] .hnl-pc-v2-overview { display: none !important; }
+}
+
+/* PC-focused deep composition for collaboration, AI and settings pages. */
+@media (min-width: 1024px) {
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="ai-workspace"],
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="settings-center"],
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="chat-projects"] {
+    max-width: 1630px; width: 100%; padding: 0 22px 60px; margin: 0 auto;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="ai-workspace"] > section,
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="settings-center"] > div.bg-white,
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="chat-projects"] > div.bg-white {
+    border: 1px solid var(--pc-v2-divider); border-radius: 18px; background: var(--pc-v2-card);
+    box-shadow: var(--pc-v2-glow); padding: 22px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="ai-workspace"] > .hnl-ai-hero {
+    border-top: 4px solid var(--pc-v2-brand); padding: 24px 26px;
+    background: linear-gradient(115deg,color-mix(in srgb,var(--pc-v2-brand) 12%,white),#fff 74%);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="ai-workspace"] .hnl-ai-hero .grid.grid-cols-4 {
+    grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="ai-workspace"] .hnl-ai-hero button {
+    min-height: 48px; border-radius: 12px; font-size: 13px; flex-direction: row;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="ai-workspace"] textarea { font-size: 14px; min-height: 108px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="chat-projects"] > div.space-y-2 {
+    display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="chat-projects"] > div.space-y-2 > button {
+    min-height: 100px; margin: 0; border-radius: 16px; padding: 19px 21px;
+    background: var(--pc-v2-card); box-shadow: var(--pc-v2-glow);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="chat-room"] {
+    max-width: 1280px; width: calc(100% - 44px); border-radius: 18px;
+    box-shadow: var(--pc-v2-glow); border: 1px solid var(--pc-v2-divider);
+    margin-bottom: 35px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="chat-room"] > div:first-child {
+    background: color-mix(in srgb,var(--pc-v2-brand) 7%,var(--pc-v2-card));
+    padding: 16px 20px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="chat-room"] > div.flex-1 { padding: 18px 28px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="settings-center"] > div:first-child {
+    padding: 17px 22px; border: 1px solid var(--pc-v2-divider);
+    background: var(--pc-v2-card); border-radius: 16px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="settings-center"] > div.bg-white > h3,
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="settings-center"] > div.bg-white > div:first-child h3 {
+    font-size: 14px; font-weight: 850;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="settings-center"] form :is(input, select, textarea) { min-height: 39px; font-size: 13px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="settings-center"] form label { font-size: 12px; }
+}
+@media (min-width: 1400px) {
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="chat-projects"] > div.space-y-2 { grid-template-columns: repeat(3,minmax(0,1fr)); }
+}

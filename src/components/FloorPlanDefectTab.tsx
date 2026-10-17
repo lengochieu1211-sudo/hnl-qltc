@@ -1,3 +1,4 @@
+import { DesktopWorkspaceMetrics } from './DesktopWorkspaceMetrics';
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { assertSafeExcelImportFile } from '../utils/excelImportUtils';
@@ -6058,9 +6059,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   }
 
   return (
-    <div className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
+    <div data-hnl-workspace-module="floorplan" className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
+      <DesktopWorkspaceMetrics eyebrow="THI CÔNG · MẶT BẰNG"
+        title="Điều hành mặt bằng theo tầng" description="Thao tác bản vẽ và Defect vẫn dùng bộ điều khiển hiện tại, không thay đổi tọa độ hoặc ID."
+        metrics={[
+          { label: 'Tầng trong dự án', value: floorPlans.length, detail: 'Giữ nguyên dữ liệu gốc' },
+          { label: 'Tầng đang hiển thị', value: visibleFloorPlans.length, detail: 'Theo bộ lọc Khu/Khối' },
+          { label: 'Tầng đang chọn', value: activeFloor?.floorName || '—', detail: 'Đang xem mặt bằng' },
+        ]} />
       {/* Title Header */}
-      <div className="space-y-2">
+      <div data-hnl-pc-region="commands" className="space-y-2">
         <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2 whitespace-nowrap">
           <Building2 className="w-5 h-5 shrink-0 text-indigo-600" />
           {t('floorplan_title')}
@@ -7130,7 +7138,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               above the global mobile navigation (z-40). Fullscreen retains z-100.
               Do NOT lift navigation globally: unrelated dialogs still use z-50. */}
           {/* Blueprint Image Outer Container with Controls */}
-          <div className={`${isFullscreen ? 'fixed inset-0 z-[100] bg-slate-950 rounded-none h-[100dvh] w-[100dvw] flex flex-col' : 'relative w-full h-[52dvh] min-h-[320px] max-h-[520px] sm:h-[400px] bg-slate-900 rounded-2xl'} overflow-hidden isolate border border-slate-300 select-none group shadow-inner`}>
+          <div data-hnl-pc-plan-viewport="true" className={`${isFullscreen ? 'fixed inset-0 z-[100] bg-slate-950 rounded-none h-[100dvh] w-[100dvw] flex flex-col' : 'relative w-full h-[52dvh] min-h-[320px] max-h-[520px] sm:h-[400px] bg-slate-900 rounded-2xl'} overflow-hidden isolate border border-slate-300 select-none group shadow-inner`}>
             {/* Fullscreen Pinned Drawing Toolbar & Active Banners */}
             {isFullscreen && (
               <div className="shrink-0 z-[70] pointer-events-auto flex flex-col gap-1.5 p-2 bg-slate-950/95 border-b border-slate-800 shadow-lg">

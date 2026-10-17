@@ -369,7 +369,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
 
   if (view === 'projects') {
     return (
-      <div className="max-w-3xl mx-auto p-3 sm:p-5 pb-24 space-y-3">
+      <div data-hnl-pc-module="chat-projects" className="max-w-3xl mx-auto p-3 sm:p-5 pb-24 space-y-3">
         <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -407,7 +407,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
 
   return (
     <div
-      className="max-w-3xl mx-auto flex flex-col bg-white sm:rounded-2xl sm:border sm:border-slate-200 sm:shadow-sm overflow-hidden"
+      data-hnl-pc-module="chat-room" className="max-w-3xl mx-auto flex flex-col bg-white sm:rounded-2xl sm:border sm:border-slate-200 sm:shadow-sm overflow-hidden"
       style={{ height: `${Math.max(320, visualViewportHeight - 112)}px` }}
     >
       <div className="shrink-0 px-3 py-2.5 border-b border-slate-200 flex items-center justify-between gap-2 bg-white">

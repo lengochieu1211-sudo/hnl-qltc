@@ -399,6 +399,12 @@ function AuthenticatedApp() {
     try { return localStorage.getItem('hnl_desktop_workspace_mode_v1') === 'modern' ? 'modern' : 'classic'; }
     catch { return 'classic'; }
   });
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    document.documentElement.dataset.hnlPcWorkspace = desktopWorkspaceMode;
+    return () => { delete document.documentElement.dataset.hnlPcWorkspace; };
+  }, [desktopWorkspaceMode]);
+
   const updateDesktopWorkspaceMode = (next: DesktopWorkspaceMode) => {
     setDesktopWorkspaceMode(next);
     try { localStorage.setItem('hnl_desktop_workspace_mode_v1', next); } catch { /* private mode */ }
