@@ -6108,7 +6108,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             </div>
           </div>
 
-          <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-flow-col sm:auto-cols-max sm:grid-cols-none sm:items-center sm:border-l sm:border-slate-200 sm:pl-3">
+          <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-flow-col sm:auto-cols-max sm:grid-cols-none sm:items-center">
             {canManageStructure && (
               <button
                 type="button"

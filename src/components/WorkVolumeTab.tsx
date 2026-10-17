@@ -1013,9 +1013,10 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         )}
       </div>
 
-      {/* Filter Tabs */}
+      {/* Category filters and quick sorting share one desktop toolbar. */}
+      <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-start" data-hnl-volume-filter-sort="responsive-toolbar">
       {availableCategories.length > 0 && (
-        <div className="flex gap-1 overflow-x-auto pb-1 text-xs no-scrollbar">
+        <div className="flex min-w-0 gap-1 overflow-x-auto pb-1 text-xs no-scrollbar lg:max-w-[44%] lg:shrink-0" data-hnl-volume-category-filters="true">
           {['all', ...availableCategories].map((catId) => {
             const label = catId === 'all' ? 'Tất cả' : 
                           catId === 'khung_tran' ? ' Khung Trần' : 
@@ -1039,6 +1040,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       )}
 
       {/* Quick Sort Work Volumes */}
+      <div className="min-w-0 lg:flex-1" data-hnl-volume-sort-controls="true">
       <QuickSortBar
         itemCount={sortedFilteredVolumes.length}
         options={[
@@ -1053,6 +1055,8 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         onReset={() => { setVolSortBy('none'); setVolSortOrder('asc'); }}
         resetLabel="Thứ tự thủ công"
       />
+      </div>
+      </div>
       {hasStructureManageAccess && volSortBy !== 'none' && (
         <p className="text-[11px] text-slate-500">Chọn “Thứ tự thủ công” để di chuyển hạng mục lên/xuống hoặc kéo thả.</p>
       )}
