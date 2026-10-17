@@ -665,7 +665,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   };
 
   return (
-    <div data-hnl-settings-surface className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto text-xs">
+    <div data-hnl-settings-surface data-hnl-pc-module="settings-center" className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto text-xs">
       
       {/* Title */}
       <div>

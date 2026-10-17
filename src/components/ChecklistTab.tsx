@@ -1,3 +1,4 @@
+import { DesktopWorkspaceMetrics } from './DesktopWorkspaceMetrics';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { assertSafeExcelImportFile } from '../utils/excelImportUtils';
@@ -477,9 +478,16 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
   };
 
   return (
-    <div className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
+    <div data-hnl-workspace-module="checklist" className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
+      <DesktopWorkspaceMetrics eyebrow="KIỂM TRA · NGHIỆM THU"
+        title="Kiểm soát chất lượng" description="Tổng hợp tiêu chí theo tầng đang chọn, không thay đổi điều kiện nghiệm thu."
+        metrics={[
+          { label: 'Tiêu chí', value: summary.total, detail: selectedFloor },
+          { label: 'Đã đạt', value: summary.passed, detail: `${summary.passRate}% tiêu chí`, tone: 'success' },
+          { label: 'Cần xử lý', value: summary.defect + summary.pending, detail: 'Defect + chờ', tone: (summary.defect + summary.pending) ? 'warning' : 'success' },
+        ]} />
       {/* Title + compact mobile action cluster */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div data-hnl-pc-region="commands" className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
             <ClipboardCheck className="w-5 h-5 text-indigo-600" />
@@ -508,7 +516,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       </div>
 
       {/* Floor Chips */}
-      <div className="flex gap-2 overflow-x-auto pb-1 text-xs no-scrollbar">
+      <div data-hnl-pc-region="floor-tabs" className="flex gap-2 overflow-x-auto pb-1 text-xs no-scrollbar">
         {floors.map((floor) => (
           <button
             key={floor}
@@ -526,7 +534,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       </div>
 
       {/* Inspection Pass Rate Summary Card */}
-      <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-2">
+      <div data-hnl-pc-region="inspection" className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-bold text-slate-800">Tỷ lệ nghiệm thu - {selectedFloor}</span>
           <span className="text-xs font-extrabold text-emerald-600">{summary.total > 0 ? `${summary.passRate}% Đạt` : 'Chưa có dữ liệu'}</span>

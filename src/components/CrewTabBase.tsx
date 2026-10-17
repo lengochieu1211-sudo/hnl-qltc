@@ -1,3 +1,4 @@
+import { DesktopWorkspaceMetrics } from './DesktopWorkspaceMetrics';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { assertSafeExcelImportFile } from '../utils/excelImportUtils';
@@ -1951,10 +1952,17 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const activeQuickColumns = quickEditMode === 'logs' ? crewQuickColumns : teamQuickColumns;
 
   return (
-    <div className="pb-24 pt-4 px-4 w-full max-w-6xl mx-auto bg-slate-50 min-h-screen text-slate-800" id="crew-tab-container">
+    <div data-hnl-workspace-module="crew" className="pb-24 pt-4 px-4 w-full max-w-6xl mx-auto bg-slate-50 min-h-screen text-slate-800" id="crew-tab-container">
+      <DesktopWorkspaceMetrics eyebrow="HIỆN TRƯỜNG · NHÂN SỰ"
+        title="Điều phối quân số & nhật ký" description="Tra cứu nhật ký theo ngày, quản lý đội và báo cáo từ dữ liệu dự án."
+        metrics={[
+          { label: 'Nhật ký đang lọc', value: filteredRecords.length, detail: 'Theo bộ lọc hiện hành' },
+          { label: 'Đội thi công', value: teams.length, detail: 'Danh sách đội dự án' },
+          { label: 'Tầng', value: floorPlans.length, detail: 'Theo cấu trúc dự án' },
+        ]} />
       
       {/* Sub-tab Navigation Selector */}
-      <div className="flex bg-slate-200 p-1.5 rounded-xl mb-4 shadow-sm" id="crew-subtab-navigation">
+      <div data-hnl-pc-region="subtabs" className="flex bg-slate-200 p-1.5 rounded-xl mb-4 shadow-sm" id="crew-subtab-navigation">
         <button
           onClick={() => setActiveSubTab('logs')}
           className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-bold rounded-lg transition-all ${
@@ -1975,7 +1983,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
       {activeSubTab === 'logs' ? (
         <>
-          <div className="mb-4 grid grid-cols-2 gap-2 lg:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1fr)] lg:items-stretch">
+          <div data-hnl-pc-region="commands" className="mb-4 grid grid-cols-2 gap-2 lg:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1fr)] lg:items-stretch">
             <div className="order-1 col-span-2 lg:order-none lg:col-span-1">
               <div className="flex h-10 items-center justify-between rounded-xl border border-slate-200 bg-white px-2.5 shadow-sm">
                 <button

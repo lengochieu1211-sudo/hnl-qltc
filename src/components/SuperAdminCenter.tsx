@@ -176,7 +176,7 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
   ];
 
   return (
-    <div className="max-w-5xl mx-auto px-3 sm:px-5 pb-24 space-y-4">
+    <div data-hnl-pc-module="system-center" className="max-w-5xl mx-auto px-3 sm:px-5 pb-24 space-y-4">
       <section className="rounded-3xl bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 text-white p-5 shadow-xl border border-blue-800/40">
         <div className="flex items-start justify-between gap-4">
           <div>

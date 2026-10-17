@@ -3277,7 +3277,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   });
 
   return (
-    <div className={inline ? 'w-full' : 'fixed inset-0 bg-slate-900/65 backdrop-blur-md z-[180] flex items-center justify-center p-3 md:p-4 animate-in fade-in duration-200'}>
+    <div data-hnl-pc-module="project-manager" className={inline ? 'w-full' : 'fixed inset-0 bg-slate-900/65 backdrop-blur-md z-[180] flex items-center justify-center p-3 md:p-4 animate-in fade-in duration-200'}>
       <div className={inline ? 'relative w-full' : 'bg-white w-full max-w-xl rounded-2xl p-3.5 md:p-5 shadow-2xl relative border border-slate-100 flex flex-col max-h-[92vh] overflow-hidden'}>
         
         {/* Header */}

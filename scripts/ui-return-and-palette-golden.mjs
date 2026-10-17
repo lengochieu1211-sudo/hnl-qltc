@@ -90,3 +90,6 @@ for (const btn of [materialAddAction, equipmentAddAction]) {
 }
 
 console.log('UI RETURN AND PALETTE GOLDEN: PASS');
+
+// When CI runs the UI regression gate, exercise the modern PC module-level layout too.
+await import('./desktop-workspace-v2-golden.mjs');
