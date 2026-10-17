@@ -2684,17 +2684,19 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       )}
                     </div>
 
-                    {/* Primary Button to open statistics modal */}
-                    <button
-                      onClick={async () => {
-                        setSelectedTeamForDetail(team);
-                        setDetailModalTab('rooms');
-                      }}
-                      className="w-full mt-auto flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-3 rounded-xl transition text-xs shadow-xs active:scale-98"
-                    >
-                      <BarChart3 className="w-4 h-4 text-indigo-400" />
-                      <span>Xem thống kê Căn / Phòng & Defect</span>
-                    </button>
+                    {/* Keep at least 12px below the contact row, even when mt-auto has no spare space. */}
+                    <div className="mt-auto pt-3" data-hnl-team-statistics-action="true">
+                      <button
+                        onClick={async () => {
+                          setSelectedTeamForDetail(team);
+                          setDetailModalTab('rooms');
+                        }}
+                        className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-3 rounded-xl transition text-xs shadow-xs active:scale-98"
+                      >
+                        <BarChart3 className="w-4 h-4 text-indigo-400" />
+                        <span>Xem thống kê Căn / Phòng & Defect</span>
+                      </button>
+                    </div>
 
                     {/* Team edit / delete actions */}
                     {canManageTeamDirectory && <div className="flex items-center justify-end gap-3 mt-2.5 pt-2 border-t border-slate-100">
