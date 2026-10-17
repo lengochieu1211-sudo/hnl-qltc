@@ -651,6 +651,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
               void ensureViewerFullImage(index);
             }}
             isImageLoading={Boolean(viewerLoadingIds[viewablePhotos[viewerCurrentIndex]?.id || ''])}
+            shareText={entityType === 'inventory' ? '' : undefined}
           />
         )}
       </>
@@ -856,6 +857,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
             void ensureViewerFullImage(index);
           }}
           isImageLoading={Boolean(viewerLoadingIds[viewablePhotos[viewerCurrentIndex]?.id || ''])}
+          shareText={entityType === 'inventory' ? '' : undefined}
         />
       )}
 
