@@ -87,6 +87,15 @@ const commit = warehouse.indexOf('await onAddInventory({ ...payload, id: savedVo
 const photoOpen = warehouse.indexOf('setPhotoVoucher({ projectId: currentProjectId, id: savedVoucherId, type, materialName: finalMaterialName, initialFiles: [...pendingVoucherPhotos] });', commit);
 const errorCatch = warehouse.indexOf('} catch (err: any) {', photoOpen);
 assert(saveStart !== -1 && commit > saveStart && photoOpen > commit && errorCatch > photoOpen, 'Upload flow is unavailable until the stock transaction successfully commits');
+// Only staged images should open the post-save photo modal. A photo-free voucher
+// must return to the warehouse list (or continue mode) without a surprise modal.
+const conditionalPhotoOpen = warehouse.indexOf('if (pendingVoucherPhotos.length > 0) {', commit);
+assert(conditionalPhotoOpen > commit && conditionalPhotoOpen < photoOpen, 'Photo step only opens for staged photos after committing the voucher');
+assert(/if \(pendingVoucherPhotos\.length > 0\) \{\s*setPhotoVoucher\(/.test(warehouse), 'Photo-free warehouse save must not open the gallery');
+assert(warehouse.includes('data-hnl-warehouse-photo-actions="crew-sized"'), 'New warehouse voucher should use Crew-sized photo actions');
+assert(warehouse.includes('<Camera className="h-3.5 w-3.5" /> Chụp ảnh'), 'Camera action must use Crew-sized icon and matching camera glyph');
+assert(warehouse.includes('<Images className="h-3.5 w-3.5" /> Thư viện'), 'Library action must use Crew-sized icon');
+assert(warehouse.includes('px-2.5 py-1 text-xs font-semibold'), 'Warehouse photo actions use the same compact padding/label scale as Crew');
 assert(warehouse.includes('inventorySaveInFlightRef.current'), 'Duplicate submit attempts must not create duplicate vouchers');
 assert(warehouse.includes('data-hnl-warehouse-staged-photos="true"'), 'New form supports optional camera/gallery draft selection before saving');
 assert(warehouse.includes('setPendingVoucherPhotos([]);'), 'Photo drafts are cleared only after committing or deliberate cancel');
