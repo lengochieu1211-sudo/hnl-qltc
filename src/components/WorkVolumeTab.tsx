@@ -1014,9 +1014,9 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       </div>
 
       {/* Category filters and quick sorting share one desktop toolbar. */}
-      <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-start" data-hnl-volume-filter-sort="responsive-toolbar">
+      <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center" data-hnl-volume-filter-sort="responsive-toolbar">
       {availableCategories.length > 0 && (
-        <div className="flex min-w-0 gap-1 overflow-x-auto pb-1 text-xs no-scrollbar lg:max-w-[44%] lg:shrink-0" data-hnl-volume-category-filters="true">
+        <div className="flex min-w-0 gap-1 overflow-x-auto pb-1 text-xs no-scrollbar lg:pb-0 lg:max-w-[44%] lg:shrink-0" data-hnl-volume-category-filters="true">
           {['all', ...availableCategories].map((catId) => {
             const label = catId === 'all' ? 'Tất cả' : 
                           catId === 'khung_tran' ? ' Khung Trần' : 
