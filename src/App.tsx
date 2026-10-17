@@ -3,6 +3,8 @@ import { GlobalConfirmModal } from './components/GlobalConfirmModal';
 import { ContextBackButton } from './components/ContextBackButton';
 import { captureScopedUndoStep, applyScopedUndoStep, type ScopedUndoStep } from './utils/undoRedoScoped';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { DesktopWorkspaceHeader, type DesktopWorkspaceMode } from './components/DesktopWorkspaceHeader';
+import './styles/desktopWorkspace.css';
 import { HardDrive, RefreshCw } from 'lucide-react';
 import { safeSetLocalStorageItem } from './utils/storage';
 import { prepareFloorPlansForBackupRestore } from './utils/floorPlanBackupRestore';
@@ -393,6 +395,15 @@ function AuthenticatedApp() {
   const isMobileRuntime = typeof window !== 'undefined'
     && !isDesktopRuntime
     && (/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '') || window.innerWidth < 1024);
+  // Local-only PC UI preference. It never changes user/project data, Firebase or R2.
+  const [desktopWorkspaceMode, setDesktopWorkspaceMode] = useState<DesktopWorkspaceMode>(() => {
+    try { return localStorage.getItem('hnl_desktop_workspace_mode_v1') === 'modern' ? 'modern' : 'classic'; }
+    catch { return 'classic'; }
+  });
+  const updateDesktopWorkspaceMode = (next: DesktopWorkspaceMode) => {
+    setDesktopWorkspaceMode(next);
+    try { localStorage.setItem('hnl_desktop_workspace_mode_v1', next); } catch { /* private mode */ }
+  };
   const [activeTab, setActiveTab] = useState<TabType>(getRememberedTab);
   // Desktop keeps warmed operational screens mounted for instant revisits.
   // Mobile is the primary field runtime, so keep only the current primary React tree
@@ -7577,7 +7588,7 @@ function AuthenticatedApp() {
   const hasExcelExport = ['warehouse', 'volume', 'floorplan', 'checklist', 'crew'].includes(activeTab);
 
   return (
-    <div className={`min-h-screen bg-slate-100 text-slate-900 font-sans selection:bg-blue-200 ${isDesktopRuntime ? 'pl-[84px]' : 'lg:pl-[84px]'}`}>
+    <div data-hnl-desktop-design={visibleTab !== 'home' ? desktopWorkspaceMode : 'classic'} data-hnl-desktop-native={isDesktopRuntime ? 'true' : 'false'} className={`min-h-screen bg-slate-100 text-slate-900 font-sans selection:bg-blue-200 ${isDesktopRuntime ? 'pl-[84px]' : 'lg:pl-[84px]'}`}>
       {/* Mobile & Responsive Shell Frame */}
       <div
         className={`w-full max-w-lg md:max-w-3xl lg:max-w-none mx-auto bg-slate-50 min-h-screen shadow-2xl relative border-x border-slate-200 overflow-x-hidden ${isSoftKeyboardOpen ? 'pb-0' : 'pb-[calc(5rem+env(safe-area-inset-bottom))] lg:pb-4'}`}
@@ -7724,8 +7735,28 @@ function AuthenticatedApp() {
           </div>
         )}
 
+        {/* Shared PC workspace: presentation only; all actions call existing App handlers. */}
+        <DesktopWorkspaceHeader
+          activeTab={visibleTab}
+          mode={desktopWorkspaceMode}
+          onChangeMode={updateDesktopWorkspaceMode}
+          projectName={projectName}
+          online={isOnline}
+          userRole={currentUserRole}
+          onOpenProjects={() => handleOpenProjectManager('projects')}
+          onOpenReports={() => setIsExportPdfOpen(true)}
+          onOpenNotifications={() => setIsNotificationCenterOpen(true)}
+          onOpenSecurity={() => setIsSecurityModalOpen(true)}
+          onNavigate={(tab) => navigateToTab(tab)}
+          showChecklist={showChecklistModule}
+          showAI={HNL_AI_ENABLED}
+          showSuperAdmin={isCurrentSuperAdmin}
+          notificationCount={dueDateAlerts.length}
+        />
+
         {/* Tab Content */}
         <main
+          data-hnl-pc-workspace={visibleTab !== 'home' ? 'true' : 'false'}
           className="animate-in fade-in duration-150"
           data-hnl-active-tab={navigationTargetTab || activeTab}
           data-hnl-mounted-tab={activeTab}
