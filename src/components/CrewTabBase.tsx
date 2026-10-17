@@ -435,6 +435,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     rememberCrewDetailForReturn();
     setSelectedTeamForDetail(null);
     window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity', { detail: request }));
+    // Desktop keeps the FloorPlan module mounted: storage is only read on mount/dependency
+    // changes. Send the same event as notification links after App switches tabs.
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent('qlct-defect-navigation-request', { detail: request })), 50);
   };
 
   // Sync state if prop changes

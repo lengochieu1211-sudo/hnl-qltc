@@ -8,6 +8,7 @@ import { saveBlobToDownloads } from '../utils/fileExport';
 import { sharePreparedContent } from '../utils/shareUtils';
 import { isAndroidExportBridgeAvailable } from '../utils/fileExport';
 import { drawWarehouseVoucherPage, paginateWarehouseVouchers } from '../utils/warehouseVoucherPrint';
+import { warehouseVoucherIsoDate, isWarehouseVoucherDateInRange } from '../utils/warehouseVoucherDateFilter';
 
 type VoucherFormat = 'png' | 'xlsx' | 'pdf';
 type Period = 'today' | 'yesterday' | 'range';
@@ -24,10 +25,10 @@ export function selectWarehouseVouchers(rows: InventoryItem[], opts: {
   const start = opts.period === 'today' ? (opts.today || localDay()) : opts.period === 'yesterday' ? (opts.yesterday || localDay(-1)) : opts.start;
   const end = opts.period === 'range' ? opts.end : start;
   if (!start || !end || start > end) return [];
-  return rows.filter(x => x.deletedAt == null && x.date >= start && x.date <= end
+  return rows.filter(x => x.deletedAt == null && isWarehouseVoucherDateInRange(x.date, start, end)
     && (opts.kind === 'all' || (x.itemKind === 'equipment' ? 'equipment' : 'material') === opts.kind)
     && (opts.direction === 'all' || x.type === opts.direction))
-    .sort((a,b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id));
+    .sort((a,b) => (warehouseVoucherIsoDate(b.date).localeCompare(warehouseVoucherIsoDate(a.date)) || a.id.localeCompare(b.id)));
 }
 type VoucherFile = {
   id: string;
@@ -141,6 +142,7 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
   return <SettingsFeatureSheet open={open} onClose={onClose} sheetKey="warehouse-voucher-share" icon={FileText}
     title="Chia sẻ phiếu nhập/xuất kho" description="Chọn Ảnh, Excel hoặc PDF. Phiếu chỉ đọc, không ảnh hưởng tồn kho.">
     <div data-hnl-warehouse-voucher-share="readonly" className="space-y-4">
+      <p className="text-xs text-slate-500">Bộ lọc chia sẻ độc lập với tìm kiếm ở Nhật ký. Mặc định chỉ lấy phiếu hôm nay; chọn Khoảng ngày nếu cần các phiếu cũ.</p>
       <p className="text-xs font-bold text-slate-700">Khoảng ngày</p>
       <div className="flex flex-wrap gap-2">{([['today','Hôm nay'],['yesterday','Hôm qua'],['range','Khoảng ngày']] as const).map(([v,label])=>
         <button type="button" key={v} className={choice(period===v)} aria-pressed={period===v} onClick={()=>{setPeriod(v);setChecked([]);}}>{label}</button>)}</div>

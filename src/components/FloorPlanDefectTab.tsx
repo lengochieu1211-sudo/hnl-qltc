@@ -378,6 +378,8 @@ interface FloorPlanDefectTabProps {
   onRedo?: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
+  contextReturnLabel?: string;
+  onContextReturn?: () => void;
 }
 
 const DEFECT_CATEGORIES: DefectCategory[] = [
@@ -685,6 +687,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   onRedo,
   canUndo,
   canRedo,
+  contextReturnLabel,
+  onContextReturn,
 }) => {
   const { t } = useLanguage();
   const currentProjectId = projectId || (typeof window !== 'undefined' ? sessionStorage.getItem('active_project_id') || localStorage.getItem('active_project_id') : '') || 'default';
@@ -9691,10 +9695,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         onClose={() => {
           setIsRoomModalOpen(false);
           setHealthCenterOrphanRepairRoomId(null);
-          try {
+          if (onContextReturn) onContextReturn();
+          else try {
             if (sessionStorage.getItem('qlct_health_center_return_state')) window.dispatchEvent(new Event('qlct-health-center-return'));
           } catch (_) {}
         }}
+        contextReturnLabel={contextReturnLabel}
         roomItem={selectedRoomForEdit}
         initialPos={newRoomClickPos}
         initialRect={newRoomRect}
@@ -10364,7 +10370,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         const activeDefectShareText = buildDefectShareText(activeDefectDetail, activeDefectRoomName);
         const closeDefectDetail = () => {
           setActiveDefectDetail(null);
-          try {
+          if (onContextReturn) onContextReturn();
+          else try {
             if (sessionStorage.getItem('qlct_health_center_return_state')) window.dispatchEvent(new Event('qlct-health-center-return'));
           } catch (_) {}
         };
@@ -10419,7 +10426,15 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
         return (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4">
-            <div className="bg-white w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl rounded-t-3xl sm:rounded-2xl p-5 lg:p-6 space-y-4 max-h-[90vh] overflow-y-auto shadow-2xl">
+            <div className="bg-white w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl rounded-t-3xl sm:rounded-2xl max-h-[95dvh] overflow-y-auto shadow-2xl">
+              {/* Sticky actions stay visible while scrolling long Defect content. */}
+              <div className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-2 shadow-sm">
+                <span className="min-w-0 truncate text-xs font-bold text-slate-700">Chi tiết Defect</span>
+                <button type="button" onClick={closeDefectDetail} className="min-h-9 shrink-0 rounded-lg bg-indigo-50 px-3 text-xs font-bold text-indigo-700 hover:bg-indigo-100" data-hnl-defect-context-back="true">
+                  ← {contextReturnLabel ? `Quay lại ${contextReturnLabel}` : 'Đóng chi tiết'}
+                </button>
+              </div>
+              <div className="space-y-4 p-5 lg:p-6">
               {/* Header */}
               <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                 <div>
@@ -10689,6 +10704,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     Lưu &amp; Đóng
                   </button>
                 </div>
+              </div>
               </div>
             </div>
           </div>

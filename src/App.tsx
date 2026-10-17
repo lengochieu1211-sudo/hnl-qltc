@@ -7895,6 +7895,12 @@ function AuthenticatedApp() {
               userRole={currentUserRole}
               roleResolved={isProjectRoleResolved}
               isActive={visibleTab === 'floorplan'}
+              contextReturnLabel={contextReturnFrames.length > 0 && contextReturnFrames[contextReturnFrames.length - 1].projectId === activeProjectId
+                ? contextReturnFrames[contextReturnFrames.length - 1].kind === 'crew-detail' ? 'Thống kê đội'
+                  : contextReturnFrames[contextReturnFrames.length - 1].kind === 'health-center' ? 'Kiểm tra dữ liệu & liên kết'
+                  : contextReturnFrames[contextReturnFrames.length - 1].kind === 'volume-detail' ? 'Chi tiết khối lượng'
+                  : 'màn hình trước' : undefined}
+              onContextReturn={contextReturnFrames.length > 0 && contextReturnFrames[contextReturnFrames.length - 1].projectId === activeProjectId ? handleContextReturn : undefined}
               quickEditEnabled={!isMobileRuntime}
               inspectorName={inspectorName}
               onAddInventory={handleAddInventory}

@@ -20,12 +20,17 @@ export function matchesWarehouseVoucherDate(dateValue: string | null | undefined
   const iso = warehouseVoucherIsoDate(dateValue);
   if (!iso) return false;
   const [year, month, day] = iso.split('-');
-  const variants = [
-    iso, `${day}/${month}/${year}`, `${day}-${month}-${year}`,
-    `${Number(day)}/${Number(month)}/${year}`,
-    `${month}/${year}`, `${Number(month)}/${year}`,
-  ];
-  return variants.some((value) => value.includes(query));
+  if (/^\d{4}$/.test(query)) return query === year;
+  if (/^\d{1,2}\/\d{4}$/.test(query)) {
+    const [requestedMonth, requestedYear] = query.split('/');
+    return Number(requestedMonth) === Number(month) && requestedYear === year;
+  }
+  if (/^\d{1,2}[/-]\d{1,2}[/-]\d{4}$/.test(query)) {
+    const parts = query.split(/[/-]/);
+    return Number(parts[0]) === Number(day) && Number(parts[1]) === Number(month) && parts[2] === year;
+  }
+  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(query)) return warehouseVoucherIsoDate(query) === iso;
+  return false;
 }
 
 /** Compare calendar dates inclusively; unparseable dates never enter a selected range. */

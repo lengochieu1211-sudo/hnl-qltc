@@ -203,12 +203,18 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [voucherShareOpen, setVoucherShareOpen] = useState(false);
   // Draft images remain in-memory, never in R2/Firestore until the ledger commits.
   const [pendingVoucherPhotos, setPendingVoucherPhotos] = useState<File[]>([]);
-  const [photoVoucher, setPhotoVoucher] = useState<(Pick<InventoryItem, 'id' | 'type' | 'materialName'> & { projectId: string; initialFiles?: File[] }) | null>(null);
+  const [photoVoucher, setPhotoVoucher] = useState<(Pick<InventoryItem, 'id' | 'type' | 'materialName'> & { projectId: string; initialFiles?: File[]; retryFiles?: File[] }) | null>(null);
   useEffect(() => {
     setPhotoVoucher(null);
     setPendingVoucherPhotos([]);
     setShowAddForm(false);
     setEditingInventory(null);
+    // Filters from another project must not hide this project's warehouse vouchers.
+    setSearchTerm('');
+    setWarehouseFromDate('');
+    setWarehouseToDate('');
+    setFilterType('all');
+    setInventoryKindFilter('all');
   }, [currentProjectId]);
   const inventorySaveInFlightRef = useRef(false);
   const [catalogHistory, setCatalogHistory] = useState<{
@@ -3294,7 +3300,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 <h3 className="flex items-center gap-2 text-sm font-extrabold text-slate-900"><Images className="h-4 w-4 text-sky-600" /> Ảnh giao nhận · {photoVoucher.type === 'in' ? 'Nhập kho' : 'Xuất kho'}</h3>
                 <p className="mt-1 break-words text-xs text-slate-600">{photoVoucher.materialName} · Mã phiếu: <span className="break-all font-mono">{photoVoucher.id}</span></p>
               </div>
-              <button type="button" onClick={() => setPhotoVoucher(null)} disabled={Boolean(photoVoucher.initialFiles?.length)}
+              <button type="button" onClick={() => {
+                if (photoVoucher.retryFiles?.length && !window.confirm(`${photoVoucher.retryFiles.length} ảnh chưa lưu. Đóng lúc này sẽ bỏ danh sách thử lại trên màn hình. Vẫn đóng?`)) return;
+                setPhotoVoucher(null);
+              }} disabled={Boolean(photoVoucher.initialFiles?.length)}
                 className="min-h-10 shrink-0 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50">{photoVoucher.initialFiles?.length ? 'Đang lưu ảnh…' : 'Đóng'}</button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 sm:p-4">
@@ -3304,8 +3313,14 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 label="ẢNH GIAO NHẬN (TỐI ĐA 10 ẢNH)" maxPhotos={10}
                 readOnly={!hasEditAccess}
                 initialFiles={photoVoucher.initialFiles}
-                onInitialFilesProcessed={() => setPhotoVoucher((current) => current?.id === photoVoucher.id ? { ...current, initialFiles: [] } : current)}
+                onInitialFilesProcessed={(remainingFiles) => setPhotoVoucher((current) => current?.id === photoVoucher.id
+                  && current.projectId === photoVoucher.projectId ? { ...current, initialFiles: [], retryFiles: remainingFiles } : current)}
               />
+              {Boolean(photoVoucher.retryFiles?.length) && <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900" role="alert">
+                <span>{photoVoucher.retryFiles!.length} ảnh chưa được lưu. Phiếu đã lưu; ảnh còn lại cần thử lại.</span>
+                <button type="button" data-hnl-warehouse-photo-retry="true" className="rounded-lg bg-amber-700 px-3 py-2 font-bold text-white"
+                  onClick={() => setPhotoVoucher((current) => current ? { ...current, initialFiles: current.retryFiles || [], retryFiles: [] } : current)}>Thử lại ảnh chưa lưu</button>
+              </div>}
               <p className="mt-2 text-[11px] text-slate-500">Ảnh gắn riêng theo mã phiếu; không ảnh hưởng số lượng nhập, xuất hoặc tồn kho. Khi mạng yếu, ảnh sẽ chờ đồng bộ và chỉ hiển thị trên thiết bị khác sau khi Cloud sẵn sàng.</p>
             </div>
           </div>
@@ -3826,6 +3841,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   ) : (
                     <WarehouseVoucherPhotoDraft files={pendingVoucherPhotos} onChange={setPendingVoucherPhotos} />
                   )}
+                  {editingInventory && <p className="mt-1 text-[11px] text-sky-800">Ảnh được lưu ngay khi thêm, sửa hoặc xóa; nút Hủy phiếu chỉ hủy thay đổi thông tin chưa lưu.</p>}
                 </div>
               )}
 

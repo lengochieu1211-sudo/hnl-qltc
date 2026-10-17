@@ -41,6 +41,7 @@ import { ContactMenu } from './ContactMenu';
 interface RoomHighlightModalProps {
   isOpen: boolean;
   onClose: () => void;
+  contextReturnLabel?: string;
   roomItem: RoomProgressItem | null; // Null means creating a new room highlight
   initialPos?: { x: number; y: number };
   initialRect?: { x: number; y: number; width: number; height: number };
@@ -125,6 +126,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   workVolumes = [],
   existingRoomNames = [],
   defaultInspectorName,
+  contextReturnLabel,
   onAddInventory,
   onSaveRoom,
   onDeleteRoom,
@@ -1121,12 +1123,17 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               <p className="text-xs text-slate-500">Mặt bằng: {floorName}</p>
             </div>
           </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {contextReturnLabel && <button type="button" onClick={() => { if (window.confirm('Quay lại? Các thay đổi chưa nhấn Lưu sẽ không được lưu.')) onClose(); }}
+              className="min-h-9 rounded-lg bg-indigo-50 px-3 text-xs font-bold text-indigo-700 hover:bg-indigo-100" data-hnl-room-context-back="true">← Quay lại {contextReturnLabel}</button>}
           <button
-            onClick={onClose}
+            type="button" onClick={() => { if (!contextReturnLabel || window.confirm('Đóng Căn/Phòng? Các thay đổi chưa nhấn Lưu sẽ không được lưu.')) onClose(); }}
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+            title="Đóng"
           >
             <X className="w-5 h-5" />
           </button>
+          </div>
         </div>
 
         {/* Form Body */}

@@ -21,7 +21,7 @@ interface PhotoAttachmentPickerProps {
   onPhotosChanged?: (photos: PhotoAttachment[]) => void;
   /** Only used by Warehouse: staged local files are imported after voucher commit. */
   initialFiles?: File[];
-  onInitialFilesProcessed?: () => void;
+  onInitialFilesProcessed?: (remainingFiles: File[]) => void;
 }
 
 const notifyPhotoAttachmentsChanged = (detail?: Record<string, any>) => {
@@ -262,14 +262,14 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     viewerLoadingPhotoIdsRef.current.clear();
   }, []);
 
-  const processSelectedFiles = async (files: FileList | File[] | null) => {
-    if (readOnly) return;
+  const processSelectedFiles = async (files: FileList | File[] | null): Promise<File[]> => {
     const selected = files ? Array.from(files) : [];
-    if (selected.length === 0 || !projectId || !entityId) return;
+    if (readOnly || !projectId || !entityId) return selected;
+    if (selected.length === 0) return [];
 
     if (photos.length + selected.length > maxPhotos) {
       alert(`Bạn chỉ có thể chèn tối đa ${maxPhotos} ảnh!`);
-      return;
+      return selected;
     }
 
     const imageNamePattern = /\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i;
@@ -280,14 +280,15 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     });
     if (invalid) {
       alert(`Tệp "${invalid.name || 'đã chọn'}" không phải hình ảnh hợp lệ.`);
-      return;
+      return selected;
     }
 
     setUploading(true);
     setSyncNotice('');
+    // Persisted files are removed from the retry queue, not the whole original batch.
+    const savedNow: PhotoAttachment[] = [];
+    const optimisticUrls: Record<string, string> = {};
     try {
-      const savedNow: PhotoAttachment[] = [];
-      const optimisticUrls: Record<string, string> = {};
 
       for (const file of selected) {
         // Some Android galleries return HEIC/HEIF. Browser decoding support differs by device,
@@ -344,6 +345,10 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
         }
       }
 
+    } catch (err: any) {
+      console.error('Error uploading photo:', err);
+      alert(err?.message || 'Có lỗi xảy ra khi xử lý ảnh. Vui lòng thử lại.');
+    } finally {
       // Render immediately from the just-compressed data URL. Do not wait for IndexedDB/cloud
       // round-trips; this fixes the "saved but image does not appear" behavior on mobile.
       if (savedNow.length > 0) {
@@ -358,7 +363,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
         });
       }
 
-      notifyPhotoAttachmentsChanged({
+      if (savedNow.length > 0) notifyPhotoAttachmentsChanged({
         operation: 'add',
         entityType,
         entityId,
@@ -368,22 +373,24 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       });
       // No immediate self-reload: the optimistic thumbnail is already correct.
       // Avoiding a second IndexedDB pass materially reduces mobile RAM/CPU spikes.
-    } catch (err: any) {
-      console.error('Error uploading photo:', err);
-      alert(err?.message || 'Có lỗi xảy ra khi xử lý ảnh. Vui lòng thử lại.');
-    } finally {
       setUploading(false);
       if (cameraInputRef.current) cameraInputRef.current.value = '';
       if (libraryInputRef.current) libraryInputRef.current.value = '';
     }
+    return selected.slice(savedNow.length);
   };
 
   const initialImportStartedRef = useRef(false);
   useEffect(() => {
+    if (!initialFiles?.length) initialImportStartedRef.current = false;
+  }, [initialFiles]);
+  useEffect(() => {
     if (loading || readOnly || initialImportStartedRef.current || !initialFiles?.length) return;
     initialImportStartedRef.current = true;
-    // Use the same compression, IndexedDB outbox, Cloud ready checks and retries as manual selection.
-    void processSelectedFiles(initialFiles).finally(() => onInitialFilesProcessed?.());
+    // Only the unfinished files are offered for explicit retry; never resave accepted photos.
+    void processSelectedFiles(initialFiles)
+      .then((remaining) => onInitialFilesProcessed?.(remaining))
+      .catch(() => onInitialFilesProcessed?.(initialFiles));
   }, [loading, readOnly, initialFiles, projectId, entityId]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
