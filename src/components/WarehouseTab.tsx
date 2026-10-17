@@ -2422,17 +2422,17 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
           {/* Content-sized columns keep warehouse names/units on one line; the sheet scrolls horizontally on small screens. */}
           <div className="max-h-[46vh] overflow-auto rounded-xl border border-slate-200" data-hnl-warehouse-catalog-scroll="true">
-            <table className="w-max min-w-full table-auto whitespace-nowrap text-xs" data-hnl-warehouse-catalog-table="auto-width">
+            <table className="w-max min-w-full table-auto whitespace-nowrap text-[11px] leading-4" data-hnl-warehouse-catalog-table="auto-width" data-hnl-table-row-height="32">
               <thead className="sticky top-0 z-10 bg-slate-50 text-[11px] font-bold text-slate-600">
-                <tr data-hnl-warehouse-catalog-header="aligned">
-                  <th scope="col" className="px-2 py-1.5 text-left">Tên {warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'vật tư'}</th>
-                  <th scope="col" className="px-2 py-1.5 text-left">{warehouseCatalogTab === 'equipment' ? 'Nhóm thiết bị' : 'Chủng loại vật tư'}</th>
-                  <th scope="col" className="px-2 py-1.5 text-left">ĐVT</th>
-                  <th scope="col" className="px-2 py-1.5 text-right">Nhập</th>
-                  <th scope="col" className="px-2 py-1.5 text-right">Xuất</th>
-                  <th scope="col" className="px-2 py-1.5 text-right">Nhu cầu định mức</th>
-                  <th scope="col" className="px-2 py-1.5 text-right">Tồn kho</th>
-                  <th scope="col" className="px-2 py-1.5 text-right" title="Tổng nhập / Nhu cầu định mức toàn dự án">% Nhập/ĐM</th>
+                <tr className="h-8" data-hnl-warehouse-catalog-header="aligned">
+                  <th scope="col" className="px-2 py-0 text-left">Tên {warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'vật tư'}</th>
+                  <th scope="col" className="px-2 py-0 text-left">{warehouseCatalogTab === 'equipment' ? 'Nhóm thiết bị' : 'Chủng loại vật tư'}</th>
+                  <th scope="col" className="px-2 py-0 text-left">ĐVT</th>
+                  <th scope="col" className="px-2 py-0 text-right">Nhập</th>
+                  <th scope="col" className="px-2 py-0 text-right">Xuất</th>
+                  <th scope="col" className="px-2 py-0 text-right">Nhu cầu định mức</th>
+                  <th scope="col" className="px-2 py-0 text-right">Tồn kho</th>
+                  <th scope="col" className="px-2 py-0 text-right" title="Tổng nhập / Nhu cầu định mức toàn dự án">% Nhập/ĐM</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -2441,8 +2441,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     {warehouseCatalogTab === 'equipment' ? 'Chưa có thiết bị. Bạn có thể thêm trước trong Vật tư & Thiết bị.' : 'Không có vật tư phù hợp.'}
                   </td></tr>
                 ) : warehouseCatalogStockRows.map((item) => (
-                  <tr key={item.key} className="hover:bg-slate-50/60">
-                    <td className="px-2 py-1">
+                  <tr key={item.key} className="h-8 hover:bg-slate-50/60">
+                    <td className="px-2 py-0">
                       <button type="button"
                         data-hnl-catalog-open-master={item.key}
                         onClick={() => {
@@ -2455,32 +2455,32 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                             unit: item.unit,
                           }, true);
                         }}
-                        className="flex min-h-10 sm:min-h-8 w-full items-center rounded-md text-left whitespace-nowrap font-bold text-slate-800 transition-colors hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-2 focus-visible:outline-indigo-600"
+                        className="flex h-8 min-h-8 w-full items-center rounded-md text-left whitespace-nowrap font-bold text-slate-800 transition-colors hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-2 focus-visible:outline-indigo-600"
                         aria-label={`Mở quản lý ${warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'định mức vật tư'} ${item.name}, đơn vị ${item.unit}`}
                         title={warehouseCatalogTab === 'equipment' ? 'Mở thông tin thiết bị' : 'Mở định mức vật tư'}
                       >{item.name}</button>
                     </td>
-                    <td className="px-2 py-1 text-slate-500">{item.category}</td>
-                    <td className="px-2 py-1 text-slate-600">{item.unit}</td>
-                    <td className="px-2 py-1 text-right">
+                    <td className="px-2 py-0 text-slate-500">{item.category}</td>
+                    <td className="px-2 py-0 text-slate-600">{item.unit}</td>
+                    <td className="px-2 py-0 text-right">
                       <button type="button" data-hnl-catalog-in-history={item.key}
                         onClick={() => { rememberCatalogHistoryOrigin(item.key, 'in'); setCatalogHistory({ kind: warehouseCatalogTab, name: 'sourceName' in item ? item.sourceName : item.name, displayName: item.name, unit: item.unit, type: 'in', expectedTotal: item.totalIn }); setCatalogHistoryStart(''); setCatalogHistoryEnd(''); setExpandedHistoryDate(null); }}
-                        className="min-h-10 sm:min-h-8 min-w-10 w-full rounded px-1 text-right font-semibold text-emerald-700 underline decoration-dotted underline-offset-2 hover:bg-emerald-50 focus-visible:outline-2 focus-visible:outline-emerald-600"
+                        className="h-8 min-h-8 min-w-10 w-full rounded px-1 text-right font-semibold text-emerald-700 underline decoration-dotted underline-offset-2 hover:bg-emerald-50 focus-visible:outline-2 focus-visible:outline-emerald-600"
                         aria-label={`Xem chi tiết nhập kho ${item.name}: ${formatDecimal(item.totalIn)} ${item.unit}`}>
                         {formatDecimal(item.totalIn)}</button>
                     </td>
-                    <td className="px-2 py-1 text-right">
+                    <td className="px-2 py-0 text-right">
                       <button type="button" data-hnl-catalog-out-history={item.key}
                         onClick={() => { rememberCatalogHistoryOrigin(item.key, 'out'); setCatalogHistory({ kind: warehouseCatalogTab, name: 'sourceName' in item ? item.sourceName : item.name, displayName: item.name, unit: item.unit, type: 'out', expectedTotal: item.totalOut }); setCatalogHistoryStart(''); setCatalogHistoryEnd(''); setExpandedHistoryDate(null); }}
-                        className="min-h-10 sm:min-h-8 min-w-10 w-full rounded px-1 text-right font-semibold text-amber-700 underline decoration-dotted underline-offset-2 hover:bg-amber-50 focus-visible:outline-2 focus-visible:outline-amber-600"
+                        className="h-8 min-h-8 min-w-10 w-full rounded px-1 text-right font-semibold text-amber-700 underline decoration-dotted underline-offset-2 hover:bg-amber-50 focus-visible:outline-2 focus-visible:outline-amber-600"
                         aria-label={`Xem chi tiết xuất kho ${item.name}: ${formatDecimal(item.totalOut)} ${item.unit}`}>
                         {formatDecimal(item.totalOut)}</button>
                     </td>
-                    <td className="px-2 py-1 text-right font-semibold text-indigo-700">
+                    <td className="px-2 py-0 text-right font-semibold text-indigo-700">
                       {warehouseCatalogTab === 'material' ? formatDecimal(item.normQuantity || 0) : '—'}
                     </td>
-                    <td className="px-2 py-1 text-right font-extrabold text-blue-700">{formatDecimal(item.currentStock)}</td>
-                    <td className={`px-2 py-1 text-right font-bold tabular-nums ${warehouseCatalogTab !== 'material' || !Number.isFinite(Number(item.normQuantity)) || Number(item.normQuantity) <= 0 ? 'text-slate-400' : item.totalIn > Number(item.normQuantity) ? 'text-rose-700' : item.totalIn >= Number(item.normQuantity) * 0.9 ? 'text-amber-700' : 'text-emerald-700'}`}
+                    <td className="px-2 py-0 text-right font-extrabold text-blue-700">{formatDecimal(item.currentStock)}</td>
+                    <td className={`px-2 py-0 text-right font-bold tabular-nums ${warehouseCatalogTab !== 'material' || !Number.isFinite(Number(item.normQuantity)) || Number(item.normQuantity) <= 0 ? 'text-slate-400' : item.totalIn > Number(item.normQuantity) ? 'text-rose-700' : item.totalIn >= Number(item.normQuantity) * 0.9 ? 'text-amber-700' : 'text-emerald-700'}`}
                       title={warehouseCatalogTab === 'material' && Number(item.normQuantity) > 0 ? `Tổng nhập ${formatDecimal(item.totalIn)} / Nhu cầu định mức ${formatDecimal(item.normQuantity)} toàn dự án` : 'Không áp dụng / chưa có nhu cầu định mức'}>
                       {warehouseCatalogTab === 'material' && Number.isFinite(Number(item.normQuantity)) && Number(item.normQuantity) > 0
                         ? `${formatDecimal(Math.round((item.totalIn / Number(item.normQuantity)) * 10_000) / 100)}%`
@@ -2807,20 +2807,20 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-600">Chưa có nhu cầu vật tư xác định cho phạm vi đã chọn.</div>
               ) : (
                 <div className="max-h-[52vh] overflow-auto overscroll-contain rounded-xl border border-indigo-100 bg-white sm:max-h-[28rem]">
-                  <table className="min-w-[900px] w-full text-[11px]">
-                    <thead className="sticky top-0 z-10 bg-slate-50 text-slate-600"><tr><th className="p-2 text-left">Vật tư</th><th className="p-2 text-left">Chủng loại vật tư</th><th className="p-2 text-left">ĐVT</th><th className="p-2 text-right">Nhu cầu theo phạm vi</th><th className="p-2 text-right">Đã xuất</th>{hasMaterialAllocationFilter && <th className="p-2 text-right">Chưa phân bổ</th>}<th className="p-2 text-right">Còn cần theo phạm vi</th><th className="p-2 text-right">Tồn kho</th><th className="p-2 text-right">Thiếu</th></tr></thead>
+                  <table className="min-w-[900px] w-full whitespace-nowrap text-[11px] leading-4" data-hnl-table-row-height="32">
+                    <thead className="sticky top-0 z-10 bg-slate-50 text-slate-600"><tr className="h-8"><th className="px-2 py-0 text-left">Vật tư</th><th className="px-2 py-0 text-left">Chủng loại vật tư</th><th className="px-2 py-0 text-left">ĐVT</th><th className="px-2 py-0 text-right">Nhu cầu theo phạm vi</th><th className="px-2 py-0 text-right">Đã xuất</th>{hasMaterialAllocationFilter && <th className="px-2 py-0 text-right">Chưa phân bổ</th>}<th className="px-2 py-0 text-right">Còn cần theo phạm vi</th><th className="px-2 py-0 text-right">Tồn kho</th><th className="px-2 py-0 text-right">Thiếu</th></tr></thead>
                     <tbody>
                       {materialNeedLines.map((line) => (
-                        <tr key={line.materialKey} className="border-t border-slate-100">
-                          <td className="p-2 font-bold text-slate-800">{line.materialName}</td>
-                          <td className="p-2 text-slate-500">{line.category}</td>
-                          <td className="p-2 text-slate-600">{line.unit}</td>
-                          <td className="p-2 text-right font-semibold">{formatDecimal(line.estimatedQty)}</td>
-                          <td className="p-2 text-right text-emerald-700">{formatDecimal(line.alreadyIssued)}</td>
-                          {hasMaterialAllocationFilter && <td className="p-2 text-right text-amber-700">{formatDecimal(line.unallocatedIssued)}</td>}
-                          <td className="p-2 text-right font-bold text-indigo-700">{formatDecimal(line.remainingQty)}</td>
-                          <td className="p-2 text-right">{formatDecimal(line.stockQty)}</td>
-                          <td className={`p-2 text-right font-bold ${line.deficitQty > 0 ? 'text-rose-600' : 'text-slate-400'}`}>{formatDecimal(line.deficitQty)}</td>
+                        <tr key={line.materialKey} className="h-8 border-t border-slate-100">
+                          <td className="px-2 py-0 font-bold text-slate-800">{line.materialName}</td>
+                          <td className="px-2 py-0 text-slate-500">{line.category}</td>
+                          <td className="px-2 py-0 text-slate-600">{line.unit}</td>
+                          <td className="px-2 py-0 text-right font-semibold">{formatDecimal(line.estimatedQty)}</td>
+                          <td className="px-2 py-0 text-right text-emerald-700">{formatDecimal(line.alreadyIssued)}</td>
+                          {hasMaterialAllocationFilter && <td className="px-2 py-0 text-right text-amber-700">{formatDecimal(line.unallocatedIssued)}</td>}
+                          <td className="px-2 py-0 text-right font-bold text-indigo-700">{formatDecimal(line.remainingQty)}</td>
+                          <td className="px-2 py-0 text-right">{formatDecimal(line.stockQty)}</td>
+                          <td className={`px-2 py-0 text-right font-bold ${line.deficitQty > 0 ? 'text-rose-600' : 'text-slate-400'}`}>{formatDecimal(line.deficitQty)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -2983,7 +2983,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
 
       {/* Filter and Search controls */}
-      <div className="space-y-2">
+      <div className="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end" data-hnl-warehouse-filter-layout="responsive-one-row">
         <div className="relative">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
           <input
@@ -2995,7 +2995,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           />
         </div>
 
-        <div className="grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap" data-hnl-warehouse-date-filter="true">
+        <div className="grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap lg:flex-nowrap lg:shrink-0" data-hnl-warehouse-date-filter="true">
           <label className="min-w-0 text-[11px] font-semibold text-slate-600 sm:w-44">
             Từ ngày
             <input type="date" data-hnl-warehouse-date-from="true" value={warehouseFromDate}

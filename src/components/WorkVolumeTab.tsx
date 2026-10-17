@@ -1815,16 +1815,16 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-xs text-slate-500">Không có Căn / Phòng phù hợp phạm vi lọc.</div>
               ) : (
                 <div className="min-w-max overflow-hidden rounded-2xl border border-slate-200">
-                  <table className="w-max min-w-full table-auto whitespace-nowrap text-[11px]">
+                  <table className="w-max min-w-full table-auto whitespace-nowrap text-[11px] leading-4" data-hnl-table-row-height="32">
                     <thead className="bg-slate-100 text-slate-700">
-                      <tr>
-                        {normalizedStructureConfig.enabled && <th className="px-2 py-1 text-left">{normalizedStructureConfig.label}</th>}
-                        <th className="px-2 py-1 text-left">Tầng</th>
-                        <th className="px-2 py-1 text-left">Căn / Phòng</th>
-                        <th className="px-2 py-1 text-left">Đội thi công</th>
-                        <th className="px-2 py-1 text-right">Khối lượng</th>
-                        <th className="px-2 py-1 text-right">Đã thực hiện</th>
-                        <th className="px-2 py-1 text-right">Tiến độ</th>
+                      <tr className="h-8">
+                        {normalizedStructureConfig.enabled && <th className="px-2 py-0 text-left">{normalizedStructureConfig.label}</th>}
+                        <th className="px-2 py-0 text-left">Tầng</th>
+                        <th className="px-2 py-0 text-left">Căn / Phòng</th>
+                        <th className="px-2 py-0 text-left">Đội thi công</th>
+                        <th className="px-2 py-0 text-right">Khối lượng</th>
+                        <th className="px-2 py-0 text-right">Đã thực hiện</th>
+                        <th className="px-2 py-0 text-right">Tiến độ</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -1832,22 +1832,22 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                         const floor = floorPlans.find((item) => item.id === row.floorId);
                         const groupId = floor ? resolveFloorStructureGroupId(floor, normalizedStructureConfig) : normalizedStructureConfig.defaultGroupId;
                         return (
-                          <tr key={row.roomId} className="bg-white hover:bg-indigo-50/40">
-                            {normalizedStructureConfig.enabled && <td className="px-2 py-1 font-bold text-indigo-700">{getStructureGroupName(groupId, normalizedStructureConfig)}</td>}
-                            <td className="px-2 py-1 font-semibold text-slate-700">{row.floorName}</td>
-                            <td className="px-2 py-1 font-extrabold text-slate-900">
+                          <tr key={row.roomId} className="h-8 bg-white hover:bg-indigo-50/40">
+                            {normalizedStructureConfig.enabled && <td className="px-2 py-0 font-bold text-indigo-700">{getStructureGroupName(groupId, normalizedStructureConfig)}</td>}
+                            <td className="px-2 py-0 font-semibold text-slate-700">{row.floorName}</td>
+                            <td className="px-2 py-0 font-extrabold text-slate-900">
                               {onOpenRoomFromDetail ? (
                                 <button type="button" data-hnl-volume-detail-room={row.roomId} onClick={() => openRoomFromVolumeDetail(row.roomId, row.floorId)}
-                                  className="min-h-10 sm:min-h-8 rounded-md px-1 text-left text-indigo-700 underline decoration-dotted underline-offset-2 hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-indigo-500"
+                                  className="h-8 min-h-8 rounded-md px-1 text-left text-indigo-700 underline decoration-dotted underline-offset-2 hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-indigo-500"
                                   title={`Mở căn/phòng ${row.roomName} trên Mặt bằng; có thể quay lại Chi tiết khối lượng`}>
                                   {row.roomName}
                                 </button>
                               ) : row.roomName}
                             </td>
-                            <td className="px-2 py-1 text-slate-600">{row.teamNames.length > 0 ? row.teamNames.join(', ') : 'Chưa gán đội'}</td>
-                            <td className="px-2 py-1 text-right font-semibold">{formatDecimal(row.assignedVolume)} {detailVolumeTarget.unit}</td>
-                            <td className="px-2 py-1 text-right font-extrabold text-emerald-700">{formatDecimal(row.actualVolume)} {detailVolumeTarget.unit}</td>
-                            <td className="px-2 py-1 text-right">
+                            <td className="px-2 py-0 text-slate-600">{row.teamNames.length > 0 ? row.teamNames.join(', ') : 'Chưa gán đội'}</td>
+                            <td className="px-2 py-0 text-right font-semibold">{formatDecimal(row.assignedVolume)} {detailVolumeTarget.unit}</td>
+                            <td className="px-2 py-0 text-right font-extrabold text-emerald-700">{formatDecimal(row.actualVolume)} {detailVolumeTarget.unit}</td>
+                            <td className="px-2 py-0 text-right">
                               <span className={`inline-flex min-w-[48px] justify-center rounded-full px-2 py-1 font-extrabold ${row.progressPercent >= 100 ? 'bg-emerald-100 text-emerald-800' : row.progressPercent > 0 ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-500'}`}>
                                 {row.progressPercent}%
                               </span>
@@ -1857,11 +1857,11 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                       })}
                     </tbody>
                     <tfoot className="bg-slate-50 font-extrabold text-slate-800">
-                      <tr>
-                        <td colSpan={normalizedStructureConfig.enabled ? 4 : 3} className="px-2 py-1">TỔNG TRONG PHẠM VI ĐANG XEM · {detailRows.length} Căn / Phòng</td>
-                        <td className="px-2 py-1 text-right">{formatDecimal(detailRows.reduce((sum, row) => sum + row.assignedVolume, 0))} {detailVolumeTarget.unit}</td>
-                        <td className="px-2 py-1 text-right text-emerald-700">{formatDecimal(detailRows.reduce((sum, row) => sum + row.actualVolume, 0))} {detailVolumeTarget.unit}</td>
-                        <td className="px-2 py-1 text-right">—</td>
+                      <tr className="h-8">
+                        <td colSpan={normalizedStructureConfig.enabled ? 4 : 3} className="px-2 py-0">TỔNG TRONG PHẠM VI ĐANG XEM · {detailRows.length} Căn / Phòng</td>
+                        <td className="px-2 py-0 text-right">{formatDecimal(detailRows.reduce((sum, row) => sum + row.assignedVolume, 0))} {detailVolumeTarget.unit}</td>
+                        <td className="px-2 py-0 text-right text-emerald-700">{formatDecimal(detailRows.reduce((sum, row) => sum + row.actualVolume, 0))} {detailVolumeTarget.unit}</td>
+                        <td className="px-2 py-0 text-right">—</td>
                       </tr>
                     </tfoot>
                   </table>

@@ -29,9 +29,9 @@ const catalogTable=sheet.locator('[data-hnl-warehouse-catalog-table="auto-width"
 assert.equal(await catalogTable.count(),1,label+': auto-width catalog table missing');
 const layout=await catalogTable.evaluate(el=>({width:el.scrollWidth,viewport:el.parentElement.clientWidth,whiteSpace:getComputedStyle(el).whiteSpace,rows:[...el.tBodies[0].rows].map(row=>row.getBoundingClientRect().height)}));
 assert.equal(layout.whiteSpace,'nowrap',label+': warehouse names must not wrap');
-assert(layout.rows.every(height=>height<=52),label+': warehouse catalog rows too tall');
+assert(layout.rows.every(height=>height>=31 && height<=33),label+': warehouse catalog rows must stay 32px on PC and mobile');
 
-const rect=await button.boundingBox();assert(rect&&rect.height>=(size.width<500?39:31)&&rect.width>=40,label+': responsive touch area');await button.click();
+const rect=await button.boundingBox();assert(rect && rect.height>=31 && rect.height<=33 && rect.width>=40,label+': compact 32px row action on all viewports');await button.click();
 const history=sheet.locator('[data-hnl-catalog-history="readonly"]');await history.waitFor({state:'visible'});
 await history.getByText('Mã phiếu: P0-IN-20261013-001').waitFor({state:'visible'});
 await history.getByText('13/10/2026',{exact:false}).first().waitFor({state:'visible'});

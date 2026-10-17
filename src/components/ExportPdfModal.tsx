@@ -2574,7 +2574,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 data-hnl-report-format="text"
                 onClick={() => void handleCopySummaryText()}
                 title="Sao chép nội dung tóm tắt (có quân số khi được chọn) để gửi Zalo hoặc Email"
-                className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-slate-900 bg-slate-900 px-2 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
+                className="flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-900 bg-slate-900 px-2 py-2 text-xs font-bold text-white shadow-sm transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
               >
                 {copiedText ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <Copy className="h-4 w-4 shrink-0" />}
                 {copiedText ? 'Đã chép' : 'Nội dung'}
@@ -2585,7 +2585,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 onClick={() => void runReportExport('pdf')}
                 disabled={androidReportBusy || reportExportBusy !== null}
                 title="Mở màn hình xem/in để lưu PDF"
-                className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-red-600 bg-red-600 px-2 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 focus-visible:ring-offset-2 disabled:opacity-50"
+                className="flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-red-600 bg-red-600 px-2 py-2 text-xs font-bold text-white shadow-sm transition-colors hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 focus-visible:ring-offset-2 disabled:opacity-50"
               >
                 <Printer className="h-4 w-4 shrink-0" /> {reportExportBusy === 'pdf' ? 'Đang tạo…' : 'PDF'}
               </button>
@@ -2595,7 +2595,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 onClick={() => void runReportExport('xlsx')}
                 disabled={androidReportBusy || reportExportBusy !== null}
                 title={isAndroidExportBridgeAvailable() ? 'Lưu Excel vào Tải xuống/QLTC' : 'Tải Excel (.xlsx)'}
-                className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-green-600 bg-green-600 px-2 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300 focus-visible:ring-offset-2 disabled:opacity-50"
+                className="flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-green-600 bg-green-600 px-2 py-2 text-xs font-bold text-white shadow-sm transition-colors hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300 focus-visible:ring-offset-2 disabled:opacity-50"
               >
                 <FileSpreadsheet className="h-4 w-4 shrink-0" /> {reportExportBusy === 'xlsx' ? 'Đang tạo…' : 'Excel'}
               </button>
