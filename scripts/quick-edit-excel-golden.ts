@@ -237,13 +237,15 @@ assert.match(warehouse, /data-hnl-catalog-out-history=\{item\.key\}/, 'Catalog o
 assert.match(warehouse, /data-hnl-catalog-history="readonly"/, 'Catalog history must be view-only');
 assert.match(warehouse, /data-hnl-catalog-history-view="visible"/, 'Catalog history must replace table');
 assert.match(warehouse, /activeCatalogHistoryDate/, 'Newest date must auto-expand');
-assert.match(warehouse, /scrollBody instanceof HTMLElement\) scrollBody.scrollTop = 0/, 'Open history scroll reset');
+assert.match(warehouse, /if \(catalogHistory\)[\s\S]{0,220}scrollBody\.scrollTop = 0/, 'Opening warehouse history resets only the detail scroll');
+assert.match(warehouse, /if \(sheet\) sheet\.scrollTop = origin\.sheetTop/, 'Returning from history restores the catalog scroll position');
+assert.match(warehouse, /if \(table\) table\.scrollTop = origin\.tableTop/, 'Returning from history restores the table scroll position');
 assert.match(warehouse, /normalizeMaterialSearch\('sourceName' in item \? item\.sourceName : item\.name\)/, 'Equipment aliases must resolve original ledger identity');
 assert.match(warehouse, /entry\.deletedAt == null/, 'Catalog history excludes deleted transactions');
 assert.match(warehouse, /entry\.type === catalogHistory\.type/, 'Catalog history filters IN vs OUT');
 assert.match(warehouse, /entry\.itemKind === 'equipment'/, 'Catalog history never merges materials with equipment');
 assert.match(warehouse, /normalizeUnit\(entry\.unit\)/, 'Catalog history keeps separate ledger units');
-assert.match(warehouse, /catalogHistoryStart && entry\.date < catalogHistoryStart/, 'Catalog history offers date range');
+assert.match(warehouse, /isWarehouseVoucherDateInRange\(entry\.date, catalogHistoryStart, catalogHistoryEnd\)/, 'Catalog history uses the shared legacy-safe date range filter');
 assert.match(warehouse, /Math\.abs\(catalogHistoryTotal - catalogHistory\.expectedTotal\)/, 'Catalog warns on summary mismatch');
 assert.match(warehouse, /matchesType && matchesKind && matchesSearch/, 'Warehouse kind filtering must combine with receipt/issue and search filters');
 assert.match(warehouse, /data-hnl-warehouse-kind-filter=\{key\}/, 'Warehouse must expose the type filter on PC and mobile');
