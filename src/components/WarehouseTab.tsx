@@ -32,6 +32,7 @@ import { formatDecimal, evaluateMathExpression, hasMathExpression, useFormatSett
 import { confirmAsync } from '../utils/confirmAsync';
 import { calculateStockSummary, resolveNormMaterialId } from '../utils/inventoryUtils';
 import { compareDateValues, naturalCompare } from '../utils/sortUtils';
+import { matchesWarehouseVoucherDate, isWarehouseVoucherDateInRange } from '../utils/warehouseVoucherDateFilter';
 import { createEntityId } from '../utils/idUtils';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
 import { canonicalWorkCategoryId, normalizeLinkText } from '../utils/linkageIntegrity';
@@ -188,6 +189,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [inventoryKindFilter, setInventoryKindFilter] = useState<'all' | InventoryItemKind>('all');
   useFormatSettings();
   const [searchTerm, setSearchTerm] = useState('');
+  const [warehouseFromDate, setWarehouseFromDate] = useState('');
+  const [warehouseToDate, setWarehouseToDate] = useState('');
   const [inventorySortBy, setInventorySortBy] = useState<'date' | 'material' | 'location' | 'handler'>('date');
   const [inventorySortOrder, setInventorySortOrder] = useState<'asc' | 'desc'>('desc');
   const [showAddForm, setShowAddForm] = useState(false);
@@ -1395,8 +1398,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         item.materialName.toLocaleLowerCase('vi-VN').includes(q) ||
         item.location.toLocaleLowerCase('vi-VN').includes(q) ||
         item.handler.toLocaleLowerCase('vi-VN').includes(q) ||
-        item.id.toLocaleLowerCase('vi-VN').includes(q);
-      return matchesType && matchesKind && matchesSearch;
+        item.id.toLocaleLowerCase('vi-VN').includes(q) ||
+        matchesWarehouseVoucherDate(item.date, q);
+      const matchesDateRange = isWarehouseVoucherDateInRange(item.date, warehouseFromDate, warehouseToDate);
+      return matchesType && matchesKind && matchesSearch && matchesDateRange;
     });
 
     return list.sort((a, b) => {
@@ -1421,7 +1426,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       // Stable deterministic tie-breaker across PC/phone.
       return naturalCompare(a.id, b.id);
     });
-  }, [inventory, filterType, inventoryKindFilter, searchTerm, inventorySortBy, inventorySortOrder]);
+  }, [inventory, filterType, inventoryKindFilter, searchTerm, warehouseFromDate, warehouseToDate, inventorySortBy, inventorySortOrder]);
 
   const openCreateInventory = (kind: InventoryItemKind = 'material') => {
     if (!hasEditAccess) return;
@@ -2951,11 +2956,32 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
           <input
             type="text"
-            placeholder="Tìm vật tư, thiết bị, vị trí kho, người giao..."
+            placeholder="Tìm vật tư, vị trí, người giao, mã phiếu, ngày (17/10/2026)..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full bg-white text-xs pl-9 pr-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-500 shadow-sm"
           />
+        </div>
+
+        <div className="grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap" data-hnl-warehouse-date-filter="true">
+          <label className="min-w-0 text-[11px] font-semibold text-slate-600 sm:w-44">
+            Từ ngày
+            <input type="date" data-hnl-warehouse-date-from="true" value={warehouseFromDate}
+              max={warehouseToDate || undefined} onChange={(event) => setWarehouseFromDate(event.target.value)}
+              className="mt-1 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700" />
+          </label>
+          <label className="min-w-0 text-[11px] font-semibold text-slate-600 sm:w-44">
+            Đến ngày
+            <input type="date" data-hnl-warehouse-date-to="true" value={warehouseToDate}
+              min={warehouseFromDate || undefined} onChange={(event) => setWarehouseToDate(event.target.value)}
+              className="mt-1 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700" />
+          </label>
+          {(warehouseFromDate || warehouseToDate) && (
+            <button type="button" onClick={() => { setWarehouseFromDate(''); setWarehouseToDate(''); }}
+              className="col-span-2 min-h-9 rounded-lg border border-slate-200 px-3 text-[11px] font-bold text-indigo-700 hover:bg-indigo-50 sm:mb-0.5">
+              Xóa lọc ngày
+            </button>
+          )}
         </div>
 
         <div className="flex items-center justify-between gap-1 text-xs">

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { selectAuthoritativeRestorePhotos } from '../src/utils/backupRestoreMedia.ts';
+import { warehouseVoucherIsoDate, matchesWarehouseVoucherDate, isWarehouseVoucherDateInRange } from '../src/utils/warehouseVoucherDateFilter.ts';
 
 const read = path => fs.readFileSync(path, 'utf8');
 const warehouse = read('src/components/WarehouseTab.tsx');
@@ -27,6 +28,23 @@ assert(warehouse.includes('data-hnl-warehouse-form-photos="true"'), 'Voucher edi
 assert(/editingInventory \? \(\s*<PhotoAttachmentPicker/.test(warehouse), 'Existing voucher photos remain editable inside Chỉnh phiếu');
 assert(warehouse.includes('readOnly={!hasEditAccess}'), 'Photo editor still respects role permissions');
 assert(warehouse.includes('data-hnl-warehouse-catalog-table="auto-width"'), 'Warehouse catalog uses shared content-sized columns');
+// Date search must remain read-only and compose with existing voucher name, ID, kind and direction filters.
+assert(warehouse.includes('matchesWarehouseVoucherDate(item.date, q)'), 'Search matches voucher calendar dates');
+assert(warehouse.includes('isWarehouseVoucherDateInRange(item.date, warehouseFromDate, warehouseToDate)'), 'Date range composes with journal filters');
+assert(warehouse.includes('data-hnl-warehouse-date-from="true"') && warehouse.includes('data-hnl-warehouse-date-to="true"'), 'Mobile/desktop date inputs are present');
+assert(warehouse.includes('Xóa lọc ngày'), 'Date range can be cleared without clearing search text');
+assert.equal(warehouseVoucherIsoDate('2026-10-17'), '2026-10-17');
+assert.equal(warehouseVoucherIsoDate('17/10/2026'), '2026-10-17');
+assert.equal(warehouseVoucherIsoDate('31/02/2026'), '', 'Invalid dates must not match');
+for (const text of ['17/10/2026', '17-10-2026', '2026-10-17', '10/2026', '2026']) {
+  assert(matchesWarehouseVoucherDate('2026-10-17', text), `Date search does not match ${text}`);
+}
+assert(!matchesWarehouseVoucherDate('2026-10-16', '17/10/2026'));
+assert(isWarehouseVoucherDateInRange('2026-10-17', '2026-10-01', '2026-10-17'));
+assert(!isWarehouseVoucherDateInRange('2026-10-17', '2026-10-18', ''));
+assert(!isWarehouseVoucherDateInRange('2026-10-17', '2026-10-20', '2026-10-10'));
+assert(isWarehouseVoucherDateInRange('17/10/2026', '2026-10-17', '2026-10-17'));
+
 const workVolume = read('src/components/WorkVolumeTab.tsx');
 assert(workVolume.includes('w-max min-w-full table-auto whitespace-nowrap'), 'Volume detail columns must expand without wrapping');
 assert(warehouse.includes('photoVoucher.projectId === currentProjectId && hasEditAccess'), 'Photo management modal stays protected when role changes');
