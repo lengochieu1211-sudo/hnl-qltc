@@ -24,8 +24,8 @@ assert(/data-hnl-warehouse-photo-status=\{item\.id\}[\s\S]*?<PhotoAttachmentPick
 assert(warehouse.includes('data-hnl-warehouse-photo-edit={item.id}'), 'A separate pencil controls photo editing');
 assert(/\{currentProjectId && hasEditAccess && \(\s*<button type="button" data-hnl-warehouse-photo-edit=\{item\.id\}/.test(warehouse), 'Photo editing is not available to VIEWER');
 assert(warehouse.includes('photoVoucher.projectId === currentProjectId && hasEditAccess'), 'Photo management modal stays protected when role changes');
-assert(photoPicker.includes("isWarehouseVoucher ? 'Không có ảnh' : 'Chưa có ảnh hiện trường'"), 'Show a specific no-photo indicator for inventory vouchers');
-assert(photoPicker.includes('`Có ảnh (${photos.length})'), 'Show a clickable positive photo count');
+assert(photoPicker.includes("isWarehouseVoucher ? 'Chưa có ảnh' : 'Chưa có ảnh hiện trường'"), 'Show a specific no-photo indicator for inventory vouchers');
+assert(photoPicker.includes('`${photos.length} ảnh${pendingCount > 0'), 'Show a clickable count-only warehouse photo label with pending Cloud status preserved');
 assert(photoPicker.includes('refreshWarehousePhotoMetadataOnce'), 'Many warehouse cards share a single metadata refresh instead of hammering Firestore');
 assert(warehouse.includes('Chỉnh phiếu'), 'Editing the voucher itself remains a distinct action');
 assert(warehouse.includes('entityType="inventory" entityId={photoVoucher.id} category="warehouse_receipt"'), 'Gallery photos must bind to stable voucher ID');

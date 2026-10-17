@@ -618,7 +618,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
                 : 'bg-slate-50 border-slate-200 text-slate-500'
           } disabled:cursor-default`}
           title={isWarehouseVoucher
-            ? photos.length > 0 ? 'Xem ảnh giao nhận toàn màn hình' : 'Không có ảnh giao nhận'
+            ? photos.length > 0 ? 'Xem ảnh giao nhận toàn màn hình' : 'Chưa có ảnh giao nhận'
             : photos.length > 0 ? 'Mở ảnh hiện trường toàn màn hình' : 'Chưa có ảnh hiện trường'}
         >
           <Images className="w-3.5 h-3.5" />
@@ -626,9 +626,9 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
             ? 'Đang kiểm tra ảnh...'
             : photos.length > 0
               ? isWarehouseVoucher
-                ? `Có ảnh (${photos.length})${pendingCount > 0 ? ` · ${pendingCount} chờ Cloud` : ''} · Xem ảnh`
+                ? `${photos.length} ảnh${pendingCount > 0 ? ` · ${pendingCount} chờ Cloud` : ''}`
                 : `${photos.length} ảnh hiện trường${pendingCount > 0 ? ` · ${pendingCount} chờ Cloud` : ''} · Bấm để xem`
-              : isWarehouseVoucher ? 'Không có ảnh' : 'Chưa có ảnh hiện trường'}
+              : isWarehouseVoucher ? 'Chưa có ảnh' : 'Chưa có ảnh hiện trường'}
         </button>
 
         {viewingIndex !== null && (
