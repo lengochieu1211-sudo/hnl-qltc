@@ -11,6 +11,8 @@ interface ImageViewerModalProps {
   initialIndex?: number;
   onIndexChange?: (index: number) => void;
   isImageLoading?: boolean;
+  /** Optional caption for native sharing. Empty string shares only the image file. */
+  shareText?: string;
 }
 
 export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
@@ -21,6 +23,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   initialIndex = 0,
   onIndexChange,
   isImageLoading = false,
+  shareText = 'Ảnh hiện trường từ HNL QLTC',
 }) => {
   const allImages = images && images.length > 0 ? images : (imageUrl ? [imageUrl] : []);
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
@@ -264,7 +267,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
       const dataUrl = await blobToDataUrl(blob);
       const result = await sharePreparedContent({
         title: 'HNL QLTC - Chia sẻ ảnh',
-        text: 'Ảnh hiện trường từ HNL QLTC',
+        text: shareText,
         attachments: [{ id: `viewer-${currentIndex + 1}`, fileName, mimeType, dataUrl }],
         allowTextFallback: false,
       });
