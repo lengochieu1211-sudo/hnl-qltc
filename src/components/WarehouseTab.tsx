@@ -2383,26 +2383,29 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             summary={`${warehouseCatalogStockRows.length} ${warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'vật tư'}`}
           />
 
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <div className="min-w-[900px]">
-              <div data-hnl-warehouse-catalog-header="aligned" className="grid grid-cols-[minmax(180px,1.6fr)_150px_52px_64px_64px_120px_76px_82px] items-center gap-2 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">
-                <span>Tên {warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'vật tư'}</span>
-                <span>{warehouseCatalogTab === 'equipment' ? 'Nhóm thiết bị' : 'Chủng loại vật tư'}</span>
-                <span>ĐVT</span>
-                <span className="text-right">Nhập</span>
-                <span className="text-right">Xuất</span>
-                <span className="whitespace-nowrap text-right leading-none">Nhu cầu định mức</span>
-                <span className="text-right">Tồn kho</span>
-                <span className="text-right" title="Tổng nhập / Nhu cầu định mức toàn dự án">% Nhập/ĐM</span>
-              </div>
-              <div className="max-h-[46vh] divide-y divide-slate-100 overflow-y-auto">
+          {/* Content-sized columns keep warehouse names/units on one line; the sheet scrolls horizontally on small screens. */}
+          <div className="max-h-[46vh] overflow-auto rounded-xl border border-slate-200" data-hnl-warehouse-catalog-scroll="true">
+            <table className="w-max min-w-full table-auto whitespace-nowrap text-xs" data-hnl-warehouse-catalog-table="auto-width">
+              <thead className="sticky top-0 z-10 bg-slate-50 text-[11px] font-bold text-slate-600">
+                <tr data-hnl-warehouse-catalog-header="aligned">
+                  <th scope="col" className="px-2 py-1.5 text-left">Tên {warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'vật tư'}</th>
+                  <th scope="col" className="px-2 py-1.5 text-left">{warehouseCatalogTab === 'equipment' ? 'Nhóm thiết bị' : 'Chủng loại vật tư'}</th>
+                  <th scope="col" className="px-2 py-1.5 text-left">ĐVT</th>
+                  <th scope="col" className="px-2 py-1.5 text-right">Nhập</th>
+                  <th scope="col" className="px-2 py-1.5 text-right">Xuất</th>
+                  <th scope="col" className="px-2 py-1.5 text-right">Nhu cầu định mức</th>
+                  <th scope="col" className="px-2 py-1.5 text-right">Tồn kho</th>
+                  <th scope="col" className="px-2 py-1.5 text-right" title="Tổng nhập / Nhu cầu định mức toàn dự án">% Nhập/ĐM</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
                 {warehouseCatalogStockRows.length === 0 ? (
-                  <div className="px-3 py-8 text-center text-xs text-slate-500">
+                  <tr><td colSpan={8} className="px-3 py-8 text-center text-xs text-slate-500">
                     {warehouseCatalogTab === 'equipment' ? 'Chưa có thiết bị. Bạn có thể thêm trước trong Vật tư & Thiết bị.' : 'Không có vật tư phù hợp.'}
-                  </div>
+                  </td></tr>
                 ) : warehouseCatalogStockRows.map((item) => (
-                  <div key={item.key} className="grid grid-cols-[minmax(180px,1.6fr)_150px_52px_64px_64px_120px_76px_82px] items-center gap-2 px-3 py-0.5 text-xs">
-                    <div className="min-w-0">
+                  <tr key={item.key} className="hover:bg-slate-50/60">
+                    <td className="px-2 py-1">
                       <button type="button"
                         data-hnl-catalog-open-master={item.key}
                         onClick={() => {
@@ -2415,37 +2418,41 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                             unit: item.unit,
                           }, true);
                         }}
-                        className="flex min-h-10 w-full min-w-0 items-center rounded-md text-left whitespace-normal break-words font-bold leading-snug text-slate-800 transition-colors hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-2 focus-visible:outline-indigo-600"
+                        className="flex min-h-10 sm:min-h-8 w-full items-center rounded-md text-left whitespace-nowrap font-bold text-slate-800 transition-colors hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-2 focus-visible:outline-indigo-600"
                         aria-label={`Mở quản lý ${warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'định mức vật tư'} ${item.name}, đơn vị ${item.unit}`}
                         title={warehouseCatalogTab === 'equipment' ? 'Mở thông tin thiết bị' : 'Mở định mức vật tư'}
                       >{item.name}</button>
-                    </div>
-                    <span className="min-w-0 whitespace-normal break-words text-slate-500">{item.category}</span>
-                    <span className="break-words text-slate-600">{item.unit}</span>
-                    <button type="button" data-hnl-catalog-in-history={item.key}
-                      onClick={() => { setCatalogHistory({ kind: warehouseCatalogTab, name: 'sourceName' in item ? item.sourceName : item.name, displayName: item.name, unit: item.unit, type: 'in', expectedTotal: item.totalIn }); setCatalogHistoryStart(''); setCatalogHistoryEnd(''); setExpandedHistoryDate(null); }}
-                      className="min-h-10 rounded px-1 text-right font-semibold text-emerald-700 underline decoration-dotted underline-offset-2 hover:bg-emerald-50 focus-visible:outline-2 focus-visible:outline-emerald-600"
-                      aria-label={`Xem chi tiết nhập kho ${item.name}: ${formatDecimal(item.totalIn)} ${item.unit}`}>
-                      {formatDecimal(item.totalIn)}</button>
-                    <button type="button" data-hnl-catalog-out-history={item.key}
-                      onClick={() => { setCatalogHistory({ kind: warehouseCatalogTab, name: 'sourceName' in item ? item.sourceName : item.name, displayName: item.name, unit: item.unit, type: 'out', expectedTotal: item.totalOut }); setCatalogHistoryStart(''); setCatalogHistoryEnd(''); setExpandedHistoryDate(null); }}
-                      className="min-h-10 rounded px-1 text-right font-semibold text-amber-700 underline decoration-dotted underline-offset-2 hover:bg-amber-50 focus-visible:outline-2 focus-visible:outline-amber-600"
-                      aria-label={`Xem chi tiết xuất kho ${item.name}: ${formatDecimal(item.totalOut)} ${item.unit}`}>
-                      {formatDecimal(item.totalOut)}</button>
-                    <span className="text-right font-semibold text-indigo-700">
+                    </td>
+                    <td className="px-2 py-1 text-slate-500">{item.category}</td>
+                    <td className="px-2 py-1 text-slate-600">{item.unit}</td>
+                    <td className="px-2 py-1 text-right">
+                      <button type="button" data-hnl-catalog-in-history={item.key}
+                        onClick={() => { setCatalogHistory({ kind: warehouseCatalogTab, name: 'sourceName' in item ? item.sourceName : item.name, displayName: item.name, unit: item.unit, type: 'in', expectedTotal: item.totalIn }); setCatalogHistoryStart(''); setCatalogHistoryEnd(''); setExpandedHistoryDate(null); }}
+                        className="min-h-10 sm:min-h-8 min-w-10 w-full rounded px-1 text-right font-semibold text-emerald-700 underline decoration-dotted underline-offset-2 hover:bg-emerald-50 focus-visible:outline-2 focus-visible:outline-emerald-600"
+                        aria-label={`Xem chi tiết nhập kho ${item.name}: ${formatDecimal(item.totalIn)} ${item.unit}`}>
+                        {formatDecimal(item.totalIn)}</button>
+                    </td>
+                    <td className="px-2 py-1 text-right">
+                      <button type="button" data-hnl-catalog-out-history={item.key}
+                        onClick={() => { setCatalogHistory({ kind: warehouseCatalogTab, name: 'sourceName' in item ? item.sourceName : item.name, displayName: item.name, unit: item.unit, type: 'out', expectedTotal: item.totalOut }); setCatalogHistoryStart(''); setCatalogHistoryEnd(''); setExpandedHistoryDate(null); }}
+                        className="min-h-10 sm:min-h-8 min-w-10 w-full rounded px-1 text-right font-semibold text-amber-700 underline decoration-dotted underline-offset-2 hover:bg-amber-50 focus-visible:outline-2 focus-visible:outline-amber-600"
+                        aria-label={`Xem chi tiết xuất kho ${item.name}: ${formatDecimal(item.totalOut)} ${item.unit}`}>
+                        {formatDecimal(item.totalOut)}</button>
+                    </td>
+                    <td className="px-2 py-1 text-right font-semibold text-indigo-700">
                       {warehouseCatalogTab === 'material' ? formatDecimal(item.normQuantity || 0) : '—'}
-                    </span>
-                    <span className="text-right font-extrabold text-blue-700">{formatDecimal(item.currentStock)}</span>
-                    <span className={`text-right font-bold tabular-nums ${warehouseCatalogTab !== 'material' || !Number.isFinite(Number(item.normQuantity)) || Number(item.normQuantity) <= 0 ? 'text-slate-400' : item.totalIn > Number(item.normQuantity) ? 'text-rose-700' : item.totalIn >= Number(item.normQuantity) * 0.9 ? 'text-amber-700' : 'text-emerald-700'}`}
+                    </td>
+                    <td className="px-2 py-1 text-right font-extrabold text-blue-700">{formatDecimal(item.currentStock)}</td>
+                    <td className={`px-2 py-1 text-right font-bold tabular-nums ${warehouseCatalogTab !== 'material' || !Number.isFinite(Number(item.normQuantity)) || Number(item.normQuantity) <= 0 ? 'text-slate-400' : item.totalIn > Number(item.normQuantity) ? 'text-rose-700' : item.totalIn >= Number(item.normQuantity) * 0.9 ? 'text-amber-700' : 'text-emerald-700'}`}
                       title={warehouseCatalogTab === 'material' && Number(item.normQuantity) > 0 ? `Tổng nhập ${formatDecimal(item.totalIn)} / Nhu cầu định mức ${formatDecimal(item.normQuantity)} toàn dự án` : 'Không áp dụng / chưa có nhu cầu định mức'}>
                       {warehouseCatalogTab === 'material' && Number.isFinite(Number(item.normQuantity)) && Number(item.normQuantity) > 0
                         ? `${formatDecimal(Math.round((item.totalIn / Number(item.normQuantity)) * 10_000) / 100)}%`
                         : '—'}
-                    </span>
-                  </div>
+                    </td>
+                  </tr>
                 ))}
-              </div>
-            </div>
+              </tbody>
+            </table>
           </div>
           {warehouseCatalogTab === 'equipment' && (
             <p className="text-[10px] leading-relaxed text-slate-500">
@@ -3213,14 +3220,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                           readOnly compactViewerButton
                         />
                       </div>
-                    )}
-                    {currentProjectId && hasEditAccess && (
-                      <button type="button" data-hnl-warehouse-photo-edit={item.id}
-                        onClick={() => setPhotoVoucher({ projectId: currentProjectId, id: item.id, type: item.type, materialName: item.materialName })}
-                        className="inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-[11px] font-bold text-sky-700 hover:bg-sky-50 hover:text-sky-900"
-                        title={`Chỉnh sửa ảnh giao nhận phiếu ${item.id}`} aria-label={`Sửa ảnh giao nhận phiếu ${item.id}`}>
-                        <Edit2 className="h-3.5 w-3.5" /> Sửa ảnh
-                      </button>
                     )}
                     {hasEditAccess && onUpdateInventory && (
                       <button

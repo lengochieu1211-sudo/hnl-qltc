@@ -25,7 +25,13 @@ try{await catalogOpener.waitFor({state:'visible',timeout:12000});}catch(error){
 await catalogOpener.click();
 const sheet=page.locator('[data-hnl-settings-sheet="warehouse-catalog"]');await sheet.waitFor({state:'visible'});
 const button=sheet.locator('[data-hnl-catalog-in-history^="material:"]').first();await button.waitFor({state:'visible'});
-const rect=await button.boundingBox();assert(rect&&rect.height>=39&&rect.width>=40,label+': touch area');await button.click();
+const catalogTable=sheet.locator('[data-hnl-warehouse-catalog-table="auto-width"]');
+assert.equal(await catalogTable.count(),1,label+': auto-width catalog table missing');
+const layout=await catalogTable.evaluate(el=>({width:el.scrollWidth,viewport:el.parentElement.clientWidth,whiteSpace:getComputedStyle(el).whiteSpace,rows:[...el.tBodies[0].rows].map(row=>row.getBoundingClientRect().height)}));
+assert.equal(layout.whiteSpace,'nowrap',label+': warehouse names must not wrap');
+assert(layout.rows.every(height=>height<=52),label+': warehouse catalog rows too tall');
+
+const rect=await button.boundingBox();assert(rect&&rect.height>=(size.width<500?39:31)&&rect.width>=40,label+': responsive touch area');await button.click();
 const history=sheet.locator('[data-hnl-catalog-history="readonly"]');await history.waitFor({state:'visible'});
 await history.getByText('Mã phiếu: P0-IN-20261013-001').waitFor({state:'visible'});
 await history.getByText('13/10/2026',{exact:false}).first().waitFor({state:'visible'});

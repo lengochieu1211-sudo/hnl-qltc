@@ -21,8 +21,14 @@ assert(warehouse.includes('data-hnl-warehouse-photo-voucher={item.id}'), 'Existi
 // launch the full-screen viewer; only the separate pencil opens photo management.
 assert(warehouse.includes('data-hnl-warehouse-photo-status={item.id}'), 'Each voucher exposes its photo status');
 assert(/data-hnl-warehouse-photo-status=\{item\.id\}[\s\S]*?<PhotoAttachmentPicker[\s\S]*?readOnly compactViewerButton/.test(warehouse), 'Warehouse status button uses the Crew read-only, full-screen photo viewer');
-assert(warehouse.includes('data-hnl-warehouse-photo-edit={item.id}'), 'A separate pencil controls photo editing');
-assert(/\{currentProjectId && hasEditAccess && \(\s*<button type="button" data-hnl-warehouse-photo-edit=\{item\.id\}/.test(warehouse), 'Photo editing is not available to VIEWER');
+assert(!warehouse.includes('data-hnl-warehouse-photo-edit={item.id}'), 'Do not expose a redundant external photo editing button');
+assert(warehouse.includes('onClick={() => openEditInventory(item)}'), 'Chỉnh phiếu remains the only edit entry for existing vouchers');
+assert(warehouse.includes('data-hnl-warehouse-form-photos="true"'), 'Voucher editor retains its integrated photo manager');
+assert(/editingInventory \? \(\s*<PhotoAttachmentPicker/.test(warehouse), 'Existing voucher photos remain editable inside Chỉnh phiếu');
+assert(warehouse.includes('readOnly={!hasEditAccess}'), 'Photo editor still respects role permissions');
+assert(warehouse.includes('data-hnl-warehouse-catalog-table="auto-width"'), 'Warehouse catalog uses shared content-sized columns');
+const workVolume = read('src/components/WorkVolumeTab.tsx');
+assert(workVolume.includes('w-max min-w-full table-auto whitespace-nowrap'), 'Volume detail columns must expand without wrapping');
 assert(warehouse.includes('photoVoucher.projectId === currentProjectId && hasEditAccess'), 'Photo management modal stays protected when role changes');
 assert(photoPicker.includes("isWarehouseVoucher ? 'Chưa có ảnh' : 'Chưa có ảnh hiện trường'"), 'Show a specific no-photo indicator for inventory vouchers');
 assert(photoPicker.includes('`${photos.length} ảnh${pendingCount > 0'), 'Show a clickable count-only warehouse photo label with pending Cloud status preserved');
