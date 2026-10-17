@@ -134,6 +134,14 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   structureReadOnly = false,
   focusOrphanRepair = false,
 }) => {
+  const roomDraftDirtyRef = useRef(false);
+  useEffect(() => { roomDraftDirtyRef.current = false; }, [isOpen, roomItem?.id, floorId]);
+  const closeRoomWithDraftGuard = (label: string) => {
+    if (roomDraftDirtyRef.current && !window.confirm(`${label}? Các thay đổi chưa nhấn Lưu sẽ không được lưu. Tiếp tục?`)) return;
+    roomDraftDirtyRef.current = false;
+    onClose();
+  };
+
   const activeDefaultInspector = defaultInspectorName || '';
 
   const [roomName, setRoomName] = useState('');
@@ -1124,10 +1132,10 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {contextReturnLabel && <button type="button" onClick={() => { if (window.confirm('Quay lại? Các thay đổi chưa nhấn Lưu sẽ không được lưu.')) onClose(); }}
+            {contextReturnLabel && <button type="button" onClick={() => closeRoomWithDraftGuard('Quay lại')}
               className="min-h-9 rounded-lg bg-indigo-50 px-3 text-xs font-bold text-indigo-700 hover:bg-indigo-100" data-hnl-room-context-back="true">← Quay lại {contextReturnLabel}</button>}
           <button
-            type="button" onClick={() => { if (!contextReturnLabel || window.confirm('Đóng Căn/Phòng? Các thay đổi chưa nhấn Lưu sẽ không được lưu.')) onClose(); }}
+            type="button" onClick={() => closeRoomWithDraftGuard('Đóng Căn/Phòng')}
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
             title="Đóng"
           >
@@ -1137,7 +1145,16 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <form ref={formRef} onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain space-y-3.5 pr-1 text-xs">
+        <form ref={formRef} onSubmit={handleSubmit}
+          onChangeCapture={() => { roomDraftDirtyRef.current = true; }}
+          onInputCapture={() => { roomDraftDirtyRef.current = true; }}
+          onClickCapture={(event) => {
+            // Interactive buttons can also mutate nested subitems without input events.
+            const element = event.target as HTMLElement;
+            const button = element.closest('button');
+            if (button?.type === 'button') roomDraftDirtyRef.current = true;
+          }}
+          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain space-y-3.5 pr-1 text-xs">
           {structureReadOnly && (
             <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-[11px] font-semibold text-indigo-800">
               Kỹ sư chỉ cập nhật tiến độ, nghiệm thu, đội thi công, hạn hoàn thành và ghi chú. Tên Căn/Phòng, khối lượng và hình học mặt bằng do Admin quản lý.

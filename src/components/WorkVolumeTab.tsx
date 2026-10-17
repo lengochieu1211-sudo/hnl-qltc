@@ -161,6 +161,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   const [selectedRoomIdsForImport, setSelectedRoomIdsForImport] = useState<string[]>([]);
   const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
   const [detailVolumeTarget, setDetailVolumeTarget] = useState<WorkVolume | null>(null);
+  const detailReturnViewRef = useRef<{ top: number; left: number; roomId: string } | null>(null);
   const [detailStructureGroupIds, setDetailStructureGroupIds] = useState<string[]>([]);
   const [detailFloorIds, setDetailFloorIds] = useState<string[]>([]);
   const [detailRoomIds, setDetailRoomIds] = useState<string[]>([]);
@@ -187,6 +188,11 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       }
       const item = workVolumes.find((value) => value.id === saved.volumeId);
       if (!item) return;
+      detailReturnViewRef.current = {
+        top: Math.max(0, Number(saved.scrollTop) || 0),
+        left: Math.max(0, Number(saved.scrollLeft) || 0),
+        roomId: String(saved.fromRoomId || ''),
+      };
       setDetailVolumeTarget(item);
       setDetailSearch(typeof saved.search === 'string' ? saved.search : '');
       setDetailStructureGroupIds(Array.isArray(saved.structureGroupIds) ? saved.structureGroupIds : []);
@@ -199,6 +205,21 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     } catch (_) { try { sessionStorage.removeItem('qlct_volume_detail_return_v1'); } catch (_) {} }
   }, [isActive, currentProjectId, workVolumes]);
 
+  useEffect(() => {
+    if (!isActive || !detailVolumeTarget || !detailReturnViewRef.current) return;
+    const id = window.requestAnimationFrame(() => {
+      const origin = detailReturnViewRef.current;
+      if (!origin) return;
+      const body = document.querySelector<HTMLElement>('[data-hnl-volume-detail-scrollbody="true"]');
+      if (body) { body.scrollTop = origin.top; body.scrollLeft = origin.left; }
+      const target = Array.from(document.querySelectorAll<HTMLElement>('[data-hnl-volume-detail-room]'))
+        .find(node => node.dataset.hnlVolumeDetailRoom === origin.roomId);
+      target?.focus({ preventScroll: true });
+      detailReturnViewRef.current = null;
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [isActive, detailVolumeTarget, detailSearch, detailSortBy, detailSortOrder]);
+
   const openRoomFromVolumeDetail = (roomId: string, floorId: string) => {
     if (!detailVolumeTarget || !onOpenRoomFromDetail || !currentProjectId) return;
     try {
@@ -207,6 +228,9 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         search: detailSearch, structureGroupIds: detailStructureGroupIds,
         floorIds: detailFloorIds, roomIds: detailRoomIds, teamNames: detailTeamNames,
         sortBy: detailSortBy, sortOrder: detailSortOrder,
+        scrollTop: document.querySelector<HTMLElement>('[data-hnl-volume-detail-scrollbody="true"]')?.scrollTop ?? 0,
+        scrollLeft: document.querySelector<HTMLElement>('[data-hnl-volume-detail-scrollbody="true"]')?.scrollLeft ?? 0,
+        fromRoomId: roomId,
         createdAt: Date.now(), restore: false,
       }));
     } catch (_) { /* contextual navigation remains available */ }
@@ -1786,7 +1810,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               />
             </div>
 
-            <div className="flex-1 overflow-auto p-3 sm:p-4">
+            <div className="flex-1 overflow-auto p-3 sm:p-4" data-hnl-volume-detail-scrollbody="true">
               {detailRows.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-xs text-slate-500">Không có Căn / Phòng phù hợp phạm vi lọc.</div>
               ) : (
@@ -1813,7 +1837,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                             <td className="px-2 py-1 font-semibold text-slate-700">{row.floorName}</td>
                             <td className="px-2 py-1 font-extrabold text-slate-900">
                               {onOpenRoomFromDetail ? (
-                                <button type="button" onClick={() => openRoomFromVolumeDetail(row.roomId, row.floorId)}
+                                <button type="button" data-hnl-volume-detail-room={row.roomId} onClick={() => openRoomFromVolumeDetail(row.roomId, row.floorId)}
                                   className="min-h-10 sm:min-h-8 rounded-md px-1 text-left text-indigo-700 underline decoration-dotted underline-offset-2 hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-indigo-500"
                                   title={`Mở căn/phòng ${row.roomName} trên Mặt bằng; có thể quay lại Chi tiết khối lượng`}>
                                   {row.roomName}

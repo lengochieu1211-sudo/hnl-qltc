@@ -1,11 +1,14 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import { X, type LucideIcon } from 'lucide-react';
+import { ContextBackButton } from './ContextBackButton';
 
 interface SettingsFeatureSheetProps {
   open: boolean;
   onClose: () => void;
   beforeClose?: () => boolean;
+  headerBackLabel?: string;
+  onHeaderBack?: () => void;
   sheetKey: string;
   icon: LucideIcon;
   iconClassName?: string;
@@ -35,6 +38,8 @@ export const SettingsFeatureSheet: React.FC<SettingsFeatureSheetProps> = ({
   open,
   onClose,
   beforeClose,
+  headerBackLabel,
+  onHeaderBack,
   sheetKey,
   icon: Icon,
   iconClassName = 'text-indigo-600',
@@ -144,7 +149,7 @@ export const SettingsFeatureSheet: React.FC<SettingsFeatureSheetProps> = ({
         aria-hidden={!open}
         className={`fixed inset-x-0 bottom-0 top-[8dvh] z-[90] flex min-h-0 flex-col overflow-hidden rounded-t-[28px] bg-white shadow-[0_-18px_50px_rgba(15,23,42,0.22)] sm:left-[5vw] sm:right-[5vw] sm:mx-auto sm:max-w-5xl lg:bottom-[5dvh] lg:top-[5dvh] lg:rounded-[28px] ${open ? '' : 'hidden'}`}
       >
-        <header className="flex min-h-[84px] shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-7 py-4 sm:px-6">
+        <header className="flex min-h-[84px] shrink-0 flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:flex-nowrap sm:px-6">
           <div className="flex shrink-0 items-center justify-center rounded-xl bg-indigo-50 p-2">
             <Icon className={`h-5 w-5 ${iconClassName}`} aria-hidden="true" />
           </div>
@@ -158,6 +163,11 @@ export const SettingsFeatureSheet: React.FC<SettingsFeatureSheetProps> = ({
             </div>
           </div>
 
+          {onHeaderBack && headerBackLabel && (
+            <div className="order-first w-full sm:order-none sm:w-auto sm:shrink-0" data-hnl-sheet-header-navigation="true">
+              <ContextBackButton label={headerBackLabel} onClick={onHeaderBack} className="max-w-full" data-hnl-sheet-header-back="true" />
+            </div>
+          )}
           <button
             ref={closeButtonRef}
             type="button"

@@ -120,6 +120,15 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     ))) return;
     onBackToWarehouseCatalog();
   };
+  const closeMaterialModal = async () => {
+    if (equipmentBusy) return;
+    const dirty = catalogTab === 'equipment' ? equipmentDraftDirty : mode !== 'list' && materialDraftDirty;
+    if (dirty && !(await confirmAsync(
+      'Có thay đổi vật tư/thiết bị chưa lưu. Đóng sẽ bỏ phần chỉnh sửa này. Tiếp tục?',
+      { title: 'Xác nhận đóng', confirmLabel: 'Bỏ thay đổi', cancelLabel: 'Tiếp tục chỉnh sửa' }
+    ))) return;
+    onClose();
+  };
   const hasImportAccess = roleResolved && canImportData(userRole);
   const activeMaterialNorms = React.useMemo(() => materialNorms.filter((norm) => norm.deletedAt === undefined || norm.deletedAt === null), [materialNorms]);
   const activeWorkVolumes = React.useMemo(() => (workVolumes || []).filter((volume) => volume.deletedAt === undefined || volume.deletedAt === null), [workVolumes]);
@@ -1009,7 +1018,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             </div>
           </div>
           <button type="button"
-            onClick={onClose}
+            onClick={() => void closeMaterialModal()}
             aria-label="Đóng quản lý vật tư thiết bị"
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
           >

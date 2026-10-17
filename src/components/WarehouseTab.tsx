@@ -231,6 +231,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const previousReturnTokenRef = useRef(returnToCatalogToken);
   const catalogScrollReturnTopRef = useRef<number | null>(null);
   const catalogReturnItemKeyRef = useRef<string | null>(null);
+  const catalogHistoryReturnRef = useRef<{ sheetTop: number; tableTop: number; focusKey: string; direction: TransactionType } | null>(null);
+  const rememberCatalogHistoryOrigin = (focusKey: string, direction: TransactionType) => {
+    const sheet = document.querySelector<HTMLElement>('[data-hnl-settings-sheet-scrollbody="warehouse-catalog"]');
+    const table = document.querySelector<HTMLElement>('[data-hnl-warehouse-catalog-scroll="true"]');
+    catalogHistoryReturnRef.current = { sheetTop: sheet?.scrollTop ?? 0, tableTop: table?.scrollTop ?? 0, focusKey, direction };
+  };
+  const returnToCatalogHistoryParent = () => setCatalogHistory(null);
   useEffect(() => {
     if (returnToCatalogToken === previousReturnTokenRef.current) return;
     previousReturnTokenRef.current = returnToCatalogToken;
@@ -1217,8 +1224,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const catalogHistoryDates = useMemo(() => {
     const grouped = new Map<string, InventoryItem[]>();
     catalogHistoryRows.forEach((entry) => {
-      if (catalogHistoryStart && entry.date < catalogHistoryStart) return;
-      if (catalogHistoryEnd && entry.date > catalogHistoryEnd) return;
+      if (!isWarehouseVoucherDateInRange(entry.date, catalogHistoryStart, catalogHistoryEnd)) return;
       const date = String(entry.date || 'Không có ngày');
       grouped.set(date, [...(grouped.get(date) || []), entry]);
     });
@@ -1227,9 +1233,26 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const activeCatalogHistoryDate = expandedHistoryDate === null ? catalogHistoryDates[0]?.[0] : expandedHistoryDate;
   const catalogHistoryTotal = catalogHistoryRows.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
   useEffect(() => {
-    if (!showWarehouseCatalog || !catalogHistory) return;
-    const scrollBody = document.querySelector('[data-hnl-settings-sheet-scrollbody="warehouse-catalog"]');
-    if (scrollBody instanceof HTMLElement) scrollBody.scrollTop = 0;
+    if (!showWarehouseCatalog) return;
+    if (catalogHistory) {
+      const scrollBody = document.querySelector<HTMLElement>('[data-hnl-settings-sheet-scrollbody="warehouse-catalog"]');
+      if (scrollBody) scrollBody.scrollTop = 0;
+      return;
+    }
+    const origin = catalogHistoryReturnRef.current;
+    if (!origin) return;
+    const id = window.requestAnimationFrame(() => {
+      const sheet = document.querySelector<HTMLElement>('[data-hnl-settings-sheet-scrollbody="warehouse-catalog"]');
+      const table = document.querySelector<HTMLElement>('[data-hnl-warehouse-catalog-scroll="true"]');
+      if (sheet) sheet.scrollTop = origin.sheetTop;
+      if (table) table.scrollTop = origin.tableTop;
+      const selector = origin.direction === 'in' ? '[data-hnl-catalog-in-history]' : '[data-hnl-catalog-out-history]';
+      const target = Array.from(document.querySelectorAll<HTMLElement>(selector)).find(node =>
+        (origin.direction === 'in' ? node.dataset.hnlCatalogInHistory : node.dataset.hnlCatalogOutHistory) === origin.focusKey);
+      target?.focus({ preventScroll: true });
+      catalogHistoryReturnRef.current = null;
+    });
+    return () => window.cancelAnimationFrame(id);
   }, [showWarehouseCatalog, catalogHistory]);
 
   const stockBalance = useMemo(() => {
@@ -2282,7 +2305,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
       <SettingsFeatureSheet
         open={showWarehouseCatalog}
-        onClose={() => { setShowWarehouseCatalog(false); setCatalogHistory(null); }}
+        onClose={() => { setShowWarehouseCatalog(false); setCatalogHistory(null); catalogHistoryReturnRef.current = null; }}
+        beforeClose={() => { if (catalogHistory) { returnToCatalogHistoryParent(); return false; } return true; }}
+        headerBackLabel={catalogHistory ? 'Danh mục kho' : undefined}
+        onHeaderBack={catalogHistory ? returnToCatalogHistoryParent : undefined}
         sheetKey="warehouse-catalog"
         icon={Layers}
         iconClassName="text-indigo-600"
@@ -2299,7 +2325,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   <h4 className="text-sm font-extrabold text-slate-800">{catalogHistory.type === 'in' ? 'Chi tiết nhập kho' : 'Chi tiết xuất kho'}</h4>
                   <p className="text-xs text-slate-600 break-words">{catalogHistory.displayName} · {catalogHistory.unit} · {catalogHistory.kind === 'equipment' ? 'Thiết bị' : 'Vật tư'}</p>
                 </div>
-                <button type="button" onClick={() => setCatalogHistory(null)} className="min-h-10 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-indigo-700">← Danh mục kho</button>
+                
               </div>
               <p className="text-xs font-bold text-slate-700">Tổng {catalogHistory.type === 'in' ? 'nhập' : 'xuất'}: {formatDecimal(catalogHistory.expectedTotal)} {catalogHistory.unit} · {catalogHistoryRows.length} giao dịch</p>
               {Math.abs(catalogHistoryTotal - catalogHistory.expectedTotal) > 0.000001 && (
@@ -2438,14 +2464,14 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     <td className="px-2 py-1 text-slate-600">{item.unit}</td>
                     <td className="px-2 py-1 text-right">
                       <button type="button" data-hnl-catalog-in-history={item.key}
-                        onClick={() => { setCatalogHistory({ kind: warehouseCatalogTab, name: 'sourceName' in item ? item.sourceName : item.name, displayName: item.name, unit: item.unit, type: 'in', expectedTotal: item.totalIn }); setCatalogHistoryStart(''); setCatalogHistoryEnd(''); setExpandedHistoryDate(null); }}
+                        onClick={() => { rememberCatalogHistoryOrigin(item.key, 'in'); setCatalogHistory({ kind: warehouseCatalogTab, name: 'sourceName' in item ? item.sourceName : item.name, displayName: item.name, unit: item.unit, type: 'in', expectedTotal: item.totalIn }); setCatalogHistoryStart(''); setCatalogHistoryEnd(''); setExpandedHistoryDate(null); }}
                         className="min-h-10 sm:min-h-8 min-w-10 w-full rounded px-1 text-right font-semibold text-emerald-700 underline decoration-dotted underline-offset-2 hover:bg-emerald-50 focus-visible:outline-2 focus-visible:outline-emerald-600"
                         aria-label={`Xem chi tiết nhập kho ${item.name}: ${formatDecimal(item.totalIn)} ${item.unit}`}>
                         {formatDecimal(item.totalIn)}</button>
                     </td>
                     <td className="px-2 py-1 text-right">
                       <button type="button" data-hnl-catalog-out-history={item.key}
-                        onClick={() => { setCatalogHistory({ kind: warehouseCatalogTab, name: 'sourceName' in item ? item.sourceName : item.name, displayName: item.name, unit: item.unit, type: 'out', expectedTotal: item.totalOut }); setCatalogHistoryStart(''); setCatalogHistoryEnd(''); setExpandedHistoryDate(null); }}
+                        onClick={() => { rememberCatalogHistoryOrigin(item.key, 'out'); setCatalogHistory({ kind: warehouseCatalogTab, name: 'sourceName' in item ? item.sourceName : item.name, displayName: item.name, unit: item.unit, type: 'out', expectedTotal: item.totalOut }); setCatalogHistoryStart(''); setCatalogHistoryEnd(''); setExpandedHistoryDate(null); }}
                         className="min-h-10 sm:min-h-8 min-w-10 w-full rounded px-1 text-right font-semibold text-amber-700 underline decoration-dotted underline-offset-2 hover:bg-amber-50 focus-visible:outline-2 focus-visible:outline-amber-600"
                         aria-label={`Xem chi tiết xuất kho ${item.name}: ${formatDecimal(item.totalOut)} ${item.unit}`}>
                         {formatDecimal(item.totalOut)}</button>

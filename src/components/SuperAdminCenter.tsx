@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ShieldCheck,
   UsersRound,
@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { UserRole } from '../utils/securityUtils';
 import { getDateFormatPreset } from '../utils/dateFormatter';
+import { confirmAsync } from '../utils/confirmAsync';
 
 export interface SuperAdminUiSettings {
   scalePercent: number;
@@ -71,12 +72,31 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
   const [draftUi, setDraftUi] = useState<SuperAdminUiSettings>(uiSettings);
   const [savingUi, setSavingUi] = useState(false);
   const [uiMessage, setUiMessage] = useState('');
+  const unsavedPreviewRef = useRef(false);
+  const lastSavedUiRef = useRef(uiSettings);
+  const cancelPreviewRef = useRef<() => void>(() => undefined);
+  cancelPreviewRef.current = () => {
+    if (unsavedPreviewRef.current) onPreviewUiSettings(lastSavedUiRef.current);
+    unsavedPreviewRef.current = false;
+  };
+  useEffect(() => () => cancelPreviewRef.current(), []);
+  const closeUiSettingsPanel = async () => {
+    if (unsavedPreviewRef.current && !(await confirmAsync(
+      'Thay đổi giao diện đang xem trước chưa lưu. Bỏ thay đổi và quay về Quản trị hệ thống?',
+      { title: 'Bỏ thay đổi chưa lưu', confirmLabel: 'Bỏ thay đổi', cancelLabel: 'Tiếp tục chỉnh sửa' }
+    ))) return;
+    cancelPreviewRef.current();
+    setDraftUi(lastSavedUiRef.current);
+    setShowUiSettings(false);
+    setUiMessage('');
+  };
 
-  useEffect(() => setDraftUi(uiSettings), [uiSettings]);
+  useEffect(() => { setDraftUi(uiSettings); if (!unsavedPreviewRef.current) lastSavedUiRef.current = uiSettings; }, [uiSettings]);
 
   const updateDraft = (patch: Partial<SuperAdminUiSettings>) => {
     const next = { ...draftUi, ...patch };
     setDraftUi(next);
+    unsavedPreviewRef.current = true;
     onPreviewUiSettings(next);
     setUiMessage('Đang xem trước — chưa lưu lên đám mây.');
   };
@@ -86,6 +106,8 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
     setUiMessage('');
     try {
       await onSaveUiSettings(draftUi);
+      lastSavedUiRef.current = draftUi;
+      unsavedPreviewRef.current = false;
       setUiMessage('Đã lưu giao diện cho dự án.');
     } catch (err: any) {
       setUiMessage(`Không lưu được: ${err?.message || err}`);
@@ -200,7 +222,7 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
         <section id="superadmin-ui-settings-card" data-hnl-brand-panel className="rounded-3xl border border-blue-200 bg-white shadow-sm overflow-hidden scroll-mt-24 transition-shadow">
           <div className="px-4 py-3 bg-blue-50 border-b border-blue-100 flex items-center justify-between gap-3">
             <div><h3 className="text-sm font-black text-blue-950">Giao diện và phân hệ</h3><p className="text-[10px] text-blue-700 mt-0.5">Thay đổi được xem trước ngay. Chỉ khi chọn “Áp dụng và lưu” mới lưu cài đặt lên đám mây.</p></div>
-            <button type="button" onClick={() => { setShowUiSettings(false); onPreviewUiSettings(uiSettings); }} className="text-[11px] font-bold text-slate-500 px-2 py-1 rounded-lg hover:bg-white">Đóng</button>
+            <button type="button" onClick={() => void closeUiSettingsPanel()} className="text-[11px] font-bold text-slate-500 px-2 py-1 rounded-lg hover:bg-white">Đóng</button>
           </div>
 
           <div className="p-4 space-y-5">
@@ -252,7 +274,7 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
             </div>
             {uiMessage && <div className="text-[10px] font-semibold text-slate-600 bg-slate-50 rounded-lg px-3 py-2">{uiMessage}</div>}
             <div className="flex flex-wrap gap-2 justify-end">
-              <button type="button" disabled={savingUi} onClick={async () => { setSavingUi(true); try { await onResetUiSettings(); setUiMessage('Đã khôi phục mặc định.'); } finally { setSavingUi(false); } }} className="px-3 py-2 rounded-xl border border-slate-300 text-[11px] font-bold text-slate-600 disabled:opacity-50">Khôi phục mặc định</button>
+              <button type="button" disabled={savingUi} onClick={async () => { setSavingUi(true); try { await onResetUiSettings(); unsavedPreviewRef.current = false; setUiMessage('Đã khôi phục mặc định.'); } finally { setSavingUi(false); } }} className="px-3 py-2 rounded-xl border border-slate-300 text-[11px] font-bold text-slate-600 disabled:opacity-50">Khôi phục mặc định</button>
               <button type="button" disabled={savingUi} onClick={() => void saveDraft()} data-hnl-primary-action="superadmin-ui-save" className="px-4 py-2 rounded-xl bg-blue-600 text-white text-[11px] font-extrabold shadow-sm disabled:opacity-50">{savingUi ? 'Đang lưu…' : 'Áp dụng và lưu'}</button>
             </div>
           </div>

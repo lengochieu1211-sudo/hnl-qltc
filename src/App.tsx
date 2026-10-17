@@ -1,6 +1,7 @@
 import { getHnlPrimaryThemeColors } from './utils/hnlPrimaryTheme';
 import { GlobalConfirmModal } from './components/GlobalConfirmModal';
 import { ContextBackButton } from './components/ContextBackButton';
+import { captureScopedUndoStep, applyScopedUndoStep, type ScopedUndoStep } from './utils/undoRedoScoped';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { HardDrive, RefreshCw } from 'lucide-react';
 import { safeSetLocalStorageItem } from './utils/storage';
@@ -861,7 +862,7 @@ function AuthenticatedApp() {
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number>(Date.now());
 
   // App Data State with Undo/Redo support
-  const [past, setPast] = useState<AppData[]>([]);
+  const [past, setPast] = useState<ScopedUndoStep[]>([]);
   
   const [isInitializing, setIsInitializing] = useState(true);
   const [isHydrated, setIsHydrated] = useState(false);
@@ -1424,7 +1425,7 @@ function AuthenticatedApp() {
     };
   }, [isHydrated, isRestoring, isLoadingProject, present, projectName, contractorName, inspectorName, projectLocation]);
 
-  const [future, setFuture] = useState<AppData[]>([]);
+  const [future, setFuture] = useState<ScopedUndoStep[]>([]);
 
   const [isSyncing, setIsSyncing] = useState(false);
 
@@ -3425,8 +3426,11 @@ function AuthenticatedApp() {
       // Safe asynchronous scheduling to prevent React from warning about nested state updates during rendering
       setTimeout(() => {
         if (trashOperationToAppend) appendTrashOperation(trashOperationToAppend);
-        setPast((p) => { const limit = typeof window !== 'undefined' && window.innerWidth < 768 ? 6 : 15; return [...p.slice(-(limit - 1)), prev]; });
-        setFuture([]);
+        const step = captureScopedUndoStep(prev, next, activeProjectIdRef.current);
+        if (step) {
+          setPast((p) => { const limit = typeof window !== 'undefined' && window.innerWidth < 768 ? 6 : 15; return [...p.slice(-(limit - 1)), step]; });
+          setFuture([]);
+        }
 
         // Update local modified timestamp on any UI action
         if (!syncLockRef.current) {
@@ -3535,41 +3539,40 @@ function AuthenticatedApp() {
     return stampedTarget;
   };
 
-  const handleUndo = () => {
+  // Only the entities touched by an ADMIN action may be replayed. A later
+  // Firestore update to those entities blocks the step instead of reverting it.
+  const runScopedHistoryStep = (direction: 'undo' | 'redo') => {
     if (!isProjectRoleResolved || !canUseGlobalUndoRedo(currentUserRole)) return;
-    if (past.length === 0) return;
-    const previous = past[past.length - 1];
-    const newPast = past.slice(0, past.length - 1);
+    const step = direction === 'undo' ? past[past.length - 1] : future[0];
+    if (!step) return;
+    const result = applyScopedUndoStep(present, step, direction, activeProjectIdRef.current);
+    if (!result.ok) {
+      setPast([]);
+      setFuture([]);
+      alert('Lịch sử không còn phù hợp: dữ liệu đã thay đổi hoặc dự án đã chuyển. Đã dừng Hoàn tác/Làm lại để không ghi đè dữ liệu thiết bị khác.');
+      return;
+    }
     const now = Date.now();
-    const stampedPrevious = stampStateChanges(previous, present, now);
-
-    setPast(newPast);
-    setFuture((f) => [present, ...f]);
-    setPresent(stampedPrevious);
-    markAllLocalCollectionsDirty();
-
-    // Update modified timestamp
+    const target = stampStateChanges(result.state, present, now);
+    hasUserEditedSinceHydrateRef.current = true;
+    hasUnsavedAllBackupChangesRef.current = true;
+    result.changedCollections.forEach((key) => {
+      markLocalCollectionDirty(key);
+      if (key === 'crewRecords' || key === 'defects') priorityCloudSyncRevisionRef.current += 1;
+    });
+    if (direction === 'undo') {
+      setPast((previous) => previous.slice(0, -1));
+      setFuture((previous) => [step, ...previous]);
+    } else {
+      setFuture((previous) => previous.slice(1));
+      setPast((previous) => [...previous, step]);
+    }
+    setPresent(target);
     setLastUpdatedAt(now);
     localStorage.setItem(getKey('construction_updated_at', activeProjectIdRef.current), String(now));
   };
-
-  const handleRedo = () => {
-    if (!isProjectRoleResolved || !canUseGlobalUndoRedo(currentUserRole)) return;
-    if (future.length === 0) return;
-    const next = future[0];
-    const newFuture = future.slice(1);
-    const now = Date.now();
-    const stampedNext = stampStateChanges(next, present, now);
-
-    setPast((p) => [...p, present]);
-    setPresent(stampedNext);
-    markAllLocalCollectionsDirty();
-    setFuture(newFuture);
-
-    // Update modified timestamp
-    setLastUpdatedAt(now);
-    localStorage.setItem(getKey('construction_updated_at', activeProjectIdRef.current), String(now));
-  };
+  const handleUndo = () => runScopedHistoryStep('undo');
+  const handleRedo = () => runScopedHistoryStep('redo');
 
   useEffect(() => {
     // Fire-and-forget: cleanup huge images on boot
@@ -7707,7 +7710,7 @@ function AuthenticatedApp() {
 
         {/* Contextual return is shown only after following a link, never on primary-tab navigation. */}
         {contextReturnFrames.length > 0 && contextReturnFrames[contextReturnFrames.length - 1].projectId === activeProjectId && (
-          <div className="px-4 pt-3" data-hnl-cross-module-return="true">
+          <div className="sticky top-0 z-[65] border-b border-indigo-100 bg-slate-50/95 px-4 py-2 shadow-sm backdrop-blur-sm" data-hnl-cross-module-return="true">
             <ContextBackButton
               label={contextReturnFrames[contextReturnFrames.length - 1].kind === 'notifications'
                 ? 'Trung tâm thông báo'

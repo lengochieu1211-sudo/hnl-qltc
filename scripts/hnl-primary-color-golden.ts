@@ -126,8 +126,7 @@ const header = fs.readFileSync(new URL('src/components/GoogleAuthHeader.tsx', ba
 const diagnostic = fs.readFileSync(new URL('src/healthCenter/HealthCenterPanelBase.tsx', base), 'utf8');
 const backup = fs.readFileSync(new URL('src/components/ProjectManagerModal.tsx', base), 'utf8');
 const crewShare = fs.readFileSync(new URL('src/components/CrewReportShareModal.tsx', base), 'utf8');
-assert.match(header, /bg-blue-800 hover:bg-blue-900 text-white/);
-assert.match(header, /bg-teal-700 hover:bg-teal-800 text-white/);
+assert.ok((header.match(/bg-slate-800 hover:bg-slate-700 text-slate-100/g) || []).length >= 2, 'Project and Report buttons use the same secondary palette');
 assert.match(backup, /bg-emerald-600 hover:bg-emerald-700 text-white/);
 for (const color of ['slate-800', 'green-700']) {
   assert.ok(diagnostic.includes('bg-' + color) && crewShare.includes('bg-' + color),
