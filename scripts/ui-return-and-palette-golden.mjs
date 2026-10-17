@@ -4,6 +4,7 @@ const read = (name) => fs.readFileSync(name,'utf8');
 const app = read('src/App.tsx');
 const crew = read('src/components/CrewTabBase.tsx');
 const volume = read('src/components/WorkVolumeTab.tsx');
+const floorPlan = read('src/components/FloorPlanDefectTab.tsx');
 const configSheet = read('src/components/SettingsAccordionCard.tsx');
 const health = read('src/healthCenter/HealthCenterPanelBase.tsx');
 const header = read('src/components/GoogleAuthHeader.tsx');
@@ -49,5 +50,25 @@ for (const format of ['text', 'pdf', 'xlsx']) {
   const btn = report.slice(start, end);
   assert.ok(btn.includes('min-h-10') && btn.includes('text-xs font-bold') && !btn.includes('min-h-12') && !btn.includes('text-sm font-bold'), 'Report '+format+' uses compact 40px action and 12px text');
 }
+
+// 2026-10-17: four UI/Warehouse handoff requirements without changing cloud schema.
+const floorHeaderStart = floorPlan.indexOf('title="Quản lý Khu/Khối, đổi tên');
+const floorHeaderGroup = floorPlan.slice(floorHeaderStart - 750, floorHeaderStart);
+assert.ok(floorHeaderStart > 0 && floorHeaderGroup.includes('sm:grid-flow-col') && !floorHeaderGroup.includes('sm:border-l'),
+  'PC FloorPlan management action must not have a decorative left divider');
+const volumeToolbar = volume.slice(volume.indexOf('data-hnl-volume-filter-sort="responsive-toolbar"') - 100, volume.indexOf('{hasStructureManageAccess && volSortBy !==', volume.indexOf('data-hnl-volume-filter-sort="responsive-toolbar"')));
+assert.ok(volumeToolbar.includes('lg:flex-row') && volumeToolbar.includes('data-hnl-volume-category-filters="true"') && volumeToolbar.includes('data-hnl-volume-sort-controls="true"') && volumeToolbar.includes('<QuickSortBar'),
+  'WorkVolume type filters and quick sort must be siblings in one responsive desktop toolbar');
+const warehouseToolbar = warehouse.slice(warehouse.indexOf('data-hnl-warehouse-kind-sort="responsive-toolbar"') - 100, warehouse.indexOf('{/* Transaction List */}'));
+assert.ok(warehouseToolbar.includes('lg:flex-row') && warehouseToolbar.includes('data-hnl-warehouse-kind-filter={key}') && warehouseToolbar.includes('data-hnl-warehouse-sort-controls="true"') && warehouseToolbar.includes('<QuickSortBar'),
+  'Warehouse kind filters and quick sort must be siblings in one responsive desktop toolbar');
+assert.ok(warehouse.includes('data-hnl-add-material="true"') && warehouse.includes('data-hnl-new-material-name="true"') && warehouse.includes('data-hnl-select-existing-material="true"') && !warehouse.includes('Tên vật tư khác'),
+  'Warehouse must replace legacy free-name field with explicit add/select material controls');
+assert.ok(warehouse.includes("itemKind === 'material' && hasNormManageAccess && !isAddingMaterial") && warehouse.includes("setIsAddingMaterial(editingKind === 'material' && !matched)") && warehouse.includes('&& !editingKeepsIdentity'),
+  'New material must remain ADMIN-only and preserve editing unlinked historical vouchers');
+assert.ok(warehouse.includes('inventorySaveInFlightRef.current = true;\n      try {\n        createdMaterialId = await onCreateMaterialCatalog'),
+  'New material catalog creation must be guarded against rapid duplicate submissions');
+assert.ok(warehouse.includes('normalizeMaterialSearch(norm.materialName) === normalizeMaterialSearch(finalMaterialName)') && warehouse.includes('existingMaterial || exactNormMaterialIds.length > 0'),
+  'New material flow must reject duplicate matching name/unit identities');
 
 console.log('UI RETURN AND PALETTE GOLDEN: PASS');
