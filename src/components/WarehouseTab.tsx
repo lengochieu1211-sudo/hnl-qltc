@@ -21,9 +21,11 @@ import {
   AlertCircle,
   Download,
   Upload,
+  Camera,
   Images,
   Edit2,
   ChevronDown,
+  X,
   PackageSearch
 } from 'lucide-react';
 import { InventoryItem, InventoryIssuePurpose, InventoryItemKind, TransactionType, MaterialNorm, WorkVolume, RoomProgressItem, TeamInfo, FloorPlan } from '../types';
@@ -118,13 +120,13 @@ const WarehouseVoucherPhotoDraft: React.FC<{ files: File[]; onChange: (files: Fi
   return (
     <div className="space-y-2" data-hnl-warehouse-staged-photos="true">
       <p className="text-[11px] font-bold text-sky-800">ẢNH GIAO NHẬN VẬT TƯ / THIẾT BỊ ({files.length}/10) · Không bắt buộc</p>
-      <div className="flex flex-wrap gap-2">
-        <label className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 text-xs font-bold text-blue-700">
-          <Images className="h-4 w-4" /> Chụp ảnh
+      <div className="flex flex-wrap items-center gap-1.5" data-hnl-warehouse-photo-actions="crew-sized">
+        <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 shadow-sm transition-colors hover:bg-blue-100">
+          <Camera className="h-3.5 w-3.5" /> Chụp ảnh
           <input type="file" className="hidden" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
         </label>
-        <label className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-700">
-          <Images className="h-4 w-4" /> Thư viện
+        <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 shadow-sm transition-colors hover:bg-emerald-100">
+          <Images className="h-3.5 w-3.5" /> Thư viện
           <input type="file" className="hidden" accept="image/*" multiple onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
         </label>
       </div>
@@ -1701,9 +1703,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       } else {
         await onAddInventory({ ...payload, id: savedVoucherId });
       }
-      // Receipt photos use the exact committed ledger document ID across all devices.
+      // The optional photo step must never interrupt a photo-free voucher save.
+      // If files were staged, wait for the committed ledger ID before opening the
+      // picker so its existing R2/cloud retry flow remains available.
       if (!editingInventory && currentProjectId) {
-        setPhotoVoucher({ projectId: currentProjectId, id: savedVoucherId, type, materialName: finalMaterialName, initialFiles: [...pendingVoucherPhotos] });
+        if (pendingVoucherPhotos.length > 0) {
+          setPhotoVoucher({ projectId: currentProjectId, id: savedVoucherId, type, materialName: finalMaterialName, initialFiles: [...pendingVoucherPhotos] });
+        }
         setPendingVoucherPhotos([]);
       }
 
@@ -3007,73 +3013,74 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       </div>
 
 
-      {/* Filter and Search controls */}
+      {/* Warehouse desktop row: voucher type → search → from/to date. Mobile stays stacked. */}
       <div className="space-y-2" data-hnl-warehouse-filter-layout="responsive-one-row">
-        <div className="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-        <div className="relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-          <input
-            type="text"
-            placeholder="Tìm vật tư, vị trí, người giao, mã phiếu, ngày (17/10/2026)..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-white text-xs pl-9 pr-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-500 shadow-sm"
-          />
-        </div>
+        <div className="grid grid-cols-1 gap-2 lg:grid-cols-[15rem_minmax(0,1fr)_auto] lg:items-end xl:grid-cols-[17rem_minmax(0,1fr)_auto]" data-hnl-warehouse-primary-toolbar="type-search-dates">
+          <div className="flex min-w-0 items-center gap-1 text-xs" data-hnl-warehouse-voucher-type-filters="true">
+            <div className="flex w-full rounded-xl bg-slate-200 p-1">
+              <button
+                onClick={() => setFilterType('all')}
+                className={`flex-1 min-w-0 whitespace-nowrap rounded-lg py-1 text-center text-[11px] font-semibold transition-all ${
+                  filterType === 'all' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
+                }`}
+              >
+                Tất cả ({inventory.length})
+              </button>
+              <button
+                onClick={() => setFilterType('in')}
+                className={`flex-1 min-w-0 whitespace-nowrap rounded-lg py-1 text-center text-[11px] font-semibold transition-all ${
+                  filterType === 'in' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600'
+                }`}
+              >
+                Nhập kho
+              </button>
+              <button
+                onClick={() => setFilterType('out')}
+                className={`flex-1 min-w-0 whitespace-nowrap rounded-lg py-1 text-center text-[11px] font-semibold transition-all ${
+                  filterType === 'out' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-600'
+                }`}
+              >
+                Xuất kho
+              </button>
+            </div>
+          </div>
 
-        <div className="grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap lg:flex-nowrap lg:shrink-0" data-hnl-warehouse-date-filter="true">
-          <label className="min-w-0 text-[11px] font-semibold text-slate-600 sm:w-44">
-            Từ ngày
-            <input type="date" data-hnl-warehouse-date-from="true" value={warehouseFromDate}
-              max={warehouseToDate || undefined} onChange={(event) => setWarehouseFromDate(event.target.value)}
-              className="mt-1 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700" />
-          </label>
-          <label className="min-w-0 text-[11px] font-semibold text-slate-600 sm:w-44">
-            Đến ngày
-            <input type="date" data-hnl-warehouse-date-to="true" value={warehouseToDate}
-              min={warehouseFromDate || undefined} onChange={(event) => setWarehouseToDate(event.target.value)}
-              className="mt-1 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700" />
-          </label>
-          {(warehouseFromDate || warehouseToDate) && (
-            <button type="button" onClick={() => { setWarehouseFromDate(''); setWarehouseToDate(''); }}
-              className="col-span-2 min-h-9 rounded-lg border border-slate-200 px-3 text-[11px] font-bold text-indigo-700 hover:bg-indigo-50 sm:mb-0.5">
-              Xóa lọc ngày
-            </button>
-          )}
-        </div>
+          <div className="relative min-w-0" data-hnl-warehouse-voucher-search="true">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Tìm vật tư, vị trí, người giao, mã phiếu, ngày (17/10/2026)..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-xs shadow-sm focus:border-blue-500 focus:outline-none"
+            />
+          </div>
 
-        </div>
-
-        <div className="flex items-center justify-between gap-1 text-xs lg:max-w-sm">
-          <div className="flex bg-slate-200 p-1 rounded-xl w-full">
-            <button
-              onClick={() => setFilterType('all')}
-              className={`flex-1 py-1 rounded-lg text-center font-semibold transition-all ${
-                filterType === 'all' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
-              }`}
-            >
-              Tất cả ({inventory.length})
-            </button>
-            <button
-              onClick={() => setFilterType('in')}
-              className={`flex-1 py-1 rounded-lg text-center font-semibold transition-all ${
-                filterType === 'in' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600'
-              }`}
-            >
-              Nhập kho
-            </button>
-            <button
-              onClick={() => setFilterType('out')}
-              className={`flex-1 py-1 rounded-lg text-center font-semibold transition-all ${
-                filterType === 'out' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-600'
-              }`}
-            >
-              Xuất kho
-            </button>
+          <div className="grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap lg:shrink-0 lg:flex-nowrap" data-hnl-warehouse-date-filter="true">
+            <label className="min-w-0 text-[11px] font-semibold text-slate-600 sm:w-44 lg:w-36 xl:w-40">
+              Từ ngày
+              <input type="date" data-hnl-warehouse-date-from="true" value={warehouseFromDate}
+                max={warehouseToDate || undefined} onChange={(event) => setWarehouseFromDate(event.target.value)}
+                className="mt-1 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700" />
+            </label>
+            <label className="min-w-0 text-[11px] font-semibold text-slate-600 sm:w-44 lg:w-36 xl:w-40">
+              Đến ngày
+              <input type="date" data-hnl-warehouse-date-to="true" value={warehouseToDate}
+                min={warehouseFromDate || undefined} onChange={(event) => setWarehouseToDate(event.target.value)}
+                className="mt-1 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700" />
+            </label>
+            {(warehouseFromDate || warehouseToDate) && (
+              <button type="button" onClick={() => { setWarehouseFromDate(''); setWarehouseToDate(''); }}
+                aria-label="Xóa lọc ngày" title="Xóa lọc ngày"
+                className="col-span-2 min-h-9 rounded-lg border border-slate-200 px-3 text-[11px] font-bold text-indigo-700 hover:bg-indigo-50 lg:col-span-1 lg:flex lg:w-9 lg:items-center lg:justify-center lg:px-0">
+                <span className="lg:hidden">Xóa lọc ngày</span>
+                <X className="hidden h-4 w-4 lg:block" aria-hidden="true" />
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-start" data-hnl-warehouse-kind-sort="responsive-toolbar">
+        <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center" data-hnl-warehouse-kind-sort="responsive-toolbar">
         <div className="flex flex-wrap items-center gap-1.5 lg:shrink-0" role="group" aria-label="Lọc nhật ký kho theo loại hàng">
           <span className="text-[11px] font-bold text-slate-600">Loại hàng:</span>
           {([
@@ -3533,7 +3540,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     <button
                       type="button"
                       onClick={() => { setIsNewEquipment(true); setMaterialName(''); setCustomMaterial(''); setMaterialPickerSearch(''); }}
-                      className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 hover:text-blue-900"
+                      className="inline-flex min-h-8 items-center gap-1 text-[11px] font-bold text-blue-700 hover:text-blue-900"
                     >
                       <Plus className="h-3.5 w-3.5" /> Thêm thiết bị mới
                     </button>
