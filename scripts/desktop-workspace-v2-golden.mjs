@@ -11,7 +11,7 @@ const moduleFiles = [
   ['floorplan','src/components/FloorPlanDefectTab.tsx'],
   ['checklist','src/components/ChecklistTab.tsx'],
 ];
-assert.ok(app.includes("localStorage.getItem('hnl_desktop_workspace_mode_v1') === 'modern' ? 'modern' : 'classic'"), 'classic default and instant rollback');
+assert.ok(app.includes("userChoice === 'modern' || userChoice === 'classic'"), 'explicit choice and instant rollback preserved');
 assert.ok(app.includes('document.documentElement.dataset.hnlPcWorkspace = desktopWorkspaceMode'), 'portal style follows locally selected PC mode');
 assert.ok(app.includes("visibleTab !== 'home' ? desktopWorkspaceMode : 'classic'"), 'Home stays original');
 assert.ok(!cards.includes('firebase/') && !cards.includes('setDoc(') && !cards.includes('runTransaction('), 'metric cards are presentation-only');
@@ -39,3 +39,6 @@ for (const unsafe of ['firebase/firestore','firebase/auth','deleteDoc(', 'setDoc
   assert.ok(!cards.includes(unsafe), `metric shell must not invoke ${unsafe}`);
 }
 console.log('HNL PC WORKSPACE V2 GOLDEN PASS: 13 screen surfaces, metrics, nested toolbars, classic/mobile/portal guards.');
+
+// Chrome desktop-site auto-view regression runs inside the existing stability suite.
+await import('./desktop-site-request-golden.mjs');

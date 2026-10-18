@@ -1,6 +1,6 @@
 /* HNL QLTC PC Workspace v1: presentation only; NEVER change field values, canvas geometry,
    nested control callbacks, Firestore/R2, role checks or modal positioning. Opt-in and >=1024px. */
-@media(min-width:1024px){
+@media(min-width:960px){
 [data-hnl-desktop-design="modern"]{--pc-bg:#f1f5f9;--pc-card:#fff;--pc-soft:#f8fafc;--pc-border:#dbe3ef;--pc-text:#0f172a;--pc-muted:#475569;--pc-nav:224px;--pc-text-size:13px;--pc-label-size:12px;--pc-control-height:38px;padding-left:var(--pc-nav)!important;background:var(--pc-bg);font-size:var(--pc-text-size)}
 /* Keep original BottomNav and all of its handlers; change geometry only. */
 [data-hnl-desktop-design="modern"] [data-hnl-nav-surface="desktop"]{width:var(--pc-nav)!important;padding:10px;border-color:var(--pc-border);background:var(--pc-card);box-shadow:4px 0 20px #0f172a0d}
@@ -45,14 +45,14 @@
 .hnl-pc-classic-return button{padding:7px 12px;border:1px solid color-mix(in srgb,var(--hnl-primary) 25%,white);border-radius:9px;background:color-mix(in srgb,var(--hnl-primary) 9%,white);color:var(--hnl-primary-on-light);font-weight:750}
 }
 /* Narrow viewports must remain pixel-for-pixel on the existing mobile experience. */
-@media(max-width:1023px){.hnl-pc-workspace-heading,.hnl-pc-classic-return{display:none!important}}
-@media(min-width:1024px){html[data-hnl-theme="dark"] [data-hnl-desktop-design="modern"]{--pc-bg:#020617;--pc-card:#0f172a;--pc-soft:#1e293b;--pc-border:#334155;--pc-text:#f1f5f9;--pc-muted:#cbd5e1}
+@media(max-width:1023px){html:not([data-hnl-browser-desktop="true"]) .hnl-pc-workspace-heading,html:not([data-hnl-browser-desktop="true"]) .hnl-pc-classic-return{display:none!important}}
+@media(min-width:960px){html[data-hnl-theme="dark"] [data-hnl-desktop-design="modern"]{--pc-bg:#020617;--pc-card:#0f172a;--pc-soft:#1e293b;--pc-border:#334155;--pc-text:#f1f5f9;--pc-muted:#cbd5e1}
 html[data-hnl-theme="dark"] [data-hnl-desktop-design="modern"] .hnl-pc-breadcrumb strong,html[data-hnl-theme="dark"] [data-hnl-desktop-design="modern"] .hnl-pc-mode-switch,html[data-hnl-theme="dark"] [data-hnl-desktop-design="modern"] .hnl-pc-quick-nav button.is-current{color:var(--hnl-primary-on-dark)}
 html[data-hnl-theme="dark"] .hnl-pc-classic-return{background:#0f172a;color:#e2e8f0;border-color:#334155}}
 
 /* PC Workspace V2 — true module-level layout, while maintaining the classic DOM
  * and every original business event handler. No selector applies on mobile/classic. */
-@media (min-width: 1024px) {
+@media (min-width: 960px) {
   [data-hnl-desktop-design="modern"] {
     --pc-v2-brand: var(--hnl-primary-action, #2563eb);
     --pc-v2-ink: var(--pc-text, #0f172a);
@@ -210,7 +210,7 @@ html[data-hnl-theme="dark"] .hnl-pc-classic-return{background:#0f172a;color:#e2e
   html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet] > header { min-height: 78px; padding: 14px 24px; border-bottom: 1px solid #dbe3ef; }
   html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet-scrollbody] > div { padding: 22px 28px 30px; }
 }
-@media (min-width: 1024px) and (max-width: 1399px) {
+@media (min-width: 960px) and (max-width: 1399px) {
   [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview { grid-template-columns: 1fr; }
   [data-hnl-desktop-design="modern"] [data-hnl-warehouse-filter-layout] [data-hnl-warehouse-primary-toolbar="type-search-dates"] {
     grid-template-columns: minmax(200px,1fr) minmax(230px,1.2fr);
@@ -222,15 +222,15 @@ html[data-hnl-theme="dark"] .hnl-pc-classic-return{background:#0f172a;color:#e2e
 }
 @media (max-width: 1023px) {
   /* The KPI node is present but entirely inert and hidden on mobile and tablets. */
-  .hnl-pc-v2-overview { display: none !important; }
+  html:not([data-hnl-browser-desktop="true"]) .hnl-pc-v2-overview { display: none !important; }
 }
-@media (min-width: 1024px) {
+@media (min-width: 960px) {
   /* Classic PC remains visually unchanged. */
   [data-hnl-desktop-design="classic"] .hnl-pc-v2-overview { display: none !important; }
 }
 
 /* PC-focused deep composition for collaboration, AI and settings pages. */
-@media (min-width: 1024px) {
+@media (min-width: 960px) {
   [data-hnl-desktop-design="modern"] [data-hnl-pc-module="ai-workspace"],
   [data-hnl-desktop-design="modern"] [data-hnl-pc-module="settings-center"],
   [data-hnl-desktop-design="modern"] [data-hnl-pc-module="chat-projects"] {
@@ -283,4 +283,13 @@ html[data-hnl-theme="dark"] .hnl-pc-classic-return{background:#0f172a;color:#e2e
 }
 @media (min-width: 1400px) {
   [data-hnl-desktop-design="modern"] [data-hnl-pc-module="chat-projects"] > div.space-y-2 { grid-template-columns: repeat(3,minmax(0,1fr)); }
+}
+
+/* Chrome Android desktop-site virtual viewport (often 980px) is below Tailwind lg.
+   Bridge only the presentation shell at 960–1023px; preserve normal mobile mode. */
+@media (min-width: 960px) and (max-width: 1023px) {
+  html:not([data-hnl-browser-desktop="true"]) .hnl-pc-classic-return { display: none !important; }
+  html[data-hnl-browser-desktop="true"] [data-hnl-nav-surface="desktop"] { display: flex !important; }
+  html[data-hnl-browser-desktop="true"] [data-hnl-nav-surface="mobile"] { display: none !important; }
+  html[data-hnl-browser-desktop="true"] [data-hnl-app-shell="true"] { max-width: none !important; width: 100% !important; padding-bottom: 16px !important; }
 }
