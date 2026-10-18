@@ -1,0 +1,299 @@
+/* HNL QLTC — PC Workspace V3.3 / deep nested surfaces.
+ * Presentation-only. Never touch map/canvas transforms, image sizing, action handlers,
+ * business status colors, Firestore/R2, authentication, permissions or data identifiers.
+ * The existing 84px BottomNav and HomeDashboard stay mounted and unchanged. */
+@media (min-width: 960px) {
+  html[data-hnl-pc-workspace="modern"] {
+    --hnl-deep-accent: var(--hnl-primary-action, #2563eb);
+    --hnl-deep-surface: var(--pc-card, #fff);
+    --hnl-deep-subtle: var(--pc-soft, #f8fafc);
+    --hnl-deep-ink: var(--pc-text, #0f172a);
+    --hnl-deep-muted: var(--pc-muted, #475569);
+    --hnl-deep-stroke: var(--pc-border, #dbe3ef);
+    --hnl-deep-shadow: 0 6px 24px rgb(15 23 42 / 6%);
+    --hnl-deep-ring: color-mix(in srgb, var(--hnl-deep-accent) 26%, transparent);
+  }
+
+
+  /* Portal-based dialogs inherit from html rather than the app shell. Keep
+     the same light/dark semantic palette in those detached DOM subtrees. */
+  html[data-hnl-theme="dark"][data-hnl-pc-workspace="modern"] {
+    --hnl-deep-surface: #0f172a;
+    --hnl-deep-subtle: #1e293b;
+    --hnl-deep-ink: #f1f5f9;
+    --hnl-deep-muted: #cbd5e1;
+    --hnl-deep-stroke: #334155;
+  }
+
+  /* Primary navigation is already in the permanent left rail. The breadcrumb is
+     noninteractive duplication, not a source of back-navigation state. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-breadcrumb {
+    display: none !important;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-main h1 {
+    margin-top: 0;
+  }
+
+  /* One consistent depth, rhythm and typography in EVERY mounted primary module.
+     No universal div/table/canvas rule: those nodes include the floor drawing,
+     live maps, drag handles, virtual lists and Excel-like grids. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    main[data-hnl-pc-workspace="true"] :is([data-hnl-workspace-module], [data-hnl-pc-module]) {
+    min-width: 0;
+    color: var(--hnl-deep-ink);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    main[data-hnl-pc-workspace="true"] :is([data-hnl-pc-region="commands"], [data-hnl-pc-region="subtabs"],
+      [data-hnl-pc-region="floor-tabs"], [data-hnl-warehouse-filter-layout],
+      [data-hnl-volume-filter-sort], [data-hnl-pc-v3-inner="warehouse-catalog-search"],
+      [data-hnl-pc-v3-inner="volume-filter-panel"]) {
+    border-color: var(--hnl-deep-stroke);
+    border-radius: 15px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    main[data-hnl-pc-workspace="true"] :is([data-hnl-pc-region="stock-summary"], [data-hnl-pc-region="inspection"],
+      [data-hnl-pc-region="records"], [data-hnl-pc-v3-inner="floor-defects"],
+      [data-hnl-pc-v3-inner="warehouse-history"], [data-hnl-pc-v3-inner="crew-records"]) {
+    border-color: var(--hnl-deep-stroke);
+    border-radius: 17px;
+  }
+
+  /* Nested navigation: warehouse catalogue, daily log/team directory, floors,
+     material/quick-grid tabs and permissions all follow the same selection language. */
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-nested-nav], [data-hnl-pc-region="subtabs"], [data-hnl-pc-region="floor-tabs"],
+    [data-hnl-pc-v32-region="catalog-tabs"], [data-hnl-pc-v32-region="grid-tabs"],
+    [data-hnl-pc-v32-region="template-tabs"], [data-hnl-pc-deep-tabs], [role="tablist"]
+  ) {
+    border-color: var(--hnl-deep-stroke);
+    gap: 7px;
+  }
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-nested-nav], [data-hnl-pc-region="subtabs"], [data-hnl-pc-region="floor-tabs"],
+    [data-hnl-pc-v32-region="catalog-tabs"], [data-hnl-pc-v32-region="grid-tabs"],
+    [data-hnl-pc-v32-region="template-tabs"], [data-hnl-pc-deep-tabs], [role="tablist"]
+  ) > button {
+    min-height: 38px;
+    min-width: 0;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 750;
+    transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease;
+  }
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-nested-nav], [data-hnl-pc-region="subtabs"], [data-hnl-pc-region="floor-tabs"],
+    [data-hnl-pc-v32-region="catalog-tabs"], [data-hnl-pc-v32-region="grid-tabs"],
+    [data-hnl-pc-v32-region="template-tabs"], [data-hnl-pc-deep-tabs], [role="tablist"]
+  ) > button:is([aria-selected="true"], [aria-pressed="true"], [data-state="active"]) {
+    border-color: color-mix(in srgb, var(--hnl-deep-accent) 25%, var(--hnl-deep-stroke));
+    box-shadow: 0 2px 9px var(--hnl-deep-ring);
+  }
+  /* A pressed filter is a filter, not a navigation tab; retain its handler/state. */
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-warehouse-voucher-type-filters], [data-hnl-warehouse-kind-sort],
+    [data-hnl-volume-category-filters]
+  ) > button {
+    min-height: 36px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-nested-nav], [data-hnl-pc-region="subtabs"], [data-hnl-pc-region="floor-tabs"],
+    [data-hnl-pc-v32-region="catalog-tabs"], [data-hnl-pc-v32-region="grid-tabs"],
+    [data-hnl-pc-v32-region="template-tabs"], [data-hnl-pc-deep-tabs], [role="tablist"]
+  ) > button:is([aria-selected="true"],[aria-pressed="true"],[data-state="active"]) {
+    color: var(--hnl-deep-accent);
+    background-color: color-mix(in srgb, var(--hnl-deep-accent) 10%, var(--hnl-deep-surface));
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="volume-cards"] > *,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-voucher-card-grid"] > *,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="checklist-items"] > * {
+    min-width: 0;
+  }
+
+  /* Deepest level: team detail (rooms, defects, materials, diary) and all
+     four AI assistant modes. Active states come from existing React state. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-deep-tabs="crew-team-detail"] {
+    gap: 5px;
+    padding: 9px 12px;
+    background: var(--hnl-deep-surface);
+    border-color: var(--hnl-deep-stroke);
+    scrollbar-gutter: stable;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-deep-tabs="crew-team-detail"] > button {
+    border: 1px solid transparent;
+    border-radius: 10px;
+    padding: 10px 12px;
+    white-space: nowrap;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-deep-tabs="ai-modes"] > button {
+    min-height: 46px;
+    border-radius: 12px;
+    border: 1px solid var(--hnl-deep-stroke);
+    gap: 8px;
+    font-weight: 750;
+  }
+
+  /* Controls in all nested working areas and auxiliary windows. Selection inputs,
+     inline canvas overlays, range sliders and image/upload widgets are excluded. */
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v3-form], [data-hnl-pc-v3-center], [data-hnl-pc-v32-region],
+    [data-hnl-pc-module="settings-center"], [data-hnl-pc-module="ai-workspace"],
+    [data-hnl-pc-module="system-center"], [data-hnl-pc-region="commands"],
+    [data-hnl-pc-v3-inner="warehouse-catalog-search"], [data-hnl-pc-v3-inner="volume-filter-panel"]
+  ) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]), select, textarea) {
+    max-width: 100%;
+    border-radius: 10px;
+    border-color: var(--hnl-deep-stroke);
+    font-size: 13px;
+  }
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v3-form], [data-hnl-pc-v3-center], [data-hnl-pc-v32-region],
+    [data-hnl-pc-module="settings-center"], [data-hnl-pc-module="ai-workspace"],
+    [data-hnl-pc-module="system-center"], [data-hnl-pc-region="commands"]
+  ) :is(input,select,textarea):focus-visible {
+    outline: 2px solid var(--hnl-deep-accent);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px var(--hnl-deep-ring);
+  }
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v3-form], [data-hnl-pc-v32-region="room-form"],
+    [data-hnl-pc-v32-region="norm-editor"], [data-hnl-pc-v32-region="equipment-editor"],
+    [data-hnl-pc-v32-region="report-filters"], [data-hnl-settings-sheet]
+  ) label {
+    color: var(--hnl-deep-muted);
+    font-size: 12px;
+    font-weight: 700;
+  }
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v32-window], [data-hnl-pc-v3-center], [data-hnl-settings-sheet]
+  ) :is(button,input,select,textarea):focus-visible {
+    outline: 2px solid var(--hnl-deep-accent);
+    outline-offset: 2px;
+  }
+
+  /* Remaining deep forms in pages without a dedicated editor marker receive
+     non-geometric styling. This is deliberately limited to color and radius:
+     floorplan pick points, drag/zoom, input sizing and viewport remain untouched. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    main[data-hnl-pc-workspace="true"] [data-hnl-workspace-module]
+    :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]), select, textarea) {
+    border-radius: 10px;
+    border-color: var(--hnl-deep-stroke);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    main[data-hnl-pc-workspace="true"] [data-hnl-workspace-module]
+    :is(button,a,input,select,textarea):focus-visible {
+    outline: 2px solid var(--hnl-deep-accent);
+    outline-offset: 2px;
+  }
+
+  /* Data-heavy nested tables: visual hierarchy only. Do not change sticky columns,
+     table layout, row height, virtual scrolling, widths or sort callbacks. */
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v3-inner="warehouse-catalog-grid"], [data-hnl-pc-region="records"],
+    [data-hnl-pc-v32-region="grid-scroll"], [data-hnl-pc-v3-inner="floor-defects"],
+    [data-hnl-pc-v32-region="source-results"], [data-hnl-pc-v3-inner="crew-records"],
+    [data-hnl-pc-module="system-center"]
+  ) table {
+    font-variant-numeric: tabular-nums;
+  }
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v3-inner="warehouse-catalog-grid"], [data-hnl-pc-region="records"],
+    [data-hnl-pc-v32-region="grid-scroll"], [data-hnl-pc-v3-inner="floor-defects"],
+    [data-hnl-pc-v32-region="source-results"], [data-hnl-pc-v3-inner="crew-records"]
+  ) table thead th {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .012em;
+  }
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v3-inner="warehouse-catalog-grid"], [data-hnl-pc-region="records"],
+    [data-hnl-pc-v3-inner="crew-records"], [data-hnl-pc-v3-inner="floor-defects"]
+  ) table tbody td {
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  /* Sub-dialogs: consistent headings, labels, inline filters, without touching
+     overlay geometry, stacking (z-index), close handlers or modal scroll owners. */
+  html[data-hnl-pc-workspace="modern"] :is([data-hnl-pc-v32-window],[data-hnl-pc-v3-center])
+    :is(h2,h3) {
+    letter-spacing: -.015em;
+  }
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v32-region="report-filters"], [data-hnl-pc-v32-region="report-actions"],
+    [data-hnl-pc-v32-region="room-form"], [data-hnl-pc-v32-region="equipment-editor"],
+    [data-hnl-pc-v32-region="norm-editor"], [data-hnl-pc-v32-region="template-manager"],
+    [data-hnl-pc-v32-region="source-basket"]
+  ) {
+    border-color: var(--hnl-deep-stroke);
+    border-radius: 15px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet] > header {
+    border-color: var(--hnl-deep-stroke);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="grid-tabs"] {
+    scrollbar-gutter: stable;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="grid-scroll"] {
+    scrollbar-gutter: stable;
+    overscroll-behavior: contain;
+  }
+
+  /* Deep modal layer covers edit/preview dialogs in all modules even when
+     they predate the explicit V3.2 modal markers. Only presentation is changed;
+     do not interfere with overlay dimensions, image/plan preview or scroll. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    main[data-hnl-pc-workspace="true"] [data-hnl-workspace-module]
+    :is([role="dialog"],[aria-modal="true"], [class*="fixed"][class*="inset"])
+    :is(h2,h3) {
+    letter-spacing: -.016em;
+  }
+  html[data-hnl-pc-workspace="modern"] :is([role="dialog"],[aria-modal="true"])
+    :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),select,textarea) {
+    border-radius: 10px;
+  }
+  html[data-hnl-pc-workspace="modern"] :is([role="dialog"],[aria-modal="true"])
+    :is(button,input,select,textarea):focus-visible {
+    outline: 2px solid var(--hnl-deep-accent);
+    outline-offset: 2px;
+  }
+
+  /* Collaboration, AI, project management, security, system, health/settings,
+     notifications and Home actions all share visible keyboard focus. */
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-module="chat-projects"], [data-hnl-pc-module="chat-room"],
+    [data-hnl-pc-module="ai-workspace"], [data-hnl-pc-module="system-center"],
+    [data-hnl-pc-module="project-manager"], [data-hnl-pc-module="security-center"],
+    [data-hnl-pc-module="notification-center"], [data-hnl-pc-module="settings-center"]
+  ) :is(button,a,input,select,textarea):focus-visible {
+    outline: 2px solid var(--hnl-deep-accent);
+    outline-offset: 2px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-home-modern="true"] .hnl-pc-home-actions > button {
+    border-color: var(--hnl-deep-stroke);
+    border-radius: 10px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-home-modern="true"] .hnl-pc-home-actions > button:focus-visible {
+    outline: 2px solid var(--hnl-deep-accent);
+    outline-offset: 2px;
+  }
+}
+
+/* All V3.3 work is opt-in to modern PC. Ordinary mobile widths are untouched;
+   Chrome Android desktop-site at 980px follows the existing modern mode gate.
+   At narrow desktop widths the existing table overflow/scroll behavior wins. */
+@media (min-width: 960px) and (max-width: 1100px) {
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-region="subtabs"], [data-hnl-pc-region="floor-tabs"],
+    [data-hnl-pc-v32-region="grid-tabs"]
+  ) { scrollbar-gutter: stable; }
+}
+@media (min-width: 960px) and (prefers-reduced-motion: reduce) {
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-nested-nav], [data-hnl-pc-region="subtabs"], [role="tablist"]
+  ) > button { transition: none; }
+}

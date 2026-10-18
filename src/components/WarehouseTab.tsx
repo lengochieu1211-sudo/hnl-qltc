@@ -2395,11 +2395,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             </div>
           ) : (
             <>
-          <div data-hnl-pc-v3-inner="warehouse-catalog-tabs" data-hnl-nested-nav="warehouse-catalog" className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
+          <div data-hnl-pc-v3-inner="warehouse-catalog-tabs" data-hnl-nested-nav="warehouse-catalog" role="group" aria-label="Danh mục vật tư và thiết bị" className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
             {(['material', 'equipment'] as InventoryItemKind[]).map((kind) => (
               <button
                 type="button"
                 key={kind}
+                aria-pressed={warehouseCatalogTab === kind}
                 onClick={() => {
                   setWarehouseCatalogTab(kind);
                   setWarehouseCatalogSearch('');

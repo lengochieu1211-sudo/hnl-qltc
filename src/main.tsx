@@ -4,6 +4,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { LanguageProvider } from './context/LanguageContext';
 import './index.css';
 import './styles/desktopWorkspace.css';
+import './styles/desktopWorkspaceDeep.css';
 import { registerServiceWorker } from './serviceWorkerRegistration';
 import { cleanupTransientLocalStorage, estimateLocalStorageBytes } from './utils/storage';
 import { migrateAndCleanLocalStorage } from './utils/migrateStorage';
