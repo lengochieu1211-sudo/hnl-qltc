@@ -2358,7 +2358,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         <div className="space-y-3">
           {catalogHistory ? (
             <div data-hnl-catalog-history-view="visible">
-            <div data-hnl-catalog-history="readonly" role="region" aria-label="Chi tiết lịch sử nhập xuất kho" className="rounded-xl border border-indigo-200 bg-white p-3 shadow-sm space-y-3">
+            <div data-hnl-pc-v3-inner="warehouse-history" data-hnl-catalog-history="readonly" role="region" aria-label="Chi tiết lịch sử nhập xuất kho" className="rounded-xl border border-indigo-200 bg-white p-3 shadow-sm space-y-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <h4 className="text-sm font-extrabold text-slate-800">{catalogHistory.type === 'in' ? 'Chi tiết nhập kho' : 'Chi tiết xuất kho'}</h4>
@@ -2395,7 +2395,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             </div>
           ) : (
             <>
-          <div data-hnl-nested-nav="warehouse-catalog" className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
+          <div data-hnl-pc-v3-inner="warehouse-catalog-tabs" data-hnl-nested-nav="warehouse-catalog" className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
             {(['material', 'equipment'] as InventoryItemKind[]).map((kind) => (
               <button
                 type="button"
@@ -2413,7 +2413,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             ))}
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div data-hnl-pc-v3-inner="warehouse-catalog-search" className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <div className="relative min-w-0 flex-1">
               <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
               <input
@@ -2460,7 +2460,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           />
 
           {/* Content-sized columns keep warehouse names/units on one line; the sheet scrolls horizontally on small screens. */}
-          <div className="max-h-[46vh] overflow-auto rounded-xl border border-slate-200" data-hnl-warehouse-catalog-scroll="true">
+          <div data-hnl-pc-v3-inner="warehouse-catalog-grid" className="max-h-[46vh] overflow-auto rounded-xl border border-slate-200" data-hnl-warehouse-catalog-scroll="true">
             <table className="w-max min-w-full table-auto whitespace-nowrap text-[11px] leading-4" data-hnl-warehouse-catalog-table="auto-width" data-hnl-table-row-height="32">
               <thead className="sticky top-0 z-10 bg-slate-50 text-[11px] font-bold text-slate-600">
                 <tr className="h-8" data-hnl-warehouse-catalog-header="aligned">
@@ -2967,7 +2967,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
 
       {/* Stock Summary Balance Cards */}
-      <div data-hnl-pc-region="stock-summary" className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-sm space-y-3">
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="01" aria-label="Tồn kho & cảnh báo">
+        <span className="hnl-pc-v3-section-index">01</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Tồn kho & cảnh báo</strong><small>Theo dõi tồn theo danh mục hiện có.</small></div>
+      </div>
+
+      <div data-hnl-pc-v3-inner="warehouse-stock-cards" data-hnl-pc-region="stock-summary" className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-sm space-y-3">
         <div className="flex items-center justify-between border-b border-slate-100 pb-2">
           <div className="flex items-center gap-1.5">
             <Layers className="w-4 h-4 text-blue-600" />
@@ -3022,7 +3027,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
 
       {/* Warehouse desktop row: voucher type → search → from/to date. Mobile stays stacked. */}
-      <div className="space-y-2" data-hnl-warehouse-filter-layout="responsive-one-row">
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="02" aria-label="Tra cứu chứng từ">
+        <span className="hnl-pc-v3-section-index">02</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Tra cứu chứng từ</strong><small>Lọc nhập / xuất, ngày và sắp xếp phiếu.</small></div>
+      </div>
+
+      <div data-hnl-pc-v3-inner="warehouse-voucher-filter" className="space-y-2" data-hnl-warehouse-filter-layout="responsive-one-row">
         <div className="grid grid-cols-1 gap-2 lg:grid-cols-[15rem_minmax(0,1fr)_auto] lg:items-end xl:grid-cols-[17rem_minmax(0,1fr)_auto]" data-hnl-warehouse-primary-toolbar="type-search-dates">
           <div className="flex min-w-0 items-center gap-1 text-xs" data-hnl-warehouse-voucher-type-filters="true">
             <div className="flex w-full rounded-xl bg-slate-200 p-1">
@@ -3131,7 +3141,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       </div>
 
       {/* Transaction List */}
-      <div data-hnl-pc-region="records" className="space-y-2.5">
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="03" aria-label="Danh sách giao dịch">
+        <span className="hnl-pc-v3-section-index">03</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Danh sách giao dịch</strong><small>Chi tiết phiếu, ảnh giao nhận và các thao tác.</small></div>
+      </div>
+
+      <div data-hnl-pc-v3-inner="warehouse-vouchers" data-hnl-pc-region="records" className="space-y-2.5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1">
           <h3 className="text-xs font-bold text-slate-600">
             Nhật ký nhập/xuất ({filteredInventory.length})
@@ -3194,7 +3209,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             Không tìm thấy lịch sử giao dịch kho phù hợp
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+          <div data-hnl-pc-v3-inner="warehouse-voucher-card-grid" className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
           {filteredInventory.map((item) => (
             <div
               key={item.id}
@@ -3460,7 +3475,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 lg:px-6 pb-5 lg:pb-6 pt-4 grid grid-cols-1 lg:grid-cols-6 gap-3 text-xs">
+            <form data-hnl-pc-v3-form="warehouse" onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 lg:px-6 pb-5 lg:pb-6 pt-4 grid grid-cols-1 lg:grid-cols-6 gap-3 text-xs">
               {/* Warehouse item kind */}
               <div className="lg:col-span-6">
                 <label className="block text-slate-700 font-bold mb-1">Loại hàng</label>

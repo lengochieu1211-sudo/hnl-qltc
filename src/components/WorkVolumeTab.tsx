@@ -1022,7 +1022,12 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       </div>
 
       {/* Category filters and quick sorting share one desktop toolbar. */}
-      <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center" data-hnl-volume-filter-sort="responsive-toolbar">
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="01" aria-label="Bộ lọc hạng mục">
+        <span className="hnl-pc-v3-section-index">01</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Bộ lọc hạng mục</strong><small>Nhóm công việc, khối lượng và tiến độ.</small></div>
+      </div>
+
+      <div data-hnl-pc-v3-inner="volume-filter-panel" className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center" data-hnl-volume-filter-sort="responsive-toolbar">
       {availableCategories.length > 0 && (
         <div className="flex min-w-0 gap-1 overflow-x-auto pb-1 text-xs no-scrollbar lg:pb-0 lg:max-w-[44%] lg:shrink-0" data-hnl-volume-category-filters="true">
           {['all', ...availableCategories].map((catId) => {
@@ -1070,7 +1075,12 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       )}
 
       {/* Items List */}
-      <div className="space-y-3">
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="02" aria-label="Danh mục & tiến độ">
+        <span className="hnl-pc-v3-section-index">02</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Danh mục & tiến độ</strong><small>Theo dõi hạng mục, căn/phòng và hạn hoàn thành.</small></div>
+      </div>
+
+      <div data-hnl-pc-v3-inner="volume-cards" className="space-y-3">
         {sortedFilteredVolumes.length > 0 && (
           <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2">
             {hasStructureManageAccess ? (
@@ -1462,7 +1472,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleAddSubmit} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-5 pt-4 grid grid-cols-1 lg:grid-cols-6 gap-3 text-xs">
+            <form data-hnl-pc-v3-form="volume" onSubmit={handleAddSubmit} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-5 pt-4 grid grid-cols-1 lg:grid-cols-6 gap-3 text-xs">
               <div className="lg:col-span-6">
                 <label className="block text-slate-700 font-bold mb-1">Tên hạng mục Công Việc *</label>
                 <input
@@ -1739,7 +1749,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               </button>
             </div>
 
-            <div className="p-3 sm:p-4 border-b border-slate-200 bg-slate-50/80 space-y-2">
+            <div data-hnl-pc-v3-inner="volume-breakdown-filter" className="p-3 sm:p-4 border-b border-slate-200 bg-slate-50/80 space-y-2">
               <div className={`grid grid-cols-1 gap-2 sm:grid-cols-2 ${normalizedStructureConfig.enabled ? 'xl:grid-cols-4' : 'xl:grid-cols-3'}`}>
                 {normalizedStructureConfig.enabled && (
                   <div className="relative">
