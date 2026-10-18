@@ -1,0 +1,288 @@
+/* HNL QLTC — PC Workspace V3.4: compact, content-sized desktop layout.
+ * Only affects the opt-in modern desktop shell (never classic/mobile).
+ * Deliberately excludes plan viewport/canvas, drag handles, fullscreen overlays,
+ * fixed-position dialogs and virtual/Excel grid sizing. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] {
+    --hnl-compact-gap: 8px;
+    --hnl-compact-card-gap: 12px;
+  }
+  /* Remove excessive padding without interfering with the 84px navigation rail. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    main[data-hnl-pc-workspace="true"] [data-hnl-workspace-module] {
+    max-width: 1660px;
+    padding: 8px 18px 48px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    :is([data-hnl-pc-module="settings-center"], [data-hnl-pc-module="chat-projects"],
+        [data-hnl-pc-module="ai-workspace"], [data-hnl-pc-module="system-center"]) {
+    max-width: 1660px;
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+  /* A restrained compact summary leaves actual field data in the foreground. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview {
+    grid-template-columns: minmax(210px, .62fr) minmax(0, 2.6fr);
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric {
+    padding: 12px 15px;
+    border-radius: 14px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro h3 {
+    font-size: 15px;
+    margin-top: 4px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro p {
+    font-size: 11px;
+    line-height: 1.4;
+    margin-top: 4px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric-grid { gap: 9px; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric-value {
+    margin-top: 3px;
+    font-size: clamp(19px, 1.7vw, 24px);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-band {
+    margin: 16px 1px 8px;
+    padding-bottom: 7px;
+    gap: 9px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-index {
+    width: 27px;
+    height: 27px;
+    border-radius: 8px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-copy strong { font-size: 13px; }
+  /* Fix core issue: command rows must hug their content and wrap, not spread
+     equal-width buttons across a 1280–1920px workspace. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module] [data-hnl-pc-region="commands"] {
+    display: flex;
+    flex-flow: row wrap;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 10px 14px;
+    padding: 11px 13px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module] [data-hnl-pc-region="commands"] > :first-child:not(button) { min-width: 170px; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module]:not([data-hnl-workspace-module="crew"]):not([data-hnl-workspace-module="floorplan"])
+    [data-hnl-pc-region="commands"] > :nth-child(2) {
+    width: auto;
+    max-width: 100%;
+    margin-left: auto;
+    flex: 0 1 auto;
+  }
+  /* The global PC header already names these modules. Remove the second
+     near-identical heading, so the toolbar is a real compact action strip. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    :is([data-hnl-workspace-module="warehouse"], [data-hnl-workspace-module="volume"],
+        [data-hnl-workspace-module="checklist"]) [data-hnl-pc-region="commands"] > :first-child {
+    display: none;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    :is([data-hnl-workspace-module="warehouse"], [data-hnl-workspace-module="volume"],
+        [data-hnl-workspace-module="checklist"]) [data-hnl-pc-region="commands"] > :nth-child(2) {
+    margin-left: 0;
+  }
+  /* Actions are compact and content-sized; never stretch data-entry controls. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    :is([data-hnl-secondary-action-group="warehouse"], [data-hnl-secondary-action-group="crew"]) {
+    display: flex !important;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    width: auto;
+    max-width: 100%;
+    gap: var(--hnl-compact-gap);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    :is([data-hnl-secondary-action-group="warehouse"], [data-hnl-secondary-action-group="crew"]) > * {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: 100%;
+    min-width: 0;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module] [data-hnl-pc-region="commands"]
+    :is(button, [data-hnl-secondary-action-group] > button) {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 36px;
+    height: auto;
+    padding: 7px 12px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  /* CREW: date picker has a stable usable width, then action buttons wrap
+     according to their labels, never fractional grid columns. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module="crew"] [data-hnl-pc-region="commands"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module="crew"] [data-hnl-pc-region="commands"] > :first-child {
+    flex: 0 0 232px;
+    width: 232px;
+    min-width: 215px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module="crew"] [data-hnl-pc-region="commands"] > :first-child button {
+    flex: 0 0 auto;
+  }
+  /* WAREHOUSE: command group wraps tightly; filter uses fixed type/date sizes
+     while search alone grows into remaining horizontal space. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module="warehouse"] [data-hnl-pc-region="commands"] > :nth-child(2) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    width: auto;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-warehouse-primary-toolbar="type-search-dates"] {
+    display: grid;
+    grid-template-columns: minmax(215px, 240px) minmax(230px, 1fr) auto;
+    align-items: end;
+    gap: 10px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-warehouse-primary-toolbar="type-search-dates"] [data-hnl-warehouse-date-filter] {
+    grid-column: auto;
+    width: auto;
+    justify-content: flex-start;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-warehouse-primary-toolbar="type-search-dates"] [data-hnl-warehouse-date-filter] label {
+    width: 132px;
+    max-width: 132px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    :is([data-hnl-warehouse-kind-sort], [data-hnl-pc-v3-inner="volume-filter-panel"]) {
+    gap: 10px;
+    justify-content: flex-start;
+    align-items: center;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    :is([data-hnl-warehouse-sort-controls], [data-hnl-volume-sort-controls]) {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+  /* FLOORPLAN: keep drawing/zoom/coordinates intact; compact the toolbar only. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module="floorplan"] [data-hnl-pc-region="commands"] {
+    display: block;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module="floorplan"] [data-hnl-pc-region="commands"] > div:not(.hnl-pc-v3-section-band) {
+    padding: 4px 0;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module="floorplan"] [data-hnl-pc-region="commands"] > div > div:nth-child(2) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    width: auto;
+    gap: 8px;
+  }
+  /* CHECKLIST: only the floor selector should horizontally scroll. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module="checklist"] [data-hnl-pc-region="floor-tabs"] {
+    padding: 8px;
+    gap: 6px;
+    justify-content: flex-start;
+    max-width: 100%;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module="checklist"] [data-hnl-pc-region="floor-tabs"] > button {
+    flex: 0 0 auto;
+    min-height: 34px;
+    padding: 6px 11px;
+  }
+  /* CHAT: project rooms are scannable, not giant equal-height action buttons.
+     Conversation text remains full-width and scroll/attachment logic unchanged. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-module="chat-projects"] > div.space-y-2 {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 350px));
+    gap: 10px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-module="chat-projects"] > div.space-y-2 > button {
+    min-height: 70px;
+    padding: 13px 16px;
+    border-radius: 13px;
+    align-items: center;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-module="settings-center"] { max-width: 1280px; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-module="ai-workspace"] { max-width: 1380px; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-module="chat-room"] { max-width: 1370px; }
+  /* SETTINGS & AI: place dense forms in clean cards; do not resize fields in
+     project settings, token boxes or freeform AI prompts. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-module="settings-center"] > div.bg-white {
+    padding: 16px 19px;
+    border-radius: 15px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-module="settings-center"] > div:first-child {
+    padding: 13px 18px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-module="ai-workspace"] > section {
+    padding: 16px 18px;
+    border-radius: 15px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-module="ai-workspace"] [data-hnl-pc-deep-tabs="ai-modes"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-start;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-module="ai-workspace"] [data-hnl-pc-deep-tabs="ai-modes"] > button {
+    flex: 0 0 auto;
+    width: auto;
+    min-height: 38px;
+    padding: 7px 13px;
+  }
+}
+/* At 1024–1279px an extra filter row is preferable to squashed inputs. */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-warehouse-primary-toolbar="type-search-dates"] {
+    grid-template-columns: minmax(195px, 230px) minmax(180px, 1fr);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-warehouse-primary-toolbar="type-search-dates"] [data-hnl-warehouse-date-filter] {
+    grid-column: 1 / -1;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview {
+    grid-template-columns: 1fr;
+  }
+}
+/* Chrome Android Desktop Site at 960–1023px: only compact card padding;
+ * existing two-column stack/scroll layout takes precedence. Ordinary mobile
+ * never receives the modern desktop workspace styles. */
+@media (min-width: 960px) and (max-width: 1023px) {
+  html[data-hnl-browser-desktop="true"][data-hnl-pc-workspace="modern"]
+    [data-hnl-desktop-design="modern"] [data-hnl-pc-region="commands"] {
+    gap: 8px;
+    padding: 10px;
+  }
+}

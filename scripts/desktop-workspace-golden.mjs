@@ -12,7 +12,7 @@ assert(!app.includes("import './styles/desktopWorkspace.css';"),'Node golden tes
 const tabs=['home','floorplan','crew','warehouse','volume','checklist','chat','ai','superadmin','config'];
 for(const tab of tabs) assert.match(header,new RegExp(`\\b${tab}: \\{ name:`), `missing page ${tab}`);
 assert.match(app, /userChoice === 'modern' \|\| userChoice === 'classic'/,'must preserve explicit user choice');
-assert.match(app, /catch \{ return chromeDesktopSite \? 'modern' : 'classic'; \}/,'private browsing falls back to safe device-appropriate mode');
+assert.match(app, /catch \{ return \(isDesktopRuntime \|\| \(typeof window !== 'undefined' && window.innerWidth >= 1024\) \|\| chromeDesktopSite\) \? 'modern' : 'classic'; \}/,'private browsing uses modern PC and preserves classic mobile');
 assert.match(app, /localStorage\.setItem\('hnl_desktop_workspace_mode_v1', next\)/,'mode preference must be browser-local');
 assert.match(app,/data-hnl-desktop-design=\{visibleTab !== 'home' \? desktopWorkspaceMode : 'classic'\}/,'home must always keep classic look');
 assert.match(css,/@media\(min-width:960px\)/,'modern design must be PC-scoped including Chrome desktop-site 980px');

@@ -16,7 +16,7 @@ const app=fs.readFileSync('src/App.tsx','utf8');
 const css=fs.readFileSync('src/styles/desktopWorkspace.css','utf8');
 assert.ok(app.includes('forceDesktopRail={isDesktopRuntime || chromeDesktopSite}'));
 assert.ok(app.includes("userChoice === 'modern' || userChoice === 'classic'"),'explicit classic rollback preserved');
-assert.ok(app.includes("return chromeDesktopSite ? 'modern' : 'classic'"),'desktop request auto modern only when no saved preference');
+assert.ok(app.includes("return (isDesktopRuntime || window.innerWidth >= 1024 || chromeDesktopSite) ? 'modern' : 'classic'"),'desktop PC and desktop-site auto modern only without saved preference');
 assert.ok(app.includes('document.documentElement.dataset.hnlBrowserDesktop'), 'desktop flag scoped to presentation');
 assert.ok(css.includes('@media (min-width: 960px) and (max-width: 1023px)'),'980px bridge is required');
 assert.ok(css.includes('[data-hnl-app-shell="true"]'),'narrow max-width must be removed in desktop-site mode');

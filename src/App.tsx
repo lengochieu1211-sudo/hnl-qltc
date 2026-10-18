@@ -408,8 +408,8 @@ function AuthenticatedApp() {
     try {
       const userChoice = localStorage.getItem('hnl_desktop_workspace_mode_v1');
       if (userChoice === 'modern' || userChoice === 'classic') return userChoice;
-      return chromeDesktopSite ? 'modern' : 'classic';
-    } catch { return chromeDesktopSite ? 'modern' : 'classic'; }
+      return (isDesktopRuntime || window.innerWidth >= 1024 || chromeDesktopSite) ? 'modern' : 'classic';
+    } catch { return (isDesktopRuntime || (typeof window !== 'undefined' && window.innerWidth >= 1024) || chromeDesktopSite) ? 'modern' : 'classic'; }
   });
   useEffect(() => {
     if (typeof document === 'undefined') return undefined;
