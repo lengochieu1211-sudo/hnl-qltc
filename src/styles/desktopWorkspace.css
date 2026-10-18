@@ -1,14 +1,9 @@
 /* HNL QLTC PC Workspace v1: presentation only; NEVER change field values, canvas geometry,
    nested control callbacks, Firestore/R2, role checks or modal positioning. Opt-in and >=1024px. */
 @media(min-width:960px){
-[data-hnl-desktop-design="modern"]{--pc-bg:#f1f5f9;--pc-card:#fff;--pc-soft:#f8fafc;--pc-border:#dbe3ef;--pc-text:#0f172a;--pc-muted:#475569;--pc-nav:224px;--pc-text-size:13px;--pc-label-size:12px;--pc-control-height:38px;padding-left:var(--pc-nav)!important;background:var(--pc-bg);font-size:var(--pc-text-size)}
-/* Keep original BottomNav and all of its handlers; change geometry only. */
-[data-hnl-desktop-design="modern"] [data-hnl-nav-surface="desktop"]{width:var(--pc-nav)!important;padding:10px;border-color:var(--pc-border);background:var(--pc-card);box-shadow:4px 0 20px #0f172a0d}
-[data-hnl-desktop-design="modern"] [data-hnl-nav-surface="desktop"] nav{align-items:stretch;gap:4px;padding:4px 2px}
-[data-hnl-desktop-design="modern"] [data-hnl-nav-surface="desktop"] nav::before{content:'PHÂN HỆ QUẢN LÝ';padding:11px 9px;color:var(--pc-muted);font-size:10px;letter-spacing:.09em;font-weight:800}
-[data-hnl-desktop-design="modern"] [data-hnl-nav-surface="desktop"] nav>button,[data-hnl-desktop-design="modern"] [data-hnl-nav-surface="desktop"]>div>button{width:100%;min-height:44px;flex-direction:row!important;justify-content:flex-start;gap:12px;border-radius:12px;padding:7px 10px;text-align:left}
-[data-hnl-desktop-design="modern"] [data-hnl-nav-surface="desktop"] nav>button>span:last-child,[data-hnl-desktop-design="modern"] [data-hnl-nav-surface="desktop"]>div>button>span:last-child{max-width:none;font-size:12px!important;line-height:1.4;font-weight:700}
-[data-hnl-desktop-design="modern"] [data-hnl-nav-surface="desktop"] nav>button svg,[data-hnl-desktop-design="modern"] [data-hnl-nav-surface="desktop"]>div>button svg{width:19px;height:19px;flex-shrink:0}
+[data-hnl-desktop-design="modern"]{--pc-bg:#f1f5f9;--pc-card:#fff;--pc-soft:#f8fafc;--pc-border:#dbe3ef;--pc-text:#0f172a;--pc-muted:#475569;--pc-nav:84px;--pc-text-size:13px;--pc-label-size:12px;--pc-control-height:38px;padding-left:var(--pc-nav)!important;background:var(--pc-bg);font-size:var(--pc-text-size)}
+/* V3.2 navigation safety: preserve original BottomNav PC 84px rail byte-for-byte.
+   No wider sidebar, no horizontal button conversion and no duplicate primary tab list. */
 /* Universal module header and quick tools, modeled on the Home dashboard. */
 [data-hnl-desktop-design="modern"] .hnl-pc-workspace-heading{margin:14px 18px 12px;padding:20px 22px 16px;border-radius:20px;border:1px solid var(--pc-border);background:var(--pc-card);box-shadow:0 6px 24px #0f172a0b;color:var(--pc-text)}
 [data-hnl-desktop-design="modern"] .hnl-pc-heading-top{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:18px}
@@ -22,11 +17,15 @@
 [data-hnl-desktop-design="modern"] .hnl-pc-status.is-online{color:#047857}
 [data-hnl-desktop-design="modern"] .hnl-pc-status.is-offline{color:#b45309}
 [data-hnl-desktop-design="modern"] .hnl-pc-heading-actions{display:flex;justify-content:flex-end;align-items:center;gap:7px;flex-wrap:wrap;max-width:730px}
-[data-hnl-desktop-design="modern"] .hnl-pc-heading-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:var(--pc-control-height);padding:8px 11px;border:1px solid var(--pc-border);border-radius:11px;background:var(--pc-soft);color:var(--pc-text);font-size:var(--pc-label-size);font-weight:700}
+[data-hnl-desktop-design="modern"] .hnl-pc-heading-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:34px;padding:6px 10px;border:1px solid var(--pc-border);border-radius:11px;background:var(--pc-soft);color:var(--pc-text);font-size:var(--pc-label-size);font-weight:700}
 [data-hnl-desktop-design="modern"] .hnl-pc-heading-actions button:hover{background:color-mix(in srgb,var(--hnl-primary) 8%,white)}
 [data-hnl-desktop-design="modern"] .hnl-pc-heading-actions .hnl-pc-mode-switch{background:color-mix(in srgb,var(--hnl-primary) 10%,white);color:var(--hnl-primary-on-light);border-color:color-mix(in srgb,var(--hnl-primary) 24%,white)}
 [data-hnl-desktop-design="modern"] .hnl-pc-alert-count{display:inline-flex;background:#be123c;color:white;border-radius:99px;font-size:10px;padding:0 5px}
-[data-hnl-desktop-design="modern"] .hnl-pc-quick-nav{display:flex;align-items:center;flex-wrap:wrap;gap:5px;margin-top:16px;padding-top:12px;border-top:1px solid var(--pc-border)}
+/* PC modern only: old dark global banner repeats project/action information already visible
+   in the white contextual header. Keep it mounted (no Auth/sync lifecycle change),
+   and keep original banner in Home, classic workspace and ordinary mobile. */
+[data-hnl-desktop-design="modern"] [data-hnl-global-header]{display:none!important}
+[data-hnl-desktop-design="modern"] .hnl-pc-quick-nav{display:none!important} /* BottomNav is the single original primary tab rail. */
 [data-hnl-desktop-design="modern"] .hnl-pc-quick-nav>svg{margin-right:8px;color:var(--pc-muted)}
 [data-hnl-desktop-design="modern"] .hnl-pc-quick-nav button{border-radius:9px;padding:7px 10px;font-size:12px;font-weight:700;color:var(--pc-muted)}
 [data-hnl-desktop-design="modern"] .hnl-pc-quick-nav button:hover,[data-hnl-desktop-design="modern"] .hnl-pc-quick-nav button.is-current{color:var(--hnl-primary-on-light);background:color-mix(in srgb,var(--hnl-primary) 10%,white)}
@@ -63,11 +62,11 @@ html[data-hnl-theme="dark"] .hnl-pc-classic-return{background:#0f172a;color:#e2e
     background: var(--pc-bg);
   }
   [data-hnl-desktop-design="modern"] .hnl-pc-workspace-heading {
-    margin: 18px 20px 14px; padding: 20px 24px 14px;
+    margin: 10px 14px 10px; padding: 11px 16px 10px;
     border-radius: 20px; border-top: 4px solid var(--pc-v2-brand);
     box-shadow: var(--pc-v2-glow);
   }
-  [data-hnl-desktop-design="modern"] .hnl-pc-heading-main h1 { font-size: 25px; letter-spacing: -.025em; }
+  [data-hnl-desktop-design="modern"] .hnl-pc-heading-main h1 { font-size: 19px; letter-spacing: -.025em; }
   [data-hnl-desktop-design="modern"] .hnl-pc-quick-nav { margin-top: 12px; padding-top: 12px; }
   [data-hnl-desktop-design="modern"] main[data-hnl-pc-workspace="true"] {
     padding: 0 0 30px; min-width: 0;
@@ -457,3 +456,179 @@ html[data-hnl-theme="dark"] .hnl-pc-classic-return{background:#0f172a;color:#e2e
 /* Never render desktop-only secondary section titles on classic PC or genuine mobile. */
 @media (max-width: 959px) { .hnl-pc-v3-section-band { display: none !important; } }
 @media (min-width: 960px) { [data-hnl-desktop-design="classic"] .hnl-pc-v3-section-band { display: none !important; } }
+
+/* HNL PC Workspace V3.2 — remaining operational dialogs and nested editors.
+ * Presentation-only, opt-in >=960px; no overlays or changes on classic/normal mobile.
+ * Scope by explicit markers: never restyle canvas, image/editor coordinates or Cloud actions. */
+@media (min-width: 960px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window] {
+    --hnl-v32-line: var(--pc-border, #dbe3ef);
+    --hnl-v32-paper: var(--pc-card, #fff);
+    --hnl-v32-soft: var(--pc-soft, #f8fafc);
+    --hnl-v32-ink: var(--pc-text, #0f172a);
+    --hnl-v32-accent: var(--hnl-primary-action, #2563eb);
+    --hnl-v32-shadow: 0 22px 72px rgb(15 23 42 / 18%);
+  }
+  /* Desktop dialogs: large working surface, clear heading, scroll belongs to its pane. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window="material-norm"] > div {
+    width: min(94vw, 1240px); max-width: 1240px; max-height: min(92dvh, 960px);
+    border: 1px solid var(--hnl-v32-line); border-radius: 20px;
+    box-shadow: var(--hnl-v32-shadow);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="catalog-tabs"] {
+    width: min(100%, 470px); gap: 6px; padding: 6px; border: 1px solid var(--hnl-v32-line);
+    border-radius: 14px; flex: 0 0 auto;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="catalog-tabs"] button {
+    min-height: 41px; font-size: 12px; border-radius: 10px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="equipment-catalog"] {
+    min-width: 0; padding: 4px 3px 18px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="equipment-toolbar"] {
+    gap: 12px; padding: 12px 14px; border: 1px solid var(--hnl-v32-line);
+    border-radius: 14px; background: var(--hnl-v32-soft);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="equipment-toolbar"] input {
+    min-height: 41px; font-size: 13px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="equipment-editor"],
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="norm-editor"] {
+    border: 1px solid var(--hnl-v32-line); border-radius: 16px;
+    padding: 16px 18px; background: var(--hnl-v32-paper);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="equipment-editor"] :is(input:not([type="checkbox"]),select,textarea),
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="norm-editor"] :is(input:not([type="checkbox"]),select,textarea) {
+    min-height: 40px; border-radius: 10px; font-size: 13px;
+  }
+
+  /* Quick-edit (Excel-like): do not change cell events, sticky column coordinates or row sizing. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window="quick-grid"] > div {
+    width: min(100%, 1780px); max-height: calc(100dvh - 24px); margin: auto;
+    border-radius: 18px; border: 1px solid var(--hnl-v32-line);
+    box-shadow: var(--hnl-v32-shadow);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="grid-tabs"] {
+    gap: 8px; min-height: 52px; align-items: center; scrollbar-gutter: stable;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="grid-tabs"] button {
+    min-height: 35px; padding-inline: 15px; white-space: nowrap;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="grid-toolbar"] {
+    gap: 10px; padding-block: 13px; background: var(--hnl-v32-soft);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="grid-toolbar"] > input[type="text"],
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="grid-toolbar"] > input:not([type]) {
+    min-height: 40px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="grid-scroll"] {
+    min-height: 0; scrollbar-gutter: stable; overscroll-behavior: contain;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="grid-scroll"] table {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Cross-project source basket: two visible panes and independent scrolling. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window="source-picker"] > div {
+    width: min(94vw, 1100px); max-width: 1100px;
+    max-height: min(91dvh, 900px); border-radius: 20px;
+    box-shadow: var(--hnl-v32-shadow);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="source-selection"] {
+    gap: 16px; padding: 18px; min-height: 0;
+    grid-template-columns: minmax(0,1fr) minmax(235px,295px);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="source-results"] {
+    min-height: 0; scrollbar-gutter: stable;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="source-basket"] {
+    min-width: 0; background: var(--hnl-v32-soft); border-color: var(--hnl-v32-line);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="source-basket"] > div:last-child {
+    scrollbar-gutter: stable;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="template-manager"] {
+    padding: 14px; border: 1px solid var(--hnl-v32-line);
+    border-radius: 16px; background: var(--hnl-v32-paper);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="template-tabs"] {
+    gap: 8px; padding: 5px; background: var(--hnl-v32-soft);
+    border: 1px solid var(--hnl-v32-line); border-radius: 12px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="template-tabs"] button {
+    min-height: 36px; padding-inline: 12px;
+  }
+
+  /* Report window: separate report scope from export actions; maintain exact export flows. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window="report-export"] > div {
+    width: min(94vw, 1180px); max-width: 1180px;
+    max-height: min(92dvh, 1000px); border: 1px solid var(--hnl-v32-line);
+    border-radius: 20px; box-shadow: var(--hnl-v32-shadow);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="report-filters"] {
+    padding: 16px 18px; border-radius: 16px;
+    border: 1px solid var(--hnl-v32-line); background: var(--hnl-v32-paper);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="report-filters"] :is(input,select,button) {
+    min-height: 36px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="report-actions"] {
+    margin-top: 18px; padding: 16px 18px; border: 1px solid var(--hnl-v32-line);
+    border-radius: 16px; background: var(--hnl-v32-soft);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="report-actions"] [data-hnl-report-format] {
+    min-height: 45px; font-size: 13px;
+  }
+
+  /* Crew export is a report, not a generic modal; preserve full wide tables and date labels. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window="crew-share"] > div {
+    max-width: 1380px; border-radius: 20px;
+    box-shadow: var(--hnl-v32-shadow);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="crew-report-body"] {
+    display: flex; flex-direction: column; gap: 17px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="crew-share-actions"] {
+    max-width: 640px; width: 100%; margin-left: auto; gap: 10px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="crew-share-actions"] button {
+    min-height: 44px; font-size: 12px;
+  }
+
+  /* Data conflict resolution keeps its warning semantics and save/merge handlers. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window="conflict-merge"] > div {
+    width: min(94vw, 1220px); max-width: 1220px;
+    max-height: min(92dvh, 940px); border-radius: 20px;
+    box-shadow: var(--hnl-v32-shadow);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="merge-strategy"] {
+    padding: 17px 19px; border-radius: 15px; gap: 14px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="merge-strategy"] button {
+    min-height: 108px;
+  }
+
+  /* Room editing: only form typography/spacing, never floor-plan geometry or overlays. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window="room-editor"] > div {
+    border-radius: 20px; border: 1px solid var(--hnl-v32-line);
+    box-shadow: var(--hnl-v32-shadow);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="room-form"] {
+    padding: 2px 6px 18px 2px; scrollbar-gutter: stable;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="room-form"] :is(input:not([type="checkbox"]):not([type="radio"]),select,textarea) {
+    min-height: 39px; border-radius: 10px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window] :is(button,input,select,textarea):focus-visible {
+    outline: 2px solid var(--hnl-v32-accent); outline-offset: 2px;
+  }
+}
+@media (min-width: 960px) and (max-width: 1100px) {
+  /* Chrome Android 'Desktop site' (~980px): retain separate panes without clipping. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="source-selection"] {
+    grid-template-columns: minmax(0,1fr) minmax(190px,235px); padding: 12px; gap: 10px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window="quick-grid"] > div {
+    max-height: calc(100dvh - 12px);
+  }
+}

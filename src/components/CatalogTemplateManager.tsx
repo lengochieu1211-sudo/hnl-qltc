@@ -243,13 +243,13 @@ export const CatalogTemplateManager: React.FC<{ onDirtyChange?: (dirty: boolean)
   const allItemsSelected = Boolean(draft?.items.length) && draft!.items.every((item: any) => selectedItemIds.includes(String(item?.id)));
 
   return (
-    <div className="space-y-3" data-hnl-template-manager>
+    <div className="space-y-3" data-hnl-pc-v32-region="template-manager" data-hnl-template-manager>
       <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3 text-[10px] text-indigo-900">
         Mẫu cá nhân được lưu theo tài khoản Google hiện tại. Bạn được sửa/xóa mẫu của chính mình.
         Sửa hoặc xóa mẫu không thay đổi dữ liệu đã lấy vào các công trình trước đó.
       </div>
 
-      <div className="flex gap-1.5 overflow-x-auto pb-1">
+      <div data-hnl-pc-v32-region="template-tabs" className="flex gap-1.5 overflow-x-auto pb-1">
         {KIND_OPTIONS.map((kind) => (
           <button
             type="button"

@@ -1003,7 +1003,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+    <div data-hnl-pc-v32-window="material-norm" className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
       <div className="bg-white w-full max-w-5xl rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 space-y-4 max-h-[92vh] flex flex-col border border-slate-100 shadow-2xl">
         
         {/* Header */}
@@ -1035,7 +1035,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             className="self-start"
           />
         )}
-        <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1" role="tablist" aria-label="Vật tư, thiết bị và định mức">
+        <div data-hnl-pc-v32-region="catalog-tabs" className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1" role="tablist" aria-label="Vật tư, thiết bị và định mức">
           {([
             { key: 'material', label: 'Vật tư · Định mức' },
             { key: 'equipment', label: 'Thiết bị' },
@@ -1335,7 +1335,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
           </div>
         ) : (
           /* Add / Edit Form */
-          <form onSubmit={handleSubmit} data-hnl-norm-editor="true" className="mx-auto w-full max-w-3xl lg:max-w-none flex-1 overflow-y-auto space-y-3.5 pr-1 text-xs" onChangeCapture={() => setMaterialDraftDirty(true)}>
+          <form onSubmit={handleSubmit} data-hnl-pc-v32-region="norm-editor" data-hnl-norm-editor="true" className="mx-auto w-full max-w-3xl lg:max-w-none flex-1 overflow-y-auto space-y-3.5 pr-1 text-xs" onChangeCapture={() => setMaterialDraftDirty(true)}>
             <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-200">
               <span className="font-bold text-slate-800">
                 {mode === 'add' ? 'Tạo định mức mới' : 'Cập nhật định mức vật tư'}

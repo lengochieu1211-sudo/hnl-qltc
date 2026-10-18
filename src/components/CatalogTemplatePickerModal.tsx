@@ -148,7 +148,7 @@ export const CatalogTemplatePickerModal: React.FC<CatalogTemplatePickerModalProp
   };
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/55 p-3">
+    <div data-hnl-pc-v32-window="source-picker" className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/55 p-3">
       <div className="flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
         <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
           <div>
@@ -158,7 +158,7 @@ export const CatalogTemplatePickerModal: React.FC<CatalogTemplatePickerModalProp
           <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"><X className="h-4 w-4" /></button>
         </div>
 
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden p-4 md:grid-cols-[minmax(0,1fr)_280px]">
+        <div data-hnl-pc-v32-region="source-selection" className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden p-4 md:grid-cols-[minmax(0,1fr)_280px]">
           <div className="flex min-h-0 flex-col gap-2">
             <div className="grid gap-2 sm:grid-cols-[1fr_1fr]">
               <select value={sourceProjectId} onChange={(e) => setSourceProjectId(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold">
@@ -174,7 +174,7 @@ export const CatalogTemplatePickerModal: React.FC<CatalogTemplatePickerModalProp
 
             {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-semibold text-rose-700">{error}</div>}
 
-            <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-slate-200">
+            <div data-hnl-pc-v32-region="source-results" className="min-h-0 flex-1 overflow-auto rounded-xl border border-slate-200">
               <label className="sticky top-0 z-10 flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-extrabold text-slate-700">
                 <input type="checkbox" checked={allVisibleSelected} onChange={(e) => {
                   const next = new Set(selectedIds);
@@ -206,7 +206,7 @@ export const CatalogTemplatePickerModal: React.FC<CatalogTemplatePickerModalProp
             </button>
           </div>
 
-          <div className="flex min-h-0 flex-col rounded-xl border border-slate-200 bg-slate-50/70">
+          <div data-hnl-pc-v32-region="source-basket" className="flex min-h-0 flex-col rounded-xl border border-slate-200 bg-slate-50/70">
             <div className="border-b border-slate-200 px-3 py-2 text-[11px] font-black text-slate-800">Đã chọn từ nhiều công trình · {basket.length}</div>
             <div className="min-h-0 flex-1 overflow-auto p-2">
               {basket.length === 0 ? <div className="p-4 text-center text-[10px] text-slate-500">Chưa có mục nào trong giỏ.</div> : basket.map((row) => (

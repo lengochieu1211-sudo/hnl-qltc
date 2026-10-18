@@ -1,5 +1,6 @@
 import React from 'react';
-import { Bell, Building2, ChevronRight, ClipboardList, FileBarChart2, LayoutDashboard, LockKeyhole, MonitorCog, Settings2, Wifi, WifiOff } from 'lucide-react';
+import { Bell, Building2, ChevronRight, FileBarChart2, LayoutDashboard, LockKeyhole, MonitorCog, Wifi, WifiOff } from 'lucide-react';
+import { UndoRedoControls } from './UndoRedoControls';
 import type { TabType } from './BottomNav';
 
 /**
@@ -37,24 +38,16 @@ export interface DesktopWorkspaceHeaderProps {
   showAI: boolean;
   showSuperAdmin: boolean;
   notificationCount: number;
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
 }
-
-const shortcuts = [
-  { tab: 'floorplan' as const, name: 'Mặt bằng' },
-  { tab: 'crew' as const, name: 'Quân số' },
-  { tab: 'warehouse' as const, name: 'Kho' },
-  { tab: 'volume' as const, name: 'Khối lượng' },
-  { tab: 'chat' as const, name: 'Trao đổi' },
-  { tab: 'ai' as const, name: 'HNL AI' },
-  { tab: 'checklist' as const, name: 'Checklist' },
-  { tab: 'superadmin' as const, name: 'Hệ thống' },
-  { tab: 'config' as const, name: 'Cài đặt' },
-];
 
 export const DesktopWorkspaceHeader: React.FC<DesktopWorkspaceHeaderProps> = ({
   activeTab, mode, onChangeMode, projectName, online, userRole,
   onOpenProjects, onOpenReports, onOpenNotifications, onOpenSecurity,
-  onNavigate, showChecklist, showAI, showSuperAdmin, notificationCount,
+  notificationCount, onUndo, onRedo, canUndo, canRedo,
 }) => {
   if (activeTab === 'home') return null;
   if (mode === 'classic') return (
@@ -81,6 +74,7 @@ export const DesktopWorkspaceHeader: React.FC<DesktopWorkspaceHeaderProps> = ({
           </div>
         </div>
         <div className="hnl-pc-heading-actions" aria-label="Công cụ truy cập nhanh">
+          <UndoRedoControls onUndo={onUndo} onRedo={onRedo} canUndo={canUndo} canRedo={canRedo} variant="light" />
           <button type="button" onClick={onOpenProjects}><Building2 size={17} aria-hidden="true" /> Dự án</button>
           <button type="button" onClick={onOpenReports}><FileBarChart2 size={17} aria-hidden="true" /> Báo cáo</button>
           <button type="button" onClick={onOpenNotifications}><Bell size={17} aria-hidden="true" /> Thông báo{notificationCount > 0 && <span className="hnl-pc-alert-count">{notificationCount > 99 ? '99+' : notificationCount}</span>}</button>
@@ -88,13 +82,6 @@ export const DesktopWorkspaceHeader: React.FC<DesktopWorkspaceHeaderProps> = ({
           <button type="button" className="hnl-pc-mode-switch" onClick={() => onChangeMode('classic')} title="Chỉ khôi phục bố cục PC, không thay đổi dữ liệu"><MonitorCog size={17} aria-hidden="true" /> PC cũ</button>
         </div>
       </div>
-      <nav className="hnl-pc-quick-nav" aria-label="Chuyển nhanh phân hệ">
-        <ClipboardList size={15} aria-hidden="true" className="hnl-pc-quick-icon" />
-        {shortcuts.filter(({ tab }) => (tab !== 'ai' || showAI) && (tab !== 'checklist' || showChecklist) && (tab !== 'superadmin' || showSuperAdmin)).map(({ tab, name }) => (
-          <button type="button" key={tab} onClick={() => onNavigate(tab)} className={tab === activeTab ? 'is-current' : ''} aria-current={tab === activeTab ? 'page' : undefined}>{name}</button>
-        ))}
-        <button type="button" className="hnl-pc-quick-settings" onClick={onOpenReports}><Settings2 size={14} aria-hidden="true" /> Xuất báo cáo</button>
-      </nav>
     </section>
   );
 };

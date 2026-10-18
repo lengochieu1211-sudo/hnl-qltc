@@ -352,7 +352,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
     }
   };
 
-  return <div className="space-y-3" data-hnl-equipment-master="true">
+  return <div className="space-y-3" data-hnl-pc-v32-region="equipment-catalog" data-hnl-equipment-master="true">
     <p className="text-[11px] leading-relaxed text-slate-600">
       Quản lý thông số thiết bị tại đây. Nhật ký Nhập/Xuất và tồn kho giữ nguyên, không đưa thiết bị vào định mức hao phí vật tư.
     </p>
@@ -363,7 +363,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
         Hãy chọn đúng thiết bị trong danh sách; chưa mở màn hình chỉnh sửa.
       </p>
     )}
-    <div className="flex flex-wrap gap-2">
+    <div data-hnl-pc-v32-region="equipment-toolbar" className="flex flex-wrap gap-2">
       <div className="relative min-w-0 flex-1">
         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
         <input type="search" className="w-full rounded-xl border border-slate-300 py-2 pl-9 pr-2 text-xs"
@@ -384,7 +384,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
       Không tải được thông tin thiết bị: {error}. Chức năng chỉnh sửa được khóa để bảo vệ dữ liệu.
     </p>}
 
-    {edit && <section className="space-y-3.5 rounded-2xl border border-indigo-200 bg-indigo-50/40 p-3 sm:p-4" data-hnl-equipment-editor="true">
+    {edit && <section className="space-y-3.5 rounded-2xl border border-indigo-200 bg-indigo-50/40 p-3 sm:p-4" data-hnl-pc-v32-region="equipment-editor" data-hnl-equipment-editor="true">
       <div className="flex items-center justify-between gap-2 border-b border-indigo-100 pb-2">
         <strong className="text-xs font-bold text-slate-900">
           {editingExisting ? (edit.id ? 'Chỉnh thông tin thiết bị' : 'Bổ sung thông tin thiết bị từ phiếu kho') : 'Tạo thiết bị mới'}

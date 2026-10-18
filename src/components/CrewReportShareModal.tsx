@@ -602,7 +602,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[95] overflow-y-auto bg-slate-950/55 p-2 backdrop-blur-[1px] sm:p-4" role="dialog" aria-modal="true" aria-label="Chia sẻ báo cáo quân số">
+    <div data-hnl-pc-v32-window="crew-share" className="fixed inset-0 z-[95] overflow-y-auto bg-slate-950/55 p-2 backdrop-blur-[1px] sm:p-4" role="dialog" aria-modal="true" aria-label="Chia sẻ báo cáo quân số">
       <div className="mx-auto w-full max-w-6xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
         <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-5">
           <div>
@@ -612,7 +612,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
           <button type="button" onClick={onClose} className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50" aria-label="Đóng"><X className="h-5 w-5" /></button>
         </div>
 
-        <div className="space-y-4 p-3 sm:p-5">
+        <div data-hnl-pc-v32-region="crew-report-body" className="space-y-4 p-3 sm:p-5">
           {!rangeLocked && (
             <div className="space-y-2">
               <div className="flex flex-wrap gap-2" role="group" aria-label="Chọn nhanh ngày báo cáo">
@@ -766,7 +766,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
             <Users className="mr-1 inline h-3.5 w-3.5" /> 0 = đã báo, không có người · — = chưa báo · Tổng ngày = cộng QS các đội · TỔNG = cộng từng cột; ô cuối = tổng lượt người-ngày.
           </div>
 
-          <div className="grid grid-cols-3 gap-2" data-hnl-crew-export-menu="unified">
+          <div className="grid grid-cols-3 gap-2" data-hnl-pc-v32-region="crew-share-actions" data-hnl-crew-export-menu="unified">
             <button type="button" disabled={!rangeValid || rows.length===0||Boolean(busy)} onClick={()=>void openActionMenu('text')}
               aria-expanded={actionMenu==='text'} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-slate-800 px-2 text-xs font-bold text-white disabled:opacity-40">
               <FileText className="h-4 w-4" /> Nội dung

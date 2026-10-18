@@ -576,7 +576,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
   const allVisibleSelected = selectableVisibleRows.length > 0 && selectableVisibleRows.every((row) => selectedRowKeys.has(row.__rowKey));
 
   return (
-    <div className="fixed inset-0 z-[180] bg-slate-950/55 backdrop-blur-[1px] flex items-stretch sm:p-3">
+    <div data-hnl-pc-v32-window="quick-grid" className="fixed inset-0 z-[180] bg-slate-950/55 backdrop-blur-[1px] flex items-stretch sm:p-3">
       <div className="bg-white w-full h-full sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-slate-200">
         <div className="px-3 sm:px-4 py-3 border-b border-slate-200 bg-white flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -587,7 +587,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
         </div>
 
         {tabs && tabs.length > 0 && (
-          <div className="px-3 sm:px-4 py-2 border-b border-slate-200 bg-white flex gap-1.5 overflow-x-auto">
+          <div data-hnl-pc-v32-region="grid-tabs" className="px-3 sm:px-4 py-2 border-b border-slate-200 bg-white flex gap-1.5 overflow-x-auto">
             {tabs.map((tab) => (
               <button
                 key={tab.key}
@@ -601,7 +601,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
           </div>
         )}
 
-        <div className="px-3 sm:px-4 py-2 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center gap-2">
+        <div data-hnl-pc-v32-region="grid-toolbar" className="px-3 sm:px-4 py-2 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center gap-2">
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -638,7 +638,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
           <span className="text-[10px] font-bold text-slate-500 ml-auto">{filteredRows.length}/{draftRows.length} dòng</span>
         </div>
 
-        <div className="flex-1 overflow-auto bg-slate-100">
+        <div data-hnl-pc-v32-region="grid-scroll" className="flex-1 overflow-auto bg-slate-100">
           <table onCopy={handleCopy} className="min-w-max w-full border-separate border-spacing-0 text-[11px]">
             <thead>
               <tr>

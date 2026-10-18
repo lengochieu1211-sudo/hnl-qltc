@@ -370,7 +370,7 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
   ).length;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+    <div data-hnl-pc-v32-window="conflict-merge" className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         
         {/* Header Banner */}
@@ -398,7 +398,7 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
         <div className="p-5 overflow-y-auto space-y-4 text-xs text-slate-700 flex-1">
           
           {/* Strategy Chooser */}
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+          <div data-hnl-pc-v32-region="merge-strategy" className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
             <label className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
               <Layers className="w-4 h-4 text-slate-600" />
               <span>Chọn phương thức đồng bộ / hợp nhất:</span>
