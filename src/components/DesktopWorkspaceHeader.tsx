@@ -49,7 +49,21 @@ export const DesktopWorkspaceHeader: React.FC<DesktopWorkspaceHeaderProps> = ({
   onOpenProjects, onOpenReports, onOpenNotifications, onOpenSecurity,
   notificationCount, onUndo, onRedo, canUndo, canRedo,
 }) => {
-  if (activeTab === 'home') return null;
+  // Home keeps its existing dashboard layout; modern PC only replaces the duplicated
+  // dark global banner with a compact action row, using the same guarded callbacks.
+  if (activeTab === 'home') {
+    if (mode === 'classic') return null;
+    return (
+      <div className="hnl-pc-home-actions" data-hnl-pc-home-actions="true" aria-label="Công cụ Trang chủ PC">
+        <UndoRedoControls onUndo={onUndo} onRedo={onRedo} canUndo={canUndo} canRedo={canRedo} variant="light" />
+        <button type="button" onClick={onOpenProjects}><Building2 size={16} aria-hidden="true" /> Dự án</button>
+        <button type="button" onClick={onOpenReports}><FileBarChart2 size={16} aria-hidden="true" /> Báo cáo</button>
+        <button type="button" onClick={onOpenNotifications}><Bell size={16} aria-hidden="true" /> Thông báo{notificationCount > 0 && <span className="hnl-pc-alert-count">{notificationCount > 99 ? '99+' : notificationCount}</span>}</button>
+        <button type="button" onClick={onOpenSecurity}><LockKeyhole size={16} aria-hidden="true" /> Bảo mật</button>
+        <button type="button" onClick={() => onChangeMode('classic')} title="Chỉ đổi giao diện PC, không đổi dữ liệu"><MonitorCog size={16} aria-hidden="true" /> PC cũ</button>
+      </div>
+    );
+  }
   if (mode === 'classic') return (
     <div className="hnl-pc-classic-return" data-hnl-pc-mode-toggle="classic">
       <MonitorCog size={16} aria-hidden="true" />

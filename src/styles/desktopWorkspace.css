@@ -23,7 +23,7 @@
 [data-hnl-desktop-design="modern"] .hnl-pc-alert-count{display:inline-flex;background:#be123c;color:white;border-radius:99px;font-size:10px;padding:0 5px}
 /* PC modern only: old dark global banner repeats project/action information already visible
    in the white contextual header. Keep it mounted (no Auth/sync lifecycle change),
-   and keep original banner in Home, classic workspace and ordinary mobile. */
+   and keep original banner in classic workspace and ordinary mobile. */
 [data-hnl-desktop-design="modern"] [data-hnl-global-header]{display:none!important}
 [data-hnl-desktop-design="modern"] .hnl-pc-quick-nav{display:none!important} /* BottomNav is the single original primary tab rail. */
 [data-hnl-desktop-design="modern"] .hnl-pc-quick-nav>svg{margin-right:8px;color:var(--pc-muted)}
@@ -632,3 +632,19 @@ html[data-hnl-theme="dark"] .hnl-pc-classic-return{background:#0f172a;color:#e2e
     max-height: calc(100dvh - 12px);
   }
 }
+
+/* V3.2.1 Home: preserve HomeDashboard's original layout. Hide the global dark
+   header only in modern PC, while keeping every global action in a slim toolbar.
+   At 960–1023px only a requested Chrome desktop site may receive this treatment. */
+@media(min-width:1024px){
+  [data-hnl-pc-home-modern="true"] [data-hnl-global-header]{display:none!important}
+  [data-hnl-pc-home-modern="true"] .hnl-pc-home-actions{display:flex}
+}
+@media(min-width:960px) and (max-width:1023px){
+  html[data-hnl-browser-desktop="true"] [data-hnl-pc-home-modern="true"] [data-hnl-global-header]{display:none!important}
+  html[data-hnl-browser-desktop="true"] [data-hnl-pc-home-modern="true"] .hnl-pc-home-actions{display:flex}
+}
+.hnl-pc-home-actions{display:none;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap;padding:8px 18px;border-bottom:1px solid #e2e8f0;background:#fff}
+.hnl-pc-home-actions>button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px;padding:5px 10px;border-radius:10px;border:1px solid #dbe3ef;background:#f8fafc;color:#334155;font-size:12px;font-weight:700}
+.hnl-pc-home-actions>button:hover{background:#eff6ff}
+.hnl-pc-home-actions .hnl-pc-alert-count{display:inline-flex;padding:0 5px;border-radius:99px;background:#be123c;color:white;font-size:10px}
