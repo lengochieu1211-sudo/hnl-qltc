@@ -101,6 +101,31 @@ for (const btn of [materialAddAction, equipmentAddAction]) {
     'Voucher add action icons are the same size');
 }
 
+// PC V3.5: nested dialogs must escape the blurred, scrolling settings sheet.
+const viewportPortal = read('src/components/ViewportModalPortal.tsx');
+const projectDialogs = read('src/components/ProjectManagerModal.tsx');
+const normDialogs = read('src/components/MaterialNormModal.tsx');
+const mergeDialogs = read('src/components/ConflictMergeModal.tsx');
+assert.ok(viewportPortal.includes('createPortal(children, document.body)') && viewportPortal.includes("typeof document === 'undefined'"),
+  'Viewport portal uses document.body without breaking SSR');
+for (const condition of ['showConflictModal && pendingImportData','multiProjectSyncState',
+  'canBackup && deletingCloudBackupTarget','showJsonScopePicker','exportedFileInfo','importedFileInfo','pendingEncryptedPayload']) {
+  const start = projectDialogs.indexOf('{' + condition + ' && (');
+  const end = projectDialogs.indexOf('\n      )}', start);
+  assert.ok(start >= 0 && end > start && projectDialogs.slice(start, end).includes('<ViewportModalPortal>') &&
+    projectDialogs.slice(start, end).includes('</ViewportModalPortal>'), 'Unportaled project overlay: ' + condition);
+}
+assert.ok(projectDialogs.includes('data-hnl-viewport-overlay="json-export-scope"') && projectDialogs.includes('handleExportJsonForScope()') && projectDialogs.includes("inline ? 'w-full'"),
+  'JSON scope has full-viewport overlay without changing export or inline project behavior');
+assert.ok(mergeDialogs.includes('z-[320]') && normDialogs.includes('z-[330]'),
+  'Nested merge and delete overlays have global stacking above their parents');
+assert.ok(normDialogs.includes('<ViewportModalPortal>') && normDialogs.includes('onDeleteNorm(deletingNormTarget.id);'),
+  'Material norm UI and existing ADMIN delete action preserved');
+assert.ok(report.includes('<ViewportModalPortal>') && report.includes('max-h-[calc(100dvh-1rem)]') &&
+  report.includes('overscroll-contain') && report.includes('sticky top-0 z-20'),
+  'Report overlay escapes scrolling parent and has bounded internal scroll with visible header');
+console.log('PC DEEP VIEWPORT OVERLAY GOLDEN PASS');
+
 console.log('UI RETURN AND PALETTE GOLDEN: PASS');
 
 // When CI runs the UI regression gate, exercise the modern PC module-level layout too.

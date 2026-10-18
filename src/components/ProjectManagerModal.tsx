@@ -1,5 +1,6 @@
 import { downloadOrShareFile } from '../utils/downloadUtils';
 import React, { useState, useEffect, useMemo } from 'react';
+import { ViewportModalPortal } from './ViewportModalPortal';
 import { 
   X, Plus, Folder, Trash2, HardDrive, Download, Upload, RefreshCw, 
   CheckCircle2, AlertTriangle, ShieldCheck, ArrowLeftRight, Search, Edit3, Check, Building2, Copy, Sparkles, FolderPlus,
@@ -4503,6 +4504,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
       {/* Smart Conflict Resolution & Merge Modal */}
       {showConflictModal && pendingImportData && (
+        <ViewportModalPortal>
         <ConflictMergeModal
           localData={fullAppData}
           importedData={pendingImportData}
@@ -4524,11 +4526,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             setPendingImportData(null);
           }}
         />
+        </ViewportModalPortal>
       )}
 
       {/* MULTI-PROJECT INTELLIGENT SYNC & IMPORT MODAL */}
       {multiProjectSyncState && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs z-[280] flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
+        <ViewportModalPortal>
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs z-[340] flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col border border-indigo-100 shadow-2xl overflow-hidden">
             {/* Header */}
             <div className="hnl-multiproject-sync-header p-4 sm:p-5 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-blue-50/40 flex items-center justify-between">
@@ -4844,11 +4848,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             </div>
           </div>
         </div>
+        </ViewportModalPortal>
       )}
 
       {/* CONFIRM DELETE CLOUD BACKUP MODAL */}
       {canBackup && deletingCloudBackupTarget && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[250] flex items-center justify-center p-4 animate-in fade-in duration-150">
+        <ViewportModalPortal>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[330] flex items-center justify-center p-4 animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl p-5 max-w-xs w-full space-y-4 border border-rose-100 shadow-2xl text-center">
             <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto">
               <Trash2 className="w-6 h-6" />
@@ -4877,12 +4883,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             </div>
           </div>
         </div>
+        </ViewportModalPortal>
       )}
 
       {/* 📥 SUCCESSFUL MANUAL EXPORT SUMMARY OVERLAY */}
       {/* JSON export scope picker: shown only on explicit JSON export. */}
       {showJsonScopePicker && (
-        <div className="fixed inset-0 z-100 flex items-center justify-center p-3 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+        <ViewportModalPortal>
+        <div data-hnl-viewport-overlay="json-export-scope" className="fixed inset-0 z-[320] flex items-center justify-center p-3 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl p-4 w-full max-w-md shadow-2xl border border-slate-200 space-y-3 max-h-[86vh] overflow-y-auto">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-2.5 min-w-0">
@@ -4997,10 +5005,12 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             </div>
           </div>
         </div>
+        </ViewportModalPortal>
       )}
 
       {exportedFileInfo && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[270] flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <ViewportModalPortal>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[330] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-5 max-w-sm w-full space-y-4 border border-emerald-100 shadow-2xl relative">
             <button 
               type="button" 
@@ -5122,11 +5132,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             </div>
           </div>
         </div>
+        </ViewportModalPortal>
       )}
 
       {/* 📥 SUCCESSFUL MANUAL IMPORT SUMMARY OVERLAY */}
       {importedFileInfo && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[270] flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <ViewportModalPortal>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[330] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-5 max-w-sm w-full space-y-4 border border-indigo-100 shadow-2xl relative">
             <button 
               type="button" 
@@ -5248,11 +5260,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             </div>
           </div>
         </div>
+        </ViewportModalPortal>
       )}
 
       {/* Decrypt Password Modal for AES-GCM Encrypted Backups */}
       {pendingEncryptedPayload && (
-        <div className="fixed inset-0 z-100 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+        <ViewportModalPortal>
+        <div className="fixed inset-0 z-[320] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-5 w-full max-w-md shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
@@ -5394,6 +5408,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             </div>
           </div>
         </div>
+        </ViewportModalPortal>
       )}
     </div>
   );
