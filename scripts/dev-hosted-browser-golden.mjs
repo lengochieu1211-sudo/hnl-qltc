@@ -969,7 +969,11 @@ async function verifyChromeDesktopSite980(browser) {
     waitUntil: 'domcontentloaded', timeout: 45000,
   });
   assert(response?.status() === 200, `${label}: DEV Hosting navigation failed`);
-  await page.locator('[data-hnl-pc-workspace-title]').first().waitFor({ state: 'visible', timeout: 20000 });
+  // A new offline browser session opens Home; navigate through the actual original rail.
+  const warehouseNav = page.locator('[data-hnl-nav-surface="desktop"] [data-hnl-nav-tab="warehouse"]');
+  await warehouseNav.waitFor({ state: 'visible', timeout: 20000 });
+  await warehouseNav.click();
+  await page.locator('[data-hnl-pc-workspace-title="warehouse"]').waitFor({ state: 'visible', timeout: 20000 });
   const detection = await page.evaluate(() => ({
     detected: document.documentElement.dataset.hnlBrowserDesktop,
     width: window.innerWidth,
