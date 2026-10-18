@@ -11,11 +11,11 @@ assert(entry.includes("import './styles/desktopWorkspace.css';"),'Vite entry mus
 assert(!app.includes("import './styles/desktopWorkspace.css';"),'Node golden tests load App directly; CSS must not be imported there');
 const tabs=['home','floorplan','crew','warehouse','volume','checklist','chat','ai','superadmin','config'];
 for(const tab of tabs) assert.match(header,new RegExp(`\\b${tab}: \\{ name:`), `missing page ${tab}`);
-assert.match(app, /localStorage\.getItem\('hnl_desktop_workspace_mode_v1'\) === 'modern' \? 'modern' : 'classic'/,'must default classic');
-assert.match(app, /catch \{ return 'classic'; \}/,'private browsing must default classic');
+assert.match(app, /userChoice === 'modern' \|\| userChoice === 'classic'/,'must preserve explicit user choice');
+assert.match(app, /catch \{ return chromeDesktopSite \? 'modern' : 'classic'; \}/,'private browsing falls back to safe device-appropriate mode');
 assert.match(app, /localStorage\.setItem\('hnl_desktop_workspace_mode_v1', next\)/,'mode preference must be browser-local');
 assert.match(app,/data-hnl-desktop-design=\{visibleTab !== 'home' \? desktopWorkspaceMode : 'classic'\}/,'home must always keep classic look');
-assert.match(css,/@media\(min-width:1024px\)/,'modern design must be PC-scoped');
+assert.match(css,/@media\(min-width:960px\)/,'modern design must be PC-scoped including Chrome desktop-site 980px');
 assert.match(css,/@media\(max-width:1023px\)/,'keep mobile unchanged');
 assert.match(header,/if \(activeTab === 'home'\) return null;/);
 assert.match(header,/onChangeMode\('classic'\)/,'visible rollback');

@@ -4,6 +4,7 @@ import { ContextBackButton } from './components/ContextBackButton';
 import { captureScopedUndoStep, applyScopedUndoStep, type ScopedUndoStep } from './utils/undoRedoScoped';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { DesktopWorkspaceHeader, type DesktopWorkspaceMode } from './components/DesktopWorkspaceHeader';
+import { detectChromeDesktopSiteOnTouchDevice } from './utils/desktopSiteMode.mjs';
 import { HardDrive, RefreshCw } from 'lucide-react';
 import { safeSetLocalStorageItem } from './utils/storage';
 import { prepareFloorPlansForBackupRestore } from './utils/floorPlanBackupRestore';
@@ -391,19 +392,34 @@ const getVerifiedCachedHomeProjects = (): Array<{ id: string; name: string; role
 function AuthenticatedApp() {
   const isDesktopRuntime = typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('app') === 'desktop';
+  // Chrome Android 'Desktop site' sends a desktop UA and often a 980px virtual viewport.
+  // Keep mobile lifecycle optimizations; only change visual presentation and navigation.
+  const chromeDesktopSite = typeof window !== 'undefined' && detectChromeDesktopSiteOnTouchDevice({
+    userAgent: navigator.userAgent || '',
+    viewportWidth: window.innerWidth,
+    touchPoints: navigator.maxTouchPoints || 0,
+    screenWidth: window.screen?.width || 0,
+  });
   const isMobileRuntime = typeof window !== 'undefined'
     && !isDesktopRuntime
     && (/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '') || window.innerWidth < 1024);
   // Local-only PC UI preference. It never changes user/project data, Firebase or R2.
   const [desktopWorkspaceMode, setDesktopWorkspaceMode] = useState<DesktopWorkspaceMode>(() => {
-    try { return localStorage.getItem('hnl_desktop_workspace_mode_v1') === 'modern' ? 'modern' : 'classic'; }
-    catch { return 'classic'; }
+    try {
+      const userChoice = localStorage.getItem('hnl_desktop_workspace_mode_v1');
+      if (userChoice === 'modern' || userChoice === 'classic') return userChoice;
+      return chromeDesktopSite ? 'modern' : 'classic';
+    } catch { return chromeDesktopSite ? 'modern' : 'classic'; }
   });
   useEffect(() => {
     if (typeof document === 'undefined') return undefined;
     document.documentElement.dataset.hnlPcWorkspace = desktopWorkspaceMode;
-    return () => { delete document.documentElement.dataset.hnlPcWorkspace; };
-  }, [desktopWorkspaceMode]);
+    document.documentElement.dataset.hnlBrowserDesktop = chromeDesktopSite ? 'true' : 'false';
+    return () => {
+      delete document.documentElement.dataset.hnlPcWorkspace;
+      delete document.documentElement.dataset.hnlBrowserDesktop;
+    };
+  }, [desktopWorkspaceMode, chromeDesktopSite]);
 
   const updateDesktopWorkspaceMode = (next: DesktopWorkspaceMode) => {
     setDesktopWorkspaceMode(next);
@@ -7593,9 +7609,10 @@ function AuthenticatedApp() {
   const hasExcelExport = ['warehouse', 'volume', 'floorplan', 'checklist', 'crew'].includes(activeTab);
 
   return (
-    <div data-hnl-desktop-design={visibleTab !== 'home' ? desktopWorkspaceMode : 'classic'} data-hnl-desktop-native={isDesktopRuntime ? 'true' : 'false'} className={`min-h-screen bg-slate-100 text-slate-900 font-sans selection:bg-blue-200 ${isDesktopRuntime ? 'pl-[84px]' : 'lg:pl-[84px]'}`}>
+    <div data-hnl-desktop-design={visibleTab !== 'home' ? desktopWorkspaceMode : 'classic'} data-hnl-desktop-native={isDesktopRuntime ? 'true' : 'false'} className={`min-h-screen bg-slate-100 text-slate-900 font-sans selection:bg-blue-200 ${isDesktopRuntime || chromeDesktopSite ? 'pl-[84px]' : 'lg:pl-[84px]'}`}>
       {/* Mobile & Responsive Shell Frame */}
       <div
+        data-hnl-app-shell="true"
         className={`w-full max-w-lg md:max-w-3xl lg:max-w-none mx-auto bg-slate-50 min-h-screen shadow-2xl relative border-x border-slate-200 overflow-x-hidden ${isSoftKeyboardOpen ? 'pb-0' : 'pb-[calc(5rem+env(safe-area-inset-bottom))] lg:pb-4'}`}
       >
         {/* Sticky Top Header */}
@@ -8436,7 +8453,7 @@ function AuthenticatedApp() {
         {!isSoftKeyboardOpen && (
           <BottomNav
             activeTab={navigationTargetTab || activeTab}
-            forceDesktopRail={isDesktopRuntime}
+            forceDesktopRail={isDesktopRuntime || chromeDesktopSite}
             setActiveTab={(tab) => navigateToTab(tab)}
             onPreloadTab={preloadTab}
             defectBadgeCount={unhandledDefectsCount}

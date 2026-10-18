@@ -39,3 +39,6 @@ for (const unsafe of ['firebase/firestore','firebase/auth','deleteDoc(', 'setDoc
   assert.ok(!cards.includes(unsafe), `metric shell must not invoke ${unsafe}`);
 }
 console.log('HNL PC WORKSPACE V2 GOLDEN PASS: 13 screen surfaces, metrics, nested toolbars, classic/mobile/portal guards.');
+
+// Chrome desktop-site auto-view regression runs inside the existing stability suite.
+await import('./desktop-site-request-golden.mjs');
