@@ -139,6 +139,10 @@ export const ActionMenuButton: React.FC<ActionMenuButtonProps> = ({
     ? 'border-slate-200 bg-white text-slate-600 shadow-none hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800'
     : 'border-blue-600 bg-blue-600 text-white shadow-sm hover:border-blue-700 hover:bg-blue-700';
 
+  // Menus are also portaled to body. Only menus opened inside an elevated modal
+  // need a layer above that modal (the default 170 remains unchanged elsewhere).
+  const elevatedModalMenu = open && Boolean(triggerRef.current?.closest('[data-hnl-overlay-stack="elevated"]'));
+
   const menuContent = open && typeof document !== 'undefined'
     ? createPortal(
         <>
@@ -146,7 +150,7 @@ export const ActionMenuButton: React.FC<ActionMenuButtonProps> = ({
             <button
               type="button"
               aria-label="Đóng menu thao tác"
-              className="fixed inset-0 z-[169] bg-slate-950/20 backdrop-blur-[1px] sm:hidden"
+              className={`fixed inset-0 ${elevatedModalMenu ? 'z-[359]' : 'z-[169]'} bg-slate-950/20 backdrop-blur-[1px] sm:hidden`}
               onClick={close}
             />
           )}
@@ -157,7 +161,7 @@ export const ActionMenuButton: React.FC<ActionMenuButtonProps> = ({
             data-hnl-action-menu="true"
             data-hnl-action-menu-mode={layout?.mode || 'measuring'}
             data-hnl-action-menu-placement={layout?.mode === 'popover' ? layout.placement : 'bottom'}
-            className={`fixed z-[170] overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl ${layout ? 'visible' : 'invisible'}`}
+            className={`fixed ${elevatedModalMenu ? 'z-[360]' : 'z-[170]'} overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl ${layout ? 'visible' : 'invisible'}`}
             style={layout?.mode === 'popover'
               ? { left: layout.left, top: layout.top, width: layout.width, maxHeight: layout.maxHeight }
               : layout?.mode === 'sheet'

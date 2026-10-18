@@ -124,6 +124,11 @@ assert.ok(normDialogs.includes('<ViewportModalPortal>') && normDialogs.includes(
 assert.ok(report.includes('<ViewportModalPortal>') && report.includes('max-h-[calc(100dvh-1rem)]') &&
   report.includes('overscroll-contain') && report.includes('sticky top-0 z-20'),
   'Report overlay escapes scrolling parent and has bounded internal scroll with visible header');
+const actionMenuPortal = read('src/components/ActionMenuButton.tsx');
+assert.ok(normDialogs.includes('data-hnl-overlay-stack="elevated"') &&
+  actionMenuPortal.includes('elevatedModalMenu') && actionMenuPortal.includes('z-[360]') &&
+  actionMenuPortal.includes('z-[170]') && actionMenuPortal.includes('z-[359]'),
+  'Inside elevated modal, Add/Equipment action menu must receive clicks without affecting normal global menus');
 console.log('PC DEEP VIEWPORT OVERLAY GOLDEN PASS');
 
 console.log('UI RETURN AND PALETTE GOLDEN: PASS');

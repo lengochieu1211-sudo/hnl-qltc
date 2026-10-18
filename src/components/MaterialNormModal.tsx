@@ -999,7 +999,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
 
   return (
     <ViewportModalPortal>
-    <div data-hnl-pc-v32-window="material-norm" className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[210] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+    <div data-hnl-pc-v32-window="material-norm" data-hnl-overlay-stack="elevated" className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[210] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
       <div className="bg-white w-full max-w-5xl rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 space-y-4 max-h-[92vh] flex flex-col border border-slate-100 shadow-2xl">
         
         {/* Header */}
