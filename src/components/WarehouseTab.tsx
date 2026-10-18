@@ -38,6 +38,7 @@ import { compareDateValues, naturalCompare } from '../utils/sortUtils';
 import { matchesWarehouseVoucherDate, isWarehouseVoucherDateInRange } from '../utils/warehouseVoucherDateFilter';
 import { createEntityId } from '../utils/idUtils';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
+import { listWarehouseMaterialCategories, resolveWarehouseMaterialCategory } from '../utils/warehouseMaterialCategory';
 import { canonicalWorkCategoryId, normalizeLinkText } from '../utils/linkageIntegrity';
 import { assertSafeExcelImportFile, parseExcelNumberRecord, parseExcelStringArray, parseExcelStringRecord, readExcelFormulaByHeaders, sameStringSet } from '../utils/excelImportUtils';
 import { QuickSortBar } from './QuickSortBar';
@@ -959,7 +960,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [customMaterial, setCustomMaterial] = useState('');
   const isNewMaterialDefinition = itemKind === 'material' && isAddingMaterial && Boolean(customMaterial.trim())
     && !materialNorms.some((norm) => normalizeLinkText(norm.materialName) === normalizeLinkText(customMaterial));
-  const [customMaterialCategory, setCustomMaterialCategory] = useState('Vật tư khác');
+  const [materialCategorySelection, setMaterialCategorySelection] = useState('');
+  const [customMaterialCategory, setCustomMaterialCategory] = useState('');
   const [materialPickerSearch, setMaterialPickerSearch] = useState('');
   const [unit, setUnit] = useState(materialNorms[0]?.unit || 'Tấm');
   const [quantity, setQuantity] = useState<number | ''>('');
@@ -1002,6 +1004,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       return haystack.includes(normalizedMaterialPickerSearch);
     });
   }, [materialNorms, normalizedMaterialPickerSearch]);
+
+  const existingMaterialCategories = useMemo(() => listWarehouseMaterialCategories(materialNorms), [materialNorms]);
+  // Quantity/location edits to an unlinked legacy voucher must not require a
+  // catalog category: its identity is deliberately preserved by handleSubmit.
+  const editingKeepsLegacyMaterialIdentity = Boolean(editingInventory && itemKind === 'material'
+    && editingInventory.materialName.trim().toLocaleLowerCase('vi-VN') === customMaterial.trim().toLocaleLowerCase('vi-VN')
+    && (normalizeUnit(editingInventory.unit) || editingInventory.unit) === (normalizeUnit(unit) || unit));
 
   // Warehouse catalog is intentionally derived from authoritative data instead of adding
   // another mutable collection. Materials come from norms; equipment becomes reusable after
@@ -1469,7 +1478,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setIsAddingMaterial(false);
     setType('in');
     setCustomMaterial('');
-    setCustomMaterialCategory('Vật tư khác');
+    setMaterialCategorySelection('');
+    setCustomMaterialCategory('');
     setIsNewEquipment(kind === 'equipment' && equipmentCatalog.length === 0);
     setMaterialPickerSearch('');
     if (kind === 'equipment') {
@@ -1511,7 +1521,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     // Legacy vouchers without a matching norm must remain editable, not silently remapped.
     setIsAddingMaterial(editingKind === 'material' && !matched);
     setCustomMaterial(editingKind === 'material' && !matched ? item.materialName : '');
-    setCustomMaterialCategory('Vật tư khác');
+    setMaterialCategorySelection('');
+    setCustomMaterialCategory('');
     setMaterialPickerSearch('');
     setUnit(item.unit);
     setQuantity(item.quantity);
@@ -1630,13 +1641,20 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         alert('Không thể tạo Danh mục vật tư lúc này. Vui lòng thử lại sau.');
         return;
       }
+      const finalMaterialCategory = resolveWarehouseMaterialCategory(
+        materialCategorySelection, customMaterialCategory, existingMaterialCategories,
+      );
+      if (!finalMaterialCategory) {
+        alert('Vui lòng chọn chủng loại vật tư có sẵn hoặc nhập tên chủng loại mới trước khi lưu phiếu.');
+        return;
+      }
       // Lock through the catalog creation await; rapid double-click must not mint two norm IDs.
       inventorySaveInFlightRef.current = true;
       try {
         createdMaterialId = await onCreateMaterialCatalog({
           materialName: finalMaterialName,
           unit: normalizedFinalUnit,
-          category: customMaterialCategory.trim() || 'Vật tư khác',
+          category: finalMaterialCategory,
         });
       } catch (error) {
         inventorySaveInFlightRef.current = false;
@@ -3552,7 +3570,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                       onClick={() => {
                         setIsAddingMaterial(true);
                         setCustomMaterial(materialPickerSearch.trim());
-                        setCustomMaterialCategory('Vật tư khác');
+                        setMaterialCategorySelection('');
+                        setCustomMaterialCategory('');
                         setMaterialPickerSearch('');
                       }}
                       className="inline-flex min-h-8 items-center gap-1 text-[11px] font-bold text-blue-700 hover:text-blue-900"
@@ -3589,7 +3608,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                       onClick={() => {
                         setIsAddingMaterial(false);
                         setCustomMaterial('');
-                        setCustomMaterialCategory('Vật tư khác');
+                        setMaterialCategorySelection('');
+                        setCustomMaterialCategory('');
                         setMaterialName(materialNorms[0]?.materialName || '');
                         setUnit(materialNorms[0]?.unit || 'Tấm');
                       }}
@@ -3815,21 +3835,44 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               {/* New material metadata stays inside explicit ADMIN-only create mode. */}
               {itemKind === 'material' && isAddingMaterial && (
                 <div className="lg:col-span-6 space-y-2">
-                  {customMaterial.trim() && !materialNorms.some((norm) =>
+                  {customMaterial.trim() && !editingKeepsLegacyMaterialIdentity && !materialNorms.some((norm) =>
                     norm.materialName.trim().toLocaleLowerCase('vi-VN') === customMaterial.trim().toLocaleLowerCase('vi-VN')
                     && (normalizeUnit(norm.unit) || norm.unit) === (normalizeUnit(unit) || unit)
                   ) && (
                     <div className="rounded-xl border border-blue-100 bg-blue-50 p-2.5">
                       {hasNormManageAccess ? (
                         <>
-                          <label className="block text-[10px] font-bold text-blue-800 mb-1">Chủng loại vật tư mới</label>
-                          <input
-                            type="text"
-                            value={customMaterialCategory}
-                            onChange={(e) => setCustomMaterialCategory(e.target.value)}
-                            placeholder="Vật tư khác"
-                            className="w-full rounded-lg border border-blue-200 bg-white px-2.5 py-2 text-xs text-slate-800"
-                          />
+                          <label htmlFor="hnl-voucher-material-category" className="block text-[10px] font-bold text-blue-800 mb-1">Chủng loại vật tư *</label>
+                          <select
+                            id="hnl-voucher-material-category"
+                            data-hnl-warehouse-material-category="true"
+                            value={materialCategorySelection}
+                            onChange={(e) => {
+                              setMaterialCategorySelection(e.target.value);
+                              setCustomMaterialCategory('');
+                            }}
+                            className="w-full rounded-lg border border-blue-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-800"
+                            required
+                          >
+                            <option value="">— Chọn chủng loại —</option>
+                            {existingMaterialCategories.map((category) => (
+                              <option key={category} value={category}>{category}</option>
+                            ))}
+                            <option value="__new__">+ Tạo chủng loại vật tư mới</option>
+                          </select>
+                          {materialCategorySelection === '__new__' && (
+                            <input
+                              type="text"
+                              data-hnl-warehouse-new-category="true"
+                              aria-label="Tên chủng loại vật tư mới"
+                              value={customMaterialCategory}
+                              onChange={(e) => setCustomMaterialCategory(e.target.value)}
+                              placeholder="Nhập tên chủng loại mới..."
+                              className="mt-2 w-full rounded-lg border border-blue-200 bg-white px-2.5 py-2 text-xs text-slate-800"
+                              maxLength={120}
+                              required
+                            />
+                          )}
                           <p className="mt-1.5 text-[10px] leading-relaxed text-blue-700">
                             Khi lưu phiếu, vật tư này sẽ được thêm vào Danh mục vật tư và liên kết bằng materialId. Định mức hao phí chưa khai báo (0) để tránh tự suy đoán.
                           </p>

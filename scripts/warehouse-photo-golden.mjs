@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { COMMON_CATEGORIES, listWarehouseMaterialCategories, resolveWarehouseMaterialCategory } from '../src/utils/warehouseMaterialCategory.ts';
 import fs from 'node:fs';
 import { selectAuthoritativeRestorePhotos } from '../src/utils/backupRestoreMedia.ts';
 import { warehouseVoucherIsoDate, matchesWarehouseVoucherDate, isWarehouseVoucherDateInRange } from '../src/utils/warehouseVoucherDateFilter.ts';
@@ -130,3 +131,29 @@ const legacyAudit = read('scripts/firebase-only-legacy-audit.mjs');
 assert(legacyAudit.includes("if (p.entityType === 'inventory') return !inventoryIds.has"), 'Audit recognizes missing inventory photo parent');
 assert(legacyAudit.includes('new Set(collections.inventory.map'), 'Soft-deleted voucher photos must remain recoverable in legacy audit');
 console.log('WAREHOUSE PHOTO GOLDEN PASS – stage-first/commit-before-upload, ID, RBAC, R2, restore, no ledger mutation');
+
+// Voucher inline material creation must share the category vocabulary with Norms,
+// without introducing a second collection or allowing unnamed categories.
+const existingCategories = listWarehouseMaterialCategories([
+  { category: 'Khung xương' },
+  { category: '  Vật tư điện   ' },
+  { category: 'vật tư điện' },
+  { category: 'Sơn bả & Mối nối' },
+]);
+assert(COMMON_CATEGORIES.every((cat) => existingCategories.includes(cat)), 'Built-in categories match Material Norm editor');
+assert.equal(existingCategories.filter((cat) => cat === 'Vật tư điện').length, 1, 'Catalog categories dedupe with stable labels');
+assert.equal(resolveWarehouseMaterialCategory('Khung xương', '', existingCategories), 'Khung xương');
+assert.equal(resolveWarehouseMaterialCategory('__new__', '  KHUNG  XUONG  ', existingCategories), 'Khung xương', 'New alias reuses original category label');
+assert.equal(resolveWarehouseMaterialCategory('__new__', '  Vật tư sơn   điện  ', existingCategories), 'Vật tư sơn điện');
+assert.equal(resolveWarehouseMaterialCategory('__new__', '  ', existingCategories), null, 'Blank new category is rejected');
+assert.equal(resolveWarehouseMaterialCategory('', '', existingCategories), null, 'Missing selection is rejected');
+assert.equal(resolveWarehouseMaterialCategory('Nhóm không tồn tại', '', existingCategories), null, 'Stale/fabricated category is rejected');
+assert(warehouse.includes('data-hnl-warehouse-material-category="true"'), 'Voucher has category selector');
+assert(warehouse.includes('data-hnl-warehouse-new-category="true"'), 'Voucher shows custom category field');
+assert(warehouse.includes("materialCategorySelection === '__new__'"), 'Custom category field is gated by explicit new selection');
+assert(warehouse.includes('const finalMaterialCategory = resolveWarehouseMaterialCategory('), 'Catalog category is validated prior to save');
+assert(warehouse.includes('category: finalMaterialCategory,'), 'Material catalog reuses selected/resolved category');
+assert(warehouse.includes('if (!hasNormManageAccess)'), 'Only norm-managing ADMIN may create material catalog items');
+assert(warehouse.includes('if (existingMaterial || exactNormMaterialIds.length > 0)'), 'Existing name + unit prevents duplicate material IDs');
+assert(warehouse.includes('customMaterial.trim() && !editingKeepsLegacyMaterialIdentity'), 'Legacy voucher edit must not be forced to create a category');
+console.log('WAREHOUSE MATERIAL CATEGORY GOLDEN PASS – existing/new selection, canonical names, RBAC, non-duplication');

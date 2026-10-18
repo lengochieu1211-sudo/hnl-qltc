@@ -33,6 +33,8 @@ import { UserRole, canManageMaterialNorms, canImportData } from '../utils/securi
 
 import { QuickSortBar } from './QuickSortBar';
 import { compareMaterialGroupPriority, catalogOrderRank, reorderVisibleCatalogItems } from '../utils/catalogDisplayOrder';
+import { COMMON_CATEGORIES } from '../utils/warehouseMaterialCategory';
+export { COMMON_CATEGORIES } from '../utils/warehouseMaterialCategory';
 import { MoveOrderControls } from './MoveOrderControls';
 import { EquipmentCatalogPanel } from './EquipmentCatalogPanel';
 import { CatalogTemplatePickerModal } from './CatalogTemplatePickerModal';
@@ -62,14 +64,6 @@ interface MaterialNormModalProps {
 }
 
 export const COMMON_UNITS = ['Tấm', 'Thanh', 'Hộp (1000 con)', 'Bộ', 'Bao (25kg)', 'Cuộn (50m)', 'm²', 'm', 'kg', 'Thùng'];
-
-export const COMMON_CATEGORIES = [
-  'Tấm thạch cao',
-  'Khung xương',
-  'Phụ kiện & Vít',
-  'Sơn bả & Mối nối',
-  'Vật tư phụ khác'
-];
 
 export const WORK_CATEGORIES_LIST = [
   'Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn',
