@@ -730,7 +730,7 @@ const runtimeOfflineIdentity = {
   displayName: 'Runtime Golden Offline Admin',
 };
 
-async function seedRememberedOfflineAdmin(context) {
+async function seedRememberedOfflineAdmin(context, desktopMode = null) {
   await context.addInitScript(({ identity }) => {
     try {
       Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => false });
@@ -760,8 +760,11 @@ async function seedRememberedOfflineAdmin(context) {
       }]));
       localStorage.setItem('active_project_id', projectId);
       sessionStorage.setItem('active_project_id', projectId);
+      // Legacy shell/touch-target tests intentionally start in classic; the modern
+      // default is certified independently rather than suppressing it in the app.
+      if (desktopMode === 'classic') localStorage.setItem('hnl_desktop_workspace_mode_v1', 'classic');
     } catch {}
-  }, { identity: runtimeOfflineIdentity });
+  }, { identity: runtimeOfflineIdentity, desktopMode });
 }
 
 async function verifySignedOutGate(browser, label, viewport, screenshotPath) {
@@ -952,6 +955,33 @@ async function verifyModernPcWorkspace(page, label, switchFromClassic = false) {
   }
 }
 
+// V3.4 changed the default for a fresh PC: test it without a saved preference.
+// The classic-focused generic viewport golden keeps its original header contract.
+async function verifyDefaultModernPc(browser) {
+  const label = 'desktop-default-modern';
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 900 }, locale: 'vi-VN', serviceWorkers: 'allow',
+  });
+  await seedRememberedOfflineAdmin(context);
+  try {
+    const page = await context.newPage();
+    const response = await page.goto(`${hostingUrl}/?runtimeGoldenDefaultModern=${Date.now()}`, {
+      waitUntil: 'domcontentloaded', timeout: 45000,
+    });
+    assert(response?.status() === 200, `${label}: DEV Hosting navigation failed`);
+    const warehouseNav = page.locator('[data-hnl-nav-surface="desktop"] [data-hnl-nav-tab="warehouse"]');
+    await warehouseNav.waitFor({ state: 'visible', timeout: 20000 });
+    await warehouseNav.click();
+    await page.locator('[data-hnl-pc-workspace-title="warehouse"]').waitFor({ state: 'visible', timeout: 20000 });
+    const savedMode = await page.evaluate(() => localStorage.getItem('hnl_desktop_workspace_mode_v1'));
+    assert(savedMode === null, `${label}: unexpected saved desktop mode ${savedMode}`);
+    await verifyModernPcWorkspace(page, label);
+    pass(`${label} fresh PC auto-modern`, 'no saved preference; 84px rail and modern header');
+  } finally {
+    await context.close();
+  }
+}
+
 async function verifyChromeDesktopSite980(browser) {
   const label = 'chrome-android-desktop-site-980';
   const context = await browser.newContext({
@@ -993,7 +1023,7 @@ async function runViewport(browser, label, viewport, screenshotPath, contextOver
     ignoreHTTPSErrors: false,
     ...contextOverrides,
   });
-  await seedRememberedOfflineAdmin(context);
+  await seedRememberedOfflineAdmin(context, 'classic');
   const page = await context.newPage();
 
   page.on('pageerror', error => report.pageErrors.push({ label, message: String(error?.message || error) }));
@@ -1291,6 +1321,7 @@ try {
   await verifySignedOutGate(browser, 'login-desktop', { width: 1440, height: 900 }, 'runtime-evidence/login-desktop.png');
   await verifySignedOutGate(browser, 'login-mobile', { width: 393, height: 852 }, 'runtime-evidence/login-mobile.png');
   await runViewport(browser, 'desktop', { width: 1440, height: 900 }, 'runtime-evidence/desktop.png');
+  await verifyDefaultModernPc(browser);
   await runViewport(browser, 'desktop-720p', { width: 1280, height: 720 }, 'runtime-evidence/desktop-720p.png');
   await runViewport(browser, 'desktop-compact', { width: 1088, height: 706 }, 'runtime-evidence/desktop-compact.png');
   await verifyChromeDesktopSite980(browser);
