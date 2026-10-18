@@ -898,6 +898,93 @@ async function verifyUiUxV3Shell(page, context, label) {
   await page.waitForTimeout(250);
 }
 
+// Exercise the actual opt-in PC Workspace; the generic viewport golden above
+// intentionally begins in classic mode and cannot certify V3.2's removed bars.
+// Fixture is browser-local verified offline identity: never changes live data.
+async function verifyModernPcWorkspace(page, label, switchFromClassic = false) {
+  if (switchFromClassic) {
+    const switcher = page.locator('[data-hnl-pc-mode-toggle="classic"] button').first();
+    await switcher.waitFor({ state: 'visible', timeout: 10000 });
+    await switcher.click();
+  }
+  await page.waitForFunction(() =>
+    document.querySelector('[data-hnl-desktop-design]')?.getAttribute('data-hnl-desktop-design') === 'modern',
+  null, { timeout: 10000 });
+  const state = await page.evaluate(() => {
+    const shell = document.querySelector('[data-hnl-desktop-design="modern"]');
+    const rail = document.querySelector('[data-hnl-nav-surface="desktop"]');
+    const darkHeader = shell?.querySelector('[data-hnl-global-header]');
+    const contextHeader = shell?.querySelector('.hnl-pc-workspace-heading');
+    const quickNav = shell?.querySelector('.hnl-pc-quick-nav');
+    const commands = contextHeader?.querySelector('.hnl-pc-heading-actions');
+    const actionLabels = [...(commands?.querySelectorAll('button') || [])]
+      .map((element) => (element.textContent || '').trim());
+    return {
+      darkHeaderMounted: Boolean(darkHeader),
+      darkHeaderHidden: Boolean(darkHeader) && getComputedStyle(darkHeader).display === 'none',
+      contextHeaderVisible: Boolean(contextHeader) && contextHeader.getBoundingClientRect().height > 0,
+      quickNavHidden: !quickNav || getComputedStyle(quickNav).display === 'none',
+      railWidth: rail?.getBoundingClientRect().width || 0,
+      railVisible: Boolean(rail) && getComputedStyle(rail).display !== 'none',
+      actionLabels,
+      undoRedo: commands?.querySelectorAll('button[title*="Hoàn tác"],button[title*="Khôi phục"]')?.length || 0,
+      overflow: Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0) - window.innerWidth,
+    };
+  });
+  assert(state.darkHeaderMounted && state.darkHeaderHidden, `${label}: redundant black header not hidden in modern PC: ${JSON.stringify(state)}`);
+  assert(state.contextHeaderVisible, `${label}: modern context header missing`);
+  assert(state.quickNavHidden, `${label}: duplicated horizontal top-level tabs still visible`);
+  assert(state.railVisible && state.railWidth >= 83 && state.railWidth <= 85, `${label}: original 84px rail lost: ${state.railWidth}`);
+  assert(['Dự án','Báo cáo','Thông báo','Bảo mật','PC cũ'].every((name) => state.actionLabels.some((label) => label.includes(name))),
+    `${label}: missing contextual action: ${JSON.stringify(state.actionLabels)}`);
+  assert(state.undoRedo === 2, `${label}: Undo/Redo handlers not available in contextual toolbar`);
+  assert(state.overflow <= 12, `${label}: modern PC horizontal overflow ${state.overflow}px`);
+  await page.screenshot({ path: `runtime-evidence/${label}-modern-pc.png`, fullPage: false });
+  pass(`${label} V3.2 real modern PC compact navigation`, `84px rail · no black header · no duplicated tabs · ${state.actionLabels.length} actions`);
+  if (switchFromClassic) {
+    await page.locator('.hnl-pc-heading-actions .hnl-pc-mode-switch').click();
+    await page.waitForFunction(() =>
+      document.querySelector('[data-hnl-desktop-design]')?.getAttribute('data-hnl-desktop-design') === 'classic',
+    null, { timeout: 10000 });
+    const restored = await page.locator('[data-hnl-global-header]').first().isVisible();
+    assert(restored, `${label}: classic black header did not restore after switching back`);
+    pass(`${label} classic PC restoration after V3.2`, 'same page, no data changes');
+  }
+}
+
+async function verifyChromeDesktopSite980(browser) {
+  const label = 'chrome-android-desktop-site-980';
+  const context = await browser.newContext({
+    viewport: { width: 980, height: 852 },
+    screen: { width: 393, height: 852 },
+    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    locale: 'vi-VN',
+    hasTouch: true,
+    isMobile: true,
+    serviceWorkers: 'allow',
+  });
+  await seedRememberedOfflineAdmin(context);
+  const page = await context.newPage();
+  const response = await page.goto(`${hostingUrl}/?runtimeGolden=${Date.now()}&viewport=${label}`, {
+    waitUntil: 'domcontentloaded', timeout: 45000,
+  });
+  assert(response?.status() === 200, `${label}: DEV Hosting navigation failed`);
+  // A new offline browser session opens Home; navigate through the actual original rail.
+  const warehouseNav = page.locator('[data-hnl-nav-surface="desktop"] [data-hnl-nav-tab="warehouse"]');
+  await warehouseNav.waitFor({ state: 'visible', timeout: 20000 });
+  await warehouseNav.click();
+  await page.locator('[data-hnl-pc-workspace-title="warehouse"]').waitFor({ state: 'visible', timeout: 20000 });
+  const detection = await page.evaluate(() => ({
+    detected: document.documentElement.dataset.hnlBrowserDesktop,
+    width: window.innerWidth,
+    mobileBottomNav: document.querySelector('[data-hnl-nav-surface="mobile"]')?.getBoundingClientRect().height || 0,
+  }));
+  assert(detection.detected === 'true' && detection.width === 980, `${label}: Chrome desktop-site bridge not detected: ${JSON.stringify(detection)}`);
+  assert(detection.mobileBottomNav === 0, `${label}: mobile bottom navigation should be hidden`);
+  await verifyModernPcWorkspace(page, label);
+  await context.close();
+}
+
 async function runViewport(browser, label, viewport, screenshotPath, contextOverrides = {}) {
   const context = await browser.newContext({
     viewport,
@@ -1008,6 +1095,9 @@ async function runViewport(browser, label, viewport, screenshotPath, contextOver
 
   await page.screenshot({ path: screenshotPath, fullPage: true });
   pass(`${label} screenshot captured`, screenshotPath);
+  if (label === 'desktop' || label === 'desktop-compact') {
+    await verifyModernPcWorkspace(page, label, true);
+  }
 
   await context.close();
 }
@@ -1203,6 +1293,7 @@ try {
   await runViewport(browser, 'desktop', { width: 1440, height: 900 }, 'runtime-evidence/desktop.png');
   await runViewport(browser, 'desktop-720p', { width: 1280, height: 720 }, 'runtime-evidence/desktop-720p.png');
   await runViewport(browser, 'desktop-compact', { width: 1088, height: 706 }, 'runtime-evidence/desktop-compact.png');
+  await verifyChromeDesktopSite980(browser);
   await verifyNarrowDesktopRuntime(browser);
   await runViewport(browser, 'mobile', { width: 393, height: 852 }, 'runtime-evidence/mobile.png');
   await runViewport(browser, 'mobile-tall', { width: 393, height: 902 }, 'runtime-evidence/mobile-tall.png');
