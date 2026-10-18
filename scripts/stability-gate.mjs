@@ -589,8 +589,8 @@ if (bottomNav.includes('APP_VERSION') || bottomNav.includes('HNL QLTC · Trang c
 requireAll(app, [
   'STARTUP_PROJECT_ID_KEY',
   "new URLSearchParams(window.location.search).get('app') === 'desktop'",
-  "isDesktopRuntime ? 'pl-[84px]' : 'lg:pl-[84px]'",
-  'forceDesktopRail={isDesktopRuntime}',
+  "isDesktopRuntime || chromeDesktopSite ? 'pl-[84px]' : 'lg:pl-[84px]'",
+  'forceDesktopRail={isDesktopRuntime || chromeDesktopSite}',
   "useState<TabType>(getRememberedTab)",
   '<HomeDashboard',
   'startupNavigationAppliedForRef',
