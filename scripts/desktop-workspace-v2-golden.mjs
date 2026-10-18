@@ -42,3 +42,6 @@ console.log('HNL PC WORKSPACE V2 GOLDEN PASS: 13 screen surfaces, metrics, neste
 
 // Chrome desktop-site auto-view regression runs inside the existing stability suite.
 await import('./desktop-site-request-golden.mjs');
+
+// V3 deep nested layout is part of the CI stability gate.
+await import('./desktop-workspace-v3-golden.mjs');

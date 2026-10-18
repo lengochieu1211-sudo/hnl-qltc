@@ -516,6 +516,11 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       </div>
 
       {/* Floor Chips */}
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="01" aria-label="Tầng & phân loại">
+        <span className="hnl-pc-v3-section-index">01</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Tầng & phân loại</strong><small>Chọn tầng cần kiểm tra, xem tỷ lệ đạt và nhóm nghiệm thu.</small></div>
+      </div>
+
       <div data-hnl-pc-region="floor-tabs" className="flex gap-2 overflow-x-auto pb-1 text-xs no-scrollbar">
         {floors.map((floor) => (
           <button
@@ -560,6 +565,11 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       </div>
 
       {/* Category filter */}
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="02" aria-label="Lọc theo hạng mục">
+        <span className="hnl-pc-v3-section-index">02</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Lọc theo hạng mục</strong><small>Kết hợp nhóm kiểm tra và sắp xếp tiêu chí.</small></div>
+      </div>
+
       {categoriesInUseForFloor.length > 0 && (
         <div className="flex flex-wrap gap-1 text-xs">
           {[{ id: 'all', label: 'Tất Cả' }, ...categoriesInUseForFloor.map((cat, idx) => ({
@@ -641,7 +651,12 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       )}
 
       {/* Checklist items list */}
-      <div className="space-y-3">
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="03" aria-label="Tiêu chí kiểm tra">
+        <span className="hnl-pc-v3-section-index">03</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Tiêu chí kiểm tra</strong><small>Danh sách trạng thái và thao tác nghiệm thu theo quyền hiện tại.</small></div>
+      </div>
+
+      <div data-hnl-pc-v3-inner="checklist-items" className="space-y-3">
         {sortedFilteredChecklist.length === 0 ? (
           <div className="text-center py-8 text-slate-400 text-xs bg-white rounded-2xl border border-dashed border-slate-200">
             Chưa có tiêu chí checklist nào cho {selectedFloor}.{canManageStructure ? ' Chọn “Thêm tiêu chí” hoặc “Nhập Excel” để bắt đầu.' : ''}
@@ -819,7 +834,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
               <button onClick={() => setShowAddForm(false)} className="font-bold text-slate-500 cursor-pointer">✕</button>
             </div>
 
-            <form onSubmit={handleAddSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+            <form data-hnl-pc-v3-form="checklist-create" onSubmit={handleAddSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
               <div>
                 <label className="block text-slate-700 font-bold mb-1">Loại hạng mục</label>
                 <select
@@ -957,7 +972,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
               <button onClick={() => setEditingChecklistItem(null)} className="font-bold text-slate-500 cursor-pointer">✕</button>
             </div>
 
-            <form onSubmit={handleEditSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+            <form data-hnl-pc-v3-form="checklist-edit" onSubmit={handleEditSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
               <div>
                 <label className="block text-slate-700 font-bold mb-1">Vị Trí (Tầng)</label>
                 <select
