@@ -36,6 +36,18 @@ assert.ok(app.includes('data-hnl-cross-module-return="true"') && app.includes('s
 assert.ok(warehouse.includes('onHeaderBack={catalogHistory ? returnToCatalogHistoryParent : undefined}') && warehouse.includes('data-hnl-warehouse-catalog-scroll'), 'Warehouse nested history returns in the sticky sheet header and restores table scroll');
 assert.ok(volume.includes('data-hnl-volume-detail-scrollbody="true"') && volume.includes('detailReturnViewRef'), 'Volume-to-room return restores scroll and focused room');
 assert.ok(app.includes('onClick={handleContextReturn}'), 'single top return restores the originating module');
+// FloorPlan direct Defect detail is a close action, not a cross-module back action.
+// Preserve the contextual label only when the parent has a real return handler;
+// avoid a second competing X alongside the sticky dismiss action.
+const defectDetailHeader = floorPlan.slice(floorPlan.indexOf('{/* Defect Detail & Control Modal */}'), floorPlan.indexOf('{/* Overdue / Progress Banner */}'));
+assert.ok(defectDetailHeader.includes("contextReturnLabel && onContextReturn ? `← Quay lại ${contextReturnLabel}` : '✕ Đóng'"),
+  'Defect detail labels local close versus contextual return accurately');
+assert.ok(defectDetailHeader.includes('data-hnl-defect-detail-dismiss="primary"') && defectDetailHeader.includes('sticky top-0'),
+  'Defect modal keeps one visible top dismiss action while scrolling');
+assert.equal((defectDetailHeader.match(/onClick={closeDefectDetail}/g) || []).length, 1,
+  'Defect modal top/header must not duplicate dismiss actions');
+assert.ok(floorPlan.includes('if (onContextReturn) onContextReturn()') && floorPlan.includes('Lưu &amp; Đóng'),
+  'Defect modal must preserve existing contextual return and save/close action');
 
 // All three business tables share the same compact 32px row size on PC and mobile;
 // linked detail buttons remain intact, and the report export actions have one size.
