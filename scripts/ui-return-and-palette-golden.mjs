@@ -40,12 +40,21 @@ assert.ok(app.includes('onClick={handleContextReturn}'), 'single top return rest
 // Preserve the contextual label only when the parent has a real return handler;
 // avoid a second competing X alongside the sticky dismiss action.
 const defectDetailHeader = floorPlan.slice(floorPlan.indexOf('{/* Defect Detail & Control Modal */}'), floorPlan.indexOf('{/* Overdue / Progress Banner */}'));
-assert.ok(defectDetailHeader.includes("contextReturnLabel && onContextReturn ? `← Quay lại ${contextReturnLabel}` : '✕ Đóng'"),
-  'Defect detail labels local close versus contextual return accurately');
-assert.ok(defectDetailHeader.includes('data-hnl-defect-detail-dismiss="primary"') && defectDetailHeader.includes('sticky top-0'),
-  'Defect modal keeps one visible top dismiss action while scrolling');
-assert.equal((defectDetailHeader.match(/onClick={closeDefectDetail}/g) || []).length, 1,
-  'Defect modal top/header must not duplicate dismiss actions');
+assert.ok(defectDetailHeader.includes('contextReturnLabel && onContextReturn && (') &&
+  defectDetailHeader.includes('data-hnl-defect-context-back="true"') &&
+  defectDetailHeader.includes('← Quay lại {contextReturnLabel}'),
+  'Defect detail only shows a contextual return when a real source/return callback exists');
+assert.ok(defectDetailHeader.includes('data-hnl-defect-detail-dismiss="primary"') &&
+  defectDetailHeader.includes('aria-label="Đóng chi tiết Defect"') &&
+  defectDetailHeader.includes('<X className="w-5 h-5" />') &&
+  defectDetailHeader.includes('p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100') &&
+  defectDetailHeader.includes('sticky top-0'),
+  'Defect modal uses the same small top-right X button as Room instead of a text close button');
+assert.ok(!defectDetailHeader.includes("'✕ Đóng'") &&
+  !defectDetailHeader.includes('Đóng chi tiết</button>'),
+  'Defect header must not show verbose local close text');
+assert.equal((defectDetailHeader.match(/onClick={closeDefectDetail}/g) || []).length, 2,
+  'Defect modal has conditional context-return and one icon dismiss, without duplicate X buttons');
 assert.ok(floorPlan.includes('if (onContextReturn) onContextReturn()') && floorPlan.includes('Lưu &amp; Đóng'),
   'Defect modal must preserve existing contextual return and save/close action');
 

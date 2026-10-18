@@ -10457,9 +10457,19 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               {/* Sticky actions stay visible while scrolling long Defect content. */}
               <div className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-2 shadow-sm">
                 <span className="min-w-0 truncate text-xs font-bold text-slate-700">Chi tiết Defect</span>
-                <button type="button" onClick={closeDefectDetail} className="min-h-9 shrink-0 rounded-lg bg-indigo-50 px-3 text-xs font-bold text-indigo-700 hover:bg-indigo-100" data-hnl-defect-context-back="true" data-hnl-defect-detail-dismiss="primary">
-                  {contextReturnLabel && onContextReturn ? `← Quay lại ${contextReturnLabel}` : '✕ Đóng'}
-                </button>
+                <div className="flex shrink-0 items-center gap-2">
+                  {contextReturnLabel && onContextReturn && (
+                    <button type="button" onClick={closeDefectDetail}
+                      className="min-h-9 rounded-lg bg-indigo-50 px-3 text-xs font-bold text-indigo-700 hover:bg-indigo-100"
+                      data-hnl-defect-context-back="true">← Quay lại {contextReturnLabel}</button>
+                  )}
+                  <button type="button" onClick={closeDefectDetail}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                    title="Đóng" aria-label="Đóng chi tiết Defect"
+                    data-hnl-defect-detail-dismiss="primary">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
               <div className="space-y-4 p-5 lg:p-6">
               {/* Header */}
