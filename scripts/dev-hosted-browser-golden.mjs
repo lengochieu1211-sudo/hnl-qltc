@@ -731,7 +731,7 @@ const runtimeOfflineIdentity = {
 };
 
 async function seedRememberedOfflineAdmin(context, desktopMode = null) {
-  await context.addInitScript(({ identity }) => {
+  await context.addInitScript(({ identity, desktopMode }) => {
     try {
       Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => false });
     } catch {}
