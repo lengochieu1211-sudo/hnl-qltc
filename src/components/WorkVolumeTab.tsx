@@ -1029,7 +1029,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
       <div data-hnl-pc-v3-inner="volume-filter-panel" className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center" data-hnl-volume-filter-sort="responsive-toolbar">
       {availableCategories.length > 0 && (
-        <div className="flex min-w-0 gap-1 overflow-x-auto pb-1 text-xs no-scrollbar lg:pb-0 lg:max-w-[44%] lg:shrink-0" data-hnl-volume-category-filters="true">
+        <div className="flex min-w-0 gap-1 overflow-x-auto pb-1 text-xs no-scrollbar lg:pb-0 lg:max-w-[44%] lg:shrink-0" data-hnl-volume-category-filters="true" role="group" aria-label="Lọc theo hạng mục thi công">
           {['all', ...availableCategories].map((catId) => {
             const label = catId === 'all' ? 'Tất cả' : 
                           catId === 'khung_tran' ? ' Khung Trần' : 
@@ -1038,6 +1038,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
             return (
               <button
                 key={catId}
+                aria-pressed={selectedCategory === catId}
                 onClick={() => setSelectedCategory(catId)}
                 className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all ${
                   selectedCategory === catId

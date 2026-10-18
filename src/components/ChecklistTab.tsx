@@ -521,10 +521,11 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
         <div className="hnl-pc-v3-section-copy"><strong>Tầng & phân loại</strong><small>Chọn tầng cần kiểm tra, xem tỷ lệ đạt và nhóm nghiệm thu.</small></div>
       </div>
 
-      <div data-hnl-pc-region="floor-tabs" className="flex gap-2 overflow-x-auto pb-1 text-xs no-scrollbar">
+      <div data-hnl-pc-region="floor-tabs" role="group" aria-label="Chọn tầng checklist" className="flex gap-2 overflow-x-auto pb-1 text-xs no-scrollbar">
         {floors.map((floor) => (
           <button
             key={floor}
+            aria-pressed={selectedFloor === floor}
             onClick={() => setSelectedFloor(floor)}
             className={`px-3.5 py-2 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
               selectedFloor === floor

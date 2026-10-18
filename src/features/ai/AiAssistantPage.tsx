@@ -359,10 +359,10 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
             {props.online ? 'Trực tuyến' : 'Dữ liệu ngoại tuyến'}
           </div>
         </div>
-        <div className="mt-4 grid grid-cols-4 gap-1.5">
+        <div data-hnl-pc-deep-tabs="ai-modes" role="group" aria-label="Chế độ trợ lý AI" className="mt-4 grid grid-cols-4 gap-1.5">
           {(Object.keys(MODE_META) as AiAssistantMode[]).map((key) => {
             const item = MODE_META[key]; const Icon = item.icon; const active = mode === key;
-            return <button key={key} onClick={() => { setMode(key); if (key !== 'ai') { setExternalAiOptIn(false); setExternalAiFullProject(false); } setResult(null); setGeneralText(''); setError(''); setExportNotice(''); setAuditInspect(null); }} className={`rounded-xl px-2 py-2 text-[11px] font-bold flex flex-col sm:flex-row items-center justify-center gap-1 ${active ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}><Icon className="w-4 h-4" />{item.label}</button>;
+            return <button key={key} aria-pressed={active} onClick={() => { setMode(key); if (key !== 'ai') { setExternalAiOptIn(false); setExternalAiFullProject(false); } setResult(null); setGeneralText(''); setError(''); setExportNotice(''); setAuditInspect(null); }} className={`rounded-xl px-2 py-2 text-[11px] font-bold flex flex-col sm:flex-row items-center justify-center gap-1 ${active ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}><Icon className="w-4 h-4" />{item.label}</button>;
           })}
         </div>
         <p className="mt-2 text-[11px] text-slate-500">{MODE_META[mode].hint}</p>

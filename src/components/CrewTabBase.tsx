@@ -1967,9 +1967,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         <div className="hnl-pc-v3-section-copy"><strong>Nhật ký & đội thi công</strong><small>Chuyển qua nhật ký theo ngày hoặc quản lý thông tin đội.</small></div>
       </div>
 
-      <div data-hnl-pc-region="subtabs" className="flex bg-slate-200 p-1.5 rounded-xl mb-4 shadow-sm" id="crew-subtab-navigation">
+      <div data-hnl-pc-region="subtabs" role="group" aria-label="Nhật ký và quản lý đội thi công" className="flex bg-slate-200 p-1.5 rounded-xl mb-4 shadow-sm" id="crew-subtab-navigation">
         <button
           onClick={() => setActiveSubTab('logs')}
+          aria-pressed={activeSubTab === 'logs'}
           className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-bold rounded-lg transition-all ${
             activeSubTab === 'logs' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
           }`}
@@ -1978,6 +1979,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         </button>
         <button
           onClick={() => setActiveSubTab('teams')}
+          aria-pressed={activeSubTab === 'teams'}
           className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-bold rounded-lg transition-all ${
             activeSubTab === 'teams' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
           }`}
@@ -3621,9 +3623,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Modal Tabs */}
-              <div className="flex border-b border-slate-200 bg-white px-3 pt-2 gap-1 overflow-x-auto shrink-0">
+              <div data-hnl-pc-deep-tabs="crew-team-detail" role="group" aria-label="Chi tiết đội thi công" className="flex border-b border-slate-200 bg-white px-3 pt-2 gap-1 overflow-x-auto shrink-0">
                 <button
                   onClick={() => setDetailModalTab('rooms')}
+                  aria-pressed={detailModalTab === 'rooms'}
                   className={`flex items-center gap-1.5 py-2 px-3 text-xs font-bold border-b-2 transition whitespace-nowrap ${
                     detailModalTab === 'rooms'
                       ? 'border-indigo-600 text-indigo-700'
@@ -3636,6 +3639,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
                 <button
                   onClick={() => setDetailModalTab('defects')}
+                  aria-pressed={detailModalTab === 'defects'}
                   className={`flex items-center gap-1.5 py-2 px-3 text-xs font-bold border-b-2 transition whitespace-nowrap ${
                     detailModalTab === 'defects'
                       ? 'border-rose-600 text-rose-700'
@@ -3653,6 +3657,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
                 <button
                   onClick={() => setDetailModalTab('materials')}
+                  aria-pressed={detailModalTab === 'materials'}
                   className={`flex items-center gap-1.5 py-2 px-3 text-xs font-bold border-b-2 transition whitespace-nowrap ${
                     detailModalTab === 'materials'
                       ? 'border-cyan-600 text-cyan-700'
@@ -3665,6 +3670,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
                 <button
                   onClick={() => setDetailModalTab('logs')}
+                  aria-pressed={detailModalTab === 'logs'}
                   className={`flex items-center gap-1.5 py-2 px-3 text-xs font-bold border-b-2 transition whitespace-nowrap ${
                     detailModalTab === 'logs'
                       ? 'border-indigo-600 text-indigo-700'
