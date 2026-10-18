@@ -11,7 +11,7 @@ const moduleFiles = [
   ['floorplan','src/components/FloorPlanDefectTab.tsx'],
   ['checklist','src/components/ChecklistTab.tsx'],
 ];
-assert.ok(app.includes("localStorage.getItem('hnl_desktop_workspace_mode_v1') === 'modern' ? 'modern' : 'classic'"), 'classic default and instant rollback');
+assert.ok(app.includes("userChoice === 'modern' || userChoice === 'classic'"), 'explicit choice and instant rollback preserved');
 assert.ok(app.includes('document.documentElement.dataset.hnlPcWorkspace = desktopWorkspaceMode'), 'portal style follows locally selected PC mode');
 assert.ok(app.includes("visibleTab !== 'home' ? desktopWorkspaceMode : 'classic'"), 'Home stays original');
 assert.ok(!cards.includes('firebase/') && !cards.includes('setDoc(') && !cards.includes('runTransaction('), 'metric cards are presentation-only');
