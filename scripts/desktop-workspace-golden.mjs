@@ -17,13 +17,15 @@ assert.match(app, /localStorage\.setItem\('hnl_desktop_workspace_mode_v1', next\
 assert.match(app,/data-hnl-desktop-design=\{visibleTab !== 'home' \? desktopWorkspaceMode : 'classic'\}/,'home must always keep classic look');
 assert.match(css,/@media\(min-width:960px\)/,'modern design must be PC-scoped including Chrome desktop-site 980px');
 assert.match(css,/@media\(max-width:1023px\)/,'keep mobile unchanged');
-assert.match(header,/if \(activeTab === 'home'\) return null;/);
+assert.match(header,/if \(activeTab === 'home'\) \{/,'Home mode uses a dedicated compact action strip');
+assert.match(header,/if \(mode === 'classic'\) return null;/,'classic Home preserves original header');
 assert.match(header,/onChangeMode\('classic'\)/,'visible rollback');
 assert.match(header,/onChangeMode\('modern'\)/,'visible opt-in');
-for(const action of ['onOpenProjects','onOpenReports','onOpenNotifications','onOpenSecurity','onNavigate']) {
+for(const action of ['onOpenProjects','onOpenReports','onOpenNotifications','onOpenSecurity']) {
   assert.match(app,new RegExp(`${action}=\\{`),`original handler must be passed: ${action}`);
   assert.match(header,new RegExp(`onClick=\\{(?:${action}|\\(\\) => ${action}\\()`),`header must delegate ${action}`);
 }
+assert.match(app,/onNavigate=\{\(tab\) => navigateToTab\(tab\)\}/,'navigation keeps App-owned route handler without duplicate header tabs');
 for(const forbidden of ['firebase/firestore','setDoc(', 'updateDoc(', 'deleteDoc(', 'runTransaction(', 'projectId =','storagePath =']) {
   assert(!header.includes(forbidden),`header cannot write business data: ${forbidden}`);
 }
