@@ -293,3 +293,167 @@ html[data-hnl-theme="dark"] .hnl-pc-classic-return{background:#0f172a;color:#e2e
   html[data-hnl-browser-desktop="true"] [data-hnl-nav-surface="mobile"] { display: none !important; }
   html[data-hnl-browser-desktop="true"] [data-hnl-app-shell="true"] { max-width: none !important; width: 100% !important; padding-bottom: 16px !important; }
 }
+
+/* HNL PC Workspace V3.1 — deep nested tab and form presentation.
+ * Opt-in only; never style classic PC or the normal mobile viewport.
+ * No business handlers, media geometry, Firestore/R2 or permissions are touched. */
+@media (min-width: 960px) {
+  [data-hnl-desktop-design="modern"] {
+    --hnl-v3-ink: var(--pc-text, #0f172a);
+    --hnl-v3-muted: var(--pc-muted, #64748b);
+    --hnl-v3-paper: var(--pc-card, #ffffff);
+    --hnl-v3-edge: var(--pc-border, #dce4ef);
+    --hnl-v3-accent: var(--hnl-primary-action, #2563eb);
+    --hnl-v3-soft: var(--pc-soft, #f8fafc);
+    --hnl-v3-elev: 0 7px 25px rgb(15 23 42 / 6%);
+  }
+  /* Actual section hierarchy exists in each nested screen and is hidden in classic/mobile. */
+  [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-band {
+    display: flex; align-items: center; gap: 12px; min-width: 0;
+    margin: 24px 1px 12px; padding: 0 2px 11px;
+    border-bottom: 1px solid var(--hnl-v3-edge);
+  }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-index {
+    width: 33px; height: 33px; display: inline-grid; place-items: center; flex: 0 0 auto;
+    border-radius: 11px; background: color-mix(in srgb, var(--hnl-v3-accent) 10%, var(--hnl-v3-paper));
+    border: 1px solid color-mix(in srgb, var(--hnl-v3-accent) 22%, var(--hnl-v3-edge));
+    color: var(--hnl-v3-accent); font-size: 11px; font-weight: 850; font-variant-numeric: tabular-nums;
+  }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-copy { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-copy strong { font-size: 15px; line-height: 1.25; font-weight: 820; color: var(--hnl-v3-ink); }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-copy small { font-size: 11px; line-height: 1.4; color: var(--hnl-v3-muted); }
+
+  /* Warehouse: actual catalog tabs/search/ledger become a single detailed workspace. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-tabs"] {
+    width: min(100%, 370px); padding: 5px; border: 1px solid var(--hnl-v3-edge);
+    border-radius: 14px; box-shadow: none; margin-bottom: 4px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-tabs"] button { min-height: 42px; font-size: 12px; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-search"] {
+    border-radius: 14px; background: var(--hnl-v3-soft); border: 1px solid var(--hnl-v3-edge);
+    padding: 13px; gap: 12px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-search"] input { min-height: 42px; font-size: 13px; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-grid"] {
+    max-height: min(58vh, 680px); border-radius: 15px; border-color: var(--hnl-v3-edge);
+    scrollbar-gutter: stable;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-grid"] table { border-collapse: separate; border-spacing: 0; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-grid"] thead th {
+    position: sticky; top: 0; background: var(--hnl-v3-soft); color: var(--hnl-v3-ink);
+    border-bottom: 2px solid var(--hnl-v3-edge); padding: 11px 12px; font-size: 11px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-grid"] tbody td { padding-left: 12px; padding-right: 12px; font-size: 12px; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-history"] { padding: 19px; border-radius: 17px; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-history"] > .grid { grid-template-columns: repeat(2, minmax(0, 230px)); gap: 14px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-stock-cards"] > .space-y-2 {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; max-height: 400px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-stock-cards"] > .space-y-2 > * { margin: 0; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-voucher-filter"] {
+    padding: 17px 20px; border-radius: 17px; background: var(--hnl-v3-paper);
+    border: 1px solid var(--hnl-v3-edge); box-shadow: var(--hnl-v3-elev); gap: 15px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-vouchers"] {
+    padding: 20px; border-radius: 19px; border: 1px solid var(--hnl-v3-edge);
+    background: var(--hnl-v3-paper); box-shadow: var(--hnl-v3-elev);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-voucher-card-grid"] { gap: 16px; }
+
+  /* Work Volume: field-level filters, section cards and drilldown table. */
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="volume-filter-panel"] {
+    padding: 16px 19px; border-radius: 17px; background: var(--hnl-v3-paper);
+    border: 1px solid var(--hnl-v3-edge); box-shadow: var(--hnl-v3-elev); gap: 18px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="volume-cards"] { gap: 18px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="volume-cards"] > .grid,
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="volume-cards"] > .space-y-3 { gap: 18px; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="volume-breakdown-filter"] {
+    background: var(--hnl-v3-soft); padding: 18px 22px;
+    border-bottom: 1px solid var(--hnl-v3-edge);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="volume-breakdown-filter"] button { min-height: 40px; }
+
+  /* Crew daily logs and team directory: compact dedicated workspace panes. */
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="crew"] [data-hnl-pc-region="subtabs"] {
+    max-width: 570px; padding: 6px; border: 1px solid var(--hnl-v3-edge);
+    background: var(--hnl-v3-paper); border-radius: 15px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="crew"] [data-hnl-pc-region="subtabs"] button { min-height: 42px; font-size: 13px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="crew-records"] {
+    padding: 20px; border-radius: 18px; background: var(--hnl-v3-paper);
+    border: 1px solid var(--hnl-v3-edge); box-shadow: var(--hnl-v3-elev);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="crew-records"] > h2 {
+    font-size: 13px; color: var(--hnl-v3-ink); padding-bottom: 10px; border-bottom: 1px solid var(--hnl-v3-edge);
+  }
+
+  /* Floorplan: keep canvas transform / positioning unchanged; modernize surrounding panes only. */
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="floor-drawing"] {
+    padding: 18px; border: 1px solid var(--hnl-v3-edge);
+    border-radius: 20px; box-shadow: var(--hnl-v3-elev);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="floor-drawing"] > div:first-child {
+    min-height: 49px; align-items: center; gap: 14px; border-color: var(--hnl-v3-edge);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="floor-defects"] {
+    background: var(--hnl-v3-paper); border-radius: 18px;
+    border: 1px solid var(--hnl-v3-edge); padding: 18px 20px; box-shadow: var(--hnl-v3-elev);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="floor-defects"] select {
+    min-height: 39px; border-radius: 11px; font-size: 12px;
+  }
+
+  /* Checklist: separate floor/category navigation from inspection cards. */
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="checklist"] [data-hnl-pc-region="floor-tabs"] {
+    background: var(--hnl-v3-paper); border: 1px solid var(--hnl-v3-edge);
+    border-radius: 16px; padding: 10px; gap: 8px; scrollbar-gutter: stable;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="checklist"] [data-hnl-pc-region="floor-tabs"] button { min-height: 39px; border-radius: 11px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="checklist-items"] { gap: 16px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="checklist-items"] > div.border:not(.border-dashed) {
+    padding: 19px 21px; border-radius: 17px; box-shadow: var(--hnl-v3-elev);
+  }
+
+  /* Consistent PC form surfaces in the actual create/edit child tabs. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form] {
+    column-gap: 19px; row-gap: 17px; background: var(--hnl-v3-paper);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form] :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select) {
+    min-height: 41px; border-radius: 11px; border-color: var(--hnl-v3-edge);
+    font-size: 13px; background-color: var(--hnl-v3-paper); color: var(--hnl-v3-ink);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form] textarea { min-height: 82px; line-height: 1.5; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form] label { font-size: 12px; font-weight: 700; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form] :is(input, select, textarea):focus-visible {
+    outline: 2px solid var(--hnl-v3-accent); outline-offset: 1px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form] button:not([disabled]) { min-height: 36px; }
+
+  /* Project, Security, System, Notification, AI and Chat inner surfaces share consistent density. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-center] :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+    min-height: 39px; border-radius: 10px; font-size: 12px;
+  }
+  html[data-hnl-pc-workspace="modern"] :is([data-hnl-pc-v3-center="project-manager"],[data-hnl-pc-v3-center="security-center"],[data-hnl-pc-v3-center="notification-center"]) > div {
+    border-radius: 20px; box-shadow: 0 24px 75px rgb(2 6 23 / 22%);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-center="system-center"] :is(section,article) {
+    border-radius: 17px; border-color: var(--hnl-v3-edge);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-center="ai-workspace"] :is(textarea,input) { border-radius: 12px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-center="chat-projects"] > div.space-y-2 > button {
+    border: 1px solid var(--hnl-v3-edge); transition: border-color .15s, box-shadow .15s;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-center="chat-projects"] > div.space-y-2 > button:hover {
+    border-color: var(--hnl-v3-accent); box-shadow: var(--hnl-v3-elev);
+  }
+}
+
+@media (min-width: 1400px) {
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-stock-cards"] > .space-y-2 {
+    grid-template-columns: repeat(3,minmax(0,1fr));
+  }
+}
+/* Never render desktop-only secondary section titles on classic PC or genuine mobile. */
+@media (max-width: 959px) { .hnl-pc-v3-section-band { display: none !important; } }
+@media (min-width: 960px) { [data-hnl-desktop-design="classic"] .hnl-pc-v3-section-band { display: none !important; } }

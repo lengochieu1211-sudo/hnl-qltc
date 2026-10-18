@@ -6289,6 +6289,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       )}
 
       {/* Floor Plan Selector Chips & Quick Customization Toolbar */}
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="01" aria-label="Khu / Khối & tầng">
+        <span className="hnl-pc-v3-section-index">01</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Khu / Khối & tầng</strong><small>Chọn bản vẽ, điều khiển vùng căn và vị trí Defect.</small></div>
+      </div>
+
       <div className="bg-slate-100/90 p-2.5 rounded-2xl border border-slate-200/80 space-y-2">
         <div className="flex items-center justify-between flex-wrap gap-2 text-[11px] font-extrabold text-slate-600 px-1 border-b border-slate-200/50 pb-1.5">
           <span className="flex items-center gap-1">
@@ -6606,8 +6611,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       </div>
 
       {/* Interactive Blueprint Canvas Viewer Card */}
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="02" aria-label="Không gian bản vẽ">
+        <span className="hnl-pc-v3-section-index">02</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Không gian bản vẽ</strong><small>Công cụ vẽ, di chuyển và xử lý vùng Highlight / Defect.</small></div>
+      </div>
+
       {activeFloor && (
-        <div className="bg-white rounded-2xl p-3 border border-slate-200 shadow-sm space-y-2.5">
+        <div data-hnl-pc-v3-inner="floor-drawing" className="bg-white rounded-2xl p-3 border border-slate-200 shadow-sm space-y-2.5">
           {/* Header Row: Title & Action Buttons */}
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-slate-700 w-full pb-2 border-b border-slate-100">
             <div className="flex items-center gap-2">
@@ -8817,6 +8827,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           )}
 
           {/* Room Cards List */}
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="03" aria-label="Căn / phòng trên tầng">
+        <span className="hnl-pc-v3-section-index">03</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Căn / phòng trên tầng</strong><small>Tra cứu nghiệm thu theo từng căn đang hiển thị.</small></div>
+      </div>
+
           <div className="space-y-2.5 pt-1">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
@@ -9290,7 +9305,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
       {/* SECTION FOR DEFECT MODE: DEFECT LIST & FILTER */}
       {(viewMode === 'defect' || viewMode === 'all') && (
-        <div className="space-y-3">
+        <div data-hnl-pc-v3-inner="floor-defects" className="space-y-3">
+          <div className="hnl-pc-v3-section-band" data-hnl-v3-section="04" aria-label="Danh sách Defect">
+            <span className="hnl-pc-v3-section-index">04</span>
+            <div className="hnl-pc-v3-section-copy"><strong>Danh sách Defect</strong><small>Bộ lọc trạng thái và danh sách lỗi theo mặt bằng.</small></div>
+          </div>
           <div className="space-y-2">
             <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
               Danh sách Defect ({filteredDefects.length})
@@ -10243,7 +10262,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <button onClick={handleCancelDefectModal} className="font-bold text-slate-500 hover:text-slate-700">✕</button>
             </div>
 
-            <form onSubmit={handleCreateDefect} className="grid grid-cols-1 lg:grid-cols-6 gap-3.5 text-xs">
+            <form data-hnl-pc-v3-form="defect-create" onSubmit={handleCreateDefect} className="grid grid-cols-1 lg:grid-cols-6 gap-3.5 text-xs">
               <div className="lg:col-span-2">
                 <label className="block text-slate-700 font-bold mb-1">Nhóm lỗi / hạng mục lỗi</label>
                 <select

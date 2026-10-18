@@ -684,6 +684,11 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       </div>
 
       {/* PROJECT SETTINGS FORM CARD */}
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="01" aria-label="Thông tin dự án">
+        <span className="hnl-pc-v3-section-index">01</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Thông tin dự án</strong><small>Cấu hình hiển thị của dự án và tên đơn vị, không thay quyền cloud.</small></div>
+      </div>
+
       <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
         <h3 className="font-bold text-slate-900 border-b border-slate-100 pb-2 flex items-center gap-1.5 text-xs">
           <Save className="w-4 h-4 text-blue-600" /> Thông tin dự án
@@ -768,6 +773,11 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
 
 
       {/* SYNC / BACKUP CENTER — shared inline Settings accordion */}
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="02" aria-label="Dữ liệu & đồng bộ">
+        <span className="hnl-pc-v3-section-index">02</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Dữ liệu & đồng bộ</strong><small>Theo dõi kết nối, sao lưu, đối chiếu và phục hồi an toàn.</small></div>
+      </div>
+
       {syncCenterContent && (
         <SettingsAccordionCard
           id="sync-backup-card"
@@ -910,6 +920,11 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       </SettingsAccordionCard>
 
       {/* APP FORMATTING PREFERENCES CARD */}
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="03" aria-label="Tùy chọn ứng dụng">
+        <span className="hnl-pc-v3-section-index">03</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Tùy chọn ứng dụng</strong><small>Chuẩn số, ngày, chất lượng ảnh và thời hạn thùng rác.</small></div>
+      </div>
+
       <SettingsAccordionCard
         icon={Sliders}
         iconClassName="text-indigo-600"

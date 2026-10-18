@@ -1962,6 +1962,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         ]} />
       
       {/* Sub-tab Navigation Selector */}
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="01" aria-label="Nhật ký & đội thi công">
+        <span className="hnl-pc-v3-section-index">01</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Nhật ký & đội thi công</strong><small>Chuyển qua nhật ký theo ngày hoặc quản lý thông tin đội.</small></div>
+      </div>
+
       <div data-hnl-pc-region="subtabs" className="flex bg-slate-200 p-1.5 rounded-xl mb-4 shadow-sm" id="crew-subtab-navigation">
         <button
           onClick={() => setActiveSubTab('logs')}
@@ -1983,6 +1988,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
       {activeSubTab === 'logs' ? (
         <>
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="02" aria-label="Điều hành theo ngày">
+        <span className="hnl-pc-v3-section-index">02</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Điều hành theo ngày</strong><small>Chọn ngày, ghi quân số, chia sẻ hoặc nhập / xuất Excel.</small></div>
+      </div>
+
           <div data-hnl-pc-region="commands" className="mb-4 grid grid-cols-2 gap-2 lg:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1fr)] lg:items-stretch">
             <div className="order-1 col-span-2 lg:order-none lg:col-span-1">
               <div className="flex h-10 items-center justify-between rounded-xl border border-slate-200 bg-white px-2.5 shadow-sm">
@@ -2159,7 +2169,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </div>
           )}
           {/* Daily Records List */}
-          <div className="space-y-3">
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="03" aria-label="Lịch sử ghi nhận">
+        <span className="hnl-pc-v3-section-index">03</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Lịch sử ghi nhận</strong><small>Tìm và mở nhật ký theo đội, tầng, số lượng nhân công.</small></div>
+      </div>
+
+          <div data-hnl-pc-v3-inner="crew-records" className="space-y-3">
             <h2 className="text-xs font-bold text-slate-400 tracking-wider uppercase flex items-center gap-1.5 px-1">
               <Clipboard className="w-3.5 h-3.5 text-indigo-500" /> Nhật ký làm việc ({formatDateDDMMYYYY(selectedDate)})
             </h2>
@@ -2769,7 +2784,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </div>
 
             {/* Modal Form */}
-            <form onSubmit={handleLogSubmit} className="flex-1 min-h-0 p-4 lg:p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 overflow-y-auto overscroll-contain">
+            <form data-hnl-pc-v3-form="crew-log" onSubmit={handleLogSubmit} className="flex-1 min-h-0 p-4 lg:p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 overflow-y-auto overscroll-contain">
               {/* Date (Informative) */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Ngày Ghi Nhận</label>
@@ -3119,7 +3134,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </div>
 
             {/* Modal Form */}
-            <form onSubmit={handleTeamSubmit} className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <form data-hnl-pc-v3-form="crew-team" onSubmit={handleTeamSubmit} className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               {/* Team Name */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Tên Đội Thi Công</label>
