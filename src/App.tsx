@@ -7774,6 +7774,10 @@ function AuthenticatedApp() {
           showAI={HNL_AI_ENABLED}
           showSuperAdmin={isCurrentSuperAdmin}
           notificationCount={dueDateAlerts.length}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          canUndo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && past.length > 0}
+          canRedo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && future.length > 0}
         />
 
         {/* Tab Content */}

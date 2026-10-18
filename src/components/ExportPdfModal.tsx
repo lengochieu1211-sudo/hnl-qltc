@@ -1923,7 +1923,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+    <div data-hnl-pc-v32-window="report-export" className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
       <div className="bg-white w-full sm:max-w-2xl md:max-w-3xl lg:max-w-5xl rounded-t-3xl sm:rounded-2xl p-5 lg:p-6 space-y-4 max-h-[94vh] overflow-y-auto border border-slate-100 shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -1947,7 +1947,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
         {/* Options */}
         <div className="space-y-4 text-xs">
           {/* Unified report scope + Defect filters */}
-          <div className="space-y-2">
+          <div data-hnl-pc-v32-region="report-filters" className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <label className="text-slate-700 font-bold flex items-center gap-1.5">
                 <Filter className="w-3.5 h-3.5 text-indigo-600" />
@@ -2524,7 +2524,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
           </div>
 
           {/* Keep only three primary actions visible. Legacy HTML/picker routes remain intact. */}
-          <section data-hnl-report-export-actions="true" aria-label="Xuất và chia sẻ báo cáo" className="space-y-2 border-t border-slate-200 pt-3">
+          <section data-hnl-pc-v32-region="report-actions" data-hnl-report-export-actions="true" aria-label="Xuất và chia sẻ báo cáo" className="space-y-2 border-t border-slate-200 pt-3">
             <div className="flex items-center justify-between gap-2">
               <h4 className="text-sm font-extrabold text-slate-800">Xuất báo cáo</h4>
               {/* Temporarily hide the complete legacy menu (including its trigger) on Web, Windows and APK. */}

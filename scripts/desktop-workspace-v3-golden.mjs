@@ -34,3 +34,6 @@ assert.ok(read('src/App.tsx').includes("localStorage.getItem('hnl_desktop_worksp
 assert.ok(read('src/components/HomeDashboard.tsx').includes('hnl-home-dashboard'),'Home remains original');
 assert.ok(read('src/styles/desktopWorkspace.css').includes('@media (min-width: 960px)'),'Chrome desktop-site 980px remains supported');
 console.log('HNL PC WORKSPACE V3 GOLDEN PASS — deep nested panes/forms, old UI, mobile, Chrome, Home and data guards');
+
+// V3.2 continues the existing golden chain without changing package scripts or CI workflows.
+await import('./desktop-workspace-v32-golden.mjs');
