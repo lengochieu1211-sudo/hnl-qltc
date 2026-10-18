@@ -7609,7 +7609,7 @@ function AuthenticatedApp() {
   const hasExcelExport = ['warehouse', 'volume', 'floorplan', 'checklist', 'crew'].includes(activeTab);
 
   return (
-    <div data-hnl-desktop-design={visibleTab !== 'home' ? desktopWorkspaceMode : 'classic'} data-hnl-desktop-native={isDesktopRuntime ? 'true' : 'false'} className={`min-h-screen bg-slate-100 text-slate-900 font-sans selection:bg-blue-200 ${isDesktopRuntime || chromeDesktopSite ? 'pl-[84px]' : 'lg:pl-[84px]'}`}>
+    <div data-hnl-pc-home-compact={visibleTab === 'home' && desktopWorkspaceMode === 'modern' ? 'true' : 'false'} data-hnl-desktop-design={visibleTab !== 'home' ? desktopWorkspaceMode : 'classic'} data-hnl-desktop-native={isDesktopRuntime ? 'true' : 'false'} className={`min-h-screen bg-slate-100 text-slate-900 font-sans selection:bg-blue-200 ${isDesktopRuntime || chromeDesktopSite ? 'pl-[84px]' : 'lg:pl-[84px]'}`}>
       {/* Mobile & Responsive Shell Frame */}
       <div
         data-hnl-app-shell="true"

@@ -952,6 +952,56 @@ async function verifyModernPcWorkspace(page, label, switchFromClassic = false) {
   }
 }
 
+async function verifyModernHomeCompact(page, label, checkClassicReturn = false) {
+  const toolbar = page.locator('[data-hnl-pc-home-toolbar="true"]');
+  await toolbar.waitFor({ state: 'visible', timeout: 20000 });
+  const metrics = await page.evaluate(() => {
+    const shell = document.querySelector('[data-hnl-pc-home-compact="true"]');
+    const dark = shell?.querySelector('[data-hnl-global-header]');
+    const home = shell?.querySelector('.hnl-home-dashboard');
+    const strip = shell?.querySelector('[data-hnl-pc-home-toolbar="true"]');
+    const rail = shell?.querySelector('[data-hnl-nav-surface="desktop"]');
+    return {
+      flag: Boolean(shell),
+      darkMounted: Boolean(dark),
+      darkHidden: Boolean(dark) && getComputedStyle(dark).display === 'none',
+      homePresent: Boolean(home) && home.getBoundingClientRect().height > 0,
+      toolbarVisible: Boolean(strip) && strip.getBoundingClientRect().height > 0,
+      actions: [...(strip?.querySelectorAll('.hnl-pc-heading-actions button') || [])].map((node) => (node.textContent || '').trim()),
+      undoRedo: strip?.querySelectorAll('button[title*="Hoàn tác"],button[title*="Khôi phục"]')?.length || 0,
+      railWidth: rail?.getBoundingClientRect().width || 0,
+      overflow: Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0) - window.innerWidth,
+    };
+  });
+  assert(metrics.flag && metrics.darkMounted && metrics.darkHidden, `${label}: black Home header not hidden: ${JSON.stringify(metrics)}`);
+  assert(metrics.homePresent && metrics.toolbarVisible, `${label}: Home content or replacement toolbar missing`);
+  assert(metrics.railWidth >= 83 && metrics.railWidth <= 85, `${label}: original left navigation changed`);
+  assert(['Dự án', 'Báo cáo', 'Thông báo', 'Bảo mật', 'PC cũ'].every((name) => metrics.actions.some((action) => action.includes(name))), `${label}: Home action missing: ${JSON.stringify(metrics.actions)}`);
+  assert(metrics.undoRedo === 2, `${label}: Home Undo/Redo controls lost`);
+  assert(metrics.overflow <= 12, `${label}: Home horizontal overflow ${metrics.overflow}px`);
+  await page.screenshot({ path: `runtime-evidence/${label}-modern-home.png`, fullPage: false });
+  pass(`${label} compact Home without black header`, '84px original rail · original dashboard · all actions retained');
+  if (checkClassicReturn) {
+    await toolbar.getByRole('button', { name: 'PC cũ', exact: true }).click();
+    await page.locator('[data-hnl-global-header]').first().waitFor({ state: 'visible', timeout: 10000 });
+    assert(await toolbar.isHidden(), `${label}: classic switch did not hide modern Home toolbar`);
+    pass(`${label} classic Home restoration`, 'black banner restored without changing data');
+  }
+}
+
+async function verifyModernHomeDesktop(browser) {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'vi-VN', serviceWorkers: 'allow' });
+  await seedRememberedOfflineAdmin(context);
+  await context.addInitScript(() => {
+    try { localStorage.setItem('hnl_desktop_workspace_mode_v1', 'modern'); } catch {}
+  });
+  const page = await context.newPage();
+  const response = await page.goto(`${hostingUrl}/?runtimeGoldenModernHome=${Date.now()}`, { waitUntil: 'domcontentloaded', timeout: 45000 });
+  assert(response?.status() === 200, 'desktop modern Home DEV Hosting HTTP failed');
+  await verifyModernHomeCompact(page, 'desktop-1440', true);
+  await context.close();
+}
+
 async function verifyChromeDesktopSite980(browser) {
   const label = 'chrome-android-desktop-site-980';
   const context = await browser.newContext({
@@ -969,6 +1019,7 @@ async function verifyChromeDesktopSite980(browser) {
     waitUntil: 'domcontentloaded', timeout: 45000,
   });
   assert(response?.status() === 200, `${label}: DEV Hosting navigation failed`);
+  await verifyModernHomeCompact(page, label);
   // A new offline browser session opens Home; navigate through the actual original rail.
   const warehouseNav = page.locator('[data-hnl-nav-surface="desktop"] [data-hnl-nav-tab="warehouse"]');
   await warehouseNav.waitFor({ state: 'visible', timeout: 20000 });
@@ -1293,6 +1344,7 @@ try {
   await runViewport(browser, 'desktop', { width: 1440, height: 900 }, 'runtime-evidence/desktop.png');
   await runViewport(browser, 'desktop-720p', { width: 1280, height: 720 }, 'runtime-evidence/desktop-720p.png');
   await runViewport(browser, 'desktop-compact', { width: 1088, height: 706 }, 'runtime-evidence/desktop-compact.png');
+  await verifyModernHomeDesktop(browser);
   await verifyChromeDesktopSite980(browser);
   await verifyNarrowDesktopRuntime(browser);
   await runViewport(browser, 'mobile', { width: 393, height: 852 }, 'runtime-evidence/mobile.png');

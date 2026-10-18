@@ -49,8 +49,8 @@ export const DesktopWorkspaceHeader: React.FC<DesktopWorkspaceHeaderProps> = ({
   onOpenProjects, onOpenReports, onOpenNotifications, onOpenSecurity,
   notificationCount, onUndo, onRedo, canUndo, canRedo,
 }) => {
-  if (activeTab === 'home') return null;
-  if (mode === 'classic') return (
+  if (activeTab === 'home' && mode === 'classic') return null;
+  if (activeTab !== 'home' && mode === 'classic') return (
     <div className="hnl-pc-classic-return" data-hnl-pc-mode-toggle="classic">
       <MonitorCog size={16} aria-hidden="true" />
       <span>Đang dùng bố cục PC cũ</span>
@@ -58,6 +58,22 @@ export const DesktopWorkspaceHeader: React.FC<DesktopWorkspaceHeaderProps> = ({
     </div>
   );
 
+  const actionToolbar = (
+        <div className="hnl-pc-heading-actions" aria-label="Công cụ truy cập nhanh">
+          <UndoRedoControls onUndo={onUndo} onRedo={onRedo} canUndo={canUndo} canRedo={canRedo} variant="light" />
+          <button type="button" onClick={onOpenProjects}><Building2 size={17} aria-hidden="true" /> Dự án</button>
+          <button type="button" onClick={onOpenReports}><FileBarChart2 size={17} aria-hidden="true" /> Báo cáo</button>
+          <button type="button" onClick={onOpenNotifications}><Bell size={17} aria-hidden="true" /> Thông báo{notificationCount > 0 && <span className="hnl-pc-alert-count">{notificationCount > 99 ? '99+' : notificationCount}</span>}</button>
+          <button type="button" onClick={onOpenSecurity}><LockKeyhole size={17} aria-hidden="true" /> Bảo mật</button>
+          <button type="button" className="hnl-pc-mode-switch" onClick={() => onChangeMode('classic')} title="Chỉ khôi phục bố cục PC, không thay đổi dữ liệu"><MonitorCog size={17} aria-hidden="true" /> PC cũ</button>
+        </div>
+  );
+  if (activeTab === 'home') return (
+    <section className="hnl-pc-home-toolbar" data-hnl-pc-home-toolbar="true" aria-label="Công cụ Trang chủ PC mới">
+      <div className="hnl-pc-home-toolbar-label"><LayoutDashboard size={17} aria-hidden="true" /><strong>Trang chủ</strong></div>
+      {actionToolbar}
+    </section>
+  );
   const page = PAGES[activeTab];
   const roleLabel = userRole === 'ADMIN' ? 'Quản trị' : userRole === 'EDITOR' ? 'Biên tập' : 'Chỉ xem';
   return (
@@ -73,14 +89,7 @@ export const DesktopWorkspaceHeader: React.FC<DesktopWorkspaceHeaderProps> = ({
             <span className="hnl-pc-role">{roleLabel}</span>
           </div>
         </div>
-        <div className="hnl-pc-heading-actions" aria-label="Công cụ truy cập nhanh">
-          <UndoRedoControls onUndo={onUndo} onRedo={onRedo} canUndo={canUndo} canRedo={canRedo} variant="light" />
-          <button type="button" onClick={onOpenProjects}><Building2 size={17} aria-hidden="true" /> Dự án</button>
-          <button type="button" onClick={onOpenReports}><FileBarChart2 size={17} aria-hidden="true" /> Báo cáo</button>
-          <button type="button" onClick={onOpenNotifications}><Bell size={17} aria-hidden="true" /> Thông báo{notificationCount > 0 && <span className="hnl-pc-alert-count">{notificationCount > 99 ? '99+' : notificationCount}</span>}</button>
-          <button type="button" onClick={onOpenSecurity}><LockKeyhole size={17} aria-hidden="true" /> Bảo mật</button>
-          <button type="button" className="hnl-pc-mode-switch" onClick={() => onChangeMode('classic')} title="Chỉ khôi phục bố cục PC, không thay đổi dữ liệu"><MonitorCog size={17} aria-hidden="true" /> PC cũ</button>
-        </div>
+        {actionToolbar}
       </div>
     </section>
   );

@@ -54,7 +54,11 @@ const header = read('src/components/DesktopWorkspaceHeader.tsx');
 const app = read('src/App.tsx');
 assert.ok(css.includes('[data-hnl-desktop-design="modern"] [data-hnl-global-header]{display:none!important}'), 'PC modern must hide duplicated dark project header');
 assert.ok(css.indexOf('[data-hnl-desktop-design="modern"] [data-hnl-global-header]{display:none!important}') > css.indexOf('@media(min-width:960px)'), 'hide dark header only in PC breakpoint');
-assert.ok(app.includes("visibleTab !== 'home' ? desktopWorkspaceMode : 'classic'"), 'home retains original dark header');
+assert.ok(app.includes("visibleTab !== 'home' ? desktopWorkspaceMode : 'classic'"), 'Home keeps original dashboard layout');
+assert.ok(app.includes("data-hnl-pc-home-compact={visibleTab === 'home' && desktopWorkspaceMode === 'modern'"), 'Home modern presentation flag required');
+assert.ok(css.includes('[data-hnl-pc-home-compact="true"] [data-hnl-global-header]{display:none!important}'), 'Home PC modern must hide dark banner');
+assert.ok(header.includes('data-hnl-pc-home-toolbar="true"'), 'Home PC modern must retain a compact action toolbar');
+assert.ok(header.includes("if (activeTab === 'home' && mode === 'classic') return null;"), 'Home classic remains intact');
 assert.ok(!header.includes('<nav className="hnl-pc-quick-nav"'), 'do not render duplicated horizontal module tabs');
 assert.ok(header.includes('<UndoRedoControls onUndo={onUndo} onRedo={onRedo}'), 'original Undo/Redo remains accessible without dark header');
 assert.ok(app.includes('onUndo={handleUndo}') && app.includes('canUndo={isProjectRoleResolved'), 'original undo permission/data guards preserved');
@@ -62,4 +66,4 @@ for (const route of ['onOpenProjects', 'onOpenReports', 'onOpenNotifications', '
   assert.ok(header.includes(route), `PC contextual action must remain accessible: ${route}`);
 }
 assert.ok(read('src/components/HomeDashboard.tsx').includes('hnl-home-dashboard'), 'Home module unchanged');
-console.log('HNL PC WORKSPACE V3.2 GOLDEN PASS — 7 operational dialogs + 2 embedded editors, 26 scoped region/overlay hooks; classic, mobile, Home and data guards');
+console.log('HNL PC WORKSPACE V3.2 GOLDEN PASS — 7 operational dialogs + 2 embedded editors, 26 scoped region/overlay hooks; classic/mobile/Home dashboard and data guards');

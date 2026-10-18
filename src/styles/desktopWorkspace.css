@@ -21,6 +21,39 @@
 [data-hnl-desktop-design="modern"] .hnl-pc-heading-actions button:hover{background:color-mix(in srgb,var(--hnl-primary) 8%,white)}
 [data-hnl-desktop-design="modern"] .hnl-pc-heading-actions .hnl-pc-mode-switch{background:color-mix(in srgb,var(--hnl-primary) 10%,white);color:var(--hnl-primary-on-light);border-color:color-mix(in srgb,var(--hnl-primary) 24%,white)}
 [data-hnl-desktop-design="modern"] .hnl-pc-alert-count{display:inline-flex;background:#be123c;color:white;border-radius:99px;font-size:10px;padding:0 5px}
+/* Home PC modern: keep original dashboard geometry, but replace redundant dark
+   banner with a compact white action strip. The classic Home + normal mobile are untouched. */
+.hnl-pc-home-toolbar{display:none}
+@media(min-width:960px){
+  [data-hnl-pc-home-compact="true"] [data-hnl-global-header]{display:none!important}
+  [data-hnl-pc-home-compact="true"] .hnl-pc-home-toolbar{
+    display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;
+    gap:8px 12px;padding:9px 16px;border-bottom:1px solid #dbe3ef;
+    background:#fff;color:#0f172a
+  }
+  [data-hnl-pc-home-compact="true"] .hnl-pc-home-toolbar-label{
+    display:flex;align-items:center;gap:8px;font-size:13px;white-space:nowrap;color:#334155
+  }
+  [data-hnl-pc-home-compact="true"] .hnl-pc-heading-actions{
+    display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:6px
+  }
+  [data-hnl-pc-home-compact="true"] .hnl-pc-heading-actions button{
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    min-height:34px;padding:6px 9px;border:1px solid #dbe3ef;border-radius:9px;
+    background:#f8fafc;color:#0f172a;font-size:12px;font-weight:700
+  }
+  [data-hnl-pc-home-compact="true"] .hnl-pc-heading-actions button:hover{background:#eff6ff}
+  [data-hnl-pc-home-compact="true"] .hnl-pc-alert-count{
+    display:inline-flex;padding:0 5px;border-radius:99px;background:#be123c;color:#fff;font-size:10px
+  }
+  html[data-hnl-theme="dark"] [data-hnl-pc-home-compact="true"] .hnl-pc-home-toolbar{
+    background:#0f172a;border-color:#334155;color:#f1f5f9
+  }
+  html[data-hnl-theme="dark"] [data-hnl-pc-home-compact="true"] .hnl-pc-home-toolbar-label{color:#cbd5e1}
+  html[data-hnl-theme="dark"] [data-hnl-pc-home-compact="true"] .hnl-pc-heading-actions button{
+    background:#1e293b;border-color:#334155;color:#f1f5f9
+  }
+}
 /* PC modern only: old dark global banner repeats project/action information already visible
    in the white contextual header. Keep it mounted (no Auth/sync lifecycle change),
    and keep original banner in Home, classic workspace and ordinary mobile. */
