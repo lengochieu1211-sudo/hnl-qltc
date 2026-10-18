@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ViewportModalPortal } from './ViewportModalPortal';
 import { ContextBackButton } from './ContextBackButton';
 import { 
   X, 
@@ -997,7 +998,8 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div data-hnl-pc-v32-window="material-norm" className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+    <ViewportModalPortal>
+    <div data-hnl-pc-v32-window="material-norm" data-hnl-overlay-stack="elevated" className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[210] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
       <div className="bg-white w-full max-w-5xl rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 space-y-4 max-h-[92vh] flex flex-col border border-slate-100 shadow-2xl">
         
         {/* Header */}
@@ -1715,7 +1717,8 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
 
       {/* Delete Confirmation Modal Overlay */}
       {hasManageAccess && deletingNormTarget && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-60 flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <ViewportModalPortal>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[330] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-5 max-w-xs w-full space-y-4 border border-slate-100 shadow-2xl text-center">
             <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto">
               <AlertCircle className="w-6 h-6" />
@@ -1748,7 +1751,9 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             </div>
           </div>
         </div>
+        </ViewportModalPortal>
       )}
     </div>
+    </ViewportModalPortal>
   );
 };

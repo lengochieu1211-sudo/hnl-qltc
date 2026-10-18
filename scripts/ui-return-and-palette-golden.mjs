@@ -40,12 +40,21 @@ assert.ok(app.includes('onClick={handleContextReturn}'), 'single top return rest
 // Preserve the contextual label only when the parent has a real return handler;
 // avoid a second competing X alongside the sticky dismiss action.
 const defectDetailHeader = floorPlan.slice(floorPlan.indexOf('{/* Defect Detail & Control Modal */}'), floorPlan.indexOf('{/* Overdue / Progress Banner */}'));
-assert.ok(defectDetailHeader.includes("contextReturnLabel && onContextReturn ? `← Quay lại ${contextReturnLabel}` : '✕ Đóng'"),
-  'Defect detail labels local close versus contextual return accurately');
-assert.ok(defectDetailHeader.includes('data-hnl-defect-detail-dismiss="primary"') && defectDetailHeader.includes('sticky top-0'),
-  'Defect modal keeps one visible top dismiss action while scrolling');
-assert.equal((defectDetailHeader.match(/onClick={closeDefectDetail}/g) || []).length, 1,
-  'Defect modal top/header must not duplicate dismiss actions');
+assert.ok(defectDetailHeader.includes('contextReturnLabel && onContextReturn && (') &&
+  defectDetailHeader.includes('data-hnl-defect-context-back="true"') &&
+  defectDetailHeader.includes('← Quay lại {contextReturnLabel}'),
+  'Defect detail only shows a contextual return when a real source/return callback exists');
+assert.ok(defectDetailHeader.includes('data-hnl-defect-detail-dismiss="primary"') &&
+  defectDetailHeader.includes('aria-label="Đóng chi tiết Defect"') &&
+  defectDetailHeader.includes('<X className="w-5 h-5" />') &&
+  defectDetailHeader.includes('p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100') &&
+  defectDetailHeader.includes('sticky top-0'),
+  'Defect modal uses the same small top-right X button as Room instead of a text close button');
+assert.ok(!defectDetailHeader.includes("'✕ Đóng'") &&
+  !defectDetailHeader.includes('Đóng chi tiết</button>'),
+  'Defect header must not show verbose local close text');
+assert.equal((defectDetailHeader.match(/onClick={closeDefectDetail}/g) || []).length, 2,
+  'Defect modal has conditional context-return and one icon dismiss, without duplicate X buttons');
 assert.ok(floorPlan.includes('if (onContextReturn) onContextReturn()') && floorPlan.includes('Lưu &amp; Đóng'),
   'Defect modal must preserve existing contextual return and save/close action');
 
@@ -100,6 +109,36 @@ for (const btn of [materialAddAction, equipmentAddAction]) {
   assert.ok(btn.includes('<Plus className="h-3.5 w-3.5" />'),
     'Voucher add action icons are the same size');
 }
+
+// PC V3.5: nested dialogs must escape the blurred, scrolling settings sheet.
+const viewportPortal = read('src/components/ViewportModalPortal.tsx');
+const projectDialogs = read('src/components/ProjectManagerModal.tsx');
+const normDialogs = read('src/components/MaterialNormModal.tsx');
+const mergeDialogs = read('src/components/ConflictMergeModal.tsx');
+assert.ok(viewportPortal.includes('createPortal(children, document.body)') && viewportPortal.includes("typeof document === 'undefined'"),
+  'Viewport portal uses document.body without breaking SSR');
+for (const condition of ['showConflictModal && pendingImportData','multiProjectSyncState',
+  'canBackup && deletingCloudBackupTarget','showJsonScopePicker','exportedFileInfo','importedFileInfo','pendingEncryptedPayload']) {
+  const start = projectDialogs.indexOf('{' + condition + ' && (');
+  const end = projectDialogs.indexOf('\n      )}', start);
+  assert.ok(start >= 0 && end > start && projectDialogs.slice(start, end).includes('<ViewportModalPortal>') &&
+    projectDialogs.slice(start, end).includes('</ViewportModalPortal>'), 'Unportaled project overlay: ' + condition);
+}
+assert.ok(projectDialogs.includes('data-hnl-viewport-overlay="json-export-scope"') && projectDialogs.includes('handleExportJsonForScope()') && projectDialogs.includes("inline ? 'w-full'"),
+  'JSON scope has full-viewport overlay without changing export or inline project behavior');
+assert.ok(mergeDialogs.includes('z-[320]') && normDialogs.includes('z-[330]'),
+  'Nested merge and delete overlays have global stacking above their parents');
+assert.ok(normDialogs.includes('<ViewportModalPortal>') && normDialogs.includes('onDeleteNorm(deletingNormTarget.id);'),
+  'Material norm UI and existing ADMIN delete action preserved');
+assert.ok(report.includes('<ViewportModalPortal>') && report.includes('max-h-[calc(100dvh-1rem)]') &&
+  report.includes('overscroll-contain') && report.includes('sticky top-0 z-20'),
+  'Report overlay escapes scrolling parent and has bounded internal scroll with visible header');
+const actionMenuPortal = read('src/components/ActionMenuButton.tsx');
+assert.ok(normDialogs.includes('data-hnl-overlay-stack="elevated"') &&
+  actionMenuPortal.includes('elevatedModalMenu') && actionMenuPortal.includes('z-[360]') &&
+  actionMenuPortal.includes('z-[170]') && actionMenuPortal.includes('z-[359]'),
+  'Inside elevated modal, Add/Equipment action menu must receive clicks without affecting normal global menus');
+console.log('PC DEEP VIEWPORT OVERLAY GOLDEN PASS');
 
 console.log('UI RETURN AND PALETTE GOLDEN: PASS');
 

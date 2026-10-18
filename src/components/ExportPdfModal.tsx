@@ -1,5 +1,6 @@
 import { downloadOrShareFile } from '../utils/downloadUtils';
 import React, { useState, useEffect, useMemo } from 'react';
+import { ViewportModalPortal } from './ViewportModalPortal';
 import { FileText, Download, Printer, X, CheckCircle2, Filter, Mail, Package, BarChart3, Building2, ClipboardCheck, FileSpreadsheet, Users, Copy, HelpCircle, Camera, Image as ImageIcon, ChevronDown } from 'lucide-react';
 import { InventoryItem, WorkVolume, DefectItem, ChecklistItem, FloorPlan, RoomProgressItem, MaterialNorm, CrewRecord, TeamInfo } from '../types';
 import { formatDateDDMMYYYY, formatDateTime, formatFloorName, parseLegacyTimestamp } from '../utils/dateFormatter';
@@ -1923,10 +1924,11 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
   };
 
   return (
-    <div data-hnl-pc-v32-window="report-export" className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-      <div className="bg-white w-full sm:max-w-2xl md:max-w-3xl lg:max-w-5xl rounded-t-3xl sm:rounded-2xl p-5 lg:p-6 space-y-4 max-h-[94vh] overflow-y-auto border border-slate-100 shadow-2xl">
+    <ViewportModalPortal>
+    <div data-hnl-pc-v32-window="report-export" className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[210] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+      <div className="bg-white w-full sm:max-w-2xl md:max-w-3xl lg:max-w-5xl rounded-t-3xl sm:rounded-2xl p-5 lg:p-6 space-y-4 max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain border border-slate-100 shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div className="sticky top-0 z-20 flex items-center justify-between border-b border-slate-100 bg-white pb-3">
           <div className="flex items-center gap-2">
             <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
               <FileText className="w-5 h-5" />
@@ -2605,5 +2607,6 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
         </div>
       </div>
     </div>
+    </ViewportModalPortal>
   );
 };
