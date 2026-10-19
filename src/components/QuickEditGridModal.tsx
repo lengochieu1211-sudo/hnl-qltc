@@ -42,7 +42,7 @@ interface QuickEditGridModalProps {
   createEmptyRow?: (index: number, anchorRow?: QuickGridRow) => QuickGridRow | null;
   getRowDeleteBlockReason?: (row: QuickGridRow, currentRows: QuickGridRow[]) => string | null;
   syncGroupColumns?: string[];
-  /** Opt-in spreadsheet-like cell range editing (warehouse only). */
+  /** Spreadsheet-like Ctrl/Shift selection shared by all Quick Edit modules; can opt out for special embeds. */
   spreadsheetSelection?: boolean;
   onClose: () => void;
   onSave: (
@@ -115,7 +115,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
   createEmptyRow,
   getRowDeleteBlockReason,
   syncGroupColumns = [],
-  spreadsheetSelection = false,
+  spreadsheetSelection = true,
   onClose,
   onSave,
   saveLabel = 'Lưu thay đổi',
@@ -518,7 +518,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
     if (!canEdit) return;
     const text = event.clipboardData.getData('text/plain');
     if (!text) return;
-    // Preserve the original per-cell paste behavior in non-warehouse modules.
+    // Compatibility fallback for a future explicitly opted-out specialized grid.
     if (!spreadsheetSelection) {
       if (!text.includes('\t') && !text.includes('\n')) return;
       event.preventDefault();

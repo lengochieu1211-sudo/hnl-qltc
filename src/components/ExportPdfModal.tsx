@@ -1926,9 +1926,9 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
   return (
     <ViewportModalPortal>
     <div data-hnl-pc-v32-window="report-export" className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[210] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-      <div className="bg-white w-full sm:max-w-2xl md:max-w-3xl lg:max-w-5xl rounded-t-3xl sm:rounded-2xl p-5 lg:p-6 space-y-4 max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain border border-slate-100 shadow-2xl">
-        {/* Header */}
-        <div className="sticky top-0 z-20 flex items-center justify-between border-b border-slate-100 bg-white pb-3">
+      <div className="bg-white w-full sm:max-w-2xl md:max-w-3xl lg:max-w-5xl rounded-t-3xl sm:rounded-2xl flex flex-col max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden border border-slate-100 shadow-2xl">
+        {/* Header stays outside the scrolling content to prevent an exposed padding gap. */}
+        <div data-hnl-report-fixed-header="true" className="shrink-0 z-20 flex items-center justify-between border-b border-slate-100 bg-white px-5 lg:px-6 pt-5 lg:pt-6 pb-3">
           <div className="flex items-center gap-2">
             <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
               <FileText className="w-5 h-5" />
@@ -1946,6 +1946,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
           </button>
         </div>
 
+        <div data-hnl-report-scrollbody="true" className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 lg:px-6 pt-4 pb-5 lg:pb-6">
         {/* Options */}
         <div className="space-y-4 text-xs">
           {/* Unified report scope + Defect filters */}
@@ -2147,7 +2148,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
           </div>
 
           {/* Sorting for each report section. Photo appendices intentionally inherit their parent table order. */}
-          <details open className="group bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden">
+          <details open data-hnl-report-typography="sort-order" className="group bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden">
             <summary className="cursor-pointer select-none px-3 py-2.5 text-xs font-extrabold text-slate-800 flex items-center justify-between gap-2">
               <span>↕️ Sắp xếp từng phần trong PDF</span>
               <span className="text-[11px] text-slate-400 group-open:hidden">Mở</span>
@@ -2337,7 +2338,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
           </div>
 
           {/* Tùy chỉnh nâng cao */}
-          <div className="pt-1 space-y-2 text-slate-700 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+          <div data-hnl-report-typography="page-layout" className="pt-1 space-y-2 text-slate-700 bg-slate-50 p-3 rounded-2xl border border-slate-200">
             <span className="block font-bold text-slate-800 text-xs">⚙️ Tùy chỉnh bố cục báo cáo:</span>
             <div className="grid grid-cols-2 gap-2 pb-1">
               <label className="space-y-1">
@@ -2605,6 +2606,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
           </section>
         </div>
+        </div>{/* End of independent report scrollbody */}
       </div>
     </div>
     </ViewportModalPortal>

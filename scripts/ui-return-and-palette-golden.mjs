@@ -132,8 +132,9 @@ assert.ok(mergeDialogs.includes('z-[320]') && normDialogs.includes('z-[330]'),
 assert.ok(normDialogs.includes('<ViewportModalPortal>') && normDialogs.includes('onDeleteNorm(deletingNormTarget.id);'),
   'Material norm UI and existing ADMIN delete action preserved');
 assert.ok(report.includes('<ViewportModalPortal>') && report.includes('max-h-[calc(100dvh-1rem)]') &&
-  report.includes('overscroll-contain') && report.includes('sticky top-0 z-20'),
-  'Report overlay escapes scrolling parent and has bounded internal scroll with visible header');
+  report.includes('data-hnl-report-fixed-header="true"') && report.includes('data-hnl-report-scrollbody="true"') &&
+  !report.includes('sticky top-0 z-20') && report.includes('overflow-hidden border border-slate-100 shadow-2xl'),
+  'Report header must remain outside the independently scrolling options; no sticky padding gap');
 const actionMenuPortal = read('src/components/ActionMenuButton.tsx');
 assert.ok(normDialogs.includes('data-hnl-overlay-stack="elevated"') &&
   actionMenuPortal.includes('elevatedModalMenu') && actionMenuPortal.includes('z-[360]') &&
@@ -158,6 +159,20 @@ assert.ok(reportFilterUi.includes('text-xs font-extrabold text-slate-600">Defect
   'Section title and clear-filter button use 12px');
 assert.ok(reportFilterUi.includes('text-[11px] leading-relaxed text-slate-500'),
   'Explanatory footnote uses the same 11px typography with readable line-height');
+// Compact PC actions and label hierarchies are opt-in; no PDF print/template changes.
+const deepFormCss = read('src/styles/desktopWorkspaceCompact.css');
+const warehouseVoucher = read('src/components/WarehouseTab.tsx');
+for (const token of ['item-kind', 'voucher-type']) {
+  assert.ok(warehouseVoucher.includes(`data-hnl-v35-voucher-toggle="${token}"`) &&
+    deepFormCss.includes('[data-hnl-v35-voucher-toggle]'), `Voucher toggle ${token} compact PC-only`);
+}
+assert.ok(floorPlan.includes('data-hnl-pc-v35-actions="floor-manage-add"') &&
+  deepFormCss.includes('[data-hnl-pc-v35-actions="floor-manage-add"]'),
+  'Floor manager action bar compact while preserving floor-add modal and Android');
+assert.ok(report.includes('data-hnl-report-typography="sort-order"') &&
+  report.includes('data-hnl-report-typography="page-layout"') &&
+  deepFormCss.includes('[data-hnl-report-typography="page-layout"]'),
+  'Report scopes/sorting/page typography use a scoped PC font hierarchy');
 console.log('REPORT FILTER TYPOGRAPHY GOLDEN PASS');
 
 // PC V3.5: report sorting and PDF paper controls must match the readable
@@ -289,6 +304,19 @@ assert.ok(deepCompactCss.includes('max-height: min(58vh, 680px)') &&
   'Scroll boundaries and ADMIN-only mutations remain guarded');
 console.log('PC V3.5 DEEP ACTION COMPACT + WAREHOUSE SCROLL FRAME GOLDEN PASS');
 
+// When returning from Material Norm / Equipment Master, the catalogue sheet
+// remounts: restoring only the sheet body loses the table's own scroll position.
+// Protect both axes and keep the original focus/key and history return behavior.
+assert.ok(warehouseGridUi.includes('const catalogTableScrollReturnRef = useRef<{ top: number; left: number } | null>(null)') &&
+  warehouseGridUi.includes('top: scrollTable?.scrollTop ?? 0') &&
+  warehouseGridUi.includes('left: scrollTable?.scrollLeft ?? 0') &&
+  warehouseGridUi.includes('table.scrollTop = tableScroll.top') &&
+  warehouseGridUi.includes('table.scrollLeft = tableScroll.left') &&
+  warehouseGridUi.includes('catalogTableScrollReturnRef.current = null'),
+  'Warehouse master detail return must restore its independent vertical/horizontal table scroll');
+console.log('WAREHOUSE MASTER RETURN SCROLL POSITION GOLDEN PASS');
+
+
 // PC V3.5 entry-trigger completion after PR #302: keep modern-PC launch cards
 // compact without changing the touch layouts, card state or portaled sheets.
 const entryCompactCss = read('src/styles/desktopWorkspaceCompact.css');
@@ -299,8 +327,9 @@ const warehouseCode = read('src/components/WarehouseTab.tsx');
 assert.ok(settingsAccordionCode.includes('data-hnl-settings-sheet-card={sheetKey}') &&
   settingsAccordionCode.includes('<SettingsFeatureSheet') &&
   entryCompactCss.includes('html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet-card]') &&
-  entryCompactCss.includes('width: min(100%, 600px);'),
-  'Six PC Settings entry cards are compact while their opened feature sheets retain width');
+  entryCompactCss.includes('width: 100%;') &&
+  !entryCompactCss.includes('width: min(100%, 600px);'),
+  'Settings entry navigation remains aligned full-width; only nested action buttons compact');
 for (const marker of ['manage-structure', 'add-structure-group']) {
   assert.ok(floorCode.includes(`data-hnl-pc-v35-trigger="${marker}"`) &&
     entryCompactCss.includes(`[data-hnl-pc-v35-trigger="${marker}"]`),
@@ -322,3 +351,22 @@ assert.ok(entryCompactCss.includes('@media (min-width: 1024px)') &&
   settingsAccordionCode.includes('aria-haspopup="dialog"'),
   'Mobile/classic and Settings sheet open/history/keyboard behaviors remain unchanged');
 console.log('HNL PC V3.5 ENTRY CARDS + DEEP ACTIONS AUDIT GOLDEN PASS');
+// Section 02: command buttons inside nested Sync/Health sheets, not the
+// Settings launch rows, are the opt-in compact targets on modern desktop.
+assert.ok(managerCode.includes('data-hnl-pc-v35-actions="json-transfer"') &&
+  managerCode.includes('data-hnl-pc-v35-trigger="cloud-resync"') &&
+  managerCode.includes('data-hnl-pc-v35-actions="drive-sync"') &&
+  entryCompactCss.includes('[data-hnl-pc-v35-actions="json-transfer"]') &&
+  entryCompactCss.includes('[data-hnl-pc-v35-trigger="cloud-resync"]') &&
+  entryCompactCss.includes('[data-hnl-health-export-actions="true"]') &&
+  health.includes('data-hnl-health-export-actions="true"') &&
+  entryCompactCss.includes('[data-hnl-settings-sheet="system-sync-card"]'),
+  'Data & Sync nested JSON, Drive, cloud and Health export commands are compact');
+assert.ok(entryCompactCss.includes('/* PC V3.5 Data & Sync follow-up:') &&
+  entryCompactCss.includes('min-width: 1024px') &&
+  entryCompactCss.includes('white-space: normal;') &&
+  configSheet.includes('data-hnl-settings-sheet-card={sheetKey}') &&
+  !managerCode.includes('data-hnl-pc-v35-trigger="cloud-resync"\n                        onClick'),
+  'Only scoped modern-PC action appearance changes, not event callbacks or mobile choices');
+console.log('HNL PC V3.5 DATA & SYNC ENTRY ALIGNMENT + NESTED ACTIONS PASS');
+

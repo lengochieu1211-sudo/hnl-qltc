@@ -235,6 +235,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [warehouseCatalogSortOrder, setWarehouseCatalogSortOrder] = useState<'asc' | 'desc'>('asc');
   const previousReturnTokenRef = useRef(returnToCatalogToken);
   const catalogScrollReturnTopRef = useRef<number | null>(null);
+  const catalogTableScrollReturnRef = useRef<{ top: number; left: number } | null>(null);
   const catalogReturnItemKeyRef = useRef<string | null>(null);
   const catalogHistoryReturnRef = useRef<{ sheetTop: number; tableTop: number; focusKey: string; direction: TransactionType } | null>(null);
   const rememberCatalogHistoryOrigin = (focusKey: string, direction: TransactionType) => {
@@ -254,11 +255,18 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     const id = window.requestAnimationFrame(() => {
       const body = document.querySelector<HTMLElement>('[data-hnl-settings-sheet-scrollbody="warehouse-catalog"]');
       if (body) body.scrollTop = catalogScrollReturnTopRef.current ?? 0;
+      const table = document.querySelector<HTMLElement>('[data-hnl-warehouse-catalog-scroll="true"]');
+      const tableScroll = catalogTableScrollReturnRef.current;
+      if (table && tableScroll) {
+        table.scrollTop = tableScroll.top;
+        table.scrollLeft = tableScroll.left;
+      }
       const focusKey = catalogReturnItemKeyRef.current;
       const name = Array.from(document.querySelectorAll<HTMLElement>('[data-hnl-catalog-open-master]'))
         .find(node => node.dataset.hnlCatalogOpenMaster === focusKey);
       name?.focus({preventScroll: true});
       catalogScrollReturnTopRef.current = null;
+      catalogTableScrollReturnRef.current = null;
       catalogReturnItemKeyRef.current = null;
     });
     return () => window.cancelAnimationFrame(id);
@@ -2506,7 +2514,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                         data-hnl-catalog-open-master={item.key}
                         onClick={() => {
                           const scrollBody = document.querySelector<HTMLElement>('[data-hnl-settings-sheet-scrollbody="warehouse-catalog"]');
+                          const scrollTable = document.querySelector<HTMLElement>('[data-hnl-warehouse-catalog-scroll="true"]');
                           catalogScrollReturnTopRef.current = scrollBody?.scrollTop ?? 0;
+                          catalogTableScrollReturnRef.current = {
+                            top: scrollTable?.scrollTop ?? 0,
+                            left: scrollTable?.scrollLeft ?? 0,
+                          };
                           catalogReturnItemKeyRef.current = item.key;
                           setShowWarehouseCatalog(false);
                           onOpenNormModal(warehouseCatalogTab, {
@@ -3500,7 +3513,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               {/* Warehouse item kind */}
               <div className="lg:col-span-6">
                 <label className="block text-slate-700 font-bold mb-1">Loại hàng</label>
-                <div className="grid grid-cols-2 gap-2">
+                <div data-hnl-v35-voucher-toggle="item-kind" className="grid grid-cols-2 gap-2">
                   {(['material', 'equipment'] as InventoryItemKind[]).map((kind) => (
                     <button
                       type="button"
@@ -3535,7 +3548,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               {/* Type Toggle */}
               <div className="lg:col-span-6">
                 <label className="block text-slate-700 font-bold mb-1">Loại Phiếu</label>
-                <div className="grid grid-cols-2 gap-2">
+                <div data-hnl-v35-voucher-toggle="voucher-type" className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => setType('in')}

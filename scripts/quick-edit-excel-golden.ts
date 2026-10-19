@@ -66,9 +66,14 @@ assert.match(warehouse, /compareMaterialGroupPriority/, 'Warehouse must put acce
 assert.match(materialNormModal, /compareMaterialGroupPriority/, 'Material norm display must also place accessory groups last');
 
 assert.match(quick, /Ctrl\+C \/ Ctrl\+V vùng ô từ Excel/, 'Quick grid must advertise spreadsheet paste');
-// Warehouse spreadsheet selection is opt-in; never mutate other Quick Edit workflows.
-assert.match(warehouse, /spreadsheetSelection/, 'Warehouse must enable safe spreadsheet cell selection');
-assert.match(quick, /spreadsheetSelection = false/, 'Spreadsheet selection must not change other module grids by default');
+// All Quick Edit consumers share the same cell-range gestures; unchanged editability gates remain per module.
+assert.match(warehouse, /spreadsheetSelection/, 'Warehouse preserves its explicit spreadsheet selection');
+assert.match(quick, /spreadsheetSelection = true/, 'Ctrl/Shift selection must be enabled for all shared Quick Edit grids');
+for (const [name, source] of [['Room / Defect', floor], ['Crew / Teams', crew], ['WorkVolume', volume], ['Warehouse', warehouse]]) {
+  assert.match(source, /<LazyQuickEditGridModal/, `${name} must use the common Quick Edit selection handler`);
+}
+assert.match(quick, /if \(!canEdit \|\| !changes\.length\) return/, 'Bulk updates must honor module edit permissions');
+assert.match(quick, /Vùng có ô chỉ đọc hoặc giá trị lựa chọn không hợp lệ/, 'Selection must not bypass read-only cells');
 assert.match(quick, /changeSelectedDropdown/, 'Dropdown selection must support one-action bulk change');
 assert.match(quick, /Vùng có ô chỉ đọc hoặc giá trị lựa chọn không hợp lệ/, 'Bulk paste must fail closed when a locked or unknown-select cell is encountered');
 assert.match(quick, /gridSelectionTSV/, 'Clipboard copy must export selected cells as TSV');

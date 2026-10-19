@@ -435,8 +435,11 @@
  * selectors. Keep touch-size / full-width selection controls on mobile/classic.
  * Narrow the Settings launch cards, NOT their portaled working sheets. */
 @media (min-width: 1024px) {
+  /* Settings entries are navigation rows, not command buttons. The V3.5
+   * 600px cap made Section 02/03 look indented against full-width section
+   * bands. Preserve a single aligned column; shrink only actual actions. */
   html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet-card] {
-    width: min(100%, 600px);
+    width: 100%;
     max-width: 100%;
   }
 
@@ -474,5 +477,112 @@
     padding: 9px 15px;
     text-align: center;
     white-space: normal;
+  }
+}
+
+/* PC V3.5 Data & Sync follow-up: compact action groups inside the nested
+ * feature sheets. Do not shrink navigation entries, input controls, choices,
+ * restore confirmations, or any touch/mobile/classic layout. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-center="project-manager"]
+    [data-hnl-pc-v35-actions="json-transfer"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-center="project-manager"]
+    [data-hnl-pc-v35-actions="json-transfer"] > :is(button, label),
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-center="project-manager"]
+    [data-hnl-pc-v35-trigger="cloud-resync"] {
+    flex: 0 1 auto;
+    width: fit-content;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 38px;
+    padding: 8px 15px;
+    white-space: normal;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="system-sync-card"]
+    [data-hnl-health-export-actions="true"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="system-sync-card"]
+    [data-hnl-health-export-actions="true"] > button {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: 100%;
+    min-width: 112px;
+    min-height: 40px;
+    padding: 8px 14px;
+    white-space: normal;
+  }
+}
+
+
+/* V3.5 follow-up: buttons inside Warehouse voucher selection and the Floor
+ * manager should not become half-page actions on desktop. The parent form
+ * rows keep their original layout, while mobile remains touch-friendly. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form="warehouse"]
+    [data-hnl-v35-voucher-toggle] {
+    display: inline-grid;
+    grid-template-columns: repeat(2, minmax(128px, 160px));
+    width: fit-content;
+    max-width: 100%;
+    gap: 8px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form="warehouse"]
+    [data-hnl-v35-voucher-toggle] > button {
+    min-height: 38px;
+    width: 100%;
+    padding-inline: 14px;
+    white-space: normal;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v35-actions="floor-manage-add"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v35-actions="floor-manage-add"] > button {
+    flex: 0 1 auto;
+    width: fit-content;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 40px;
+    padding: 10px 16px;
+    white-space: normal;
+  }
+
+  /* Report typography: section titles 13px; labels/inputs 12px, auxiliary
+   * descriptions 11px. No changes to actual exported PDF font sizes. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="report-filters"]
+    > div:first-child > label,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="report-filters"]
+    .mb-2.text-xs,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-report-typography="sort-order"] > summary,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-report-typography="page-layout"] > span:first-child {
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="report-filters"]
+    :is(label, input, select, button),
+  html[data-hnl-pc-workspace="modern"] [data-hnl-report-typography="sort-order"]
+    :is(label, select),
+  html[data-hnl-pc-workspace="modern"] [data-hnl-report-typography="page-layout"]
+    > :is(label, div.grid) :is(label, select, input) {
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-report-scrollbody="true"] {
+    scrollbar-width: thin;
+    scrollbar-color: #94a3b8 transparent;
   }
 }

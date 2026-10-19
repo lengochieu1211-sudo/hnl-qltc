@@ -3342,7 +3342,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                <div data-hnl-pc-v35-actions="json-transfer" className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => {
@@ -3782,6 +3782,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         type="button"
                         onClick={handleUploadActiveProjectToCloud}
                         disabled={isSyncingCurrentProject || !googleUser || googleUser.isAnonymous}
+                        data-hnl-pc-v35-trigger="cloud-resync"
                         className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg font-bold text-[10.5px] flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs"
                       >
                         <CloudUpload className="w-3.5 h-3.5" /> Đồng bộ lại dự án này

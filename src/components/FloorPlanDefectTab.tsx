@@ -11668,7 +11668,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             </div>
 
             {/* Bottom Add Actions */}
-            <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row gap-2">
+            <div data-hnl-pc-v35-actions="floor-manage-add" className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row gap-2">
               <button
                 type="button"
                 onClick={async () => {
