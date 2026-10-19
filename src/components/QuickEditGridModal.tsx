@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { confirmAsync } from '../utils/confirmAsync';
 import { evaluateMathExpression } from '../utils/numberUtils';
 import { gridRectKeys, gridSelectionTSV, parseGridTSV } from '../utils/quickGridClipboard';
+import { quickGridHistoryShortcut } from '../utils/quickGridKeyboard.mjs';
 
 export type QuickGridCellValue = string | number | null | undefined;
 
@@ -138,6 +139,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
   const [redoStack, setRedoStack] = useState<DraftSnapshot[]>([]);
   const activeCellRef = useRef<{ rowKey: string; columnKey: string } | null>(null);
   const wasOpenRef = useRef(false);
+  const lastHydratedRowsRef = useRef<QuickGridRow[] | null>(null);
 
   const hasChanges = dirtyCellKeys.size > 0 || deletedRows.length > 0;
   const rowOperationsEnabled = canEdit && ((canAddRows && Boolean(createEmptyRow)) || canDeleteRows);
@@ -145,13 +147,18 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
   useEffect(() => {
     if (!open) {
       wasOpenRef.current = false;
+      lastHydratedRowsRef.current = null;
       return;
     }
     const opening = !wasOpenRef.current;
     wasOpenRef.current = true;
+    // Undo of the last edit must not reinitialize the grid and erase Redo.
+    // Rebase only when the actual canonical rows reference changes.
+    if (!opening && rows === lastHydratedRowsRef.current) return;
     // Realtime/parent refreshes must never wipe an unsaved local draft.
     // Once the draft is clean again, rebase it on the latest canonical rows.
     if (!opening && hasChanges) return;
+    lastHydratedRowsRef.current = rows;
     setDraftRows(cloneRows(rows));
     setDeletedRows([]);
     setDirtyCellKeys(new Set());
@@ -288,6 +295,29 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
     setUndoStack((prev) => [...prev, snapshot()]);
     restoreSnapshot(nextState);
     setRedoStack((prev) => prev.slice(0, -1));
+  };
+
+  const handleGridHistoryKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!canEdit || saving || !open) return;
+    const target = event.target as HTMLElement | null;
+    const action = quickGridHistoryShortcut({
+      key: event.key,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+      shiftKey: event.shiftKey,
+      altKey: event.altKey,
+      isComposing: event.nativeEvent.isComposing,
+      targetTagName: target?.tagName,
+      isContentEditable: target?.isContentEditable,
+      inGridCell: Boolean(target?.closest?.('[data-hnl-pc-v32-region="grid-scroll"]')),
+    });
+    if (action === 'undo' && undoStack.length) {
+      event.preventDefault();
+      undo();
+    } else if (action === 'redo' && redoStack.length) {
+      event.preventDefault();
+      redo();
+    }
   };
 
   const discard = () => {
@@ -576,7 +606,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
   const allVisibleSelected = selectableVisibleRows.length > 0 && selectableVisibleRows.every((row) => selectedRowKeys.has(row.__rowKey));
 
   return (
-    <div data-hnl-pc-v32-window="quick-grid" className="fixed inset-0 z-[180] bg-slate-950/55 backdrop-blur-[1px] flex items-stretch sm:p-3">
+    <div data-hnl-pc-v32-window="quick-grid" onKeyDown={handleGridHistoryKeyDown} className="fixed inset-0 z-[180] bg-slate-950/55 backdrop-blur-[1px] flex items-stretch sm:p-3">
       <div className="bg-white w-full h-full sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-slate-200">
         <div className="px-3 sm:px-4 py-3 border-b border-slate-200 bg-white flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -628,11 +658,11 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
               Xóa dòng{selectedRowKeys.size > 0 ? ` (${selectedRowKeys.size})` : ''}
             </button>
           )}
-          <button type="button" disabled={!undoStack.length} onClick={undo} className="h-9 px-3 rounded-lg border border-slate-300 bg-white text-xs font-bold disabled:opacity-40">Hoàn tác</button>
-          <button type="button" disabled={!redoStack.length} onClick={redo} className="h-9 px-3 rounded-lg border border-slate-300 bg-white text-xs font-bold disabled:opacity-40">Làm lại</button>
+          <button type="button" disabled={!undoStack.length} onClick={undo} title="Hoàn tác bản nháp (Ctrl+Z)" className="h-9 px-3 rounded-lg border border-slate-300 bg-white text-xs font-bold disabled:opacity-40">Hoàn tác</button>
+          <button type="button" disabled={!redoStack.length} onClick={redo} title="Làm lại bản nháp (Ctrl+Y hoặc Ctrl+Shift+Z)" className="h-9 px-3 rounded-lg border border-slate-300 bg-white text-xs font-bold disabled:opacity-40">Làm lại</button>
           {spreadsheetSelection && (
             <span className="text-[10px] text-slate-600" title="Bấm chọn ô; Shift + bấm chọn vùng; Ctrl + bấm chọn ô rời; Ctrl+C / Ctrl+V sao chép và dán như Excel">
-              {selectedCellKeys.size} ô chọn · Shift chọn vùng · Ctrl chọn rời · Ctrl+C/V
+              {selectedCellKeys.size} ô chọn · Shift chọn vùng · Ctrl chọn rời · Ctrl+C/V · Ctrl+Z/Y
             </span>
           )}
           <span className="text-[10px] font-bold text-slate-500 ml-auto">{filteredRows.length}/{draftRows.length} dòng</span>
@@ -780,7 +810,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
             {validation.size > 0 && <span className="ml-2 text-rose-600 font-bold">· {validation.size} lỗi cần sửa</span>}
             {clipboardNotice && <span className="ml-2 font-semibold text-indigo-700">· {clipboardNotice}</span>}
             {sortState && <span className="ml-2 text-indigo-600 font-bold">· đang sắp xếp hiển thị</span>}
-            <span className="hidden sm:inline ml-2 text-slate-400">· Có thể Ctrl+C / Ctrl+V vùng ô từ Excel</span>
+            <span className="hidden sm:inline ml-2 text-slate-400">· Có thể Ctrl+C / Ctrl+V vùng ô từ Excel · Ctrl+Z/Y hoàn tác/làm lại</span>
           </div>
           {canEdit && (
             <>

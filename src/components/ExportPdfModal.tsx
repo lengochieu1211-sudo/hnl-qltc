@@ -2148,15 +2148,15 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
           {/* Sorting for each report section. Photo appendices intentionally inherit their parent table order. */}
           <details open className="group bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden">
-            <summary className="cursor-pointer select-none px-3 py-2.5 text-[11px] font-extrabold text-slate-800 flex items-center justify-between gap-2">
+            <summary className="cursor-pointer select-none px-3 py-2.5 text-xs font-extrabold text-slate-800 flex items-center justify-between gap-2">
               <span>↕️ Sắp xếp từng phần trong PDF</span>
-              <span className="text-[10px] text-slate-400 group-open:hidden">Mở</span>
-              <span className="text-[10px] text-slate-400 hidden group-open:inline">Thu gọn</span>
+              <span className="text-[11px] text-slate-400 group-open:hidden">Mở</span>
+              <span className="text-[11px] text-slate-400 hidden group-open:inline">Thu gọn</span>
             </summary>
             <div className="border-t border-slate-200 p-3 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <label className="space-y-1">
-                <span className="block text-[10px] font-bold text-slate-600">Kho vật tư</span>
-                <select value={warehouseReportSortMode} onChange={(e) => setWarehouseReportSortMode(e.target.value as typeof warehouseReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                <span className="block text-[11px] font-bold text-slate-600">Kho vật tư</span>
+                <select value={warehouseReportSortMode} onChange={(e) => setWarehouseReportSortMode(e.target.value as typeof warehouseReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                   <option value="material-asc">Tên vật tư A → Z</option>
                   <option value="material-desc">Tên vật tư Z → A</option>
                   <option value="stock-desc">Tồn kho nhiều → ít</option>
@@ -2165,8 +2165,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-[10px] font-bold text-slate-600">Khối lượng thi công</span>
-                <select value={workVolumeReportSortMode} onChange={(e) => setWorkVolumeReportSortMode(e.target.value as typeof workVolumeReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                <span className="block text-[11px] font-bold text-slate-600">Khối lượng thi công</span>
+                <select value={workVolumeReportSortMode} onChange={(e) => setWorkVolumeReportSortMode(e.target.value as typeof workVolumeReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                   <option value="category-title">Phân loại → Hạng mục</option>
                   <option value="title-asc">Hạng mục A → Z</option>
                   <option value="planned-desc">KL kế hoạch lớn → nhỏ</option>
@@ -2175,8 +2175,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-[10px] font-bold text-slate-600">Mặt bằng</span>
-                <select value={floorPlanReportSortMode} onChange={(e) => setFloorPlanReportSortMode(e.target.value as typeof floorPlanReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                <span className="block text-[11px] font-bold text-slate-600">Mặt bằng</span>
+                <select value={floorPlanReportSortMode} onChange={(e) => setFloorPlanReportSortMode(e.target.value as typeof floorPlanReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                   <option value="floor-asc">Tầng thấp → cao / A → Z</option>
                   <option value="floor-desc">Tầng cao → thấp / Z → A</option>
                   <option value="defect-desc">Tầng nhiều Defect → ít</option>
@@ -2184,8 +2184,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-[10px] font-bold text-slate-600">Tiến độ Căn / Phòng</span>
-                <select value={roomReportSortMode} onChange={(e) => setRoomReportSortMode(e.target.value as typeof roomReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                <span className="block text-[11px] font-bold text-slate-600">Tiến độ Căn / Phòng</span>
+                <select value={roomReportSortMode} onChange={(e) => setRoomReportSortMode(e.target.value as typeof roomReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                   <option value="floor-room">Tầng → Căn / Phòng</option>
                   <option value="room-floor">Căn / Phòng → Tầng</option>
                   <option value="category-floor-room">Hạng mục → Tầng → Căn / Phòng</option>
@@ -2195,8 +2195,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-[10px] font-bold text-slate-600">Nhật ký nhân công + phụ lục ảnh</span>
-                <select value={crewReportSortMode} onChange={(e) => setCrewReportSortMode(e.target.value as typeof crewReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                <span className="block text-[11px] font-bold text-slate-600">Nhật ký nhân công + phụ lục ảnh</span>
+                <select value={crewReportSortMode} onChange={(e) => setCrewReportSortMode(e.target.value as typeof crewReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                   <option value="date-desc">Ngày mới → cũ</option>
                   <option value="date-asc">Ngày cũ → mới</option>
                   <option value="team-date">Đội → Ngày mới nhất</option>
@@ -2205,8 +2205,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-[10px] font-bold text-slate-600">Checklist</span>
-                <select value={checklistReportSortMode} onChange={(e) => setChecklistReportSortMode(e.target.value as typeof checklistReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                <span className="block text-[11px] font-bold text-slate-600">Checklist</span>
+                <select value={checklistReportSortMode} onChange={(e) => setChecklistReportSortMode(e.target.value as typeof checklistReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                   <option value="floor-category">Tầng → Hạng mục</option>
                   <option value="category-floor">Hạng mục → Tầng</option>
                   <option value="status-floor">Kết quả → Tầng</option>
@@ -2214,8 +2214,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-[10px] font-bold text-slate-600">Defect + phụ lục ảnh Defect</span>
-                <select value={defectReportSortMode} onChange={(e) => setDefectReportSortMode(e.target.value as typeof defectReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                <span className="block text-[11px] font-bold text-slate-600">Defect + phụ lục ảnh Defect</span>
+                <select value={defectReportSortMode} onChange={(e) => setDefectReportSortMode(e.target.value as typeof defectReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                   <option value="floor-room-category">Tầng → Căn / Phòng → Hạng mục</option>
                   <option value="room-floor-category">Căn / Phòng → Tầng → Hạng mục</option>
                   <option value="category-floor-room">Hạng mục → Tầng → Căn / Phòng</option>
@@ -2226,7 +2226,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
             </div>
-            <p className="px-3 pb-3 text-[10px] text-slate-500">Phụ lục ảnh Defect đi đúng thứ tự Defect đã chọn; phụ lục ảnh nhân công đi theo đúng thứ tự Nhật ký nhân công.</p>
+            <p className="px-3 pb-3 text-[11px] leading-relaxed text-slate-500">Phụ lục ảnh Defect đi đúng thứ tự Defect đã chọn; phụ lục ảnh nhân công đi theo đúng thứ tự Nhật ký nhân công.</p>
           </details>
 
           {/* Report Content Checkboxes */}
@@ -2338,25 +2338,25 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
           {/* Tùy chỉnh nâng cao */}
           <div className="pt-1 space-y-2 text-slate-700 bg-slate-50 p-3 rounded-2xl border border-slate-200">
-            <span className="block font-bold text-slate-800 text-[11px]">⚙️ Tùy chỉnh bố cục báo cáo:</span>
+            <span className="block font-bold text-slate-800 text-xs">⚙️ Tùy chỉnh bố cục báo cáo:</span>
             <div className="grid grid-cols-2 gap-2 pb-1">
               <label className="space-y-1">
-                <span className="block text-[10px] font-semibold text-slate-600">Khổ giấy PDF</span>
+                <span className="block text-[11px] font-semibold text-slate-600">Khổ giấy PDF</span>
                 <select
                   value={pdfPaperSize}
                   onChange={(e) => setPdfPaperSize(e.target.value as 'A4' | 'A3')}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold"
                 >
                   <option value="A4">A4</option>
                   <option value="A3">A3</option>
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-[10px] font-semibold text-slate-600">Hướng giấy</span>
+                <span className="block text-[11px] font-semibold text-slate-600">Hướng giấy</span>
                 <select
                   value={pdfOrientation}
                   onChange={(e) => setPdfOrientation(e.target.value as 'portrait' | 'landscape')}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold"
                 >
                   <option value="portrait">Dọc (Dọc)</option>
                   <option value="landscape">Ngang (Ngang)</option>

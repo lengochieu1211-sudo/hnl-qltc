@@ -7980,7 +7980,6 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             y={pendingDraftHighlight.rect.y}
                             width={pendingDraftHighlight.rect.width}
                             height={pendingDraftHighlight.rect.height}
-                            rx="1"
                             fill="rgba(245, 158, 11, 0.45)"
                             stroke="#f59e0b"
                             strokeWidth={1.2 * strokeScale}
@@ -7998,7 +7997,6 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         y={Math.min(drawStartPos.y, drawHoverPos.y)}
                         width={Math.abs(drawHoverPos.x - drawStartPos.x)}
                         height={Math.abs(drawHoverPos.y - drawStartPos.y)}
-                        rx="1"
                         fill="rgba(99, 102, 241, 0.35)"
                         stroke="#2563eb"
                         strokeWidth={0.8 * strokeScale}
@@ -8126,7 +8124,6 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       y={room.y}
                       width={room.width}
                       height={room.height}
-                      rx="1"
                       fill={fillColor}
                       stroke={isSelectedForDrag ? '#f59e0b' : strokeColor}
                       strokeWidth={(isSelectedForDrag ? 1.2 : 0.6) * strokeScale}
@@ -8370,7 +8367,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           width: `${w}%`,
                           height: `${h}%`,
                         }}
-                        className="absolute border-2 border-dashed border-amber-400 bg-amber-400/30 rounded-xl backdrop-blur-[1px] z-20 pointer-events-none transition-all duration-75 shadow-xl"
+                        className="absolute border-2 border-dashed border-amber-400 bg-amber-400/30 backdrop-blur-[1px] z-20 pointer-events-none transition-all duration-75 shadow-xl"
                       />
                     );
                   })()

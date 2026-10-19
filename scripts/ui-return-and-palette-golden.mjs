@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { quickGridHistoryShortcut } from '../src/utils/quickGridKeyboard.mjs';
 const read = (name) => fs.readFileSync(name,'utf8');
 const app = read('src/App.tsx');
 const crew = read('src/components/CrewTabBase.tsx');
@@ -159,9 +160,84 @@ assert.ok(reportFilterUi.includes('text-[11px] leading-relaxed text-slate-500'),
   'Explanatory footnote uses the same 11px typography with readable line-height');
 console.log('REPORT FILTER TYPOGRAPHY GOLDEN PASS');
 
+// PC V3.5: report sorting and PDF paper controls must match the readable
+// scope filters above. These assertions are presentation-only; do not alter
+// report sorting, selected values, export callbacks or RBAC semantics.
+const reportSortStart = report.indexOf('{/* Sorting for each report section.');
+const reportSortEnd = report.indexOf('{/* Report Content Checkboxes */}', reportSortStart);
+assert.ok(reportSortStart >= reportFilterEnd && reportSortEnd > reportSortStart,
+  'Report sorting panel must remain after scope filters');
+const reportSortUi = report.slice(reportSortStart, reportSortEnd);
+assert.equal((reportSortUi.match(/<select\b[^\n]*className="[^"\n]*text-xs font-semibold/g) || []).length, 7,
+  'All seven per-section report sorting selectors use 12px text');
+assert.equal((reportSortUi.match(/<span className="block text-\[11px\] font-bold text-slate-600">/g) || []).length, 7,
+  'All seven per-section sorting field labels use 11px text');
+assert.ok(reportSortUi.includes('px-3 py-2.5 text-xs font-extrabold') &&
+  reportSortUi.includes('px-3 pb-3 text-[11px] leading-relaxed'),
+  'Sorting section title is 12px and appendix-order explanation is 11px');
+assert.ok(!reportSortUi.includes('text-[10px]') && !reportSortUi.includes('text-[9.5px]'),
+  'Report sorting panel does not regress to tiny captions');
+const reportPaperStart = report.indexOf('{/* Tùy chỉnh nâng cao */}', reportSortEnd);
+const reportPaperEnd = report.indexOf('<label className="flex items-center gap-2 cursor-pointer select-none text-[11px] font-medium">', reportPaperStart);
+const reportPaperUi = report.slice(reportPaperStart, reportPaperEnd);
+assert.ok(reportPaperStart > reportSortEnd && reportPaperEnd > reportPaperStart,
+  'PDF paper layout options must remain in the advanced group');
+assert.equal((reportPaperUi.match(/<select\b[^\n]*|<select\s*\n/g) || []).length, 2,
+  'Keep paper size and orientation selects');
+assert.equal((reportPaperUi.match(/className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold"/g) || []).length, 2,
+  'Both PDF paper controls use 12px text');
+assert.equal((reportPaperUi.match(/text-\[11px\] font-semibold text-slate-600/g) || []).length, 2,
+  'Both paper-control labels use 11px text');
+assert.ok(!reportPaperUi.includes('text-[10px]'), 'PDF paper layout has no tiny captions');
+console.log('REPORT SORTING / PDF LAYOUT TYPOGRAPHY GOLDEN PASS');
+// HNL QLTC common drawing standard (19/10/2026): Căn/Phòng rectangles
+// must be square-cornered in draft SVG, drag preview, and saved SVG overlay.
+// This is presentation-only: x/y/width/height and selection handlers are intact.
+const floorSvgDrawing = floorPlan.slice(
+  floorPlan.indexOf('{/* SVG OVERLAY FOR HIGHLIGHT SHAPES & LIVE DRAWINGS */}'),
+  floorPlan.indexOf('{/* INTERACTIVE DRAG & RESIZE HANDLES OVERLAY */}')
+);
+assert.equal((floorSvgDrawing.match(/<rect\b/g) || []).length, 3,
+  'Pending draft, two-point preview, and saved room each render a rectangle');
+assert.ok(!/\brx\s*=|\bry\s*=/.test(floorSvgDrawing),
+  'Rectangular room overlays have four square corners');
+assert.ok(floorPlan.includes('bg-amber-400/30 backdrop-blur-[1px]') &&
+  !floorPlan.includes('bg-amber-400/30 rounded-xl'),
+  'HTML dragging rectangle stays square-cornered like the saved SVG');
+console.log('FLOORPLAN RECTANGLE FOUR SQUARE CORNERS GOLDEN PASS');
+
+
+
+
+
 console.log('PC DEEP VIEWPORT OVERLAY GOLDEN PASS');
 
 console.log('UI RETURN AND PALETTE GOLDEN: PASS');
 
 // When CI runs the UI regression gate, exercise the modern PC module-level layout too.
 await import('./desktop-workspace-v2-golden.mjs');
+
+// Quick Edit Undo/Redo keyboard contract: only staged drafts, not native text editing.
+const quickGridCode = read('src/components/QuickEditGridModal.tsx');
+const key = (key, extra={}) => quickGridHistoryShortcut({key, ctrlKey:true, targetTagName:'TD', ...extra});
+assert.equal(key('z'), 'undo');
+assert.equal(key('Z'), 'undo');
+assert.equal(key('y'), 'redo');
+assert.equal(key('z', {shiftKey:true}), 'redo');
+assert.equal(key('z', {ctrlKey:false, metaKey:true}), 'undo');
+assert.equal(key('z', {ctrlKey:false}), null);
+assert.equal(key('z', {altKey:true}), null);
+assert.equal(key('y', {targetTagName:'INPUT'}), null, 'Do not steal search/toolbar input undo');
+assert.equal(key('z', {targetTagName:'INPUT', inGridCell:true}), 'undo', 'Cell inputs use grid draft undo');
+assert.equal(key('y', {targetTagName:'INPUT', inGridCell:true}), 'redo', 'Cell inputs use grid draft redo');
+assert.equal(key('z', {targetTagName:'TEXTAREA'}), null);
+assert.equal(key('z', {isContentEditable:true}), null);
+assert.equal(key('z', {isComposing:true}), null);
+assert.ok(quickGridCode.includes('onKeyDown={handleGridHistoryKeyDown}') &&
+  quickGridCode.includes("action === 'undo' && undoStack.length") &&
+  quickGridCode.includes("action === 'redo' && redoStack.length") &&
+  quickGridCode.includes('inGridCell: Boolean(target?.closest?'), 'Quick Edit wires safe keyboard history to its draft state');
+assert.ok(quickGridCode.includes('rows === lastHydratedRowsRef.current') &&
+  quickGridCode.includes('lastHydratedRowsRef.current = rows'),
+  'Undoing to a clean draft must not erase the Redo stack unless canonical rows changed');
+console.log('QUICK GRID CTRL+Z / CTRL+Y HISTORY GOLDEN PASS');
