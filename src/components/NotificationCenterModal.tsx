@@ -432,7 +432,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                 </div>
                 {chatUnreadCount > 0 && <span className="rounded-full bg-rose-600 text-white text-[10px] font-extrabold px-2 py-1">{chatUnreadCount > 9 ? '9+' : chatUnreadCount}</span>}
               </div>
-              <button type="button" onClick={onOpenChat} data-hnl-pc-compact-action="open-project-chat" className="mt-3 w-full rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white py-2 text-xs font-extrabold">Mở Trao đổi</button>
+              <button type="button" onClick={onOpenChat} data-hnl-notification-open-chat="true" data-hnl-pc-compact-action="open-project-chat" className="mt-3 w-full rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white py-2 text-xs font-extrabold">Mở Trao đổi</button>
             </div>
           </div>
         ) : (

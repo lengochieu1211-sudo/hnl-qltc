@@ -353,3 +353,68 @@
     padding: 10px;
   }
 }
+
+/* PC V3.5: nested-window scrollbars, action width and catalogue contrast.
+ * Decorative-only: preserve actual scroll owners, sticky headers, handlers,
+ * Firestore/R2 and mobile/classic layout. Do not alter any overlay positions. */
+@media (min-width: 1024px) {
+  /* Standardize the thumb of feature sheets and deeper work dialogs. Scrollbars
+     remain operable and visible; they are not replaced by hidden overlays. */
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-settings-sheet-scrollbody],
+    [data-hnl-pc-v32-window] [class*="overflow-y-auto"],
+    [data-hnl-pc-v32-window] [class*="overflow-auto"],
+    [data-hnl-pc-v3-center="notification-center"] [class*="overflow-y-auto"],
+    [data-hnl-pc-v3-form="warehouse"],
+    [data-hnl-pc-v3-form="volume"],
+    [data-hnl-warehouse-catalog-scroll="true"]
+  ) {
+    scrollbar-width: thin;
+    scrollbar-color: #94a3b8 transparent;
+  }
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-settings-sheet-scrollbody],
+    [data-hnl-pc-v32-window] [class*="overflow-y-auto"],
+    [data-hnl-pc-v32-window] [class*="overflow-auto"],
+    [data-hnl-pc-v3-center="notification-center"] [class*="overflow-y-auto"],
+    [data-hnl-pc-v3-form="warehouse"],
+    [data-hnl-pc-v3-form="volume"],
+    [data-hnl-warehouse-catalog-scroll="true"]
+  )::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-settings-sheet-scrollbody],
+    [data-hnl-pc-v32-window] [class*="overflow-y-auto"],
+    [data-hnl-pc-v32-window] [class*="overflow-auto"],
+    [data-hnl-pc-v3-center="notification-center"] [class*="overflow-y-auto"],
+    [data-hnl-pc-v3-form="warehouse"],
+    [data-hnl-pc-v3-form="volume"],
+    [data-hnl-warehouse-catalog-scroll="true"]
+  )::-webkit-scrollbar-thumb {
+    background-color: #94a3b8;
+    border: 2px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
+  /* Keep the actual catalogue scrollable and its two-axis scroll working.
+     Pale indigo edge follows the Material Need panel instead of a dark frame. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-grid"] {
+    border-color: #c7d2fe;
+    background-color: var(--hnl-v3-paper, #fff);
+    scrollbar-gutter: stable;
+    overscroll-behavior: contain;
+  }
+  /* Only the two verified full-width action buttons become content-sized;
+     mobile actions, input widths and full-width list navigation remain intact. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-project-settings-save="true"],
+  html[data-hnl-pc-workspace="modern"] [data-hnl-notification-open-chat="true"] {
+    width: auto;
+    max-width: 100%;
+    min-width: 170px;
+    align-self: flex-start;
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+}
