@@ -415,3 +415,27 @@ assert.ok(configChoiceUi.includes("handleNumberFormatChange('dot_comma')") &&
   configChoiceCss.includes('html[data-hnl-pc-workspace="modern"]'),
   'Formatting and image-quality handlers preserved with modern-PC-only scope');
 console.log('PC V3.5 SETTINGS FORMAT / IMAGE QUALITY COMPACT GOLDEN PASS');
+
+
+// Screenshot follow-up: smaller, vertically centered preference feature-sheets
+// and compact two-button floor view toggles, without changing their behavior.
+const uiSheetCss = read('src/styles/desktopWorkspaceCompact.css');
+const floorView = read('src/components/FloorPlanDefectTab.tsx');
+for (const key of ['formatting-settings-card', 'image-quality-card']) {
+  assert.ok(uiSheetCss.includes(`[data-hnl-settings-sheet="${key}"]`),
+    `Scoped compact geometry missing for ${key}`);
+}
+assert.ok(uiSheetCss.includes('PC V3.5 follow-up after real Windows screenshot review.') &&
+  uiSheetCss.includes('top: 50dvh;') && uiSheetCss.includes('max-height: calc(100dvh - 48px);') &&
+  uiSheetCss.includes('[data-hnl-pc-v35-choice-grid="date-format"]') &&
+  uiSheetCss.includes('repeat(4, minmax(0, 1fr))') &&
+  uiSheetCss.includes('[data-hnl-pc-v35-choice-card="image-quality"]'),
+  'Desktop preference sheets must fit their content with readable choices');
+assert.ok(floorView.includes('data-hnl-pc-v35-view-modes="floorplan"') &&
+  uiSheetCss.includes('[data-hnl-pc-v35-view-modes="floorplan"]') &&
+  uiSheetCss.includes('display: inline-flex;') &&
+  floorView.includes("currentMode === 'highlight' ? 'all' : 'highlight'") &&
+  floorView.includes("currentMode === 'defect' ? 'all' : 'defect'") &&
+  floorView.includes('setIsDefectPinPlacementMode(false);'),
+  'Floorplan desktop compact toggle must retain both original view/reset handlers');
+console.log('HNL PC V3.5 PREFERENCE SHEETS + FLOORPLAN TOGGLE FOLLOW-UP GOLDEN PASS');

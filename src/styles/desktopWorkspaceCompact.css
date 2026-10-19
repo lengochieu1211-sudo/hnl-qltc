@@ -690,3 +690,118 @@
     white-space: normal;
   }
 }
+
+/* PC V3.5 follow-up after real Windows screenshot review.
+ * The shared SettingsFeatureSheet deliberately occupies most of the viewport
+ * for complex editors, but these two short preference sheets should hug their
+ * content. Scope geometry to the two known sheet IDs, not the common shell. */
+@media (min-width: 900px) {
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-settings-sheet="formatting-settings-card"],
+    [data-hnl-settings-sheet="image-quality-card"]
+  ) {
+    top: 50dvh;
+    bottom: auto;
+    left: 50%;
+    right: auto;
+    margin: 0;
+    height: auto;
+    min-height: 0;
+    max-height: calc(100dvh - 48px);
+    max-width: calc(100vw - 48px);
+    transform: translate(-50%, -50%);
+    border-radius: 20px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="formatting-settings-card"] {
+    width: 840px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="image-quality-card"] {
+    width: 880px;
+  }
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-settings-sheet="formatting-settings-card"],
+    [data-hnl-settings-sheet="image-quality-card"]
+  ) [data-hnl-settings-sheet-scrollbody] {
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: calc(100dvh - 140px);
+  }
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-settings-sheet="formatting-settings-card"],
+    [data-hnl-settings-sheet="image-quality-card"]
+  ) [data-hnl-settings-sheet-scrollbody] > div {
+    min-height: 0;
+    padding: 18px 24px 22px;
+  }
+
+  /* Both format groups use the same visual measure. The date presets fit
+   * on one line at PC width, while number examples keep a comfortable width. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="formatting-settings-card"]
+    [data-hnl-pc-v35-choice-grid="number-format"] {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    max-width: none;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="formatting-settings-card"]
+    [data-hnl-pc-v35-choice-card="number-format"] {
+    max-width: none;
+    min-height: 65px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="formatting-settings-card"]
+    [data-hnl-pc-v35-choice-grid="date-format"] {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    width: 100%;
+    max-width: none;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="formatting-settings-card"]
+    [data-hnl-pc-v35-choice-card="date-format"] {
+    max-width: none;
+    min-height: 65px;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="image-quality-card"]
+    [data-hnl-pc-v35-choice-card="image-quality"] {
+    min-width: 116px;
+    min-height: 38px;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="image-quality-card"]
+    [data-hnl-pc-v35-quality-row] > div:first-child > div:first-child > div:first-child {
+    font-size: 13px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="image-quality-card"]
+    [data-hnl-pc-v35-quality-row] > div:first-child > div:first-child > div:nth-child(2),
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="image-quality-card"]
+    [data-hnl-settings-sheet-scrollbody] p {
+    font-size: 11px;
+    line-height: 1.45;
+  }
+}
+
+/* Compact plan-view toggle commands only in the modern PC workspace.
+ * The original grid/flexible buttons remain intact on mobile and classic. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v35-view-modes="floorplan"] {
+    display: inline-flex;
+    flex-wrap: wrap;
+    width: fit-content;
+    max-width: 100%;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 6px;
+    padding: 5px;
+    background-color: #e2e8f0;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v35-view-modes="floorplan"] > button {
+    flex: 0 1 auto;
+    width: auto;
+    min-width: 190px;
+    max-width: 100%;
+    min-height: 38px;
+    padding: 8px 13px;
+    white-space: normal;
+  }
+}

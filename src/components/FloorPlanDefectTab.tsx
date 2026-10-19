@@ -6563,7 +6563,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
       {/* View mode: the same three names are used everywhere in the app.
           Press the active button again to return to Mặt bằng tổng hợp. */}
-      <div className="bg-slate-200/90 p-1.5 rounded-2xl grid grid-cols-2 gap-1.5 text-xs font-bold shadow-inner">
+      <div data-hnl-pc-v35-view-modes="floorplan" className="bg-slate-200/90 p-1.5 rounded-2xl grid grid-cols-2 gap-1.5 text-xs font-bold shadow-inner">
         <button
           type="button"
           onClick={() => {
