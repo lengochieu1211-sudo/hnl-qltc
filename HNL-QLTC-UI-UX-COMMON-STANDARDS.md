@@ -93,7 +93,7 @@ Trạng thái: tài liệu tham chiếu đã đối chiếu source; một số m
 - **Khối lượng**: nhóm/hạng mục, tỷ lệ/khối lượng, hạn, đơn vị và liên kết Căn/Phòng đúng; sửa theo bảng không được thay đổi thứ tự thủ công khi không yêu cầu; không làm mất giá trị khi đổi tab.
 - **Checklist**: nhóm kiểm tra, ngày/tầng/trạng thái và quyền cấu trúc; checkbox tick hoàn thành khác với checkbox chọn bản ghi để xóa.
 - **Trao đổi**: tin nhắn/ảnh/file, thành viên, gửi/đọc, offline/reconnect, scroll và keyboard trên mobile; không công bố ảnh chưa durable.
-- **HNL AI**: nhãn chế độ rõ, không nút xanh mất chữ, không nhân đôi heading; không rò dữ liệu vượt quyền, báo lỗi provider/rate limit rõ ràng, xử lý bản xuất đúng phạm vi dự án.
+- **HNL AI**: 4 nút HNL Data / Kiểm tra dữ liệu / AI chung / HNL + AI phải luôn đọc được. Trên PC, nút đang chọn có nền xanh HNL thì **chữ + icon trắng**, nút chưa chọn nền trắng chữ tối; không áp CSS chung màu chữ xanh lên nền xanh. Không nhân đôi heading; không rò dữ liệu vượt quyền, báo lỗi provider/rate limit rõ ràng, xử lý bản xuất đúng phạm vi dự án.
 
 ## 13. Phân quyền, dữ liệu, đồng bộ và bảo mật
 
