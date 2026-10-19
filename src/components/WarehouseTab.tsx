@@ -133,7 +133,7 @@ const WarehouseVoucherPhotoDraft: React.FC<{ files: File[]; onChange: (files: Fi
         </label>
       </div>
       {files.length > 0 && (
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+        <div data-hnl-pc-v36-photo-thumbnails="warehouse-draft" className="grid grid-cols-3 gap-2 sm:grid-cols-5">
           {files.map((file, i) => (
             <div key={`${file.name}-${file.lastModified}-${i}`} className="relative overflow-hidden rounded-lg border border-slate-200 bg-white">
               {urls[i] ? <img alt={`Ảnh giao nhận ${i + 1}`} src={urls[i]} className="h-20 w-full object-cover" /> : <div className="flex h-20 items-center justify-center text-xs text-slate-400">Ảnh {i + 1}</div>}

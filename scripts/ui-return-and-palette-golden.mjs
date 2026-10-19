@@ -457,3 +457,56 @@ assert.ok(floorRowSource.includes('data-hnl-pc-v35-section-row="floor-drawing" c
   floorRowSource.includes("currentMode === 'defect' ? 'all' : 'defect'"),
   'PC modern section 02 aligns view controls right without affecting classic/mobile mode toggles');
 console.log('PC V3.5 FLOOR DRAWING HEADING + MODE TOGGLES GOLDEN PASS');
+
+
+// PC V3.6: compact room status controls are presentation-only. The original
+// bulk and item status handlers, save semantics and acceptance guard remain.
+const roomStatusSource = read('src/components/RoomHighlightModal.tsx');
+const roomStatusCss = read('src/styles/desktopWorkspaceCompact.css');
+assert.equal((roomStatusSource.match(/data-hnl-pc-v36-room-status="bulk"/g) || []).length, 2,
+  'Both bulk progress and inspection rows must have a compact PC marker');
+assert.equal((roomStatusSource.match(/data-hnl-pc-v36-room-status="item"/g) || []).length, 2,
+  'Both item progress and inspection rows must have a compact PC marker');
+assert.equal((roomStatusSource.match(/grid grid-cols-3 gap-1(?:\.5)?(?: mb-1\.5)?/g) || []).length >= 4, true,
+  'Original responsive three-column classes remain for classic/mobile');
+assert.ok(roomStatusSource.includes("handleUpdateSubItem(item.id, { status: st })") &&
+  roomStatusSource.includes("handleUpdateSubItem(item.id, { inspectionStatus: st })") &&
+  roomStatusSource.includes("disabled={st === 'Đạt nghiệm thu' && item.status !== 'Đã hoàn thành'}") &&
+  roomStatusSource.includes("applyProgressPatch(s, { status: st })") &&
+  roomStatusSource.includes("applyProgressPatch(s, { inspectionStatus: st })"),
+  'Room status/acceptance handlers and safety guard are unchanged');
+const statusLayoutCss = roomStatusCss.slice(roomStatusCss.indexOf('/* PC V3.6: Căn/Phòng'));
+assert.ok(statusLayoutCss.startsWith('/* PC V3.6: Căn/Phòng') &&
+  statusLayoutCss.includes('@media (min-width: 1024px)') &&
+  statusLayoutCss.includes('html[data-hnl-pc-workspace="modern"]') &&
+  statusLayoutCss.includes('[data-hnl-pc-v36-room-status] > button') &&
+  statusLayoutCss.includes('width: fit-content;') &&
+  statusLayoutCss.includes('flex-wrap: wrap;') &&
+  statusLayoutCss.includes('min-height: 32px;'),
+  'Room status compact geometry must remain modern PC only with full-width fallbacks intact');
+console.log('PC V3.6 ROOM PROGRESS/INSPECTION COMPACT GOLDEN PASS');
+
+// PC V3.6: Crew and warehouse thumbnails use fixed square frames only in
+// modern desktop. Defect, Classic, mobile and photo cloud semantics stay intact.
+const photoPickerSource = read('src/components/PhotoAttachmentPicker.tsx');
+const warehousePhotoSource = read('src/components/WarehouseTab.tsx');
+const thumbnailCss = read('src/styles/desktopWorkspaceCompact.css');
+assert.ok(photoPickerSource.includes("entityType === 'crewRecord' || entityType === 'inventory' ? 'crew-warehouse' : undefined") &&
+  photoPickerSource.includes('className="w-full h-full object-cover"') &&
+  photoPickerSource.includes("entityType: 'crewRecord' | 'defect' | 'chat' | 'inventory'"),
+  'The thumbnail marker applies only to Crew and Warehouse; Defect stays unchanged');
+assert.ok(warehousePhotoSource.includes('data-hnl-pc-v36-photo-thumbnails="warehouse-draft"') &&
+  warehousePhotoSource.includes('URL.createObjectURL(file)') &&
+  warehousePhotoSource.includes('URL.revokeObjectURL(url)') &&
+  warehousePhotoSource.includes('data-hnl-warehouse-staged-photos="true"'),
+  'Warehouse staged photos remain local and revocable; only layout is tagged');
+const thumbnailCssBlock = thumbnailCss.slice(thumbnailCss.indexOf('/* PC V3.6: Crew and warehouse photo previews'));
+assert.ok(thumbnailCssBlock.startsWith('/* PC V3.6: Crew and warehouse photo previews') &&
+  thumbnailCssBlock.includes('@media (min-width: 1024px)') &&
+  thumbnailCssBlock.includes('html[data-hnl-pc-workspace="modern"]') &&
+  thumbnailCssBlock.includes('grid-template-columns: repeat(auto-fill, 104px);') &&
+  thumbnailCssBlock.includes('height: 104px;') &&
+  thumbnailCssBlock.includes('aspect-ratio: 1 / 1;') &&
+  thumbnailCssBlock.includes('object-fit: cover;'),
+  'Photo thumbnail frames have fixed square geometry and crop without distortion');
+console.log('PC V3.6 PHOTO THUMBNAIL GOLDEN PASS');

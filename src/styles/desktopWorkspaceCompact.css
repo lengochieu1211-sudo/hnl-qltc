@@ -840,3 +840,53 @@
     max-width: 100%;
   }
 }
+
+
+/* PC V3.6: Căn/Phòng progress and inspection buttons keep natural text width.
+ * Only modern PC: Classic and mobile retain their original three-column grid.
+ * Layout-only: no changes to status handlers, disabled/permission guards or data. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v36-room-status] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    width: fit-content;
+    max-width: 100%;
+    gap: 6px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v36-room-status] > button {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: 100%;
+    min-height: 32px;
+    padding: 6px 10px;
+    white-space: normal;
+  }
+}
+
+/* PC V3.6: Crew and warehouse photo previews must not stretch across a wide
+ * form. Defect picker keeps its existing layout. Mobile and Classic unchanged.
+ * Fixed square frames + object-fit crop the preview only, not the image file. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v36-photo-thumbnails] {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, 104px);
+    justify-content: start;
+    gap: 8px;
+    max-width: 100%;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v36-photo-thumbnails] > div {
+    width: 104px;
+    height: 104px;
+    aspect-ratio: 1 / 1;
+    min-width: 0;
+    overflow: hidden;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v36-photo-thumbnails] > div > img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+}

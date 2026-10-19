@@ -731,7 +731,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
             : 'Chưa có hình ảnh được đính kèm (Bấm "Chụp ảnh" hoặc "Thư viện" để thêm ảnh)'}
         </div>
       ) : (
-        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+        <div data-hnl-pc-v36-photo-thumbnails={entityType === 'crewRecord' || entityType === 'inventory' ? 'crew-warehouse' : undefined} className="grid grid-cols-3 sm:grid-cols-4 gap-2">
           {sortedPhotos.map((photo) => {
             const url = photoDataUrls[photo.id] || photo.localUri || (isDirectPhotoUrl(photo.cloudUrl) ? photo.cloudUrl : '');
             const legacyUnrecoverable = !url && isLegacyFirestorePhoto(photo) && Boolean(photoLoadErrors[photo.id]);

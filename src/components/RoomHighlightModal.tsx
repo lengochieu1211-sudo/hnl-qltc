@@ -1415,7 +1415,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                       {/* Progress Status */}
                       <div>
                         <span className="font-bold text-slate-600 block mb-1">▶ Tiến độ thi công:</span>
-                        <div className="grid grid-cols-3 gap-1">
+                        <div data-hnl-pc-v36-room-status="bulk" className="grid grid-cols-3 gap-1">
                           {(['Chưa làm', 'Đang làm', 'Đã hoàn thành'] as AcceptanceStatus[]).map((st) => (
                             <button
                               key={st}
@@ -1434,7 +1434,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                       {/* Inspection Status */}
                       <div>
                         <span className="font-bold text-slate-600 block mb-1">▶ Nghiệm thu:</span>
-                        <div className="grid grid-cols-3 gap-1">
+                        <div data-hnl-pc-v36-room-status="bulk" className="grid grid-cols-3 gap-1">
                           {(['Chưa nghiệm thu', 'Đạt nghiệm thu', 'Chưa đạt (Cần sửa)'] as RoomInspectionResult[]).map((st) => (
                             <button
                               key={st}
@@ -1760,7 +1760,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                           {/* Status buttons: Thi công */}
                           <div className="xl:min-h-[104px]">
                             <span className="text-[10.5px] font-bold text-slate-500 block mb-1">▶ Tiến độ thi công:</span>
-                            <div className="grid grid-cols-3 gap-1.5 mb-1.5">
+                            <div data-hnl-pc-v36-room-status="item" className="grid grid-cols-3 gap-1.5 mb-1.5">
                               {(['Chưa làm', 'Đang làm', 'Đã hoàn thành'] as AcceptanceStatus[]).map((st) => (
                                 <button
                                   key={st}
@@ -1785,7 +1785,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                           {/* Status buttons: Nghiệm thu */}
                           <div className="pt-1.5 border-t border-slate-100 xl:border-t-0 xl:pt-0 xl:min-h-[104px]">
                             <span className="text-[10.5px] font-bold text-indigo-700 block mb-1">▶ Nghiệm thu hạng mục này:</span>
-                            <div className="grid grid-cols-3 gap-1.5 mb-1.5">
+                            <div data-hnl-pc-v36-room-status="item" className="grid grid-cols-3 gap-1.5 mb-1.5">
                               {(['Chưa nghiệm thu', 'Đạt nghiệm thu', 'Chưa đạt (Cần sửa)'] as RoomInspectionResult[]).map((st) => (
                                 <button
                                   key={st}
