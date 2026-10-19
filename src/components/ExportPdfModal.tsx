@@ -1974,7 +1974,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   setDefectCompletedFrom('');
                   setDefectCompletedTo('');
                 }}
-                className="text-[10px] font-extrabold text-indigo-600 hover:text-indigo-800"
+                className="text-xs font-extrabold text-indigo-600 hover:text-indigo-800"
               >
                 Xóa bộ lọc
               </button>
@@ -2102,45 +2102,45 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               </div>
 
               <div className="border-t border-slate-200 pt-3">
-                <div className="mb-2 text-[10px] font-extrabold text-slate-600">Defect trong phạm vi trên</div>
+                <div className="mb-2 text-xs font-extrabold text-slate-600">Defect trong phạm vi trên</div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                  <select value={defectStatusFilter} onChange={(e) => setDefectStatusFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700">
+                  <select value={defectStatusFilter} onChange={(e) => setDefectStatusFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700">
                     <option value="all">Tất cả trạng thái Defect</option>
                     <option value="Mới phát hiện">Mới phát hiện</option>
                     <option value="Đang sửa">Đang sửa</option>
                     <option value="Đã khắc phục">Đã khắc phục</option>
                     <option value="Đã nghiệm thu">Đã nghiệm thu</option>
                   </select>
-                  <select value={defectCategoryFilter} onChange={(e) => setDefectCategoryFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700">
+                  <select value={defectCategoryFilter} onChange={(e) => setDefectCategoryFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700">
                     <option value="all">Tất cả hạng mục lỗi</option>
                     {defectCategoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
                   </select>
-                  <select value={defectCreatorFilter} onChange={(e) => setDefectCreatorFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700">
+                  <select value={defectCreatorFilter} onChange={(e) => setDefectCreatorFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700">
                     <option value="all">Tất cả người tạo</option>
                     {defectCreatorOptions.map((creator) => <option key={creator} value={creator}>{creator}</option>)}
                   </select>
                   <label className="space-y-1">
-                    <span className="block text-[9.5px] font-bold text-slate-500">Defect tạo từ ngày</span>
-                    <input type="date" value={defectCreatedFrom} onChange={(e) => setDefectCreatedFrom(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px]" />
+                    <span className="block text-[11px] font-bold text-slate-500">Defect tạo từ ngày</span>
+                    <input type="date" value={defectCreatedFrom} onChange={(e) => setDefectCreatedFrom(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs" />
                   </label>
                   <label className="space-y-1">
-                    <span className="block text-[9.5px] font-bold text-slate-500">Defect tạo đến ngày</span>
-                    <input type="date" value={defectCreatedTo} onChange={(e) => setDefectCreatedTo(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px]" />
+                    <span className="block text-[11px] font-bold text-slate-500">Defect tạo đến ngày</span>
+                    <input type="date" value={defectCreatedTo} onChange={(e) => setDefectCreatedTo(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs" />
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     <label className="space-y-1">
-                      <span className="block text-[9.5px] font-bold text-slate-500">Xong từ</span>
-                      <input type="date" value={defectCompletedFrom} onChange={(e) => setDefectCompletedFrom(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px]" />
+                      <span className="block text-[11px] font-bold text-slate-500">Xong từ</span>
+                      <input type="date" value={defectCompletedFrom} onChange={(e) => setDefectCompletedFrom(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" />
                     </label>
                     <label className="space-y-1">
-                      <span className="block text-[9.5px] font-bold text-slate-500">Xong đến</span>
-                      <input type="date" value={defectCompletedTo} onChange={(e) => setDefectCompletedTo(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px]" />
+                      <span className="block text-[11px] font-bold text-slate-500">Xong đến</span>
+                      <input type="date" value={defectCompletedTo} onChange={(e) => setDefectCompletedTo(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" />
                     </label>
                   </div>
                 </div>
               </div>
 
-              <p className="text-[10px] text-slate-500">
+              <p className="text-[11px] leading-relaxed text-slate-500">
                 Khu/Khối → Tầng → Căn / Phòng → Đội là phạm vi chung. Bộ lọc trạng thái/hạng mục/người tạo/ngày chỉ thu hẹp phần Defect và phụ lục ảnh Defect.
               </p>
             </div>

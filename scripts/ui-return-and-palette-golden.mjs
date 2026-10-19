@@ -138,6 +138,27 @@ assert.ok(normDialogs.includes('data-hnl-overlay-stack="elevated"') &&
   actionMenuPortal.includes('elevatedModalMenu') && actionMenuPortal.includes('z-[360]') &&
   actionMenuPortal.includes('z-[170]') && actionMenuPortal.includes('z-[359]'),
   'Inside elevated modal, Add/Equipment action menu must receive clicks without affecting normal global menus');
+// Keep report filter typography legible and consistent at 1024/1280/1440px and high DPI.
+const reportFilterStart = report.indexOf('data-hnl-pc-v32-region="report-filters"');
+const reportFilterEnd = report.indexOf('{/* Sorting for each report section.', reportFilterStart);
+assert.ok(reportFilterStart > 0 && reportFilterEnd > reportFilterStart,
+  'Report scope filters exist before report sorting');
+const reportFilterUi = report.slice(reportFilterStart, reportFilterEnd);
+assert.ok(!reportFilterUi.includes('text-[9.5px]') && !reportFilterUi.includes('text-[10px]'),
+  'No tiny 9.5px or 10px typography inside report filters');
+assert.equal((reportFilterUi.match(/<(?:select|input)\b[^\n]*?className="[^"]*text-xs/g) || []).length, 7,
+  'All 3 Defect selects and 4 date inputs use the same 12px font');
+for (const label of ['Defect tạo từ ngày', 'Defect tạo đến ngày', 'Xong từ', 'Xong đến']) {
+  assert.ok(reportFilterUi.includes('text-[11px] font-bold text-slate-500">' + label),
+    'Date field labels use the same readable 11px size: ' + label);
+}
+assert.ok(reportFilterUi.includes('text-xs font-extrabold text-slate-600">Defect trong phạm vi trên') &&
+  reportFilterUi.includes('text-xs font-extrabold text-indigo-600 hover:text-indigo-800'),
+  'Section title and clear-filter button use 12px');
+assert.ok(reportFilterUi.includes('text-[11px] leading-relaxed text-slate-500'),
+  'Explanatory footnote uses the same 11px typography with readable line-height');
+console.log('REPORT FILTER TYPOGRAPHY GOLDEN PASS');
+
 console.log('PC DEEP VIEWPORT OVERLAY GOLDEN PASS');
 
 console.log('UI RETURN AND PALETTE GOLDEN: PASS');
