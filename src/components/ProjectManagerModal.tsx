@@ -3353,12 +3353,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       }
                       setShowJsonScopePicker(true);
                     }}
+                    data-hnl-pc-v35-trigger="json-export"
                     className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center justify-center gap-1.5 text-xs transition-colors cursor-pointer shadow-xs active:scale-95"
                   >
                     <Download className="w-3.5 h-3.5" /> Xuất bản sao JSON {exportEncrypt ? '🔒' : ''}
                   </button>
 
-                  <label className="w-full py-2 bg-slate-50 hover:bg-slate-100 border border-slate-300 text-slate-700 rounded-xl font-bold flex items-center justify-center gap-1.5 text-xs transition-colors cursor-pointer active:scale-95">
+                  <label data-hnl-pc-v35-trigger="json-import" className="w-full py-2 bg-slate-50 hover:bg-slate-100 border border-slate-300 text-slate-700 rounded-xl font-bold flex items-center justify-center gap-1.5 text-xs transition-colors cursor-pointer active:scale-95">
                     <Upload className="w-3.5 h-3.5 text-slate-600" /> Khôi phục từ JSON
                     <input type="file" accept=".json" className="hidden" onChange={handleImportJsonForScope} />
                   </label>
@@ -3468,6 +3469,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         type="button"
                         onClick={handleRestoreFromPastedJson}
                         disabled={!pasteValue.trim()}
+                        data-hnl-pc-v35-trigger="json-paste-restore"
                         className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg font-bold text-[11px] transition-colors cursor-pointer"
                       >
                         Khôi Phục Dữ Liệu Từ JSON Đã Dán
@@ -3518,6 +3520,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                           <button
                             type="button"
                             onClick={onRequestLocalAllFilePermission}
+                            data-hnl-pc-v35-trigger="autosave-permission"
                             className="w-full py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10.5px] flex items-center justify-center gap-1 shadow-xs"
                           >
                             <ShieldCheck className="w-3.5 h-3.5" /> Cho Phép Ghi Để Đồng Bộ Auto-Save
@@ -3532,6 +3535,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         <button
                           type="button"
                           onClick={onLinkLocalAllFile}
+                          data-hnl-pc-v35-trigger="autosave-link"
                           className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 rounded-xl font-extrabold flex items-center justify-center gap-1.5 text-[11px] transition-colors cursor-pointer shadow-xs active:scale-98"
                         >
                           <ArrowLeftRight className="w-3.5 h-3.5 text-indigo-600" />

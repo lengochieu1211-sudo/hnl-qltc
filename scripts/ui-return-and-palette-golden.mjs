@@ -288,3 +288,37 @@ assert.ok(deepCompactCss.includes('max-height: min(58vh, 680px)') &&
   read('src/components/GoogleConfigTab.tsx').includes("disabled={userRole !== 'ADMIN'}"),
   'Scroll boundaries and ADMIN-only mutations remain guarded');
 console.log('PC V3.5 DEEP ACTION COMPACT + WAREHOUSE SCROLL FRAME GOLDEN PASS');
+
+// PC V3.5 entry-trigger completion after PR #302: keep modern-PC launch cards
+// compact without changing the touch layouts, card state or portaled sheets.
+const entryCompactCss = read('src/styles/desktopWorkspaceCompact.css');
+const settingsAccordionCode = read('src/components/SettingsAccordionCard.tsx');
+const managerCode = read('src/components/ProjectManagerModal.tsx');
+const floorCode = read('src/components/FloorPlanDefectTab.tsx');
+const warehouseCode = read('src/components/WarehouseTab.tsx');
+assert.ok(settingsAccordionCode.includes('data-hnl-settings-sheet-card={sheetKey}') &&
+  settingsAccordionCode.includes('<SettingsFeatureSheet') &&
+  entryCompactCss.includes('html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet-card]') &&
+  entryCompactCss.includes('width: min(100%, 600px);'),
+  'Six PC Settings entry cards are compact while their opened feature sheets retain width');
+for (const marker of ['manage-structure', 'add-structure-group']) {
+  assert.ok(floorCode.includes(`data-hnl-pc-v35-trigger="${marker}"`) &&
+    entryCompactCss.includes(`[data-hnl-pc-v35-trigger="${marker}"]`),
+    `Floor structure action ${marker} has scoped compact treatment`);
+}
+assert.ok(warehouseCode.includes('data-hnl-primary-action="warehouse-create"') &&
+  entryCompactCss.includes('[data-hnl-primary-action="warehouse-create"]') &&
+  warehouseCode.includes('data-hnl-pc-v35-actions="warehouse-save"'),
+  'Warehouse Create and already-patched voucher footer remain separate controls');
+for (const marker of ['json-export', 'json-import', 'json-paste-restore', 'autosave-permission', 'autosave-link']) {
+  assert.ok(managerCode.includes(`data-hnl-pc-v35-trigger="${marker}"`) &&
+    entryCompactCss.includes(`[data-hnl-pc-v35-trigger="${marker}"]`),
+    `Backup or AutoSave PC action ${marker} is opt-in compact`);
+}
+assert.ok(entryCompactCss.includes('@media (min-width: 1024px)') &&
+  entryCompactCss.includes('html[data-hnl-pc-workspace="modern"]') &&
+  settingsAccordionCode.includes('onClick={(event) => {') &&
+  settingsAccordionCode.includes('setSheetOpen(!openRef.current)') &&
+  settingsAccordionCode.includes('aria-haspopup="dialog"'),
+  'Mobile/classic and Settings sheet open/history/keyboard behaviors remain unchanged');
+console.log('HNL PC V3.5 ENTRY CARDS + DEEP ACTIONS AUDIT GOLDEN PASS');

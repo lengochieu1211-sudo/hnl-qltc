@@ -429,3 +429,50 @@
     overscroll-behavior: contain;
   }
 }
+
+
+/* PC V3.5 follow-up: entry triggers were not covered by PR #302's modal-footer
+ * selectors. Keep touch-size / full-width selection controls on mobile/classic.
+ * Narrow the Settings launch cards, NOT their portaled working sheets. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet-card] {
+    width: min(100%, 600px);
+    max-width: 100%;
+  }
+
+  /* FloorPlan and Warehouse launch actions should hug their labels, not fill
+   * a parent grid cell. The actual editors, tables and pick controls stay put. */
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v35-trigger="manage-structure"],
+    [data-hnl-pc-v35-trigger="add-structure-group"],
+    [data-hnl-primary-action="warehouse-create"]
+  ) {
+    width: fit-content;
+    max-width: 100%;
+    min-width: 0;
+    flex: 0 0 auto;
+    justify-self: start;
+    white-space: normal;
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  /* Backup/Auto-save commands are actions, not selectable full-width tiles.
+   * Preserve onClick, file-input label and confirm/permission state. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-center="project-manager"] :is(
+    [data-hnl-pc-v35-trigger="json-export"],
+    [data-hnl-pc-v35-trigger="json-import"],
+    [data-hnl-pc-v35-trigger="json-paste-restore"],
+    [data-hnl-pc-v35-trigger="autosave-permission"],
+    [data-hnl-pc-v35-trigger="autosave-link"]
+  ) {
+    width: fit-content;
+    max-width: 100%;
+    min-width: 0;
+    justify-self: start;
+    flex: 0 0 auto;
+    padding: 9px 15px;
+    text-align: center;
+    white-space: normal;
+  }
+}

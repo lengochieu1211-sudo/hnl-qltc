@@ -6121,6 +6121,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <button
                 type="button"
                 onClick={() => setShowManageFloorsModal(true)}
+                data-hnl-pc-v35-trigger="manage-structure"
                 className="flex h-10 min-w-0 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-indigo-200 bg-indigo-50 px-2 text-[11px] font-bold text-indigo-700 shadow-xs transition-all hover:bg-indigo-100 active:scale-[0.99] sm:h-9 sm:w-auto sm:px-3 sm:text-xs"
                 title="Quản lý Khu/Khối, đổi tên, sắp xếp và quản lý tầng"
               >
@@ -11184,6 +11185,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         },
                       ],
                     }))}
+                    data-hnl-pc-v35-trigger="add-structure-group"
                     className="w-full rounded-xl border border-dashed border-indigo-300 bg-white py-2 text-[11px] font-bold text-indigo-700"
                   >
                     <Plus className="inline w-3.5 h-3.5 mr-1" />Thêm {normalizedStructureConfig.label || 'Khu / Khối'}
