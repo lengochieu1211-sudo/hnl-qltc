@@ -49,4 +49,29 @@ assert.match(css, /@media \(min-width: 1024px\)\s*\{[\s\S]*data-hnl-notification
   'CTA/scroll changes are scoped to PC 1024px+');
 console.log('HNL PC V3.5 MODAL SCROLL & CTA GOLDEN PASS');
 
+
+const deepWarehouse = read('src/components/WarehouseTab.tsx');
+const deepNorm = read('src/components/MaterialNormModal.tsx');
+const deepChecklist = read('src/components/ChecklistTab.tsx');
+const deepRoom = read('src/components/RoomHighlightModal.tsx');
+const deepVolume = read('src/components/WorkVolumeTab.tsx');
+const deepReport = read('src/components/ExportPdfModal.tsx');
+const deepPcCss = css.slice(css.indexOf('/* V3.5 continued, after #298:'));
+for (const token of [
+ 'data-hnl-pc-v32-window="room-editor"', 'data-hnl-pc-v32-window="material-norm"',
+ 'form[data-hnl-pc-v3-form="warehouse"]', 'form[data-hnl-pc-v3-form="volume"]',
+ 'form[data-hnl-pc-v3-form="crew-log"]', 'data-hnl-pc-compact-actions="checklist-editor"',
+ 'data-hnl-report-export-actions="true"', 'data-hnl-settings-sheet-card', 'scrollbar-gutter: stable',
+]) assert.ok(deepPcCss.includes(token), 'PC V3.5 continued target missing: '+token);
+assert.ok(deepNorm.includes('data-hnl-pc-compact-actions="material-norm-editor"'));
+assert.equal((deepChecklist.match(/data-hnl-pc-compact-actions="checklist-editor"/g)||[]).length,2);
+assert.ok(deepRoom.includes('data-hnl-pc-v32-region="room-form"') && deepVolume.includes('data-hnl-pc-v3-form="volume"'));
+assert.ok(deepWarehouse.includes('data-hnl-pc-v3-form="warehouse"') && deepWarehouse.includes('Lưu & thêm tiếp'));
+assert.ok(['text','pdf','xlsx'].every(f=>deepReport.includes('data-hnl-report-format="'+f+'"')));
+assert.match(deepWarehouse, /data-hnl-pc-v3-inner="warehouse-catalog-grid"[^>]*rounded-xl border border-slate-200 bg-white p-1[^>]*>\s*<div[^>]*max-h-\[46vh\] overflow-auto[^>]*data-hnl-warehouse-catalog-scroll="true"/);
+assert.ok(css.includes('[data-hnl-project-settings-save="true"]') && css.includes('[data-hnl-notification-open-chat="true"]'),
+  'Keep already-merged #298 project settings and notification sizing CSS');
+assert.doesNotMatch(deepPcCss, /(?:canvas|transform|z-index|pointer-events)\s*:/);
+console.log('HNL PC V3.5 CONTINUED DEEP COMPACT / CATALOG INNER SCROLL GOLDEN PASS');
+
 console.log('HNL PC V3.4 COMPACT GOLDEN PASS — mode visibility, compact actions, 84px rail, classic/mobile and plan safety');
