@@ -40,6 +40,9 @@ Trạng thái: tài liệu tham chiếu đã đối chiếu source; một số m
 - Dùng token màu thương hiệu HNL; đỏ/nguy hiểm, vàng/cảnh báo, xanh lá/thành công; giữ ngoại lệ ngữ nghĩa. Font PC ưu tiên Segoe UI, mobile Roboto, fallback sans-serif.
 - Trong *cùng nhóm* input/select/nút cùng cấp chữ và chiều cao; bộ lọc báo cáo đã chốt select/date 12px, nhãn 11px; sắp xếp/khổ/hướng giấy PDF cũng cần thống nhất. Không tăng font 9/10px hàng loạt bên ngoài nhóm vừa audit.
 - Nút thao tác ngang có kích thước nhất quán, không tràn chữ, icon đi kèm nhãn hoặc aria-label/tooltip; không dùng emoji/màu đơn lẻ để biểu đạt lệnh nguy hiểm.
+- **PC Workspace từ 1024px**: nút thao tác sâu trong form (Lưu / Lưu & thêm tiếp / Lưu & đóng / Hủy / Xuất) **co theo nội dung**, sắp hàng trái và tự xuống dòng khi hẹp; không kéo giãn bằng `flex-1`, `w-full` hoặc cột `grid` chia đều khi không cần. Nút xác nhận nguy hiểm, ô nhập, vùng cuộn bảng và điều khiển chọn ngày/tầng có ngoại lệ riêng; không áp `button { width: auto }` toàn ứng dụng. Mobile vẫn ưu tiên nút đủ rộng để chạm.
+- **Settings**: thẻ mở Đồng bộ, Health Center, Mẫu, Chất lượng ảnh, Dữ liệu đã ẩn trên PC có chiều rộng vừa đọc (tối đa khoảng 680px); **khung feature sheet sau khi mở vẫn có chiều rộng và vùng cuộn riêng**. Không thu nhỏ vùng nhập dữ liệu vì chuẩn nút.
+- **Danh mục kho**: bảng vật tư/thiết bị có viền xám nhạt `border-slate-200` như Gợi ý vật tư tổng hợp; viền ở vỏ ngoài, thanh cuộn trong lớp riêng có chừa `scrollbar-gutter`. Giữ sticky header, hàng 32px, chức năng mở lịch sử, tìm/sắp xếp và khả năng cuộn ngang khi màn hình hẹp.
 - Các nút Xuất: Nội dung, Excel, PDF, Ảnh, JSON phải phân biệt; ưu tiên Nội dung trung tính, Excel xanh lá, PDF đỏ, JSON tím, Ảnh xanh khi thuộc cùng nhóm định dạng; không tự đổi màu các phiếu có quy ước riêng.
 
 ## 6. Tìm kiếm, lọc và Sắp xếp nhanh
