@@ -1324,7 +1324,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                 </p>
               )}
 
-              <div className="flex flex-col sm:flex-row gap-2 pt-0.5">
+              <div data-hnl-pc-v35-actions="room-preset" className="flex flex-col sm:flex-row gap-2 pt-0.5">
                 <button
                   type="button"
                   onClick={() => presetSelection && handleApplyPreset(presetSelection, 'append')}
@@ -2162,7 +2162,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
           </div>}
 
           {/* Submit Actions */}
-          <div className="pt-2 flex flex-wrap gap-2">
+          <div data-hnl-pc-v35-actions="room-save" className="pt-2 flex flex-wrap gap-2">
             {!structureReadOnly && roomItem && onDeleteRoom && (
               isConfirmingDelete ? (
                 <div className="flex items-center gap-1.5 w-full bg-rose-50 p-2 rounded-xl border border-rose-200">

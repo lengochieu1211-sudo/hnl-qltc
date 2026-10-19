@@ -2479,7 +2479,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           />
 
           {/* Content-sized columns keep warehouse names/units on one line; the sheet scrolls horizontally on small screens. */}
-          <div data-hnl-pc-v3-inner="warehouse-catalog-grid" className="max-h-[46vh] overflow-auto rounded-xl border border-slate-200" data-hnl-warehouse-catalog-scroll="true">
+          <div data-hnl-pc-v3-inner="warehouse-catalog-grid" className="rounded-xl border border-indigo-200 bg-white p-1">
+            <div data-hnl-warehouse-catalog-scroll="true" className="max-h-[46vh] overflow-auto overscroll-contain">
             <table className="w-max min-w-full table-auto whitespace-nowrap text-[11px] leading-4" data-hnl-warehouse-catalog-table="auto-width" data-hnl-table-row-height="32">
               <thead className="sticky top-0 z-10 bg-slate-50 text-[11px] font-bold text-slate-600">
                 <tr className="h-8" data-hnl-warehouse-catalog-header="aligned">
@@ -2548,6 +2549,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
           {warehouseCatalogTab === 'equipment' && (
             <p className="text-[10px] leading-relaxed text-slate-500">
@@ -4019,7 +4021,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               )}
 
               {/* Buttons */}
-              <div className={`sticky bottom-0 z-10 -mx-5 lg:-mx-6 -mb-5 lg:-mb-6 mt-1 grid gap-2 border-t border-slate-100 bg-white px-5 lg:px-6 py-4 lg:col-span-6 ${editingInventory ? 'grid-cols-1' : 'grid-cols-2'}`}>
+              <div data-hnl-pc-v35-actions="warehouse-save" className={`sticky bottom-0 z-10 -mx-5 lg:-mx-6 -mb-5 lg:-mb-6 mt-1 grid gap-2 border-t border-slate-100 bg-white px-5 lg:px-6 py-4 lg:col-span-6 ${editingInventory ? 'grid-cols-1' : 'grid-cols-2'}`}>
                 {!editingInventory && (
                   <button
                     type="submit"

@@ -1706,7 +1706,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 </div>
               </div>
 
-              <div className={`sticky bottom-0 z-10 -mx-5 -mb-5 mt-1 grid gap-2 border-t border-slate-100 bg-white px-5 py-4 lg:col-span-6 ${editingVolume ? 'grid-cols-1' : 'grid-cols-2'}`}>
+              <div data-hnl-pc-v35-actions="volume-save" className={`sticky bottom-0 z-10 -mx-5 -mb-5 mt-1 grid gap-2 border-t border-slate-100 bg-white px-5 py-4 lg:col-span-6 ${editingVolume ? 'grid-cols-1' : 'grid-cols-2'}`}>
                 {!editingVolume && (
                   <button
                     type="submit"

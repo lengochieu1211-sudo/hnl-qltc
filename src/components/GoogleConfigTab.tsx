@@ -1153,7 +1153,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
                     <span className="text-[9px] font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-md shrink-0">{formatTrashBytes(Number(operation.approxBytes || 0))}</span>
                   </div>
                   {userRole === 'ADMIN' && (
-                    <div className="flex items-center gap-2">
+                    <div data-hnl-pc-v35-actions="trash-record" className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={() => void onRestoreTrashOperation?.(operation.id)}

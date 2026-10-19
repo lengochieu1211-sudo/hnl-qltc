@@ -3899,7 +3899,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2">
+                  <div data-hnl-pc-v35-actions="drive-sync" className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={handleDriveSyncUpAction}

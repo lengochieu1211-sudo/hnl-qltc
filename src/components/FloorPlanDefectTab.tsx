@@ -10364,7 +10364,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 />
               </div>
 
-              <div className="flex gap-2 pt-2 border-t border-slate-100 lg:col-span-6">
+              <div data-hnl-pc-v35-actions="defect-save" className="flex gap-2 pt-2 border-t border-slate-100 lg:col-span-6">
                 <button
                   type="button"
                   onClick={handleCancelDefectModal}
@@ -11749,7 +11749,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 💡 Hệ thống sẽ tự động khởi tạo mặt bằng cho tầng mới. Bạn có thể tự do vẽ các khung highlight hoặc tải bản vẽ riêng lên bất kỳ lúc nào!
               </p>
 
-              <div className="flex gap-2 pt-2">
+              <div data-hnl-pc-v35-actions="floor-add" className="flex gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowQuickAddFloorModal(false)}
