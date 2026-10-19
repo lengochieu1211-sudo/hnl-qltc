@@ -810,7 +810,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
             {validation.size > 0 && <span className="ml-2 text-rose-600 font-bold">· {validation.size} lỗi cần sửa</span>}
             {clipboardNotice && <span className="ml-2 font-semibold text-indigo-700">· {clipboardNotice}</span>}
             {sortState && <span className="ml-2 text-indigo-600 font-bold">· đang sắp xếp hiển thị</span>}
-            <span className="hidden sm:inline ml-2 text-slate-400">· Ctrl+C/V vùng ô Excel · Ctrl+Z/Y hoàn tác/làm lại</span>
+            <span className="hidden sm:inline ml-2 text-slate-400">· Có thể Ctrl+C / Ctrl+V vùng ô từ Excel · Ctrl+Z/Y hoàn tác/làm lại</span>
           </div>
           {canEdit && (
             <>
