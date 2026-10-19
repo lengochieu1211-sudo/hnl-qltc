@@ -261,6 +261,73 @@
     min-height: 38px;
     padding: 7px 13px;
   }
+  /* V3.5: deep-form action buttons size to their label on PC, not whole row.
+     Keep mobile grids, read-only catalogue cells and modal stacking untouched. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window="room-editor"]
+    [data-hnl-pc-v32-region="room-form"] button[type="submit"].flex-1 {
+    flex: 0 0 auto; width: auto; max-width: 100%; padding-inline: 20px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window="material-norm"]
+    [data-hnl-pc-v32-region="catalog-tabs"] {
+    display: flex; flex-wrap: wrap; width: fit-content; max-width: 100%;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window="material-norm"]
+    [data-hnl-pc-v32-region="catalog-tabs"] > button {
+    flex: 0 0 auto; width: auto; padding-inline: 15px;
+  }
+  html[data-hnl-pc-workspace="modern"] :is(
+    form[data-hnl-pc-v3-form="warehouse"], form[data-hnl-pc-v3-form="volume"]
+  ) > div.sticky.bottom-0 {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start;
+  }
+  html[data-hnl-pc-workspace="modern"] :is(
+    form[data-hnl-pc-v3-form="warehouse"], form[data-hnl-pc-v3-form="volume"]
+  ) > div.sticky.bottom-0 > button {
+    flex: 0 0 auto; width: auto; max-width: 100%; min-width: 128px; padding-inline: 18px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window="material-norm"]
+    [data-hnl-pc-compact-actions="material-norm-editor"] {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window="material-norm"]
+    [data-hnl-pc-compact-actions="material-norm-editor"] > button {
+    flex: 0 0 auto; width: auto; max-width: 100%; min-width: 128px; padding-inline: 18px;
+  }
+  html[data-hnl-pc-workspace="modern"] form[data-hnl-pc-v3-form="crew-log"]
+    > div.sticky.bottom-0 > button[type="submit"] {
+    flex: 0 0 auto; width: auto; max-width: 100%; min-width: 130px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-compact-actions="checklist-editor"] > button {
+    flex: 0 0 auto; width: auto; min-width: 100px; max-width: 100%; padding-inline: 18px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-report-export-actions="true"]
+    [role="group"][aria-label="Nội dung, PDF và Excel"] {
+    display: flex; flex-wrap: wrap; justify-content: flex-start; width: fit-content; max-width: 100%;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-report-export-actions="true"]
+    [data-hnl-report-format] {
+    flex: 0 0 auto; min-width: 104px; max-width: 100%; padding-inline: 16px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-module="settings-center"]
+    [data-hnl-pc-compact-action="project-settings-save"] {
+    width: auto; min-width: 175px; max-width: 100%; padding-inline: 19px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-module="settings-center"]
+    [data-hnl-settings-sheet-card] { width: min(100%, 680px); max-width: 100%; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-center="notification-center"]
+    [data-hnl-pc-compact-action="open-project-chat"] {
+    width: auto; min-width: 136px; max-width: 100%; padding-inline: 16px;
+  }
+  /* Catalogue has an external light border; scrollbar scrolls inside, not
+     beneath the rounded border. Preserve sticky header and 32px rows. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-grid"] {
+    border-color: #e2e8f0;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-warehouse-catalog-scroll="true"] {
+    min-width: 0; max-width: 100%; scrollbar-gutter: stable;
+    scrollbar-width: thin; scrollbar-color: #94a3b8 #f1f5f9;
+  }
+
 }
 /* At 1024–1279px an extra filter row is preferable to squashed inputs. */
 @media (min-width: 1024px) and (max-width: 1279px) {
