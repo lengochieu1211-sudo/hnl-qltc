@@ -69,4 +69,19 @@ for (const selector of [
   'data-hnl-pc-module="settings-center"','data-hnl-pc-module="security-center"',
   'data-hnl-pc-module="notification-center"','data-hnl-pc-module="project-manager"',
 ]) assert.ok(css.includes(selector), `Deep surface not covered: ${selector}`);
+// V3.5 regression: the generic nested active-tab palette must not recolor
+// the four HNL AI mode buttons, whose JSX deliberately uses white-on-indigo.
+// This was a confirmed PC contrast bug: active labels looked blue/hidden.
+const aiModeSource = read('src/features/ai/AiAssistantPage.tsx');
+const navActivePalette = css.match(/html\[data-hnl-pc-workspace="modern"\] :is\([\s\S]*?\)\s*:not\(\[data-hnl-pc-deep-tabs="ai-modes"\]\)\s*> button:is\(\[aria-selected="true"\],\[aria-pressed="true"\],\[data-state="active"\]\)\s*\{[\s\S]*?color: var\(--hnl-deep-accent\);[\s\S]*?background-color:/);
+assert.ok(navActivePalette, 'Generic selected-tab colors must explicitly exempt AI mode buttons');
+for (const label of ['HNL Data', 'Kiểm tra dữ liệu', 'AI chung', 'HNL + AI']) {
+  assert.ok(aiModeSource.includes(`label: '${label}'`), `AI mode label missing: ${label}`);
+}
+assert.ok(aiModeSource.includes('data-hnl-pc-deep-tabs="ai-modes"') &&
+  aiModeSource.includes('aria-pressed={active}') &&
+  aiModeSource.includes("active ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-200'"),
+  'AI modes keep white-on-indigo selected state and dark-on-white inactive state');
+console.log('HNL AI MODES PC ACTIVE-TAB TEXT CONTRAST GOLDEN PASS');
+
 console.log(`HNL PC V3.3 DEEP GOLDEN PASS — ${modules.length} primary modules, 4 nested selector groups, ${dataWindows.length} critical dialog families; 84px rail, classic, Home, handler and canvas protections intact`);

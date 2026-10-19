@@ -103,7 +103,9 @@
     [data-hnl-nested-nav], [data-hnl-pc-region="subtabs"], [data-hnl-pc-region="floor-tabs"],
     [data-hnl-pc-v32-region="catalog-tabs"], [data-hnl-pc-v32-region="grid-tabs"],
     [data-hnl-pc-v32-region="template-tabs"], [data-hnl-pc-deep-tabs], [role="tablist"]
-  ) > button:is([aria-selected="true"],[aria-pressed="true"],[data-state="active"]) {
+  ):not([data-hnl-pc-deep-tabs="ai-modes"]) > button:is([aria-selected="true"],[aria-pressed="true"],[data-state="active"]) {
+    /* HNL AI modes already supply white-on-indigo selection through React.
+       Avoid overriding it with accent-on-pale-blue (unreadable PC text). */
     color: var(--hnl-deep-accent);
     background-color: color-mix(in srgb, var(--hnl-deep-accent) 10%, var(--hnl-deep-surface));
   }
