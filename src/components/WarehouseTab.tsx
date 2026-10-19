@@ -2479,7 +2479,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           />
 
           {/* Content-sized columns keep warehouse names/units on one line; the sheet scrolls horizontally on small screens. */}
-          <div data-hnl-pc-v3-inner="warehouse-catalog-grid" className="max-h-[46vh] overflow-auto rounded-xl border border-slate-200" data-hnl-warehouse-catalog-scroll="true">
+          <div data-hnl-pc-v3-inner="warehouse-catalog-grid" className="rounded-xl border border-slate-200 bg-white p-1">
+            <div className="max-h-[46vh] overflow-auto overscroll-contain pr-1" data-hnl-warehouse-catalog-scroll="true">
             <table className="w-max min-w-full table-auto whitespace-nowrap text-[11px] leading-4" data-hnl-warehouse-catalog-table="auto-width" data-hnl-table-row-height="32">
               <thead className="sticky top-0 z-10 bg-slate-50 text-[11px] font-bold text-slate-600">
                 <tr className="h-8" data-hnl-warehouse-catalog-header="aligned">
@@ -2548,6 +2549,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
           {warehouseCatalogTab === 'equipment' && (
             <p className="text-[10px] leading-relaxed text-slate-500">

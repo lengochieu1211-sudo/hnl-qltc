@@ -40,6 +40,9 @@ Trạng thái: tài liệu tham chiếu đã đối chiếu source; một số m
 - Dùng token màu thương hiệu HNL; đỏ/nguy hiểm, vàng/cảnh báo, xanh lá/thành công; giữ ngoại lệ ngữ nghĩa. Font PC ưu tiên Segoe UI, mobile Roboto, fallback sans-serif.
 - Trong *cùng nhóm* input/select/nút cùng cấp chữ và chiều cao; bộ lọc báo cáo đã chốt select/date 12px, nhãn 11px; sắp xếp/khổ/hướng giấy PDF cũng cần thống nhất. Không tăng font 9/10px hàng loạt bên ngoài nhóm vừa audit.
 - Nút thao tác ngang có kích thước nhất quán, không tràn chữ, icon đi kèm nhãn hoặc aria-label/tooltip; không dùng emoji/màu đơn lẻ để biểu đạt lệnh nguy hiểm.
+- **PC Workspace từ 1024px**: nút Lưu, Lưu & thêm tiếp, Lưu & đóng, Hủy và Xuất trong các form sâu nên co theo nội dung và tự xuống dòng; giữ nút lớn khi cần thao tác chạm trên điện thoại. Không đặt quy tắc toàn cục làm hỏng nút chọn dòng, checkbox hoặc ô nhập.
+- **Cài đặt**: thẻ mở Trung tâm đồng bộ, Health Center, Quản lý mẫu, Chất lượng ảnh và Thùng rác chỉ rộng vừa đọc trên PC (tối đa khoảng 680px); cửa sổ tính năng mở ra vẫn đầy đủ chiều rộng, độc lập thanh cuộn.
+- **Danh mục kho**: viền sáng, nhẹ, đồng bộ nhóm Gợi ý vật tư; tránh để thanh cuộn của bảng nằm ngay dưới mép bo tròn. Tách vỏ viền và vùng cuộn, giữ header sticky, hàng 32px, xem lịch sử, phân quyền, hai chiều cuộn và số liệu tồn kho.
 - Các nút Xuất: Nội dung, Excel, PDF, Ảnh, JSON phải phân biệt; ưu tiên Nội dung trung tính, Excel xanh lá, PDF đỏ, JSON tím, Ảnh xanh khi thuộc cùng nhóm định dạng; không tự đổi màu các phiếu có quy ước riêng.
 
 ## 6. Tìm kiếm, lọc và Sắp xếp nhanh

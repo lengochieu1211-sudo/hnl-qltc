@@ -941,7 +941,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                 </div>
               </div>
 
-              <div className="flex gap-2 pt-2 md:col-span-2 lg:col-span-3">
+              <div data-hnl-pc-compact-actions="checklist-editor" className="flex gap-2 pt-2 md:col-span-2 lg:col-span-3">
                 <button
                   type="button"
                   onClick={() => setShowAddForm(false)}
@@ -1102,7 +1102,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                 </div>
               </div>
 
-              <div className="flex gap-2 pt-2 md:col-span-2 lg:col-span-3">
+              <div data-hnl-pc-compact-actions="checklist-editor" className="flex gap-2 pt-2 md:col-span-2 lg:col-span-3">
                 <button
                   type="button"
                   onClick={() => setEditingChecklistItem(null)}
