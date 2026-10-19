@@ -751,6 +751,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
 
           <button
             type="submit"
+            data-hnl-project-settings-save="true"
             disabled={userRole !== 'ADMIN'}
             className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md active:scale-98 transition-all flex items-center justify-center gap-2 text-xs cursor-pointer disabled:bg-slate-300 disabled:shadow-none disabled:cursor-not-allowed"
           >
