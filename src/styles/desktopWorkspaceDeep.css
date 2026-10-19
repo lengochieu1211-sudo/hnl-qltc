@@ -107,6 +107,13 @@
     color: var(--hnl-deep-accent);
     background-color: color-mix(in srgb, var(--hnl-deep-accent) 10%, var(--hnl-deep-surface));
   }
+  /* The shared nested-tab rule above paints selected text HNL blue on a pale
+     surface. AI mode buttons instead keep their existing solid HNL-blue
+     bg-indigo-600 !important, so restore WHITE text and Lucide currentColor.
+     Scope only to the four pressed AI modes on PC; never change handlers. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-deep-tabs="ai-modes"] > button[aria-pressed="true"] {
+    color: #fff !important;
+  }
   html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="volume-cards"] > *,
   html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-voucher-card-grid"] > *,
   html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="checklist-items"] > * {

@@ -56,6 +56,22 @@ for (const [name, file, group, pressed] of [
     `${name}: unmarked deeper tabs or selected state`);
   assert.ok(css.includes(group), `${name}: missing common deep navigation styles`);
 }
+// Regression: AI mode button backgrounds are HNL blue (!important) while the
+// generic deep-tab active color uses the same accent. The selected AI label
+// and its currentColor icon must retain white foreground only in PC modern.
+const aiSource = read('src/features/ai/AiAssistantPage.tsx');
+assert.match(aiSource, /data-hnl-pc-deep-tabs="ai-modes"/);
+assert.match(aiSource, /aria-pressed=\{active\}/);
+assert.match(aiSource, /active \? 'bg-indigo-600 text-white'/);
+assert.match(read('src/index.css'), /\.bg-indigo-600 \{ background-color: var\(--hnl-primary-action\) !important;/);
+const aiPressedWhiteRule = /html\[data-hnl-pc-workspace="modern"\] \[data-hnl-pc-deep-tabs="ai-modes"\] > button\[aria-pressed="true"\] \{\s*color: #fff !important;\s*\}/;
+assert.match(css, aiPressedWhiteRule, 'Selected AI mode text/icons must be white on solid HNL blue in PC modern');
+assert.ok(css.indexOf('button[aria-pressed="true"]') > css.indexOf('background-color: color-mix(in srgb, var(--hnl-deep-accent) 10%, var(--hnl-deep-surface))'),
+  'AI pressed-state contrast must override the shared nested-tab active color');
+assert.ok(!/\[data-hnl-pc-deep-tabs="ai-modes"\] > button\[aria-pressed="false"\]/.test(css),
+  'Inactive AI mode styles stay unchanged');
+console.log('PC HNL AI MODE ACTIVE LABEL CONTRAST GOLDEN PASS');
+
 const dataWindows = [
   'material-norm','quick-grid','source-picker','report-export','crew-share','conflict-merge','room-editor',
 ];
