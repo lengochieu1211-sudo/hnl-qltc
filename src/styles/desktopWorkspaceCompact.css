@@ -805,3 +805,38 @@
     white-space: normal;
   }
 }
+
+
+/* PC V3.5: section 02 heading (left) + view mode controls (right).
+ * Classic and mobile retain the original stacked view-mode row; the wrapper
+ * has no extra visible section heading there. No change to canvas sizing. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-v35-section-row="floor-drawing"] {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    column-gap: 16px;
+    row-gap: 8px;
+    padding: 0 3px 9px;
+    border-bottom: 1px solid var(--hnl-v3-edge, #dce4ef);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-v35-section-row="floor-drawing"] > [data-hnl-v3-section="02"] {
+    order: 0;
+    flex: 1 1 360px;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-v35-section-row="floor-drawing"] > [data-hnl-pc-v35-view-modes="floorplan"] {
+    order: 1;
+    margin: 0 0 0 auto;
+    flex: 0 1 auto;
+    max-width: 100%;
+  }
+}

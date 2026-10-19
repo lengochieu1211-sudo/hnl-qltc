@@ -6561,6 +6561,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
       </div>
 
+      {/* Keep the same mobile/classic order; modern PC places the mode group
+          on the right of section 02 without duplicating button handlers. */}
+      <div data-hnl-pc-v35-section-row="floor-drawing" className="flex flex-col gap-4">
       {/* View mode: the same three names are used everywhere in the app.
           Press the active button again to return to Mặt bằng tổng hợp. */}
       <div data-hnl-pc-v35-view-modes="floorplan" className="bg-slate-200/90 p-1.5 rounded-2xl grid grid-cols-2 gap-1.5 text-xs font-bold shadow-inner">
@@ -6616,6 +6619,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         <span className="hnl-pc-v3-section-index">02</span>
         <div className="hnl-pc-v3-section-copy"><strong>Không gian bản vẽ</strong><small>Công cụ vẽ, di chuyển và xử lý vùng Highlight / Defect.</small></div>
       </div>
+      </div>{/* End floor drawing section header + view controls */}
 
       {activeFloor && (
         <div data-hnl-pc-v3-inner="floor-drawing" className="bg-white rounded-2xl p-3 border border-slate-200 shadow-sm space-y-2.5">

@@ -439,3 +439,21 @@ assert.ok(floorView.includes('data-hnl-pc-v35-view-modes="floorplan"') &&
   floorView.includes('setIsDefectPinPlacementMode(false);'),
   'Floorplan desktop compact toggle must retain both original view/reset handlers');
 console.log('HNL PC V3.5 PREFERENCE SHEETS + FLOORPLAN TOGGLE FOLLOW-UP GOLDEN PASS');
+
+
+// View-mode selector and Section 02 share one modern-PC row. Classic/mobile
+// still use the original stacking and both mode handlers remain unchanged.
+const floorRowSource = read('src/components/FloorPlanDefectTab.tsx');
+const floorRowCss = read('src/styles/desktopWorkspaceCompact.css');
+assert.ok(floorRowSource.includes('data-hnl-pc-v35-section-row="floor-drawing" className="flex flex-col gap-4"') &&
+  floorRowSource.indexOf('data-hnl-pc-v35-section-row="floor-drawing"') < floorRowSource.indexOf('data-hnl-pc-v35-view-modes="floorplan"') &&
+  floorRowSource.indexOf('data-hnl-pc-v35-view-modes="floorplan"') < floorRowSource.indexOf('data-hnl-v3-section="02"') &&
+  floorRowSource.includes('</div>{/* End floor drawing section header + view controls */}') &&
+  floorRowCss.includes('[data-hnl-pc-v35-section-row="floor-drawing"]') &&
+  floorRowCss.includes('display: flex;') && floorRowCss.includes('flex-direction: row;') &&
+  floorRowCss.includes('order: 1;') &&
+  floorRowCss.includes('@media (min-width: 1024px)') &&
+  floorRowSource.includes("currentMode === 'highlight' ? 'all' : 'highlight'") &&
+  floorRowSource.includes("currentMode === 'defect' ? 'all' : 'defect'"),
+  'PC modern section 02 aligns view controls right without affecting classic/mobile mode toggles');
+console.log('PC V3.5 FLOOR DRAWING HEADING + MODE TOGGLES GOLDEN PASS');
