@@ -135,6 +135,13 @@
     gap: 8px;
     font-weight: 750;
   }
+  /* HNL AI mode buttons use a solid brand-blue background (.bg-indigo-600
+     maps to --hnl-primary-action !important in index.css). The generic deep
+     active-tab ink is blue, too, and would make the label/icon unreadable.
+     Scope the white foreground to the selected AI mode, including dark mode. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-deep-tabs="ai-modes"] > button[aria-pressed="true"] {
+    color: #fff !important;
+  }
 
   /* Controls in all nested working areas and auxiliary windows. Selection inputs,
      inline canvas overlays, range sliders and image/upload widgets are excluded. */

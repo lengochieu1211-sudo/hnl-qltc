@@ -241,3 +241,23 @@ assert.ok(quickGridCode.includes('rows === lastHydratedRowsRef.current') &&
   quickGridCode.includes('lastHydratedRowsRef.current = rows'),
   'Undoing to a clean draft must not erase the Redo stack unless canonical rows changed');
 console.log('QUICK GRID CTRL+Z / CTRL+Y HISTORY GOLDEN PASS');
+
+// HNL AI PC V3.5: selected blue mode must retain a legible white label and
+// inherited white icon. The generic deep active-tab CSS uses blue foreground,
+// while index.css maps the active bg-indigo-600 class to solid HNL brand blue.
+const aiPage = read('src/features/ai/AiAssistantPage.tsx');
+const deepWorkspaceCss = read('src/styles/desktopWorkspaceDeep.css');
+const primaryPaletteCss = read('src/index.css');
+assert.ok(aiPage.includes('data-hnl-pc-deep-tabs="ai-modes"') &&
+  aiPage.includes('aria-pressed={active}') &&
+  aiPage.includes("active ? 'bg-indigo-600 text-white'") &&
+  aiPage.includes('{item.label}'),
+  'HNL AI all four modes must keep source labels and selected state');
+assert.match(primaryPaletteCss, /\.bg-indigo-600\s*\{\s*background-color:\s*var\(--hnl-primary-action\)\s*!important;/,
+  'HNL AI active mode retains the solid brand-blue surface');
+assert.match(deepWorkspaceCss,
+  /html\[data-hnl-pc-workspace="modern"\] \[data-hnl-pc-deep-tabs="ai-modes"\] > button\[aria-pressed="true"\] \{\s*color:\s*#fff\s*!important;/,
+  'HNL AI selected label and icon must stay white against blue in modern PC/dark mode');
+assert.ok(!deepWorkspaceCss.includes('[data-hnl-pc-deep-tabs="ai-modes"] > button:not([aria-pressed="true"])'),
+  'Do not override inactive HNL AI mode colors');
+console.log('HNL AI PC MODE LABEL CONTRAST GOLDEN PASS');
