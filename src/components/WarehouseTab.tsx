@@ -3510,8 +3510,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             </div>
 
             <form data-hnl-pc-v3-form="warehouse" onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 lg:px-6 pb-5 lg:pb-6 pt-4 grid grid-cols-1 lg:grid-cols-6 gap-3 text-xs">
-              {/* Warehouse item kind */}
-              <div className="lg:col-span-6">
+              {/* Warehouse item kind: share a desktop row with voucher type, stacked on touch layouts. */}
+              <div data-hnl-v35-voucher-group="item-kind" className="lg:col-span-3 min-w-0">
                 <label className="block text-slate-700 font-bold mb-1">Loại hàng</label>
                 <div data-hnl-v35-voucher-toggle="item-kind" className="grid grid-cols-2 gap-2">
                   {(['material', 'equipment'] as InventoryItemKind[]).map((kind) => (
@@ -3545,8 +3545,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 {editingInventory && <p className="mt-1 text-[10px] text-slate-500">Không đổi loại hàng khi sửa giao dịch để giữ nguyên lịch sử tồn kho.</p>}
               </div>
 
-              {/* Type Toggle */}
-              <div className="lg:col-span-6">
+              {/* Voucher type: second aligned card in the desktop selection row. */}
+              <div data-hnl-v35-voucher-group="voucher-type" className="lg:col-span-3 min-w-0">
                 <label className="block text-slate-700 font-bold mb-1">Loại Phiếu</label>
                 <div data-hnl-v35-voucher-toggle="voucher-type" className="grid grid-cols-2 gap-2">
                   <button
@@ -3576,7 +3576,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
               {/* Material / Equipment Search + Select */}
               <div className="space-y-1.5 lg:col-span-6">
-                <div className="flex items-center justify-between gap-2">
+                <div data-hnl-v35-voucher-product-header="true" className="flex items-center justify-between gap-2">
                   <label className="block text-slate-700 font-bold">{itemKind === 'equipment' ? 'Tên thiết bị' : 'Tên vật tư'}</label>
                   {itemKind === 'material' && hasNormManageAccess && !isAddingMaterial && (
                     <button

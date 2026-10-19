@@ -586,3 +586,107 @@
     scrollbar-color: #94a3b8 transparent;
   }
 }
+
+
+/* HNL PC V3.5 warehouse voucher layout (following real Windows screenshot):
+ * align two selector groups on one desktop row. Only visual presentation;
+ * keep button actions, data flow, print, classic and mobile unchanged. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form="warehouse"]
+    [data-hnl-v35-voucher-group] {
+    min-width: 0;
+    align-self: stretch;
+    padding: 12px 14px;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    background: #f8fafc;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form="warehouse"]
+    [data-hnl-v35-voucher-group] > label {
+    margin-bottom: 8px;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form="warehouse"]
+    [data-hnl-v35-voucher-product-header="true"] {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    column-gap: 14px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form="warehouse"]
+    [data-hnl-v35-voucher-product-header="true"] > button {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 32px;
+    padding: 5px 10px;
+    border: 1px solid #bfdbfe;
+    border-radius: 9px;
+    background: #eff6ff;
+    white-space: normal;
+  }
+}
+
+
+/* PC V3.5 follow-up: formatting and image-quality selectors in Settings should
+ * read like compact option groups on desktop, not stretched full-width tiles.
+ * Mobile/classic keep the touch-friendly full-width layout. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="formatting-settings-card"]
+    [data-hnl-pc-v35-choice-grid="number-format"] {
+    display: inline-grid;
+    grid-template-columns: repeat(2, minmax(300px, 360px));
+    align-items: stretch;
+    gap: 10px;
+    width: fit-content;
+    max-width: 100%;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="formatting-settings-card"]
+    [data-hnl-pc-v35-choice-card="number-format"] {
+    width: 100%;
+    min-width: 0;
+    max-width: 360px;
+    padding: 13px 14px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="formatting-settings-card"]
+    [data-hnl-pc-v35-choice-grid="date-format"] {
+    display: inline-grid;
+    grid-template-columns: repeat(2, minmax(210px, 280px));
+    align-items: stretch;
+    gap: 10px;
+    width: fit-content;
+    max-width: 100%;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="formatting-settings-card"]
+    [data-hnl-pc-v35-choice-card="date-format"] {
+    width: 100%;
+    min-width: 0;
+    max-width: 280px;
+    padding: 12px 13px;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="image-quality-card"]
+    [data-hnl-pc-v35-quality-row] {
+    padding-bottom: 14px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="image-quality-card"]
+    [data-hnl-pc-v35-choice-grid="image-quality"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    width: fit-content;
+    max-width: 100%;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="image-quality-card"]
+    [data-hnl-pc-v35-choice-card="image-quality"] {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 116px;
+    max-width: 100%;
+    min-height: 34px;
+    padding: 8px 14px;
+    white-space: normal;
+  }
+}

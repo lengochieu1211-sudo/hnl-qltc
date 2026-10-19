@@ -314,6 +314,26 @@ assert.ok(warehouseGridUi.includes('const catalogTableScrollReturnRef = useRef<{
   warehouseGridUi.includes('table.scrollLeft = tableScroll.left') &&
   warehouseGridUi.includes('catalogTableScrollReturnRef.current = null'),
   'Warehouse master detail return must restore its independent vertical/horizontal table scroll');
+// Screenshot regression: Item kind and voucher type share one six-column PC row,
+// while non-PC / classic still use the original stacked touch layout.
+for (const [token, group] of [['item-kind', 'item-kind'], ['voucher-type', 'voucher-type']]) {
+  assert.match(warehouseGridUi, new RegExp(`data-hnl-v35-voucher-group="${group}" className="lg:col-span-3 min-w-0"`),
+    `${group} must occupy half of the same PC voucher row`);
+  assert.ok(warehouseGridUi.includes(`data-hnl-v35-voucher-toggle="${token}"`), `${token} retains original buttons`);
+}
+const voucherScreenCss = read('src/styles/desktopWorkspaceCompact.css');
+assert.ok(voucherScreenCss.includes('/* HNL PC V3.5 warehouse voucher layout') &&
+  voucherScreenCss.includes('[data-hnl-v35-voucher-group]') &&
+  voucherScreenCss.includes('[data-hnl-v35-voucher-product-header="true"]') &&
+  voucherScreenCss.includes('@media (min-width: 1024px)'),
+  'Voucher selector cards and nearby add-item control are desktop-only');
+assert.ok(warehouseGridUi.includes('data-hnl-v35-voucher-product-header="true"') &&
+  warehouseGridUi.includes('setItemKind(kind)') && warehouseGridUi.includes("setType('in')") &&
+  warehouseGridUi.includes("setType('out')") && warehouseGridUi.includes('hasNormManageAccess') &&
+  warehouseGridUi.includes('setIsNewEquipment(true)') && warehouseGridUi.includes('data-hnl-pc-v35-actions="warehouse-save"'),
+  'Original item switching, issue type, permissions, new-equipment and save handlers must remain');
+console.log('PC V3.5 WAREHOUSE VOUCHER ONE-ROW SELECTOR GOLDEN PASS');
+
 console.log('WAREHOUSE MASTER RETURN SCROLL POSITION GOLDEN PASS');
 
 
@@ -370,3 +390,28 @@ assert.ok(entryCompactCss.includes('/* PC V3.5 Data & Sync follow-up:') &&
   'Only scoped modern-PC action appearance changes, not event callbacks or mobile choices');
 console.log('HNL PC V3.5 DATA & SYNC ENTRY ALIGNMENT + NESTED ACTIONS PASS');
 
+
+// PC V3.5 screenshot follow-up: Settings choice groups inside portaled sheets
+// must size to their content. Buttons remain unchanged on mobile/classic.
+const configChoiceUi = read('src/components/GoogleConfigTab.tsx');
+const configChoiceCss = read('src/styles/desktopWorkspaceCompact.css');
+for (const sheet of ['formatting-settings-card', 'image-quality-card']) {
+  assert.ok(configChoiceUi.includes(`id="${sheet}"`) &&
+    configChoiceCss.includes(`[data-hnl-settings-sheet="${sheet}"]`),
+    `Settings feature sheet ${sheet} must have a stable, CSS-scoped identity`);
+}
+for (const choice of ['number-format', 'date-format', 'image-quality']) {
+  assert.ok(configChoiceUi.includes(`data-hnl-pc-v35-choice-grid="${choice}"`) &&
+    configChoiceUi.includes(`data-hnl-pc-v35-choice-card="${choice}"`) &&
+    configChoiceCss.includes(`[data-hnl-pc-v35-choice-grid="${choice}"]`) &&
+    configChoiceCss.includes(`[data-hnl-pc-v35-choice-card="${choice}"]`),
+    `Settings choice group ${choice} must be compact only on PC`);
+}
+assert.ok(configChoiceUi.includes("handleNumberFormatChange('dot_comma')") &&
+  configChoiceUi.includes("handleNumberFormatChange('comma_dot')") &&
+  configChoiceUi.includes('handleDateFormatChange(opt.id as DateFormatPreset)') &&
+  configChoiceUi.includes('handleImageQualityChange(group.kind, preset)') &&
+  configChoiceCss.includes('@media (min-width: 1024px)') &&
+  configChoiceCss.includes('html[data-hnl-pc-workspace="modern"]'),
+  'Formatting and image-quality handlers preserved with modern-PC-only scope');
+console.log('PC V3.5 SETTINGS FORMAT / IMAGE QUALITY COMPACT GOLDEN PASS');
