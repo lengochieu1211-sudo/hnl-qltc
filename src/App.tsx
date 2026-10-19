@@ -4,7 +4,7 @@ import { ContextBackButton } from './components/ContextBackButton';
 import { captureScopedUndoStep, applyScopedUndoStep, type ScopedUndoStep } from './utils/undoRedoScoped';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { DesktopWorkspaceHeader, type DesktopWorkspaceMode } from './components/DesktopWorkspaceHeader';
-import { detectChromeDesktopSiteOnTouchDevice } from './utils/desktopSiteMode.mjs';
+import { detectChromeDesktopSiteOnTouchDevice, canUsePcQuickEdit } from './utils/desktopSiteMode.mjs';
 import { HardDrive, RefreshCw } from 'lucide-react';
 import { safeSetLocalStorageItem } from './utils/storage';
 import { prepareFloorPlansForBackupRestore } from './utils/floorPlanBackupRestore';
@@ -403,6 +403,12 @@ function AuthenticatedApp() {
   const isMobileRuntime = typeof window !== 'undefined'
     && !isDesktopRuntime
     && (/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '') || window.innerWidth < 1024);
+  // A narrow Windows viewport (DPI 125%/150%, split screen, or resized EXE) is
+  // not a mobile device. Keep desktop Quick Edit even when mobile tab-lifecycle
+  // optimizations are used. Android Desktop Site must stay excluded.
+  const allowPcQuickEdit = typeof window !== 'undefined' && canUsePcQuickEdit({
+    userAgent: navigator.userAgent || '', chromeDesktopSite, isDesktopRuntime,
+  });
   // Local-only PC UI preference. It never changes user/project data, Firebase or R2.
   const [desktopWorkspaceMode, setDesktopWorkspaceMode] = useState<DesktopWorkspaceMode>(() => {
     try {
@@ -7841,7 +7847,7 @@ function AuthenticatedApp() {
             >
             <WarehouseTab
               isActive={visibleTab === 'warehouse'}
-              quickEditEnabled={!isMobileRuntime}
+              quickEditEnabled={allowPcQuickEdit}
               currentProjectId={activeProjectId}
               projectName={projectName}
               projectLocation={projectLocation}
@@ -7901,7 +7907,7 @@ function AuthenticatedApp() {
             >
             <WorkVolumeTab
               isActive={visibleTab === 'volume'}
-              quickEditEnabled={!isMobileRuntime}
+              quickEditEnabled={allowPcQuickEdit}
               workVolumes={computedWorkVolumes}
               floorPlans={floorPlans}
               roomProgressList={roomProgressList}
@@ -7961,7 +7967,7 @@ function AuthenticatedApp() {
                   : contextReturnFrames[contextReturnFrames.length - 1].kind === 'volume-detail' ? 'Chi tiết khối lượng'
                   : 'màn hình trước' : undefined}
               onContextReturn={contextReturnFrames.length > 0 && contextReturnFrames[contextReturnFrames.length - 1].projectId === activeProjectId ? handleContextReturn : undefined}
-              quickEditEnabled={!isMobileRuntime}
+              quickEditEnabled={allowPcQuickEdit}
               inspectorName={inspectorName}
               onAddInventory={handleAddInventory}
               onAddFloorPlan={handleAddFloorPlan}
@@ -8032,7 +8038,7 @@ function AuthenticatedApp() {
             >
             <CrewTab
               isActive={visibleTab === 'crew'}
-              quickEditEnabled={!isMobileRuntime}
+              quickEditEnabled={allowPcQuickEdit}
               projectId={activeProjectId}
               userRole={currentUserRole}
               roleResolved={isProjectRoleResolved}

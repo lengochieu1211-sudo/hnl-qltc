@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { detectChromeDesktopSiteOnTouchDevice as detect } from '../src/utils/desktopSiteMode.mjs';
+import { detectChromeDesktopSiteOnTouchDevice as detect, canUsePcQuickEdit } from '../src/utils/desktopSiteMode.mjs';
 const desktopChrome='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36';
 const mobileChrome='Mozilla/5.0 (Linux; Android 13; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Mobile Safari/537.36';
 const probe=(userAgent,viewportWidth,touchPoints,screenWidth)=>detect({userAgent,viewportWidth,touchPoints,screenWidth});
@@ -21,4 +21,14 @@ assert.ok(app.includes('document.documentElement.dataset.hnlBrowserDesktop'), 'd
 assert.ok(css.includes('@media (min-width: 960px) and (max-width: 1023px)'),'980px bridge is required');
 assert.ok(css.includes('[data-hnl-app-shell="true"]'),'narrow max-width must be removed in desktop-site mode');
 assert.ok(css.includes('html:not([data-hnl-browser-desktop="true"]) .hnl-pc-v2-overview'),'normal mobile must hide KPI cards');
+const quickEdit = (userAgent, chromeDesktopSite=false, isDesktopRuntime=false) =>
+  canUsePcQuickEdit({userAgent, chromeDesktopSite, isDesktopRuntime});
+assert.equal(quickEdit(desktopChrome), true, 'PC grid stays visible at 1024/1280/1440 and DPI 125/150');
+assert.equal(quickEdit(desktopChrome, false, true), true, 'Windows installed desktop shell retains grid');
+assert.equal(quickEdit(mobileChrome), false, 'Android mobile must not mount heavy Quick Edit');
+assert.equal(quickEdit(desktopChrome, true), false, 'Android Chrome Desktop Site must not mount heavy Quick Edit');
+assert.ok(app.includes('quickEditEnabled={allowPcQuickEdit}'), 'Quick Edit must be independent of the narrow viewport lifecycle');
+assert.equal((app.match(/quickEditEnabled=\{allowPcQuickEdit\}/g) || []).length, 4,
+  'Floorplan, warehouse, crew and volume each keep desktop Quick Edit');
+console.log('PC QUICK EDIT DPI/SMALL VIEWPORT GOLDEN PASS');
 console.log('DESKTOP SITE REQUEST GOLDEN PASS: auto PC on Chrome request + classic override + normal mobile guards');

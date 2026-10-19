@@ -16,3 +16,16 @@ export function detectChromeDesktopSiteOnTouchDevice(hint) {
   // on small touch devices, while not forcing modern mode on desktop touchscreen monitors.
   return viewportWidth < 1100 || (screenWidth > 0 && screenWidth < 800);
 }
+
+/**
+ * Desktop-only data grids remain available on narrow Windows/PC viewports.
+ * Do not infer the physical device solely from CSS pixels (Windows DPI zoom).
+ * On Android Chrome Desktop Site the desktop UA can be spoofed; its touch hint
+ * is supplied by detectChromeDesktopSiteOnTouchDevice above.
+ * @param {{userAgent: string, chromeDesktopSite: boolean, isDesktopRuntime: boolean}} params
+ */
+export function canUsePcQuickEdit({ userAgent, chromeDesktopSite, isDesktopRuntime }) {
+  if (isDesktopRuntime) return true; // Explicit installed Windows desktop shell.
+  if (chromeDesktopSite) return false;
+  return !/Android|iPhone|iPad|Mobile/i.test(userAgent || '');
+}
