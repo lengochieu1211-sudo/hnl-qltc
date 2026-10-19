@@ -43,6 +43,7 @@ Trạng thái: tài liệu tham chiếu đã đối chiếu source; một số m
 - **PC Workspace từ 1024px**: nút thao tác sâu trong form (Lưu / Lưu & thêm tiếp / Lưu & đóng / Hủy / Xuất) **co theo nội dung**, sắp hàng trái và tự xuống dòng khi hẹp; không kéo giãn bằng `flex-1`, `w-full` hoặc cột `grid` chia đều khi không cần. Nút xác nhận nguy hiểm, ô nhập, vùng cuộn bảng và điều khiển chọn ngày/tầng có ngoại lệ riêng; không áp `button { width: auto }` toàn ứng dụng. Mobile vẫn ưu tiên nút đủ rộng để chạm.
 - **Settings**: thẻ mở Đồng bộ, Health Center, Mẫu, Chất lượng ảnh, Dữ liệu đã ẩn trên PC có chiều rộng vừa đọc (tối đa khoảng 680px); **khung feature sheet sau khi mở vẫn có chiều rộng và vùng cuộn riêng**. Không thu nhỏ vùng nhập dữ liệu vì chuẩn nút.
 - **Danh mục kho**: bảng vật tư/thiết bị có viền xám nhạt `border-slate-200` như Gợi ý vật tư tổng hợp; viền ở vỏ ngoài, thanh cuộn trong lớp riêng có chừa `scrollbar-gutter`. Giữ sticky header, hàng 32px, chức năng mở lịch sử, tìm/sắp xếp và khả năng cuộn ngang khi màn hình hẹp.
+- Khi kiểm tra nút kéo giãn, rà cả các form sâu của Nghiệm thu, Kho, Định mức, Khối lượng, Checklist, Quân số, Báo cáo, Trung tâm thông báo và Cài đặt; nút xác nhận xóa trong popup nhỏ chỉ thay đổi sau kiểm thử hành vi thực tế.
 - Các nút Xuất: Nội dung, Excel, PDF, Ảnh, JSON phải phân biệt; ưu tiên Nội dung trung tính, Excel xanh lá, PDF đỏ, JSON tím, Ảnh xanh khi thuộc cùng nhóm định dạng; không tự đổi màu các phiếu có quy ước riêng.
 
 ## 6. Tìm kiếm, lọc và Sắp xếp nhanh
