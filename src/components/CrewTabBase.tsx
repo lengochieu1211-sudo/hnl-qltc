@@ -3095,7 +3095,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
               {/* One-step close / multi-entry actions; the header X remains available for cancelling. */}
               {crewSaveMessage && <p role="status" className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 md:col-span-2 lg:col-span-4">{crewSaveMessage}</p>}
-              <div className="sticky bottom-0 z-10 -mx-4 lg:-mx-5 -mb-4 lg:-mb-5 mt-1 flex gap-2.5 border-t border-slate-100 bg-white px-4 lg:px-5 py-3 md:col-span-2 lg:col-span-4">
+              <div data-hnl-pc-v35-actions="crew-save" className="sticky bottom-0 z-10 -mx-4 lg:-mx-5 -mb-4 lg:-mb-5 mt-1 flex gap-2.5 border-t border-slate-100 bg-white px-4 lg:px-5 py-3 md:col-span-2 lg:col-span-4">
                 {!editingRecord && (
                   <button type="submit" name="submitMode" value="continue"
                     className="flex-1 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100">

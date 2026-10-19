@@ -241,3 +241,50 @@ assert.ok(quickGridCode.includes('rows === lastHydratedRowsRef.current') &&
   quickGridCode.includes('lastHydratedRowsRef.current = rows'),
   'Undoing to a clean draft must not erase the Redo stack unless canonical rows changed');
 console.log('QUICK GRID CTRL+Z / CTRL+Y HISTORY GOLDEN PASS');
+
+// PC V3.5 — deep action groups must be compact ONLY in modern PC, without
+// changing callbacks, form semantics, mobile selection cards or access rights.
+const deepCompactCss = read('src/styles/desktopWorkspaceCompact.css');
+for (const [path, names] of [
+  ['src/components/RoomHighlightModal.tsx', ['room-save', 'room-preset']],
+  ['src/components/MaterialNormModal.tsx', ['norm-save']],
+  ['src/components/WarehouseTab.tsx', ['warehouse-save']],
+  ['src/components/WorkVolumeTab.tsx', ['volume-save']],
+  ['src/components/CrewTabBase.tsx', ['crew-save']],
+  ['src/components/ChecklistTab.tsx', ['checklist-save']],
+  ['src/components/FloorPlanDefectTab.tsx', ['defect-save', 'floor-add']],
+  ['src/components/ProjectManagerModal.tsx', ['drive-sync']],
+  ['src/components/GoogleConfigTab.tsx', ['trash-record']],
+]) {
+  const ui = read(path);
+  for (const name of names) {
+    assert.ok(ui.includes('data-hnl-pc-v35-actions="' + name + '"'), path + ': action marker ' + name);
+    assert.ok(deepCompactCss.includes('[data-hnl-pc-v35-actions="' + name + '"]'), 'Scoped PC CSS: ' + name);
+  }
+}
+// PR #298 already normalized these two buttons; never duplicate selectors.
+assert.ok(read('src/components/NotificationCenterModal.tsx').includes('data-hnl-notification-open-chat="true"') &&
+  read('src/components/GoogleConfigTab.tsx').includes('data-hnl-project-settings-save="true"') &&
+  deepCompactCss.includes('[data-hnl-notification-open-chat="true"]') &&
+  deepCompactCss.includes('[data-hnl-project-settings-save="true"]'),
+  'Existing PC project-save and notification-chat sizing from PR #298 remains intact');
+assert.ok(deepCompactCss.includes('@media (min-width: 1024px)') &&
+  deepCompactCss.includes('html[data-hnl-pc-workspace="modern"]') &&
+  deepCompactCss.includes('flex: 0 0 auto') && deepCompactCss.includes('width: auto'),
+  'Deep modal actions must not stretch and must not recolor classic/mobile buttons');
+assert.ok(deepCompactCss.includes('[data-hnl-report-export-actions="true"] [role="group"][aria-label="Nội dung, PDF và Excel"]'),
+  'PDF/Excel/text report actions retain three independent compact buttons');
+const warehouseGridUi = read('src/components/WarehouseTab.tsx');
+assert.match(warehouseGridUi, /data-hnl-pc-v3-inner="warehouse-catalog-grid"[^>]*>\s*<div data-hnl-warehouse-catalog-scroll="true"/,
+  'Warehouse table outline and scroll viewport are separate layers');
+assert.ok(warehouseGridUi.includes("document.querySelector<HTMLElement>('[data-hnl-warehouse-catalog-scroll=\"true\"]')") &&
+  warehouseGridUi.includes('data-hnl-catalog-in-history') &&
+  warehouseGridUi.includes('data-hnl-catalog-out-history') &&
+  warehouseGridUi.includes('data-hnl-catalog-open-master'),
+  'Warehouse nested entry/return still restores position on the original scroll marker');
+assert.ok(deepCompactCss.includes('max-height: min(58vh, 680px)') &&
+  deepCompactCss.includes('scrollbar-gutter: stable') &&
+  read('src/components/MaterialNormModal.tsx').includes('hasManageAccess') &&
+  read('src/components/GoogleConfigTab.tsx').includes("disabled={userRole !== 'ADMIN'}"),
+  'Scroll boundaries and ADMIN-only mutations remain guarded');
+console.log('PC V3.5 DEEP ACTION COMPACT + WAREHOUSE SCROLL FRAME GOLDEN PASS');

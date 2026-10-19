@@ -79,6 +79,8 @@ Trạng thái: tài liệu tham chiếu đã đối chiếu source; một số m
 - Popup trung tâm phủ đúng viewport, không bị transform/overflow/backdrop-filter cha làm cắt; dùng ViewportModalPortal ở nơi đã test. Header X và footer Lưu/Hủy nên nhìn thấy kể cả nội dung dài; giữ một vùng cuộn chính trừ khi bảng nhiều cột cần cuộn riêng.
 - Bảng có sticky header/dòng chỉ mục khi đã thiết kế; nội dung dài phải wrap/truncate với cách xem đầy đủ; không để bảng, nút, dropdown nằm ngoài viewport.
 - Modal sâu JSON, Định mức, Kho, Defect, Quân số, HNL AI, Cài đặt cần test mở/đóng lần lượt, focus, ESC, click-outside, dark/light và DPI thật; không thay portal hàng loạt khi chưa có bằng chứng.
+- **PC V3.5 nút thao tác sâu:** trong form Căn/Phòng, Định mức, Kho, Khối lượng, Quân số, Checklist, PDF/Excel, Trung tâm thông báo, Cài đặt và Đồng bộ: nút Lưu/Tạo/Xuất/Mở phải gọn theo chữ, cho phép xuống hàng; KHÔNG kéo giãn thành một dải rộng chỉ vì `grid-cols-1`, `flex-1` hoặc `w-full`. Giữ vùng bấm đủ dùng và phân biệt nút thao tác với ô nhập, nút đóng X, mục chọn dạng thẻ và toàn bộ thẻ mở Cài đặt (cố ý rộng để dễ đọc).
+- **Danh mục kho PC:** viền mảnh xanh/xám nhạt như Gợi ý vật tư; lớp viền tách khỏi vùng bảng cuộn để thanh cuộn dọc không bị góc bo cắt. Giữ sticky header, chiều rộng cột, quyền và khôi phục vị trí cuộn khi quay từ lịch sử phiếu.
 
 ## 11. Mặt bằng/Defect và vẽ Căn/Phòng
 
@@ -113,7 +115,7 @@ Trạng thái: tài liệu tham chiếu đã đối chiếu source; một số m
 
 ## 15. Việc còn phải audit (không xem như đã sửa)
 
-- Nút HNL AI mất chữ, popup JSON nhiều cấp, thanh cuộn/định mức Kho, nút X chi tiết sâu, bảng 1024px+DPI thật, vướng overlay tại Defect và Báo cáo.
+- Popup JSON nhiều cấp, thanh cuộn/định mức Kho, nút X chi tiết sâu, bảng 1024px+DPI thật, vướng overlay tại Defect và Báo cáo. Bản sửa CSS chỉ được coi là nghiệm thu UI sau khi kiểm tra trực tiếp PC/DPI; các nút tùy chọn dạng thẻ vẫn giữ chiều ngang thiết kế riêng.
 - Tiếp tục đối chiếu những nơi chưa có chuẩn đồng nhất cho Lưu/Lưu và thêm tiếp/Đóng/Quay lại và bảng chọn nhiều; không refactor cùng lúc.
 - Mở rộng Shift/Ctrl chọn vùng từ Kho sang các Bảng chỉnh nhanh khác chỉ sau audit nghiệp vụ và kiểm thử an toàn tương ứng.
 

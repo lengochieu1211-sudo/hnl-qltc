@@ -1583,7 +1583,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             </div>
 
             {/* Submit Action */}
-            <div className={`pt-2 grid gap-2 ${mode === 'edit' ? 'grid-cols-1' : 'grid-cols-2'}`}>
+            <div data-hnl-pc-v35-actions="norm-save" className={`pt-2 grid gap-2 ${mode === 'edit' ? 'grid-cols-1' : 'grid-cols-2'}`}>
               {mode === 'add' && (
                 <button
                   type="submit"

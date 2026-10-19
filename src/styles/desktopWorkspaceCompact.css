@@ -351,3 +351,81 @@
     padding-right: 18px;
   }
 }
+
+/* V3.5 completion: content-sized form action bars not covered by the toolbar
+ * compact CSS. This is modern-PC only, including portaled modal descendants.
+ * Preserve selection cards, editable controls, destructive confirmations,
+ * mobile, classic mode and all event handlers. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v35-actions="room-save"],
+    [data-hnl-pc-v35-actions="room-preset"],
+    [data-hnl-pc-v35-actions="norm-save"],
+    [data-hnl-pc-v35-actions="warehouse-save"],
+    [data-hnl-pc-v35-actions="volume-save"],
+    [data-hnl-pc-v35-actions="crew-save"],
+    [data-hnl-pc-v35-actions="checklist-save"],
+    [data-hnl-pc-v35-actions="defect-save"],
+    [data-hnl-pc-v35-actions="floor-add"],
+    [data-hnl-pc-v35-actions="drive-sync"],
+    [data-hnl-pc-v35-actions="trash-record"],
+    [data-hnl-report-export-actions="true"] [role="group"][aria-label="Nội dung, PDF và Excel"]
+  ) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v35-actions="room-save"],
+    [data-hnl-pc-v35-actions="room-preset"],
+    [data-hnl-pc-v35-actions="norm-save"],
+    [data-hnl-pc-v35-actions="warehouse-save"],
+    [data-hnl-pc-v35-actions="volume-save"],
+    [data-hnl-pc-v35-actions="crew-save"],
+    [data-hnl-pc-v35-actions="checklist-save"],
+    [data-hnl-pc-v35-actions="defect-save"],
+    [data-hnl-pc-v35-actions="floor-add"],
+    [data-hnl-pc-v35-actions="drive-sync"],
+    [data-hnl-pc-v35-actions="trash-record"],
+    [data-hnl-report-export-actions="true"] [role="group"][aria-label="Nội dung, PDF và Excel"]
+  ) > button {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 38px;
+    padding: 8px 16px;
+    white-space: normal;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v35-actions="room-save"] {
+    justify-content: space-between; /* Delete left, Save right. */
+  }
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v35-actions="room-preset"],
+    [data-hnl-pc-v35-actions="trash-record"],
+    [data-hnl-report-export-actions="true"] [role="group"][aria-label="Nội dung, PDF và Excel"]
+  ) { justify-content: flex-start; }
+}
+
+/* Root fix: the catalogue's native scrollbar is no longer clipped by the
+ * rounded outer border. A 4px inset scroll owner retains sticky headers and
+ * the existing scroll-return marker/history/focus behavior. */
+@media (min-width: 960px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-grid"] {
+    max-height: none;
+    border: 1px solid #c7d2fe;
+    border-radius: 12px;
+    padding: 4px;
+    background: var(--hnl-v3-paper, #fff);
+    box-shadow: none;
+    overflow: hidden;
+    scrollbar-gutter: auto;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-warehouse-catalog-scroll="true"] {
+    max-height: min(58vh, 680px);
+    scrollbar-gutter: stable;
+    overscroll-behavior: contain;
+  }
+}
