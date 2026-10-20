@@ -811,7 +811,10 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
                 
                 {/* Control Action Overlay & Top-Right Delete X */}
                 {!readOnly && url && (
-                  <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
+                  <div
+                    data-hnl-pc-v38-photo-actions={entityType === 'crewRecord' || entityType === 'inventory' ? 'crew-warehouse' : undefined}
+                    className="absolute top-1 right-1 flex items-center gap-1 z-10"
+                  >
                     <button
                       type="button"
                       onClick={(e) => handleStartEditPhoto(photo, e)}

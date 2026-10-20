@@ -541,3 +541,49 @@ assert.ok(outsideRoomCards.includes('handleCycleFrame(e, room)') &&
   outsideRoomCards.includes("sub.inspectionStatus === 'Đạt nghiệm thu'"),
   'Existing outside-room statuses and fallback click handlers remain unchanged');
 console.log('PC V3.7 OUTER ROOM CARD STATUS GOLDEN PASS');
+
+
+// PC V3.8: photo edit/delete actions in Crew and Warehouse must not inherit
+// the global form min-height:36px that stretches icons in 104px thumbnails.
+const v38PhotoPicker = read('src/components/PhotoAttachmentPicker.tsx');
+const v38Warehouse = read('src/components/WarehouseTab.tsx');
+const v38DesktopCss = read('src/styles/desktopWorkspaceCompact.css');
+const v38GlobalCss = read('src/styles/desktopWorkspace.css');
+assert.ok(v38GlobalCss.includes('button:not([disabled]) { min-height: 36px; }'),
+  'Root-cause global 36px form button rule remains active for real form buttons');
+assert.ok(v38PhotoPicker.includes("data-hnl-pc-v38-photo-actions={entityType === 'crewRecord' || entityType === 'inventory' ? 'crew-warehouse' : undefined}") &&
+  v38PhotoPicker.includes("data-hnl-pc-v36-photo-thumbnails={entityType === 'crewRecord' || entityType === 'inventory' ? 'crew-warehouse' : undefined}") &&
+  v38PhotoPicker.includes('onClick={(e) => handleStartEditPhoto(photo, e)}') &&
+  v38PhotoPicker.includes('onClick={(e) => handleDeletePhoto(photo.id, e)}') &&
+  v38PhotoPicker.includes('<Pencil className="w-3 h-3" />') &&
+  v38PhotoPicker.includes('<X className="w-3.5 h-3.5" />') &&
+  v38PhotoPicker.includes('!readOnly && url && ('),
+  'Existing Defect/crew/warehouse photo handlers and permissions are preserved, action scope Crew/Warehouse only');
+assert.ok(v38Warehouse.includes('data-hnl-pc-v38-draft-delete="true"') &&
+  v38Warehouse.includes('<span data-hnl-pc-v38-draft-glyph="true">✕</span>') &&
+  v38Warehouse.includes('<X data-hnl-pc-v38-draft-icon="true" className="hidden h-3.5 w-3.5" aria-hidden="true" />') &&
+  v38Warehouse.includes('onClick={() => onChange(files.filter((_, j) => j !== i))}') &&
+  v38Warehouse.includes('URL.createObjectURL(file)') &&
+  v38Warehouse.includes('URL.revokeObjectURL(url)'),
+  'Warehouse draft keeps staged-file remove behavior, fallback Classic/mobile glyph and safe blob URLs');
+const v38PhotoRules = v38DesktopCss.slice(v38DesktopCss.indexOf('/* PC V3.8: Crew/Warehouse photo action overlays'));
+assert.ok(v38PhotoRules.startsWith('/* PC V3.8: Crew/Warehouse photo action overlays') &&
+  v38PhotoRules.includes('@media (min-width: 1024px)') &&
+  v38PhotoRules.includes('html[data-hnl-pc-workspace="modern"]') &&
+  v38PhotoRules.includes('[data-hnl-pc-v38-photo-actions="crew-warehouse"] > button') &&
+  v38PhotoRules.includes('button[data-hnl-pc-v38-draft-delete="true"]') &&
+  v38PhotoRules.includes('min-height: 22px;') &&
+  v38PhotoRules.includes('max-height: 22px;') &&
+  v38PhotoRules.includes('width: 22px;') &&
+  v38PhotoRules.includes('height: 22px;') &&
+  v38PhotoRules.includes('width: 12px;') &&
+  v38PhotoRules.includes('height: 14px;') &&
+  v38PhotoRules.includes('aspect-ratio: 1 / 1;') &&
+  v38PhotoRules.includes('span[data-hnl-pc-v38-draft-glyph]') &&
+  v38PhotoRules.includes('svg[data-hnl-pc-v38-draft-icon]') &&
+  !v38PhotoRules.includes('!important'),
+  'Only PC Modern photo overlays override the global button rule; icon aspect ratios and 104px images remain unchanged');
+assert.ok(!v38PhotoPicker.includes('data-hnl-pc-v38-photo-actions="defect"') &&
+  v38DesktopCss.includes('grid-template-columns: repeat(auto-fill, 104px);'),
+  'Defect photo picker and baseline 104px thumbnail size remain unchanged');
+console.log('PC V3.8 CREW/WAREHOUSE PHOTO ACTION PARITY GOLDEN PASS');

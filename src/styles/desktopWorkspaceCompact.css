@@ -915,3 +915,54 @@
     white-space: normal;
   }
 }
+
+
+/* PC V3.8: Crew/Warehouse photo action overlays match the compact Defect
+ * pencil/delete controls. The general PC form button rule gives every button
+ * min-height: 36px, which stretches icons inside the 104px thumbnails.
+ * Override only these photo actions; the Defect, Classic and mobile stay intact.
+ * Warehouse draft keeps its original remove handler and text glyph off-PC. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v36-photo-thumbnails]
+    [data-hnl-pc-v38-photo-actions="crew-warehouse"] > button,
+  html[data-hnl-pc-workspace="modern"]
+    [data-hnl-pc-v36-photo-thumbnails="warehouse-draft"] > div > button[data-hnl-pc-v38-draft-delete="true"] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 22px;
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+    min-height: 22px;
+    max-width: 22px;
+    max-height: 22px;
+    padding: 0;
+    line-height: 1;
+    aspect-ratio: 1 / 1;
+    border-radius: 9999px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v36-photo-thumbnails]
+    [data-hnl-pc-v38-photo-actions="crew-warehouse"] > button > svg {
+    display: block;
+    flex: 0 0 auto;
+    width: 12px;
+    height: 12px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v36-photo-thumbnails]
+    [data-hnl-pc-v38-photo-actions="crew-warehouse"] > button:last-child > svg {
+    width: 14px;
+    height: 14px;
+  }
+  html[data-hnl-pc-workspace="modern"]
+    [data-hnl-pc-v36-photo-thumbnails="warehouse-draft"] > div > button[data-hnl-pc-v38-draft-delete="true"] > span[data-hnl-pc-v38-draft-glyph] {
+    display: none;
+  }
+  html[data-hnl-pc-workspace="modern"]
+    [data-hnl-pc-v36-photo-thumbnails="warehouse-draft"] > div > button[data-hnl-pc-v38-draft-delete="true"] > svg[data-hnl-pc-v38-draft-icon] {
+    display: block;
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+  }
+}

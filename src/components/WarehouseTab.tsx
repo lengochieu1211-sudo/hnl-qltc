@@ -137,8 +137,12 @@ const WarehouseVoucherPhotoDraft: React.FC<{ files: File[]; onChange: (files: Fi
           {files.map((file, i) => (
             <div key={`${file.name}-${file.lastModified}-${i}`} className="relative overflow-hidden rounded-lg border border-slate-200 bg-white">
               {urls[i] ? <img alt={`Ảnh giao nhận ${i + 1}`} src={urls[i]} className="h-20 w-full object-cover" /> : <div className="flex h-20 items-center justify-center text-xs text-slate-400">Ảnh {i + 1}</div>}
-              <button type="button" aria-label={`Bỏ ảnh ${i + 1}`} onClick={() => onChange(files.filter((_, j) => j !== i))}
-                className="absolute right-1 top-1 rounded-full bg-rose-600 px-2 py-1 text-[10px] font-bold text-white">✕</button>
+              <button type="button" aria-label={`Bỏ ảnh ${i + 1}`} data-hnl-pc-v38-draft-delete="true"
+                onClick={() => onChange(files.filter((_, j) => j !== i))}
+                className="absolute right-1 top-1 rounded-full bg-rose-600 px-2 py-1 text-[10px] font-bold text-white">
+                <span data-hnl-pc-v38-draft-glyph="true">✕</span>
+                <X data-hnl-pc-v38-draft-icon="true" className="hidden h-3.5 w-3.5" aria-hidden="true" />
+              </button>
             </div>
           ))}
         </div>
