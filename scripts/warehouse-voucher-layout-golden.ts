@@ -76,8 +76,13 @@ assert(sheet.includes("allowTextFallback:false"),'Sharing files cannot silently 
 assert(sheet.includes('Chia sẻ phiếu nhập/xuất kho') && warehouse.includes('Chia sẻ phiếu nhập/xuất kho'),
   'Warehouse share action and dialog must use one concise label');
 assert(!sheet.includes("['text','Nội dung',FileText]") && !sheet.includes('data-hnl-voucher-action="text-copy"')
-  && sheet.includes('className="grid grid-cols-3 gap-2" role="group"'),
-  'Voucher share must show only three equally sized format buttons without Content');
+  && sheet.includes('data-hnl-voucher-formats="compact"')
+  && sheet.includes('w-[104px]') && sheet.includes('flex flex-wrap items-center justify-start gap-2'),
+  'Voucher share must offer exactly three compact, equal-sized format buttons without Content');
+assert(sheet.includes('data-hnl-voucher-date-range="compact"')
+  && (sheet.match(/max-w-\[158px\]/g) || []).length === 2
+  && sheet.includes('data-hnl-voucher-action-buttons="compact"'),
+  'Date inputs and action buttons must be content-sized and able to wrap without overflow');
 assert(sheet.includes("['png','Ảnh',ImageIcon,")
   && sheet.includes("['xlsx','Excel',FileSpreadsheet,") && sheet.includes("['pdf','PDF',FileDown,"),
   'Preserve Image/Excel/PDF formats and their export paths after attaching per-button color styles');

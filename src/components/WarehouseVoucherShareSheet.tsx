@@ -146,9 +146,9 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
       <p className="text-xs font-bold text-slate-700">Khoảng ngày</p>
       <div className="flex flex-wrap gap-2">{([['today','Hôm nay'],['yesterday','Hôm qua'],['range','Khoảng ngày']] as const).map(([v,label])=>
         <button type="button" key={v} className={choice(period===v)} aria-pressed={period===v} onClick={()=>{setPeriod(v);setChecked([]);}}>{label}</button>)}</div>
-      {period==='range'&&<div className="grid grid-cols-2 gap-2">
-        <label className="text-xs font-semibold">Từ ngày<input type="date" value={start} max={end} onChange={e=>{setStart(e.target.value);setChecked([]);}} className="mt-1 w-full rounded-lg border p-2" /></label>
-        <label className="text-xs font-semibold">Đến ngày<input type="date" value={end} min={start} onChange={e=>{setEnd(e.target.value);setChecked([]);}} className="mt-1 w-full rounded-lg border p-2" /></label>
+      {period==='range'&&<div data-hnl-voucher-date-range="compact" className="flex flex-wrap items-start gap-2">
+        <label className="flex w-full max-w-[158px] min-w-0 flex-col text-xs font-semibold">Từ ngày<input type="date" value={start} max={end} onChange={e=>{setStart(e.target.value);setChecked([]);}} className="mt-1 w-full min-w-0 rounded-lg border p-2" /></label>
+        <label className="flex w-full max-w-[158px] min-w-0 flex-col text-xs font-semibold">Đến ngày<input type="date" value={end} min={start} onChange={e=>{setEnd(e.target.value);setChecked([]);}} className="mt-1 w-full min-w-0 rounded-lg border p-2" /></label>
       </div>}
       <p className="text-xs font-bold text-slate-700">Loại hàng</p>
       <div className="flex flex-wrap gap-2">{([['all','Cả hai'],['material','Vật tư'],['equipment','Thiết bị']] as const).map(([v,label])=>
@@ -173,7 +173,7 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
       </p>
       {error&&<p role="alert" className="rounded-lg bg-rose-50 p-2 text-xs text-rose-700">{error}</p>}
       {message&&<p role="status" className="rounded-lg bg-emerald-50 p-2 text-xs text-emerald-800">{message}</p>}
-      <div className="grid grid-cols-3 gap-2" role="group" aria-label="Định dạng chia sẻ phiếu kho">
+      <div data-hnl-voucher-formats="compact" className="flex flex-wrap items-center justify-start gap-2" role="group" aria-label="Định dạng chia sẻ phiếu kho">
         {([
           ['png','Ảnh',ImageIcon,'border-sky-600 bg-sky-600 hover:bg-sky-700 focus-visible:ring-sky-300'],
           ['xlsx','Excel',FileSpreadsheet,'border-green-600 bg-green-600 hover:bg-green-700 focus-visible:ring-green-300'],
@@ -181,7 +181,7 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
         ] as const).map(([format,label,Icon,buttonColor])=>
           <button key={format} data-hnl-voucher-format={format} type="button" disabled={busy||!chosen.length}
             aria-expanded={menu===format} onClick={()=>void openActions(format)}
-            className={`flex min-h-11 items-center justify-center gap-1 rounded-xl border px-1 text-[11px] font-bold text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 sm:text-xs ${buttonColor}`}>
+            className={`inline-flex h-11 min-h-11 w-[104px] shrink-0 items-center justify-center gap-1 rounded-xl border px-2 text-[11px] font-bold text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 sm:text-xs ${buttonColor}`}>
             <Icon className="h-4 w-4 shrink-0" /> {busy&&menu===format?'Đang tạo...':label}
           </button>)}
       </div>
@@ -202,16 +202,15 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
               prepared.files.length+' file đã sẵn sàng':'Định dạng chưa sẵn sàng'}
           </p>
           {error&&<p role="alert" className="mb-2 rounded-lg bg-rose-50 p-2 text-xs text-rose-700">{error}</p>}
-          <div className="grid grid-cols-2 gap-2">
-
+          <div data-hnl-voucher-action-buttons="compact" className="flex flex-wrap items-center justify-start gap-2">
               <button type="button" data-hnl-voucher-action={menu+'-download'}
                 disabled={busy||!prepared||prepared.signature!==selectionSignature||prepared.format!==menu}
-                onClick={()=>void act('download')} className="flex min-h-12 items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-white px-2 text-xs font-bold text-indigo-700 disabled:opacity-50">
+                onClick={()=>void act('download')} className="inline-flex min-h-12 w-auto max-w-full items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-white px-3 text-xs font-bold text-indigo-700 disabled:opacity-50">
                 <Download className="h-4 w-4" /> Tải {formatLabel(menu)}
               </button>
               <button type="button" data-hnl-voucher-action={menu+'-share'}
                 disabled={busy||!prepared||prepared.signature!==selectionSignature||prepared.format!==menu}
-                onClick={()=>void act('share')} className="flex min-h-12 items-center justify-center gap-1 rounded-xl bg-indigo-700 px-2 text-xs font-bold text-white disabled:opacity-50">
+                onClick={()=>void act('share')} className="inline-flex min-h-12 w-auto max-w-full items-center justify-center gap-1 rounded-xl bg-indigo-700 px-3 text-xs font-bold text-white disabled:opacity-50">
                 <Share2 className="h-4 w-4" /> Chia sẻ {formatLabel(menu)}
               </button>
           </div>

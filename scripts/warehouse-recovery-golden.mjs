@@ -38,6 +38,12 @@ assert.match(config, /<WarehouseDeletedVoucherRecovery key=\{activeProjectId\} p
 assert.match(recovery, /data-hnl-warehouse-deleted-recovery="true"/);
 assert.match(recovery, /await restoreWarehouseTransactionAtomic\(projectId, row\.id\)/);
 assert.match(recovery, /requestRef\.current/, 'project switch invalidates stale cloud results');
+assert.match(recovery, /const projectEpochRef = useRef\(0\)/, 'project invalidation must use a separate epoch');
+assert.match(recovery, /const restorePendingRef = useRef\(false\)/, 'confirmation must guard concurrent restore requests');
+assert.match(recovery, /if \(projectEpoch !== projectEpochRef\.current\) return;/, 'project changes during confirmation must cancel restore');
+assert.doesNotMatch(recovery, /projectEpoch !== requestRef\.current/, 'restore must not compare a saved epoch to a counter incremented by itself');
+assert.match(recovery, /restorePendingRef\.current = true;[\s\S]*?await confirmAsync\([\s\S]*?if \(projectEpoch !== projectEpochRef\.current\) return;[\s\S]*?request = \+\+requestRef\.current;[\s\S]*?await restoreWarehouseTransactionAtomic\(projectId, row\.id\)/, 'confirmation must precede exactly one atomic cloud restore without self-invalidating');
+assert.match(recovery, /projectEpoch === projectEpochRef\.current[\s\S]*?restorePendingRef\.current = false;/, 'stale project callbacks cannot release a newer project restore lock');
 assert.match(photo, /'crewRecord' \| 'defect' \| 'chat' \| 'inventory'/);
 assert.match(rules, /coreIdentityUpdateIsValid\(recordId\) && lifecycleUpdateIsMonotonic\(\)/);
 assert.doesNotMatch(transaction, /deleteEntityPhotos|purgeBinaryObject|deleteDoc\(/, 'recovery cannot purge media');

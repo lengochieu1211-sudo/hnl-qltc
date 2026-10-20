@@ -55,6 +55,9 @@ try {
   const dates=sheet.locator('input[type="date"]');
   await dates.nth(0).fill('2026-10-13');
   await dates.nth(1).fill('2026-10-13');
+  const dateBoxes=await Promise.all([dates.nth(0).boundingBox(),dates.nth(1).boundingBox()]);
+  assert(dateBoxes.every(box=>box&&box.width>=140&&box.width<=170),tag+': date fields must be compact, never stretched across wide sheets');
+  assert(dateBoxes.every(box=>box.x>=0&&box.x+box.width<=viewport.width+1),tag+': date fields must fit viewport');
   await sheet.getByRole('button',{name:'Một phiếu'}).click();
   await sheet.locator('label').filter({hasText:'P0-IN-20261013-001'}).locator('input[type="radio"]').check();
   assert.match(await sheet.innerText(),/Đã chọn 1\/\d+ phiếu/,'Single voucher selection missing');
@@ -89,7 +92,10 @@ try {
     assert.equal(actual,expected,tag+': '+format+' should match its semantic color utility');
     actualColors.push(actual);
     const bounds=await control.boundingBox();
-    assert(bounds && bounds.width>=65 && bounds.height>=44,tag+': '+format+' format button must remain touch-friendly');
+    assert(bounds && bounds.width>=96 && bounds.width<=116 && bounds.height>=44,
+      tag+': '+format+' format button must remain touch-friendly and capped near 104px, not stretch across desktop');
+    assert(bounds.x>=0 && bounds.x+bounds.width<=viewport.width+1,
+      tag+': '+format+' format button must not overflow the viewport');
     formatBoxes.push(bounds);
   }
   assert.equal(new Set(actualColors).size,3,tag+': Image/Excel/PDF need three distinct colors');
@@ -101,6 +107,7 @@ try {
   await assertEventuallyEnabled(excelAction);
   const excelBox=await excelAction.boundingBox();
   assert(excelBox&&excelBox.y>=0&&excelBox.y+excelBox.height<=viewport.height+2,tag+': Excel action must fit viewport');
+  assert(excelBox.width>=105&&excelBox.width<=185,tag+': share/download actions must not stretch across desktop dialog');
   const excelPromise=page.waitForEvent('download',{timeout:30000});
   await excelAction.click();
   const excelDl=await excelPromise;

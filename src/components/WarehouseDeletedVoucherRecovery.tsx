@@ -11,11 +11,21 @@ export const WarehouseDeletedVoucherRecovery: React.FC<{ projectId: string }> = 
   const [rows, setRows] = useState<DeletedWarehouseVoucher[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // A project switch and an async list/restore request are separate invalidation events.
+  // Do not compare an operation counter after incrementing it to a pre-confirm value.
   const requestRef = useRef(0);
+  const projectEpochRef = useRef(0);
+  const restorePendingRef = useRef(false);
   useEffect(() => {
+    projectEpochRef.current += 1;
     requestRef.current += 1;
+    restorePendingRef.current = false;
     setExpanded(false); setRows([]); setError(''); setBusy(false);
-    return () => { requestRef.current += 1; };
+    return () => {
+      projectEpochRef.current += 1;
+      requestRef.current += 1;
+      restorePendingRef.current = false;
+    };
   }, [projectId]);
   const refresh = async () => {
     if (!projectId || busy) return;
@@ -29,18 +39,29 @@ export const WarehouseDeletedVoucherRecovery: React.FC<{ projectId: string }> = 
     } finally { if (request === requestRef.current) setBusy(false); }
   };
   const restore = async (row: DeletedWarehouseVoucher) => {
-    if (!projectId || busy) return;
-    const projectEpoch = requestRef.current;
-    if (!(await confirmAsync(`Khôi phục phiếu ${row.type === 'in' ? 'Nhập' : 'Xuất'} ${row.materialName} (${formatDecimal(row.quantity)} ${row.unit})? Tồn kho được điều chỉnh nguyên tử trên Cloud.`))) return;
-    const request = ++requestRef.current;
+    if (!projectId || busy || restorePendingRef.current) return;
+    const projectEpoch = projectEpochRef.current;
+    // Set the guard before awaiting confirmation to prevent duplicate dialogs/writes.
+    restorePendingRef.current = true;
     setBusy(true); setError('');
+    let request = 0;
     try {
-      if (projectEpoch !== requestRef.current) return;
+      if (!(await confirmAsync(`Khôi phục phiếu ${row.type === 'in' ? 'Nhập' : 'Xuất'} ${row.materialName} (${formatDecimal(row.quantity)} ${row.unit})? Tồn kho được điều chỉnh nguyên tử trên Cloud.`))) return;
+      // A project change while the confirmation dialog was open must abort safely.
+      if (projectEpoch !== projectEpochRef.current) return;
+      request = ++requestRef.current;
       await restoreWarehouseTransactionAtomic(projectId, row.id);
-      if (request === requestRef.current) setRows((prev) => prev.filter((item) => item.id !== row.id));
+      if (projectEpoch === projectEpochRef.current && request === requestRef.current) {
+        setRows((prev) => prev.filter((item) => item.id !== row.id));
+      }
     } catch (e) {
-      if (request === requestRef.current) setError(e instanceof Error ? e.message : String(e));
-    } finally { if (request === requestRef.current) setBusy(false); }
+      if (projectEpoch === projectEpochRef.current) setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      if (projectEpoch === projectEpochRef.current) {
+        restorePendingRef.current = false;
+        setBusy(false);
+      }
+    }
   };
   return <div className="rounded-xl border border-slate-200 bg-white p-3" data-hnl-warehouse-deleted-recovery="true">
     <button type="button" aria-expanded={expanded} className="flex min-h-10 items-center gap-2 text-xs font-extrabold text-indigo-800"
