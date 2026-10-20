@@ -67,9 +67,10 @@ const warehouseShare = fs.readFileSync('src/components/WarehouseVoucherShareShee
 const header = fs.readFileSync('src/components/GoogleAuthHeader.tsx', 'utf8');
 assert(report.includes('border border-red-600 bg-red-600')
   && report.includes('border border-green-600 bg-green-600')
-  && warehouseShare.includes('border-red-600 bg-red-600')
-  && warehouseShare.includes('border-green-600 bg-green-600'),
-  'Report PDF and Excel buttons must reuse the exact warehouse share color/hover/focus styling');
+  && warehouseShare.includes('bg-red-600 hover:bg-red-700')
+  && warehouseShare.includes('bg-green-600 hover:bg-green-700')
+  && warehouseShare.includes('voucherActionPalette[menu].share'),
+  'Report and warehouse PDF/Excel actions keep the same semantic red/green palette, including the inner share popup');
 assert(header.includes('bg-slate-800 hover:bg-slate-700') && header.includes('border border-slate-700') && !header.includes('ring-1 ring-sky-300/60'),
   'Project header uses the shared secondary slate palette without unrelated cyan ring');
 // Export UI regression: status above actions, balanced print margins, distinct actions.
