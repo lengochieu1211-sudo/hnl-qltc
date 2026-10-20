@@ -1094,17 +1094,20 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
     const seen = presenceLastSeenMs(entry);
     if (!seen) return 'Chưa ghi nhận truy cập';
     if (presenceIsActive(entry)) return 'Đang truy cập';
+    if (seen > presenceNow) return 'Đang xác minh thời gian truy cập';
     const elapsed = Math.max(0, presenceNow - seen);
     if (elapsed < 5 * 60_000) return 'Vừa truy cập';
     if (elapsed < 60 * 60_000) return `Truy cập ${Math.max(1, Math.floor(elapsed / 60_000))} phút trước`;
-    if (elapsed < 24 * 60 * 60_000) return `Truy cập ${Math.floor(elapsed / 3_600_000)} giờ trước`;
+    // Check calendar day before the hour bucket: yesterday at 23:00 should
+    // still be "Truy cập hôm qua" if the user opens this at 07:00.
     // Use local calendar days, not elapsed 24h buckets (DST-safe).
     const nowDate = new Date(presenceNow);
     const lastDate = new Date(seen);
     const nowDay = Date.UTC(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate());
     const lastDay = Date.UTC(lastDate.getFullYear(), lastDate.getMonth(), lastDate.getDate());
-    const days = Math.max(1, Math.floor((nowDay - lastDay) / 86_400_000));
-    if (days === 1) return 'Truy cập hôm qua';
+    const days = Math.max(0, Math.round((nowDay - lastDay) / 86_400_000));
+    if (days === 1) return `Truy cập hôm qua lúc ${lastDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
+    if (days === 0 && elapsed < 24 * 60 * 60_000) return `Truy cập ${Math.floor(elapsed / 3_600_000)} giờ trước`;
     if (days < 7) return `Truy cập ${days} ngày trước`;
     return 'Truy cập lần cuối';
   };

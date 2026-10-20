@@ -75,7 +75,7 @@ assert.match(read('src/components/SecurityModal.tsx'), /presenceExactTime/, 'mem
 assert.match(read('src/components/SecurityModal.tsx'), /if \(presenceIsActive\(entry\)\) return 'Đang truy cập'/, 'online presence is Zalo-style');
 assert.match(read('src/components/SecurityModal.tsx'), /'Vừa truy cập'/, 'very recent access is displayed');
 assert.match(read('src/components/SecurityModal.tsx'), /Truy cập .*phút trước/, 'recent minutes use relative display');
-assert.match(read('src/components/SecurityModal.tsx'), /Truy cập hôm qua/, 'yesterday uses relative display');
+assert.match(read('src/components/SecurityModal.tsx'), /Truy cập hôm qua lúc/, 'yesterday shows local time even under 24 hours old');
 assert.match(read('src/components/SecurityModal.tsx'), /Lần cuối hoạt động: \{presenceExactTime\(presenceLastSeenMs\(presence\)\)\}/, 'exact last activity timestamp accompanies relative display');
 assert.match(read('src/components/SecurityModal.tsx'), /Đăng nhập Firebase gần nhất/, 'last login and last activity timestamps are distinguished');
 assert.match(read('src/lib/firebaseBase.ts'), /serverSnapshotVerified: !snap\.metadata\.fromCache/, 'cached presence cannot impersonate live user');
