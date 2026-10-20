@@ -3538,7 +3538,7 @@ export function subscribeProjectPresenceRealtime(
       (snap) => {
         if (disposed) return;
         // A cached snapshot cannot prove an account is currently online.
-        onUpdate(snap.docs.map((row) => ({ ...row.data(), id: row.id, serverSnapshotVerified: !snap.metadata.fromCache } as ProjectPresenceEntry)));
+        onUpdate(snap.docs.map((row) => ({ ...row.data(), id: row.id, serverSnapshotVerified: !snap.metadata.fromCache } as any as ProjectPresenceEntry)));
       },
       (err) => {
         console.warn('Project presence realtime error:', err);
