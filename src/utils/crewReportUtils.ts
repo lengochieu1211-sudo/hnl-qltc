@@ -53,6 +53,22 @@ export interface CrewReportDailySummary {
 
 const normalizeKey = (value: unknown): string => String(value || '').trim().toLocaleLowerCase('vi-VN');
 
+/** Highlight only the date text for Sundays in shared crew reports.
+ * Compute from the YYYY-MM-DD calendar key (UTC noon), not browser timezone.
+ */
+export const isCrewReportSunday = (dateKey: string): boolean => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day, 12));
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() + 1 === month
+    && date.getUTCDate() === day
+    && date.getUTCDay() === 0;
+};
+
 export const toCrewReportDateKey = (date: Date): string => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');

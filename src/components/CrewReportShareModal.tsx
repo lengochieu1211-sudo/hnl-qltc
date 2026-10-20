@@ -9,6 +9,7 @@ import {
   buildCrewReportMatrices,
   buildCrewReportText,
   getCrewReportPresetRange,
+  isCrewReportSunday,
   type CrewReportDatePreset,
   filterCrewReportRows,
   summarizeCrewReportRows,
@@ -228,7 +229,7 @@ async function renderCrewReportImages(params: {
       }
       ctx.strokeRect(dateX, y, dateWidth, rowHeight);
       ctx.font = '600 14px Arial, sans-serif';
-      ctx.fillStyle = '#334155';
+      ctx.fillStyle = isCrewReportSunday(dateRow.date) ? '#b91c1c' : '#334155';
       const dateText = formatDateDDMMYYYY(dateRow.date);
       ctx.fillText(dateText, dateX + (dateWidth - ctx.measureText(dateText).width) / 2, y + 28);
 
@@ -717,7 +718,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
                       {matrix.dates.map((dateRow, dateIndex) => (
                         <tr key={`${matrix.projectId}-${dateRow.date}`} className={dateIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
                           {showSerialNumber && <td className={`sticky left-0 z-[2] border-r border-slate-100 px-2 py-2 text-center font-bold text-slate-500 ${dateIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}>{dateIndex + 1}</td>}
-                          <td style={{ left: showSerialNumber ? 52 : 0 }} className={`sticky z-[1] border-r border-slate-100 px-3 py-2 text-center font-bold tabular-nums text-slate-700 ${dateIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}>{formatDateDDMMYYYY(dateRow.date)}</td>
+                          <td style={{ left: showSerialNumber ? 52 : 0 }} className={`sticky z-[1] border-r border-slate-100 px-3 py-2 text-center font-bold tabular-nums ${isCrewReportSunday(dateRow.date) ? 'text-red-700' : 'text-slate-700'} ${dateIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}>{formatDateDDMMYYYY(dateRow.date)}</td>
                           {matrix.teams.flatMap((team) => {
                             const row = dateRow.cells[team.teamKey];
                             return [

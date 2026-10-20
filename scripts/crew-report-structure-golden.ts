@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { buildCrewReportMatrices, buildCrewReportRows, getCrewReportPresetRange, listCrewReportDates } from '../src/utils/crewReportUtils';
+import { buildCrewReportMatrices, buildCrewReportRows, getCrewReportPresetRange, isCrewReportSunday, listCrewReportDates } from '../src/utils/crewReportUtils';
 
 const projects = [{
   projectId: 'p1',
@@ -75,6 +75,17 @@ assert.deepEqual(getCrewReportPresetRange('7days', new Date(2026, 0, 3, 12)), { 
 assert.deepEqual(getCrewReportPresetRange('month', new Date(2024, 1, 29, 12)), { startDate: '2024-02-01', endDate: '2024-02-29' });
 const sevenDayPreset = getCrewReportPresetRange('7days', reference);
 assert.equal(listCrewReportDates(sevenDayPreset.startDate, sevenDayPreset.endDate).length, 7);
+ 
+// Crew report Sunday treatment: color the date text only, never add "CN" or
+// change row background, count values, header, totals, or Excel calculations.
+assert.equal(isCrewReportSunday('2026-10-18'), true, '18 Oct 2026 must be Sunday');
+assert.equal(isCrewReportSunday('2026-10-17'), false, 'Saturday must not be highlighted');
+assert.equal(isCrewReportSunday('2026-10-19'), false, 'Monday must not be highlighted');
+assert.equal(isCrewReportSunday('2025-12-28'), true, 'cross-year Sunday must be highlighted');
+assert.equal(isCrewReportSunday('2024-02-29'), false, 'leap-year Thursday stays normal');
+assert.equal(isCrewReportSunday('2026-02-30'), false, 'invalid calendar day cannot be Sunday');
+assert.equal(isCrewReportSunday('18/10/2026'), false, 'only normalized date keys may be classified');
+
 
 // Source-level UI regression guards: sharing must stay on one image per project matrix,
 // the total row must use the same X-origin as header/body, and the duplicated overview
@@ -113,11 +124,21 @@ assert.ok(
   shareModalSource.includes('dateX + (dateWidth - dateHeaderWidth) / 2')
   && shareModalSource.includes('min-w-[118px] border-r border-slate-200 bg-blue-50 px-3 py-2 text-center align-middle">Ngày</th>')
   && shareModalSource.includes('dateX + (dateWidth - ctx.measureText(dateText).width) / 2')
-  && shareModalSource.includes('text-slate-700 ${dateIndex % 2 === 0 ?')
+  && shareModalSource.includes("isCrewReportSunday(dateRow.date) ? 'text-red-700' : 'text-slate-700'")
   && shareModalSource.includes('>{formatDateDDMMYYYY(dateRow.date)}</td>')
   && shareModalSource.includes('dateX + (dateWidth - ctx.measureText(totalLabel).width) / 2'),
   'crew report date column must stay centered for header, body values and total label in both canvas export and on-screen table',
 );
+assert.ok(
+  shareModalSource.includes("ctx.fillStyle = isCrewReportSunday(dateRow.date) ? '#b91c1c' : '#334155';")
+  && shareModalSource.includes("isCrewReportSunday(dateRow.date) ? 'text-red-700' : 'text-slate-700'")
+  && shareModalSource.includes('>{formatDateDDMMYYYY(dateRow.date)}</td>')
+  && shareModalSource.includes('ctx.fillStyle = rowIndex % 2 === 0 ?')
+  && !shareModalSource.includes("'CN ·'")
+  && !shareModalSource.includes("'Chủ nhật ·'"),
+  'Sunday is date-text red in preview and PNG only; unchanged date label, row fill and counts',
+);
+
 assert.ok(
   shareModalSource.includes("const serialHeaderText = 'STT';")
   && shareModalSource.includes('tableLeft + (serialWidth - serialHeaderWidth) / 2'),
