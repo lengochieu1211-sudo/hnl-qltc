@@ -3481,6 +3481,8 @@ export interface ProjectPresenceEntry {
   deviceName?: string;
   appVersion?: string;
   lastSeen?: any;
+  serverSnapshotVerified?: boolean;
+  lastLoginAt?: number;
   clientLastSeen: number;
   updatedAt: number;
 }
@@ -3491,6 +3493,8 @@ export async function updateProjectPresence(projectId: string, module: string, r
   if (!normalizedProjectId || !user || user.isAnonymous || !user.email) return;
   const now = Date.now();
   const ctx = getClientAuditContext();
+  // Firebase Auth's account-level lastSignInTime is distinct from the heartbeat.
+  const lastLoginAt = Date.parse(user.metadata?.lastSignInTime || '');
   await setDoc(
     doc(db, 'projects', normalizedProjectId, 'presence', user.uid),
     sanitizePayloadForCloud({
@@ -3504,6 +3508,7 @@ export async function updateProjectPresence(projectId: string, module: string, r
       deviceName: getDeviceName(),
       ...ctx,
       lastSeen: serverTimestamp(),
+      lastLoginAt: Number.isFinite(lastLoginAt) && lastLoginAt > 0 && lastLoginAt <= now + 60_000 ? lastLoginAt : 0,
       clientLastSeen: now,
       updatedAt: now,
     }),
@@ -3529,9 +3534,11 @@ export function subscribeProjectPresenceRealtime(
     }
     snapshotUnsub = onSnapshot(
       collection(db, 'projects', normalizedProjectId, 'presence'),
+      { includeMetadataChanges: true },
       (snap) => {
         if (disposed) return;
-        onUpdate(snap.docs.map((row) => ({ id: row.id, ...row.data() } as any as ProjectPresenceEntry)));
+        // A cached snapshot cannot prove an account is currently online.
+        onUpdate(snap.docs.map((row) => ({ ...row.data(), id: row.id, serverSnapshotVerified: !snap.metadata.fromCache } as ProjectPresenceEntry)));
       },
       (err) => {
         console.warn('Project presence realtime error:', err);

@@ -1044,8 +1044,19 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
     if (!entry) return 0;
     const rawLastSeen = entry.lastSeen as any;
     const serverSeen = Number(rawLastSeen?.toMillis?.() || (Number(rawLastSeen?.seconds || 0) * 1000) || 0);
-    return Math.max(serverSeen, Number(entry.clientLastSeen || 0), Number(entry.updatedAt || 0));
+    // Client clocks can run ahead. Prefer Firestore serverTimestamp and never
+    // classify a future clock as online. Older records get a bounded fallback.
+    const fallback = Math.max(Number(entry.clientLastSeen || 0), Number(entry.updatedAt || 0));
+    const seen = serverSeen > 0 ? serverSeen : fallback;
+    return Number.isFinite(seen) && seen > 0 && seen <= presenceNow + 60_000 ? seen : 0;
   };
+  const presenceIsActive = (entry?: ProjectPresenceEntry) => {
+    const seen = presenceLastSeenMs(entry);
+    return Boolean(entry?.serverSnapshotVerified && seen > 0 && seen <= presenceNow && presenceNow - seen <= 120_000);
+  };
+  const presenceExactTime = (seen: number) => new Date(seen).toLocaleString('vi-VN', {
+    hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric', hour12: false,
+  });
   const presenceModuleLabel = (module?: string) => {
     const map: Record<string, string> = {
       warehouse: 'Kho vật tư',
@@ -1075,28 +1086,19 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
   const projectMemberEmails = new Set(projectMembers.map((member) => String(member?.email || '').trim().toLowerCase()).filter(Boolean));
   const activePresenceCount = projectPresence.filter((entry) => {
     const email = String(entry?.email || '').trim().toLowerCase();
-    const seen = presenceLastSeenMs(entry);
-    return projectMemberEmails.has(email) && seen > 0 && presenceNow - seen <= 120_000;
+    return projectMemberEmails.has(email) && presenceIsActive(entry);
   }).length;
   const presenceRecencyLabel = (entry?: ProjectPresenceEntry) => {
     const seen = presenceLastSeenMs(entry);
     if (!seen) return 'Chưa ghi nhận hoạt động';
-    const age = Math.max(0, presenceNow - seen);
-    if (age <= 120_000) return 'Đang hoạt động';
-    const minutes = Math.max(1, Math.floor(age / 60_000));
-    if (minutes < 60) return `${minutes} phút trước`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours} giờ trước`;
-
+    const exactTime = presenceExactTime(seen);
+    if (presenceIsActive(entry)) return `Đang hoạt động · ${exactTime}`;
     const today = new Date(presenceNow);
+    const last = new Date(seen);
     today.setHours(0, 0, 0, 0);
-    const seenDay = new Date(seen);
-    seenDay.setHours(0, 0, 0, 0);
-    const calendarDays = Math.max(1, Math.round((today.getTime() - seenDay.getTime()) / 86_400_000));
-    const timeLabel = new Date(seen).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-    if (calendarDays === 1) return `Hôm qua · ${timeLabel}`;
-    if (calendarDays < 7) return `${calendarDays} ngày trước · ${formatDateTime(seen)}`;
-    return `Lần cuối ${formatDateTime(seen)}`;
+    last.setHours(0, 0, 0, 0);
+    if (today.getTime() - last.getTime() === 86_400_000) return `Hôm qua · ${exactTime}`;
+    return `Lần cuối hoạt động: ${exactTime}`;
   };
 
   const auditModuleLabels: Record<string, string> = {
@@ -2081,7 +2083,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
                 <div className="flex items-center gap-1.5 rounded-lg border border-emerald-100 bg-emerald-50/60 px-2.5 py-1.5 text-[10px] font-bold text-emerald-800">
                   <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
                   Đang hoạt động: {activePresenceCount}/{projectMembers.length}
-                  <span className="font-medium text-emerald-700">· cập nhật khoảng 45 giây/lần</span>
+                  <span className="font-medium text-emerald-700">· hoạt động gần nhất, không phải giờ đăng nhập · cập nhật ~45 giây/lần</span>
                 </div>
 
                 <div className="space-y-1 pt-1 max-h-48 overflow-y-auto">
@@ -2095,7 +2097,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
                       const contact = getEffectiveMemberContact(email);
                       const phoneValue = contactDrafts[email] ?? contact?.phone ?? '';
                       const presence = presenceByEmail.get(email);
-                      const presenceActive = Boolean(presence && presenceNow - presenceLastSeenMs(presence) <= 120_000);
+                      const presenceActive = presenceIsActive(presence);
                       return (
                       <div
                         key={m.email}
@@ -2112,6 +2114,9 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
                                 <span>{presenceRecencyLabel(presence)}</span>
                                 {presence && <span>· {presenceModuleLabel(presence.module)} · {presenceClientLabel(presence)}</span>}
                               </div>
+                              {presence && Number.isFinite(Number(presence.lastLoginAt)) && Number(presence.lastLoginAt) > 0 && Number(presence.lastLoginAt) <= presenceNow && (
+                                <div className="mt-0.5 text-[9.5px] text-slate-500">Đăng nhập Firebase gần nhất: {presenceExactTime(Number(presence.lastLoginAt))}</div>
+                              )}
                             </div>
                             <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase ${
                               m.role === 'ADMIN'

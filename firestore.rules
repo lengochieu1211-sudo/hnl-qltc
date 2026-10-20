@@ -228,6 +228,32 @@ service cloud.firestore {
     }
 
 
+    // EDITOR may delete ONLY their own crew log. A tightly bounded Trash receipt
+    // is required to let ADMIN recover it, without revealing other Trash snapshots.
+    function editorOwnCrewTrashReceipt(projectId, receiptId) {
+      let d = request.resource.data;
+      return isEditor(projectId) && projectIsActive(projectId)
+        && d.keys().hasOnly(['id', 'projectId', 'deletedAt', 'expiresAt', 'retentionDays', 'deletedByUid', 'deletedByEmail', 'deletedByName', 'deletedItems', 'relatedBefore', 'approxBytes'])
+        && d.id == receiptId && d.projectId == projectId
+        && d.deletedByUid == request.auth.uid
+        && d.deletedByEmail == signedInEmail()
+        && d.deletedAt is number && d.deletedAt > 0
+        && d.retentionDays in [3, 7, 15, 30, 60, 90]
+        && d.expiresAt == d.deletedAt + d.retentionDays * 86400000
+        && d.deletedItems is list && d.deletedItems.size() == 1
+        && d.deletedItems[0].collection == 'crewRecords'
+        && d.deletedItems[0].entityId is string
+        && d.deletedItems[0].entityId.size() > 0
+        && d.deletedItems[0].snapshot.id == d.deletedItems[0].entityId
+        && d.deletedItems[0].snapshot.createdByUid == request.auth.uid
+        && d.relatedBefore is map && d.relatedBefore.keys().size() == 0
+        && exists(/databases/$(database)/documents/projects/$(projectId)/crew_records/$(d.deletedItems[0].entityId))
+        && get(/databases/$(database)/documents/projects/$(projectId)/crew_records/$(d.deletedItems[0].entityId)).data.deleted == true
+        && get(/databases/$(database)/documents/projects/$(projectId)/crew_records/$(d.deletedItems[0].entityId)).data.createdByUid == request.auth.uid
+        && get(/databases/$(database)/documents/projects/$(projectId)/crew_records/$(d.deletedItems[0].entityId)).data.deletedByUid == request.auth.uid
+        && get(/databases/$(database)/documents/projects/$(projectId)/crew_records/$(d.deletedItems[0].entityId)).data.deletedAt == d.deletedAt;
+    }
+
     function isCanonicalMemberRole(role) {
       return role == 'ADMIN' || role == 'EDITOR' || role == 'VIEWER';
     }
@@ -632,6 +658,7 @@ service cloud.firestore {
       match /{collectionName}/{recordId} {
         allow read: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog'
           && isMember(projectId)
+          && (collectionName != 'trash' || canAdminOperate(projectId))
           && (collectionName != 'work_volumes' || !('unitPrice' in resource.data) || isAdmin(projectId));
         // Master project structure is ADMIN-only. EDITOR may create operational records
         // (defect, warehouse transaction, crew log, photo metadata) and may update only
@@ -641,6 +668,7 @@ service cloud.firestore {
           && (collectionName != 'work_volumes' || !('unitPrice' in request.resource.data))
           && (
             canAdminOperate(projectId)
+            || (collectionName == 'trash' && editorOwnCrewTrashReceipt(projectId, recordId))
             || (isEditor(projectId) && projectIsActive(projectId) && (
               (collectionName == 'photos' && editorCreatesActiveOnly())
               || (collectionName == 'crew_records' && editorCreatesOwnedCrewRecord())
@@ -653,6 +681,7 @@ service cloud.firestore {
           && (collectionName != 'work_volumes' || !('unitPrice' in request.resource.data))
           && (
             canAdminOperate(projectId)
+            || (collectionName == 'trash' && isEditor(projectId) && resource.data.deletedByUid == request.auth.uid && request.resource.data == resource.data)
             || (isEditor(projectId) && projectIsActive(projectId) && (
               (collectionName == 'rooms' && editorRoomOperationalUpdateOnly())
               || (collectionName == 'checklist' && editorChecklistOperationalUpdateOnly())

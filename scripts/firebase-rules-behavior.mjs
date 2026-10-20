@@ -233,7 +233,7 @@ try {
   }));
 
   await expectAllowed('EDITOR reads shared settings', () => getDoc(sharedSettingsRef));
-  await expectAllowed('EDITOR reads trash metadata', () => getDoc(trashRef));
+  await expectDenied('EDITOR cannot read protected Trash snapshots', () => getDoc(trashRef));
   await expectDenied('EDITOR cannot mutate shared settings', () => updateDoc(sharedSettingsRef, {
     driveAutoSyncEnabled: true, updatedAt: Date.now() + 30,
   }));
@@ -398,10 +398,30 @@ try {
   await expectDenied('EDITOR cannot rewrite crew creator identity', () => updateDoc(crewRef, {
     createdByUid: ownerUid, revision: 3, updatedAt: crewUpdatedAt + 20,
   }));
+  const crewDeletedAt = Date.now();
   await expectAllowed('EDITOR may soft-delete own crew record', () => updateDoc(crewRef, {
-    deleted: true, deletedAt: Date.now(), deletedByUid: editorUid, deletedBy: editorUid,
+    deleted: true, deletedAt: crewDeletedAt, deletedByUid: editorUid, deletedBy: editorUid,
     revision: 3, updatedAt: crewUpdatedAt + 30,
   }));
+  const ownCrewReceiptRef = doc(db, 'projects', pid, 'trash', 'TRASH-EDITOR-OWN-CREW');
+  const ownCrewReceipt = {
+    id: 'TRASH-EDITOR-OWN-CREW', projectId: pid, deletedAt: crewDeletedAt,
+    expiresAt: crewDeletedAt + 7 * 86400000, retentionDays: 7,
+    deletedByUid: editorUid, deletedByEmail: editorEmail,
+    deletedByName: 'Editor Test', approxBytes: 125,
+    deletedItems: [{ collection: 'crewRecords', entityId: 'CREW-RULE-1',
+      label: 'Quân số / nhật ký: Đội A', snapshot: { id: 'CREW-RULE-1', createdByUid: editorUid } }],
+    relatedBefore: {},
+  };
+  await expectAllowed('EDITOR saves own crew Trash receipt after tombstone', () => setDoc(ownCrewReceiptRef, ownCrewReceipt));
+  await expectAllowed('EDITOR can retry the same immutable crew Trash receipt', () => setDoc(ownCrewReceiptRef, ownCrewReceipt));
+  await expectDenied('EDITOR cannot read protected own crew receipt', () => getDoc(ownCrewReceiptRef));
+  await expectDenied('EDITOR cannot forge another crew Trash receipt', () => setDoc(doc(db, 'projects', pid, 'trash', 'TRASH-EDITOR-FORGED'), {
+    ...ownCrewReceipt, id: 'TRASH-EDITOR-FORGED',
+    deletedItems: [{ collection: 'crewRecords', entityId: 'CREW-RULE-1',
+      label: 'Ngụy tạo', snapshot: { id: 'CREW-RULE-1', createdByUid: ownerUid } }],
+  }));
+  await expectDenied('EDITOR cannot mutate an own crew Trash receipt', () => updateDoc(ownCrewReceiptRef, { deletedAt: crewDeletedAt + 100 }));
 
   await signIn(ownerEmail);
   const ownerCrewRef = doc(db, 'projects', pid, 'crew_records', 'CREW-OWNER-RULE-1');
@@ -479,7 +499,7 @@ try {
   await expectAllowed('VIEWER reads project/core record', () => getDoc(recordRef));
   await expectDenied('VIEWER cannot read isolated work-volume financial record', () => getDoc(workVolumeFinancialRef));
   await expectAllowed('VIEWER reads shared settings', () => getDoc(sharedSettingsRef));
-  await expectAllowed('VIEWER reads trash metadata', () => getDoc(trashRef));
+  await expectDenied('VIEWER cannot read protected Trash snapshots', () => getDoc(trashRef));
   await expectDenied('VIEWER cannot mutate shared settings', () => updateDoc(sharedSettingsRef, { driveAutoSyncEnabled: true, updatedAt: Date.now() + 300 }));
   await expectDenied('VIEWER cannot write core record', () => updateDoc(recordRef, { description: 'viewer write', revision: 3, updatedAt: Date.now() + 100 }));
   await expectDenied('VIEWER cannot create defect operational record', () => setDoc(doc(db, 'projects', pid, 'defects', 'DF-VIEWER'), {

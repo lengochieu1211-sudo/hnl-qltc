@@ -2239,7 +2239,7 @@ function AuthenticatedApp() {
       );
     };
 
-    getAsyncItem<TrashOperation[]>(getKey('construction_trash', activeProjectId), []).then((localItems) => {
+    if (isProjectRoleResolved && currentUserRole === 'ADMIN' && projectRoleAllowed) getAsyncItem<TrashOperation[]>(getKey('construction_trash', activeProjectId), []).then((localItems) => {
       if (disposed) return;
       const now = Date.now();
       const valid = (Array.isArray(localItems) ? localItems : [])
@@ -2249,6 +2249,7 @@ function AuthenticatedApp() {
       setTrashOperations(valid);
     }).catch(() => {});
 
+    if (isProjectRoleResolved && currentUserRole === 'ADMIN' && projectRoleAllowed) {
     unsubscribeCloud = subscribeProjectTrash(activeProjectId, (cloudItems) => {
       if (disposed) return;
       const now = Date.now();
@@ -2278,12 +2279,17 @@ function AuthenticatedApp() {
         });
       }
     });
+    } else {
+      // Trash receipts may contain protected business snapshots. Show none to non-ADMIN.
+      trashOperationsRef.current = [];
+      setTrashOperations([]);
+    }
 
     return () => {
       disposed = true;
       unsubscribeCloud?.();
     };
-  }, [activeProjectId, cloudUserKey, currentUserRole, isProjectRoleResolved, isOnline]);
+  }, [activeProjectId, cloudUserKey, currentUserRole, isProjectRoleResolved, isOnline, projectRoleAllowed]);
 
   useEffect(() => {
     if (!isProjectRoleResolved || currentUserRole !== 'ADMIN' || !isOnline) return;
@@ -3165,13 +3171,58 @@ function AuthenticatedApp() {
     );
   };
 
+  // Persist unsent receipts independently of the Cloud snapshot cache. A failed
+  // Firestore receipt must survive reconnect, refresh and subscription overwrites.
+  // Serialize writes to avoid concurrent read/modify/write dropping a receipt.
+  const trashReceiptQueueRef = React.useRef<Promise<void>>(Promise.resolve());
+  const queueTrashReceiptWork = (work: () => Promise<void>) => {
+    const task = trashReceiptQueueRef.current.catch(() => {}).then(work);
+    trashReceiptQueueRef.current = task.catch(() => {});
+    return task;
+  };
+  const flushPendingTrashReceipts = async (projectId: string) => {
+    const actor = getCurrentRealFirebaseUser();
+    if (!projectId || !actor?.uid || !navigator.onLine) return;
+    const key = getKey('construction_trash_pending_receipts', projectId);
+    const pending = await getAsyncItem<TrashOperation[]>(key, []);
+    if (!Array.isArray(pending) || pending.length === 0) return;
+    const remaining: TrashOperation[] = [];
+    for (const operation of pending) {
+      if (!operation?.id || operation.projectId !== projectId || operation.deletedByUid !== actor.uid) {
+        // Never flush another account's pending operations using this login.
+        remaining.push(operation);
+        continue;
+      }
+      try {
+        await saveTrashOperationToCloud(operation);
+      } catch (error) {
+        console.warn('[Trash receipt] Retained for retry after Cloud error:', operation.id, error);
+        remaining.push(operation);
+      }
+    }
+    if (remaining.length !== pending.length) await setAsyncItem(key, remaining);
+  };
   const appendTrashOperation = (operation: TrashOperation) => {
     const next = [operation, ...trashOperationsRef.current.filter((item) => item.id !== operation.id)];
     persistTrashOperations(next, operation.projectId);
-    void saveTrashOperationToCloud(operation).catch((err) =>
-      console.warn('Trash cloud save warning:', err)
-    );
+    void queueTrashReceiptWork(async () => {
+      const key = getKey('construction_trash_pending_receipts', operation.projectId);
+      const pending = await getAsyncItem<TrashOperation[]>(key, []);
+      await setAsyncItem(key, [operation, ...(Array.isArray(pending) ? pending : []).filter((item) => item.id !== operation.id)]);
+      await flushPendingTrashReceipts(operation.projectId);
+    }).catch((error) => console.warn('[Trash receipt] Could not persist pending receipt:', error));
   };
+
+  useEffect(() => {
+    if (!activeProjectId || !cloudUserKey || !isOnline || !isProjectRoleResolved || !projectRoleAllowed) return;
+    const flush = () => {
+      void queueTrashReceiptWork(() => flushPendingTrashReceipts(activeProjectId))
+        .catch((error) => console.warn('[Trash receipt] Retry deferred:', error));
+    };
+    flush();
+    const timer = window.setInterval(flush, 60_000);
+    return () => window.clearInterval(timer);
+  }, [activeProjectId, cloudUserKey, isOnline, isProjectRoleResolved, projectRoleAllowed]);
 
   const previewSuperAdminUiSettings = (next: SuperAdminUiSettings) => {
     if (!isCurrentSuperAdmin) return;
@@ -3353,6 +3404,31 @@ function AuthenticatedApp() {
         'defects', 'checklist', 'crewRecords', 'teams', 'materialNorms'
       ];
 
+      // Preflight restore transaction size BEFORE touching tombstones or dirty flags.
+      // One Cloud restore supports at most 150 unique targets (deleted + links).
+      const indexedDiffs = new Map<keyof AppData, { prevMap: Map<string, any>; nextMap: Map<string, any> }>();
+      let predictedDeletes = 0;
+      let predictedLinkedChanges = 0;
+      collections.forEach((col) => {
+        if (prev[col] === rawNext[col]) return;
+        const prevMap = new Map<string, any>();
+        const nextMap = new Map<string, any>();
+        ((prev[col] || []) as any[]).forEach((item) => { if (item?.id) prevMap.set(String(item.id), item); });
+        ((rawNext[col] || []) as any[]).forEach((item) => { if (item?.id) nextMap.set(String(item.id), item); });
+        indexedDiffs.set(col, { prevMap, nextMap });
+        if (trashSettingsRef.current.enabled && !trashCaptureSuppressedRef.current) {
+          for (const id of prevMap.keys()) if (!nextMap.has(id)) predictedDeletes += 1;
+          for (const [id, item] of nextMap) {
+            const before = prevMap.get(id);
+            if (before && before !== item) predictedLinkedChanges += 1;
+          }
+        }
+      });
+      if (predictedDeletes > 0 && predictedDeletes + predictedLinkedChanges > 150) {
+        window.setTimeout(() => alert(`Thao tác có ${predictedDeletes} mục xóa và ${predictedLinkedChanges} liên kết cần khôi phục, vượt giới hạn an toàn 150. Chưa xóa dữ liệu. Hãy chia thành các lượt nhỏ hơn.`), 0);
+        return prev;
+      }
+
       let stampedNext = rawNext;
       let hasStamped = false;
       const changedSummaries: string[] = [];
@@ -3366,10 +3442,9 @@ function AuthenticatedApp() {
         if (prevList !== nextList) {
           markLocalCollectionDirty(col);
           if (col === 'crewRecords' || col === 'defects') priorityCloudSyncRevisionRef.current += 1;
-          const prevMap = new Map<string, any>();
-          (prevList as any[]).forEach(item => { if (item?.id) prevMap.set(String(item.id), item); });
-          const nextMap = new Map<string, any>();
-          (nextList as any[]).forEach(item => { if (item?.id) nextMap.set(String(item.id), item); });
+          const indexed = indexedDiffs.get(col);
+          if (!indexed) return;
+          const { prevMap, nextMap } = indexed;
 
           const addedIds = Array.from(nextMap.keys()).filter((id) => !prevMap.has(id));
           const deletedIds = Array.from(prevMap.keys()).filter((id) => !nextMap.has(id));
