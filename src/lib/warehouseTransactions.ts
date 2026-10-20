@@ -1,8 +1,11 @@
-import { collection, doc, getDocFromServer, getDocsFromServer, limit, query, runTransaction, where } from 'firebase/firestore';
+import { collection, doc, getDocFromServer, getDocsFromServer, query, runTransaction, where } from 'firebase/firestore';
 import type { InventoryItem } from '../types';
 import { db, fetchProjectUserRoleFromCloud, getCurrentRealFirebaseUser, sanitizePayloadForCloud } from './firebase';
 import { calculateRestoredWarehouseBalance, calculateWarehouseLedgerOnHand, getWarehouseMaterialKey, getWarehouseSignedDelta, type WarehouseLedgerItem } from '../utils/warehouseLedgerMath';
 import { areSameUnit } from '../utils/unitUtils';
+import type { TrashSettings } from './trash';
+import { DEFAULT_TRASH_SETTINGS } from './trash';
+import { createWarehouseTrashMetadata, isWarehouseVoucherRecoverable, type WarehouseTrashMetadata } from '../utils/warehouseTrashPolicy';
 
 export { getWarehouseMaterialKey } from '../utils/warehouseLedgerMath';
 
@@ -296,7 +299,7 @@ export async function reconcileWarehouseBalanceFromLedger(
   throw new Error('INVENTORY_RECONCILE_BUSY: Tồn kho thay đổi liên tục. Hãy chờ đồng bộ rồi thử lại.');
 }
 
-async function softDeleteWarehouseTransactionAtomicOnce(projectId: string, transactionId: string): Promise<void> {
+async function softDeleteWarehouseTransactionAtomicOnce(projectId: string, transactionId: string, trashSettings: TrashSettings): Promise<void> {
   const user = getCurrentRealFirebaseUser();
   if (!user) throw new Error('Cần đăng nhập Firebase để xóa giao dịch kho.');
   const transactionRef = doc(db, 'projects', projectId, 'inventory', transactionId);
@@ -331,6 +334,7 @@ async function softDeleteWarehouseTransactionAtomicOnce(projectId: string, trans
     tx.set(transactionRef, sanitizeWarehouseWritePayload({
       deleted: true,
       deletedAt: now,
+      ...createWarehouseTrashMetadata(trashSettings, now),
       deletedByUid: user.uid,
       deletedBy: user.email || user.uid,
       revision: Math.max(Number(current.revision || 0) + 1, 1),
@@ -345,10 +349,10 @@ async function softDeleteWarehouseTransactionAtomicOnce(projectId: string, trans
  * still present while its derived balance was never backfilled, do one guarded
  * server-ledger reconciliation and retry. Genuine negative ledgers remain blocked.
  */
-export async function softDeleteWarehouseTransactionAtomic(projectId: string, transactionId: string): Promise<void> {
+export async function softDeleteWarehouseTransactionAtomic(projectId: string, transactionId: string, trashSettings: TrashSettings = DEFAULT_TRASH_SETTINGS): Promise<void> {
   assertOnlineForStrictStock();
   try {
-    await softDeleteWarehouseTransactionAtomicOnce(projectId, transactionId);
+    await softDeleteWarehouseTransactionAtomicOnce(projectId, transactionId, trashSettings);
     return;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error || '');
@@ -368,7 +372,7 @@ export async function softDeleteWarehouseTransactionAtomic(projectId: string, tr
     throw new Error(`INVENTORY_LEDGER_NEGATIVE: Ledger nguồn chỉ còn ${reconciledOnHand} ${current.unit}, không đủ đảo phiếu nhập ${current.id} (${current.quantity}).`);
   }
 
-  await softDeleteWarehouseTransactionAtomicOnce(projectId, transactionId);
+  await softDeleteWarehouseTransactionAtomicOnce(projectId, transactionId, trashSettings);
 }
 
 /** Cloud-only recovery of deleted warehouse vouchers.
@@ -377,7 +381,7 @@ export async function softDeleteWarehouseTransactionAtomic(projectId: string, tr
  * Binary photos remain attached to the original (projectId, inventory, voucherId);
  * neither this read nor restore deletes or rewrites media metadata.
  */
-export type DeletedWarehouseVoucher = InventoryItem & { deleted: true; deletedAt: number };
+export type DeletedWarehouseVoucher = InventoryItem & WarehouseTrashMetadata & { deleted: true; deletedAt: number };
 
 async function requireWarehouseRecoveryAdmin(projectId: string) {
   assertOnlineForStrictStock();
@@ -390,13 +394,17 @@ async function requireWarehouseRecoveryAdmin(projectId: string) {
   return user;
 }
 
+/** Fetch ALL deleted vouchers from the authoritative server, not a silent first-100 slice.
+ * Never show disabled, expired or intentionally discarded tombstones as recoverable.
+ */
 export async function listDeletedWarehouseVouchers(projectId: string): Promise<DeletedWarehouseVoucher[]> {
   await requireWarehouseRecoveryAdmin(projectId);
-  const deletedQuery = query(collection(db, 'projects', projectId, 'inventory'), where('deleted', '==', true), limit(100));
+  const deletedQuery = query(collection(db, 'projects', projectId, 'inventory'), where('deleted', '==', true));
   const snapshot = await getDocsFromServer(deletedQuery);
+  const now = Date.now();
   return snapshot.docs
     .map((entry) => ({ ...entry.data(), id: entry.id }) as DeletedWarehouseVoucher)
-    .filter((entry) => entry.deleted === true)
+    .filter((entry) => isWarehouseVoucherRecoverable(entry, now))
     .sort((a, b) => Number(b.deletedAt || 0) - Number(a.deletedAt || 0));
 }
 
@@ -426,6 +434,9 @@ export async function restoreWarehouseTransactionAtomic(projectId: string, trans
     if (current.deleted !== true) {
       return { transactionId, materialKey, onHand: currentOnHand, duplicate: true };
     }
+    if (!isWarehouseVoucherRecoverable(current)) {
+      throw new Error('WAREHOUSE_TRASH_EXPIRED_OR_DISABLED: Phiếu kho đã hết hạn hoặc không còn trong Thùng rác.');
+    }
     const nextOnHand = calculateRestoredWarehouseBalance(currentOnHand, current);
     const now = Math.max(Date.now(), Number(current.updatedAt || 0) + 1, Number(balanceSnap.data()?.updatedAt || 0) + 1);
     tx.set(balanceRef, sanitizeWarehouseWritePayload({
@@ -437,9 +448,33 @@ export async function restoreWarehouseTransactionAtomic(projectId: string, trans
     }), { merge: true });
     tx.set(transactionRef, sanitizeWarehouseWritePayload({
       deleted: false, deletedAt: null, deletedByUid: null, deletedBy: null,
+      trashRetentionDays: null, trashExpiresAt: null, trashRecoverable: null, trashDiscardedAt: null,
       revision: Math.max(Number(current.revision || 0) + 1, 1),
       updatedAt: now, updatedByUid: user.uid,
     }), { merge: true });
     return { transactionId, materialKey, onHand: nextOnHand, duplicate: false };
+  });
+}
+
+/** ADMIN-only, online: remove a deleted voucher from the RECOVERY list.
+ * Historical inventory tombstone and R2 evidence are preserved; NO balance delta
+ * and NO physical deletion takes place. Safe to retry across devices.
+ */
+export async function discardWarehouseVoucherTrashAtomic(projectId: string, transactionId: string): Promise<void> {
+  const user = await requireWarehouseRecoveryAdmin(projectId);
+  if (!transactionId) throw new Error('WAREHOUSE_TRASH_MISSING_ID');
+  const transactionRef = doc(db, 'projects', projectId, 'inventory', transactionId);
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(transactionRef);
+    if (!snap.exists()) throw new Error('WAREHOUSE_TRASH_NOT_FOUND');
+    const current = snap.data();
+    if (current?.id !== transactionId || current?.deleted !== true) throw new Error('WAREHOUSE_TRASH_NOT_DELETED');
+    if (current.trashRecoverable === false || Number(current.trashDiscardedAt || 0) > 0) return;
+    const now = Math.max(Date.now(), Number(current.updatedAt || 0) + 1);
+    tx.set(transactionRef, sanitizeWarehouseWritePayload({
+      trashRecoverable: false, trashDiscardedAt: now,
+      revision: Math.max(Number(current.revision || 0) + 1, 1),
+      updatedAt: now, updatedByUid: user.uid,
+    }), { merge: true });
   });
 }

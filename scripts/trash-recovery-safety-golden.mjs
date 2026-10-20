@@ -56,6 +56,10 @@ assert.match(crew,/await deleteEntityPhotos\(projectId, 'crewRecord', activeLogE
 assert.doesNotMatch(crew,/deleteEntityPhotos\(projectId, 'crewRecord', deletingRecordTarget\.id\)/, 'saved record photos preserved');
 assert.match(config,/Thùng rác chung lưu 8 nhóm/);
 assert.match(config,/Phiếu Nhập\/Xuất đã xóa được khôi phục bên dưới/);
+assert.match(config,/totalTrashCount/, 'shared settings count covers deleted warehouse vouchers');
+assert.match(config,/warehousePurgeAllToken/, 'empty trash applies to specialized warehouse recovery');
+assert.match(warehouse,/trashRecoverable: false, trashDiscardedAt: now/, 'warehouse discard preserves ledger history');
+assert.match(warehouse,/if \(!isWarehouseVoucherRecoverable\(current\)\)/, 'expired voucher cannot be restored');
 assert.match(read('src/components/WarehouseDeletedVoucherRecovery.tsx'),/restoreWarehouseTransactionAtomic\(/);
 assert.match(purge,/PHOTO_PURGE_ENTITY_NOT_TOMBSTONED/);
 assert.match(purge,/await assertTrashTargetsDeletedOnServer\(operation\)/, 'all nine deleted targets must be server-confirmed before Trash metadata cleanup');

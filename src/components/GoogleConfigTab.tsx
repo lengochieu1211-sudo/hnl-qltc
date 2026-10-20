@@ -207,6 +207,10 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   const [dateFormatPreset, setDateFormatPresetState] = useState<DateFormatPreset>(getDateFormatPreset());
   const [imageQualitySettings, setImageQualitySettingsState] = useState(getImageQualitySettings());
   const trashApproxBytes = useMemo(() => trashOperations.reduce((sum, item) => sum + Number(item.approxBytes || 0), 0), [trashOperations]);
+  const [warehouseTrashCount, setWarehouseTrashCount] = useState(0);
+  const [warehousePurgeAllToken, setWarehousePurgeAllToken] = useState(0);
+  useEffect(() => { setWarehouseTrashCount(0); }, [activeProjectId]);
+  const totalTrashCount = trashOperations.length + warehouseTrashCount;
   const formatTrashBytes = (bytes: number) => {
     if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB';
     if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -1072,7 +1076,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         iconClassName="text-rose-600"
         title="Dữ liệu đã ẩn & lịch sử"
         description="Thùng rác, khôi phục và lịch sử xóa."
-        badge={`${trashOperations.length} mục · ${trashSettings.enabled ? 'Đang bật' : 'Đang tắt'}`}
+        badge={`${totalTrashCount} mục · ${trashSettings.enabled ? 'Đang bật' : 'Đang tắt'}`}
         badgeClassName={trashSettings.enabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-100 border-slate-200 text-slate-600'}
         bodyClassName="p-0"
       >
@@ -1082,7 +1086,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
               Thùng rác chung lưu 8 nhóm: Tầng, Căn/Phòng, Defect, Checklist, Quân số, Đội, Khối lượng và Định mức. Không nhân đôi ảnh nhị phân; mặc định giữ 7 ngày.
             </p>
             <p className="text-[10px] text-amber-700 mt-1">
-              Phiếu Nhập/Xuất đã xóa được khôi phục bên dưới bằng giao dịch tồn kho riêng; danh mục thiết bị và Dự án có Thùng rác riêng. Chat, mẫu danh mục và bản autosave KHÔNG thuộc Thùng rác này; một số thao tác xóa chưa có chức năng khôi phục.
+              Phiếu Nhập/Xuất đã xóa được khôi phục bên dưới theo cùng thời hạn và nút Dọn sạch, bằng giao dịch tồn kho riêng; danh mục thiết bị và Dự án có Thùng rác riêng. Chat, mẫu danh mục và bản autosave KHÔNG thuộc Thùng rác này; một số thao tác xóa chưa có chức năng khôi phục.
             </p>
           </div>
 
@@ -1116,13 +1120,16 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
 
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 border border-slate-200 p-2.5 text-[10px]">
           <div className="text-slate-600">
-            <b className="text-slate-900">{trashOperations.length}</b> lần xóa · metadata ước tính <b className="text-slate-900">{formatTrashBytes(trashApproxBytes)}</b>
+            <b className="text-slate-900">{totalTrashCount}</b> mục có thể khôi phục · metadata chung ước tính <b className="text-slate-900">{formatTrashBytes(trashApproxBytes)}</b>
           </div>
-          {userRole === 'ADMIN' && trashOperations.length > 0 && (
+          {userRole === 'ADMIN' && totalTrashCount > 0 && (
             <button
               type="button"
               onClick={() => {
-                if (window.confirm('Dọn sạch toàn bộ Thùng rác? Dữ liệu này sẽ không thể khôi phục.')) void onEmptyTrash?.();
+                if (window.confirm('Dọn sạch Thùng rác chung và phiếu kho? Phiếu kho chỉ bị hủy khả năng khôi phục; sổ kho và ảnh vẫn giữ lại.')) {
+                  void Promise.resolve(onEmptyTrash?.()).catch((err) => alert('Dọn Thùng rác chung chưa xong: ' + (err instanceof Error ? err.message : String(err))));
+                  setWarehousePurgeAllToken((value) => value + 1);
+                }
               }}
               className="px-2.5 py-1.5 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 font-bold flex items-center gap-1 hover:bg-rose-100"
             >
@@ -1137,7 +1144,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           </div>
         )}
 
-        {trashOperations.length === 0 ? (
+        {totalTrashCount === 0 ? (
           <div className="text-center text-[11px] text-slate-500 italic py-3">Thùng rác đang trống.</div>
         ) : (
           <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
@@ -1184,7 +1191,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         )}
 
         {userRole === 'ADMIN' && roleResolved && FIREBASE_ONLY_RUNTIME && activeProjectId && (
-          <WarehouseDeletedVoucherRecovery key={activeProjectId} projectId={activeProjectId} />
+          <WarehouseDeletedVoucherRecovery key={activeProjectId} projectId={activeProjectId} onCountChange={setWarehouseTrashCount} purgeAllToken={warehousePurgeAllToken} />
         )}
 
         {userRole !== 'ADMIN' && (

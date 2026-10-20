@@ -6177,7 +6177,7 @@ function AuthenticatedApp() {
   const handleDeleteInventory = async (id: string) => {
     if (!isProjectRoleResolved || !canDeleteBusinessData(currentUserRole)) throw new Error('Chỉ ADMIN được xóa giao dịch kho.');
     if (FIREBASE_ONLY_RUNTIME) {
-      await softDeleteWarehouseTransactionAtomic(activeProjectIdRef.current, id);
+      await softDeleteWarehouseTransactionAtomic(activeProjectIdRef.current, id, trashSettingsRef.current);
       return;
     }
     updateAppData((prev) => ({ ...prev, inventory: prev.inventory.filter((i) => i.id !== id) }));
@@ -6186,7 +6186,7 @@ function AuthenticatedApp() {
   const handleDeleteMultipleInventory = async (ids: string[]) => {
     if (!isProjectRoleResolved || !canDeleteBusinessData(currentUserRole)) throw new Error('Chỉ ADMIN được xóa giao dịch kho.');
     if (FIREBASE_ONLY_RUNTIME) {
-      for (const id of ids) await softDeleteWarehouseTransactionAtomic(activeProjectIdRef.current, id);
+      for (const id of ids) await softDeleteWarehouseTransactionAtomic(activeProjectIdRef.current, id, trashSettingsRef.current);
       return;
     }
     const deleteSet = new Set(ids);
