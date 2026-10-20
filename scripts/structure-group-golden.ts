@@ -115,6 +115,8 @@ assert.ok(purgeSource.includes('TRASH_PURGE_STRUCTURE_GROUP_HAS_FLOOR_REFERENCES
   'purge must reject group receipts while any server floor still references the group');
 assert.ok(floorPlanSource.includes('onDeleteStructureGroup?.(group.id)'),
   'group delete UI must use atomic handler, never generic settings update');
+assert.ok(appSource.includes('activeProjectIdRef.current !== targetProjectId'),
+  'in-flight group deletion must not replace another project structure after a project switch');
 assert.ok(appSource.includes('subscribeProjectSharedSettings(activeProjectId, (settings) =>'), 'Khu/Khối config must update in realtime across authenticated accounts');
 assert.ok(appSource.includes('const handleBulkMoveFloorPlansToStructureGroup = (ids: string[], targetGroupId: string) =>') && appSource.includes('floorPlans: moveFloorsToStructureGroup(prev.floorPlans, ids, targetGroupId, normalizedStructure)'), 'bulk move must use the minimal pure helper and not rewrite linked business collections');
 assert.ok(rulesSource.includes('isSuperAdmin() || isOwner(projectId) || canonicalMemberActive(projectId)'), 'SuperAdmin and project members must retain project read access for Khu/Khối data');

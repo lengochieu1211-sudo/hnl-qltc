@@ -3266,14 +3266,20 @@ function AuthenticatedApp() {
       alert('Chỉ ADMIN được xóa Khu/Khối.');
       return;
     }
+    const targetProjectId = activeProjectIdRef.current;
     try {
-      const next = await deleteEmptyStructureGroupToTrash(activeProjectIdRef.current, groupId);
+      const next = await deleteEmptyStructureGroupToTrash(targetProjectId, groupId);
+      // A user may switch projects during the Cloud transaction. Never hydrate
+      // a different project's structure with the previous project's result.
+      if (activeProjectIdRef.current !== targetProjectId) return;
       setStructureConfig(next);
-      localStorage.setItem(getKey('construction_structure_config', activeProjectIdRef.current), JSON.stringify(next));
+      localStorage.setItem(getKey('construction_structure_config', targetProjectId), JSON.stringify(next));
       alert('Đã chuyển Khu/Khối vào Thùng rác. ADMIN có thể khôi phục trong thời hạn lưu đã chọn.');
     } catch (error) {
       console.warn('[Structure Trash] Deletion denied:', error);
-      alert('Chưa xóa Khu/Khối: ' + (error instanceof Error ? error.message : String(error)));
+      if (activeProjectIdRef.current === targetProjectId) {
+        alert('Chưa xóa Khu/Khối: ' + (error instanceof Error ? error.message : String(error)));
+      }
     }
   };
 
