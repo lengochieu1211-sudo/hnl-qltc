@@ -486,8 +486,8 @@ assert.ok(statusLayoutCss.startsWith('/* PC V3.6: Căn/Phòng') &&
   'Room status compact geometry must remain modern PC only with full-width fallbacks intact');
 console.log('PC V3.6 ROOM PROGRESS/INSPECTION COMPACT GOLDEN PASS');
 
-// PC V3.6: Crew and warehouse thumbnails use fixed square frames only in
-// modern desktop. Defect, Classic, mobile and photo cloud semantics stay intact.
+// PC V3.6 / V4.0: Crew and warehouse thumbnails use capped responsive square
+// frames in Modern PC. Defect, Classic/mobile and photo cloud semantics stay intact.
 const photoPickerSource = read('src/components/PhotoAttachmentPicker.tsx');
 const warehousePhotoSource = read('src/components/WarehouseTab.tsx');
 const thumbnailCss = read('src/styles/desktopWorkspaceCompact.css');
@@ -500,15 +500,16 @@ assert.ok(warehousePhotoSource.includes('data-hnl-pc-v36-photo-thumbnails="wareh
   warehousePhotoSource.includes('URL.revokeObjectURL(url)') &&
   warehousePhotoSource.includes('data-hnl-warehouse-staged-photos="true"'),
   'Warehouse staged photos remain local and revocable; only layout is tagged');
-const thumbnailCssBlock = thumbnailCss.slice(thumbnailCss.indexOf('/* PC V3.6: Crew and warehouse photo previews'));
-assert.ok(thumbnailCssBlock.startsWith('/* PC V3.6: Crew and warehouse photo previews') &&
+const thumbnailCssBlock = thumbnailCss.slice(thumbnailCss.indexOf('/* PC V4.0: Crew/Warehouse galleries'));
+assert.ok(thumbnailCssBlock.startsWith('/* PC V4.0: Crew/Warehouse galleries') &&
   thumbnailCssBlock.includes('@media (min-width: 1024px)') &&
   thumbnailCssBlock.includes('html[data-hnl-pc-workspace="modern"]') &&
-  thumbnailCssBlock.includes('grid-template-columns: repeat(auto-fill, 104px);') &&
-  thumbnailCssBlock.includes('height: 104px;') &&
+  thumbnailCssBlock.includes('grid-template-columns: repeat(auto-fill, minmax(104px, clamp(104px, 9vw, 120px)));') &&
+  thumbnailCssBlock.includes('width: 100%;') &&
+  thumbnailCssBlock.includes('height: auto;') &&
   thumbnailCssBlock.includes('aspect-ratio: 1 / 1;') &&
   thumbnailCssBlock.includes('object-fit: cover;'),
-  'Photo thumbnail frames have fixed square geometry and crop without distortion');
+  'Photo thumbnail frames reflow at bounded 104–120px sizes and crop without distortion');
 console.log('PC V3.6 PHOTO THUMBNAIL GOLDEN PASS');
 
 
@@ -582,10 +583,10 @@ assert.ok(v38PhotoRules.startsWith('/* PC V3.8: Crew/Warehouse photo action over
   v38PhotoRules.includes('span[data-hnl-pc-v38-draft-glyph]') &&
   v38PhotoRules.includes('svg[data-hnl-pc-v38-draft-icon]') &&
   !v38PhotoRules.includes('!important'),
-  'Only PC Modern photo overlays override the global button rule; icon aspect ratios and 104px images remain unchanged');
+  'Only PC Modern photo overlays override the global button rule; icon aspect ratios remain unchanged');
 assert.ok(!v38PhotoPicker.includes('data-hnl-pc-v38-photo-actions="defect"') &&
-  v38DesktopCss.includes('grid-template-columns: repeat(auto-fill, 104px);'),
-  'Defect photo picker and baseline 104px thumbnail size remain unchanged');
+  v38DesktopCss.includes('grid-template-columns: repeat(auto-fill, minmax(104px, clamp(104px, 9vw, 120px)));'),
+  'Defect photo picker stays unchanged; Crew/Warehouse squares reflow within 104–120px');
 console.log('PC V3.8 CREW/WAREHOUSE PHOTO ACTION PARITY GOLDEN PASS');
 
 
@@ -622,3 +623,36 @@ assert.ok(v39RoomSource.includes('• Điểm góc 1 (trái - trên):') &&
   v39RoomSource.includes('value={Number((y + height).toFixed(2))}'),
   'Room coordinate inputs still read original geometry and are untouched');
 console.log('PC V3.9 ROOM REDRAW TOOL COMPACT GOLDEN PASS');
+
+
+// PC V4.0: adaptively fill available rows with bounded square photos. The
+// previously fixed 104px grid and height must not be reintroduced. Keep V3.8
+// edit/delete overlays and the local-only Warehouse voucher draft intact.
+const v40GalleryCss = read('src/styles/desktopWorkspaceCompact.css');
+const v40Picker = read('src/components/PhotoAttachmentPicker.tsx');
+const v40Warehouse = read('src/components/WarehouseTab.tsx');
+const v40Grid = v40GalleryCss.slice(v40GalleryCss.indexOf('/* PC V4.0: Crew/Warehouse galleries'),
+  v40GalleryCss.indexOf('/* PC V3.7: Outside room-card statuses'));
+assert.ok(v40Grid.includes('@media (min-width: 1024px)') &&
+  v40Grid.includes('html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v36-photo-thumbnails]') &&
+  v40Grid.includes('grid-template-columns: repeat(auto-fill, minmax(104px, clamp(104px, 9vw, 120px)));') &&
+  v40Grid.includes('justify-content: start;') &&
+  v40Grid.includes('width: 100%;') &&
+  v40Grid.includes('height: auto;') &&
+  v40Grid.includes('aspect-ratio: 1 / 1;') &&
+  v40Grid.includes('object-fit: cover;') &&
+  !v40Grid.includes('height: 104px;') &&
+  !v40Grid.includes('grid-template-columns: repeat(auto-fill, 104px);'),
+  'PC Modern Crew/Warehouse gallery reflows with square 104–120px capped tracks');
+assert.ok(v40Picker.includes("entityType === 'crewRecord' || entityType === 'inventory' ? 'crew-warehouse' : undefined") &&
+  v40Picker.includes('className="grid grid-cols-3 sm:grid-cols-4 gap-2"') &&
+  v40Picker.includes('onClick={(e) => handleStartEditPhoto(photo, e)}') &&
+  v40Picker.includes('onClick={(e) => handleDeletePhoto(photo.id, e)}') &&
+  v40Picker.includes('!readOnly && url && (') &&
+  v40Warehouse.includes('data-hnl-pc-v36-photo-thumbnails="warehouse-draft"') &&
+  v40Warehouse.includes('onClick={() => onChange(files.filter((_, j) => j !== i))}') &&
+  v40Warehouse.includes('URL.revokeObjectURL(url)') &&
+  v40GalleryCss.includes('min-height: 22px;') &&
+  v40GalleryCss.includes('max-height: 22px;'),
+  'Defect and Classic/mobile remain original; Crew/Warehouse permissions, edit/remove and 22px buttons stay intact');
+console.log('PC V4.0 RESPONSIVE PHOTO GRID GOLDEN PASS');

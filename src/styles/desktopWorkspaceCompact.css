@@ -865,22 +865,24 @@
   }
 }
 
-/* PC V3.6: Crew and warehouse photo previews must not stretch across a wide
- * form. Defect picker keeps its existing layout. Mobile and Classic unchanged.
- * Fixed square frames + object-fit crop the preview only, not the image file. */
+/* PC V4.0: Crew/Warehouse galleries reflow like the Defect photo grid,
+ * while bounding each square between 104 and 120px to avoid stretched photos
+ * in wide forms. Existing V3.6 marker covers saved and warehouse draft photos.
+ * The Defect gallery, Classic/mobile, photo bytes and sync are unchanged. */
 @media (min-width: 1024px) {
   html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v36-photo-thumbnails] {
     display: grid;
-    grid-template-columns: repeat(auto-fill, 104px);
+    grid-template-columns: repeat(auto-fill, minmax(104px, clamp(104px, 9vw, 120px)));
     justify-content: start;
     gap: 8px;
     max-width: 100%;
   }
   html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v36-photo-thumbnails] > div {
-    width: 104px;
-    height: 104px;
+    width: 100%;
+    height: auto;
     aspect-ratio: 1 / 1;
     min-width: 0;
+    min-height: 0;
     overflow: hidden;
   }
   html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v36-photo-thumbnails] > div > img {
