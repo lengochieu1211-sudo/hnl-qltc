@@ -1088,17 +1088,25 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
     const email = String(entry?.email || '').trim().toLowerCase();
     return projectMemberEmails.has(email) && presenceIsActive(entry);
   }).length;
+  // Zalo-style relative label is only presentation: Cloud-confirmed presence
+  // and the 120-second activity window remain the authoritative online signal.
   const presenceRecencyLabel = (entry?: ProjectPresenceEntry) => {
     const seen = presenceLastSeenMs(entry);
-    if (!seen) return 'Chưa ghi nhận hoạt động';
-    const exactTime = presenceExactTime(seen);
-    if (presenceIsActive(entry)) return `Đang hoạt động · ${exactTime}`;
-    const today = new Date(presenceNow);
-    const last = new Date(seen);
-    today.setHours(0, 0, 0, 0);
-    last.setHours(0, 0, 0, 0);
-    if (today.getTime() - last.getTime() === 86_400_000) return `Hôm qua · ${exactTime}`;
-    return `Lần cuối hoạt động: ${exactTime}`;
+    if (!seen) return 'Chưa ghi nhận truy cập';
+    if (presenceIsActive(entry)) return 'Đang truy cập';
+    const elapsed = Math.max(0, presenceNow - seen);
+    if (elapsed < 5 * 60_000) return 'Vừa truy cập';
+    if (elapsed < 60 * 60_000) return `Truy cập ${Math.max(1, Math.floor(elapsed / 60_000))} phút trước`;
+    if (elapsed < 24 * 60 * 60_000) return `Truy cập ${Math.floor(elapsed / 3_600_000)} giờ trước`;
+    // Use local calendar days, not elapsed 24h buckets (DST-safe).
+    const nowDate = new Date(presenceNow);
+    const lastDate = new Date(seen);
+    const nowDay = Date.UTC(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate());
+    const lastDay = Date.UTC(lastDate.getFullYear(), lastDate.getMonth(), lastDate.getDate());
+    const days = Math.max(1, Math.floor((nowDay - lastDay) / 86_400_000));
+    if (days === 1) return 'Truy cập hôm qua';
+    if (days < 7) return `Truy cập ${days} ngày trước`;
+    return 'Truy cập lần cuối';
   };
 
   const auditModuleLabels: Record<string, string> = {
@@ -2083,7 +2091,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
                 <div className="flex items-center gap-1.5 rounded-lg border border-emerald-100 bg-emerald-50/60 px-2.5 py-1.5 text-[10px] font-bold text-emerald-800">
                   <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
                   Đang hoạt động: {activePresenceCount}/{projectMembers.length}
-                  <span className="font-medium text-emerald-700">· hoạt động gần nhất, không phải giờ đăng nhập · cập nhật ~45 giây/lần</span>
+                  <span className="font-medium text-emerald-700">· trạng thái gần đúng trong 2 phút · cập nhật ~45 giây/lần</span>
                 </div>
 
                 <div className="space-y-1 pt-1 max-h-48 overflow-y-auto">
@@ -2114,6 +2122,11 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
                                 <span>{presenceRecencyLabel(presence)}</span>
                                 {presence && <span>· {presenceModuleLabel(presence.module)} · {presenceClientLabel(presence)}</span>}
                               </div>
+                              {presence && presenceLastSeenMs(presence) > 0 && (
+                                <div className="mt-0.5 text-[9.5px] text-slate-500">
+                                  Lần cuối hoạt động: {presenceExactTime(presenceLastSeenMs(presence))}
+                                </div>
+                              )}
                               {presence && Number.isFinite(Number(presence.lastLoginAt)) && Number(presence.lastLoginAt) > 0 && Number(presence.lastLoginAt) <= presenceNow && (
                                 <div className="mt-0.5 text-[9.5px] text-slate-500">Đăng nhập Firebase gần nhất: {presenceExactTime(Number(presence.lastLoginAt))}</div>
                               )}
