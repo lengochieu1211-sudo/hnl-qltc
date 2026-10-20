@@ -587,3 +587,38 @@ assert.ok(!v38PhotoPicker.includes('data-hnl-pc-v38-photo-actions="defect"') &&
   v38DesktopCss.includes('grid-template-columns: repeat(auto-fill, 104px);'),
   'Defect photo picker and baseline 104px thumbnail size remain unchanged');
 console.log('PC V3.8 CREW/WAREHOUSE PHOTO ACTION PARITY GOLDEN PASS');
+
+
+// PC V3.9: compact redraw tools *inside* RoomHighlightModal dimension/geometry
+// settings; do not target the outside room-status controls or any canvas tools.
+const v39RoomSource = read('src/components/RoomHighlightModal.tsx');
+const v39CompactCss = read('src/styles/desktopWorkspaceCompact.css');
+assert.equal((v39RoomSource.match(/data-hnl-pc-v39-room-redraw-tools="true"/g) || []).length, 1,
+  'Exactly one redraw-tool row inside room dimension settings should be marked');
+assert.ok(v39RoomSource.includes('data-hnl-pc-v39-room-redraw-tools="true" className="grid grid-cols-3 gap-2"') &&
+  v39RoomSource.includes('Tùy chỉnh kích thước &amp; tọa độ') &&
+  v39RoomSource.includes("onStartRedraw2Point(roomItem, 'freehand');") &&
+  v39RoomSource.includes("onStartRedraw2Point(roomItem, 'polygon');") &&
+  v39RoomSource.includes("onStartRedraw2Point(roomItem, '2point');") &&
+  v39RoomSource.includes('onClose();') &&
+  v39RoomSource.includes('!structureReadOnly && roomItem && onStartRedraw2Point'),
+  'Original draw action handlers and permissions, and Classic/mobile grid, must remain intact');
+const v39Rules = v39CompactCss.slice(v39CompactCss.indexOf('/* PC V3.9: the redraw-tool selection'));
+assert.ok(v39Rules.startsWith('/* PC V3.9: the redraw-tool selection') &&
+  v39Rules.includes('@media (min-width: 1024px)') &&
+  v39Rules.includes('html[data-hnl-pc-workspace="modern"]') &&
+  v39Rules.includes('[data-hnl-pc-v39-room-redraw-tools="true"] > button') &&
+  v39Rules.includes('display: flex;') &&
+  v39Rules.includes('flex-wrap: wrap;') &&
+  v39Rules.includes('flex: 0 0 auto;') &&
+  v39Rules.includes('width: max-content;') &&
+  v39Rules.includes('flex-direction: row;') &&
+  v39Rules.includes('white-space: nowrap;') &&
+  !v39Rules.includes('!important'),
+  'Three room redraw tool buttons should be compact on Modern PC only');
+assert.ok(v39RoomSource.includes('• Điểm góc 1 (trái - trên):') &&
+  v39RoomSource.includes('• Điểm góc 2 (phải - dưới):') &&
+  v39RoomSource.includes('value={Number((x + width).toFixed(2))}') &&
+  v39RoomSource.includes('value={Number((y + height).toFixed(2))}'),
+  'Room coordinate inputs still read original geometry and are untouched');
+console.log('PC V3.9 ROOM REDRAW TOOL COMPACT GOLDEN PASS');

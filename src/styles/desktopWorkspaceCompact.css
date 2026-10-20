@@ -966,3 +966,35 @@
     height: 14px;
   }
 }
+
+
+/* PC V3.9: the redraw-tool selection in RoomHighlightModal previously used
+ * grid-cols-3, stretching Freehand/Polygon/Rectangle to one third each.
+ * Keep that original layout in Classic/mobile; scope compact controls to
+ * Modern PC only. This does NOT style coordinate inputs or alter draw logic. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v39-room-redraw-tools="true"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v39-room-redraw-tools="true"] > button {
+    display: inline-flex;
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: max-content;
+    max-width: 100%;
+    min-height: 36px;
+    padding: 8px 12px;
+    white-space: nowrap;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v39-room-redraw-tools="true"] > button > svg {
+    display: block;
+    flex: 0 0 auto;
+  }
+}

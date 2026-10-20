@@ -1989,7 +1989,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                     <p className="text-[11px] font-extrabold text-amber-900 flex items-center gap-1.5">
                       🎨 Chọn chế độ để vẽ lại vùng cho căn này:
                     </p>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div data-hnl-pc-v39-room-redraw-tools="true" className="grid grid-cols-3 gap-2">
                       <button
                         type="button"
                         onClick={async () => {
