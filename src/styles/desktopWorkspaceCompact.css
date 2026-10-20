@@ -890,3 +890,28 @@
     object-fit: cover;
   }
 }
+
+
+/* PC V3.7: Outside room-card statuses were still stretched by grid-cols-2.
+ * This scope is the room list in FloorPlanDefectTab, NOT RoomHighlightModal.
+ * Keep existing grid on classic/mobile; no status, permission or data changes. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v37-room-card-status="outer"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v37-room-card-status="outer"] > :is(span, button) {
+    display: inline-flex;
+    flex: 0 0 auto;
+    width: max-content;
+    max-width: 100%;
+    min-height: 28px;
+    align-items: center;
+    justify-content: center;
+    padding: 5px 10px;
+    white-space: normal;
+  }
+}

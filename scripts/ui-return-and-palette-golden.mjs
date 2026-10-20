@@ -510,3 +510,34 @@ assert.ok(thumbnailCssBlock.startsWith('/* PC V3.6: Crew and warehouse photo pre
   thumbnailCssBlock.includes('object-fit: cover;'),
   'Photo thumbnail frames have fixed square geometry and crop without distortion');
 console.log('PC V3.6 PHOTO THUMBNAIL GOLDEN PASS');
+
+
+// PC V3.7: real Windows EXE screenshots show the *outside* room-card status
+// badges stretched across each work item. Previous V3.6 fix targeted only
+// RoomHighlightModal; this marker is deliberately limited to FloorPlanDefectTab.
+const outsideRoomCards = read('src/components/FloorPlanDefectTab.tsx');
+const outsideRoomCss = read('src/styles/desktopWorkspaceCompact.css');
+assert.equal((outsideRoomCards.match(/data-hnl-pc-v37-room-card-status="outer"/g) || []).length, 3,
+  'Outer room cards: subitem status pair and both legacy fallback pairs must be scoped');
+assert.equal((outsideRoomCards.match(/className="grid grid-cols-2 gap-1 text-\[10px\]"/g) || []).length, 3,
+  'Classic/mobile keep the original grid for the three outside-card pairs');
+const outsideRule = outsideRoomCss.slice(outsideRoomCss.indexOf('/* PC V3.7: Outside room-card statuses'));
+assert.ok(outsideRule.startsWith('/* PC V3.7: Outside room-card statuses') &&
+  outsideRule.includes('@media (min-width: 1024px)') &&
+  outsideRule.includes('html[data-hnl-pc-workspace="modern"]') &&
+  outsideRule.includes('[data-hnl-pc-v37-room-card-status="outer"] > :is(span, button)') &&
+  outsideRule.includes('display: flex;') &&
+  outsideRule.includes('flex-wrap: wrap;') &&
+  outsideRule.includes('width: max-content;') &&
+  outsideRule.includes('max-width: 100%;') &&
+  outsideRule.includes('flex: 0 0 auto;') &&
+  outsideRule.includes('white-space: normal;'),
+  'PC Modern outer room-card badges must fit text, not stretch to half-card width');
+assert.ok(outsideRoomCards.includes('handleCycleFrame(e, room)') &&
+  outsideRoomCards.includes('handleCycleFrameInspection(e, room)') &&
+  outsideRoomCards.includes('handleCycleBoard(e, room)') &&
+  outsideRoomCards.includes('handleCycleBoardInspection(e, room)') &&
+  outsideRoomCards.includes("sub.status === 'Đã hoàn thành'") &&
+  outsideRoomCards.includes("sub.inspectionStatus === 'Đạt nghiệm thu'"),
+  'Existing outside-room statuses and fallback click handlers remain unchanged');
+console.log('PC V3.7 OUTER ROOM CARD STATUS GOLDEN PASS');

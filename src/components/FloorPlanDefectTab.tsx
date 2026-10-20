@@ -9158,7 +9158,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                                         )}
                                       </div>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-1 text-[10px]">
+                                    <div data-hnl-pc-v37-room-card-status="outer" className="grid grid-cols-2 gap-1 text-[10px]">
                                       <span className={`py-1 px-1.5 rounded-lg font-bold border text-center ${
                                         sub.status === 'Đã hoàn thành'
                                           ? 'bg-emerald-600 text-white border-emerald-600'
@@ -9198,7 +9198,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           <span>🏗️ Khung Trần:</span>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-1 text-[10px]">
+                        <div data-hnl-pc-v37-room-card-status="outer" className="grid grid-cols-2 gap-1 text-[10px]">
                           <button
                             type="button"
                             onClick={(e) => handleCycleFrame(e, room)}
@@ -9237,7 +9237,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           <span>📄 Tấm Trần:</span>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-1 text-[10px]">
+                        <div data-hnl-pc-v37-room-card-status="outer" className="grid grid-cols-2 gap-1 text-[10px]">
                           <button
                             type="button"
                             onClick={(e) => handleCycleBoard(e, room)}
