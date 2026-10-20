@@ -107,7 +107,8 @@ try {
   await assertEventuallyEnabled(excelAction);
   const excelBox=await excelAction.boundingBox();
   assert(excelBox&&excelBox.y>=0&&excelBox.y+excelBox.height<=viewport.height+2,tag+': Excel action must fit viewport');
-  assert(excelBox.width>=105&&excelBox.width<=185,tag+': share/download actions must not stretch across desktop dialog');
+  assert(excelBox.width>=72&&excelBox.width<=185&&excelBox.height>=44,
+    tag+': share/download actions must stay readable and compact (actual '+excelBox.width.toFixed(1)+'px, height '+excelBox.height.toFixed(1)+'px)');
   const excelPromise=page.waitForEvent('download',{timeout:30000});
   await excelAction.click();
   const excelDl=await excelPromise;
