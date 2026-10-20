@@ -2,6 +2,8 @@ import { deleteField, doc, runTransaction } from 'firebase/firestore';
 import { db, fetchProjectUserRoleFromCloud, getCurrentRealFirebaseUser } from './firebase';
 import { planTrashRestore, TRASH_RECOVERY_CLOUD_COLLECTIONS, TRASH_RELATED_LINK_FIELDS } from '../utils/trashRestorePolicy';
 import type { TrashOperation } from './trash';
+import { normalizeStructureGroupConfig } from '../utils/structureGroupUtils';
+import { planRestoreStructureGroup } from '../utils/structureGroupTrashPolicy';
 
 export interface TrashRestoreReceipt {
   restored: number;
@@ -31,6 +33,26 @@ export async function restoreProjectTrashAtomic(projectId: string, operationId: 
     const opSnap = await transaction.get(operationRef);
     if (!opSnap.exists()) throw new Error('TRASH_RECOVERY_OPERATION_NOT_ON_SERVER');
     const operation = { ...opSnap.data(), id: opSnap.id, projectId } as TrashOperation;
+    if (operation.deletedItems?.length === 1 && operation.deletedItems[0]?.collection === 'structureGroups') {
+      if (operation.projectId !== projectId || Number(operation.expiresAt || 0) <= Date.now()) {
+        throw new Error('STRUCTURE_TRASH_RECEIPT_EXPIRED_OR_MISMATCH');
+      }
+      if (Object.values(operation.relatedBefore || {}).some((rows) => Array.isArray(rows) && rows.length > 0)) {
+        throw new Error('STRUCTURE_TRASH_UNEXPECTED_RELATED_RECORDS');
+      }
+      const item = operation.deletedItems[0];
+      if (!item.entityId || item.entityId !== item.snapshot?.id) throw new Error('STRUCTURE_TRASH_INVALID_RECEIPT');
+      const settingsRef = doc(db, 'projects', projectId, 'settings', 'shared');
+      const settingsSnap = await transaction.get(settingsRef);
+      if (!settingsSnap.exists() || !settingsSnap.data().structure) throw new Error('STRUCTURE_TRASH_SHARED_SETTINGS_MISSING');
+      const restoredConfig = planRestoreStructureGroup(normalizeStructureGroupConfig(settingsSnap.data().structure), item.snapshot);
+      transaction.update(settingsRef, {
+        structure: restoredConfig, updatedAt: Date.now(),
+        updatedByUid: user.uid, updatedByEmail: user.email.trim().toLowerCase(),
+      });
+      transaction.delete(operationRef);
+      return { restored: 1, relatedReconnected: 0, relatedSkipped: 0 };
+    }
     const { targets, related } = planTrashRestore(operation, projectId);
     const restoreRefs = targets.map((target) => doc(db, 'projects', projectId, TRASH_RECOVERY_CLOUD_COLLECTIONS[target.collection], target.entityId));
     const relatedRefs = related.map((target) => doc(db, 'projects', projectId, TRASH_RECOVERY_CLOUD_COLLECTIONS[target.collection], target.entityId));

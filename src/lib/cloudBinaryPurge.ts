@@ -194,6 +194,20 @@ async function assertTrashTargetsDeletedOnServer(operation: TrashOperation): Pro
     throw new Error('TRASH_PURGE_EMPTY_OPERATION');
   }
   const checks = await Promise.all(operation.deletedItems.map(async (target) => {
+    if (target.collection === 'structureGroups') {
+      const structureSnap = await getDocFromServer(doc(db, 'projects', operation.projectId, 'settings', 'shared'));
+      const groups = structureSnap.data()?.structure?.groups;
+      if (!Array.isArray(groups) || !target.entityId || String(target.entityId).includes('/')
+        || target.snapshot?.id !== target.entityId) throw new Error('TRASH_PURGE_STRUCTURE_RECEIPT_INVALID');
+      if (groups.some((group: any) => group.id === target.entityId)) {
+        throw new Error('TRASH_PURGE_STRUCTURE_GROUP_STILL_ACTIVE');
+      }
+      const floors = await getDocsFromServer(collection(db, 'projects', operation.projectId, 'floor_plans'));
+      if (floors.docs.some((row) => row.data()?.structureGroupId === target.entityId)) {
+        throw new Error('TRASH_PURGE_STRUCTURE_GROUP_HAS_FLOOR_REFERENCES');
+      }
+      return true;
+    }
     const cloudName = STATE_KEY_TO_CLOUD_NAME[target.collection as RealtimeStateKey];
     if (!cloudName || !target.entityId || String(target.entityId).includes('/')) {
       throw new Error(`TRASH_PURGE_UNKNOWN_TARGET:${target.collection}/${target.entityId}`);

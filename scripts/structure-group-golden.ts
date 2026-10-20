@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { buildFloorDuplicateNames, moveFloorsToStructureGroup, normalizeStructureGroupConfig, resolveFloorStructureGroupId } from '../src/utils/structureGroupUtils';
+import { planEmptyStructureGroupDelete, planRestoreStructureGroup } from '../src/utils/structureGroupTrashPolicy';
 
 const config = normalizeStructureGroupConfig({
   enabled: true,
@@ -12,6 +13,18 @@ const config = normalizeStructureGroupConfig({
   defaultGroupId: 'tower-1',
 });
 
+const groupDelete = planEmptyStructureGroupDelete(config, 'tower-2', [{ structureGroupId: 'tower-1' }] as any);
+assert.equal(groupDelete.next.groups.length, 1);
+assert.equal(groupDelete.deleted.id, 'tower-2');
+const groupRecovered = planRestoreStructureGroup(groupDelete.next, groupDelete.deleted);
+assert.deepEqual(groupRecovered.groups.map((g) => g.id), ['tower-1', 'tower-2']);
+assert.throws(() => planRestoreStructureGroup(groupRecovered, groupDelete.deleted), /STRUCTURE_TRASH_GROUP_ID_ALREADY_EXISTS/);
+assert.throws(() => planEmptyStructureGroupDelete(config, 'tower-2', [{ structureGroupId: 'tower-2' }] as any),
+  /STRUCTURE_TRASH_GROUP_HAS_FLOOR_REFERENCES/, 'tombstoned floors must also block group deletion');
+assert.throws(() => planEmptyStructureGroupDelete(config, 'tower-1', [{}] as any),
+  /STRUCTURE_TRASH_GROUP_HAS_FLOOR_REFERENCES/, 'legacy floors may use the default group');
+assert.throws(() => planEmptyStructureGroupDelete(groupDelete.next, 'tower-1', []),
+  /STRUCTURE_TRASH_LAST_GROUP/, 'project must retain one group');
 assert.equal(resolveFloorStructureGroupId({ structureGroupId: 'tower-2' } as any, config), 'tower-2');
 assert.equal(resolveFloorStructureGroupId({} as any, config), 'tower-1', 'legacy floor must remain readable via default group');
 assert.equal(normalizeStructureGroupConfig({ ...config, groups: [{ id: 'tower-1', name: 'Tháp 1' }], defaultGroupId: 'tower-2' }).defaultGroupId, 'tower-1');
@@ -90,6 +103,18 @@ const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8
 const rulesSource = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 const firebaseBaseSource = readFileSync(new URL('../src/lib/firebaseBase.ts', import.meta.url), 'utf8');
 assert.ok(appSource.includes("saveProjectSharedSettings(activeProjectIdRef.current, { structure: next })"), 'Khu/Khối config must sync through shared project settings');
+const groupTrashSource = readFileSync(new URL('../src/lib/structureGroupTrash.ts', import.meta.url), 'utf8');
+const groupRestoreSource = readFileSync(new URL('../src/lib/trashRestore.ts', import.meta.url), 'utf8');
+const purgeSource = readFileSync(new URL('../src/lib/cloudBinaryPurge.ts', import.meta.url), 'utf8');
+assert.ok(groupTrashSource.includes('runTransaction(db, async (tx)') && groupTrashSource.includes('tx.set(receiptRef, operation)')
+  && groupTrashSource.includes('tx.update(settingsRef'), 'group delete and Trash receipt must commit atomically');
+assert.ok(groupTrashSource.includes('STRUCTURE_TRASH_MUST_ENABLE_TRASH'), 'Trash OFF must fail closed for group deletion');
+assert.ok(groupRestoreSource.includes("operation.deletedItems[0]?.collection === 'structureGroups'")
+  && groupRestoreSource.includes('transaction.delete(operationRef)'), 'group restore must commit settings and receipt removal together');
+assert.ok(purgeSource.includes('TRASH_PURGE_STRUCTURE_GROUP_HAS_FLOOR_REFERENCES'),
+  'purge must reject group receipts while any server floor still references the group');
+assert.ok(floorPlanSource.includes('onDeleteStructureGroup?.(group.id)'),
+  'group delete UI must use atomic handler, never generic settings update');
 assert.ok(appSource.includes('subscribeProjectSharedSettings(activeProjectId, (settings) =>'), 'Khu/Khối config must update in realtime across authenticated accounts');
 assert.ok(appSource.includes('const handleBulkMoveFloorPlansToStructureGroup = (ids: string[], targetGroupId: string) =>') && appSource.includes('floorPlans: moveFloorsToStructureGroup(prev.floorPlans, ids, targetGroupId, normalizedStructure)'), 'bulk move must use the minimal pure helper and not rewrite linked business collections');
 assert.ok(rulesSource.includes('isSuperAdmin() || isOwner(projectId) || canonicalMemberActive(projectId)'), 'SuperAdmin and project members must retain project read access for Khu/Khối data');

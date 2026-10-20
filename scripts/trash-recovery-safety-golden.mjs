@@ -54,7 +54,7 @@ assert.doesNotMatch(app,/deleteFloorPlanImageFromCloud\(/);
 assert.doesNotMatch(app,/deleteEntityPhotos\(/);
 assert.match(crew,/await deleteEntityPhotos\(projectId, 'crewRecord', activeLogEntityId\)/, 'unsaved new crew draft cleanup preserved');
 assert.doesNotMatch(crew,/deleteEntityPhotos\(projectId, 'crewRecord', deletingRecordTarget\.id\)/, 'saved record photos preserved');
-assert.match(config,/Thùng rác chung lưu 8 nhóm/);
+assert.match(config,/Thùng rác chung quản lý 9 nhóm/);
 assert.match(config,/Phiếu Nhập\/Xuất đã xóa được khôi phục bên dưới/);
 assert.match(config,/totalTrashCount/, 'shared settings count covers deleted warehouse vouchers');
 assert.match(config,/warehousePurgeAllToken/, 'empty trash applies to specialized warehouse recovery');

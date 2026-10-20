@@ -329,6 +329,7 @@ interface FloorPlanDefectTabProps {
   floorPlans: FloorPlan[];
   structureConfig: ProjectStructureConfig;
   onStructureConfigChange?: (next: ProjectStructureConfig) => void;
+  onDeleteStructureGroup?: (groupId: string) => Promise<void>;
   defects: DefectItem[];
   roomProgressList: RoomProgressItem[];
   checklistItems?: ChecklistItem[];
@@ -643,6 +644,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   floorPlans,
   structureConfig,
   onStructureConfigChange,
+  onDeleteStructureGroup,
   defects,
   roomProgressList,
   checklistItems = [],
@@ -11155,15 +11157,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             />
                             <button
                               type="button"
-                              disabled={count > 0 || normalizedStructureConfig.groups.length <= 1}
+                              disabled={count > 0 || normalizedStructureConfig.groups.length <= 1 || !onDeleteStructureGroup}
                               onClick={() => {
-                                if (!window.confirm(`Xóa "${group.name}"? Thao tác này chỉ thực hiện khi Khu/Khối không còn tầng.`)) return;
-                                const groups = normalizedStructureConfig.groups.filter((item) => item.id !== group.id);
-                                onStructureConfigChange(normalizeStructureGroupConfig({
-                                  ...normalizedStructureConfig,
-                                  groups: groups.map((item, index) => ({ ...item, order: index })),
-                                  defaultGroupId: normalizedStructureConfig.defaultGroupId === group.id ? groups[0]?.id : normalizedStructureConfig.defaultGroupId,
-                                }));
+                                if (!window.confirm(`Đưa Khu/Khối "${group.name}" vào Thùng rác? Chỉ xóa khi không có tầng liên kết, kể cả tầng đã xóa.`)) return;
+                                void onDeleteStructureGroup?.(group.id);
                               }}
                               className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 disabled:text-slate-300 disabled:cursor-not-allowed"
                               title={count > 0 ? 'Hãy chuyển các tầng sang Khu/Khối khác trước khi xóa' : 'Xóa Khu/Khối'}

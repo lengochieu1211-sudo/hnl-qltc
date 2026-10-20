@@ -200,6 +200,7 @@ import { commitWarehouseTransactionAtomic, updateWarehouseTransactionAtomic, sof
 import { renameWarehouseUnitAtomic, type WarehouseUnitRenameInput } from './lib/warehouseUnitMigration';
 import { drainBinaryPurgeRetryQueues, purgeTrashOperationBinaries } from './lib/cloudBinaryPurge';
 import { restoreProjectTrashAtomic } from './lib/trashRestore';
+import { deleteEmptyStructureGroupToTrash } from './lib/structureGroupTrash';
 
 // Heavy screens are code-split so Android does not parse XLSX/PDF-heavy modules at startup.
 const loadWarehouseTab = () => import('./components/WarehouseTab');
@@ -3248,11 +3249,32 @@ function AuthenticatedApp() {
       return;
     }
     const next = normalizeStructureGroupConfig(nextInput);
+    // A generic/stale settings save must never bypass the atomic group Trash flow.
+    if (structureConfig.groups.some((group) => !next.groups.some((candidate) => candidate.id === group.id))) {
+      alert('Không thể xóa Khu/Khối qua cập nhật cấu hình. Hãy dùng nút Xóa để lưu Thùng rác trước.');
+      return;
+    }
     setStructureConfig(next);
     localStorage.setItem(getKey('construction_structure_config', activeProjectIdRef.current), JSON.stringify(next));
     void saveProjectSharedSettings(activeProjectIdRef.current, { structure: next }).catch((err) =>
       console.warn('Structure shared settings save warning:', err)
     );
+  };
+
+  const handleDeleteEmptyStructureGroup = async (groupId: string) => {
+    if (!isProjectRoleResolved || currentUserRole !== 'ADMIN') {
+      alert('Chỉ ADMIN được xóa Khu/Khối.');
+      return;
+    }
+    try {
+      const next = await deleteEmptyStructureGroupToTrash(activeProjectIdRef.current, groupId);
+      setStructureConfig(next);
+      localStorage.setItem(getKey('construction_structure_config', activeProjectIdRef.current), JSON.stringify(next));
+      alert('Đã chuyển Khu/Khối vào Thùng rác. ADMIN có thể khôi phục trong thời hạn lưu đã chọn.');
+    } catch (error) {
+      console.warn('[Structure Trash] Deletion denied:', error);
+      alert('Chưa xóa Khu/Khối: ' + (error instanceof Error ? error.message : String(error)));
+    }
   };
 
     const handleTrashSettingsChange = (nextInput: TrashSettings) => {
@@ -8026,6 +8048,7 @@ function AuthenticatedApp() {
               floorPlans={floorPlans}
               structureConfig={structureConfig}
               onStructureConfigChange={handleStructureConfigChange}
+              onDeleteStructureGroup={handleDeleteEmptyStructureGroup}
               defects={activeDefects}
               roomProgressList={roomProgressList}
               checklistItems={activeChecklist}

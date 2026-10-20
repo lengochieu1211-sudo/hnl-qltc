@@ -1083,7 +1083,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         <div className="space-y-3.5">
           <div>
             <p className="text-[10px] text-slate-500">
-              Thùng rác chung lưu 8 nhóm: Tầng, Căn/Phòng, Defect, Checklist, Quân số, Đội, Khối lượng và Định mức. Không nhân đôi ảnh nhị phân; mặc định giữ 7 ngày.
+              Thùng rác chung quản lý 9 nhóm: Khu/Khối, Tầng, Căn/Phòng, Defect, Checklist, Quân số, Đội, Khối lượng và Định mức. Không nhân đôi ảnh nhị phân; mặc định giữ 7 ngày.
             </p>
             <p className="text-[10px] text-amber-700 mt-1">
               Phiếu Nhập/Xuất đã xóa được khôi phục bên dưới theo cùng thời hạn và nút Dọn sạch, bằng giao dịch tồn kho riêng; danh mục thiết bị và Dự án có Thùng rác riêng. Chat, mẫu danh mục và bản autosave KHÔNG thuộc Thùng rác này; một số thao tác xóa chưa có chức năng khôi phục.
