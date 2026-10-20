@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { FileSpreadsheet, FileText, Image as ImageIcon, FileDown, X, Download, Share2 } from 'lucide-react';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import type { InventoryItem, InventoryItemKind, TransactionType } from '../types';
@@ -11,6 +12,14 @@ import { drawWarehouseVoucherPage, paginateWarehouseVouchers } from '../utils/wa
 import { warehouseVoucherIsoDate, isWarehouseVoucherDateInRange } from '../utils/warehouseVoucherDateFilter';
 
 type VoucherFormat = 'png' | 'xlsx' | 'pdf';
+
+// Match the Crew Report sharing controls: selected format determines both
+// the primary action color and the complementary outlined download action.
+const voucherActionPalette: Record<VoucherFormat, { download: string; share: string }> = {
+  png: { download: 'border-sky-200 text-sky-700 hover:bg-sky-50', share: 'bg-sky-600 hover:bg-sky-700' },
+  xlsx: { download: 'border-green-200 text-green-700 hover:bg-green-50', share: 'bg-green-600 hover:bg-green-700' },
+  pdf: { download: 'border-red-200 text-red-700 hover:bg-red-50', share: 'bg-red-600 hover:bg-red-700' },
+};
 type Period = 'today' | 'yesterday' | 'range';
 type Pick = 'one' | 'many' | 'all';
 type Kind = 'all' | InventoryItemKind;
@@ -173,49 +182,53 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
       </p>
       {error&&<p role="alert" className="rounded-lg bg-rose-50 p-2 text-xs text-rose-700">{error}</p>}
       {message&&<p role="status" className="rounded-lg bg-emerald-50 p-2 text-xs text-emerald-800">{message}</p>}
-      <div data-hnl-voucher-formats="compact" className="flex flex-wrap items-center justify-start gap-2" role="group" aria-label="Định dạng chia sẻ phiếu kho">
+      <div data-hnl-voucher-formats="unified" className="grid w-full max-w-md grid-cols-3 gap-2" role="group" aria-label="Định dạng chia sẻ phiếu kho">
         {([
-          ['png','Ảnh',ImageIcon,'border-sky-600 bg-sky-600 hover:bg-sky-700 focus-visible:ring-sky-300'],
-          ['xlsx','Excel',FileSpreadsheet,'border-green-600 bg-green-600 hover:bg-green-700 focus-visible:ring-green-300'],
-          ['pdf','PDF',FileDown,'border-red-600 bg-red-600 hover:bg-red-700 focus-visible:ring-red-300'],
+          ['png','Ảnh',ImageIcon,'bg-sky-600 hover:bg-sky-700 focus-visible:ring-sky-300'],
+          ['xlsx','Excel',FileSpreadsheet,'bg-green-600 hover:bg-green-700 focus-visible:ring-green-300'],
+          ['pdf','PDF',FileDown,'bg-red-600 hover:bg-red-700 focus-visible:ring-red-300'],
         ] as const).map(([format,label,Icon,buttonColor])=>
           <button key={format} data-hnl-voucher-format={format} type="button" disabled={busy||!chosen.length}
             aria-expanded={menu===format} onClick={()=>void openActions(format)}
-            className={`inline-flex h-11 min-h-11 w-[104px] shrink-0 items-center justify-center gap-1 rounded-xl border px-2 text-[11px] font-bold text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 sm:text-xs ${buttonColor}`}>
-            <Icon className="h-4 w-4 shrink-0" /> {busy&&menu===format?'Đang tạo...':label}
+            className={`inline-flex min-h-11 min-w-0 items-center justify-center gap-1.5 rounded-xl px-2 text-xs font-bold text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-40 ${buttonColor}`}>
+            <Icon className="h-4 w-4 shrink-0" /> {busy&&menu===format?'Đang tạo…':label}
           </button>)}
       </div>
-      {menu&&<div data-hnl-voucher-action-overlay="true" className="fixed inset-0 z-[160] flex items-end justify-center sm:items-center">
-        <button type="button" data-hnl-voucher-action-backdrop="true" onClick={()=>!busy&&setMenu(null)}
-          className="absolute inset-0 bg-slate-950/45" aria-label="Đóng tùy chọn xuất phiếu kho" />
-        <div role="dialog" aria-label="Tùy chọn xuất và chia sẻ phiếu kho"
-          data-hnl-voucher-action-menu={menu}
-          className="relative z-10 mb-[calc(0.75rem+env(safe-area-inset-bottom))] w-[calc(100%-1.5rem)] max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl sm:mb-0">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <p className="text-sm font-bold text-slate-900">Phiếu kho · {formatLabel(menu)}</p>
-            <button type="button" disabled={busy} onClick={()=>setMenu(null)}
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600"
-              aria-label="Đóng tùy chọn"><X className="h-4 w-4" /></button>
-          </div>
-          <p className="mb-3 text-xs text-slate-500">
-            {busy?'Đang chuẩn bị file...':prepared?.format===menu&&prepared.signature===selectionSignature?
-              prepared.files.length+' file đã sẵn sàng':'Định dạng chưa sẵn sàng'}
-          </p>
-          {error&&<p role="alert" className="mb-2 rounded-lg bg-rose-50 p-2 text-xs text-rose-700">{error}</p>}
-          <div data-hnl-voucher-action-buttons="compact" className="flex flex-wrap items-center justify-start gap-2">
+      {/* Mirror the Crew Report action sheet: portal outside the scrolling settings panel. */}
+      {menu && typeof document !== 'undefined' && createPortal(
+        <div data-hnl-voucher-action-overlay="true" className="fixed inset-0 z-[160] flex items-end justify-center sm:items-center">
+          <button type="button" data-hnl-voucher-action-backdrop="true" onClick={()=>!busy&&setMenu(null)}
+            className="absolute inset-0 bg-slate-950/45" aria-label="Đóng tùy chọn xuất phiếu kho" />
+          <div role="dialog" aria-modal="true" aria-label="Tùy chọn xuất và chia sẻ phiếu kho"
+            data-hnl-voucher-action-menu={menu}
+            className="relative z-10 mb-[calc(0.75rem+env(safe-area-inset-bottom))] w-[calc(100%-1.5rem)] max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl sm:mb-0">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <p className="text-sm font-bold text-slate-900">Phiếu kho · {formatLabel(menu)}</p>
+              <button type="button" disabled={busy} onClick={()=>setMenu(null)}
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600"
+                aria-label="Đóng tùy chọn"><X className="h-4 w-4" /></button>
+            </div>
+            <p className="mb-3 text-xs text-slate-500">
+              {busy?'Đang chuẩn bị file...':prepared?.format===menu&&prepared.signature===selectionSignature?
+                prepared.files.length+' file đã sẵn sàng':'Định dạng chưa sẵn sàng'}
+            </p>
+            {error&&<p role="alert" className="mb-2 rounded-lg bg-rose-50 p-2 text-xs text-rose-700">{error}</p>}
+            <div data-hnl-voucher-action-buttons="unified" className="grid grid-cols-2 gap-2">
               <button type="button" data-hnl-voucher-action={menu+'-download'}
                 disabled={busy||!prepared||prepared.signature!==selectionSignature||prepared.format!==menu}
-                onClick={()=>void act('download')} className="inline-flex min-h-12 w-auto max-w-full items-center justify-center gap-1 rounded-xl border border-indigo-200 bg-white px-3 text-xs font-bold text-indigo-700 disabled:opacity-50">
-                <Download className="h-4 w-4" /> Tải {formatLabel(menu)}
+                onClick={()=>void act('download')}
+                className={`inline-flex min-h-11 min-w-0 items-center justify-center gap-1 rounded-lg border bg-white px-2 text-xs font-bold disabled:opacity-40 ${voucherActionPalette[menu].download}`}>
+                <Download className="mr-1 inline h-4 w-4 shrink-0" /> Tải {formatLabel(menu)}
               </button>
               <button type="button" data-hnl-voucher-action={menu+'-share'}
                 disabled={busy||!prepared||prepared.signature!==selectionSignature||prepared.format!==menu}
-                onClick={()=>void act('share')} className="inline-flex min-h-12 w-auto max-w-full items-center justify-center gap-1 rounded-xl bg-indigo-700 px-3 text-xs font-bold text-white disabled:opacity-50">
-                <Share2 className="h-4 w-4" /> Chia sẻ {formatLabel(menu)}
+                onClick={()=>void act('share')}
+                className={`inline-flex min-h-11 min-w-0 items-center justify-center gap-1 rounded-lg px-2 text-xs font-bold text-white disabled:opacity-40 ${voucherActionPalette[menu].share}`}>
+                <Share2 className="mr-1 inline h-4 w-4 shrink-0" /> Chia sẻ {formatLabel(menu)}
               </button>
+            </div>
           </div>
-        </div>
-      </div>}
+        </div>, document.body)}
       <p className="text-[11px] text-slate-500">Một phiếu chứa bảng nhiều dòng. Ảnh và Excel theo trang; PDF chữ thật, tìm kiếm và sao chép được. Chia sẻ ảnh tối đa 6 trang/lần.</p>
     </div>
   </SettingsFeatureSheet>;

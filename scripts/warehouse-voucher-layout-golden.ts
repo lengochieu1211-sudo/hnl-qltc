@@ -76,23 +76,27 @@ assert(sheet.includes("allowTextFallback:false"),'Sharing files cannot silently 
 assert(sheet.includes('Chia sẻ phiếu nhập/xuất kho') && warehouse.includes('Chia sẻ phiếu nhập/xuất kho'),
   'Warehouse share action and dialog must use one concise label');
 assert(!sheet.includes("['text','Nội dung',FileText]") && !sheet.includes('data-hnl-voucher-action="text-copy"')
-  && sheet.includes('data-hnl-voucher-formats="compact"')
-  && sheet.includes('w-[104px]') && sheet.includes('flex flex-wrap items-center justify-start gap-2'),
+  && sheet.includes('data-hnl-voucher-formats="unified"')
+  && sheet.includes('grid w-full max-w-md grid-cols-3 gap-2'),
   'Voucher share must offer exactly three compact, equal-sized format buttons without Content');
 assert(sheet.includes('data-hnl-voucher-date-range="compact"')
   && (sheet.match(/max-w-\[158px\]/g) || []).length === 2
-  && sheet.includes('data-hnl-voucher-action-buttons="compact"'),
-  'Date inputs and action buttons must be content-sized and able to wrap without overflow');
+  && sheet.includes('data-hnl-voucher-action-buttons="unified"')
+  && sheet.includes('grid grid-cols-2 gap-2'),
+  'Date inputs stay compact; paired share/download actions use equal-sized columns');
 assert(sheet.includes("['png','Ảnh',ImageIcon,")
   && sheet.includes("['xlsx','Excel',FileSpreadsheet,") && sheet.includes("['pdf','PDF',FileDown,"),
   'Preserve Image/Excel/PDF formats and their export paths after attaching per-button color styles');
-assert(sheet.includes("'border-sky-600 bg-sky-600")
-  && sheet.includes("'border-green-600 bg-green-600")
-  && sheet.includes("'border-red-600 bg-red-600")
-  && sheet.includes('data-hnl-voucher-format={format}'),
-  'Voucher buttons must use shared layout and distinct ocean-blue/image, green/excel and red/PDF colors');
+assert(sheet.includes("'bg-sky-600 hover:bg-sky-700")
+  && sheet.includes("'bg-green-600 hover:bg-green-700")
+  && sheet.includes("'bg-red-600 hover:bg-red-700")
+  && sheet.includes('data-hnl-voucher-format={format}')
+  && sheet.includes('voucherActionPalette[menu].download')
+  && sheet.includes('voucherActionPalette[menu].share'),
+  'Outer format buttons and inner actions must share sky/green/red palette and equal column layouts');
 
-assert(sheet.includes('data-hnl-voucher-action-menu') && sheet.includes('fixed inset-0 z-[160]'),
+assert(sheet.includes('data-hnl-voucher-action-menu') && sheet.includes('fixed inset-0 z-[160]')
+  && sheet.includes('createPortal(') && sheet.includes('document.body'),
   'The share/download menu must be viewport-fixed, not appended offscreen below form');
 const excel = fs.readFileSync('src/utils/warehouseVoucherExcel.ts', 'utf8');
 for (const heading of ['Công trình:', 'Địa điểm:', 'PHIẾU NHẬP KHO', 'PHIẾU XUẤT KHO',

@@ -92,8 +92,8 @@ try {
     assert.equal(actual,expected,tag+': '+format+' should match its semantic color utility');
     actualColors.push(actual);
     const bounds=await control.boundingBox();
-    assert(bounds && bounds.width>=96 && bounds.width<=116 && bounds.height>=44,
-      tag+': '+format+' format button must remain touch-friendly and capped near 104px, not stretch across desktop');
+    assert(bounds && bounds.width>=70 && bounds.width<=175 && bounds.height>=44,
+      tag+': '+format+' format button must remain touch-friendly in the compact three-column grid');
     assert(bounds.x>=0 && bounds.x+bounds.width<=viewport.width+1,
       tag+': '+format+' format button must not overflow the viewport');
     formatBoxes.push(bounds);
@@ -103,12 +103,33 @@ try {
     tag+': Image, Excel and PDF buttons must share dimensions');
 
   await sheet.locator('[data-hnl-voucher-format="xlsx"]').click();
-  const excelAction=sheet.locator('[data-hnl-voucher-action="xlsx-download"]');
+  const excelAction=page.locator('[data-hnl-voucher-action="xlsx-download"]');
   await assertEventuallyEnabled(excelAction);
   const excelBox=await excelAction.boundingBox();
   assert(excelBox&&excelBox.y>=0&&excelBox.y+excelBox.height<=viewport.height+2,tag+': Excel action must fit viewport');
-  assert(excelBox.width>=72&&excelBox.width<=185&&excelBox.height>=44,
-    tag+': share/download actions must stay readable and compact (actual '+excelBox.width.toFixed(1)+'px, height '+excelBox.height.toFixed(1)+'px)');
+  assert(excelBox.width>=120&&excelBox.width<=235&&excelBox.height>=44,
+    tag+': equal-width share/download actions must remain readable (actual '+excelBox.width.toFixed(1)+'px, height '+excelBox.height.toFixed(1)+'px)');
+  assert(await excelAction.evaluate(el=>el.parentElement?.getAttribute('data-hnl-voucher-action-buttons'))==='unified',
+    tag+': action popup must use the shared two-column layout');
+  assert(await excelAction.evaluate(el=>el.closest('[data-hnl-voucher-action-overlay]')?.parentElement===document.body),
+    tag+': action popup must be portaled outside the scrolling settings sheet');
+  const excelShare=page.locator('[data-hnl-voucher-action="xlsx-share"]');
+  const {downloadColor,shareColor,outerColor,downloadWidth,shareWidth}=await page.evaluate(()=>{
+    const download=document.querySelector('[data-hnl-voucher-action="xlsx-download"]');
+    const share=document.querySelector('[data-hnl-voucher-action="xlsx-share"]');
+    const outer=document.querySelector('[data-hnl-voucher-format="xlsx"]');
+    return {
+      downloadColor:getComputedStyle(download).color,
+      shareColor:getComputedStyle(share).backgroundColor,
+      outerColor:getComputedStyle(outer).backgroundColor,
+      downloadWidth:download.getBoundingClientRect().width,
+      shareWidth:share.getBoundingClientRect().width,
+    };
+  });
+  assert.equal(shareColor,outerColor,tag+': inner Excel share must match outer green button');
+  assert.equal(shareColor,(await excelShare.evaluate(el=>getComputedStyle(el).backgroundColor)),tag+': same primary share palette');
+  assert(Math.abs(downloadWidth-shareWidth)<=2,tag+': inner download/share columns must have equal width');
+  assert(downloadColor!=='rgb(255, 255, 255)',tag+': download action must use readable tinted text');
   const excelPromise=page.waitForEvent('download',{timeout:30000});
   await excelAction.click();
   const excelDl=await excelPromise;
@@ -129,7 +150,7 @@ try {
   
   for(const format of ['png','pdf']){
     await sheet.locator('[data-hnl-voucher-format="'+format+'"]').click();
-    const action=sheet.locator('[data-hnl-voucher-action="'+format+'-download"]');
+    const action=page.locator('[data-hnl-voucher-action="'+format+'-download"]');
     await action.waitFor({state:'visible'});
     await assertEventuallyEnabled(action);
     const box=await action.boundingBox();
@@ -197,7 +218,7 @@ try {
   assert.match(await sheet.innerText(),/2 dòng vật tư\/thiết bị → 1 trang A4/,'Expected two material lines on one A4');
   for(const format of ['png','pdf']){
     await sheet.locator('[data-hnl-voucher-format="'+format+'"]').click();
-    const action=sheet.locator('[data-hnl-voucher-action="'+format+'-download"]');
+    const action=page.locator('[data-hnl-voucher-action="'+format+'-download"]');
     await assertEventuallyEnabled(action);
     const promise=page.waitForEvent('download',{timeout:30000});
     await action.click();
