@@ -92,13 +92,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          API="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/dev-runtime-golden.yml/runs?branch=dev&event=workflow_dispatch&per_page=20"
+          API="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/dev-runtime-golden.yml/runs?branch=dev&per_page=50"
           for attempt in $(seq 1 105); do
             JSON="$(curl --fail --silent --show-error -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' "$API")"
-            INFO="$(printf '%s' "$JSON" | TARGET_SHA="$GITHUB_SHA" node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=(j.workflow_runs||[])[0];process.stdout.write(r&&r.head_sha!==process.env.TARGET_SHA?'different-head|||':r?[r.status,String(r.conclusion||''),String(r.id||''),String(r.run_number||'')].join('|'):'missing|||')})")"
+            INFO="$(printf '%s' "$JSON" | TARGET_SHA="$GITHUB_SHA" node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=(j.workflow_runs||[]).filter(x=>x.head_sha===process.env.TARGET_SHA&&['push','workflow_dispatch'].includes(x.event)).sort((a,b)=>Number(b.id||0)-Number(a.id||0))[0];process.stdout.write(r?[r.status,String(r.conclusion||''),String(r.id||''),String(r.run_number||'')].join('|'):'missing|||')})")"
             STATUS="${INFO%%|*}"
             REST="${INFO#*|}"; CONCLUSION="${REST%%|*}"; REST="${REST#*|}"; RUN_ID="${REST%%|*}"; RUN_NUMBER="${REST##*|}"
-            if [ "$STATUS" = 'different-head' ]; then echo '::error::Latest Runtime Golden is for another DEV HEAD'; exit 1; fi
             if [ "$STATUS" = 'completed' ] && [ "$CONCLUSION" = 'success' ]; then
               echo "RUNTIME_VERIFIED_SHA=$GITHUB_SHA" >> "$GITHUB_ENV"
               echo "RUNTIME_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"

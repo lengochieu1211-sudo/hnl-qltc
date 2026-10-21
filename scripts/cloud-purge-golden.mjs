@@ -75,10 +75,10 @@ requireAll(vite, ['hnl-service-worker-asset-manifest', 'sw-assets.json'], 'Vite 
 requireAll(sw, ['loadBuildAssetManifest', 'isValidAssetResponse', 'cacheOneAsset', 'cacheAssetsInBatches', 'SW_INVALID_ASSET_RESPONSE'], 'Service Worker full precache with MIME validation and bounded concurrency');
 if (sw.includes('cache.addAll(batch)')) fail('Service Worker precache still accepts rewritten HTML or wrong-MIME assets');
 requireAll(runtimeGolden, ['verifyColdStartOffline', 'Network.clearBrowserCache', 'context.setOffline(true)', 'offlineResponse.fromServiceWorker()'], 'cold-start Runtime Golden');
-if (!runtimeWorkflow.includes('  workflow_dispatch:') || runtimeWorkflow.includes('  push:\n')) fail('Runtime Golden must be manually triggered to conserve Hosting quota');
+if (!runtimeWorkflow.includes('  workflow_dispatch:') || !runtimeWorkflow.includes("      - '.github/dev-release-approval.json'") || !runtimeWorkflow.includes('x.head_sha===process.env.TARGET_SHA')) fail('Runtime Golden must only follow an approved exact DEV release');
 if (!runtimeWorkflow.includes('node scripts/dev-release-gate.mjs verify')) fail('Runtime Golden must verify exact deployed commit before live tests');
 if (runtimeWorkflow.includes('deploy --only hosting')) fail('Runtime Golden must never redeploy Hosting');
-pass('DEV Runtime Golden stays manual, checks the deployed SHA, and preserves cold-start offline coverage');
+pass('DEV Runtime Golden is gated by approved release, exact hosted SHA and cold-start offline coverage');
 pass('offline cold-start is protected by source + live Runtime Golden gates');
 
 requireAll(rules, ['lifecycleMutationId', 'lifecycleMutationType', 'lifecycleMutationAt'], 'legacy project trash Rules allow-list');
