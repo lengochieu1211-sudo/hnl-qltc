@@ -1,8 +1,6 @@
 name: Deploy HNL QLTC DEV Environment
 
 on:
-  push:
-    branches: [dev]
   workflow_dispatch:
 
 permissions:
@@ -12,7 +10,7 @@ permissions:
 
 concurrency:
   group: hnl-qltc-dev-release
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   DEV_FIRESTORE_LOCATION: asia-southeast1
@@ -30,7 +28,7 @@ jobs:
   rules:
     name: Wait for exact Firebase Rules certification
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 35
     steps:
       - name: Require Firebase Rules certification for exact DEV SHA
         env:
@@ -67,6 +65,24 @@ jobs:
           done
           echo "::error::Timed out waiting for exact Firebase Rules job: $GITHUB_SHA"
           exit 1
+
+      - name: Require exact HEAD full CI build PASS before DEV release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNS_API="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA&branch=dev&event=push&per_page=100"
+          for attempt in $(seq 1 120); do
+            RUNS="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "$RUNS_API")"
+            STATE="$(printf '%s' "$RUNS" | TARGET_SHA="$GITHUB_SHA" node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=(j.workflow_runs||[]).find(x=>x.head_sha===process.env.TARGET_SHA&&x.name==='Build'&&x.event==='push');process.stdout.write(r?String(r.status)+'|'+String(r.conclusion||''):'missing|')})")"
+            case "$STATE" in
+              completed\|success) echo "Exact DEV CI Build: PASS ($GITHUB_SHA)"; exit 0 ;;
+              completed\|*) echo "::error::Exact DEV CI Build failed ($GITHUB_SHA): $STATE"; exit 1 ;;
+              *) echo "Waiting full DEV CI Build ($attempt/120): $STATE"; sleep 10 ;;
+            esac
+          done
+          echo "::error::Cannot release DEV: exact HEAD full CI Build has not passed"; exit 1
 
   deploy_dev:
     needs: rules
@@ -274,6 +290,9 @@ jobs:
           test "$audit_ok" = 1 || { echo '::error::Security audit unavailable after 3 transient retries'; exit 1; }
 
           npm run build
+          node scripts/dev-deploy-budget-golden.mjs
+          node scripts/dev-release-gate.mjs self-test
+          node scripts/dev-release-gate.mjs write
           grep -R -q 'Trợ lý HNL AI' dist/assets || { echo '::error::AI UI marker missing from DEV build'; exit 1; }
           grep -R -q 'hnl-qltc-ai-gateway-dev' dist/assets || { echo '::error::DEV AI gateway missing from DEV build'; exit 1; }
 
@@ -388,12 +407,28 @@ jobs:
           set -euo pipefail
           npx --yes firebase-tools@13.35.1 deploy --only firestore:rules --project "$DEV_PROJECT_ID" --non-interactive
 
+      - name: Require exact current DEV branch HEAD before publish
+        if: steps.preflight.outputs.configured == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          CURRENT_SHA="$(git ls-remote origin refs/heads/dev | cut -f1)"
+          test "$CURRENT_SHA" = "$GITHUB_SHA" || { echo "::error::DEV HEAD changed during release; refusing to publish stale source"; exit 1; }
+          test -s dist/hnl-dev-release.json || { echo '::error::Missing DEV release identity manifest'; exit 1; }
+
       - name: Deploy DEV Hosting
         if: steps.preflight.outputs.configured == 'true'
         shell: bash
         run: |
           set -euo pipefail
           npx --yes firebase-tools@13.35.1 deploy --only hosting --project "$DEV_PROJECT_ID" --non-interactive
+          ok=0
+          for i in $(seq 1 12); do
+            if node scripts/dev-release-gate.mjs verify; then ok=1; break; fi
+            echo "Waiting for DEV Hosting release identity to propagate ($i/12)"
+            sleep 5
+          done
+          test "$ok" = 1 || { echo '::error::DEV Hosting did not serve the exact release build'; exit 1; }
           echo "DEV Hosting: $DEV_HOSTING_URL"
 
       - name: Smoke DEV Hosting

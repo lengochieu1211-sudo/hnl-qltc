@@ -691,16 +691,12 @@ requireAll(firebaseJson, ['"source": "/"', 'no-cache, no-store, must-revalidate'
 requireAll(sw, ['loadBuildAssetManifest', 'SW_ASSET_MANIFEST_HAS_NO_JS_CHUNKS', 'isValidAssetResponse', "path === '/' || path === '/index.html'", "path.startsWith('/assets/')", 'deletePoisonedAssetCacheEntries', 'cacheOneAsset', 'cacheAssetsInBatches', 'SW_INVALID_ASSET_RESPONSE'], 'service-worker MIME-safe app-shell precache');
 if (sw.includes('cache.addAll(batch)')) fail('service worker precache still trusts HTTP 200 without validating hashed asset MIME');
 requireAll(hostedBrowserGolden, ['data-hnl-mounted-tab', 'verifyColdStartOffline', 'Network.clearBrowserCache', 'context.setOffline(true)', 'CacheStorage'], 'Runtime Golden visual-vs-mounted navigation + cold-start offline');
-const devRuntimeHasGlobalPushTrigger = !devRuntimeWorkflow.includes('    paths:');
-if (!devRuntimeHasGlobalPushTrigger) {
-  for (const trigger of ['public/sw.js', 'vite.config.ts', 'src/serviceWorkerRegistration.ts', 'scripts/stability-gate.mjs']) {
-    if (!devRuntimeWorkflow.includes(`- '${trigger}'`)) fail(`DEV Runtime Golden trigger missing ${trigger}`);
-  }
-}
-pass(devRuntimeHasGlobalPushTrigger
-  ? 'DEV Runtime Golden runs on every dev push without a path filter'
-  : 'DEV Runtime Golden path filter covers critical cold-start sources');
-if (!devRuntimeWorkflow.includes('npm run test:stability')) fail('DEV Runtime Golden must run Stability Gate before deploy');
+if (!devRuntimeWorkflow.includes('  workflow_dispatch:') || devRuntimeWorkflow.includes('  push:\n')) fail('DEV Runtime Golden must run manually to control Hosting quota');
+if (!buildWorkflow.includes('      - dev') || !buildWorkflow.includes('node scripts/dev-deploy-budget-golden.mjs')) fail('DEV CI must run on every dev push and prevent Hosting release regressions');
+if (!devRuntimeWorkflow.includes('node scripts/dev-release-gate.mjs verify')) fail('Runtime Golden must verify exact hosted commit');
+if (devRuntimeWorkflow.includes('deploy --only hosting')) fail('Runtime Golden must not deploy Hosting a second time');
+pass('DEV push runs offline/local CI; hosted Runtime Golden is manual and verifies exact build identity');
+if (!devRuntimeWorkflow.includes('npm run test:stability')) fail('DEV Runtime Golden must keep Stability Gate before hosted regression');
 requireAll(cloudBinaryPurge, ['getDocsFromServer', 'collectBinaryPointers', 'construction_binary_purge_', 'BINARY_PURGE_ADMIN_REQUIRED'], 'physical binary purge safety');
 requireAll(diagnostics, ['sanitizeDiagnosticValue', '[redacted]'], 'diagnostics redaction');
 pass('service worker/version, cold-start and diagnostics safety');

@@ -2,12 +2,14 @@ name: HNL QLTC DEV Runtime Golden
 
 on:
   workflow_dispatch:
-  push:
-    branches: [dev]
 
 permissions:
   contents: read
   actions: read
+
+concurrency:
+  group: hnl-qltc-dev-release
+  cancel-in-progress: false
 
 env:
   DEV_PROJECT_ID: hnl-qltc-dev
@@ -40,22 +42,22 @@ jobs:
       VITE_GIT_COMMIT: ${{ github.sha }}
     steps:
       - name: Wait for exact DEV environment deploy
-        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          API="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/firebase-dev-environment.yml/runs?branch=dev&event=push&per_page=20"
-          for attempt in $(seq 1 90); do
+          API="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/firebase-dev-environment.yml/runs?branch=dev&event=workflow_dispatch&per_page=20"
+          for attempt in $(seq 1 6); do
             JSON="$(curl --fail --silent --show-error -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' "$API")"
-            STATUS="$(printf '%s' "$JSON" | TARGET_SHA="$GITHUB_SHA" node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=(j.workflow_runs||[]).find(x=>x.head_sha===process.env.TARGET_SHA);process.stdout.write(r?String(r.status)+'|'+String(r.conclusion||''):'missing|')})")"
+            STATUS="$(printf '%s' "$JSON" | TARGET_SHA="$GITHUB_SHA" node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=(j.workflow_runs||[])[0];process.stdout.write(!r?'missing|':r.head_sha!==process.env.TARGET_SHA?'different-head|':String(r.status)+'|'+String(r.conclusion||''))})")"
             case "$STATUS" in
               completed\|success) echo "Exact DEV deploy PASS for $GITHUB_SHA"; break ;;
               completed\|*) echo "::error::Exact DEV deploy failed for $GITHUB_SHA: $STATUS"; exit 1 ;;
-              *) echo "Waiting exact DEV deploy for $GITHUB_SHA ($attempt/90): $STATUS"; sleep 20 ;;
+              different-head\|*) echo "::error::The latest DEV release is a different commit; deploy the selected DEV HEAD first"; exit 1 ;;
+              *) echo "Waiting manual DEV deploy for $GITHUB_SHA ($attempt/6): $STATUS"; sleep 10 ;;
             esac
-            if [ "$attempt" -eq 90 ]; then echo '::error::Timed out waiting for exact DEV deploy'; exit 1; fi
+            if [ "$attempt" -eq 6 ]; then echo '::error::Timed out waiting for exact DEV deploy'; exit 1; fi
           done
 
       - name: Checkout DEV
@@ -146,7 +148,7 @@ jobs:
           NODE
           echo "DEV Firebase Web SDK config: PASS ($APP_ID)"
 
-      - name: Build and deploy exact DEV runtime under test
+      - name: Build source and verify hosted exact DEV runtime
         shell: bash
         run: |
           set -euo pipefail
@@ -164,7 +166,9 @@ jobs:
           npm run build
           grep -R -q 'HNL AI Assistant' dist/assets || { echo '::error::AI UI marker missing from runtime build'; exit 1; }
           grep -R -q 'hnl-qltc-ai-gateway-dev' dist/assets || { echo '::error::DEV AI gateway missing from runtime build'; exit 1; }
-          npx --yes firebase-tools@13.35.1 deploy --only hosting --project "$DEV_PROJECT_ID" --non-interactive
+          node scripts/dev-deploy-budget-golden.mjs
+          node scripts/dev-release-gate.mjs self-test
+          node scripts/dev-release-gate.mjs verify
 
       - name: Preflight live DEV endpoints
         shell: bash
@@ -221,6 +225,11 @@ jobs:
 
       - name: Hosted DEV desktop + mobile browser golden
         run: node scripts/dev-hosted-browser-golden.mjs
+
+      - name: Recheck deployed HEAD after all Runtime Golden tests
+        if: success()
+        shell: bash
+        run: node scripts/dev-release-gate.mjs verify --light
 
       - name: Upload Runtime Golden evidence
         if: always()
