@@ -2,13 +2,20 @@ name: HNL QLTC DEV Runtime Golden
 
 on:
   workflow_dispatch:
+  # Run once on the same approval commit as the controlled DEV release.
+  push:
+    branches:
+      - dev
+    paths:
+      - '.github/dev-release-approval.json'
 
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  group: hnl-qltc-dev-release
+  # Do not deadlock by waiting for a deployment holding the DEV publish lock.
+  group: hnl-qltc-dev-runtime-golden-${{ github.sha }}
   cancel-in-progress: false
 
 env:
@@ -35,7 +42,7 @@ env:
 jobs:
   runtime_golden:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 75
     env:
       FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
       VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
@@ -47,21 +54,30 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          API="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/firebase-dev-environment.yml/runs?branch=dev&event=workflow_dispatch&per_page=20"
-          for attempt in $(seq 1 6); do
+          # New releases may be approved by a standalone marker push or manual dispatch.
+          # Select the exact SHA (not the most recent unrelated workflow run).
+          API="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/firebase-dev-environment.yml/runs?branch=dev&per_page=50"
+          for attempt in $(seq 1 120); do
             JSON="$(curl --fail --silent --show-error -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' "$API")"
-            STATUS="$(printf '%s' "$JSON" | TARGET_SHA="$GITHUB_SHA" node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=(j.workflow_runs||[])[0];process.stdout.write(!r?'missing|':r.head_sha!==process.env.TARGET_SHA?'different-head|':String(r.status)+'|'+String(r.conclusion||''))})")"
+            STATUS="$(printf '%s' "$JSON" | TARGET_SHA="$GITHUB_SHA" node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=(j.workflow_runs||[]).filter(x=>x.head_sha===process.env.TARGET_SHA&&['push','workflow_dispatch'].includes(x.event)).sort((a,b)=>Number(b.id||0)-Number(a.id||0))[0];process.stdout.write(r?String(r.status)+'|'+String(r.conclusion||''):'missing|')})")"
             case "$STATUS" in
               completed\|success) echo "Exact DEV deploy PASS for $GITHUB_SHA"; break ;;
               completed\|*) echo "::error::Exact DEV deploy failed for $GITHUB_SHA: $STATUS"; exit 1 ;;
-              different-head\|*) echo "::error::The latest DEV release is a different commit; deploy the selected DEV HEAD first"; exit 1 ;;
-              *) echo "Waiting manual DEV deploy for $GITHUB_SHA ($attempt/6): $STATUS"; sleep 10 ;;
+              *) echo "Waiting exact DEV deploy for $GITHUB_SHA ($attempt/120): $STATUS"; sleep 10 ;;
             esac
-            if [ "$attempt" -eq 6 ]; then echo '::error::Timed out waiting for exact DEV deploy'; exit 1; fi
+            if [ "$attempt" -eq 120 ]; then echo '::error::Timed out waiting for exact DEV deploy'; exit 1; fi
           done
 
       - name: Checkout DEV
         uses: actions/checkout@v4
+
+      - name: Require current DEV HEAD before runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/dev' || { echo '::error::Not DEV'; exit 1; }
+          CURRENT_SHA="$(git ls-remote origin refs/heads/dev | cut -f1)"
+          test "$CURRENT_SHA" = "$GITHUB_SHA" || { echo '::error::DEV HEAD advanced since release; refusing stale Golden'; exit 1; }
 
       - name: Setup Node
         uses: actions/setup-node@v4

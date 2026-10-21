@@ -23,14 +23,19 @@ expect((devTrigger.match(/^  push:/gm) || []).length === 1, 'No extra DEV push t
 expect(/name: Explicit DEV release approval gate/.test(deploy) && /Validate one-shot marker and unchanged source/.test(deploy), 'Missing explicit one-shot approval gate');
 expect(/CHANGED_FILES=.*git diff-tree/.test(deploy) && /approved_source_sha/.test(deploy) && /git rev-parse HEAD\^/.test(deploy), 'Approval must be standalone and pinned to its immediate source parent');
 expect(/project_id/.test(deploy) && /test "\$DEV_PROJECT_ID" = 'hnl-qltc-dev'/.test(deploy), 'Firebase DEV must be pinned to hnl-qltc-dev');
-expect(/^  workflow_dispatch:\s*$/m.test(goldenTrigger) && !/^  push:/m.test(goldenTrigger), 'Hosted Golden must be manual-only');
+expect(/^  workflow_dispatch:\s*$/m.test(goldenTrigger), 'Hosted Golden manual fallback must remain');
+expect(/^  push:\s*\n    branches:\s*\n      - dev\s*\n    paths:\s*\n      - '\.github\/dev-release-approval\.json'\s*$/m.test(goldenTrigger), 'Golden must only auto-run on the exact approved release marker');
+expect((goldenTrigger.match(/^  push:/gm) || []).length === 1, 'Golden may have only one scoped push trigger');
+expect(/filter\(x=>x.head_sha===process.env.TARGET_SHA/.test(golden), 'Golden must select an exact DEV deploy SHA');
+expect(/\['push','workflow_dispatch'\]\.includes\(x.event\)/.test(golden), 'Golden must accept both approved push and manual DEV deploys');
 expect(/^  workflow_dispatch:\s*$/m.test(triggers(bootstrap)) && !/^  push:/m.test(triggers(bootstrap)), 'Firestore DEV bootstrap must not run on push');
 expect((deploy.match(/firebase-tools@13\.35\.1 deploy --only hosting\b/g) || []).length === 1, 'DEV release must publish Hosting once');
 expect(!/\b(?:firebase-tools@\S+ deploy --only hosting|hosting:channel:deploy|action-hosting-deploy)\b/.test(golden), 'Golden must never deploy Hosting');
 expect(/hnl-dev-release\.json/.test(deploy), 'DEV publish must create hosted release identity');
 expect(/dev-release-gate\.mjs verify/.test(golden), 'Golden must verify hosted SHA/asset bytes');
-expect(/hnl-qltc-dev-release/.test(deploy) && /hnl-qltc-dev-release/.test(golden), 'Release and Golden must share single concurrency lock');
-expect(/cancel-in-progress:\s*false/.test(deploy) && /cancel-in-progress:\s*false/.test(golden), 'Release lock must not cancel a running Golden');
+expect(/hnl-qltc-dev-release/.test(deploy), 'DEV deployment must retain its release serialization lock');
+expect(/hnl-qltc-dev-runtime-golden-/.test(golden) && !/group: hnl-qltc-dev-release/.test(golden), 'Golden must not block the release it waits for');
+expect(/cancel-in-progress:\s*false/.test(deploy) && /cancel-in-progress:\s*false/.test(golden), 'DEV publish and Golden queues must not cancel runs');
 expect(/if: github\.event_name == 'workflow_dispatch'/.test(pkg), 'Certification package must not run automatically on push');
 expect(/Firebase Rules certification/.test(pkg) && /workflow_dispatch/.test(triggers(pkg)), 'Rules certification and manual delivery must remain');
 expect(/branches:\s*\n\s+- main\n\s+- dev/.test(build), 'CI build gates must run on every DEV push');
@@ -63,4 +68,4 @@ for (const route of firebase.hosting.headers) {
 expect(seenCacheSources.size === expectedCache.size, 'Missing Hosting cache header route');
 const prod = actions('firebase-hosting-merge.yml');
 expect(/^  workflow_dispatch:\s*$/m.test(triggers(prod)), 'PROD manual gate must remain');
-console.log('DEV deploy budget regression: PASS — CI auto; one-shot approved DEV or manual dispatch; Golden/package manual; one Hosting publish; SHA guard; PROD manual');
+console.log('DEV deploy budget regression: PASS — CI auto; one-shot approved DEV publish and post-release Golden; package manual; one Hosting publish; SHA guard; PROD manual');
