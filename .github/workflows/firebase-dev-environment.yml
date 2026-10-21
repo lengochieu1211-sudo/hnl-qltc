@@ -2,6 +2,13 @@ name: Deploy HNL QLTC DEV Environment
 
 on:
   workflow_dispatch:
+  # One-shot opt-in from a standalone, explicitly user-approved marker commit.
+  # Ordinary dev source pushes must NEVER publish Hosting.
+  push:
+    branches:
+      - dev
+    paths:
+      - '.github/dev-release-approval.json'
 
 permissions:
   contents: read
@@ -25,7 +32,33 @@ env:
   PROD_AI_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
 
 jobs:
+  approval:
+    name: Explicit DEV release approval gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout approval commit
+        if: github.event_name == 'push'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Validate one-shot marker and unchanged source
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/dev' || { echo '::error::DEV approval event is not on dev'; exit 1; }
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA" || { echo '::error::Approval checkout SHA mismatch'; exit 1; }
+          # Only the dedicated approval file may change in the approved commit.
+          CHANGED_FILES="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA")"
+          test "$CHANGED_FILES" = '.github/dev-release-approval.json' || { echo '::error::Approval commit contains unrelated source changes'; exit 1; }
+          APPROVED_BASE_SHA="$(node -e "const fs=require('fs');const a=JSON.parse(fs.readFileSync('.github/dev-release-approval.json','utf8'));if(a.intent!=='DEPLOY-FIREBASE-DEV'||a.project_id!=='hnl-qltc-dev'||typeof a.approved_source_sha!=='string'||!/^[0-9a-f]{40}$/.test(a.approved_source_sha))process.exit(2);process.stdout.write(a.approved_source_sha)")"
+          test "$APPROVED_BASE_SHA" = "$(git rev-parse HEAD^)" || { echo '::error::Approval source SHA is not the immediate DEV parent'; exit 1; }
+          echo "Explicit one-shot DEV release approval validated: $APPROVED_BASE_SHA -> $GITHUB_SHA"
+
   rules:
+    needs: approval
     name: Wait for exact Firebase Rules certification
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -93,6 +126,16 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Verify exact live DEV HEAD before touching any resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/dev' || { echo '::error::Not DEV branch'; exit 1; }
+          CURRENT_SHA="$(git ls-remote origin refs/heads/dev | cut -f1)"
+          test "$CURRENT_SHA" = "$GITHUB_SHA" || { echo '::error::DEV HEAD changed; refusing stale release'; exit 1; }
 
       - name: DEV credential preflight
         id: preflight
@@ -100,13 +143,13 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${FIREBASE_SERVICE_ACCOUNT:-}" ]; then
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "DEV_WAITING_FOR_SECRET=FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV"
-            exit 0
+            echo '::error::Missing DEV secret FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV; no deployment happened'
+            exit 1
           fi
           DEV_PROJECT_ID="$(printf '%s' "$FIREBASE_SERVICE_ACCOUNT" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);process.stdout.write(String(j.project_id||''))})")"
           test -n "$DEV_PROJECT_ID" || { echo '::error::DEV service account JSON has no project_id'; exit 1; }
           test "$DEV_PROJECT_ID" != "$PROD_FIREBASE_PROJECT_ID" || { echo '::error::REFUSING: DEV service account points to PROD project'; exit 1; }
+          test "$DEV_PROJECT_ID" = 'hnl-qltc-dev' || { echo '::error::REFUSING: unexpected Firebase DEV project'; exit 1; }
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo '::error::Missing CLOUDFLARE_API_TOKEN for isolated DEV Cloudflare resources'; exit 1; }
           test "$DEV_R2_URL" != "$PROD_R2_URL" || { echo '::error::REFUSING: DEV R2 URL equals PROD R2 URL'; exit 1; }
           test "$DEV_AI_WORKER" != "$PROD_AI_WORKER" || { echo '::error::REFUSING: DEV AI worker equals PROD AI worker'; exit 1; }
