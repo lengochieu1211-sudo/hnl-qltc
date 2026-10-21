@@ -75,15 +75,10 @@ requireAll(vite, ['hnl-service-worker-asset-manifest', 'sw-assets.json'], 'Vite 
 requireAll(sw, ['loadBuildAssetManifest', 'isValidAssetResponse', 'cacheOneAsset', 'cacheAssetsInBatches', 'SW_INVALID_ASSET_RESPONSE'], 'Service Worker full precache with MIME validation and bounded concurrency');
 if (sw.includes('cache.addAll(batch)')) fail('Service Worker precache still accepts rewritten HTML or wrong-MIME assets');
 requireAll(runtimeGolden, ['verifyColdStartOffline', 'Network.clearBrowserCache', 'context.setOffline(true)', 'offlineResponse.fromServiceWorker()'], 'cold-start Runtime Golden');
-const runtimeHasGlobalPushTrigger = !runtimeWorkflow.includes('    paths:');
-if (!runtimeHasGlobalPushTrigger) {
-  for (const trigger of ['public/sw.js', 'vite.config.ts', 'src/serviceWorkerRegistration.ts', 'scripts/stability-gate.mjs']) {
-    if (!runtimeWorkflow.includes(`- '${trigger}'`)) fail(`Runtime Golden trigger missing ${trigger}`);
-  }
-}
-pass(runtimeHasGlobalPushTrigger
-  ? 'Runtime Golden runs on every dev push without a path filter'
-  : 'Runtime Golden path filter covers critical cold-start sources');
+if (!runtimeWorkflow.includes('  workflow_dispatch:') || runtimeWorkflow.includes('  push:\n')) fail('Runtime Golden must be manually triggered to conserve Hosting quota');
+if (!runtimeWorkflow.includes('node scripts/dev-release-gate.mjs verify')) fail('Runtime Golden must verify exact deployed commit before live tests');
+if (runtimeWorkflow.includes('deploy --only hosting')) fail('Runtime Golden must never redeploy Hosting');
+pass('DEV Runtime Golden stays manual, checks the deployed SHA, and preserves cold-start offline coverage');
 pass('offline cold-start is protected by source + live Runtime Golden gates');
 
 requireAll(rules, ['lifecycleMutationId', 'lifecycleMutationType', 'lifecycleMutationAt'], 'legacy project trash Rules allow-list');

@@ -1,8 +1,6 @@
 name: Bootstrap HNL QLTC DEV Firestore
 
 on:
-  push:
-    branches: [dev]
   workflow_dispatch:
 
 permissions:
