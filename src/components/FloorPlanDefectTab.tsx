@@ -1039,6 +1039,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [isDefectPinPlacementMode, setIsDefectPinPlacementMode] = useState(false);
   const [isRoomPinPlacementMode, setIsRoomPinPlacementMode] = useState(false);
 
+  // Placement is one-shot and must not follow users into another floor, project,
+  // view mode or hidden tab (PC keep-alive). Existing room/Defect edits stay intact.
+  React.useEffect(() => {
+    setIsRoomPinPlacementMode(false);
+  }, [selectedFloorId, currentProjectId, viewMode, isActive]);
+
   // Choice modal when clicking blueprint in 'all' mode
   const [clickChoicePos, setClickChoicePos] = useState<{ x: number; y: number } | null>(null);
 
@@ -5491,15 +5497,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }
 
     if (drawTool === 'none') {
-      if (viewMode === 'highlight') {
-        setSelectedRoomForEdit(null);
-        setNewRoomClickPos({ x, y });
-        setNewRoomRect({ x: Math.max(0, x - 8), y: Math.max(0, y - 6), width: 16, height: 12 });
-        setNewRoomPoints(undefined);
-        setIsRoomModalOpen(true);
-        return;
-      }
-      // Tổng hợp/Defect: normal blank tap is inspection only; creation must be explicit.
+      // A normal tap on empty plan space is always inspection/navigation, including
+      // Mặt bằng thi công. Only the explicit "Tạo căn mới" placement tool above
+      // may open the creation form; accidental taps after pan/zoom must not.
       setClickChoicePos(null);
       setSelectedRoomForDragId(null);
       setSelectedRoomIds([]);
@@ -6686,7 +6686,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   }`}
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>{isRoomPinPlacementMode ? 'Chạm vị trí Căn / Phòng…' : 'Thêm Căn / Phòng'}</span>
+                  <span>{isRoomPinPlacementMode ? 'Hủy đặt căn' : 'Tạo căn mới'}</span>
                 </button>
               )}
 
@@ -7307,7 +7307,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           }`}
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          <span>{isRoomPinPlacementMode ? 'Chạm vị trí Căn / Phòng…' : 'Thêm Căn / Phòng'}</span>
+                          <span>{isRoomPinPlacementMode ? 'Hủy đặt căn' : 'Tạo căn mới'}</span>
                         </button>
                       </div>
                     )}
@@ -8760,7 +8760,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           {/* Hint text */}
           <p className="text-[10px] text-slate-500 text-center italic">
             {viewMode === 'highlight'
-              ? '💡 Dùng công cụ vẽ để đánh dấu vùng Căn / Phòng thi công trên mặt bằng.'
+              ? (isRoomPinPlacementMode
+                ? '📍 Đang tạo căn mới: chạm vị trí muốn đặt căn; bấm “Hủy đặt căn” để thoát.'
+                : '💡 Chạm mặt bằng để xem/kéo; chỉ tạo căn khi bấm “Tạo căn mới” rồi chọn vị trí. Công cụ vẽ vùng vẫn hoạt động riêng.')
               : viewMode === 'defect'
               ? '💡 Bấm “Thêm Defect” rồi chạm đúng vị trí cần ghim; bấm mã Defect để xem chi tiết.'
               : '💡 Mặt bằng tổng hợp đang hiển thị cả Căn / Phòng thi công và vị trí Defect.'}

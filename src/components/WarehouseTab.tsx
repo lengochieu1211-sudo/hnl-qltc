@@ -47,6 +47,10 @@ import { equipmentIdentityKey, EquipmentUnitMigrationRequiredError, saveEquipmen
 import type { WarehouseUnitRenameInput } from '../lib/warehouseUnitMigration';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import { WarehouseVoucherShareSheet } from './WarehouseVoucherShareSheet';
+import { WarehouseReportActions } from './WarehouseReportActions';
+import { WarehouseOrderSheet } from './WarehouseOrderSheet';
+import { warehouseOrderKey, type WarehouseOrderItem } from '../utils/warehouseCatalogOrder';
+import type { WarehouseReport } from '../utils/warehouseCatalogReport';
 import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
 import { DataManagementMenu } from './DataManagementMenu';
 import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';
@@ -209,6 +213,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [expandedInventoryId, setExpandedInventoryId] = useState<string | null>(null);
   const [copiedInventoryId, setCopiedInventoryId] = useState<string | null>(null);
   const [showWarehouseCatalog, setShowWarehouseCatalog] = useState(false);
+  const [showWarehouseOrder, setShowWarehouseOrder] = useState(false);
   const [voucherShareOpen, setVoucherShareOpen] = useState(false);
   // Draft images remain in-memory, never in R2/Firestore until the ledger commits.
   const [pendingVoucherPhotos, setPendingVoucherPhotos] = useState<File[]>([]);
@@ -219,6 +224,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setShowAddForm(false);
     setEditingInventory(null);
     // Filters from another project must not hide this project's warehouse vouchers.
+    setShowWarehouseOrder(false);
     setSearchTerm('');
     setWarehouseFromDate('');
     setWarehouseToDate('');
@@ -1231,6 +1237,51 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       return naturalCompare(a.name, b.name);
     });
   }, [warehouseCatalogRows, warehouseCatalogTab, warehouseCatalogSortBy, warehouseCatalogSortOrder, stockSummaries]);
+
+  // Build order choices independently of the active Catalog search/tab.
+  // Names are grouped by kind + normalized unit; ledger identities are untouched.
+  const warehouseOrderItems = useMemo<WarehouseOrderItem[]>(() => {
+    const unique = new Map<string, WarehouseOrderItem>();
+    for (const norm of materialNorms) {
+      const name = String(norm.materialName || '').trim();
+      const unit = normalizeUnit(norm.unit) || String(norm.unit || '').trim();
+      if (!name || !unit) continue;
+      const key = warehouseOrderKey('material', name, unit);
+      if (!unique.has(key)) unique.set(key, {key, kind:'material', name, unit, category:norm.category || 'Vật tư'});
+    }
+    for (const equipment of equipmentCatalog) {
+      const name = String(equipment.name || '').trim();
+      const unit = normalizeUnit(equipment.unit) || String(equipment.unit || '').trim();
+      if (!name || !unit) continue;
+      const key = warehouseOrderKey('equipment', name, unit);
+      const master = equipmentMaster.find(row => equipmentIdentityKey(row.name) === equipmentIdentityKey(name));
+      if (!unique.has(key)) unique.set(key, {key, kind:'equipment', name:equipment.displayName || name, unit, category:master?.category || 'Thiết bị'});
+    }
+    return Array.from(unique.values());
+  }, [materialNorms, equipmentCatalog, equipmentMaster]);
+
+  // Export exactly the rows currently visible in Catalog (search, tab, order).
+  // All fields shown on screen are exported; no hidden prices or technical IDs.
+  const warehouseCatalogReport = useMemo<WarehouseReport>(() => ({
+    title:'DANH MỤC KHO – VẬT TƯ / THIẾT BỊ',
+    projectName, projectLocation, contractorName,
+    subtitle:`${warehouseCatalogTab === 'material' ? 'Vật tư' : 'Thiết bị'} · ${warehouseCatalogStockRows.length} dòng theo bộ lọc đang chọn`,
+    filePrefix:`HNL-QLTC-DANH-MUC-KHO-${warehouseCatalogTab.toUpperCase()}`,
+    columns:[
+      {label:'STT',width:32},{label:'Tên vật tư / thiết bị',width:210},
+      {label:'Chủng loại',width:120},{label:'ĐVT',width:50},
+      {label:'Tổng nhập',width:66,numeric:true},{label:'Tổng xuất',width:66,numeric:true},
+      {label:'Nhu cầu ĐM',width:76,numeric:true},{label:'Tồn kho',width:70,numeric:true},
+      {label:'Nhập / ĐM (%)',width:79,numeric:true},
+    ],
+    rows:warehouseCatalogStockRows.map((item,index)=>[
+      index+1,item.name,item.category,item.unit,item.totalIn,item.totalOut,
+      warehouseCatalogTab==='material'?Number(item.normQuantity||0):'—',item.currentStock,
+      warehouseCatalogTab==='material' && Number(item.normQuantity)>0
+        ?Math.round(item.totalIn/Number(item.normQuantity)*10000)/100:'—',
+    ]),
+    footer:`${warehouseCatalogStockRows.length} dòng. Số liệu đọc từ danh mục và phiếu kho hiện có; không điều chỉnh tồn.`,
+  }),[projectName, projectLocation, contractorName, warehouseCatalogTab, warehouseCatalogStockRows]);
 
   // Drill-down reads only the already verified inventory for the active project.
   // Same identity/unit/type keys as the stock ledger; never merge legacy Cái/Bộ.
@@ -2568,6 +2619,17 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             </table>
             </div>
           </div>
+          <div data-hnl-warehouse-catalog-actions="bottom" className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
+            <p className="text-xs font-bold text-slate-800">Xuất danh mục kho · {warehouseCatalogStockRows.length} dòng đang hiển thị</p>
+            <WarehouseReportActions report={warehouseCatalogReport}/>
+            <button type="button" data-hnl-warehouse-open-order="true"
+              disabled={!roleResolved || !hasEditAccess || !currentProjectId}
+              onClick={() => { setShowWarehouseCatalog(false); setShowWarehouseOrder(true); }}
+              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-3 text-xs font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40">
+              <FileText className="h-4 w-4"/> Đặt hàng vật tư / thiết bị
+            </button>
+            <p className="text-[10px] leading-relaxed text-slate-500">Danh mục chỉ đọc. Đặt hàng là bản nháp độc lập, không tạo phiếu nhập/xuất hoặc thay đổi tồn kho.</p>
+          </div>
           {warehouseCatalogTab === 'equipment' && (
             <p className="text-[10px] leading-relaxed text-slate-500">
               Thiết bị được dùng lại ở các phiếu nhập/xuất nhưng không tham gia Định mức vật tư hoặc Gợi ý vật tư.
@@ -2579,6 +2641,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       </SettingsFeatureSheet>
 
 
+
+      {showWarehouseOrder && <WarehouseOrderSheet key={currentProjectId}
+        open={showWarehouseOrder}
+        onClose={() => { setShowWarehouseOrder(false); setCatalogHistory(null); setShowWarehouseCatalog(true); }}
+        projectId={currentProjectId} projectName={projectName} projectLocation={projectLocation}
+        contractorName={contractorName} items={warehouseOrderItems} canEdit={hasEditAccess} initialKind={warehouseCatalogTab}
+      />}
 
       {quickEditEnabled && showQuickEdit && <React.Suspense fallback={null}>
       <LazyQuickEditGridModal

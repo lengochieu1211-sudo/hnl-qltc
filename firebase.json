@@ -28,15 +28,6 @@
       {
         "source": "/",
         "headers": [
-      {
-        "source": "/hnl-dev-release.json",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "no-cache, no-store, must-revalidate"
-          }
-        ]
-      },
           {
             "key": "Cache-Control",
             "value": "no-cache, no-store, must-revalidate"
@@ -46,15 +37,6 @@
       {
         "source": "/index.html",
         "headers": [
-      {
-        "source": "/hnl-dev-release.json",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "no-cache, no-store, must-revalidate"
-          }
-        ]
-      },
           {
             "key": "Cache-Control",
             "value": "no-cache, no-store, must-revalidate"
@@ -64,15 +46,6 @@
       {
         "source": "/sw.js",
         "headers": [
-      {
-        "source": "/hnl-dev-release.json",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "no-cache, no-store, must-revalidate"
-          }
-        ]
-      },
           {
             "key": "Cache-Control",
             "value": "no-cache, no-store, must-revalidate"
@@ -82,15 +55,6 @@
       {
         "source": "/sw-assets.json",
         "headers": [
-      {
-        "source": "/hnl-dev-release.json",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "no-cache, no-store, must-revalidate"
-          }
-        ]
-      },
           {
             "key": "Cache-Control",
             "value": "no-cache, no-store, must-revalidate"
@@ -100,15 +64,6 @@
       {
         "source": "/assets/**",
         "headers": [
-      {
-        "source": "/hnl-dev-release.json",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "no-cache, no-store, must-revalidate"
-          }
-        ]
-      },
           {
             "key": "Cache-Control",
             "value": "public, max-age=31536000, immutable"

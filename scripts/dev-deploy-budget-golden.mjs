@@ -30,8 +30,32 @@ expect(/if: github\.event_name == 'workflow_dispatch'/.test(pkg), 'Certification
 expect(/Firebase Rules certification/.test(pkg) && /workflow_dispatch/.test(triggers(pkg)), 'Rules certification and manual delivery must remain');
 expect(/branches:\s*\n\s+- main\n\s+- dev/.test(build), 'CI build gates must run on every DEV push');
 const firebase = JSON.parse(read('firebase.json'));
-const h = firebase.hosting.headers.find(x => x.source === '/hnl-dev-release.json');
-expect(h?.headers?.some(x => x.key === 'Cache-Control' && x.value.includes('no-store')), 'Release identity must not be cached');
+// Validate Hosting's schema, not just JSON.parse: nested source/headers objects inside
+// headers[] are syntactically valid JSON but invalid Firebase header definitions.
+const expectedCache = new Map([
+  ['/hnl-dev-release.json', 'no-cache, no-store, must-revalidate'],
+  ['/', 'no-cache, no-store, must-revalidate'],
+  ['/index.html', 'no-cache, no-store, must-revalidate'],
+  ['/sw.js', 'no-cache, no-store, must-revalidate'],
+  ['/sw-assets.json', 'no-cache, no-store, must-revalidate'],
+  ['/assets/**', 'public, max-age=31536000, immutable'],
+]);
+expect(firebase.hosting?.public === 'dist', 'Hosting public directory changed');
+expect(Array.isArray(firebase.hosting?.headers), 'Hosting headers must be an array');
+expect(firebase.hosting.headers.length === expectedCache.size, 'Unexpected Hosting cache header routes');
+const seenCacheSources = new Set();
+for (const route of firebase.hosting.headers) {
+  expect(route && typeof route === 'object' && !Array.isArray(route), 'Invalid Hosting header route');
+  expect(Object.keys(route).sort().join(',') === 'headers,source', 'Unexpected Hosting header route fields');
+  expect(expectedCache.has(route.source) && !seenCacheSources.has(route.source), `Unexpected/duplicate Hosting header route: ${route.source}`);
+  seenCacheSources.add(route.source);
+  expect(Array.isArray(route.headers) && route.headers.length === 1, `Invalid headers[] for ${route.source}`);
+  const header = route.headers[0];
+  expect(header && typeof header === 'object' && !Array.isArray(header), `Invalid header for ${route.source}`);
+  expect(Object.keys(header).sort().join(',') === 'key,value', `Malformed Firebase header schema for ${route.source}`);
+  expect(header.key === 'Cache-Control' && header.value === expectedCache.get(route.source), `Unexpected cache policy for ${route.source}`);
+}
+expect(seenCacheSources.size === expectedCache.size, 'Missing Hosting cache header route');
 const prod = actions('firebase-hosting-merge.yml');
 expect(/^  workflow_dispatch:\s*$/m.test(triggers(prod)), 'PROD manual gate must remain');
 console.log('DEV deploy budget regression: PASS — CI auto; DEV/Golden/package manual; one Hosting publish; SHA guard; PROD manual');

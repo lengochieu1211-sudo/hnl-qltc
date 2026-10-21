@@ -38,6 +38,12 @@ jobs:
       - name: DEV deploy budget regression
         run: node scripts/dev-deploy-budget-golden.mjs
 
+      - name: Warehouse catalog and order regression
+        run: node --experimental-strip-types scripts/warehouse-order-golden.mjs
+
+      - name: Floor-plan room-creation safety regression
+        run: node scripts/floorplan-room-creation-guard-golden.mjs
+
       - name: Stability Gate
         run: npm run test:stability
 
