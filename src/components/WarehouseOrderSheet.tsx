@@ -64,7 +64,7 @@ export const WarehouseOrderSheet:React.FC<Props>=({open,onClose,projectId,projec
   return <SettingsFeatureSheet open={open} onClose={onClose} sheetKey="warehouse-order" icon={ClipboardList}
     title="Đặt hàng vật tư / thiết bị" description="Lập danh sách và ước tính khối lượng vận chuyển, không tự tạo phiếu nhập kho.">
     <div data-hnl-warehouse-order="local-draft" className="space-y-3">
-      <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1" role="group" aria-label="Loại hàng đặt">
+      <div data-hnl-warehouse-order-kind-tabs="true" className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1 min-[960px]:inline-grid min-[960px]:grid-cols-[repeat(2,160px)] min-[960px]:max-w-full" role="group" aria-label="Loại hàng đặt">
         {(['material','equipment'] as const).map(tab=><button type="button" key={tab} aria-pressed={kind===tab} onClick={()=>setKind(tab)}
           className={`min-h-10 rounded-lg px-3 py-2 text-xs font-bold ${kind===tab?'bg-white text-blue-700 shadow':'text-slate-600'}`}>
           {tab==='material'?'Vật tư':'Thiết bị'}

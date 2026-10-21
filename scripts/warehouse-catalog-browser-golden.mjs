@@ -25,6 +25,22 @@ try{await catalogOpener.waitFor({state:'visible',timeout:12000});}catch(error){
 await catalogOpener.click();
 const sheet=page.locator('[data-hnl-settings-sheet="warehouse-catalog"]');await sheet.waitFor({state:'visible'});
 const button=sheet.locator('[data-hnl-catalog-in-history^="material:"]').first();await button.waitFor({state:'visible'});
+// Exports and order launcher must fill a narrow touch sheet, but stay compact on PC.
+const exportGroup=sheet.locator('[data-hnl-warehouse-report-buttons="formats"]');
+await exportGroup.waitFor({state:'visible'});
+const exportRect=await exportGroup.boundingBox();
+const orderOpener=sheet.locator('[data-hnl-warehouse-open-order="true"]');
+const orderRect=await orderOpener.boundingBox();
+const sheetRect=await sheet.boundingBox();
+assert(exportRect&&orderRect&&sheetRect,label+': missing warehouse export/order controls');
+if(size.width>=960){
+  assert(exportRect.width<=370,label+': PC export group stretched beyond compact design');
+  assert(orderRect.width<=300,label+': PC order launcher stretched across entire sheet');
+  assert(exportRect.width<sheetRect.width*0.7&&orderRect.width<sheetRect.width*0.7,label+': PC buttons consume most of sheet width');
+}else{
+  assert(exportRect.width>=sheetRect.width*0.65,label+': touch export group became too narrow');
+  assert(orderRect.width>=sheetRect.width*0.65,label+': touch order launcher became too narrow');
+}
 const catalogTable=sheet.locator('[data-hnl-warehouse-catalog-table="auto-width"]');
 assert.equal(await catalogTable.count(),1,label+': auto-width catalog table missing');
 const layout=await catalogTable.evaluate(el=>({width:el.scrollWidth,viewport:el.parentElement.clientWidth,whiteSpace:getComputedStyle(el).whiteSpace,rows:[...el.tBodies[0].rows].map(row=>row.getBoundingClientRect().height)}));

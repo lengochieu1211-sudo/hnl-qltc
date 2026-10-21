@@ -48,7 +48,7 @@ export const WarehouseReportActions:React.FC<{report:WarehouseReport; disabled?:
     finally{setBusy(false);}
   };
   return <div data-hnl-warehouse-report-actions="unified" className="space-y-2">
-    <div className="grid grid-cols-3 gap-2" role="group" aria-label={`Xuất ${report.title}`}>
+    <div data-hnl-warehouse-report-buttons="formats" className="grid grid-cols-3 gap-2 min-[960px]:inline-grid min-[960px]:grid-cols-[repeat(3,112px)] min-[960px]:max-w-full" role="group" aria-label={`Xuất ${report.title}`}>
       {([
         ['png',ImageIcon,'Ảnh'],['pdf',FileDown,'PDF'],['xlsx',FileSpreadsheet,'Excel'],
       ] as const).map(([format,Icon,label])=><button type="button" key={format}

@@ -2625,7 +2625,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <button type="button" data-hnl-warehouse-open-order="true"
               disabled={!roleResolved || !hasEditAccess || !currentProjectId}
               onClick={() => { setShowWarehouseCatalog(false); setShowWarehouseOrder(true); }}
-              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-3 text-xs font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40">
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-3 text-xs font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40 min-[960px]:w-auto min-[960px]:whitespace-nowrap">
               <FileText className="h-4 w-4"/> Đặt hàng vật tư / thiết bị
             </button>
             <p className="text-[10px] leading-relaxed text-slate-500">Danh mục chỉ đọc. Đặt hàng là bản nháp độc lập, không tạo phiếu nhập/xuất hoặc thay đổi tồn kho.</p>
