@@ -46,6 +46,12 @@ export function styleCrewReportXlsx(bytes:Uint8Array, layouts:CrewXlsxSheetLayou
     });
     // Title/meta cells predate the grid; keep merged headers legible.
     xml=xml.replace(/<c\s+r="([A-Z]+)([1-5])"([^>]*)>/g,(whole,letters:string,number:string,attrs:string)=>`<c r="${letters}${number}"${attrs.replace(/\s+s="\d+"/g,'')} s="${number==='1'?1:2}">`);
+    // SheetJS emits an empty sheetView. Replace it with an actual frozen pane;
+    // the date/team/header rows are 1..8, and scrollable records start at 9.
+    const frozenViews='<sheetViews><sheetView workbookViewId="0"><pane ySplit="8" topLeftCell="A9" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A9" sqref="A9"/></sheetView></sheetViews>';
+    if (/<sheetViews>[\s\S]*?<\/sheetViews>/.test(xml)) xml=xml.replace(/<sheetViews>[\s\S]*?<\/sheetViews>/,frozenViews);
+    else if (/<dimension\b[^>]*\/>/.test(xml)) xml=xml.replace(/(<dimension\b[^>]*\/>)/,'$1'+frozenViews);
+    else xml=xml.replace(/(<worksheet\b[^>]*>)/,'$1'+frozenViews);
     zip[path]=strToU8(xml);
   });
   zip['xl/styles.xml']=strToU8(styles);
