@@ -109,7 +109,9 @@ export async function buildWarehouseVoucherExcel(pages: WarehouseVoucherPrintPag
     const sheetName = (page.direction==='in'?'NHAP':'XUAT') + '-' + String(index+1).padStart(2,'0');
     XLSX.utils.book_append_sheet(wb,ws,sheetName);
   }
-  const bytes = XLSX.write(wb,{bookType:'xlsx',type:'array',cellStyles:true}) as Uint8Array;
+  const raw = XLSX.write(wb,{bookType:'xlsx',type:'array',cellStyles:true});
+  // SheetJS type:'array' may return an ArrayBuffer; fflate requires Uint8Array.
+  const bytes = new Uint8Array(raw);
   // SheetJS Community does not reliably serialize the pageSetup model; set
   // real OOXML print geometry on *generated* sheets only (preserve cell bytes/IDs).
   const zip=unzipSync(bytes);

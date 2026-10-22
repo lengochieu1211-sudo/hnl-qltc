@@ -38,13 +38,14 @@ async function openExcel(report:WarehouseReport){
 const order=await openExcel({...meta,columns:[
   {label:'STT',width:37},{label:'Vật tư / thiết bị',width:230},{label:'ĐVT',width:55},
   {label:'SL đặt',width:69,numeric:true},{label:'KL/đv (kg)',width:82,numeric:true},
-  {label:'Thành KL (kg)',width:95,numeric:true},{label:'Tỷ trọng KL (%)',width:78,numeric:true}
-],rows:[[1,'Ty ren M8','cái',20000,0.03,600,100],[2,'Tấm chưa đo','tấm',6,'Chưa có','Chưa có','']],
-  totalRow:['TỔNG CỘNG KHỐI LƯỢNG (CHƯA ĐỦ)','','','','',600,100],orderWeightFormulas:true});
+  {label:'Thành KL (kg)',width:95,numeric:true}
+],rows:[[1,'Ty ren M8','cái',20000,0.03,600],[2,'Tấm chưa đo','tấm',6,'Chưa có','Chưa có']],
+  totalRow:['TỔNG CỘNG KHỐI LƯỢNG (CHƯA ĐỦ)','','','','',600],orderWeightFormulas:true});
 assert.match(order.ws.F8?.f||'',/D8\*E8/,'Order weight must use quantity x unit kg');
 assert.equal(order.ws.F8?.v,600,'Cached kg value retains numeric result');
-assert.match(order.ws.G8?.f||'',/F8\/\$F\$10\*100/,'Order percentage uses sum absolute reference');
+assert.equal(order.ws.G8,undefined,'Order export must not add a percentage column');
 assert.match(order.ws.F10?.f||'',/SUM\(F8:F9\)/,'Order total is SUM of dynamic weights');
+assert.equal(order.ws.G10,undefined,'Order total must have exactly six columns');
 assert.match(order.ws.A10?.f||'',/COUNTIF\(F8:F9/, 'Incomplete warning is dynamic when unit kg is edited');
 assert.equal(order.ws.A10?.v,'TỔNG CỘNG KHỐI LƯỢNG (CHƯA ĐỦ)');
 assert.equal(order.ws.F9?.v,'Chưa có', 'Missing mass cannot be silently converted to zero');
@@ -64,4 +65,4 @@ assert.equal(catalog.ws.I8?.v,60);
 assert.equal(catalog.ws.G9?.v,'—','Equipment norm is not invented');
 assert.equal(catalog.ws.I9?.v,'—','Equipment percent with no norm remains unavailable');
 assert.match(catalog.ws.H9?.f||'',/E9-F9/);
-console.log('WAREHOUSE REAL XLSX GOLDEN PASS — dynamic weights/SUM/percent, catalog stock/norm%, missing values, OOXML borders and frozen header');
+console.log('WAREHOUSE REAL XLSX GOLDEN PASS — dynamic weights/SUM, no unnecessary order percent, catalog stock/norm%, missing values, OOXML borders and frozen header');

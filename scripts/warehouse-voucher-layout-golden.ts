@@ -124,3 +124,4 @@ console.log('Warehouse multi-line A4 grouped receipt / continuous IDs / branding
 for(const token of ['data-hnl-voucher-export-options="toggle"','data-hnl-voucher-export-options="form"','Khổ giấy chia sẻ phiếu kho','Hướng giấy chia sẻ phiếu kho','Co giãn phiếu kho','prepareVoucherFiles(chosen,format,projectName,projectLocation,contractorName,options)'])assert(sheet.includes(token),'Voucher options missing: '+token);
 assert(fs.readFileSync('src/utils/warehouseVoucherTextPdf.ts','utf8').includes("format:options.paperSize.toLowerCase()"),'PDF paper size must be real, not UI-only');
 assert(excel.includes('const pageSetup=') && excel.includes('fitToWidth'),'Excel print settings must be serialized to OOXML');
+assert(excel.includes('new Uint8Array(raw)'),'SheetJS ArrayBuffer must be converted to Uint8Array before fflate ZIP processing');
