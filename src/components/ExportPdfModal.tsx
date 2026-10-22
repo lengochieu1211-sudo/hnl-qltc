@@ -2103,7 +2103,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               </div>
 
               <div className="border-t border-slate-200 pt-3">
-                <div className="mb-2 text-sm font-extrabold text-slate-600">Defect trong phạm vi trên</div>
+                <div className="mb-2 text-xs font-extrabold text-slate-600">Defect trong phạm vi trên</div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                   <select value={defectStatusFilter} onChange={(e) => setDefectStatusFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700">
                     <option value="all">Tất cả trạng thái Defect</option>
@@ -2121,24 +2121,34 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                     {defectCreatorOptions.map((creator) => <option key={creator} value={creator}>{creator}</option>)}
                   </select>
                 </div>
-                {/* Date filters form their own uniform 2x2 grid on PC and mobile. */}
-                <div data-hnl-report-defect-dates="uniform-grid" className="mt-2 grid grid-cols-2 gap-2.5">
-                  <label className="min-w-0 space-y-1">
-                    <span className="block min-h-9 text-xs font-semibold leading-4 text-slate-600 sm:min-h-0">Defect tạo từ ngày</span>
-                    <input type="date" value={defectCreatedFrom} onChange={(e) => setDefectCreatedFrom(e.target.value)} className="block min-w-0 w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" />
-                  </label>
-                  <label className="min-w-0 space-y-1">
-                    <span className="block min-h-9 text-xs font-semibold leading-4 text-slate-600 sm:min-h-0">Defect tạo đến ngày</span>
-                    <input type="date" value={defectCreatedTo} onChange={(e) => setDefectCreatedTo(e.target.value)} className="block min-w-0 w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" />
-                  </label>
-                  <label className="min-w-0 space-y-1">
-                    <span className="block min-h-9 text-xs font-semibold leading-4 text-slate-600 sm:min-h-0">Hoàn thành từ ngày</span>
-                    <input type="date" value={defectCompletedFrom} onChange={(e) => setDefectCompletedFrom(e.target.value)} className="block min-w-0 w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" />
-                  </label>
-                  <label className="min-w-0 space-y-1">
-                    <span className="block min-h-9 text-xs font-semibold leading-4 text-slate-600 sm:min-h-0">Hoàn thành đến ngày</span>
-                    <input type="date" value={defectCompletedTo} onChange={(e) => setDefectCompletedTo(e.target.value)} className="block min-w-0 w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" />
-                  </label>
+                {/* Compact date groups keep one-line captions and the original four filter states. */}
+                <div data-hnl-report-defect-dates="compact-groups" className="mt-2 grid grid-cols-1 gap-2.5 lg:grid-cols-2">
+                  <div role="group" aria-label="Ngày tạo Defect" className="min-w-0">
+                    <p className="mb-1 text-xs font-semibold leading-4 text-slate-600">Ngày tạo Defect</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="min-w-0">
+                        <span className="mb-1 block text-xs font-medium leading-4 text-slate-600">Từ ngày</span>
+                        <input type="date" aria-label="Defect tạo từ ngày" value={defectCreatedFrom} onChange={(e) => setDefectCreatedFrom(e.target.value)} className="block min-w-0 w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" />
+                      </label>
+                      <label className="min-w-0">
+                        <span className="mb-1 block text-xs font-medium leading-4 text-slate-600">Đến ngày</span>
+                        <input type="date" aria-label="Defect tạo đến ngày" value={defectCreatedTo} onChange={(e) => setDefectCreatedTo(e.target.value)} className="block min-w-0 w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" />
+                      </label>
+                    </div>
+                  </div>
+                  <div role="group" aria-label="Ngày hoàn thành" className="min-w-0">
+                    <p className="mb-1 text-xs font-semibold leading-4 text-slate-600">Ngày hoàn thành</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="min-w-0">
+                        <span className="mb-1 block text-xs font-medium leading-4 text-slate-600">Từ ngày</span>
+                        <input type="date" aria-label="Hoàn thành từ ngày" value={defectCompletedFrom} onChange={(e) => setDefectCompletedFrom(e.target.value)} className="block min-w-0 w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" />
+                      </label>
+                      <label className="min-w-0">
+                        <span className="mb-1 block text-xs font-medium leading-4 text-slate-600">Đến ngày</span>
+                        <input type="date" aria-label="Hoàn thành đến ngày" value={defectCompletedTo} onChange={(e) => setDefectCompletedTo(e.target.value)} className="block min-w-0 w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" />
+                      </label>
+                    </div>
+                  </div>
                 </div>
               </div>
 

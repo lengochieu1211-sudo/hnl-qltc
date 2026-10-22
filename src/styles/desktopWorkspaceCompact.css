@@ -561,12 +561,10 @@
     white-space: normal;
   }
 
-  /* Report typography: section titles 14px; labels/inputs 12px, auxiliary
-   * descriptions 11px. No changes to actual exported PDF font sizes. */
+  /* Report typography: main section titles 14px; Defect subheading and
+   * field captions 12px; auxiliary descriptions 11px. Exported PDF unchanged. */
   html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="report-filters"]
     > div:first-child > label,
-  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="report-filters"]
-    .mb-2.text-xs,
   html[data-hnl-pc-workspace="modern"] [data-hnl-report-typography="sort-order"] > summary,
   html[data-hnl-pc-workspace="modern"] [data-hnl-report-typography="page-layout"] > span:first-child {
     font-size: 14px;

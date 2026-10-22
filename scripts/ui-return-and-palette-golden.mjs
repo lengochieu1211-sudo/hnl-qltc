@@ -150,27 +150,38 @@ assert.ok(!reportFilterUi.includes('text-[9.5px]') && !reportFilterUi.includes('
   'No tiny 9.5px or 10px typography inside report filters');
 assert.equal((reportFilterUi.match(/<(?:select|input)\b[^\n]*?className="[^"]*text-xs/g) || []).length, 7,
   'All 3 Defect selects and 4 date inputs use the same 12px font');
-for (const [label, state] of [
-  ['Defect tạo từ ngày', 'defectCreatedFrom'],
-  ['Defect tạo đến ngày', 'defectCreatedTo'],
-  ['Hoàn thành từ ngày', 'defectCompletedFrom'],
-  ['Hoàn thành đến ngày', 'defectCompletedTo'],
+// Compact two-group dates: no forced tall labels, four original state/handlers,
+// exact accessible names and consistent 12px subheading/captions.
+for (const [ariaLabel, state, setter] of [
+  ['Defect tạo từ ngày', 'defectCreatedFrom', 'setDefectCreatedFrom'],
+  ['Defect tạo đến ngày', 'defectCreatedTo', 'setDefectCreatedTo'],
+  ['Hoàn thành từ ngày', 'defectCompletedFrom', 'setDefectCompletedFrom'],
+  ['Hoàn thành đến ngày', 'defectCompletedTo', 'setDefectCompletedTo'],
 ]) {
-  assert.ok(reportFilterUi.includes('text-xs font-semibold leading-4 text-slate-600 sm:min-h-0">' + label),
-    'All four date labels use a consistent 12px font: ' + label);
-  assert.ok(reportFilterUi.includes('value={' + state + '}'),
-    'Date filter state/handler remains connected: ' + state);
+  assert.ok(reportFilterUi.includes('aria-label="' + ariaLabel + '" value={' + state + '}') &&
+    reportFilterUi.includes('onChange={(e) => ' + setter + '(e.target.value)}'),
+    'Date filter remains accessible and keeps existing state and handler: ' + ariaLabel);
 }
-const dateGridStart = reportFilterUi.indexOf('data-hnl-report-defect-dates="uniform-grid"');
-const dateGridEnd = reportFilterUi.indexOf('</div>', dateGridStart);
-const dateGridUi = reportFilterUi.slice(dateGridStart, dateGridEnd);
-assert.ok(dateGridStart > 0 && dateGridUi.includes('grid-cols-2') &&
+const dateGridStart = reportFilterUi.indexOf('data-hnl-report-defect-dates="compact-groups"');
+const dateGridUi = reportFilterUi.slice(dateGridStart);
+assert.ok(dateGridStart > 0 && dateGridUi.includes('grid-cols-1 gap-2.5 lg:grid-cols-2') &&
+  dateGridUi.includes('role="group" aria-label="Ngày tạo Defect"') &&
+  dateGridUi.includes('role="group" aria-label="Ngày hoàn thành"') &&
   (dateGridUi.match(/<input type="date"/g) || []).length === 4 &&
-  (dateGridUi.match(/min-w-0 w-full rounded-xl/g) || []).length === 4,
-  'Four date controls share one responsive, equal-width 2x2 grid');
-assert.ok(reportFilterUi.includes('text-sm font-extrabold text-slate-600">Defect trong phạm vi trên') &&
+  (dateGridUi.match(/min-w-0 w-full rounded-xl/g) || []).length === 4 &&
+  (dateGridUi.match(/className="grid grid-cols-2 gap-2"/g) || []).length === 2 &&
+  !dateGridUi.includes('min-h-9'),
+  'Two compact date groups preserve four inputs without forced caption height');
+assert.ok(reportFilterUi.includes('mb-2 text-xs font-extrabold text-slate-600">Defect trong phạm vi trên') &&
+  reportFilterUi.includes('mb-1 text-xs font-semibold leading-4 text-slate-600">Ngày tạo Defect') &&
+  reportFilterUi.includes('mb-1 text-xs font-semibold leading-4 text-slate-600">Ngày hoàn thành') &&
+  (reportFilterUi.match(/mb-1 block text-xs font-medium leading-4 text-slate-600/g) || []).length === 4 &&
   reportFilterUi.includes('text-xs font-extrabold text-indigo-600 hover:text-indigo-800'),
-  'Section headings are 14px while reset-filter action remains 12px');
+  'Defect subheading and all date labels share 12px with hierarchy by weight only');
+const reportCss = read('src/styles/desktopWorkspaceCompact.css');
+assert.ok(!reportCss.includes('.mb-2.text-xs,') &&
+  reportCss.includes('[data-hnl-pc-v32-region="report-filters"]'),
+  'Desktop styling must not enlarge the Defect subheading to 14px');
 assert.ok(reportFilterUi.includes('text-[11px] leading-relaxed text-slate-500'),
   'Explanatory footnote uses the same 11px typography with readable line-height');
 // Compact PC actions and label hierarchies are opt-in; no PDF print/template changes.
@@ -218,8 +229,9 @@ assert.equal((reportPaperUi.match(/className="w-full rounded-lg border border-sl
 assert.equal((reportPaperUi.match(/text-xs font-semibold text-slate-600/g) || []).length, 2,
   'Both paper-control labels use 12px text');
 assert.ok(!reportPaperUi.includes('text-[10px]'), 'PDF paper layout has no tiny captions');
-assert.ok(deepFormCss.includes('/* Report typography: section titles 14px; labels/inputs 12px'),
-  'Desktop PC typography aligns 14/12/11 with mobile hierarchy');
+assert.ok(deepFormCss.includes('/* Report typography: main section titles 14px; Defect subheading and') &&
+  deepFormCss.includes('field captions 12px; auxiliary descriptions 11px'),
+  'Desktop PC typography aligns Defect subheading and captions at 12px');
 console.log('REPORT SORTING / PDF LAYOUT TYPOGRAPHY GOLDEN PASS');
 // HNL QLTC common drawing standard (19/10/2026): Căn/Phòng rectangles
 // must be square-cornered in draft SVG, drag preview, and saved SVG overlay.
