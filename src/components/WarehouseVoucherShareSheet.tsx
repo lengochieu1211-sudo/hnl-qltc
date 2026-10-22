@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { FileSpreadsheet, FileText, Image as ImageIcon, FileDown, X, Download, Share2 } from 'lucide-react';
+import { FileSpreadsheet, FileText, Image as ImageIcon, FileDown, X, Download, Share2, Settings2 } from 'lucide-react';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import type { InventoryItem, InventoryItemKind, TransactionType } from '../types';
 import { formatDateDDMMYYYY } from '../utils/dateFormatter';
@@ -8,7 +8,8 @@ import { formatDecimal } from '../utils/numberUtils';
 import { saveBlobToDownloads } from '../utils/fileExport';
 import { sharePreparedContent } from '../utils/shareUtils';
 import { isAndroidExportBridgeAvailable } from '../utils/fileExport';
-import { drawWarehouseVoucherPage, paginateWarehouseVouchers } from '../utils/warehouseVoucherPrint';
+import { drawWarehouseVoucherPage, paginateWarehouseVouchers, DEFAULT_VOUCHER_PAGE_OPTIONS } from '../utils/warehouseVoucherPrint';
+import type {WarehousePageOptions} from '../utils/warehouseCatalogReport';
 import { warehouseVoucherIsoDate, isWarehouseVoucherDateInRange } from '../utils/warehouseVoucherDateFilter';
 
 type VoucherFormat = 'png' | 'xlsx' | 'pdf';
@@ -56,18 +57,18 @@ const toDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
 });
 const safeFile = (name: string) => name.replace(/[\\/:*?"<>|]/g, '_').slice(0, 110);
 
-async function prepareVoucherFiles(rows: InventoryItem[], format: VoucherFormat, projectName: string, projectLocation: string, contractorName: string): Promise<VoucherFile[]> {
-  const pages = paginateWarehouseVouchers(rows);
+async function prepareVoucherFiles(rows: InventoryItem[], format: VoucherFormat, projectName: string, projectLocation: string, contractorName: string, options: WarehousePageOptions): Promise<VoucherFile[]> {
+  const pages = paginateWarehouseVouchers(rows,options);
   if (!pages.length) throw new Error('Chưa có giao dịch kho để xuất.');
   if (format === 'xlsx') {
     const {buildWarehouseVoucherExcel} = await import('../utils/warehouseVoucherExcel');
-    const {blob,fileName,mimeType} = await buildWarehouseVoucherExcel(pages, {projectName, projectLocation, contractorName});
+    const {blob,fileName,mimeType} = await buildWarehouseVoucherExcel(pages, {projectName, projectLocation, contractorName}, options);
     return [{id:'voucher-excel',fileName,mimeType,blob,dataUrl:await toDataUrl(blob)}];
   }
   if (format === 'png') {
     const files: VoucherFile[] = [];
     for (const [index, page] of pages.entries()) {
-      const blob = await makeBlob(drawWarehouseVoucherPage(page, { projectName, projectLocation, contractorName }));
+      const blob = await makeBlob(drawWarehouseVoucherPage(page, { projectName, projectLocation, contractorName }, options));
       const fileName = safeFile('PHIEU_' + (page.direction === 'in' ? 'NHAP' : 'XUAT') + '_KHO_' + page.date + '_TRANG_' + (index + 1) + '.png');
       files.push({ id: 'page-' + (index + 1), fileName, mimeType: 'image/png', blob, dataUrl: await toDataUrl(blob) });
     }
@@ -76,7 +77,7 @@ async function prepareVoucherFiles(rows: InventoryItem[], format: VoucherFormat,
   // Text PDF: unlike the PNG renderer, this uses native PDF text with an
   // embedded Unicode font (offline, searchable/selectable, no raster screenshot).
   const {buildWarehouseVoucherTextPdf} = await import('../utils/warehouseVoucherTextPdf');
-  const blob = await buildWarehouseVoucherTextPdf(pages, {projectName, projectLocation, contractorName});
+  const blob = await buildWarehouseVoucherTextPdf(pages, {projectName, projectLocation, contractorName}, options);
   if (blob.size <= 0) throw new Error('PDF phiếu kho rỗng (0 byte).');
   const fileName = safeFile('PHIEU_KHO_' + rows.length + '_DONG_' + pages.length + '_TRANG.pdf');
   return [{ id: 'voucher-pdf', fileName, mimeType: 'application/pdf', blob, dataUrl: await toDataUrl(blob) }];
@@ -96,13 +97,25 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
   const [error,setError]=useState('');
   const [message,setMessage]=useState('');
   const [menu,setMenu]=useState<VoucherFormat|null>(null);
+  const [showOptions,setShowOptions]=useState(false);
+  const [options,setOptions]=useState<WarehousePageOptions>(()=>{
+    try {
+      const saved=JSON.parse(localStorage.getItem('hnl-warehouse-export-layout-v1')||'null');
+      if(saved&&['A4','A3'].includes(saved.paperSize)&&['auto','portrait','landscape'].includes(saved.orientation)&&['one','split'].includes(saved.fit))return saved;
+    } catch (_) { /* unavailable storage: keep safe defaults */ }
+    return DEFAULT_VOUCHER_PAGE_OPTIONS;
+  });
+  useEffect(()=>{
+    try {localStorage.setItem('hnl-warehouse-export-layout-v1',JSON.stringify(options));} catch (_) { /* ignore */ }
+    setPrepared(null);setMenu(null);
+  },[options]);
   const [prepared,setPrepared]=useState<{format:VoucherFormat;signature:string;files:VoucherFile[]}|null>(null);
   const visible=useMemo(()=>selectWarehouseVouchers(inventory,{period,start,end,kind,direction}),[inventory,period,start,end,kind,direction]);
   const chosen=useMemo(()=>pick==='all'?visible:pick==='one'
     ?visible.filter(v=>v.id===checked.find(id=>visible.some(x=>x.id===id))).slice(0,1)
     :visible.filter(v=>checked.includes(v.id)),[pick,visible,checked]);
-  const selectionSignature=[projectName,projectLocation,contractorName,...chosen.map(item=>[item.id,item.type,item.date,item.location,item.handler,item.materialName,item.unit,item.quantity,item.notes].join('|'))].join('\n');
-  const pages=useMemo(()=>paginateWarehouseVouchers(chosen),[chosen]);
+  const selectionSignature=[JSON.stringify(options),projectName,projectLocation,contractorName,...chosen.map(item=>[item.id,item.type,item.date,item.location,item.handler,item.materialName,item.unit,item.quantity,item.notes].join('|'))].join('\n');
+  const pages=useMemo(()=>paginateWarehouseVouchers(chosen,options),[chosen,options]);
   useEffect(()=>{setPrepared(null);setMenu(null);setError('');setMessage('');},[selectionSignature]);
   const choice=(current:boolean)=>'min-h-10 rounded-lg border px-3 py-2 text-xs font-semibold '+(current?'border-indigo-600 bg-indigo-600 text-white':'border-slate-300 bg-white text-slate-700');
   const formatLabel=(format:VoucherFormat) => format==='png'?'ảnh':format==='xlsx'?'Excel':'PDF';
@@ -113,7 +126,7 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
     if(prepared?.format===format && prepared.signature===selectionSignature)return;
     setPrepared(null);setBusy(true);
     try{
-      const files=await prepareVoucherFiles(chosen,format,projectName,projectLocation,contractorName);
+      const files=await prepareVoucherFiles(chosen,format,projectName,projectLocation,contractorName,options);
       setPrepared({format,signature:selectionSignature,files});
     }catch(e){setError(e instanceof Error?e.message:'Không chuẩn bị được phiếu kho.');}
     finally{setBusy(false);}
@@ -137,7 +150,7 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
       }else if(action==='share'){
         // File bytes are prepared before the final click to preserve native share activation.
         const result=await sharePreparedContent({title:'Phiếu nhập/xuất kho',
-          text:'Phiếu kho · '+chosen.length+' dòng vật tư · '+pages.length+' trang A4',
+          text:'Phiếu kho · '+chosen.length+' dòng vật tư · '+pages.length+' trang '+options.paperSize,
           attachments:files.map(file=>({id:file.id,fileName:file.fileName,mimeType:file.mimeType,dataUrl:file.dataUrl})),
           allowTextFallback:false});
         if(result.status==='shared')setMessage('Đã yêu cầu mở bảng chia sẻ '+formatLabel(menu)+'.');
@@ -176,13 +189,13 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
           <span className="min-w-0 flex-1 break-words"><b>{formatDateDDMMYYYY(row.date)} · {row.type==='in'?'Nhập':'Xuất'}</b> · {row.materialName}<span className="block break-all text-slate-500">{row.id}</span></span>
           <span className="shrink-0 font-semibold">{formatDecimal(row.quantity)} {row.unit}</span>
         </label>)}</div>}
-      <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700" data-hnl-voucher-layout="multirow-a4">
-        {chosen.length} dòng vật tư/thiết bị → {pages.length} trang A4. Các dòng cùng ngày, loại nhập/xuất,
+      <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700" data-hnl-voucher-layout="multirow-paper">
+        {chosen.length} dòng vật tư/thiết bị → {pages.length} trang {options.paperSize}. Các dòng cùng ngày, loại nhập/xuất,
         kho và người thực hiện được xếp chung một phiếu; mã tham chiếu gốc vẫn được giữ trong bảng.
       </p>
       {error&&<p role="alert" className="rounded-lg bg-rose-50 p-2 text-xs text-rose-700">{error}</p>}
       {message&&<p role="status" className="rounded-lg bg-emerald-50 p-2 text-xs text-emerald-800">{message}</p>}
-      <div data-hnl-voucher-formats="unified" className="grid w-full max-w-md grid-cols-3 gap-2" role="group" aria-label="Định dạng chia sẻ phiếu kho">
+      <div data-hnl-voucher-formats="unified" data-hnl-export-format-group="true" data-hnl-export-format-count="4" className="grid w-full max-w-[480px] min-w-0 grid-cols-2 gap-2 min-[960px]:inline-grid min-[960px]:w-auto min-[960px]:max-w-full min-[960px]:grid-cols-[repeat(4,112px)]" role="group" aria-label="Định dạng chia sẻ phiếu kho">
         {([
           ['png','Ảnh',ImageIcon,'bg-sky-600 hover:bg-sky-700 focus-visible:ring-sky-300'],
           ['xlsx','Excel',FileSpreadsheet,'bg-green-600 hover:bg-green-700 focus-visible:ring-green-300'],
@@ -193,7 +206,24 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
             className={`inline-flex min-h-11 min-w-0 items-center justify-center gap-1.5 rounded-xl px-2 text-xs font-bold text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-40 ${buttonColor}`}>
             <Icon className="h-4 w-4 shrink-0" /> {busy&&menu===format?'Đang tạo…':label}
           </button>)}
+        <button type="button" data-hnl-voucher-export-options="toggle" aria-expanded={showOptions}
+          disabled={busy} onClick={()=>setShowOptions(v=>!v)}
+          className="inline-flex min-h-11 min-w-0 items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-2 text-xs font-bold text-slate-700 disabled:opacity-40">
+          <Settings2 className="h-4 w-4 shrink-0"/> Tùy chọn
+        </button>
       </div>
+      {showOptions&&<div data-hnl-voucher-export-options="form" className="grid w-full max-w-[720px] min-w-0 grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs min-[960px]:grid-cols-3">
+        <label className="grid min-w-0 gap-1 font-semibold text-slate-700">Khổ giấy
+          <select aria-label="Khổ giấy chia sẻ phiếu kho" value={options.paperSize} onChange={e=>setOptions(v=>({...v,paperSize:e.target.value as WarehousePageOptions['paperSize']}))} className="min-h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2"><option value="A4">A4</option><option value="A3">A3</option></select>
+        </label>
+        <label className="grid min-w-0 gap-1 font-semibold text-slate-700">Hướng giấy
+          <select aria-label="Hướng giấy chia sẻ phiếu kho" value={options.orientation} onChange={e=>setOptions(v=>({...v,orientation:e.target.value as WarehousePageOptions['orientation']}))} className="min-h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2"><option value="auto">Tự động (ưu tiên dọc)</option><option value="portrait">Dọc</option><option value="landscape">Ngang</option></select>
+        </label>
+        <label className="grid min-w-0 gap-1 font-semibold text-slate-700">Co giãn bảng
+          <select aria-label="Co giãn phiếu kho" value={options.fit} onChange={e=>setOptions(v=>({...v,fit:e.target.value as WarehousePageOptions['fit']}))} className="min-h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2"><option value="one">Ưu tiên vừa 1 trang</option><option value="split">Tự chia trang</option></select>
+        </label>
+        <p className="min-w-0 break-words text-[11px] text-slate-500 min-[960px]:col-span-3">PDF/Ảnh ưu tiên vừa 1 trang mỗi phiếu khi vẫn đọc rõ; bảng quá dài sẽ tự chia trang. Excel giữ nguyên dữ liệu, tùy chọn áp dụng khi in. Thiết lập được ghi nhớ trên thiết bị.</p>
+      </div>}
       {/* Mirror the Crew Report action sheet: portal outside the scrolling settings panel. */}
       {menu && typeof document !== 'undefined' && createPortal(
         <div data-hnl-voucher-action-overlay="true" className="fixed inset-0 z-[160] flex items-end justify-center sm:items-center">

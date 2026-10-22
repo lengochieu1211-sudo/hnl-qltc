@@ -1,3 +1,4 @@
+import {useWarehouseOrderSync} from './hooks/useWarehouseOrderSync';
 import { getHnlPrimaryThemeColors } from './utils/hnlPrimaryTheme';
 import { GlobalConfirmModal } from './components/GlobalConfirmModal';
 import { ContextBackButton } from './components/ContextBackButton';
@@ -2150,6 +2151,9 @@ function AuthenticatedApp() {
   const priorityCloudSyncRevisionRef = useRef(0);
   const flushedPriorityCloudSyncRevisionRef = useRef(0);
   const [cloudUserKey, setCloudUserKey] = useState<string>('');
+  const warehouseOrderSync=useWarehouseOrderSync(activeProjectId,cloudUserKey.split(':')[0]||(!isOnline?getRememberedVerifiedAuthIdentity()?.uid:undefined)||'unauthenticated',
+    isProjectRoleResolved && projectRoleAllowed && canEditWarehouseData(currentUserRole),
+    isProjectRoleResolved && projectRoleAllowed);
 
   // V6.2.22: VIEWER renders Firestore truth only, but its older IndexedDB cache is not
   // destroyed. If the same account later gains edit rights, reconcile any genuinely
@@ -7952,6 +7956,7 @@ function AuthenticatedApp() {
               isActive={visibleTab === 'warehouse'}
               quickEditEnabled={allowPcQuickEdit}
               currentProjectId={activeProjectId}
+              orderSync={warehouseOrderSync}
               projectName={projectName}
               projectLocation={projectLocation}
               contractorName={contractorName}
@@ -8358,6 +8363,7 @@ function AuthenticatedApp() {
               onLinkLocalFile={handleLinkLocalFile}
               onUnlinkLocalFile={handleUnlinkLocalFile}
               onRequestLocalFilePermission={handleRequestLocalFilePermission}
+              warehouseOrderSync={warehouseOrderSync}
               syncCenterContent={(
                 <ProjectManagerModal
                   inline
@@ -8399,6 +8405,7 @@ function AuthenticatedApp() {
                   onRestoreData={handleRestoreData}
                   onSwitchProject={switchProject}
                   onFlushCurrentProject={async () => await saveCurrentProject(activeProjectId)}
+                  warehouseOrderSync={warehouseOrderSync}
                   dataCloudStatus={dataCloudStatus}
                   photoCloudStatus={photoCloudStatus}
                 />

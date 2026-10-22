@@ -1,6 +1,9 @@
 import type { WarehouseVoucherPrintPage } from './warehouseVoucherPrint';
 import { formatDateDDMMYYYY } from './dateFormatter';
 import { formatDecimal } from './numberUtils';
+import {unzipSync,zipSync,strFromU8,strToU8} from 'fflate';
+import {resolveVoucherPaper,DEFAULT_VOUCHER_PAGE_OPTIONS} from './warehouseVoucherPrint';
+import type { WarehousePageOptions } from './warehouseCatalogReport';
 
 export const WAREHOUSE_EXCEL_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
@@ -18,7 +21,7 @@ const textCell = (value: unknown) => clean(value) || '—';
  * areas as the PNG/PDF version. The technical ID column is hidden, never deleted;
  * no new receipt number, warehouse write or synthetic recipient is introduced.
  */
-export async function buildWarehouseVoucherExcel(pages: WarehouseVoucherPrintPage[], project: WarehouseVoucherProject = {}) {
+export async function buildWarehouseVoucherExcel(pages: WarehouseVoucherPrintPage[], project: WarehouseVoucherProject = {}, options: WarehousePageOptions = DEFAULT_VOUCHER_PAGE_OPTIONS) {
   if (!pages.length) throw new Error('Chưa có phiếu kho để xuất Excel.');
   const XLSX = await import('xlsx');
   const wb = XLSX.utils.book_new();
@@ -106,8 +109,26 @@ export async function buildWarehouseVoucherExcel(pages: WarehouseVoucherPrintPag
     const sheetName = (page.direction==='in'?'NHAP':'XUAT') + '-' + String(index+1).padStart(2,'0');
     XLSX.utils.book_append_sheet(wb,ws,sheetName);
   }
-  const bytes = XLSX.write(wb,{bookType:'xlsx',type:'array',cellStyles:true});
-  const blob = new Blob([bytes],{type:WAREHOUSE_EXCEL_MIME});
+  const bytes = XLSX.write(wb,{bookType:'xlsx',type:'array',cellStyles:true}) as Uint8Array;
+  // SheetJS Community does not reliably serialize the pageSetup model; set
+  // real OOXML print geometry on *generated* sheets only (preserve cell bytes/IDs).
+  const zip=unzipSync(bytes);
+  const {landscape}=resolveVoucherPaper(options);
+  for (const path of Object.keys(zip).filter(p=>/^xl\/worksheets\/sheet\d+\.xml$/.test(p))) {
+    let xml=strFromU8(zip[path]);
+    xml=xml.replace(/<pageSetup\b[^>]*\/>/g,'');
+    const pageSetup=`<pageSetup paperSize="${options.paperSize==='A3'?8:9}" orientation="${landscape?'landscape':'portrait'}" fitToWidth="1" fitToHeight="${options.fit==='one'?1:0}"/>`;
+    if(/<pageMargins\b[^>]*\/>/.test(xml))xml=xml.replace(/(<pageMargins\b[^>]*\/>)/,`$1${pageSetup}`);
+    else xml=xml.replace('</worksheet>',pageSetup+'</worksheet>');
+    if(!xml.includes('<pageSetUpPr')){
+      if(/<sheetPr\s*\/>/.test(xml))xml=xml.replace(/<sheetPr\s*\/>/,'<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>');
+      else if(/<sheetPr\b[^>]*>/.test(xml))xml=xml.replace(/(<sheetPr\b[^>]*>)/,'$1<pageSetUpPr fitToPage="1"/>');
+      else xml=xml.replace(/(<worksheet\b[^>]*>)/,'$1<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>');
+    }
+    zip[path]=strToU8(xml);
+  }
+  const formattedBytes=zipSync(zip,{level:6});
+  const blob = new Blob([formattedBytes],{type:WAREHOUSE_EXCEL_MIME});
   if (!blob.size) throw new Error('Excel phiếu kho rỗng (0 byte).');
   const fileName = 'PHIEU_NHAP_XUAT_KHO_' + pages.length + '_TRANG.xlsx';
   return {workbook:wb,blob,fileName,mimeType:WAREHOUSE_EXCEL_MIME};

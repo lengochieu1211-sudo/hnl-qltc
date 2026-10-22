@@ -37,6 +37,29 @@ const sanitizeFilePart = (value: string) => String(value || '')
 
 const formatCell = (value: number | null, reported: boolean) => reported ? String(value ?? 0) : 'Chưa báo';
 
+// Hide only a shift column that is explicitly reported as zero for the whole
+// selected period. Never hide unknown/unreported shifts, team totals or source data.
+type CrewMetric = 'morning'|'afternoon'|'evening'|'dailyHeadcount';
+const SHIFT_METRICS: CrewMetric[] = ['morning','afternoon','evening','dailyHeadcount'];
+const SHIFT_LABEL: Record<CrewMetric,string> = {morning:'Sáng',afternoon:'Chiều',evening:'Tối',dailyHeadcount:'QS ngày'};
+function visibleCrewMetrics(matrix: ReturnType<typeof buildCrewReportMatrices>[number], hideZeroShifts:boolean): Record<string,CrewMetric[]> {
+  const output:Record<string,CrewMetric[]>={};
+  matrix.teams.forEach(team=>{
+    const records=matrix.dates.map(date=>date.cells[team.teamKey]).filter(row=>row?.reported);
+    output[team.teamKey]=!hideZeroShifts||!records.length?SHIFT_METRICS:SHIFT_METRICS.filter(metric=>
+      metric==='dailyHeadcount'||records.some(row=>Number(row?.[metric]||0)!==0));
+  });
+  return output;
+}
+function wrapProjectTitle(name:string,maxChars:number): string[]{
+  const lines:string[]=[];let line='';
+  for(const word of name.split(/\s+/).filter(Boolean)){
+    if(line && (line+' '+word).length>maxChars){lines.push(line);line=word;} else line=line?line+' '+word:word;
+  }
+  if(line)lines.push(line);
+  return lines.length?lines:['—'];
+}
+
 const dateSpanDays = (startDate: string, endDate: string): number => {
   const start = new Date(`${startDate}T12:00:00`).getTime();
   const end = new Date(`${endDate}T12:00:00`).getTime();
@@ -61,6 +84,7 @@ async function renderCrewReportImages(params: {
   title: string;
   showSerialNumber?: boolean;
   showWorkDetails?: boolean;
+  hideZeroShifts?: boolean;
 }): Promise<ShareAttachmentPayload[]> {
   if (typeof document === 'undefined') return [];
   const matrices = buildCrewReportMatrices(params.rows);
@@ -80,6 +104,11 @@ async function renderCrewReportImages(params: {
   for (let pageIndex = 0; pageIndex < pageSpecs.length; pageIndex += 1) {
     const { matrix, teams, dates } = pageSpecs[pageIndex];
     const teamKeySet = new Set(teams.map((team) => team.teamKey));
+    const visibleMetrics = visibleCrewMetrics(matrix,Boolean(params.hideZeroShifts));
+    const metricCount = teams.reduce((sum,team)=>sum+visibleMetrics[team.teamKey].length,0);
+    const teamMetricOffsets = new Map<string,number>();
+    let metricCursor=0;
+    teams.forEach(team=>{teamMetricOffsets.set(team.teamKey,metricCursor);metricCursor+=visibleMetrics[team.teamKey].length;});
     const visibleGroups = matrix.groups
       .map((group) => ({ ...group, teams: group.teams.filter((team) => teamKeySet.has(team.teamKey)) }))
       .filter((group) => group.teams.length > 0);
@@ -95,17 +124,17 @@ async function renderCrewReportImages(params: {
     const fixedColumnsWidth = serialWidth + dateWidth + totalWidth + detailWidth;
     // A short report should fill the image rather than leave a large blank right margin.
     // Keep the normal minimum metric width for reports with many teams.
-    const metricWidth = Math.max(baseMetricWidth, Math.ceil((minimumTableWidth - fixedColumnsWidth) / (Math.max(1, teams.length) * 4)));
-    const teamWidth = metricWidth * 4;
-    const tableWidth = serialWidth + dateWidth + Math.max(1, teams.length) * teamWidth + totalWidth + detailWidth;
+    const metricWidth = Math.max(baseMetricWidth, Math.ceil((minimumTableWidth - fixedColumnsWidth) / Math.max(1,metricCount)));
+    const tableWidth = serialWidth + dateWidth + Math.max(1,metricCount) * metricWidth + totalWidth + detailWidth;
     const width = Math.max(860, left + tableWidth + right);
-    const headerHeight = matrix.projectLocation ? 180 : 154;
+    const projectTitleLines = wrapProjectTitle(matrix.projectName,Math.max(32,Math.floor((width-left-right)/17)));
+    const headerHeight = (matrix.projectLocation?154:127) + (projectTitleLines.length-1)*28;
     const groupHeaderHeight = 36;
     const teamHeaderHeight = 42;
     const subHeaderHeight = 38;
     const totalHeaderHeight = groupHeaderHeight + teamHeaderHeight + subHeaderHeight;
     const rowHeight = 44;
-    const footerHeight = 62;
+    const footerHeight = 46;
     const height = headerHeight + totalHeaderHeight + (Math.max(1, dates.length) + 1) * rowHeight + footerHeight;
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -116,24 +145,24 @@ async function renderCrewReportImages(params: {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, width, height);
     ctx.fillStyle = '#0f172a';
-    ctx.font = '700 31px Arial, sans-serif';
-    ctx.fillText(`${params.title} – ${matrix.projectName}`, left, 52);
-    ctx.font = '600 18px Arial, sans-serif';
-    ctx.fillStyle = '#334155';
+    ctx.font = '700 28px Arial, sans-serif';
+    ctx.fillText(params.title.toLocaleUpperCase('vi-VN'),left,38,Math.max(320,width-250));
+    ctx.fillStyle = '#1d4ed8';ctx.font = '700 24px Arial, sans-serif';
+    projectTitleLines.forEach((line,i)=>ctx.fillText(line,left,73+i*28,width-left-right));
+    ctx.font = '600 17px Arial, sans-serif';ctx.fillStyle = '#334155';
     const rangeText = params.startDate === params.endDate
-      ? `Ngày ${formatDateDDMMYYYY(params.startDate)}`
-      : `Từ ${formatDateDDMMYYYY(params.startDate)} đến ${formatDateDDMMYYYY(params.endDate)}`;
-    ctx.fillText(rangeText, left, 88);
-    let nextY = 118;
-    if (matrix.projectLocation) {
-      ctx.font = '500 17px Arial, sans-serif';
-      ctx.fillStyle = '#64748b';
-      ctx.fillText(`Địa điểm: ${matrix.projectLocation}`, left, nextY);
-      nextY += 28;
+      ? `Ngày: ${formatDateDDMMYYYY(params.startDate)}`
+      : `Thời gian: ${formatDateDDMMYYYY(params.startDate)} – ${formatDateDDMMYYYY(params.endDate)}`;
+    const detailTop=105+(projectTitleLines.length-1)*28;
+    ctx.fillText(rangeText,left,detailTop,width-left-right);
+    if(matrix.projectLocation){
+      ctx.font='500 17px Arial, sans-serif';ctx.fillStyle='#475569';
+      ctx.fillText(`Địa điểm: ${matrix.projectLocation}`,left,detailTop+27,width-left-right);
     }
-    ctx.font = '500 15px Arial, sans-serif';
-    ctx.fillStyle = '#64748b';
-    ctx.fillText(`Trang ${pageIndex + 1}/${pageSpecs.length}`, width - right - 92, 52);
+    ctx.font = '500 14px Arial, sans-serif';ctx.fillStyle = '#64748b';
+    ctx.textAlign='right';
+    ctx.fillText(`Trang ${pageIndex+1}/${pageSpecs.length}`,width-right,38);
+    ctx.textAlign='left';
     ctx.fillStyle = '#dbeafe';
     ctx.fillRect(left, headerHeight - 10, width - left - right, 2);
 
@@ -161,8 +190,9 @@ async function renderCrewReportImages(params: {
 
     let teamOffset = 0;
     visibleGroups.forEach((group) => {
-      const x = teamStartX + teamOffset * teamWidth;
-      const spanWidth = group.teams.length * teamWidth;
+      const groupMetrics=group.teams.reduce((sum,team)=>sum+visibleMetrics[team.teamKey].length,0);
+      const x = teamStartX + teamOffset * metricWidth;
+      const spanWidth = groupMetrics * metricWidth;
       ctx.fillStyle = '#eff6ff';
       ctx.fillRect(x, tableTop, spanWidth, groupHeaderHeight);
       ctx.strokeStyle = '#bfdbfe';
@@ -172,11 +202,12 @@ async function renderCrewReportImages(params: {
       const groupName = group.structureGroupName.length > 34 ? `${group.structureGroupName.slice(0, 33)}…` : group.structureGroupName;
       const gw = ctx.measureText(groupName).width;
       ctx.fillText(groupName, x + Math.max(8, (spanWidth - gw) / 2), tableTop + 23);
-      teamOffset += group.teams.length;
+      teamOffset += groupMetrics;
     });
 
     teams.forEach((team, teamIndex) => {
-      const x = teamStartX + teamIndex * teamWidth;
+      const x = teamStartX + (teamMetricOffsets.get(team.teamKey)||0)*metricWidth;
+      const teamWidth = visibleMetrics[team.teamKey].length*metricWidth;
       const teamTop = tableTop + groupHeaderHeight;
       ctx.strokeStyle = '#cbd5e1';
       ctx.strokeRect(x, teamTop, teamWidth, teamHeaderHeight + subHeaderHeight);
@@ -185,7 +216,8 @@ async function renderCrewReportImages(params: {
       const name = team.teamName.length > 24 ? `${team.teamName.slice(0, 23)}…` : team.teamName;
       const textWidth = ctx.measureText(name).width;
       ctx.fillText(name, x + Math.max(8, (teamWidth - textWidth) / 2), teamTop + 27);
-      ['Sáng', 'Chiều', 'Tối', 'QS ngày'].forEach((label, metricIndex) => {
+      visibleMetrics[team.teamKey].forEach((metric, metricIndex) => {
+        const label=SHIFT_LABEL[metric];
         const mx = x + metricIndex * metricWidth;
         const metricTop = teamTop + teamHeaderHeight;
         ctx.strokeRect(mx, metricTop, metricWidth, subHeaderHeight);
@@ -195,7 +227,7 @@ async function renderCrewReportImages(params: {
       });
     });
 
-    const totalX = teamStartX + teams.length * teamWidth;
+    const totalX = teamStartX + metricCount * metricWidth;
     ctx.fillStyle = '#eff6ff';
     ctx.fillRect(totalX, tableTop, totalWidth, totalHeaderHeight);
     ctx.strokeStyle = '#cbd5e1';
@@ -235,13 +267,12 @@ async function renderCrewReportImages(params: {
 
       teams.forEach((team, teamIndex) => {
         const row = dateRow.cells[team.teamKey];
-        const values = row?.reported
-          ? [String(row.morning ?? 0), String(row.afternoon ?? 0), String(row.evening ?? 0), String(row.dailyHeadcount ?? 0)]
-          : ['—', '—', '—', '—'];
+        const metrics=visibleMetrics[team.teamKey];
+        const values=metrics.map(metric=>row?.reported?String(row[metric]??0):'—');
         values.forEach((value, metricIndex) => {
-          const x = teamStartX + teamIndex * teamWidth + metricIndex * metricWidth;
+          const x = teamStartX + ((teamMetricOffsets.get(team.teamKey)||0)+metricIndex) * metricWidth;
           ctx.strokeRect(x, y, metricWidth, rowHeight);
-          ctx.font = metricIndex === 3 ? '700 14px Arial, sans-serif' : '500 14px Arial, sans-serif';
+          ctx.font = metrics[metricIndex] === 'dailyHeadcount' ? '700 14px Arial, sans-serif' : '500 14px Arial, sans-serif';
           ctx.fillStyle = row?.reported ? '#334155' : '#94a3b8';
           const w = ctx.measureText(value).width;
           ctx.fillText(value, x + (metricWidth - w) / 2, y + 28);
@@ -283,8 +314,9 @@ async function renderCrewReportImages(params: {
     ctx.fillText(totalLabel, dateX + (dateWidth - ctx.measureText(totalLabel).width) / 2, totalRowY + 28);
     teams.forEach((team, teamIndex) => {
       const total = matrix.teamTotals[team.teamKey] || { morning: 0, afternoon: 0, evening: 0, dailyHeadcount: 0 };
-      [total.morning, total.afternoon, total.evening, total.dailyHeadcount].forEach((value, metricIndex) => {
-        const x = teamStartX + teamIndex * teamWidth + metricIndex * metricWidth;
+      visibleMetrics[team.teamKey].forEach((metric, metricIndex) => {
+        const value=total[metric];
+        const x = teamStartX + ((teamMetricOffsets.get(team.teamKey)||0)+metricIndex) * metricWidth;
         ctx.strokeRect(x, totalRowY, metricWidth, rowHeight);
         const text = String(value);
         ctx.fillText(text, x + (metricWidth - ctx.measureText(text).width) / 2, totalRowY + 28);
@@ -306,7 +338,7 @@ async function renderCrewReportImages(params: {
 
     ctx.font = '500 13px Arial, sans-serif';
     ctx.fillStyle = '#64748b';
-    ctx.fillText('0 = đã báo, không có người · — = chưa báo · Tổng ngày = cộng QS các đội · TỔNG = cộng từng cột.', left, height - 28);
+    ctx.fillText('0 = đã báo, không có người · — = chưa báo · Tổng ngày = cộng QS các đội · TỔNG = cộng từng cột.', left, height - 19);
 
     const dataUrl = canvas.toDataURL('image/png');
     attachments.push({
@@ -365,6 +397,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
   const [hideZeroTeams, setHideZeroTeams] = useState(false);
   const [hideUnreportedDates, setHideUnreportedDates] = useState(false);
   const [hideZeroDates, setHideZeroDates] = useState(false);
+  const [hideZeroShifts,setHideZeroShifts]=useState(false);
   const [showSerialNumber, setShowSerialNumber] = useState(false);
   const [showWorkDetails, setShowWorkDetails] = useState(false);
   const [busy, setBusy] = useState<'text' | 'image' | 'download' | 'excel' | ''>('');
@@ -390,6 +423,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
     setHideZeroTeams(false);
     setHideUnreportedDates(false);
     setHideZeroDates(false);
+    setHideZeroShifts(false);
     setShowSerialNumber(false);
     setShowWorkDetails(false);
     setMessage('');
@@ -476,7 +510,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
   const dailySummary = useMemo(() => summarizeCrewReportRows(rows), [rows]);
   const reportMatrices = useMemo(() => buildCrewReportMatrices(rows), [rows]);
   const reportText = useMemo(() => buildCrewReportText({ rows, startDate, endDate: effectiveEndDate, title, includeSerial: showSerialNumber, includeDetails: showWorkDetails }), [rows, startDate, effectiveEndDate, title, showSerialNumber, showWorkDetails]);
-  const preparationSignature = reportText + '|' + showSerialNumber + '|' + showWorkDetails;
+  const preparationSignature = reportText + '|' + showSerialNumber + '|' + showWorkDetails + '|' + hideZeroShifts;
   useEffect(() => {
     setActionMenu(null);
     setPreparedImages(null);
@@ -508,7 +542,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
     }
   };
 
-  const makeImages = async () => renderCrewReportImages({ rows, startDate, endDate: effectiveEndDate, title, showSerialNumber, showWorkDetails });
+  const makeImages = async () => renderCrewReportImages({ rows, startDate, endDate: effectiveEndDate, title, showSerialNumber, showWorkDetails, hideZeroShifts });
 
   const openActionMenu = async (type:'text'|'image'|'excel') => {
     if(busy)return;
@@ -671,11 +705,12 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
               <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={hideZeroTeams} onChange={(event) => setHideZeroTeams(event.target.checked)} /> Ẩn đội quân số = 0</label>
               <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={hideUnreportedDates} onChange={(event) => setHideUnreportedDates(event.target.checked)} /> Ẩn ngày chưa báo</label>
               <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={hideZeroDates} onChange={(event) => setHideZeroDates(event.target.checked)} /> Ẩn ngày quân số = 0</label>
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={hideZeroShifts} onChange={(event) => setHideZeroShifts(event.target.checked)} /> Ẩn ca có quân số = 0 (ảnh)</label>
               <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={showSerialNumber} onChange={(event) => setShowSerialNumber(event.target.checked)} /> Thêm cột STT</label>
               <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={showWorkDetails} onChange={(event) => setShowWorkDetails(event.target.checked)} /> Chi tiết Tầng / Hạng mục / HM con / Ghi chú</label>
             </div>
             <div className="mt-2 text-[9.5px] font-semibold text-slate-500">
-              Mặc định không ẩn dữ liệu. “Ẩn đội quân số = 0” chỉ ẩn đội đã báo nhưng toàn bộ khoảng ngày đang xem đều bằng 0.
+              Mặc định không ẩn dữ liệu. “Ẩn ca có quân số = 0” chỉ ẩn cột Sáng/Chiều/Tối khi ca đó đã được báo và bằng 0 trong toàn khoảng ngày; áp dụng cho xem trước và ảnh, không thay đổi dữ liệu Excel.
             </div>
           </div>
 
@@ -689,29 +724,31 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
           </div>
 
           <div className="space-y-3">
-            {reportMatrices.map((matrix) => (
+            {reportMatrices.map((matrix) => {
+              const metricColumns=visibleCrewMetrics(matrix,hideZeroShifts);
+              return (
               <section key={matrix.projectId} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
                 <div className="border-b border-slate-200 bg-slate-50 px-3 py-2.5">
                   <div className="text-xs font-black text-slate-900">{matrix.projectName}</div>
                   {matrix.projectLocation && <div className="mt-0.5 text-[10px] font-semibold text-slate-500">Địa điểm: {matrix.projectLocation}</div>}
                 </div>
                 <div className="relative isolate max-h-[42vh] overflow-auto overscroll-contain">
-                  <table className="hnl-crew-report-table w-full text-left text-xs" style={{ minWidth: `${Math.max(570, 230 + matrix.teams.length * 248 + (showSerialNumber ? 52 : 0) + (showWorkDetails ? 300 : 0))}px` }}>
+                  <table className="hnl-crew-report-table w-full text-left text-xs" style={{ minWidth: `${Math.max(570, 230 + matrix.teams.reduce((sum,team)=>sum+metricColumns[team.teamKey].length,0)*62 + (showSerialNumber ? 52 : 0) + (showWorkDetails ? 300 : 0))}px` }}>
                     <thead className="bg-slate-100 text-[9.5px] font-black text-slate-500">
                       <tr className="h-8">
                         {showSerialNumber && <th rowSpan={3} className="sticky left-0 top-0 z-[6] min-w-[52px] border-r border-slate-200 bg-blue-50 px-2 py-2 text-center align-middle">STT</th>}
                         <th rowSpan={3} style={{ left: showSerialNumber ? 52 : 0 }} className="sticky top-0 z-[5] min-w-[118px] border-r border-slate-200 bg-blue-50 px-3 py-2 text-center align-middle">Ngày</th>
                         {matrix.groups.map((group) => (
-                          <th key={group.structureGroupId} colSpan={Math.max(1, group.teams.length * 4)} className="sticky top-0 z-[4] h-8 border-r border-blue-200 bg-blue-50 px-2 py-0 text-center text-blue-800">{group.structureGroupName}</th>
+                          <th key={group.structureGroupId} colSpan={Math.max(1,group.teams.reduce((sum,team)=>sum+metricColumns[team.teamKey].length,0))} className="sticky top-0 z-[4] h-8 border-r border-blue-200 bg-blue-50 px-2 py-0 text-center text-blue-800">{group.structureGroupName}</th>
                         ))}
                         <th rowSpan={3} className="sticky top-0 z-[4] min-w-[110px] border-r border-slate-200 bg-blue-50 px-2 py-2 text-center align-middle text-blue-800">Tổng QS/ngày</th>
                         {showWorkDetails && <th rowSpan={3} className="sticky top-0 z-[4] min-w-[300px] border-r border-slate-200 bg-blue-50 px-3 py-2 text-left align-middle text-slate-700">Tầng / Hạng mục / HM con / Ghi chú</th>}
                       </tr>
                       <tr className="h-8">
-                        {matrix.teams.map((team) => <th key={team.teamKey} colSpan={4} className="sticky top-[31px] z-[3] h-8 border-r border-slate-200 bg-blue-50 px-2 py-0 text-center text-slate-700">{team.teamName}</th>)}
+                        {matrix.teams.map((team) => <th key={team.teamKey} colSpan={metricColumns[team.teamKey].length} className="sticky top-[31px] z-[3] h-8 border-r border-slate-200 bg-blue-50 px-2 py-0 text-center text-slate-700">{team.teamName}</th>)}
                       </tr>
                       <tr>
-                        {matrix.teams.flatMap((team) => ['Sáng', 'Chiều', 'Tối', 'QS ngày'].map((label) => <th key={`${team.teamKey}-${label}`} className="sticky top-[62px] z-[3] min-w-[62px] border-r border-slate-200 bg-blue-50 px-2 py-1.5 text-center">{label}</th>))}
+                        {matrix.teams.flatMap(team=>metricColumns[team.teamKey].map(metric=><th key={`${team.teamKey}-${metric}`} className="sticky top-[62px] z-[3] min-w-[62px] border-r border-slate-200 bg-blue-50 px-2 py-1.5 text-center">{SHIFT_LABEL[metric]}</th>))}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -721,12 +758,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
                           <td style={{ left: showSerialNumber ? 52 : 0 }} className={`sticky z-[1] border-r border-slate-100 px-3 py-2 text-center font-bold tabular-nums ${isCrewReportSunday(dateRow.date) ? 'text-red-700' : 'text-slate-700'} ${dateIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}>{formatDateDDMMYYYY(dateRow.date)}</td>
                           {matrix.teams.flatMap((team) => {
                             const row = dateRow.cells[team.teamKey];
-                            return [
-                              <td key={`${team.teamKey}-m`} className="border-r border-slate-100 px-2 py-2 text-center tabular-nums">{row?.reported ? formatCell(row.morning, true) : '—'}</td>,
-                              <td key={`${team.teamKey}-a`} className="border-r border-slate-100 px-2 py-2 text-center tabular-nums">{row?.reported ? formatCell(row.afternoon, true) : '—'}</td>,
-                              <td key={`${team.teamKey}-e`} className="border-r border-slate-100 px-2 py-2 text-center tabular-nums">{row?.reported ? formatCell(row.evening, true) : '—'}</td>,
-                              <td key={`${team.teamKey}-d`} className={`border-r border-slate-100 px-2 py-2 text-center font-black tabular-nums ${row?.reported ? 'text-slate-900' : 'text-amber-600'}`}>{row?.reported ? formatCell(row.dailyHeadcount, true) : '—'}</td>,
-                            ];
+                            return metricColumns[team.teamKey].map(metric=><td key={`${team.teamKey}-${metric}`} className={`border-r border-slate-100 px-2 py-2 text-center tabular-nums ${metric==='dailyHeadcount'?'font-black ':''}${row?.reported?'text-slate-900':'text-amber-600'}`}>{row?.reported?formatCell(row[metric],true):'—'}</td>);
                           })}
                           <td className="border-r border-slate-100 px-2 py-2 text-center font-black tabular-nums text-blue-900">{dateRow.totalDailyHeadcount}</td>
                           {showWorkDetails && (
@@ -748,8 +780,8 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
                         <td style={{ left: showSerialNumber ? 52 : 0 }} className="sticky z-[1] border-r border-blue-200 bg-blue-100 px-3 py-2 text-center">TỔNG</td>
                         {matrix.teams.flatMap((team) => {
                           const total = matrix.teamTotals[team.teamKey] || { morning: 0, afternoon: 0, evening: 0, dailyHeadcount: 0 };
-                          return [total.morning, total.afternoon, total.evening, total.dailyHeadcount].map((value, index) => (
-                            <td key={`${team.teamKey}-total-${index}`} className="border-r border-blue-100 px-2 py-2 text-center tabular-nums">{value}</td>
+                          return metricColumns[team.teamKey].map((metric) => (
+                            <td key={`${team.teamKey}-total-${metric}`} className="border-r border-blue-100 px-2 py-2 text-center tabular-nums">{total[metric]}</td>
                           ));
                         })}
                         <td className="border-r border-blue-200 bg-blue-100 px-2 py-2 text-center tabular-nums">{matrix.grandDailyHeadcount}</td>
@@ -759,7 +791,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
                   </table>
                 </div>
               </section>
-            ))}
+            );})}
             {rows.length === 0 && <div className="rounded-2xl border border-slate-200 px-4 py-8 text-center text-xs text-slate-400">Không có đội hoặc dữ liệu phù hợp phạm vi đã chọn.</div>}
           </div>
 
@@ -767,7 +799,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
             <Users className="mr-1 inline h-3.5 w-3.5" /> 0 = đã báo, không có người · — = chưa báo · Tổng ngày = cộng QS các đội · TỔNG = cộng từng cột; ô cuối = tổng lượt người-ngày.
           </div>
 
-          <div className="grid grid-cols-3 gap-2" data-hnl-pc-v32-region="crew-share-actions" data-hnl-crew-export-menu="unified">
+          <div className="grid grid-cols-3 gap-2" data-hnl-pc-v32-region="crew-share-actions" data-hnl-crew-export-menu="unified" data-hnl-export-format-group="true" data-hnl-export-format-count="3" role="group" aria-label="Nội dung, ảnh và Excel quân số">
             <button type="button" disabled={!rangeValid || rows.length===0||Boolean(busy)} onClick={()=>void openActionMenu('text')}
               aria-expanded={actionMenu==='text'} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-slate-800 px-2 text-xs font-bold text-white disabled:opacity-40">
               <FileText className="h-4 w-4" /> Nội dung

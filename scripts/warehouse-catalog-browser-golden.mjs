@@ -34,7 +34,7 @@ const orderRect=await orderOpener.boundingBox();
 const sheetRect=await sheet.boundingBox();
 assert(exportRect&&orderRect&&sheetRect,label+': missing warehouse export/order controls');
 if(size.width>=960){
-  assert(exportRect.width<=370,label+': PC export group stretched beyond compact design');
+  assert(exportRect.width<=480,label+': PC four-button export group stretched beyond compact design');
   assert(orderRect.width<=300,label+': PC order launcher stretched across entire sheet');
   assert(exportRect.width<sheetRect.width*0.7&&orderRect.width<sheetRect.width*0.7,label+': PC buttons consume most of sheet width');
 }else{

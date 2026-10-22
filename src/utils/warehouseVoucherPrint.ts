@@ -1,6 +1,17 @@
 import type { InventoryItem, TransactionType } from '../types';
 import { formatDateDDMMYYYY } from './dateFormatter';
 import { formatDecimal } from './numberUtils';
+import type { WarehousePageOptions } from './warehouseCatalogReport';
+
+export const DEFAULT_VOUCHER_PAGE_OPTIONS: WarehousePageOptions = {paperSize:'A4',orientation:'auto',fit:'one'};
+export function resolveVoucherPaper(options: WarehousePageOptions = DEFAULT_VOUCHER_PAGE_OPTIONS) {
+  const landscape = options.orientation === 'landscape';
+  const [width,height,mmWidth,mmHeight] = options.paperSize === 'A3'
+    ? (landscape ? [2480,1754,420,297] : [1754,2480,297,420])
+    : (landscape ? [1754,1240,297,210] : [1240,1754,210,297]);
+  return {width,height,mmWidth,mmHeight,landscape};
+}
+
 
 // Print-only grouping. Underlying warehouse transactions keep their original IDs and balances.
 export type WarehouseVoucherPrintPage = {
@@ -23,7 +34,11 @@ function estimatedRowHeight(item: InventoryItem): number {
   return Math.max(68, 26 + nameLines * 28 + noteLines * 22);
 }
 
-export function paginateWarehouseVouchers(rows: InventoryItem[]): WarehouseVoucherPrintPage[] {
+export function paginateWarehouseVouchers(rows: InventoryItem[], options: WarehousePageOptions = DEFAULT_VOUCHER_PAGE_OPTIONS): WarehouseVoucherPrintPage[] {
+  const {height}=resolveVoucherPaper(options);
+  // Landscape has less vertical space; A3 portrait can safely hold more rows.
+  // The conservative budget also reserves signatures and the footer.
+  const budget=Math.floor(PAGE_BODY_BUDGET * Math.max(0.35,(height-832)/922) * (options.fit==='split'?0.82:1));
   const grouped = new Map<string, InventoryItem[]>();
   for (const item of rows) {
     if (item.deletedAt != null) continue;
@@ -40,7 +55,7 @@ export function paginateWarehouseVouchers(rows: InventoryItem[]): WarehouseVouch
     let used = 0;
     for (const item of group) {
       const cost = estimatedRowHeight(item);
-      if (current.length && used + cost > PAGE_BODY_BUDGET) {
+      if (current.length && used + cost > budget) {
         chunks.push(current);
         current = [];
         used = 0;
@@ -67,13 +82,10 @@ export function paginateWarehouseVouchers(rows: InventoryItem[]): WarehouseVouch
   return pages;
 }
 
-const WIDTH = 1240;
-const HEIGHT = 1754;
-const LEFT = 64;
-const RIGHT = WIDTH - LEFT;
+// A4 portrait reference geometry: current output stays pixel-identical by default.
+// Printed voucher has 4 user-facing columns; original IDs stay in data/hidden Excel.
+const BASE_COLUMN_WIDTHS = [62, 742, 134, 174] as const;
 const TABLE_TOP = 407;
-// Printed voucher has 4 user-facing columns; original transaction IDs stay in data/hidden Excel.
-const COLUMN_WIDTHS = [62, 742, 134, 174];
 
 function wrapLines(ctx: CanvasRenderingContext2D, value: unknown, maxWidth: number): string[] {
   const lines: string[] = [];
@@ -104,7 +116,11 @@ function drawTextLines(ctx: CanvasRenderingContext2D, lines: string[], x: number
   lines.forEach((line, index) => ctx.fillText(line, x, y + index * step));
 }
 
-export function drawWarehouseVoucherPage(page: WarehouseVoucherPrintPage, project: { projectName?: string; projectLocation?: string; contractorName?: string } = {}): HTMLCanvasElement {
+export function drawWarehouseVoucherPage(page: WarehouseVoucherPrintPage, project: { projectName?: string; projectLocation?: string; contractorName?: string } = {}, options: WarehousePageOptions = DEFAULT_VOUCHER_PAGE_OPTIONS): HTMLCanvasElement {
+  const {width:WIDTH,height:HEIGHT}=resolveVoucherPaper(options);
+  const LEFT=64, RIGHT=WIDTH-LEFT;
+  // Widen only the name column: numeric columns and text sizes never distort.
+  const COLUMN_WIDTHS=[BASE_COLUMN_WIDTHS[0],WIDTH-2*LEFT-BASE_COLUMN_WIDTHS[0]-BASE_COLUMN_WIDTHS[2]-BASE_COLUMN_WIDTHS[3],BASE_COLUMN_WIDTHS[2],BASE_COLUMN_WIDTHS[3]];
   const canvas = document.createElement('canvas');
   canvas.width = WIDTH;
   canvas.height = HEIGHT;
@@ -194,7 +210,7 @@ export function drawWarehouseVoucherPage(page: WarehouseVoucherPrintPage, projec
     const notes = normalize(item.notes);
     const noteLines = notes ? wrapLines(ctx, 'Ghi chú: ' + notes, COLUMN_WIDTHS[1] - 26) : [];
     const h = Math.max(68, 25 + name.length * 29 + noteLines.length * 22);
-    if (rowTop + h > 1378) throw new Error('Bảng kê vượt chiều cao A4. Cần chia trang trước khi xuất.');
+    if (rowTop + h > HEIGHT-376) throw new Error('Bảng kê vượt chiều cao trang in. Cần chia trang trước khi xuất.');
     ctx.fillStyle = index % 2 ? '#f8fafc' : '#ffffff';
     ctx.fillRect(LEFT, rowTop, tableWidth, h);
     ctx.strokeStyle = '#cbd5e1';

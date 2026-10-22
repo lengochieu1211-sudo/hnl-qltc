@@ -2582,7 +2582,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   : reportExportMessage}
               </p>
             )}
-            <div className="grid grid-cols-3 gap-2" role="group" aria-label="Nội dung, PDF và Excel">
+            <div className="grid grid-cols-3 gap-2" role="group" aria-label="Nội dung, PDF và Excel" data-hnl-export-format-group="true" data-hnl-export-format-count="3">
               <button
                 type="button"
                 data-hnl-report-format="text"

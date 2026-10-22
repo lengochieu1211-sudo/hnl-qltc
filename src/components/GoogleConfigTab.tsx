@@ -1,3 +1,5 @@
+import type {WarehouseOrderSync} from '../hooks/useWarehouseOrderSync';
+import {WarehouseOrderSyncPanel} from './WarehouseOrderSyncPanel';
 import { downloadOrShareFile } from '../utils/downloadUtils';
 import React, { useState, useEffect, useMemo } from 'react';
 import { APP_VERSION_LABEL } from '../config/appVersion';
@@ -97,6 +99,7 @@ interface GoogleConfigTabProps {
   onUnlinkLocalFile?: () => void;
   onRequestLocalFilePermission?: () => void;
   syncCenterContent?: React.ReactNode;
+  warehouseOrderSync?: WarehouseOrderSync;
 
   // Lightweight project trash (metadata only; no Base64/blob duplication).
   userRole?: UserRole;
@@ -172,6 +175,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   onUnlinkLocalFile,
   onRequestLocalFilePermission,
   syncCenterContent,
+  warehouseOrderSync,
   userRole = 'VIEWER',
   roleResolved = false,
   trashSettings = { enabled: true, retentionDays: 7 },
@@ -376,7 +380,8 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       isSyncing ||
       syncDiagnostics?.dataCloudPhase === 'syncing' ||
       displayedPhotoPhase === 'syncing' ||
-      driveSyncStatus === 'syncing'
+      driveSyncStatus === 'syncing' ||
+      Boolean(warehouseOrderSync?.pendingCount && warehouseOrderSync.cloudState === 'ready' && warehouseOrderSync.conflicts.length === 0)
     );
     const needsSync = Boolean(
       !syncDiagnostics?.cloudInitialReady ||
@@ -385,10 +390,16 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       syncDiagnostics?.dataCloudPhase === 'conflict' ||
       Number(syncDiagnostics?.pendingData || 0) > 0 ||
       Number(displayedPhotoPending || 0) > 0 ||
-      Number(displayedPendingDriveUploads || 0) > 0
+      Number(displayedPendingDriveUploads || 0) > 0 ||
+      Number(warehouseOrderSync?.pendingCount || 0) > 0 ||
+      Boolean(warehouseOrderSync && warehouseOrderSync.cloudState !== 'ready') ||
+      Number(warehouseOrderSync?.conflicts.length || 0) > 0 ||
+      Boolean(warehouseOrderSync?.cloudError || warehouseOrderSync?.saveError)
     );
 
     if (offline) return { label: 'Ngoại tuyến', className: 'border-slate-200 bg-slate-100 text-slate-600' };
+    if (warehouseOrderSync?.conflicts.length) return { label: 'Có xung đột', className: 'border-amber-200 bg-amber-50 text-amber-700' };
+    if (warehouseOrderSync?.cloudState === 'error' || warehouseOrderSync?.cloudError || warehouseOrderSync?.saveError) return { label: 'Lỗi đồng bộ', className: 'border-rose-200 bg-rose-50 text-rose-700' };
     if (syncing) return { label: 'Đang đồng bộ', className: 'border-sky-200 bg-sky-50 text-sky-700' };
     if (needsSync) return { label: 'Cần đồng bộ', className: 'border-amber-200 bg-amber-50 text-amber-700' };
     if (syncDiagnostics?.dataCloudPhase === 'synced' || Number(syncDiagnostics?.lastSyncAt || 0) > 0) {
@@ -407,6 +418,11 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     syncDiagnostics?.online,
     syncDiagnostics?.pendingData,
     syncDiagnostics?.roleResolved,
+    warehouseOrderSync?.pendingCount,
+    warehouseOrderSync?.cloudState,
+    warehouseOrderSync?.conflicts.length,
+    warehouseOrderSync?.cloudError,
+    warehouseOrderSync?.saveError,
   ]);
 
   const handleGoToDiagnosticEntity = (photo: any) => {
@@ -811,8 +827,8 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           iconClassName="text-indigo-600"
           title="Trung tâm kiểm tra dữ liệu (Health Center)"
           description="Chẩn đoán hệ thống · cảnh báo đồng bộ/ảnh/quyền · kiểm tra dữ liệu & liên kết."
-          badge={syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'Cloud sẵn sàng' : 'Đang kiểm tra'}
-          badgeClassName={syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}
+          badge={syncCenterStatus.label}
+          badgeClassName={syncCenterStatus.className}
           bodyClassName="p-0"
         >
           <div className="space-y-3">
@@ -824,8 +840,8 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
               </h3>
               <p className="text-[10px] text-slate-500 mt-1">Dùng khi thiết bị/tài khoản nhìn dữ liệu hoặc ảnh khác nhau. Tệp chẩn đoán không chứa mật khẩu, token hay dữ liệu ảnh nhị phân thực tế.</p>
             </div>
-            <span className={`text-[10px] font-bold rounded-lg px-2 py-1 border ${syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-              {syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'Cloud sẵn sàng' : 'Đang kiểm tra'}
+            <span className={`text-[10px] font-bold rounded-lg px-2 py-1 border ${syncCenterStatus.className}`}>
+              {syncCenterStatus.label}
             </span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px]">
@@ -840,12 +856,16 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
               <div><b>Dữ liệu Firestore:</b> {formatSyncPhaseLabel(syncDiagnostics.dataCloudPhase)}</div>
               <div><b>Khởi tạo đồng bộ thời gian thực (realtime):</b> {syncDiagnostics.snapshotReadyCount}/9 {syncDiagnostics.cloudInitialReady ? '· sẵn sàng' : '· đang chờ'}</div>
               <div><b>Dữ liệu chờ:</b> {syncDiagnostics.pendingData}</div>
+              {warehouseOrderSync && <div><b>Đặt hàng chờ:</b> {warehouseOrderSync.pendingCount} · <b>Xung đột:</b> {warehouseOrderSync.conflicts.length}</div>}
               <div><b>Ảnh chờ Cloud:</b> {displayedPhotoPending} · {formatSyncPhaseLabel(displayedPhotoPhase)}</div>
               <div><b>Drive:</b> {formatSyncPhaseLabel(driveSyncStatus)} · {displayedPendingDriveUploads} tệp chờ</div>
               <div><b>Đồng bộ gần nhất:</b> {syncDiagnostics.lastSyncAt > 0 ? formatDateTime(syncDiagnostics.lastSyncAt) : 'Chưa có'}</div>
               <div><b>Mạng:</b> {syncDiagnostics.online === false ? 'Ngoại tuyến' : 'Trực tuyến'}</div>
             </div>
           </div>
+          {warehouseOrderSync && (
+            <WarehouseOrderSyncPanel sync={warehouseOrderSync} canEdit={Boolean(warehouseOrderSync.canEdit && roleResolved && userRole !== 'VIEWER')} />
+          )}
           {displayedLastSyncError && (
             <div className="rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-[10px] text-rose-800 break-words">
               <b>Lỗi đồng bộ gần nhất:</b> {displayedLastSyncError}

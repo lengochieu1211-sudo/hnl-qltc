@@ -18,9 +18,14 @@ assert.match(styles,/<borders count="2">/,'thin cell borders actually embedded')
 assert.match(styles,/rgb="FFE2E8F0"/,'warehouse voucher header fill embedded');
 assert.match(styles,/vertical="center"/,'vertical centering survives XLSX archive');
 assert.match(styles,/<cellXfs count="12">/,'body/header/stripe/warning styles embedded');
+const printed=styleWarehouseReportXlsx(source,{columnCount:3,headerRow:3,rowCount:1,printLayout:{paperSize:'A3',orientation:'landscape',fit:'one'}});
+const printedSheet=strFromU8(unzipSync(printed)['xl/worksheets/sheet1.xml']);
+assert.match(printedSheet,/<pageSetup paperSize="8" orientation="landscape" fitToWidth="1" fitToHeight="1"\/>/, 'A3 one-page print settings must survive OOXML');
+assert.match(printedSheet,/<pageSetUpPr fitToPage="1"\/>/, 'Excel must enable fit-to-page');
 assert.throws(()=>styleWarehouseReportXlsx(source,{columnCount:0,headerRow:3,rowCount:1}),/không hợp lệ/);
 const report=readFileSync(new URL('../src/utils/warehouseCatalogReport.ts',import.meta.url),'utf8');
 assert.match(report,/function reportCanvases/, 'PNG must use shared warehouse report schema');
+assert.match(report,/resolveWarehousePaper/, 'PNG/PDF use common A3/A4 paper orientation');
 assert.match(report,/baseline:'middle'/,'PDF header and cell vertical alignment must be centered');
 assert.match(report,/ctx\.textBaseline='middle'/,'PNG header and cell vertical alignment must be centered');
 assert.match(report,/const align=alignColumn\(report,i\)/,'PDF and PNG use shared cell alignment');

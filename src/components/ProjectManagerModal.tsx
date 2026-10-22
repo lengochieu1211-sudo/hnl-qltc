@@ -1,3 +1,4 @@
+import type {WarehouseOrderSync} from '../hooks/useWarehouseOrderSync';
 import { downloadOrShareFile } from '../utils/downloadUtils';
 import React, { useState, useEffect, useMemo } from 'react';
 import { ViewportModalPortal } from './ViewportModalPortal';
@@ -97,6 +98,7 @@ interface ProjectManagerModalProps {
   onSwitchProject?: (id: string) => Promise<void>;
   onFlushCurrentProject?: () => Promise<void>;
   userRole?: UserRole;
+  warehouseOrderSync?: WarehouseOrderSync;
   dataCloudStatus?: { phase: 'idle' | 'syncing' | 'synced' | 'error' | 'conflict'; lastSyncAt?: number; message?: string };
   photoCloudStatus?: { phase: 'idle' | 'syncing' | 'synced' | 'error'; pending?: number; message?: string; lastSyncAt?: number };
 }
@@ -131,11 +133,15 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   userRole,
   dataCloudStatus,
   photoCloudStatus,
+  warehouseOrderSync,
 }) => {
   useFormatSettings();
   const effectiveRole = userRole || getCurrentUserRole();
   const canManage = canManageProjects(effectiveRole);
   const canEdit = canEditProjectData(effectiveRole);
+  const orderConflictCount=warehouseOrderSync?.conflicts.length||0;
+  const orderSyncError=Boolean(warehouseOrderSync?.cloudError||warehouseOrderSync?.saveError);
+  const orderWaiting=Boolean(warehouseOrderSync?.pendingCount);
   const canBackup = canManageBackups(effectiveRole);
   const hasDriveBackend = !FIREBASE_ONLY_RUNTIME && Boolean(onDriveSyncUpAll && onDriveSyncDownAll);
 
@@ -3736,16 +3742,16 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     <span className={`shrink-0 text-[9px] px-2 py-1 rounded-full font-bold border ${
                       !googleUser || googleUser.isAnonymous ? 'bg-amber-50 text-amber-700 border-amber-200' :
                       typeof navigator !== 'undefined' && !navigator.onLine ? 'bg-slate-100 text-slate-600 border-slate-200' :
-                      dataCloudStatus?.phase === 'conflict' ? 'bg-amber-50 text-amber-800 border-amber-200' :
-                      dataCloudStatus?.phase === 'error' ? 'bg-rose-50 text-rose-700 border-rose-200' :
-                      dataCloudStatus?.phase === 'syncing' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                      (dataCloudStatus?.phase === 'conflict' || orderConflictCount>0) ? 'bg-amber-50 text-amber-800 border-amber-200' :
+                      (dataCloudStatus?.phase === 'error' || orderSyncError) ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                      (dataCloudStatus?.phase === 'syncing' || orderWaiting) ? 'bg-blue-50 text-blue-700 border-blue-200' :
                       'bg-emerald-50 text-emerald-700 border-emerald-200'
                     }`}>
                       {!googleUser || googleUser.isAnonymous ? 'Chưa xác thực' :
                        typeof navigator !== 'undefined' && !navigator.onLine ? '● Ngoại tuyến' :
-                       dataCloudStatus?.phase === 'conflict' ? '● Có xung đột' :
-                       dataCloudStatus?.phase === 'error' ? '● Có lỗi đồng bộ' :
-                       dataCloudStatus?.phase === 'syncing' ? '● Đang đồng bộ nền' : '● Đã đồng bộ'}
+                       (dataCloudStatus?.phase === 'conflict' || orderConflictCount>0) ? '● Có xung đột' :
+                       (dataCloudStatus?.phase === 'error' || orderSyncError) ? '● Có lỗi đồng bộ' :
+                       (dataCloudStatus?.phase === 'syncing' || orderWaiting) ? '● Đang đồng bộ nền' : '● Đã đồng bộ'}
                     </span>
                   </div>
 

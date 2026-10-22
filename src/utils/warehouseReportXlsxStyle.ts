@@ -15,6 +15,7 @@ export type WarehouseReportXlsxLayout = {
   warningRow?: number;
   numericColumns?: number[];
   centerColumns?: number[];
+  printLayout?: {paperSize:'A4'|'A3';orientation:'portrait'|'landscape';fit:'one'|'split'};
 };
 
 // Same neutral palette as the warehouse receipt/issue voucher: slate header,
@@ -90,6 +91,19 @@ export function styleWarehouseReportXlsx(bytes: Uint8Array, layout: WarehouseRep
   if(xml.includes('<sheetViews>'))xml=xml.replace(/<sheetViews>[\s\S]*?<\/sheetViews>/,pane);
   else if(/<dimension\b[^>]*\/>/.test(xml))xml=xml.replace(/(<dimension\b[^>]*\/>)/,'$1'+pane);
   else xml=xml.replace(/(<worksheet\b[^>]*>)/,'$1'+pane);
+  // Apply printable layout to the generated worksheet only; raw cell data and formulas stay untouched.
+  if(layout.printLayout){
+    const {paperSize,orientation,fit}=layout.printLayout;
+    const pageSetup=`<pageSetup paperSize="${paperSize==='A3'?8:9}" orientation="${orientation}" fitToWidth="1" fitToHeight="${fit==='one'?1:0}"/>`;
+    xml=xml.replace(/<pageSetup\b[^>]*\/>/g,'');
+    if(/<pageMargins\b[^>]*\/>/.test(xml))xml=xml.replace(/(<pageMargins\b[^>]*\/>)/,`$1${pageSetup}`);
+    else xml=xml.replace('</worksheet>',pageSetup+'</worksheet>');
+    if(!xml.includes('<pageSetUpPr')){
+      if(/<sheetPr\s*\/>/.test(xml))xml=xml.replace(/<sheetPr\s*\/>/,'<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>');
+      else if(/<sheetPr\b[^>]*>/.test(xml))xml=xml.replace(/(<sheetPr\b[^>]*>)/,'$1<pageSetUpPr fitToPage="1"/>');
+      else xml=xml.replace(/(<worksheet\b[^>]*>)/,'$1<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>');
+    }
+  }
   zip[path]=strToU8(xml);
   zip['xl/styles.xml']=strToU8(styles);
   // Excel/LibreOffice must recalculate formulas when a user edits ordered amounts.

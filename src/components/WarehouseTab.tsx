@@ -50,6 +50,7 @@ import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import { WarehouseVoucherShareSheet } from './WarehouseVoucherShareSheet';
 import { WarehouseReportActions } from './WarehouseReportActions';
 import { WarehouseOrderSheet } from './WarehouseOrderSheet';
+import type {WarehouseOrderSync} from '../hooks/useWarehouseOrderSync';
 import { warehouseOrderKey, type WarehouseOrderItem } from '../utils/warehouseCatalogOrder';
 import type { WarehouseReport } from '../utils/warehouseCatalogReport';
 import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
@@ -72,6 +73,7 @@ interface WarehouseTabProps {
   isActive?: boolean;
   quickEditEnabled?: boolean;
   currentProjectId?: string;
+  orderSync:WarehouseOrderSync;
   projectName?: string;
   projectLocation?: string;
   contractorName?: string;
@@ -161,6 +163,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   isActive = true,
   quickEditEnabled = true,
   currentProjectId = '',
+  orderSync,
   projectName = '',
   projectLocation = '',
   contractorName = '',
@@ -2649,7 +2652,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         open={showWarehouseOrder}
         onClose={() => { setShowWarehouseOrder(false); setCatalogHistory(null); setShowWarehouseCatalog(true); }}
         projectId={currentProjectId} projectName={projectName} projectLocation={projectLocation}
-        contractorName={contractorName} items={warehouseOrderItems} canEdit={hasEditAccess} initialKind={warehouseCatalogTab}
+        contractorName={contractorName} items={warehouseOrderItems} canEdit={hasEditAccess} initialKind={warehouseCatalogTab} sync={orderSync}
       />}
 
       {quickEditEnabled && showQuickEdit && <React.Suspense fallback={null}>

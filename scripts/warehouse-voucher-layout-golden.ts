@@ -38,7 +38,7 @@ assert(app.includes('projectName={projectName}') && app.includes('projectLocatio
   'Active project metadata must be passed from App to warehouse');
 assert(warehouse.includes('projectName={projectName}') && warehouse.includes('projectLocation={projectLocation}') && warehouse.includes('contractorName={contractorName}'),
   'Warehouse must provide active project metadata to printed vouchers');
-assert(sheet.includes('drawWarehouseVoucherPage(page, { projectName, projectLocation, contractorName })'),
+assert(sheet.includes('drawWarehouseVoucherPage(page, { projectName, projectLocation, contractorName }, options)'),
   'Both PNG and PDF render must receive project metadata');
 assert(renderer.includes("ctx.fillText('Công trình:', LEFT, 83)")
   && renderer.includes("ctx.fillText('Địa điểm:', LEFT, 123)")
@@ -56,7 +56,7 @@ assert(printed.includes('handlerValueX = Math.ceil(LEFT + ctx.measureText('),
   'Printed handler value must not overlap its longer generic label');
 assert(printed.includes("ctx.fillText('Người thực hiện:', LEFT, 346 + headerShift)"),
   'Legacy generic handler must not be assigned an unverified sender or recipient role');
-assert(!printed.includes('drawTextLines(ctx, id') && printed.includes('const COLUMN_WIDTHS = [62, 742, 134, 174]'),
+assert(!printed.includes('drawTextLines(ctx, id') && printed.includes('const BASE_COLUMN_WIDTHS = [62, 742, 134, 174]'),
   'PNG voucher must show four columns and no printed internal IDs');
 assert(printed.includes("ctx.textBaseline = 'middle'")
   && printed.includes('const centerY = rowTop + h / 2')
@@ -71,14 +71,14 @@ assert(printed.includes('Math.min(rowTop + 60 + 110, HEIGHT - 180)'),
 assert(!renderer.includes('HNL QLTC'),'No app brand may be printed on warehouse vouchers');
 assert(renderer.includes('Tên vật tư / thiết bị') && renderer.includes('Số lượng') && !renderer.includes('Mã tham chiếu'),
   'Printed PNG voucher must omit Mã tham chiếu');
-assert(sheet.includes('paginateWarehouseVouchers(chosen)'),'Export must group selected material rows');
+assert(sheet.includes('paginateWarehouseVouchers(chosen,options)'),'Export must group selected material rows');
 assert(sheet.includes("allowTextFallback:false"),'Sharing files cannot silently send text instead');
 assert(sheet.includes('Chia sẻ phiếu nhập/xuất kho') && warehouse.includes('Chia sẻ phiếu nhập/xuất kho'),
   'Warehouse share action and dialog must use one concise label');
 assert(!sheet.includes("['text','Nội dung',FileText]") && !sheet.includes('data-hnl-voucher-action="text-copy"')
   && sheet.includes('data-hnl-voucher-formats="unified"')
-  && sheet.includes('grid w-full max-w-md grid-cols-3 gap-2'),
-  'Voucher share must offer exactly three compact, equal-sized format buttons without Content');
+  && sheet.includes('grid w-full grid-cols-2 gap-2 sm:max-w-xl sm:grid-cols-4'),
+  'Voucher share must preserve three export formats plus optional settings, without Content');
 assert(sheet.includes('data-hnl-voucher-date-range="compact"')
   && (sheet.match(/max-w-\[158px\]/g) || []).length === 2
   && sheet.includes('data-hnl-voucher-action-buttons="unified"')
@@ -113,10 +113,14 @@ assert(searchablePdf.includes("addFileToVFS('VoucherRoboto.ttf'")
     && searchablePdf.includes('doc.text(')
     && !searchablePdf.includes('doc.addImage('),
   'PDF must have Unicode native text; a full-page PNG is not searchable');
-assert(sheet.includes('buildWarehouseVoucherTextPdf(pages, {projectName, projectLocation, contractorName})'),
+assert(sheet.includes('buildWarehouseVoucherTextPdf(pages, {projectName, projectLocation, contractorName}, options)'),
   'Warehouse PDF exporter must use native text renderer and the active project metadata');
 assert(searchablePdf.includes('item.quantity')
   && searchablePdf.includes('Người lập phiếu') && !searchablePdf.includes('Mã tham chiếu')
-  && searchablePdf.includes('const COL = [10, 112, 24, 40]'),
+  && searchablePdf.includes('const COL=[10,RIGHT-LEFT-10-24-40,24,40]'),
   'Text PDF must retain quantities/signatures but no visible technical IDs');
 console.log('Warehouse multi-line A4 grouped receipt / continuous IDs / branding golden: PASS');
+
+for(const token of ['data-hnl-voucher-export-options="toggle"','data-hnl-voucher-export-options="form"','Khổ giấy chia sẻ phiếu kho','Hướng giấy chia sẻ phiếu kho','Co giãn phiếu kho','prepareVoucherFiles(chosen,format,projectName,projectLocation,contractorName,options)'])assert(sheet.includes(token),'Voucher options missing: '+token);
+assert(fs.readFileSync('src/utils/warehouseVoucherTextPdf.ts','utf8').includes("format:options.paperSize.toLowerCase()"),'PDF paper size must be real, not UI-only');
+assert(excel.includes('const pageSetup=') && excel.includes('fitToWidth'),'Excel print settings must be serialized to OOXML');

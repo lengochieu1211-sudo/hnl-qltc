@@ -374,7 +374,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
         <div className="mt-0.5 text-[9px] font-semibold text-slate-500">Một tệp chứa chung kiểm tra dữ liệu/liên kết + trạng thái hệ thống/đồng bộ + ảnh R2. PDF đã bỏ để tránh trùng.</div>
       </div>
       {/* Consistent format palette: Content (slate), JSON (violet), Excel (green). Actions unchanged. */}
-      <div className="grid grid-cols-3 gap-2" role="group" aria-label="Nội dung, JSON và Excel" data-hnl-health-export-actions="true">
+      <div className="grid grid-cols-3 gap-2" role="group" aria-label="Nội dung, JSON và Excel" data-hnl-health-export-actions="true" data-hnl-export-format-group="true" data-hnl-export-format-count="3">
         <button type="button" data-hnl-health-export-format="text" disabled={Boolean(exporting)}
           onClick={() => void copyCombinedDiagnostics()} title="Sao chép chẩn đoán đầy đủ" aria-label="Sao chép chẩn đoán"
           className="inline-flex min-h-11 min-w-0 items-center justify-center gap-1 rounded-xl bg-slate-800 px-1.5 text-xs font-bold text-white transition-colors hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:opacity-40">

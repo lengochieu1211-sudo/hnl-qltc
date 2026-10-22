@@ -3,12 +3,12 @@ import type { WarehouseVoucherPrintPage } from './warehouseVoucherPrint';
 import { formatDateDDMMYYYY } from './dateFormatter';
 import { formatDecimal } from './numberUtils';
 import { warehouseVoucherPdfFontBase64 } from './warehouseVoucherPdfFont';
+import {resolveVoucherPaper,DEFAULT_VOUCHER_PAGE_OPTIONS} from './warehouseVoucherPrint';
+import type { WarehousePageOptions } from './warehouseCatalogReport';
 
 type ProjectMeta = { projectName?: string; projectLocation?: string; contractorName?: string };
 const safe = (value: unknown) => String(value ?? '').trim() || '—';
-const W = 210, H = 297, LEFT = 12, RIGHT = 198;
-// Four visible columns, keep original IDs only in persisted data/hidden Excel.
-const COL = [10, 112, 24, 40] as const;
+// Four visible columns; source IDs remain only in the ledger / hidden Excel column.
 const HEADERS = ['STT', 'Tên vật tư / thiết bị (quy cách, ghi chú)', 'ĐVT', 'Số lượng'];
 
 type TextBlock = { lines: string[]; notes: string[]; height: number };
@@ -18,10 +18,14 @@ const wrap = (doc: jsPDF, text: string, width: number, size: number) => {
   return lines.length ? lines : ['—'];
 };
 
-export async function buildWarehouseVoucherTextPdf(pages: WarehouseVoucherPrintPage[], project: ProjectMeta = {}) {
+export async function buildWarehouseVoucherTextPdf(pages: WarehouseVoucherPrintPage[], project: ProjectMeta = {}, options: WarehousePageOptions = DEFAULT_VOUCHER_PAGE_OPTIONS) {
   if (!pages.length) throw new Error('Chưa có phiếu kho để xuất PDF.');
+  const {mmWidth:W,mmHeight:H,landscape}=resolveVoucherPaper(options);
+  const LEFT=12,RIGHT=W-12;
+  const COL=[10,RIGHT-LEFT-10-24-40,24,40];
+  const bodyLimit=H-51;
   const { jsPDF } = await import('jspdf');
-  const doc = new jsPDF({orientation:'portrait',unit:'mm',format:'a4',compress:true});
+  const doc = new jsPDF({orientation:landscape?'landscape':'portrait',unit:'mm',format:options.paperSize.toLowerCase(),compress:true});
   // Embed Unicode TrueType once; built-in 14 PDF fonts cannot encode Vietnamese.
   doc.addFileToVFS('VoucherRoboto.ttf', warehouseVoucherPdfFontBase64);
   doc.addFont('VoucherRoboto.ttf','VoucherRoboto','normal');
@@ -106,7 +110,7 @@ export async function buildWarehouseVoucherTextPdf(pages: WarehouseVoucherPrintP
       doc.setFontSize(8);
       doc.text('Số liệu theo đơn vị từng dòng, không cộng khác ĐVT',LEFT+72,sy+5.6);
       const signY=sy+29;
-      if(signY>290)throw new Error('Bảng kê quá dài cho vùng chữ ký PDF A4.');
+      if(signY>H-7)throw new Error('Bảng kê quá dài cho vùng chữ ký PDF.');
       const signs=['Người lập phiếu',page.direction==='in'?'Người giao hàng':'Người nhận hàng','Thủ kho'];
       signs.forEach((label,i)=>{
         const center=LEFT+(RIGHT-LEFT)*(i+0.5)/3;
@@ -125,8 +129,8 @@ export async function buildWarehouseVoucherTextPdf(pages: WarehouseVoucherPrintP
     for(const [index,item] of page.rows.entries()){
       const data=block[index];
       // Reserve summary + signatures; overlong groups continue on an extra PDF page.
-      if(currentY+data.height>246 && pageLines>0){finish();start();}
-      if(currentY+data.height>246)throw new Error('Một dòng vật tư quá dài để in PDF A4: '+safe(item.id));
+      if(currentY+data.height>bodyLimit && pageLines>0){finish();start();}
+      if(currentY+data.height>bodyLimit)throw new Error('Một dòng vật tư quá dài để in PDF: '+safe(item.id));
       const y=currentY;
       doc.setFillColor(pageLines%2===0?255:248,pageLines%2===0?255:250,pageLines%2===0?255:252);
       doc.setDrawColor(203,213,225);

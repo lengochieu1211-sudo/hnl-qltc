@@ -1,9 +1,9 @@
 import React, {useEffect, useState} from 'react';
 import {createPortal} from 'react-dom';
-import {Download, Share2, FileSpreadsheet, FileDown, Image as ImageIcon, X} from 'lucide-react';
+import {Download, Share2, FileSpreadsheet, FileDown, Image as ImageIcon, Settings2, X} from 'lucide-react';
 import {saveBlobToDownloads, isAndroidExportBridgeAvailable} from '../utils/fileExport';
 import {sharePreparedContent} from '../utils/shareUtils';
-import {buildWarehouseReportFiles, type WarehouseReport, type WarehouseReportFile, type WarehouseReportFormat} from '../utils/warehouseCatalogReport';
+import {buildWarehouseReportFiles, type WarehouseReport, type WarehouseReportFile, type WarehouseReportFormat, type WarehousePageOptions, DEFAULT_WAREHOUSE_PAGE_OPTIONS} from '../utils/warehouseCatalogReport';
 
 const PALETTE: Record<WarehouseReportFormat,{main:string;outline:string}>={
   png:{main:'bg-sky-600 hover:bg-sky-700',outline:'border-sky-200 text-sky-700'},
@@ -13,6 +13,18 @@ const PALETTE: Record<WarehouseReportFormat,{main:string;outline:string}>={
 const LABEL: Record<WarehouseReportFormat,string>={png:'Ảnh',pdf:'PDF',xlsx:'Excel'};
 export const WarehouseReportActions:React.FC<{report:WarehouseReport; disabled?:boolean}>=({report,disabled=false})=>{
   const [menu,setMenu]=useState<WarehouseReportFormat|null>(null);
+  const [showOptions,setShowOptions]=useState(false);
+  const [options,setOptions]=useState<WarehousePageOptions>(()=>{
+    try{
+      const saved=JSON.parse(localStorage.getItem('hnl-warehouse-export-layout-v1')||'null');
+      if(saved && ['A3','A4'].includes(saved.paperSize) && ['auto','portrait','landscape'].includes(saved.orientation) && ['one','split'].includes(saved.fit))return saved;
+    }catch(_){/* localStorage unavailable: safe default */}
+    return DEFAULT_WAREHOUSE_PAGE_OPTIONS;
+  });
+  useEffect(()=>{
+    try{localStorage.setItem('hnl-warehouse-export-layout-v1',JSON.stringify(options));}catch(_){/* preview/export still work without storage */}
+    setPrepared(null);setMenu(null);
+  },[options]);
   const [prepared,setPrepared]=useState<{format:WarehouseReportFormat;files:WarehouseReportFile[]}|null>(null);
   const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [status,setStatus]=useState('');
   // The parent provides a memoized report; any content change invalidates prepared bytes.
@@ -21,7 +33,7 @@ export const WarehouseReportActions:React.FC<{report:WarehouseReport; disabled?:
     if(busy||disabled||!report.rows.length)return;
     if(menu===format){setMenu(null);return;}
     setMenu(format);setPrepared(null);setBusy(true);setError('');setStatus('');
-    try{const files=await buildWarehouseReportFiles(report,format);setPrepared({format,files});}
+    try{const files=await buildWarehouseReportFiles(report,format,options);setPrepared({format,files});}
     catch(e){setError(e instanceof Error?e.message:'Không tạo được báo cáo.');}
     finally{setBusy(false);}
   };
@@ -48,7 +60,7 @@ export const WarehouseReportActions:React.FC<{report:WarehouseReport; disabled?:
     finally{setBusy(false);}
   };
   return <div data-hnl-warehouse-report-actions="unified" className="space-y-2">
-    <div data-hnl-warehouse-report-buttons="formats" className="grid grid-cols-3 gap-2 min-[960px]:inline-grid min-[960px]:grid-cols-[repeat(3,112px)] min-[960px]:max-w-full" role="group" aria-label={`Xuất ${report.title}`}>
+    <div data-hnl-warehouse-report-buttons="formats" data-hnl-export-format-group="true" data-hnl-export-format-count="4" className="grid w-full max-w-[480px] min-w-0 grid-cols-2 gap-2 min-[960px]:inline-grid min-[960px]:grid-cols-[repeat(4,112px)] min-[960px]:w-auto min-[960px]:max-w-full" role="group" aria-label={`Xuất ${report.title}`}>
       {([
         ['png',ImageIcon,'Ảnh'],['pdf',FileDown,'PDF'],['xlsx',FileSpreadsheet,'Excel'],
       ] as const).map(([format,Icon,label])=><button type="button" key={format}
@@ -56,7 +68,24 @@ export const WarehouseReportActions:React.FC<{report:WarehouseReport; disabled?:
         className={`inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl px-2 text-xs font-bold text-white disabled:opacity-40 ${PALETTE[format].main}`}>
         <Icon className="h-4 w-4 shrink-0"/>{busy&&menu===format?'Đang tạo…':label}
       </button>)}
+      <button type="button" data-hnl-warehouse-export-options="toggle" aria-expanded={showOptions}
+        disabled={busy} onClick={()=>setShowOptions(v=>!v)}
+        className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-2 text-xs font-bold text-slate-700 disabled:opacity-40">
+        <Settings2 className="h-4 w-4 shrink-0"/> Tùy chọn
+      </button>
     </div>
+    {showOptions&&<div data-hnl-warehouse-export-options="form" className="grid w-full max-w-[720px] min-w-0 grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs min-[960px]:grid-cols-3">
+      <label className="grid min-w-0 gap-1 font-semibold text-slate-700">Khổ giấy
+        <select aria-label="Khổ giấy xuất báo cáo" value={options.paperSize} onChange={e=>setOptions(prev=>({...prev,paperSize:e.target.value as WarehousePageOptions['paperSize']}))} className="min-h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2"><option value="A4">A4</option><option value="A3">A3</option></select>
+      </label>
+      <label className="grid min-w-0 gap-1 font-semibold text-slate-700">Hướng giấy
+        <select aria-label="Hướng giấy xuất báo cáo" value={options.orientation} onChange={e=>setOptions(prev=>({...prev,orientation:e.target.value as WarehousePageOptions['orientation']}))} className="min-h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2"><option value="auto">Tự động (ưu tiên dọc)</option><option value="portrait">Dọc</option><option value="landscape">Ngang</option></select>
+      </label>
+      <label className="grid min-w-0 gap-1 font-semibold text-slate-700">Co giãn bảng
+        <select aria-label="Co giãn bảng xuất báo cáo" value={options.fit} onChange={e=>setOptions(prev=>({...prev,fit:e.target.value as WarehousePageOptions['fit']}))} className="min-h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2"><option value="one">Ưu tiên vừa 1 trang</option><option value="split">Tự chia trang</option></select>
+      </label>
+      <p className="min-w-0 break-words text-[11px] text-slate-500 min-[960px]:col-span-3">PDF/Ảnh giữ đủ nội dung và tự chia trang nếu không thể vừa một trang mà vẫn dễ đọc. Excel giữ nguyên dữ liệu và công thức, thiết lập chỉ áp dụng khi in. Lựa chọn được lưu trên thiết bị.</p>
+    </div>}
     {error&&<p role="alert" className="rounded-lg bg-rose-50 p-2 text-xs text-rose-700">{error}</p>}
     {status&&<p role="status" className="rounded-lg bg-emerald-50 p-2 text-xs text-emerald-800">{status}</p>}
     {menu&&typeof document!=='undefined'&&createPortal(<div data-hnl-warehouse-report-overlay="true" className="fixed inset-0 z-[170] flex items-end justify-center sm:items-center">

@@ -19,6 +19,18 @@ export type WarehouseReport = {
   filePrefix: string;
 };
 export type WarehouseReportFormat = 'png'|'pdf'|'xlsx';
+export type WarehousePageOptions = {
+  paperSize: 'A4'|'A3';
+  orientation: 'auto'|'portrait'|'landscape';
+  fit: 'one'|'split';
+};
+export const DEFAULT_WAREHOUSE_PAGE_OPTIONS: WarehousePageOptions = {paperSize:'A4',orientation:'auto',fit:'one'};
+export function resolveWarehousePaper(report: Pick<WarehouseReport,'columns'>, options: WarehousePageOptions = DEFAULT_WAREHOUSE_PAGE_OPTIONS) {
+  const landscape = options.orientation === 'landscape' || (options.orientation === 'auto' && report.columns.length > 9);
+  const dimensions = options.paperSize === 'A3' ? (landscape ? [2480,1754] : [1754,2480]) : (landscape ? [1754,1240] : [1240,1754]);
+  return {landscape, width:dimensions[0], height:dimensions[1], pdfFormat:options.paperSize.toLowerCase() as 'a3'|'a4'};
+}
+
 export type WarehouseReportFile = {id:string; fileName:string; mimeType:string; blob:Blob; dataUrl:string};
 
 // Keep the palette, centered column headers, vertical cell centering and zebra
@@ -52,9 +64,9 @@ function wrapCanvas(ctx:CanvasRenderingContext2D, raw:string, width:number):stri
   }
   return result.length?result:['—'];
 }
-function reportCanvases(report:WarehouseReport):HTMLCanvasElement[]{
-  const landscape=report.columns.length>7;
-  const width=landscape?1754:1240,height=landscape?1240:1754,left=50,tableWidth=width-100;
+function reportCanvases(report:WarehouseReport, options:WarehousePageOptions):HTMLCanvasElement[]{
+  const {width,height}=resolveWarehousePaper(report,options);
+  const left=50,tableWidth=width-100;
   const cols=widthsOf(report,tableWidth), sheets:HTMLCanvasElement[]=[];
   const headerY=report.contractorName?271:247, headerH=65, bodyLimit=height-320;
   let index=0;
@@ -83,9 +95,9 @@ function reportCanvases(report:WarehouseReport):HTMLCanvasElement[]{
     while(index<report.rows.length){
       const row=report.rows[index];ctx.font='19px Arial, sans-serif';
       const wrapped=row.map((v,i)=>wrapCanvas(ctx,display(v),Math.max(22,cols[i]-16)));
-      const rowH=Math.max(60,Math.max(...wrapped.map(lines=>lines.length))*26+22);
+      const rowH=Math.max(options.fit==='one'?50:60,Math.max(...wrapped.map(lines=>lines.length))*26+(options.fit==='one'?17:22));
       if((y+rowH>bodyLimit || (report.totalRow&&index===report.rows.length-1&&y+rowH+68>bodyLimit)) && y>headerY+headerH)break;
-      if(y+rowH>bodyLimit)throw new Error('Một dòng quá dài để xuất ảnh A4.');
+      if(y+rowH>bodyLimit)throw new Error('Một dòng quá dài để xuất ảnh trên khổ giấy đã chọn.');
       ctx.fillStyle=index%2?PALETTE.stripe:'#ffffff';ctx.fillRect(left,y,tableWidth,rowH);
       ctx.strokeStyle=PALETTE.grid;ctx.strokeRect(left,y,tableWidth,rowH);
       let cellX=left;
@@ -107,7 +119,7 @@ function reportCanvases(report:WarehouseReport):HTMLCanvasElement[]{
         const totalH=68;
         if(y+totalH>bodyLimit)throw new Error('Không đủ chỗ hiển thị dòng tổng khối lượng.');
         ctx.fillStyle=PALETTE.header;ctx.fillRect(left,y,tableWidth,totalH);ctx.strokeStyle=PALETTE.line;ctx.strokeRect(left,y,tableWidth,totalH);
-        const startSummary=report.columns.length-2;
+        const startSummary=report.orderWeightFormulas?report.columns.length-1:report.columns.length-2;
         let x=left+cols.slice(0,startSummary).reduce((a,b)=>a+b,0);
         ctx.textAlign='right';ctx.textBaseline='middle';ctx.font='bold 20px Arial, sans-serif';ctx.fillStyle=PALETTE.ink;
         ctx.fillText(display(report.totalRow[0]||report.totalRow[1]),x-12,y+totalH/2,x-left-20);
@@ -117,7 +129,7 @@ function reportCanvases(report:WarehouseReport):HTMLCanvasElement[]{
       let fy=y+35;ctx.textAlign='left';ctx.font='bold 21px Arial, sans-serif';ctx.fillStyle=PALETTE.ink;
       if(report.footer){const lines=wrapCanvas(ctx,report.footer,tableWidth);lines.forEach(line=>{ctx.fillText(line,left,fy);fy+=27;});}
       if(report.warning){ctx.fillStyle=PALETTE.amber;ctx.font='18px Arial, sans-serif';fy+=7;wrapCanvas(ctx,report.warning,tableWidth).forEach(line=>{ctx.fillText(line,left,fy);fy+=24;});}
-      if(fy>height-36)throw new Error('Tổng kết quá dài để xuất ảnh A4.');
+      if(fy>height-36)throw new Error('Tổng kết quá dài để xuất ảnh trên khổ giấy đã chọn.');
     }
     ctx.fillStyle=PALETTE.muted;ctx.font='17px Arial, sans-serif';ctx.textAlign='right';
     ctx.fillText('Trang '+(sheets.length+1),width-left,height-30);
@@ -125,12 +137,12 @@ function reportCanvases(report:WarehouseReport):HTMLCanvasElement[]{
   }while(index<report.rows.length);
   return sheets;
 }
-export async function buildWarehouseReportFiles(report:WarehouseReport,format:WarehouseReportFormat):Promise<WarehouseReportFile[]>{
+export async function buildWarehouseReportFiles(report:WarehouseReport,format:WarehouseReportFormat,options:WarehousePageOptions=DEFAULT_WAREHOUSE_PAGE_OPTIONS):Promise<WarehouseReportFile[]>{
   if(!report.rows.length)throw new Error('Không có vật tư, thiết bị phù hợp để xuất.');
   const name=safeName(report.filePrefix);
   if(format==='png'){
     const files:WarehouseReportFile[]=[];
-    for(const [i,canvas] of reportCanvases(report).entries()){
+    for(const [i,canvas] of reportCanvases(report,options).entries()){
       const blob=await canvasBlob(canvas);files.push({id:'page-'+(i+1),fileName:`${name}-TRANG-${i+1}.png`,mimeType:'image/png',blob,dataUrl:await toDataUrl(blob)});
     }
     return files;
@@ -158,7 +170,7 @@ export async function buildWarehouseReportFiles(report:WarehouseReport,format:Wa
     ws['!cols']=report.columns.map(c=>({wch:Math.max(13,Math.min(68,Math.ceil(c.width/5)))}));
     ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:headerIndex,c:0},e:{r:headerIndex+report.rows.length,c:cols-1}})};
     if(report.orderWeightFormulas&&totalIndex!==undefined){
-      // Columns D/E are user-editable inputs; F/G are real recalculating Excel formulas.
+      // Columns D/E are editable inputs; F is the calculated mass. No percent column.
       // Retain cached values for third-party spreadsheet readers.
       const first=headerIndex+2, last=first+report.rows.length-1, totalExcel=totalIndex+1;
       for(let i=0;i<report.rows.length;i++){
@@ -166,12 +178,8 @@ export async function buildWarehouseReportFiles(report:WarehouseReport,format:Wa
         const valid=typeof values[4]==='number'&&values[4]>0&&typeof values[3]==='number'&&values[3]>0;
         const weight=valid?Number(values[3])*Number(values[4]):null;
         ws['F'+r]={t:valid?'n':'str',f:`IF(OR(NOT(ISNUMBER(D${r})),D${r}<=0),"",IF(AND(ISNUMBER(E${r}),E${r}>0),D${r}*E${r},"Chưa có"))`,v:weight===null?'Chưa có':weight};
-        ws['G'+r]=weight!==null&&Number(report.totalRow?.[5]||0)>0
-          ?{t:'n',f:`IFERROR(IF(ISNUMBER(F${r}),ROUND(F${r}/$F$${totalExcel}*100,2),""),"")`,v:Number((weight/Number(report.totalRow?.[5])*100).toFixed(2))}
-          :{t:'str',f:`IFERROR(IF(ISNUMBER(F${r}),ROUND(F${r}/$F$${totalExcel}*100,2),""),"")`,v:''};
       }
       ws['F'+totalExcel]={t:'n',f:`SUM(F${first}:F${last})`,v:Number(report.totalRow?.[5]||0)};
-      ws['G'+totalExcel]={t:'n',f:`IF(F${totalExcel}>0,100,0)`,v:Number(report.totalRow?.[5]||0)>0?100:0};
       ws['A'+totalExcel]={t:'str',f:`IF(COUNTIF(F${first}:F${last},"Chưa có")>0,"TỔNG CỘNG KHỐI LƯỢNG (CHƯA ĐỦ)","TỔNG CỘNG KHỐI LƯỢNG")`,v:String(report.totalRow?.[0]||'TỔNG CỘNG KHỐI LƯỢNG')};
     }
     if(report.catalogStockFormulas){
@@ -201,17 +209,18 @@ export async function buildWarehouseReportFiles(report:WarehouseReport,format:Wa
       columnCount:cols,headerRow:headerIndex,rowCount:report.rows.length,totalRow:totalIndex,footerRow:footerIndex,warningRow:warningIndex,
       numericColumns:report.columns.flatMap((c,i)=>c.numeric?[i]:[]),
       centerColumns:report.columns.flatMap((c,i)=>centerColumn(c.label,i)?[i]:[]),
+      printLayout:{paperSize:options.paperSize,orientation:resolveWarehousePaper(report,options).landscape?'landscape':'portrait',fit:options.fit},
     });
     const mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     const blob=new Blob([bytes],{type:mimeType});if(!blob.size)throw new Error('Excel rỗng.');
     return [{id:'excel',fileName:name+'.xlsx',mimeType,blob,dataUrl:await toDataUrl(blob)}];
   }
-  const {jsPDF}=await import('jspdf');const landscape=report.columns.length>7;
-  const doc=new jsPDF({orientation:landscape?'landscape':'portrait',unit:'mm',format:'a4',compress:true});
+  const {jsPDF}=await import('jspdf');const {landscape,pdfFormat}=resolveWarehousePaper(report,options);
+  const doc=new jsPDF({orientation:landscape?'landscape':'portrait',unit:'mm',format:pdfFormat,compress:true});
   doc.addFileToVFS('HnlWarehouseRoboto.ttf',warehouseVoucherPdfFontBase64);
   doc.addFont('HnlWarehouseRoboto.ttf','HnlWarehouseRoboto','normal');doc.setFont('HnlWarehouseRoboto','normal');
   doc.setProperties({title:report.title,creator:'HNL QLTC'});
-  const left=10,pageWidth=landscape?297:210,pageHeight=landscape?210:297,tableWidth=pageWidth-20;
+  const left=10,pageWidth=doc.internal.pageSize.getWidth(),pageHeight=doc.internal.pageSize.getHeight(),tableWidth=pageWidth-20;
   const cols=widthsOf(report,tableWidth),headerH=11;
   let y=0,page=0;
   const newPage=()=>{
@@ -239,8 +248,8 @@ export async function buildWarehouseReportFiles(report:WarehouseReport,format:Wa
   for(const [ri,row] of report.rows.entries()){
     doc.setFontSize(8);
     const parts=row.map((v,i)=>doc.splitTextToSize(display(v),Math.max(4,cols[i]-3)) as string[]);
-    const h=Math.max(8,4+Math.max(...parts.map(lines=>lines.length))*3.8);
-    if(h>pageHeight-80)throw new Error('Một dòng quá dài để in PDF A4.');
+    const h=Math.max(options.fit==='one'?8:9,(options.fit==='one'?3:4)+Math.max(...parts.map(lines=>lines.length))*3.8);
+    if(h>pageHeight-80)throw new Error('Một dòng quá dài để in PDF trên khổ giấy đã chọn.');
     if(y+h>pageHeight-37)newPage();
     if(ri%2){doc.setFillColor(248,250,252);doc.rect(left,y,tableWidth,h,'F');}
     doc.setDrawColor(203,213,225);doc.rect(left,y,tableWidth,h);
@@ -257,7 +266,7 @@ export async function buildWarehouseReportFiles(report:WarehouseReport,format:Wa
   if(report.totalRow){
     const totalH=10;if(y+totalH>pageHeight-37)newPage();
     doc.setFillColor(226,232,240);doc.setDrawColor(148,163,184);doc.rect(left,y,tableWidth,totalH,'FD');
-    const k=report.columns.length-2;const firstW=cols.slice(0,k).reduce((a,b)=>a+b,0);
+    const k=report.orderWeightFormulas?report.columns.length-1:report.columns.length-2;const firstW=cols.slice(0,k).reduce((a,b)=>a+b,0);
     doc.setFontSize(8);doc.setTextColor(15,23,42);
     doc.text(display(report.totalRow[0]||report.totalRow[1]),left+firstW-2,y+totalH/2,{align:'right',baseline:'middle',maxWidth:firstW-4});
     let x=left+firstW;for(let i=k;i<cols.length;i++){doc.line(x,y,x,y+totalH);doc.text(display(report.totalRow[i]??''),x+cols[i]-1.5,y+totalH/2,{align:'right',baseline:'middle',maxWidth:cols[i]-3});x+=cols[i];}

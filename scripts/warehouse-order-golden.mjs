@@ -90,16 +90,24 @@ assert.match(orderUI,/onFocus=\{\(\)=>\{focused\.current=true;setError\(false\);
 assert.match(orderUI,/setText\(format\(number\)\)/, 'Blurring a valid formula must show its calculated number');
 assert.match(orderUI,/quantityExpression/, 'Order UI must persist quantity formula separately from evaluated number');
 assert.match(orderUI,/kgPerUnitExpression/, 'Order UI must persist weight formula separately from evaluated number');
+assert.doesNotMatch(orderUI,/Tỷ trọng KL \(%\)/,'Order should not show percentage weight column');
+assert.match(orderUI,/data-hnl-warehouse-order-status=\"compact\"/,'Sync state remains visible but compact');
+assert.match(orderUI,/data-hnl-warehouse-order-restore=\"collapsed\"/,'Legacy restore action is preserved behind disclosure');
+assert.doesNotMatch(orderUI,/Có thể nhập công thức như <strong>/,'Repeated formula help paragraph is removed');
+assert.doesNotMatch(orderUI,/Đơn đặt hàng được đồng bộ Firestore theo từng dự án/,'Repeated implementation detail paragraph is removed');
 
 assert.match(catalogUI,/initialKind=\{warehouseCatalogTab\}/, 'Order must open on same material/equipment tab as Catalog');
-assert.match(catalogUI,/WarehouseOrderSheet key=\{currentProjectId\}/, 'Switching projects must remount draft state');
+assert.match(catalogUI,/WarehouseOrderSheet key=\{currentProjectId\}/, 'Switching projects remounts the order editor; authoritative Cloud queue remains mounted in App');
+assert.match(catalogUI,/sync=\{orderSync\}/, 'Order sheet receives app-scoped sync controller');
 const shareUI=readFileSync(new URL('../src/components/WarehouseReportActions.tsx',import.meta.url),'utf8');
 // Desktop buttons should be content-sized, never 1/3 or 100% of a wide PC sheet.
 // Preserve mobile full-width touch layouts below 960px.
 assert.match(shareUI, /data-hnl-warehouse-report-buttons="formats"/, 'Warehouse exports need a stable desktop layout marker');
-assert.match(shareUI, /min-\[960px\]:inline-grid min-\[960px\]:grid-cols-\[repeat\(3,112px\)\]/, 'PC export actions must stay compact rather than stretching');
+assert.match(shareUI, /min-\[960px\]:inline-grid min-\[960px\]:grid-cols-\[repeat\(4,112px\)\]/, 'PC export actions must stay compact rather than stretching');
 assert.match(catalogUI, /data-hnl-warehouse-open-order="true"[\s\S]{0,430}min-\[960px\]:w-auto/, 'PC order launcher must be content-width');
 assert.match(orderUI, /data-hnl-warehouse-order-kind-tabs="true"[^>]*min-\[960px\]:inline-grid min-\[960px\]:grid-cols-\[repeat\(2,160px\)\]/, 'PC order kind tabs must not stretch across the sheet');
 
+assert.match(shareUI,/data-hnl-warehouse-export-options="toggle"/, 'Warehouse exports provide shared paper/fit settings');
+assert.match(shareUI,/buildWarehouseReportFiles\(report,format,options\)/, 'Settings must actually reach export generation');
 assert.match(shareUI,/result\.sharedFiles\s*<\s*prepared\.files\.length/, 'Partial native Android shares must be disclosed to user');
 console.log('Warehouse order golden: PASS — unit identity, numeric validation, weights, missing warning, project-scoped draft, no direct Firestore writes');

@@ -709,3 +709,24 @@ assert.ok(workVolumeFormCode.includes('<ExpressionDisplayInput') && warehouseFor
 assert.ok(!roomHighlightFormCode.includes('[catName]: formatDecimal(parsed)'),
 'Room formula must not be discarded on blur');
 console.log('ARITHMETIC INPUT PRESENTATION GOLDEN PASS');
+
+
+// Unified export/share format buttons: do not let PC dialogs stretch beyond their content.
+for (const [file, count] of [
+  ['src/components/WarehouseReportActions.tsx', 4],
+  ['src/components/WarehouseVoucherShareSheet.tsx', 4],
+  ['src/components/CrewReportShareModal.tsx', 3],
+  ['src/components/ExportPdfModal.tsx', 3],
+  ['src/healthCenter/HealthCenterPanelBase.tsx', 3],
+]) {
+  const source = read(file);
+  assert.ok(source.includes('data-hnl-export-format-group="true"') &&
+    source.includes(`data-hnl-export-format-count="${count}"`),
+  `Export action marker must be shared in ${file}`);
+}
+assert.ok(entryCompactCss.includes('/* HNL QLTC — a shared PC size for export/share format buttons.') &&
+  entryCompactCss.includes('flex-wrap: wrap;') &&
+  entryCompactCss.includes('width: 112px;') &&
+  entryCompactCss.includes('min-height: 44px;'),
+  'PC export buttons are uniform 112x44px and wrap inside narrow dialogs');
+console.log('UNIFIED EXPORT FORMAT BUTTONS GOLDEN PASS');

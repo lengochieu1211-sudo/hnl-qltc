@@ -998,3 +998,35 @@
     flex: 0 0 auto;
   }
 }
+
+
+/* HNL QLTC — a shared PC size for export/share format buttons.
+ * 112 × 44 px, 8 px gaps; wraps inside narrow PC dialogs instead of
+ * stretching the dialog horizontally. Mobile keeps each existing grid. */
+@media (min-width: 960px) {
+  html [data-hnl-export-format-group="true"],
+  html[data-hnl-pc-workspace="modern"] [data-hnl-export-format-group="true"][data-hnl-export-format-count][role="group"] {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    width: max-content;
+    max-width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+    align-self: flex-start;
+  }
+  html [data-hnl-export-format-group="true"] > button,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-export-format-group="true"][role="group"] > button {
+    box-sizing: border-box;
+    flex: 0 0 112px;
+    width: 112px;
+    min-width: 0;
+    max-width: 112px;
+    min-height: 44px;
+    padding: 8px;
+    font-size: 12px;
+    line-height: 1.25;
+    white-space: normal;
+  }
+}
