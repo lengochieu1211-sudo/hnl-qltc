@@ -91,8 +91,11 @@ assert.match(orderUI,/setText\(format\(number\)\)/, 'Blurring a valid formula mu
 assert.match(orderUI,/quantityExpression/, 'Order UI must persist quantity formula separately from evaluated number');
 assert.match(orderUI,/kgPerUnitExpression/, 'Order UI must persist weight formula separately from evaluated number');
 assert.doesNotMatch(orderUI,/Tỷ trọng KL \(%\)/,'Order should not show percentage weight column');
-assert.match(orderUI,/data-hnl-warehouse-order-status=\"compact\"/,'Sync state remains visible but compact');
-assert.match(orderUI,/data-hnl-warehouse-order-restore=\"collapsed\"/,'Legacy restore action is preserved behind disclosure');
+// Health Center is the single authority for Cloud queue, conflicts and recovery; keep only a lightweight status link here.
+assert.match(orderUI,/data-hnl-warehouse-order-sync=\"centralized\"/,'Order sheet must defer sync recovery to Health Center');
+assert.match(orderUI,/Kiểm tra dữ liệu → Trạng thái hệ thống & đồng bộ/,'Order sheet points to centralized sync diagnostics');
+assert.match(orderUI,/saveError&&<p role=\"alert\"/,'Local draft save failures remain visible');
+assert.doesNotMatch(orderUI,/data-hnl-warehouse-order-restore=\"collapsed\"/,'Obsolete local restore pane must not return');
 assert.doesNotMatch(orderUI,/Có thể nhập công thức như <strong>/,'Repeated formula help paragraph is removed');
 assert.doesNotMatch(orderUI,/Đơn đặt hàng được đồng bộ Firestore theo từng dự án/,'Repeated implementation detail paragraph is removed');
 
