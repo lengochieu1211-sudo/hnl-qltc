@@ -10,6 +10,7 @@ import {
 
 const key=warehouseOrderKey('material','Tấm trần chống ẩm','tấm');
 const id=encodeURIComponent(key);
+assert.equal(/^__.*__$/.test(encodeURIComponent(ORDER_DATE_KEY)),false, 'Firestore reserved document IDs are forbidden');
 assert.equal(validOrderDate('2026-10-22'),true);
 assert.equal(validOrderDate('2026-02-30'),false);
 assert.equal(validOrderDate('2026-13-01'),false);
@@ -48,9 +49,15 @@ assert.equal(savePendingOrderChanges('project-A','uidA',pending),true);
 assert.deepEqual(loadPendingOrderChanges('project-A','uidA'),pending);
 assert.deepEqual(loadPendingOrderChanges('project-A','uidB'),{}); // user-isolated recovery queue
 assert.deepEqual(loadPendingOrderChanges('project-B','uidA'),{});
+store.set('hnl-qltc-order-cloud-pending-v1:project-B:uidA',JSON.stringify({__HNL_WAREHOUSE_ORDER_EXPECTED_DATE__:{baseRevision:null,value:orderDateValue('2026-11-01')}}));
+assert.deepEqual(loadPendingOrderChanges('project-B','uidA'),{[ORDER_DATE_KEY]:{baseRevision:null,value:orderDateValue('2026-11-01')}});
+
 // Corrupt/stale pending values are discarded; they cannot wipe a valid cloud revision.
 store.set('hnl-qltc-order-cloud-pending-v1:project-B:uidA',JSON.stringify({[key]:{baseRevision:0,value}}));
 assert.deepEqual(loadPendingOrderChanges('project-B','uidA'),{});
+store.set('hnl-qltc-order-cloud-pending-v1:project-B:uidA',JSON.stringify({__HNL_WAREHOUSE_ORDER_EXPECTED_DATE__:{baseRevision:null,value:orderDateValue('2026-11-01')}}));
+assert.deepEqual(loadPendingOrderChanges('project-B','uidA'),{[ORDER_DATE_KEY]:{baseRevision:null,value:orderDateValue('2026-11-01')}});
+
 const rules=readFileSync(new URL('../firestore.rules',import.meta.url),'utf8');
 assert.match(rules,/match \/warehouse_order_drafts\/\{recordId\}/);
 assert.match(rules,/allow delete: if false/);

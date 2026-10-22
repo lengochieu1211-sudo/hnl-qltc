@@ -203,7 +203,7 @@ try {
   };
   await expectAllowed('ADMIN creates shared order draft without mutating stock', () => setDoc(orderRef, orderFixture));
   await expectAllowed('ADMIN reads shared order draft', () => getDoc(orderRef));
-  const orderDateKey = '__HNL_WAREHOUSE_ORDER_EXPECTED_DATE__';
+  const orderDateKey = 'hnl-warehouse-order-expected-date';
   const orderDateRef = doc(db, 'projects', pid, 'warehouse_order_drafts', encodeURIComponent(orderDateKey));
   await expectAllowed('ADMIN sets expected delivery date without warehouse ledger write', () => setDoc(orderDateRef, {
     projectId: pid, itemKey: orderDateKey, quantity: 0, kgPerUnit: null,

@@ -1,7 +1,9 @@
 import { evaluateWarehouseOrderInput, type WarehouseOrderValues } from './warehouseCatalogOrder';
 
 /** Distinct key: cannot collide with any JSON tuple returned by warehouseOrderKey. */
-export const ORDER_DATE_KEY = '__HNL_WAREHOUSE_ORDER_EXPECTED_DATE__';
+// Firestore reserves document IDs that match /^__.*__$/; use a safe stable key.
+export const ORDER_DATE_KEY = 'hnl-warehouse-order-expected-date';
+const LEGACY_RESERVED_ORDER_DATE_KEY = '__HNL_WAREHOUSE_ORDER_EXPECTED_DATE__';
 export type CloudOrderEntry = {
   itemKey: string;
   projectId: string;
@@ -70,9 +72,14 @@ export function loadPendingOrderChanges(projectId:string,actorUid:string):Record
     if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))return {};
     const out:Record<string,PendingOrderChange>={};
     for(const [key,entry] of Object.entries(parsed)){
-      if(key.length>500||(!key.startsWith('[')&&key!==ORDER_DATE_KEY)||!entry||typeof entry!=='object')continue;
+      if(key.length>500||(!key.startsWith('[')&&key!==ORDER_DATE_KEY&&key!==LEGACY_RESERVED_ORDER_DATE_KEY)||!entry||typeof entry!=='object')continue;
       const p=entry as Record<string,unknown>;const value=normalizedDraftValue(p.value);
-      if(value&&(p.baseRevision===null||(Number.isSafeInteger(p.baseRevision)&&Number(p.baseRevision)>=1)))out[key]={value,baseRevision:p.baseRevision as number|null};
+      if(value&&(p.baseRevision===null||(Number.isSafeInteger(p.baseRevision)&&Number(p.baseRevision)>=1))){
+        const safeKey=key===LEGACY_RESERVED_ORDER_DATE_KEY?ORDER_DATE_KEY:key;
+        // If both versions survived locally, the new key is authoritative.
+        if(key!==LEGACY_RESERVED_ORDER_DATE_KEY||!out[safeKey])
+          out[safeKey]={value,baseRevision:p.baseRevision as number|null};
+      }
     }
     return out;
   }catch{return {};}
