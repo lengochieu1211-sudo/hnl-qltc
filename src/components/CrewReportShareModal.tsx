@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Copy, Download, FileSpreadsheet, FileText, Image as ImageIcon, Share2, Users, X } from 'lucide-react';
+import { Copy, Download, FileSpreadsheet, FileText, FileDown, Image as ImageIcon, Share2, Users, X } from 'lucide-react';
 import type { ShareAttachmentPayload } from '../utils/shareUtils';
 import { sharePreparedContent } from '../utils/shareUtils';
 import { isAndroidExportBridgeAvailable, saveBlobToDownloads } from '../utils/fileExport';
@@ -127,8 +127,16 @@ async function renderCrewReportImages(params: {
     const metricWidth = Math.max(baseMetricWidth, Math.ceil((minimumTableWidth - fixedColumnsWidth) / Math.max(1,metricCount)));
     const tableWidth = serialWidth + dateWidth + Math.max(1,metricCount) * metricWidth + totalWidth + detailWidth;
     const width = Math.max(860, left + tableWidth + right);
-    const projectTitleLines = wrapProjectTitle(matrix.projectName,Math.max(32,Math.floor((width-left-right)/17)));
-    const headerHeight = (matrix.projectLocation?154:127) + (projectTitleLines.length-1)*28;
+    const rangeText = params.startDate === params.endDate
+      ? `Ngày: ${formatDateDDMMYYYY(params.startDate)}`
+      : `Thời gian: ${formatDateDDMMYYYY(params.startDate)} – ${formatDateDDMMYYYY(params.endDate)}`;
+    const headerLines = [
+      `Công trình: ${matrix.projectName || '—'}`,
+      `Địa điểm: ${matrix.projectLocation || '—'}`,
+      `Đơn vị thi công: ${matrix.contractorName || '—'}`,
+      rangeText,
+    ].flatMap(value => wrapProjectTitle(value,Math.max(44,Math.floor((width-left-right)/12))));
+    const headerHeight = 78 + headerLines.length * 26 + 12;
     const groupHeaderHeight = 36;
     const teamHeaderHeight = 42;
     const subHeaderHeight = 38;
@@ -145,24 +153,20 @@ async function renderCrewReportImages(params: {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, width, height);
     ctx.fillStyle = '#0f172a';
+    // Match the warehouse voucher export: a centered report title, then
+    // verified project metadata aligned on the left, above the report table.
     ctx.font = '700 28px Arial, sans-serif';
-    ctx.fillText(params.title.toLocaleUpperCase('vi-VN'),left,38,Math.max(320,width-250));
-    ctx.fillStyle = '#1d4ed8';ctx.font = '700 24px Arial, sans-serif';
-    projectTitleLines.forEach((line,i)=>ctx.fillText(line,left,73+i*28,width-left-right));
-    ctx.font = '600 17px Arial, sans-serif';ctx.fillStyle = '#334155';
-    const rangeText = params.startDate === params.endDate
-      ? `Ngày: ${formatDateDDMMYYYY(params.startDate)}`
-      : `Thời gian: ${formatDateDDMMYYYY(params.startDate)} – ${formatDateDDMMYYYY(params.endDate)}`;
-    const detailTop=105+(projectTitleLines.length-1)*28;
-    ctx.fillText(rangeText,left,detailTop,width-left-right);
-    if(matrix.projectLocation){
-      ctx.font='500 17px Arial, sans-serif';ctx.fillStyle='#475569';
-      ctx.fillText(`Địa điểm: ${matrix.projectLocation}`,left,detailTop+27,width-left-right);
-    }
-    ctx.font = '500 14px Arial, sans-serif';ctx.fillStyle = '#64748b';
-    ctx.textAlign='right';
-    ctx.fillText(`Trang ${pageIndex+1}/${pageSpecs.length}`,width-right,38);
-    ctx.textAlign='left';
+    ctx.textAlign = 'center';
+    ctx.fillText(params.title.toLocaleUpperCase('vi-VN'),width/2,42,width-left-right);
+    ctx.textAlign = 'left';
+    ctx.font = '600 17px Arial, sans-serif';
+    ctx.fillStyle = '#334155';
+    headerLines.forEach((line,index)=>ctx.fillText(line,left,92+index*26,width-left-right));
+    ctx.font = '500 13px Arial, sans-serif';
+    ctx.fillStyle = '#64748b';
+    ctx.textAlign = 'right';
+    ctx.fillText(`Trang ${pageIndex+1}/${pageSpecs.length}`,width-right,67);
+    ctx.textAlign = 'left';
     ctx.fillStyle = '#dbeafe';
     ctx.fillRect(left, headerHeight - 10, width - left - right, 2);
 
@@ -400,10 +404,11 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
   const [hideZeroShifts,setHideZeroShifts]=useState(false);
   const [showSerialNumber, setShowSerialNumber] = useState(false);
   const [showWorkDetails, setShowWorkDetails] = useState(false);
-  const [busy, setBusy] = useState<'text' | 'image' | 'download' | 'excel' | ''>('');
-  const [actionMenu, setActionMenu] = useState<'text' | 'image' | 'excel' | null>(null);
+  const [busy, setBusy] = useState<'text' | 'image' | 'download' | 'excel' | 'pdf' | ''>('');
+  const [actionMenu, setActionMenu] = useState<'text' | 'image' | 'excel' | 'pdf' | null>(null);
   const [preparedImages, setPreparedImages] = useState<{signature:string; attachments:ShareAttachmentPayload[]}|null>(null);
   const [preparedExcel, setPreparedExcel] = useState<{signature:string; fileName:string; mimeType:string; blob:Blob; dataUrl:string}|null>(null);
+  const [preparedPdf, setPreparedPdf] = useState<{signature:string; fileName:string; mimeType:string; blob:Blob; dataUrl:string}|null>(null);
   const [message, setMessage] = useState('');
 
   useEffect(() => {
@@ -430,6 +435,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
     setActionMenu(null);
     setPreparedImages(null);
     setPreparedExcel(null);
+    setPreparedPdf(null);
   }, [isOpen, initialStartDate, initialEndDate]);
 
   const effectiveEndDate = mode === 'single' ? startDate : endDate;
@@ -515,6 +521,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
     setActionMenu(null);
     setPreparedImages(null);
     setPreparedExcel(null);
+    setPreparedPdf(null);
   }, [preparationSignature]);
 
   if (!isOpen) return null;
@@ -544,7 +551,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
 
   const makeImages = async () => renderCrewReportImages({ rows, startDate, endDate: effectiveEndDate, title, showSerialNumber, showWorkDetails, hideZeroShifts });
 
-  const openActionMenu = async (type:'text'|'image'|'excel') => {
+  const openActionMenu = async (type:'text'|'image'|'excel'|'pdf') => {
     if(busy)return;
     if(actionMenu===type){setActionMenu(null);return;}
     setActionMenu(type);
@@ -552,12 +559,22 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
     if(type==='text')return;
     if(type==='image' && preparedImages?.signature===preparationSignature)return;
     if(type==='excel' && preparedExcel?.signature===preparationSignature)return;
+    if(type==='pdf' && preparedPdf?.signature===preparationSignature)return;
     setBusy(type);
     try{
       if(type==='image'){
         const attachments=await makeImages();
         if(!attachments.length)throw new Error('Không có dữ liệu để tạo ảnh quân số.');
         setPreparedImages({signature:preparationSignature,attachments});
+      }else if(type==='pdf'){
+        const {buildCrewReportPdf}=await import('../utils/crewReportPdf');
+        const {blob,fileName,mimeType}=await buildCrewReportPdf({rows,startDate,endDate:effectiveEndDate,
+          includeSerial:showSerialNumber,includeDetails:showWorkDetails,title});
+        const dataUrl=await new Promise<string>((resolve,reject)=>{
+          const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||''));
+          reader.onerror=()=>reject(reader.error);reader.readAsDataURL(blob);
+        });
+        setPreparedPdf({signature:preparationSignature,blob,fileName,mimeType,dataUrl});
       }else{
         const {buildCrewReportExcel}=await import('../utils/crewReportExcel');
         const {blob,fileName,mimeType}=await buildCrewReportExcel({rows,startDate,endDate:effectiveEndDate,
@@ -568,7 +585,27 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
         });
         setPreparedExcel({signature:preparationSignature,blob,fileName,mimeType,dataUrl});
       }
-    }catch(e){setMessage('Không chuẩn bị được '+(type==='image'?'ảnh':'Excel')+': '+(e instanceof Error?e.message:String(e)));}
+    }catch(e){setMessage('Không chuẩn bị được '+(type==='image'?'ảnh':type==='pdf'?'PDF':'Excel')+': '+(e instanceof Error?e.message:String(e)));}
+    finally{setBusy('');}
+  };
+
+  const handlePdf = async(action:'download'|'share') => {
+    const item=preparedPdf?.signature===preparationSignature?preparedPdf:null;
+    if(!item||busy)return;
+    setBusy('pdf');setMessage('');
+    try {
+      if(action==='download'){
+        await saveBlobToDownloads(item.blob,item.fileName,item.mimeType);
+        setMessage('Đã yêu cầu tải PDF quân số.');
+      }else{
+        const result=await sharePreparedContent({title:'Báo cáo quân số',text:title,
+          attachments:[{id:'crew-pdf',fileName:item.fileName,mimeType:item.mimeType,dataUrl:item.dataUrl}],
+          allowTextFallback:false});
+        if(result.status==='shared')setMessage('Đã yêu cầu mở chia sẻ file PDF.');
+        else if(result.status==='cancelled')setMessage('Đã hủy chia sẻ PDF.');
+        else setMessage('Không chia sẻ PDF được trên thiết bị này. Hãy chọn Tải PDF.');
+      }
+    }catch(e){setMessage('Không xuất/chia sẻ PDF: '+(e instanceof Error?e.message:String(e)));}
     finally{setBusy('');}
   };
 
@@ -799,7 +836,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
             <Users className="mr-1 inline h-3.5 w-3.5" /> 0 = đã báo, không có người · — = chưa báo · Tổng ngày = cộng QS các đội · TỔNG = cộng từng cột; ô cuối = tổng lượt người-ngày.
           </div>
 
-          <div className="grid grid-cols-3 gap-2" data-hnl-pc-v32-region="crew-share-actions" data-hnl-crew-export-menu="unified" data-hnl-export-format-group="true" data-hnl-export-format-count="3" role="group" aria-label="Nội dung, ảnh và Excel quân số">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-hnl-pc-v32-region="crew-share-actions" data-hnl-crew-export-menu="unified" data-hnl-export-format-group="true" data-hnl-export-format-count="4" role="group" aria-label="Nội dung, ảnh, PDF và Excel quân số">
             <button type="button" disabled={!rangeValid || rows.length===0||Boolean(busy)} onClick={()=>void openActionMenu('text')}
               aria-expanded={actionMenu==='text'} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-slate-800 px-2 text-xs font-bold text-white disabled:opacity-40">
               <FileText className="h-4 w-4" /> Nội dung
@@ -807,6 +844,10 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
             <button type="button" disabled={!rangeValid || rows.length===0||Boolean(busy)} onClick={()=>void openActionMenu('image')}
               aria-expanded={actionMenu==='image'} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-sky-600 px-2 text-xs font-bold text-white disabled:opacity-40">
               <ImageIcon className="h-4 w-4" /> {busy==='image'?'Tạo ảnh…':'Ảnh'}
+            </button>
+            <button type="button" disabled={!rangeValid || rows.length===0||Boolean(busy)} onClick={()=>void openActionMenu('pdf')}
+              aria-expanded={actionMenu==='pdf'} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-red-600 px-2 text-xs font-bold text-white disabled:opacity-40">
+              <FileDown className="h-4 w-4" /> {busy==='pdf'?'Tạo PDF…':'PDF'}
             </button>
             <button type="button" disabled={!rangeValid || rows.length===0||Boolean(busy)} onClick={()=>void openActionMenu('excel')}
               aria-expanded={actionMenu==='excel'} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-green-600 px-2 text-xs font-bold text-white disabled:opacity-40">
@@ -822,7 +863,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
               data-hnl-crew-action-menu={actionMenu}
               className="relative z-10 mb-[calc(0.75rem+env(safe-area-inset-bottom))] w-[calc(100%-1.5rem)] max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl sm:mb-0">
               <div className="mb-3 flex items-center justify-between gap-2">
-                <p className="text-sm font-bold text-slate-900">Báo cáo quân số · {actionMenu==='text'?'nội dung':actionMenu==='image'?'ảnh':'Excel'}</p>
+                <p className="text-sm font-bold text-slate-900">Báo cáo quân số · {actionMenu==='text'?'nội dung':actionMenu==='image'?'ảnh':actionMenu==='pdf'?'PDF':'Excel'}</p>
                 <button type="button" disabled={Boolean(busy)} onClick={()=>setActionMenu(null)}
                   className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600"
                   aria-label="Đóng tùy chọn"><X className="h-4 w-4" /></button>
@@ -835,6 +876,10 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
             {actionMenu==='image'&&<>
               <button type="button" onClick={()=>void downloadImages()} disabled={Boolean(busy)||preparedImages?.signature!==preparationSignature} className="min-h-11 rounded-lg border border-sky-200 bg-white px-2 text-xs font-bold text-sky-700 disabled:opacity-40"><Download className="mr-1 inline h-4 w-4" /> Tải ảnh</button>
               <button type="button" onClick={()=>void shareImages()} disabled={Boolean(busy)||preparedImages?.signature!==preparationSignature} className="min-h-11 rounded-lg bg-sky-600 px-2 text-xs font-bold text-white disabled:opacity-40"><Share2 className="mr-1 inline h-4 w-4" /> Chia sẻ ảnh</button>
+            </>}
+            {actionMenu==='pdf'&&<>
+              <button type="button" onClick={()=>void handlePdf('download')} disabled={Boolean(busy)||preparedPdf?.signature!==preparationSignature} className="min-h-11 rounded-lg border border-red-200 bg-white px-2 text-xs font-bold text-red-700 disabled:opacity-40"><Download className="mr-1 inline h-4 w-4" /> Tải PDF</button>
+              <button type="button" onClick={()=>void handlePdf('share')} disabled={Boolean(busy)||preparedPdf?.signature!==preparationSignature} className="min-h-11 rounded-lg bg-red-600 px-2 text-xs font-bold text-white disabled:opacity-40"><Share2 className="mr-1 inline h-4 w-4" /> Chia sẻ PDF</button>
             </>}
             {actionMenu==='excel'&&<>
               <button type="button" onClick={()=>void handleExcel('download')} disabled={Boolean(busy)||preparedExcel?.signature!==preparationSignature} className="min-h-11 rounded-lg border border-green-200 bg-white px-2 text-xs font-bold text-green-700 disabled:opacity-40"><Download className="mr-1 inline h-4 w-4" /> Tải Excel</button>

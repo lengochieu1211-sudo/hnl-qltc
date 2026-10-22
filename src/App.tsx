@@ -7921,6 +7921,7 @@ function AuthenticatedApp() {
               activeProjectId={activeProjectId}
               activeProjectName={projectName}
               activeProjectLocation={projectLocation}
+              activeContractorName={contractorName}
               currentRole={currentUserRole}
               defectOpenCount={unhandledDefectsCount}
               dueAlertCount={dueDateAlerts.length}
@@ -8154,6 +8155,7 @@ function AuthenticatedApp() {
               currentUserUid={getCurrentRealFirebaseUser()?.uid || ''}
               projectName={projectName}
               projectLocation={projectLocation}
+              contractorName={contractorName}
               crewRecords={crewRecords}
               floorPlans={floorPlans}
               structureConfig={structureConfig}

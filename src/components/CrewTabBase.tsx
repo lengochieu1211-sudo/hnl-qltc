@@ -99,6 +99,7 @@ interface CrewTabProps {
   currentUserUid?: string;
   projectName?: string;
   projectLocation?: string;
+  contractorName?: string;
   crewRecords: CrewRecord[];
   floorPlans: FloorPlan[];
   structureConfig: ProjectStructureConfig;
@@ -223,6 +224,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   currentUserUid = '',
   projectName,
   projectLocation,
+  contractorName,
   crewRecords,
   floorPlans,
   structureConfig,
@@ -4335,6 +4337,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           projectId,
           projectName: projectName || 'Dự án',
           projectLocation,
+          contractorName,
           records: structureScopedCrewRecords,
           teams,
           floorPlans,

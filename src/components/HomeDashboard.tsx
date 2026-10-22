@@ -43,6 +43,7 @@ interface HomeDashboardProps {
   activeProjectId: string;
   activeProjectName: string;
   activeProjectLocation: string;
+  activeContractorName?: string;
   currentRole: UserRole;
   defectOpenCount: number;
   dueAlertCount: number;
@@ -77,6 +78,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   activeProjectId,
   activeProjectName,
   activeProjectLocation,
+  activeContractorName = '',
   currentRole,
   defectOpenCount,
   dueAlertCount,
@@ -103,6 +105,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     projectId: activeProjectId,
     projectName: activeProjectName || 'Dự án đang mở',
     projectLocation: activeProjectLocation,
+    contractorName: activeContractorName,
     records: crewRecords,
     teams,
     floorPlans,
@@ -124,6 +127,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       projectId: activeProjectId,
       projectName: activeProjectName || activeProject?.name || 'Dự án đang mở',
       projectLocation: activeProjectLocation,
+      contractorName: activeContractorName,
       records: crewRecords,
       teams,
       floorPlans,
@@ -163,6 +167,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           projectId: project.id,
           projectName: snapshot.projectName || project.name,
           projectLocation: snapshot.projectLocation,
+          contractorName: snapshot.contractorName,
           records: snapshot.records,
           teams: snapshot.teams,
           floorPlans: snapshot.floorPlans,
@@ -192,7 +197,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       setReportLoading(false);
     });
     return () => { cancelled = true; };
-  }, [activeProjectId, activeProjectName, activeProjectLocation, activeProject?.name, crewRecords, teams, floorPlans, structureConfig, isOnline, projects, reportStartDate, reportEndDate]);
+  }, [activeProjectId, activeProjectName, activeProjectLocation, activeContractorName, activeProject?.name, crewRecords, teams, floorPlans, structureConfig, isOnline, projects, reportStartDate, reportEndDate]);
 
   const reportRows = useMemo(
     () => buildCrewReportRows(reportProjects, reportStartDate, reportEndDate),

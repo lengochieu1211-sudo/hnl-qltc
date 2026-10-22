@@ -12,6 +12,7 @@ export interface CrewReportProjectInput {
   projectId: string;
   projectName: string;
   projectLocation?: string;
+  contractorName?: string;
   records: CrewRecord[];
   teams?: TeamInfo[];
   floorPlans?: FloorPlan[];
@@ -22,6 +23,7 @@ export interface CrewReportRow {
   projectId: string;
   projectName: string;
   projectLocation?: string;
+  contractorName?: string;
   date: string;
   structureGroupId: string;
   structureGroupName: string;
@@ -331,6 +333,7 @@ export function buildCrewReportRows(
           projectId: project.projectId,
           projectName: project.projectName,
           projectLocation: project.projectLocation,
+          contractorName: project.contractorName,
           date,
           structureGroupId: team.group.id,
           structureGroupName: team.group.name,
@@ -450,6 +453,7 @@ export interface CrewReportProjectMatrix {
   projectId: string;
   projectName: string;
   projectLocation?: string;
+  contractorName?: string;
   groups: CrewReportMatrixGroup[];
   teams: CrewReportMatrixTeam[];
   dates: CrewReportMatrixDateRow[];
@@ -533,6 +537,7 @@ export function buildCrewReportMatrices(rows: CrewReportRow[]): CrewReportProjec
       projectId,
       projectName: first?.projectName || projectId,
       projectLocation: first?.projectLocation,
+      contractorName: first?.contractorName,
       groups,
       teams,
       dates,

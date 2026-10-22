@@ -48,11 +48,13 @@ export async function buildCrewReportExcel(params: {
     };
 
     const table: unknown[][] = [];
-    table.push([params.title || 'BÁO CÁO QUÂN SỐ']);
-    table.push(['Công trình: ' + matrix.projectName]);
-    table.push(['Thời gian: ' + formatDateDDMMYYYY(params.startDate) + ' – ' + formatDateDDMMYYYY(params.endDate)]);
+    // Keep exactly five metadata rows: row 9 stays the first data row,
+    // preserving all existing MAX/SUM formulas, freeze panes and external exports.
+    table.push([(params.title || 'Báo cáo quân số').toLocaleUpperCase('vi-VN')]);
+    table.push(['Công trình: ' + (matrix.projectName || '—')]);
     table.push(['Địa điểm: ' + (matrix.projectLocation || '—')]);
-    table.push(['QS ngày mỗi đội = ca đông nhất; 0 = đã báo không có người; ô trống = chưa báo']);
+    table.push(['Đơn vị thi công: ' + (matrix.contractorName || '—')]);
+    table.push(['Thời gian: ' + formatDateDDMMYYYY(params.startDate) + ' – ' + formatDateDDMMYYYY(params.endDate)]);
     for (let r = 0; r < 5; r++) addMerge(r,0,lastColumn);
 
     const groupHeader=Array<unknown>(lastColumn+1).fill(null);

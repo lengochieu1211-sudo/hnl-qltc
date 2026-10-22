@@ -3061,6 +3061,7 @@ export interface ProjectCrewReportData {
   projectId: string;
   projectName: string;
   projectLocation?: string;
+  contractorName?: string;
   records: any[];
   teams: any[];
   floorPlans: any[];
@@ -3145,6 +3146,7 @@ export async function fetchProjectCrewReportData(
     projectId,
     projectName: String(projectMeta?.name || projectId),
     projectLocation: String(projectMeta?.projectLocation || ''),
+    contractorName: String(projectMeta?.contractorName || ''),
     records,
     teams,
     floorPlans,

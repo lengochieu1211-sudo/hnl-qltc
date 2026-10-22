@@ -108,6 +108,25 @@ try{
     assert((await page.evaluate(()=>window.__crewShareEvents)).some(evt=>evt.files.some(f=>f.type==='image/png')),
       'Browser Web Share API must receive actual PNG attachment');
     await imageActions.getByRole('button',{name:'Đóng tùy chọn'}).click();
+    await dialog.getByRole('button',{name:'PDF',exact:true}).click();
+    const pdfActions=page.locator('[data-hnl-crew-action-menu="pdf"]');
+    assert(Math.abs((await dialog.evaluate(el=>el.scrollTop))-scrollBefore)<=2,
+      name+': switching to PDF must retain report scroll position');
+    const pdfBounds=await pdfActions.boundingBox();
+    assert(pdfBounds&&pdfBounds.y>=0&&pdfBounds.y+pdfBounds.height<=viewport.height+2,
+      name+': PDF share popup must be within viewport');
+    const dlPdf=page.getByRole('button',{name:'Tải PDF'});
+    await ready(dlPdf);
+    const pdfPromise=page.waitForEvent('download',{timeout:30000});
+    await dlPdf.click();
+    const pdfDownload=await pdfPromise;
+    const pdf=fs.readFileSync(await pdfDownload.path());
+    assert(pdf.length>3000&&pdf.subarray(0,5).toString()==='%PDF-','Crew share PDF invalid');
+    results.push({viewport:name,format:'pdf',bytes:pdf.length,file:pdfDownload.suggestedFilename()});
+    await page.getByRole('button',{name:'Chia sẻ PDF'}).click();
+    assert((await page.evaluate(()=>window.__crewShareEvents)).some(evt=>evt.files.some(f=>f.type==='application/pdf')),
+      'Browser Web Share API must receive a real PDF');
+    await pdfActions.getByRole('button',{name:'Đóng tùy chọn'}).click();
     assert.equal(await page.locator('[data-hnl-crew-action-menu]').count(),0,'Dismiss overlay without losing report');
     assert(Math.abs((await dialog.evaluate(el=>el.scrollTop))-scrollBefore)<=2,
       name+': closing overlay must restore previous report scroll position');
@@ -115,7 +134,7 @@ try{
     await page.screenshot({path:'runtime-evidence/crew-share-'+name+'.png',fullPage:true});
     await context.close();
   }
-  assert.equal(results.length,4);
+  assert.equal(results.length,6);
   fs.writeFileSync('runtime-evidence/crew-report-export-browser.json',JSON.stringify({status:'PASS',results},null,2));
   console.log('CREW REAL PNG/EXCEL DOWNLOAD + SHARE EVENT PASS',JSON.stringify(results));
 }finally{await browser?.close();vite.kill('SIGTERM');}

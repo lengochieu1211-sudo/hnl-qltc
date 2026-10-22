@@ -4,7 +4,7 @@ import { CrewReportShareModal } from '../../../src/components/CrewReportShareMod
 import type { CrewReportProjectInput } from '../../../src/utils/crewReportUtils';
 import '../../../src/index.css';
 const projects: CrewReportProjectInput[]=[{
-  projectId:'P0-DEV-CREW',projectName:'Công trình Golden',projectLocation:'Tầng 1',
+  projectId:'P0-DEV-CREW',projectName:'Công trình Golden',projectLocation:'Tầng 1',contractorName:'Đơn vị An Phú',
   teams:[{id:'TA',name:'Đội A',leader:'An',defaultCount:12},{id:'TB',name:'Đội B',leader:'Bình',defaultCount:4}],
   records:[
     {id:'CREW-A',date:'2026-10-14',teamId:'TA',teamName:'Đội A',leaderName:'An',workerCount:12,morningCount:7,afternoonCount:12,eveningCount:8,floorName:'Tầng 1',taskDescription:'Thi công trần'},
