@@ -77,7 +77,9 @@ assert(sheet.includes('Chia sẻ phiếu nhập/xuất kho') && warehouse.includ
   'Warehouse share action and dialog must use one concise label');
 assert(!sheet.includes("['text','Nội dung',FileText]") && !sheet.includes('data-hnl-voucher-action="text-copy"')
   && sheet.includes('data-hnl-voucher-formats="unified"')
-  && sheet.includes('grid w-full grid-cols-2 gap-2 sm:max-w-xl sm:grid-cols-4'),
+  && sheet.includes('data-hnl-export-format-count="4"')
+  && sheet.includes('grid-cols-2 gap-2')
+  && sheet.includes('min-[960px]:grid-cols-[repeat(4,112px)]'),
   'Voucher share must preserve three export formats plus optional settings, without Content');
 assert(sheet.includes('data-hnl-voucher-date-range="compact"')
   && (sheet.match(/max-w-\[158px\]/g) || []).length === 2
