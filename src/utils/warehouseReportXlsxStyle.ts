@@ -11,6 +11,7 @@ export type WarehouseReportXlsxLayout = {
   headerRow: number; // 0-based
   rowCount: number;
   footerRow?: number;
+  totalRow?: number;
   warningRow?: number;
   numericColumns?: number[];
   centerColumns?: number[];
@@ -54,7 +55,7 @@ ${xf(3,4,1,'left')}
 
 const indexOfColumn = (letters: string) => [...letters].reduce((total,ch)=>total*26+ch.charCodeAt(0)-64,0)-1;
 export function styleWarehouseReportXlsx(bytes: Uint8Array, layout: WarehouseReportXlsxLayout): Uint8Array {
-  const {columnCount, headerRow, rowCount, footerRow, warningRow} = layout;
+  const {columnCount, headerRow, rowCount, totalRow, footerRow, warningRow} = layout;
   const numericColumns = new Set(layout.numericColumns || []);
   const centerColumns = new Set(layout.centerColumns || []);
   if (columnCount<1 || columnCount>60 || rowCount<1 || headerRow<1) throw new Error('Bố cục Excel kho không hợp lệ.');
@@ -75,7 +76,8 @@ export function styleWarehouseReportXlsx(bytes: Uint8Array, layout: WarehouseRep
       const odd=(r-headerRow-1)%2===1;
       const alignment = numericColumns.has(c) ? 2 : (centerColumns.has(c) ? 1 : 0);
       style=(odd?8:5)+alignment;
-    }else if(r===warningRow)style=11;
+    }else if(r===totalRow)style=4;
+    else if(r===warningRow)style=11;
     else if(r===footerRow)style=4;
     else style=3;
     modified++;
@@ -90,5 +92,11 @@ export function styleWarehouseReportXlsx(bytes: Uint8Array, layout: WarehouseRep
   else xml=xml.replace(/(<worksheet\b[^>]*>)/,'$1'+pane);
   zip[path]=strToU8(xml);
   zip['xl/styles.xml']=strToU8(styles);
+  // Excel/LibreOffice must recalculate formulas when a user edits ordered amounts.
+  if(zip['xl/workbook.xml']){let workbook=strFromU8(zip['xl/workbook.xml']);
+    workbook=workbook.replace(/<calcPr\b[^>]*\/?>(?:<\/calcPr>)?/g,'');
+    workbook=workbook.replace('</workbook>','<calcPr calcId="191029" calcMode="auto" fullCalcOnLoad="1" forceFullCalc="1"/></workbook>');
+    zip['xl/workbook.xml']=strToU8(workbook);
+  }
   return zipSync(zip,{level:6});
 }

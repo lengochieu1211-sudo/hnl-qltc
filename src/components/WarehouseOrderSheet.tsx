@@ -49,17 +49,23 @@ export const WarehouseOrderSheet:React.FC<Props>=({open,onClose,projectId,projec
   const filtered=useMemo(()=>items.filter(x=>x.kind===kind && (!search.trim()||`${x.name} ${x.category} ${x.unit}`.toLocaleLowerCase('vi-VN').includes(search.trim().toLocaleLowerCase('vi-VN')))).sort((a,b)=>naturalCompare(a.category,b.category)||naturalCompare(a.name,b.name)),[items,kind,search]);
   const selected=useMemo(()=>items.filter(x=>(draft[x.key]?.quantity||0)>0).sort((a,b)=>a.kind.localeCompare(b.kind)||naturalCompare(a.category,b.category)||naturalCompare(a.name,b.name)),[items,draft]);
   const summary=useMemo(()=>orderWeightSummary(selected.map(row=>draft[row.key]||empty)),[selected,draft]);
+  // The visible table covers the active kind/search only; keep its total scoped
+  // to those visible rows, unlike the cross-tab exported order summary.
+  const visibleSummary=useMemo(()=>orderWeightSummary(filtered.map(row=>draft[row.key]||empty)),[filtered,draft]);
   const report:WarehouseReport=useMemo(()=>({
     title:'ĐƠN ĐẶT HÀNG VẬT TƯ / THIẾT BỊ',projectName,projectLocation,contractorName,
     subtitle:`${selected.length} dòng được chọn · Khối lượng ước tính theo khai báo kg/đơn vị`,
     filePrefix:'HNL-QLTC-DON-DAT-HANG',
-    columns:[{label:'STT',width:37},{label:'Vật tư / thiết bị',width:230},{label:'ĐVT',width:55},{label:'SL đặt',width:69,numeric:true},{label:'KL/đv (kg)',width:82,numeric:true},{label:'Thành KL (kg)',width:95,numeric:true}],
+    columns:[{label:'STT',width:37},{label:'Vật tư / thiết bị',width:230},{label:'ĐVT',width:55},{label:'SL đặt',width:69,numeric:true},{label:'KL/đv (kg)',width:82,numeric:true},{label:'Thành KL (kg)',width:95,numeric:true},{label:'Tỷ trọng KL (%)',width:78,numeric:true}],
     rows:selected.map((row,i)=>{
       const v=draft[row.key]||empty;const valid=v.kgPerUnit!==null&&v.kgPerUnit>0;
-      return [i+1,row.name,row.unit,v.quantity,valid?v.kgPerUnit!:'Chưa có',valid?v.quantity*v.kgPerUnit!:'Chưa có'];
+      const weight=valid?v.quantity*v.kgPerUnit!:null;
+      return [i+1,row.name,row.unit,v.quantity,valid?v.kgPerUnit!:'Chưa có',weight===null?'Chưa có':weight,weight!==null&&summary.kilograms>0?Number((weight/summary.kilograms*100).toFixed(2)):''];
     }),
-    footer:`Tổng khối lượng đã biết: ${vi(summary.kilograms)} kg = ${vi(summary.tonnes)} tấn${summary.complete?'':' (chưa đủ)'}`,
-    warning:summary.missing?`CẢNH BÁO: ${summary.missing} dòng chưa có kg/đơn vị. KHÔNG dùng tổng này để chốt tải trọng xe.`:'Khối lượng chỉ là ước tính hàng hóa, chưa gồm bao bì/pallet và tải trọng xe thực tế.',
+    // Export the summary as a REAL table row (PNG/PDF/XLSX), not a note.
+    totalRow:['TỔNG CỘNG KHỐI LƯỢNG'+(summary.complete?'':' (CHƯA ĐỦ)'),'','', '', '',summary.kilograms,summary.kilograms>0?100:0],
+    orderWeightFormulas:true,
+    warning:summary.missing?`CẢNH BÁO tại thời điểm xuất: ${summary.missing} dòng chưa có kg/đơn vị. KHÔNG dùng tổng này để chốt tải trọng xe.`:'Khối lượng chỉ là ước tính hàng hóa, chưa gồm bao bì/pallet và tải trọng xe thực tế.',
   }),[projectName,projectLocation,contractorName,selected,draft,summary]);
   return <SettingsFeatureSheet open={open} onClose={onClose} sheetKey="warehouse-order" icon={ClipboardList}
     title="Đặt hàng vật tư / thiết bị" description="Lập danh sách và ước tính khối lượng vận chuyển, không tự tạo phiếu nhập kho.">
@@ -90,12 +96,15 @@ export const WarehouseOrderSheet:React.FC<Props>=({open,onClose,projectId,projec
               <td className="px-2 py-2 text-right font-bold tabular-nums text-indigo-700">{values.quantity>0?(hasWeight?vi(values.quantity*values.kgPerUnit!):'Chưa có'):'—'}</td>
             </tr>;
           })}{filtered.length===0&&<tr><td colSpan={5} className="p-5 text-center text-slate-500">Không có vật tư, thiết bị phù hợp.</td></tr>}</tbody>
+          <tfoot data-hnl-warehouse-order-total="visible-weight" className="sticky bottom-0 bg-slate-100 font-extrabold text-slate-900">
+            <tr className="border-t-2 border-slate-300"><td colSpan={4} className="px-2 py-3 text-right whitespace-nowrap">TỔNG CỘNG KHỐI LƯỢNG{visibleSummary.complete?'':' (CHƯA ĐỦ)'}</td>
+            <td className="px-2 py-3 text-right tabular-nums text-indigo-800 whitespace-nowrap">{vi(visibleSummary.kilograms)} kg</td></tr>
+          </tfoot>
         </table>
       </div>
       {saveError&&<p role="alert" className="rounded-lg bg-rose-50 p-2 text-xs text-rose-700">Thiết bị không lưu được bản nháp. Không nên đóng ứng dụng trước khi sao chép thông tin đặt hàng.</p>}
-      <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-sm" data-hnl-warehouse-order-summary="true">
-        <p className="font-bold text-slate-800">Đã chọn {summary.selected} vật tư / thiết bị</p>
-        <p className="mt-1 font-extrabold text-indigo-800">Tổng khối lượng đã biết: {vi(summary.kilograms)} kg ({vi(summary.tonnes)} tấn)</p>
+      <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-xs" data-hnl-warehouse-order-summary="true">
+        <p className="font-bold text-slate-800">Đã chọn {summary.selected} vật tư / thiết bị trong cả hai nhóm. Tổng phiếu xuất: {vi(summary.kilograms)} kg ({vi(summary.tonnes)} tấn).</p>
         {summary.missing>0?<p role="alert" className="mt-1 text-xs font-semibold text-amber-800">Còn {summary.missing} dòng chưa khai báo kg/đơn vị. Tổng chưa đầy đủ, không dùng để chốt xe vận chuyển.</p>
         :<p className="mt-1 text-xs text-slate-600">Chưa bao gồm bao bì, pallet hoặc giới hạn tải trọng thực tế của xe.</p>}
       </div>

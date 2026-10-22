@@ -1280,6 +1280,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       warehouseCatalogTab==='material' && Number(item.normQuantity)>0
         ?Math.round(item.totalIn/Number(item.normQuantity)*10000)/100:'—',
     ]),
+    // XLSX-only: H = E - F; I = E / G x 100, preserving UI totals as cached values.
+    catalogStockFormulas:true,
     footer:`${warehouseCatalogStockRows.length} dòng. Số liệu đọc từ danh mục và phiếu kho hiện có; không điều chỉnh tồn.`,
   }),[projectName, projectLocation, contractorName, warehouseCatalogTab, warehouseCatalogStockRows]);
 

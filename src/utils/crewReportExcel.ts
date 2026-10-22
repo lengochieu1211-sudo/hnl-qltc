@@ -1,5 +1,6 @@
 import { buildCrewReportMatrices, type CrewReportRow } from './crewReportUtils';
 import { formatDateDDMMYYYY } from './dateFormatter';
+import {styleCrewReportXlsx, type CrewXlsxSheetLayout} from './crewReportXlsxStyle';
 
 const EXCEL_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const safeSheetName = (name: string) => String(name || 'Công trình').replace(/[\\/:?*\[\]]/g, '_').slice(0, 26);
@@ -34,6 +35,7 @@ export async function buildCrewReportExcel(params: {
   const wb = XLSX.utils.book_new();
   const matrices = buildCrewReportMatrices(params.rows);
   if (!matrices.length) throw new Error('Không có dữ liệu quân số để xuất Excel.');
+  const layouts: CrewXlsxSheetLayout[]=[];
 
   for (const [projectIndex, matrix] of matrices.entries()) {
     const offset = params.includeSerial ? 2 : 1;
@@ -150,11 +152,13 @@ export async function buildCrewReportExcel(params: {
     ws['!rows']=Array.from({length:table.length},(_,index)=>({hpt:index<5?27:index===5||index===6?22:index===7?25:23}));
     ws['!views']=[{state:'frozen',ySplit:8,xSplit:offset}];
     ws['!autofilter']={ref:colName(0)+'8:'+colName(lastColumn)+Math.max(8,table.length-1)};
+    layouts.push({columnCount:lastColumn+1,totalRow:totalZeroRowIndex});
     const name=safeSheetName(matrix.projectName)+'-'+(projectIndex+1);
     XLSX.utils.book_append_sheet(wb,ws,name);
   }
   const data=XLSX.write(wb,{bookType:'xlsx',type:'array'});
-  const blob=new Blob([data],{type:EXCEL_MIME});
+  const formatted=styleCrewReportXlsx(new Uint8Array(data),layouts);
+  const blob=new Blob([formatted],{type:EXCEL_MIME});
   if(blob.size<=0)throw new Error('Báo cáo Excel rỗng (0 byte).');
   return {workbook:wb,blob,fileName:'Bao-cao-quan-so-'+params.startDate+'-'+params.endDate+'.xlsx',mimeType:EXCEL_MIME};
 }

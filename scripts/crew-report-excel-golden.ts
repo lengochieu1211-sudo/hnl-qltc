@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import * as XLSX from 'xlsx';
+import {strFromU8, unzipSync} from 'fflate';
 import { buildCrewReportExcel } from '../src/utils/crewReportExcel';
 import type { CrewReportRow } from '../src/utils/crewReportUtils';
 
@@ -36,4 +37,12 @@ assert.equal(ws['I11']?.v,4);
 assert.equal(ws['J11']?.f,'SUM(J9:J10)');
 assert.equal(ws['J11']?.v,25);
 assert((ws['!merges']||[]).length>=3,'Project/group/team multilevel headers must be merged');
+const parts=unzipSync(fileBytes);
+const xml=strFromU8(parts['xl/worksheets/sheet1.xml']);
+const styleXml=strFromU8(parts['xl/styles.xml']);
+assert.match(styleXml,/<borders count="2">/, 'Crew exported XLSX needs visible cell borders');
+assert.match(xml,/<c r="I9" s="6"\s*\/>/, 'Unreported crew cells must have grid border but remain truly blank');
+assert.doesNotMatch(xml,/<c\b[^>]*\/\s+s=\"\d+\"/, 'Grid style cannot corrupt a self-closing OOXML cell');
+assert.match(xml,/ySplit="8"/, 'Crew report heading must stay frozen');
+assert.match(styleXml,/<cellXfs count="12">/, 'Crew report must include zebra / header / total styles');
 console.log('CREW REPORT EXCEL: real XLSX binary + MAX/SUM formulas/cached results + absent-vs-zero PASS');
