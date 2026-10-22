@@ -117,8 +117,10 @@ assert.ok(
   'date filters must distinguish unreported dates from reported-zero dates',
 );
 assert.ok(
-  shareModalSource.includes('const x = teamStartX + teamIndex * teamWidth + metricIndex * metricWidth;'),
-  'crew share total row must align from teamStartX',
+  shareModalSource.includes('const x = teamStartX + ((teamMetricOffsets.get(team.teamKey)||0)+metricIndex) * metricWidth;')
+  && shareModalSource.includes('const totalX = teamStartX + metricCount * metricWidth;')
+  && shareModalSource.split('const x = teamStartX + ((teamMetricOffsets.get(team.teamKey)||0)+metricIndex) * metricWidth;').length >= 3,
+  'crew body and total rows must share dynamic column offsets after zero-count shifts are hidden',
 );
 assert.ok(
   shareModalSource.includes('dateX + (dateWidth - dateHeaderWidth) / 2')

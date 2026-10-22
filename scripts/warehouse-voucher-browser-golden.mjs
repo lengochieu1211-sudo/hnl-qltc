@@ -104,7 +104,12 @@ try {
 
   await sheet.locator('[data-hnl-voucher-format="xlsx"]').click();
   const excelAction=page.locator('[data-hnl-voucher-action="xlsx-download"]');
-  await assertEventuallyEnabled(excelAction);
+  try { await assertEventuallyEnabled(excelAction); }
+  catch (e) {
+    const alerts = await sheet.locator('[role="alert"]').allTextContents().catch(()=>[]);
+    const status = await sheet.locator('[data-hnl-voucher-layout]').allTextContents().catch(()=>[]);
+    throw new Error('Voucher Excel preparation failed: '+JSON.stringify({alerts,status})+'; '+String(e));
+  }
   const excelBox=await excelAction.boundingBox();
   assert(excelBox&&excelBox.y>=0&&excelBox.y+excelBox.height<=viewport.height+2,tag+': Excel action must fit viewport');
   assert(excelBox.width>=120&&excelBox.width<=235&&excelBox.height>=44,
