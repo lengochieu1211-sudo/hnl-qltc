@@ -193,9 +193,44 @@ try {
     order: 1.5, revision: 6, updatedAt: Date.now() + 80,
   }));
 
+  // One project-scoped draft per material/unit; no stock mutation.
+  const orderKey = JSON.stringify(['material','thanh xương','cây']);
+  const orderRef = doc(db, 'projects', pid, 'warehouse_order_drafts', encodeURIComponent(orderKey));
+  const orderFixture = {
+    projectId: pid, itemKey: orderKey, quantity: 24, kgPerUnit: 0.75,
+    quantityExpression: '=12*2', kgPerUnitExpression: '', expectedDeliveryDate: '',
+    revision: 1, updatedAt: Date.now(), updatedByUid: ownerUid,
+  };
+  await expectAllowed('ADMIN creates shared order draft without mutating stock', () => setDoc(orderRef, orderFixture));
+  await expectAllowed('ADMIN reads shared order draft', () => getDoc(orderRef));
+  const orderDateKey = '__HNL_WAREHOUSE_ORDER_EXPECTED_DATE__';
+  const orderDateRef = doc(db, 'projects', pid, 'warehouse_order_drafts', encodeURIComponent(orderDateKey));
+  await expectAllowed('ADMIN sets expected delivery date without warehouse ledger write', () => setDoc(orderDateRef, {
+    projectId: pid, itemKey: orderDateKey, quantity: 0, kgPerUnit: null,
+    quantityExpression: '', kgPerUnitExpression: '', expectedDeliveryDate: '2026-10-30',
+    revision: 1, updatedAt: Date.now(), updatedByUid: ownerUid,
+  }));
+  await expectDenied('ADMIN cannot skip order draft revision', () => updateDoc(orderRef, {
+    quantity: 99, revision: 3, updatedByUid: ownerUid,
+  }));
+  await expectDenied('ADMIN cannot add unrelated order field', () => updateDoc(orderRef, {
+    stockBalance: 1000, revision: 2, updatedByUid: ownerUid,
+  }));
+  await expectDenied('ADMIN cannot hard-delete order draft', () => deleteDoc(orderRef));
+
   await signIn(editorEmail);
   const editorUid = auth.currentUser.uid;
 
+  await expectAllowed('EDITOR reads shared order draft', () => getDoc(orderRef));
+  await expectAllowed('EDITOR reads expected order date', () => getDoc(orderDateRef));
+  await expectAllowed('EDITOR updates quantity with next version', () => updateDoc(orderRef, {
+    quantity: 30, quantityExpression: '=15*2', revision: 2,
+    updatedAt: Date.now(), updatedByUid: editorUid,
+  }));
+  await expectDenied('EDITOR cannot replace order project identity', () => updateDoc(orderRef, {
+    projectId: 'other-project', revision: 3, updatedByUid: editorUid,
+  }));
+  await expectDenied('EDITOR cannot hard-delete shared order draft', () => deleteDoc(orderRef));
   await expectAllowed('EDITOR reads private member contact', () => getDoc(memberContactRef));
   await expectDenied('EDITOR cannot write private member contact', () => setDoc(memberContactRef, {
     projectId: pid, email: editorEmail, phone: '0999999999', displayName: 'Editor Escalation',
@@ -204,6 +239,15 @@ try {
 
   await signIn(viewerEmail);
   await expectAllowed('VIEWER remains a valid project member', () => getDoc(doc(db, 'projects', pid)));
+  await expectAllowed('VIEWER reads shared order draft', () => getDoc(orderRef));
+  await expectAllowed('VIEWER reads delivery date', () => getDoc(orderDateRef));
+  await expectDenied('VIEWER cannot update order quantity', () => updateDoc(orderRef, {
+    quantity: 5, revision: 3, updatedByUid: viewerUid,
+  }));
+  await expectDenied('VIEWER cannot create order draft', () => setDoc(doc(db,'projects',pid,'warehouse_order_drafts','viewer-draft'), {
+    ...orderFixture, itemKey:'viewer-draft', updatedByUid:viewerUid,
+  }));
+
   await expectDenied('VIEWER cannot read private member contact', () => getDoc(memberContactRef));
   await expectDenied('VIEWER cannot write private member contact', () => setDoc(doc(db, 'projects', pid, 'memberContacts', viewerEmail), {
     projectId: pid, email: viewerEmail, phone: '0888888888', displayName: 'Viewer Test',

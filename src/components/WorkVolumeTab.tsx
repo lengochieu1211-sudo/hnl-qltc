@@ -1,3 +1,4 @@
+import { ExpressionDisplayInput } from './ExpressionDisplayInput';
 import { DesktopWorkspaceMetrics } from './DesktopWorkspaceMetrics';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useLanguage } from '../context/LanguageContext';
@@ -1578,7 +1579,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                       </span>
                     )}
                   </div>
-                  <input
+                  <ExpressionDisplayInput
                     type="text"
                     value={plannedStr}
                     onChange={(e) => {
@@ -1632,7 +1633,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                       </span>
                     )}
                   </label>
-                  <input
+                  <ExpressionDisplayInput
                     type="text"
                     value={unitPriceStr}
                     onChange={(e) => {

@@ -438,6 +438,52 @@ service cloud.firestore {
         allow delete: if false;
       }
 
+      // Warehouse order planning follows canEditWarehouseData (ADMIN/EDITOR), not
+      // generic ENGINEER field-operation permissions.
+      function canWriteWarehouseOrder(projectId) {
+        return canAdminOperate(projectId) || (
+          projectIsActive(projectId) && isGoogleAuthed()
+          && canonicalMemberActive(projectId) && canonicalMemberRole(projectId) == 'EDITOR'
+        );
+      }
+
+      // Shared order PLANNING, not inventory ledger. One immutable item identity per row;
+      // revision increments prevent blind overwrites from two devices. No delete.
+      function validSharedOrderPayload(projectId, recordId) {
+        let d = request.resource.data;
+        return d.keys().hasOnly([
+          'projectId', 'itemKey', 'quantity', 'kgPerUnit', 'quantityExpression',
+          'kgPerUnitExpression', 'expectedDeliveryDate', 'revision', 'updatedAt', 'updatedByUid'
+        ]) && d.keys().hasAll([
+          'projectId', 'itemKey', 'quantity', 'kgPerUnit', 'quantityExpression',
+          'kgPerUnitExpression', 'expectedDeliveryDate', 'revision', 'updatedAt', 'updatedByUid'
+        ])
+        && d.projectId == projectId
+        && d.itemKey is string && d.itemKey.size() > 0 && d.itemKey.size() <= 500
+        && d.quantity is number && d.quantity >= 0 && d.quantity <= 1000000000000
+        && (d.kgPerUnit == null || (d.kgPerUnit is number && d.kgPerUnit > 0 && d.kgPerUnit <= 1000000000000))
+        && d.quantityExpression is string && d.quantityExpression.size() <= 160
+        && d.kgPerUnitExpression is string && d.kgPerUnitExpression.size() <= 160
+        && d.expectedDeliveryDate is string && (
+          d.expectedDeliveryDate == '' || d.expectedDeliveryDate.matches('^20[0-9]{2}-[0-9]{2}-[0-9]{2}$')
+        )
+        && d.updatedAt is number && d.updatedAt > 0
+        && d.updatedByUid == request.auth.uid
+        && d.revision is int && d.revision >= 1;
+      }
+
+      match /warehouse_order_drafts/{recordId} {
+        allow read: if isMember(projectId);
+        allow create: if canWriteWarehouseOrder(projectId) && validSharedOrderPayload(projectId, recordId)
+          && request.resource.data.revision == 1;
+        allow update: if canWriteWarehouseOrder(projectId) && validSharedOrderPayload(projectId, recordId)
+          && request.resource.data.projectId == resource.data.projectId
+          && request.resource.data.itemKey == resource.data.itemKey
+          && resource.data.revision is int
+          && request.resource.data.revision == resource.data.revision + 1;
+        allow delete: if false;
+      }
+
       // Append-only, identity-bound audit stream. This path is intentionally
       // excluded from the generic project-data rule below.
       match /activityLogs/{logId} {
@@ -656,14 +702,14 @@ service cloud.firestore {
       // overwrites. Shared settings/trash metadata are ADMIN-owned structure; legacy
       // floor_plan_images Firestore fallback is read-only until verified purge.
       match /{collectionName}/{recordId} {
-        allow read: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog'
+        allow read: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts'
           && isMember(projectId)
           && (collectionName != 'trash' || canAdminOperate(projectId))
           && (collectionName != 'work_volumes' || !('unitPrice' in resource.data) || isAdmin(projectId));
         // Master project structure is ADMIN-only. EDITOR may create operational records
         // (defect, warehouse transaction, crew log, photo metadata) and may update only
         // explicitly allowed operational fields on rooms/checklist. VIEWER remains read-only.
-        allow create: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog'
+        allow create: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts'
           && !isLegacyReadOnlyCollection(collectionName)
           && (collectionName != 'work_volumes' || !('unitPrice' in request.resource.data))
           && (
@@ -676,7 +722,7 @@ service cloud.firestore {
             ))
           )
           && (!isCoreBusinessCollection(collectionName) || coreCreateLifecycleIsValid(recordId));
-        allow update: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog'
+        allow update: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts'
           && !isLegacyReadOnlyCollection(collectionName)
           && (collectionName != 'work_volumes' || !('unitPrice' in request.resource.data))
           && (
@@ -691,7 +737,7 @@ service cloud.firestore {
             ))
           )
           && (!isCoreBusinessCollection(collectionName) || (coreIdentityUpdateIsValid(recordId) && lifecycleUpdateIsMonotonic()));
-        allow delete: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog'
+        allow delete: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts'
           && canAdminOperate(projectId)
           && !isCoreBusinessCollection(collectionName);
 

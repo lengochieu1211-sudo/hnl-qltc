@@ -1,3 +1,4 @@
+import { ExpressionDisplayInput } from './ExpressionDisplayInput';
 import React, { useState, useEffect } from 'react';
 import { ViewportModalPortal } from './ViewportModalPortal';
 import { ContextBackButton } from './ContextBackButton';
@@ -1478,7 +1479,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                     </button>
                   </div>
                 </div>
-                <input
+                <ExpressionDisplayInput
                   type="text"
                   placeholder="VD: 0.35 hoặc 1/2.88"
                   value={unitNormPerM2Str}

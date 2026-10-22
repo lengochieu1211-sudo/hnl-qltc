@@ -1,3 +1,4 @@
+import { ExpressionDisplayInput } from './ExpressionDisplayInput';
 import { DesktopWorkspaceMetrics } from './DesktopWorkspaceMetrics';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useLanguage } from '../context/LanguageContext';
@@ -3988,7 +3989,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                       </span>
                     )}
                   </label>
-                  <input
+                  <ExpressionDisplayInput
                     type="text"
                     value={quantityStr}
                     onChange={(e) => {

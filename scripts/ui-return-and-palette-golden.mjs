@@ -684,3 +684,28 @@ assert.ok(v40Picker.includes("entityType === 'crewRecord' || entityType === 'inv
   v40GalleryCss.includes('max-height: 22px;'),
   'Defect and Classic/mobile remain original; Crew/Warehouse permissions, edit/remove and 22px buttons stay intact');
 console.log('PC V4.0 RESPONSIVE PHOTO GRID GOLDEN PASS');
+
+// Canonical arithmetic field presentation: raw formula on focus, result on blur.
+const formulaDisplayCode = read('src/components/ExpressionDisplayInput.tsx');
+const mathNumberInputCode = read('src/components/MathNumberInput.tsx');
+const warehouseFormCode = read('src/components/WarehouseTab.tsx');
+const workVolumeFormCode = read('src/components/WorkVolumeTab.tsx');
+const materialNormFormCode = read('src/components/MaterialNormModal.tsx');
+const roomHighlightFormCode = read('src/components/RoomHighlightModal.tsx');
+assert.ok(formulaDisplayCode.includes('!focused && calculated !== null') &&
+  formulaDisplayCode.includes('value={displayed}') &&
+  formulaDisplayCode.includes('setFocused(true)') &&
+  formulaDisplayCode.includes('setFocused(false)'),
+'Existing raw formulas are only visually evaluated on blur, never overwritten by the display');
+assert.ok(mathNumberInputCode.includes('formulaRef.current = formula') &&
+  mathNumberInputCode.includes('setText(preserved)') &&
+  mathNumberInputCode.includes('onExpressionChange?.(formula || undefined)'),
+'Numeric-only MathNumberInput preserves formulas during its lifetime and permits durable ownership');
+assert.ok(quickGridCode.includes("column.type === 'number' && column.allowExpression ? (") &&
+  quickGridCode.includes('<ExpressionDisplayInput'), 'Quick Edit uses shared expression view only for allowed numeric cells');
+assert.ok(workVolumeFormCode.includes('<ExpressionDisplayInput') && warehouseFormCode.includes('<ExpressionDisplayInput') &&
+  materialNormFormCode.includes('<ExpressionDisplayInput') && roomHighlightFormCode.includes('<ExpressionDisplayInput'),
+'Work Volume, Warehouse, Norm and Floor Plan formula forms use the shared view');
+assert.ok(!roomHighlightFormCode.includes('[catName]: formatDecimal(parsed)'),
+'Room formula must not be discarded on blur');
+console.log('ARITHMETIC INPUT PRESENTATION GOLDEN PASS');

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { confirmAsync } from '../utils/confirmAsync';
 import { evaluateMathExpression } from '../utils/numberUtils';
+import { ExpressionDisplayInput } from './ExpressionDisplayInput';
 import { gridRectKeys, gridSelectionTSV, parseGridTSV } from '../utils/quickGridClipboard';
 import { quickGridHistoryShortcut } from '../utils/quickGridKeyboard.mjs';
 
@@ -780,9 +781,17 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
                                 return typeof option === 'string' ? option : option?.label || normalizeCell(value);
                               })()}
                             </span>
+                          ) : column.type === 'number' && column.allowExpression ? (
+                            <ExpressionDisplayInput
+                              value={normalizeCell(value)}
+                              readOnly={!editable}
+                              placeholder={column.placeholder}
+                              onChange={(event) => setCell(row.__rowKey, column, event.target.value)}
+                              className={baseClass}
+                            />
                           ) : (
                             <input
-                              type={column.type === 'date' ? 'date' : column.type === 'number' && !column.allowExpression ? 'number' : 'text'}
+                              type={column.type === 'date' ? 'date' : column.type === 'number' ? 'number' : 'text'}
                               value={normalizeCell(value)}
                               readOnly={!editable}
                               placeholder={column.placeholder}

@@ -1,3 +1,4 @@
+import { ExpressionDisplayInput } from './ExpressionDisplayInput';
 import React, { useState, useEffect } from 'react';
 import { 
   X, 
@@ -1566,7 +1567,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                         {/* Interactive Input Volume directly in the list */}
                         <div className="flex items-center gap-1.5 shrink-0 bg-emerald-50/70 border border-emerald-100 rounded-xl px-2.5 py-1">
                           <span className="text-[10px] font-extrabold text-emerald-800">Khối lượng:</span>
-                          <input
+                          <ExpressionDisplayInput
                             type="text"
                             disabled={structureReadOnly}
                             placeholder="0"
@@ -1594,10 +1595,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                   ...prev,
                                   [catName]: parsed
                                 }));
-                                setVolumeStrings(prev => ({
-                                  ...prev,
-                                  [catName]: formatDecimal(parsed)
-                                }));
+                                // Keep the user's raw expression. ExpressionDisplayInput
+                                // displays the computed value only while blurred.
                               } else {
                                 const numericVal = typedVal === '' ? 0 : Number(typedVal.replace(/,/g, '.'));
                                 if (!isNaN(numericVal)) {
