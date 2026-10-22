@@ -726,7 +726,7 @@ assert(!defectUi.includes('⚡ Chọn Nhanh Bằng 1 Click:') && !defectUi.inclu
 assert(defectUi.includes('buildDefectShareText(defect, defectRoomName)') && defectUi.includes('buildDefectShareText(activeDefectDetail, activeDefectRoomName)'), 'Defect share must use the linked Căn/Phòng name in list and detail flows');
 assert(crewShareUi.includes('Sao chép nội dung') && crewShareUi.includes('Chia sẻ ảnh') && crewShareUi.includes('Tải ảnh'), 'Crew report sharing must support content, image share and image download');
 assert(!crewShareUi.includes('Tải ảnh PNG') && !crewShareUi.includes('JPEG'), 'Crew report UI must not expose image file-format jargon');
-assert(crewShareUi.includes('colSpan={4}') && crewShareUi.includes('— = chưa báo') && crewShareUi.includes('Tổng QS/ngày') && crewShareUi.includes('TỔNG'), 'Crew report preview must preserve matrix semantics and expose daily/column totals');
+assert(crewShareUi.includes('colSpan={metricColumns[team.teamKey].length}') && crewShareUi.includes('— = chưa báo') && crewShareUi.includes('Tổng QS/ngày') && crewShareUi.includes('TỔNG'), 'Crew report preview must preserve dynamic columns and daily/column totals when zero shifts are hidden');
 assert(crewShareUi.includes('relative isolate max-h-[42vh] overflow-auto overscroll-contain') && crewShareUi.includes('<tr className="h-8">') && crewShareUi.includes('sticky top-[31px]'), 'Crew share preview sticky header must stay contained and overlap by 1px so no scroll seam can show through');
 // Regression: three sticky header rows must paint fully opaque in dark mode during
 // vertical/horizontal scrolling; keep the matrix columns and their 31/62px overlap.
