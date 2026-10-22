@@ -170,9 +170,12 @@ export function useWarehouseOrderSync(projectId:string,actorUid:string,canEdit:b
     }
     conflictsRef.current=new Set(unresolved);setConflicts(unresolved);updateLocal(updated);persistPending();
   };
-  const eligibleLegacyCount=useMemo(()=>accessAllowed ? Object.entries({...loadOrderLegacyBackup(projectId),...draft}).filter(([key,row])=>
-    Boolean(row) && !remoteRef.current[key] && !pendingRef.current[key] && (row.quantity>0||row.kgPerUnit!==null)).length : 0,
-    [projectId,draft,pendingCount,cloudState,accessAllowed]);
+  const eligibleLegacyCount=useMemo(()=>{
+    if(!accessAllowed)return 0;
+    const rows:Record<string,WarehouseOrderValues>={...loadOrderLegacyBackup(projectId),...draft};
+    return Object.entries(rows).filter(([key,row])=>
+      Boolean(row) && !remoteRef.current[key] && !pendingRef.current[key] && (row.quantity>0||row.kgPerUnit!==null)).length;
+  },[projectId,draft,pendingCount,cloudState,accessAllowed]);
   return {draft,expectedDate,cloudState,cloudError,saveError,pendingCount,conflicts,eligibleLegacyCount,canEdit,
     setValue,updateExpectedDate,flushPending,importLocalDraft,acceptCloudConflicts};
 }
