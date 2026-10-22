@@ -561,7 +561,7 @@
     white-space: normal;
   }
 
-  /* Report typography: section titles 13px; labels/inputs 12px, auxiliary
+  /* Report typography: section titles 14px; labels/inputs 12px, auxiliary
    * descriptions 11px. No changes to actual exported PDF font sizes. */
   html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="report-filters"]
     > div:first-child > label,
@@ -569,7 +569,7 @@
     .mb-2.text-xs,
   html[data-hnl-pc-workspace="modern"] [data-hnl-report-typography="sort-order"] > summary,
   html[data-hnl-pc-workspace="modern"] [data-hnl-report-typography="page-layout"] > span:first-child {
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.4;
   }
   html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="report-filters"]

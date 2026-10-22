@@ -150,13 +150,27 @@ assert.ok(!reportFilterUi.includes('text-[9.5px]') && !reportFilterUi.includes('
   'No tiny 9.5px or 10px typography inside report filters');
 assert.equal((reportFilterUi.match(/<(?:select|input)\b[^\n]*?className="[^"]*text-xs/g) || []).length, 7,
   'All 3 Defect selects and 4 date inputs use the same 12px font');
-for (const label of ['Defect tạo từ ngày', 'Defect tạo đến ngày', 'Xong từ', 'Xong đến']) {
-  assert.ok(reportFilterUi.includes('text-[11px] font-bold text-slate-500">' + label),
-    'Date field labels use the same readable 11px size: ' + label);
+for (const [label, state] of [
+  ['Defect tạo từ ngày', 'defectCreatedFrom'],
+  ['Defect tạo đến ngày', 'defectCreatedTo'],
+  ['Hoàn thành từ ngày', 'defectCompletedFrom'],
+  ['Hoàn thành đến ngày', 'defectCompletedTo'],
+]) {
+  assert.ok(reportFilterUi.includes('text-xs font-semibold leading-4 text-slate-600 sm:min-h-0">' + label),
+    'All four date labels use a consistent 12px font: ' + label);
+  assert.ok(reportFilterUi.includes('value={' + state + '}'),
+    'Date filter state/handler remains connected: ' + state);
 }
-assert.ok(reportFilterUi.includes('text-xs font-extrabold text-slate-600">Defect trong phạm vi trên') &&
+const dateGridStart = reportFilterUi.indexOf('data-hnl-report-defect-dates="uniform-grid"');
+const dateGridEnd = reportFilterUi.indexOf('</div>', dateGridStart);
+const dateGridUi = reportFilterUi.slice(dateGridStart, dateGridEnd);
+assert.ok(dateGridStart > 0 && dateGridUi.includes('grid-cols-2') &&
+  (dateGridUi.match(/<input type="date"/g) || []).length === 4 &&
+  (dateGridUi.match(/min-w-0 w-full rounded-xl/g) || []).length === 4,
+  'Four date controls share one responsive, equal-width 2x2 grid');
+assert.ok(reportFilterUi.includes('text-sm font-extrabold text-slate-600">Defect trong phạm vi trên') &&
   reportFilterUi.includes('text-xs font-extrabold text-indigo-600 hover:text-indigo-800'),
-  'Section title and clear-filter button use 12px');
+  'Section headings are 14px while reset-filter action remains 12px');
 assert.ok(reportFilterUi.includes('text-[11px] leading-relaxed text-slate-500'),
   'Explanatory footnote uses the same 11px typography with readable line-height');
 // Compact PC actions and label hierarchies are opt-in; no PDF print/template changes.
@@ -185,15 +199,15 @@ assert.ok(reportSortStart >= reportFilterEnd && reportSortEnd > reportSortStart,
 const reportSortUi = report.slice(reportSortStart, reportSortEnd);
 assert.equal((reportSortUi.match(/<select\b[^\n]*className="[^"\n]*text-xs font-semibold/g) || []).length, 7,
   'All seven per-section report sorting selectors use 12px text');
-assert.equal((reportSortUi.match(/<span className="block text-\[11px\] font-bold text-slate-600">/g) || []).length, 7,
-  'All seven per-section sorting field labels use 11px text');
-assert.ok(reportSortUi.includes('px-3 py-2.5 text-xs font-extrabold') &&
+assert.equal((reportSortUi.match(/<span className="block text-xs font-bold text-slate-600">/g) || []).length, 7,
+  'All seven per-section sorting field labels use 12px text');
+assert.ok(reportSortUi.includes('px-3 py-2.5 text-sm font-extrabold') &&
   reportSortUi.includes('px-3 pb-3 text-[11px] leading-relaxed'),
-  'Sorting section title is 12px and appendix-order explanation is 11px');
+  'Sorting section title is 14px and appendix-order explanation is 11px');
 assert.ok(!reportSortUi.includes('text-[10px]') && !reportSortUi.includes('text-[9.5px]'),
   'Report sorting panel does not regress to tiny captions');
 const reportPaperStart = report.indexOf('{/* Tùy chỉnh nâng cao */}', reportSortEnd);
-const reportPaperEnd = report.indexOf('<label className="flex items-center gap-2 cursor-pointer select-none text-[11px] font-medium">', reportPaperStart);
+const reportPaperEnd = report.indexOf('<label className="flex items-center gap-2 cursor-pointer select-none text-xs font-medium">', reportPaperStart);
 const reportPaperUi = report.slice(reportPaperStart, reportPaperEnd);
 assert.ok(reportPaperStart > reportSortEnd && reportPaperEnd > reportPaperStart,
   'PDF paper layout options must remain in the advanced group');
@@ -201,9 +215,11 @@ assert.equal((reportPaperUi.match(/<select\b[^\n]*|<select\s*\n/g) || []).length
   'Keep paper size and orientation selects');
 assert.equal((reportPaperUi.match(/className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold"/g) || []).length, 2,
   'Both PDF paper controls use 12px text');
-assert.equal((reportPaperUi.match(/text-\[11px\] font-semibold text-slate-600/g) || []).length, 2,
-  'Both paper-control labels use 11px text');
+assert.equal((reportPaperUi.match(/text-xs font-semibold text-slate-600/g) || []).length, 2,
+  'Both paper-control labels use 12px text');
 assert.ok(!reportPaperUi.includes('text-[10px]'), 'PDF paper layout has no tiny captions');
+assert.ok(deepFormCss.includes('/* Report typography: section titles 14px; labels/inputs 12px'),
+  'Desktop PC typography aligns 14/12/11 with mobile hierarchy');
 console.log('REPORT SORTING / PDF LAYOUT TYPOGRAPHY GOLDEN PASS');
 // HNL QLTC common drawing standard (19/10/2026): Căn/Phòng rectangles
 // must be square-cornered in draft SVG, drag preview, and saved SVG overlay.

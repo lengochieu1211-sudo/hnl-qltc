@@ -1952,7 +1952,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
           {/* Unified report scope + Defect filters */}
           <div data-hnl-pc-v32-region="report-filters" className="space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <label className="text-slate-700 font-bold flex items-center gap-1.5">
+              <label className="text-sm text-slate-700 font-bold flex items-center gap-1.5">
                 <Filter className="w-3.5 h-3.5 text-indigo-600" />
                 Phạm vi &amp; bộ lọc báo cáo
               </label>
@@ -2103,7 +2103,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               </div>
 
               <div className="border-t border-slate-200 pt-3">
-                <div className="mb-2 text-xs font-extrabold text-slate-600">Defect trong phạm vi trên</div>
+                <div className="mb-2 text-sm font-extrabold text-slate-600">Defect trong phạm vi trên</div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                   <select value={defectStatusFilter} onChange={(e) => setDefectStatusFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700">
                     <option value="all">Tất cả trạng thái Defect</option>
@@ -2120,24 +2120,25 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                     <option value="all">Tất cả người tạo</option>
                     {defectCreatorOptions.map((creator) => <option key={creator} value={creator}>{creator}</option>)}
                   </select>
-                  <label className="space-y-1">
-                    <span className="block text-[11px] font-bold text-slate-500">Defect tạo từ ngày</span>
-                    <input type="date" value={defectCreatedFrom} onChange={(e) => setDefectCreatedFrom(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs" />
+                </div>
+                {/* Date filters form their own uniform 2x2 grid on PC and mobile. */}
+                <div data-hnl-report-defect-dates="uniform-grid" className="mt-2 grid grid-cols-2 gap-2.5">
+                  <label className="min-w-0 space-y-1">
+                    <span className="block min-h-9 text-xs font-semibold leading-4 text-slate-600 sm:min-h-0">Defect tạo từ ngày</span>
+                    <input type="date" value={defectCreatedFrom} onChange={(e) => setDefectCreatedFrom(e.target.value)} className="block min-w-0 w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" />
                   </label>
-                  <label className="space-y-1">
-                    <span className="block text-[11px] font-bold text-slate-500">Defect tạo đến ngày</span>
-                    <input type="date" value={defectCreatedTo} onChange={(e) => setDefectCreatedTo(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs" />
+                  <label className="min-w-0 space-y-1">
+                    <span className="block min-h-9 text-xs font-semibold leading-4 text-slate-600 sm:min-h-0">Defect tạo đến ngày</span>
+                    <input type="date" value={defectCreatedTo} onChange={(e) => setDefectCreatedTo(e.target.value)} className="block min-w-0 w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" />
                   </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="space-y-1">
-                      <span className="block text-[11px] font-bold text-slate-500">Xong từ</span>
-                      <input type="date" value={defectCompletedFrom} onChange={(e) => setDefectCompletedFrom(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="block text-[11px] font-bold text-slate-500">Xong đến</span>
-                      <input type="date" value={defectCompletedTo} onChange={(e) => setDefectCompletedTo(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" />
-                    </label>
-                  </div>
+                  <label className="min-w-0 space-y-1">
+                    <span className="block min-h-9 text-xs font-semibold leading-4 text-slate-600 sm:min-h-0">Hoàn thành từ ngày</span>
+                    <input type="date" value={defectCompletedFrom} onChange={(e) => setDefectCompletedFrom(e.target.value)} className="block min-w-0 w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" />
+                  </label>
+                  <label className="min-w-0 space-y-1">
+                    <span className="block min-h-9 text-xs font-semibold leading-4 text-slate-600 sm:min-h-0">Hoàn thành đến ngày</span>
+                    <input type="date" value={defectCompletedTo} onChange={(e) => setDefectCompletedTo(e.target.value)} className="block min-w-0 w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" />
+                  </label>
                 </div>
               </div>
 
@@ -2149,14 +2150,14 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
           {/* Sorting for each report section. Photo appendices intentionally inherit their parent table order. */}
           <details open data-hnl-report-typography="sort-order" className="group bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden">
-            <summary className="cursor-pointer select-none px-3 py-2.5 text-xs font-extrabold text-slate-800 flex items-center justify-between gap-2">
+            <summary className="cursor-pointer select-none px-3 py-2.5 text-sm font-extrabold text-slate-800 flex items-center justify-between gap-2">
               <span>↕️ Sắp xếp từng phần trong PDF</span>
               <span className="text-[11px] text-slate-400 group-open:hidden">Mở</span>
               <span className="text-[11px] text-slate-400 hidden group-open:inline">Thu gọn</span>
             </summary>
             <div className="border-t border-slate-200 p-3 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <label className="space-y-1">
-                <span className="block text-[11px] font-bold text-slate-600">Kho vật tư</span>
+                <span className="block text-xs font-bold text-slate-600">Kho vật tư</span>
                 <select value={warehouseReportSortMode} onChange={(e) => setWarehouseReportSortMode(e.target.value as typeof warehouseReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                   <option value="material-asc">Tên vật tư A → Z</option>
                   <option value="material-desc">Tên vật tư Z → A</option>
@@ -2166,7 +2167,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-[11px] font-bold text-slate-600">Khối lượng thi công</span>
+                <span className="block text-xs font-bold text-slate-600">Khối lượng thi công</span>
                 <select value={workVolumeReportSortMode} onChange={(e) => setWorkVolumeReportSortMode(e.target.value as typeof workVolumeReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                   <option value="category-title">Phân loại → Hạng mục</option>
                   <option value="title-asc">Hạng mục A → Z</option>
@@ -2176,7 +2177,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-[11px] font-bold text-slate-600">Mặt bằng</span>
+                <span className="block text-xs font-bold text-slate-600">Mặt bằng</span>
                 <select value={floorPlanReportSortMode} onChange={(e) => setFloorPlanReportSortMode(e.target.value as typeof floorPlanReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                   <option value="floor-asc">Tầng thấp → cao / A → Z</option>
                   <option value="floor-desc">Tầng cao → thấp / Z → A</option>
@@ -2185,7 +2186,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-[11px] font-bold text-slate-600">Tiến độ Căn / Phòng</span>
+                <span className="block text-xs font-bold text-slate-600">Tiến độ Căn / Phòng</span>
                 <select value={roomReportSortMode} onChange={(e) => setRoomReportSortMode(e.target.value as typeof roomReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                   <option value="floor-room">Tầng → Căn / Phòng</option>
                   <option value="room-floor">Căn / Phòng → Tầng</option>
@@ -2196,7 +2197,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-[11px] font-bold text-slate-600">Nhật ký nhân công + phụ lục ảnh</span>
+                <span className="block text-xs font-bold text-slate-600">Nhật ký nhân công + phụ lục ảnh</span>
                 <select value={crewReportSortMode} onChange={(e) => setCrewReportSortMode(e.target.value as typeof crewReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                   <option value="date-desc">Ngày mới → cũ</option>
                   <option value="date-asc">Ngày cũ → mới</option>
@@ -2206,7 +2207,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-[11px] font-bold text-slate-600">Checklist</span>
+                <span className="block text-xs font-bold text-slate-600">Checklist</span>
                 <select value={checklistReportSortMode} onChange={(e) => setChecklistReportSortMode(e.target.value as typeof checklistReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                   <option value="floor-category">Tầng → Hạng mục</option>
                   <option value="category-floor">Hạng mục → Tầng</option>
@@ -2215,7 +2216,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-[11px] font-bold text-slate-600">Defect + phụ lục ảnh Defect</span>
+                <span className="block text-xs font-bold text-slate-600">Defect + phụ lục ảnh Defect</span>
                 <select value={defectReportSortMode} onChange={(e) => setDefectReportSortMode(e.target.value as typeof defectReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                   <option value="floor-room-category">Tầng → Căn / Phòng → Hạng mục</option>
                   <option value="room-floor-category">Căn / Phòng → Tầng → Hạng mục</option>
@@ -2232,7 +2233,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
           {/* Report Content Checkboxes */}
           <div>
-            <label className="block text-slate-700 font-bold mb-1.5">Hạng mục chọn xuất báo cáo</label>
+            <label className="block text-sm text-slate-700 font-bold mb-1.5">Hạng mục chọn xuất báo cáo</label>
             <div className="grid grid-cols-2 gap-2">
               <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeWarehouse ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
                 <input
@@ -2242,7 +2243,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <Package className="w-4 h-4 text-blue-600 shrink-0" />
-                <span className="text-[11px]">Kho Vật Tư</span>
+                <span className="text-xs">Kho Vật Tư</span>
               </label>
 
               <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeWorkVolumes ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
@@ -2253,7 +2254,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <BarChart3 className="w-4 h-4 text-blue-600 shrink-0" />
-                <span className="text-[11px]">Khối lượng</span>
+                <span className="text-xs">Khối lượng</span>
               </label>
 
               {includeWorkVolumes && (
@@ -2265,7 +2266,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                     className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
                   />
                   <FileSpreadsheet className="w-4 h-4 text-blue-600 shrink-0" />
-                  <span className="text-[11px]">Chi tiết Khối lượng</span>
+                  <span className="text-xs">Chi tiết Khối lượng</span>
                 </label>
               )}
 
@@ -2277,7 +2278,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <Building2 className="w-4 h-4 text-indigo-600 shrink-0" />
-                <span className="text-[11px]">Mặt bằng &amp; Defect</span>
+                <span className="text-xs">Mặt bằng &amp; Defect</span>
               </label>
 
               {checklist.length > 0 && <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeChecklist ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
@@ -2288,7 +2289,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <ClipboardCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span className="text-[11px]">Checklist</span>
+                <span className="text-xs">Checklist</span>
               </label>}
 
               <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeCrew ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
@@ -2299,7 +2300,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <Users className="w-4 h-4 text-indigo-600 shrink-0" />
-                <span className="text-[11px]">Nhật ký nhân công</span>
+                <span className="text-xs">Nhật ký nhân công</span>
               </label>
 
               <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeCrewPhotos ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
@@ -2310,7 +2311,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <Camera className="w-4 h-4 text-sky-600 shrink-0" />
-                <span className="text-[11px]">Phụ lục ảnh đội</span>
+                <span className="text-xs">Phụ lục ảnh đội</span>
               </label>
 
               <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeDefectPhotos ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
@@ -2321,7 +2322,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <ImageIcon className="w-4 h-4 text-rose-600 shrink-0" />
-                <span className="text-[11px]">Phụ lục ảnh Defect</span>
+                <span className="text-xs">Phụ lục ảnh Defect</span>
               </label>
 
               <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeSignatures ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
@@ -2332,17 +2333,17 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <FileText className="w-4 h-4 text-slate-600 shrink-0" />
-                <span className="text-[11px]">Chữ ký đơn vị</span>
+                <span className="text-xs">Chữ ký đơn vị</span>
               </label>
             </div>
           </div>
 
           {/* Tùy chỉnh nâng cao */}
           <div data-hnl-report-typography="page-layout" className="pt-1 space-y-2 text-slate-700 bg-slate-50 p-3 rounded-2xl border border-slate-200">
-            <span className="block font-bold text-slate-800 text-xs">⚙️ Tùy chỉnh bố cục báo cáo:</span>
+            <span className="block font-bold text-slate-800 text-sm">⚙️ Tùy chỉnh bố cục báo cáo:</span>
             <div className="grid grid-cols-2 gap-2 pb-1">
               <label className="space-y-1">
-                <span className="block text-[11px] font-semibold text-slate-600">Khổ giấy PDF</span>
+                <span className="block text-xs font-semibold text-slate-600">Khổ giấy PDF</span>
                 <select
                   value={pdfPaperSize}
                   onChange={(e) => setPdfPaperSize(e.target.value as 'A4' | 'A3')}
@@ -2353,7 +2354,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-[11px] font-semibold text-slate-600">Hướng giấy</span>
+                <span className="block text-xs font-semibold text-slate-600">Hướng giấy</span>
                 <select
                   value={pdfOrientation}
                   onChange={(e) => setPdfOrientation(e.target.value as 'portrait' | 'landscape')}
@@ -2364,7 +2365,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
             </div>
-            <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] font-medium">
+            <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-medium">
               <input
                 type="checkbox"
                 checked={skipEmptyFloors}
@@ -2374,7 +2375,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               <span>🚫 Bỏ qua các tầng/mặt bằng không có dữ liệu</span>
             </label>
 
-            <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] font-medium">
+            <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-medium">
               <input
                 type="checkbox"
                 checked={onlyDefectMapIfHasDefects}
@@ -2385,49 +2386,49 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
             </label>
 
             <details className="group bg-white border border-indigo-100 rounded-xl overflow-hidden">
-              <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-extrabold text-indigo-800 flex items-center justify-between gap-2">
+              <summary className="cursor-pointer select-none px-3 py-2 text-sm font-extrabold text-indigo-800 flex items-center justify-between gap-2">
                 <span>🎨 Tùy chỉnh highlight & ký hiệu trên PDF</span>
-                <span className="text-[10px] text-slate-400 group-open:hidden">Mở</span>
-                <span className="text-[10px] text-slate-400 hidden group-open:inline">Thu gọn</span>
+                <span className="text-[11px] text-slate-400 group-open:hidden">Mở</span>
+                <span className="text-[11px] text-slate-400 hidden group-open:inline">Thu gọn</span>
               </summary>
               <div className="border-t border-indigo-100 p-3 space-y-3">
-                <p className="text-[10px] text-slate-500 leading-relaxed">
+                <p className="text-[11px] text-slate-500 leading-relaxed">
                   Chỉ ảnh hưởng bản PDF/HTML xuất ra, không làm thay đổi màu, tọa độ hay dữ liệu Căn / Phòng trong dự án.
                 </p>
 
                 <div className="grid grid-cols-2 gap-2">
                   <label className="space-y-1 min-w-0">
-                    <span className="flex items-center justify-between gap-1 text-[10px] font-bold text-slate-600">
+                    <span className="flex items-center justify-between gap-1 text-xs font-bold text-slate-600">
                       <span>Độ đậm highlight</span><strong className="text-indigo-700">{pdfHighlightOpacity}%</strong>
                     </span>
                     <input type="range" min="0" max="60" step="2" value={pdfHighlightOpacity} onChange={(e) => setPdfHighlightOpacity(Number(e.target.value))} className="w-full accent-indigo-600" />
                   </label>
                   <label className="space-y-1 min-w-0">
-                    <span className="flex items-center justify-between gap-1 text-[10px] font-bold text-slate-600">
+                    <span className="flex items-center justify-between gap-1 text-xs font-bold text-slate-600">
                       <span>Độ dày viền vùng</span><strong className="text-indigo-700">{pdfHighlightBorderWidth.toFixed(2)}</strong>
                     </span>
                     <input type="range" min="0" max="0.8" step="0.05" value={pdfHighlightBorderWidth} onChange={(e) => setPdfHighlightBorderWidth(Number(e.target.value))} className="w-full accent-indigo-600" />
                   </label>
                   <label className="space-y-1 min-w-0">
-                    <span className="flex items-center justify-between gap-1 text-[10px] font-bold text-slate-600">
+                    <span className="flex items-center justify-between gap-1 text-xs font-bold text-slate-600">
                       <span>Size ký hiệu Căn / Phòng</span><strong className="text-indigo-700">{Math.round(pdfRoomMarkerSizeScale * 100)}%</strong>
                     </span>
                     <input type="range" min="0.7" max="1.8" step="0.1" value={pdfRoomMarkerSizeScale} onChange={(e) => setPdfRoomMarkerSizeScale(Number(e.target.value))} className="w-full accent-indigo-600" />
                   </label>
                   <label className="space-y-1 min-w-0">
-                    <span className="flex items-center justify-between gap-1 text-[10px] font-bold text-slate-600">
+                    <span className="flex items-center justify-between gap-1 text-xs font-bold text-slate-600">
                       <span>Size ký hiệu Defect</span><strong className="text-rose-700">{Math.round(pdfDefectMarkerSizeScale * 100)}%</strong>
                     </span>
                     <input type="range" min="0.6" max="1.6" step="0.1" value={pdfDefectMarkerSizeScale} onChange={(e) => setPdfDefectMarkerSizeScale(Number(e.target.value))} className="w-full accent-rose-600" />
                   </label>
                   <label className="space-y-1 min-w-0">
-                    <span className="flex items-center justify-between gap-1 text-[10px] font-bold text-slate-600">
+                    <span className="flex items-center justify-between gap-1 text-xs font-bold text-slate-600">
                       <span>Size chữ ký hiệu</span><strong className="text-indigo-700">{Math.round(pdfMarkerFontScale * 100)}%</strong>
                     </span>
                     <input type="range" min="0.7" max="1.8" step="0.1" value={pdfMarkerFontScale} onChange={(e) => setPdfMarkerFontScale(Number(e.target.value))} className="w-full accent-indigo-600" />
                   </label>
                   <label className="space-y-1 min-w-0 col-span-2">
-                    <span className="flex items-center justify-between gap-1 text-[10px] font-bold text-slate-600">
+                    <span className="flex items-center justify-between gap-1 text-xs font-bold text-slate-600">
                       <span>Độ mờ ký hiệu</span><strong className="text-indigo-700">{pdfMarkerOpacity}%</strong>
                     </span>
                     <input type="range" min="30" max="100" step="5" value={pdfMarkerOpacity} onChange={(e) => setPdfMarkerOpacity(Number(e.target.value))} className="w-full accent-indigo-600" />
@@ -2436,23 +2437,23 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
                 <div className="grid grid-cols-2 gap-2">
                   <label className="space-y-1">
-                    <span className="block text-[10px] font-bold text-slate-600">Ký hiệu Căn / Phòng</span>
-                    <select value={pdfRoomCodeStyle} onChange={(e) => setPdfRoomCodeStyle(e.target.value as 'number' | 'hash' | 'room')} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                    <span className="block text-xs font-bold text-slate-600">Ký hiệu Căn / Phòng</span>
+                    <select value={pdfRoomCodeStyle} onChange={(e) => setPdfRoomCodeStyle(e.target.value as 'number' | 'hash' | 'room')} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                       <option value="number">Số ngắn: 1, 2, 11</option>
                       <option value="hash">Dạng #: #1, #2</option>
                       <option value="room">Dạng C: C1, C2</option>
                     </select>
                   </label>
                   <label className="space-y-1">
-                    <span className="block text-[10px] font-bold text-slate-600">Ký hiệu Defect</span>
-                    <select value={pdfDefectCodeStyle} onChange={(e) => setPdfDefectCodeStyle(e.target.value as 'number' | 'df')} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                    <span className="block text-xs font-bold text-slate-600">Ký hiệu Defect</span>
+                    <select value={pdfDefectCodeStyle} onChange={(e) => setPdfDefectCodeStyle(e.target.value as 'number' | 'df')} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                       <option value="number">Số ngắn: 01, 02</option>
                       <option value="df">Mã ngắn: DF-01, DF-02</option>
                     </select>
                   </label>
                 </div>
 
-                <div className="grid grid-cols-2 gap-1.5 text-[10.5px] text-slate-700">
+                <div className="grid grid-cols-2 gap-1.5 text-xs text-slate-700">
                   <label className="flex items-center gap-2 cursor-pointer select-none"><input type="checkbox" checked={pdfShowRoomMarkers} onChange={(e) => setPdfShowRoomMarkers(e.target.checked)} className="w-3.5 h-3.5 rounded text-indigo-600" /><span>Hiện ký hiệu Căn / Phòng</span></label>
                   <label className="flex items-center gap-2 cursor-pointer select-none"><input type="checkbox" checked={pdfShowDefectMarkers} onChange={(e) => setPdfShowDefectMarkers(e.target.checked)} className="w-3.5 h-3.5 rounded text-indigo-600" /><span>Hiện ký hiệu Defect</span></label>
                   <label className="flex items-center gap-2 cursor-pointer select-none"><input type="checkbox" checked={pdfShowMarkerOutline} onChange={(e) => setPdfShowMarkerOutline(e.target.checked)} className="w-3.5 h-3.5 rounded text-indigo-600" /><span>Viền/vòng quanh ký hiệu</span></label>
@@ -2461,8 +2462,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 space-y-2">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-extrabold text-slate-700">Xem trước nhanh ký hiệu PDF</span>
-                    <span className="text-[9px] text-slate-400">Vùng tím = Căn / Phòng · Chấm đỏ = vị trí Defect thật · Nhãn = ký hiệu in</span>
+                    <span className="text-xs font-extrabold text-slate-700">Xem trước nhanh ký hiệu PDF</span>
+                    <span className="text-[11px] text-slate-400">Vùng tím = Căn / Phòng · Chấm đỏ = vị trí Defect thật · Nhãn = ký hiệu in</span>
                   </div>
                   <div className="relative h-24 overflow-hidden rounded-lg border border-slate-200 bg-white">
                     <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'linear-gradient(#cbd5e1 1px, transparent 1px), linear-gradient(90deg, #cbd5e1 1px, transparent 1px)', backgroundSize: '16px 16px' }} />
@@ -2500,7 +2501,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </div>
 
                 <div className="flex items-center justify-between gap-2 bg-indigo-50/60 border border-indigo-100 rounded-lg p-2">
-                  <span className="text-[9.5px] text-indigo-800 leading-relaxed">Khuyến nghị in thi công: highlight 14–20%, viền 0.20–0.30, Căn / Phòng 100%, Defect 90%, giữ đường dẫn.</span>
+                  <span className="text-[11px] text-indigo-800 leading-relaxed">Khuyến nghị in thi công: highlight 14–20%, viền 0.20–0.30, Căn / Phòng 100%, Defect 90%, giữ đường dẫn.</span>
                   <button
                     type="button"
                     onClick={() => {
@@ -2517,7 +2518,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                       setPdfRoomCodeStyle('number');
                       setPdfDefectCodeStyle('number');
                     }}
-                    className="shrink-0 px-2 py-1 rounded-lg bg-white border border-indigo-200 text-indigo-700 font-bold text-[10px] hover:bg-indigo-100"
+                    className="shrink-0 px-2 py-1 rounded-lg bg-white border border-indigo-200 text-indigo-700 font-bold text-xs hover:bg-indigo-100"
                   >
                     Mặc định
                   </button>
