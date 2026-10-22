@@ -7,7 +7,14 @@ export type WarehouseOrderItem = {
   unit: string;
   category: string;
 };
-export type WarehouseOrderValues = { quantity: number; kgPerUnit: number | null };
+/** Values drive calculations; optional input expressions preserve what the operator typed.
+ * Legacy drafts with numbers only remain valid and must never be overwritten. */
+export type WarehouseOrderValues = {
+  quantity: number;
+  kgPerUnit: number | null;
+  quantityExpression?: string;
+  kgPerUnitExpression?: string;
+};
 
 export function warehouseOrderKey(kind: WarehouseOrderKind, name: string, unit: string): string {
   // JSON tuple avoids collisions between delimiters or similarly named units.
@@ -51,6 +58,70 @@ export function parseOrderQuantity(input: string): number | null {
   }
   return parseOrderNumber(input);
 }
+/** Arithmetic expression evaluator using the order-specific Vietnamese number parsers.
+ * It deliberately does not use eval/Function or read fields from other rows.
+ * Plain numbers keep their legacy 20,000 vs 0.030 interpretation. */
+export function isWarehouseOrderExpression(text: string): boolean {
+  return /^\s*=/.test(text) || /[+\-*/xX×:÷()]/.test(text);
+}
+export function evaluateWarehouseOrderInput(text: string, field: 'quantity' | 'kgPerUnit'): number | null {
+  const raw = text.trim();
+  if (!raw || raw.length > 160) return null;
+  const parseNumber = field === 'quantity' ? parseOrderQuantity : parseOrderWeight;
+  if (!isWarehouseOrderExpression(raw)) return parseNumber(raw);
+  const normalized = raw.replace(/^=/, '').replace(/[xX×]/g, '*').replace(/[:÷]/g, '/');
+  if (!/^[0-9.,+\-*/()\s]+$/.test(normalized)) return null;
+  const matches = normalized.match(/\d+(?:[.,]\d+)*|[()+\-*/]/g);
+  if (!matches || matches.length > 128 || matches.join('') !== normalized.replace(/\s/g, '')) return null;
+  let cursor = 0;
+  let depth = 0;
+  const factor = (): number => {
+    if (++depth > 32) throw new Error('expression too deep');
+    try {
+      const token = matches[cursor++];
+      if (token === '+' || token === '-') {
+        const value = factor();
+        return token === '-' ? -value : value;
+      }
+      if (token === '(') {
+        const value = expression();
+        if (matches[cursor++] !== ')') throw new Error('missing closing parenthesis');
+        return value;
+      }
+      if (!token || !/^\d/.test(token)) throw new Error('expected a number');
+      const value = parseNumber(token);
+      if (value === null) throw new Error('invalid number');
+      return value;
+    } finally { depth--; }
+  };
+  const term = (): number => {
+    let value = factor();
+    while (matches[cursor] === '*' || matches[cursor] === '/') {
+      const op = matches[cursor++];
+      const right = factor();
+      if (op === '/' && right === 0) throw new Error('division by zero');
+      value = op === '*' ? value * right : value / right;
+      if (!Number.isFinite(value)) throw new Error('overflow');
+    }
+    return value;
+  };
+  const expression = (): number => {
+    let value = term();
+    while (matches[cursor] === '+' || matches[cursor] === '-') {
+      const op = matches[cursor++];
+      const right = term();
+      value = op === '+' ? value + right : value - right;
+      if (!Number.isFinite(value)) throw new Error('overflow');
+    }
+    return value;
+  };
+  try {
+    const result = expression();
+    if (cursor !== matches.length || !Number.isFinite(result) || result < 0 || result > 1e12) return null;
+    return result;
+  } catch { return null; }
+}
+
 export function orderWeightSummary(rows: Array<{ quantity: number; kgPerUnit: number | null }>) {
   let kilograms = 0;
   let missing = 0;
@@ -75,7 +146,19 @@ export function loadWarehouseOrderDraft(projectId: string): Record<string, Wareh
       const row = value as Record<string, unknown>;
       const q = Number(row.quantity), w = row.kgPerUnit == null ? null : Number(row.kgPerUnit);
       if (!Number.isFinite(q) || q < 0 || q > 1e12 || (w !== null && (!Number.isFinite(w) || w <= 0 || w > 1e12))) continue;
-      out[key] = {quantity:q, kgPerUnit:w};
+      const entry: WarehouseOrderValues = {quantity:q, kgPerUnit:w};
+      // Refuse corrupt/stale formulas but keep their corresponding numeric values.
+      for (const [sourceKey, outputKey, numericValue, kind] of [
+        ['quantityExpression','quantityExpression',q,'quantity'],
+        ['kgPerUnitExpression','kgPerUnitExpression',w,'kgPerUnit'],
+      ] as const) {
+        const expression = row[sourceKey];
+        if (typeof expression !== 'string' || !isWarehouseOrderExpression(expression)) continue;
+        const calculated = evaluateWarehouseOrderInput(expression, kind);
+        if (calculated === null || numericValue === null || Math.abs(calculated - numericValue) > 1e-8 * Math.max(1, Math.abs(numericValue))) continue;
+        entry[outputKey] = expression;
+      }
+      out[key] = entry;
     }
     return out;
   } catch { return {}; }
