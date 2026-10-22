@@ -125,7 +125,9 @@ export const WarehouseOrderSheet:React.FC<Props>=({open,onClose,projectId,projec
   const flushPending=useCallback(()=>{
     if(!canEdit||!readyRef.current||(typeof navigator!=='undefined'&&!navigator.onLine))return;
     const epoch=syncEpochRef.current;
-    for(const [key,pending] of Object.entries(pendingRef.current)){
+    for(const key of Object.keys(pendingRef.current)){
+      const pending:PendingOrderChange|undefined=pendingRef.current[key];
+      if(!pending)continue;
       if(inFlightRef.current.has(key)||conflictsRef.current.has(key))continue;
       inFlightRef.current.add(key);
       let committed=false;
@@ -198,7 +200,9 @@ export const WarehouseOrderSheet:React.FC<Props>=({open,onClose,projectId,projec
     // has replaced the visible local cache. Existing Cloud rows are never overwritten.
     // Prefer the newest local draft; legacy backup only fills keys absent locally.
     const oldRows={...loadOrderLegacyBackup(projectId),...rowsRef.current};
-    for(const [key,row] of Object.entries(oldRows)){
+    for(const key of Object.keys(oldRows)){
+      const row:WarehouseOrderValues|undefined=oldRows[key];
+      if(!row)continue;
       if(remoteRef.current[key]||pendingRef.current[key]||row.quantity<=0&&row.kgPerUnit==null)continue;
       pendingRef.current[key]={value:draftToOrderValue(row),baseRevision:null};
     }
