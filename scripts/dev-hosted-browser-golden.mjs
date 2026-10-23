@@ -464,7 +464,7 @@ async function verifySettingsFeatureSheets(page, label) {
       card: page.locator('details').filter({ hasText: 'Chất lượng ảnh & dung lượng' }).first(),
       closeMode: 'backdrop',
     },
-    { name: 'Dữ liệu đã ẩn & lịch sử', selector: trashSelector, card: trashCard, closeMode: 'x' },
+    { name: 'Thùng rác', selector: trashSelector, card: trashCard, closeMode: 'x' },
     {
       name: 'Quản lý mẫu', selector: '#catalog-template-manager-card',
       card: page.locator('#catalog-template-manager-card'), closeMode: 'x',

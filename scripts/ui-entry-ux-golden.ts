@@ -215,7 +215,14 @@ assert(config.includes('syncCenterContent'), 'Sync Center must reuse the existin
 assert(!config.includes('>Trạng thái đồng bộ</div>'), 'Sync Center must not duplicate sync diagnostics already shown in HNL Health Center');
 assert(!config.includes('bg-emerald-50/70 p-4 text-left'), 'Old green Sync Center banner styling must be removed');
 assert(config.includes('Chất lượng ảnh & dung lượng'), 'Image quality Settings entry missing');
-assert(config.includes('Dữ liệu đã ẩn & lịch sử'), 'Hidden data/history Settings entry missing');
+assert(config.includes('title="Thùng rác"'), 'Trash Settings entry missing');
+assert(config.includes('Khôi phục hoặc dọn mục đã xóa.'), 'Trash notes must be short and clear');
+assert(config.includes('confirmAsync(\'Dọn các mục trong Thùng rác?'), 'Trash bulk confirm must use the shared dialog');
+assert(!config.includes('metadata chung ước tính') && !config.includes('tombstone dữ liệu'), 'Trash notes must not show technical terms');
+assert(config.includes('className="text-sm font-bold text-slate-800 truncate"'), 'Trash item titles need readable consistent sizing');
+const deletedVoucher = read('src/components/WarehouseDeletedVoucherRecovery.tsx');
+assert(deletedVoucher.includes('Lịch sử kho và ảnh hiện vẫn được giữ.') && !deletedVoucher.includes('ảnh R2'), 'Warehouse trash must state actual deletion behavior in plain Vietnamese');
+assert(deletedVoucher.includes('text-xs leading-5 text-amber-800'), 'Warehouse trash hints should share readable sizing');
 assert(config.includes("title={t('formatting_settings')}"), 'Number/date formatting Settings entry missing');
 assert(config.includes('id="catalog-template-manager-card"') && config.includes('title="Quản lý mẫu"') && config.includes('<CatalogTemplateManager onDirtyChange={setCatalogDraftDirty} />'), 'Settings must expose the personal catalog template manager');
 const templateManagerUi = read('src/components/CatalogTemplateManager.tsx');

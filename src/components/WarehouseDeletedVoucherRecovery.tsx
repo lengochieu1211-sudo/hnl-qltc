@@ -60,7 +60,7 @@ export const WarehouseDeletedVoucherRecovery: React.FC<{
     setBusy(true); setError('');
     let request = 0;
     try {
-      if (!(await confirmAsync(`Khôi phục phiếu ${row.type === 'in' ? 'Nhập' : 'Xuất'} ${row.materialName} (${formatDecimal(row.quantity)} ${row.unit})? Tồn kho được điều chỉnh nguyên tử trên Cloud.`))) return;
+      if (!(await confirmAsync(`Khôi phục phiếu ${row.type === 'in' ? 'Nhập' : 'Xuất'} ${row.materialName} (${formatDecimal(row.quantity)} ${row.unit})? Tồn kho sẽ được tính lại.`))) return;
       if (projectEpoch !== projectEpochRef.current) return;
       request = ++requestRef.current;
       await restoreWarehouseTransactionAtomic(projectId, row.id);
@@ -84,7 +84,7 @@ export const WarehouseDeletedVoucherRecovery: React.FC<{
     restorePendingRef.current = true; busyRef.current = true;
     setBusy(true); setError('');
     try {
-      if (!(await confirmAsync('Bỏ phiếu kho này khỏi Thùng rác? Không thể khôi phục qua giao diện. Chứng từ đã xóa và ảnh vẫn giữ trên Cloud để bảo vệ sổ kho.'))) return;
+      if (!(await confirmAsync('Bỏ phiếu này khỏi Thùng rác? Sẽ không thể khôi phục. Lịch sử kho và ảnh hiện vẫn được giữ.'))) return;
       if (projectEpoch !== projectEpochRef.current) return;
       const request = ++requestRef.current;
       await discardWarehouseVoucherTrashAtomic(projectId, row.id);
@@ -132,18 +132,18 @@ export const WarehouseDeletedVoucherRecovery: React.FC<{
 
   return <div className="space-y-2 border-t border-slate-200 pt-3" data-hnl-warehouse-deleted-recovery="true">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <p className="text-xs font-extrabold text-indigo-800">Phiếu Nhập/Xuất kho · {rows.length} mục trong Thùng rác</p>
+      <p className="text-sm font-bold text-indigo-800">Phiếu nhập/xuất kho · {rows.length} mục</p>
       <button type="button" disabled={busy} onClick={() => void refresh()} className="min-h-10 rounded-lg border border-slate-300 px-3 text-xs font-bold text-indigo-700 disabled:opacity-50">Kiểm tra lại</button>
     </div>
-    <p className="text-[10px] text-amber-800">Chỉ ADMIN. Dùng chung thời hạn Thùng rác; phiếu cũ chưa có thời hạn sử dụng mặc định 7 ngày từ lúc xóa. Khôi phục phiếu xuất phải đủ tồn kho. Dọn sạch chỉ bỏ quyền khôi phục, không xóa sổ kho hoặc ảnh R2.</p>
+    <p className="text-xs leading-5 text-amber-800">Khôi phục phiếu xuất cần đủ tồn kho. Bỏ phiếu khỏi Thùng rác sẽ không thể khôi phục; lịch sử và ảnh hiện vẫn được giữ.</p>
     {error && <p role="alert" className="rounded-lg bg-rose-50 p-2 text-xs text-rose-800">{error}</p>}
-    {busy && <p className="text-xs text-slate-500">Đang xác minh Cloud…</p>}
-    {!busy && rows.length === 0 && !error && <p className="text-xs text-slate-500">Không có phiếu kho còn thời hạn khôi phục.</p>}
+    {busy && <p className="text-xs text-slate-500">Đang kiểm tra…</p>}
+    {!busy && rows.length === 0 && !error && <p className="text-xs text-slate-500">Không có phiếu kho cần khôi phục.</p>}
     <div className="max-h-64 space-y-2 overflow-y-auto" data-hnl-deleted-voucher-list="true">
       {rows.map((row) => <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white p-2 text-xs">
         <div className="min-w-0 flex-1">
           <b>{row.type === 'in' ? 'Nhập' : 'Xuất'} · {row.materialName}</b> · {formatDecimal(row.quantity)} {row.unit}
-          <div className="text-[10px] text-slate-500">{formatDateDDMMYYYY(row.date)} · {row.id} · còn {Math.max(0, Math.ceil((getWarehouseTrashExpiry(row) - Date.now()) / 86400000))} ngày</div>
+          <div className="text-xs leading-5 text-slate-500">{formatDateDDMMYYYY(row.date)} · Mã {row.id.slice(0, 8)} · còn {Math.max(0, Math.ceil((getWarehouseTrashExpiry(row) - Date.now()) / 86400000))} ngày</div>
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" disabled={busy} onClick={() => void restore(row)} className="min-h-10 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white disabled:opacity-50"><RotateCcw className="mr-1 inline h-3.5 w-3.5"/>Khôi phục</button>

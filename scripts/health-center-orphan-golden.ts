@@ -27,7 +27,7 @@ const teams: TeamInfo[] = [
 ];
 const floors: FloorPlan[] = [
   { id: 'floor-ok', floorName: 'Tầng hợp lệ', imageUrl: '', uploadedAt: '2026-09-06' },
-  { id: 'floor-other', floorName: 'Tầng khác', imageUrl: '', uploadedAt: '2026-09-06' },
+  { id: 'floor-other', floorName: 'Tầng khác', imageUrl: '', uploadedAt: '2026-09-06', structureGroupId: 'building-missing' },
 ];
 
 const rooms: RoomProgressItem[] = [
@@ -183,3 +183,53 @@ console.log('Health Center orphan-link golden regression PASS', {
   requiredRules: requiredRules.length,
   totalIssues: report.issues.length,
 });
+
+// Integrated Health Center must include additional read-only relationship scans
+// without creating a second UI workflow or reporting a new floor as orphaned.
+const orphanStructureReport = buildHealthCenterReport({
+  context,
+  snapshot,
+  structureConfig: {
+    enabled: true,
+    label: 'Khu / Khối',
+    defaultGroupId: 'building-a',
+    groups: [{ id: 'building-a', name: 'Khu A' }],
+  },
+  photoDiagnostics: {
+    totalMetadata: 5,
+    truncated: false,
+    photos: [
+      { id: 'photo-orphan', entityType: 'defect', entityId: 'defect-missing', deleted: false },
+      { id: 'photo-valid', entityType: 'defect', entityId: 'defect-orphan', deleted: false },
+      { id: 'photo-chat-unknown', entityType: 'chat', entityId: 'chat-id', deleted: false },
+      { id: 'photo-deleted', entityType: 'defect', entityId: 'defect-missing', deleted: true },
+      { id: 'photo-parent-in-trash', entityType: 'inventory', entityId: 'inv-deleted', deleted: false },
+    ],
+  },
+});
+const orphanPhoto = orphanStructureReport.issues.find((item) => item.ruleId === 'ORPHAN_PHOTO_PARENT_NOT_FOUND');
+assert.equal(orphanPhoto?.entityId, 'photo-orphan', 'missing parent must show a read-only photo finding');
+assert.equal(orphanPhoto?.actionClass, 'READ_ONLY', 'never offer automatic photo deletion');
+assert.ok(orphanStructureReport.issues.some((item) => item.ruleId === 'ORPHAN_FLOOR_GROUP_NOT_FOUND' && item.entityId === 'floor-other'));
+assert.equal(orphanStructureReport.issues.some((item) => item.ruleId === 'ORPHAN_FLOOR_IMAGE_UNLINKED'), false,
+  'blank images on new floors are valid and must not be marked orphaned');
+assert.equal(orphanStructureReport.issues.some((item) => item.entityId === 'photo-chat-unknown'), false,
+  'chat photos cannot be verified without a chat-message snapshot');
+assert.equal(orphanStructureReport.issues.some((item) => item.entityId === 'photo-deleted'), false,
+  'deleted photo metadata must not be reported as active orphaned photo');
+
+const deletedInventorySnapshot = createHnlAiProjectSnapshot({
+  ...snapshot,
+  inventory: [...inventory, {
+    id: 'inv-deleted', type: 'in' as const, materialName: 'Tấm', unit: 'Tấm', quantity: 1,
+    location: 'Kho', handler: 'A', date: '2026-09-06', deletedAt: 1788684000000,
+  }],
+});
+const trashPhotoReport = buildHealthCenterReport({
+  context,
+  snapshot: deletedInventorySnapshot,
+  photoDiagnostics: { photos: [{ id: 'photo-parent-in-trash', entityType: 'inventory', entityId: 'inv-deleted' }] },
+});
+assert.equal(trashPhotoReport.issues.some((item) => item.entityId === 'photo-parent-in-trash'), false,
+  'photos of restorable Trash items are not orphans');
+console.log('Health Center integrated links/structure/photo checks PASS');

@@ -150,8 +150,8 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
       onClick: onOpenProjectManager,
     },
     {
-      title: 'Dữ liệu đã ẩn & lịch sử',
-      description: 'Khôi phục hoặc dọn dữ liệu đã xóa: Căn/Phòng, Hạng mục, Định mức, Phiếu nhập/xuất kho, Mặt bằng, Defect, Checklist, Quân số và Đội thi công.',
+      title: 'Thùng rác',
+      description: 'Khôi phục hoặc dọn mục đã xóa.',
       icon: DatabaseZap,
       onClick: () => openConfigSection('trash-recovery-card', onOpenHiddenHistory),
     },

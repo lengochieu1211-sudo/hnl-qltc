@@ -3,6 +3,8 @@ import type { AiQueryContext, AiAuditIssue } from '../ai/core/contracts';
 import type { HnlAiProjectSnapshot } from '../ai/data/projectSnapshot';
 import { auditProjectIntegrity } from '../ai/audit/projectAudit';
 import { normalizeEntityText } from '../ai/core/entityResolver';
+import { findAdditionalOrphanIssues } from './healthCenterOrphanScan';
+import type { ProjectStructureConfig } from '../utils/structureGroupUtils';
 import type { RuntimeDiagnosticEntry } from '../lib/runtimeDiagnostics';
 import { canonicalNormCategoryIds, getCanonicalRoomCategoryEntries, resolveAuthoritativeWorkVolumeRef, resolveWorkVolumeRef, validateInventoryOutProvenance, validateMaterialNormCatalog } from '../utils/linkageIntegrity';
 
@@ -72,6 +74,7 @@ export interface BuildHealthCenterParams {
   snapshot: HnlAiProjectSnapshot;
   runtimeLog?: RuntimeDiagnosticEntry[];
   photoDiagnostics?: any;
+  structureConfig?: ProjectStructureConfig;
 }
 
 function active<T extends { deletedAt?: number | null }>(items: readonly T[]): T[] {
@@ -578,7 +581,7 @@ function dedupeIssues(items: HealthCenterIssue[]): HealthCenterIssue[] {
 }
 
 export function buildHealthCenterReport(params: BuildHealthCenterParams): HealthCenterSummary {
-  const { context, snapshot, runtimeLog = [], photoDiagnostics } = params;
+  const { context, snapshot, runtimeLog = [], photoDiagnostics, structureConfig } = params;
   const core = auditProjectIntegrity({ context, snapshot });
   const coreIssues = (core.data?.issues || [])
     .filter((issue) => !suppressCoreIssue(issue, snapshot))
@@ -591,6 +594,7 @@ export function buildHealthCenterReport(params: BuildHealthCenterParams): Health
     ...lightweightBusinessQualityIssues(snapshot),
     ...runtimeIssues(runtimeLog),
     ...photoDiagnosticIssues(photoDiagnostics),
+    ...findAdditionalOrphanIssues(snapshot, photoDiagnostics, structureConfig),
     ...(snapshot.freshness === 'cache' ? [makeIssue({
       ruleId: 'HEALTH_CENTER_USING_CACHED_SNAPSHOT', severity: 'WARNING', module: 'sync', entityType: 'project', entityId: snapshot.projectId,
       message: 'Đang kiểm tra dữ liệu tạm trên thiết bị, chưa xác nhận đã cập nhật từ máy chủ. Hãy đồng bộ xong rồi kiểm tra lại trước khi dùng làm báo cáo cuối.', actionClass: 'READ_ONLY', evidenceIds: [], location: {},

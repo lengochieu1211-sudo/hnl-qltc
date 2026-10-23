@@ -52,6 +52,7 @@ import { getProjectPhotoDiagnosticSnapshot } from '../utils/photoStorage';
 import { HealthCenterPanel } from '../healthCenter/HealthCenterPanel';
 import { SettingsAccordionCard } from './SettingsAccordionCard';
 import { WarehouseDeletedVoucherRecovery } from './WarehouseDeletedVoucherRecovery';
+import { confirmAsync } from '../utils/confirmAsync';
 import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
 import { WindowsDesktopSyncBridgeCard } from './WindowsDesktopSyncBridgeCard';
 import { ProjectOfflineMirrorCard } from './ProjectOfflineMirrorCard';
@@ -210,7 +211,6 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   const [numberFormatPreset, setNumberFormatPresetState] = useState<NumberFormatPreset>(getNumberFormatPreset());
   const [dateFormatPreset, setDateFormatPresetState] = useState<DateFormatPreset>(getDateFormatPreset());
   const [imageQualitySettings, setImageQualitySettingsState] = useState(getImageQualitySettings());
-  const trashApproxBytes = useMemo(() => trashOperations.reduce((sum, item) => sum + Number(item.approxBytes || 0), 0), [trashOperations]);
   const [warehouseTrashCount, setWarehouseTrashCount] = useState(0);
   const [warehousePurgeAllToken, setWarehousePurgeAllToken] = useState(0);
   useEffect(() => { setWarehouseTrashCount(0); }, [activeProjectId]);
@@ -919,6 +919,8 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           accessVerified={Boolean(syncDiagnostics.roleResolved)}
           fullAppData={fullAppData}
           photoDiagnostics={photoDiagnosticSnapshot}
+          structureConfig={localStructureConfig}
+          onRefreshPhotoDiagnostics={refreshPhotoDiagnosticSnapshot}
           freshness={syncDiagnostics.cloudInitialReady ? 'live' : 'cache'}
           getSystemDiagnostics={() => buildFullDiagnosticBundle()}
           onClearSystemDiagnostics={() => { clearRuntimeDiagnostics(); setSyncMsg('Đã xóa nhật ký chẩn đoán cũ.'); }}
@@ -1094,27 +1096,23 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         id="trash-recovery-card"
         icon={Trash2}
         iconClassName="text-rose-600"
-        title="Dữ liệu đã ẩn & lịch sử"
-        description="Thùng rác, khôi phục và lịch sử xóa."
+        title="Thùng rác"
+        description="Khôi phục hoặc dọn mục đã xóa."
         badge={`${totalTrashCount} mục · ${trashSettings.enabled ? 'Đang bật' : 'Đang tắt'}`}
         badgeClassName={trashSettings.enabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-100 border-slate-200 text-slate-600'}
         bodyClassName="p-0"
       >
         <div className="space-y-3.5">
-          <div>
-            <p className="text-[10px] text-slate-500">
-              Thùng rác chung quản lý 9 nhóm: Khu/Khối, Tầng, Căn/Phòng, Defect, Checklist, Quân số, Đội, Khối lượng và Định mức. Không nhân đôi ảnh nhị phân; mặc định giữ 7 ngày.
-            </p>
-            <p className="text-[10px] text-amber-700 mt-1">
-              Phiếu Nhập/Xuất đã xóa được khôi phục bên dưới theo cùng thời hạn và nút Dọn sạch, bằng giao dịch tồn kho riêng; danh mục thiết bị và Dự án có Thùng rác riêng. Chat, mẫu danh mục và bản autosave KHÔNG thuộc Thùng rác này; một số thao tác xóa chưa có chức năng khôi phục.
-            </p>
+          <div className="space-y-1.5 text-xs leading-5">
+            <p className="text-slate-600">Mục đã xóa được giữ để khôi phục theo thời hạn bạn chọn. Dự án và thiết bị có Thùng rác riêng.</p>
+            <p className="text-amber-800">Lưu ý: Bỏ phiếu kho khỏi Thùng rác hiện chưa xóa lịch sử và ảnh của phiếu.</p>
           </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <label className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex items-center justify-between gap-3">
             <div>
-              <div className="text-[11px] font-extrabold text-slate-800">Bật Thùng rác</div>
-              <div className="text-[10px] text-slate-500">Tắt = xóa không tạo bản khôi phục mới.</div>
+              <div className="text-xs font-bold text-slate-800">Bật Thùng rác</div>
+              <div className="text-xs leading-5 text-slate-500">Tắt: mục xóa mới sẽ không thể khôi phục.</div>
             </div>
             <input
               type="checkbox"
@@ -1126,32 +1124,31 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           </label>
 
           <label className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-1">
-            <div className="text-[11px] font-extrabold text-slate-800">Tự dọn sau</div>
+            <div className="text-xs font-bold text-slate-800">Tự dọn sau</div>
             <select
               value={trashSettings.retentionDays}
               disabled={userRole !== 'ADMIN' || !trashSettings.enabled}
               onChange={(e) => onTrashSettingsChange?.({ ...trashSettings, retentionDays: Number(e.target.value) as TrashRetentionDays })}
-              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-[11px] font-bold disabled:opacity-50"
+              className="w-full min-h-10 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold disabled:opacity-50"
             >
               {[3, 7, 15, 30, 60, 90].map((days) => <option key={days} value={days}>{days} ngày</option>)}
             </select>
           </label>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 border border-slate-200 p-2.5 text-[10px]">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 border border-slate-200 p-2.5 text-xs leading-5">
           <div className="text-slate-600">
-            <b className="text-slate-900">{totalTrashCount}</b> mục có thể khôi phục · metadata chung ước tính <b className="text-slate-900">{formatTrashBytes(trashApproxBytes)}</b>
+            <b className="text-slate-900">{totalTrashCount}</b> mục có thể khôi phục
           </div>
           {userRole === 'ADMIN' && totalTrashCount > 0 && (
             <button
               type="button"
-              onClick={() => {
-                if (window.confirm('Dọn sạch Thùng rác chung và phiếu kho? Phiếu kho chỉ bị hủy khả năng khôi phục; sổ kho và ảnh vẫn giữ lại.')) {
-                  void Promise.resolve(onEmptyTrash?.()).catch((err) => alert('Dọn Thùng rác chung chưa xong: ' + (err instanceof Error ? err.message : String(err))));
-                  setWarehousePurgeAllToken((value) => value + 1);
-                }
+              onClick={async () => {
+                if (!(await confirmAsync('Dọn các mục trong Thùng rác? Mục đã dọn sẽ không thể khôi phục. Riêng phiếu kho hiện vẫn giữ lịch sử và ảnh.', { confirmLabel: 'Dọn sạch' }))) return;
+                void Promise.resolve(onEmptyTrash?.()).catch((err) => alert('Chưa dọn xong: ' + (err instanceof Error ? err.message : String(err))));
+                setWarehousePurgeAllToken((value) => value + 1);
               }}
-              className="px-2.5 py-1.5 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 font-bold flex items-center gap-1 hover:bg-rose-100"
+              className="min-h-10 px-3 py-2 text-xs rounded-lg border border-rose-200 bg-rose-50 text-rose-700 font-bold flex items-center gap-1 hover:bg-rose-100"
             >
               <Eraser className="w-3.5 h-3.5" /> Dọn sạch
             </button>
@@ -1159,13 +1156,13 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         </div>
 
         {!trashSettings.enabled && (
-          <div className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-2.5">
-            Thùng rác đang tắt. Các lần xóa mới không tạo bản khôi phục; tombstone dữ liệu vẫn giữ để tránh hiện lại trên thiết bị khác. Ảnh R2/Storage không bị xóa ngay theo thao tác UI, nhằm tránh mất ảnh khi giao dịch Cloud bị từ chối.
+          <div className="text-xs leading-5 text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-2.5">
+            Thùng rác đang tắt. Mục mới xóa sẽ không khôi phục được. Ảnh chỉ được dọn sau khi kiểm tra an toàn.
           </div>
         )}
 
         {totalTrashCount === 0 ? (
-          <div className="text-center text-[11px] text-slate-500 italic py-3">Thùng rác đang trống.</div>
+          <div className="text-center text-xs text-slate-500 italic py-3">Thùng rác đang trống.</div>
         ) : (
           <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
             {trashOperations.map((operation) => {
@@ -1176,29 +1173,31 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
                 <div key={operation.id} className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="text-[11px] font-extrabold text-slate-800 truncate">{names.join(' · ') || 'Dữ liệu đã xóa'}</div>
-                      <div className="text-[10px] text-slate-500 mt-0.5">
+                      <div className="text-sm font-bold text-slate-800 truncate">{names.join(' · ') || 'Dữ liệu đã xóa'}</div>
+                      <div className="text-xs leading-5 text-slate-500 mt-0.5">
                         {formatDateTime(operation.deletedAt)} · {operation.deletedItems?.length || 0} mục · còn {remainingDays} ngày
                       </div>
-                      {operation.deletedByEmail && <div className="text-[9px] text-slate-400 truncate">Xóa bởi: {operation.deletedByEmail}</div>}
+                      {operation.deletedByEmail && <div className="text-xs text-slate-500 truncate">Xóa bởi: {operation.deletedByEmail}</div>}
                     </div>
-                    <span className="text-[9px] font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-md shrink-0">{formatTrashBytes(Number(operation.approxBytes || 0))}</span>
+                    <span className="text-xs font-semibold bg-slate-100 text-slate-600 px-2 py-1 rounded-md shrink-0">{formatTrashBytes(Number(operation.approxBytes || 0))}</span>
                   </div>
                   {userRole === 'ADMIN' && (
                     <div data-hnl-pc-v35-actions="trash-record" className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={() => void onRestoreTrashOperation?.(operation.id)}
-                        className="flex-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center gap-1 hover:bg-emerald-700"
+                        className="flex-1 min-h-10 px-2.5 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold flex items-center justify-center gap-1 hover:bg-emerald-700"
                       >
                         <RotateCcw className="w-3.5 h-3.5" /> Khôi phục
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          if (window.confirm('Xóa vĩnh viễn mục này khỏi Thùng rác?')) void onPurgeTrashOperation?.(operation.id);
+                        onClick={async () => {
+                          if (await confirmAsync('Xóa mục này khỏi Thùng rác? Sẽ không thể khôi phục. Ảnh không còn sử dụng được dọn khi an toàn.', { confirmLabel: 'Xóa' })) {
+                            void onPurgeTrashOperation?.(operation.id);
+                          }
                         }}
-                        className="flex-1 px-2.5 py-1.5 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-[10px] font-bold flex items-center justify-center gap-1 hover:bg-rose-100"
+                        className="flex-1 min-h-10 px-2.5 py-2 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-xs font-bold flex items-center justify-center gap-1 hover:bg-rose-100"
                       >
                         <Trash2 className="w-3.5 h-3.5" /> Xóa vĩnh viễn
                       </button>
@@ -1215,7 +1214,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         )}
 
         {userRole !== 'ADMIN' && (
-          <p className="text-[10px] text-slate-500">Chỉ ADMIN được đổi thời gian lưu, khôi phục hoặc xóa vĩnh viễn.</p>
+          <p className="text-xs text-slate-500">Chỉ quản trị viên được thay đổi và dọn Thùng rác.</p>
         )}
         </div>
       </SettingsAccordionCard>

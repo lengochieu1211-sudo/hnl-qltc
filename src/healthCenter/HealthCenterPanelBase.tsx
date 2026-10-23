@@ -13,6 +13,8 @@ import { buildHealthCenterRepairBackupPayload, type HealthCenterRepairBackupPayl
 import { commitHealthCenterRepair } from './healthCenterRepairCommit';
 import { persistHealthCenterRepairToCloud } from './healthCenterRepairCloudPersist';
 import { getHealthCenterRepairBlockReason } from './healthCenterRepairPreflight';
+import { isOrphanRelatedIssue } from './healthCenterOrphanScan';
+import type { ProjectStructureConfig } from '../utils/structureGroupUtils';
 
 interface HealthCenterPanelProps {
   projectId: string;
@@ -22,13 +24,15 @@ interface HealthCenterPanelProps {
   fullAppData?: any;
   freshness?: 'live' | 'cache';
   photoDiagnostics?: any;
+  structureConfig?: ProjectStructureConfig;
+  onRefreshPhotoDiagnostics?: () => Promise<void>;
   onApplyRepair?: (nextData: any, context: { auditSnapshotId: string; operationCount: number; backup: HealthCenterRepairBackupPayload }) => void | Promise<void>;
   getSystemDiagnostics?: () => Promise<Record<string, unknown>>;
   onClearSystemDiagnostics?: () => void | Promise<void>;
 }
 
 type SeverityFilter = 'ALL' | HealthCenterSeverity;
-type ModuleFilter = 'ALL' | HealthCenterModule;
+type ModuleFilter = 'ALL' | 'ORPHAN' | HealthCenterModule;
 
 const array = <T,>(value: unknown): T[] => Array.isArray(value) ? value as T[] : [];
 
@@ -68,6 +72,8 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
   fullAppData,
   freshness = 'live',
   photoDiagnostics,
+  structureConfig,
+  onRefreshPhotoDiagnostics,
   onApplyRepair,
   getSystemDiagnostics,
   onClearSystemDiagnostics,
@@ -80,6 +86,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
   const [exporting, setExporting] = useState<string | null>(null);
   const [showRepairPreview, setShowRepairPreview] = useState(false);
   const [message, setMessage] = useState('');
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     try {
@@ -122,20 +129,37 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
       context: { projectId, role: userRole, accessVerified, screen: 'health-center', timeZone: 'Asia/Ho_Chi_Minh' },
       snapshot,
       photoDiagnostics,
+      structureConfig,
     });
-  }, [accessVerified, freshness, fullAppData, photoDiagnostics, projectId, projectName, runAt, userRole]);
+  }, [accessVerified, freshness, fullAppData, photoDiagnostics, projectId, projectName, runAt, structureConfig, userRole]);
 
   const filtered = useMemo(() => {
     if (!report) return [];
     const needle = query.trim().toLocaleLowerCase('vi');
     return report.issues.filter((issue) => {
       if (severity !== 'ALL' && issue.severity !== severity) return false;
-      if (module !== 'ALL' && issue.module !== module) return false;
+      if (module === 'ORPHAN' && !isOrphanRelatedIssue(issue)) return false;
+      if (module !== 'ALL' && module !== 'ORPHAN' && issue.module !== module) return false;
       if (!needle) return true;
       return [issue.ruleId, issue.message, issue.location.date, issue.location.teamName, issue.location.floorName, issue.location.roomName, issue.location.workItem, issue.entityId]
         .some((value) => String(value || '').toLocaleLowerCase('vi').includes(needle));
     });
   }, [module, query, report, severity]);
+
+  const orphanCount = useMemo(() => report?.issues.filter(isOrphanRelatedIssue).length || 0, [report]);
+  const refreshChecks = async () => {
+    if (checking) return;
+    setChecking(true);
+    setShowRepairPreview(false);
+    try {
+      await onRefreshPhotoDiagnostics?.();
+    } catch (_err) {
+      setMessage('Chưa tải lại được danh sách ảnh. Có thể kiểm tra phần dữ liệu đã có.');
+    } finally {
+      setRunAt(Date.now());
+      setChecking(false);
+    }
+  };
 
   const repairPreview = useMemo(() => {
     if (!report || userRole !== 'ADMIN') return null;
@@ -298,10 +322,11 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
         <div className="flex items-center gap-2 font-bold text-slate-900"><ShieldCheck className="h-4 w-4 text-indigo-600" /> Kiểm tra dữ liệu & liên kết</div>
-        <div className="mt-1 text-[10px] font-semibold text-slate-500">Phát hiện dữ liệu mất liên kết · mở đúng bản ghi · sửa có xác nhận · không tự xóa lịch sử</div>
+        <div className="mt-1 text-xs leading-5 text-slate-600">Kiểm tra căn/phòng, mặt bằng, hạng mục, ảnh và các liên kết. Chỉ báo lỗi, không tự xóa.</div>
+        <div className="mt-1 text-xs font-semibold text-amber-700">{orphanCount} liên kết cần xem {photoDiagnostics?.truncated ? '· danh sách ảnh chưa đầy đủ' : ''}</div>
         <div className="mt-1 break-all text-[9px] text-slate-400">Mã bản kiểm tra: {report.auditSnapshotId}</div>
       </div>
-      <button type="button" onClick={() => { setRunAt(Date.now()); setShowRepairPreview(false); }} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700"><RefreshCw className="h-3.5 w-3.5" /> Kiểm tra lại dữ liệu hiện có</button>
+      <button type="button" onClick={() => void refreshChecks()} disabled={checking} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${checking ? 'animate-spin' : ''}`} /> {checking ? 'Đang kiểm tra…' : 'Kiểm tra lại'}</button>
     </div>
 
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -316,7 +341,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
         <option value="ALL">Tất cả mức độ</option><option value="ERROR">Lỗi nghiêm trọng</option><option value="WARNING">Cảnh báo</option><option value="REVIEW">Cần xác nhận</option><option value="SUGGESTION">Đề xuất</option>
       </select>
       <select value={module} onChange={(e) => { setModule(e.target.value as ModuleFilter); setShowRepairPreview(false); }} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs">
-        <option value="ALL">Tất cả phân hệ</option>{(['system','firebase','r2','sync','rooms','defects','crew','quantities','inventory','materialNorms','checklist','links'] as HealthCenterModule[]).map((x) => <option key={x} value={x}>{moduleLabel(x)}</option>)}
+        <option value="ALL">Tất cả phân hệ</option><option value="ORPHAN">Dữ liệu mất liên kết ({orphanCount})</option>{(['system','firebase','r2','sync','rooms','defects','crew','quantities','inventory','materialNorms','checklist','links'] as HealthCenterModule[]).map((x) => <option key={x} value={x}>{moduleLabel(x)}</option>)}
       </select>
       <input value={query} onChange={(e) => { setQuery(e.target.value); setShowRepairPreview(false); }} placeholder="Tìm ngày, đội, tầng, căn, hạng mục..." className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs" />
     </div>
