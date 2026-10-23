@@ -742,6 +742,21 @@ service cloud.firestore {
         allow delete: if false;
       }
 
+      // R5-03: separate photo write rule avoids the broad collection dispatcher
+      // and keeps Editor identity/Cloud-pointer verification under the Rules
+      // expression budget. Read access remains project-member scoped below.
+      match /photos/{photoId} {
+        allow create: if (canAdminOperate(projectId)
+            || (isEditor(projectId) && projectIsActive(projectId) && editorCreatesActiveOnly()))
+          && coreCreateLifecycleIsValid(photoId);
+        allow update: if coreIdentityUpdateIsValid(photoId)
+          && lifecycleUpdateIsMonotonic()
+          && (canAdminOperate(projectId)
+            || (isEditor(projectId) && projectIsActive(projectId)
+              && editorPhotoMetadataUpdateOnly(projectId, photoId)));
+        allow delete: if false;
+      }
+
       // V6 data-schema financial isolation. Firestore cannot field-filter a readable
       // document, so unitPrice lives in a separate ADMIN-only collection.
       match /work_volume_financials/{recordId} {
@@ -762,20 +777,19 @@ service cloud.firestore {
         // Master project structure is ADMIN-only. EDITOR may create operational records
         // (defect, warehouse transaction, crew log, photo metadata) and may update only
         // explicitly allowed operational fields on rooms/checklist. VIEWER remains read-only.
-        allow create: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts'
+        allow create: if collectionName != 'photos' && collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts'
           && !isLegacyReadOnlyCollection(collectionName)
           && (collectionName != 'work_volumes' || !('unitPrice' in request.resource.data))
           && (
             canAdminOperate(projectId)
             || (collectionName == 'trash' && editorOwnCrewTrashReceipt(projectId, recordId))
             || (isEditor(projectId) && projectIsActive(projectId) && (
-              (collectionName == 'photos' && editorCreatesActiveOnly())
-              || (collectionName == 'crew_records' && editorCreatesOwnedCrewRecord())
+              (collectionName == 'crew_records' && editorCreatesOwnedCrewRecord())
               || (collectionName != 'crew_records' && isEditorOperationalCollection(collectionName) && editorCreatesActiveOnly())
             ))
           )
           && (!isCoreBusinessCollection(collectionName) || coreCreateLifecycleIsValid(recordId));
-        allow update: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts'
+        allow update: if collectionName != 'photos' && collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts'
           && !isLegacyReadOnlyCollection(collectionName)
           && (collectionName != 'work_volumes' || !('unitPrice' in request.resource.data))
           && (
@@ -784,7 +798,6 @@ service cloud.firestore {
             || (isEditor(projectId) && projectIsActive(projectId) && (
               (collectionName == 'rooms' && editorRoomOperationalUpdateOnly())
               || (collectionName == 'checklist' && editorChecklistOperationalUpdateOnly())
-              || (collectionName == 'photos' && editorPhotoMetadataUpdateOnly(projectId, recordId))
               || (collectionName == 'crew_records' && (editorUpdatesActiveCrewRecord() || editorSoftDeletesOwnCrewRecord()))
               || (collectionName != 'crew_records' && isEditorOperationalCollection(collectionName) && editorKeepsActiveLifecycle())
             ))
