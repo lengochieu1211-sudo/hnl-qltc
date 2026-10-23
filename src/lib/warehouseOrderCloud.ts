@@ -13,7 +13,7 @@ export function subscribeWarehouseOrderCloud(
   onRows:(records:Record<string,CloudOrderEntry>,fromCache:boolean,skippedInvalid:number)=>void,
   onError:(error:Error)=>void,
 ):Unsubscribe {
-  if(!projectId){onRows({},false);return ()=>{};}
+  if(!projectId){onRows({},false,0);return ()=>{};}
   return onSnapshot(collection(db,'projects',projectId,PATH),{includeMetadataChanges:true},snapshot=>{
     const rows:Record<string,CloudOrderEntry>={};
     let invalidCount = 0;
