@@ -188,6 +188,52 @@ service cloud.firestore {
         ]);
     }
 
+    // R5-03: a field editor can publish a new binary generation for the SAME photo,
+    // or soft-delete the photo; never rebind its owner, project, entity or identity.
+    // Cloud binary replacement/migration is allowed ONLY in the photo's own R2 /
+    // Firebase Storage namespace. Old Drive/legacy pointers stay readable unchanged.
+    function editorPhotoMetadataUpdateOnly(projectId, recordId) {
+      let old = resource.data;
+      let next = request.resource.data;
+      let pointerChanged = next.diff(old).affectedKeys().hasAny([
+        'cloudFileId', 'cloudUrl', 'storageProvider', 'storagePath', 'thumbnailPath',
+        'storageMd5Hash', 'storageEtag', 'storageGeneration', 'contentHash',
+        'contentVersion'
+      ]);
+      let expectedPath = 'projects/' + projectId + '/media/' + old.entityType + '/' + old.entityId + '/' + recordId + '/';
+      return old.get('projectId', projectId) == projectId
+        && next.get('projectId', projectId) == projectId
+        && old.get('entityType', '') == next.get('entityType', '')
+        && old.get('entityId', '') == next.get('entityId', '')
+        && old.get('createdAt', null) == next.get('createdAt', null)
+        && old.get('createdByUid', '') == next.get('createdByUid', '')
+        && (
+          // A field engineer may retire an active photo but may not restore it.
+          (old.get('deleted', false) != true
+            && next.get('deleted', false) == true
+            && next.get('deletedByUid', '') == request.auth.uid
+            && next.get('deletedAt', null) != null
+            && next.get('binaryUploadState', '') == 'deleted'
+            && !pointerChanged)
+          || (old.get('deleted', false) != true
+            && next.get('deleted', false) != true
+            && editorKeepsActiveLifecycle()
+            && (!pointerChanged || (
+              next.get('storageProvider', '') in ['r2', 'firebase-storage']
+              && next.get('binaryUploadState', '') == 'ready'
+              && next.get('storagePath', '') is string
+              && next.get('storagePath', '').matches('^' + expectedPath + 'original[.][A-Za-z0-9]+$')
+              && next.get('thumbnailPath', '') is string
+              && (next.get('thumbnailPath', '') == ''
+                || next.get('thumbnailPath', '').matches('^' + expectedPath + 'thumb[.][A-Za-z0-9]+$'))
+              && next.get('cloudFileId', '') == (
+                (next.storageProvider == 'r2' ? 'r2:' : 'storage:') + next.storagePath)
+              && next.get('cloudUrl', '') == (
+                (next.storageProvider == 'r2' ? 'r2:' : 'storage:') + next.storagePath)
+            )))
+        );
+    }
+
     // Checklist definition (floor/category/title/due-date/room binding) belongs to
     // ADMIN. EDITOR can record only inspection outcome, note and inspector.
     function editorChecklistOperationalUpdateOnly() {
@@ -460,6 +506,13 @@ service cloud.firestore {
         ])
         && d.projectId == projectId
         && d.itemKey is string && d.itemKey.size() > 0 && d.itemKey.size() <= 500
+        // Fixed expected-date key has exact identity; JSON tuple IDs use the
+        // canonical URI-encoded envelope. Field-level encoding parity is also
+        // independently enforced in the Cloud reader before accepting a row.
+        && ((d.itemKey == 'hnl-warehouse-order-expected-date'
+            && recordId == 'hnl-warehouse-order-expected-date')
+          || (d.itemKey.matches('^\\[\\"(material|equipment)\\",.*\\]$')
+            && recordId.matches('^%5B%22(material|equipment)%22%2C.*%5D$')))
         && d.quantity is number && d.quantity >= 0 && d.quantity <= 1000000000000
         && (d.kgPerUnit == null || (d.kgPerUnit is number && d.kgPerUnit > 0 && d.kgPerUnit <= 1000000000000))
         && d.quantityExpression is string && d.quantityExpression.size() <= 160
@@ -731,7 +784,7 @@ service cloud.firestore {
             || (isEditor(projectId) && projectIsActive(projectId) && (
               (collectionName == 'rooms' && editorRoomOperationalUpdateOnly())
               || (collectionName == 'checklist' && editorChecklistOperationalUpdateOnly())
-              || collectionName == 'photos'
+              || (collectionName == 'photos' && editorPhotoMetadataUpdateOnly(projectId, recordId))
               || (collectionName == 'crew_records' && (editorUpdatesActiveCrewRecord() || editorSoftDeletesOwnCrewRecord()))
               || (collectionName != 'crew_records' && isEditorOperationalCollection(collectionName) && editorKeepsActiveLifecycle())
             ))

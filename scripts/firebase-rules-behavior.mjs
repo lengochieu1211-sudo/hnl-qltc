@@ -217,6 +217,12 @@ try {
     stockBalance: 1000, revision: 2, updatedByUid: ownerUid,
   }));
   await expectDenied('ADMIN cannot hard-delete order draft', () => deleteDoc(orderRef));
+  await expectDenied('P2: reject raw document ID for encoded order item', () => setDoc(doc(db, 'projects', pid, 'warehouse_order_drafts', 'raw-identity'), {
+    ...orderFixture, itemKey: orderKey, revision: 1,
+  }));
+  await expectDenied('P2: expected-date row must use exact reserved document ID', () => setDoc(doc(db, 'projects', pid, 'warehouse_order_drafts', 'forged-date-row'), {
+    ...orderFixture, itemKey: orderDateKey, revision: 1,
+  }));
 
   await signIn(editorEmail);
   const editorUid = auth.currentUser.uid;
@@ -510,8 +516,31 @@ try {
   }));
   const photoSnap = await getDoc(photoMetaRef);
   const photoUpdatedAt = Number(photoSnap.data()?.updatedAt || 0);
+  const photoNamespace = `projects/${pid}/media/defect/DF-RULE-1/PHOTO-META-RULE-1`;
+  await expectDenied('R5-03: EDITOR cannot rebind photo to another defect', () => updateDoc(photoMetaRef, {
+    entityId: 'DF-OTHER', revision: 2, updatedAt: photoUpdatedAt + 10,
+  }));
+  await expectDenied('R5-03: EDITOR cannot point photo to another entity storage path', () => updateDoc(photoMetaRef, {
+    storageProvider: 'r2', storagePath: `projects/${pid}/media/defect/DF-OTHER/WRONG/original.jpg`,
+    cloudFileId: `r2:projects/${pid}/media/defect/DF-OTHER/WRONG/original.jpg`,
+    cloudUrl: `r2:projects/${pid}/media/defect/DF-OTHER/WRONG/original.jpg`,
+    binaryUploadState: 'ready', revision: 2, updatedAt: photoUpdatedAt + 10,
+  }));
+  await expectAllowed('R5-03: EDITOR may publish replacement binary under the SAME photo namespace', () => updateDoc(photoMetaRef, {
+    storageProvider: 'r2', storagePath: `${photoNamespace}/original.jpg`,
+    thumbnailPath: `${photoNamespace}/thumb.jpg`,
+    cloudFileId: `r2:${photoNamespace}/original.jpg`, cloudUrl: `r2:${photoNamespace}/original.jpg`,
+    binaryUploadState: 'ready', revision: 2, updatedAt: photoUpdatedAt + 10,
+  }));
+  await expectDenied('R5-03: EDITOR cannot silently rewrite original photo owner', () => updateDoc(photoMetaRef, {
+    createdByUid: 'stolen-creator', revision: 3, updatedAt: photoUpdatedAt + 20,
+  }));
   await expectAllowed('EDITOR may soft-delete field photo metadata', () => updateDoc(photoMetaRef, {
-    deleted: true, deletedAt: Date.now(), deletedByUid: editorUid, revision: 2, updatedAt: photoUpdatedAt + 10,
+    deleted: true, deletedAt: Date.now(), deletedByUid: editorUid,
+    binaryUploadState: 'deleted', revision: 3, updatedAt: photoUpdatedAt + 20,
+  }));
+  await expectDenied('R5-03: EDITOR cannot restore a deleted photo', () => updateDoc(photoMetaRef, {
+    deleted: false, deletedAt: null, binaryUploadState: 'ready', revision: 4, updatedAt: photoUpdatedAt + 30,
   }));
   await expectDenied('EDITOR cannot manage membership', () => setDoc(doc(db, 'projects', pid, 'members', `x-${nonce}@example.test`), {
     email: `x-${nonce}@example.test`, role: 'VIEWER', active: true,
