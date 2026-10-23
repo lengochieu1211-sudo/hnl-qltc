@@ -4,6 +4,7 @@ import { WarehouseTab } from '../../../src/components/WarehouseTab';
 import { MaterialNormModal } from '../../../src/components/MaterialNormModal';
 import { DEFAULT_STRUCTURE_CONFIG } from '../../../src/utils/structureGroupUtils';
 import type { InventoryItem, MaterialNorm } from '../../../src/types';
+import type { WarehouseOrderSync } from '../../../src/hooks/useWarehouseOrderSync';
 import '../../../src/index.css';
 const name='Tấm thạch cao Golden P0';
 const materialNorms:MaterialNorm[]=[{id:'NORM-P0-001',materialId:'MAT-P0-001',materialName:name,category:'Tấm thạch cao',unit:'Tấm',quotaQuantity:100}];
@@ -13,6 +14,14 @@ const inventory:InventoryItem[]=[
 {id:'P0-IN-20261012-002',itemKind:'material',materialId:'MAT-P0-001',type:'in',materialName:name,unit:'Tấm',quantity:8,date:'2026-10-12',location:'Kho A',handler:'Người nhập P0'},
 {id:'P0-OUT-20261013-003',itemKind:'material',materialId:'MAT-P0-001',type:'out',materialName:name,unit:'Tấm',quantity:5,date:'2026-10-13',location:'Tầng 2',handler:'Người xuất P0'},
 {id:'P0-EQUIP-IN-004',itemKind:'equipment',type:'in',materialName:'Máy bắn vít Golden P0',unit:'Cái',quantity:3,date:'2026-10-11',location:'Kho A',handler:'Người nhập P0'}];
+// Fixture must supply the same centralized order-sync contract as the real App.
+// Never construct a second Firebase watcher or change Cloud rows during browser tests.
+const orderSyncFixture = {
+  draft: {}, expectedDate: '', cloudState: 'ready', cloudError: '', saveError: '',
+  pendingCount: 0, conflicts: [], eligibleLegacyCount: 0, canEdit: false,
+  setValue: () => {}, updateExpectedDate: () => {}, flushPending: () => {},
+  importLocalDraft: () => {}, acceptCloudConflicts: () => {},
+} as unknown as WarehouseOrderSync;
 function NormLayoutFixture() {
   const [open, setOpen] = React.useState(false);
   const [returnToken, setReturnToken] = React.useState(0);
@@ -44,7 +53,7 @@ function NormLayoutFixture() {
       materialNorms={norms} inventory={inventory}
       onAddNorm={() => {}} onUpdateNorm={() => {}} onDeleteNorm={() => {}}
     />}
-    <WarehouseTab isActive quickEditEnabled={false} currentProjectId=""
+    <WarehouseTab isActive quickEditEnabled={false} orderSync={orderSyncFixture} currentProjectId=""
       projectName="Công trình Trung tâm Kiểm thử QLTC"
       projectLocation="123 Đường Thử Nghiệm, Quận 1, TP.HCM"
       contractorName="Công ty Thi công Kiểm thử"

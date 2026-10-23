@@ -124,6 +124,10 @@ assert.match(sync,/if\(committed&&pendingRef\.current\[key\]!==pending/);
 assert.match(app,/useWarehouseOrderSync\(activeProjectId/);
 assert.match(app,/orderSync=\{warehouseOrderSync\}/);
 assert.match(app,/warehouseOrderSync=\{warehouseOrderSync\}/);
+const voucherBrowserFixture=readFileSync(new URL('./fixtures/warehouse-catalog/main.tsx',import.meta.url),'utf8');
+assert.match(voucherBrowserFixture,/orderSync=\{orderSyncFixture\}/,
+  'Warehouse voucher browser fixture must provide the mandatory order-sync contract');
+
 assert.doesNotMatch(ui,/subscribeWarehouseOrderCloud|saveWarehouseOrderCloudRow|persistPending\(/);
 assert.doesNotMatch(manager,/WarehouseOrderSyncPanel sync=\{warehouseOrderSync\}/);
 assert.match(center,/data-hnl-health-center-warehouse-order="integrated"/);
