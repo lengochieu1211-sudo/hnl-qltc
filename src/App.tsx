@@ -8149,6 +8149,12 @@ function AuthenticatedApp() {
                     }
                   });
 
+                  // A quick edit to team headcount/phone/notes must never rewrite unrelated
+                  // rooms/defects/checklist from another user's potentially newer snapshot.
+                  if (options?.quickEditUpsertIds && !Object.keys(teamNameMap).length && !deletedTeamNames.length) {
+                    return { ...prev, teams: effectiveTeams };
+                  }
+
                   let updatedRoomProgressList = (prev.roomProgressList || []).map(room => {
                     let assignedTeam = room.assignedTeam;
                     let teamId = room.teamId;
