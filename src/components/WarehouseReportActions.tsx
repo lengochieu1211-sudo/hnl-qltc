@@ -11,7 +11,7 @@ const PALETTE: Record<WarehouseReportFormat,{main:string;outline:string}>={
   xlsx:{main:'bg-green-600 hover:bg-green-700',outline:'border-green-200 text-green-700'},
 };
 const LABEL: Record<WarehouseReportFormat,string>={png:'Ảnh',pdf:'PDF',xlsx:'Excel'};
-export const WarehouseReportActions:React.FC<{report:WarehouseReport; disabled?:boolean}>=({report,disabled=false})=>{
+export const WarehouseReportActions:React.FC<{report:WarehouseReport; disabled?:boolean; trailingAction?:React.ReactNode}>=({report,disabled=false,trailingAction})=>{
   const [menu,setMenu]=useState<WarehouseReportFormat|null>(null);
   const [showOptions,setShowOptions]=useState(false);
   const [options,setOptions]=useState<WarehousePageOptions>(()=>{
@@ -60,6 +60,7 @@ export const WarehouseReportActions:React.FC<{report:WarehouseReport; disabled?:
     finally{setBusy(false);}
   };
   return <div data-hnl-warehouse-report-actions="unified" className="space-y-2">
+    <div data-hnl-warehouse-report-actions-row="true" className="flex flex-col gap-2 min-[960px]:flex-row min-[960px]:items-start">
     <div data-hnl-warehouse-report-buttons="formats" data-hnl-export-format-group="true" data-hnl-export-format-count="4" className="grid w-full max-w-[480px] min-w-0 grid-cols-2 gap-2 min-[960px]:inline-grid min-[960px]:grid-cols-[repeat(4,112px)] min-[960px]:w-auto min-[960px]:max-w-full" role="group" aria-label={`Xuất ${report.title}`}>
       {([
         ['png',ImageIcon,'Ảnh'],['pdf',FileDown,'PDF'],['xlsx',FileSpreadsheet,'Excel'],
@@ -73,6 +74,8 @@ export const WarehouseReportActions:React.FC<{report:WarehouseReport; disabled?:
         className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-2 text-xs font-bold text-slate-700 disabled:opacity-40">
         <Settings2 className="h-4 w-4 shrink-0"/> Tùy chọn
       </button>
+    </div>
+    {trailingAction && <div data-hnl-warehouse-report-trailing-action="true" className="w-full min-[960px]:w-auto min-[960px]:shrink-0">{trailingAction}</div>}
     </div>
     {showOptions&&<div data-hnl-warehouse-export-options="form" className="grid w-full max-w-[720px] min-w-0 grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs min-[960px]:grid-cols-3">
       <label className="grid min-w-0 gap-1 font-semibold text-slate-700">Khổ giấy

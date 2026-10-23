@@ -69,6 +69,13 @@ assert.match(quick, /Ctrl\+C \/ Ctrl\+V vùng ô từ Excel/, 'Quick grid must a
 // All Quick Edit consumers share the same cell-range gestures; unchanged editability gates remain per module.
 assert.match(warehouse, /spreadsheetSelection/, 'Warehouse preserves its explicit spreadsheet selection');
 assert.match(quick, /spreadsheetSelection = true/, 'Ctrl/Shift selection must be enabled for all shared Quick Edit grids');
+// Intentional Excel-like entry contract: single click selects, one double-click or F2 edits.
+// Source-level regression guards, not a replacement for browser double-click tests.
+assert.match(quick, /onDoubleClick=\{\(\) => beginEdit\(row\.__rowKey, column\.key\)\}/, 'One double-click must enter cell edit mode');
+assert.match(quick, /event\.key === 'F2'/, 'F2 must enter cell edit mode');
+assert.match(quick, /readOnly=\{!editable \|\| \(spreadsheetSelection && editingCellKey !== key\)\}/, 'Input requires edit mode, except read-only cells');
+assert.match(quick, /disabled=\{spreadsheetSelection && editingCellKey !== key\}/, 'Select dropdown requires edit mode');
+assert.match(quick, /onChange=\{\(event\) => changeSelectedDropdown/, 'Dropdown changes still use permission-aware save logic');
 for (const [name, source] of [['Room / Defect', floor], ['Crew / Teams', crew], ['WorkVolume', volume], ['Warehouse', warehouse]]) {
   assert.match(source, /<LazyQuickEditGridModal/, `${name} must use the common Quick Edit selection handler`);
 }

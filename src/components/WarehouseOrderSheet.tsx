@@ -11,7 +11,7 @@ import { compareWarehouseOrderDisplayItems } from '../utils/catalogDisplayOrder'
 import type {WarehouseOrderSync} from '../hooks/useWarehouseOrderSync';
 
 type Props={
-  open:boolean;onClose:()=>void;onOpenQuickEdit?:(kind:WarehouseOrderKind)=>void;projectId:string;projectName:string;projectLocation:string;contractorName:string;
+  open:boolean;onClose:()=>void;projectId:string;projectName:string;projectLocation:string;contractorName:string;
   items:WarehouseOrderItem[];canEdit:boolean;initialKind:WarehouseOrderKind;sync:WarehouseOrderSync;
 };
 const vi=(n:number)=>new Intl.NumberFormat('vi-VN',{maximumFractionDigits:3}).format(n);
@@ -54,7 +54,7 @@ const NumberField:React.FC<{
     {error&&<p role="alert" className="text-[10px] text-rose-600">Số/công thức không hợp lệ</p>}
   </div>;
 };
-export const WarehouseOrderSheet:React.FC<Props>=({open,onClose,onOpenQuickEdit,projectId,projectName,projectLocation,contractorName,items,canEdit,initialKind,sync})=>{
+export const WarehouseOrderSheet:React.FC<Props>=({open,onClose,projectId,projectName,projectLocation,contractorName,items,canEdit,initialKind,sync})=>{
   const [kind,setKind]=useState<WarehouseOrderKind>(initialKind);
   const [search,setSearch]=useState('');
   useEffect(()=>{setKind(initialKind);setSearch('');},[projectId,initialKind]);
@@ -89,13 +89,6 @@ export const WarehouseOrderSheet:React.FC<Props>=({open,onClose,onOpenQuickEdit,
           {tab==='material'?'Vật tư':'Thiết bị'}
         </button>)}
       </div>
-      {onOpenQuickEdit && <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-indigo-200 bg-indigo-50 p-2.5" data-hnl-warehouse-order-quick-grid-entry="true">
-        <p className="min-w-0 flex-1 text-[11px] leading-snug text-slate-700">Chọn vùng, kéo chuột hoặc nhấn giữ trên điện thoại; dùng F2, mũi tên và dán từ Excel như Bảng chỉnh nhanh Kho.</p>
-        <button type="button" data-hnl-warehouse-order-open-quick-edit="true" onClick={()=>onOpenQuickEdit(kind)}
-          className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg bg-indigo-600 px-3 text-xs font-extrabold text-white hover:bg-indigo-700">
-          Bảng chỉnh nhanh · {kind==='material'?'Vật tư':'Thiết bị'}
-        </button>
-      </div>}
       <div className="relative"><Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400"/>
         <input type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Tìm vật tư, thiết bị…"
           className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-xs" />

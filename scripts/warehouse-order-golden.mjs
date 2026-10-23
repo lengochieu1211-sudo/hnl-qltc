@@ -94,9 +94,11 @@ assert.doesNotMatch(orderUI,/Tỷ trọng KL \(%\)/,'Order should not show perce
 // Health Center is the single authority for Cloud queue, conflicts and recovery; keep only a lightweight status link here.
 assert.match(orderUI,/data-hnl-warehouse-order-sync=\"centralized\"/,'Order sheet must defer sync recovery to Health Center');
 assert.match(orderUI,/Kiểm tra dữ liệu → Trạng thái hệ thống & đồng bộ/,'Order sheet points to centralized sync diagnostics');
-assert.match(orderUI,/data-hnl-warehouse-order-open-quick-edit=\"true\"/, 'Order sheet must expose shared spreadsheet-like Quick Edit');
-assert.match(catalogUI,/setQuickEditMode\(kind === 'material' \? 'order-material' : 'order-equipment'\)/, 'Order Quick Edit must preserve material vs equipment');
-assert.match(catalogUI,/quickEditReturnToOrderKindRef\.current = null;/, 'Quick Edit return context must be cleared');
+// The order entry sheet remains a lightweight standalone editor on all devices.
+// Quick Edit itself remains PC-only and is not entered through the order sheet.
+assert.doesNotMatch(orderUI,/data-hnl-warehouse-order-open-quick-edit|onOpenQuickEdit/, 'Order sheet must not link to Quick Edit');
+assert.doesNotMatch(catalogUI,/quickEditReturnToOrderKindRef/, 'Remove obsolete Quick Edit return context');
+assert.match(catalogUI,/<WarehouseOrderSheet key=\{currentProjectId\}/, 'Keep the original order editor mounted');
 assert.match(orderUI,/saveError&&<p role=\"alert\"/,'Local draft save failures remain visible');
 assert.doesNotMatch(orderUI,/data-hnl-warehouse-order-restore=\"collapsed\"/,'Obsolete local restore pane must not return');
 assert.doesNotMatch(orderUI,/Có thể nhập công thức như <strong>/,'Repeated formula help paragraph is removed');
@@ -109,6 +111,9 @@ const shareUI=readFileSync(new URL('../src/components/WarehouseReportActions.tsx
 // Desktop buttons should be content-sized, never 1/3 or 100% of a wide PC sheet.
 // Preserve mobile full-width touch layouts below 960px.
 assert.match(shareUI, /data-hnl-warehouse-report-buttons="formats"/, 'Warehouse exports need a stable desktop layout marker');
+assert.match(shareUI, /data-hnl-warehouse-report-actions-row="true"/, 'Warehouse export and order launcher must share the same responsive row');
+assert.match(shareUI, /data-hnl-warehouse-report-trailing-action="true"/, 'Catalog order launcher sits to the right of export options on PC');
+assert.match(catalogUI, /<WarehouseReportActions report=\{warehouseCatalogReport\} trailingAction=/, 'Catalog must pass order button into the existing export row');
 assert.match(shareUI, /min-\[960px\]:inline-grid min-\[960px\]:grid-cols-\[repeat\(4,112px\)\]/, 'PC export actions must stay compact rather than stretching');
 assert.match(catalogUI, /data-hnl-warehouse-open-order="true"[\s\S]{0,430}min-\[960px\]:w-auto/, 'PC order launcher must be content-width');
 assert.match(orderUI, /data-hnl-warehouse-order-kind-tabs="true"[^>]*min-\[960px\]:inline-grid min-\[960px\]:grid-cols-\[repeat\(2,160px\)\]/, 'PC order kind tabs must not stretch across the sheet');

@@ -218,7 +218,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [copiedInventoryId, setCopiedInventoryId] = useState<string | null>(null);
   const [showWarehouseCatalog, setShowWarehouseCatalog] = useState(false);
   const [showWarehouseOrder, setShowWarehouseOrder] = useState(false);
-  const quickEditReturnToOrderKindRef = useRef<'material' | 'equipment' | null>(null);
   const [voucherShareOpen, setVoucherShareOpen] = useState(false);
   // Draft images remain in-memory, never in R2/Firestore until the ledger commits.
   const [pendingVoucherPhotos, setPendingVoucherPhotos] = useState<File[]>([]);
@@ -230,7 +229,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setEditingInventory(null);
     // Filters from another project must not hide this project's warehouse vouchers.
     setShowWarehouseOrder(false);
-    quickEditReturnToOrderKindRef.current = null;
     setSearchTerm('');
     setWarehouseFromDate('');
     setWarehouseToDate('');
@@ -2719,13 +2717,14 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           </div>
           <div data-hnl-warehouse-catalog-actions="bottom" className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
             <p className="text-xs font-bold text-slate-800">Xuất danh mục kho · {warehouseCatalogStockRows.length} dòng đang hiển thị</p>
-            <WarehouseReportActions report={warehouseCatalogReport}/>
-            <button type="button" data-hnl-warehouse-open-order="true"
+            <WarehouseReportActions report={warehouseCatalogReport} trailingAction={
+              <button type="button" data-hnl-warehouse-open-order="true"
               disabled={!roleResolved || !hasEditAccess || !currentProjectId}
               onClick={() => { setShowWarehouseCatalog(false); setShowWarehouseOrder(true); }}
               className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-3 text-xs font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40 min-[960px]:w-auto min-[960px]:whitespace-nowrap">
               <FileText className="h-4 w-4"/> Đặt hàng vật tư / thiết bị
-            </button>
+              </button>
+            }/>
             <p className="text-[10px] leading-relaxed text-slate-500">Danh mục chỉ đọc. Đặt hàng là bản nháp độc lập, không tạo phiếu nhập/xuất hoặc thay đổi tồn kho.</p>
           </div>
           {warehouseCatalogTab === 'equipment' && (
@@ -2745,12 +2744,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         onClose={() => { setShowWarehouseOrder(false); setCatalogHistory(null); setShowWarehouseCatalog(true); }}
         projectId={currentProjectId} projectName={projectName} projectLocation={projectLocation}
         contractorName={contractorName} items={warehouseOrderItems} canEdit={hasEditAccess} initialKind={warehouseCatalogTab} sync={orderSync}
-        onOpenQuickEdit={quickEditEnabled ? (kind) => {
-          quickEditReturnToOrderKindRef.current = kind;
-          setQuickEditMode(kind === 'material' ? 'order-material' : 'order-equipment');
-          setShowWarehouseOrder(false);
-          setShowQuickEdit(true);
-        } : undefined}
       />}
 
       {quickEditEnabled && showQuickEdit && <React.Suspense fallback={null}>
@@ -2836,15 +2829,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           handler: defaultHandler,
           notes: '',
         })}
-        onClose={() => {
-          setShowQuickEdit(false);
-          const returnKind = quickEditReturnToOrderKindRef.current;
-          quickEditReturnToOrderKindRef.current = null;
-          if (returnKind && currentProjectId) {
-            setWarehouseCatalogTab(returnKind);
-            setShowWarehouseOrder(true);
-          }
-        }}
+        onClose={() => setShowQuickEdit(false)}
         onSave={saveWarehouseQuickRows}
       />
       </React.Suspense>}

@@ -33,6 +33,14 @@ const orderOpener=sheet.locator('[data-hnl-warehouse-open-order="true"]');
 const orderRect=await orderOpener.boundingBox();
 const sheetRect=await sheet.boundingBox();
 assert(exportRect&&orderRect&&sheetRect,label+': missing warehouse export/order controls');
+const optionsRect=await sheet.locator('[data-hnl-warehouse-export-options="toggle"]').boundingBox();
+assert(optionsRect,label+': options button missing');
+if(size.width>=960){
+  assert(Math.abs(orderRect.y-optionsRect.y)<=2,label+': PC order launcher should share row with Tùy chọn');
+  assert(orderRect.x>=optionsRect.x+optionsRect.width-2,label+': PC order launcher must sit right of Tùy chọn');
+}else{
+  assert(orderRect.y>=optionsRect.y+optionsRect.height-2,label+': mobile order launcher stays below export actions');
+}
 if(size.width>=960){
   assert(exportRect.width<=480,label+': PC four-button export group stretched beyond compact design');
   assert(orderRect.width<=300,label+': PC order launcher stretched across entire sheet');
