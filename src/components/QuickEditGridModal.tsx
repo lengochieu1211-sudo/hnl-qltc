@@ -311,7 +311,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
     selectionAnchorRef.current = { rowKey, columnKey };
     activeCellRef.current = { rowKey, columnKey };
     requestAnimationFrame(() => {
-      const cell = Array.from(gridViewportRef.current?.querySelectorAll<HTMLElement>('[data-quick-grid-cell="true"]') || [])
+      const cell = (Array.from(gridViewportRef.current?.querySelectorAll<HTMLElement>('[data-quick-grid-cell="true"]') ?? []) as HTMLElement[])
         .find((node) => node.dataset.rowKey === rowKey && node.dataset.columnKey === columnKey);
       cell?.querySelector<HTMLInputElement | HTMLSelectElement>('input,select')?.focus();
     });
@@ -425,7 +425,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
             setSelectedCellKeys(new Set([cellKey(next.rowKey, next.columnKey)]));
             activeCellRef.current = next;
           }
-          const nextCell = Array.from(gridViewportRef.current?.querySelectorAll<HTMLElement>('[data-quick-grid-cell="true"]') || [])
+          const nextCell = (Array.from(gridViewportRef.current?.querySelectorAll<HTMLElement>('[data-quick-grid-cell="true"]') ?? []) as HTMLElement[])
             .find((node) => node.dataset.rowKey === next.rowKey && node.dataset.columnKey === next.columnKey);
           nextCell?.focus();
           nextCell?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
