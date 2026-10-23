@@ -116,7 +116,7 @@ interface CrewTabProps {
   onOpenExportPdf?: () => void;
   onExportExcel?: () => void;
   teams?: TeamInfo[];
-  onUpdateTeams?: (teams: TeamInfo[]) => void;
+  onUpdateTeams?: (teams: TeamInfo[], options?: { quickEditUpsertIds: string[] }) => void;
 }
 
 const buildCrewRecordShareText = (record: CrewRecord, projectName?: string, projectLocation?: string) => {
@@ -1764,6 +1764,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       return categories.map((category, categoryIndex) => ({
         __rowKey: `${record.id}--${floorIndex}--${categoryIndex}`,
         __recordId: record.id,
+        __floorId: floorWork.floorId,
         __groupKey: record.id,
         __groupPrimary: floorIndex === 0 && categoryIndex === 0,
         date: record.date,
@@ -1783,6 +1784,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const teamQuickRows = useMemo<QuickGridRow[]>(() => showQuickEdit ? teams.map((team) => ({
     __rowKey: team.id,
     __teamId: team.id,
+    __baseRevision: Number(team.revision || 0),
+    __baseUpdatedAt: Number(team.updatedAt || 0),
     name: team.name,
     leader: team.leader,
     defaultCount: team.defaultCount,
@@ -1853,7 +1856,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       grouped.set(key, [...(grouped.get(key) || []), row]);
     });
 
-    const floorByName = new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.floorName.trim().toLocaleLowerCase('vi-VN'), floor] as const));
+    // Existing floorWork keeps exact floorId; label lookups must be unambiguous.
     const prepared: Array<{ existing?: CrewRecord; record: CrewRecord }> = [];
 
     for (const [recordKey, changedGroup] of grouped) {
@@ -1869,7 +1872,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
       const date = String(pickShared('date', existing?.date || sourceRows[0]?.date || selectedDate) || '').trim();
       const teamNameValue = String(pickShared('teamName', existing?.teamName || sourceRows[0]?.teamName || '') || '').trim();
-      const team = resolveUniqueTeamByDirectoryName(teams, teamNameValue);
+      const teamChanged = changedGroup.some((row) => dirtyCellKeys.has(`${row.__rowKey}::teamName`));
+      const team = teamChanged || !existing ? resolveUniqueTeamByDirectoryName(teams, teamNameValue)
+        : teams.find((item) => item.id === existing.teamId);
       const morning = Math.max(0, Number(pickShared('morning', existing ? getCrewShiftCounts(existing).morning : 0) || 0));
       const afternoon = Math.max(0, Number(pickShared('afternoon', existing ? getCrewShiftCounts(existing).afternoon : 0) || 0));
       const evening = Math.max(0, Number(pickShared('evening', existing ? getCrewShiftCounts(existing).evening : 0) || 0));
@@ -1883,8 +1888,15 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       const floorWorksById = new Map<string, CrewFloorWork>();
       sourceRows.forEach((row) => {
         const floorNameValue = String(row.floorName || '').trim();
-        const floor = floorByName.get(floorNameValue.toLocaleLowerCase('vi-VN'));
-        if (!floor) throw new Error(`Không tìm thấy tầng “${floorNameValue}”.`);
+        const originalFloorId = String(row.__floorId || '').trim();
+        const floorChanged = dirtyCellKeys.has(`${row.__rowKey}::floorName`);
+        const candidates = floorPlans.filter((item) =>
+          normalizeLinkText(item.floorName) === normalizeLinkText(floorNameValue)
+          && (!normalizedStructureConfig.enabled || resolveFloorStructureGroupId(item, normalizedStructureConfig) === structureGroupId));
+        const floor = originalFloorId && !floorChanged
+          ? floorById.get(originalFloorId)
+          : candidates.length === 1 ? candidates[0] : undefined;
+        if (!floor) throw new Error(`Tầng “${floorNameValue}” chưa xác định duy nhất trong Khu/Khối. Hãy chọn lại tầng đúng định danh.`);
         if (normalizedStructureConfig.enabled && resolveFloorStructureGroupId(floor, normalizedStructureConfig) !== structureGroupId) {
           throw new Error(`Tầng “${floor.floorName}” không thuộc ${normalizedStructureConfig.label} “${getStructureGroupName(structureGroupId, normalizedStructureConfig)}”.`);
         }
@@ -1936,20 +1948,39 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     });
   };
 
-  const saveQuickTeamRows = async (rows: QuickGridRow[]) => {
-    if (!canManageTeamDirectory) return;
-    const nextTeams = rows.map((row) => ({
-      id: String(row.__teamId || '').trim() || createEntityId('team'),
-      name: String(row.name || '').trim(),
-      leader: String(row.leader || '').trim(),
-      defaultCount: Math.max(1, Number(row.defaultCount || 0)),
-      phone: String(row.phone || '').trim() || undefined,
-      notes: String(row.notes || '').trim() || undefined,
-    } as TeamInfo));
+  const saveQuickTeamRows = async (rows: QuickGridRow[], dirtyCellKeys: Set<string>, deletedRows: QuickGridRow[] = []) => {
+    if (!canManageTeamDirectory || !onUpdateTeams) return false;
+    if (deletedRows.length) throw new Error('Không xóa đội bằng Bảng chỉnh nhanh. Hãy dùng thao tác Xóa đội riêng có xác nhận.');
+    const dirtyRowKeys = new Set(Array.from(dirtyCellKeys).map((key) => key.split('::')[0]));
+    const changedRows = rows.filter((row) => dirtyRowKeys.has(row.__rowKey));
+    if (!changedRows.length) return false;
+    const updates: TeamInfo[] = changedRows.map((row) => {
+      const id = String(row.__teamId || '').trim() || createEntityId('team');
+      const original = teams.find((team) => team.id === id);
+      if (String(row.__teamId || '').trim() && !original) throw new Error(`Đội ${id} đã bị thay đổi/xóa. Hãy tải lại danh mục.`);
+      if (original && (Number(original.revision || 0) !== Number(row.__baseRevision || 0)
+        || Number(original.updatedAt || 0) !== Number(row.__baseUpdatedAt || 0))) {
+        throw new Error(`Đội “${original.name}” đã được tài khoản khác cập nhật. Hãy tải lại trước khi lưu.`);
+      }
+      const value = (key: 'name' | 'leader' | 'defaultCount' | 'phone' | 'notes', fallback: unknown) =>
+        dirtyCellKeys.has(`${row.__rowKey}::${key}`) ? row[key] : fallback;
+      return {
+        ...(original || {} as TeamInfo), id,
+        name: String(value('name', original?.name || '') || '').trim(),
+        leader: String(value('leader', original?.leader || '') || '').trim(),
+        defaultCount: Math.max(1, Number(value('defaultCount', original?.defaultCount || 1) || 1)),
+        phone: String(value('phone', original?.phone || '') || '').trim() || undefined,
+        notes: String(value('notes', original?.notes || '') || '').trim() || undefined,
+      };
+    });
+    const byId = new Map(teams.map((team) => [team.id, team] as const));
+    updates.forEach((team) => byId.set(team.id, team));
+    const nextTeams = Array.from(byId.values());
     if (findWorsenedTeamNameConflict(teams, nextTeams)) throw new Error('Tên đội bị trùng/không rõ liên kết. Hãy đổi tên đội trước khi lưu.');
-    const confirmed = await confirmAsync(`Lưu ${nextTeams.length} dòng Danh mục đội? Nhật ký cũ vẫn giữ teamId hiện tại.`);
+    const confirmed = await confirmAsync(`Lưu ${updates.length} đội đã chỉnh? Không xóa đội ngoài bảng và giữ nguyên metadata của đội cũ.`);
     if (!confirmed) return false;
-    if (!updateTeamsAndParent(nextTeams)) throw new Error('Không thể cập nhật Danh mục đội.');
+    onUpdateTeams(nextTeams, { quickEditUpsertIds: updates.map((team) => team.id) });
+    setTeams(nextTeams);
   };
 
   const activeQuickRows = quickEditMode === 'logs' ? crewQuickRows : teamQuickRows;
@@ -4308,6 +4339,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           __rowKey: `new-crew-${Date.now()}-${index}`,
           __new: true,
           __recordId: '',
+          __floorId: '',
           date: selectedDate,
           teamName: teams[0]?.name || '',
           morning: 0,
@@ -4328,7 +4360,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         })}
         onClose={() => setShowQuickEdit(false)}
         syncGroupColumns={quickEditMode === 'logs' ? ['date', 'teamName', 'morning', 'afternoon', 'evening'] : []}
-        onSave={quickEditMode === 'logs' ? saveQuickCrewRows : (rows) => saveQuickTeamRows(rows)}
+        onSave={quickEditMode === 'logs' ? saveQuickCrewRows : saveQuickTeamRows}
       />
       </React.Suspense>}
 
