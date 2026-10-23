@@ -326,7 +326,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
         <div className="mt-1 text-xs font-semibold text-amber-700">{orphanCount} liên kết cần xem {photoDiagnostics?.truncated ? '· danh sách ảnh chưa đầy đủ' : ''}</div>
         <div className="mt-1 break-all text-[9px] text-slate-400">Mã bản kiểm tra: {report.auditSnapshotId}</div>
       </div>
-      <button type="button" onClick={() => void refreshChecks()} disabled={checking} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${checking ? 'animate-spin' : ''}`} /> {checking ? 'Đang kiểm tra…' : 'Kiểm tra lại'}</button>
+      <button type="button" onClick={() => void refreshChecks()} disabled={checking} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${checking ? 'animate-spin' : ''}`} /> {checking ? 'Đang kiểm tra…' : 'Kiểm tra lại dữ liệu hiện có'}</button>
     </div>
 
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
