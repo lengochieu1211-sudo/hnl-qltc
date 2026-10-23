@@ -6741,54 +6741,121 @@ function AuthenticatedApp() {
     return result.applied;
   };
 
+  // Floor ID is authoritative. Legacy name-only data may be changed only when
+  // exactly one physical floor in the project has that name (across ALL Khu/Khối).
+  // Duplicate names fail closed rather than silently touching the other building.
+  const unambiguousLegacyFloorMatch = (plans: FloorPlan[], targetId: string, name: unknown) => {
+    const normalized = String(name || '').trim();
+    const matches = plans.filter((floor) => floor.floorName.trim() === normalized);
+    return Boolean(normalized && matches.length === 1 && matches[0].id === targetId);
+  };
+
   const handleRenameFloorPlan = (id: string, newName: string) => {
     if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     const trimmed = newName.trim();
     if (!trimmed) return;
-    const targetPlan = floorPlans.find((fp) => fp.id === id);
-    const oldName = targetPlan?.floorName;
-    updateAppData((prev) => ({
+    updateAppData((prev) => {
+      const target = prev.floorPlans.find((fp) => fp.id === id);
+      if (!target) return prev;
+      const oldName = target.floorName;
+      const matches = (recordId: unknown, name: unknown) =>
+        String(recordId || '').trim() ? recordId === id : unambiguousLegacyFloorMatch(prev.floorPlans, id, name);
+      const renameNames = (raw: unknown) => String(raw || '').split(/[,;\n]+/).map((name) => name.trim()).filter(Boolean)
+        .map((name) => name === oldName ? trimmed : name).join(', ');
+      return {
+        ...prev,
+        floorPlans: prev.floorPlans.map((fp) => fp.id === id ? { ...fp, floorName: trimmed } : fp),
+        roomProgressList: prev.roomProgressList.map((r) => matches(r.floorId, r.floorName) ? { ...r, floorId: id, floorName: trimmed } : r),
+        defects: prev.defects.map((d) => !d.archivedAt && matches(d.floorId, d.floorName) ? { ...d, floorId: id, floorName: trimmed } : d),
+        checklist: prev.checklist.map((c) => !c.archivedAt && matches(c.floorId, c.floorName) ? { ...c, floorId: id, floorName: trimmed } : c),
+        workVolumes: (prev.workVolumes || []).map((w) => {
+          const ids = Array.from(new Set([...(w.floorIds || []), w.floorId || ''].filter(Boolean)));
+          const linkedById = ids.includes(id);
+          const legacyLinked = ids.length === 0 && String(w.floor || '').split(/[,;\n]+/)
+            .some((name) => unambiguousLegacyFloorMatch(prev.floorPlans, id, name));
+          if (!linkedById && !legacyLinked) return w;
+          // On ID-backed records, derive the label from ALL IDs so the other Khu's
+          // duplicate floor name remains present and never gets overwritten.
+          const nextFloor = ids.length > 0
+            ? ids.map((floorId) => floorId === id ? trimmed : prev.floorPlans.find((fp) => fp.id === floorId)?.floorName)
+              .filter(Boolean).join(', ')
+            : renameNames(w.floor);
+          return { ...w, floor: nextFloor || w.floor };
+        }),
+        crewRecords: (prev.crewRecords || []).map((cr) => {
+          const works = cr.floorWorks || [];
+          const hasLink = matches(cr.floorId, cr.floorName)
+            || works.some((fw) => matches(fw.floorId, fw.floorName));
+          if (!hasLink) return cr;
+          const nextWorks = works.map((fw) => matches(fw.floorId, fw.floorName)
+            ? { ...fw, floorId: id, floorName: trimmed } : fw);
+          const renameParent = matches(cr.floorId, cr.floorName) ||
+            (!cr.floorId && unambiguousLegacyFloorMatch(prev.floorPlans, id, cr.floorName));
+          return {
+            ...cr,
+            floorName: nextWorks.length > 0
+              ? Array.from(new Set(nextWorks.map((fw) => fw.floorName).filter(Boolean))).join(', ')
+              : renameParent ? renameNames(cr.floorName) : cr.floorName,
+            floorWorks: nextWorks,
+          };
+        }),
+      };
+    });
+  };
+
+  const applyFloorDeleteToData = (prev: AppData, deleteIdSet: Set<string>, archivedAt: string): AppData => {
+    const originalPlans = prev.floorPlans;
+    const legacyIsDeleted = (name: unknown) => {
+      const normalized = String(name || '').trim();
+      const matches = originalPlans.filter((fp) => fp.floorName.trim() === normalized);
+      return Boolean(normalized && matches.length === 1 && deleteIdSet.has(matches[0].id));
+    };
+    const linkDeleted = (recordFloorId: unknown, name: unknown) =>
+      String(recordFloorId || '').trim() ? deleteIdSet.has(String(recordFloorId)) : legacyIsDeleted(name);
+    const splitNames = (raw: unknown) => String(raw || '').split(/[,;\n]+/).map((name) => name.trim()).filter(Boolean);
+    const workVolumesAfterFloorDelete = (prev.workVolumes || []).map((w) => {
+      const ids = Array.from(new Set([...(w.floorIds || []), w.floorId || ''].filter(Boolean)));
+      const remainingIds = ids.filter((id) => !deleteIdSet.has(id));
+      const linked = ids.some((id) => deleteIdSet.has(id)) ||
+        (ids.length === 0 && splitNames(w.floor).some(legacyIsDeleted));
+      if (!linked) return w;
+      const nextNames = ids.length > 0
+        ? remainingIds.map((id) => originalPlans.find((fp) => fp.id === id)?.floorName).filter(Boolean)
+        : splitNames(w.floor).filter((name) => !legacyIsDeleted(name));
+      return { ...w, floorIds: remainingIds, floorId: remainingIds[0] || undefined,
+        floor: nextNames.length ? nextNames.join(', ') : 'Chưa gán tầng' };
+    });
+    const crewRecordsAfterFloorDelete = (prev.crewRecords || []).map((record) => {
+      const existingWorks = record.floorWorks || [];
+      const nextWorks = existingWorks.filter((fw) => !linkDeleted(fw.floorId, fw.floorName));
+      const parentDeleted = linkDeleted(record.floorId, record.floorName);
+      if (!parentDeleted && nextWorks.length === existingWorks.length) return record;
+      const nextNames = nextWorks.length > 0
+        ? Array.from(new Set(nextWorks.map((fw) => fw.floorName).filter(Boolean)))
+        : parentDeleted ? [] : record.floorId
+          ? splitNames(record.floorName)
+          : splitNames(record.floorName).filter((name) => !legacyIsDeleted(name));
+      return { ...record,
+        floorId: parentDeleted ? nextWorks.find((fw) => fw.floorId)?.floorId : record.floorId,
+        floorName: nextNames.length ? nextNames.join(', ') : undefined,
+        floorWorks: nextWorks,
+      };
+    });
+    return {
       ...prev,
-      floorPlans: prev.floorPlans.map((fp) => (fp.id === id ? { ...fp, floorName: trimmed } : fp)),
-      roomProgressList: prev.roomProgressList.map((r) => (r.floorId === id || (oldName && r.floorName === oldName) ? { ...r, floorId: id, floorName: trimmed } : r)),
-      defects: prev.defects.map((d) => (!d.archivedAt && (d.floorId === id || (oldName && d.floorName === oldName)) ? { ...d, floorId: id, floorName: trimmed } : d)),
-      checklist: prev.checklist.map((c) => {
-        if (!c.archivedAt && (c.floorId === id || (oldName && c.floorName === oldName))) {
-          return { ...c, floorId: id, floorName: trimmed };
-        }
-        return c;
-      }),
-      workVolumes: (prev.workVolumes || []).map((w) => {
-        const floorNames = String(w.floor || '').split(/[,;\n]+/).map((name) => name.trim()).filter(Boolean);
-        const hasFloorId = w.floorId === id || (w.floorIds || []).includes(id);
-        const hasOldName = Boolean(oldName && floorNames.includes(oldName));
-        if (!hasFloorId && !hasOldName) return w;
-        return {
-          ...w,
-          floorId: w.floorId === id ? id : w.floorId,
-          floor: floorNames.length > 0
-            ? floorNames.map((name) => oldName && name === oldName ? trimmed : name).join(', ')
-            : trimmed,
-        };
-      }),
-      crewRecords: (prev.crewRecords || []).map((cr) => {
-        const floorNames = String(cr.floorName || '').split(/[,;\n]+/).map((name) => name.trim()).filter(Boolean);
-        const hasOldName = Boolean(oldName && floorNames.includes(oldName));
-        const hasNestedFloor = (cr.floorWorks || []).some((fw) => fw.floorId === id || (oldName && fw.floorName === oldName));
-        if (cr.floorId !== id && !hasOldName && !hasNestedFloor) return cr;
-        return {
-          ...cr,
-          floorName: floorNames.length > 0
-            ? floorNames.map((name) => oldName && name === oldName ? trimmed : name).join(', ')
-            : (cr.floorId === id ? trimmed : cr.floorName),
-          floorWorks: (cr.floorWorks || []).map((fw) =>
-            fw.floorId === id || (oldName && fw.floorName === oldName)
-              ? { ...fw, floorId: id, floorName: trimmed }
-              : fw
-          ),
-        };
-      }),
-    }));
+      floorPlans: originalPlans.filter((fp) => !deleteIdSet.has(fp.id)).map((fp, index) => ({ ...fp, order: index })),
+      roomProgressList: prev.roomProgressList.filter((r) => !linkDeleted(r.floorId, r.floorName)),
+      defects: prev.defects.map((d) => !d.archivedAt && linkDeleted(d.floorId, d.floorName)
+        ? { ...d, archivedFloorId: d.floorId || originalPlans.find((fp) => legacyIsDeleted(d.floorName) && fp.floorName === d.floorName)?.id,
+            archivedFloorName: d.floorName, archivedAt, floorId: '', roomId: undefined }
+        : d),
+      checklist: prev.checklist.map((c) => !c.archivedAt && linkDeleted(c.floorId, c.floorName)
+        ? { ...c, archivedFloorId: c.floorId || originalPlans.find((fp) => legacyIsDeleted(c.floorName) && fp.floorName === c.floorName)?.id,
+            archivedFloorName: c.floorName, archivedAt, floorId: undefined, roomId: undefined }
+        : c),
+      workVolumes: workVolumesAfterFloorDelete,
+      crewRecords: crewRecordsAfterFloorDelete,
+    };
   };
 
   const handleDeleteFloorPlan = (id: string) => {
@@ -6798,159 +6865,31 @@ function AuthenticatedApp() {
       return;
     }
     const targetPlan = floorPlans.find((fp) => fp.id === id);
+    if (!targetPlan) return;
     const archivedAt = new Date().toISOString();
-    updateAppData((prev) => {
-      const deletedNames = new Set([targetPlan?.floorName].filter((v): v is string => Boolean(v)));
-      const remaining = prev.floorPlans.filter((fp) => fp.id !== id).map((fp, idx) => ({ ...fp, order: idx }));
-
-      const workVolumesAfterFloorDelete = (prev.workVolumes || []).map((w) => {
-        const nextFloorIds = (w.floorIds || []).filter((floorId) => floorId !== id);
-        const nextFloorNames = String(w.floor || '')
-          .split(/[,;\n]+/)
-          .map((name) => name.trim())
-          .filter(Boolean)
-          .filter((name) => !deletedNames.has(name));
-        const hadDeletedLink = w.floorId === id || (w.floorIds || []).includes(id) || [...deletedNames].some((name) => String(w.floor || '').split(/[,;\n]+/).map(v => v.trim()).includes(name));
-        if (!hadDeletedLink) return w;
-        return {
-          ...w,
-          floorId: w.floorId === id ? (nextFloorIds[0] || undefined) : w.floorId,
-          floorIds: nextFloorIds,
-          floor: nextFloorNames.length > 0 ? nextFloorNames.join(', ') : 'Chưa gán tầng',
-        };
-      });
-
-      const crewRecordsAfterFloorDelete = (prev.crewRecords || []).map((record) => {
-        const nextFloorWorks = (record.floorWorks || []).filter((fw) => fw.floorId !== id && !deletedNames.has(fw.floorName));
-        const nextFloorNames = String(record.floorName || '')
-          .split(/[,;\n]+/)
-          .map((name) => name.trim())
-          .filter(Boolean)
-          .filter((name) => !deletedNames.has(name));
-        const hadDeletedLink = record.floorId === id || (record.floorWorks || []).some((fw) => fw.floorId === id || deletedNames.has(fw.floorName));
-        if (!hadDeletedLink && nextFloorNames.length === String(record.floorName || '').split(/[,;\n]+/).map(v => v.trim()).filter(Boolean).length) return record;
-        return {
-          ...record,
-          floorId: record.floorId === id ? (nextFloorWorks[0]?.floorId || undefined) : record.floorId,
-          floorName: nextFloorNames.length > 0 ? nextFloorNames.join(', ') : undefined,
-          floorWorks: nextFloorWorks,
-        };
-      });
-
-      return {
-        ...prev,
-        floorPlans: remaining,
-        roomProgressList: prev.roomProgressList.filter((r) => r.floorId !== id),
-        // Preserve QA history when deleting a drawing/floor. Detach it from the active
-        // floor so old Defects/Checklist do not count as current work.
-        defects: prev.defects.map((d) =>
-          d.floorId === id || (targetPlan && d.floorName === targetPlan.floorName)
-            ? { ...d, archivedFloorId: id, archivedFloorName: d.floorName || targetPlan?.floorName, archivedAt, floorId: '', roomId: undefined }
-            : d
-        ),
-        checklist: prev.checklist.map((c) =>
-          c.floorId === id || (targetPlan && c.floorName === targetPlan.floorName)
-            ? { ...c, archivedFloorId: id, archivedFloorName: c.floorName || targetPlan?.floorName, archivedAt, floorId: undefined, roomId: undefined }
-            : c
-        ),
-        workVolumes: workVolumesAfterFloorDelete,
-        crewRecords: crewRecordsAfterFloorDelete,
-      };
-    });
-
-    if (targetPlan) {
-      if (trashSettingsRef.current.enabled && floorPlanNeedsCloudUpload(targetPlan)) {
-        // Trash does not duplicate Base64/blob data. Ensure a pending local drawing gets a
-        // recoverable cloud binary before its active floor record disappears.
-        void syncFloorPlanImageToCloud(activeProjectIdRef.current, targetPlan).catch((err) =>
-          console.warn('Trash pre-delete floor-plan upload warning:', err)
-        );
-      }
-      // When Trash is OFF, preserve the original binary. A local/UI delete is
-      // not a verified server tombstone, so physical deletion would be premature.
+    updateAppData((prev) => prev.floorPlans.length <= 1 ? prev : applyFloorDeleteToData(prev, new Set([id]), archivedAt));
+    if (trashSettingsRef.current.enabled && floorPlanNeedsCloudUpload(targetPlan)) {
+      void syncFloorPlanImageToCloud(activeProjectIdRef.current, targetPlan).catch((err) =>
+        console.warn('Trash pre-delete floor-plan upload warning:', err));
     }
+    // Preserve the Cloud binary; only verified purge can delete media.
   };
 
   const handleDeleteMultipleFloorPlans = (ids: string[]) => {
     if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
-    const requestedIdsOuter = new Set(ids);
-    let cloudPlansToDelete = floorPlans.filter((fp) => requestedIdsOuter.has(fp.id));
-    if (cloudPlansToDelete.length >= floorPlans.length && floorPlans.length > 0) {
-      cloudPlansToDelete = cloudPlansToDelete.filter((fp) => fp.id !== floorPlans[0].id);
-    }
+    const cloudPlansToDelete = floorPlans.filter((fp) => ids.includes(fp.id) && (fp.id !== floorPlans[0]?.id || ids.length < floorPlans.length));
     const archivedAt = new Date().toISOString();
-
     updateAppData((prev) => {
-      const requestedIds = new Set(ids);
-      let idsToReallyDelete = ids;
-      let remainingPlans = prev.floorPlans.filter((fp) => !requestedIds.has(fp.id));
-
-      // Luôn giữ ít nhất một mặt bằng để project không rơi vào trạng thái không hợp lệ.
-      if (remainingPlans.length === 0 && prev.floorPlans.length > 0) {
-        const keepId = prev.floorPlans[0].id;
-        idsToReallyDelete = ids.filter((id) => id !== keepId);
-        remainingPlans = prev.floorPlans.filter((fp) => fp.id === keepId);
-      }
-
-      const deleteIdSet = new Set(idsToReallyDelete);
-      const targetPlans = prev.floorPlans.filter((fp) => deleteIdSet.has(fp.id));
-      const deletedNames = new Set(targetPlans.map((fp) => fp.floorName));
-
-      const workVolumesAfterFloorDelete = (prev.workVolumes || []).map((w) => {
-        const oldFloorIds = w.floorIds || [];
-        const nextFloorIds = oldFloorIds.filter((floorId) => !deleteIdSet.has(floorId));
-        const oldFloorNames = String(w.floor || '').split(/[,;\n]+/).map((name) => name.trim()).filter(Boolean);
-        const nextFloorNames = oldFloorNames.filter((name) => !deletedNames.has(name));
-        const hadDeletedLink = (w.floorId ? deleteIdSet.has(w.floorId) : false) || oldFloorIds.some((floorId) => deleteIdSet.has(floorId)) || oldFloorNames.some((name) => deletedNames.has(name));
-        if (!hadDeletedLink) return w;
-        return {
-          ...w,
-          floorId: w.floorId && deleteIdSet.has(w.floorId) ? (nextFloorIds[0] || undefined) : w.floorId,
-          floorIds: nextFloorIds,
-          floor: nextFloorNames.length > 0 ? nextFloorNames.join(', ') : 'Chưa gán tầng',
-        };
-      });
-
-      const crewRecordsAfterFloorDelete = (prev.crewRecords || []).map((record) => {
-        const oldFloorNames = String(record.floorName || '').split(/[,;\n]+/).map((name) => name.trim()).filter(Boolean);
-        const nextFloorNames = oldFloorNames.filter((name) => !deletedNames.has(name));
-        const nextFloorWorks = (record.floorWorks || []).filter((fw) => !deleteIdSet.has(fw.floorId) && !deletedNames.has(fw.floorName));
-        const hadDeletedLink = (record.floorId ? deleteIdSet.has(record.floorId) : false) || oldFloorNames.some((name) => deletedNames.has(name)) || (record.floorWorks || []).some((fw) => deleteIdSet.has(fw.floorId) || deletedNames.has(fw.floorName));
-        if (!hadDeletedLink) return record;
-        return {
-          ...record,
-          floorId: record.floorId && deleteIdSet.has(record.floorId) ? (nextFloorWorks[0]?.floorId || undefined) : record.floorId,
-          floorName: nextFloorNames.length > 0 ? nextFloorNames.join(', ') : undefined,
-          floorWorks: nextFloorWorks,
-        };
-      });
-
-      return {
-        ...prev,
-        floorPlans: remainingPlans.map((fp, idx) => ({ ...fp, order: idx })),
-        roomProgressList: prev.roomProgressList.filter((r) => !deleteIdSet.has(r.floorId)),
-        defects: prev.defects.map((d) =>
-          deleteIdSet.has(d.floorId) || deletedNames.has(d.floorName)
-            ? { ...d, archivedFloorId: d.floorId || undefined, archivedFloorName: d.floorName, archivedAt, floorId: '', roomId: undefined }
-            : d
-        ),
-        checklist: prev.checklist.map((c) =>
-          deleteIdSet.has(c.floorId || '') || deletedNames.has(c.floorName)
-            ? { ...c, archivedFloorId: c.floorId, archivedFloorName: c.floorName, archivedAt, floorId: undefined, roomId: undefined }
-            : c
-        ),
-        workVolumes: workVolumesAfterFloorDelete,
-        crewRecords: crewRecordsAfterFloorDelete,
-      };
+      const requested = new Set(ids.filter((id) => prev.floorPlans.some((fp) => fp.id === id)));
+      if (requested.size >= prev.floorPlans.length && prev.floorPlans.length > 0) requested.delete(prev.floorPlans[0].id);
+      if (!requested.size) return prev;
+      return applyFloorDeleteToData(prev, requested, archivedAt);
     });
-
     cloudPlansToDelete.forEach((plan) => {
       if (trashSettingsRef.current.enabled && floorPlanNeedsCloudUpload(plan)) {
         void syncFloorPlanImageToCloud(activeProjectIdRef.current, plan).catch((err) =>
-          console.warn('Trash pre-delete floor-plan upload warning:', err)
-        );
+          console.warn('Trash pre-delete floor-plan upload warning:', err));
       }
-      // Preserve the Cloud binary when Trash is OFF; only verified purge may delete.
     });
   };
 
@@ -7492,10 +7431,17 @@ function AuthenticatedApp() {
 
   const handleCopyCrewRecordsFromDate = (sourceDate: string, targetDate: string) => {
     if (!isProjectRoleResolved || !canEditCrewData(currentUserRole)) { console.warn('[RBAC] Tài khoản không có quyền sao chép nhật ký quân số.'); return; }
+    if (!sourceDate || !targetDate || sourceDate === targetDate) return;
     const actorUid = getCurrentRealFirebaseUser()?.uid || '';
+    const targetRecords = crewRecords.filter((record) => record.date === targetDate);
+    if (targetRecords.some((record) => !canDeleteCrewRecord(currentUserRole, actorUid, record.createdByUid))) {
+      alert('Không thể sao chép đè toàn ngày: có nhật ký của người khác hoặc bản ghi không đủ quyền xóa. Liên hệ ADMIN.');
+      return;
+    }
     const clonedAt = Date.now();
     updateAppData((prev) => {
       const sourceRecords = prev.crewRecords.filter((r) => r.date === sourceDate);
+      if (!sourceRecords.length || prev.crewRecords.some((r) => r.date === targetDate && !canDeleteCrewRecord(currentUserRole, actorUid, r.createdByUid))) return prev;
       const keptRecords = prev.crewRecords.filter((r) => r.date !== targetDate);
       const cloned = sourceRecords.map((r) => ({
         ...r,

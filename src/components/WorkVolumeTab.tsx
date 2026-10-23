@@ -133,11 +133,19 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   const hasFinancialAccess = canViewFinancials(effectiveRole);
   const hasStructureManageAccess = canManageWorkVolumeStructure(effectiveRole);
 
+  // Select physical floor IDs, never a name that may be shared by multiple Khu/Khối.
   const floorOptions = useMemo(() => {
-    if (!floorPlans || floorPlans.length === 0) {
-      return ['Tầng 1', 'Tầng 2', 'Tầng 3', 'Tầng 4', 'Sảnh / Ngoại thất'];
-    }
-    return floorPlans.map(fp => fp.floorName);
+    const counts = new Map<string, number>();
+    floorPlans.forEach((floor) => {
+      const name = floor.floorName.trim().toLocaleLowerCase('vi-VN');
+      counts.set(name, (counts.get(name) || 0) + 1);
+    });
+    return floorPlans.map((floor) => ({
+      id: floor.id,
+      label: (counts.get(floor.floorName.trim().toLocaleLowerCase('vi-VN')) || 0) > 1
+        ? `${floor.floorName} [${floor.id}]`
+        : floor.floorName,
+    }));
   }, [floorPlans]);
 
   // Extract unique categories from workVolumes
@@ -240,12 +248,14 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     onOpenRoomFromDetail(roomId, floorId);
   };
 
-  const quickEditFloorNameToId = useMemo(() => {
-    const map = new Map<string, string>();
+  const quickEditFloorNameToIds = useMemo(() => {
+    const map = new Map<string, string[]>();
     if (!showQuickEdit) return map;
     floorPlans.forEach((floor) => {
-      const key = String(floor.floorName || '').trim().toLocaleLowerCase('vi-VN');
-      if (key && !map.has(key)) map.set(key, floor.id);
+      for (const token of [floor.floorName, `${floor.floorName} [${floor.id}]`, floor.id]) {
+        const key = token.trim().toLocaleLowerCase('vi-VN');
+        if (key) map.set(key, Array.from(new Set([...(map.get(key) || []), floor.id])));
+      }
     });
     return map;
   }, [showQuickEdit, floorPlans]);
@@ -253,7 +263,14 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   const resolveQuickEditFloorIds = (raw: unknown): string[] => {
     if (isGlobalWorkScopeText(raw)) return [];
     const names = String(raw || '').split(/[,;\n]+/).map((item) => item.trim()).filter(Boolean);
-    return Array.from(new Set(names.map((name) => quickEditFloorNameToId.get(name.toLocaleLowerCase('vi-VN'))).filter((id): id is string => Boolean(id))));
+    const floorIds = names.map((name) => {
+      const matches = quickEditFloorNameToIds.get(name.toLocaleLowerCase('vi-VN')) || [];
+      if (matches.length !== 1) throw new Error(matches.length
+        ? `Tên tầng “${name}” trùng tại nhiều khu. Dùng “Tên tầng [ID tầng]”.`
+        : `Không tìm thấy tầng: ${name}`);
+      return matches[0];
+    });
+    return Array.from(new Set(floorIds));
   };
 
   const quickEditRows = useMemo<QuickGridRow[]>(() => {
@@ -269,7 +286,10 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       __recordId: item.id,
       title: item.title,
       structureGroups: groupNames.join(', '),
-      floors: floors.length ? floors.map((floor) => floor.floorName).join(', ') : (item.floor || GLOBAL_WORK_SCOPE_LABEL),
+      floors: floors.length ? floors.map((floor) => {
+        const duplicate = floorPlans.filter((candidate) => candidate.floorName.trim().toLocaleLowerCase('vi-VN') === floor.floorName.trim().toLocaleLowerCase('vi-VN')).length > 1;
+        return duplicate ? `${floor.floorName} [${floor.id}]` : floor.floorName;
+      }).join(', ') : (item.floor || GLOBAL_WORK_SCOPE_LABEL),
       category: item.category,
       planned: item.inputExpressions?.planned || item.planned,
       actual: item.actual,
@@ -294,8 +314,10 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         validate: (value) => {
           if (isGlobalWorkScopeText(value)) return null;
           const names = String(value || '').split(/[,;\n]+/).map((item) => item.trim()).filter(Boolean);
-          const missing = names.filter((name) => !quickEditFloorNameToId.has(name.toLocaleLowerCase('vi-VN')));
-          return missing.length ? `Không tìm thấy tầng: ${missing.join(', ')}` : null;
+          const invalid = names.find((name) => (quickEditFloorNameToIds.get(name.toLocaleLowerCase('vi-VN')) || []).length !== 1);
+          if (!invalid) return null;
+          const matches = quickEditFloorNameToIds.get(invalid.toLocaleLowerCase('vi-VN')) || [];
+          return matches.length > 1 ? `Trùng tên tầng “${invalid}”: nhập “Tên tầng [ID tầng]”` : `Không tìm thấy tầng: ${invalid}`;
         },
       },
       { key: 'category', label: 'Nhóm hạng mục', editable: hasStructureManageAccess, required: true, width: 160 },
@@ -306,7 +328,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     if (hasFinancialAccess) columns.push({ key: 'unitPrice', label: 'Đơn giá', editable: hasStructureManageAccess, type: 'number', allowExpression: true, width: 130, validate: (value) => { const parsed = evaluateMathExpression(String(value ?? '')); return parsed !== null && parsed < 0 ? 'Không được âm' : null; } });
     columns.push({ key: 'dueDate', label: 'Hạn hoàn thành', editable: hasStructureManageAccess, type: 'date', width: 145 });
     return columns;
-  }, [showQuickEdit, hasStructureManageAccess, hasFinancialAccess, normalizedStructureConfig.label, quickEditFloorNameToId]);
+  }, [showQuickEdit, hasStructureManageAccess, hasFinancialAccess, normalizedStructureConfig.label, quickEditFloorNameToIds]);
 
   const saveQuickEditRows = async (
     rows: QuickGridRow[],
@@ -324,8 +346,11 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     const upserts: WorkVolume[] = changedRows.map((row) => {
       const existing = workVolumes.find((item) => item.id === String(row.__recordId || row.__rowKey));
       const rawFloorScope = String(row.floors || '').trim();
-      const floorIds = resolveQuickEditFloorIds(rawFloorScope);
-      if (!isGlobalWorkScopeText(rawFloorScope) && !floorIds.length) {
+      // Editing any other column must not re-resolve (and silently reassign) floor IDs.
+      const floorChanged = dirtyCellKeys.has(`${row.__rowKey}::floors`) || !existing;
+      const floorIds = floorChanged ? resolveQuickEditFloorIds(rawFloorScope)
+        : Array.from(new Set([...(existing.floorIds || []), existing.floorId || ''].filter(Boolean)));
+      if (floorChanged && !isGlobalWorkScopeText(rawFloorScope) && !floorIds.length) {
         throw new Error(`Hạng mục “${String(row.title || '')}” chưa có tầng hợp lệ.`);
       }
       const recordId = existing?.id || createEntityId('HM');
@@ -336,7 +361,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         title: String(row.title || '').trim(),
         floorIds,
         floorId: floorIds[0],
-        floor: floorIds.length > 0
+        floor: !floorChanged && existing ? existing.floor : floorIds.length > 0
           ? floorIds.map((id) => floorPlans.find((floor) => floor.id === id)?.floorName).filter(Boolean).join(', ')
           : GLOBAL_WORK_SCOPE_LABEL,
         category: String(row.category || existing?.category || inferWorkCategoryGroup(String(row.title || '')) || 'Khác').trim(),
@@ -651,10 +676,12 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       return;
     }
 
-    const floorNames = selectedFloors;
-    const matchedFloorIds = floorNames
-      .map((fName) => floorPlans?.find((fp) => (fp.floorName || fp.id) === fName)?.id)
-      .filter((id): id is string => Boolean(id));
+    const matchedFloorIds = selectedFloors.filter((id) => floorPlans.some((floor) => floor.id === id));
+    if (matchedFloorIds.length !== selectedFloors.length) {
+      alert('Một số tầng đã bị xóa hoặc thay đổi. Vui lòng chọn lại trước khi lưu.');
+      return;
+    }
+    const floorNames = matchedFloorIds.map((id) => floorPlans.find((fp) => fp.id === id)!.floorName);
     const floorScopeLabel = floorNames.length > 0 ? floorNames.join(', ') : GLOBAL_WORK_SCOPE_LABEL;
     const assignedWorkCategoryId = editingVolume?.workCategoryId || createEntityId('CAT');
 
@@ -1345,10 +1372,9 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                             onClick={async () => {
                               setEditingVolume(item);
                               setTitle(item.title);
-                              const scopedFloorNames = Array.from(new Set([...(item.floorIds || []), item.floorId || ''].filter(Boolean)))
-                                .map((id) => floorPlans.find((floor) => floor.id === id)?.floorName)
-                                .filter((name): name is string => Boolean(name));
-                              setSelectedFloors(scopedFloorNames);
+                              const scopedFloorIds = Array.from(new Set([...(item.floorIds || []), item.floorId || ''].filter(Boolean)))
+                                .filter((id) => floorPlans.some((floor) => floor.id === id));
+                              setSelectedFloors(scopedFloorIds);
                               setCategory(item.category || '');
                               setCategoryManuallyEdited(Boolean(item.category));
                               setUnit(item.unit);
@@ -1507,7 +1533,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                       onClick={() => setIsFloorDropdownOpen(!isFloorDropdownOpen)}
                     >
                       <span className="truncate">
-                        {selectedFloors.length > 0 ? selectedFloors.join(', ') : 'Toàn công trình'}
+                        {selectedFloors.length > 0 ? selectedFloors.map((id) => floorOptions.find((floor) => floor.id === id)?.label || id).join(', ') : 'Toàn công trình'}
                       </span>
                       <ChevronDown className="w-5 h-5 text-slate-400 flex-shrink-0" />
                     </div>
@@ -1520,26 +1546,26 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                           <input type="checkbox" checked={selectedFloors.length === 0} readOnly className="mr-2.5 w-4 h-4 text-blue-600 rounded border-slate-300" />
                           <span className="font-bold text-indigo-700 truncate">Toàn công trình</span>
                         </div>
-                        {floorOptions.map(fName => (
+                        {floorOptions.map(floorOption => (
                           <div 
-                            key={fName} 
+                            key={floorOption.id} 
                             className="p-2.5 flex items-center hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-0"
                             onClick={() => {
                               setSelectedFloors(prev => {
-                                if (prev.includes(fName)) {
-                                  return prev.filter(f => f !== fName);
+                                if (prev.includes(floorOption.id)) {
+                                  return prev.filter(f => f !== floorOption.id);
                                 }
-                                return [...prev, fName];
+                                return [...prev, floorOption.id];
                               });
                             }}
                           >
                             <input 
                               type="checkbox" 
-                              checked={selectedFloors.includes(fName)} 
+                              checked={selectedFloors.includes(floorOption.id)} 
                               readOnly 
                               className="mr-2.5 w-4 h-4 text-blue-600 rounded border-slate-300"
                             />
-                            <span className="font-medium text-slate-700 truncate">{fName}</span>
+                            <span className="font-medium text-slate-700 truncate">{floorOption.label}</span>
                           </div>
                         ))}
                       </div>

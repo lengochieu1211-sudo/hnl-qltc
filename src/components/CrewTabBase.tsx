@@ -1348,7 +1348,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       return;
     }
     setCopySourceDate(sourceDate);
-    if (filteredRecords.length > 0) setShowCopyConfirm(true);
+    // This operation overwrites the ENTIRE destination date, including records
+    // hidden by the current Khu/Khối filter. Always preview it when any exist.
+    if (crewRecords.some((record) => record.date === selectedDate)) setShowCopyConfirm(true);
     else onCopyCrewRecordsFromDate(sourceDate, selectedDate);
   };
 
@@ -3332,7 +3334,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
               <h3 className="font-bold text-slate-900 text-sm mb-1">Trùng bản ghi nhật ký</h3>
               <p className="text-xs text-slate-500 leading-relaxed mb-4">
-                Ngày <strong className="text-slate-800">{formatDateDDMMYYYY(selectedDate)}</strong> hiện đang có {filteredRecords.length} ghi nhận quân số. Bạn có muốn sao chép đè/thêm dữ liệu của ngày nguồn ({formatDateDDMMYYYY(copySourceDate)}) sang hôm nay không?
+                Toàn bộ ngày <strong className="text-slate-800">{formatDateDDMMYYYY(selectedDate)}</strong> hiện có <strong>{crewRecords.filter((record) => record.date === selectedDate).length} bản ghi</strong> (bao gồm các Khu/Khối không hiển thị trong bộ lọc). Xác nhận thay thế toàn bộ bằng <strong>{crewRecords.filter((record) => record.date === copySourceDate).length} bản ghi</strong> từ ngày {formatDateDDMMYYYY(copySourceDate)}? Ảnh gắn với bản ghi cũ không được tự động xóa khỏi Cloud.
               </p>
               <div className="flex gap-2.5">
                 <button
