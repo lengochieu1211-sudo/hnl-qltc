@@ -1,3 +1,5 @@
+import { naturalCompare } from './sortUtils.ts';
+
 /**
  * Presentation-only ordering. Accessories and miscellaneous consumables follow
  * major boards/frames/finishes in the DEFAULT material view. Do not change
@@ -15,6 +17,22 @@ export function compareMaterialGroupPriority(
   b: string | undefined | null,
 ): number {
   return Number(isAccessoryCategory(a)) - Number(isAccessoryCategory(b));
+}
+
+/**
+ * Order planner display order, shared by its sheet, exported report and
+ * Warehouse Quick Edit. The accessory-last rule applies to MATERIALS only.
+ * This function never changes the stable procurement key or Cloud row data.
+ */
+export function compareWarehouseOrderDisplayItems(
+  a: { kind: 'material' | 'equipment'; category?: string | null; name: string; unit?: string | null },
+  b: { kind: 'material' | 'equipment'; category?: string | null; name: string; unit?: string | null },
+): number {
+  return a.kind.localeCompare(b.kind)
+    || (a.kind === 'material' ? compareMaterialGroupPriority(a.category, b.category) : 0)
+    || naturalCompare(a.category, b.category)
+    || naturalCompare(a.name, b.name)
+    || naturalCompare(a.unit, b.unit);
 }
 
 /** Cloud-safe ranking: legacy rows have no order and precede ranked new records. */

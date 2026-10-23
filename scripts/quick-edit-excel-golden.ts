@@ -373,3 +373,28 @@ console.log('Quick Edit + Excel + DXF Golden: PASS');
 
 assert.match(volume, /grid w-full grid-cols-\[minmax\(0,1fr\)_auto\][\s\S]*<AddSourceMenu[\s\S]*triggerLabel="Thêm hạng mục"[\s\S]*triggerLabel="Quản lý dữ liệu"/, 'Work Volume mobile Add Source and compact Data Management must share one action row');
 assert.match(volume, /sm:grid-flow-col[\s\S]*<AddSourceMenu[\s\S]*triggerLabel="Thêm hạng mục"[\s\S]*triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit/, 'Work Volume PC actions must use shared Add Source plus consolidated Data Management');
+
+// HNL shared-grid P1: desktop keyboard/pointer, mobile long-press, and Warehouse Order tabs.
+const warehouseOrderSource = fs.readFileSync('src/components/WarehouseOrderSheet.tsx', 'utf8');
+const warehouseOrderSync = fs.readFileSync('src/hooks/useWarehouseOrderSync.ts', 'utf8');
+assert.match(quick, /ArrowUp: \[-1, 0\], ArrowDown: \[1, 0\], ArrowLeft: \[0, -1\], ArrowRight: \[0, 1\]/,
+  'Arrow navigation stays in the visible rectangular grid');
+assert.match(quick, /event\.key === 'F2'/, 'F2/double-click must enter editing explicitly');
+assert.match(quick, /onDoubleClick=\{\(\) => beginEdit/, 'Double-click must edit the chosen cell');
+assert.match(quick, /data-quick-grid-cell="true"/, 'Cells expose stable identity for drag selection');
+assert.match(quick, /setPointerCapture\(event\.pointerId\)/, 'Desktop drag captures the pointer');
+assert.match(quick, /onPointerMove=\{handleMouseDragMove\}/, 'Desktop drag expands range');
+assert.match(quick, /addEventListener\('touchmove', listener, \{ passive: false \}\)/,
+  'Mobile long-press uses cancelable touch drag without disabling normal scrolling');
+assert.match(quick, /onTouchStart=\{beginTouchSelection\}/, 'Mobile long press starts at touched cell');
+assert.match(quick, /new Set\(visibleGridRef\.current\.rows\.flatMap/, 'Ctrl+A selects only the visible table, never the toolbar');
+assert.match(quick, /bg-indigo-100/, 'Selected range has a clear highlight');
+assert.match(quick, /ring-2 ring-inset ring-indigo-500/, 'Selected cells keep the visible selection border');
+assert.match(warehouse, /key: 'order-material', label: 'Đặt hàng vật tư'/, 'Material order appears in shared Quick Edit');
+assert.match(warehouse, /key: 'order-equipment', label: 'Đặt hàng thiết bị'/, 'Equipment order appears in shared Quick Edit');
+assert.match(warehouse, /orderSync\.setValue\(update\.key, 'quantity'/, 'Quick Edit order changes must use original Cloud queue');
+assert.match(warehouse, /orderSync\.setValue\(update\.key, 'kgPerUnit'/, 'Order weight uses original Cloud queue');
+assert.match(warehouse, /Dữ liệu đặt hàng đã đồng bộ thay đổi trên thiết bị khác/, 'Order saves must reject stale Cloud rows');
+assert.match(warehouse, /editable: false, width: 240/, 'Order identity remains read-only');
+assert.match(warehouseOrderSource, /data-hnl-warehouse-order="cloud-synced-with-local-backup"/, 'Original order sheet remains available');
+assert.match(warehouseOrderSync, /conflictsRef\.current\.add\(key\)/, 'Cloud sync revision conflict protections stay in place');

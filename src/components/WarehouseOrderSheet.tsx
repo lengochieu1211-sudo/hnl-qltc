@@ -7,7 +7,7 @@ import {
   evaluateWarehouseOrderInput, isWarehouseOrderExpression, orderWeightSummary, parseOrderQuantity, parseOrderWeight,
   type WarehouseOrderItem, type WarehouseOrderKind, type WarehouseOrderValues,
 } from '../utils/warehouseCatalogOrder';
-import {naturalCompare} from '../utils/sortUtils';
+import { compareWarehouseOrderDisplayItems } from '../utils/catalogDisplayOrder';
 import type {WarehouseOrderSync} from '../hooks/useWarehouseOrderSync';
 
 type Props={
@@ -59,8 +59,8 @@ export const WarehouseOrderSheet:React.FC<Props>=({open,onClose,projectId,projec
   const [search,setSearch]=useState('');
   useEffect(()=>{setKind(initialKind);setSearch('');},[projectId,initialKind]);
   const {draft,expectedDate,cloudError,saveError,pendingCount,conflicts,setValue,updateExpectedDate}=sync;
-  const filtered=useMemo(()=>items.filter(x=>x.kind===kind && (!search.trim()||`${x.name} ${x.category} ${x.unit}`.toLocaleLowerCase('vi-VN').includes(search.trim().toLocaleLowerCase('vi-VN')))).sort((a,b)=>naturalCompare(a.category,b.category)||naturalCompare(a.name,b.name)),[items,kind,search]);
-  const selected=useMemo(()=>items.filter(x=>(draft[x.key]?.quantity||0)>0).sort((a,b)=>a.kind.localeCompare(b.kind)||naturalCompare(a.category,b.category)||naturalCompare(a.name,b.name)),[items,draft]);
+  const filtered=useMemo(()=>items.filter(x=>x.kind===kind && (!search.trim()||`${x.name} ${x.category} ${x.unit}`.toLocaleLowerCase('vi-VN').includes(search.trim().toLocaleLowerCase('vi-VN')))).sort(compareWarehouseOrderDisplayItems),[items,kind,search]);
+  const selected=useMemo(()=>items.filter(x=>(draft[x.key]?.quantity||0)>0).sort(compareWarehouseOrderDisplayItems),[items,draft]);
   const summary=useMemo(()=>orderWeightSummary(selected.map(row=>draft[row.key]||empty)),[selected,draft]);
   // The visible table covers the active kind/search only; keep its total scoped
   // to those visible rows, unlike the cross-tab exported order summary.

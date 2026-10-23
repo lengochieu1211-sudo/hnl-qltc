@@ -131,6 +131,13 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
   const [selectedRowKeys, setSelectedRowKeys] = useState<Set<string>>(new Set());
   const [selectedCellKeys, setSelectedCellKeys] = useState<Set<string>>(new Set());
   const selectionAnchorRef = useRef<{ rowKey: string; columnKey: string } | null>(null);
+  const gridViewportRef = useRef<HTMLDivElement>(null);
+  const mouseDragRef = useRef<{ pointerId: number; anchor: { rowKey: string; columnKey: string }; moved: boolean; captureElement: HTMLElement } | null>(null);
+  const touchDragRef = useRef<{ anchor: { rowKey: string; columnKey: string }; x: number; y: number; active: boolean } | null>(null);
+  const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suppressClickRef = useRef(false);
+  const [editingCellKey, setEditingCellKey] = useState<string | null>(null);
+  const visibleGridRef = useRef<{ rows: QuickGridRow[]; columns: QuickGridColumn[] }>({ rows: [], columns: [] });
   const [clipboardNotice, setClipboardNotice] = useState('');
   const [insertCount, setInsertCount] = useState(1);
   const [sortState, setSortState] = useState<{ key: string; direction: SortDirection } | null>(null);
@@ -165,6 +172,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
     setDirtyCellKeys(new Set());
     setSelectedRowKeys(new Set());
     setSelectedCellKeys(new Set());
+    setEditingCellKey(null);
     selectionAnchorRef.current = null;
     setClipboardNotice('');
     setUndoStack([]);
@@ -273,12 +281,79 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
       .map(({ row }) => row);
   }, [draftRows, columns, search, sortState]);
 
+  visibleGridRef.current = { rows: filteredRows, columns };
+  const clearTouchTimer = () => {
+    if (touchTimerRef.current !== null) clearTimeout(touchTimerRef.current);
+    touchTimerRef.current = null;
+  };
+  const locateCell = (x: number, y: number) => {
+    const found = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-quick-grid-cell="true"]');
+    if (!found || !gridViewportRef.current?.contains(found)) return null;
+    const rowKey = found.dataset.rowKey;
+    const columnKey = found.dataset.columnKey;
+    return rowKey !== undefined && columnKey !== undefined ? { rowKey, columnKey } : null;
+  };
+  const selectRectangle = (anchor: { rowKey: string; columnKey: string }, end: { rowKey: string; columnKey: string }) => {
+    const { rows: visible, columns: headers } = visibleGridRef.current;
+    const range = gridRectKeys(visible, headers, anchor, end);
+    if (!range.size) return;
+    setSelectedCellKeys(range);
+    activeCellRef.current = end;
+  };
+  const beginEdit = (rowKey: string, columnKey: string) => {
+    const col = columns.find((entry) => entry.key === columnKey);
+    const row = draftRows.find((entry) => entry.__rowKey === rowKey);
+    if (!col || !row || !isColumnEditable(col, row, canEdit)) return;
+    const key = cellKey(rowKey, columnKey);
+    setEditingCellKey(key);
+    // Keep an existing multi-cell selection for the established bulk-select editor.
+    if (!selectedCellKeys.has(key)) setSelectedCellKeys(new Set([key]));
+    selectionAnchorRef.current = { rowKey, columnKey };
+    activeCellRef.current = { rowKey, columnKey };
+    requestAnimationFrame(() => {
+      const cell = Array.from(gridViewportRef.current?.querySelectorAll<HTMLElement>('[data-quick-grid-cell="true"]') || [])
+        .find((node) => node.dataset.rowKey === rowKey && node.dataset.columnKey === columnKey);
+      cell?.querySelector<HTMLInputElement | HTMLSelectElement>('input,select')?.focus();
+    });
+  };
+  // Native non-passive touchmove is required: after a long press the finger must select,
+  // while ordinary swipes (before long press) must continue to scroll the table.
+  const touchMoveHandlerRef = useRef<(event: TouchEvent) => void>(() => undefined);
+  touchMoveHandlerRef.current = (event) => {
+    const state = touchDragRef.current;
+    if (!state || event.touches.length !== 1) return;
+    const finger = event.touches[0];
+    if (!state.active) {
+      if (Math.hypot(finger.clientX - state.x, finger.clientY - state.y) > 10) {
+        clearTouchTimer();
+        touchDragRef.current = null;
+      }
+      return;
+    }
+    if (event.cancelable) event.preventDefault();
+    const cell = locateCell(finger.clientX, finger.clientY);
+    if (cell) selectRectangle(state.anchor, cell);
+  };
+  useEffect(() => {
+    const viewport = gridViewportRef.current;
+    if (!open || !viewport) return;
+    const listener = (event: TouchEvent) => touchMoveHandlerRef.current(event);
+    viewport.addEventListener('touchmove', listener, { passive: false });
+    return () => {
+      viewport.removeEventListener('touchmove', listener);
+      if (touchTimerRef.current !== null) clearTimeout(touchTimerRef.current);
+      touchDragRef.current = null;
+      mouseDragRef.current = null;
+    };
+  }, [open]);
+
   const restoreSnapshot = (state: DraftSnapshot) => {
     setDraftRows(cloneRows(state.rows));
     setDirtyCellKeys(new Set(state.dirty));
     setDeletedRows(cloneRows(state.deleted));
     setSelectedRowKeys(new Set());
     setSelectedCellKeys(new Set());
+    setEditingCellKey(null);
     selectionAnchorRef.current = null;
   };
 
@@ -299,8 +374,66 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
   };
 
   const handleGridHistoryKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!canEdit || saving || !open) return;
+    if (!open) return;
     const target = event.target as HTMLElement | null;
+    const cell = target?.closest<HTMLElement>('[data-quick-grid-cell="true"]');
+    if (spreadsheetSelection && cell && !event.altKey && !event.nativeEvent.isComposing) {
+      const rowKey = cell.dataset.rowKey;
+      const columnKey = cell.dataset.columnKey;
+      if (rowKey !== undefined && columnKey !== undefined) {
+        const editing = editingCellKey === cellKey(rowKey, columnKey) &&
+          (target?.tagName === 'INPUT' || target?.tagName === 'SELECT');
+        if (event.key === 'Escape' && editing) {
+          event.preventDefault();
+          setEditingCellKey(null);
+          cell.focus();
+          return;
+        }
+        if (!editing && (event.key === 'F2')) {
+          if (canEdit && !saving) {
+            event.preventDefault();
+            beginEdit(rowKey, columnKey);
+          }
+          return;
+        }
+        if (!editing && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
+          event.preventDefault();
+          setSelectedCellKeys(new Set(visibleGridRef.current.rows.flatMap((row) =>
+            visibleGridRef.current.columns.map((column) => cellKey(row.__rowKey, column.key)))));
+          selectionAnchorRef.current = { rowKey, columnKey };
+          return;
+        }
+        const offsets: Record<string, [number, number]> = {
+          ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1],
+        };
+        const delta = offsets[event.key];
+        if (!editing && delta && !event.ctrlKey && !event.metaKey) {
+          const { rows: visible, columns: headers } = visibleGridRef.current;
+          const rowIndex = visible.findIndex((row) => row.__rowKey === rowKey);
+          const colIndex = headers.findIndex((column) => column.key === columnKey);
+          if (rowIndex < 0 || colIndex < 0) return;
+          const nextRow = visible[Math.max(0, Math.min(visible.length - 1, rowIndex + delta[0]))];
+          const nextCol = headers[Math.max(0, Math.min(headers.length - 1, colIndex + delta[1]))];
+          if (!nextRow || !nextCol) return;
+          event.preventDefault();
+          const next = { rowKey: nextRow.__rowKey, columnKey: nextCol.key };
+          if (event.shiftKey) {
+            const anchor = selectionAnchorRef.current || { rowKey, columnKey };
+            selectRectangle(anchor, next);
+          } else {
+            selectionAnchorRef.current = next;
+            setSelectedCellKeys(new Set([cellKey(next.rowKey, next.columnKey)]));
+            activeCellRef.current = next;
+          }
+          const nextCell = Array.from(gridViewportRef.current?.querySelectorAll<HTMLElement>('[data-quick-grid-cell="true"]') || [])
+            .find((node) => node.dataset.rowKey === next.rowKey && node.dataset.columnKey === next.columnKey);
+          nextCell?.focus();
+          nextCell?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+          return;
+        }
+      }
+    }
+    if (!canEdit || saving) return;
     const action = quickGridHistoryShortcut({
       key: event.key,
       ctrlKey: event.ctrlKey,
@@ -327,6 +460,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
     setDirtyCellKeys(new Set());
     setSelectedRowKeys(new Set());
     setSelectedCellKeys(new Set());
+    setEditingCellKey(null);
     selectionAnchorRef.current = null;
     setUndoStack([]);
     setRedoStack([]);
@@ -420,7 +554,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
     activeCellRef.current = null;
   };
 
-  const handleCellClick = (event: React.MouseEvent, rowKey: string, columnKey: string) => {
+  const handleCellClick = (event: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }, rowKey: string, columnKey: string) => {
     if (!spreadsheetSelection) return;
     const nextCell = { rowKey, columnKey };
     const key = cellKey(rowKey, columnKey);
@@ -605,6 +739,52 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
   ]).size;
   const selectableVisibleRows = filteredRows.filter((row) => !getRowDeleteBlockReason?.(row, draftRows));
   const allVisibleSelected = selectableVisibleRows.length > 0 && selectableVisibleRows.every((row) => selectedRowKeys.has(row.__rowKey));
+  const handleMouseDragMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = mouseDragRef.current;
+    if (!drag || event.pointerId !== drag.pointerId || !(event.buttons & 1)) return;
+    const to = locateCell(event.clientX, event.clientY);
+    if (!to) return;
+    if (to.rowKey !== drag.anchor.rowKey || to.columnKey !== drag.anchor.columnKey) drag.moved = true;
+    selectRectangle(drag.anchor, to);
+  };
+  const endMouseDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = mouseDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    mouseDragRef.current = null;
+    if (drag.captureElement.hasPointerCapture(event.pointerId)) drag.captureElement.releasePointerCapture(event.pointerId);
+    if (drag.moved) {
+      suppressClickRef.current = true;
+      window.setTimeout(() => { suppressClickRef.current = false; }, 0);
+    }
+  };
+  const beginTouchSelection = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (!spreadsheetSelection || event.touches.length !== 1) { clearTouchTimer(); touchDragRef.current = null; return; }
+    const found = (event.target as HTMLElement).closest<HTMLElement>('[data-quick-grid-cell="true"]');
+    if (!found) return;
+    const rowKey = found.dataset.rowKey;
+    const columnKey = found.dataset.columnKey;
+    if (rowKey === undefined || columnKey === undefined) return;
+    clearTouchTimer();
+    const finger = event.touches[0];
+    const state = { anchor: { rowKey, columnKey }, x: finger.clientX, y: finger.clientY, active: false };
+    touchDragRef.current = state;
+    touchTimerRef.current = setTimeout(() => {
+      if (touchDragRef.current !== state) return;
+      state.active = true;
+      setEditingCellKey(null);
+      selectionAnchorRef.current = state.anchor;
+      selectRectangle(state.anchor, state.anchor);
+    }, 380);
+  };
+  const finishTouchSelection = () => {
+    const wasActive = touchDragRef.current?.active;
+    clearTouchTimer();
+    touchDragRef.current = null;
+    if (wasActive) {
+      suppressClickRef.current = true;
+      window.setTimeout(() => { suppressClickRef.current = false; }, 550);
+    }
+  };
 
   return (
     <div data-hnl-pc-v32-window="quick-grid" onKeyDown={handleGridHistoryKeyDown} className="fixed inset-0 z-[180] bg-slate-950/55 backdrop-blur-[1px] flex items-stretch sm:p-3">
@@ -663,13 +843,17 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
           <button type="button" disabled={!redoStack.length} onClick={redo} title="Làm lại bản nháp (Ctrl+Y hoặc Ctrl+Shift+Z)" className="h-9 px-3 rounded-lg border border-slate-300 bg-white text-xs font-bold disabled:opacity-40">Làm lại</button>
           {spreadsheetSelection && (
             <span className="text-[10px] text-slate-600" title="Bấm chọn ô; Shift + bấm chọn vùng; Ctrl + bấm chọn ô rời; Ctrl+C / Ctrl+V sao chép và dán như Excel">
-              {selectedCellKeys.size} ô chọn · Shift chọn vùng · Ctrl chọn rời · Ctrl+C/V · Ctrl+Z/Y
+              {selectedCellKeys.size} ô chọn · Kéo chuột/nhấn giữ chọn vùng · Mũi tên · F2 · Ctrl+A · Ctrl+C/V · Ctrl+Z/Y
             </span>
           )}
           <span className="text-[10px] font-bold text-slate-500 ml-auto">{filteredRows.length}/{draftRows.length} dòng</span>
         </div>
 
-        <div data-hnl-pc-v32-region="grid-scroll" className="flex-1 overflow-auto bg-slate-100">
+        <div data-hnl-pc-v32-region="grid-scroll" ref={gridViewportRef}
+          onPointerMove={handleMouseDragMove} onPointerUp={endMouseDrag} onPointerCancel={endMouseDrag}
+          onTouchStart={beginTouchSelection} onTouchEnd={finishTouchSelection} onTouchCancel={finishTouchSelection}
+          onContextMenu={(event) => { if (touchDragRef.current?.active) event.preventDefault(); }}
+          className="flex-1 overflow-auto bg-slate-100">
           <table onCopy={handleCopy} className="min-w-max w-full border-separate border-spacing-0 text-[11px]">
             <thead>
               <tr>
@@ -746,26 +930,47 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
                       const error = validation.get(key);
                       const value = row[column.key] as QuickGridCellValue;
                       const cellSelected = spreadsheetSelection && selectedCellKeys.has(key);
-                      const baseClass = `w-full h-8 px-2 border-0 outline-none bg-transparent text-[11px] ${editable ? 'text-slate-900' : 'text-slate-500 cursor-default'}`;
+                      const baseClass = `w-full h-8 px-2 border-0 outline-none bg-transparent text-[11px] select-text ${editable ? 'text-slate-900' : 'text-slate-500 cursor-default'}`;
                       return (
                         <td
                           key={column.key}
-                          className={`border-r border-b border-slate-200 p-0 align-middle ${error ? 'bg-rose-100' : changed ? 'bg-sky-100' : editable ? 'bg-white' : 'bg-slate-100'} ${cellSelected ? 'ring-2 ring-inset ring-indigo-500' : ''}`}
+                          className={`border-r border-b border-slate-200 p-0 align-middle select-none ${error ? 'bg-rose-100' : cellSelected ? 'bg-indigo-100' : changed ? 'bg-sky-100' : editable ? 'bg-white' : 'bg-slate-100'} ${cellSelected ? 'ring-2 ring-inset ring-indigo-500' : ''}`}
+                          data-quick-grid-cell="true" data-row-key={row.__rowKey} data-column-key={column.key}
                           title={error || (!editable ? 'Chỉ đọc ở dòng này' : '')}
                           tabIndex={spreadsheetSelection ? 0 : undefined}
-                          onMouseDown={(event) => { if (spreadsheetSelection && event.shiftKey) event.preventDefault(); }}
+                          onPointerDown={(event) => {
+                            if (!spreadsheetSelection || event.pointerType !== 'mouse' || event.button !== 0) return;
+                            if (editingCellKey === key) return;
+                            event.preventDefault();
+                            handleCellClick(event, row.__rowKey, column.key);
+                            if (!event.shiftKey && !event.ctrlKey && !event.metaKey) {
+                              mouseDragRef.current = { pointerId: event.pointerId, anchor: { rowKey: row.__rowKey, columnKey: column.key }, moved: false, captureElement: event.currentTarget };
+                              event.currentTarget.setPointerCapture(event.pointerId);
+                            }
+                            event.currentTarget.focus();
+                            suppressClickRef.current = true;
+                            // A release outside the cell may not dispatch a click; clear the guard later.
+                            window.setTimeout(() => { suppressClickRef.current = false; }, 650);
+                          }}
                           onClick={(event) => {
+                            if (suppressClickRef.current) {
+                              suppressClickRef.current = false;
+                              return;
+                            }
                             handleCellClick(event, row.__rowKey, column.key);
                             if (spreadsheetSelection && !editable) event.currentTarget.focus();
                           }}
+                          onDoubleClick={() => beginEdit(row.__rowKey, column.key)}
                           onPaste={(event) => handlePaste(event, row.__rowKey, column.key)}
                           onFocus={() => { activeCellRef.current = { rowKey: row.__rowKey, columnKey: column.key }; }}
                         >
                           {column.type === 'select' && editable ? (
                             <select
                               value={normalizeCell(value)}
+                              disabled={spreadsheetSelection && editingCellKey !== key}
+                              onBlur={() => setEditingCellKey((current) => current === key ? null : current)}
                               onChange={(event) => changeSelectedDropdown(row.__rowKey, column, event.target.value)}
-                              className={baseClass}
+                              className={`${baseClass} ${spreadsheetSelection && editingCellKey !== key ? 'pointer-events-none' : ''}`}
                             >
                               <option value="">-- Chọn --</option>
                               {(column.options || []).map((option) => {
@@ -784,7 +989,8 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
                           ) : column.type === 'number' && column.allowExpression ? (
                             <ExpressionDisplayInput
                               value={normalizeCell(value)}
-                              readOnly={!editable}
+                              readOnly={!editable || (spreadsheetSelection && editingCellKey !== key)}
+                              onBlur={() => setEditingCellKey((current) => current === key ? null : current)}
                               placeholder={column.placeholder}
                               onChange={(event) => setCell(row.__rowKey, column, event.target.value)}
                               className={baseClass}
@@ -793,7 +999,8 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
                             <input
                               type={column.type === 'date' ? 'date' : column.type === 'number' ? 'number' : 'text'}
                               value={normalizeCell(value)}
-                              readOnly={!editable}
+                              readOnly={!editable || (spreadsheetSelection && editingCellKey !== key)}
+                              onBlur={() => setEditingCellKey((current) => current === key ? null : current)}
                               placeholder={column.placeholder}
                               onChange={(event) => setCell(row.__rowKey, column, event.target.value)}
                               className={baseClass}

@@ -1,12 +1,32 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { warehouseOrderKey } from '../src/utils/warehouseCatalogOrder';
+import { compareWarehouseOrderDisplayItems } from '../src/utils/catalogDisplayOrder';
 import {
   ORDER_DATE_KEY, draftToOrderValue, orderDateValue, orderRowToDraft,
   normalizedDraftValue, cloudOrderRecord, loadPendingOrderChanges, savePendingOrderChanges,
   loadOrderExpectedDate, saveOrderExpectedDate, validOrderDate,
   ensureOrderLegacyBackup, loadOrderLegacyBackup,
 } from '../src/utils/warehouseOrderSyncCore';
+
+// One canonical accessory-last presentation rule for the order sheet,
+// Quick Edit order tabs and exported purchase-order rows. No ID is remapped.
+const orderSamples = [
+  {key:'pk',kind:'material' as const,category:'Phụ kiện & Vít',name:'Bu lông M6',unit:'Bộ'},
+  {key:'vt',kind:'material' as const,category:'Vật tư phụ khác',name:'Băng keo',unit:'Cuộn'},
+  {key:'board',kind:'material' as const,category:'Tấm thạch cao',name:'Tấm chống ẩm',unit:'Tấm'},
+  {key:'frame',kind:'material' as const,category:'Khung xương',name:'Thanh chính',unit:'Thanh'},
+];
+assert.deepEqual(orderSamples.slice().sort(compareWarehouseOrderDisplayItems).map(item=>item.key),
+  ['frame','board','pk','vt'], 'All primary material categories precede accessory categories');
+const equipmentSamples = [
+  {key:'z',kind:'equipment' as const,category:'Máy',name:'Máy khoan',unit:'Cái'},
+  {key:'a',kind:'equipment' as const,category:'Dụng cụ',name:'Thước',unit:'Cái'},
+];
+assert.deepEqual(equipmentSamples.slice().sort(compareWarehouseOrderDisplayItems).map(item=>item.key),
+  ['a','z'], 'Equipment retains ordinary category/name order');
+assert.deepEqual(orderSamples.map(item=>item.key),['pk','vt','board','frame'],
+  'Display sort cannot mutate original order list or identities');
 
 const key=warehouseOrderKey('material','Tấm trần chống ẩm','tấm');
 const id=encodeURIComponent(key);
@@ -68,12 +88,19 @@ assert.match(rules,/allow create: if canWriteWarehouseOrder\(projectId\)/);
 assert.equal((rules.match(/collectionName != 'warehouse_order_drafts'/g)||[]).length,4);
 const ui=readFileSync(new URL('../src/components/WarehouseOrderSheet.tsx',import.meta.url),'utf8');
 const sync=readFileSync(new URL('../src/hooks/useWarehouseOrderSync.ts',import.meta.url),'utf8');
+const warehouse=readFileSync(new URL('../src/components/WarehouseTab.tsx',import.meta.url),'utf8');
 const center=readFileSync(new URL('../src/components/WarehouseOrderSyncPanel.tsx',import.meta.url),'utf8');
 const app=readFileSync(new URL('../src/App.tsx',import.meta.url),'utf8');
 const manager=readFileSync(new URL('../src/components/ProjectManagerModal.tsx',import.meta.url),'utf8');
 const cloud=readFileSync(new URL('../src/lib/warehouseOrderCloud.ts',import.meta.url),'utf8');
 assert.match(sync,/pendingRef\.current\[key\]/);
 assert.match(sync,/conflictsRef\.current\.add\(key\)/);
+assert.match(ui,/sort\(compareWarehouseOrderDisplayItems\)/,
+  'Order screen and report must use accessory-last sort');
+assert.equal((ui.match(/sort\(compareWarehouseOrderDisplayItems\)/g)||[]).length,2,
+  'Both screen and exported selected rows must use accessory-last sort');
+assert.match(warehouse,/warehouseOrderItems\.filter\(\(item\) => item\.kind === kind\)\.sort\(compareWarehouseOrderDisplayItems\)/,
+  'Quick Edit order tab must preserve accessory-last default order');
 assert.match(ui,/Ngày dự kiến hàng về/);
 assert.match(ui,/Dự kiến hàng về: /);
 assert.match(cloud,/runTransaction\(/);

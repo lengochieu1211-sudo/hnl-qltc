@@ -43,7 +43,7 @@ import { listWarehouseMaterialCategories, resolveWarehouseMaterialCategory } fro
 import { canonicalWorkCategoryId, normalizeLinkText } from '../utils/linkageIntegrity';
 import { assertSafeExcelImportFile, parseExcelNumberRecord, parseExcelStringArray, parseExcelStringRecord, readExcelFormulaByHeaders, sameStringSet } from '../utils/excelImportUtils';
 import { QuickSortBar } from './QuickSortBar';
-import { compareMaterialGroupPriority } from '../utils/catalogDisplayOrder';
+import { compareMaterialGroupPriority, compareWarehouseOrderDisplayItems } from '../utils/catalogDisplayOrder';
 import { equipmentIdentityKey, EquipmentUnitMigrationRequiredError, saveEquipmentCatalogBatch, subscribeEquipmentCatalog, type EquipmentCatalogRecord, type EquipmentCatalogInput } from '../lib/equipmentCatalog';
 import type { WarehouseUnitRenameInput } from '../lib/warehouseUnitMigration';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
@@ -51,7 +51,7 @@ import { WarehouseVoucherShareSheet } from './WarehouseVoucherShareSheet';
 import { WarehouseReportActions } from './WarehouseReportActions';
 import { WarehouseOrderSheet } from './WarehouseOrderSheet';
 import type {WarehouseOrderSync} from '../hooks/useWarehouseOrderSync';
-import { warehouseOrderKey, type WarehouseOrderItem } from '../utils/warehouseCatalogOrder';
+import { warehouseOrderKey, evaluateWarehouseOrderInput, isWarehouseOrderExpression, type WarehouseOrderItem } from '../utils/warehouseCatalogOrder';
 import type { WarehouseReport } from '../utils/warehouseCatalogReport';
 import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
 import { DataManagementMenu } from './DataManagementMenu';
@@ -287,7 +287,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   }, [showWarehouseCatalog, returnToCatalogToken]);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [showQuickEdit, setShowQuickEdit] = useState(false);
-  const [quickEditMode, setQuickEditMode] = useState<'norms' | 'equipment' | 'in' | 'out' | 'stock'>('norms');
+  const [quickEditMode, setQuickEditMode] = useState<'norms' | 'equipment' | 'in' | 'out' | 'stock' | 'order-material' | 'order-equipment'>('norms');
   const [equipmentMaster, setEquipmentMaster] = useState<EquipmentCatalogRecord[]>([]);
   const [equipmentMasterReady, setEquipmentMasterReady] = useState(false);
   useEffect(() => {
@@ -1970,8 +1970,50 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const warehouseWorkOptions = useMemo(() => showQuickEdit ? (workVolumes || []).map((work) => work.title) : [], [showQuickEdit, workVolumes]);
   const warehouseRoomOptions = useMemo(() => showQuickEdit ? roomProgressList.map((room) => room.roomName) : [], [showQuickEdit, roomProgressList]);
 
+  // The order draft is a separate Firestore queue. Quick Edit only adapts its
+  // existing row values; it must never create inventory vouchers or alter stock.
+  const warehouseQuickOrderRows = useMemo<QuickGridRow[]>(() => {
+    if (!showQuickEdit || !quickEditMode.startsWith('order-')) return [];
+    const kind = quickEditMode === 'order-material' ? 'material' : 'equipment';
+    return warehouseOrderItems.filter((item) => item.kind === kind).sort(compareWarehouseOrderDisplayItems).map((item) => {
+      const current = orderSync.draft[item.key] || { quantity: 0, kgPerUnit: null };
+      return {
+        __rowKey: `order:${encodeURIComponent(item.key)}`,
+        __orderKey: item.key,
+        __baseQuantity: current.quantity,
+        __baseWeight: current.kgPerUnit,
+        __baseQuantityExpression: current.quantityExpression || '',
+        __baseWeightExpression: current.kgPerUnitExpression || '',
+        materialName: item.name,
+        category: item.category,
+        unit: item.unit,
+        quantity: current.quantityExpression || (current.quantity ? String(current.quantity) : ''),
+        kgPerUnit: current.kgPerUnitExpression || (current.kgPerUnit === null ? '' : String(current.kgPerUnit)),
+        totalKg: current.kgPerUnit !== null && current.kgPerUnit > 0 ? current.quantity * current.kgPerUnit : '',
+      };
+    });
+  }, [showQuickEdit, quickEditMode, warehouseOrderItems, orderSync.draft]);
+
   const warehouseQuickColumns = useMemo<QuickGridColumn[]>(() => {
     if (!showQuickEdit) return [];
+    if (quickEditMode === 'order-material' || quickEditMode === 'order-equipment') return [
+      { key: 'materialName', label: 'Vật tư / Thiết bị 🔒', editable: false, width: 240 },
+      { key: 'category', label: 'Chủng loại 🔒', editable: false, width: 180 },
+      { key: 'unit', label: 'ĐVT 🔒', editable: false, width: 100 },
+      { key: 'quantity', label: 'Số lượng đặt', editable: hasEditAccess && orderSync.canEdit, width: 145,
+        validate: (value) => {
+          const raw = String(value ?? '').trim();
+          return raw && evaluateWarehouseOrderInput(raw, 'quantity') === null ? 'Số lượng/công thức không hợp lệ' : null;
+        } },
+      { key: 'kgPerUnit', label: 'KL/đơn vị (kg)', editable: hasEditAccess && orderSync.canEdit, width: 165,
+        validate: (value) => {
+          const raw = String(value ?? '').trim();
+          if (!raw) return null;
+          const parsed = evaluateWarehouseOrderInput(raw, 'kgPerUnit');
+          return parsed === null || parsed <= 0 ? 'KL/đơn vị phải lớn hơn 0' : null;
+        } },
+      { key: 'totalKg', label: 'Thành KL (kg) 🔒', editable: false, type: 'number', width: 170 },
+    ];
     if (quickEditMode === 'equipment') return [
       { key: 'name', label: 'Tên định danh kho (khóa)', editable: (row) => hasNormManageAccess && Boolean(row.__new), required: true, width: 220 },
       { key: 'displayName', label: 'Tên hiển thị (sửa được)', editable: hasNormManageAccess, width: 220 },
@@ -2040,9 +2082,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       { key: 'notes', label: 'Ghi chú', editable: hasImportAccess, width: 260 },
     );
     return base;
-  }, [showQuickEdit, quickEditMode, hasNormManageAccess, hasImportAccess, warehouseMaterialOptions, warehouseFloorOptions, warehouseRoomOptions, warehouseTeamOptions, warehouseWorkOptions, normalizedStructureConfig]);
+  }, [showQuickEdit, quickEditMode, hasNormManageAccess, hasImportAccess, warehouseMaterialOptions, warehouseFloorOptions, warehouseRoomOptions, warehouseTeamOptions, warehouseWorkOptions, normalizedStructureConfig, hasEditAccess, orderSync.canEdit]);
 
-  const warehouseActiveQuickRows = quickEditMode === 'equipment'
+  const warehouseActiveQuickRows = quickEditMode === 'order-material' || quickEditMode === 'order-equipment'
+    ? warehouseQuickOrderRows
+    : quickEditMode === 'equipment'
     ? warehouseQuickEquipmentRows
     : quickEditMode === 'norms'
     ? warehouseQuickNormRows
@@ -2056,6 +2100,52 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     deletedRows: QuickGridRow[] = [],
   ) => {
     if (quickEditMode === 'stock') return;
+    if (quickEditMode === 'order-material' || quickEditMode === 'order-equipment') {
+      if (!currentProjectId || !hasEditAccess || !orderSync.canEdit) {
+        throw new Error('Không có quyền chỉnh sửa Đặt hàng vật tư / thiết bị.');
+      }
+      if (deletedRows.length > 0) throw new Error('Không được xóa vật tư/thiết bị từ Bảng chỉnh nhanh Đặt hàng.');
+      const updates: Array<{ key: string; quantity?: { value: number; expression?: string }; weight?: { value: number | null; expression?: string } }> = [];
+      for (const row of rows) {
+        const touched = [...dirtyCellKeys].filter((key) => key.startsWith(`${row.__rowKey}::`));
+        if (!touched.length) continue;
+        if (touched.some((key) => !key.endsWith('::quantity') && !key.endsWith('::kgPerUnit'))) {
+          throw new Error('Bảng Đặt hàng chỉ cho sửa Số lượng đặt và KL/đơn vị.');
+        }
+        const orderKey = String(row.__orderKey || '');
+        if (!warehouseOrderItems.some((item) => item.key === orderKey && item.kind === (quickEditMode === 'order-material' ? 'material' : 'equipment'))) {
+          throw new Error('Danh mục đặt hàng đã thay đổi. Hãy đóng và mở lại Bảng chỉnh nhanh.');
+        }
+        const now = orderSync.draft[orderKey] || { quantity: 0, kgPerUnit: null };
+        if (now.quantity !== row.__baseQuantity || now.kgPerUnit !== row.__baseWeight ||
+            (now.quantityExpression || '') !== row.__baseQuantityExpression ||
+            (now.kgPerUnitExpression || '') !== row.__baseWeightExpression) {
+          window.alert('Dữ liệu đặt hàng đã đồng bộ thay đổi trên thiết bị khác. Chưa lưu bản nháp để tránh ghi đè.');
+          return false;
+        }
+        const pending: (typeof updates)[number] = { key: orderKey };
+        if (touched.some((key) => key.endsWith('::quantity'))) {
+          const raw = String(row.quantity ?? '').trim();
+          const number = raw ? evaluateWarehouseOrderInput(raw, 'quantity') : 0;
+          if (number === null) return false;
+          pending.quantity = { value: number, expression: isWarehouseOrderExpression(raw) ? raw : undefined };
+        }
+        if (touched.some((key) => key.endsWith('::kgPerUnit'))) {
+          const raw = String(row.kgPerUnit ?? '').trim();
+          const number = raw ? evaluateWarehouseOrderInput(raw, 'kgPerUnit') : null;
+          if (raw && (number === null || number <= 0)) return false;
+          pending.weight = { value: number, expression: isWarehouseOrderExpression(raw) ? raw : undefined };
+        }
+        updates.push(pending);
+      }
+      // Validate ALL rows before publishing through the pre-existing
+      // project/user-isolated optimistic Cloud queue (including offline drafts).
+      for (const update of updates) {
+        if (update.quantity) orderSync.setValue(update.key, 'quantity', update.quantity.value, update.quantity.expression);
+        if (update.weight) orderSync.setValue(update.key, 'kgPerUnit', update.weight.value, update.weight.expression);
+      }
+      return;
+    }
     if (quickEditMode === 'equipment') {
       if (!hasNormManageAccess || !equipmentMasterReady || !currentProjectId) {
         throw new Error('Chưa xác minh danh mục thiết bị Cloud hoặc không có quyền ADMIN.');
@@ -2659,7 +2749,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       <LazyQuickEditGridModal
         open={showQuickEdit}
         title="Bảng chỉnh nhanh · Kho vật tư & thiết bị"
-        subtitle={quickEditMode === 'equipment'
+        subtitle={quickEditMode === 'order-material' || quickEditMode === 'order-equipment'
+          ? 'Đặt hàng đồng bộ riêng qua Cloud: chỉ sửa Số lượng đặt và KL/đơn vị; không thay đổi tồn kho hay phiếu kho.'
+          : quickEditMode === 'equipment'
           ? 'Sửa Tên hiển thị, ĐVT và thông số thiết bị. Tên định danh kho vẫn khóa; đổi ĐVT có phiếu phải xác nhận đồng bộ 1:1 từng thiết bị.'
           : quickEditMode === 'stock'
           ? 'Tồn kho là số tính từ Tổng nhập - Tổng xuất và luôn chỉ đọc.'
@@ -2672,12 +2764,14 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           { key: 'in', label: 'Nhập kho' },
           { key: 'out', label: 'Xuất kho' },
           { key: 'stock', label: 'Tồn kho 🔒' },
+          { key: 'order-material', label: 'Đặt hàng vật tư' },
+          { key: 'order-equipment', label: 'Đặt hàng thiết bị' },
         ]}
         activeTab={quickEditMode}
-        onTabChange={(key) => setQuickEditMode(key as 'norms' | 'equipment' | 'in' | 'out' | 'stock')}
+        onTabChange={(key) => setQuickEditMode(key as 'norms' | 'equipment' | 'in' | 'out' | 'stock' | 'order-material' | 'order-equipment')}
         columns={warehouseQuickColumns}
         rows={warehouseActiveQuickRows}
-        canEdit={quickEditMode === 'stock' ? false : quickEditMode === 'norms' || quickEditMode === 'equipment' ? hasNormManageAccess && (quickEditMode !== 'equipment' || equipmentMasterReady) : hasImportAccess}
+        canEdit={quickEditMode === 'stock' ? false : quickEditMode === 'order-material' || quickEditMode === 'order-equipment' ? hasEditAccess && orderSync.canEdit : quickEditMode === 'norms' || quickEditMode === 'equipment' ? hasNormManageAccess && (quickEditMode !== 'equipment' || equipmentMasterReady) : hasImportAccess}
         canAddRows={quickEditMode === 'norms' ? hasNormManageAccess : quickEditMode === 'equipment' ? hasNormManageAccess && equipmentMasterReady : quickEditMode === 'in' || quickEditMode === 'out' ? hasImportAccess : false}
         canDeleteRows={quickEditMode === 'norms' ? hasNormManageAccess : quickEditMode === 'in' || quickEditMode === 'out' ? hasDeleteAccess : false}
         requiresAnchorForInsert={quickEditMode === 'norms'}
@@ -2695,7 +2789,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             ? 'Không thể xóa Hạng mục cuối cùng của vật tư trong Bảng chỉnh nhanh. Hãy quản lý liên kết này ở màn Định mức vật tư.'
             : null;
         }}
-        createEmptyRow={(index, anchorRow) => quickEditMode === 'equipment' ? ({
+        createEmptyRow={(index, anchorRow) => (quickEditMode === 'order-material' || quickEditMode === 'order-equipment' || quickEditMode === 'stock') ? null : quickEditMode === 'equipment' ? ({
           __rowKey: `new-equipment-${Date.now()}-${index}`, __new: true,
           name: '', unit: 'Cái', category: 'Thiết bị', brand: '', model: '',
           specifications: '', notes: '',
