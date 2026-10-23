@@ -112,7 +112,8 @@ assert(app.includes('const newId = item.id || createEntityId'), 'App must preser
 assert(cloudSync.includes("binaryUploadState: 'ready'"), 'Photo metadata must not publish before durable binary verification');
 assert(r2.includes('safeSegment(input.entityType)'), 'R2 path namespacing must use photo entity type');
 assert(rules.includes("collectionName == 'photos' && editorCreatesActiveOnly()"), 'EDITOR may create photo metadata through current rule');
-assert(rules.includes("|| collectionName == 'photos'"), 'EDITOR photo update remains authorized');
+assert(rules.includes("collectionName == 'photos' && editorPhotoMetadataUpdateOnly(projectId, recordId)"), 'EDITOR photo update remains authorized only through namespace/identity guard');
+assert(rules.includes('function editorPhotoMetadataUpdateOnly('), 'Photo metadata Rule must enforce entity/pointer identity');
 
 const photoRows = [
   {id:'W1',entityType:'inventory',entityId:'NK-A'},
