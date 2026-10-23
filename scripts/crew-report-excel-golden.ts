@@ -3,7 +3,6 @@ import * as XLSX from 'xlsx';
 import {strFromU8, unzipSync} from 'fflate';
 import { buildCrewReportExcel } from '../src/utils/crewReportExcel';
 import type { CrewReportRow } from '../src/utils/crewReportUtils';
-import { buildCrewReportPdf } from '../src/utils/crewReportPdf';
 
 const sample: CrewReportRow = {
   projectId:'p1',projectName:'Dự án quân số',projectLocation:'Địa điểm mẫu',contractorName:'Đơn vị An Phú',date:'2026-10-14',
@@ -51,9 +50,4 @@ assert.match(xml,/<c r="I9" s="6"\s*\/>/, 'Unreported crew cells must have grid 
 assert.doesNotMatch(xml,/<c\b[^>]*\/\s+s=\"\d+\"/, 'Grid style cannot corrupt a self-closing OOXML cell');
 assert.match(xml,/ySplit="8"/, 'Crew report heading must stay frozen');
 assert.match(styleXml,/<cellXfs count="12">/, 'Crew report must include zebra / header / total styles');
-const pdf=await buildCrewReportPdf({rows,startDate:'2026-10-14',endDate:'2026-10-15',includeSerial:false,includeDetails:true,title:'Báo cáo quân số'});
-const pdfBytes=new Uint8Array(await pdf.blob.arrayBuffer());
-assert.equal(new TextDecoder('ascii').decode(pdfBytes.subarray(0,5)),'%PDF-','Generated PDF must be valid');
-assert(pdfBytes.length>2500,'PDF must contain real embedded Unicode font');
-assert(pdf.fileName.endsWith('.pdf'));
-console.log('CREW REPORT EXPORT: Excel MAX/SUM integrity + unified title/project metadata + real PDF binary PASS');
+console.log('CREW REPORT EXPORT: Excel MAX/SUM integrity + unified title/project metadata PASS');

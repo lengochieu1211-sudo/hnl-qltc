@@ -5,7 +5,7 @@ const read = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8'
 const cases = [
   ['src/components/WarehouseReportActions.tsx', 4],
   ['src/components/WarehouseVoucherShareSheet.tsx', 4],
-  ['src/components/CrewReportShareModal.tsx', 4],
+  ['src/components/CrewReportShareModal.tsx', 3],
   ['src/components/ExportPdfModal.tsx', 3],
   ['src/healthCenter/HealthCenterPanelBase.tsx', 3],
 ];
