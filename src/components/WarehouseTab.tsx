@@ -2400,7 +2400,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       const floorLinkChanged = changedLink('floorName') || changedLink('structureGroup');
       const requestedGroup = String(row.structureGroup || '').trim();
       const group = type === 'out' && floorLinkChanged
-        ? uniqueMatch(normalizedStructureConfig.groups.filter((item) => item.name === requestedGroup), requestedGroup, 'Khu/Khối') : undefined;
+        ? uniqueMatch<{ id: string }>(normalizedStructureConfig.groups.filter((item) => item.name === requestedGroup), requestedGroup, 'Khu/Khối') : undefined;
       const requestedFloor = String(row.floorName || '').trim();
       const floor = type === 'out' && floorLinkChanged
         ? uniqueMatch(floorPlans.filter((item) => item.floorName === requestedFloor
@@ -2415,7 +2415,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         ? uniqueMatch(teams.filter((item) => item.name === requestedTeam), requestedTeam, 'Đội') : undefined;
       const requestedWork = String(row.workCategory || '').trim();
       const work = type === 'out' && changedLink('workCategory')
-        ? uniqueMatch((workVolumes || []).filter((item) => item.title === requestedWork), requestedWork, 'Hạng mục') : undefined;
+        ? uniqueMatch<WorkVolume>((workVolumes || []).filter((item) => item.title === requestedWork), requestedWork, 'Hạng mục') : undefined;
       const draftKey = String(row.__rowKey);
       let id = existing?.id || quickVoucherDraftIdsRef.current.get(draftKey);
       if (!id) {
