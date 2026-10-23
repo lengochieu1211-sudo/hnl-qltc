@@ -132,22 +132,22 @@ export const WarehouseDeletedVoucherRecovery: React.FC<{
 
   return <div className="space-y-2 border-t border-slate-200 pt-3" data-hnl-warehouse-deleted-recovery="true">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <p className="text-sm font-bold text-indigo-800">Phiếu nhập/xuất kho · {rows.length} mục</p>
-      <button type="button" disabled={busy} onClick={() => void refresh()} className="min-h-10 rounded-lg border border-slate-300 px-3 text-xs font-bold text-indigo-700 disabled:opacity-50">Kiểm tra lại</button>
+      <p className="text-[11px] font-bold text-indigo-800">Phiếu nhập/xuất kho · {rows.length} mục</p>
+      <button type="button" disabled={busy} onClick={() => void refresh()} className="min-h-10 rounded-lg border border-slate-300 px-3 text-[10px] font-bold text-indigo-700 disabled:opacity-50">Kiểm tra lại</button>
     </div>
-    <p className="text-xs leading-5 text-amber-800">Khôi phục phiếu xuất cần đủ tồn kho. Bỏ phiếu khỏi Thùng rác sẽ không thể khôi phục; lịch sử và ảnh hiện vẫn được giữ.</p>
-    {error && <p role="alert" className="rounded-lg bg-rose-50 p-2 text-xs text-rose-800">{error}</p>}
-    {busy && <p className="text-xs text-slate-500">Đang kiểm tra…</p>}
-    {!busy && rows.length === 0 && !error && <p className="text-xs text-slate-500">Không có phiếu kho cần khôi phục.</p>}
+    <p className="text-[10px] leading-4 text-amber-800">Khôi phục phiếu xuất cần đủ tồn kho. Bỏ phiếu khỏi Thùng rác sẽ không thể khôi phục; lịch sử và ảnh hiện vẫn được giữ.</p>
+    {error && <p role="alert" className="rounded-lg bg-rose-50 p-2 text-[10px] text-rose-800">{error}</p>}
+    {busy && <p className="text-[10px] text-slate-500">Đang kiểm tra…</p>}
+    {!busy && rows.length === 0 && !error && <p className="text-[10px] text-slate-500">Không có phiếu kho cần khôi phục.</p>}
     <div className="max-h-64 space-y-2 overflow-y-auto" data-hnl-deleted-voucher-list="true">
-      {rows.map((row) => <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white p-2 text-xs">
+      {rows.map((row) => <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white p-2 text-[10px]">
         <div className="min-w-0 flex-1">
           <b>{row.type === 'in' ? 'Nhập' : 'Xuất'} · {row.materialName}</b> · {formatDecimal(row.quantity)} {row.unit}
-          <div className="text-xs leading-5 text-slate-500">{formatDateDDMMYYYY(row.date)} · Mã {row.id.slice(0, 8)} · còn {Math.max(0, Math.ceil((getWarehouseTrashExpiry(row) - Date.now()) / 86400000))} ngày</div>
+          <div className="text-[10px] leading-4 text-slate-500">{formatDateDDMMYYYY(row.date)} · Mã {row.id.slice(0, 8)} · còn {Math.max(0, Math.ceil((getWarehouseTrashExpiry(row) - Date.now()) / 86400000))} ngày</div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" disabled={busy} onClick={() => void restore(row)} className="min-h-10 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white disabled:opacity-50"><RotateCcw className="mr-1 inline h-3.5 w-3.5"/>Khôi phục</button>
-          <button type="button" disabled={busy} onClick={() => void discard(row)} className="min-h-10 rounded-lg border border-rose-200 px-3 text-xs font-bold text-rose-700 disabled:opacity-50"><Trash2 className="mr-1 inline h-3.5 w-3.5"/>Bỏ khỏi Thùng rác</button>
+          <button type="button" disabled={busy} onClick={() => void restore(row)} className="min-h-10 rounded-lg bg-emerald-600 px-3 text-[10px] font-bold text-white disabled:opacity-50"><RotateCcw className="mr-1 inline h-3.5 w-3.5"/>Khôi phục</button>
+          <button type="button" disabled={busy} onClick={() => void discard(row)} className="min-h-10 rounded-lg border border-rose-200 px-3 text-[10px] font-bold text-rose-700 disabled:opacity-50"><Trash2 className="mr-1 inline h-3.5 w-3.5"/>Bỏ khỏi Thùng rác</button>
         </div>
       </div>)}
     </div>
