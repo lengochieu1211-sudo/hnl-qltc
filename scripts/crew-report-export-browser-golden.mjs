@@ -48,6 +48,15 @@ try{
     await dialog.evaluate(el=>{el.scrollTop=el.scrollHeight;});
     const scrollBefore=await dialog.evaluate(el=>el.scrollTop);
     assert(scrollBefore>0,name+': fixture must exercise real modal scrolling');
+    // The three export choices must occupy one horizontal row on small phones.
+    const formatButtons=dialog.locator('[data-hnl-pc-v32-region="crew-share-actions"] > button');
+    assert.equal(await formatButtons.count(),3,name+': three crew report formats required');
+    const buttonRects=await Promise.all([0,1,2].map(index=>formatButtons.nth(index).boundingBox()));
+    assert(buttonRects.every(Boolean),name+': report format buttons must be visible');
+    assert(buttonRects.every(box=>Math.abs(box.y-buttonRects[0].y)<=1),name+': crew export formats must stay on one row');
+    assert(buttonRects.every(box=>box.x>=-1&&box.x+box.width<=viewport.width+1),name+': export format buttons must fit mobile width');
+    assert.equal(await dialog.getByRole('checkbox',{name:'Thêm cột STT'}).count(),0,name+': STT toggle must be removed');
+    assert.equal(await dialog.locator('.hnl-crew-report-table thead th').filter({hasText:'STT'}).count(),1,name+': preview must always include STT');
     await dialog.getByRole('button',{name:'Nội dung',exact:true}).click();
     assert(await page.getByRole('button',{name:'Sao chép nội dung'}).isVisible());
     assert(await page.getByRole('button',{name:'Chia sẻ nội dung'}).isVisible());
@@ -79,8 +88,10 @@ try{
     assert.equal(bytes.subarray(0,2).toString(),'PK');
     const wb=XLSX.read(bytes,{type:'buffer',cellFormula:true});
     const ws=wb.Sheets[wb.SheetNames[0]];
-    assert.match(String(ws['E9']?.f),/^MAX\(/,'Daily headcount must have MAX formula');
-    assert.match(String(ws['J9']?.f),/^SUM\(/,'Total daily must have SUM formula');
+    assert.equal(ws['A9']?.v,1,'STT begins at 1');
+    assert.equal(ws['B9']?.v,'14/10/2026','Date shifts right after mandatory STT');
+    assert.match(String(ws['F9']?.f),/^MAX\(/,'Daily headcount with STT must keep MAX formula');
+    assert.match(String(ws['K9']?.f),/^SUM\(/,'Daily total with STT must keep SUM formula');
     results.push({viewport:name,format:'xlsx',bytes:bytes.length,file:excelDownload.suggestedFilename()});
 
     await page.getByRole('button',{name:'Chia sẻ Excel'}).click();

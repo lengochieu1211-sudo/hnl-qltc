@@ -50,4 +50,23 @@ assert.match(xml,/<c r="I9" s="6"\s*\/>/, 'Unreported crew cells must have grid 
 assert.doesNotMatch(xml,/<c\b[^>]*\/\s+s=\"\d+\"/, 'Grid style cannot corrupt a self-closing OOXML cell');
 assert.match(xml,/ySplit="8"/, 'Crew report heading must stay frozen');
 assert.match(styleXml,/<cellXfs count="12">/, 'Crew report must include zebra / header / total styles');
-console.log('CREW REPORT EXPORT: Excel MAX/SUM integrity + unified title/project metadata PASS');
+// The shared Crew Report screen now always exports the STT column; preserve
+// every computed value when that leading column shifts formula references.
+const serialResult=await buildCrewReportExcel({rows,startDate:'2026-10-14',endDate:'2026-10-15',
+  includeSerial:true,includeDetails:true,title:'BÁO CÁO QUÂN SỐ'});
+const serialBook=XLSX.read(new Uint8Array(await serialResult.blob.arrayBuffer()),{type:'array',cellFormula:true});
+const serialSheet=serialBook.Sheets[serialBook.SheetNames[0]];
+assert.equal(serialSheet['A8']?.v,'STT','Mandatory STT heading');
+assert.equal(serialSheet['A9']?.v,1,'First STT row');
+assert.equal(serialSheet['A10']?.v,2,'Second STT row');
+assert.equal(serialSheet['B9']?.v,'14/10/2026','Date immediately follows STT');
+assert.equal(serialSheet['F9']?.f,'MAX(C9:E9)','Crew daily MAX formula shifts by one column');
+assert.equal(serialSheet['F9']?.v,12);
+assert.equal(serialSheet['K9']?.f,'SUM(F9)','Total SUM formula shifts by one column');
+assert.equal(serialSheet['K9']?.v,12);
+assert.equal(serialSheet['K10']?.f,'SUM(F10,J10)','Multiple teams remain separated after STT');
+assert.equal(serialSheet['K10']?.v,13);
+assert.equal(serialSheet['K11']?.f,'SUM(K9:K10)','Grand total formula shifts with STT');
+assert.equal(serialSheet['K11']?.v,25);
+assert.equal(serialSheet['B11']?.v,'TỔNG','STT total row is blank, label remains under Date');
+console.log('CREW REPORT EXPORT: Excel MAX/SUM + STT and unified metadata PASS');

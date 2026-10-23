@@ -218,6 +218,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [copiedInventoryId, setCopiedInventoryId] = useState<string | null>(null);
   const [showWarehouseCatalog, setShowWarehouseCatalog] = useState(false);
   const [showWarehouseOrder, setShowWarehouseOrder] = useState(false);
+  const quickEditReturnToOrderKindRef = useRef<'material' | 'equipment' | null>(null);
   const [voucherShareOpen, setVoucherShareOpen] = useState(false);
   // Draft images remain in-memory, never in R2/Firestore until the ledger commits.
   const [pendingVoucherPhotos, setPendingVoucherPhotos] = useState<File[]>([]);
@@ -229,6 +230,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setEditingInventory(null);
     // Filters from another project must not hide this project's warehouse vouchers.
     setShowWarehouseOrder(false);
+    quickEditReturnToOrderKindRef.current = null;
     setSearchTerm('');
     setWarehouseFromDate('');
     setWarehouseToDate('');
@@ -2743,6 +2745,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         onClose={() => { setShowWarehouseOrder(false); setCatalogHistory(null); setShowWarehouseCatalog(true); }}
         projectId={currentProjectId} projectName={projectName} projectLocation={projectLocation}
         contractorName={contractorName} items={warehouseOrderItems} canEdit={hasEditAccess} initialKind={warehouseCatalogTab} sync={orderSync}
+        onOpenQuickEdit={quickEditEnabled ? (kind) => {
+          quickEditReturnToOrderKindRef.current = kind;
+          setQuickEditMode(kind === 'material' ? 'order-material' : 'order-equipment');
+          setShowWarehouseOrder(false);
+          setShowQuickEdit(true);
+        } : undefined}
       />}
 
       {quickEditEnabled && showQuickEdit && <React.Suspense fallback={null}>
@@ -2828,7 +2836,15 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           handler: defaultHandler,
           notes: '',
         })}
-        onClose={() => setShowQuickEdit(false)}
+        onClose={() => {
+          setShowQuickEdit(false);
+          const returnKind = quickEditReturnToOrderKindRef.current;
+          quickEditReturnToOrderKindRef.current = null;
+          if (returnKind && currentProjectId) {
+            setWarehouseCatalogTab(returnKind);
+            setShowWarehouseOrder(true);
+          }
+        }}
         onSave={saveWarehouseQuickRows}
       />
       </React.Suspense>}

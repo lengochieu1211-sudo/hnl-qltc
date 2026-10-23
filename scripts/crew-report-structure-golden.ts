@@ -92,6 +92,12 @@ assert.equal(isCrewReportSunday('18/10/2026'), false, 'only normalized date keys
 // must remain hidden on mobile/tablet while staying available on desktop/EXE.
 const shareModalSource = readFileSync(new URL('../src/components/CrewReportShareModal.tsx', import.meta.url), 'utf8');
 assert.equal(shareModalSource.includes('TEAM_CHUNK'), false, 'crew share must not split one project every four teams');
+assert.match(shareModalSource, /grid grid-cols-3 gap-1\.5 sm:gap-2[^\n]*data-hnl-pc-v32-region="crew-share-actions"/, 'Crew share must keep Content, Image and Excel side by side on mobile');
+assert.match(shareModalSource, /const showSerialNumber = true;/, 'Crew share must always include the STT column');
+assert.doesNotMatch(shareModalSource, /Thêm cột STT|setShowSerialNumber/, 'Crew share must not expose a serial number checkbox or reset it');
+assert.match(shareModalSource, /includeSerial:showSerialNumber/, 'Crew Excel export must include STT');
+assert.match(shareModalSource, /includeSerial: showSerialNumber/, 'Crew text export must include STT');
+assert.match(shareModalSource, /showSerialNumber, showWorkDetails, hideZeroShifts/, 'Crew image export must include STT');
 assert.ok(
   shareModalSource.includes('const [hideUnreportedTeams, setHideUnreportedTeams] = useState(false);')
   && shareModalSource.includes('const [hideZeroTeams, setHideZeroTeams] = useState(false);')

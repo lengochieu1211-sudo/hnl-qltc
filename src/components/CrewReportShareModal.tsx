@@ -402,7 +402,8 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
   const [hideUnreportedDates, setHideUnreportedDates] = useState(false);
   const [hideZeroDates, setHideZeroDates] = useState(false);
   const [hideZeroShifts,setHideZeroShifts]=useState(false);
-  const [showSerialNumber, setShowSerialNumber] = useState(false);
+  // STT is mandatory in every preview and export; no toggle can hide it.
+  const showSerialNumber = true;
   const [showWorkDetails, setShowWorkDetails] = useState(false);
   const [busy, setBusy] = useState<'text' | 'image' | 'download' | 'excel' | ''>('');
   const [actionMenu, setActionMenu] = useState<'text' | 'image' | 'excel' | null>(null);
@@ -428,7 +429,6 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
     setHideUnreportedDates(false);
     setHideZeroDates(false);
     setHideZeroShifts(false);
-    setShowSerialNumber(false);
     setShowWorkDetails(false);
     setMessage('');
     setActionMenu(null);
@@ -710,7 +710,6 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
               <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={hideUnreportedDates} onChange={(event) => setHideUnreportedDates(event.target.checked)} /> Ẩn ngày chưa báo</label>
               <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={hideZeroDates} onChange={(event) => setHideZeroDates(event.target.checked)} /> Ẩn ngày quân số = 0</label>
               <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={hideZeroShifts} onChange={(event) => setHideZeroShifts(event.target.checked)} /> Ẩn ca có quân số = 0 (ảnh)</label>
-              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={showSerialNumber} onChange={(event) => setShowSerialNumber(event.target.checked)} /> Thêm cột STT</label>
               <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={showWorkDetails} onChange={(event) => setShowWorkDetails(event.target.checked)} /> Chi tiết Tầng / Hạng mục / HM con / Ghi chú</label>
             </div>
             <div className="mt-2 text-[9.5px] font-semibold text-slate-500">
@@ -803,17 +802,17 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
             <Users className="mr-1 inline h-3.5 w-3.5" /> 0 = đã báo, không có người · — = chưa báo · Tổng ngày = cộng QS các đội · TỔNG = cộng từng cột; ô cuối = tổng lượt người-ngày.
           </div>
 
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" data-hnl-pc-v32-region="crew-share-actions" data-hnl-crew-export-menu="unified" data-hnl-export-format-group="true" data-hnl-export-format-count="3" role="group" aria-label="Nội dung, ảnh và Excel quân số">
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-2" data-hnl-pc-v32-region="crew-share-actions" data-hnl-crew-export-menu="unified" data-hnl-export-format-group="true" data-hnl-export-format-count="3" role="group" aria-label="Nội dung, ảnh và Excel quân số">
             <button type="button" disabled={!rangeValid || rows.length===0||Boolean(busy)} onClick={()=>void openActionMenu('text')}
-              aria-expanded={actionMenu==='text'} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-slate-800 px-2 text-xs font-bold text-white disabled:opacity-40">
+              aria-expanded={actionMenu==='text'} className="inline-flex min-h-11 min-w-0 items-center justify-center gap-1 rounded-xl bg-slate-800 px-1.5 text-[11px] font-bold whitespace-nowrap text-white disabled:opacity-40 sm:gap-1.5 sm:px-2 sm:text-xs">
               <FileText className="h-4 w-4" /> Nội dung
             </button>
             <button type="button" disabled={!rangeValid || rows.length===0||Boolean(busy)} onClick={()=>void openActionMenu('image')}
-              aria-expanded={actionMenu==='image'} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-sky-600 px-2 text-xs font-bold text-white disabled:opacity-40">
+              aria-expanded={actionMenu==='image'} className="inline-flex min-h-11 min-w-0 items-center justify-center gap-1 rounded-xl bg-sky-600 px-1.5 text-[11px] font-bold whitespace-nowrap text-white disabled:opacity-40 sm:gap-1.5 sm:px-2 sm:text-xs">
               <ImageIcon className="h-4 w-4" /> {busy==='image'?'Tạo ảnh…':'Ảnh'}
             </button>
             <button type="button" disabled={!rangeValid || rows.length===0||Boolean(busy)} onClick={()=>void openActionMenu('excel')}
-              aria-expanded={actionMenu==='excel'} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-green-600 px-2 text-xs font-bold text-white disabled:opacity-40">
+              aria-expanded={actionMenu==='excel'} className="inline-flex min-h-11 min-w-0 items-center justify-center gap-1 rounded-xl bg-green-600 px-1.5 text-[11px] font-bold whitespace-nowrap text-white disabled:opacity-40 sm:gap-1.5 sm:px-2 sm:text-xs">
               <FileSpreadsheet className="h-4 w-4" /> {busy==='excel'?'Tạo Excel…':'Excel'}
             </button>
           </div>
