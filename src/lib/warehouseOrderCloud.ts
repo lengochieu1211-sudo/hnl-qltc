@@ -10,21 +10,21 @@ export class WarehouseOrderRevisionConflict extends Error {
 }
 export function subscribeWarehouseOrderCloud(
   projectId:string,
-  onRows:(records:Record<string,CloudOrderEntry>,fromCache:boolean)=>void,
+  onRows:(records:Record<string,CloudOrderEntry>,fromCache:boolean,skippedInvalid:number)=>void,
   onError:(error:Error)=>void,
 ):Unsubscribe {
-  if(!projectId){onRows({},false);return ()=>{};}
+  if(!projectId){onRows({},false,0);return ()=>{};}
   return onSnapshot(collection(db,'projects',projectId,PATH),{includeMetadataChanges:true},snapshot=>{
     const rows:Record<string,CloudOrderEntry>={};
-    let invalid = false;
+    let invalidCount = 0;
     snapshot.forEach(item=>{
       const row=cloudOrderRecord(item.data(),item.id,projectId);
-      if(!row || rows[row.itemKey]){ invalid=true; return; }
+      // Skip ONLY the malformed identity; other valid revisions remain visible.
+      // Local pending edits are retained in the hook and never overwritten.
+      if(!row || rows[row.itemKey]){ invalidCount += 1; return; }
       rows[row.itemKey]=row;
     });
-    // Fail closed for malformed/duplicate Cloud IDs instead of showing a partial order.
-    if(invalid){onError(new Error('Cloud có bản nháp đặt hàng lỗi hoặc trùng mã dòng. Chưa ghi đè bản máy.'));return;}
-    onRows(rows,snapshot.metadata.fromCache);
+    onRows(rows,snapshot.metadata.fromCache,invalidCount);
   },onError);
 }
 /**

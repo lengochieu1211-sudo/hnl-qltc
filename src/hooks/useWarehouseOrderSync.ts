@@ -51,7 +51,7 @@ export function useWarehouseOrderSync(projectId:string,actorUid:string,canEdit:b
     setExpectedDate(loadOrderExpectedDate(projectId));setCloudError('');
     setCloudState('loading');
     if(!accessAllowed || !projectId || !actorUid || actorUid==='unauthenticated')return;
-    const unsubscribe=subscribeWarehouseOrderCloud(projectId,(remote,fromCache)=>{
+    const unsubscribe=subscribeWarehouseOrderCloud(projectId,(remote,fromCache,skippedInvalid)=>{
       if(syncEpochRef.current!==epoch)return;
       remoteRef.current=remote;
       if(!fromCache)readyRef.current=true;
@@ -64,7 +64,10 @@ export function useWarehouseOrderSync(projectId:string,actorUid:string,canEdit:b
         }else updated[key]=orderRowToDraft(record);
       }
       updateLocal(updated);
-      setCloudState(fromCache?'offline':'ready');setCloudError('');
+      setCloudState(fromCache?'offline':'ready');
+      setCloudError(skippedInvalid > 0
+        ? `Cloud có ${skippedInvalid} bản nháp đặt hàng không hợp lệ. Các dòng hợp lệ vẫn đồng bộ; dữ liệu máy được giữ nguyên.`
+        : '');
     },err=>{if(syncEpochRef.current!==epoch)return;setCloudState('error');setCloudError(err.message||'Không kết nối được Firestore.');});
     return ()=>{syncEpochRef.current++;unsubscribe();};
   },[projectId,updateLocal,actorUid,accessAllowed]);

@@ -111,8 +111,9 @@ assert(app.includes('commitWarehouseTransactionAtomic(activeProjectIdRef.current
 assert(app.includes('const newId = item.id || createEntityId'), 'App must preserve the explicit pre-allocated transaction ID');
 assert(cloudSync.includes("binaryUploadState: 'ready'"), 'Photo metadata must not publish before durable binary verification');
 assert(r2.includes('safeSegment(input.entityType)'), 'R2 path namespacing must use photo entity type');
-assert(rules.includes("collectionName == 'photos' && editorCreatesActiveOnly()"), 'EDITOR may create photo metadata through current rule');
-assert(rules.includes("|| collectionName == 'photos'"), 'EDITOR photo update remains authorized');
+assert(rules.includes('match /photos/{photoId}') && rules.includes('editorCreatesActiveOnly()'), 'EDITOR may create photo metadata through current rule');
+assert(rules.includes('editorPhotoMetadataUpdateOnly(projectId, photoId)'), 'EDITOR photo update remains authorized only through namespace/identity guard');
+assert(rules.includes('function editorPhotoMetadataUpdateOnly('), 'Photo metadata Rule must enforce entity/pointer identity');
 
 const photoRows = [
   {id:'W1',entityType:'inventory',entityId:'NK-A'},
