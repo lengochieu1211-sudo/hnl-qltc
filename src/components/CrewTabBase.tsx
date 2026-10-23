@@ -1973,7 +1973,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         notes: String(value('notes', original?.notes || '') || '').trim() || undefined,
       };
     });
-    const byId = new Map(teams.map((team) => [team.id, team] as const));
+    const byId = new Map<string, TeamInfo>(teams.map((team) => [team.id, team] as const));
     updates.forEach((team) => byId.set(team.id, team));
     const nextTeams = Array.from(byId.values());
     if (findWorsenedTeamNameConflict(teams, nextTeams)) throw new Error('Tên đội bị trùng/không rõ liên kết. Hãy đổi tên đội trước khi lưu.');
