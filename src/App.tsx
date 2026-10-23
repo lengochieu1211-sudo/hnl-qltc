@@ -8118,21 +8118,32 @@ function AuthenticatedApp() {
               onOpenExportPdf={() => setIsExportPdfOpen(true)}
               onExportExcel={handleExportExcel}
               teams={teams}
-              onUpdateTeams={(newTeams) => {
+              onUpdateTeams={(newTeams, options) => {
                 if (!isProjectRoleResolved || !canManageTeams(currentUserRole)) {
                   console.warn('[RBAC] Chỉ ADMIN được quản lý danh sách đội thi công.');
                   return;
                 }
                 updateAppData((prev) => {
                   const currentTeams = prev.teams || [];
+                  const effectiveTeams = options?.quickEditUpsertIds
+                    ? (() => {
+                        const allowed = new Set(options.quickEditUpsertIds);
+                        const byId = new Map(currentTeams.map(team => [team.id, team] as const));
+                        newTeams.filter(team => allowed.has(team.id)).forEach(team => {
+                          const current = byId.get(team.id);
+                          byId.set(team.id, { ...(current || {} as TeamInfo), ...team });
+                        });
+                        return Array.from(byId.values());
+                      })()
+                    : newTeams;
                   const deletedTeamNames = currentTeams
-                    .filter(t => !newTeams.some(nt => nt.id === t.id))
+                    .filter(t => !effectiveTeams.some(nt => nt.id === t.id))
                     .map(t => t.name);
 
                   // Map renamed teams
                   const teamNameMap: Record<string, string> = {};
                   currentTeams.forEach(ct => {
-                    const matched = newTeams.find(nt => nt.id === ct.id);
+                    const matched = effectiveTeams.find(nt => nt.id === ct.id);
                     if (matched && matched.name !== ct.name) {
                       teamNameMap[ct.name] = matched.name;
                     }
@@ -8175,7 +8186,7 @@ function AuthenticatedApp() {
                   let updatedCrewRecords = (prev.crewRecords || []).map(record => {
                     let teamName = record.teamName;
                     if (teamName && teamNameMap[teamName]) {
-                      const matched = newTeams.find(nt => nt.name === teamNameMap[teamName]);
+                      const matched = effectiveTeams.find(nt => nt.name === teamNameMap[teamName]);
                       return {
                         ...record,
                         teamName: teamNameMap[teamName],
@@ -8187,7 +8198,7 @@ function AuthenticatedApp() {
                   });
 
                   let updatedChecklist = (prev.checklist || []).map(item => {
-                    if (item.teamId && !newTeams.some(nt => nt.id === item.teamId)) {
+                    if (item.teamId && !effectiveTeams.some(nt => nt.id === item.teamId)) {
                       return { ...item, teamId: undefined };
                     }
                     return item;
@@ -8195,7 +8206,7 @@ function AuthenticatedApp() {
 
                   return {
                     ...prev,
-                    teams: newTeams,
+                    teams: effectiveTeams,
                     roomProgressList: updatedRoomProgressList,
                     defects: updatedDefects,
                     crewRecords: updatedCrewRecords,
