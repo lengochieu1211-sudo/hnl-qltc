@@ -111,9 +111,9 @@ assert(app.includes('commitWarehouseTransactionAtomic(activeProjectIdRef.current
 assert(app.includes('const newId = item.id || createEntityId'), 'App must preserve the explicit pre-allocated transaction ID');
 assert(cloudSync.includes("binaryUploadState: 'ready'"), 'Photo metadata must not publish before durable binary verification');
 assert(r2.includes('safeSegment(input.entityType)'), 'R2 path namespacing must use photo entity type');
-assert(rules.includes("collectionName == 'photos' && editorPhotoCreateSafe(projectId, recordId)"), 'EDITOR photo creation retains a scoped Cloud metadata guard');
+assert(rules.includes("editorPhotoCreateSafe(projectId, photoId)"), 'EDITOR photo creation retains a scoped Cloud metadata guard');
 assert(rules.includes('editorPhotoIdentityAndLifecycleAreSafe(projectId)'), 'EDITOR photo edits preserve immutable parent/owner identity');
-assert(rules.includes('editorPhotoCloudPointerValid(projectId, recordId)'), 'EDITOR photo replacement validates project/media path scope');
+assert(rules.includes('editorPhotoCloudPointerValid(projectId, photoId)'), 'EDITOR photo replacement validates project/media path scope');
 
 const photoRows = [
   {id:'W1',entityType:'inventory',entityId:'NK-A'},
