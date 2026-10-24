@@ -208,7 +208,7 @@ service cloud.firestore {
         && request.resource.data.storagePath is string
         && request.resource.data.storagePath.matches(
           '^projects/' + projectId + '/media/[^/]+/[^/]+/'
-          + recordId + '/original\\.(jpg|png|webp|heic|pdf)$')
+          + recordId + '(--[a-f0-9]{64})?/original\\.(jpg|png|webp|heic|pdf)$')
         && (!('cloudFileId' in request.resource.data)
           || request.resource.data.cloudFileId == (
             (request.resource.data.storageProvider == 'r2' ? 'r2:' : 'storage:')
