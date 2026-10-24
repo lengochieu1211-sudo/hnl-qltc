@@ -212,6 +212,7 @@ assert(config.includes('id="system-sync-card"'), 'Health Center needs a stable n
 assert(config.includes('id="trash-recovery-card"'), 'Trash/history card needs a stable navigation id');
 assert((config.match(/<SettingsAccordionCard/g) || []).length === 7, 'Settings must render exactly seven cards including the user guide through the shared feature-sheet component');
 assert(config.includes('id="user-guide-center-card"') && config.includes('title="Hướng dẫn sử dụng & Trợ giúp"'), 'Settings must keep the read-only guide entry');
+assert(config.indexOf('id="user-guide-center-card"') > config.indexOf('id="trash-recovery-card"'), 'Settings must place the user guide after Trash as the final section for PC and mobile');
 assert(config.includes('syncCenterContent'), 'Sync Center must reuse the existing ProjectManager business engine inside the Settings sheet');
 assert(!config.includes('>Trạng thái đồng bộ</div>'), 'Sync Center must not duplicate sync diagnostics already shown in HNL Health Center');
 assert(!config.includes('bg-emerald-50/70 p-4 text-left'), 'Old green Sync Center banner styling must be removed');
