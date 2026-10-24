@@ -1,0 +1,29 @@
+name: One-shot HNL QLTC DEV 21420a9 source archive
+on:
+  push:
+    branches:
+      - audit/archive-dev-21420a9-phone-toolbar-20261024
+permissions:
+  contents: read
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Verify exact DEV source and create pristine git archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "21420a955f02a04543a409e1b6622166310536c6"
+          mkdir -p out
+          git archive --format=zip --output=out/HNL-QLTC-DEV-21420a9-FULL-SOURCE.zip HEAD^
+          unzip -t out/HNL-QLTC-DEV-21420a9-FULL-SOURCE.zip | tail -n 1
+          (cd out && sha256sum HNL-QLTC-DEV-21420a9-FULL-SOURCE.zip > SOURCE-SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-DEV-21420a9-FULL-SOURCE
+          path: out/
+          retention-days: 14
