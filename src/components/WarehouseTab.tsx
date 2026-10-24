@@ -2094,6 +2094,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       ? warehouseQuickStockRows
       : warehouseQuickInventoryRows.filter((row) => row.__type === quickEditMode);
 
+  // Retain transaction IDs across a partially successful multi-voucher retry.
+  // A Firestore create transaction treats the same ID as a duplicate (no extra stock movement).
+  const quickVoucherDraftIdsRef = useRef<Map<string, string>>(new Map());
+
   const saveWarehouseQuickRows = async (
     rows: QuickGridRow[],
     dirtyCellKeys: Set<string>,
@@ -2386,13 +2390,38 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         throw new Error(`Thiết bị “${materialNameValue}” chưa có ĐVT danh mục duy nhất. Hãy tạo/chỉnh trong Danh mục thiết bị.`);
       }
       const canonicalUnit = norm?.unit || equipmentUnits[0];
-      const floor = floorPlans.find((item) => item.floorName === String(row.floorName || ''));
-      const room = roomProgressList.find((item) => item.roomName === String(row.roomName || '') && (!floor || item.floorId === floor.id));
-      const team = teams.find((item) => item.name === String(row.teamName || ''));
-      const work = (workVolumes || []).find((item) => item.title === String(row.workCategory || ''));
-      const group = normalizedStructureConfig.groups.find((item) => item.name === String(row.structureGroup || ''));
+      const uniqueMatch = <T,>(items: T[], label: string, field: string): T | undefined => {
+        if (!label) return undefined;
+        if (items.length !== 1) throw new Error(`${field} “${label}” ${items.length ? 'bị trùng tên' : 'không còn tồn tại'}. Hãy chọn định danh rõ trước khi xuất kho.`);
+        return items[0];
+      };
       const type = quickEditMode as TransactionType;
-      const id = existing?.id || createEntityId(type === 'in' ? 'INV-IN' : 'INV-OUT');
+      const changedLink = (key: string) => !existing || dirtyCellKeys.has(`${row.__rowKey}::${key}`);
+      const floorLinkChanged = changedLink('floorName') || changedLink('structureGroup');
+      const requestedGroup = String(row.structureGroup || '').trim();
+      const group = type === 'out' && floorLinkChanged
+        ? uniqueMatch<{ id: string }>(normalizedStructureConfig.groups.filter((item) => item.name === requestedGroup), requestedGroup, 'Khu/Khối') : undefined;
+      const requestedFloor = String(row.floorName || '').trim();
+      const floor = type === 'out' && floorLinkChanged
+        ? uniqueMatch(floorPlans.filter((item) => item.floorName === requestedFloor
+          && (!group || resolveFloorStructureGroupId(item, normalizedStructureConfig) === group.id)), requestedFloor, 'Tầng') : undefined;
+      const requestedRoom = String(row.roomName || '').trim();
+      const roomLinkChanged = changedLink('roomName') || floorLinkChanged;
+      const room = type === 'out' && roomLinkChanged
+        ? uniqueMatch(roomProgressList.filter((item) => item.roomName === requestedRoom
+          && (!floor || item.floorId === floor.id)), requestedRoom, 'Căn/Phòng') : undefined;
+      const requestedTeam = String(row.teamName || '').trim();
+      const team = type === 'out' && changedLink('teamName')
+        ? uniqueMatch(teams.filter((item) => item.name === requestedTeam), requestedTeam, 'Đội') : undefined;
+      const requestedWork = String(row.workCategory || '').trim();
+      const work = type === 'out' && changedLink('workCategory')
+        ? uniqueMatch<WorkVolume>((workVolumes || []).filter((item) => item.title === requestedWork), requestedWork, 'Hạng mục') : undefined;
+      const draftKey = String(row.__rowKey);
+      let id = existing?.id || quickVoucherDraftIdsRef.current.get(draftKey);
+      if (!id) {
+        id = createEntityId(type === 'in' ? 'INV-IN' : 'INV-OUT');
+        quickVoucherDraftIdsRef.current.set(draftKey, id);
+      }
       return {
         ...(existing || {} as InventoryItem),
         id,
@@ -2417,10 +2446,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         notes: String(row.notes || '').trim() || undefined,
         issuePurpose: type === 'out' ? (existing?.issuePurpose || 'project-work') : existing?.issuePurpose,
         sourceStructureGroupId: type === 'out' ? (group?.id || (floor ? resolveFloorStructureGroupId(floor, normalizedStructureConfig) : existing?.sourceStructureGroupId)) : existing?.sourceStructureGroupId,
-        sourceFloorId: type === 'out' ? (floor?.id || existing?.sourceFloorId) : existing?.sourceFloorId,
-        sourceRoomId: type === 'out' ? (room?.id || existing?.sourceRoomId) : existing?.sourceRoomId,
-        sourceTeamId: type === 'out' ? (team?.id || existing?.sourceTeamId) : existing?.sourceTeamId,
-        sourceWorkCategoryId: type === 'out' ? (work ? canonicalWorkCategoryId(work) : existing?.sourceWorkCategoryId) : existing?.sourceWorkCategoryId,
+        sourceFloorId: type === 'out' && floorLinkChanged ? floor?.id : existing?.sourceFloorId,
+        sourceRoomId: type === 'out' && roomLinkChanged ? room?.id : existing?.sourceRoomId,
+        sourceTeamId: type === 'out' && changedLink('teamName') ? team?.id : existing?.sourceTeamId,
+        sourceWorkCategoryId: type === 'out' && changedLink('workCategory') ? (work ? canonicalWorkCategoryId(work) : undefined) : existing?.sourceWorkCategoryId,
       };
     });
 

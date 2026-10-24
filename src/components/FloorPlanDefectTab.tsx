@@ -3323,9 +3323,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
       next.roomName = String(pickShared('roomName', existing.roomName) || '').trim();
       const mainCategory = String(pickShared('mainCategory', existing.workCategory || '') || '').trim();
-      const mainCategoryRecord = workVolumes.find((item) => item.title === mainCategory);
-      next.workCategory = mainCategory || undefined;
-      next.workCategoryId = mainCategoryRecord ? (mainCategoryRecord.workCategoryId || mainCategoryRecord.id) : existing.workCategoryId;
+      const categoryDirty = changedForRoom.some((row) => dirtyCellKeys.has(`${row.__rowKey}::mainCategory`));
+      const categoryMatches = categoryDirty ? workVolumes.filter((item) => item.title === mainCategory) : [];
+      if (categoryDirty && mainCategory && categoryMatches.length !== 1) {
+        throw new Error(`Hạng mục “${mainCategory}” không xác định duy nhất ID. Hãy kiểm tra danh mục trước khi đổi.`);
+      }
+      const mainCategoryRecord = categoryMatches[0];
+      if (categoryDirty) {
+        next.workCategory = mainCategory || undefined;
+        next.workCategoryId = mainCategoryRecord ? (mainCategoryRecord.workCategoryId || mainCategoryRecord.id) : undefined;
+      }
       const mainVolumeValue = pickShared('mainVolume', existing.workVolume ?? '');
       if (mainVolumeValue !== '' && mainVolumeValue !== undefined) {
         next.workVolume = Math.max(0, Number(mainVolumeValue || 0));
@@ -3347,7 +3354,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             id: createEntityId('sub-custom'),
             name,
             category: mainCategory || undefined,
-            workCategoryId: mainCategoryRecord ? (mainCategoryRecord.workCategoryId || mainCategoryRecord.id) : undefined,
+            workCategoryId: mainCategoryRecord ? (mainCategoryRecord.workCategoryId || mainCategoryRecord.id) : existing.workCategoryId,
             status: 'Chưa làm',
             inspectionStatus: 'Chưa nghiệm thu',
           };
@@ -3356,8 +3363,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         sub.name = name || sub.name;
         const teamName = String(row.subTeamName || '').trim();
         const team = quickTeamByName.get(teamName.toLocaleLowerCase('vi-VN'));
-        sub.assignedTeam = team?.name || teamName || undefined;
-        sub.teamId = team?.id || (teamName ? undefined : sub.teamId);
+        if (dirtyCellKeys.has(`${row.__rowKey}::subTeamName`)) {
+          const teamMatches = teams.filter((item) => item.name.trim().toLocaleLowerCase('vi-VN') === teamName.toLocaleLowerCase('vi-VN'));
+          if (teamName && teamMatches.length > 1) throw new Error(`Đội “${teamName}” trùng tên, không thể đổi teamId tự động.`);
+          sub.assignedTeam = team?.name || teamName || undefined;
+          sub.teamId = teamMatches[0]?.id;
+        }
         sub.status = String(row.progress || sub.status || 'Chưa làm') as AcceptanceStatus;
         sub.inspectionStatus = String(row.inspection || sub.inspectionStatus || 'Chưa nghiệm thu') as RoomInspectionResult;
         if (sub.inspectionStatus === 'Đạt nghiệm thu' && sub.status !== 'Đã hoàn thành') {
@@ -3408,17 +3419,21 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const nextDefects = changedRows.map((row) => {
       const existing = defects.find((defect) => defect.id === String(row.__defectId || row.__rowKey));
       if (!existing) throw new Error(`Không tìm thấy Defect ${String(row.__defectId || row.__rowKey)}.`);
-      const assignedTo = String(row.assignedTo || '').trim();
-      const team = quickTeamByName.get(assignedTo.toLocaleLowerCase('vi-VN'));
+      const isDirty = (key: string) => dirtyCellKeys.has(`${row.__rowKey}::${key}`);
+      const assignedTo = isDirty('assignedTo') ? String(row.assignedTo || '').trim() : existing.assignedTo;
+      const matches = isDirty('assignedTo') && assignedTo
+        ? teams.filter((item) => item.name.trim().toLocaleLowerCase('vi-VN') === assignedTo.toLocaleLowerCase('vi-VN')) : [];
+      if (matches.length > 1) throw new Error(`Đội “${assignedTo}” trùng tên. Không thể đổi teamId bằng tên không rõ.`);
+      const nextStatus = isDirty('status') ? String(row.status || existing.status) as DefectStatus : existing.status;
       return {
         ...existing,
-        description: String(row.description || '').trim(),
-        category: String(row.category || existing.category) as DefectCategory,
-        dueDate: String(row.dueDate || '').trim() || undefined,
-        assignedTo,
-        teamId: team?.id || (assignedTo ? undefined : existing.teamId),
-        completedAt: String(row.completedAt || '').trim() || undefined,
-        status: String(row.status || existing.status) as DefectStatus,
+        ...(isDirty('description') ? { description: String(row.description || '').trim() } : {}),
+        ...(isDirty('category') ? { category: String(row.category || existing.category) as DefectCategory } : {}),
+        ...(isDirty('dueDate') ? { dueDate: String(row.dueDate || '').trim() || undefined } : {}),
+        ...(isDirty('assignedTo') ? { assignedTo, teamId: matches[0]?.id } : {}),
+        completedAt: isDirty('completedAt') ? String(row.completedAt || '').trim() || undefined
+          : isDirty('status') && (nextStatus === 'Mới phát hiện' || nextStatus === 'Đang sửa') ? undefined : existing.completedAt,
+        status: nextStatus,
         updatedAt: Date.now(),
       } as DefectItem;
     });

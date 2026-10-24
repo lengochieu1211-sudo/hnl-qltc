@@ -726,6 +726,10 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
       selectionAnchorRef.current = null;
       setUndoStack([]);
       setRedoStack([]);
+    } catch (error) {
+      // Partial Cloud write/failure must NOT clear the draft or Undo history.
+      const message = error instanceof Error ? error.message : String(error);
+      window.alert(`Không thể lưu Bảng chỉnh nhanh: ${message}\nDữ liệu đang chỉnh vẫn được giữ để kiểm tra và thử lại.`);
     } finally {
       setSaving(false);
     }
