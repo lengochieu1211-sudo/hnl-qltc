@@ -1,0 +1,39 @@
+name: One-shot DEV 21420a955 checkpoint artifacts
+on:
+  push:
+    branches:
+      - audit/backup-checkpoint-21420a955-20261024
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout source with history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Archive immutable full source and changed-file patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "21420a955f02a04543a409e1b6622166310536c6"
+          git cat-file -e "b28ba53e26d4bec641b077b071ad272ca2046ee2^{commit}"
+          mkdir -p out
+          git archive --format=zip --output=out/HNL-QLTC-DEV-21420a955-FULL-SOURCE.zip HEAD^
+          mapfile -d '' -t changed < <(git diff --diff-filter=ACMR --name-only -z b28ba53e26d4bec641b077b071ad272ca2046ee2 HEAD^)
+          test "${#changed[@]}" -eq 4
+          printf '%s\n' "${changed[@]}" >out/CHANGED-FILES.txt
+          git archive --format=zip --output=out/HNL-QLTC-DEV-21420a955-PATCH-4-FILES.zip HEAD^ -- "${changed[@]}"
+          unzip -t out/HNL-QLTC-DEV-21420a955-FULL-SOURCE.zip | tail -n 1
+          unzip -t out/HNL-QLTC-DEV-21420a955-PATCH-4-FILES.zip | tail -n 1
+          printf '%s\n' '# HNL QLTC – DEV 21420a955 CHECKPOINT REPORT' '' 'Repository: lengochieu1211-sudo/hnl-qltc' 'Branch: dev' 'Exact HEAD: 21420a955f02a04543a409e1b6622166310536c6' 'Version: v6.3.0' 'Source commit: 11b57d78d068b9b3422ee8689cf75a49f7ac20cf' 'PR #319: merged – member phone button inline before Contact/Reset PIN/Delete on Modern PC.' 'PR #320: closed, not merged; do not use.' 'DEV Firebase: hnl-qltc-dev' 'Web DEV: https://hnl-qltc-dev.web.app/' 'Build: https://github.com/lengochieu1211-sudo/hnl-qltc/actions/runs/40075290223 (PASS)' 'DEV Deploy: https://github.com/lengochieu1211-sudo/hnl-qltc/actions/runs/40075290275 (PASS)' 'Hosted Golden #784: https://github.com/lengochieu1211-sudo/hnl-qltc/actions/runs/40075290284 (PASS: 41 backend, 9 media, 206 browser)' 'Windows/Android builds PASS; Native device Runtime Golden not done. Do not call Native CERTIFIED.' 'Project IDs, Firebase PROD, R2, repository and main branch unchanged.' 'Data risks still open: P1-07 voucher/balance consistency, P1-08 rooms.subItems, safe Cloud deletion, real Native Golden.' 'Drive handoff: https://docs.google.com/document/d/12j-7zXdJ6eKTZpBTwMXRvVGKwzFRcyLOJVoI7I92B0c/edit' '' 'Changed files since previous b28ba53e:' >out/REPORT.md
+          cat out/CHANGED-FILES.txt >>out/REPORT.md
+          (cd out && sha256sum HNL-QLTC-DEV-21420a955-FULL-SOURCE.zip HNL-QLTC-DEV-21420a955-PATCH-4-FILES.zip REPORT.md CHANGED-FILES.txt >SHA256SUMS.txt)
+      - name: Upload source backup and handoff report
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-DEV-21420a955-FULL-PATCH-REPORT-SHA256
+          path: out/
+          retention-days: 14
