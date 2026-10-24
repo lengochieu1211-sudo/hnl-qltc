@@ -1104,18 +1104,25 @@
   }
 }
 
-/* Security member phone action: prevent full-card-width buttons on modern PC.
- * Preserve the existing 1150px Security window, member cards, RBAC callbacks,
- * and Tailwind full-width control on Classic/mobile (<960px). */
+/* Security member actions: keep the modern PC contact row compact.
+ * The button sits LEFT of Contact/Reset PIN/Delete, while the phone form opens
+ * below when editing. Mobile and Classic retain the old full-width action. */
 @media (min-width: 960px) {
   html[data-hnl-pc-workspace="modern"]
-    button[data-hnl-security-contact-phone-action="true"] {
+    button[data-hnl-security-contact-phone-action="inline"] {
     box-sizing: border-box;
-    display: block;
-    width: min(100%, 180px);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: auto;
     max-width: 180px;
     min-height: 36px;
-    margin-left: auto;
+    margin: 0;
     white-space: nowrap;
+  }
+  html[data-hnl-pc-workspace="modern"]
+    button[data-hnl-security-contact-phone-action="below"] {
+    display: none;
   }
 }
