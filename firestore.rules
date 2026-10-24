@@ -188,6 +188,54 @@ service cloud.firestore {
         ]);
     }
 
+    // P1-09. Do not rewrite an existing photo's record, owner, or lifecycle.
+    function editorPhotoIdentityAndLifecycleAreSafe(projectId) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'entityType', 'entityId', 'createdAt'
+        ])
+        && (!('createdByUid' in resource.data) || request.resource.data.createdByUid == resource.data.createdByUid)
+        && (!('projectId' in request.resource.data) || request.resource.data.projectId == projectId)
+        && (!('updatedByUid' in request.resource.data) || request.resource.data.updatedByUid == request.auth.uid)
+        && (!('deleted' in resource.data) || resource.data.deleted != true)
+        && (!('deletedAt' in resource.data) || resource.data.deletedAt == null)
+        && ((!('deleted' in request.resource.data) || request.resource.data.deleted != true)
+          || (request.resource.data.deletedAt is number && request.resource.data.deletedAt > 0
+            && request.resource.data.deletedByUid == request.auth.uid));
+    }
+
+    function editorPhotoPointerScopedToSource(projectId, recordId) {
+      return request.resource.data.projectId == projectId
+        && request.resource.data.storagePath is string
+        && request.resource.data.storagePath.matches(
+          '^projects/' + projectId + '/media/[^/]+/[^/]+/'
+          + recordId + '/original\\.(jpg|png|webp|heic|pdf)$')
+        && (!('cloudFileId' in request.resource.data)
+          || request.resource.data.cloudFileId == (
+            (request.resource.data.storageProvider == 'r2' ? 'r2:' : 'storage:')
+            + request.resource.data.storagePath))
+        && (!('cloudUrl' in request.resource.data)
+          || request.resource.data.cloudUrl == (
+            (request.resource.data.storageProvider == 'r2' ? 'r2:' : 'storage:')
+            + request.resource.data.storagePath));
+    }
+
+    function editorPhotoCreateSafe(projectId, recordId) {
+      return editorCreatesActiveOnly()
+        && request.resource.data.entityType in ['defect', 'crewRecord', 'chat', 'inventory']
+        && request.resource.data.entityId is string
+        && (!('projectId' in request.resource.data) || request.resource.data.projectId == projectId)
+        && (!('updatedByUid' in request.resource.data) || request.resource.data.updatedByUid == request.auth.uid)
+        && (!request.resource.data.keys().hasAny([
+          'storagePath', 'storageProvider', 'thumbnailPath', 'cloudFileId', 'cloudUrl'
+        ]) || editorPhotoPointerScopedToSource(projectId, recordId));
+    }
+
+    function editorPhotoCloudPointerValid(projectId, recordId) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'storagePath', 'storageProvider', 'thumbnailPath', 'cloudFileId', 'cloudUrl'
+        ]) || editorPhotoPointerScopedToSource(projectId, recordId);
+    }
+
     // Checklist definition (floor/category/title/due-date/room binding) belongs to
     // ADMIN. EDITOR can record only inspection outcome, note and inspector.
     function editorChecklistOperationalUpdateOnly() {
@@ -701,6 +749,18 @@ service cloud.firestore {
       // Core business records are soft-delete only and reject stale revision/updatedAt
       // overwrites. Shared settings/trash metadata are ADMIN-owned structure; legacy
       // floor_plan_images Firestore fallback is read-only until verified purge.
+      // Field-photo writes are matched separately to stay within the Firestore
+      // Rules expression budget while preserving ADMIN legacy migration rights.
+      match /photos/{photoId} {
+        allow create: if isEditor(projectId) && projectIsActive(projectId)
+          && editorPhotoCreateSafe(projectId, photoId)
+          && coreCreateLifecycleIsValid(photoId);
+        allow update: if isEditor(projectId) && projectIsActive(projectId)
+          && editorPhotoIdentityAndLifecycleAreSafe(projectId)
+          && editorPhotoCloudPointerValid(projectId, photoId)
+          && coreIdentityUpdateIsValid(photoId) && lifecycleUpdateIsMonotonic();
+      }
+
       match /{collectionName}/{recordId} {
         allow read: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts'
           && isMember(projectId)
@@ -716,7 +776,7 @@ service cloud.firestore {
             canAdminOperate(projectId)
             || (collectionName == 'trash' && editorOwnCrewTrashReceipt(projectId, recordId))
             || (isEditor(projectId) && projectIsActive(projectId) && (
-              (collectionName == 'photos' && editorCreatesActiveOnly())
+              (collectionName == 'photos' && false)
               || (collectionName == 'crew_records' && editorCreatesOwnedCrewRecord())
               || (collectionName != 'crew_records' && isEditorOperationalCollection(collectionName) && editorCreatesActiveOnly())
             ))
@@ -731,7 +791,6 @@ service cloud.firestore {
             || (isEditor(projectId) && projectIsActive(projectId) && (
               (collectionName == 'rooms' && editorRoomOperationalUpdateOnly())
               || (collectionName == 'checklist' && editorChecklistOperationalUpdateOnly())
-              || collectionName == 'photos'
               || (collectionName == 'crew_records' && (editorUpdatesActiveCrewRecord() || editorSoftDeletesOwnCrewRecord()))
               || (collectionName != 'crew_records' && isEditorOperationalCollection(collectionName) && editorKeepsActiveLifecycle())
             ))
