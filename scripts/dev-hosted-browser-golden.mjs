@@ -1401,6 +1401,62 @@ async function verifyNarrowDesktopRuntime(browser) {
   await context.close();
 }
 
+// Chromium geometry matrix for representative phone widths and rotations.
+// Actual WebKit notch insets still require physical iOS Home Screen verification.
+async function verifyPhoneSafeAreaViewportMatrix(browser) {
+  const samples = [
+    ['compact-iphone-320', 320, 568], ['android-small-360', 360, 800],
+    ['iphone-se-375', 375, 667], ['iphone-13-390', 390, 844],
+    ['pixel-393', 393, 852], ['android-large-412', 412, 915],
+    ['iphone-max-430', 430, 932], ['iphone-landscape-844', 844, 390],
+    ['large-landscape-932', 932, 430],
+  ];
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 }, locale: 'vi-VN',
+    hasTouch: true, isMobile: true, serviceWorkers: 'allow',
+  });
+  await seedRememberedOfflineAdmin(context, 'classic');
+  try {
+    const page = await context.newPage();
+    const response = await page.goto(`${hostingUrl}/?runtimeGoldenSafeArea=${Date.now()}`, {
+      waitUntil: 'domcontentloaded', timeout: 45000,
+    });
+    assert(response?.status() === 200, 'phone viewport matrix: DEV Hosting page failed');
+    await page.locator('[data-hnl-global-header]').first().waitFor({ state: 'visible', timeout: 20000 });
+    await page.locator('[data-hnl-nav-surface="mobile"]').first().waitFor({ state: 'visible', timeout: 20000 });
+    for (const [label, width, height] of samples) {
+      await page.setViewportSize({ width, height });
+      const metrics = await page.evaluate(() => {
+        window.scrollTo(0, 0);
+        const header = document.querySelector('[data-hnl-global-header]');
+        const logo = header?.querySelector('img');
+        const nav = document.querySelector('[data-hnl-nav-surface="mobile"]');
+        if (!header || !logo || !nav) return null;
+        const h = header.getBoundingClientRect();
+        const b = logo.getBoundingClientRect();
+        const n = nav.getBoundingClientRect();
+        return {
+          w: innerWidth, ht: innerHeight, pad: parseFloat(getComputedStyle(header).paddingTop) || 0,
+          headerTop: h.top, logoTop: b.top, logoLeft: b.left, logoRight: b.right,
+          navLeft: n.left, navRight: n.right, navTop: n.top, navBottom: n.bottom,
+          overflow: Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0) - innerWidth,
+        };
+      });
+      assert(metrics && metrics.w === width && metrics.ht === height, `${label}: viewport/shell unavailable — ${JSON.stringify(metrics)}`);
+      assert(metrics.logoTop >= metrics.headerTop + metrics.pad - 1, `${label}: project logo escaped header safe top`);
+      assert(metrics.logoLeft >= -1 && metrics.logoRight <= width + 1, `${label}: project logo clipped horizontally`);
+      assert(metrics.navLeft >= -1 && metrics.navRight <= width + 1 && metrics.navTop >= -1 && metrics.navBottom <= height + 2, `${label}: nav outside viewport`);
+      assert(metrics.overflow <= 12, `${label}: horizontal overflow ${metrics.overflow}px`);
+      pass(`phone viewport ${label}`, `${width}×${height} · header and nav visible`);
+      if (label === 'iphone-13-390' || label === 'iphone-landscape-844') {
+        await page.screenshot({ path: `runtime-evidence/safe-area-${label}.png`, fullPage: false });
+      }
+    }
+  } finally {
+    await context.close();
+  }
+}
+
 let browser;
 try {
   browser = await chromium.launch({ headless: true });
@@ -1414,6 +1470,7 @@ try {
   await verifyNarrowDesktopRuntime(browser);
   await runViewport(browser, 'mobile', { width: 393, height: 852 }, 'runtime-evidence/mobile.png');
   await runViewport(browser, 'mobile-tall', { width: 393, height: 902 }, 'runtime-evidence/mobile-tall.png');
+  await verifyPhoneSafeAreaViewportMatrix(browser);
   const iPadTouchContext = {
     userAgent: 'Mozilla/5.0 (iPad; CPU OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1',
     hasTouch: true,
