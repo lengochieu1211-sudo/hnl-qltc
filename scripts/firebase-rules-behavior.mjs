@@ -298,6 +298,38 @@ try {
   await expectAllowed('ADMIN creates floor-plan structure', () => setDoc(floorPlanRef, {
     id: 'FP-RULE-1', floorName: 'Tầng 1', order: 0, revision: 1, updatedAt: Date.now(), deleted: false, deletedAt: null,
   }));
+  // P1 O03: a Cloud lock MUST stop stale clients from creating or moving a
+  // floor into the group while a two-phase delete is in progress. The deleted
+  // group ID remains denied after lock release, until an atomic restore.
+  const raceGroupId = 'SG-RACE-TEST';
+  const floorRacePayload = (id, structureGroupId) => ({
+    id, floorName: 'Tầng kiểm thử', structureGroupId, order: 1,
+    revision: 1, updatedAt: Date.now(), deleted: false, deletedAt: null,
+  });
+  await expectAllowed('ADMIN can create floor before group-delete lock', () =>
+    setDoc(doc(db, 'projects', pid, 'floor_plans', 'FP-RACE-EXISTING'),
+      floorRacePayload('FP-RACE-EXISTING', raceGroupId)));
+  await expectAllowed('ADMIN acquires delete lock in shared settings', () =>
+    updateDoc(sharedSettingsRef, { structureGroupDeleteLocks: { [raceGroupId]: { token: 'RACE-TEST', lockedAt: Date.now() } } }));
+  await expectDenied('ADMIN cannot create floor in locked Khu/Khối', () =>
+    setDoc(doc(db, 'projects', pid, 'floor_plans', 'FP-RACE-LOCKED'),
+      floorRacePayload('FP-RACE-LOCKED', raceGroupId)));
+  await expectDenied('ADMIN cannot move existing floor into locked Khu/Khối', () =>
+    updateDoc(floorPlanRef, { structureGroupId: raceGroupId, revision: 2, updatedAt: Date.now() + 1 }));
+  await expectAllowed('ADMIN can still create floor in unlocked Khu/Khối', () =>
+    setDoc(doc(db, 'projects', pid, 'floor_plans', 'FP-RACE-OTHER'),
+      floorRacePayload('FP-RACE-OTHER', 'SG-OTHER-TEST')));
+  await expectAllowed('ADMIN closes lock and records deleted group guard atomically', () =>
+    updateDoc(sharedSettingsRef, { structureGroupDeleteLocks: {}, structureGroupDeletedIds: [raceGroupId] }));
+  await expectDenied('ADMIN cannot resurrect floor in deleted Khu/Khối', () =>
+    setDoc(doc(db, 'projects', pid, 'floor_plans', 'FP-RACE-STALE'),
+      floorRacePayload('FP-RACE-STALE', raceGroupId)));
+  await expectAllowed('ADMIN clears deleted-group guard on restore', () =>
+    updateDoc(sharedSettingsRef, { structureGroupDeletedIds: [] }));
+  await expectAllowed('ADMIN may create floor after original group is restored', () =>
+    setDoc(doc(db, 'projects', pid, 'floor_plans', 'FP-RACE-RESTORED'),
+      floorRacePayload('FP-RACE-RESTORED', raceGroupId)));
+
   await expectAllowed('ADMIN creates room geometry', () => setDoc(roomRef, {
     id: 'ROOM-RULE-1', floorId: 'FP-RULE-1', roomName: 'Căn 01', floorName: 'Tầng 1', workCategory: 'Trần chìm',
     x: 10, y: 10, width: 20, height: 15, frameStatus: 'Chưa làm', boardStatus: 'Chưa làm',
