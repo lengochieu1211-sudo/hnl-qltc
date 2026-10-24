@@ -15,6 +15,9 @@ import {
   updateDoc,
   deleteDoc,
   deleteField,
+  runTransaction,
+  getDocsFromServer,
+  collection,
 } from 'firebase/firestore';
 import {
   getStorage,
@@ -298,6 +301,120 @@ try {
   await expectAllowed('ADMIN creates floor-plan structure', () => setDoc(floorPlanRef, {
     id: 'FP-RULE-1', floorName: 'Tầng 1', order: 0, revision: 1, updatedAt: Date.now(), deleted: false, deletedAt: null,
   }));
+  // P1 O03: a Cloud lock MUST stop stale clients from creating or moving a
+  // floor into the group while a two-phase delete is in progress. The deleted
+  // group ID remains denied after lock release, until an atomic restore.
+  const raceGroupId = 'SG-RACE-TEST';
+  const floorRacePayload = (id, structureGroupId) => ({
+    id, floorName: 'Tầng kiểm thử', structureGroupId, order: 1,
+    revision: 1, updatedAt: Date.now(), deleted: false, deletedAt: null,
+  });
+  await expectAllowed('ADMIN can create floor before group-delete lock', () =>
+    setDoc(doc(db, 'projects', pid, 'floor_plans', 'FP-RACE-EXISTING'),
+      floorRacePayload('FP-RACE-EXISTING', raceGroupId)));
+  await expectAllowed('ADMIN acquires delete lock in shared settings', () =>
+    updateDoc(sharedSettingsRef, { structureGroupDeleteLocks: { [raceGroupId]: { token: 'RACE-TEST', lockedAt: Date.now() } } }));
+  await expectDenied('ADMIN cannot create floor in locked Khu/Khối', () =>
+    setDoc(doc(db, 'projects', pid, 'floor_plans', 'FP-RACE-LOCKED'),
+      floorRacePayload('FP-RACE-LOCKED', raceGroupId)));
+  await expectDenied('ADMIN cannot move existing floor into locked Khu/Khối', () =>
+    updateDoc(floorPlanRef, { structureGroupId: raceGroupId, revision: 2, updatedAt: Date.now() + 1 }));
+  await expectAllowed('ADMIN can still create floor in unlocked Khu/Khối', () =>
+    setDoc(doc(db, 'projects', pid, 'floor_plans', 'FP-RACE-OTHER'),
+      floorRacePayload('FP-RACE-OTHER', 'SG-OTHER-TEST')));
+  await expectAllowed('ADMIN closes lock and records deleted group guard atomically', () =>
+    updateDoc(sharedSettingsRef, { structureGroupDeleteLocks: {}, structureGroupDeletedIds: [raceGroupId] }));
+  await expectDenied('ADMIN cannot resurrect floor in deleted Khu/Khối', () =>
+    setDoc(doc(db, 'projects', pid, 'floor_plans', 'FP-RACE-STALE'),
+      floorRacePayload('FP-RACE-STALE', raceGroupId)));
+  await expectAllowed('ADMIN clears deleted-group guard on restore', () =>
+    updateDoc(sharedSettingsRef, { structureGroupDeletedIds: [] }));
+  await expectAllowed('ADMIN may create floor after original group is restored', () =>
+    setDoc(doc(db, 'projects', pid, 'floor_plans', 'FP-RACE-RESTORED'),
+      floorRacePayload('FP-RACE-RESTORED', raceGroupId)));
+
+  // Real two-user race on two separate Firebase Auth/Firestore clients.
+  // A second ADMIN starts a floor write AFTER the delete lock commits.
+  // The server must reject that stale-floor write while the first ADMIN
+  // reads the complete floor index and deletes the empty Khu/Khối.
+  const secondApp = initializeApp({
+    apiKey: 'demo-key', authDomain: `${projectId}.firebaseapp.com`, projectId,
+  }, `rules-second-admin-${nonce}`);
+  try {
+    const secondAuth = getAuth(secondApp);
+    const secondDb = getFirestore(secondApp);
+    connectAuthEmulator(secondAuth, 'http://127.0.0.1:9099', { disableWarnings: true });
+    connectFirestoreEmulator(secondDb, '127.0.0.1', 8080);
+    const secondEmail = `admin2-${nonce}@example.test`;
+    await createUserWithEmailAndPassword(secondAuth, secondEmail, password);
+    await expectAllowed('owner grants real second ADMIN for race regression', () =>
+      setDoc(doc(db, 'projects', pid, 'members', secondEmail), {
+        email: secondEmail, role: 'ADMIN', active: true, assignedAt: Date.now(),
+      }));
+    const activeGroup = 'SG-TWO-ADMIN';
+    const activeStructure = {
+      enabled: true, label: 'Khu / Khối',
+      groups: [
+        { id: 'SG-MAIN', name: 'Khu đang làm', order: 0 },
+        { id: activeGroup, name: 'Khu thử xóa', order: 1 },
+      ],
+      defaultGroupId: 'SG-MAIN',
+    };
+    await expectAllowed('ADMIN initializes two-group Cloud structure', () =>
+      updateDoc(sharedSettingsRef, { structure: activeStructure, trash: { enabled: true, retentionDays: 7 } }));
+    const token = 'LOCK-TWO-ADMIN';
+    await expectAllowed('first ADMIN locks group before querying floors', () =>
+      runTransaction(db, async (tx) => {
+        const snap = await tx.get(sharedSettingsRef);
+        if (!snap.exists()) throw Error('TWO_ADMIN_SETTINGS_MISSING');
+        tx.update(sharedSettingsRef, {
+          structureGroupDeleteLocks: { ...(snap.data().structureGroupDeleteLocks || {}),
+            [activeGroup]: { token, lockedAt: Date.now() } },
+        });
+      }));
+    const secondFloor = doc(secondDb, 'projects', pid, 'floor_plans', 'FP-TWO-ADMIN-LATE');
+    await expectDenied('second ADMIN cannot create a floor after first ADMIN locks group', () =>
+      setDoc(secondFloor, floorRacePayload('FP-TWO-ADMIN-LATE', activeGroup)));
+    // Real Cloud query follows the lock. The second client's denied row
+    // must not appear, and the group removal/Trash receipt commit together.
+    const indexed = await getDocsFromServer(collection(db, 'projects', pid, 'floor_plans'));
+    await expectAllowed('first ADMIN commits empty-group deletion and receipt atomically', () =>
+      runTransaction(db, async (tx) => {
+        const settings = await tx.get(sharedSettingsRef);
+        if (settings.data()?.structureGroupDeleteLocks?.[activeGroup]?.token !== token) {
+          throw Error('TWO_ADMIN_LOCK_LOST');
+        }
+        const floors = await Promise.all(indexed.docs.map((entry) => tx.get(entry.ref)));
+        if (floors.some((item) => item.exists() && item.data()?.structureGroupId === activeGroup)) {
+          throw Error('TWO_ADMIN_GROUP_NOT_EMPTY');
+        }
+        tx.update(sharedSettingsRef, {
+          structure: { ...activeStructure, groups: activeStructure.groups.filter((g) => g.id !== activeGroup) },
+          structureGroupDeleteLocks: {}, structureGroupDeletedIds: [activeGroup],
+        });
+        tx.set(doc(db, 'projects', pid, 'trash', 'TRASH-TWO-ADMIN'), {
+          id: 'TRASH-TWO-ADMIN', projectId: pid, deletedAt: Date.now(),
+          deletedItems: [{ collection: 'structureGroups', entityId: activeGroup }],
+        });
+      }));
+    await expectDenied('second ADMIN cannot recreate deleted group floor after lock release', () =>
+      setDoc(secondFloor, floorRacePayload('FP-TWO-ADMIN-LATE', activeGroup)));
+    await expectAllowed('first ADMIN restores group and deleted-ID guard together', () =>
+      runTransaction(db, async (tx) => {
+        const snap = await tx.get(sharedSettingsRef);
+        const deletedIds = snap.data()?.structureGroupDeletedIds || [];
+        tx.update(sharedSettingsRef, {
+          structure: activeStructure,
+          structureGroupDeletedIds: deletedIds.filter((id) => id !== activeGroup),
+        });
+        tx.delete(doc(db, 'projects', pid, 'trash', 'TRASH-TWO-ADMIN'));
+      }));
+    await expectAllowed('second ADMIN may create floor once original group is restored', () =>
+      setDoc(secondFloor, floorRacePayload('FP-TWO-ADMIN-LATE', activeGroup)));
+  } finally {
+    await deleteApp(secondApp);
+  }
+
   await expectAllowed('ADMIN creates room geometry', () => setDoc(roomRef, {
     id: 'ROOM-RULE-1', floorId: 'FP-RULE-1', roomName: 'Căn 01', floorName: 'Tầng 1', workCategory: 'Trần chìm',
     x: 10, y: 10, width: 20, height: 15, frameStatus: 'Chưa làm', boardStatus: 'Chưa làm',
