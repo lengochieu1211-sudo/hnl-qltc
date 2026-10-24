@@ -705,21 +705,6 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         </div>
       </div>
 
-      {/* Read-only, offline-capable manual: shared Settings feature-sheet navigation. */}
-      <SettingsAccordionCard
-        id="user-guide-center-card"
-        icon={BookOpen}
-        iconClassName="text-indigo-600"
-        title="Hướng dẫn sử dụng & Trợ giúp"
-        description="Sổ tay chi tiết theo từng chức năng, có ảnh minh họa riêng cho PC và điện thoại."
-        badge="PC · Điện thoại"
-        badgeClassName="border-indigo-100 bg-indigo-50 text-indigo-700"
-        lazy
-        unmountOnClose
-      >
-        <UserGuideCenter />
-      </SettingsAccordionCard>
-
       {/* PROJECT SETTINGS FORM CARD */}
       <div className="hnl-pc-v3-section-band" data-hnl-v3-section="01" aria-label="Thông tin dự án">
         <span className="hnl-pc-v3-section-index">01</span>
@@ -1234,6 +1219,21 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           <p className="text-[10px] text-slate-500">Chỉ quản trị viên được thay đổi và dọn Thùng rác.</p>
         )}
         </div>
+      </SettingsAccordionCard>
+
+      {/* Read-only, offline-capable manual: shared Settings feature-sheet navigation. */}
+      <SettingsAccordionCard
+        id="user-guide-center-card"
+        icon={BookOpen}
+        iconClassName="text-indigo-600"
+        title="Hướng dẫn sử dụng & Trợ giúp"
+        description="Sổ tay chi tiết theo từng chức năng, có ảnh minh họa riêng cho PC và điện thoại."
+        badge="PC · Điện thoại"
+        badgeClassName="border-indigo-100 bg-indigo-50 text-indigo-700"
+        lazy
+        unmountOnClose
+      >
+        <UserGuideCenter />
       </SettingsAccordionCard>
 
     </div>
