@@ -984,7 +984,9 @@ async function verifyPcCenterButtonWidths(page) {
     pass('live PC ' + label + ' width and tabs', Math.round(result.modalWidth) + 'px modal, tabs 180px centered');
   };
 
-  await page.locator('button[title*="Trung tâm bảo mật" i]').first().click();
+  const securityOpen = page.locator('.hnl-pc-heading-actions button').filter({ hasText: /Bảo mật/ }).first();
+  await securityOpen.waitFor({ state: 'visible', timeout: 10000 });
+  await securityOpen.click();
   await page.locator('[data-hnl-security-primary-tabs="true"]').waitFor({ state: 'visible', timeout: 10000 });
   await check('security-center', 'data-hnl-security-primary-tabs', 'Security Center');
   await page.screenshot({ path: 'runtime-evidence/pc-security-center-live-buttons.png', fullPage: false });
