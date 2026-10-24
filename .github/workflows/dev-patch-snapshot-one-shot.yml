@@ -1,0 +1,34 @@
+name: One-shot verified DEV PATCH artifact b28ba53e
+on:
+  push:
+    branches:
+      - audit/dev-phone-button-source-archive-b28ba53e-20261024
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+      - name: Verify source and archive exact four modified files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^^)" = "b28ba53e26d4bec641b077b071ad272ca2046ee2"
+          mkdir -p out
+          git archive --format=zip --output=out/HNL-QLTC-DEV-b28ba53e-PHONE-BUTTON-PATCH-4-FILES.zip HEAD^^ \
+            .github/dev-release-approval.json \
+            scripts/desktop-workspace-v34-compact-golden.mjs \
+            src/components/SecurityModal.tsx \
+            src/styles/desktopWorkspaceCompact.css
+          test "$(unzip -Z -1 out/HNL-QLTC-DEV-b28ba53e-PHONE-BUTTON-PATCH-4-FILES.zip | grep -vc '/$')" -eq 4
+          unzip -t out/HNL-QLTC-DEV-b28ba53e-PHONE-BUTTON-PATCH-4-FILES.zip | tail -n 1
+          (cd out && sha256sum HNL-QLTC-DEV-b28ba53e-PHONE-BUTTON-PATCH-4-FILES.zip > PATCH-SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-DEV-b28ba53e-PATCH-VERIFIED
+          path: out/
+          retention-days: 14
