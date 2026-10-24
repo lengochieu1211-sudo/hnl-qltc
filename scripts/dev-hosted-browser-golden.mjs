@@ -469,6 +469,7 @@ async function verifySettingsFeatureSheets(page, label) {
       name: 'Quản lý mẫu', selector: '#catalog-template-manager-card',
       card: page.locator('#catalog-template-manager-card'), closeMode: 'x',
     },
+    { name: 'Hướng dẫn sử dụng & Trợ giúp', selector: '#user-guide-center-card', card: page.locator('#user-guide-center-card'), closeMode: 'x' },
   ];
 
   for (const [index, item] of settingsCards.entries()) {
@@ -497,7 +498,7 @@ async function verifySettingsFeatureSheets(page, label) {
     assert(sharedStyles[i].boxShadow === sharedStyles[0].boxShadow, `${label}: Settings cards do not share the same shadow`);
     assert(sharedStyles[i].overflowX <= 1, `${label}: Settings card ${i + 1} overflows horizontally`);
   }
-  pass(`${label} six Settings cards share one design system`);
+  pass(`${label} seven Settings cards share one design system`);
 
   const syncSummary = syncCard.locator('summary').first();
   const syncClosedBox = await syncSummary.boundingBox();
@@ -537,6 +538,30 @@ async function verifySettingsFeatureSheets(page, label) {
         assert(await tab.count() === 1, `${label}: missing Catalog nested tab ${tabName}`);
       }
       pass(`${label} Catalog all 5 nested Settings tabs`);
+    }
+    if (item.name === 'Hướng dẫn sử dụng & Trợ giúp') {
+      const guide = sheet.locator('[data-hnl-user-guide="true"]');
+      await guide.waitFor({ state: 'visible', timeout: 10000 });
+      const pc = guide.locator('[data-hnl-guide-platform="pc"]');
+      const mobile = guide.locator('[data-hnl-guide-platform="mobile"]');
+      assert(await pc.count() === 1 && await mobile.count() === 1, `${label}: Guide PC/mobile selectors missing`);
+      const typography = await guide.evaluate((el) => {
+        const platformButtons = Array.from(el.querySelectorAll('[data-hnl-guide-platform]'));
+        return {
+          fontSize: parseFloat(getComputedStyle(el).fontSize),
+          buttonWidths: platformButtons.map((b) => b.getBoundingClientRect().width),
+          searchWidth: el.querySelector('[data-hnl-guide-search]')?.getBoundingClientRect().width ?? 0,
+        };
+      });
+      assert(typography.fontSize >= 11.9 && typography.fontSize <= 12.2, `${label}: Guide text must match Settings 12px base`);
+      if (desktopRail) {
+        assert(typography.buttonWidths.every((w) => w > 60 && w <= 181), `${label}: Desktop guide buttons must not stretch, got ${typography.buttonWidths}`);
+        assert(typography.searchWidth > 0 && typography.searchWidth <= 561, `${label}: Desktop guide search must remain compact`);
+      }
+      await mobile.click();
+      assert((await mobile.getAttribute('aria-pressed')) === 'true', `${label}: Switching guide to mobile failed`);
+      await pc.click();
+      pass(`${label} user guide typography/platform layout`, `${typography.buttonWidths.map((w) => Math.round(w)).join('/')}px`);
     }
     await backdrop.waitFor({ state: 'visible', timeout: 10000 });
 
@@ -664,7 +689,7 @@ async function verifySettingsFeatureSheets(page, label) {
     assert(!historyMarker, `${label}: ${item.name} left a stale feature-sheet history marker after close`);
   }
 
-  pass(`${label} six Settings entries open in shared feature sheets`);
+  pass(`${label} seven Settings entries open in shared feature sheets`);
   pass(`${label} Settings sheet close contract`, 'X + Back + Escape + backdrop');
 
   if (desktopRail) {
