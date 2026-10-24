@@ -49,24 +49,38 @@ assert.match(css, /@media \(min-width: 1024px\)\s*\{[\s\S]*data-hnl-notification
   'CTA/scroll changes are scoped to PC 1024px+');
 console.log('HNL PC V3.5 MODAL SCROLL & CTA GOLDEN PASS');
 
-// Prevent regression of the member phone button width: only modern PC is
-// constrained; existing full-width Tailwind remains the mobile/Classic fallback.
+// Member contact actions must be inline LEFT of Contact/Reset PIN/Delete
+// on modern PC; Classic/mobile still render the original full-width button.
 const securityModal = read('src/components/SecurityModal.tsx');
-assert.match(securityModal, /data-hnl-security-contact-phone-action="true"/,
-  'Add/edit member phone actions must have a stable, scoped layout hook');
-assert.match(securityModal, /data-hnl-security-contact-phone-action="true"\s+className="w-full /,
-  'Keep mobile and Classic member contact button full-width behavior');
-const phoneStyles = css.slice(css.indexOf('/* Security member phone action:'));
-assert.ok(phoneStyles.startsWith('/* Security member phone action:'),
-  'Modern PC member phone width regression CSS must exist');
+const memberRow = securityModal.slice(securityModal.indexOf('sortedProjectMembers.map(m =>'));
+assert.ok(memberRow.includes('data-hnl-security-contact-phone-action="inline"'),
+  'PC contact action must be mounted in member action row');
+assert.ok(memberRow.includes('data-hnl-security-contact-phone-action="below"'),
+  'Mobile and Classic contact action must remain in its lower row');
+assert.ok(memberRow.indexOf('data-hnl-security-contact-phone-action="inline"')
+  < memberRow.indexOf('canReadMemberContacts && <ContactMenu'),
+  'PC phone action must appear to the LEFT of Contact');
+assert.ok(memberRow.indexOf('canReadMemberContacts && <ContactMenu')
+  < memberRow.indexOf('Reset PIN')
+  && memberRow.indexOf('Reset PIN') < memberRow.indexOf('title="Thu hồi quyền thành viên"'),
+  'Keep Contact, Reset PIN, Delete buttons in their existing order');
+assert.match(memberRow, /data-hnl-security-contact-phone-action="inline"\s+className="hidden /,
+  'PC inline contact action must remain hidden on mobile/Classic');
+assert.match(memberRow, /data-hnl-security-contact-phone-action="below"\s+className="w-full /,
+  'Mobile/Classic contact action must remain full-width');
+assert.match(memberRow, /editingContactEmail === email \? \(\s*<ContactPhoneEditor/,
+  'Existing editable phone form must remain below the member action row');
+const phoneStyles = css.slice(css.indexOf('/* Security member actions:'));
+assert.ok(phoneStyles.startsWith('/* Security member actions:'),
+  'Inline member contact CSS is required');
 assert.match(phoneStyles, /@media \(min-width: 960px\)/,
-  'Limit member phone action width change to PC screens only');
-assert.match(phoneStyles, /html\[data-hnl-pc-workspace="modern"\]\s+button\[data-hnl-security-contact-phone-action="true"\]/,
-  'Keep Classic UI and unrelated buttons unaffected');
-assert.match(phoneStyles, /width: min\(100%, 180px\);/,
-  'Phone add/edit action must stay compact and fit its parent');
-assert.match(phoneStyles, /margin-left: auto;/,
-  'Align compact phone action to the right side of each member card');
-console.log('HNL PC MEMBER PHONE BUTTON WIDTH GOLDEN PASS — 180px right aligned; Classic/mobile unchanged');
+  'Desktop-only member contact styling');
+assert.match(phoneStyles, /html\[data-hnl-pc-workspace="modern"\]\s+button\[data-hnl-security-contact-phone-action="inline"\][\s\S]*?display: inline-flex;/,
+  'PC contact action must display inline, not take an entire row');
+assert.match(phoneStyles, /max-width: 180px;/,
+  'PC inline contact action must fit its fixed 180px maximum width');
+assert.match(phoneStyles, /html\[data-hnl-pc-workspace="modern"\]\s+button\[data-hnl-security-contact-phone-action="below"\]\s*\{\s*display: none;/,
+  'PC must hide the duplicate lower action');
+console.log('HNL PC MEMBER CONTACT INLINE GOLDEN PASS — Phone, Contact, Reset PIN, Delete; mobile/Classic unchanged');
 
 console.log('HNL PC V3.4 COMPACT GOLDEN PASS — mode visibility, compact actions, 84px rail, classic/mobile and plan safety');
