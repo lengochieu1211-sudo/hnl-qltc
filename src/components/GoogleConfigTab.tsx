@@ -34,7 +34,8 @@ import {
   RotateCcw,
   Eraser,
   Plus,
-  Layers3
+  Layers3,
+  BookOpen
 } from 'lucide-react';
 import { GoogleAuthStatus, FloorPlan } from '../types';
 import { ConflictMergeModal } from './ConflictMergeModal';
@@ -51,6 +52,7 @@ import { getFloorPlanImageCacheSnapshot, getFloorPlanImageOutboxSnapshot } from 
 import { getProjectPhotoDiagnosticSnapshot } from '../utils/photoStorage';
 import { HealthCenterPanel } from '../healthCenter/HealthCenterPanel';
 import { SettingsAccordionCard } from './SettingsAccordionCard';
+import { UserGuideCenter } from './UserGuideCenter';
 import { WarehouseDeletedVoucherRecovery } from './WarehouseDeletedVoucherRecovery';
 import { confirmAsync } from '../utils/confirmAsync';
 import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
@@ -702,6 +704,21 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Read-only, offline-capable manual: shared Settings feature-sheet navigation. */}
+      <SettingsAccordionCard
+        id="user-guide-center-card"
+        icon={BookOpen}
+        iconClassName="text-indigo-600"
+        title="Hướng dẫn sử dụng & Trợ giúp"
+        description="Sổ tay chi tiết theo từng chức năng, có ảnh minh họa riêng cho PC và điện thoại."
+        badge="PC · Điện thoại"
+        badgeClassName="border-indigo-100 bg-indigo-50 text-indigo-700"
+        lazy
+        unmountOnClose
+      >
+        <UserGuideCenter />
+      </SettingsAccordionCard>
 
       {/* PROJECT SETTINGS FORM CARD */}
       <div className="hnl-pc-v3-section-band" data-hnl-v3-section="01" aria-label="Thông tin dự án">
