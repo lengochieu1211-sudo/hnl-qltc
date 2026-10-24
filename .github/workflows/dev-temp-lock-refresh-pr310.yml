@@ -1,0 +1,39 @@
+name: DEV TEMP dependency lock refresh (PR310 only)
+on:
+  push:
+    branches:
+      - audit/quick-edit-p1-safety-20261024
+    paths:
+      - .github/workflows/dev-temp-lock-refresh-pr310.yml
+jobs:
+  refresh:
+    if: github.repository == 'lengochieu1211-sudo/hnl-qltc'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Refresh only security-affected lock entries
+        run: |
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund 'multer@^2.5.0'
+          npm update body-parser --package-lock-only --ignore-scripts --no-audit --no-fund
+          node - <<'NODE'
+          const lock = require('./package-lock.json');
+          const dep = lock.packages['node_modules/body-parser'].version;
+          const mult = lock.packages['node_modules/multer'].version;
+          console.log('Resolved body-parser', dep, 'multer', mult);
+          if (Number(dep.split('.')[2]) < 9 || !mult.startsWith('2.') || Number(mult.split('.')[1]) < 5) process.exit(2);
+          NODE
+          mkdir -p dep-lock-output
+          cp package.json package-lock.json dep-lock-output/
+      - name: Upload lockfile, no secrets
+        uses: actions/upload-artifact@v4
+        with:
+          name: PR310-patched-dependency-lock
+          path: dep-lock-output/
+          retention-days: 1
