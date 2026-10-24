@@ -26,7 +26,7 @@ const panelDarkRule = darkThemeCss.split('html[data-hnl-theme="dark"] [data-hnl-
 const skyTextDarkRule = darkThemeCss.split('html[data-hnl-theme="dark"] [data-hnl-warehouse-form-photos] .text-sky-800 {')[1]?.split('}')[0] || '';
 assert(panelDarkRule.includes('var(--hnl-dark-surface-soft)') && panelDarkRule.includes('var(--hnl-dark-border)'), 'Dark receipt-photo section uses existing dark surface/border tokens');
 assert(skyTextDarkRule.includes('#bae6fd'), 'Receipt-photo title and save hint stay sky-light on the dark surface');
-assert(warehouse.includes('Ảnh chỉ tạm lưu trên thiết bị khi chưa lưu phiếu.') && warehouse.includes('Ảnh được lưu ngay khi thêm, sửa hoặc xóa'), 'Dark contrast patch retains draft/save photo disclosure');
+assert(warehouse.includes('Ảnh chỉ được lưu sau khi lưu phiếu. Nếu tải ảnh lỗi, hãy bấm “Thử lại”.') && warehouse.includes('Ảnh được lưu ngay khi thêm, sửa hoặc xóa'), 'Dark contrast patch retains draft/save photo disclosure');
 console.log('WAREHOUSE PHOTO DARK CONTRAST GOLDEN PASS – scoped create/edit styling, no image/ledger behavior changed');
 
 
