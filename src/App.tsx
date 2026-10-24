@@ -1,3 +1,4 @@
+import { mergeMaterialNormUpserts } from './utils/materialNormImportDelta';
 import {useWarehouseOrderSync} from './hooks/useWarehouseOrderSync';
 import { getHnlPrimaryThemeColors } from './utils/hnlPrimaryTheme';
 import { GlobalConfirmModal } from './components/GlobalConfirmModal';
@@ -6106,13 +6107,22 @@ function AuthenticatedApp() {
       alert('Không nhập đè ĐVT qua Excel/Bảng chỉnh nhanh. Hãy đổi ĐVT tại từng vật tư trong Định mức để cập nhật phiếu nhập/xuất và số dư cùng lúc.');
       return;
     }
-    const issues = validateMaterialNormCatalog(canonical, present.workVolumes);
+    // Each importer supplies ONLY intentional upserts (edited/new norm IDs).
+    // Never replace the catalog with a stale Quick Edit/Excel/Template snapshot.
+    let nextCatalog: MaterialNorm[];
+    try {
+      nextCatalog = mergeMaterialNormUpserts(present.materialNorms, canonical);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    const issues = validateMaterialNormCatalog(nextCatalog, present.workVolumes);
     if (issues.length > 0) {
       alert(`Import định mức bị hủy trước khi ghi:\n${issues.map((issue) => `• ${issue.message}`).join('\n')}`);
       return;
     }
-    // One atomic local-state commit; Firebase sync consumes the resulting catalog.
-    updateAppData((prev) => ({ ...prev, materialNorms: canonical }));
+    // Merge again with the latest React state; cloud multi-user CAS is a separate gate.
+    updateAppData((prev) => ({ ...prev, materialNorms: mergeMaterialNormUpserts(prev.materialNorms, canonical) }));
   };
 
   // Handlers for Inventory. Every entry is canonicalized at this ledger boundary;

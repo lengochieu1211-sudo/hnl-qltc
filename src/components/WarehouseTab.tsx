@@ -1,3 +1,4 @@
+import { collectMaterialNormUpserts } from '../utils/materialNormImportDelta';
 import { ExpressionDisplayInput } from './ExpressionDisplayInput';
 import { DesktopWorkspaceMetrics } from './DesktopWorkspaceMetrics';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -965,7 +966,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             await onImportInventory(importedInventoryRows);
           }
           if (onImportNorms && (normsUpdatedCount > 0 || normsAddedCount > 0)) {
-            onImportNorms(newNorms);
+            onImportNorms(collectMaterialNormUpserts(materialNorms, newNorms));
           }
           alert('🎉 Đã cập nhật thành công dữ liệu kho/định mức. Hạng mục thi công chỉ được chỉnh tại mục Khối lượng.');
         }
@@ -2356,7 +2357,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         + 'Tên/Chủng loại vật tư/ĐVT/ĐM chung/Nhu cầu định mức/Ghi chú được lấy từ dòng đại diện; các dòng con chỉ quản lý liên kết Hạng mục và ĐM riêng. materialId được giữ nguyên.'
       );
       if (!confirmed) return false;
-      onImportNorms(Array.from(byId.values()));
+      onImportNorms(Array.from(affectedNormIds).map((id) => byId.get(id)!));
       return;
     }
 
