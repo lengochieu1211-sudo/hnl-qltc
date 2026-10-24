@@ -22,8 +22,8 @@ const darkThemeCss = read('src/index.css');
 // panel; check the scoped dark contrast without altering photo/cloud semantics.
 assert(warehouse.includes('data-hnl-warehouse-form-photos="true"') && warehouse.includes('data-hnl-warehouse-staged-photos="true"'), 'Receipt photo create/edit panels keep their stable scopes');
 assert(warehouse.includes('text-sky-800') && warehouse.includes('bg-sky-50/40'), 'Photo section retains the original light-mode brand colors');
-const panelDarkRule = darkThemeCss.match(/html\\[data-hnl-theme="dark"\\] \\[data-hnl-warehouse-form-photos\\] \\{[^}]+\\}/)?.[0] || '';
-const skyTextDarkRule = darkThemeCss.match(/html\\[data-hnl-theme="dark"\\] \\[data-hnl-warehouse-form-photos\\] \\.text-sky-800 \\{[^}]+\\}/)?.[0] || '';
+const panelDarkRule = darkThemeCss.split('html[data-hnl-theme="dark"] [data-hnl-warehouse-form-photos] {')[1]?.split('}')[0] || '';
+const skyTextDarkRule = darkThemeCss.split('html[data-hnl-theme="dark"] [data-hnl-warehouse-form-photos] .text-sky-800 {')[1]?.split('}')[0] || '';
 assert(panelDarkRule.includes('var(--hnl-dark-surface-soft)') && panelDarkRule.includes('var(--hnl-dark-border)'), 'Dark receipt-photo section uses existing dark surface/border tokens');
 assert(skyTextDarkRule.includes('#bae6fd'), 'Receipt-photo title and save hint stay sky-light on the dark surface');
 assert(warehouse.includes('Ảnh chỉ tạm lưu trên thiết bị khi chưa lưu phiếu.') && warehouse.includes('Ảnh được lưu ngay khi thêm, sửa hoặc xóa'), 'Dark contrast patch retains draft/save photo disclosure');
