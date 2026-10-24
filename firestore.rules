@@ -236,6 +236,48 @@ service cloud.firestore {
         ]) || editorPhotoPointerScopedToSource(projectId, recordId);
     }
 
+    // Audit V4 P1-07 (partial): prevent EDITOR forging derived balance identity,
+    // migration tombstones or provenance. A complete ledger delta proof still
+    // requires a separate getAfter-verified voucher protocol for EVERY atomic
+    // write path, including legacy repair; this function does not certify that.
+    function editorBalanceCreateMetadataSafe() {
+      return request.resource.data.keys().hasOnly([
+          'id', 'projectId', 'itemKind', 'materialId', 'materialName', 'unit',
+          'onHand', 'revision', 'updatedAt', 'updatedByUid'
+        ])
+        && request.resource.data.itemKind in ['material', 'equipment']
+        && request.resource.data.materialName is string
+        && request.resource.data.materialName.size() > 0
+        && request.resource.data.unit is string
+        && request.resource.data.unit.size() > 0
+        && request.resource.data.revision == 1
+        && request.resource.data.updatedAt is number
+        && request.resource.data.updatedByUid == request.auth.uid;
+    }
+
+    function editorBalanceUpdateMetadataSafe() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'onHand', 'revision', 'updatedAt', 'updatedByUid',
+          // Allow backfilling incomplete legacy identities only. Existing ones
+          // remain immutable to EDITOR; ADMIN retains the unit migration path.
+          'itemKind', 'materialId', 'materialName', 'unit'
+        ])
+        && (!('itemKind' in resource.data) || request.resource.data.itemKind == resource.data.itemKind)
+        && (!('materialId' in resource.data) || resource.data.materialId == null
+          || request.resource.data.materialId == resource.data.materialId)
+        && (!('materialName' in resource.data) || request.resource.data.materialName == resource.data.materialName)
+        && (!('unit' in resource.data) || request.resource.data.unit == resource.data.unit)
+        && request.resource.data.itemKind in ['material', 'equipment']
+        && request.resource.data.materialName is string
+        && request.resource.data.materialName.size() > 0
+        && request.resource.data.unit is string
+        && request.resource.data.unit.size() > 0
+        && (!('revision' in resource.data)
+          || request.resource.data.revision == resource.data.revision + 1)
+        && request.resource.data.updatedAt is number
+        && request.resource.data.updatedByUid == request.auth.uid;
+    }
+
     // Checklist definition (floor/category/title/due-date/room binding) belongs to
     // ADMIN. EDITOR can record only inspection outcome, note and inspector.
     function editorChecklistOperationalUpdateOnly() {
@@ -726,14 +768,16 @@ service cloud.firestore {
           && request.resource.data.projectId == projectId
           && request.resource.data.onHand is number
           && request.resource.data.onHand >= 0
-          && request.resource.data.revision >= 1;
+          && request.resource.data.revision >= 1
+          && (canAdminOperate(projectId) || editorBalanceCreateMetadataSafe());
         allow update: if canEdit(projectId)
           && request.resource.data.id == resource.data.id
           && request.resource.data.projectId == resource.data.projectId
           && request.resource.data.onHand is number
           && request.resource.data.onHand >= 0
           && request.resource.data.revision > resource.data.revision
-          && request.resource.data.updatedAt >= resource.data.updatedAt;
+          && request.resource.data.updatedAt >= resource.data.updatedAt
+          && (canAdminOperate(projectId) || editorBalanceUpdateMetadataSafe());
         allow delete: if false;
       }
 
