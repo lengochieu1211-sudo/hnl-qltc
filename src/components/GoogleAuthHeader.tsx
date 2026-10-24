@@ -117,7 +117,9 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
   return (
     <>
       {/* With viewport-fit=cover and black-translucent iOS status bar, keep the
-          sticky project title/logo below the notch. Landscape needs side insets. */}
+          sticky project title/logo below the notch. Landscape needs side insets.
+          Insets are supplied by the browser (0 on screens without a cutout),
+          so avoid device-name / user-agent-specific hardcoded padding. */}
       <div data-hnl-global-header className="safe-area-top bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-30 shadow-lg"
         style={{ paddingLeft: 'env(safe-area-inset-left, 0px)', paddingRight: 'env(safe-area-inset-right, 0px)' }}>
         <div className="w-full px-3 sm:px-4 py-2 sm:py-3">
