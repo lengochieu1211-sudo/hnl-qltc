@@ -56,6 +56,16 @@ assert(!header.includes('<WifiOff'), 'Header offline Wi-Fi badge must stay remov
 assert(!header.includes('GoogleAuthModal'), 'Header Google login shortcut/modal must stay removed');
 assert(header.includes("onOpenProjectManager('projects')"), 'Header Project button must open Project List only');
 assert(header.includes('data-hnl-global-header'), 'Global header must expose a stable Runtime Golden measurement hook');
+// P1 iOS notch regression: fullscreen PWA content must not sit under the
+// camera/status bar; retain Android and non-notched zero-inset behavior.
+const viewportMeta = read('index.html');
+const cssSafeArea = read('src/index.css');
+assert(viewportMeta.includes('viewport-fit=cover') && viewportMeta.includes('black-translucent'), 'iOS fullscreen browser contract must be explicit');
+assert(cssSafeArea.includes('.safe-area-top { padding-top: env(safe-area-inset-top); }'), 'Shared top safe-area utility must remain available');
+assert(header.includes('data-hnl-global-header className="safe-area-top '), 'Sticky global header must reserve iPhone notch/status bar top inset');
+assert(header.includes("paddingLeft: 'env(safe-area-inset-left, 0px)'") && header.includes("paddingRight: 'env(safe-area-inset-right, 0px)'"), 'Sticky header must protect landscape iPhone cutout edges');
+assert(navSource.includes("paddingBottom: 'env(safe-area-inset-bottom, 0px)'") && navSource.includes("paddingLeft: 'env(safe-area-inset-left, 0px)'") && navSource.includes("paddingRight: 'env(safe-area-inset-right, 0px)'"), 'Mobile bottom nav must protect home indicator and landscape cutout edges');
+assert(header.includes('sticky top-0 z-30') && navSource.includes('fixed bottom-0 left-0 right-0 z-40'), 'Safe-area patch must retain sticky header and fixed thumb navigation');
 assert(header.includes('lg:flex lg:items-center lg:gap-3') && header.includes('lg:mb-0 lg:min-w-0 lg:flex-1') && header.includes('lg:mt-0 lg:shrink-0'), 'Desktop header must merge identity + quick actions into one compact lg+ row while mobile keeps the two-row flow');
 assert(header.includes('data-hnl-header-actions'), 'Header quick actions must expose a stable runtime hook');
 assert(header.includes('[&>button]:min-h-9 [&>button]:min-w-9') && (header.match(/min-h-9 min-w-9/g) || []).length >= 5, 'Header mobile actions must retain >=36px touch targets');
