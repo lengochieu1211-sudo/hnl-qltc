@@ -763,21 +763,25 @@ service cloud.firestore {
       // Clients may read it, but normal generic autosave cannot hard-delete it.
       match /inventory_balances/{balanceId} {
         allow read: if isMember(projectId);
-        allow create: if canEdit(projectId)
+        // Evaluate the EDITOR branch only once: repeating canEdit/isAdmin
+        // exceeds Firestore's 1000-expression limit for otherwise valid writes.
+        allow create: if projectIsActive(projectId)
           && request.resource.data.id == balanceId
           && request.resource.data.projectId == projectId
           && request.resource.data.onHand is number
           && request.resource.data.onHand >= 0
           && request.resource.data.revision >= 1
-          && (canAdminOperate(projectId) || editorBalanceCreateMetadataSafe());
-        allow update: if canEdit(projectId)
+          && ((isEditor(projectId) && editorBalanceCreateMetadataSafe())
+            || isAdmin(projectId));
+        allow update: if projectIsActive(projectId)
           && request.resource.data.id == resource.data.id
           && request.resource.data.projectId == resource.data.projectId
           && request.resource.data.onHand is number
           && request.resource.data.onHand >= 0
           && request.resource.data.revision > resource.data.revision
           && request.resource.data.updatedAt >= resource.data.updatedAt
-          && (canAdminOperate(projectId) || editorBalanceUpdateMetadataSafe());
+          && ((isEditor(projectId) && editorBalanceUpdateMetadataSafe())
+            || isAdmin(projectId));
         allow delete: if false;
       }
 
