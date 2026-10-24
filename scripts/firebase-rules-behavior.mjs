@@ -513,6 +513,13 @@ try {
     storageProvider: 'r2', storagePath: 'projects/other-project/media/defect/DF-RULE-1/PHOTO-META-SPOOF-CREATE/original.jpg',
     revision: 1, createdAt: Date.now(), updatedAt: Date.now(), deleted: false, deletedAt: null,
   }));
+  const immutableSuffix = 'a'.repeat(64);
+  const immutableCreatePath = `projects/${pid}/media/defect/DF-RULE-1/PHOTO-IMMUTABLE-CREATE--${immutableSuffix}/original.jpg`;
+  await expectAllowed('EDITOR may publish a new immutable content-addressed R2 photo', () => setDoc(doc(db, 'projects', pid, 'photos', 'PHOTO-IMMUTABLE-CREATE'), {
+    id: 'PHOTO-IMMUTABLE-CREATE', projectId: pid, entityType: 'defect', entityId: 'DF-RULE-1',
+    storageProvider: 'r2', storagePath: immutableCreatePath, cloudFileId: `r2:${immutableCreatePath}`,
+    revision: 1, createdAt: Date.now(), updatedAt: Date.now(), deleted: false, deletedAt: null,
+  }));
   const photoSnap = await getDoc(photoMetaRef);
   const photoUpdatedAt = Number(photoSnap.data()?.updatedAt || 0);
   await expectAllowed('EDITOR can annotate a photo without changing linked identity', () => updateDoc(photoMetaRef, {
@@ -548,11 +555,16 @@ try {
   await expectDenied('EDITOR cannot swap only the displayed R2 URL to another object', () => updateDoc(photoMetaRef, {
     cloudFileId: 'r2:projects/other-project/secret.jpg', revision: 4, updatedAt: photoUpdatedAt + 4,
   }));
+  const immutableReplacementPath = `projects/${pid}/media/defect/DF-RULE-1/PHOTO-META-RULE-1--${immutableSuffix}/original.jpg`;
+  await expectAllowed('EDITOR can replace photo pointer with content-addressed R2 object', () => updateDoc(photoMetaRef, {
+    storagePath: immutableReplacementPath, cloudFileId: `r2:${immutableReplacementPath}`,
+    cloudUrl: `r2:${immutableReplacementPath}`, revision: 4, updatedAt: photoUpdatedAt + 5,
+  }));
   await expectAllowed('EDITOR may soft-delete field photo metadata', () => updateDoc(photoMetaRef, {
-    deleted: true, deletedAt: Date.now(), deletedByUid: editorUid, revision: 4, updatedAt: photoUpdatedAt + 10,
+    deleted: true, deletedAt: Date.now(), deletedByUid: editorUid, revision: 5, updatedAt: photoUpdatedAt + 10,
   }));
   await expectDenied('EDITOR cannot silently undelete a photo they already removed', () => updateDoc(photoMetaRef, {
-    deleted: false, deletedAt: null, revision: 5, updatedAt: photoUpdatedAt + 20,
+    deleted: false, deletedAt: null, revision: 6, updatedAt: photoUpdatedAt + 20,
   }));
   await expectDenied('EDITOR cannot manage membership', () => setDoc(doc(db, 'projects', pid, 'members', `x-${nonce}@example.test`), {
     email: `x-${nonce}@example.test`, role: 'VIEWER', active: true,
