@@ -955,6 +955,59 @@ async function verifyModernPcWorkspace(page, label, switchFromClassic = false) {
   }
 }
 
+
+/* PC layout regression: measure the REAL hosted modals, not a static mock.
+ * Opening tabs is read-only; do not modify PIN, role, messages or Cloud data. */
+async function verifyPcCenterButtonWidths(page) {
+  const within = (actual, expected) => Math.abs(actual - expected) <= 2;
+  const check = async (center, attribute, label) => {
+    const result = await page.evaluate(({ center, attribute }) => {
+      const root = document.querySelector('[data-hnl-pc-v3-center="' + center + '"]');
+      const shell = root?.querySelector(':scope > div');
+      const tabBar = root?.querySelector('[' + attribute + '="true"]');
+      if (!shell || !tabBar) return null;
+      const a = shell.getBoundingClientRect();
+      const b = tabBar.getBoundingClientRect();
+      return {
+        modalWidth: a.width, display: getComputedStyle(tabBar).display,
+        tabWidths: Array.from(tabBar.querySelectorAll(':scope > button'), node => node.getBoundingClientRect().width),
+        centerOffset: Math.abs((a.left + a.right - b.left - b.right) / 2),
+        overflow: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth,
+      };
+    }, { center, attribute });
+    assert(result && result.tabWidths.length >= 2, label + ': tabs/modal not rendered');
+    assert(result.modalWidth > 750 && result.modalWidth <= 1152, label + ': modal width changed: ' + JSON.stringify(result));
+    assert(result.display === 'flex', label + ': tabs not centered with flex: ' + JSON.stringify(result));
+    assert(result.tabWidths.every(width => within(width, 180)), label + ': stretched tabs: ' + JSON.stringify(result));
+    assert(result.centerOffset <= 20, label + ': tabs not centered: ' + JSON.stringify(result));
+    assert(result.overflow <= 12, label + ': horizontal overflow: ' + JSON.stringify(result));
+    pass('live PC ' + label + ' width and tabs', Math.round(result.modalWidth) + 'px modal, tabs 180px centered');
+  };
+
+  await page.locator('button[title*="Trung tâm bảo mật" i]').first().click();
+  await page.locator('[data-hnl-security-primary-tabs="true"]').waitFor({ state: 'visible', timeout: 10000 });
+  await check('security-center', 'data-hnl-security-primary-tabs', 'Security Center');
+  await page.screenshot({ path: 'runtime-evidence/pc-security-center-live-buttons.png', fullPage: false });
+  await closeVisibleModal(page, 'Security Center');
+  await page.locator('[data-hnl-pc-v3-center="security-center"]').waitFor({ state: 'hidden', timeout: 10000 });
+
+  const notificationOpen = page.locator('.hnl-pc-heading-actions button').filter({ hasText: /Thông báo/ }).first();
+  await notificationOpen.waitFor({ state: 'visible', timeout: 10000 });
+  await notificationOpen.click();
+  await page.locator('[data-hnl-notification-primary-tabs="true"]').waitFor({ state: 'visible', timeout: 10000 });
+  await check('notification-center', 'data-hnl-notification-primary-tabs', 'Notification Center');
+  await page.screenshot({ path: 'runtime-evidence/pc-notification-center-live-buttons.png', fullPage: false });
+  await page.locator('[data-hnl-notification-primary-tabs="true"] > button').nth(1).click();
+  const chat = page.locator('[data-hnl-notification-open-chat="true"]');
+  await chat.waitFor({ state: 'visible', timeout: 10000 });
+  const chatWidth = await chat.evaluate(node => node.getBoundingClientRect().width);
+  assert(within(chatWidth, 180), 'Notification open-chat action stretched: ' + chatWidth);
+  pass('live PC notification open-chat button width', Math.round(chatWidth) + 'px');
+  await page.screenshot({ path: 'runtime-evidence/pc-notification-messages-live-buttons.png', fullPage: false });
+  await closeVisibleModal(page, 'Notification Center');
+  await page.locator('[data-hnl-pc-v3-center="notification-center"]').waitFor({ state: 'hidden', timeout: 10000 });
+}
+
 // V3.4 changed the default for a fresh PC: test it without a saved preference.
 // The classic-focused generic viewport golden keeps its original header contract.
 async function verifyDefaultModernPc(browser) {
@@ -976,6 +1029,7 @@ async function verifyDefaultModernPc(browser) {
     const savedMode = await page.evaluate(() => localStorage.getItem('hnl_desktop_workspace_mode_v1'));
     assert(savedMode === null, `${label}: unexpected saved desktop mode ${savedMode}`);
     await verifyModernPcWorkspace(page, label);
+    await verifyPcCenterButtonWidths(page);
     pass(`${label} fresh PC auto-modern`, 'no saved preference; 84px rail and modern header');
   } finally {
     await context.close();
@@ -1090,6 +1144,11 @@ async function runViewport(browser, label, viewport, screenshotPath, contextOver
   await securityTitle.waitFor({ state: 'visible', timeout: 10000 });
   const accountEntry = page.getByText('Tài khoản Google/Firebase', { exact: true });
   await accountEntry.waitFor({ state: 'visible', timeout: 10000 });
+  if (label === 'mobile' || label === 'mobile-tall') {
+    const tabsDisplay = await page.locator('[data-hnl-security-primary-tabs="true"]').evaluate(node => getComputedStyle(node).display);
+    assert(tabsDisplay === 'grid', label + ': PC tab sizing leaked to mobile');
+    pass(label + ' Security tabs retain responsive mobile grid');
+  }
   pass(`${label} Security Center owns Google/Firebase account entry`);
 
   await closeVisibleModal(page, `${label} Security Center`);
