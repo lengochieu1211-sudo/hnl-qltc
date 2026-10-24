@@ -508,10 +508,51 @@ try {
     id: 'PHOTO-META-RULE-1', entityType: 'defect', entityId: 'DF-RULE-1', fileName: 'a.jpg',
     revision: 1, createdAt: Date.now(), updatedAt: Date.now(), deleted: false, deletedAt: null,
   }));
+  await expectDenied('EDITOR cannot create a photo with foreign project pointer', () => setDoc(doc(db, 'projects', pid, 'photos', 'PHOTO-META-SPOOF-CREATE'), {
+    id: 'PHOTO-META-SPOOF-CREATE', entityType: 'defect', entityId: 'DF-RULE-1', projectId: 'other-project',
+    storageProvider: 'r2', storagePath: 'projects/other-project/media/defect/DF-RULE-1/PHOTO-META-SPOOF-CREATE/original.jpg',
+    revision: 1, createdAt: Date.now(), updatedAt: Date.now(), deleted: false, deletedAt: null,
+  }));
   const photoSnap = await getDoc(photoMetaRef);
   const photoUpdatedAt = Number(photoSnap.data()?.updatedAt || 0);
+  await expectAllowed('EDITOR can annotate a photo without changing linked identity', () => updateDoc(photoMetaRef, {
+    caption: 'Đã kiểm tra thực tế', revision: 2, updatedAt: photoUpdatedAt + 1, updatedByUid: editorUid,
+  }));
+  await expectDenied('EDITOR cannot relink a photo to a different defect', () => updateDoc(photoMetaRef, {
+    entityId: 'DF-OTHER', revision: 3, updatedAt: photoUpdatedAt + 2,
+  }));
+  await expectDenied('EDITOR cannot change a photo project identity', () => updateDoc(photoMetaRef, {
+    projectId: 'other-project', revision: 3, updatedAt: photoUpdatedAt + 2,
+  }));
+  await expectDenied('EDITOR cannot forge existing photo creator timestamp', () => updateDoc(photoMetaRef, {
+    createdAt: 1, revision: 3, updatedAt: photoUpdatedAt + 2,
+  }));
+  await expectDenied('EDITOR cannot spoof actor identity on existing photo', () => updateDoc(photoMetaRef, {
+    updatedByUid: ownerUid, revision: 3, updatedAt: photoUpdatedAt + 2,
+  }));
+  const validR2Path = `projects/${pid}/media/defect/DF-RULE-1/PHOTO-META-RULE-1/original.jpg`;
+  const validThumb = `projects/${pid}/media/defect/DF-RULE-1/PHOTO-META-RULE-1/thumb.jpg`;
+  await expectDenied('EDITOR cannot spoof a cross-project R2 media pointer', () => updateDoc(photoMetaRef, {
+    storageProvider: 'r2', storagePath: 'projects/other-project/media/defect/DF-RULE-1/PHOTO-META-RULE-1/original.jpg',
+    revision: 3, updatedAt: photoUpdatedAt + 2,
+  }));
+  await expectDenied('EDITOR cannot point to another photo assetId', () => updateDoc(photoMetaRef, {
+    projectId: pid, storageProvider: 'r2', storagePath: `projects/${pid}/media/defect/DF-RULE-1/ANOTHER-PHOTO/original.jpg`,
+    revision: 3, updatedAt: photoUpdatedAt + 2,
+  }));
+  await expectAllowed('EDITOR can publish an authenticated R2 photo replacement pointer', () => updateDoc(photoMetaRef, {
+    projectId: pid, storageProvider: 'r2', storagePath: validR2Path, thumbnailPath: validThumb,
+    cloudFileId: `r2:${validR2Path}`, cloudUrl: `r2:${validR2Path}`,
+    revision: 3, updatedAt: photoUpdatedAt + 3, updatedByUid: editorUid,
+  }));
+  await expectDenied('EDITOR cannot swap only the displayed R2 URL to another object', () => updateDoc(photoMetaRef, {
+    cloudFileId: 'r2:projects/other-project/secret.jpg', revision: 4, updatedAt: photoUpdatedAt + 4,
+  }));
   await expectAllowed('EDITOR may soft-delete field photo metadata', () => updateDoc(photoMetaRef, {
-    deleted: true, deletedAt: Date.now(), deletedByUid: editorUid, revision: 2, updatedAt: photoUpdatedAt + 10,
+    deleted: true, deletedAt: Date.now(), deletedByUid: editorUid, revision: 4, updatedAt: photoUpdatedAt + 10,
+  }));
+  await expectDenied('EDITOR cannot silently undelete a photo they already removed', () => updateDoc(photoMetaRef, {
+    deleted: false, deletedAt: null, revision: 5, updatedAt: photoUpdatedAt + 20,
   }));
   await expectDenied('EDITOR cannot manage membership', () => setDoc(doc(db, 'projects', pid, 'members', `x-${nonce}@example.test`), {
     email: `x-${nonce}@example.test`, role: 'VIEWER', active: true,
