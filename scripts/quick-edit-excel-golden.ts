@@ -103,6 +103,28 @@ assert.equal(gridSelectionTSV(demoRows, demoColumns, rectangle, (value, key) => 
   'Vật tư\t3\nThiết bị\t1\nVật tư\t2', 'Clipboard must copy visible localized values in row/column order');
 assert.deepEqual(parseGridTSV('Vật tư\t3\r\nThiết bị\t1\r\n'), [['Vật tư', '3'], ['Thiết bị', '1']], 'Paste must accept Excel CRLF without creating an extra row');
 
+assert.deepEqual(parseGridTSV('"Dòng 1\nDòng 2"\t"ĐVT\tđặc biệt"\r\n"Ty ""ren"""\t5\r\n'),
+  [['Dòng 1\nDòng 2', 'ĐVT\tđặc biệt'], ['Ty "ren"', '5']],
+  'Quoted multiline/tab/escaped quote must stay in their original Excel cells');
+assert.deepEqual(parseGridTSV('Đầu nối 1/2"\t20\n'), [['Đầu nối 1/2"', '20']],
+  'Unquoted literal inch marks must remain intact');
+assert.throws(() => parseGridTSV('"Chưa đóng\t100'), /ngoặc kép chưa đóng/,
+  'Unbalanced quote must reject the entire paste');
+assert.throws(() => parseGridTSV('"Đã đóng"Dữ liệu\t100'), /ngoặc kép đóng/,
+  'Characters after a closing quote must reject the paste rather than shift columns');
+const multilineRows = [
+  { __rowKey: 'm1', note: 'Dòng 1\nDòng 2', specification: 'Cỡ\tđặc biệt' },
+  { __rowKey: 'm2', note: 'Ty "ren"', specification: 'M6 x 40' },
+];
+const multilineColumns = [{ key: 'note' }, { key: 'specification' }];
+const multilineSelection = gridRectKeys(multilineRows, multilineColumns,
+  { rowKey: 'm1', columnKey: 'note' }, { rowKey: 'm2', columnKey: 'specification' });
+const multilineCopied = gridSelectionTSV(multilineRows, multilineColumns, multilineSelection, (value) => String(value));
+assert.deepEqual(parseGridTSV(multilineCopied), multilineRows.map(row => [row.note, row.specification]),
+  'Copy/paste round-trip must preserve multiline text, tabs and double quotes');
+assert.match(quick, /Không thể đọc dữ liệu Excel/, 'Invalid clipboard data must be rejected without staging edits');
+
+
 assert.match(quick, /handlePaste/, 'Quick grid must support multi-cell paste');
 assert.match(quick, /dirtyCellKeys/, 'Quick grid edits must remain staged until save');
 assert.match(quick, /dirtyCellKeys\.size > 0/, 'Quick grid must preserve local draft across realtime/parent refreshes');
