@@ -1,4 +1,4 @@
-name: One-shot HNL QLTC DEV 21420a9 source archive
+name: One-shot HNL QLTC DEV 21420a9 handoff backup
 on:
   push:
     branches:
@@ -6,24 +6,62 @@ on:
 permissions:
   contents: read
 jobs:
-  archive:
+  backup:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
-      - name: Verify exact DEV source and create pristine git archive
+          fetch-depth: 0
+      - name: Verify release and create PATCH and checkpoint package
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "21420a955f02a04543a409e1b6622166310536c6"
+          RELEASE=21420a955f02a04543a409e1b6622166310536c6
+          git cat-file -e "$RELEASE^{commit}"
+          test "$(git show "$RELEASE:.github/dev-release-approval.json" | grep -c 11b57d78d068b9b3422ee8689cf75a49f7ac20cf)" = 1
           mkdir -p out
-          git archive --format=zip --output=out/HNL-QLTC-DEV-21420a9-FULL-SOURCE.zip HEAD^
-          unzip -t out/HNL-QLTC-DEV-21420a9-FULL-SOURCE.zip | tail -n 1
-          (cd out && sha256sum HNL-QLTC-DEV-21420a9-FULL-SOURCE.zip > SOURCE-SHA256SUMS.txt)
+          git archive --format=zip --output=out/HNL-QLTC-DEV-21420a9-PATCH-4-FILES.zip "$RELEASE" \
+            .github/dev-release-approval.json \
+            scripts/desktop-workspace-v34-compact-golden.mjs \
+            src/components/SecurityModal.tsx \
+            src/styles/desktopWorkspaceCompact.css
+          unzip -t out/HNL-QLTC-DEV-21420a9-PATCH-4-FILES.zip | tail -n 1
+          cat > out/HNL-QLTC-DEV-21420a9-MASTER-REPORT.md <<'REPORT'
+          HNL QLTC DEV v6.3.0 -- 24/10/2026
+          Repo: lengochieu1211-sudo/hnl-qltc, branch dev
+          Base: b28ba53e26d4bec641b077b071ad272ca2046ee2
+          Fix: 11b57d78d068b9b3422ee8689cf75a49f7ac20cf, PR #319 merged
+          Approved exact HEAD: 21420a955f02a04543a409e1b6622166310536c6
+          Root cause: Thêm/Sửa số điện thoại was below the member card as w-full on PC.
+          Fix: show phone button immediately left of Liên hệ, then Reset PIN/Trash on modern PC >=960px; preserve phone editor, shared callbacks, Classic/mobile lower button. No schema/IDs/Firebase/R2/PROD edits.
+          Files: SecurityModal.tsx; desktopWorkspaceCompact.css; desktop-workspace-v34-compact-golden.mjs; dev-release-approval.json.
+          PR checks: Web TypeScript/Lint/Rules/Build PASS; Windows EXE and Android APK build PASS.
+          DEV release: Build 40075290223 PASS; Deploy 40075290275 PASS; Hosted Golden #784 40075290284 PASS: 41 backend + 9 media + 206 browser.
+          Manual Chromium CSS fixture: PC 1366px inline member button ~122px with no overflow, mobile 393px and PC Classic keep lower full-width button (PASS). Fixture is not a screenshot of logged-in production member data.
+          Known limitation: old standalone desktop-workspace-v34-compact-golden.mjs regex rejects a preexisting CSS transform in both base/new; official CI PASS. Native device Golden not certified. P1-07/P1-08 and orphan media safe-delete unresolved.
+          DEV: https://hnl-qltc-dev.web.app/hnl-dev-release.json
+          Drive source: https://drive.google.com/file/d/1BDX_nLvFRvTjou2uWPubCZ-qKHhDTmAw/view
+          Golden evidence: https://drive.google.com/file/d/17vQkpX2Y_N-ds3Gwbdhn4nQRaksU-dhC/view
+          REPORT
+          cat > out/HNL-QLTC-DEV-21420a9-CHAT-HANDOFF.md <<'HANDOFF'
+          # HNL QLTC -- next-chat checkpoint -- 2026-10-24
+          Repository lengochieu1211-sudo/hnl-qltc
+          Branch dev, exact HEAD 21420a955f02a04543a409e1b6622166310536c6
+          Version v6.3.0; source fix 11b57d78d068b9b3422ee8689cf75a49f7ac20cf (PR #319)
+          DEV Firebase project hnl-qltc-dev, https://hnl-qltc-dev.web.app
+          Hosted Runtime Golden #784 https://github.com/lengochieu1211-sudo/hnl-qltc/actions/runs/40075290284 PASS (41/9/206 checks).
+          Main UI fix: member phone Thêm/Sửa inline left of Liên hệ, Reset PIN, Trash in Security & Permissions on modern desktop; Classic/mobile unchanged. All PR CI build/Rules/TS/Lint, EXE/APK build PASS. Not Native CERTIFIED.
+          Backup folder: https://drive.google.com/drive/folders/133sLYU0ijo1fE99dfCN6hfcjxzVKhbVz
+          Full exact source: https://drive.google.com/file/d/1BDX_nLvFRvTjou2uWPubCZ-qKHhDTmAw/view
+          Runtime Golden evidence: https://drive.google.com/file/d/17vQkpX2Y_N-ds3Gwbdhn4nQRaksU-dhC/view
+          Remaining: inventory ledger Rules P1-07, rooms.subItems P1-08, safe Cloud voucher/photo deletion, Native EXE/APK real-device Golden, offline/reconnect. Preserve DEV-first audit->propose->minimal patch->CI/Rules/Golden->Drive checkpoint. Never rollback, change Firebase/R2/schema/IDs/main, or deploy PROD without request.
+          To continue: verify exact DEV HEAD and checkpoint first, then inspect user screenshot/new request. Do not consider a CSS fixture equivalent to authenticated member runtime.
+          User must manually open new chat and paste this handoff; assistant cannot auto-create or rename chats.
+          HANDOFF
+          (cd out && sha256sum *.zip *.md > HNL-QLTC-DEV-21420a9-BACKUP-SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
         with:
-          name: HNL-QLTC-DEV-21420a9-FULL-SOURCE
+          name: HNL-QLTC-DEV-21420a9-PATCH-REPORT-CHECKPOINT
           path: out/
           retention-days: 14
