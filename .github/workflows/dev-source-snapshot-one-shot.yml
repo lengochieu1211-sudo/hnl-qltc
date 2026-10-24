@@ -1,0 +1,29 @@
+name: One-shot verified DEV source artifact b28ba53e
+on:
+  push:
+    branches:
+      - audit/dev-phone-button-source-archive-b28ba53e-20261024
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Verify immutable DEV source and produce complete archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "b28ba53e26d4bec641b077b071ad272ca2046ee2"
+          mkdir -p out
+          git archive --format=zip --output=out/HNL-QLTC-DEV-b28ba53e-FULL-SOURCE.zip HEAD^
+          unzip -t out/HNL-QLTC-DEV-b28ba53e-FULL-SOURCE.zip | tail -n 1
+          (cd out && sha256sum HNL-QLTC-DEV-b28ba53e-FULL-SOURCE.zip > SOURCE-SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-DEV-b28ba53e-FULL-SOURCE-VERIFIED
+          path: out/
+          retention-days: 14
