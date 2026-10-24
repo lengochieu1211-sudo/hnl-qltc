@@ -1102,4 +1102,15 @@
     min-height: 40px;
     margin-left: auto;
   }
+  /* Member contact cards: keep the 1150px modal and the card unchanged.
+     Only the add/edit phone action is content-sized on Modern PC. */
+  html[data-hnl-pc-workspace="modern"]
+    button[data-hnl-security-phone-action="true"] {
+    box-sizing: border-box;
+    display: block;
+    width: min(100%, 200px);
+    min-height: 36px;
+    margin-left: auto;
+    white-space: normal;
+  }
 }
