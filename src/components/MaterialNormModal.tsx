@@ -1,3 +1,4 @@
+import { collectMaterialNormUpserts } from '../utils/materialNormImportDelta';
 import { ExpressionDisplayInput } from './ExpressionDisplayInput';
 import React, { useState, useEffect } from 'react';
 import { ViewportModalPortal } from './ViewportModalPortal';
@@ -493,7 +494,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             await onImportInventory(importedInventoryRows);
           }
           if (onImportNorms && (normsUpdatedCount > 0 || normsAddedCount > 0)) {
-            onImportNorms(newNorms);
+            onImportNorms(collectMaterialNormUpserts(materialNorms, newNorms));
           }
           alert('🎉 Đã cập nhật thành công dữ liệu từ tệp Excel!');
         }
@@ -1712,7 +1713,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
           if (skipped.length) {
             alert('Một số định mức chưa được lấy vì Hạng mục ở công trình hiện tại đang thiếu hoặc trùng tên nên không thể remap an toàn:\n' + skipped.map((item) => '• ' + item).join('\n') + '\n\nHãy bổ sung hoặc làm rõ Hạng mục thi công, sau đó lấy lại Định mức.');
           }
-          if (changed) onImportNorms(merged);
+          if (changed) onImportNorms(collectMaterialNormUpserts(activeMaterialNorms, merged));
         }}
       />
 
