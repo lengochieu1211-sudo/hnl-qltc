@@ -1,0 +1,33 @@
+name: One-shot DEV 21420a9 PATCH backup
+on:
+  push:
+    branches:
+      - audit/dev-21420a9-patch-export-20261024
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Verify immutable DEV HEAD and package changed files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "21420a955f02a04543a409e1b6622166310536c6"
+          mkdir -p out
+          git archive --format=zip --output=out/HNL-QLTC-DEV-21420a9-PATCH-4-FILES.zip HEAD^ \
+            .github/dev-release-approval.json \
+            scripts/desktop-workspace-v34-compact-golden.mjs \
+            src/components/SecurityModal.tsx \
+            src/styles/desktopWorkspaceCompact.css
+          unzip -t out/HNL-QLTC-DEV-21420a9-PATCH-4-FILES.zip | tail -n 1
+          (cd out && sha256sum HNL-QLTC-DEV-21420a9-PATCH-4-FILES.zip > PATCH-SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-DEV-21420a9-PATCH-VERIFIED
+          path: out/
+          retention-days: 14
