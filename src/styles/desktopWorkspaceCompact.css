@@ -1030,3 +1030,76 @@
     white-space: normal;
   }
 }
+
+
+/* HNL QLTC — PC security/notification control density (approved 2026-10-24).
+ * Keep both modal shells at their existing 1150px desktop width, search fields,
+ * data tables and scrolling unchanged. Compact only named action groups.
+ * Mobile and Classic mode retain their original Tailwind layouts. */
+@media (min-width: 960px) {
+  html[data-hnl-pc-workspace="modern"]
+    [data-hnl-security-primary-tabs="true"],
+  html[data-hnl-pc-workspace="modern"]
+    [data-hnl-notification-primary-tabs="true"] {
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    gap: 6px;
+    width: max-content;
+    max-width: 100%;
+    margin-inline: auto;
+  }
+  html[data-hnl-pc-workspace="modern"]
+    [data-hnl-security-primary-tabs="true"] > button,
+  html[data-hnl-pc-workspace="modern"]
+    [data-hnl-notification-primary-tabs="true"] > button {
+    box-sizing: border-box;
+    flex: 0 0 180px;
+    width: 180px;
+    max-width: 30vw;
+    min-width: 0;
+    min-height: 40px;
+    white-space: nowrap;
+  }
+  html[data-hnl-pc-workspace="modern"]
+    [data-hnl-security-auto-lock-tabs="true"] {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+  }
+  html[data-hnl-pc-workspace="modern"]
+    [data-hnl-security-auto-lock-tabs="true"] > button {
+    box-sizing: border-box;
+    flex: 0 0 90px;
+    width: 90px;
+    min-height: 36px;
+  }
+  html[data-hnl-pc-workspace="modern"]
+    [data-hnl-security-sign-in-wrap="true"] {
+    display: flex;
+    justify-content: flex-end;
+  }
+  html[data-hnl-pc-workspace="modern"]
+    [data-hnl-security-sign-in-wrap="true"] > button {
+    box-sizing: border-box;
+    width: min(100%, 280px);
+    min-height: 40px;
+  }
+  html[data-hnl-pc-workspace="modern"]
+    button[data-hnl-security-load-audit="true"] {
+    box-sizing: border-box;
+    display: block;
+    width: min(100%, 220px);
+    min-height: 40px;
+    margin-left: auto;
+  }
+  html[data-hnl-pc-workspace="modern"]
+    button[data-hnl-notification-open-chat="true"] {
+    box-sizing: border-box;
+    display: block;
+    width: min(100%, 180px);
+    min-height: 40px;
+    margin-left: auto;
+  }
+}

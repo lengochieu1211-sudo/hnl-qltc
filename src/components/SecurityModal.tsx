@@ -1471,7 +1471,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
         </div>
 
         {/* Tabs */}
-        <div className={`grid ${canReadAudit ? 'grid-cols-3' : 'grid-cols-2'} gap-1 p-1 bg-slate-100 rounded-xl mt-2.5 shrink-0`}>
+        <div data-hnl-security-primary-tabs="true" className={`grid ${canReadAudit ? 'grid-cols-3' : 'grid-cols-2'} gap-1 p-1 bg-slate-100 rounded-xl mt-2.5 shrink-0`}>
           <button
             type="button"
             onClick={() => setActiveTab('pin')}
@@ -1683,7 +1683,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
                     <span>Cài Đặt Tự Động Khóa</span>
                   </h4>
 
-                  <div className="grid grid-cols-4 gap-1.5">
+                  <div data-hnl-security-auto-lock-tabs="true" className="grid grid-cols-4 gap-1.5">
                     {[
                       { label: '1 phút', val: 1 },
                       { label: '5 phút', val: 5 },
@@ -1861,7 +1861,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
                   )}
 
                   {!cloudUser && (
-                    <div className="pt-2">
+                    <div data-hnl-security-sign-in-wrap="true" className="pt-2">
                       <button
                         type="button"
                         onClick={async () => {
@@ -2442,6 +2442,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
 
               {auditHasMore && !auditLoading && (
                 <button
+                  data-hnl-security-load-audit="true"
                   type="button"
                   onClick={() => void handleLoadMoreAudit()}
                   disabled={auditLoadingMore}
