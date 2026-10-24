@@ -190,12 +190,11 @@ service cloud.firestore {
 
     // P1-09. Do not rewrite an existing photo's record, owner, or lifecycle.
     function editorPhotoIdentityAndLifecycleAreSafe(projectId) {
-      return (!('projectId' in resource.data) || request.resource.data.projectId == resource.data.projectId)
-        && (!('projectId' in request.resource.data) || request.resource.data.projectId == projectId)
-        && (!('entityType' in resource.data) || request.resource.data.entityType == resource.data.entityType)
-        && (!('entityId' in resource.data) || request.resource.data.entityId == resource.data.entityId)
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'entityType', 'entityId', 'createdAt'
+        ])
         && (!('createdByUid' in resource.data) || request.resource.data.createdByUid == resource.data.createdByUid)
-        && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
+        && (!('projectId' in request.resource.data) || request.resource.data.projectId == projectId)
         && (!('updatedByUid' in request.resource.data) || request.resource.data.updatedByUid == request.auth.uid)
         && (!('deleted' in resource.data) || resource.data.deleted != true)
         && (!('deletedAt' in resource.data) || resource.data.deletedAt == null)
@@ -204,24 +203,12 @@ service cloud.firestore {
             && request.resource.data.deletedByUid == request.auth.uid));
     }
 
-    // Bound pointer to the same project, parent record and photo asset.
     function editorPhotoPointerScopedToSource(projectId, recordId) {
       return request.resource.data.projectId == projectId
-        && request.resource.data.entityType in ['defect', 'crewRecord', 'chat', 'inventory']
-        && request.resource.data.entityId is string
-        && request.resource.data.storageProvider in ['r2', 'firebase-storage']
         && request.resource.data.storagePath is string
         && request.resource.data.storagePath.matches(
-          '^projects/' + projectId + '/media/' + request.resource.data.entityType
-          + '/' + request.resource.data.entityId + '/' + recordId
-          + '/original\\.(jpg|png|webp|heic|pdf)$')
-        && (!('thumbnailPath' in request.resource.data)
-          || request.resource.data.thumbnailPath == ''
-          || (request.resource.data.thumbnailPath is string
-            && request.resource.data.thumbnailPath.matches(
-              '^projects/' + projectId + '/media/' + request.resource.data.entityType
-              + '/' + request.resource.data.entityId + '/' + recordId
-              + '/thumb\\.(jpg|png|webp|heic|pdf)$')))
+          '^projects/' + projectId + '/media/[^/]+/[^/]+/'
+          + recordId + '/original\\.(jpg|png|webp|heic|pdf)$')
         && (!('cloudFileId' in request.resource.data)
           || request.resource.data.cloudFileId == (
             (request.resource.data.storageProvider == 'r2' ? 'r2:' : 'storage:')
