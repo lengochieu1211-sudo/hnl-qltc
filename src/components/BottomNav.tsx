@@ -164,7 +164,11 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       <div
         data-hnl-nav-surface="mobile"
         className={`fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200 bg-white shadow-2xl ${forceDesktopRail ? 'hidden' : 'lg:hidden'}`}
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+        style={{
+          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+          paddingLeft: 'env(safe-area-inset-left, 0px)',
+          paddingRight: 'env(safe-area-inset-right, 0px)',
+        }}
       >
         <div className="relative mx-auto grid h-16 max-w-lg grid-cols-5 md:max-w-3xl">
           {mobileTabs.map((tab) => {
