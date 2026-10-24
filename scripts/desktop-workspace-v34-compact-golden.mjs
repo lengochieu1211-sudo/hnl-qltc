@@ -49,24 +49,39 @@ assert.match(css, /@media \(min-width: 1024px\)\s*\{[\s\S]*data-hnl-notification
   'CTA/scroll changes are scoped to PC 1024px+');
 console.log('HNL PC V3.5 MODAL SCROLL & CTA GOLDEN PASS');
 
-// Prevent regression of the member phone button width: only modern PC is
-// constrained; existing full-width Tailwind remains the mobile/Classic fallback.
+// The PC action must be inline, immediately before Contact/Reset PIN/Delete.
+// Classic and mobile keep the lower full-width action, and the editor remains
+// in its original position below the member information.
 const securityModal = read('src/components/SecurityModal.tsx');
-assert.match(securityModal, /data-hnl-security-contact-phone-action="true"/,
-  'Add/edit member phone actions must have a stable, scoped layout hook');
-assert.match(securityModal, /data-hnl-security-contact-phone-action="true"\s+className="w-full /,
-  'Keep mobile and Classic member contact button full-width behavior');
+const memberRows = securityModal.slice(securityModal.indexOf('sortedProjectMembers.map('));
+const memberActionRow = memberRows.slice(memberRows.indexOf('<div className="flex items-center gap-1 shrink-0">'));
+const inlineIndex = memberActionRow.indexOf('data-hnl-security-contact-phone-inline="true"');
+const contactIndex = memberActionRow.indexOf('<ContactMenu');
+const resetIndex = memberActionRow.indexOf('Reset PIN');
+const trashIndex = memberActionRow.indexOf('handleRemoveMemberSafe(m.email)');
+const lowerIndex = memberActionRow.indexOf('data-hnl-security-contact-phone-action="true"');
+assert(inlineIndex >= 0 && inlineIndex < contactIndex && contactIndex < resetIndex && resetIndex < trashIndex && trashIndex < lowerIndex,
+  'PC phone action must sit left of Contact / Reset PIN / Delete, not under the member card');
+assert.match(memberActionRow, /data-hnl-security-contact-phone-inline="true"\s+onClick=\{openPhoneEditor\}/,
+  'Inline contact action must reuse original safe phone editor handler');
+assert.match(memberActionRow, /onClick=\{openPhoneEditor\}\s+data-hnl-security-contact-phone-action="true"/,
+  'Classic/mobile action must reuse the same safe editor handler');
+assert.match(memberActionRow, /<ContactPhoneEditor[\s\S]*?onSave=\{\(value\) => void handleSaveMemberContact\(email, value\)\}/,
+  'Member phone edit save and permission behavior must remain intact');
+assert.match(memberActionRow, /data-hnl-security-contact-phone-inline="true"[\s\S]*?className="hidden /,
+  'Inline action must remain hidden in mobile/Classic mode');
+
 const phoneStyles = css.slice(css.indexOf('/* Security member phone action:'));
 assert.ok(phoneStyles.startsWith('/* Security member phone action:'),
-  'Modern PC member phone width regression CSS must exist');
+  'Desktop phone action CSS required');
 assert.match(phoneStyles, /@media \(min-width: 960px\)/,
-  'Limit member phone action width change to PC screens only');
-assert.match(phoneStyles, /html\[data-hnl-pc-workspace="modern"\]\s+button\[data-hnl-security-contact-phone-action="true"\]/,
-  'Keep Classic UI and unrelated buttons unaffected');
-assert.match(phoneStyles, /width: min\(100%, 180px\);/,
-  'Phone add/edit action must stay compact and fit its parent');
-assert.match(phoneStyles, /margin-left: auto;/,
-  'Align compact phone action to the right side of each member card');
-console.log('HNL PC MEMBER PHONE BUTTON WIDTH GOLDEN PASS — 180px right aligned; Classic/mobile unchanged');
+  'Only desktop viewport may move member phone action');
+assert.match(phoneStyles, /html\[data-hnl-pc-workspace="modern"\]\s+button\[data-hnl-security-contact-phone-action="true"\]\s*\{\s*display: none;/,
+  'Old lower phone action must be hidden only in Modern desktop');
+assert.match(phoneStyles, /html\[data-hnl-pc-workspace="modern"\]\s+button\[data-hnl-security-contact-phone-inline="true"\][\s\S]*?display: inline-flex;/,
+  'PC inline phone action must be visible and stay in the top action row');
+assert.match(phoneStyles, /max-width: 180px;/,
+  'PC inline phone action must remain compact');
+console.log('HNL PC PHONE INLINE TOOLBAR GOLDEN PASS — phone before Contact/Reset PIN/Delete; mobile/Classic unchanged');
 
 console.log('HNL PC V3.4 COMPACT GOLDEN PASS — mode visibility, compact actions, 84px rail, classic/mobile and plan safety');

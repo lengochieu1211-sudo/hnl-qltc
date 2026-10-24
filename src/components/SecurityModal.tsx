@@ -2109,6 +2109,10 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
                       const phoneValue = contactDrafts[email] ?? contact?.phone ?? '';
                       const presence = presenceByEmail.get(email);
                       const presenceActive = presenceIsActive(presence);
+                      const openPhoneEditor = () => {
+                        setContactDrafts((prev) => ({ ...prev, [email]: contact?.phone || '' }));
+                        setEditingContactEmail(email);
+                      };
                       return (
                       <div
                         key={m.email}
@@ -2145,6 +2149,16 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
                             </span>
                           </div>
                           <div className="flex items-center gap-1 shrink-0">
+                            {canManageProjectMembers && editingContactEmail !== email && (
+                              <button
+                                type="button"
+                                data-hnl-security-contact-phone-inline="true"
+                                onClick={openPhoneEditor}
+                                className="hidden px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-[10px] font-extrabold hover:bg-slate-50 whitespace-nowrap"
+                              >
+                                {contact?.phone ? 'Sửa số điện thoại' : 'Thêm số điện thoại'}
+                              </button>
+                            )}
                             {canReadMemberContacts && <ContactMenu
                               target={{ name: m.displayName || m.email, phone: contact?.phone }}
                               context={{ type: 'member', projectId: selectedPid, entityId: email }}
@@ -2176,10 +2190,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
                           ) : (
                             <button
                               type="button"
-                              onClick={() => {
-                                setContactDrafts((prev) => ({ ...prev, [email]: contact?.phone || '' }));
-                                setEditingContactEmail(email);
-                              }}
+                              onClick={openPhoneEditor}
                               data-hnl-security-contact-phone-action="true"
                               className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-[10px] font-extrabold hover:bg-slate-50"
                             >
