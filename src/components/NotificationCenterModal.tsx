@@ -217,7 +217,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
         </div>
 
         <div className="px-3 pt-3 bg-white border-b border-slate-100 shrink-0">
-          <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl">
+          <div data-hnl-notification-primary-tabs="true" className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl">
             <button onClick={() => setSection('work')} className={`px-2 py-2 rounded-lg text-[11px] font-extrabold ${section === 'work' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>Công việc</button>
             <button onClick={() => setSection('messages')} className={`px-2 py-2 rounded-lg text-[11px] font-extrabold flex items-center justify-center gap-1 ${section === 'messages' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>Tin nhắn {chatUnreadCount > 0 && <span className="bg-rose-600 text-white rounded-full px-1.5 text-[9px]">{chatUnreadCount > 9 ? '9+' : chatUnreadCount}</span>}</button>
             <button onClick={() => setSection('system')} className={`px-2 py-2 rounded-lg text-[11px] font-extrabold flex items-center justify-center gap-1 ${section === 'system' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>
