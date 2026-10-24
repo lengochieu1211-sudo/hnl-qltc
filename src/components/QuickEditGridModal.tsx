@@ -653,33 +653,17 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
     if (!canEdit) return;
     const text = event.clipboardData.getData('text/plain');
     if (!text) return;
-    // Compatibility fallback for a future explicitly opted-out specialized grid.
-    if (!spreadsheetSelection) {
-      if (!text.includes('\t') && !text.includes('\n')) return;
+    // Validate the full clipboard before staging any cell change. This applies to
+    // both spreadsheet mode and the legacy specialized-grid fallback.
+    let matrix: string[][];
+    try {
+      matrix = parseGridTSV(text);
+    } catch (error) {
       event.preventDefault();
-      const matrix = parseGridTSV(text);
-      const startRow = draftRows.findIndex((row) => row.__rowKey === rowKey);
-      const startColumn = columns.findIndex((column) => column.key === columnKey);
-      if (startRow < 0 || startColumn < 0) return;
-      pushUndo();
-      let nextRows = cloneRows(draftRows);
-      let nextDirty: Set<string> = new Set<string>(dirtyCellKeys);
-      matrix.forEach((cells, rowOffset) => {
-        const row = nextRows[startRow + rowOffset];
-        if (!row) return;
-        cells.forEach((raw, colOffset) => {
-          const col = columns[startColumn + colOffset];
-          if (!col || !isColumnEditable(col, row, canEdit)) return;
-          const result = applyCellChange(nextRows, nextDirty, row.__rowKey, col, coerceValue(col, raw));
-          nextRows = result.rows;
-          nextDirty = result.dirty;
-        });
-      });
-      setDraftRows(nextRows);
-      setDirtyCellKeys(nextDirty);
+      setClipboardNotice(`Không thể đọc dữ liệu Excel: ${error instanceof Error ? error.message : String(error)} Chưa thay đổi dữ liệu.`);
       return;
     }
-    const matrix = parseGridTSV(text);
+    if (!spreadsheetSelection && !text.includes('\t') && !text.includes('\n') && matrix.length === 1 && matrix[0].length === 1) return;
     if (!matrix.length) return;
     event.preventDefault();
     const pasteRows = spreadsheetSelection ? filteredRows : draftRows;
@@ -692,7 +676,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
       commitCells(changes);
       return;
     }
-    if (spreadsheetSelection && (matrix.length + startRow > pasteRows.length || matrix.some((cells) => cells.length + startColumn > columns.length))) {
+    if (matrix.length + startRow > pasteRows.length || matrix.some((cells) => cells.length + startColumn > columns.length)) {
       setClipboardNotice('Vùng dán vượt khỏi bảng đang hiển thị. Chưa thay đổi dữ liệu.');
       return;
     }
