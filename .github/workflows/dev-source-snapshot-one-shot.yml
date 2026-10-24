@@ -1,0 +1,30 @@
+name: One-shot verified DEV source artifact b0cc62d
+on:
+  push:
+    branches:
+      - audit/source-archive-b0cc62d-20261024
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Verify immutable approved source and create original git archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "b0cc62dbc562fe976d935f6807d7f58f44b072c7"
+          mkdir -p out
+          git archive --format=zip --output=out/HNL-QLTC-DEV-b0cc62d-FULL-SOURCE.zip HEAD^
+          unzip -t out/HNL-QLTC-DEV-b0cc62d-FULL-SOURCE.zip | tail -n 1
+          sha256sum out/HNL-QLTC-DEV-b0cc62d-FULL-SOURCE.zip > out/SHA256SUMS.txt
+          git diff-tree --no-commit-id --name-only -r HEAD^ >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-DEV-b0cc62d-FULL-SOURCE-VERIFIED
+          path: out/
+          retention-days: 7
