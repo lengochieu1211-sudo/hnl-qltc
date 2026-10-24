@@ -46,8 +46,12 @@ export async function restoreProjectTrashAtomic(projectId: string, operationId: 
       const settingsSnap = await transaction.get(settingsRef);
       if (!settingsSnap.exists() || !settingsSnap.data().structure) throw new Error('STRUCTURE_TRASH_SHARED_SETTINGS_MISSING');
       const restoredConfig = planRestoreStructureGroup(normalizeStructureGroupConfig(settingsSnap.data().structure), item.snapshot);
+      const deletedIds = Array.isArray(settingsSnap.data().structureGroupDeletedIds)
+        ? settingsSnap.data().structureGroupDeletedIds as string[] : [];
       transaction.update(settingsRef, {
-        structure: restoredConfig, updatedAt: Date.now(),
+        structure: restoredConfig,
+        structureGroupDeletedIds: deletedIds.filter((id) => id !== item.entityId),
+        updatedAt: Date.now(),
         updatedByUid: user.uid, updatedByEmail: user.email.trim().toLowerCase(),
       });
       transaction.delete(operationRef);
