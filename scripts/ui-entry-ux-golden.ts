@@ -56,6 +56,17 @@ assert(!header.includes('<WifiOff'), 'Header offline Wi-Fi badge must stay remov
 assert(!header.includes('GoogleAuthModal'), 'Header Google login shortcut/modal must stay removed');
 assert(header.includes("onOpenProjectManager('projects')"), 'Header Project button must open Project List only');
 assert(header.includes('data-hnl-global-header'), 'Global header must expose a stable Runtime Golden measurement hook');
+const notchNavSource = read('src/components/BottomNav.tsx');
+// P1 iOS notch regression: fullscreen PWA content must not sit under the
+// camera/status bar; retain Android and non-notched zero-inset behavior.
+const viewportMeta = read('index.html');
+const cssSafeArea = read('src/index.css');
+assert(viewportMeta.includes('viewport-fit=cover') && viewportMeta.includes('black-translucent'), 'iOS fullscreen browser contract must be explicit');
+assert(cssSafeArea.includes('.safe-area-top { padding-top: env(safe-area-inset-top); }'), 'Shared top safe-area utility must remain available');
+assert(header.includes('data-hnl-global-header className="safe-area-top '), 'Sticky global header must reserve iPhone notch/status bar top inset');
+assert(header.includes("paddingLeft: 'env(safe-area-inset-left, 0px)'") && header.includes("paddingRight: 'env(safe-area-inset-right, 0px)'"), 'Sticky header must protect landscape iPhone cutout edges');
+assert(notchNavSource.includes("paddingBottom: 'env(safe-area-inset-bottom, 0px)'") && notchNavSource.includes("paddingLeft: 'env(safe-area-inset-left, 0px)'") && notchNavSource.includes("paddingRight: 'env(safe-area-inset-right, 0px)'"), 'Mobile bottom nav must protect home indicator and landscape cutout edges');
+assert(header.includes('sticky top-0 z-30') && notchNavSource.includes('fixed bottom-0 left-0 right-0 z-40'), 'Safe-area patch must retain sticky header and fixed thumb navigation');
 assert(header.includes('lg:flex lg:items-center lg:gap-3') && header.includes('lg:mb-0 lg:min-w-0 lg:flex-1') && header.includes('lg:mt-0 lg:shrink-0'), 'Desktop header must merge identity + quick actions into one compact lg+ row while mobile keeps the two-row flow');
 assert(header.includes('data-hnl-header-actions'), 'Header quick actions must expose a stable runtime hook');
 assert(header.includes('[&>button]:min-h-9 [&>button]:min-w-9') && (header.match(/min-h-9 min-w-9/g) || []).length >= 5, 'Header mobile actions must retain >=36px touch targets');
@@ -820,6 +831,7 @@ assert(hostedBrowserGolden.includes('data-hnl-settings-sheet-backdrop'), 'Hosted
 assert(hostedBrowserGolden.includes('must open as a fixed feature sheet'), 'Hosted browser Golden must lock feature-sheet geometry');
 assert(hostedBrowserGolden.includes('Sync Center feature sheet keeps existing business controls'), 'Hosted browser Golden must retain Sync Center business/RBAC coverage');
 assert(hostedBrowserGolden.includes('Settings page returns to normal responsive navigation after sheets close'), 'Hosted browser Golden must restore the correct desktop-left/mobile-bottom navigation after close');
+assert(hostedBrowserGolden.includes('verifyPhoneSafeAreaViewportMatrix(browser)') && hostedBrowserGolden.includes('iphone-13-390') && hostedBrowserGolden.includes('iphone-landscape-844') && hostedBrowserGolden.includes('android-small-360'), 'Hosted Runtime Golden must cover representative phone sizes and landscape full-screen layouts');
 assert(hostedBrowserGolden.includes("const syncSelector = '#sync-backup-card'"), 'Hosted browser Golden must target the stable Sync Center card');
 assert(hostedBrowserGolden.includes("const restrictedBackupNotice = sheet.getByText('Sao lưu/khôi phục dữ liệu:'"), 'Hosted browser Golden must keep VIEWER fail-closed RBAC coverage inside the Sync Center sheet');
 assert(!hostedBrowserGolden.includes('must expand inline, not become a fixed page/sheet'), 'Hosted browser Golden must not regress to the removed inline-expansion contract');
