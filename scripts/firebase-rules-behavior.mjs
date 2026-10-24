@@ -424,6 +424,62 @@ try {
     deleted: true, deletedAt: Date.now(), revision: 3, updatedAt: invUpdatedAt + 20,
   }));
 
+  // P1-07: balance identity and provenance guards. These fixtures are separate
+  // from the warehouse ledger: full voucher-delta validation is still pending.
+  const balanceRef = doc(db, 'projects', pid, 'inventory_balances', 'BAL-RULE-1');
+  const balanceNow = Date.now();
+  const balanceSeed = {
+    id: 'BAL-RULE-1', projectId: pid, itemKind: 'material', materialId: 'MAT-RULE-1',
+    materialName: 'Tấm TC', unit: 'tấm', onHand: 10, revision: 1,
+    updatedAt: balanceNow, updatedByUid: editorUid,
+  };
+  await expectAllowed('EDITOR can create valid derived balance metadata', () => setDoc(balanceRef, balanceSeed));
+  await expectDenied('EDITOR cannot impersonate owner in new balance metadata', () => setDoc(doc(db, 'projects', pid, 'inventory_balances', 'BAL-SPOOF-UID'), {
+    ...balanceSeed, id: 'BAL-SPOOF-UID', updatedByUid: ownerUid,
+  }));
+  await expectDenied('EDITOR cannot create balance migration tombstone', () => setDoc(doc(db, 'projects', pid, 'inventory_balances', 'BAL-SPOOF-RENAME'), {
+    ...balanceSeed, id: 'BAL-SPOOF-RENAME', renamedTo: 'another-key', renamedToUnit: 'hộp',
+  }));
+  await expectDenied('EDITOR cannot create balance with spoofed revision', () => setDoc(doc(db, 'projects', pid, 'inventory_balances', 'BAL-SPOOF-REV'), {
+    ...balanceSeed, id: 'BAL-SPOOF-REV', revision: 300,
+  }));
+  await expectAllowed('EDITOR may update stock balance while retaining metadata', () => updateDoc(balanceRef, {
+    onHand: 11, revision: 2, updatedAt: balanceNow + 1, updatedByUid: editorUid,
+  }));
+  await expectDenied('EDITOR cannot swap balance materialId', () => updateDoc(balanceRef, {
+    materialId: 'MAT-OTHER', onHand: 11, revision: 3, updatedAt: balanceNow + 2, updatedByUid: editorUid,
+  }));
+  await expectDenied('EDITOR cannot change balance material name and unit', () => updateDoc(balanceRef, {
+    materialName: 'Tấm giả', unit: 'thùng', revision: 3, updatedAt: balanceNow + 2, updatedByUid: editorUid,
+  }));
+  await expectDenied('EDITOR cannot forge balance updater', () => updateDoc(balanceRef, {
+    onHand: 12, revision: 3, updatedAt: balanceNow + 2, updatedByUid: ownerUid,
+  }));
+  await expectDenied('EDITOR cannot jump balance revision', () => updateDoc(balanceRef, {
+    onHand: 12, revision: 99, updatedAt: balanceNow + 2, updatedByUid: editorUid,
+  }));
+  await expectDenied('EDITOR cannot write migration tombstone on an existing balance', () => updateDoc(balanceRef, {
+    renamedTo: 'another-key', revision: 3, updatedAt: balanceNow + 2, updatedByUid: editorUid,
+  }));
+  await signIn(ownerEmail);
+  await expectAllowed('ADMIN retains atomic unit migration metadata permission', () => updateDoc(balanceRef, {
+    unit: 'thùng', renamedTo: 'renamed-balance', renamedToUnit: 'thùng',
+    revision: 3, updatedAt: balanceNow + 2, updatedByUid: ownerUid,
+  }));
+  const legacyBalanceRef = doc(db, 'projects', pid, 'inventory_balances', 'BAL-LEGACY-RULE-1');
+  await expectAllowed('ADMIN seeds legacy balance without a materialId', () => setDoc(legacyBalanceRef, {
+    ...balanceSeed, id: 'BAL-LEGACY-RULE-1', itemKind: 'material', materialId: null, updatedByUid: ownerUid,
+  }));
+  await signIn(editorEmail);
+  await expectAllowed('EDITOR may fill missing legacy materialId during transaction', () => updateDoc(legacyBalanceRef, {
+    materialId: 'MAT-RULE-1', onHand: 11, revision: 2, updatedAt: balanceNow + 1, updatedByUid: editorUid,
+  }));
+  await signIn(viewerEmail);
+  await expectDenied('VIEWER cannot forge derived warehouse balance', () => updateDoc(legacyBalanceRef, {
+    onHand: 999, revision: 3, updatedAt: balanceNow + 2, updatedByUid: viewerUid,
+  }));
+  await signIn(editorEmail);
+
   const crewRef = doc(db, 'projects', pid, 'crew_records', 'CREW-RULE-1');
   await expectDenied('EDITOR cannot create crew record without creator identity', () => setDoc(doc(db, 'projects', pid, 'crew_records', 'CREW-NO-OWNER'), {
     id: 'CREW-NO-OWNER', date: '2026-08-27', teamName: 'Đội A', workerCount: 5,
