@@ -210,7 +210,8 @@ assert(config.includes('description="Đồng bộ dữ liệu · R2/ảnh · sao
 assert(config.includes('id="sync-backup-card"'), 'Sync Center needs a stable Settings navigation id');
 assert(config.includes('id="system-sync-card"'), 'Health Center needs a stable navigation id');
 assert(config.includes('id="trash-recovery-card"'), 'Trash/history card needs a stable navigation id');
-assert((config.match(/<SettingsAccordionCard/g) || []).length === 6, 'Settings must render exactly six cards through the shared feature-sheet component');
+assert((config.match(/<SettingsAccordionCard/g) || []).length === 7, 'Settings must render exactly seven cards including the user guide through the shared feature-sheet component');
+assert(config.includes('id="user-guide-center-card"') && config.includes('title="Hướng dẫn sử dụng & Trợ giúp"'), 'Settings must keep the read-only guide entry');
 assert(config.includes('syncCenterContent'), 'Sync Center must reuse the existing ProjectManager business engine inside the Settings sheet');
 assert(!config.includes('>Trạng thái đồng bộ</div>'), 'Sync Center must not duplicate sync diagnostics already shown in HNL Health Center');
 assert(!config.includes('bg-emerald-50/70 p-4 text-left'), 'Old green Sync Center banner styling must be removed');
@@ -809,8 +810,8 @@ assert(!projectManager.includes('🔗 Chọn Tệp Trên Máy Để Liên Kết 
 
 const hostedBrowserGolden = read('scripts/dev-hosted-browser-golden.mjs');
 assert(hostedBrowserGolden.includes("supportedEntryTypes?.includes('longtask')") && hostedBrowserGolden.includes('Long Task >200ms'), 'Hosted browser Golden must measure warm interaction long tasks, not only shell/mount timing');
-assert(hostedBrowserGolden.includes('six Settings cards share one design system'), 'Hosted browser Golden must verify all six Settings cards share one design system');
-assert(hostedBrowserGolden.includes('six Settings entries open in shared feature sheets'), 'Hosted browser Golden must verify all six Settings entries open as feature sheets');
+assert(hostedBrowserGolden.includes('seven Settings cards share one design system'), 'Hosted browser Golden must verify all seven Settings cards share one design system');
+assert(hostedBrowserGolden.includes('seven Settings entries open in shared feature sheets'), 'Hosted browser Golden must verify all seven Settings entries open as feature sheets');
 assert(hostedBrowserGolden.includes('Settings sheet close contract'), 'Hosted browser Golden must cover shared close behavior');
 assert(hostedBrowserGolden.includes('X + Back + Escape + backdrop'), 'Hosted browser Golden must cover X, Android/browser Back, Escape and backdrop close paths');
 assert(hostedBrowserGolden.includes('data-hnl-settings-sheet'), 'Hosted browser Golden must inspect the shared Settings sheet dialog');
@@ -869,4 +870,4 @@ assert(nestedCatalog.includes('confirmDiscard') && nestedCatalog.includes('switc
 assert(nestedConfig.includes('id="system-sync-card"\n          lazy\n          unmountOnClose') && nestedConfig.includes('id="catalog-template-manager-card"\n        lazy\n        unmountOnClose'), 'Heavy nested Settings panels must lazy mount and unmount on close');
 assert(nestedAccordion.includes('unmountOnClose ? open : hasOpened') && nestedFeatureSheet.includes('approvedHistoryCloseRef'), 'Settings sheet must respect close guards including Android Back');
 const hostedGolden = read('scripts/dev-hosted-browser-golden.mjs');
-assert(hostedGolden.includes('Catalog all 5 nested Settings tabs') && hostedGolden.includes('six Settings cards share one design system'), 'Hosted Settings Golden must cover all 6 sheets and 5 nested Catalog tabs');
+assert(hostedGolden.includes('Catalog all 5 nested Settings tabs') && hostedGolden.includes('seven Settings cards share one design system'), 'Hosted Settings Golden must cover all 7 sheets and 5 nested Catalog tabs');
