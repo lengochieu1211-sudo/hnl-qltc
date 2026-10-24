@@ -30,6 +30,10 @@ assert(authGate.includes("type AuthGateState = 'checking' | 'authenticated' | 'o
 assert(authGate.includes('data-hnl-auth-gate="checking"'), 'checking auth state uses a dedicated restore splash without rendering the login card');
 assert(authGate.includes("data-hnl-auth-gate={state}"), 'signed-out state is rendered by a dedicated full-screen auth surface');
 assert(authGate.includes('Đăng nhập với Google'), 'dedicated entry screen exposes one clear Google sign-in action');
+assert(authGate.includes("window.matchMedia?.('(display-mode: standalone)').matches") && authGate.includes('navigator as Navigator & { standalone?: boolean }'), 'iOS Home Screen keyboard guidance is detected only in standalone display mode');
+assert(authGate.includes('isIosHomeScreenApp && (') && authGate.includes('không hiện bàn phím?'), 'installed iPhone sign-in screen offers context-sensitive keyboard recovery');
+assert(authGate.includes('Không xóa dữ liệu trình duyệt hay gỡ biểu tượng'), 'keyboard recovery warns against clearing offline project/photo data');
+assert(authGate.includes('Đăng nhập Safari có thể không tự đăng nhập lại ứng dụng ghim'), 'iOS help does not incorrectly promise browser-to-PWA auth transfer');
 assert(authGate.includes('BUILD_METADATA.environment') && authGate.includes("appEnv === 'DEV'") && authGate.includes('DEV'), 'login surface visibly identifies DEV without changing auth logic');
 assert(authGate.includes('<span>V{APP_VERSION}</span>') && !authGate.includes('<span>v{APP_VERSION}</span>'), 'login version uses uppercase V to match PROD presentation');
 assert(authGate.includes('/icon.png') && authGate.includes('drop-shadow-[') && !authGate.includes('HNL Construction') && !authGate.includes('Công ty Cổ phần Công nghiệp An Phú'), 'login uses the canonical HNL icon borderless in the approved centered blue layout without redundant company/top-left labels');
