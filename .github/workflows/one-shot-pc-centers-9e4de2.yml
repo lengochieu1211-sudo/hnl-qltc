@@ -1,0 +1,40 @@
+name: One-shot DEV PC Centers Source+Patch 9e4de2
+on:
+  push:
+    branches: [audit/center-ui-golden-9e4de2-snapshot-20261024]
+permissions:
+  contents: read
+jobs:
+  verified_archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+      - name: Archive immutable verified DEV source and minimal patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE=9e4de2d4fd234b71c7bee64a07c90992d9ba36b0
+          BASE=6a0559146c173a4786a033b9229adc99c9f3b3da
+          test "$(git rev-parse HEAD^)" = "$SOURCE"
+          test "$(git merge-base "$BASE" "$SOURCE")" = "$BASE"
+          mkdir -p out stage
+          git archive --format=zip --output=out/HNL-QLTC-DEV-9e4de2-FULL-SOURCE.zip "$SOURCE"
+          git diff --name-only "$BASE" "$SOURCE" | sort > out/PATCH-FILES.txt
+          test "$(wc -l < out/PATCH-FILES.txt)" -eq 2
+          while IFS= read -r name; do
+            mkdir -p "stage/$(dirname "$name")"
+            git show "$SOURCE:$name" > "stage/$name"
+          done < out/PATCH-FILES.txt
+          (cd stage && zip -q -r ../out/HNL-QLTC-DEV-9e4de2-PATCH.zip .)
+          unzip -t out/HNL-QLTC-DEV-9e4de2-FULL-SOURCE.zip | tail -1
+          unzip -t out/HNL-QLTC-DEV-9e4de2-PATCH.zip | tail -1
+          (cd out && sha256sum HNL-QLTC-DEV-9e4de2-FULL-SOURCE.zip HNL-QLTC-DEV-9e4de2-PATCH.zip > SHA256SUMS.txt)
+          test "$(git diff --name-only "$BASE" "$SOURCE" | wc -l)" -eq 2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-DEV-9e4de2-FULL-PATCH
+          path: out/
+          retention-days: 7
