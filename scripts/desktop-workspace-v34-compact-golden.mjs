@@ -49,4 +49,24 @@ assert.match(css, /@media \(min-width: 1024px\)\s*\{[\s\S]*data-hnl-notification
   'CTA/scroll changes are scoped to PC 1024px+');
 console.log('HNL PC V3.5 MODAL SCROLL & CTA GOLDEN PASS');
 
+// Prevent regression of the member phone button width: only modern PC is
+// constrained; existing full-width Tailwind remains the mobile/Classic fallback.
+const securityModal = read('src/components/SecurityModal.tsx');
+assert.match(securityModal, /data-hnl-security-contact-phone-action="true"/,
+  'Add/edit member phone actions must have a stable, scoped layout hook');
+assert.match(securityModal, /data-hnl-security-contact-phone-action="true"\s+className="w-full /,
+  'Keep mobile and Classic member contact button full-width behavior');
+const phoneStyles = css.slice(css.indexOf('/* Security member phone action:'));
+assert.ok(phoneStyles.startsWith('/* Security member phone action:'),
+  'Modern PC member phone width regression CSS must exist');
+assert.match(phoneStyles, /@media \(min-width: 960px\)/,
+  'Limit member phone action width change to PC screens only');
+assert.match(phoneStyles, /html\[data-hnl-pc-workspace="modern"\]\s+button\[data-hnl-security-contact-phone-action="true"\]/,
+  'Keep Classic UI and unrelated buttons unaffected');
+assert.match(phoneStyles, /width: min\(100%, 180px\);/,
+  'Phone add/edit action must stay compact and fit its parent');
+assert.match(phoneStyles, /margin-left: auto;/,
+  'Align compact phone action to the right side of each member card');
+console.log('HNL PC MEMBER PHONE BUTTON WIDTH GOLDEN PASS — 180px right aligned; Classic/mobile unchanged');
+
 console.log('HNL PC V3.4 COMPACT GOLDEN PASS — mode visibility, compact actions, 84px rail, classic/mobile and plan safety');
