@@ -106,6 +106,10 @@ assert.ok(appSource.includes("saveProjectSharedSettings(activeProjectIdRef.curre
 const groupTrashSource = readFileSync(new URL('../src/lib/structureGroupTrash.ts', import.meta.url), 'utf8');
 const groupRestoreSource = readFileSync(new URL('../src/lib/trashRestore.ts', import.meta.url), 'utf8');
 const purgeSource = readFileSync(new URL('../src/lib/cloudBinaryPurge.ts', import.meta.url), 'utf8');
+assert.ok(groupTrashSource.indexOf('const floorIndex = await getDocsFromServer') > groupTrashSource.indexOf('structureGroupDeleteLocks: locks'), 'floor index must be queried after lock is persisted');
+assert.ok(groupTrashSource.includes('STRUCTURE_TRASH_GROUP_LOCK_LOST') && groupTrashSource.includes('structureGroupDeletedIds: Array.from(new Set'), 'delete must retain lock ownership and durable group denylist');
+assert.ok(groupRestoreSource.includes('structureGroupDeletedIds: deletedIds.filter((id) => id !== item.entityId)'), 'atomic restore must release deleted-ID guard');
+assert.equal(rulesSource.split("collectionName != 'floor_plans' || floorGroupIsNotDeleting(projectId)").length - 1, 2, 'Rules must block floor create and update during deletion');
 assert.ok(groupTrashSource.includes('runTransaction(db, async (tx)') && groupTrashSource.includes('tx.set(receiptRef, operation)')
   && groupTrashSource.includes('tx.update(settingsRef'), 'group delete and Trash receipt must commit atomically');
 assert.ok(groupTrashSource.includes('STRUCTURE_TRASH_MUST_ENABLE_TRASH'), 'Trash OFF must fail closed for group deletion');
