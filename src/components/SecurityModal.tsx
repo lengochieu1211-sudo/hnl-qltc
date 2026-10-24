@@ -2180,6 +2180,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
                                 setContactDrafts((prev) => ({ ...prev, [email]: contact?.phone || '' }));
                                 setEditingContactEmail(email);
                               }}
+                              data-hnl-security-contact-phone-action="true"
                               className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-[10px] font-extrabold hover:bg-slate-50"
                             >
                               {contact?.phone ? 'Sửa số điện thoại' : 'Thêm số điện thoại'}
