@@ -81,6 +81,20 @@ assert(crew.includes('rememberCrewDetailForReturn();') && crew.includes("context
 assert(app.includes('onContextReturn={contextReturnFrames.length > 0'), 'Parent navigation stack must own the modal return');
 assert(floorPlan.includes('data-hnl-defect-context-back="true"') && floorPlan.includes('sticky top-0'), 'Defect back button must remain visible during scroll');
 assert(roomModal.includes('data-hnl-room-context-back="true"'), 'Room modal must have visible contextual return');
+// Concurrency guard: a slow photo fetch for a previous account/receipt must not
+// mutate the current visible count or error list before its result is rejected.
+const photoLoadSource = photoPicker.slice(
+  photoPicker.indexOf('const loadPhotos = async () => {'),
+  photoPicker.indexOf('  useEffect(() => {\n    loadPhotos();')
+);
+const oldResultGuard = photoLoadSource.indexOf('if (loadSeq !== loadSeqRef.current) {');
+const photoCountMutation = photoLoadSource.indexOf('setPhotos(items);');
+const photoErrorsMutation = photoLoadSource.indexOf('setPhotoLoadErrors(Object.fromEntries(unresolved.map');
+const photoUrlsMutation = photoLoadSource.indexOf('setPhotoDataUrls((prev) => {', photoCountMutation);
+assert(oldResultGuard >= 0 && photoCountMutation > oldResultGuard && photoErrorsMutation > oldResultGuard && photoUrlsMutation > oldResultGuard,
+  'Stale Warehouse/Crew/Defect photo loads must be discarded before publishing photos, errors or thumbnails');
+assert(photoLoadSource.includes('Object.values(urlMap).forEach(revokeBlobUrl);'),
+  'A discarded async photo result must release its temporary Blob URLs');
 assert(photoPicker.includes('return selected.slice(savedNow.length)'), 'Partial photo uploads must retain only unsaved files');
 assert(warehouse.includes('data-hnl-warehouse-photo-retry="true"'), 'Failed voucher-photo subset must have an explicit retry action');
 assert(warehouse.includes('Ảnh được lưu ngay khi thêm, sửa hoặc xóa'), 'Independent photo-save behavior must be disclosed');

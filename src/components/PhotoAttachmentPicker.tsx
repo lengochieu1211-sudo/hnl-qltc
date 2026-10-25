@@ -170,6 +170,15 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
         urlMap = await resolveUrls(items);
         unresolved = items.filter((p) => !urlMap[p.id]);
       }
+      // Cloud refresh and binary downloads are asynchronous. Account/project/receipt
+      // changes may start a newer load while this one is in flight. Discard the old
+      // result BEFORE touching photo counts/errors or thumbnails; otherwise an older
+      // account's result can overwrite the active receipt even when its URLs are
+      // already rejected by the sequence guard.
+      if (loadSeq !== loadSeqRef.current) {
+        Object.values(urlMap).forEach(revokeBlobUrl);
+        return;
+      }
       setPhotos(items);
       setPhotoLoadErrors(Object.fromEntries(unresolved.map((p) => [
         p.id,
@@ -178,11 +187,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
           : 'Không tải được binary ảnh từ Cloud/R2.'
       ])));
       
-      // Load data URLs / thumbnails asynchronously
-      if (loadSeq !== loadSeqRef.current) {
-        Object.values(urlMap).forEach(revokeBlobUrl);
-        return;
-      }
+      // Load data URLs / thumbnails only for the latest active request.
       setPhotoDataUrls((prev) => {
         Object.values(prev).forEach(revokeBlobUrl);
         photoDataUrlsRef.current = urlMap;
