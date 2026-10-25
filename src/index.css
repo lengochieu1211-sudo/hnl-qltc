@@ -170,8 +170,8 @@ html[data-hnl-theme="dark"] textarea::placeholder { color: #64748b !important; o
 html[data-hnl-theme="dark"] :disabled { opacity: .62; }
 
 /* Pale accent surfaces used by tabs/cards. Keep brand meaning without light-mode glare. */
-html[data-hnl-theme="dark"] .bg-indigo-50 { background-color: rgb(30 64 175 / .24) !important; }
-html[data-hnl-theme="dark"] .bg-indigo-100 { background-color: rgb(30 64 175 / .34) !important; }
+html[data-hnl-theme="dark"] .bg-indigo-50 { background-color: color-mix(in srgb, var(--hnl-primary) 24%, var(--hnl-dark-surface)) !important; }
+html[data-hnl-theme="dark"] .bg-indigo-100 { background-color: color-mix(in srgb, var(--hnl-primary) 34%, var(--hnl-dark-surface)) !important; }
 html[data-hnl-theme="dark"] .bg-blue-50 { background-color: rgb(30 64 175 / .24) !important; }
 html[data-hnl-theme="dark"] .bg-blue-100 { background-color: rgb(30 64 175 / .34) !important; }
 html[data-hnl-theme="dark"] .bg-violet-50,

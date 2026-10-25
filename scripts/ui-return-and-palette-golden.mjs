@@ -730,3 +730,31 @@ assert.ok(entryCompactCss.includes('/* HNL QLTC — a shared PC size for export/
   entryCompactCss.includes('min-height: 44px;'),
   'PC export buttons are uniform 112x44px and wrap inside narrow dialogs');
 console.log('UNIFIED EXPORT FORMAT BUTTONS GOLDEN PASS');
+
+
+// Nested dark-screen brand regression. HNL blue must not become purple from the
+// late-loaded darkmode-final.css stylesheet; semantic violet status is separate.
+const hnlDarkCss = read('public/darkmode-final.css');
+const hnlBaseCss = read('src/index.css');
+assert.ok(read('index.html').includes('href="/darkmode-final.css"'), 'Dark mode override remains active');
+assert.ok(hnlDarkCss.includes('.text-indigo-950 { color: var(--hnl-primary-on-dark) !important; }'),
+  'All legacy indigo labels/icons in dark mode use the configured readable HNL brand color');
+assert.ok(!hnlDarkCss.includes('.text-indigo-950 { color: #a5b4fc !important; }'),
+  'Dark brand text must not be the former hardcoded lavender');
+for (const family of ['bg-indigo-50/', 'bg-indigo-100/', 'border-indigo-100/', 'border-indigo-200/']) {
+  assert.ok(hnlDarkCss.includes('[class*="' + family + '"]'), 'Missing nested brand selector ' + family);
+}
+assert.ok(hnlDarkCss.includes('background-color: color-mix(in srgb, var(--hnl-primary) 24%, var(--hnl-dark-surface))'),
+  'Nested brand cards use the HNL color token in dark mode');
+assert.ok(hnlBaseCss.includes('.bg-indigo-50 { background-color: color-mix(in srgb, var(--hnl-primary) 24%, var(--hnl-dark-surface))'),
+  'Base and nested brand background shades stay synchronized');
+assert.ok(hnlDarkCss.includes('border-color: color-mix(in srgb, var(--hnl-primary-on-dark) 48%, transparent)'),
+  'Nested brand outlines must not become purple');
+assert.ok(hnlDarkCss.includes('color-mix(in srgb, var(--hnl-primary) 32%, var(--hnl-dark-surface))'),
+  'Active project gradient follows brand blue');
+assert.ok(hnlDarkCss.includes('.text-purple-900 { color: #c4b5fd !important; }') &&
+  hnlDarkCss.includes('.text-amber-900') && hnlDarkCss.includes('.text-emerald-900') &&
+  hnlDarkCss.includes('.text-red-900'), 'Semantic category/warning/status palettes preserved');
+assert.ok(read('src/components/HomeDashboard.tsx').includes('Mở nhanh dự án đang làm'),
+  'Home quick-open function untouched by theme patch');
+console.log('HNL DARK MODE NESTED BRAND BLUE GOLDEN: PASS');
