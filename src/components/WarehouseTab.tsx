@@ -155,7 +155,7 @@ const WarehouseVoucherPhotoDraft: React.FC<{ files: File[]; onChange: (files: Fi
           ))}
         </div>
       )}
-      <p className="text-[10px] text-slate-600">Ảnh chỉ tạm lưu trên thiết bị khi chưa lưu phiếu. Sau khi giao dịch tồn kho thành công, ảnh sẽ được thêm vào phiếu đúng mã và đồng bộ Cloud/R2.</p>
+      <p className="text-[10px] text-slate-600">Ảnh chỉ được lưu sau khi lưu phiếu. Nếu tải ảnh lỗi, hãy bấm “Thử lại”.</p>
     </div>
   );
 };
