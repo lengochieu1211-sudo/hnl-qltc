@@ -149,6 +149,17 @@ jobs:
       - name: Build
         run: npm run build
 
+      # P20.4 byte-exact allowlist from the candidate source: stage only web
+      # runtime files, reject dist/server.cjs, sourcemaps and private metadata.
+      # Must finish before any Cloudflare Worker or Firebase deploy.
+      - name: PROD web-only staging and tamper-resistance Golden
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/prod-hosting-stage-golden.mjs
+          node scripts/prod-hosting-stage.mjs stage
+          node scripts/prod-hosting-stage.mjs verify
+
       - name: Certify PROD web bundle isolation
         shell: bash
         run: |
