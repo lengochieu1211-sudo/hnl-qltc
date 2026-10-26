@@ -1,0 +1,46 @@
+/** Offline-only synthetic regression for P20.5 copied DEV preflight. */
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { planRoomSubItemMigration } from './room-subitem-migration-plan.mjs';
+import { getWarehouseMaterialKey } from '../src/utils/warehouseLedgerMath.ts';
+import { auditP1DevSnapshot } from './p1-copied-dev-data-gate.mjs';
+const projectId='demo-copied-dev';
+const room={id:'R1',projectId,revision:1,subItems:[{id:'S1',name:'Vách',status:'Chưa làm',workVolume:2}]};
+const planned=planRoomSubItemMigration({rooms:[room]},{projectId});
+assert.equal(planned.status,'PLAN_READY_FOR_SERVER_VALIDATION');
+const item={id:'I1',projectId,itemKind:'material',materialName:'Bột xử lý',unit:'Bao',type:'in',quantity:4};
+const key=getWarehouseMaterialKey(item);
+const data={rooms:[room],definitions:planned.definitions,progress:planned.progress.map(p=>({...p,data:{...p.data,revision:1,updatedAt:12}})),inventory:[item],balances:[{id:key,projectId,onHand:4,revision:1,updatedAt:12}]};
+const digest=buf=>createHash('sha256').update(buf).digest('hex');
+const files={rooms:'rooms.json',definitions:'definitions.json',progress:'progress.json',inventory:'inventory.json',balances:'inventory_balances.json'};
+const raw=Object.fromEntries(Object.entries(files).map(([k])=>[k,Buffer.from(JSON.stringify(data[k]))]));
+const sha256=Object.fromEntries(Object.entries(raw).map(([k,v])=>[k,digest(v)]));
+const manifest={projectId,snapshotId:'copy_dev_20261026',capturedAt:'2026-10-26T12:00:00.000Z',completeCollections:true,consistentRead:true,sha256};
+const run=(m=manifest,d=data,h=sha256)=>auditP1DevSnapshot(m,d,h);
+let passes=0;const check=(label,fn)=>{fn();passes++;console.log('PASS',label);};
+check('valid synthetic local DEV copy only',()=>assert.equal(run().status,'COPIED_DEV_OFFLINE_PARITY_ONLY'));
+check('different project refused',()=>assert.throws(()=>run({...manifest,projectId:'com-example-qlct-61329'}),/DEV_PROJECT_ONLY/));
+check('missing completeness attestations refused',()=>assert.throws(()=>run({...manifest,completeCollections:false}),/SNAPSHOT_COMPLETENESS_UNVERIFIED/));
+check('missing SHA digest refused',()=>assert.throws(()=>run({...manifest,sha256:{rooms:sha256.rooms}}),/INCOMPLETE_FILE_DIGEST/));
+check('hash tamper blocks',()=>assert.equal(run(manifest,data,{...sha256,balances:'0'.repeat(64)}).status,'BLOCKED'));
+check('foreign room project blocks',()=>assert.throws(()=>run(manifest,{...data,rooms:[{...room,projectId:'foreign'}]}),/UNVERIFIED_ROOM_PROJECT_ID/));
+check('foreign voucher blocks',()=>assert.throws(()=>run(manifest,{...data,inventory:[{...item,projectId:'foreign'}]}),/UNVERIFIED_INVENTORY_PROJECT_ID/));
+check('empty voucher evidence blocks',()=>assert.throws(()=>run(manifest,{...data,inventory:[]}),/EMPTY_STOCK_COLLECTION/));
+check('forged balance blocks',()=>assert.equal(run(manifest,{...data,balances:[{...data.balances[0],onHand:999}]}).status,'BLOCKED'));
+check('forged room sidecar blocks',()=>assert.equal(run(manifest,{...data,progress:[{...data.progress[0],data:{...data.progress[0].data,status:'Đã hoàn thành'}}]}).status,'BLOCKED'));
+const folder=mkdtempSync(join(tmpdir(),'hnl-p1-dev-copy-golden-'));
+try{
+  const input=join(folder,'snap');
+  const fs=await import('node:fs');fs.mkdirSync(input);
+  for(const [k,name] of Object.entries(files))writeFileSync(join(input,name),raw[k]);
+  const manifestFile=join(folder,'manifest.json');writeFileSync(manifestFile,JSON.stringify(manifest));
+  const cliArgs=['--experimental-strip-types','scripts/p1-copied-dev-data-gate.mjs','--manifest',manifestFile,'--directory',input];
+  check('CLI reads full verified dataset without cloud',()=>{const r=spawnSync(process.execPath,cliArgs,{cwd:process.cwd(),encoding:'utf8'});assert.equal(r.status,0,r.stderr);assert.equal(JSON.parse(r.stdout).status,'COPIED_DEV_OFFLINE_PARITY_ONLY');});
+  writeFileSync(join(input,'inventory_balances.json'),'[]');
+  check('CLI altered bytes blocked',()=>{const r=spawnSync(process.execPath,cliArgs,{cwd:process.cwd(),encoding:'utf8'});assert.equal(r.status,2,r.stderr);assert.equal(JSON.parse(r.stdout).status,'BLOCKED');});
+}finally{rmSync(folder,{recursive:true,force:true});}
+console.log(`P20.5 P1 COPIED DEV OFFLINE DATA GOLDEN ${passes}/${passes} PASS — NOT PROD CERTIFICATION`);
