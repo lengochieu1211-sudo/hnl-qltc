@@ -49,5 +49,8 @@ jobs:
       - name: Security audit (production, critical)
         run: npm run security:audit
 
+      - name: PROD web Hosting leak-prevention Golden (no deploy)
+        run: node scripts/prod-hosting-stage-golden.mjs
+
       - name: Build
         run: npm run build
