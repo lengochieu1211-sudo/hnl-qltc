@@ -87,6 +87,17 @@ jobs:
           test "$(git rev-parse HEAD)" = "${{ inputs.expected_main_sha }}" || { echo "Checked-out source SHA mismatch"; exit 1; }
           git merge-base --is-ancestor "${{ inputs.dev_certified_sha }}" HEAD || { echo "REFUSING: certified DEV SHA is not an ancestor of this main candidate"; exit 1; }
 
+      # Preflight BEFORE npm ci or any Cloudflare/Firebase deployment.
+      # This intentionally refuses release until P1-ROOM/P1-BALANCE are migrated
+      # and strict negative/positive Rules Emulator tests have been certified.
+      - name: P1 fail-closed source integrity release gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f scripts/p1-release-safety-gate.mjs || { echo "REFUSING: missing P1 source release gate"; exit 1; }
+          node scripts/p1-release-safety-gate.mjs || { echo "REFUSING: P1 room/warehouse data integrity unresolved"; exit 1; }
+          node -e "const f=require('./firebase.prod.json');if(f.hosting.public==='dist'){console.error('REFUSING: server bundle mixed into public dist');process.exit(1)}"
+
       - name: R2 + AI configuration gate
         shell: bash
         run: |
