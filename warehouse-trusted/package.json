@@ -1,0 +1,17 @@
+{
+  "name": "hnl-qltc-warehouse-trusted-dev",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": "22"
+  },
+  "main": "index.mjs",
+  "dependencies": {
+    "firebase-admin": "^13.5.0",
+    "firebase-functions": "^6.4.0"
+  },
+  "scripts": {
+    "test": "node engine-golden.mjs && node batch-golden.mjs && node reconcile-golden.mjs && node room-migrate-golden.mjs && node unit-rename-golden.mjs && node equipment-unit-rename-golden.mjs && node manual-provenance-golden.mjs && node room-auto-golden.mjs"
+  }
+}
