@@ -1,0 +1,45 @@
+name: P1 Cutover Rules Emulator - DEV Only
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'firestore.p21-test-baseline.dev.rules'
+      - 'firestore.warehouse-cutover.dev.rules'
+      - 'firebase.p1-cutover-rules-ci.json'
+      - 'scripts/p12-build-dev-cutover-rules.mjs'
+      - 'scripts/p21-cutover-rules-behavior.mjs'
+      - '.github/workflows/p1-cutover-emulator.yml'
+permissions:
+  contents: read
+jobs:
+  p1-cutover-rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GCLOUD_PROJECT: demo-hnl-qltc-p21
+      FIREBASE_PROJECT_ID: demo-hnl-qltc-p21
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - name: Generate isolated Rules candidate; never replace production Rules
+        run: node scripts/p12-build-dev-cutover-rules.mjs
+      - name: Verify DEV-only candidate and emulator config
+        run: |
+          node scripts/p12-dev-cutover-rules-golden.mjs
+          node scripts/p21-cutover-emulator-config-golden.mjs
+      - name: Rules ALLOW/DENY on disposable Auth and Firestore emulators
+        run: >-
+          npx --yes firebase-tools@13.35.1 emulators:exec
+          --config firebase.p1-cutover-rules-ci.json
+          --only auth,firestore
+          --project demo-hnl-qltc-p21
+          "node scripts/p21-cutover-rules-behavior.mjs"
