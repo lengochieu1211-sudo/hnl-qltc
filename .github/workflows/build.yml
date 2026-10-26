@@ -49,6 +49,21 @@ jobs:
       - name: Security audit (production, critical)
         run: npm run security:audit
 
+      # This is an intentionally NEGATIVE control. A green result here means
+      # the release interlock refuses CURRENT legacy P1 rooms/warehouse rules.
+      # Replace with Emulator-backed positive proof after DEV migration.
+      - name: P1 release interlock negative Golden (legacy blocked)
+        shell: bash
+        run: |
+          set +e
+          OUTPUT="$(node scripts/p1-release-safety-gate.mjs 2>&1)"
+          CODE=$?
+          set -e
+          printf '%s\\n' "$OUTPUT"
+          test "$CODE" -eq 2 || { echo "P1 interlock FAILED to block unsafe source"; exit 1; }
+          printf '%s' "$OUTPUT" | grep -q 'P1-ROOM'
+          printf '%s' "$OUTPUT" | grep -q 'P1-BALANCE'
+
       - name: PROD web Hosting leak-prevention Golden (no deploy)
         run: node scripts/prod-hosting-stage-golden.mjs
 
