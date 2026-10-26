@@ -16,7 +16,7 @@ assert(pkg.dependencies?.express === '^4.22.3', 'Express release floor is 4.22.3
 assert(pkg.dependencies?.xlsx === 'https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz', 'SheetJS uses authoritative 0.20.3 tarball');
 assert(String(pkg.scripts?.['security:audit'] || '').includes('--audit-level=high'), 'production dependency audit blocks HIGH and CRITICAL advisories');
 assert(lock.packages?.['node_modules/express']?.version === '4.22.3', 'lockfile pins Express 4.22.3');
-assert(lock.packages?.['node_modules/body-parser']?.version === '1.20.8', 'lockfile pins body-parser 1.20.8');
+assert(lock.packages?.['node_modules/body-parser']?.version === '1.20.9', 'lockfile pins body-parser 1.20.9');
 assert(lock.packages?.['node_modules/qs']?.version === '6.16.0', 'lockfile pins qs 6.16.0');
 assert(lock.packages?.['node_modules/xlsx']?.version === '0.20.3', 'lockfile pins SheetJS 0.20.3');
 assert(lock.packages?.['node_modules/xlsx']?.resolved === 'https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz', 'lockfile resolves SheetJS from authoritative CDN');

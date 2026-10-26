@@ -49,5 +49,42 @@ jobs:
       - name: Security audit (production, critical)
         run: npm run security:audit
 
+      # This is an intentionally NEGATIVE control. A green result here means
+      # the release interlock refuses CURRENT legacy P1 rooms/warehouse rules.
+      # Replace with Emulator-backed positive proof after DEV migration.
+      - name: P1 release interlock negative Golden (legacy blocked)
+        shell: bash
+        run: |
+          set +e
+          OUTPUT="$(node scripts/p1-release-safety-gate.mjs 2>&1)"
+          CODE=$?
+          set -e
+          printf '%s\\n' "$OUTPUT"
+          test "$CODE" -eq 2 || { echo "P1 interlock FAILED to block unsafe source"; exit 1; }
+          printf '%s' "$OUTPUT" | grep -q 'P1-ROOM'
+          printf '%s' "$OUTPUT" | grep -q 'P1-BALANCE'
+
+      - name: PROD web Hosting leak-prevention Golden (no deploy)
+        run: node scripts/prod-hosting-stage-golden.mjs
+
       - name: Build
         run: npm run build
+
+      # PROD-configured build preview, isolated from Hosting/R2/Firestore.
+      # This only asserts correct static Web assets; it deploys NOTHING.
+      - name: PROD Web dry-run bundle and staged asset verification (no deploy)
+        if: github.event_name == 'pull_request' && github.head_ref == 'safety/p20-5-prod-p1-interlock-20261026'
+        env:
+          VITE_APP_ENV: PROD
+          VITE_RUNTIME_BACKEND: firebase-only
+          VITE_BINARY_STORAGE_PROVIDER: r2
+          VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
+          VITE_FIREBASE_APP_ID: "1:119152410850:web:c2aee2135428af34ef5ebb"
+          VITE_FIREBASE_AUTH_DOMAIN: hnlqltc.web.app
+          VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+          VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
+        run: |
+          npm run build
+          node scripts/prod-hosting-stage.mjs stage
+          node scripts/prod-hosting-stage.mjs verify
+
