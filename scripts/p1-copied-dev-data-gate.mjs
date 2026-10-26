@@ -3,6 +3,8 @@
  * It checks an externally captured, complete, same-instant DEV COPY export.
  * File digests prove local consistency only, not cloud completeness or snapshot isolation.
  * Never use a PROD export for this DEV-only migration readiness gate.
+ * firebaseProjectId is the Firebase environment; projectId is the construction project/document ID.
+ * Neither is standalone proof of snapshot provenance.
  *
  * node --experimental-strip-types scripts/p1-copied-dev-data-gate.mjs \
  *   --manifest /private/snapshot-manifest.json --directory /private/snapshot
@@ -22,8 +24,11 @@ const FILES = Object.freeze({
   balances: 'inventory_balances.json',
 });
 const SHA256 = /^[a-f0-9]{64}$/;
-const devProject = projectId => typeof projectId === 'string' &&
-  /^(hnl-qltc-dev|demo-[a-z0-9-]+)$/.test(projectId);
+const devFirebaseProject = id => typeof id === 'string' &&
+  (id === 'hnl-qltc-dev' || id === 'hnl-qltc-dev-backup' || /^demo-[a-z0-9-]+$/.test(id));
+const validBusinessProjectId = id => typeof id === 'string' && id.length > 0
+  && id.trim() === id && id !== '.' && id !== '..' && !id.includes('/')
+  && !/^__.*__$/.test(id) && Buffer.byteLength(id, 'utf8') <= 1500;
 const sha256 = buffer => createHash('sha256').update(buffer).digest('hex');
 const noPrivateData = error => {
   const code = String(error?.message || 'INVALID_SNAPSHOT');
@@ -40,7 +45,8 @@ function assertNoForeignProjects(items, projectId, label) {
 }
 function verifyManifest(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw Error('INVALID_MANIFEST');
-  if (!devProject(raw.projectId)) throw Error('DEV_PROJECT_ONLY');
+  if (!devFirebaseProject(raw.firebaseProjectId)) throw Error('DEV_FIREBASE_PROJECT_ONLY');
+  if (!validBusinessProjectId(raw.projectId)) throw Error('INVALID_BUSINESS_PROJECT_ID');
   if (raw.completeCollections !== true || raw.consistentRead !== true) throw Error('SNAPSHOT_COMPLETENESS_UNVERIFIED');
   if (typeof raw.snapshotId !== 'string' || !/^[a-zA-Z0-9_-]{8,120}$/.test(raw.snapshotId)) {
     throw Error('INVALID_SNAPSHOT_ID');
@@ -73,7 +79,7 @@ export function auditP1DevSnapshot(manifest, data, digests) {
   for (const key of Object.keys(FILES)) {
     if (m.sha256[key] !== digests[key]) findings.push(`FILE_DIGEST_MISMATCH_${key.toUpperCase()}`);
   }
-  if (findings.length) return { status: 'BLOCKED', projectId: m.projectId, snapshotId: m.snapshotId,
+  if (findings.length) return { status: 'BLOCKED', firebaseProjectId: m.firebaseProjectId, projectId: m.projectId, snapshotId: m.snapshotId,
     reasonCodes: findings.sort() };
   if (!Array.isArray(data.rooms) || !data.rooms.length) throw Error('UNVERIFIED_ROOM_COLLECTION');
   // Strict project ownership: legacy unscoped rows must be reconciled by an ADMIN,
@@ -100,7 +106,7 @@ export function auditP1DevSnapshot(manifest, data, digests) {
     // Never label this READY_FOR_PROD. No Rules/Emulator, race, restore, upload, or
     // verified live snapshots were checked here.
     status: findings.length ? 'BLOCKED' : 'COPIED_DEV_OFFLINE_PARITY_ONLY',
-    projectId: m.projectId, snapshotId: m.snapshotId, capturedAt: m.capturedAt,
+    firebaseProjectId: m.firebaseProjectId, projectId: m.projectId, snapshotId: m.snapshotId, capturedAt: m.capturedAt,
     reasonCodes: findings,
     counts: { ...room.counts, ledgerRows: balance.counts.ledgerRows,
       balanceRows: balance.counts.balanceRows, stockErrors: balance.counts.errors },
