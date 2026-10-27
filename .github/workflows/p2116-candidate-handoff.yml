@@ -1,0 +1,63 @@
+name: P21.16 Exact candidate source/PATCH/checkpoint (NO DEPLOY)
+on:
+  push:
+    branches:
+      - release/p21-13-prod-candidate-20261027
+    paths:
+      - '.github/workflows/p2116-candidate-handoff.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-handoff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Produce full source, changed-file patch and integrity report
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/release/p21-13-prod-candidate-20261027'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = '57eea2b878e17da64d7a6191fda178eaff3b8488' || { echo 'PROD moved; stop'; exit 1; }
+          git merge-base --is-ancestor origin/main HEAD
+          git ls-files | grep -q '^package-lock.json$'
+          git ls-files | grep -q '^package.json$'
+          git ls-files | grep -q '^.firebaserc$'
+          git ls-files | grep -q '^.github/workflows/p2115-firestore-encrypted-snapshot.yml$'
+          if git ls-files | grep -E '(^|/)(\.env(\.|$)|.*PRIVATE.*\.pem$|.*service-account.*\.json$)'; then echo '::error::Potential secret tracked'; exit 1; fi
+          node -e "const p=require('./package.json'),l=require('./package-lock.json');if(p.version!==l.version||p.name!==l.name)process.exit(1);"
+          git archive --format=zip --output=HNL-QLTC-P2116-FULL-SOURCE.zip HEAD
+          python3 - <<'PY'
+          import subprocess,zipfile,os,hashlib,json
+          from pathlib import Path
+          base='origin/main'
+          paths=subprocess.check_output(['git','diff','--name-only','--diff-filter=ACMRT','-z',base+'...HEAD']).decode().split('\0')
+          paths=sorted(p for p in paths if p)
+          with zipfile.ZipFile('HNL-QLTC-P2116-PATCH.zip','w',zipfile.ZIP_DEFLATED,compresslevel=7) as z:
+              for p in paths:
+                  if not Path(p).is_file(): raise RuntimeError(f'changed path missing: {p}')
+                  z.write(p,p)
+          info={'exactHead':os.environ['GITHUB_SHA'],'prodBaseline':'57eea2b878e17da64d7a6191fda178eaff3b8488','branch':os.environ['GITHUB_REF'],'changedFileCount':len(paths),'changedFiles':paths,'warnings':['Draft PR only; no deploy','No Runtime Golden / restore certification','Encrypted data backups must remain separate from source']}
+          Path('HNL-QLTC-P2116-REPORT.json').write_text(json.dumps(info,indent=2),encoding='utf-8')
+          artifacts=['HNL-QLTC-P2116-FULL-SOURCE.zip','HNL-QLTC-P2116-PATCH.zip','HNL-QLTC-P2116-REPORT.json']
+          for p in artifacts:
+              if p.endswith('.zip'):
+                  with zipfile.ZipFile(p) as z:
+                      if z.testzip(): raise RuntimeError('Corrupt zip '+p)
+              print('SHA256',hashlib.sha256(Path(p).read_bytes()).hexdigest(),p)
+          Path('HNL-QLTC-P2116-SHA256SUMS.txt').write_text(''.join(hashlib.sha256(Path(p).read_bytes()).hexdigest()+'  '+p+'\n' for p in artifacts))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P2116-CANDIDATE-EXACT-SOURCE-${{ github.sha }}
+          path: |
+            HNL-QLTC-P2116-FULL-SOURCE.zip
+            HNL-QLTC-P2116-PATCH.zip
+            HNL-QLTC-P2116-REPORT.json
+            HNL-QLTC-P2116-SHA256SUMS.txt
+          retention-days: 30
