@@ -1,0 +1,41 @@
+name: P21.20 Firestore REAL Isolated Restore Emulator (NO DEPLOY)
+on:
+  pull_request:
+    branches:
+      - dev
+    paths:
+      - 'scripts/p2115-firestore-traversal.mjs'
+      - 'scripts/p2115-firestore-restore-core.mjs'
+      - 'scripts/p2120-firestore-real-emulator-restore-golden.mjs'
+      - 'firebase.p2120-restore-emulator.json'
+      - '.github/workflows/p2120-firestore-real-emulator-restore.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  isolated-restore-synthetic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Syntax and fake-fetch safety gates (synthetic only)
+        run: |
+          node --check scripts/p2120-firestore-real-emulator-restore-golden.mjs
+          node scripts/p2115-firestore-traversal-golden.mjs
+          node scripts/p2115-firestore-restore-golden.mjs
+      - name: Real Firestore Emulator missing-parent and encrypted restore parity (synthetic only)
+        env:
+          P2115_REAL_EMULATOR_TEST: '1'
+        run: >-
+          npx --yes firebase-tools@13.35.1 emulators:exec
+          --config firebase.p2120-restore-emulator.json
+          --only firestore
+          --project demo-hnl-qltc-p2120
+          "node scripts/p2120-firestore-real-emulator-restore-golden.mjs"
