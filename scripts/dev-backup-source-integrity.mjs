@@ -12,6 +12,8 @@ const EXPECTED_SOURCE_COUNT = 642;
 const EXPECTED_FINGERPRINT = '68880f80d5b450424691d2eb4b424f983ab809b539ee1f29193cd32b41619d25';
 const EXCLUDED = new Set([
   '.git', 'node_modules', 'dist', 'dist-dev-backup-hosting', 'build', 'coverage', '.firebase',
+  // Created by Firebase Rules Emulator; never source or a tracked app artifact.
+  'firestore-debug.log',
 ]);
 const GENERATED_LOCAL_FILES = new Set(['.env.local', '.env.dev-backup.local']);
 const ALLOWED_PATCH_FILES = new Set([
