@@ -48,6 +48,18 @@ jobs:
           if(!pkg.dependencies?.multer||!pkg.overrides)throw Error('Security dependency protections missing');
           console.log('PROD hotfix semantic invariants PASS; requires additional runtime validation');
           NODE
+      - name: Apply current DOMPurify security advisory fix in disposable trial tree
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const file = 'package.json';
+          const p = JSON.parse(fs.readFileSync(file, 'utf8'));
+          if (!p.overrides || !p.overrides.dompurify) throw new Error('Expected PROD DOMPurify override missing');
+          p.overrides.dompurify = '3.4.17';
+          fs.writeFileSync(file, JSON.stringify(p, null, 2) + '\n');
+          console.log('Trial-only DOMPurify override: 3.4.17');
+          NODE
       - name: Reconcile package lock only in disposable trial tree
         run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
       - name: Install deterministic dependencies
