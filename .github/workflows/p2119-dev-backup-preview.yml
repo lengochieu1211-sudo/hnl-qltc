@@ -144,9 +144,23 @@ jobs:
           const fs=require('fs');
           const cfg=JSON.parse(fs.readFileSync('firebase.json','utf8'));
           if(cfg.hosting?.public!=='dist')throw Error('Unexpected public build folder');
-          fs.writeFileSync(process.env.RUNNER_TEMP+'/hosting-backup-only.json',JSON.stringify({hosting:cfg.hosting}));
+          // Firebase resolves Hosting public paths relative to the config directory.
+          // Keep this ephemeral Hosting-only config inside the checked-out workspace.
+          fs.writeFileSync('p2119-hosting-backup-only.json',JSON.stringify({hosting:cfg.hosting}));
           NODE
-          npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$BACKUP_CHANNEL" --project "$BACKUP_PROJECT" --config "$RUNNER_TEMP/hosting-backup-only.json" --expires 1d --non-interactive --json > "$RUNNER_TEMP/preview.json"
+          trap 'rm -f "$RUNNER_TEMP/backup-firebase-sa.json" "p2119-hosting-backup-only.json"' EXIT
+          if ! npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$BACKUP_CHANNEL" --project "$BACKUP_PROJECT" --config "$GITHUB_WORKSPACE/p2119-hosting-backup-only.json" --expires 1d --non-interactive --json > "$RUNNER_TEMP/preview.json"; then
+            node - "$RUNNER_TEMP/preview.json" <<'NODE'
+          const fs=require('fs');
+          const raw=fs.readFileSync(process.argv[2],'utf8');
+          let parsed={};
+          try{parsed=JSON.parse(raw)}catch{}
+          const msg=parsed.error?.message||parsed.message||'Firebase CLI returned an error; see workflow diagnostics';
+          const safe=String(msg).replace(/AIza[A-Za-z0-9_-]+/g,'[REDACTED]').replace(/-----BEGIN[^]*?PRIVATE KEY-----/g,'[REDACTED]');
+          console.error('DEV BACKUP PREVIEW ONLY: '+safe.slice(0,800));
+          NODE
+            exit 1
+          fi
           node - <<'NODE'
           const fs=require('fs');
           const result=fs.readFileSync(process.env.RUNNER_TEMP+'/preview.json','utf8');
