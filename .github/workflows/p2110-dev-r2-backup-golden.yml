@@ -34,7 +34,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx --yes wrangler@4.45.0 dev --config scripts/p2110-dev-r2-backup.toml --ip 127.0.0.1 --port 8789 > /tmp/hnl-p2110-wrangler.log 2>&1 &
+          npx --yes wrangler@4.153.0 dev --config scripts/p2110-dev-r2-backup.toml --ip 127.0.0.1 --port 8789 > /tmp/hnl-p2110-wrangler.log 2>&1 &
           echo $! > /tmp/hnl-p2110.pid
           ready=0
           for i in $(seq 1 50); do
