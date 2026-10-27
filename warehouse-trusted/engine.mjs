@@ -148,7 +148,12 @@ export async function executeVoucher({db,actor,projectId,action,transactionId,it
     if (action==='discard' && prior?.deleted !== true) fail('WAREHOUSE_TRASH_NOT_DELETED');
     if (action==='discard' && (prior.trashRecoverable===false || Number(prior.trashDiscardedAt||0)>0))
       return {transactionId,duplicate:true,materialKey:prior.materialKey||warehouseKey(prior)};
-    if (action==='restore' && prior.deleted!==true) return {transactionId,duplicate:true,materialKey:prior.materialKey||warehouseKey(prior)};
+    if (action==='restore' && prior.deleted!==true) {
+      const key=prior.materialKey||warehouseKey(prior);
+      const balance=await readTx(tx,docRef(db,root,'inventory_balances',key));
+      if(!balance.exists) fail('WAREHOUSE_LEGACY_BALANCE_MISSING_RECONCILE_FIRST');
+      return {transactionId,duplicate:true,materialKey:key,onHand:round(balanceValue(balance))};
+    }
     if (action==='softDelete' && !active(prior)) return {transactionId,duplicate:true,materialKey:prior.materialKey||warehouseKey(prior)};
     // Retain deleted tombstones even after expiry. Only restore a still-recoverable one.
     if (action==='restore') {
@@ -163,12 +168,15 @@ export async function executeVoucher({db,actor,projectId,action,transactionId,it
       });
       return {transactionId,duplicate:false,materialKey:prior.materialKey||warehouseKey(prior)};
     }
-    // Protect against duplicate IDs carrying a different voucher payload.
+    // Check an identical create replay, but return only AFTER reading the
+    // authoritative balance. A successful retry must return onHand and refuse
+    // legacy/missing/corrupt derived balances rather than reporting success.
+    let createReplay = false;
     if (action==='create' && prior) {
       for(const [key,value] of Object.entries(proposed)) {
         if (JSON.stringify(prior[key]??null)!==JSON.stringify(value)) fail('WAREHOUSE_ID_COLLISION');
       }
-      return {transactionId,duplicate:true,materialKey:prior.materialKey||warehouseKey(prior)};
+      createReplay = true;
     }
     const oldKey=prior ? (prior.materialKey || warehouseKey(prior)) : null;
     const newKey=proposed ? warehouseKey(proposed):oldKey;
@@ -179,7 +187,7 @@ export async function executeVoucher({db,actor,projectId,action,transactionId,it
     for (const record of balances.values()) balanceValue(record);
     if (prior && !balances.get(oldKey)?.exists) fail('WAREHOUSE_LEGACY_BALANCE_MISSING_RECONCILE_FIRST');
     if (proposed) assertUnit(balances.get(newKey),proposed);
-    if (updateReplay) return {transactionId,duplicate:true,materialKey:newKey,
+    if (createReplay || updateReplay) return {transactionId,duplicate:true,materialKey:newKey,
       onHand:round(balanceValue(balances.get(newKey)))};
     const updates=new Map(keys.map(key=>[key,balanceValue(balances.get(key))]));
     if (prior && active(prior)) updates.set(oldKey, updates.get(oldKey)-delta(prior));

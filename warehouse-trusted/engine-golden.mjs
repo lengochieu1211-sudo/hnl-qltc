@@ -50,7 +50,7 @@ await test('historical room-auto voucher cannot be converted to manual by EDITOR
 });
 await test('canonical email membership overrides UID ADMIN',()=>{db.docs.get(path('members','editor@example.test')).active=false;return deny(()=>run('create','a',{item:voucher('a','in',10)}),'WAREHOUSE_ROLE_DENIED');});
 await test('create IN only with active editor',async()=>{db.docs.get(path('members','editor@example.test')).active=true;const r=await run('create','a',{item:voucher('a','in',10)});assert.equal(r.onHand,10);assert.equal(db.docs.get(path('inventory_balances',key)).onHand,10);});
-await test('duplicate same-ID same-content is idempotent',async()=>{const r=await run('create','a',{item:voucher('a','in',10)});assert.equal(r.duplicate,true);assert.equal(db.docs.get(path('inventory_balances',key)).onHand,10);});
+await test('duplicate same-ID same-content is idempotent',async()=>{const r=await run('create','a',{item:voucher('a','in',10)});assert.equal(r.duplicate,true);assert.equal(r.onHand,10);assert.equal(db.docs.get(path('inventory_balances',key)).onHand,10);});
 await test('duplicate ID conflicting quantity forbidden',()=>deny(()=>run('create','a',{item:voucher('a','in',50)}),'WAREHOUSE_ID_COLLISION'));
 await test('OUT limited by current stock',()=>deny(()=>run('create','bad',{item:voucher('bad','out',11)}),'WAREHOUSE_INSUFFICIENT_STOCK'));
 await test('OUT consumes stock exactly',async()=>{const r=await run('create','b',{item:voucher('b','out',4)});assert.equal(r.onHand,6);});
@@ -62,7 +62,7 @@ await test('delete voucher subtracts prior signed delta',async()=>{await runAdmi
 await test('deleted voucher ID may never be reused',()=>deny(()=>run('create','a',{item:voucher('a','in',10)}),'WAREHOUSE_DELETED_ID_REUSE_BLOCKED'));
 await test('editor cannot restore',()=>deny(()=>run('restore','a'),'WAREHOUSE_ROLE_DENIED'));
 await test('admin restore honors original balance',async()=>{const r=await executeVoucher({db,actor:{uid:'u-admin',email:'admin@example.test',emailVerified:true},projectId:p,action:'restore',transactionId:'a'});assert.equal(r.onHand,10);});
-await test('restore second time is idempotent',async()=>{const r=await executeVoucher({db,actor:{uid:'u-admin',email:'admin@example.test',emailVerified:true},projectId:p,action:'restore',transactionId:'a'});assert.equal(r.duplicate,true);});
+await test('restore second time is idempotent',async()=>{const r=await executeVoucher({db,actor:{uid:'u-admin',email:'admin@example.test',emailVerified:true},projectId:p,action:'restore',transactionId:'a'});assert.equal(r.duplicate,true);assert.equal(r.onHand,10);});
 await test('cannot soft-delete IN if later OUT consumed stock',async()=>{await run('create','c',{item:voucher('c','out',8)});await deny(()=>runAdmin('softDelete','a'),'WAREHOUSE_INSUFFICIENT_STOCK');});
 await test('unknown action blocked',()=>deny(()=>run('tamper','a'),'WAREHOUSE_INVALID_REQUEST'));
 await test('unverified EMAIL owner is denied',()=>deny(()=>executeVoucher({db,actor:{uid:'u-admin',email:'admin@example.test',emailVerified:false},projectId:p,action:'softDelete',transactionId:'b'}),'WAREHOUSE_AUTH_OR_PROJECT_INACTIVE'));
