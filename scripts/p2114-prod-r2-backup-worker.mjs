@@ -5,7 +5,7 @@ const canon=x=>JSON.stringify(Object.entries(x||{}).sort(([a],[b])=>a.localeComp
 export default { async fetch(request,env){
  try {
   const u=new URL(request.url);
-  if(request.headers.get("x-hnl-dev-backup")!=="DEV-ONLY-P2114")return json({error:"FORBIDDEN"},403);
+  if(request.headers.get("x-hnl-dev-backup")!=="PROD-SNAPSHOT-P2114")return json({error:"FORBIDDEN"},403);
   if(u.pathname==="/health")return json({ok:true,environment:"PROD",source:"hnl-qltc-media",destination:"hnl-qltc-media-prod-backup"});
   if(u.pathname==="/manifest"&&request.method==="GET"){
    const cursor=u.searchParams.get("cursor")||undefined;
