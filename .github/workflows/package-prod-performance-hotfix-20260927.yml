@@ -1,0 +1,109 @@
+name: One-shot package HNL QLTC PROD performance hotfix 2026-09-27
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/package-prod-performance-hotfix-20260927.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    env:
+      APP_SHA: 6e3b0f1c167f0c86a1b1ec1778781ddcd1b27a68
+      BASE_SHA: 623058b359829c9717e93fdd5da547177f192b09
+    steps:
+      - name: Checkout exact deployed app source
+        uses: actions/checkout@v4
+        with:
+          ref: 6e3b0f1c167f0c86a1b1ec1778781ddcd1b27a68
+          fetch-depth: 0
+
+      - name: Verify identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$APP_SHA"
+          test "$(git rev-parse "$APP_SHA^1")" = "$BASE_SHA"
+          test "$(node -p "require('./package.json').version")" = "$(node -p "require('./package-lock.json').version")"
+
+      - name: Build PATCH + FULL SOURCE + REPORT
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/hnl-prod-hotfix"
+          PATCH="$OUT/PATCH"
+          mkdir -p "$PATCH"
+
+          git diff --name-only "$BASE_SHA" "$APP_SHA" > "$OUT/CHANGED-FILES.txt"
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            mkdir -p "$PATCH/$(dirname "$file")"
+            cp "$file" "$PATCH/$file"
+          done < "$OUT/CHANGED-FILES.txt"
+
+          cat > "$OUT/HNL-QLTC-PROD-HOTFIX-6e3b0f1c-REPORT.md" <<'REPORT_EOF'
+          # HNL QLTC PROD Performance Hotfix — 2026-09-27
+
+          Deployed app source: 6e3b0f1c167f0c86a1b1ec1778781ddcd1b27a68
+          Baseline main app source: 623058b359829c9717e93fdd5da547177f192b09
+
+          Scope:
+          - Coalesce initial project-discovery sources before canonical verification.
+          - Reuse short invalidation-aware discovery verification cache.
+          - Remove redundant startup manual project-discovery pass.
+          - Avoid realtime listener rebind for an already Cloud-verified project.
+          - Throttle full verified-offline business snapshot serialization to once per 30 seconds/project after the initial baseline.
+          - Stability regression guards added.
+
+          Changed app files:
+          - scripts/stability-gate.mjs
+          - src/App.tsx
+          - src/lib/firebaseBase.ts
+
+          Verification:
+          - PR Build #653 PASS
+          - PR Android #423 PASS
+          - PR Windows #632 PASS
+          - main Build #654 PASS
+          - main signed Android #424 PASS
+          - main Windows #633 PASS
+          - Hosting-only PROD release run #1 PASS
+          - PROD Hosting smoke PASS
+          - Firestore Rules / R2 Worker / AI Worker were not modified or redeployed by this hotfix.
+
+          Data/safety:
+          - No schema change.
+          - No projectId/Firebase/R2/domain change.
+          - No DEV feature merge.
+          - No business-data migration.
+          REPORT_EOF
+
+          (
+            cd "$PATCH"
+            zip -qr "$OUT/HNL-QLTC-PROD-HOTFIX-6e3b0f1c-PATCH-2026-09-27.zip" .
+          )
+
+          git archive --format=zip --output="$OUT/HNL-QLTC-PROD-HOTFIX-6e3b0f1c-FULL-SOURCE-2026-09-27.zip" "$APP_SHA"
+
+          (
+            cd "$OUT"
+            sha256sum               HNL-QLTC-PROD-HOTFIX-6e3b0f1c-PATCH-2026-09-27.zip               HNL-QLTC-PROD-HOTFIX-6e3b0f1c-FULL-SOURCE-2026-09-27.zip               HNL-QLTC-PROD-HOTFIX-6e3b0f1c-REPORT.md               > SHA256SUMS.txt
+            zip -q HNL-QLTC-PROD-HOTFIX-6e3b0f1c-DELIVERABLES.zip               HNL-QLTC-PROD-HOTFIX-6e3b0f1c-PATCH-2026-09-27.zip               HNL-QLTC-PROD-HOTFIX-6e3b0f1c-FULL-SOURCE-2026-09-27.zip               HNL-QLTC-PROD-HOTFIX-6e3b0f1c-REPORT.md               CHANGED-FILES.txt               SHA256SUMS.txt
+          )
+
+      - name: Upload deliverables
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-PROD-HOTFIX-6e3b0f1c-DELIVERABLES
+          path: |
+            ${{ runner.temp }}/hnl-prod-hotfix/HNL-QLTC-PROD-HOTFIX-6e3b0f1c-DELIVERABLES.zip
+            ${{ runner.temp }}/hnl-prod-hotfix/HNL-QLTC-PROD-HOTFIX-6e3b0f1c-PATCH-2026-09-27.zip
+            ${{ runner.temp }}/hnl-prod-hotfix/HNL-QLTC-PROD-HOTFIX-6e3b0f1c-FULL-SOURCE-2026-09-27.zip
+            ${{ runner.temp }}/hnl-prod-hotfix/HNL-QLTC-PROD-HOTFIX-6e3b0f1c-REPORT.md
+            ${{ runner.temp }}/hnl-prod-hotfix/CHANGED-FILES.txt
+            ${{ runner.temp }}/hnl-prod-hotfix/SHA256SUMS.txt
+          retention-days: 30
