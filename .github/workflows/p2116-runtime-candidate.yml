@@ -100,6 +100,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          npm install --no-save --package-lock=false playwright@1.55.0
           npx playwright install --with-deps chromium
           P2116_EXPECTED_SHA="$GITHUB_SHA" node scripts/p2116-preview-browser-golden.mjs
           node scripts/warehouse-catalog-browser-golden.mjs
