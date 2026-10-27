@@ -5,6 +5,7 @@ import { getWarehouseMaterialKey, getWarehouseSignedDelta } from '../utils/wareh
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
 import { db, getCurrentRealFirebaseUser, sanitizePayloadForCloud } from './firebase';
 import { equipmentCatalogId, equipmentIdentityKey, type EquipmentCatalogRecord } from './equipmentCatalog';
+import { TRUSTED_WAREHOUSE_DEMO_MODE, trustedUnitRenameDemo } from './warehouseTrustedDemoGateway';
 
 /**
  * One-to-one unit-label rename. Never silently convert a package into its contents.
@@ -40,6 +41,7 @@ const equalName = (a: string, b: string) => normalizeMaterialNameKey(a) === norm
 const round = (n: number) => Math.round(n * 1e9) / 1e9;
 
 export async function renameWarehouseUnitAtomic(input: WarehouseUnitRenameInput): Promise<{ norms: number; vouchers: number }> {
+  if (TRUSTED_WAREHOUSE_DEMO_MODE) return trustedUnitRenameDemo(input);
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     throw new Error('Đổi ĐVT cần kết nối mạng để khóa tồn kho trên tất cả thiết bị.');
   }

@@ -199,6 +199,7 @@ import { applyFloorPlanImageToMultipleFloors, inspectFloorPlanBulkTargets, cache
 import { shouldAutoMirrorProjectBinaries } from './lib/offlineMirrorSettings';
 import { DEFAULT_TRASH_SETTINGS, TrashOperation, TrashSettings, TrashCollectionKey, deleteTrashOperationFromCloud, estimateTrashBytes, getTrashCollectionLabel, normalizeTrashSettings, sanitizeTrashSnapshot, saveTrashOperationToCloud, subscribeProjectTrash } from './lib/trash';
 import { commitWarehouseTransactionAtomic, updateWarehouseTransactionAtomic, softDeleteWarehouseTransactionAtomic } from './lib/warehouseTransactions';
+import { TRUSTED_WAREHOUSE_DEMO_MODE, trustedImportDemo } from './lib/warehouseTrustedDemoGateway';
 import { renameWarehouseUnitAtomic, type WarehouseUnitRenameInput } from './lib/warehouseUnitMigration';
 import { drainBinaryPurgeRetryQueues, purgeTrashOperationBinaries } from './lib/cloudBinaryPurge';
 import { restoreProjectTrashAtomic } from './lib/trashRestore';
@@ -6238,6 +6239,9 @@ function AuthenticatedApp() {
     if (!isProjectRoleResolved || !canEditWarehouseData(currentUserRole)) throw new Error('Tài khoản không có quyền tạo giao dịch kho.');
     const newId = item.id || createEntityId(item.type === 'in' ? 'NK' : 'XK');
     const normalized = prepareInventoryLedgerItem({ ...item, id: newId } as InventoryItem);
+    if (TRUSTED_WAREHOUSE_DEMO_MODE && normalized.sourceType === 'room-auto') {
+      throw new Error('P21_TRUSTED_ROOM_AUTO_REQUIRES_SERVER_VALIDATED_ROOM_FLOW');
+    }
 
     if (FIREBASE_ONLY_RUNTIME) {
       const existing = present.inventory.find((inv) => inv.id === newId);
@@ -6326,6 +6330,10 @@ function AuthenticatedApp() {
     if (duplicateIds.length > 0) throw new Error(`File import có Mã Phiếu trùng: ${Array.from(new Set(duplicateIds)).join(', ')}`);
 
     if (FIREBASE_ONLY_RUNTIME) {
+      if (TRUSTED_WAREHOUSE_DEMO_MODE) {
+        await trustedImportDemo(activeProjectIdRef.current, normalizedItems, existingItemsById);
+        return;
+      }
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
         throw new Error('Import kho cần online để cập nhật ledger + tồn kho bằng Firestore transaction an toàn.');
       }

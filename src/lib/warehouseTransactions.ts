@@ -6,6 +6,7 @@ import { areSameUnit } from '../utils/unitUtils';
 import type { TrashSettings } from './trash';
 import { DEFAULT_TRASH_SETTINGS } from './trash';
 import { createWarehouseTrashMetadata, isWarehouseVoucherRecoverable, type WarehouseTrashMetadata } from '../utils/warehouseTrashPolicy';
+import { TRUSTED_WAREHOUSE_DEMO_MODE, trustedVoucherDemo } from './warehouseTrustedDemoGateway';
 
 export { getWarehouseMaterialKey } from '../utils/warehouseLedgerMath';
 
@@ -78,6 +79,9 @@ export async function commitWarehouseTransactionAtomic(
   item: InventoryItem,
 ): Promise<WarehouseCommitResult> {
   if (!projectId || !item.id) throw new Error('Thiếu projectId/transactionId.');
+  if (TRUSTED_WAREHOUSE_DEMO_MODE) {
+    return trustedVoucherDemo({ projectId, transactionId:item.id, action:'create', item });
+  }
   if (item.type === 'out') assertOnlineForStrictStock();
   const user = getCurrentRealFirebaseUser();
   if (!user) throw new Error('Cần đăng nhập Firebase để ghi giao dịch kho.');
@@ -149,6 +153,9 @@ export async function updateWarehouseTransactionAtomic(
   transactionId: string,
   nextItem: InventoryItem,
 ): Promise<WarehouseCommitResult> {
+  if (TRUSTED_WAREHOUSE_DEMO_MODE) {
+    return trustedVoucherDemo({ projectId, transactionId, action:'update', item:nextItem, expectedRevision:nextItem.revision });
+  }
   assertOnlineForStrictStock();
   const user = getCurrentRealFirebaseUser();
   if (!user) throw new Error('Cần đăng nhập Firebase để sửa giao dịch kho.');
@@ -350,6 +357,10 @@ async function softDeleteWarehouseTransactionAtomicOnce(projectId: string, trans
  * server-ledger reconciliation and retry. Genuine negative ledgers remain blocked.
  */
 export async function softDeleteWarehouseTransactionAtomic(projectId: string, transactionId: string, trashSettings: TrashSettings = DEFAULT_TRASH_SETTINGS): Promise<void> {
+  if (TRUSTED_WAREHOUSE_DEMO_MODE) {
+    await trustedVoucherDemo({projectId,transactionId,action:'softDelete',trashSettings});
+    return;
+  }
   assertOnlineForStrictStock();
   try {
     await softDeleteWarehouseTransactionAtomicOnce(projectId, transactionId, trashSettings);
@@ -413,6 +424,10 @@ export async function listDeletedWarehouseVouchers(projectId: string): Promise<D
  * Never rewrites voucher identity/quantity/unit, and never touches R2 images.
  */
 export async function restoreWarehouseTransactionAtomic(projectId: string, transactionId: string): Promise<WarehouseCommitResult> {
+  if (TRUSTED_WAREHOUSE_DEMO_MODE) {
+    await requireWarehouseRecoveryAdmin(projectId);
+    return trustedVoucherDemo({projectId,transactionId,action:'restore'});
+  }
   const user = await requireWarehouseRecoveryAdmin(projectId);
   if (!transactionId) throw new Error('Thiếu transactionId cần khôi phục.');
   const transactionRef = doc(db, 'projects', projectId, 'inventory', transactionId);
@@ -461,6 +476,11 @@ export async function restoreWarehouseTransactionAtomic(projectId: string, trans
  * and NO physical deletion takes place. Safe to retry across devices.
  */
 export async function discardWarehouseVoucherTrashAtomic(projectId: string, transactionId: string): Promise<void> {
+  if (TRUSTED_WAREHOUSE_DEMO_MODE) {
+    await requireWarehouseRecoveryAdmin(projectId);
+    await trustedVoucherDemo({projectId,transactionId,action:'discard'});
+    return;
+  }
   const user = await requireWarehouseRecoveryAdmin(projectId);
   if (!transactionId) throw new Error('WAREHOUSE_TRASH_MISSING_ID');
   const transactionRef = doc(db, 'projects', projectId, 'inventory', transactionId);
