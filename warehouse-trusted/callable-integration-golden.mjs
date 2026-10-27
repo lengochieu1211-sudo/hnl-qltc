@@ -13,7 +13,7 @@ const environment = process.env.GCLOUD_PROJECT || process.env.FIREBASE_PROJECT_I
 if(!/^demo-[a-z0-9-]+$/.test(environment||'') ||
    process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8080' ||
    process.env.FIREBASE_AUTH_EMULATOR_HOST!=='127.0.0.1:9099' ||
-   process.env.FUNCTIONS_EMULATOR!=='true') {
+   process.env.P21_FUNCTIONS_EMULATOR_HOST!=='127.0.0.1:5001') {
   throw Error('P21_CALLABLE_REQUIRE_LOCAL_DISPOSABLE_EMULATORS');
 }
 const appAdmin=initializeAdmin({projectId:environment},'p21-callable-admin');
