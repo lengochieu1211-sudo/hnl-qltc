@@ -18,7 +18,7 @@ const sourceBase = endpoint(sourceProject);
 const encodePath = value => value.split('/').map(encodeURIComponent).join('/');
 const sha = value => createHash('sha256').update(value).digest('hex');
 async function request(url, options) {
-  const response = await fetch(url, options);
+  const response = await fetch(url, {...options, headers: {...(options?.headers || {}), authorization: 'Bearer owner'}});
   if (!response.ok) throw Error('P2120_EMULATOR_HTTP_' + response.status);
   return response.json();
 }
@@ -32,7 +32,7 @@ await writeFixture('projects/existing', {title: {stringValue: 'fixture'}});
 await writeFixture('projects/existing/rooms/r1', {qty: {integerValue: '2'}});
 await writeFixture('projects/missing-parent/rooms/orphan-child', {qty: {integerValue: '3'}});
 await writeFixture('projects/missing-parent/rooms/orphan-child/notes/n1', {ok: {booleanValue: true}});
-const missing = await fetch(sourceBase + '/projects/missing-parent');
+const missing = await fetch(sourceBase + '/projects/missing-parent', {headers: {authorization: 'Bearer owner'}});
 assert.equal(missing.status, 404, 'missing parent must not be materialized');
 const prefix = 'projects/' + sourceProject + '/databases/(default)/documents/';
 const rows = [];
@@ -78,9 +78,9 @@ const decrypted = decryptSnapshot({encrypted, manifest, privateKeyPem: privateKe
 assert.deepEqual(decrypted.map(x => x.path).sort(), expected);
 const parity = await restoreToEmptyEmulator({host, targetProject, documents: decrypted});
 assert.deepEqual(parity, inventory(decrypted), 'real emulator restore/readback inventory');
-const restoredMissing = await fetch(endpoint(targetProject) + '/projects/missing-parent');
+const restoredMissing = await fetch(endpoint(targetProject) + '/projects/missing-parent', {headers: {authorization: 'Bearer owner'}});
 assert.equal(restoredMissing.status, 404, 'restore must not create missing parent');
-const restoredChild = await fetch(endpoint(targetProject) + '/projects/missing-parent/rooms/orphan-child');
+const restoredChild = await fetch(endpoint(targetProject) + '/projects/missing-parent/rooms/orphan-child', {headers: {authorization: 'Bearer owner'}});
 assert.equal(restoredChild.status, 200, 'orphan child must be restored');
 await assert.rejects(
   () => restoreToEmptyEmulator({host, targetProject, documents: decrypted}),
