@@ -21,10 +21,12 @@ on:
       - 'scripts/windows-installer-golden.mjs'
       - 'scripts/windows-installer-runtime-golden.ps1'
       - '.github/workflows/windows-exe.yml'
+      - '.github/workflows/p2116-runtime-candidate.yml'
   push:
     branches:
       - dev
       - main
+      - release/p21-13-prod-candidate-20261027
     paths:
       - 'desktop-wrapper/**'
       - 'src/**'
