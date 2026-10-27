@@ -37,6 +37,8 @@ jobs:
           node --check warehouse-trusted/callable-integration-golden.mjs
           node -e "const a=require('./firebase.p21-trusted-callable-emulators.json');if(!a.functions?.source||a.emulators.functions.host!=='127.0.0.1') process.exit(1)"
       - name: Actual Auth + Firestore + Functions Emulator callable and Rules allow/deny
+        env:
+          P21_FUNCTIONS_EMULATOR_HOST: '127.0.0.1:5001'
         run: >-
           npx --yes firebase-tools@13.35.1 emulators:exec
           --config firebase.p21-trusted-callable-emulators.json
