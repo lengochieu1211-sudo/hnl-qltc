@@ -5,6 +5,7 @@ on:
       - release/p21-13-prod-candidate-20261027
     paths:
       - '.github/workflows/p2116-candidate-handoff.yml'
+      - '.github/workflows/p2119-dev-backup-preview.yml'
   workflow_dispatch:
 permissions:
   contents: read
