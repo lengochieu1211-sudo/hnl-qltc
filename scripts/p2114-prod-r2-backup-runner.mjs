@@ -39,5 +39,5 @@ const final=await enumerate();
 if(JSON.stringify(initial)!==JSON.stringify(final))throw Error("Source R2 changed during copy; not a consistent snapshot");
 if(results.reduce((v,o)=>v+o.bytes,0)!==bytes)throw Error("Byte sum mismatch");
 const report={status:"PROD_R2_BACKUP_SHA256_AND_METADATA_PASS",snapshotSha:snapshot,sourceBucket:a.source,backupBucket:a.destination,objects:initial.length,totalBytes:bytes,results};
-writeFileSync("P2114-DEV-R2-BACKUP-VERIFIED-MANIFEST.json",JSON.stringify(report,null,2));
+writeFileSync("P2114-PROD-R2-BACKUP-VERIFIED-MANIFEST.json",JSON.stringify(report,null,2));
 console.log(JSON.stringify({status:report.status,objects:report.objects,totalBytes:report.totalBytes,snapshotSha:snapshot}));
