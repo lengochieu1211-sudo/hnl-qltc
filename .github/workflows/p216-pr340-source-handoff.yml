@@ -1,0 +1,58 @@
+name: P21.6 DEV PR340 Exact-HEAD Source Handoff (NO DEPLOY)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/p216-pr340-source-handoff.yml'
+permissions:
+  contents: read
+jobs:
+  exact-head-source:
+    if: github.event.pull_request.number == 340
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify refs and package exact-HEAD tracked source
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$EXPECTED_BASE" = "d6effaf03a08a9879fa172a345992922916036d2"
+          git cat-file -e "$EXPECTED_BASE^{commit}"
+          mkdir -p dist-artifacts
+          git archive --format=zip --output dist-artifacts/HNL-QLTC-P21.6-PR340-FULL-SOURCE.zip "$EXPECTED_HEAD"
+          mapfile -d '' changed < <(git diff --name-only -z --diff-filter=ACMR "$EXPECTED_BASE" "$EXPECTED_HEAD")
+          test "${#changed[@]}" -gt 0
+          for file in "${changed[@]}"; do
+            test -f "$file"
+            test ! -L "$file"
+          done
+          zip -q -X dist-artifacts/HNL-QLTC-P21.6-PR340-PATCH.zip "${changed[@]}"
+          {
+            printf 'HNL QLTC P21.6 PR #340 SOURCE HANDOFF — NOT A PROD RELEASE\n'
+            printf 'repo=lengochieu1211-sudo/hnl-qltc\n'
+            printf 'base=%s\nhead=%s\n' "$EXPECTED_BASE" "$EXPECTED_HEAD"
+            printf 'changed_files=%s\n' "${#changed[@]}"
+            printf 'This is tracked Git source only; no runtime, data migration or release certification.\n'
+          } > dist-artifacts/HNL-QLTC-P21.6-PR340-REPORT.txt
+          (
+            cd dist-artifacts
+            sha256sum HNL-QLTC-P21.6-PR340-FULL-SOURCE.zip HNL-QLTC-P21.6-PR340-PATCH.zip HNL-QLTC-P21.6-PR340-REPORT.txt > SHA256SUMS.txt
+            sha256sum -c SHA256SUMS.txt
+            unzip -tq HNL-QLTC-P21.6-PR340-FULL-SOURCE.zip
+            unzip -tq HNL-QLTC-P21.6-PR340-PATCH.zip
+          )
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-P21.6-PR340-HEAD-${{ github.event.pull_request.head.sha }}
+          path: dist-artifacts/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 60
