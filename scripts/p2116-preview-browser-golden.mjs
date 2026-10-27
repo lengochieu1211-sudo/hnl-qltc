@@ -12,7 +12,16 @@ fs.mkdirSync('runtime-evidence',{recursive:true});
 const report={stage:'P2116_DEV_HOSTING_PREVIEW',commit,origin:base,checks:[],screenshots:[]};
 const pass=(n,v)=>{report.checks.push({name:n,status:'PASS',value:v});console.log('PASS '+n+' '+JSON.stringify(v||''));};
 const get=async path=>fetch(base+path,{redirect:'follow',signal:AbortSignal.timeout(30000)});
-const index=await get('/index.html');assert.equal(index.status,200);const html=await index.text();assert(html.includes('<html')&&html.includes('</html>'));pass('index.html HTTP 200');
+const index=await get('/index.html');
+if(index.status!==200){
+ const body=(await index.text()).slice(0,1200);
+ const headers=Object.fromEntries(['content-type','server','cache-control','x-cache','via','retry-after'].map(k=>[k,index.headers.get(k)]).filter(([,v])=>v!==null));
+ const diagnostic={stage:report.stage,commit,origin:base,path:'/index.html',status:index.status,statusText:index.statusText,headers,bodyExcerpt:body,quotaHint:index.status===509||/quota|bandwidth exceeded/i.test(body),checkedAt:new Date().toISOString()};
+ fs.writeFileSync('runtime-evidence/P2116-PREVIEW-HTTP-FAILURE.json',JSON.stringify(diagnostic,null,2));
+ console.error('DEV Preview HTTP diagnostic: '+JSON.stringify(diagnostic));
+ throw new Error('DEV Hosting preview returned HTTP '+index.status+' (expected 200); runtime NOT certified. Check Firebase Hosting quota/API/status before retry.');
+}
+const html=await index.text();assert(html.includes('<html')&&html.includes('</html>'));pass('index.html HTTP 200');
 const manifest=await get('/sw-assets.json');assert.equal(manifest.status,200);
 const m=await manifest.json();assert(Array.isArray(m.assets)&&m.assets.length>=1,'Missing JS asset manifest');
 for(const p of m.assets.slice(0,8)){
