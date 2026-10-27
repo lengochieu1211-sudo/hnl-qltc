@@ -48,6 +48,8 @@ jobs:
           if(!pkg.dependencies?.multer||!pkg.overrides)throw Error('Security dependency protections missing');
           console.log('PROD hotfix semantic invariants PASS; requires additional runtime validation');
           NODE
+      - name: Reconcile package lock only in disposable trial tree
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
       - name: Install deterministic dependencies
         run: npm ci
       - name: TypeScript
