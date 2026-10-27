@@ -1,0 +1,163 @@
+name: P21.19 DEV Backup Preview Only (NO LIVE, NO PROD)
+on:
+  push:
+    branches:
+      - release/p21-13-prod-candidate-20261027
+    paths:
+      - '.github/workflows/p2119-dev-backup-preview.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: hnl-qltc-p2119-backup-preview
+  cancel-in-progress: false
+
+jobs:
+  deploy-backup-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      BACKUP_PROJECT: hnl-qltc-dev-backup
+      BACKUP_CHANNEL: p2031-check
+      FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+      VITE_HNL_AI_ENABLED: 'false'
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_USE_FIREBASE_EMULATORS: 'false'
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev-backup.web.app
+      VITE_GIT_COMMIT: ${{ github.sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: DEV Backup exact-project credential gate (NO deploy on failure)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/release/p21-13-prod-candidate-20261027
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$BACKUP_PROJECT" = hnl-qltc-dev-backup
+          test "$BACKUP_CHANNEL" = p2031-check
+          test "$VITE_R2_GATEWAY_URL" = https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+          test "$VITE_APP_ENV" = DEV
+          test "$VITE_ENABLE_LEGACY_DRIVE_WRITE" = false
+          if test -z "$FIREBASE_BACKUP_SERVICE_ACCOUNT"; then
+            echo "::error::Missing GitHub Actions secret FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP. No deploy attempted."
+            exit 1
+          fi
+          node - <<'NODE'
+          const a=JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT);
+          if(a.type!=='service_account'||a.project_id!=='hnl-qltc-dev-backup'||!a.private_key)
+            throw Error('REFUSING wrong Firebase service account; only existing DEV Backup is allowed');
+          console.log('Firebase credential isolation PASS (not printing secrets)');
+          NODE
+          printf '%s' "$FIREBASE_BACKUP_SERVICE_ACCOUNT" > "$RUNNER_TEMP/backup-firebase-sa.json"
+          chmod 600 "$RUNNER_TEMP/backup-firebase-sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/backup-firebase-sa.json" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Read EXISTING Firebase DEV Backup Web SDK (never create app)
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes firebase-tools@13.35.1 apps:list WEB --project "$BACKUP_PROJECT" --json > "$RUNNER_TEMP/apps.json"
+          APP_ID="$(node - "$RUNNER_TEMP/apps.json" <<'NODE'
+          const j=require(process.argv[2]);
+          const apps=Array.isArray(j.result)?j.result:[];
+          const app=apps.find(x=>x.platform==='WEB'||String(x.appId||'').includes(':web:'));
+          if(!app?.appId)throw Error('No existing DEV Backup web app; REFUSE create');
+          process.stdout.write(app.appId);
+          NODE
+          )"
+          test -n "$APP_ID"
+          npx --yes firebase-tools@13.35.1 apps:sdkconfig WEB "$APP_ID" --project "$BACKUP_PROJECT" --json > "$RUNNER_TEMP/sdk.json"
+          node - "$RUNNER_TEMP/sdk.json" <<'NODE'
+          const fs=require('fs');
+          const j=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          const keys=['apiKey','appId','messagingSenderId','projectId','authDomain','storageBucket'];
+          const cfg={};
+          function walk(v){
+            if(!v)return;
+            if(typeof v==='string'){
+              try{walk(JSON.parse(v))}catch{}
+              for(const k of keys){const m=v.match(new RegExp(k+'\\s*:\\s*["\\x27]([^"\\x27]+)["\\x27]'));if(m&&!cfg[k])cfg[k]=m[1];}
+            }else if(Array.isArray(v)){for(const x of v)walk(x);}
+            else if(typeof v==='object'){
+              for(const [k,x] of Object.entries(v)){if(keys.includes(k)&&typeof x==='string'&&!cfg[k])cfg[k]=x;walk(x);}
+            }
+          }
+          walk(j);
+          if(cfg.projectId!=='hnl-qltc-dev-backup'||!cfg.apiKey||!cfg.appId||!cfg.messagingSenderId)throw Error('Invalid DEV Backup SDK identity');
+          cfg.authDomain='hnl-qltc-dev-backup.web.app';
+          cfg.storageBucket||='hnl-qltc-dev-backup.firebasestorage.app';
+          const map={apiKey:'API_KEY',appId:'APP_ID',messagingSenderId:'MESSAGING_SENDER_ID',projectId:'PROJECT_ID',authDomain:'AUTH_DOMAIN',storageBucket:'STORAGE_BUCKET'};
+          fs.appendFileSync(process.env.GITHUB_ENV,Object.entries(map).map(([k,n])=>'VITE_FIREBASE_'+n+'='+cfg[k]).join('\n')+'\n');
+          console.log('SDK verified for existing DEV Backup');
+          NODE
+      - name: Build / TypeScript / Lint / Rules / Security
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const a=require('./package.json'),b=require('./package-lock.json');if(a.version!==b.version||a.name!==b.name)process.exit(1)"
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run security:audit
+          npm run build
+          test -s dist/index.html
+          if grep -R -q 'hnl-qltc-r2-gateway\.lengochieu1211\.workers\.dev' dist/assets; then
+            echo "::error::PROD R2 gateway found in DEV Backup bundle";exit 1
+          fi
+          grep -R -q 'hnl-qltc-r2-gateway-dev-backup' dist/assets
+          rm -f dist/server.cjs dist/server.cjs.map
+      - name: Publish ONLY backup Preview p2031-check, never live or PROD
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$BACKUP_PROJECT" = hnl-qltc-dev-backup
+          test "$BACKUP_CHANNEL" = p2031-check
+          node - <<'NODE'
+          const fs=require('fs');
+          const cfg=JSON.parse(fs.readFileSync('firebase.json','utf8'));
+          if(cfg.hosting?.public!=='dist')throw Error('Unexpected public build folder');
+          fs.writeFileSync(process.env.RUNNER_TEMP+'/hosting-backup-only.json',JSON.stringify({hosting:cfg.hosting}));
+          NODE
+          npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$BACKUP_CHANNEL" --project "$BACKUP_PROJECT" --config "$RUNNER_TEMP/hosting-backup-only.json" --expires 1d --non-interactive --json > "$RUNNER_TEMP/preview.json"
+          node - <<'NODE'
+          const fs=require('fs');
+          const result=fs.readFileSync(process.env.RUNNER_TEMP+'/preview.json','utf8');
+          const found=result.match(/https:\/\/hnl-qltc-dev-backup--p2031-check-[a-z0-9-]+\.web\.app/g);
+          if(!found)throw Error('No DEV Backup Preview URL in CLI result');
+          const url=found[0];
+          fs.appendFileSync(process.env.GITHUB_ENV,'HNL_DEV_BACKUP_PREVIEW_URL='+url+'\n');
+          fs.writeFileSync('P2119-DEV-BACKUP-PREVIEW-REPORT.json',JSON.stringify({exactHead:process.env.GITHUB_SHA,url,projectId:'hnl-qltc-dev-backup',channel:'p2031-check',liveModified:false,prodModified:false,firestoreRulesModified:false,securityReview:'Runtime Golden still required'},null,2));
+          console.log('DEV BACKUP PREVIEW: '+url);
+          NODE
+      - name: Preview HTTP smoke only (not Runtime Golden)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$HNL_DEV_BACKUP_PREVIEW_URL"
+          CODE="$(curl -L -sS --retry 3 -o "$RUNNER_TEMP/preview.html" -w '%{http_code}' "$HNL_DEV_BACKUP_PREVIEW_URL/?sha=$GITHUB_SHA")"
+          if test "$CODE" != 200; then echo "::error::Preview HTTP $CODE"; exit 1; fi
+          grep -q 'id="root"' "$RUNNER_TEMP/preview.html"
+          echo 'HTTP 200 PASS; signed-in PC/mobile, multi-user and offline remain unverified'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: P2119-DEV-BACKUP-PREVIEW-${{ github.sha }}
+          path: P2119-DEV-BACKUP-PREVIEW-REPORT.json
+          if-no-files-found: warn
+          retention-days: 30
