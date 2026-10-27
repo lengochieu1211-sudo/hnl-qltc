@@ -28,10 +28,13 @@ export function decryptSnapshot({encrypted,manifest,privateKeyPem}){
 export function inventory(documents){const rows=[...documents].sort((a,b)=>a.path.localeCompare(b.path)).map(x=>({path:x.path,fields:x.fields||{}}));return {documents:rows.length,sha256:sha256(Buffer.from(stable(rows)))};}
 export async function restoreToEmptyEmulator({host,targetProject,documents,fetchImpl=fetch}){
  assertIsolatedEmulator({host,targetProject});const base='http://'+host+'/v1/projects/'+targetProject+'/databases/(default)/documents';
- const collections=await fetchImpl(base+':listCollectionIds',{method:'POST',headers:{'content-type':'application/json'},body:'{"pageSize":1}'});
+ // Firestore REST listCollectionIds is admin-only, even on the emulator. The
+ // emulator-local owner token is never sent anywhere except loopback.
+ const emulatorHeaders={'content-type':'application/json',authorization:'Bearer owner'};
+ const collections=await fetchImpl(base+':listCollectionIds',{method:'POST',headers:emulatorHeaders,body:'{"pageSize":1}'});
  if(!collections.ok)throw Error('RESTORE_EMULATOR_PREFLIGHT_'+collections.status);
  if(((await collections.json()).collectionIds||[]).length)throw Error('RESTORE_TARGET_NOT_EMPTY');
- for(const item of documents){const url=base+'/'+item.path.split('/').map(encodeURIComponent).join('/');const response=await fetchImpl(url,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({fields:item.fields})});if(!response.ok)throw Error('RESTORE_WRITE_FAILED_'+response.status);}
- const restored=[];for(const item of documents){const url=base+'/'+item.path.split('/').map(encodeURIComponent).join('/');const response=await fetchImpl(url);if(!response.ok)throw Error('RESTORE_READBACK_FAILED_'+response.status);const document=await response.json();restored.push({path:item.path,fields:document.fields||{}});}
+ for(const item of documents){const url=base+'/'+item.path.split('/').map(encodeURIComponent).join('/');const response=await fetchImpl(url,{method:'PATCH',headers:emulatorHeaders,body:JSON.stringify({fields:item.fields})});if(!response.ok)throw Error('RESTORE_WRITE_FAILED_'+response.status);}
+ const restored=[];for(const item of documents){const url=base+'/'+item.path.split('/').map(encodeURIComponent).join('/');const response=await fetchImpl(url,{headers:emulatorHeaders});if(!response.ok)throw Error('RESTORE_READBACK_FAILED_'+response.status);const document=await response.json();restored.push({path:item.path,fields:document.fields||{}});}
  const source=inventory(documents),readback=inventory(restored);if(source.documents!==readback.documents||source.sha256!==readback.sha256)throw Error('RESTORE_PARITY_FAILED');return readback;
 }
