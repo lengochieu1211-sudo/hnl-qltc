@@ -44,7 +44,7 @@ import { compareWorkVolumeManualOrder } from '../utils/catalogDisplayOrder';
 import { formatDateTime } from '../utils/dateFormatter';
 import { CURRENT_DATA_SCHEMA_VERSION, getPendingDataSchemaMigrations, readDataSchemaVersion } from '../config/dataSchema';
 import { clearRememberedVerifiedAuthIdentity } from '../utils/offlineAccess';
-import { assertP21DemoWriterBoundary } from '../utils/p21DemoWriterBoundary';
+import { assertP21DemoFullProjectSaveBoundary, assertP21DemoWriterBoundary } from '../utils/p21DemoWriterBoundary';
 import type { ProjectStructureConfig } from '../utils/structureGroupUtils';
 const env = (import.meta as any).env || {};
 const p21DemoWriterGates = {
@@ -2291,6 +2291,8 @@ export async function setProjectArchivedState(projectId: string, archived: boole
 
 export async function saveProjectToCloud(project: { id: string; name: string; syncCode?: string; payload?: any; contractorName?: string; inspectorName?: string; projectLocation?: string; [key: string]: any }, options?: { authoritativeBackupRestore?: boolean }): Promise<void> {
   try {
+    // Full import/restore bypasses the diff writer: fail before project metadata writes.
+    assertP21DemoFullProjectSaveBoundary(p21DemoWriterGates);
     await ensureAuth();
     const authoritativeBackupRestore = options?.authoritativeBackupRestore === true;
     const financialActor = getCurrentRealFirebaseUser();
