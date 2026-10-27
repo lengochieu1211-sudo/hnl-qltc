@@ -15,6 +15,7 @@ jobs:
     timeout-minutes: 45
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: '4078cafe74946b0d5a67b35143b60071'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
