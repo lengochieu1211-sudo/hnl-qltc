@@ -44,8 +44,13 @@ import { compareWorkVolumeManualOrder } from '../utils/catalogDisplayOrder';
 import { formatDateTime } from '../utils/dateFormatter';
 import { CURRENT_DATA_SCHEMA_VERSION, getPendingDataSchemaMigrations, readDataSchemaVersion } from '../config/dataSchema';
 import { clearRememberedVerifiedAuthIdentity } from '../utils/offlineAccess';
+import { assertP21DemoWriterBoundary } from '../utils/p21DemoWriterBoundary';
 import type { ProjectStructureConfig } from '../utils/structureGroupUtils';
 const env = (import.meta as any).env || {};
+const p21DemoWriterGates = {
+  roomSidecarDemo: String(env.VITE_P21_ROOM_SIDECAR_DEMO || '') === 'P21_LOCAL_EMULATOR_ONLY',
+  trustedWarehouseDemo: String(env.VITE_P21_TRUSTED_WAREHOUSE_DEMO || '') === 'P21_LOCAL_EMULATOR_ONLY',
+} as const;
 export const APP_ENVIRONMENT: 'DEV' | 'PROD' = String(env.VITE_APP_ENV || (env.DEV || env.MODE === 'development' ? 'DEV' : 'PROD')).toUpperCase() === 'PROD' ? 'PROD' : 'DEV';
 const isDev = APP_ENVIRONMENT === 'DEV';
 const PROD_FIREBASE_PROJECT_ID = 'com-example-qlct-61329';
@@ -2709,6 +2714,8 @@ export function queueProjectDiffsToFirestoreOffline(
   options: { touchProjectMetadata?: boolean; allowFinancialWrites?: boolean } = {},
 ): { queuedRecords: number; commitPromises: Promise<void>[] } {
   if (!projectId) return { queuedRecords: 0, commitPromises: [] };
+  // Fail before enqueueing ANY batch (including unrelated collections).
+  assertP21DemoWriterBoundary(diffs, p21DemoWriterGates);
   const currentUser = getCurrentAppUser();
   let batch = writeBatch(db);
   let operationCount = 0;
@@ -2831,6 +2838,8 @@ export async function saveProjectDiffsToCloud(
   options: { touchProjectMetadata?: boolean; allowRootMetadataWrite?: boolean; allowFinancialWrites?: boolean; rootTouchIntervalMs?: number; auditDetailLimit?: number } = {}
 ): Promise<void> {
   try {
+    // Fail before root-metadata writes or the first partial 400-record commit.
+    assertP21DemoWriterBoundary(diffs, p21DemoWriterGates);
     await ensureAuth();
 
     const totalChangedRecords =
