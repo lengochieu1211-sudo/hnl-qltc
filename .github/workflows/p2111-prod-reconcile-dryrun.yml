@@ -1,0 +1,76 @@
+name: P21.11 PROD Hotfix Reconcile Dry-run (NO PUSH, NO DEPLOY)
+on:
+  push:
+    branches:
+      - safety/p21-6-room-sidecar-ui-emulator-20261027
+    paths:
+      - '.github/workflows/p2111-prod-reconcile-dryrun.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Pin existing production main and test non-mutating merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_SHA="$(git rev-parse HEAD)"
+          git fetch --no-tags origin main
+          MAIN_SHA="$(git rev-parse origin/main)"
+          test "$MAIN_SHA" = "57eea2b878e17da64d7a6191fda178eaff3b8488" || { echo "main changed: refusing stale reconciliation"; exit 1; }
+          git config user.name "HNL safety merge audit"
+          git config user.email "hnl-safety-audit@users.noreply.github.com"
+          set +e
+          git merge --no-commit --no-ff origin/main > /tmp/p2111-merge.txt 2>&1
+          MERGE_RESULT=$?
+          set -e
+          {
+            echo "# P21.11 Production Hotfix Reconciliation — NO PUSH/DEPLOY"
+            echo "Source HEAD: $SOURCE_SHA"
+            echo "Original PROD main HEAD: $MAIN_SHA"
+            echo "Legacy PROD-only commits preserved by parent merge: 27"
+            echo "Merge exit status: $MERGE_RESULT"
+            echo
+            echo "## Conflict paths"
+            git diff --name-only --diff-filter=U || true
+            echo
+            echo "## Git merge log"
+            cat /tmp/p2111-merge.txt
+            echo
+            echo "## Preserved main-only path changes"
+            git diff --name-only "$(git merge-base HEAD origin/main)" origin/main || true
+          } > P2111-PROD-HOTFIX-RECONCILE-REPORT.txt
+          cat P2111-PROD-HOTFIX-RECONCILE-REPORT.txt
+          if [ "$MERGE_RESULT" -ne 0 ]; then
+            echo 'PROD_RECONCILIATION=BLOCKED_CONFLICTS' >> "$GITHUB_ENV"
+            echo "::warning::PROD hotfix reconciliation requires manual resolution; NO changes committed"
+          else
+            echo 'PROD_RECONCILIATION=MERGEABLE' >> "$GITHUB_ENV"
+          fi
+      - name: Merged tree source gates (only if no conflicts)
+        if: env.PROD_RECONCILIATION == 'MERGEABLE'
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run build
+      - name: Upload exact conflict and hotfix report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P2111-PROD-HOTFIX-RECONCILE-${{ github.sha }}
+          path: P2111-PROD-HOTFIX-RECONCILE-REPORT.txt
+          if-no-files-found: warn
+      - name: Ensure no repository mutation or deployment
+        if: always()
+        shell: bash
+        run: |
+          if [ -f .git/MERGE_HEAD ]; then git merge --abort; fi
+          echo "No GitHub push, no Firebase deploy, no Cloudflare deploy"
