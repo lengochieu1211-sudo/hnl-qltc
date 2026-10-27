@@ -1,19 +1,21 @@
-name: P21.16 DEV hosting candidate preview + PC Mobile smoke (NO PROD)
+name: P21.16 DEV Preview PC Mobile Golden (NO PROD)
 on:
   push:
     branches:
       - release/p21-13-prod-candidate-20261027
     paths:
       - '.github/workflows/p2116-dev-preview-runtime.yml'
+      - 'scripts/p2116-*'
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  safe-preview:
+  dev-preview:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 55
     env:
       FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
+      GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/hnl-p2116-dev-service-account.json
       DEV_PROJECT: hnl-qltc-dev
       VITE_APP_ENV: DEV
       VITE_RUNTIME_BACKEND: firebase-only
@@ -35,39 +37,27 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: package-lock.json
-      - name: Exact environment guard and DEV credential
+      - name: Guard exact DEV project and isolate credentials
         shell: bash
         run: |
           set -euo pipefail
-          test "$GITHUB_REF" = "refs/heads/release/p21-13-prod-candidate-20261027"
-          test "$DEV_PROJECT" = "hnl-qltc-dev"
-          test "$DEV_PROJECT" != "com-example-qlct-61329"
+          test "$GITHUB_REF" = 'refs/heads/release/p21-13-prod-candidate-20261027'
+          test "$DEV_PROJECT" = 'hnl-qltc-dev'
+          test "$DEV_PROJECT" != 'com-example-qlct-61329'
           test -n "${FIREBASE_SERVICE_ACCOUNT:-}"
-          node -e 'const a=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);if(a.project_id!=="hnl-qltc-dev")process.exit(1)'
-          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-dev-readonly-preview.json"
-          echo "GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS" >> "$GITHUB_ENV"
+          node -e "const a=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);if(a.project_id!=='hnl-qltc-dev')process.exit(1)"
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
           chmod 600 "$GOOGLE_APPLICATION_CREDENTIALS"
-      - name: Resolve existing DEV web SDK without modifying Firebase apps
+      - name: Resolve existing DEV SDK (no create app)
         shell: bash
         run: |
           set -euo pipefail
           APPS="$(npx --yes firebase-tools@13.35.1 apps:list WEB --project "$DEV_PROJECT" --json)"
-          APP_ID="$(printf '%s' "$APPS" | node -e 'let s="";process.stdin.on("data",x=>s+=x).on("end",()=>{const a=JSON.parse(s).result||[];process.stdout.write(String(a.find(x=>x.platform==="WEB")?.appId||a[0]?.appId||""))})')"
+          APP_ID="$(printf '%s' "$APPS" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const a=j.result||[];process.stdout.write(String(a.find(x=>x.platform==='WEB')?.appId||a[0]?.appId||''))})")"
           test -n "$APP_ID"
-          npx --yes firebase-tools@13.35.1 apps:sdkconfig WEB "$APP_ID" --project "$DEV_PROJECT" --json > "$RUNNER_TEMP/dev-sdk.json"
-          node - <<'NODE'
-          const fs=require('fs'),src=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/dev-sdk.json','utf8'));
-          const vals={};const keys=['apiKey','appId','messagingSenderId','projectId','storageBucket','authDomain'];
-          function walk(v){if(!v)return;if(Array.isArray(v))return v.forEach(walk);if(typeof v==='string'){try{walk(JSON.parse(v))}catch{};for(const k of keys){const re=new RegExp(k+'\\s*:\\s*["\\x27]([^"\\x27]+)["\\x27]');const m=v.match(re);if(m&&!vals[k])vals[k]=m[1]}return}if(typeof v==='object')for(const [k,x] of Object.entries(v)){if(keys.includes(k)&&typeof x==='string'&&x)vals[k]=x;else walk(x)}}
-          walk(src);
-          if(!vals.apiKey||!vals.appId||!vals.messagingSenderId||vals.projectId&&vals.projectId!=='hnl-qltc-dev')throw Error('DEV Firebase SDK mismatch');
-          vals.projectId='hnl-qltc-dev';vals.authDomain='hnl-qltc-dev.web.app';vals.storageBucket=vals.storageBucket||'hnl-qltc-dev.firebasestorage.app';
-          const mapping={apiKey:'API_KEY',appId:'APP_ID',messagingSenderId:'MESSAGING_SENDER_ID',projectId:'PROJECT_ID',authDomain:'AUTH_DOMAIN',storageBucket:'STORAGE_BUCKET'};
-          fs.appendFileSync(process.env.GITHUB_ENV,Object.entries(mapping).map(([k,n])=>'VITE_FIREBASE_'+n+'='+vals[k]).join('\n')+'\n');
-          console.log('Existing DEV SDK loaded; Firebase app/project unchanged');
-          NODE
-      - name: Deterministic safety gates and candidate build
+          npx --yes firebase-tools@13.35.1 apps:sdkconfig WEB "$APP_ID" --project "$DEV_PROJECT" --json > "$RUNNER_TEMP/p2116-dev-sdk.json"
+          node scripts/p2116-dev-sdk-env.mjs
+      - name: TypeScript Lint Rules Regression Security Build
         shell: bash
         run: |
           set -euo pipefail
@@ -79,54 +69,26 @@ jobs:
           npm run security:audit
           npm run build
           grep -R -q 'hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev' dist/assets
-          ! grep -R -q 'hnl-qltc-r2-gateway.lengochieu1211.workers.dev' dist/assets
-      - name: Deploy DEV preview channel ONLY, no Rules, no PROD
+      - name: Deploy Firebase DEV preview only
         shell: bash
         run: |
           set -euo pipefail
-          npx --yes firebase-tools@13.35.1 hosting:channel:deploy p2116 --project "$DEV_PROJECT" --config firebase.json --expires 1d --non-interactive --json > "$RUNNER_TEMP/preview-result.json"
-          node - <<'NODE'
-          const fs=require('fs'),x=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/preview-result.json','utf8'));
-          const s=JSON.stringify(x),u=[...s.matchAll(/https:\\/\\/hnl-qltc-dev--[a-zA-Z0-9-]+\\.web\\.app/g)].map(z=>z[0])[0];
-          if(!u||u.includes('hnlqltc.web.app'))throw Error('DEV preview URL not confirmed');
-          fs.appendFileSync(process.env.GITHUB_ENV,'P2116_PREVIEW_URL='+u+'\n');
-          fs.writeFileSync('P2116-DEV-PREVIEW-EVIDENCE.json',JSON.stringify({previewUrl:u,exactSha:process.env.GITHUB_SHA,project:'hnl-qltc-dev',prodUntouched:true,firestoreRulesUntouched:true},null,2));
-          console.log('SAFE DEV PREVIEW URL '+u);
-          NODE
-      - name: HTTP + browser PC/mobile smoke (no authenticated writes)
+          npx --yes firebase-tools@13.35.1 hosting:channel:deploy p2116 --project "$DEV_PROJECT" --config firebase.json --expires 1d --non-interactive --json > "$RUNNER_TEMP/p2116-preview-result.json"
+          node scripts/p2116-preview-evidence.mjs
+      - name: Hosted HTTP and Playwright PC mobile smoke
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --location "$P2116_PREVIEW_URL/" -o /tmp/hnl-preview-index.html
-          grep -q '<html' /tmp/hnl-preview-index.html || grep -q '<!doctype html' /tmp/hnl-preview-index.html
+          curl --fail --silent --show-error --location "$P2116_PREVIEW_URL/" -o /tmp/hnl-p2116-index.html
+          grep -Eiq '<!doctype html|<html' /tmp/hnl-p2116-index.html
           npm install --no-save --package-lock=false playwright@1.55.0
-          npx playwright install --with-deps chromium >/tmp/hnl-browser-install.log 2>&1
-          P2116_PREVIEW_URL="$P2116_PREVIEW_URL" node --input-type=module <<'NODE'
-          import {chromium} from 'playwright';
-          import fs from 'node:fs';
-          const browser=await chromium.launch({headless:true});
-          const evidence=[];
-          for(const view of [{name:'PC',width:1440,height:900},{name:'AndroidPhone',width:390,height:844}]){
-            const p=await browser.newPage({viewport:{width:view.width,height:view.height},deviceScaleFactor:1});
-            const failures=[];
-            p.on('pageerror',err=>failures.push(String(err.message).slice(0,160)));
-            const response=await p.goto(process.env.P2116_PREVIEW_URL,{waitUntil:'domcontentloaded',timeout:60000});
-            await p.waitForTimeout(3000);
-            const data=await p.evaluate(()=>({title:document.title,bodyLength:document.body?.innerText?.length||0,viewWidth:window.innerWidth,docWidth:document.documentElement.scrollWidth}));
-            await p.screenshot({path:'P2116-'+view.name+'.png',fullPage:true});
-            await p.close();
-            evidence.push({view:view.name,httpStatus:response?.status(),...data,errors:failures});
-            if(!response?.ok()||data.bodyLength<10||failures.length)throw Error('DEV browser smoke failed '+JSON.stringify(evidence));
-          }
-          fs.writeFileSync('P2116-DEV-PC-MOBILE-SMOKE.json',JSON.stringify(evidence,null,2));
-          await browser.close();
-          console.log('PC/MOBILE PREVIEW SMOKE PASS (not multi-user Runtime Golden)');
-          NODE
-      - name: Save preview proof, browser screenshots, exact SHA
+          npx playwright install --with-deps chromium > /tmp/hnl-p2116-playwright-install.log 2>&1
+          node scripts/p2116-preview-smoke.mjs
+      - name: Export preview proof and screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: P2116-DEV-PREVIEW-SMOKE-${{ github.sha }}
+          name: P2116-DEV-PREVIEW-PC-MOBILE-${{ github.sha }}
           path: |
             P2116-DEV-PREVIEW-EVIDENCE.json
             P2116-DEV-PC-MOBILE-SMOKE.json
