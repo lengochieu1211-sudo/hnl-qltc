@@ -10,6 +10,8 @@ on:
       - 'src/utils/p21DemoWriterBoundary.ts'
       - 'src/lib/firebaseBase.ts'
       - 'scripts/p217-writer-boundary-golden.mjs'
+      - 'scripts/p218-writer-cutover-boundary-golden.mjs'
+      - 'src/App.tsx'
       - 'scripts/p216-room-sidecar-ui-golden.mjs'
       - '.github/workflows/p216-room-sidecar-ui-demo.yml'
   workflow_dispatch:
@@ -25,4 +27,4 @@ jobs:
         with:
           node-version: '22'
       - name: Fail closed when room sidecar parity or write boundaries fail
-        run: node --experimental-strip-types scripts/p216-room-sidecar-ui-golden.mjs && node --experimental-strip-types scripts/p217-writer-boundary-golden.mjs
+        run: node --experimental-strip-types scripts/p216-room-sidecar-ui-golden.mjs && node --experimental-strip-types scripts/p217-writer-boundary-golden.mjs && node --experimental-strip-types scripts/p218-writer-cutover-boundary-golden.mjs
