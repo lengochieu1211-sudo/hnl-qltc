@@ -4,7 +4,7 @@ import { getHnlPrimaryThemeColors } from './utils/hnlPrimaryTheme';
 import { GlobalConfirmModal } from './components/GlobalConfirmModal';
 import { ContextBackButton } from './components/ContextBackButton';
 import { captureScopedUndoStep, applyScopedUndoStep, type ScopedUndoStep } from './utils/undoRedoScoped';
-import { p21DemoLocalMutationError, p21DemoHistoryMutationError } from './utils/p21DemoWriterBoundary';
+import { assertP21DemoFullProjectSaveBoundary, p21DemoLocalMutationError, p21DemoHistoryMutationError } from './utils/p21DemoWriterBoundary';
 import { ROOM_SIDECAR_DEMO_MODE } from './lib/roomSidecarDemoMode';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { DesktopWorkspaceHeader, type DesktopWorkspaceMode } from './components/DesktopWorkspaceHeader';
@@ -3445,10 +3445,6 @@ function AuthenticatedApp() {
         }
         return prev; // No dirty/unsaved flags, tombstones or undo snapshot for blocked writes.
       }
-      // Mark changed only after preflight accepts the mutation.
-      hasUserEditedSinceHydrateRef.current = true;
-      hasUnsavedAllBackupChangesRef.current = true;
-
       const now = Date.now();
       const collections: (keyof AppData)[] = [
         'roomProgressList', 'inventory', 'workVolumes', 'floorPlans',
@@ -3479,6 +3475,9 @@ function AuthenticatedApp() {
         window.setTimeout(() => alert(`Thao tác có ${predictedDeletes} mục xóa và ${predictedLinkedChanges} liên kết cần khôi phục, vượt giới hạn an toàn 150. Chưa xóa dữ liệu. Hãy chia thành các lượt nhỏ hơn.`), 0);
         return prev;
       }
+      // Accepted only after BOTH cutover and Trash-restore preflights pass.
+      hasUserEditedSinceHydrateRef.current = true;
+      hasUnsavedAllBackupChangesRef.current = true;
 
       let stampedNext = rawNext;
       let hasStamped = false;
@@ -4311,6 +4310,9 @@ function AuthenticatedApp() {
       alert('Chỉ ADMIN được khôi phục/ghi đè dữ liệu dự án từ bản sao lưu.');
       return;
     }
+    // The full restore bypasses updateAppData; reject it BEFORE setting restore UI
+    // flags, writing any local cache or replacing React state in the P21 rehearsal.
+    assertP21DemoFullProjectSaveBoundary(p21LocalGates);
     const operationProjectId = targetProjectId || activeProjectIdRef.current || getActiveProjectId();
 
     if (switchingProjectRef.current) {
@@ -4597,6 +4599,7 @@ function AuthenticatedApp() {
 
   const handleRestoreAllStorageData = async (parsedData: any) => {
     if (!parsedData) return;
+    assertP21DemoFullProjectSaveBoundary(p21LocalGates);
     if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) {
       alert('Chỉ ADMIN được khôi phục toàn bộ dữ liệu hệ thống.');
       return;
