@@ -1,0 +1,10 @@
+import fs from 'node:fs';
+const raw=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/p2116-preview-result.json','utf8'));
+const str=JSON.stringify(raw);
+const found=[...str.matchAll(/https:\/\/hnl-qltc-dev--[a-zA-Z0-9-]+\.web\.app/g)].map(z=>z[0]);
+if(!found.length)throw new Error('No isolated DEV Firebase Hosting preview URL');
+const url=found[0];
+if(!/^https:\/\/hnl-qltc-dev--[a-zA-Z0-9-]+\.web\.app$/.test(url))throw new Error('Invalid preview URL');
+fs.appendFileSync(process.env.GITHUB_ENV,'P2116_PREVIEW_URL='+url+'\n');
+fs.writeFileSync('P2116-DEV-PREVIEW-EVIDENCE.json',JSON.stringify({url,sourceHead:process.env.GITHUB_SHA,project:'hnl-qltc-dev',previewOnly:true,noProdWrite:true,noRulesWrite:true},null,2));
+console.log('P21.16 DEV preview: '+url);
