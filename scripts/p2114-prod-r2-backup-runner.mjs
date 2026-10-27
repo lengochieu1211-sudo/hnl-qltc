@@ -2,7 +2,7 @@ import {writeFileSync} from "node:fs";
 import {setTimeout as sleep} from "node:timers/promises";
 const endpoint=process.env.P2114_LOCAL_URL||"http://127.0.0.1:8789",snapshot=process.env.GITHUB_SHA;
 if(!/^[a-f0-9]{40}$/.test(snapshot||""))throw Error("Exact SHA required");
-const headers={"x-hnl-dev-backup":"DEV-ONLY-P2114"};
+const headers={"x-hnl-dev-backup":"PROD-SNAPSHOT-P2114"};
 async function get(path,opts={}){
  for(let n=0;n<4;n++){try{
   const response=await fetch(endpoint+path,{...opts,headers:{...headers,...opts.headers},signal:AbortSignal.timeout(60000)});
