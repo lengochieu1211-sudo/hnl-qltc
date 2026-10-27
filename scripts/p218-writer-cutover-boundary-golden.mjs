@@ -24,7 +24,8 @@ const updater=app.slice(app.indexOf('const updateAppData ='),app.indexOf('const 
 const undo=app.slice(app.indexOf('const runScopedHistoryStep ='),app.indexOf('const handleUndo ='));
 const full=fb.slice(fb.indexOf('export async function saveProjectToCloud('),fb.indexOf('export function queueProjectDiffsToFirestoreOffline('));
 check('local preflight precedes dirty collections',()=>assert.ok(updater.indexOf('p21DemoLocalMutationError(')>-1 && updater.indexOf('p21DemoLocalMutationError(')<updater.indexOf('markLocalCollectionDirty(')));
-check('local refusal returns previous state',()=>assert.ok(updater.includes('return prev; // No tombstone')));
+check('local refusal returns previous state',()=>assert.ok(updater.includes('return prev; // No dirty/unsaved flags')));
+check('unsaved state flags set only after local mutation preflight',()=>assert.ok(updater.indexOf('hasUserEditedSinceHydrateRef.current = true;')>updater.indexOf('p21DemoLocalMutationError(')));
 check('history preflight precedes undo application',()=>assert.ok(undo.indexOf('p21DemoHistoryMutationError(')>-1 && undo.indexOf('p21DemoHistoryMutationError(')<undo.indexOf('applyScopedUndoStep(')));
 check('full restore preflight precedes authorization and metadata',()=>assert.ok(full.indexOf('assertP21DemoFullProjectSaveBoundary(')>-1 && full.indexOf('assertP21DemoFullProjectSaveBoundary(')<full.indexOf('await ensureAuth()')));
 console.log(`P21.8 DEMO LOCAL/FULL WRITER BOUNDARY ${passed}/${passed} PASS (NOT PROD CERTIFICATION)`);
