@@ -1,0 +1,76 @@
+name: P21.12 PRODUCTION hotfix semantic trial (NO PUSH/DEPLOY)
+on:
+  push:
+    branches:
+      - safety/p21-6-room-sidecar-ui-emulator-20261027
+    paths:
+      - '.github/workflows/p2112-prod-merge-trial.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  merge-trial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Reconcile on disposable CI checkout only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'HNL PROD Merge Trial'
+          git config user.email 'safety-audit@users.noreply.github.com'
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = '57eea2b878e17da64d7a6191fda178eaff3b8488'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge --no-commit --no-ff -X ours origin/main
+          test "$(git rev-parse MERGE_HEAD)" = '57eea2b878e17da64d7a6191fda178eaff3b8488'
+          test -z "$(git diff --name-only --diff-filter=U)"
+          echo "Main PROD history is present in pending MERGE_HEAD; nothing has been pushed"
+          git status --short > P2112-TRIAL-MERGE-FILE-STATUS.txt
+          node - <<'NODE'
+          const fs=require('fs');
+          const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));
+          const required=['src/App.tsx','src/lib/firebaseBase.ts','src/components/CrewReportShareModal.tsx','src/components/MaterialNormModal.tsx','src/index.css'];
+          const bad=required.filter(p=>!fs.existsSync(p)||fs.readFileSync(p,'utf8').includes('<<<<<<<'));
+          if(bad.length)throw Error('Missing files or unresolved conflict markers: '+bad);
+          const app=fs.readFileSync('src/App.tsx','utf8');
+          const db=fs.readFileSync('src/lib/firebaseBase.ts','utf8');
+          if(!app.includes('verifiedOfflineSnapshotLastSavedAtRef')||!app.includes('minSnapshotIntervalMs'))throw Error('PROD offline snapshot throttling missing');
+          if(!db.includes('DISCOVERY_VERIFICATION_CACHE_MS')||!db.includes('scheduleDiscoveryEmit'))throw Error('PROD Firestore read amplification protection missing');
+          if(!pkg.dependencies?.multer||!pkg.overrides)throw Error('Security dependency protections missing');
+          console.log('PROD hotfix semantic invariants PASS; requires additional runtime validation');
+          NODE
+      - name: Install deterministic dependencies
+        run: npm ci
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Firestore Rules
+        run: npm run test:rules
+      - name: Stability and regressions
+        run: npm run test:stability
+      - name: Security advisories
+        run: npm run security:audit
+      - name: Build
+        run: npm run build
+      - name: Save non-deployed trial diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P2112-PROD-TRIAL-NO-PUSH-${{ github.sha }}
+          path: P2112-TRIAL-MERGE-FILE-STATUS.txt
+          if-no-files-found: warn
+      - name: Abort the scratch merge
+        if: always()
+        run: |
+          git merge --abort || true
+          echo 'No source branch or production resource changed'
