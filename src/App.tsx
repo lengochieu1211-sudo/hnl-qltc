@@ -4,6 +4,8 @@ import { getHnlPrimaryThemeColors } from './utils/hnlPrimaryTheme';
 import { GlobalConfirmModal } from './components/GlobalConfirmModal';
 import { ContextBackButton } from './components/ContextBackButton';
 import { captureScopedUndoStep, applyScopedUndoStep, type ScopedUndoStep } from './utils/undoRedoScoped';
+import { p21DemoLocalMutationError, p21DemoHistoryMutationError } from './utils/p21DemoWriterBoundary';
+import { ROOM_SIDECAR_DEMO_MODE } from './lib/roomSidecarDemoMode';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { DesktopWorkspaceHeader, type DesktopWorkspaceMode } from './components/DesktopWorkspaceHeader';
 import { detectChromeDesktopSiteOnTouchDevice, canUsePcQuickEdit } from './utils/desktopSiteMode.mjs';
@@ -3414,6 +3416,9 @@ function AuthenticatedApp() {
   // Sync Lock Ref to avoid circular loops
   const syncLockRef = React.useRef(false);
 
+  // P21 demo only. Prevent repeated notices if React evaluates the updater twice.
+  const p21BlockedNoticeRef = React.useRef(false);
+  const p21LocalGates = { roomSidecarDemo: ROOM_SIDECAR_DEMO_MODE, trustedWarehouseDemo: TRUSTED_WAREHOUSE_DEMO_MODE };
   // Helper to push state changes to history (max 30 steps) and stamp item updatedAt
   const updateAppData = (updater: (prev: AppData) => AppData) => {
     if (FIREBASE_ONLY_RUNTIME && businessDataSource === 'legacy-migration-fallback') {
@@ -3431,6 +3436,17 @@ function AuthenticatedApp() {
     setPresent((prev) => {
       const rawNext = updater(prev);
       if (rawNext === prev) return prev;
+      const p21Blocked = p21DemoLocalMutationError(prev, rawNext, p21LocalGates);
+      if (p21Blocked) {
+        if (!p21BlockedNoticeRef.current) {
+          p21BlockedNoticeRef.current = true;
+          window.setTimeout(() => {
+            p21BlockedNoticeRef.current = false;
+            alert('Chế độ thử nghiệm P21: thao tác phòng/kho từ đường lưu cũ bị chặn để tránh hiển thị đã lưu giả. Chưa thay đổi dữ liệu. (' + p21Blocked + ')');
+          }, 0);
+        }
+        return prev; // No tombstone, dirty collection, or undo snapshot for a blocked write.
+      }
 
       const now = Date.now();
       const collections: (keyof AppData)[] = [
@@ -3692,6 +3708,11 @@ function AuthenticatedApp() {
     if (!isProjectRoleResolved || !canUseGlobalUndoRedo(currentUserRole)) return;
     const step = direction === 'undo' ? past[past.length - 1] : future[0];
     if (!step) return;
+    const blocked = p21DemoHistoryMutationError(step, p21LocalGates);
+    if (blocked) {
+      alert('Hoàn tác/Làm lại phòng hoặc kho chưa được hỗ trợ trong thử nghiệm P21. Không ghi đè bản máy chủ. (' + blocked + ')');
+      return;
+    }
     const result = applyScopedUndoStep(present, step, direction, activeProjectIdRef.current);
     if (!result.ok) {
       setPast([]);
