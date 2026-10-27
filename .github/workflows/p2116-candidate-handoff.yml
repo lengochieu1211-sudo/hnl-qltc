@@ -60,7 +60,7 @@ jobs:
                   if not Path(p).is_file(): raise RuntimeError(f'changed path missing: {p}')
                   z.write(p,p)
           # Verify ZIP membership against the exact tracked checkout, including hidden files.
-          all_files=set(p for p in subprocess.check_output(['git','ls-files','-z']).decode().split('\\0') if p)
+          all_files=set(p for p in subprocess.check_output(['git','ls-files','-z']).decode().split('\0') if p)
           with zipfile.ZipFile('HNL-QLTC-P2116-FULL-SOURCE.zip') as full_zip:
               archived=set(n for n in full_zip.namelist() if not n.endswith('/'))
           if archived != all_files:
@@ -69,7 +69,7 @@ jobs:
               patch_members=set(n for n in patch_zip.namelist() if not n.endswith('/'))
           if patch_members != set(paths):
               raise RuntimeError(f'PATCH mismatch: missing={sorted(set(paths)-patch_members)}, unexpected={sorted(patch_members-set(paths))}')
-          deleted=sorted(p for p in subprocess.check_output(['git','diff','--name-only','--diff-filter=D','-z',base+'...HEAD']).decode().split('\\0') if p)
+          deleted=sorted(p for p in subprocess.check_output(['git','diff','--name-only','--diff-filter=D','-z',base+'...HEAD']).decode().split('\0') if p)
           info={'exactHead':os.environ['GITHUB_SHA'],'prodBaseline':'57eea2b878e17da64d7a6191fda178eaff3b8488','branch':os.environ['GITHUB_REF'],'changedFileCount':len(paths),'changedFiles':paths,'deletedFileCount':len(deleted),'deletedFiles':deleted,'sourceZipTrackedFiles':len(all_files),'warnings':['Draft PR only; no deploy','No Runtime Golden / restore certification','Encrypted data backups must remain separate from source']}
           Path('HNL-QLTC-P2116-REPORT.json').write_text(json.dumps(info,indent=2),encoding='utf-8')
           artifacts=['HNL-QLTC-P2116-FULL-SOURCE.zip','HNL-QLTC-P2116-PATCH.zip','HNL-QLTC-P2116-REPORT.json']
