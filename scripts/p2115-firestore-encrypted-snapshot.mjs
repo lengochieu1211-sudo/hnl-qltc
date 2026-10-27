@@ -7,6 +7,7 @@ import path from 'node:path';
 import {createHash,createSign,randomBytes,publicEncrypt,createCipheriv,constants} from 'node:crypto';
 import {createGzip} from 'node:zlib';
 import {pipeline} from 'node:stream/promises';
+import {crawlFirestore,listDocumentsQuery} from './p2115-firestore-traversal.mjs';
 
 const project=process.env.P2115_FIRESTORE_PROJECT;
 const raw=process.env.FIREBASE_SERVICE_ACCOUNT;
@@ -59,35 +60,31 @@ const ndjson=path.join(temp,'snapshot.ndjson');
 const handle=fs.openSync(ndjson,'wx',0o600);
 let documents=0,bytes=0;
 const contentHash=createHash('sha256'),collections=new Set(),docsByCollection=new Map();
-async function crawl(parentDocPath,depth=0){
- if(depth>16)throw Error('Nested Firestore depth cap exceeded');
- const ids=await listCollections(parentDocPath);
- for(const col of ids){
-  const relative=(parentDocPath?parentDocPath+'/':'')+col;
-  collections.add(relative.replace(/\/[^/]+\/(?=[^/]+$)/g,'/*/'));
-  let cursor='',page=0;
-  do{
-   const qs=new URLSearchParams({pageSize:'200'});if(cursor)qs.set('pageToken',cursor);
-   const response=await api('/'+encodePath(relative)+'?'+qs);
-   const arr=response.documents||[];
-   for(const doc of arr){
-    if(!doc.name||!doc.name.startsWith('projects/'+project+'/databases/(default)/documents/'))throw Error('Unexpected external document path');
-    const rel=doc.name.split('/documents/')[1];
-    if(!rel?.startsWith(relative+'/'))throw Error('Unexpected collection document path');
+const documentPrefix='projects/'+project+'/databases/(default)/documents/';
+async function listDocuments(relative,cursor){
+ const qs=listDocumentsQuery(cursor);
+ return api('/'+encodePath(relative)+'?'+qs);
+}
+async function snapshotDocument(doc,rel){
     const line=JSON.stringify({document:doc})+'\n';
     const b=Buffer.byteLength(line);
     if(++documents>maxDoc||((bytes+=b)>maxBytes))throw Error('Snapshot exceeds safety limits; no artifact exported');
     fs.writeSync(handle,line);contentHash.update(line);
     const pattern=rel.split('/').map((v,i)=>i%2===1?'*':v).join('/');
     docsByCollection.set(pattern,(docsByCollection.get(pattern)||0)+1);
-    await crawl(rel,depth+1);
-   }
-   cursor=response.nextPageToken||'';
-   if(++page>1000)throw Error('Document pagination exceeded');
-  }while(cursor);
- }
 }
-try{await crawl('');}finally{fs.closeSync(handle);}
+try{
+ await crawlFirestore({listCollections,listDocuments,
+  documentPath:(doc,relative)=>{
+   if(!doc.name||!doc.name.startsWith(documentPrefix))throw Error('Unexpected external document path');
+   const rel=doc.name.slice(documentPrefix.length);
+   if(!rel?.startsWith(relative+'/'))throw Error('Unexpected collection document path');
+   return rel;
+  },
+  onCollection:async relative=>collections.add(relative.replace(/\/[^/]+\/(?=[^/]+$)/g,'/*/')),
+  onDocument:snapshotDocument,
+ });
+}finally{fs.closeSync(handle);}
 if(!documents)throw Error('Firestore empty or inaccessible; refuse empty backup certification');
 const key=randomBytes(32),nonce=randomBytes(12);
 const wrappedKey=publicEncrypt({key:pub,oaepHash:'sha256',padding:constants.RSA_PKCS1_OAEP_PADDING},key);
