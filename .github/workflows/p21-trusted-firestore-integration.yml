@@ -28,10 +28,10 @@ jobs:
           java-version: '21'
       - name: Install pinned source dependencies
         run: npm ci
-      - name: Generate separate trusted package lock and install (candidate only)
+      - name: Verify checked-in trusted lock with repeatable npm ci
         run: |
-          npm install --prefix warehouse-trusted --package-lock-only --ignore-scripts --no-audit --no-fund
           npm ci --prefix warehouse-trusted --ignore-scripts --no-audit --no-fund
+          git diff --exit-code -- warehouse-trusted/package-lock.json
       - name: Verify real emulator test is syntax valid
         run: node --check warehouse-trusted/firebase-integration-golden.mjs
       - name: Build isolated post-migration Rules fixture (not live Rules)
