@@ -29,7 +29,24 @@ jobs:
           git ls-files | grep -q '^package.json$'
           git ls-files | grep -q '^.firebaserc$'
           git ls-files | grep -q '^.github/workflows/p2115-firestore-encrypted-snapshot.yml$'
-          if git ls-files | grep -E '(^|/)(\.env(\.|$)|.*PRIVATE.*\.pem$|.*service-account.*\.json$)'; then echo '::error::Potential secret tracked'; exit 1; fi
+          python3 - <<'PY'
+          import subprocess,os
+          files=subprocess.check_output(['git','ls-files','-z']).decode().split('\0')
+          files=[f for f in files if f]
+          risky=[]
+          for p in files:
+              n=os.path.basename(p).lower()
+              if n.startswith('.env') and not n.endswith('.example'):
+                  risky.append(p)
+              if (n.endswith('.pem') or n.endswith('.key')) and ('private' in n or 'service' in n):
+                  risky.append(p)
+              if n.endswith('.json') and ('service-account' in n or 'service_account' in n):
+                  risky.append(p)
+          if risky:
+              print('::error::Unexpected potentially sensitive tracked file NAMES:',','.join(risky))
+              raise SystemExit(1)
+          print('Tracked source secret filename gate: PASS')
+          PY
           node -e "const p=require('./package.json'),l=require('./package-lock.json');if(p.version!==l.version||p.name!==l.name)process.exit(1);"
           git archive --format=zip --output=HNL-QLTC-P2116-FULL-SOURCE.zip HEAD
           python3 - <<'PY'
