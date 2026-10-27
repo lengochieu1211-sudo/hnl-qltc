@@ -1,4 +1,4 @@
-// P21.14 local-only Wrangler Worker. Both bindings are DEV buckets (never PROD).
+// P21.14 local-only Wrangler Worker. Source is the existing PROD bucket, read only; destination is a new isolated PROD backup bucket.
 const json=(x,status=200)=>new Response(JSON.stringify(x),{status,headers:{"content-type":"application/json"}});
 const digest=async b=>Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",b))).map(v=>v.toString(16).padStart(2,"0")).join("");
 const canon=x=>JSON.stringify(Object.entries(x||{}).sort(([a],[b])=>a.localeCompare(b)));
