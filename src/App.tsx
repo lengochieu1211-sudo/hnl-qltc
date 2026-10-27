@@ -3431,8 +3431,6 @@ function AuthenticatedApp() {
       return;
     }
     const mutationActor = getCurrentRealFirebaseUser() || getRememberedVerifiedAuthIdentity();
-    hasUserEditedSinceHydrateRef.current = true;
-    hasUnsavedAllBackupChangesRef.current = true;
     setPresent((prev) => {
       const rawNext = updater(prev);
       if (rawNext === prev) return prev;
@@ -3445,8 +3443,11 @@ function AuthenticatedApp() {
             alert('Chế độ thử nghiệm P21: thao tác phòng/kho từ đường lưu cũ bị chặn để tránh hiển thị đã lưu giả. Chưa thay đổi dữ liệu. (' + p21Blocked + ')');
           }, 0);
         }
-        return prev; // No tombstone, dirty collection, or undo snapshot for a blocked write.
+        return prev; // No dirty/unsaved flags, tombstones or undo snapshot for blocked writes.
       }
+      // Mark changed only after preflight accepts the mutation.
+      hasUserEditedSinceHydrateRef.current = true;
+      hasUnsavedAllBackupChangesRef.current = true;
 
       const now = Date.now();
       const collections: (keyof AppData)[] = [
