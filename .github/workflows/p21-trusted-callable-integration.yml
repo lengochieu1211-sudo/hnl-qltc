@@ -1,0 +1,45 @@
+name: P21.5 DEV Full Callable + Rules Emulator Golden (NO DEPLOY)
+on:
+  pull_request:
+    paths:
+      - 'warehouse-trusted/**'
+      - 'src/lib/warehouseTrustedDemoGateway.ts'
+      - 'firebase.p21-trusted-callable-emulators.json'
+      - '.github/workflows/p21-trusted-callable-integration.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  firebase-callable-real:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    env:
+      GCLOUD_PROJECT: demo-hnl-qltc-p215
+      FIREBASE_PROJECT_ID: demo-hnl-qltc-p215
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install exact lockfiles
+        run: |
+          npm ci
+          npm ci --prefix warehouse-trusted --ignore-scripts
+          git diff --exit-code -- package-lock.json warehouse-trusted/package-lock.json
+      - name: Build isolated Rules postmigration fixture, never active firestore.rules
+        run: node scripts/p12-build-dev-cutover-rules.mjs
+      - name: Check callable fixture and tests
+        run: |
+          node --check warehouse-trusted/callable-integration-golden.mjs
+          node -e "const a=require('./firebase.p21-trusted-callable-emulators.json');if(!a.functions?.source||a.emulators.functions.host!=='127.0.0.1') process.exit(1)"
+      - name: Actual Auth + Firestore + Functions Emulator callable and Rules allow/deny
+        run: >-
+          npx --yes firebase-tools@13.35.1 emulators:exec
+          --config firebase.p21-trusted-callable-emulators.json
+          --only auth,firestore,functions
+          --project demo-hnl-qltc-p215
+          "node warehouse-trusted/callable-integration-golden.mjs"
