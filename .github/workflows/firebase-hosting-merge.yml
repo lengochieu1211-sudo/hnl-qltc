@@ -101,6 +101,16 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
+      # P6: refuse a PROD release before installing dependencies, deploying Cloudflare
+      # workers, or publishing Firebase Rules/Hosting when the known P1 source
+      # invariants remain unresolved. This preflight is NOT a Rules certification.
+      - name: P1 Firestore data-integrity release interlock (fail closed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f scripts/p1-release-safety-gate.mjs || { echo "REFUSING PROD: missing P1 release gate"; exit 1; }
+          node scripts/p1-release-safety-gate.mjs || { echo "REFUSING PROD: unresolved P1 rooms.subItems/inventory_balances invariant"; exit 1; }
+
       - run: npm ci
 
       - name: Dependency version and PROD readiness gate
@@ -129,7 +139,12 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Firebase Rules compile check
+      # Even when the static preflight no longer detects the known pattern,
+      # the emulator must prove both adversarial writes are DENIED, plus the
+      # existing legitimate write matrix remains allowed. Never bypass P1.
+      - name: Firebase Rules compile and P1 negative/positive emulator gate
+        env:
+          HNL_P1_RULES_NEGATIVE_PROBE: "1"
         run: npm run test:rules
 
       - name: Security audit (production, HIGH or above blocks release)

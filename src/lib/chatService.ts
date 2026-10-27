@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   getDoc,
+  getDocFromServer,
   getDocs,
   increment,
   limit,
@@ -18,7 +19,7 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db, getCurrentRealFirebaseUser } from './firebase';
-import { listChatOutbox, putChatOutbox, removeChatOutbox } from '../utils/chatOutbox';
+import { listChatOutbox, putChatOutbox, removeChatOutbox, markChatOutboxFailed } from '../utils/chatOutbox';
 import type { ProjectChatMessage, ProjectConversationSummary, ChatReplyTo, ChatAttachment } from '../features/chat/types';
 
 export const GENERAL_CONVERSATION_ID = 'general';
@@ -32,9 +33,12 @@ function deterministicMessageId(uid: string, clientMessageId: string): string {
   return `${uid}_${clientMessageId}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 190);
 }
 
-async function commitProjectMessage(input: SendMessageInput, persistOutbox: boolean): Promise<string> {
+async function commitProjectMessage(input: SendMessageInput, persistOutbox: boolean, expectedUid: string): Promise<string> {
   const user = getCurrentRealFirebaseUser();
-  if (!user || !user.email) throw new Error('Bạn cần đăng nhập Google để gửi tin nhắn.');
+  // A queued write must never be replayed using a different person's Firebase session.
+  if (!user || !user.email || user.uid !== expectedUid) {
+    throw new Error('Tài khoản Google đã thay đổi. Tin nhắn vẫn được lưu để gửi lại bằng tài khoản gốc.');
+  }
   const conversationId = input.conversationId || GENERAL_CONVERSATION_ID;
   const cleanText = input.text.trim();
   const attachments = input.attachments || [];
@@ -113,26 +117,35 @@ export async function flushChatOutbox(): Promise<void> {
     if (!user || !user.email || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
     const rows = await listChatOutbox().catch(() => []);
     for (const row of rows) {
+      if (row.status === 'failed') continue; // Manual retry only; avoid endless permission failures.
       const input = row.input;
       // Outbox entries belong to the account that created their deterministic ID.
       if (!row.id.startsWith(`${user.uid}_`)) continue;
       try {
         const conversationId = input.conversationId || GENERAL_CONVERSATION_ID;
         const msgRef = doc(messageCollection(input.projectId, conversationId), row.id);
-        const existing = await getDoc(msgRef);
+        // A cached (or locally pending) document is NOT proof of Cloud delivery.
+        // Never discard the only durable local copy based on offline cache data.
+        const existing = await getDocFromServer(msgRef);
+        // getDocFromServer is asynchronous: sign-out/account switch may occur
+        // during the read. Leave the original outbox untouched for its owner.
+        if (getCurrentRealFirebaseUser()?.uid !== user.uid) break;
         if (existing.exists()) {
           await removeChatOutbox(row.id);
           continue;
         }
-        await commitProjectMessage(input, false);
+        await commitProjectMessage(input, false, user.uid);
       } catch (err: any) {
         if (isPermanentChatSendError(err)) {
-          await removeChatOutbox(row.id).catch(() => {});
-          console.warn('[Chat outbox] Permanent send failure; removed from retry queue:', err);
+          await markChatOutboxFailed(row.id, String(err?.message || err || 'Firebase từ chối')).catch(error => {
+            console.warn('[Chat outbox] Could not persist failure state; original entry must remain:', error);
+          });
+          console.warn('[Chat outbox] Permanent send failure; retained for manual retry:', err);
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent(CHAT_SEND_ERROR_EVENT, {
               detail: {
                 projectId: input.projectId,
+                senderUid: user.uid,
                 conversationId: input.conversationId || GENERAL_CONVERSATION_ID,
                 input,
                 message: err?.message || 'Tin nhắn bị Firebase từ chối. Hãy kiểm tra quyền rồi bấm Gửi lại.',
@@ -239,6 +252,26 @@ export interface SendMessageInput {
   attachments?: ChatAttachment[];
 }
 
+/** Manual recovery must not overwrite a message that reached Cloud before a
+ * network timeout. Probe its deterministic ID first, then retry only if absent.
+ */
+export async function retryFailedProjectMessage(input: SendMessageInput): Promise<string> {
+  const user = getCurrentRealFirebaseUser();
+  if (!user?.email) throw new Error('Bạn cần đăng nhập Google để gửi lại tin nhắn.');
+  const conversationId = input.conversationId || GENERAL_CONVERSATION_ID;
+  const messageId = deterministicMessageId(user.uid, input.clientMessageId);
+  // A permission/read failure must not be mistaken for an absent Cloud message.
+  const alreadySent = await getDocFromServer(doc(messageCollection(input.projectId, conversationId), messageId));
+  if (getCurrentRealFirebaseUser()?.uid !== user.uid) {
+    throw new Error('Tài khoản Google đã thay đổi. Hãy đăng nhập lại tài khoản gốc để gửi tin.');
+  }
+  if (alreadySent.exists()) {
+    await removeChatOutbox(messageId);
+    return messageId;
+  }
+  return sendProjectMessage(input);
+}
+
 export async function sendProjectMessage(input: SendMessageInput): Promise<string> {
   const user = getCurrentRealFirebaseUser();
   if (!user || !user.email) throw new Error('Bạn cần đăng nhập Google để gửi tin nhắn.');
@@ -255,16 +288,25 @@ export async function sendProjectMessage(input: SendMessageInput): Promise<strin
   // ChatTab retains its draft and attachments if this throws (quota / IndexedDB).
   await putChatOutbox({ id: messageId, input: normalizedInput, createdAt: Date.now() });
 
+  // An auth change while IndexedDB persists the draft must not convert an
+  // A-owned message into a B-owned Firestore write.
+  if (getCurrentRealFirebaseUser()?.uid !== user.uid) {
+    throw new Error('Tài khoản Google đã thay đổi. Tin nhắn vẫn nằm trong bộ nhớ thiết bị của tài khoản gốc.');
+  }
   let returnedAsQueued = false;
-  const commitPromise = commitProjectMessage(normalizedInput, false);
-  commitPromise.catch((err: any) => {
+  const commitPromise = commitProjectMessage(normalizedInput, false, user.uid);
+  commitPromise.catch(async (err: any) => {
     if (isPermanentChatSendError(err)) {
-      void removeChatOutbox(messageId).catch(() => {});
+      // Never discard an unsent message on permission/error; keep it across restart.
+      await markChatOutboxFailed(messageId, String(err?.message || err || 'Firebase từ chối')).catch(error => {
+        console.warn('[Chat outbox] Could not persist failure state; original entry must remain:', error);
+      });
     }
     if (!returnedAsQueued || typeof window === 'undefined') return;
     window.dispatchEvent(new CustomEvent(CHAT_SEND_ERROR_EVENT, {
       detail: {
         projectId: input.projectId,
+        senderUid: user.uid,
         conversationId,
         input: normalizedInput,
         message: err?.message || 'Không gửi được tin nhắn.',

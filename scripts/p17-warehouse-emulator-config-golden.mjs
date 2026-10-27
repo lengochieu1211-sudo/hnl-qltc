@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const config=JSON.parse(readFileSync('firebase.warehouse-trusted.dev-emulator.json','utf8'));
+const original=JSON.parse(readFileSync('firebase.json','utf8'));
+assert.equal(config.functions.source,'warehouse-trusted');
+assert.equal(config.functions.runtime,'nodejs22');
+assert.equal(config.firestore.rules,'firestore.warehouse-cutover.dev.rules');
+assert.ok(!('hosting' in config),'never point emulator config to PROD hosting');
+assert.ok(!('functions' in original),'do not modify production firebase.json');
+for(const service of ['firestore','auth','functions'])assert.ok(config.emulators[service].port>0);
+assert.equal(config.emulators.singleProjectMode,true);
+const src=readFileSync('warehouse-trusted/index.mjs','utf8');
+assert.match(src,/activeDev\(\)/);
+assert.match(src,/hnlWarehouseImportBatchDevV1/);
+assert.match(src,/email_verified!==true/);
+console.log('PASS: isolated DEV emulator config + Auth gate STATIC CHECK (NOT AN EMULATOR RUN)');

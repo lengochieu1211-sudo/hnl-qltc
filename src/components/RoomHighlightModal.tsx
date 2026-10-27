@@ -38,6 +38,7 @@ import { computeMaterialNeeds } from '../utils/materialNeedEngine';
 import { validateInventoryOutProvenance } from '../utils/linkageIntegrity';
 import { MoveOrderControls } from './MoveOrderControls';
 import { ContactMenu } from './ContactMenu';
+import { WAREHOUSE_TRUSTED_WRITER_ENABLED, callTrustedWarehouseRoomAutoIssue } from '../lib/warehouseTrustedClient';
 
 interface RoomHighlightModalProps {
   isOpen: boolean;
@@ -49,6 +50,7 @@ interface RoomHighlightModalProps {
   initialPoints?: Point2D[];
   floorId: string;
   floorName: string;
+  projectId: string;
   checklistItems?: ChecklistItem[];
   teams?: TeamInfo[];
   materialNorms?: MaterialNorm[];
@@ -120,6 +122,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   initialPoints,
   floorId,
   floorName,
+  projectId,
   checklistItems = [],
   teams = [],
   materialNorms = [],
@@ -714,6 +717,35 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
   const handleAutoIssueForRoom = async () => {
     if (isAutoIssuing) return;
+    // DEV trusted mode: do not create ANY client-authoritative room receipts.
+    // Only send the room ID and displayed revision; server reads room, norms,
+    // ALL ledger vouchers and balances within one Firestore transaction.
+    if (WAREHOUSE_TRUSTED_WRITER_ENABLED) {
+      if (!roomItem?.id) {
+        alert('Vui lòng lưu Căn / Phòng trước khi xuất kho.');
+        return;
+      }
+      if (roomDraftDirtyRef.current) {
+        alert('Bạn có thay đổi chưa lưu. Hãy lưu Căn / Phòng và mở lại trước khi xuất kho.');
+        return;
+      }
+      setIsAutoIssuing(true);
+      try {
+        const result = await callTrustedWarehouseRoomAutoIssue({
+          projectId, roomId: roomItem.id,
+          expectedRoomRevision: Number(roomItem.revision || 0),
+          expectedRoomUpdatedAt: Number(roomItem.updatedAt || 0),
+        });
+        alert(result.count > 0
+          ? `Máy chủ đã cập nhật ${result.count} phiếu tự động. Dữ liệu kho sẽ cập nhật qua đồng bộ.`
+          : 'Máy chủ xác nhận căn/phòng đã xuất đủ theo định mức hiện tại. Không tạo phiếu trùng.');
+      } catch (err) {
+        alert(`Không tạo phiếu xuất nào. Máy chủ từ chối giao dịch: ${err instanceof Error ? err.message : String(err)}. Kiểm tra lại dữ liệu phòng, định mức và tồn kho trên DEV.`);
+      } finally {
+        setIsAutoIssuing(false);
+      }
+      return;
+    }
     if (!onAddInventory) {
       alert('Không có hàm tạo phiếu kho.');
       return;
@@ -1153,7 +1185,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
             // Interactive buttons can also mutate nested subitems without input events.
             const element = event.target as HTMLElement;
             const button = element.closest('button');
-            if (button?.type === 'button') roomDraftDirtyRef.current = true;
+            if (button?.type === 'button' && !button.hasAttribute('data-hnl-room-auto-issue'))
+              roomDraftDirtyRef.current = true;
           }}
           className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain space-y-3.5 pr-1 text-xs">
           {structureReadOnly && (
@@ -1870,12 +1903,15 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                     <button
                       type="button"
                       onClick={handleAutoIssueForRoom}
+                      data-hnl-room-auto-issue="true"
                       disabled={!roomItem?.id || isAutoIssuing}
-                      title={!roomItem?.id ? 'Lưu Căn / Phòng trước để theo dõi chống xuất trùng' : 'Chỉ xuất phần vật tư còn thiếu so với định mức'}
+                      title={WAREHOUSE_TRUSTED_WRITER_ENABLED
+                        ? 'DEV: Máy chủ tự kiểm tra định mức, phiếu và tồn kho. Dữ liệu legacy không đủ chuẩn sẽ bị từ chối nguyên giao dịch.'
+                        : !roomItem?.id ? 'Lưu Căn / Phòng trước để theo dõi chống xuất trùng' : 'Chỉ xuất phần vật tư còn thiếu so với định mức'}
                       className="bg-emerald-600 disabled:bg-slate-300 disabled:cursor-not-allowed hover:bg-emerald-700 text-white font-extrabold text-[11px] px-3 py-1.5 rounded-xl shadow-xs active:scale-95 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
                     >
                       <ArrowUpRight className="w-3.5 h-3.5" />
-                      {isAutoIssuing ? 'Đang tạo phiếu...' : roomItem?.id ? 'Xuất phần còn thiếu' : 'Lưu trước khi xuất kho'}
+                      {isAutoIssuing ? 'Đang tạo phiếu...' : roomItem?.id ? (WAREHOUSE_TRUSTED_WRITER_ENABLED ? 'Xuất phần còn thiếu (DEV máy chủ)' : 'Xuất phần còn thiếu') : 'Lưu trước khi xuất kho'}
                     </button>
                   </div>
                 )}

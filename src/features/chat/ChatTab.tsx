@@ -9,6 +9,7 @@ import {
   loadOlderMessages,
   markConversationRead,
   sendProjectMessage,
+  retryFailedProjectMessage,
   softDeleteMessage,
   subscribeConversationReadState,
   subscribeConversationSummary,
@@ -18,6 +19,7 @@ import {
 } from '../../lib/chatService';
 import { isPresenceConfigured, setTyping, startPresence } from '../../lib/presenceService';
 import { createEntityId } from '../../utils/idUtils';
+import { listFailedChatOutbox, type ChatOutboxEntry } from '../../utils/chatOutbox';
 import type { ChatAttachment, ProjectChatMessage } from './types';
 import { UnreadBadge } from './UnreadBadge';
 import { getPhotoDataUrl, getProjectPhotos, isPhotoSharedCloudReady, savePhotoAttachment } from '../../utils/photoStorage';
@@ -114,6 +116,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
   const [sendError, setSendError] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [failedSend, setFailedSend] = useState<SendMessageInput | null>(null);
+  const [failedOutbox, setFailedOutbox] = useState<ChatOutboxEntry[]>([]);
   const [lastReadAt, setLastReadAt] = useState(0);
   const [lastReadMessageCount, setLastReadMessageCount] = useState(0);
   const [lastMessageAt, setLastMessageAt] = useState(0);
@@ -131,9 +134,34 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
     typeof window !== 'undefined' ? (window.visualViewport?.height || window.innerHeight) : 720
   );
   const user = getCurrentRealFirebaseUser();
+  // Filter at render time too: asynchronous IndexedDB reads may outlive an
+  // account/project switch, so stale rows must never flash on screen.
+  const visibleFailedOutbox = failedOutbox.filter(row =>
+    Boolean(user?.uid) && row.id.startsWith(`${user?.uid}_`)
+    && row.input.projectId === activeProjectId
+  );
   const unread = Math.max(0, messageCount - lastReadMessageCount) || (lastMessageAt > lastReadAt ? 1 : 0);
 
   useEffect(() => startPresence(), []);
+
+  // An in-memory error/draft must not leak to the next Firebase account on
+  // a shared device; durable failed messages remain scoped by UID + project.
+  useEffect(() => {
+    setText('');
+    setDraftAttachments([]);
+    setSelectedMentions([]);
+    setReplyTo(null);
+    setEditing(null);
+    setFailedSend(null);
+    setSendError('');
+    setMessages([]);
+    draftClientIdRef.current = createEntityId('msg');
+  }, [user?.uid]);
+
+  useEffect(() => {
+    setFailedSend(null);
+    setSendError('');
+  }, [activeProjectId]);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -156,19 +184,43 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
     return () => { unsubSummary(); unsubRead(); };
   }, [activeProjectId]);
 
+  // Recover previously failed messages after a cold restart, scoped to current
+  // Firebase uid and project. A different account must never see this outbox.
+  useEffect(() => {
+    let cancelled = false;
+    let generation = 0;
+    const uid = user?.uid || '';
+    const refresh = () => {
+      const currentGeneration = ++generation;
+      if (!activeProjectId || !uid) { setFailedOutbox([]); return; }
+      void listFailedChatOutbox(activeProjectId, uid).then(rows => {
+        if (!cancelled && currentGeneration === generation) setFailedOutbox(rows);
+      }).catch(error => console.warn('[Chat] Could not read failed local messages:', error));
+    };
+    refresh();
+    window.addEventListener(CHAT_SEND_ERROR_EVENT, refresh);
+    window.addEventListener('online', refresh);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(CHAT_SEND_ERROR_EVENT, refresh);
+      window.removeEventListener('online', refresh);
+    };
+  }, [activeProjectId, user?.uid]);
+
   useEffect(() => {
     const handleAsyncSendError = (event: Event) => {
       const detail = (event as CustomEvent<any>).detail || {};
-      if (String(detail.projectId || '') !== activeProjectId) return;
+      if (String(detail.projectId || '') !== activeProjectId
+        || !user?.uid || String(detail.senderUid || '') !== user.uid) return;
       setSendError(detail.message || 'Tin nhắn đã xếp hàng nhưng không gửi được.');
       if (detail.input) setFailedSend(detail.input as SendMessageInput);
     };
     window.addEventListener(CHAT_SEND_ERROR_EVENT, handleAsyncSendError as EventListener);
     return () => window.removeEventListener(CHAT_SEND_ERROR_EVENT, handleAsyncSendError as EventListener);
-  }, [activeProjectId]);
+  }, [activeProjectId, user?.uid]);
 
   useEffect(() => {
-    if (view !== 'room' || !activeProjectId) return;
+    if (view !== 'room' || !activeProjectId || !user?.uid) return;
     setMessages([]);
     setCursor(null);
     const unsub = subscribeLatestMessages(activeProjectId, GENERAL_CONVERSATION_ID, (next, nextCursor) => {
@@ -181,7 +233,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
       window.setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 30);
     }, (err) => setSendError(err.message || 'Không thể tải trao đổi.'));
     return () => unsub();
-  }, [activeProjectId, view]);
+  }, [activeProjectId, view, user?.uid]);
 
   useEffect(() => () => {
     if (typingTimer.current) window.clearTimeout(typingTimer.current);
@@ -332,14 +384,29 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
   };
 
   const handleRetrySend = async () => {
-    if (!failedSend || isSending) return;
+    if (!failedSend || isSending || !user?.uid || failedSend.projectId !== activeProjectId) return;
     setIsSending(true);
     setSendError('');
     try {
-      await sendProjectMessage(failedSend);
+      await retryFailedProjectMessage(failedSend);
       setFailedSend(null);
     } catch (err: any) {
       setSendError(err?.message || 'Gửi lại chưa thành công.');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleRetrySavedMessage = async (entry: ChatOutboxEntry) => {
+    if (isSending || !user?.uid || !entry.id.startsWith(`${user.uid}_`) || entry.input.projectId !== activeProjectId) return;
+    setIsSending(true);
+    setSendError('');
+    try {
+      // Reuse the original clientMessageId so retries keep the same Cloud ID.
+      await retryFailedProjectMessage(entry.input);
+      setFailedOutbox(await listFailedChatOutbox(activeProjectId, user.uid));
+    } catch (err: any) {
+      setSendError(err?.message || 'Tin chưa gửi được; bản lưu trên thiết bị vẫn được giữ.');
     } finally {
       setIsSending(false);
     }
@@ -488,10 +555,26 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
           ))}
         </div>
       )}
+      {visibleFailedOutbox.length > 0 && (
+        <div className="shrink-0 max-h-36 overflow-y-auto px-3 py-2 bg-amber-50 border-t border-amber-200 text-[11px]" role="status">
+          <div className="font-bold text-amber-900 mb-1">{visibleFailedOutbox.length} tin chưa gửi, đã lưu trên thiết bị</div>
+          {visibleFailedOutbox.map(entry => (
+            <div key={entry.id} className="flex items-center gap-2 py-1 border-t border-amber-100">
+              <span className="min-w-0 flex-1 truncate text-amber-900" title={entry.failureMessage || ''}>
+                {entry.input.text || '[Ảnh đính kèm]'}
+              </span>
+              {entry.input.text && (
+                <button type="button" className="shrink-0 rounded border border-amber-300 px-2 py-1 font-semibold" onClick={() => { void navigator.clipboard?.writeText(entry.input.text).catch(() => {}); }}>Sao chép</button>
+              )}
+              <button type="button" disabled={isSending} className="shrink-0 rounded bg-amber-700 text-white px-2 py-1 font-semibold disabled:opacity-50" onClick={() => { void handleRetrySavedMessage(entry); }}>Gửi lại</button>
+            </div>
+          ))}
+        </div>
+      )}
       {sendError && (
         <div className="shrink-0 px-3 py-2 bg-rose-50 text-rose-700 text-[11px] border-t border-rose-100 flex items-center justify-between gap-2">
           <span className="min-w-0">{sendError}</span>
-          {failedSend && (
+          {failedSend && !visibleFailedOutbox.some(entry => entry.input.clientMessageId === failedSend.clientMessageId) && (
             <button type="button" onClick={handleRetrySend} disabled={isSending} className="shrink-0 px-2.5 py-1 rounded-lg bg-rose-600 text-white font-bold disabled:opacity-50">
               {isSending ? 'Đang gửi…' : 'Gửi lại'}
             </button>

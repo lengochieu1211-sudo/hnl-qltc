@@ -41,12 +41,15 @@ import { cleanupTransientLocalStorage, estimateLocalStorageBytes } from '../util
 import { isSuperAdminEmail } from '../config/superAdmin';
 import { REALTIME_COLLECTIONS } from '../config/realtimeCollections';
 import { compareWorkVolumeManualOrder } from '../utils/catalogDisplayOrder';
+import { assertNoLegacyInventoryDiffs, assertNoLegacyInventoryRestore } from '../utils/warehouseDirectWriteBoundary';
 import { formatDateTime } from '../utils/dateFormatter';
 import { CURRENT_DATA_SCHEMA_VERSION, getPendingDataSchemaMigrations, readDataSchemaVersion } from '../config/dataSchema';
 import { clearRememberedVerifiedAuthIdentity } from '../utils/offlineAccess';
 import type { ProjectStructureConfig } from '../utils/structureGroupUtils';
 const env = (import.meta as any).env || {};
 export const APP_ENVIRONMENT: 'DEV' | 'PROD' = String(env.VITE_APP_ENV || (env.DEV || env.MODE === 'development' ? 'DEV' : 'PROD')).toUpperCase() === 'PROD' ? 'PROD' : 'DEV';
+// Single DEV flag used by voucher callables AND all legacy Cloud writer boundaries.
+export const WAREHOUSE_TRUSTED_WRITER_ENABLED = String(env.VITE_WAREHOUSE_TRUSTED_WRITER || 'false').toLowerCase() === 'true' && APP_ENVIRONMENT === 'DEV';
 const isDev = APP_ENVIRONMENT === 'DEV';
 const PROD_FIREBASE_PROJECT_ID = 'com-example-qlct-61329';
 const emulatorRequested = String(env.VITE_USE_FIREBASE_EMULATORS || 'false').toLowerCase() === 'true';
@@ -141,6 +144,44 @@ const firebaseConfig = FIREBASE_EMULATOR_ENABLED
       appId: sanitizeConfigValue(env.VITE_FIREBASE_APP_ID, defaultFirebaseConfig.appId),
       firestoreDatabaseId: env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || env.VITE_FIRESTORE_DATABASE_ID || defaultFirebaseConfig.firestoreDatabaseId
     };
+
+// DEV primary/backup are separate compiled targets. Do not silently swap a running
+// Firebase instance or accept a backup build connected to another project's Auth/R2.
+// When the selector is unset, preserve existing builds unchanged.
+const explicitDevTarget = String(env.VITE_DEV_FIREBASE_TARGET || '').trim().toLowerCase();
+if (isDev && !FIREBASE_EMULATOR_ENABLED) {
+  if (firebaseConfig.projectId === PROD_FIREBASE_PROJECT_ID) {
+    throw new Error('REFUSING: DEV Firebase configuration points at PROD.');
+  }
+  if (explicitDevTarget) {
+    const expectedProjectId = explicitDevTarget === 'primary'
+      ? 'hnl-qltc-dev'
+      : explicitDevTarget === 'backup'
+        ? 'hnl-qltc-dev-backup'
+        : '';
+    if (!expectedProjectId || firebaseConfig.projectId !== expectedProjectId) {
+      throw new Error('REFUSING: DEV Firebase target/projectId mismatch.');
+    }
+    if (![`${expectedProjectId}.firebaseapp.com`, `${expectedProjectId}.web.app`].includes(firebaseConfig.authDomain)) {
+      throw new Error('REFUSING: DEV Firebase Auth domain mismatch.');
+    }
+    if (explicitDevTarget === 'backup') {
+      if (WAREHOUSE_TRUSTED_WRITER_ENABLED) {
+        throw new Error('REFUSING: Backup Spark project cannot run trusted Firebase Functions writer.');
+      }
+      if (String(env.VITE_BINARY_STORAGE_PROVIDER || 'r2').toLowerCase() === 'firebase-storage') {
+        throw new Error('REFUSING: Backup Spark project cannot use Firebase Cloud Storage.');
+      }
+      const backupR2Url = String(env.VITE_R2_GATEWAY_URL || '').trim();
+      if (backupR2Url && !/^https:\/\/hnl-qltc-r2-gateway-dev-backup[.]/i.test(backupR2Url)) {
+        throw new Error('REFUSING: DEV backup cannot reuse primary DEV or PROD R2 gateway.');
+      }
+      if (String(env.VITE_HNL_AI_ENABLED || 'false').toLowerCase() === 'true') {
+        throw new Error('REFUSING: DEV backup cannot reuse primary AI gateway.');
+      }
+    }
+  }
+}
 
 export const isFirebaseConfigured = Boolean(
   firebaseConfig.apiKey &&
@@ -2335,6 +2376,10 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
       payloadData = copy;
     }
 
+    // Project-wide restore writes bypass the voucher transaction service. Refuse
+    // inventory before the first root/business write in trusted DEV mode.
+    assertNoLegacyInventoryRestore(WAREHOUSE_TRUSTED_WRITER_ENABLED, payloadData.inventory);
+
     const syncCode = project.syncCode || project.id.slice(0, 8).toUpperCase();
     
     // Save metadata with ownerUid and ownerEmail immutability
@@ -2709,6 +2754,8 @@ export function queueProjectDiffsToFirestoreOffline(
   options: { touchProjectMetadata?: boolean; allowFinancialWrites?: boolean } = {},
 ): { queuedRecords: number; commitPromises: Promise<void>[] } {
   if (!projectId) return { queuedRecords: 0, commitPromises: [] };
+  // Offline queue cannot atomically update a voucher and its derived balance.
+  assertNoLegacyInventoryDiffs(WAREHOUSE_TRUSTED_WRITER_ENABLED, diffs, 'offline-queue');
   const currentUser = getCurrentAppUser();
   let batch = writeBatch(db);
   let operationCount = 0;
@@ -2830,6 +2877,8 @@ export async function saveProjectDiffsToCloud(
   },
   options: { touchProjectMetadata?: boolean; allowRootMetadataWrite?: boolean; allowFinancialWrites?: boolean; rootTouchIntervalMs?: number; auditDetailLimit?: number } = {}
 ): Promise<void> {
+  // Reject the whole legacy inventory diff BEFORE unrelated project writes.
+  assertNoLegacyInventoryDiffs(WAREHOUSE_TRUSTED_WRITER_ENABLED, diffs, 'realtime-diff');
   try {
     await ensureAuth();
 

@@ -71,6 +71,8 @@ check('WorkVolume structural UI uses ADMIN helper', has(src.work, 'canManageWork
 check('FloorPlan structural UI uses ADMIN helper', has(src.floor, 'canManageFloorPlanStructure', 'canManageStructure', 'structureReadOnly={!canManageStructure}'));
 check('FloorPlan defect UI separates operational and delete permission', has(src.floor, 'canEditDefectData', 'canDeleteBusinessData', 'canEditDefects', 'canDeleteDefects'));
 check('Room modal supports structural read-only mode', has(src.room, 'structureReadOnly?: boolean', 'disabled={structureReadOnly}', 'const effectivePatch = structureReadOnly', 'subItems: (roomItem.subItems || []).map'));
+check('Central EDITOR room update preserves nested subItem structure', has(src.app, 'mergeEditorRoomSubItems(existing.subItems, incoming.subItems)')
+  && !src.app.includes("'targetFrameDate', 'targetBoardDate', 'subItems'"));
 check('Room modal hides nested sub-item structure controls for Editor', has(src.room, '!structureReadOnly && selectedSubItemIds.length > 0', '!structureReadOnly && activeCategories.length > 1', '!structureReadOnly && itemsInCat.length > 1', '!structureReadOnly && (deletingSubItemId === item.id'));
 check('Floor target-date editor moved to Mặt bằng and remains ADMIN-only', has(src.floor, 'Kế hoạch tiến độ tầng', 'onUpdateFloorPlan?:', 'targetFrameDate', 'targetBoardDate', 'disabled={!canManageStructure}') && !src.config.includes('Cài đặt Tiến Độ Mục Tiêu Từng Tầng'));
 check('Floor view does not restore stale pan/zoom across incompatible viewport sizes', has(src.floor, 'viewportWidth', 'viewportHeight', 'compatibleViewport', 'widthRatio >= 0.8', 'heightRatio >= 0.8'));

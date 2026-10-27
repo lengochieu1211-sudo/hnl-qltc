@@ -6,6 +6,9 @@ export interface ChatOutboxEntry {
   id: string;
   input: SendMessageInput;
   createdAt: number;
+  status?: 'pending' | 'failed';
+  failureMessage?: string;
+  failedAt?: number;
 }
 
 const store = localforage.createInstance({
@@ -21,6 +24,32 @@ export async function putChatOutbox(entry: ChatOutboxEntry): Promise<void> {
     (id, value) => store.setItem(id, value),
     (id) => store.getItem<ChatOutboxEntry>(id),
   );
+}
+
+/** A permanent Firebase rejection must remain recoverable after app restart.
+ * The original payload, account-specific key and clientMessageId never change.
+ */
+export async function markChatOutboxFailed(id: string, message: string): Promise<void> {
+  const entry = await store.getItem<ChatOutboxEntry>(id);
+  if (!entry) return; // Already confirmed on Cloud and removed by a successful send.
+  const failedEntry: ChatOutboxEntry = {
+    ...entry,
+    status: 'failed',
+    failureMessage: message.slice(0, 500),
+    failedAt: Date.now(),
+  };
+  await writeAndVerifyChatOutbox(failedEntry,
+    (key, value) => store.setItem(key, value),
+    (key) => store.getItem<ChatOutboxEntry>(key),
+  );
+}
+
+export async function listFailedChatOutbox(projectId: string, uid: string): Promise<ChatOutboxEntry[]> {
+  if (!projectId || !uid) return [];
+  const rows = await listChatOutbox();
+  return rows.filter(row => row.status === 'failed'
+    && row.input.projectId === projectId
+    && row.id.startsWith(`${uid}_`));
 }
 
 export async function removeChatOutbox(id: string): Promise<void> {

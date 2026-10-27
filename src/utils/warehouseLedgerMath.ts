@@ -38,6 +38,11 @@ export function isActiveWarehouseLedgerItem(item: WarehouseLedgerItem): boolean 
 }
 
 export function getWarehouseSignedDelta(item: Pick<InventoryItem, 'type' | 'quantity'>): number {
+  // Firestore/legacy imports are runtime data: TypeScript's union cannot stop an
+  // invalid type from being treated as OUT and silently decrementing stock.
+  if (item.type !== 'in' && item.type !== 'out') {
+    throw new Error(`INVENTORY_LEDGER_INVALID_TYPE: ${String(item.type)}`);
+  }
   const quantity = Number(item.quantity || 0);
   if (!Number.isFinite(quantity) || quantity <= 0) {
     throw new Error(`INVENTORY_LEDGER_INVALID_QUANTITY: ${String(item.quantity)}`);

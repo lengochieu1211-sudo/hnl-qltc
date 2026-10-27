@@ -1,5 +1,6 @@
 import { collection, doc, getDocFromServer, getDocsFromServer, query, runTransaction, where } from 'firebase/firestore';
 import type { InventoryItem } from '../types';
+import { callTrustedWarehouseWriter, callTrustedWarehouseReconcile, WAREHOUSE_TRUSTED_WRITER_ENABLED } from './warehouseTrustedClient';
 import { db, fetchProjectUserRoleFromCloud, getCurrentRealFirebaseUser, sanitizePayloadForCloud } from './firebase';
 import { calculateRestoredWarehouseBalance, calculateWarehouseLedgerOnHand, getWarehouseMaterialKey, getWarehouseSignedDelta, type WarehouseLedgerItem } from '../utils/warehouseLedgerMath';
 import { areSameUnit } from '../utils/unitUtils';
@@ -78,6 +79,7 @@ export async function commitWarehouseTransactionAtomic(
   item: InventoryItem,
 ): Promise<WarehouseCommitResult> {
   if (!projectId || !item.id) throw new Error('Thiếu projectId/transactionId.');
+  if (WAREHOUSE_TRUSTED_WRITER_ENABLED) return callTrustedWarehouseWriter({projectId,action:'create',transactionId:item.id,item});
   if (item.type === 'out') assertOnlineForStrictStock();
   const user = getCurrentRealFirebaseUser();
   if (!user) throw new Error('Cần đăng nhập Firebase để ghi giao dịch kho.');
@@ -150,6 +152,7 @@ export async function updateWarehouseTransactionAtomic(
   nextItem: InventoryItem,
 ): Promise<WarehouseCommitResult> {
   assertOnlineForStrictStock();
+  if (WAREHOUSE_TRUSTED_WRITER_ENABLED) return callTrustedWarehouseWriter({projectId,action:'update',transactionId,item:nextItem,expectedRevision:Number.isSafeInteger(nextItem.revision) ? Number(nextItem.revision) : 0});
   const user = getCurrentRealFirebaseUser();
   if (!user) throw new Error('Cần đăng nhập Firebase để sửa giao dịch kho.');
   if (!projectId || !transactionId) throw new Error('Thiếu projectId/transactionId.');
@@ -246,6 +249,7 @@ export async function reconcileWarehouseBalanceFromLedger(
   materialKey: string,
   seedItem: InventoryItem,
 ): Promise<number> {
+  if (WAREHOUSE_TRUSTED_WRITER_ENABLED) return callTrustedWarehouseReconcile({projectId,materialKey});
   assertOnlineForStrictStock();
   const user = getCurrentRealFirebaseUser();
   if (!user) throw new Error('Cần đăng nhập Firebase để đối chiếu tồn kho.');
@@ -351,6 +355,7 @@ async function softDeleteWarehouseTransactionAtomicOnce(projectId: string, trans
  */
 export async function softDeleteWarehouseTransactionAtomic(projectId: string, transactionId: string, trashSettings: TrashSettings = DEFAULT_TRASH_SETTINGS): Promise<void> {
   assertOnlineForStrictStock();
+  if (WAREHOUSE_TRUSTED_WRITER_ENABLED) { await callTrustedWarehouseWriter({projectId,action:'softDelete',transactionId,trashSettings}); return; }
   try {
     await softDeleteWarehouseTransactionAtomicOnce(projectId, transactionId, trashSettings);
     return;
@@ -413,6 +418,7 @@ export async function listDeletedWarehouseVouchers(projectId: string): Promise<D
  * Never rewrites voucher identity/quantity/unit, and never touches R2 images.
  */
 export async function restoreWarehouseTransactionAtomic(projectId: string, transactionId: string): Promise<WarehouseCommitResult> {
+  if (WAREHOUSE_TRUSTED_WRITER_ENABLED) return callTrustedWarehouseWriter({projectId,action:'restore',transactionId});
   const user = await requireWarehouseRecoveryAdmin(projectId);
   if (!transactionId) throw new Error('Thiếu transactionId cần khôi phục.');
   const transactionRef = doc(db, 'projects', projectId, 'inventory', transactionId);
@@ -461,6 +467,7 @@ export async function restoreWarehouseTransactionAtomic(projectId: string, trans
  * and NO physical deletion takes place. Safe to retry across devices.
  */
 export async function discardWarehouseVoucherTrashAtomic(projectId: string, transactionId: string): Promise<void> {
+  if (WAREHOUSE_TRUSTED_WRITER_ENABLED) { await callTrustedWarehouseWriter({projectId,action:'discard',transactionId}); return; }
   const user = await requireWarehouseRecoveryAdmin(projectId);
   if (!transactionId) throw new Error('WAREHOUSE_TRASH_MISSING_ID');
   const transactionRef = doc(db, 'projects', projectId, 'inventory', transactionId);

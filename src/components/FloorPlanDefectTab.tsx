@@ -9755,6 +9755,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         initialPoints={newRoomPoints}
         floorId={activeFloor?.id || 'fp-1'}
         floorName={activeFloor?.floorName || 'Tầng 1'}
+        projectId={currentProjectId}
         checklistItems={checklistItems}
         onSaveRoom={onSaveRoomProgress}
         structureReadOnly={!canManageStructure}

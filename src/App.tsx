@@ -1,4 +1,7 @@
 import { mergeMaterialNormUpserts } from './utils/materialNormImportDelta';
+import { mergeEditorRoomSubItems } from './utils/editorRoomSubItemSafety';
+import { overlayMigratedRoomSubItems, planMigratedRoomProgressEdits, type RoomSidecarProgress, type RoomSidecarDefinition } from './utils/roomSidecarProgressSafety';
+import { subscribeMigratedRoomSidecarProgress, subscribeMigratedRoomSidecarDefinitions, updateMigratedRoomSubItemsProgressAtomic } from './lib/roomSidecarProgressCloud';
 import {useWarehouseOrderSync} from './hooks/useWarehouseOrderSync';
 import { getHnlPrimaryThemeColors } from './utils/hnlPrimaryTheme';
 import { GlobalConfirmModal } from './components/GlobalConfirmModal';
@@ -199,6 +202,8 @@ import { applyFloorPlanImageToMultipleFloors, inspectFloorPlanBulkTargets, cache
 import { shouldAutoMirrorProjectBinaries } from './lib/offlineMirrorSettings';
 import { DEFAULT_TRASH_SETTINGS, TrashOperation, TrashSettings, TrashCollectionKey, deleteTrashOperationFromCloud, estimateTrashBytes, getTrashCollectionLabel, normalizeTrashSettings, sanitizeTrashSnapshot, saveTrashOperationToCloud, subscribeProjectTrash } from './lib/trash';
 import { commitWarehouseTransactionAtomic, updateWarehouseTransactionAtomic, softDeleteWarehouseTransactionAtomic } from './lib/warehouseTransactions';
+import { WAREHOUSE_TRUSTED_WRITER_ENABLED, callTrustedWarehouseImportBatch } from './lib/warehouseTrustedClient';
+import { assertTrustedWarehouseAutoIssueSupported, assertTrustedWarehouseImportSupported } from './utils/warehouseTrustedCutoverSafety';
 import { renameWarehouseUnitAtomic, type WarehouseUnitRenameInput } from './lib/warehouseUnitMigration';
 import { drainBinaryPurgeRetryQueues, purgeTrashOperationBinaries } from './lib/cloudBinaryPurge';
 import { restoreProjectTrashAtomic } from './lib/trashRestore';
@@ -1471,7 +1476,57 @@ function AuthenticatedApp() {
   const [isSyncing, setIsSyncing] = useState(false);
 
   // Destructure current present state
-  const { materialNorms, inventory, workVolumes, floorPlans, defects, roomProgressList, checklist, crewRecords, teams } = present;
+  const { materialNorms, inventory, workVolumes, floorPlans, defects, roomProgressList: embeddedRoomProgressList, checklist, crewRecords, teams } = present;
+  // P10 opt-in realtime sidecar: keep Firestore's embedded room state untouched.
+  // A derived display cannot trigger the generic project autosave or publish stale
+  // subItems back over the authoritative progress sidecars.
+  const [verifiedRoomSidecars, setVerifiedRoomSidecars] = useState<Record<string, RoomSidecarProgress[]>>({});
+  const [verifiedRoomDefinitions, setVerifiedRoomDefinitions] = useState<Record<string, RoomSidecarDefinition[]>>({});
+  const sidecarActorUid = getCurrentRealFirebaseUser()?.uid || '';
+  const migratedRoomIds = useMemo(() => embeddedRoomProgressList
+    .filter(room => room.subItemProgressMigrated === true && room.deletedAt == null)
+    .map(room => room.id).sort().join('\u0000'), [embeddedRoomProgressList]);
+  useEffect(() => {
+    setVerifiedRoomSidecars({});
+    setVerifiedRoomDefinitions({});
+    if (!activeProjectId || !isProjectRoleResolved || !projectRoleAllowed || !sidecarActorUid) return;
+    const ids = migratedRoomIds.split('\u0000').filter(Boolean);
+    let disposed = false;
+    const unsubs = ids.flatMap(roomId => {
+      const key = `${sidecarActorUid}/${activeProjectId}/${roomId}`;
+      return [
+        subscribeMigratedRoomSidecarProgress(activeProjectId, roomId,
+          rows => { if (!disposed && getCurrentRealFirebaseUser()?.uid === sidecarActorUid)
+            setVerifiedRoomSidecars(prev => ({ ...prev, [key]: rows })); },
+          error => {
+            if (disposed) return;
+            console.warn('[room sidecar] unverified progress, writes disabled', roomId, error);
+            setVerifiedRoomSidecars(prev => { const next = { ...prev }; delete next[key]; return next; });
+          }),
+        subscribeMigratedRoomSidecarDefinitions(activeProjectId, roomId,
+          rows => { if (!disposed && getCurrentRealFirebaseUser()?.uid === sidecarActorUid)
+            setVerifiedRoomDefinitions(prev => ({ ...prev, [key]: rows })); },
+          error => {
+            if (disposed) return;
+            console.warn('[room sidecar] unverified definitions, writes disabled', roomId, error);
+            setVerifiedRoomDefinitions(prev => { const next = { ...prev }; delete next[key]; return next; });
+          }),
+      ];
+    });
+    return () => { disposed = true; unsubs.forEach(unsub => unsub()); };
+  }, [activeProjectId, migratedRoomIds, isProjectRoleResolved, projectRoleAllowed, sidecarActorUid]);
+  const roomProgressList = useMemo(() => embeddedRoomProgressList.map(room => {
+    if (room.subItemProgressMigrated !== true) return room;
+    const key = `${sidecarActorUid}/${activeProjectId}/${room.id}`;
+    const sidecars = verifiedRoomSidecars[key];
+    const definitions = verifiedRoomDefinitions[key];
+    if (!sidecars || !definitions) return room; // Writes are blocked until both authoritative streams pass parity.
+    try { return overlayMigratedRoomSubItems(room, activeProjectId, sidecars, definitions); }
+    catch (error) {
+      console.warn('[room sidecar] parity mismatch, writes disabled', room.id, error);
+      return room;
+    }
+  }), [embeddedRoomProgressList, verifiedRoomSidecars, verifiedRoomDefinitions, activeProjectId, sidecarActorUid]);
   const activeDefects = useMemo(() => {
     const cloudIds = cloudDefectIndex?.projectId === activeProjectId ? cloudDefectIndex.ids : null;
     return defects.filter((item) => {
@@ -6238,6 +6293,11 @@ function AuthenticatedApp() {
     if (!isProjectRoleResolved || !canEditWarehouseData(currentUserRole)) throw new Error('Tài khoản không có quyền tạo giao dịch kho.');
     const newId = item.id || createEntityId(item.type === 'in' ? 'NK' : 'XK');
     const normalized = prepareInventoryLedgerItem({ ...item, id: newId } as InventoryItem);
+    if (normalized.sourceType === 'room-auto') {
+      // Server does not yet derive/authorize room-origin vouchers. Refuse before
+      // any optimistic/local update rather than silently treating them as manual.
+      assertTrustedWarehouseAutoIssueSupported(WAREHOUSE_TRUSTED_WRITER_ENABLED);
+    }
 
     if (FIREBASE_ONLY_RUNTIME) {
       const existing = present.inventory.find((inv) => inv.id === newId);
@@ -6326,8 +6386,30 @@ function AuthenticatedApp() {
     if (duplicateIds.length > 0) throw new Error(`File import có Mã Phiếu trùng: ${Array.from(new Set(duplicateIds)).join(', ')}`);
 
     if (FIREBASE_ONLY_RUNTIME) {
+      // Before the first Callable, reject unsupported trusted-mode batches.
+      // Sequential per-voucher transactions can leave a partially imported file.
+      assertTrustedWarehouseImportSupported(
+        WAREHOUSE_TRUSTED_WRITER_ENABLED, normalizedItems, existingItemsById,
+      );
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
         throw new Error('Import kho cần online để cập nhật ledger + tồn kho bằng Firestore transaction an toàn.');
+      }
+      if (WAREHOUSE_TRUSTED_WRITER_ENABLED) {
+        // One server-owned Firestore transaction: all imported vouchers and all
+        // affected balances commit together, or none commit. No local fallback.
+        if (normalizedItems.length > 0) {
+          await callTrustedWarehouseImportBatch({
+            projectId: activeProjectIdRef.current,
+            operations: normalizedItems.map((item) => {
+              const prior = existingItemsById.get(item.id);
+              return prior
+                ? { action: 'update' as const, transactionId: item.id, item,
+                    expectedRevision: Number(prior.revision) }
+                : { action: 'create' as const, transactionId: item.id, item };
+            }),
+          });
+        }
+        return;
       }
       const existingIds = new Set(present.inventory.map((item) => item.id));
       for (const item of normalizedItems) {
@@ -7144,11 +7226,14 @@ function AuthenticatedApp() {
     const operationalKeys: (keyof RoomProgressItem)[] = [
       'frameStatus', 'boardStatus', 'frameInspectionStatus', 'boardInspectionStatus',
       'inspectionStatus', 'inspectorName', 'notes', 'assignedTeam', 'teamId',
-      'targetFrameDate', 'targetBoardDate', 'subItems'
+      'targetFrameDate', 'targetBoardDate'
     ];
     const next: RoomProgressItem = { ...existing };
     for (const key of operationalKeys) {
       if (Object.prototype.hasOwnProperty.call(incoming, key)) (next as any)[key] = (incoming as any)[key];
+    }
+    if (Object.prototype.hasOwnProperty.call(incoming, 'subItems')) {
+      next.subItems = mergeEditorRoomSubItems(existing.subItems, incoming.subItems);
     }
     return next;
   };
@@ -7157,6 +7242,45 @@ function AuthenticatedApp() {
     room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }
   ) => {
     const updatedAt = Date.now();
+    // P10: migrated rooms must never save embedded operational subItems. The
+    // whole set of edited sidecars is CAS-written server-side before updating
+    // top-level room fields. On failure the original room remains untouched.
+    const existingMigrated = room.id ? present.roomProgressList.find(r => r.id === room.id && r.subItemProgressMigrated === true) : undefined;
+    if (existingMigrated) {
+      const frozenProjectId = activeProjectIdRef.current;
+      const roomKey = `${sidecarActorUid}/${frozenProjectId}/${existingMigrated.id}`;
+      const confirmed = verifiedRoomSidecars[roomKey];
+      const confirmedDefinitions = verifiedRoomDefinitions[roomKey];
+      if (!frozenProjectId || !confirmed || !confirmedDefinitions) {
+        window.alert('Tiến độ phòng đang chờ đối chiếu máy chủ. Không ghi dữ liệu cũ lên bản đã chuyển đổi.');
+        return;
+      }
+      try {
+        const authoritative = overlayMigratedRoomSubItems(existingMigrated, frozenProjectId, confirmed, confirmedDefinitions);
+        const edits = planMigratedRoomProgressEdits(authoritative.subItems || [], room.subItems || authoritative.subItems || []);
+        const byId = new Map<string, RoomSidecarProgress>(confirmed.map(row => [row.id, row]));
+        const definitionsById = new Map<string, RoomSidecarDefinition>(confirmedDefinitions.map(row => [row.id, row]));
+        const batch = edits.map(edit => ({ ...edit, expectedRevision: Number(byId.get(edit.id)?.revision),
+          expectedDefinition: definitionsById.get(edit.id)! }));
+        if (batch.some(entry => !entry.expectedDefinition)) throw new Error('ROOM_SIDECAR_STALE_DEFINITION');
+        if (batch.some(entry => !Number.isSafeInteger(entry.expectedRevision))) throw new Error('ROOM_SIDECAR_MISSING_REVISION');
+        void (async () => {
+          if (batch.length) await updateMigratedRoomSubItemsProgressAtomic(frozenProjectId, existingMigrated.id, batch);
+          if (activeProjectIdRef.current !== frozenProjectId) return;
+          updateAppData(prev => ({ ...prev, roomProgressList: prev.roomProgressList.map(saved =>
+            saved.id === existingMigrated.id
+              ? { ...applyEditorRoomOperationalUpdate(saved, room), subItems: saved.subItems, updatedAt: Date.now() }
+              : saved,
+          ) }));
+        })().catch(error => {
+          console.error('[room sidecar] atomic save failed', error);
+          window.alert(`Không lưu được tiến độ phòng; dữ liệu chưa được ghi đè: ${String(error?.message || error)}`);
+        });
+      } catch (error: any) {
+        window.alert(`Không thể lưu thay đổi cấu trúc phòng đã chuyển đổi: ${String(error?.message || error)}`);
+      }
+      return;
+    }
     updateAppData((prev) => {
       const existing = room.id ? prev.roomProgressList.find((r) => r.id === room.id) : undefined;
       if (existing) {
@@ -7179,6 +7303,12 @@ function AuthenticatedApp() {
 
   const handleBatchSaveRooms = (rooms: RoomProgressItem[]) => {
     if (!rooms || rooms.length === 0) return;
+    // Bulk import/edit must use an ADMIN-reviewed migration-aware transaction;
+    // never overwrite multiple migrated room sidecars through legacy autosave.
+    if (rooms.some(item => present.roomProgressList.some(current => current.id === item.id && current.subItemProgressMigrated === true))) {
+      window.alert('Chỉnh sửa hàng loạt phòng đã chuyển đổi đang được khóa để bảo vệ tiến độ. Hãy chỉnh từng phòng hoặc dùng quy trình ADMIN đã đối chiếu.');
+      return;
+    }
     const updatedAt = Date.now();
     const roomMap = new Map(rooms.map((r) => [r.id, r]));
     updateAppData((prev) => ({

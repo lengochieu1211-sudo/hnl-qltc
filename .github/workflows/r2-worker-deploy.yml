@@ -7,6 +7,22 @@ on:
         description: 'Type DEPLOY-R2-PROD to deploy the production R2 Worker'
         required: true
         type: string
+      backup_confirmation:
+        description: 'Type BACKUP-VERIFIED after verifying current PROD Firestore and R2 backup'
+        required: true
+        type: string
+      migration_confirmation:
+        description: 'Type MIGRATION-PARITY-VERIFIED after checking legacy media count/checksums'
+        required: true
+        type: string
+      dev_certified_sha:
+        description: 'Exact 40-character DEV commit SHA that passed full Golden testing'
+        required: true
+        type: string
+      expected_main_sha:
+        description: 'Exact 40-character approved main commit SHA for R2 PROD'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -14,6 +30,7 @@ permissions:
 jobs:
   deploy_r2_worker:
     runs-on: ubuntu-latest
+    environment: production
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
@@ -23,12 +40,33 @@ jobs:
           set -euo pipefail
           test "${{ inputs.confirmation }}" = 'DEPLOY-R2-PROD' || { echo '::error::REFUSING_R2_PROD_WITHOUT_CONFIRMATION'; exit 1; }
           test "${GITHUB_REF}" = 'refs/heads/main' || { echo '::error::R2_PROD_MUST_RUN_FROM_MAIN'; exit 1; }
+          test "${{ inputs.backup_confirmation }}" = 'BACKUP-VERIFIED' || { echo '::error::R2_PROD_BACKUP_NOT_VERIFIED'; exit 1; }
+          test "${{ inputs.migration_confirmation }}" = 'MIGRATION-PARITY-VERIFIED' || { echo '::error::R2_PROD_MEDIA_PARITY_NOT_VERIFIED'; exit 1; }
+          printf '%s' "${{ inputs.dev_certified_sha }}" | grep -Eq '^[0-9a-f]{40}$' || { echo '::error::R2_PROD_DEV_SHA_INVALID'; exit 1; }
+          printf '%s' "${{ inputs.expected_main_sha }}" | grep -Eq '^[0-9a-f]{40}$' || { echo '::error::R2_PROD_MAIN_SHA_INVALID'; exit 1; }
+          test "${GITHUB_SHA}" = "${{ inputs.expected_main_sha }}" || { echo '::error::R2_PROD_MAIN_SHA_MISMATCH'; exit 1; }
 
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      # P7: the standalone R2 PROD deploy must not bypass the P6 Firestore
+      # integrity gate, the DEV ancestry lock, or PROD backup approval. This
+      # preflight runs before Cloudflare API calls or any cloud modification.
+      - name: Require certified source and P1 data-integrity preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ inputs.expected_main_sha }}" || { echo '::error::R2_PROD_CHECKOUT_SHA_MISMATCH'; exit 1; }
+          git merge-base --is-ancestor "${{ inputs.dev_certified_sha }}" HEAD || { echo '::error::R2_PROD_DEV_SHA_NOT_ANCESTOR'; exit 1; }
+          test -f package.json && test -f package-lock.json || { echo '::error::R2_PROD_SOURCE_INCOMPLETE'; exit 1; }
+          test -f scripts/p1-release-safety-gate.mjs || { echo '::error::R2_PROD_P1_GATE_MISSING'; exit 1; }
+          node scripts/p1-release-safety-gate.mjs || { echo '::error::R2_PROD_P1_INTEGRITY_GATE_FAILED'; exit 1; }
+          test -f cloudflare/r2-gateway/worker.js || { echo '::error::R2_PROD_WORKER_MISSING'; exit 1; }
 
       - name: Require Cloudflare deploy token
         shell: bash

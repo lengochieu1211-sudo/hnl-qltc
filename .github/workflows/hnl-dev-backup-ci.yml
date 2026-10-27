@@ -1,0 +1,125 @@
+name: HNL QLTC DEV BACKUP - Isolated CI (no deploy)
+
+# Read-only CI on a dedicated backup branch only; no main/dev/P21 trigger.
+on:
+  push:
+    branches:
+      - backup/p20-3-7-ci
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hnl-dev-backup-ci-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  audit_backup:
+    name: P20.3.7 source lock, regression, emulator, build
+    if: github.ref == 'refs/heads/backup/p20-3-7-ci'
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    env:
+      CI: 'true'
+      FIREBASE_RULES_ATTEMPT_TIMEOUT_MS: '180000'
+      FIREBASE_RULES_MAX_ATTEMPTS: '2'
+      FIREBASE_RULES_STEP_BUDGET_MS: '480000'
+    steps:
+      - name: Read-only checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Refuse other branches and any P21 source drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/backup/p20-3-7-ci'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -f package.json
+          test -f package-lock.json
+          test -f firebase.dev-backup.json
+          node scripts/dev-backup-source-integrity.mjs
+          # Only local test/build tools are invoked in this workflow.
+
+      - name: Set up Java for local Firebase emulators
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js and locked npm cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Cache Firebase emulator binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: ${{ runner.os }}-hnl-backup-firebase-emulators-v13.35.1
+
+      - name: Install exactly from package-lock
+        run: npm ci
+
+      - name: Static backup isolation regression
+        run: |
+          node scripts/dev-backup-source-integrity.mjs
+          node scripts/dev-backup-hosting-golden.mjs
+          node scripts/dev-firebase-switch-golden.mjs
+          node scripts/offline-golden.mjs
+          node scripts/auth-popup-golden.mjs
+          node scripts/rbac-matrix.mjs
+          node scripts/android-wrapper-golden.mjs
+          node scripts/desktop-launcher-golden.mjs
+
+      - name: Full non-cloud regression suite
+        run: npm run test:stability
+
+      - name: TypeScript and source lint
+        run: |
+          npm run typecheck
+          npm run lint
+
+      - name: Firestore/Storage Rules emulator allow-deny (demo project only)
+        run: npm run test:rules
+
+      - name: Build from selected backup config locally (never deploy)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp .env.dev-backup.example .env.dev-backup.local
+          node scripts/dev-firebase-switch.mjs backup
+          node scripts/dev-backup-hosting.mjs build
+          node --input-type=module -e "import { verifyBackupHosting } from './scripts/dev-backup-hosting.mjs'; const m=verifyBackupHosting(); console.log('Backup staging verify PASS:',m.projectId)"
+          node scripts/dev-backup-source-integrity.mjs
+          test -f dist-dev-backup-hosting/hnl-dev-backup-release.json
+
+      - name: Record exact run evidence (not Runtime Golden)
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ci-evidence
+          node scripts/dev-backup-source-integrity.mjs > ci-evidence/source-gate.txt
+          cat > ci-evidence/CI-RESULT.txt <<TXT
+          HNL QLTC DEV BACKUP - P20.3.7
+          Ref: $GITHUB_REF
+          Commit: $GITHUB_SHA
+          Run: $GITHUB_RUN_ID
+          Gates: source-lock, npm ci, backup static guards, regression, typecheck, lint, Rules emulator, backup-local build
+          Scope: read-only; no push, deploy, or cloud mutation
+          Certification: NOT RUNTIME GOLDEN / NOT CERTIFIED
+          TXT
+          sha256sum ci-evidence/* > ci-evidence/SHA256SUMS.txt
+
+      - name: Upload CI evidence only
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-P20.3.7-DEV-BACKUP-CI-${{ github.sha }}
+          path: ci-evidence/
+          retention-days: 30
+          if-no-files-found: error

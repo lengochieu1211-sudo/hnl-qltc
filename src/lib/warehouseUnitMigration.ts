@@ -4,6 +4,7 @@ import { normalizeMaterialNameKey, resolveNormMaterialId } from '../utils/invent
 import { getWarehouseMaterialKey, getWarehouseSignedDelta } from '../utils/warehouseLedgerMath';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
 import { db, getCurrentRealFirebaseUser, sanitizePayloadForCloud } from './firebase';
+import { WAREHOUSE_TRUSTED_WRITER_ENABLED, callTrustedMaterialUnitRename, callTrustedEquipmentUnitRename } from './warehouseTrustedClient';
 import { equipmentCatalogId, equipmentIdentityKey, type EquipmentCatalogRecord } from './equipmentCatalog';
 
 /**
@@ -40,6 +41,28 @@ const equalName = (a: string, b: string) => normalizeMaterialNameKey(a) === norm
 const round = (n: number) => Math.round(n * 1e9) / 1e9;
 
 export async function renameWarehouseUnitAtomic(input: WarehouseUnitRenameInput): Promise<{ norms: number; vouchers: number }> {
+  if (WAREHOUSE_TRUSTED_WRITER_ENABLED) {
+    // Unit-label-only, canonical material IDs: DEV trusted server now updates
+    // norms + all vouchers + balance together with ADMIN role revalidation.
+    // Equipment metadata/legacy aliases stay fail-closed until independently proven.
+    if (input.kind === 'equipment') {
+      const result = await callTrustedEquipmentUnitRename({
+        projectId:input.projectId,kind:'equipment',materialName:input.materialName,
+        fromUnit:normalizeUnit(input.fromUnit)||input.fromUnit,
+        toUnit:normalizeUnit(input.toUnit)||input.toUnit,
+        ...(input.equipmentMetadata ? {equipmentMetadata:input.equipmentMetadata} : {}),
+      });
+      return {norms:result.norms,vouchers:result.vouchers};
+    }
+    if (input.kind !== 'material' || !input.materialId || input.equipmentMetadata)
+      throw new Error('WAREHOUSE_TRUSTED_LEGACY_UNIT_RENAME_NOT_READY');
+    const result = await callTrustedMaterialUnitRename({
+      projectId:input.projectId,kind:'material',materialId:input.materialId,
+      materialName:input.materialName,fromUnit:normalizeUnit(input.fromUnit)||input.fromUnit,
+      toUnit:normalizeUnit(input.toUnit)||input.toUnit,
+    });
+    return {norms:result.norms,vouchers:result.vouchers};
+  }
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     throw new Error('Đổi ĐVT cần kết nối mạng để khóa tồn kho trên tất cả thiết bị.');
   }

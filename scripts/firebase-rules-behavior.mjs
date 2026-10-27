@@ -597,6 +597,102 @@ try {
   }));
   await signIn(editorEmail);
 
+  // Opt-in P1 release probe. Deliberately NOT part of the existing certified
+  // suite until server-side balance↔voucher and nested room invariants are fixed.
+  // Invoke only against disposable Firebase EMULATORS with:
+  // HNL_P1_RULES_NEGATIVE_PROBE=1 npm run test:rules
+  if (process.env.HNL_P1_RULES_NEGATIVE_PROBE === '1' || process.env.HNL_P9_SIDECAR_EMULATOR === '1') {
+    // P9 opt-in migrated room ALLOW/DENY; passing these does not certify legacy rooms.
+    await signIn(ownerEmail);
+    const definitionRef = doc(db, 'projects', pid, 'rooms', 'ROOM-RULE-1', 'subitem_definitions', 'SUB-1');
+    const progressRef = doc(db, 'projects', pid, 'rooms', 'ROOM-RULE-1', 'subitem_progress', 'SUB-1');
+    const progressStart = Date.now();
+    await expectAllowed('ADMIN seeds migrated room definition', () => setDoc(definitionRef, {
+      id: 'SUB-1', roomId: 'ROOM-RULE-1', projectId: pid, name: 'Khung', order: 0,
+    }));
+    await expectAllowed('ADMIN seeds migrated progress', () => setDoc(progressRef, {
+      id: 'SUB-1', roomId: 'ROOM-RULE-1', projectId: pid,
+      status: 'Chưa làm', revision: 1, updatedAt: progressStart, updatedByUid: ownerUid,
+    }));
+    const roomBeforeMarker = await getDoc(roomRef);
+    await expectAllowed('ADMIN marks room migrated after seeding', () => updateDoc(roomRef, {
+      subItemProgressMigrated: true,
+      subItems: [{ id:'SUB-1',name:'Khung', status:'Chưa làm',workVolume:20 }],
+      revision: Number(roomBeforeMarker.data()?.revision || 0) + 1,
+      updatedAt: Math.max(Date.now(), Number(roomBeforeMarker.data()?.updatedAt || 0) + 1),
+    }));
+    await signIn(editorEmail);
+    await expectAllowed('EDITOR updates ONLY migrated sidecar progress', () => updateDoc(progressRef, {
+      status: 'Đang làm', revision: 2, updatedAt: progressStart + 10, updatedByUid: editorUid,
+    }));
+    await expectDenied('EDITOR cannot create fake migrated progress', () => setDoc(
+      doc(db, 'projects', pid, 'rooms', 'ROOM-RULE-1', 'subitem_progress', 'FAKE'), {
+        id: 'FAKE', roomId: 'ROOM-RULE-1', projectId: pid, status: 'Đã hoàn thành',
+        revision: 1, updatedAt: progressStart + 20, updatedByUid: editorUid,
+      }));
+    await expectDenied('EDITOR cannot edit migrated definition', () => updateDoc(definitionRef, { name: 'FORGED' }));
+    await expectDenied('EDITOR cannot alter migrated progress identity', () => updateDoc(progressRef, {
+      roomId: 'OTHER', revision: 3, updatedAt: progressStart + 20, updatedByUid: editorUid,
+    }));
+    await expectDenied('EDITOR cannot bypass sidecar revision check', () => updateDoc(progressRef, {
+      status: 'Đã hoàn thành', revision: 99, updatedAt: progressStart + 20, updatedByUid: editorUid,
+    }));
+    const migratedRoom = await getDoc(roomRef);
+    await expectDenied('EDITOR cannot replace migrated embedded subItems', () => updateDoc(roomRef, {
+      subItems: [{ id:'FORGED', name:'Fake', workVolume:99999, status:'Đã hoàn thành' }],
+      revision: Number(migratedRoom.data()?.revision || 0) + 1,
+      updatedAt: Number(migratedRoom.data()?.updatedAt || 0) + 1000,
+    }));
+    await expectAllowed('EDITOR still updates migrated room top-level field progress', () => updateDoc(roomRef, {
+      frameStatus:'Đã hoàn thành',
+      revision: Number(migratedRoom.data()?.revision || 0) + 1,
+      updatedAt: Number(migratedRoom.data()?.updatedAt || 0) + 1000,
+    }));
+    if (process.env.HNL_P1_RULES_NEGATIVE_PROBE === '1') {
+    const exposed = [];
+    const expectP1Blocked = async (label, action) => {
+      try {
+        await action();
+        exposed.push(label);
+        console.error(`P1 UNSAFE ALLOW: ${label}`);
+      } catch (error) {
+        const code = String(error?.code || error?.message || error).toLowerCase();
+        if (code.includes('permission-denied')) {
+          console.log(`P1 PASS DENY: ${label}`);
+        } else {
+          throw error;
+        }
+      }
+    };
+    // Check an UNMIGRATED room separately: P1 must stay BLOCKED until all
+    // legacy writers and room documents have been safely transitioned.
+    await signIn(ownerEmail);
+    const legacyRef = doc(db, 'projects', pid, 'rooms', 'ROOM-P1-LEGACY');
+    await expectAllowed('ADMIN seeds unmigrated P1 fixture', () => setDoc(legacyRef, {
+      id:'ROOM-P1-LEGACY', floorId:'FP-RULE-1', roomName:'Legacy',
+      x:1,y:1,width:10,height:10, frameStatus:'Chưa làm', boardStatus:'Chưa làm',
+      inspectionStatus:'Chưa nghiệm thu', subItems:[{id:'ORIGINAL',name:'Khung',workVolume:1,status:'Chưa làm'}],
+      revision:1,createdAt:Date.now(),updatedAt:Date.now(),deleted:false,deletedAt:null,
+    }));
+    await signIn(editorEmail);
+    const roomLatest = await getDoc(legacyRef);
+    const roomData = roomLatest.data();
+    await expectP1Blocked('EDITOR may not forge nested subItem ID/quantity in LEGACY', () => updateDoc(legacyRef, {
+      subItems: [{ id: 'SUBITEM-FORGED', name: 'Hạng mục giả', workVolume: 99999,
+        volumeUnit: 'm²', status: 'Đã hoàn thành', inspectionStatus: 'Đạt nghiệm thu' }],
+      revision: Number(roomData?.revision || 0) + 1,
+      updatedAt: Number(roomData?.updatedAt || 0) + 1000,
+    }));
+    await expectP1Blocked('EDITOR may not create warehouse balance without voucher', () => setDoc(
+      doc(db, 'projects', pid, 'inventory_balances', 'BAL-P1-ORPHAN'),
+      { ...balanceSeed, id: 'BAL-P1-ORPHAN', updatedAt: Date.now(), updatedByUid: editorUid },
+    ));
+    if (exposed.length) throw new Error(`P1 RULES RELEASE BLOCKED: ${exposed.join(' | ')}`);
+    console.log('P1 RULES NEGATIVE PROBE PASS');
+    }
+    await signIn(editorEmail); // other emulator fixtures assume editor is active
+  }
+
   const crewRef = doc(db, 'projects', pid, 'crew_records', 'CREW-RULE-1');
   await expectDenied('EDITOR cannot create crew record without creator identity', () => setDoc(doc(db, 'projects', pid, 'crew_records', 'CREW-NO-OWNER'), {
     id: 'CREW-NO-OWNER', date: '2026-08-27', teamName: 'Đội A', workerCount: 5,

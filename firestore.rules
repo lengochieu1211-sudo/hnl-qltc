@@ -201,7 +201,51 @@ service cloud.firestore {
           'deleted', 'deletedAt', 'deletedByUid', 'deletedBy',
           'updatedAt', 'updatedByUid', 'updatedByEmail', 'updatedByDeviceId',
           'updatedByDeviceName', 'revision'
-        ]);
+        ])
+        // P9 staged migration: after ADMIN has backfilled/verified a room's
+        // definition + progress sidecars, EDITOR can no longer mutate its
+        // embedded subItems array (including hidden structural fields).
+        // LEGACY rooms remain writable until migrated: this is NOT yet a
+        // project-wide P1 certification; never auto-enable the marker.
+        && (resource.data.get('subItemProgressMigrated', false) != true
+          || request.resource.data.get('subItems', []) == resource.data.get('subItems', []));
+    }
+
+    // P9 opt-in sidecar privilege boundary. Definitions are ADMIN-owned; a
+    // progress document must exist already before EDITOR may update it.
+    // The migration marker is ADMIN-only through the room update rules.
+    function roomSidecarIsActive(projectId, roomId) {
+      let path = /databases/$(database)/documents/projects/$(projectId)/rooms/$(roomId);
+      return exists(path)
+        && get(path).data.get('subItemProgressMigrated', false) == true
+        && get(path).data.get('deleted', false) != true
+        && get(path).data.get('deletedAt', null) == null;
+    }
+
+    function editorSubItemProgressUpdateSafe(projectId, roomId, subItemId) {
+      return roomSidecarIsActive(projectId, roomId)
+        && exists(/databases/$(database)/documents/projects/$(projectId)/rooms/$(roomId)/subitem_definitions/$(subItemId))
+        && request.resource.data.get('id', '') == subItemId
+        && resource.data.get('id', '') == subItemId
+        && request.resource.data.get('projectId', '') == projectId
+        && resource.data.get('projectId', '') == projectId
+        && request.resource.data.get('roomId', '') == roomId
+        && resource.data.get('roomId', '') == roomId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'inspectionStatus', 'targetDate', 'assignedTeam', 'teamId',
+          'revision', 'updatedAt', 'updatedByUid'
+        ])
+        && request.resource.data.get('status', '') in ['Chưa làm', 'Đang làm', 'Đã hoàn thành']
+        && (!('inspectionStatus' in request.resource.data)
+          || request.resource.data.inspectionStatus in ['Chưa nghiệm thu', 'Đạt nghiệm thu', 'Chưa đạt (Cần sửa)'])
+        && (!('targetDate' in request.resource.data) || request.resource.data.targetDate is string)
+        && (!('assignedTeam' in request.resource.data) || request.resource.data.assignedTeam is string)
+        && (!('teamId' in request.resource.data) || request.resource.data.teamId is string)
+        && request.resource.data.revision is int
+        && request.resource.data.revision == resource.data.get('revision', 0) + 1
+        && request.resource.data.updatedAt is number
+        && request.resource.data.updatedAt > resource.data.get('updatedAt', 0)
+        && request.resource.data.updatedByUid == request.auth.uid;
     }
 
     // P1-09. Do not rewrite an existing photo's record, owner, or lifecycle.
@@ -799,6 +843,21 @@ service cloud.firestore {
           && ((isEditor(projectId) && editorBalanceUpdateMetadataSafe())
             || isAdmin(projectId));
         allow delete: if false;
+      }
+
+      // P9: opt-in room sidecars. DO NOT enable subItemProgressMigrated until
+      // backfill, reader/writer switch, strict parity and emulator verification.
+      match /rooms/{roomId}/subitem_definitions/{subItemId} {
+        allow read: if isMember(projectId);
+        allow create, update, delete: if canAdminOperate(projectId);
+      }
+      match /rooms/{roomId}/subitem_progress/{subItemId} {
+        allow read: if isMember(projectId);
+        // ADMIN pre-seeds progress; EDITOR must not invent or delete subitems.
+        allow create, delete: if canAdminOperate(projectId);
+        allow update: if canAdminOperate(projectId)
+          || (isEditor(projectId) && projectIsActive(projectId)
+            && editorSubItemProgressUpdateSafe(projectId, roomId, subItemId));
       }
 
       // V6 data-schema financial isolation. Firestore cannot field-filter a readable
