@@ -14,7 +14,6 @@ jobs:
     timeout-minutes: 50
     env:
       FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
-      GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-dev-readonly-preview.json
       DEV_PROJECT: hnl-qltc-dev
       VITE_APP_ENV: DEV
       VITE_RUNTIME_BACKEND: firebase-only
@@ -45,6 +44,8 @@ jobs:
           test "$DEV_PROJECT" != "com-example-qlct-61329"
           test -n "${FIREBASE_SERVICE_ACCOUNT:-}"
           node -e 'const a=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);if(a.project_id!=="hnl-qltc-dev")process.exit(1)'
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-dev-readonly-preview.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS" >> "$GITHUB_ENV"
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
           chmod 600 "$GOOGLE_APPLICATION_CREDENTIALS"
       - name: Resolve existing DEV web SDK without modifying Firebase apps
