@@ -19,7 +19,6 @@ jobs:
     env:
       BACKUP_PROJECT: hnl-qltc-dev-backup
       BACKUP_CHANNEL: p2031-check
-      FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
       VITE_APP_ENV: DEV
       VITE_RUNTIME_BACKEND: firebase-only
       VITE_BINARY_STORAGE_PROVIDER: r2
@@ -39,6 +38,8 @@ jobs:
         with:
           persist-credentials: false
       - name: DEV Backup exact-project credential gate (NO deploy on failure)
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
         shell: bash
         run: |
           set -euo pipefail
@@ -59,18 +60,22 @@ jobs:
             throw Error('REFUSING wrong Firebase service account; only existing DEV Backup is allowed');
           console.log('Firebase credential isolation PASS (not printing secrets)');
           NODE
-          printf '%s' "$FIREBASE_BACKUP_SERVICE_ACCOUNT" > "$RUNNER_TEMP/backup-firebase-sa.json"
-          chmod 600 "$RUNNER_TEMP/backup-firebase-sa.json"
-          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/backup-firebase-sa.json" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Read EXISTING Firebase DEV Backup Web SDK (never create app)
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
         shell: bash
         run: |
           set -euo pipefail
+          test -n "${FIREBASE_BACKUP_SERVICE_ACCOUNT:-}"
+          printf '%s' "$FIREBASE_BACKUP_SERVICE_ACCOUNT" > "$RUNNER_TEMP/backup-firebase-sa.json"
+          chmod 600 "$RUNNER_TEMP/backup-firebase-sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/backup-firebase-sa.json"
+          trap 'rm -f "$RUNNER_TEMP/backup-firebase-sa.json"' EXIT
           npx --yes firebase-tools@13.35.1 apps:list WEB --project "$BACKUP_PROJECT" --json > "$RUNNER_TEMP/apps.json"
           APP_ID="$(node - "$RUNNER_TEMP/apps.json" <<'NODE'
           const j=require(process.argv[2]);
@@ -123,9 +128,16 @@ jobs:
           grep -R -q 'hnl-qltc-r2-gateway-dev-backup' dist/assets
           rm -f dist/server.cjs dist/server.cjs.map
       - name: Publish ONLY backup Preview p2031-check, never live or PROD
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
         shell: bash
         run: |
           set -euo pipefail
+          test -n "${FIREBASE_BACKUP_SERVICE_ACCOUNT:-}"
+          printf '%s' "$FIREBASE_BACKUP_SERVICE_ACCOUNT" > "$RUNNER_TEMP/backup-firebase-sa.json"
+          chmod 600 "$RUNNER_TEMP/backup-firebase-sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/backup-firebase-sa.json"
+          trap 'rm -f "$RUNNER_TEMP/backup-firebase-sa.json"' EXIT
           test "$BACKUP_PROJECT" = hnl-qltc-dev-backup
           test "$BACKUP_CHANNEL" = p2031-check
           node - <<'NODE'
