@@ -77,7 +77,7 @@ import { createEntityId } from '../utils/idUtils';
 import { normalizeUnit, unitKey } from '../utils/unitUtils';
 import { ImageViewerModal } from './ImageViewerModal';
 import { ImageEditorModal } from './ImageEditorModal';
-import { RoomHighlightModal } from './RoomHighlightModal';
+import { RoomSidecarDemoBridge } from './RoomSidecarDemoBridge';
 import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
 import { PhotoAttachment, deleteEntityPhotos, getEntityPhotos, getPhotoDataUrl, isPhotoSharedCloudReady, savePhotoAttachment } from '../utils/photoStorage';
 import { safeSetLocalStorageItem } from '../utils/storage';
@@ -9738,7 +9738,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       />
       </React.Suspense>}
 
-      <RoomHighlightModal
+      <RoomSidecarDemoBridge
+        projectId={currentProjectId}
         isOpen={isRoomModalOpen}
         onClose={() => {
           setIsRoomModalOpen(false);

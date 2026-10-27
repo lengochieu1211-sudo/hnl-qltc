@@ -57,7 +57,7 @@ interface RoomHighlightModalProps {
   existingRoomNames?: string[];
   defaultInspectorName?: string;
   onAddInventory?: (item: Omit<InventoryItem, 'id'> & { id?: string }) => void | Promise<void>;
-  onSaveRoom: (room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }) => void;
+  onSaveRoom: (room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }) => void | Promise<void>;
   onDeleteRoom?: (id: string) => void;
   onStartRedraw2Point?: (room: RoomProgressItem, tool: 'freehand' | 'polygon' | '2point') => void;
   structureReadOnly?: boolean;
@@ -952,7 +952,9 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     setSubItems(newSubItems);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const savingRoomRef = React.useRef(false);
+  const handleSubmit = async (e: React.FormEvent) => {
+    if (savingRoomRef.current) return;
     e.preventDefault();
     if (!roomName.trim()) {
       alert('Vui lòng nhập tên hoặc mã Căn / Phòng!');
@@ -1071,8 +1073,10 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       targetBoardDate: secondSub.targetDate || '',
     };
 
+    savingRoomRef.current = true;
+    try {
     if (structureReadOnly && roomItem) {
-      onSaveRoom({
+      await onSaveRoom({
         ...roomItem,
         frameStatus: roomData.frameStatus,
         boardStatus: roomData.boardStatus,
@@ -1099,10 +1103,15 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
         }),
       });
     } else {
-      onSaveRoom(roomData);
+      await onSaveRoom(roomData);
     }
 
     onClose();
+    } catch (err) {
+      alert(`Không thể lưu tiến độ: ${err instanceof Error ? err.message : String(err)}. Dữ liệu chưa được ghi. Vui lòng tải lại và đối chiếu.`);
+    } finally {
+      savingRoomRef.current = false;
+    }
   };
 
   // Combined checklist items list for dropdown selection

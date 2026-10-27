@@ -1,0 +1,25 @@
+name: P21.6 Room Sidecar UI Emulator-only Golden (NO DEPLOY)
+on:
+  pull_request:
+    paths:
+      - 'src/components/RoomSidecarDemoBridge.tsx'
+      - 'src/components/RoomHighlightModal.tsx'
+      - 'src/components/FloorPlanDefectTab.tsx'
+      - 'src/lib/roomSidecarDemoMode.ts'
+      - 'src/utils/roomSidecarDemoSaveSafety.ts'
+      - 'scripts/p216-room-sidecar-ui-golden.mjs'
+      - '.github/workflows/p216-room-sidecar-ui-demo.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  room-demo-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Fail closed when room sidecar parity or write boundaries fail
+        run: node --experimental-strip-types scripts/p216-room-sidecar-ui-golden.mjs

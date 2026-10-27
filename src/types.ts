@@ -289,6 +289,8 @@ export interface RoomProgressItem {
   categoryVolumes?: Record<string, number>; // Khối lượng riêng theo từng hạng mục thi công đang có trong căn hộ
   categoryVolumeUnits?: Record<string, string>; // ĐVT riêng theo từng hạng mục (m², m, bộ, cái...). Nếu thiếu sẽ fallback volumeUnit.
   subItems?: RoomSubItem[]; // Danh sách các hạng mục/công đoạn thi công & nghiệm thu chi tiết
+  /** P21 server migration marker; never inferred from local cache. */
+  subItemProgressMigrated?: boolean;
   workVolume?: number; // Khối lượng thi công (VD: 45.5 m2)
   volumeUnit?: string; // Đơn vị tính (VD: m2, m, căn)
   x: number; // Tỷ lệ vị trí X trên MB (0-100%)
