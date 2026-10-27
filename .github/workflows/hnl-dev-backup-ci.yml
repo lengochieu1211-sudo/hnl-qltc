@@ -102,8 +102,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Verify while the checkout still has no generated evidence files.
+          source_gate="$(node scripts/dev-backup-source-integrity.mjs)"
           mkdir -p ci-evidence
-          node scripts/dev-backup-source-integrity.mjs > ci-evidence/source-gate.txt
+          printf '%s\n' "$source_gate" > ci-evidence/source-gate.txt
           cat > ci-evidence/CI-RESULT.txt <<TXT
           HNL QLTC DEV BACKUP - P20.3.7
           Ref: $GITHUB_REF
