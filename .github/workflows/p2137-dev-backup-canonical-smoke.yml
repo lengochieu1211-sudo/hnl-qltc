@@ -1,0 +1,201 @@
+name: P21.37 DEV Backup canonical same-origin candidate (HOSTING ONLY)
+on:
+  push:
+    branches:
+      - safety/p2137-dev-backup-canonical-smoke-20261028
+    paths:
+      - '.github/workflows/p2137-dev-backup-canonical-smoke.yml'
+permissions:
+  contents: read
+concurrency:
+  group: hnl-qltc-p2119-backup-preview
+  cancel-in-progress: false
+
+jobs:
+  deploy-backup-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      BACKUP_PROJECT: hnl-qltc-dev-backup
+      BACKUP_CHANNEL: p2137-rollback
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+      VITE_HNL_AI_ENABLED: 'false'
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_USE_FIREBASE_EMULATORS: 'false'
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev-backup.firebaseapp.com
+      VITE_GIT_COMMIT: f36bd19fa30228f8056a0251ff1db81daad92500
+      CANDIDATE_SHA: f36bd19fa30228f8056a0251ff1db81daad92500
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: DEV Backup exact-project credential gate (NO deploy on failure)
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/safety/p2137-dev-backup-canonical-smoke-20261028
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$CANDIDATE_SHA" HEAD
+          test "$BACKUP_PROJECT" = hnl-qltc-dev-backup
+          test "$BACKUP_CHANNEL" = p2137-rollback
+          test "$VITE_R2_GATEWAY_URL" = https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+          test "$VITE_APP_ENV" = DEV
+          test "$VITE_ENABLE_LEGACY_DRIVE_WRITE" = false
+          if test -z "$FIREBASE_BACKUP_SERVICE_ACCOUNT"; then
+            echo "::error::Missing GitHub Actions secret FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP. No deploy attempted."
+            exit 1
+          fi
+          node - <<'NODE'
+          const a=JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT);
+          if(a.type!=='service_account'||a.project_id!=='hnl-qltc-dev-backup'||!a.private_key)
+            throw Error('REFUSING wrong Firebase service account; only existing DEV Backup is allowed');
+          console.log('Firebase credential isolation PASS (not printing secrets)');
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Read EXISTING Firebase DEV Backup Web SDK (never create app)
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${FIREBASE_BACKUP_SERVICE_ACCOUNT:-}"
+          printf '%s' "$FIREBASE_BACKUP_SERVICE_ACCOUNT" > "$RUNNER_TEMP/backup-firebase-sa.json"
+          chmod 600 "$RUNNER_TEMP/backup-firebase-sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/backup-firebase-sa.json"
+          trap 'rm -f "$RUNNER_TEMP/backup-firebase-sa.json"' EXIT
+          npx --yes firebase-tools@13.35.1 apps:list WEB --project "$BACKUP_PROJECT" --json > "$RUNNER_TEMP/apps.json"
+          APP_ID="$(node - "$RUNNER_TEMP/apps.json" <<'NODE'
+          const j=require(process.argv[2]);
+          const apps=Array.isArray(j.result)?j.result:[];
+          const app=apps.find(x=>x.platform==='WEB'||String(x.appId||'').includes(':web:'));
+          if(!app?.appId)throw Error('No existing DEV Backup web app; REFUSE create');
+          process.stdout.write(app.appId);
+          NODE
+          )"
+          test -n "$APP_ID"
+          npx --yes firebase-tools@13.35.1 apps:sdkconfig WEB "$APP_ID" --project "$BACKUP_PROJECT" --json > "$RUNNER_TEMP/sdk.json"
+          node - "$RUNNER_TEMP/sdk.json" <<'NODE'
+          const fs=require('fs');
+          const j=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          const keys=['apiKey','appId','messagingSenderId','projectId','authDomain','storageBucket'];
+          const cfg={};
+          function walk(v){
+            if(!v)return;
+            if(typeof v==='string'){
+              try{walk(JSON.parse(v))}catch{}
+              for(const k of keys){const m=v.match(new RegExp(k+'\\s*:\\s*["\\x27]([^"\\x27]+)["\\x27]'));if(m&&!cfg[k])cfg[k]=m[1];}
+            }else if(Array.isArray(v)){for(const x of v)walk(x);}
+            else if(typeof v==='object'){
+              for(const [k,x] of Object.entries(v)){if(keys.includes(k)&&typeof x==='string'&&!cfg[k])cfg[k]=x;walk(x);}
+            }
+          }
+          walk(j);
+          if(cfg.projectId!=='hnl-qltc-dev-backup'||!cfg.apiKey||!cfg.appId||!cfg.messagingSenderId)throw Error('Invalid DEV Backup SDK identity');
+          cfg.authDomain='hnl-qltc-dev-backup.firebaseapp.com';
+          cfg.storageBucket||='hnl-qltc-dev-backup.firebasestorage.app';
+          const map={apiKey:'API_KEY',appId:'APP_ID',messagingSenderId:'MESSAGING_SENDER_ID',projectId:'PROJECT_ID',authDomain:'AUTH_DOMAIN',storageBucket:'STORAGE_BUCKET'};
+          fs.appendFileSync(process.env.GITHUB_ENV,Object.entries(map).map(([k,n])=>'VITE_FIREBASE_'+n+'='+cfg[k]).join('\n')+'\n');
+          console.log('SDK verified for existing DEV Backup');
+          NODE
+      - name: Build / TypeScript / Lint / Rules / Security
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const a=require('./package.json'),b=require('./package-lock.json');if(a.version!==b.version||a.name!==b.name)process.exit(1)"
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run security:audit
+          npm run build
+          test -s dist/index.html
+          if grep -R -q 'hnl-qltc-r2-gateway\.lengochieu1211\.workers\.dev' dist/assets; then
+            echo "::error::PROD R2 gateway found in DEV Backup bundle";exit 1
+          fi
+          grep -R -q 'hnl-qltc-r2-gateway-dev-backup' dist/assets
+          rm -f dist/server.cjs dist/server.cjs.map
+      - name: Pin original DEV Backup LIVE Hosting via clone before replacement
+        shell: bash
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        run: |
+          set -euo pipefail
+          test "$BACKUP_PROJECT" = 'hnl-qltc-dev-backup'
+          test "$BACKUP_CHANNEL" = 'p2137-rollback'
+          printf '%s' "$FIREBASE_BACKUP_SERVICE_ACCOUNT" > "$RUNNER_TEMP/backup-sa.json"
+          chmod 600 "$RUNNER_TEMP/backup-sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/backup-sa.json"
+          trap 'rm -f "$RUNNER_TEMP/backup-sa.json"' EXIT
+          npx --yes firebase-tools@13.35.1 hosting:clone "$BACKUP_PROJECT:live" "$BACKUP_PROJECT:$BACKUP_CHANNEL" --project "$BACKUP_PROJECT" --non-interactive --json > "$RUNNER_TEMP/p2137-rollback-proof.json"
+          test -s "$RUNNER_TEMP/p2137-rollback-proof.json"
+          echo 'BACKUP_LIVE_CLONED=true' >> "$GITHUB_ENV"
+          echo 'DEV Backup original Hosting preserved (no data or PROD changes)'
+
+      - name: Deploy candidate app to DEV Backup canonical LIVE Hosting only
+        shell: bash
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        run: |
+          set -euo pipefail
+          test "$BACKUP_LIVE_CLONED" = 'true'
+          test "$VITE_FIREBASE_PROJECT_ID" = "$BACKUP_PROJECT"
+          test "$VITE_FIREBASE_AUTH_DOMAIN" = 'hnl-qltc-dev-backup.firebaseapp.com'
+          test "$VITE_R2_GATEWAY_URL" = 'https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev'
+          grep -R -q 'hnl-qltc-dev-backup.firebaseapp.com' dist/assets
+          node - <<'NODE'
+          const fs=require('fs'),cfg=JSON.parse(fs.readFileSync('firebase.json','utf8'));
+          if(cfg.hosting?.public!=='dist')throw Error('Unexpected Hosting public');
+          fs.writeFileSync('p2137-hosting-only.json',JSON.stringify({hosting:cfg.hosting}));
+          NODE
+          printf '%s' "$FIREBASE_BACKUP_SERVICE_ACCOUNT" > "$RUNNER_TEMP/backup-sa.json"
+          chmod 600 "$RUNNER_TEMP/backup-sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/backup-sa.json"
+          trap 'rm -f "$RUNNER_TEMP/backup-sa.json" p2137-hosting-only.json' EXIT
+          npx --yes firebase-tools@13.35.1 deploy --only hosting --project "$BACKUP_PROJECT" --config "$GITHUB_WORKSPACE/p2137-hosting-only.json" --non-interactive --json > "$RUNNER_TEMP/p2137-hosting-result.json"
+          echo 'DEV Backup Hosting only deployed; Firestore, Rules, R2, PROD unchanged'
+
+      - name: Canonical Firebaseapp Hosting public smoke (signed-in Golden not yet PASS)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location 'https://hnl-qltc-dev-backup.firebaseapp.com/?p2137=1' | grep -q 'id="root"'
+          curl --fail --silent --show-error 'https://hnl-qltc-dev-backup.firebaseapp.com/__/firebase/init.json' | grep -q '"projectId": "hnl-qltc-dev-backup"'
+          printf '%s\n' '{"phase":"P21.37","source":"f36bd19fa30228f8056a0251ff1db81daad92500","project":"hnl-qltc-dev-backup","origin":"hnl-qltc-dev-backup.firebaseapp.com","scope":"Hosting-only","rollback":"p2137-rollback","authenticatedGolden":false,"prodChanged":false}' > P2137-DEV-BACKUP-REPORT.json
+          echo 'DEV Backup canonical public smoke PASS; authenticated user golden remains pending'
+
+      - name: Restore original DEV Backup Hosting on automated failure
+        if: failure() && env.BACKUP_LIVE_CLONED == 'true'
+        shell: bash
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$FIREBASE_BACKUP_SERVICE_ACCOUNT" > "$RUNNER_TEMP/backup-sa.json"
+          chmod 600 "$RUNNER_TEMP/backup-sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/backup-sa.json"
+          trap 'rm -f "$RUNNER_TEMP/backup-sa.json"' EXIT
+          npx --yes firebase-tools@13.35.1 hosting:clone "$BACKUP_PROJECT:$BACKUP_CHANNEL" "$BACKUP_PROJECT:live" --project "$BACKUP_PROJECT" --non-interactive --json
+          echo 'DEV Backup original Hosting restored'
+
+      - name: Upload non-sensitive results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P2137-DEV-BACKUP-CANONICAL-${{ github.sha }}
+          path: P2137-DEV-BACKUP-REPORT.json
+          if-no-files-found: warn
+          retention-days: 30
