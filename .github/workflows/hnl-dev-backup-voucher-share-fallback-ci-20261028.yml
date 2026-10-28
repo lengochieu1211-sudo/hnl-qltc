@@ -43,7 +43,8 @@ jobs:
             'src/utils/shareUtils.ts',
             'src/components/WarehouseVoucherShareSheet.tsx',
             'scripts/warehouse-voucher-browser-golden.mjs',
-            '.github/workflows/hnl-dev-backup-voucher-share-fallback-ci-20261028.yml'
+            '.github/workflows/hnl-dev-backup-voucher-share-fallback-ci-20261028.yml',
+            '.github/workflows/hnl-dev-backup-voucher-controlled-live-20261028.yml'
           ].sort();
           if(JSON.stringify(files)!==JSON.stringify(allowed))throw Error('UNREVIEWED_APP_CHANGE '+JSON.stringify(files));
           NODE
