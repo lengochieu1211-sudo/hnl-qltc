@@ -48,22 +48,6 @@ jobs:
           if(process.env.VITE_FIREBASE_AUTH_DOMAIN!=='hnl-qltc-dev-backup.web.app')throw Error('AUTH_DOMAIN_MISMATCH');
           if(process.env.VITE_R2_GATEWAY_URL!=='https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev')throw Error('R2_MISMATCH');
           NODE
-      - name: Read current LIVE Hosting version, refuse mismatched source
-        shell: bash
-        env:
-          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
-        run: |
-          set -euo pipefail
-          node --input-type=module <<'NODE'
-          import {google} from 'googleapis';
-          const auth=new google.auth.GoogleAuth({credentials:JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT),scopes:['https://www.googleapis.com/auth/firebase.hosting.readonly']});
-          const token=(await (await auth.getClient()).getAccessToken()).token;
-          const r=await fetch('https://firebasehosting.googleapis.com/v1beta1/sites/hnl-qltc-dev-backup/channels/live/releases?pageSize=1',{headers:{Authorization:'Bearer '+token}});
-          if(!r.ok)throw Error('LIVE_READ_FAILED '+r.status);
-          const current=(await r.json()).releases?.[0]?.version?.name;
-          if(current!==process.env.EXPECTED_OLD_LIVE)throw Error('REFUSE_STALE_LIVE_BASELINE '+current);
-          console.log('PASS current DEV BACKUP LIVE unchanged',current);
-          NODE
       - name: Read PUBLIC Firebase SDK for DEV Backup only
         shell: bash
         run: |
@@ -99,6 +83,22 @@ jobs:
           const cfg=JSON.parse(fs.readFileSync('firebase.json','utf8'));
           if(cfg.hosting?.public!=='dist')throw Error('Unexpected Hosting public');
           fs.writeFileSync('hosting-preview-only.json',JSON.stringify({hosting:cfg.hosting}));
+          NODE
+      - name: Read current LIVE Hosting version, refuse mismatched source
+        shell: bash
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import {google} from 'googleapis';
+          const auth=new google.auth.GoogleAuth({credentials:JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT),scopes:['https://www.googleapis.com/auth/firebase.hosting.readonly']});
+          const token=(await (await auth.getClient()).getAccessToken()).token;
+          const r=await fetch('https://firebasehosting.googleapis.com/v1beta1/sites/hnl-qltc-dev-backup/channels/live/releases?pageSize=1',{headers:{Authorization:'Bearer '+token}});
+          if(!r.ok)throw Error('LIVE_READ_FAILED '+r.status);
+          const current=(await r.json()).releases?.[0]?.version?.name;
+          if(current!==process.env.EXPECTED_OLD_LIVE)throw Error('REFUSE_STALE_LIVE_BASELINE '+current);
+          console.log('PASS current DEV BACKUP LIVE unchanged',current);
           NODE
       - name: Deploy candidate to PREVIEW CHANNEL ONLY, never LIVE
         shell: bash
