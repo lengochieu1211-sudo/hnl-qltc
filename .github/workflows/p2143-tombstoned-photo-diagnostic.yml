@@ -1,0 +1,110 @@
+name: P21.43 PROD tombstoned photo recovery diagnostics (READ ONLY)
+on:
+  push:
+    branches:
+      - safety/p2143-targeted-tombstone-photos-20261028
+    paths:
+      - '.github/workflows/p2143-tombstoned-photo-diagnostic.yml'
+permissions:
+  contents: read
+jobs:
+  targeted-read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PINNED_PROJECT: com-example-qlct-61329
+      PINNED_CANDIDATE: f36bd19fa30228f8056a0251ff1db81daad92500
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Ensure exact source and no hidden deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/p2143-targeted-tombstone-photos-20261028'
+          test "$PINNED_PROJECT" = 'com-example-qlct-61329'
+          git merge-base --is-ancestor "$PINNED_CANDIDATE" HEAD
+          test -n "\${FIREBASE_SERVICE_ACCOUNT:-}"
+          test -n "\${CLOUDFLARE_API_TOKEN:-}"
+          node -e "const s=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);if(s.type!=='service_account'||s.project_id!=='com-example-qlct-61329'||!s.private_key||!s.client_email)process.exit(2)"
+      - name: Query only PROD photos metadata and R2 object metadata, no writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import {createSign,createHash} from 'node:crypto';
+          import {writeFileSync} from 'node:fs';
+          const PROJECT='com-example-qlct-61329',BUCKET='hnl-qltc-media',ACCOUNT='4078cafe74946b0d5a67b35143b60071';
+          const sa=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT||'{}');
+          if(sa.project_id!==PROJECT)throw Error('PROJECT_MISMATCH');
+          const enc=v=>Buffer.from(JSON.stringify(v)).toString('base64url'),now=Math.floor(Date.now()/1000);
+          const a=enc({alg:'RS256',typ:'JWT'}),b=enc({iss:sa.client_email,scope:'https://www.googleapis.com/auth/datastore',aud:'https://oauth2.googleapis.com/token',iat:now,exp:now+1800});
+          const signer=createSign('RSA-SHA256');signer.update(a+'.'+b);signer.end();
+          const sign=signer.sign(sa.private_key).toString('base64url');
+          const login=await fetch('https://oauth2.googleapis.com/token',{method:'POST',body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion:a+'.'+b+'.'+sign}),signal:AbortSignal.timeout(30000)});
+          if(!login.ok)throw Error('FIRESTORE_AUTH_HTTP_'+login.status);
+          const token=(await login.json()).access_token;if(!token)throw Error('FIRESTORE_AUTH_EMPTY');
+          // Firestore runQuery endpoint is an API READ even though transport method is POST.
+          const query={structuredQuery:{from:[{collectionId:'photos',allDescendants:true}],limit:5000}};
+          const base='https://firestore.googleapis.com/v1/projects/'+PROJECT+'/databases/(default)/documents:runQuery';
+          const f=await fetch(base,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(query),signal:AbortSignal.timeout(90000)});
+          if(!f.ok)throw Error('FIRESTORE_READ_QUERY_HTTP_'+f.status);
+          const rows=await f.json(),documents=rows.filter(r=>r.document).map(r=>r.document);
+          if(!documents.length||documents.length>=5000)throw Error('PHOTO_READ_INCOMPLETE_OR_EMPTY');
+          // R2 metadata only, never download binary objects.
+          const r=await fetch('https://api.cloudflare.com/client/v4/accounts/'+ACCOUNT+'/r2/buckets/'+BUCKET+'/objects?per_page=1000',{headers:{Authorization:'Bearer '+process.env.CLOUDFLARE_API_TOKEN},signal:AbortSignal.timeout(40000)});
+          if(!r.ok)throw Error('R2_METADATA_HTTP_'+r.status);
+          const rdata=await r.json(),objects=Array.isArray(rdata.result)?rdata.result:[];
+          if(!rdata.success||!objects.length||rdata.result_info?.is_truncated)throw Error('R2_INVENTORY_INCOMPLETE');
+          const byKey=new Map(objects.map(o=>[o.key,o])),byBasename=new Map();
+          for(const o of objects){const n=o.key.split('/').at(-1);if(!byBasename.has(n))byBasename.set(n,[]);byBasename.get(n).push(o)}
+          function val(x){if(!x||typeof x!=='object')return undefined;for(const n of ['stringValue','integerValue','doubleValue','booleanValue','timestampValue'])if(n in x)return x[n];return undefined}
+          const bucket=(m,k)=>(m[k]=(m[k]||0)+1),counts={},byAge={},byMatch={},hashes=[],nowMS=Date.now();
+          for(const d of documents){
+            const raw=Object.fromEntries(Object.entries(d.fields||{}).map(([k,v])=>[k,val(v)]));
+            const provider=String(raw.storageProvider||'').toLowerCase(),ptr=String(raw.storagePath||raw.cloudFileId||'').trim();
+            if(provider!=='r2'&&!ptr.startsWith('r2:'))continue;
+            const key=ptr.replace(/^r2:/,'');if(!key.startsWith('projects/')||key.includes('..')){bucket(counts,'malformed');continue}
+            const gone=raw.deleted===true||Boolean(raw.deletedAt);
+            if(byKey.has(key)){bucket(counts,gone?'tombstonedFound':'activeFound');continue}
+            bucket(counts,gone?'tombstonedMissing':'activeMissing');
+            const digest=createHash('sha256').update(key).digest('hex').slice(0,16);
+            hashes.push(digest);
+            if(!gone)continue;
+            let stamp=Number(raw.deletedAt||0);
+            if(stamp>0&&stamp<1e11)stamp*=1000;
+            let age='noDeletionTimestamp';
+            if(Number.isFinite(stamp)&&stamp>0){const days=(nowMS-stamp)/86400000;age=days<0?'future':days<=7?'within7Days':'olderThan7Days'}
+            bucket(byAge,age);
+            const parts=key.split('/'),sameProjectPrefix=parts[0]==='projects'&&parts.length>=3?parts.slice(0,2).join('/')+'/':null;
+            const cands=(byBasename.get(key.split('/').at(-1))||[]).filter(o=>sameProjectPrefix&&o.key.startsWith(sameProjectPrefix));
+            if(!cands.length){bucket(byMatch,'noSameTenantAlternative');continue}
+            const size=Number(raw.fileSize??raw.sizeBytes??raw.byteSize||0);
+            const hash=String(raw.contentHash||raw.sha256||raw.storageMd5Hash||'').toLowerCase();
+            const sha=/^[a-f0-9]{64}$/.test(hash)?hash:'';
+            const exact=cands.filter(o=>(!size||Number(o.size)===size)&&(!sha||String(o.custom_metadata?.sha256||o.custom_metadata?.contentSha256||'').toLowerCase()===sha));
+            if(sha&&size&&exact.length===1)bucket(byMatch,'sameTenantSingleSizeAndShaMatch');
+            else if(exact.length===1&&size)bucket(byMatch,'sameTenantSingleSizeMatchNoStrongSha');
+            else if(exact.length===1)bucket(byMatch,'sameTenantSingleNameOnly');
+            else bucket(byMatch,'ambiguousOrNoMatchingBytes');
+          }
+          const report={format:'P21.43-TARGETED-PROD-TOMBSTONED-PHOTOS',project:PROJECT,checkedAt:new Date().toISOString(),firestorePhotoDocuments:documents.length,r2ObjectCount:objects.length,counts,missingAgeBuckets:byAge,missingSameTenantAlternativeConfidence:byMatch,missingPathSha256Prefix16:hashes.sort(),scope:'READ_ONLY_METADATA_ONLY',note:'Alternative object presence alone does not prove restored UI pointers. No metadata or binary changed.'};
+          writeFileSync('P2143-TOMBSTONED-PHOTO-AUDIT.json',JSON.stringify(report,null,2)+'\n',{mode:0o600});
+          console.log(JSON.stringify({status:report.scope,photoDocuments:documents.length,r2Objects:objects.length,counts,missingAgeBuckets:byAge,altConfidence:byMatch}));
+          if((counts.activeMissing||0)>0)process.exitCode=2;
+          NODE
+      - name: Upload aggregate-only report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P2143-PROD-PHOTO-METADATA-${{ github.sha }}
+          path: P2143-TOMBSTONED-PHOTO-AUDIT.json
+          if-no-files-found: warn
+          retention-days: 30
