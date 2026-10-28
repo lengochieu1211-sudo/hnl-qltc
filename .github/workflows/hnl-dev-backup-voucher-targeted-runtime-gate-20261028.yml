@@ -1,0 +1,140 @@
+name: HNL DEV BACKUP voucher PC-Mobile targeted runtime gate (CI ONLY - NO DEPLOY)
+on:
+  push:
+    branches: [safety/dev-backup-voucher-excel-style-20261028]
+    paths: ['.github/workflows/hnl-dev-backup-voucher-targeted-runtime-gate-20261028.yml']
+permissions:
+  contents: read
+concurrency:
+  group: hnl-qltc-dev-backup-voucher-runtime-read-only
+  cancel-in-progress: false
+jobs:
+  targeted-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CI: 'true'
+      SOURCE_SHA: dba88d0189378fe39c7808289894c5bf48da25f3
+      EXPECTED_LIVE: sites/hnl-qltc-dev-backup/versions/9bcd101fc886d969
+      VITE_APP_ENV: DEV
+      VITE_DEV_FIREBASE_TARGET: backup
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+      VITE_FIREBASE_PROJECT_ID: hnl-qltc-dev-backup
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev-backup.web.app
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_HNL_AI_ENABLED: 'false'
+      VITE_GIT_COMMIT: dba88d0189378fe39c7808289894c5bf48da25f3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Refuse wrong ref, unexpected app changes, or wrong Firebase credential
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-voucher-excel-style-20261028'
+          git merge-base --is-ancestor "$SOURCE_SHA" HEAD
+          node - <<'NODE'
+          const cp=require('node:child_process');
+          const files=cp.execFileSync('git',['diff','--name-only',process.env.SOURCE_SHA,'HEAD'],{encoding:'utf8'}).trim().split('\n').filter(Boolean).sort();
+          const allowed=['.github/workflows/hnl-dev-backup-voucher-xlsx-style-preview.yml','scripts/dev-backup-voucher-a3-a4-matrix-golden.ts','.github/workflows/hnl-dev-backup-voucher-targeted-runtime-gate-20261028.yml'].sort();
+          if(JSON.stringify(files)!==JSON.stringify(allowed))throw Error('UNREVIEWED_FILES '+JSON.stringify(files));
+          const creds=JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT||'{}');
+          if(creds.type!=='service_account'||creds.project_id!=='hnl-qltc-dev-backup'||!creds.private_key)throw Error('WRONG_DEV_BACKUP_ACCOUNT');
+          console.log('PASS exact app source and DEV BACKUP-only credential');
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Read-only public Firebase Web SDK identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 3 'https://hnl-qltc-dev-backup.web.app/__/firebase/init.json' -o "$RUNNER_TEMP/sdk.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const c=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/sdk.json','utf8'));
+          if(c.projectId!=='hnl-qltc-dev-backup'||!c.apiKey||!c.appId)throw Error('WRONG_PUBLIC_SDK');
+          const e={VITE_FIREBASE_API_KEY:c.apiKey,VITE_FIREBASE_APP_ID:c.appId,VITE_FIREBASE_MESSAGING_SENDER_ID:c.messagingSenderId,VITE_FIREBASE_STORAGE_BUCKET:c.storageBucket||'hnl-qltc-dev-backup.firebasestorage.app'};
+          fs.appendFileSync(process.env.GITHUB_ENV,Object.entries(e).map(([k,v])=>k+'='+v).join('\n')+'\n');
+          NODE
+      - name: Install dependencies and check package-lock sync
+        run: |
+          set -euo pipefail
+          node -e "const p=require('./package.json'),l=require('./package-lock.json');if(p.name!==l.name||p.version!==l.version)process.exit(2)"
+          npm ci
+      - name: Read-only LIVE version lock (before tests)
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        run: |
+          node --input-type=module <<'NODE'
+          import {google} from 'googleapis';
+          const g=new google.auth.GoogleAuth({credentials:JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT),scopes:['https://www.googleapis.com/auth/firebase.hosting.readonly']});
+          const t=(await(await g.getClient()).getAccessToken()).token;
+          const r=await fetch('https://firebasehosting.googleapis.com/v1beta1/sites/hnl-qltc-dev-backup/channels/live/releases?pageSize=1',{headers:{Authorization:'Bearer '+t}});
+          if(!r.ok)throw Error('LIVE version read failed');
+          const v=(await r.json()).releases?.[0]?.version?.name;
+          if(v!==process.env.EXPECTED_LIVE)throw Error('LIVE_CONCURRENT_CHANGE_STOP '+v);
+          console.log('PASS DEV Backup LIVE anchored',v);
+          NODE
+      - name: Targeted source, security, print-layout and offline regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npx tsx scripts/warehouse-voucher-xlsx-style-golden.ts
+          npx tsx scripts/dev-backup-voucher-a3-a4-matrix-golden.ts
+          npx tsx scripts/warehouse-voucher-layout-golden.ts
+          node --experimental-strip-types scripts/dev-backup-ortho-snap-chat-unread-golden.mjs
+          node scripts/dev-backup-defect-card-date-golden.mjs
+          node scripts/dev-backup-json-export-progress-golden.mjs
+          node scripts/dev-backup-four-issues-golden.mjs
+          node scripts/chat-outbox-durability-golden.mjs
+          node scripts/offline-golden.mjs
+          node scripts/rbac-matrix.mjs
+          npm run build
+          test -s dist/index.html
+          grep -R -q 'hnl-qltc-dev-backup.web.app' dist/assets
+          grep -R -q 'hnl-qltc-r2-gateway-dev-backup' dist/assets
+      - name: Install isolated browser test runtime
+        run: |
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Real clicks and XLSX/PDF/PNG downloads with desktop + mobile viewport (emulator/fixture only)
+        run: node scripts/warehouse-voucher-browser-golden.mjs
+      - name: Repeat read-only LIVE version lock after tests
+        if: success()
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        run: |
+          node --input-type=module <<'NODE'
+          import {google} from 'googleapis';import fs from 'node:fs';
+          const g=new google.auth.GoogleAuth({credentials:JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT),scopes:['https://www.googleapis.com/auth/firebase.hosting.readonly']});
+          const t=(await(await g.getClient()).getAccessToken()).token;
+          const r=await fetch('https://firebasehosting.googleapis.com/v1beta1/sites/hnl-qltc-dev-backup/channels/live/releases?pageSize=1',{headers:{Authorization:'Bearer '+t}});
+          if(!r.ok)throw Error('LIVE version read failed');
+          const v=(await r.json()).releases?.[0]?.version?.name;
+          if(v!==process.env.EXPECTED_LIVE)throw Error('LIVE_CHANGED_DURING_TEST '+v);
+          fs.mkdirSync('evidence',{recursive:true});
+          fs.writeFileSync('evidence/TARGETED-RUNTIME-RESULT.json',JSON.stringify({source:process.env.SOURCE_SHA,qaWorkflowHead:process.env.GITHUB_SHA,projectId:'hnl-qltc-dev-backup',liveVersion:v,expectedLive:process.env.EXPECTED_LIVE,desktopChromiumFixture:true,mobileChromiumViewportFixture:true,physicalAndroidRuntime:false,authenticatedMultiUserRuntime:false,realR2CrossAccountRuntime:false,productionTouched:false,hostingLiveTouched:false},null,2));
+          console.log('PASS read-only CI; DEV Backup LIVE unchanged');
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-DEV-BACKUP-VOUCHER-TARGETED-PC-MOBILE-READONLY
+          path: |
+            evidence/
+            runtime-evidence/voucher-*
+          if-no-files-found: warn
+          retention-days: 30
