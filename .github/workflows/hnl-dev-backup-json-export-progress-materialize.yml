@@ -1,0 +1,119 @@
+name: HNL DEV BACKUP materialize JSON export progress candidate (NO DEPLOY)
+on:
+  push:
+    branches: [safety/dev-backup-json-export-progress-20261028]
+    paths: ['.github/workflows/hnl-dev-backup-json-export-progress-materialize.yml']
+permissions:
+  contents: write
+concurrency:
+  group: hnl-dev-backup-json-export-progress-safe-source
+  cancel-in-progress: false
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      VITE_APP_ENV: DEV
+      VITE_DEV_FIREBASE_TARGET: backup
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+      VITE_FIREBASE_PROJECT_ID: hnl-qltc-dev-backup
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev-backup.web.app
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_HNL_AI_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Strict base verification before applying reviewed PATCH
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-json-export-progress-20261028'
+          git merge-base --is-ancestor '41330f1515b60fb457a75cc73c4ac58a9597af3d' HEAD
+          test "$(git diff --name-only '41330f1515b60fb457a75cc73c4ac58a9597af3d' HEAD)" = '.github/workflows/hnl-dev-backup-json-export-progress-materialize.yml'
+          git apply --check patches/DEV_BACKUP_JSON_EXPORT_PROGRESS_20261028.patch
+          git apply patches/DEV_BACKUP_JSON_EXPORT_PROGRESS_20261028.patch
+          node scripts/dev-backup-json-export-progress-golden.mjs
+          node scripts/android-export-zero-byte-golden.mjs
+      - name: Derive public SDK from DEV Backup only
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 3 'https://hnl-qltc-dev-backup.web.app/__/firebase/init.json' -o "$RUNNER_TEMP/sdk.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const c=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/sdk.json','utf8'));
+          if(c.projectId!=='hnl-qltc-dev-backup'||!c.apiKey||!c.appId)throw Error('WRONG_DEV_BACKUP_SDK');
+          const env={VITE_FIREBASE_API_KEY:c.apiKey,VITE_FIREBASE_APP_ID:c.appId,VITE_FIREBASE_MESSAGING_SENDER_ID:c.messagingSenderId,VITE_FIREBASE_STORAGE_BUCKET:c.storageBucket||'hnl-qltc-dev-backup.firebasestorage.app'};
+          fs.appendFileSync(process.env.GITHUB_ENV,Object.entries(env).map(([k,v])=>k+'='+v).join('\n')+'\n');
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Reconfirm critical gates before immutable commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run test:backup-cloud-authority
+          npm run test:restore-json-media
+          node scripts/android-export-zero-byte-golden.mjs
+          node scripts/dev-backup-json-export-progress-golden.mjs
+          npm run build
+          grep -R -q 'hnl-qltc-dev-backup.web.app' dist/assets
+      - name: Commit ONLY two changed source files and one new regression script
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-json-export-progress-20261028'
+          python3 - <<'PY'
+          import subprocess
+          s=subprocess.check_output(['git','status','--porcelain','--untracked-files=all']).decode().splitlines()
+          dirty=set(x[3:] for x in s)
+          expected={'src/components/ProjectManagerModal.tsx','src/utils/photoStorage.ts','scripts/dev-backup-json-export-progress-golden.mjs'}
+          if dirty!=expected:raise SystemExit('REFUSE_UNEXPECTED_SOURCE_FILES: '+str(dirty))
+          print('PASS exactly three intended source/test changes')
+          PY
+          git config user.name 'HNL QLTC DEV Backup QA'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add -- src/components/ProjectManagerModal.tsx src/utils/photoStorage.ts scripts/dev-backup-json-export-progress-golden.mjs
+          git commit -m 'fix(dev-backup): show real-time JSON backup export phases and per-photo progress'
+          git push origin HEAD:refs/heads/safety/dev-backup-json-export-progress-20261028
+          echo "MATERIALIZED_QA_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Generate FULL SOURCE and PATCH ZIPs from exact Git HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p handoff
+          git archive --format=zip --output=handoff/HNL-QLTC-JSON-EXPORT-PROGRESS-FULL-SOURCE.zip HEAD
+          python3 - <<'PY'
+          import zipfile,subprocess,hashlib,pathlib
+          names=subprocess.check_output(['git','diff','--name-only','--diff-filter=ACMRT','616924badc5718303df461a3e1ea9b41b24bd36e','HEAD']).decode().splitlines()
+          with zipfile.ZipFile('handoff/HNL-QLTC-JSON-EXPORT-PROGRESS-PATCH.zip','w',compression=zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+            for name in names:z.write(name)
+            z.writestr('CHANGED-FILES.txt','\n'.join(names)+'\n')
+            z.writestr('PATCH.diff',subprocess.check_output(['git','diff','--binary','616924badc5718303df461a3e1ea9b41b24bd36e','HEAD']))
+          with open('handoff/SHA256SUMS.txt','w') as sf:
+            for fn in pathlib.Path('handoff').glob('*.zip'):
+              with zipfile.ZipFile(fn) as z:
+                if z.testzip():raise SystemExit('CRC FAIL: '+str(fn))
+              sf.write(hashlib.sha256(fn.read_bytes()).hexdigest()+'  '+fn.name+'\n')
+          print('PASS exact HEAD FULL SOURCE/PATCH/CRC')
+          PY
+          printf 'DEV Backup project: hnl-qltc-dev-backup\nBASE HEAD: 616924badc5718303df461a3e1ea9b41b24bd36e\nQA HEAD: %s\nPROD and DEV MAIN unchanged.\nNot yet deployed to Hosting.\nAndroid signed-in runtime pending.\n' "$(git rev-parse HEAD)" > handoff/REPORT.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-DEV-BACKUP-JSON-EXPORT-PROGRESS-EXACT-SOURCE
+          path: handoff/
+          if-no-files-found: warn
+          retention-days: 30
