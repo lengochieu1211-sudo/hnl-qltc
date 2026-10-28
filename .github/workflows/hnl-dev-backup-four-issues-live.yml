@@ -129,12 +129,23 @@ jobs:
           if(!r.ok)throw Error('Readback failed');
           const release=(await r.json()).releases?.[0],v=release?.version?.name;
           if(v!==process.env.EXPECTED_PREVIEW_VERSION)throw Error('LIVE not promoted to candidate preview: '+v);
-          const root=await fetch('https://hnl-qltc-dev-backup.web.app/?qa4='+process.env.GITHUB_RUN_ID);
-          if(!root.ok||!(await root.text()).includes('id="root"'))throw Error('LIVE index missing');
-          const asset=await fetch('https://hnl-qltc-dev-backup.web.app/assets/firebaseBase-BgLuxjlZ.js');
-          if(!asset.ok)throw Error('Firebase Auth bundle unavailable');
-          const sdk=(await asset.text());
-          if(!sdk.includes('hnl-qltc-dev-backup.web.app'))throw Error('Auth origin drift');
+          const liveOrigin='https://hnl-qltc-dev-backup.web.app';
+          const stageOrigin=process.env.PREVIEW_URL;
+          async function publicIndex(origin){
+            const r=await fetch(origin+'/?qa4='+process.env.GITHUB_RUN_ID);
+            if(!r.ok)throw Error('Hosted index unavailable on '+origin+' '+r.status);
+            return r.text();
+          }
+          const liveHtml=await publicIndex(liveOrigin),previewHtml=await publicIndex(stageOrigin);
+          if(!liveHtml.includes('id="root"')||liveHtml!==previewHtml)throw Error('LIVE HTML differs from previously verified Preview');
+          const assets=[...liveHtml.matchAll(/src="(\\/assets\\/[^"]+\\.js)"/g)].map(x=>x[1]);
+          if(assets.length<1)throw Error('No versioned entry script in Hosted HTML');
+          for(const asset of assets){
+            const [liveAsset,stageAsset]=await Promise.all([fetch(liveOrigin+asset),fetch(stageOrigin+asset)]);
+            if(!liveAsset.ok||!stageAsset.ok)throw Error('Versioned JS asset unavailable '+asset);
+            if(!Buffer.from(await liveAsset.arrayBuffer()).equals(Buffer.from(await stageAsset.arrayBuffer())))throw Error('LIVE JS bytes differ from Preview '+asset);
+          }
+          console.log('PASS LIVE index/entry JavaScript byte-identical to verified DEV Backup Preview');
           fs.mkdirSync('evidence',{recursive:true});
           fs.writeFileSync('evidence/LIVE-DEV-BACKUP-FOUR-ISSUES.json',JSON.stringify({
             source:process.env.EXPECTED_SOURCE,liveRelease:release?.name,liveVersion:v,
