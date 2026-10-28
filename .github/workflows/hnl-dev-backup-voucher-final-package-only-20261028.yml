@@ -1,0 +1,119 @@
+name: HNL DEV BACKUP voucher exact-HEAD FULL PATCH REPORT SHA256 (PACKAGE ONLY)
+on:
+  push:
+    branches: [safety/dev-backup-voucher-excel-style-20261028]
+    paths: ['.github/workflows/hnl-dev-backup-voucher-final-package-only-20261028.yml']
+permissions:
+  contents: read
+concurrency:
+  group: hnl-dev-backup-voucher-package-no-deploy
+  cancel-in-progress: false
+jobs:
+  package-read-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      APP_SOURCE: dba88d0189378fe39c7808289894c5bf48da25f3
+      LIVE_VERSION: sites/hnl-qltc-dev-backup/versions/6fff5297eeb3db9e
+      RUNTIME_CI: '40717136349'
+      PROMOTION_RUN: '40719066160'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Lock exact app source and require technical-only additions
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-voucher-excel-style-20261028'
+          git merge-base --is-ancestor "$APP_SOURCE" HEAD
+          python3 - <<'PY'
+          import os,subprocess
+          changed=set(subprocess.check_output(['git','diff','--name-only',os.environ['APP_SOURCE'],'HEAD'],text=True).splitlines())
+          expected={
+            '.github/workflows/hnl-dev-backup-voucher-xlsx-style-preview.yml',
+            '.github/workflows/hnl-dev-backup-voucher-targeted-runtime-gate-20261028.yml',
+            '.github/workflows/hnl-dev-backup-voucher-controlled-live-20261028.yml',
+            '.github/workflows/hnl-dev-backup-voucher-final-package-only-20261028.yml',
+            'scripts/dev-backup-voucher-a3-a4-matrix-golden.ts',
+          }
+          if changed!=expected:raise SystemExit('UNREVIEWED_APPLICATION_CHANGE '+str(sorted(changed^expected)))
+          print('PASS application business tree unchanged from',os.environ['APP_SOURCE'])
+          PY
+      - name: Read only verify DEV Backup LIVE already promoted (do not deploy)
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import {google} from 'googleapis';
+          const c=JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT||'{}');
+          if(c.type!=='service_account'||c.project_id!=='hnl-qltc-dev-backup'||!c.private_key)throw Error('WRONG_BACKUP_ACCOUNT');
+          const g=new google.auth.GoogleAuth({credentials:c,scopes:['https://www.googleapis.com/auth/firebase.hosting.readonly']});
+          const token=(await(await g.getClient()).getAccessToken()).token;
+          const r=await fetch('https://firebasehosting.googleapis.com/v1beta1/sites/hnl-qltc-dev-backup/channels/live/releases?pageSize=1',{headers:{Authorization:'Bearer '+token}});
+          if(!r.ok)throw Error('LIVE_UNREADABLE');
+          const v=(await r.json()).releases?.[0]?.version?.name;
+          if(v!==process.env.LIVE_VERSION)throw Error('LIVE_VERSION_NOT_EXPECTED '+v);
+          console.log('PASS DEV Backup LIVE exact version',v);
+          NODE
+      - name: Assemble FULL SOURCE and PATCH from exact QA HEAD with CRC and secret scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p deliverables/patch-tree
+          python3 - <<'PY'
+          import os,re,subprocess
+          files=subprocess.check_output(['git','ls-files'],text=True).splitlines()
+          blocked=[p for p in files if p in ('.env','.env.local','.env.production','.env.dev') or p.lower().endswith(('service-account.json','credentials.json','.key'))]
+          if blocked:raise SystemExit('SECRET_PATH_IN_GIT '+str(blocked))
+          for p in files:
+            if not p.endswith(('.pem','.key','.json','.env','.ts','.tsx','.js','.mjs','.yml','.yaml','.md')):continue
+            try:
+              with open(p,'r',encoding='utf-8') as f:s=f.read()
+            except (OSError,UnicodeError):continue
+            if re.search(r'(?m)^-----BEGIN [A-Z ]*PRIVATE KEY-----\s*$',s):raise SystemExit('PRIVATE_KEY_BLOCK_IN_GIT '+p)
+          print('PASS tracked source contains no private key blocks or service-account files')
+          PY
+          git archive --format=zip --output=deliverables/HNL-QLTC-DEV-BACKUP-QA-20261028-FULL-SOURCE.zip HEAD
+          python3 - <<'PY'
+          import os,shutil,subprocess
+          changed=subprocess.check_output(['git','diff','--name-only',os.environ['APP_SOURCE'],'HEAD'],text=True).splitlines()
+          for p in changed:
+            if not os.path.isfile(p):raise SystemExit('MISSING_CHANGED_FILE '+p)
+            dest=os.path.join('deliverables/patch-tree',p)
+            os.makedirs(os.path.dirname(dest),exist_ok=True)
+            shutil.copy2(p,dest)
+          with open('deliverables/patch-tree/CHANGED-FILES.txt','w') as f:f.write('\n'.join(changed)+'\n')
+          PY
+          (cd deliverables/patch-tree && zip -q -r ../HNL-QLTC-DEV-BACKUP-QA-20261028-PATCH.zip .)
+          rm -rf deliverables/patch-tree
+          cat > deliverables/REPORT.md <<EOF
+          HNL QLTC DEV BACKUP QA CONTINUATION 28/10/2026
+          Exact QA HEAD: $GITHUB_SHA
+          App source: $APP_SOURCE
+          Firebase: hnl-qltc-dev-backup
+          DEV Backup Hosting LIVE: $LIVE_VERSION
+          Golden PC/mobile Chromium fixture: workflow run $RUNTIME_CI PASS
+          Controlled Hosting promotion: run $PROMOTION_RUN, Web parity PASS
+          Earlier deploy workflow concluded FAILURE because packaging secret scanner matched its own literal text (no actual private key).
+          FULL SOURCE = Git-tracked source at exact QA HEAD, not installed dependencies/dist.
+          PATCH = 5 technical-only additions since app source; app business source unchanged.
+          No primary DEV / PROD / Firebase Rules / Firestore / R2 change.
+          Runtime Golden physical Android/Windows, authenticated multi-user R2/offline STILL PENDING. NOT CERTIFIED. NO PROD DEPLOY.
+          EOF
+          (cd deliverables && sha256sum HNL-QLTC-DEV-BACKUP-QA-20261028-*.zip REPORT.md > SHA256SUMS.txt)
+          unzip -t -q deliverables/HNL-QLTC-DEV-BACKUP-QA-20261028-FULL-SOURCE.zip
+          unzip -t -q deliverables/HNL-QLTC-DEV-BACKUP-QA-20261028-PATCH.zip
+          unzip -l deliverables/HNL-QLTC-DEV-BACKUP-QA-20261028-FULL-SOURCE.zip | grep -q 'package-lock.json'
+          unzip -l deliverables/HNL-QLTC-DEV-BACKUP-QA-20261028-FULL-SOURCE.zip | grep -q 'firebase.json'
+          unzip -l deliverables/HNL-QLTC-DEV-BACKUP-QA-20261028-FULL-SOURCE.zip | grep -q '.github/workflows/'
+          echo 'PASS FULL SOURCE and PATCH CRC, SHA256, package-lock, Firebase, CI source'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-QLTC-DEV-BACKUP-QA-20261028-FULL-PATCH-REPORT-SHA256
+          path: deliverables/
+          if-no-files-found: warn
+          retention-days: 30
