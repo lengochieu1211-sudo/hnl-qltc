@@ -1,0 +1,96 @@
+name: DEV BACKUP Warehouse Voucher XLSX printed-style golden (CI only, NO DEPLOY)
+on:
+  push:
+    branches: [safety/dev-backup-voucher-excel-style-20261028]
+    paths: ['.github/workflows/hnl-dev-backup-voucher-xlsx-style-ci.yml', 'patches/DEV_BACKUP_WAREHOUSE_VOUCHER_XLSX_STYLE_20261028.patch']
+permissions:
+  contents: read
+concurrency:
+  group: hnl-dev-backup-warehouse-voucher-style-ci
+  cancel-in-progress: false
+jobs:
+  voucher-style:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      CI: 'true'
+      VITE_APP_ENV: DEV
+      VITE_DEV_FIREBASE_TARGET: backup
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+      VITE_FIREBASE_PROJECT_ID: hnl-qltc-dev-backup
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev-backup.web.app
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_HNL_AI_ENABLED: 'false'
+      VITE_GIT_COMMIT: 000e842d51967f49c3d9c4bbe4dcda1ad26783f4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact DEV Backup baseline and apply minimal patch in runner ONLY
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-voucher-excel-style-20261028'
+          git merge-base --is-ancestor '000e842d51967f49c3d9c4bbe4dcda1ad26783f4' HEAD
+          node - <<'NODE'
+          const {execFileSync}=require('node:child_process');
+          const p=execFileSync('git',['diff','--name-only','000e842d51967f49c3d9c4bbe4dcda1ad26783f4','HEAD'],{encoding:'utf8'}).trim().split('\n').filter(Boolean).sort();
+          const want=['.github/workflows/hnl-dev-backup-voucher-xlsx-style-ci.yml','patches/DEV_BACKUP_WAREHOUSE_VOUCHER_XLSX_STYLE_20261028.patch'].sort();
+          if(JSON.stringify(p)!==JSON.stringify(want))throw Error('UNREVIEWED SOURCE CHANGE '+JSON.stringify(p));
+          NODE
+          git apply --check 'patches/DEV_BACKUP_WAREHOUSE_VOUCHER_XLSX_STYLE_20261028.patch'
+          git apply 'patches/DEV_BACKUP_WAREHOUSE_VOUCHER_XLSX_STYLE_20261028.patch'
+          node scripts/source-lint.mjs
+      - name: Verify public Firebase DEV Backup SDK (NO CLOUD WRITES)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 3 'https://hnl-qltc-dev-backup.web.app/__/firebase/init.json' -o "$RUNNER_TEMP/sdk.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const c=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/sdk.json','utf8'));
+          if(c.projectId!=='hnl-qltc-dev-backup'||!c.apiKey||!c.appId)throw Error('WRONG BACKUP FIREBASE PROJECT');
+          const vars={VITE_FIREBASE_API_KEY:c.apiKey,VITE_FIREBASE_APP_ID:c.appId,VITE_FIREBASE_MESSAGING_SENDER_ID:c.messagingSenderId,VITE_FIREBASE_STORAGE_BUCKET:c.storageBucket||'hnl-qltc-dev-backup.firebasestorage.app'};
+          fs.appendFileSync(process.env.GITHUB_ENV,Object.entries(vars).map(([k,v])=>k+'='+v).join('\n')+'\n');
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: TypeScript, lint, Firebase Rules, warehouse voucher and Excel golden, build
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const a=require('./package.json'),b=require('./package-lock.json');if(a.name!==b.name||a.version!==b.version)process.exit(2)"
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npx tsx scripts/warehouse-voucher-xlsx-style-golden.ts
+          npx tsx scripts/warehouse-voucher-layout-golden.ts
+          node --experimental-strip-types scripts/warehouse-report-format-golden.mjs
+          npx tsx scripts/warehouse-export-formulas-golden.ts
+          node scripts/warehouse-voucher-browser-golden.mjs
+          npm run security:audit
+          npm run build
+          test -s dist/index.html
+          grep -R -q 'hnl-qltc-dev-backup.web.app' dist/assets
+          grep -R -q 'hnl-qltc-r2-gateway-dev-backup' dist/assets
+          echo 'WAREHOUSE VOUCHER XLSX STYLED GOLDEN PASS — NO LIVE OR PROD DEPLOY'
+      - name: Evidence without service-account/token information
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          printf 'DEV Backup only\nsource=000e842d51967f49c3d9c4bbe4dcda1ad26783f4\nworkflow=%s\nstatus=%s\nno Hosting LIVE or PROD deploy\n' "$GITHUB_SHA" "${{ job.status }}" > evidence/WAREHOUSE-VOUCHER-XLSX-STYLE-CI.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-DEV-BACKUP-WAREHOUSE-VOUCHER-XLSX-STYLE-CI-EVIDENCE
+          path: evidence/
+          retention-days: 30
