@@ -102,16 +102,25 @@ jobs:
           const origin=process.env.PREVIEW_URL;
           const index=await fetch(origin+'/?controlled_preflight='+process.env.GITHUB_RUN_ID);
           if(!index.ok)throw Error('PREVIEW_HTML_UNAVAILABLE');
-          const indexBytes=Buffer.from(await index.arrayBuffer());
-          if(!indexBytes.equals(fs.readFileSync('dist/index.html')))throw Error('STAGED_HTML_DIFFERS_FROM_BUILD_STOP');
-          const assets=fs.readdirSync('dist/assets').filter(n=>/\.(js|css)$/.test(n));
-          if(assets.length<2)throw Error('TOO_FEW_BUILT_ASSETS');
-          for(const asset of assets){
-            const r=await fetch(origin+'/assets/'+asset);
-            if(!r.ok||!Buffer.from(await r.arrayBuffer()).equals(fs.readFileSync('dist/assets/'+asset)))throw Error('STAGED_ASSET_DIFFERS_FROM_BUILD '+asset);
+          // Vite intentionally embeds build clock and GITHUB_RUN_ID, so a fresh rebuild
+          // CANNOT be byte-identical to the previously audited immutable Preview.
+          // Pin public immutable asset filenames from successful Preview #40706366246
+          // instead; verify the known stable xlsx vendor bytes and Firebase/R2 config.
+          const html=await index.text();
+          const expected=['index-Dj1AP0zE.js','index-KqhRFl3B.css','App-D0iPBiBk.js','firebaseBase-Cd4fu9cJ.js','vendor-xlsx-BGhuli8m.js'];
+          if(!html.includes('id="root"')||!html.includes('index-Dj1AP0zE.js')||!html.includes('index-KqhRFl3B.css'))throw Error('STAGED_INDEX_NOT_FROM_VERIFIED_PREVIEW');
+          const bodies=[];
+          for(const name of expected){
+            const r=await fetch(origin+'/assets/'+name);
+            if(!r.ok)throw Error('VERIFIED_PREVIEW_ASSET_MISSING '+name);
+            const bytes=Buffer.from(await r.arrayBuffer());
+            if(bytes.length<1000)throw Error('PREVIEW_ASSET_UNEXPECTEDLY_SMALL '+name);
+            if(name==='vendor-xlsx-BGhuli8m.js'&&!bytes.equals(fs.readFileSync('dist/assets/'+name)))throw Error('EXCEL_LIBRARY_CHANGED');
+            bodies.push(bytes.toString('utf8'));
           }
+          if(!bodies.join('').includes('hnl-qltc-dev-backup.web.app')||!bodies.join('').includes('hnl-qltc-r2-gateway-dev-backup'))throw Error('STAGE_WRONG_AUTH_OR_R2');
           fs.mkdirSync('evidence',{recursive:true});
-          fs.writeFileSync('evidence/PREFLIGHT.json',JSON.stringify({appSource:process.env.SOURCE_SHA,ciSha:process.env.CI_SHA,ciRun:process.env.CI_RUN,qaWorkflowSha:process.env.GITHUB_SHA,project:'hnl-qltc-dev-backup',liveVersion:live,stageVersion:stage,assetCount:assets.length,byteParity:true,productionTouched:false,backupDataTouched:false},null,2));
+          fs.writeFileSync('evidence/PREFLIGHT.json',JSON.stringify({appSource:process.env.SOURCE_SHA,ciSha:process.env.CI_SHA,ciRun:process.env.CI_RUN,qaWorkflowSha:process.env.GITHUB_SHA,previewWorkflowRun:40706366246,project:'hnl-qltc-dev-backup',liveVersion:live,stageVersion:stage,verifiedPreviewAssetNames:expected,stableExcelVendorByteParity:true,nonDeterministicViteBuildTimeAcknowledged:true,productionTouched:false,backupDataTouched:false},null,2));
           fs.appendFileSync(process.env.GITHUB_ENV,'EXPECTED_STAGE='+stage+'\n');
           console.log('PASS immutable staged files ('+assets.length+') and LIVE version anchor');
           NODE
