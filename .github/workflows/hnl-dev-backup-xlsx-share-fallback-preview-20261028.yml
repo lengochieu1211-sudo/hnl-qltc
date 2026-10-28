@@ -1,0 +1,139 @@
+name: HNL DEV BACKUP XLSX browser-share fallback Preview only (NO LIVE/PROD)
+on:
+  push:
+    branches: [safety/dev-backup-voucher-excel-style-20261028]
+    paths: ['.github/workflows/hnl-dev-backup-xlsx-share-fallback-preview-20261028.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: hnl-qltc-p2119-backup-preview
+  cancel-in-progress: false
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SOURCE_SHA: 928cd76f58f049e75c10c23e2e7b39d76f71201d
+      TEST_RUN: '40723812473'
+      BACKUP_PROJECT: hnl-qltc-dev-backup
+      PREVIEW_CHANNEL: hnl-xlsx-share-fallback-qa-20261028
+      EXPECTED_LIVE: sites/hnl-qltc-dev-backup/versions/6fff5297eeb3db9e
+      VITE_APP_ENV: DEV
+      VITE_DEV_FIREBASE_TARGET: backup
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+      VITE_FIREBASE_PROJECT_ID: hnl-qltc-dev-backup
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev-backup.web.app
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_HNL_AI_ENABLED: 'false'
+      VITE_GIT_COMMIT: 928cd76f58f049e75c10c23e2e7b39d76f71201d
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact CI source, test SUCCESS, and correct backup-only credential
+        shell: bash
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-voucher-excel-style-20261028'
+          test "$(git diff --name-only "$SOURCE_SHA" HEAD)" = '.github/workflows/hnl-dev-backup-xlsx-share-fallback-preview-20261028.yml'
+          node - <<'NODE'
+          const c=JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT||'{}');
+          if(c.type!=='service_account'||c.project_id!=='hnl-qltc-dev-backup'||!c.private_key)throw Error('WRONG_BACKUP_FIREBASE_ACCOUNT');
+          NODE
+          curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$TEST_RUN" -o "$RUNNER_TEMP/ci.json"
+          node - <<'NODE'
+          const fs=require('fs'),r=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/ci.json','utf8'));
+          if(r.head_sha!==process.env.SOURCE_SHA||r.status!=='completed'||r.conclusion!=='success')throw Error('NO_EXACT_TARGETED_CI_PASS');
+          console.log('PASS exact XLSX share fallback browser CI',r.id);
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Load public DEV Backup Firebase Web app config and install
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 3 'https://hnl-qltc-dev-backup.web.app/__/firebase/init.json' -o "$RUNNER_TEMP/sdk.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const c=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/sdk.json','utf8'));
+          if(c.projectId!=='hnl-qltc-dev-backup'||!c.apiKey||!c.appId)throw Error('WRONG_BACKUP_SDK');
+          fs.appendFileSync(process.env.GITHUB_ENV,Object.entries({
+            VITE_FIREBASE_API_KEY:c.apiKey,VITE_FIREBASE_APP_ID:c.appId,
+            VITE_FIREBASE_MESSAGING_SENDER_ID:c.messagingSenderId,
+            VITE_FIREBASE_STORAGE_BUCKET:c.storageBucket||'hnl-qltc-dev-backup.firebasestorage.app'
+          }).map(([k,v])=>k+'='+v).join('\n')+'\n');
+          NODE
+          npm ci
+      - name: Read-only LIVE version gate then build exact TESTED source
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import {google} from 'googleapis';
+          const g=new google.auth.GoogleAuth({credentials:JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT),scopes:['https://www.googleapis.com/auth/firebase.hosting.readonly']});
+          const t=(await(await g.getClient()).getAccessToken()).token;
+          const r=await fetch('https://firebasehosting.googleapis.com/v1beta1/sites/hnl-qltc-dev-backup/channels/live/releases?pageSize=1',{headers:{Authorization:'Bearer '+t}});
+          if(!r.ok||(await r.json()).releases?.[0]?.version?.name!==process.env.EXPECTED_LIVE)throw Error('LIVE_CHANGED_STOP');
+          NODE
+          npm run build
+          grep -R -q 'hnl-qltc-dev-backup.web.app' dist/assets
+          grep -R -q 'hnl-qltc-r2-gateway-dev-backup' dist/assets
+          node - <<'NODE'
+          const fs=require('fs'),c=JSON.parse(fs.readFileSync('firebase.json','utf8'));
+          if(c.hosting?.public!=='dist')throw Error('HOSTING_CONFIG_CHANGED');
+          fs.writeFileSync('firebase-backup-preview-only.json',JSON.stringify({hosting:c.hosting}));
+          NODE
+      - name: Deploy isolated Preview only and verify real hosted bytes
+        shell: bash
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$FIREBASE_BACKUP_SERVICE_ACCOUNT" > "$RUNNER_TEMP/backup-sa.json"
+          chmod 600 "$RUNNER_TEMP/backup-sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/backup-sa.json"
+          trap 'rm -f "$RUNNER_TEMP/backup-sa.json"' EXIT
+          npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$PREVIEW_CHANNEL" --expires 7d --project "$BACKUP_PROJECT" --config "$GITHUB_WORKSPACE/firebase-backup-preview-only.json" --non-interactive --json > "$RUNNER_TEMP/preview.json"
+          test -s "$RUNNER_TEMP/preview.json"
+          node --input-type=module <<'NODE'
+          import {google} from 'googleapis';import fs from 'node:fs';
+          const g=new google.auth.GoogleAuth({credentials:JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT),scopes:['https://www.googleapis.com/auth/firebase.hosting.readonly']});
+          const t=(await(await g.getClient()).getAccessToken()).token;
+          const root='https://firebasehosting.googleapis.com/v1beta1/sites/hnl-qltc-dev-backup/channels/';
+          const headers={Authorization:'Bearer '+t};
+          async function get(path){const r=await fetch(root+path,{headers});if(!r.ok)throw Error('HOSTING_READ_FAIL '+path);return r.json();}
+          const stage=await get(process.env.PREVIEW_CHANNEL);
+          if(!stage.url?.includes('hnl-qltc-dev-backup--')||!stage.url.endsWith('.web.app'))throw Error('INVALID_BACKUP_PREVIEW_URL');
+          const release=(await get(process.env.PREVIEW_CHANNEL+'/releases?pageSize=1')).releases?.[0];
+          const live=(await get('live/releases?pageSize=1')).releases?.[0]?.version?.name;
+          if(live!==process.env.EXPECTED_LIVE)throw Error('LIVE_CONCURRENT_CHANGE_STOP');
+          const html=await fetch(stage.url+'/?qaShare='+process.env.GITHUB_RUN_ID);
+          if(!html.ok||!Buffer.from(await html.arrayBuffer()).equals(fs.readFileSync('dist/index.html')))throw Error('STAGED_HTML_BYTES_MISMATCH');
+          const assets=JSON.parse(fs.readFileSync('dist/sw-assets.json','utf8')).assets;
+          if(!Array.isArray(assets)||assets.length<20)throw Error('INVALID_BUILD_ASSETS');
+          for(const asset of assets){
+            const r=await fetch(stage.url+asset);
+            if(!r.ok||!Buffer.from(await r.arrayBuffer()).equals(fs.readFileSync('dist'+asset)))throw Error('STAGED_ASSET_MISMATCH '+asset);
+          }
+          fs.mkdirSync('evidence',{recursive:true});
+          fs.writeFileSync('evidence/XLSX-SHARE-FALLBACK-PREVIEW.json',JSON.stringify({source:process.env.SOURCE_SHA,ciRun:process.env.TEST_RUN,previewUrl:stage.url,previewVersion:release?.version?.name,liveBefore:live,liveUnchanged:true,staticByteParity:true,assetCount:assets.length,productionTouched:false,signedInAndroidGolden:false},null,2));
+          console.log('PASS staged real Preview '+release?.version?.name+' with '+assets.length+' byte-identical assets; LIVE unchanged');
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-DEV-BACKUP-XLSX-SHARE-FALLBACK-PREVIEW-EVIDENCE
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
