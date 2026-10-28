@@ -45,7 +45,6 @@ import { assertNoLegacyInventoryDiffs, assertNoLegacyInventoryRestore } from '..
 import { formatDateTime } from '../utils/dateFormatter';
 import { CURRENT_DATA_SCHEMA_VERSION, getPendingDataSchemaMigrations, readDataSchemaVersion } from '../config/dataSchema';
 import { clearRememberedVerifiedAuthIdentity } from '../utils/offlineAccess';
-import { getBackupMobileLoginHandoffUrl } from './backupMobileAuth';
 import type { ProjectStructureConfig } from '../utils/structureGroupUtils';
 const env = (import.meta as any).env || {};
 export const APP_ENVIRONMENT: 'DEV' | 'PROD' = String(env.VITE_APP_ENV || (env.DEV || env.MODE === 'development' ? 'DEV' : 'PROD')).toUpperCase() === 'PROD' ? 'PROD' : 'DEV';
@@ -1323,21 +1322,6 @@ export async function signInWithGoogle(): Promise<User | null> {
         /Android|iPhone|iPad|iPod|Mobile/i.test(ua)
       );
       if (mobileLike) {
-        // Only for DEV BACKUP opened from web.app: keep Auth helper and top-level
-        // page on the same firebaseapp.com origin. Do not affect primary DEV,
-        // PROD, Android wrappers, OAuth settings or Firestore persistence.
-        const backupHandoffUrl = typeof window !== 'undefined'
-          ? getBackupMobileLoginHandoffUrl(window.location.href, {
-              appEnvironment: APP_ENVIRONMENT,
-              devTarget: explicitDevTarget,
-              projectId: firebaseConfig.projectId,
-              authDomain: firebaseConfig.authDomain,
-            })
-          : null;
-        if (backupHandoffUrl) {
-          window.location.assign(backupHandoffUrl);
-          return null;
-        }
         await signInWithRedirect(auth, provider);
         return null;
       }
