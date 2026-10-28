@@ -43,7 +43,7 @@ ok('Firebase Storage production is legacy read-only for create/update', (storage
 ok('Image Viewer keyboard navigation uses functional boundary clamp', viewer.includes('Math.max(0, current - 1)') && viewer.includes('Math.min(Math.max(0, allImages.length - 1), current + 1)'));
 ok('Image Viewer key listener refreshes when image count changes', viewer.includes('}, [isOpen, allImages.length]);'));
 ok('DEV source gates run before Cloudflare deployment', devDeploy.indexOf('DEV pre-deploy source gates') < devDeploy.indexOf('Deploy isolated DEV R2 Worker'));
-ok('Runtime Golden has no path filter and waits exact deploy SHA', !runtime.includes('    paths:') && runtime.includes('Wait for exact DEV environment deploy') && runtime.includes('x.head_sha===process.env.TARGET_SHA'));
+ok('Runtime Golden only follows approved DEV release, verifies exact SHA and never redeploys', runtime.includes("      - '.github/dev-release-approval.json'") && runtime.includes('Wait for exact DEV environment deploy') && runtime.includes('x.head_sha===process.env.TARGET_SHA') && runtime.includes("['push','workflow_dispatch'].includes(x.event)") && runtime.includes('node scripts/dev-release-gate.mjs verify') && !runtime.includes('deploy --only hosting')); 
 ok('Deliverables have no hardcoded runtime certified SHA', !deliverables.includes('RUNTIME_CERTIFIED_SHA: 89174') && deliverables.includes('Wait for exact Runtime Golden'));
 ok('Deliverables report exact current SHA dynamically', deliverables.includes('Exact DEV source commit') && deliverables.includes('$GITHUB_SHA'));
 ok('App freezes local role when project root becomes deleted', app.includes('if (meta.deleted)') && app.includes("setCurrentUserRoleState('VIEWER')"));

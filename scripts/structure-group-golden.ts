@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { moveFloorsToStructureGroup, normalizeStructureGroupConfig, resolveFloorStructureGroupId } from '../src/utils/structureGroupUtils';
+import { buildFloorDuplicateNames, moveFloorsToStructureGroup, normalizeStructureGroupConfig, resolveFloorStructureGroupId } from '../src/utils/structureGroupUtils';
+import { planEmptyStructureGroupDelete, planRestoreStructureGroup } from '../src/utils/structureGroupTrashPolicy';
 
 const config = normalizeStructureGroupConfig({
   enabled: true,
@@ -12,6 +13,18 @@ const config = normalizeStructureGroupConfig({
   defaultGroupId: 'tower-1',
 });
 
+const groupDelete = planEmptyStructureGroupDelete(config, 'tower-2', [{ structureGroupId: 'tower-1' }] as any);
+assert.equal(groupDelete.next.groups.length, 1);
+assert.equal(groupDelete.deleted.id, 'tower-2');
+const groupRecovered = planRestoreStructureGroup(groupDelete.next, groupDelete.deleted);
+assert.deepEqual(groupRecovered.groups.map((g) => g.id), ['tower-1', 'tower-2']);
+assert.throws(() => planRestoreStructureGroup(groupRecovered, groupDelete.deleted), /STRUCTURE_TRASH_GROUP_ID_ALREADY_EXISTS/);
+assert.throws(() => planEmptyStructureGroupDelete(config, 'tower-2', [{ structureGroupId: 'tower-2' }] as any),
+  /STRUCTURE_TRASH_GROUP_HAS_FLOOR_REFERENCES/, 'tombstoned floors must also block group deletion');
+assert.throws(() => planEmptyStructureGroupDelete(config, 'tower-1', [{}] as any),
+  /STRUCTURE_TRASH_GROUP_HAS_FLOOR_REFERENCES/, 'legacy floors may use the default group');
+assert.throws(() => planEmptyStructureGroupDelete(groupDelete.next, 'tower-1', []),
+  /STRUCTURE_TRASH_LAST_GROUP/, 'project must retain one group');
 assert.equal(resolveFloorStructureGroupId({ structureGroupId: 'tower-2' } as any, config), 'tower-2');
 assert.equal(resolveFloorStructureGroupId({} as any, config), 'tower-1', 'legacy floor must remain readable via default group');
 assert.equal(normalizeStructureGroupConfig({ ...config, groups: [{ id: 'tower-1', name: 'Tháp 1' }], defaultGroupId: 'tower-2' }).defaultGroupId, 'tower-1');
@@ -28,6 +41,13 @@ assert.equal(bulkMoved.find((floor) => floor.id === 'f-c')?.structureGroupId, 't
 assert.equal(bulkMoved[1], bulkSource[1], 'unselected floor object must remain untouched');
 assert.ok(Number(bulkMoved.find((floor) => floor.id === 'f-a')?.order) < Number(bulkMoved.find((floor) => floor.id === 'f-c')?.order), 'selected floors must preserve prior relative order');
 assert.ok(Number(bulkMoved.find((floor) => floor.id === 'f-a')?.order) > Number(bulkMoved.find((floor) => floor.id === 'f-b')?.order), 'moved floors must append after existing destination floors');
+
+assert.deepEqual(
+  buildFloorDuplicateNames('Tầng 5', 3, ['Tầng 5', 'Tầng 5 (Bản sao)']),
+  ['Tầng 5 (Bản sao 2)', 'Tầng 5 (Bản sao 3)', 'Tầng 5 (Bản sao 4)'],
+  'bulk duplicate names must stay unique and deterministic',
+);
+assert.equal(buildFloorDuplicateNames('Tầng 2', 99).length, 20, 'duplicate copies must be safety-capped at 20 per source floor');
 
 const exportSource = readFileSync(new URL('../src/components/ExportPdfModal.tsx', import.meta.url), 'utf8');
 assert.ok(exportSource.includes('const roomScopeOptions = baseRoomScopeOptions.slice().sort'), 'report room options must cascade from floor scope, not selected team');
@@ -63,6 +83,12 @@ assert.ok(floorPlanSource.includes("visibleFloorPlans.map((floor) =>"), 'floor p
 assert.ok(floorPlanSource.includes("changeFloorStructureGroupStable"), 'moving a floor to another Khu/Khối must preserve a stable persisted order');
 assert.ok(floorPlanSource.includes("changeFloorStructureGroupStable(fp.id, event.target.value)"), 'management Khu/Khối reassignment must use stable move helper');
 assert.ok(floorPlanSource.includes('moveSelectedFloorsToStructureGroupStable'), 'floor manager must support bulk Khu/Khối move without rewriting linked business IDs');
+assert.ok(floorPlanSource.includes('Thao tác tầng đã chọn'), 'floor manager must expose one unified checkbox-driven action bar');
+assert.equal(floorPlanSource.includes('Chuyển nhiều tầng giữa Khu/Khối'), false, 'separate legacy bulk-move panel must be removed');
+assert.ok(floorPlanSource.includes('Số bản / tầng'), 'bulk floor duplicate must let the user choose how many copies per selected floor');
+assert.ok(floorPlanSource.includes('duplicateManagedFloors'), 'bulk duplicate must use the guarded selected-floor flow');
+assert.ok(floorPlanSource.includes('deleteManagedFloors'), 'bulk delete must use the guarded selected-floor flow');
+assert.ok(floorPlanSource.includes('Không thể xóa toàn bộ mặt bằng. Dự án cần duy trì ít nhất 1 tầng.'), 'bulk delete must fail closed when every floor is selected');
 assert.ok(floorPlanSource.includes('onBulkMoveFloorPlansToStructureGroup(selectedInSavedOrder.map((floor) => floor.id), nextGroupId)'), 'bulk Khu/Khối move must use the dedicated minimal App handler when available');
 assert.ok(floorPlanSource.includes('Chọn tất cả ${currentGroupFloors.length} tầng trong'), 'bulk Khu/Khối move must support selecting every floor inside one group');
 assert.ok(floorPlanSource.includes('<span>Chọn tất cả</span>'), 'multi-select Khu/Khối UI must visibly label select-all per group');
@@ -77,6 +103,24 @@ const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8
 const rulesSource = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 const firebaseBaseSource = readFileSync(new URL('../src/lib/firebaseBase.ts', import.meta.url), 'utf8');
 assert.ok(appSource.includes("saveProjectSharedSettings(activeProjectIdRef.current, { structure: next })"), 'Khu/Khối config must sync through shared project settings');
+const groupTrashSource = readFileSync(new URL('../src/lib/structureGroupTrash.ts', import.meta.url), 'utf8');
+const groupRestoreSource = readFileSync(new URL('../src/lib/trashRestore.ts', import.meta.url), 'utf8');
+const purgeSource = readFileSync(new URL('../src/lib/cloudBinaryPurge.ts', import.meta.url), 'utf8');
+assert.ok(groupTrashSource.indexOf('const floorIndex = await getDocsFromServer') > groupTrashSource.indexOf('structureGroupDeleteLocks: locks'), 'floor index must be queried after lock is persisted');
+assert.ok(groupTrashSource.includes('STRUCTURE_TRASH_GROUP_LOCK_LOST') && groupTrashSource.includes('structureGroupDeletedIds: Array.from(new Set'), 'delete must retain lock ownership and durable group denylist');
+assert.ok(groupRestoreSource.includes('structureGroupDeletedIds: deletedIds.filter((id) => id !== item.entityId)'), 'atomic restore must release deleted-ID guard');
+assert.equal(rulesSource.split("collectionName != 'floor_plans' || floorGroupIsNotDeleting(projectId)").length - 1, 2, 'Rules must block floor create and update during deletion');
+assert.ok(groupTrashSource.includes('runTransaction(db, async (tx)') && groupTrashSource.includes('tx.set(receiptRef, operation)')
+  && groupTrashSource.includes('tx.update(settingsRef'), 'group delete and Trash receipt must commit atomically');
+assert.ok(groupTrashSource.includes('STRUCTURE_TRASH_MUST_ENABLE_TRASH'), 'Trash OFF must fail closed for group deletion');
+assert.ok(groupRestoreSource.includes("operation.deletedItems[0]?.collection === 'structureGroups'")
+  && groupRestoreSource.includes('transaction.delete(operationRef)'), 'group restore must commit settings and receipt removal together');
+assert.ok(purgeSource.includes('TRASH_PURGE_STRUCTURE_GROUP_HAS_FLOOR_REFERENCES'),
+  'purge must reject group receipts while any server floor still references the group');
+assert.ok(floorPlanSource.includes('onDeleteStructureGroup?.(group.id)'),
+  'group delete UI must use atomic handler, never generic settings update');
+assert.ok(appSource.includes('activeProjectIdRef.current !== targetProjectId'),
+  'in-flight group deletion must not replace another project structure after a project switch');
 assert.ok(appSource.includes('subscribeProjectSharedSettings(activeProjectId, (settings) =>'), 'Khu/Khối config must update in realtime across authenticated accounts');
 assert.ok(appSource.includes('const handleBulkMoveFloorPlansToStructureGroup = (ids: string[], targetGroupId: string) =>') && appSource.includes('floorPlans: moveFloorsToStructureGroup(prev.floorPlans, ids, targetGroupId, normalizedStructure)'), 'bulk move must use the minimal pure helper and not rewrite linked business collections');
 assert.ok(rulesSource.includes('isSuperAdmin() || isOwner(projectId) || canonicalMemberActive(projectId)'), 'SuperAdmin and project members must retain project read access for Khu/Khối data');
@@ -101,3 +145,20 @@ assert.equal(exportSource.includes('disabled={allRoomsSelected}'), false, 'repor
 assert.equal(exportSource.includes('disabled={allTeamsSelected}'), false, 'report team options must stay selectable while Tất cả is active');
 
 console.log('structure-group-golden: PASS');
+
+
+// Backup contract regression: hierarchy/project metadata must survive JSON DR backup.
+// Security state (RBAC/members/PIN/secrets) is deliberately outside this contract.
+assert.ok(appSource.includes('schemaVersion: 4'), 'single-project backup schema must be v4 after shared-settings coverage');
+assert.ok(appSource.includes('projectLocation,') && appSource.includes('...(sharedSettings ? { sharedSettings } : {})'), 'backup must include project location and shared settings');
+assert.ok(appSource.includes('fetchProjectSharedSettingsSnapshot(activeProjectId, true)'), 'single-project backup must read authoritative Cloud shared settings');
+assert.ok(appSource.includes("allData[getKey('construction_shared_settings', projectId)]"), 'all-project backup must include project shared settings');
+assert.ok(appSource.includes('await saveProjectSharedSettings(pid, settingsToRestore)'), 'restore must persist the resolved project shared settings');
+assert.ok(appSource.includes("options?.sharedSettingsRestoreMode === 'merge-newer'"), 'SMART MERGE must guard shared settings by Cloud timestamp');
+assert.ok(appSource.includes('incomingSettingsTime <= currentSettingsTime'), 'stale backup shared settings must not roll back newer Cloud settings');
+assert.ok(appSource.includes('setStructureConfig(normalizeStructureGroupConfig(settingsToRestore.structure))'), 'restore must hydrate Khu/Khối immediately from the resolved settings');
+const normalizerSource = readFileSync(new URL('../src/utils/dataNormalizer.ts', import.meta.url), 'utf8');
+assert.ok(normalizerSource.includes('obj.project.projectLocation') && normalizerSource.includes("extractObject(['sharedSettings', 'construction_shared_settings'])"), 'import normalizer must preserve project location and v4/shared-dump settings');
+const typeSource = readFileSync(new URL('../src/types.ts', import.meta.url), 'utf8');
+assert.ok(typeSource.includes('schemaVersion: 3 | 4') && typeSource.includes('sharedSettings?:'), 'backup type must remain backward-compatible with v3 while defining v4 settings');
+assert.equal(typeSource.includes('members?:') || typeSource.includes('pin?:') || typeSource.includes('secrets?:'), false, 'backup contract must not add security membership/PIN/secrets');

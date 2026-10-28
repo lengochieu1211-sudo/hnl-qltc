@@ -15,8 +15,9 @@
     "test:rules": "node scripts/firebase-rules-check.mjs",
     "test:emulator-config": "node scripts/emulator-golden.mjs",
     "security:audit": "npm audit --omit=dev --audit-level=high",
-    "test:stability": "npm run test:audit-hardening && node scripts/stability-gate.mjs && node scripts/offline-golden.mjs && node scripts/category-golden.mjs && node scripts/firebase-only-golden.mjs && node scripts/firebase-only-legacy-audit.mjs --self-test && node scripts/emulator-golden.mjs && node scripts/rbac-matrix.mjs && npm run test:cloud-purge && node scripts/r2-gateway-golden.mjs && node scripts/ai-gateway-golden.mjs && node scripts/desktop-launcher-golden.mjs && node scripts/auth-popup-golden.mjs && npm run test:linkage-calculation && npm run test:material-need && tsx scripts/contact-core-golden.ts && tsx scripts/defect-contact-golden.ts && tsx scripts/defect-linkage-golden.ts && node --experimental-strip-types scripts/crew-task-description-golden.ts && tsx scripts/crew-persistence-golden.ts && npm run test:crew-report-structure && npm run test:structure-group && npm run test:share-center && npm run test:checklist-floor && npm run test:health-center && npm run test:floorplan-p0 && npm run test:room-highlight-transform && npm run test:media-p0 && npm run test:image-editor && npm run test:activity-notifications && npm run test:superadmin-navigation && npm run test:ui-entry-ux && npm run test:team-directory-integrity && npm run test:excel-security && npm run test:prod-readiness",
-    "verify": "npm run test:stability && npm run typecheck && npm run lint && npm run test:rules && npm run security:audit && npm run build",
+    "test:firestore-restore-gate": "node scripts/p2115-firestore-traversal-golden.mjs && node scripts/p2115-firestore-restore-golden.mjs",
+    "test:stability": "node scripts/p2115-firestore-traversal-golden.mjs && npm run test:audit-hardening && node --experimental-strip-types scripts/p1-copied-dev-data-gate-golden.mjs && npm run test:backup-cloud-authority && npm run test:restore-defect-visibility && npm run test:restore-json-media && node scripts/stability-gate.mjs && node --experimental-strip-types scripts/warehouse-photo-golden.mjs && node --experimental-strip-types scripts/undo-redo-scoped-golden.mjs && npm run test:chat-outbox-durability && npm run test:warehouse-recovery && npm run test:trash-recovery && node scripts/ui-return-and-palette-golden.mjs && node scripts/offline-golden.mjs && node scripts/category-golden.mjs && node scripts/firebase-only-golden.mjs && node scripts/firebase-only-legacy-audit.mjs --self-test && node scripts/emulator-golden.mjs && node scripts/rbac-matrix.mjs && npm run test:cloud-purge && node scripts/r2-gateway-golden.mjs && node scripts/ai-gateway-golden.mjs && node scripts/desktop-launcher-golden.mjs && node scripts/android-wrapper-golden.mjs && node scripts/android-export-zero-byte-golden.mjs && node scripts/auth-popup-golden.mjs && npm run test:linkage-calculation && npm run test:material-need && npm run test:material-norm-display && npm run test:material-norm-import-delta && npm run test:warehouse-ledger && tsx scripts/contact-core-golden.ts && tsx scripts/defect-contact-golden.ts && tsx scripts/defect-linkage-golden.ts && node --experimental-strip-types scripts/crew-task-description-golden.ts && tsx scripts/crew-persistence-golden.ts && npm run test:crew-report-structure && npm run test:structure-group && npm run test:share-center && npm run test:checklist-floor && npm run test:health-center && npm run test:floorplan-p0 && npm run test:room-highlight-transform && npm run test:media-p0 && npm run test:image-editor && npm run test:activity-notifications && npm run test:superadmin-navigation && npm run test:ui-entry-ux && npm run test:team-directory-integrity && npm run test:excel-security && npm run test:prod-readiness",
+    "verify": "npm run test:firestore-restore-gate && npm run test:stability && npm run typecheck && npm run lint && npm run test:rules && npm run security:audit && npm run build",
     "test:offline": "node scripts/offline-golden.mjs",
     "test:category": "node scripts/category-golden.mjs",
     "test:firebase-only": "node scripts/firebase-only-golden.mjs",
@@ -36,9 +37,9 @@
     "test:share-center": "tsx scripts/share-center-golden.ts",
     "test:ai-external-context": "tsx scripts/ai-external-context-golden.ts",
     "test:crew-task-description": "node --experimental-strip-types scripts/crew-task-description-golden.ts",
-    "test:crew-report-structure": "tsx scripts/crew-report-structure-golden.ts",
+    "test:crew-report-structure": "tsx scripts/crew-report-structure-golden.ts && tsx scripts/crew-report-excel-golden.ts",
     "test:material-need": "tsx scripts/material-need-golden.ts && tsx scripts/material-need-legacy-team-golden.ts && tsx scripts/material-need-scope-hardening-golden.ts",
-    "test:floorplan-p0": "tsx scripts/floorplan-p0-golden.ts",
+    "test:floorplan-p0": "node scripts/floor-identity-regression.mjs && tsx scripts/floorplan-p0-golden.ts && tsx scripts/dxf-room-detection-golden.ts && tsx scripts/quick-edit-excel-golden.ts",
     "test:media-p0": "tsx scripts/media-p0-golden.ts",
     "test:image-editor": "node scripts/image-editor-golden.mjs",
     "test:activity-notifications": "node scripts/activity-notification-golden.mjs",
@@ -47,11 +48,21 @@
     "test:team-directory-integrity": "tsx scripts/team-directory-integrity-golden.ts",
     "test:cloud-purge": "node scripts/cloud-purge-golden.mjs",
     "test:audit-hardening": "node scripts/audit-hardening-golden.mjs",
+    "test:backup-cloud-authority": "tsx scripts/backup-cloud-authority-golden.ts",
+    "test:restore-defect-visibility": "tsx scripts/restore-defect-visibility-golden.ts",
+    "test:restore-json-media": "tsx scripts/restore-json-media-golden.ts",
     "test:linkage-calculation": "tsx scripts/linkage-calculation-golden.ts && node scripts/linkage-calculation-source-golden.mjs",
     "test:prod-readiness": "node scripts/prod-readiness-golden.mjs",
-    "test:excel-security": "tsx scripts/excel-import-security-golden.ts",
+    "test:excel-security": "tsx scripts/excel-import-security-golden.ts && npm run test:excel-formula",
     "test:structure-group": "tsx scripts/structure-group-golden.ts",
-    "test:room-highlight-transform": "tsx scripts/room-highlight-transform-golden.ts"
+    "test:room-highlight-transform": "tsx scripts/room-highlight-transform-golden.ts",
+    "test:warehouse-ledger": "tsx scripts/warehouse-ledger-reconcile-golden.ts",
+    "test:warehouse-recovery": "node --experimental-strip-types scripts/warehouse-recovery-golden.mjs",
+    "test:material-norm-display": "tsx scripts/material-norm-display-golden.ts",
+    "test:material-norm-import-delta": "node --experimental-strip-types scripts/material-norm-import-delta-golden.mjs",
+    "test:excel-formula": "tsx scripts/excel-formula-golden.ts",
+    "test:trash-recovery": "node --experimental-strip-types scripts/trash-recovery-safety-golden.mjs",
+    "test:chat-outbox-durability": "node --experimental-strip-types scripts/chat-outbox-durability-golden.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -68,28 +79,29 @@
     "localforage": "^1.10.0",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
-    "multer": "^2.4.0",
+    "multer": "^2.5.0",
     "pdfjs-dist": "^6.2.108",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.3",
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
-  },
-  "devDependencies": {
-    "@types/express": "^4.17.21",
-    "@types/multer": "^2.2.0",
-    "@types/node": "^22.14.0"
+    "vite": "^6.4.4",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "fflate": "^0.8.3"
   },
   "overrides": {
     "brace-expansion": "2.1.7",
-    "dompurify": "3.4.16",
+    "dompurify": "3.4.17",
     "proxy-addr": "2.0.8",
     "source-map-js": "1.2.2",
     "@firebase/firestore": {
       "@grpc/grpc-js": "1.14.6"
     }
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/multer": "^2.2.0",
+    "@types/node": "^22.14.0"
   }
 }

@@ -108,14 +108,23 @@ export function detectBackupStructure(rawInput: any): {
     return { isSingleProject: false, isStorageDump: false };
   }
 
-  // Schema v3 Single Project Backup
-  if (obj.schemaVersion === 3 || obj.backupType === 'single-project') {
+  // Schema v3+ Single Project Backup. v3 remains fully supported while current v4
+  // preserves the actual version instead of being mislabeled as v3 during import.
+  const declaredSchemaVersion = Number(obj.schemaVersion || 0);
+  const isVersionedSingleProject = declaredSchemaVersion >= 3
+    && Boolean(obj.data)
+    && Boolean(obj.project || obj.projectId);
+  if (
+    isVersionedSingleProject
+    || obj.backupType === 'single-project'
+    || obj.backupType === 'primary-drive-project'
+  ) {
     return {
       isSingleProject: true,
       isStorageDump: false,
       projectId: obj.project?.id || obj.projectId,
       projectName: obj.project?.name || obj.projectName,
-      schemaVersion: 3,
+      schemaVersion: declaredSchemaVersion >= 3 ? declaredSchemaVersion : 3,
       categoryUpdatedAt: obj.categoryUpdatedAt,
       sourceData: obj.data || obj
     };
@@ -180,6 +189,7 @@ export function normalizeImportedData(rawInput: any, activeProjectId?: string, s
     if (obj.project.name && !targetObj.projectName) targetObj.projectName = obj.project.name;
     if (obj.project.contractorName && !targetObj.contractorName) targetObj.contractorName = obj.project.contractorName;
     if (obj.project.inspectorName && !targetObj.inspectorName) targetObj.inspectorName = obj.project.inspectorName;
+    if (obj.project.projectLocation !== undefined && targetObj.projectLocation === undefined) targetObj.projectLocation = obj.project.projectLocation;
   }
 
   const isDump = structure.isStorageDump;
@@ -269,6 +279,33 @@ export function normalizeImportedData(rawInput: any, activeProjectId?: string, s
       }
       return item;
     });
+  };
+
+  const extractObject = (candidateKeys: string[]): Record<string, any> | null => {
+    const tryValue = (raw: any): Record<string, any> | null => {
+      let value = raw;
+      if (typeof value === 'string') {
+        try { value = JSON.parse(value); } catch (_) { return null; }
+      }
+      return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+    };
+    if (effectiveProjectId) {
+      for (const cand of candidateKeys) {
+        const scopedKey = projectKey(cand, effectiveProjectId);
+        if (scopedKey in targetObj) {
+          const value = tryValue(targetObj[scopedKey]);
+          if (value) return value;
+        }
+      }
+    }
+    for (const key of candidateKeys) {
+      if (key in targetObj) {
+        if (isDump && effectiveProjectId && effectiveProjectId !== 'default') continue;
+        const value = tryValue(targetObj[key]);
+        if (value) return value;
+      }
+    }
+    return null;
   };
 
   // Helper to extract string
@@ -369,6 +406,11 @@ export function normalizeImportedData(rawInput: any, activeProjectId?: string, s
   const projectLocation = extractString(['projectLocation', 'project_location', 'location', 'construction_project_location']);
   if (projectLocation !== null) normalized.projectLocation = projectLocation;
 
+  // Backup v4: preserve project-scoped shared settings as a single contract. These are
+  // operational/project preferences only; RBAC, membership, PIN and secrets are never imported here.
+  const sharedSettings = extractObject(['sharedSettings', 'construction_shared_settings']);
+  if (sharedSettings) normalized.sharedSettings = { ...sharedSettings };
+
   return normalized;
 }
 
@@ -440,7 +482,7 @@ export function extractProjectsFromImportData(rawInput: any): ProjectImportCandi
     };
   };
 
-  // Case 1: Schema Version 3 Single Project
+  // Case 1: Schema Version 3+ Single Project
   if (structure.isSingleProject && structure.projectId) {
     const pid = structure.projectId;
     const normalized = normalizeImportedData(obj, pid, pid);
@@ -518,6 +560,19 @@ export function smartMergeProjectData(localData: any, incomingData: any): any {
   if (!incomingData) return { ...localData };
 
   const merged: any = { ...localData };
+
+  // Preserve backup v4 project-scoped shared settings through the merge payload.
+  // The Cloud restore layer remains authoritative for timestamp conflict resolution.
+  if (incomingData.sharedSettings && typeof incomingData.sharedSettings === 'object' && !Array.isArray(incomingData.sharedSettings)) {
+    const localSettings = localData.sharedSettings && typeof localData.sharedSettings === 'object' && !Array.isArray(localData.sharedSettings)
+      ? localData.sharedSettings
+      : null;
+    const incomingSettingsTime = parseLegacyTimestamp(incomingData.sharedSettings.updatedAt, 0);
+    const localSettingsTime = parseLegacyTimestamp(localSettings?.updatedAt, 0);
+    if (!localSettings || incomingSettingsTime > localSettingsTime) {
+      merged.sharedSettings = { ...incomingData.sharedSettings };
+    }
+  }
 
   // Project metadata
   if (incomingData.projectName && (!localData.projectName || localData.projectName === 'Dự án')) {

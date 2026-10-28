@@ -23,6 +23,8 @@ import { fetchProjectCrewReportData } from '../lib/firebase';
 import {
   buildCrewReportMatrices,
   buildCrewReportRows,
+  getCrewReportPresetRange,
+  toCrewReportDateKey,
   filterCrewReportRows,
   summarizeCrewReportRows,
   type CrewReportProjectInput,
@@ -41,6 +43,7 @@ interface HomeDashboardProps {
   activeProjectId: string;
   activeProjectName: string;
   activeProjectLocation: string;
+  activeContractorName?: string;
   currentRole: UserRole;
   defectOpenCount: number;
   dueAlertCount: number;
@@ -60,36 +63,22 @@ interface HomeDashboardProps {
   onOpenFloorPlan: () => void;
 }
 
-const roleLabel = (role?: UserRole) => role === 'ADMIN' ? 'ADMIN' : role === 'EDITOR' ? 'EDITOR' : 'VIEWER';
+const crewReportSessionCache = new Map<string, CrewReportProjectInput>();
+const crewReportCacheKey = (projectId: string, startDate: string, endDate: string) => `${projectId}::${startDate}::${endDate}`;
+
+const roleLabel = (role?: UserRole) => role === 'ADMIN' ? 'Quản trị' : role === 'EDITOR' ? 'Biên tập' : 'Chỉ xem';
 const roleClass = (role?: UserRole) => role === 'ADMIN'
   ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
   : role === 'EDITOR'
     ? 'border-blue-200 bg-blue-50 text-blue-700'
     : 'border-slate-200 bg-slate-100 text-slate-600';
 
-const toLocalDateKey = (date = new Date()) => {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-};
-
-const shiftDate = (date: Date, days: number) => {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return toLocalDateKey(next);
-};
-
-const currentMonthStart = () => {
-  const now = new Date();
-  return toLocalDateKey(new Date(now.getFullYear(), now.getMonth(), 1));
-};
-
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   projects,
   activeProjectId,
   activeProjectName,
   activeProjectLocation,
+  activeContractorName = '',
   currentRole,
   defectOpenCount,
   dueAlertCount,
@@ -108,11 +97,20 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   onOpenCrew,
   onOpenFloorPlan,
 }) => {
-  const todayKey = toLocalDateKey();
+  const todayKey = toCrewReportDateKey(new Date());
   const [reportStartDate, setReportStartDate] = useState(todayKey);
   const [reportEndDate, setReportEndDate] = useState(todayKey);
   const [reportPreset, setReportPreset] = useState<'today' | 'yesterday' | '7days' | 'month' | 'custom'>('today');
-  const [reportProjects, setReportProjects] = useState<CrewReportProjectInput[]>([]);
+  const [reportProjects, setReportProjects] = useState<CrewReportProjectInput[]>(() => activeProjectId ? [{
+    projectId: activeProjectId,
+    projectName: activeProjectName || 'Dự án đang mở',
+    projectLocation: activeProjectLocation,
+    contractorName: activeContractorName,
+    records: crewRecords,
+    teams,
+    floorPlans,
+    structureConfig,
+  }] : []);
   const [reportFailedProjects, setReportFailedProjects] = useState<string[]>([]);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState('');
@@ -129,6 +127,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       projectId: activeProjectId,
       projectName: activeProjectName || activeProject?.name || 'Dự án đang mở',
       projectLocation: activeProjectLocation,
+      contractorName: activeContractorName,
       records: crewRecords,
       teams,
       floorPlans,
@@ -137,7 +136,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 
     if (!isOnline) {
       setReportLoading(false);
-      setReportError(projects.length > 1 ? 'Đang offline: Trang chủ chỉ dùng quân số đã xác minh của dự án đang mở. Kết nối mạng để tải báo cáo nhiều dự án.' : '');
+      setReportError(projects.length > 1 ? 'Đang ngoại tuyến: Trang chủ chỉ dùng quân số đã xác minh của dự án đang mở. Kết nối mạng để tải báo cáo nhiều dự án.' : '');
       setReportFailedProjects(projects.filter((project) => project.id !== activeProjectId).map((project) => project.name));
       setReportProjects(activeProjectId ? [activeFallback] : []);
       return () => { cancelled = true; };
@@ -149,6 +148,12 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       return () => { cancelled = true; };
     }
 
+    const cachedRemoteProjects = projects
+      .filter((project) => project.id !== activeProjectId)
+      .map((project) => crewReportSessionCache.get(crewReportCacheKey(project.id, reportStartDate, reportEndDate)))
+      .filter((item): item is CrewReportProjectInput => Boolean(item));
+    setReportProjects(activeProjectId ? [activeFallback, ...cachedRemoteProjects] : cachedRemoteProjects);
+    setReportFailedProjects([]);
     setReportLoading(true);
     setReportError('');
     const load = async () => {
@@ -158,15 +163,18 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           return activeFallback;
         }
         const snapshot = await fetchProjectCrewReportData(project.id, reportStartDate, reportEndDate, { serverOnly: true });
-        return {
+        const loadedProject = {
           projectId: project.id,
           projectName: snapshot.projectName || project.name,
           projectLocation: snapshot.projectLocation,
+          contractorName: snapshot.contractorName,
           records: snapshot.records,
           teams: snapshot.teams,
           floorPlans: snapshot.floorPlans,
           structureConfig: snapshot.structureConfig,
         } satisfies CrewReportProjectInput;
+        crewReportSessionCache.set(crewReportCacheKey(project.id, reportStartDate, reportEndDate), loadedProject);
+        return loadedProject;
       }));
       if (cancelled) return;
       const loaded: CrewReportProjectInput[] = [];
@@ -189,7 +197,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       setReportLoading(false);
     });
     return () => { cancelled = true; };
-  }, [activeProjectId, activeProjectName, activeProjectLocation, activeProject?.name, crewRecords, teams, floorPlans, structureConfig, isOnline, projects, reportStartDate, reportEndDate]);
+  }, [activeProjectId, activeProjectName, activeProjectLocation, activeContractorName, activeProject?.name, crewRecords, teams, floorPlans, structureConfig, isOnline, projects, reportStartDate, reportEndDate]);
 
   const reportRows = useMemo(
     () => buildCrewReportRows(reportProjects, reportStartDate, reportEndDate),
@@ -212,28 +220,16 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const endDateSummary = dailySummaries.find((item) => item.date === reportEndDate);
 
   const setPreset = (preset: 'today' | 'yesterday' | '7days' | 'month') => {
-    const now = new Date();
-    if (preset === 'today') {
-      setReportStartDate(todayKey);
-      setReportEndDate(todayKey);
-    } else if (preset === 'yesterday') {
-      const key = shiftDate(now, -1);
-      setReportStartDate(key);
-      setReportEndDate(key);
-    } else if (preset === '7days') {
-      setReportStartDate(shiftDate(now, -6));
-      setReportEndDate(todayKey);
-    } else {
-      setReportStartDate(currentMonthStart());
-      setReportEndDate(todayKey);
-    }
+    const { startDate, endDate } = getCrewReportPresetRange(preset);
+    setReportStartDate(startDate);
+    setReportEndDate(endDate);
     setReportPreset(preset);
     setReportProjectFilter('all');
     setReportTeamFilter('all');
   };
 
   const kpis = [
-    { label: 'Dự án của tôi', value: projects.length, icon: Building2, tone: 'text-blue-700 bg-blue-50 border-blue-100', detail: 'Đã xác minh quyền truy cập' },
+    { label: 'Dự án của tôi', value: projects.length, icon: Building2, tone: 'text-indigo-700 bg-indigo-50 border-indigo-100', detail: 'Đã xác minh quyền truy cập' },
     { label: 'Defect đang mở', value: defectOpenCount, icon: AlertTriangle, tone: 'text-rose-700 bg-rose-50 border-rose-100', detail: 'Dự án đang mở' },
     { label: reportEndDate === todayKey ? 'Quân số hôm nay' : `Quân số ${formatDateDDMMYYYY(reportEndDate)}`, value: endDateSummary?.dailyHeadcount ?? '—', icon: Users, tone: 'text-emerald-700 bg-emerald-50 border-emerald-100', detail: endDateSummary ? `${endDateSummary.reportedTeams} đội đã báo${endDateSummary.missingTeams ? ` · ${endDateSummary.missingTeams} chưa báo` : ''}` : (reportLoading ? 'Đang tải nhiều dự án' : 'Chưa có dữ liệu đã tải') },
     { label: 'Cần chú ý', value: dueAlertCount, icon: Activity, tone: 'text-amber-700 bg-amber-50 border-amber-100', detail: 'Hạn / quá hạn dự án đang mở' },
@@ -270,7 +266,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                 </div>
                 <span className={`rounded-full border px-2 py-1 text-[9px] font-black ${roleClass(currentRole)}`}>{roleLabel(currentRole)}</span>
               </div>
-              <button type="button" onClick={onOpenFloorPlan} className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-xs font-extrabold text-white shadow-sm transition hover:bg-blue-700 active:scale-[0.99]">
+              <button type="button" data-hnl-home-primary-action onClick={onOpenFloorPlan} className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-xs font-extrabold text-white shadow-sm transition hover:bg-blue-700 active:scale-[0.99]">
                 Mở nhanh dự án đang làm <ArrowRight className="h-4 w-4" />
               </button>
               <label className="mt-3 flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
@@ -278,7 +274,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                   <span className="block text-[11px] font-extrabold text-slate-800">Mở thẳng dự án này khi khởi động</span>
                   <span className="mt-0.5 block text-[9.5px] leading-4 text-slate-500">Tắt bất cứ lúc nào để luôn vào Trang chủ.</span>
                 </span>
-                <input type="checkbox" checked={quickOpenEnabled} onChange={(event) => onStartupProjectChange(event.target.checked ? activeProjectId : '')} className="h-5 w-5 shrink-0 accent-blue-600" />
+                <input type="checkbox" checked={quickOpenEnabled} onChange={(event) => onStartupProjectChange(event.target.checked ? activeProjectId : '')} className="h-5 w-5 shrink-0" style={{ accentColor: 'var(--hnl-primary)' }} />
               </label>
             </div>
           </div>
@@ -300,7 +296,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         <section className="rounded-3xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="flex items-center gap-2 text-sm font-black text-slate-900"><Building2 className="h-4.5 w-4.5 text-blue-600" /> Dự án của tôi</div>
+              <div className="flex items-center gap-2 text-sm font-black text-slate-900"><Building2 className="h-4.5 w-4.5 text-indigo-600" /> Dự án của tôi</div>
               <p className="mt-0.5 text-[10px] text-slate-400">Chỉ các dự án tài khoản hiện tại đang có quyền truy cập.</p>
             </div>
             <button type="button" onClick={onManageProjects} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 text-[10px] font-extrabold text-slate-700 hover:bg-slate-100"><Settings2 className="h-3.5 w-3.5" /> Quản lý dự án</button>
@@ -314,16 +310,16 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                 const projectSummary = summarizeCrewReportRows(projectRows)[0];
                 const projectFailed = reportFailedProjects.includes(project.name);
                 return (
-                  <article key={project.id} className={`group overflow-hidden rounded-2xl border transition ${active ? 'border-blue-300 bg-blue-50/40 shadow-sm' : 'border-slate-200 bg-white hover:border-blue-200 hover:shadow-sm'}`}>
-                    <div className="h-2 bg-[linear-gradient(90deg,#2563eb,#38bdf8)]" />
+                  <article key={project.id} className={`group overflow-hidden rounded-2xl border transition ${active ? 'border-indigo-300 bg-indigo-50 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'}`}>
+                    <div className="h-2" style={{ backgroundImage: 'linear-gradient(90deg, var(--hnl-primary), color-mix(in srgb, var(--hnl-primary) 45%, white))' }} />
                     <div className="p-3.5">
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex min-w-0 items-center gap-2.5">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-blue-100 bg-blue-50 text-blue-700"><Building2 className="h-5 w-5" /></div>
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-700"><Building2 className="h-5 w-5" /></div>
                           <div className="min-w-0">
                             <div className="truncate text-sm font-black text-slate-900">{project.name}</div>
                             {reportProjects.find((item) => item.projectId === project.id)?.projectLocation && <div className="mt-0.5 truncate text-[9px] font-semibold text-slate-400">{reportProjects.find((item) => item.projectId === project.id)?.projectLocation}</div>}
-                            <div className="mt-1 flex items-center gap-1.5"><span className={`rounded-full border px-1.5 py-0.5 text-[8.5px] font-black ${roleClass(project.role)}`}>{roleLabel(project.role)}</span>{active && <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[8.5px] font-black text-white">ĐANG MỞ</span>}</div>
+                            <div className="mt-1 flex items-center gap-1.5"><span className={`rounded-full border px-1.5 py-0.5 text-[8.5px] font-black ${roleClass(project.role)}`}>{roleLabel(project.role)}</span>{active && <span className="rounded-full bg-indigo-600 px-1.5 py-0.5 text-[8.5px] font-black text-white">ĐANG MỞ</span>}</div>
                           </div>
                         </div>
                         <MapPin className="h-4 w-4 shrink-0 text-slate-300" />
@@ -341,7 +337,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                           <div className="col-span-3 rounded-lg bg-slate-50 px-2 py-2.5 text-center text-[9.5px] font-semibold text-slate-400">{reportLoading ? 'Đang tải quân số...' : 'Chưa có đội / dữ liệu trong ngày'}</div>
                         )}
                       </div>
-                      <button type="button" onClick={() => void onOpenProject(project.id)} className={`mt-3 flex min-h-10 w-full items-center justify-center gap-1.5 rounded-xl text-[10.5px] font-extrabold transition ${active ? 'bg-blue-600 text-white hover:bg-blue-700' : 'border border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700'}`}>{active ? 'Tiếp tục dự án' : 'Vào dự án'} <ArrowRight className="h-3.5 w-3.5" /></button>
+                      <button type="button" onClick={() => void onOpenProject(project.id)} className={`mt-3 flex min-h-10 w-full items-center justify-center gap-1.5 rounded-xl text-[10.5px] font-extrabold transition ${active ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900'}`}>{active ? 'Tiếp tục dự án' : 'Vào dự án'} <ArrowRight className="h-3.5 w-3.5" /></button>
                     </div>
                   </article>
                 );
@@ -359,7 +355,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
               <p className="mt-0.5 text-[10px] text-slate-400">Tổng hợp quân số theo ngày và theo đội.</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => setShowReportShare(true)} disabled={filteredReportRows.length === 0 || reportLoading} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-[10px] font-extrabold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"><FileText className="h-3.5 w-3.5" /> Chia sẻ báo cáo quân số</button>
+              <button type="button" onClick={() => setShowReportShare(true)} disabled={filteredReportRows.length === 0 || reportLoading} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 text-[10px] font-extrabold text-slate-700 hover:bg-slate-100 disabled:opacity-40"><FileText className="h-3.5 w-3.5" /> Chia sẻ báo cáo quân số</button>
               <button type="button" onClick={onOpenCrew} className="min-h-9 rounded-xl border border-slate-200 bg-slate-50 px-3 text-[10px] font-extrabold text-slate-700 hover:bg-slate-100">Mở mục Quân số</button>
             </div>
           </div>
@@ -404,10 +400,10 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                   <div className="text-[9px] font-bold text-slate-400">{matrix.teams.length} đội · {matrix.dates.length} ngày</div>
                 </div>
                 <div className="relative isolate max-h-[440px] overflow-auto overscroll-contain">
-                  <table className="w-full text-left text-xs" style={{ minWidth: `${Math.max(570, 230 + matrix.teams.length * 248)}px` }}>
+                  <table className="hnl-crew-report-table w-full text-left text-xs" style={{ minWidth: `${Math.max(570, 230 + matrix.teams.length * 248)}px` }}>
                     <thead className="bg-slate-100 text-[9px] font-black text-slate-500">
                       <tr className="h-8">
-                        <th rowSpan={3} className="sticky left-0 top-0 z-[5] min-w-[118px] border-r border-slate-200 bg-slate-100 px-3 py-2 align-middle">Ngày</th>
+                        <th rowSpan={3} className="sticky left-0 top-0 z-[5] min-w-[118px] border-r border-slate-200 bg-slate-100 px-3 py-2 text-center align-middle">Ngày</th>
                         {matrix.groups.map((group) => (
                           <th key={group.structureGroupId} colSpan={Math.max(1, group.teams.length * 4)} className="sticky top-0 z-[4] h-8 border-r border-indigo-200 bg-indigo-50 px-2 py-0 text-center text-indigo-800">
                             {group.structureGroupName}
@@ -457,9 +453,9 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         </section>
 
         <section className="rounded-3xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4">
-          <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2 text-sm font-black text-slate-900"><Bell className="h-4.5 w-4.5 text-amber-500" /> Cảnh báo & thao tác nhanh</div><button type="button" onClick={onOpenNotifications} className="text-[10px] font-extrabold text-blue-600 hover:text-blue-700">Xem tất cả</button></div>
+          <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2 text-sm font-black text-slate-900"><Bell className="h-4.5 w-4.5 text-amber-500" /> Cảnh báo và thao tác nhanh</div><button type="button" onClick={onOpenNotifications} className="text-[10px] font-extrabold text-indigo-600 hover:text-indigo-700">Xem tất cả</button></div>
           <div className="mt-3 grid gap-2 md:grid-cols-3">
-            <button type="button" onClick={onOpenFloorPlan} className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-3 py-2.5 text-left hover:bg-slate-50"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600"><AlertTriangle className="h-4.5 w-4.5" /></span><span className="min-w-0 flex-1"><span className="block text-[11px] font-extrabold text-slate-800">{defectOpenCount} defect chưa nghiệm thu</span><span className="block text-[9.5px] text-slate-400">Mở Mặt bằng / Defect</span></span><ArrowRight className="h-4 w-4 text-slate-300" /></button>
+            <button type="button" onClick={onOpenFloorPlan} className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-3 py-2.5 text-left hover:bg-slate-50"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600"><AlertTriangle className="h-4.5 w-4.5" /></span><span className="min-w-0 flex-1"><span className="block text-[11px] font-extrabold text-slate-800">{defectOpenCount} Defect chưa nghiệm thu</span><span className="block text-[9.5px] text-slate-400">Mở Mặt bằng / Defect</span></span><ArrowRight className="h-4 w-4 text-slate-300" /></button>
             <button type="button" onClick={onOpenNotifications} className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-3 py-2.5 text-left hover:bg-slate-50"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600"><Clock3 className="h-4.5 w-4.5" /></span><span className="min-w-0 flex-1"><span className="block text-[11px] font-extrabold text-slate-800">{dueAlertCount} mục cần theo dõi hạn</span><span className="block text-[9.5px] text-slate-400">Tiến độ / checklist / defect</span></span><ArrowRight className="h-4 w-4 text-slate-300" /></button>
             <div className="flex items-center gap-3 rounded-xl border border-slate-200 px-3 py-2.5"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600"><CheckCircle2 className="h-4.5 w-4.5" /></span><span className="min-w-0 flex-1"><span className="block text-[11px] font-extrabold text-slate-800">Phân quyền dự án đang được giữ nguyên</span><span className="block text-[9.5px] text-slate-400">Vai trò hiện tại: {roleLabel(currentRole)}</span></span><ShieldCheck className="h-4 w-4 text-emerald-500" /></div>
           </div>

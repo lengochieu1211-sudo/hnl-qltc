@@ -1,0 +1,31 @@
+name: P21 DEV Trusted Warehouse FakeDb Regression (NO DEPLOY)
+on:
+  pull_request:
+    paths:
+      - 'warehouse-trusted/**'
+      - '.github/workflows/p21-trusted-engine-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  warehouse-fakedb:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Trusted backend syntax (offline, no secrets)
+        run: |
+          for file in warehouse-trusted/*.mjs; do node --check "$file"; done
+      - name: FakeDb transaction regression (NO FIREBASE/PROD)
+        run: |
+          node warehouse-trusted/engine-golden.mjs
+          node warehouse-trusted/batch-golden.mjs
+          node warehouse-trusted/reconcile-golden.mjs
+          node warehouse-trusted/room-migrate-golden.mjs
+          node warehouse-trusted/unit-rename-golden.mjs
+          node warehouse-trusted/equipment-unit-rename-golden.mjs
+          node warehouse-trusted/manual-provenance-golden.mjs
+          node warehouse-trusted/room-auto-golden.mjs

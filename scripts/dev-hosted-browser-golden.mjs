@@ -68,10 +68,368 @@ async function waitForSettingsSheet(page, sheetKey, visible) {
   return sheet;
 }
 
+async function verifyStaleAssetCacheGuard(page, label) {
+  const stalePath = `/assets/__hnl_runtime_stale_${Date.now()}.js`;
+  const probe = await page.evaluate(async (path) => {
+    const indexResponse = await fetch('/index.html', { cache: 'no-store' });
+    const indexBody = await indexResponse.text();
+    const parsedIndex = new DOMParser().parseFromString(indexBody, 'text/html');
+    const entryScript = Array.from(parsedIndex.scripts)
+      .map((script) => script.getAttribute('src') || '')
+      .find((src) => {
+        try {
+          const pathname = new URL(src, location.href).pathname;
+          return pathname.startsWith('/assets/') && /\.js$/i.test(pathname);
+        } catch {
+          return false;
+        }
+      });
+    if (!entryScript) return { error: 'CURRENT_ENTRY_JS_NOT_FOUND' };
+
+    const entryResponse = await fetch(entryScript, { cache: 'no-store' });
+    const entryContentType = String(entryResponse.headers.get('content-type') || '').toLowerCase();
+    const entryPrefix = (await entryResponse.text()).slice(0, 96).trim().toLowerCase();
+
+    const staleResponse = await fetch(path, { cache: 'no-store' });
+    const staleContentType = String(staleResponse.headers.get('content-type') || '').toLowerCase();
+    const staleBody = await staleResponse.text();
+
+    let cached = false;
+    if (typeof caches !== 'undefined') {
+      for (const name of await caches.keys()) {
+        const cache = await caches.open(name);
+        if (await cache.match(path)) {
+          cached = true;
+          break;
+        }
+      }
+    }
+
+    return {
+      current: {
+        status: entryResponse.status,
+        contentType: entryContentType,
+        prefix: entryPrefix,
+      },
+      stale: {
+        status: staleResponse.status,
+        contentType: staleContentType,
+        prefix: staleBody.slice(0, 96).trim().toLowerCase(),
+        matchesIndex: staleBody.trim() === indexBody.trim(),
+        cached,
+      },
+    };
+  }, stalePath);
+
+  assert(!probe.error, `${label}: current hashed JS entry not found`);
+  assert(probe.current.status === 200, `${label}: current hashed JS must return 200, got HTTP ${probe.current.status}`);
+  assert(probe.current.contentType.includes('javascript'), `${label}: current hashed JS has non-JavaScript MIME: ${probe.current.contentType || 'unknown'}`);
+  assert(!probe.current.prefix.startsWith('<!doctype html') && !probe.current.prefix.startsWith('<html'), `${label}: current hashed JS body resolved to HTML`);
+
+  assert(probe.stale.status === 404, `${label}: stale hashed JS must return 404, got HTTP ${probe.stale.status}`);
+  assert(!probe.stale.matchesIndex, `${label}: stale hashed JS was rewritten to app index.html`);
+  assert(!probe.stale.cached, `${label}: stale hashed JS response poisoned CacheStorage`);
+  pass(`${label} hashed asset boundary`, `current JS 200/${probe.current.contentType || 'unknown'} · stale 404 · not app shell · not cached`);
+}
+
+async function verifyRapidPrimaryNavigation(page, label) {
+  const viewport = page.viewportSize();
+  if (!viewport) return;
+  const desktopLike = viewport.width >= 1024;
+
+  const result = await page.evaluate(async ({ desktopLike }) => {
+    const main = document.querySelector('main[data-hnl-active-tab]');
+    if (!main) throw new Error('Main navigation diagnostic surface missing');
+    const mobileRuntime = main.getAttribute('data-hnl-mobile-runtime') === 'true';
+
+    const navSurfaceName = desktopLike ? 'desktop' : 'mobile';
+    const navSurface = document.querySelector(`[data-hnl-nav-surface="${navSurfaceName}"]`);
+    if (!navSurface || getComputedStyle(navSurface).display === 'none' || navSurface.getClientRects().length === 0) {
+      throw new Error(`Visible ${navSurfaceName} navigation surface missing`);
+    }
+    const visibleNavButton = (tab) => Array.from(navSurface.querySelectorAll(`button[data-hnl-nav-tab="${tab}"]`))
+      .find((button) => getComputedStyle(button).display !== 'none' && button.getClientRects().length > 0);
+    const preferred = desktopLike
+      ? ['home', 'floorplan', 'crew', 'warehouse', 'volume', 'chat', 'ai', 'config']
+      : ['home', 'floorplan', 'crew', 'warehouse'];
+    const available = preferred.filter((tab) => Boolean(visibleNavButton(tab)));
+    const minimum = desktopLike ? 6 : 4;
+    if (available.length < minimum) throw new Error(`Not enough visible primary nav tabs for rapid-switch test: ${available.join(',')}`);
+
+    const currentActive = main.getAttribute('data-hnl-active-tab') || '';
+    const singleTab = available.find((tab) => tab !== currentActive) || available[0];
+    const singleButton = visibleNavButton(singleTab);
+    const singleStartedAt = performance.now();
+    singleButton.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', isPrimary: true }));
+    singleButton.click();
+    const singleDeadline = performance.now() + 1500;
+    while (performance.now() < singleDeadline && main.getAttribute('data-hnl-active-tab') !== singleTab) {
+      await new Promise((resolve) => setTimeout(resolve, 8));
+    }
+    const singleSwitchMs = performance.now() - singleStartedAt;
+    const singleActive = main.getAttribute('data-hnl-active-tab') || '';
+
+    const singleMountedDeadline = performance.now() + 1500;
+    while (performance.now() < singleMountedDeadline && main.getAttribute('data-hnl-mounted-tab') !== singleTab) {
+      await new Promise((resolve) => setTimeout(resolve, 8));
+    }
+    const singleMounted = main.getAttribute('data-hnl-mounted-tab') || '';
+
+    // A state commit is not yet "heavy content mounted" if its lazy chunk is still
+    // suspended. Wait for the real tab DOM instance so first-open latency and keepalive
+    // identity are measured against the content the user can actually interact with.
+    const singleInstanceDeadline = performance.now() + 1500;
+    let singleInstance = main.querySelector(`[data-hnl-tab-instance="${singleTab}"]`);
+    while (performance.now() < singleInstanceDeadline && !singleInstance) {
+      await new Promise((resolve) => setTimeout(resolve, 8));
+      singleInstance = main.querySelector(`[data-hnl-tab-instance="${singleTab}"]`);
+    }
+    const singleMountedMs = performance.now() - singleStartedAt;
+    await new Promise((resolve) => setTimeout(resolve, 380));
+
+    const longTasks = [];
+    let longTaskObserver = null;
+    try {
+      if (PerformanceObserver.supportedEntryTypes?.includes('longtask')) {
+        longTaskObserver = new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) longTasks.push(entry.duration);
+        });
+        longTaskObserver.observe({ entryTypes: ['longtask'] });
+      }
+    } catch {}
+
+    const commits = [];
+    const targets = [];
+    const observer = new MutationObserver(() => {
+      const mounted = main.getAttribute('data-hnl-mounted-tab') || '';
+      if (!commits.length || commits[commits.length - 1] !== mounted) commits.push(mounted);
+    });
+    observer.observe(main, { attributes: true, attributeFilter: ['data-hnl-mounted-tab'] });
+
+    const targetLatencies = [];
+    const startedAt = performance.now();
+    for (const tab of available) {
+      const button = visibleNavButton(tab);
+      const clickAt = performance.now();
+      button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', isPrimary: true }));
+      button.click();
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const target = main.getAttribute('data-hnl-navigation-target') || '';
+      targets.push(target);
+      targetLatencies.push({ tab, ms: performance.now() - clickAt, target });
+      await new Promise((resolve) => setTimeout(resolve, 8));
+    }
+
+    const finalTab = available[available.length - 1];
+    const deadline = performance.now() + 2500;
+    while (performance.now() < deadline && main.getAttribute('data-hnl-mounted-tab') !== finalTab) {
+      await new Promise((resolve) => setTimeout(resolve, 16));
+    }
+
+    // React state can commit before a cold lazy destination finishes mounting. Measure
+    // release/keep-alive only after the final real tab DOM exists; otherwise Suspense may
+    // legitimately keep the previous content connected while the final chunk resolves.
+    const finalInstanceDeadline = performance.now() + 1500;
+    let finalInstance = main.querySelector(`[data-hnl-tab-instance="${finalTab}"]`);
+    while (performance.now() < finalInstanceDeadline && !finalInstance) {
+      await new Promise((resolve) => setTimeout(resolve, 8));
+      finalInstance = main.querySelector(`[data-hnl-tab-instance="${finalTab}"]`);
+    }
+    observer.disconnect();
+
+    // Capture the rapid-navigation outcome before the intentional same-tab/revisit probes
+    // below mutate the visual and mounted destinations again.
+    const rapidFinalActive = main.getAttribute('data-hnl-active-tab') || '';
+    const rapidFinalMounted = main.getAttribute('data-hnl-mounted-tab') || '';
+    const rapidFinalTarget = main.getAttribute('data-hnl-navigation-target') || '';
+    const rapidFinalInstances = Array.from(main.querySelectorAll('[data-hnl-tab-instance]'))
+      .map((node) => node.getAttribute('data-hnl-tab-instance') || '')
+      .filter(Boolean);
+    const singleInstanceConnectedAfterRapid = Boolean(singleInstance?.isConnected);
+
+    // Revisit a tab whose chunk has already loaded. This measures render/remount cost,
+    // not network download cost, and mirrors the user's "đã bấm rồi mà bấm lại vẫn lâu".
+    const revisitButton = visibleNavButton(singleTab);
+    const revisitStartedAt = performance.now();
+    revisitButton.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', isPrimary: true }));
+    revisitButton.click();
+    const revisitVisualDeadline = performance.now() + 500;
+    while (performance.now() < revisitVisualDeadline && main.getAttribute('data-hnl-active-tab') !== singleTab) {
+      await new Promise((resolve) => setTimeout(resolve, 4));
+    }
+    const revisitVisualMs = performance.now() - revisitStartedAt;
+    const revisitMountedDeadline = performance.now() + 1500;
+    while (performance.now() < revisitMountedDeadline && main.getAttribute('data-hnl-mounted-tab') !== singleTab) {
+      await new Promise((resolve) => setTimeout(resolve, 8));
+    }
+    let revisitInstance = main.querySelector(`[data-hnl-tab-instance="${singleTab}"]`);
+    while (performance.now() < revisitMountedDeadline && !revisitInstance) {
+      await new Promise((resolve) => setTimeout(resolve, 8));
+      revisitInstance = main.querySelector(`[data-hnl-tab-instance="${singleTab}"]`);
+    }
+    const revisitMountedMs = performance.now() - revisitStartedAt;
+    const revisitMounted = main.getAttribute('data-hnl-mounted-tab') || '';
+    const revisitPreservedInstance = Boolean(singleInstance && revisitInstance && singleInstance === revisitInstance);
+    const revisitSwitching = Boolean(main.querySelector('[data-hnl-tab-switching="true"]'));
+
+    // Same-tab no-op is meaningful only after the destination is warm and visibly
+    // mounted. Checking a just-committed cold lazy tab can race the first chunk resolve
+    // and mistake "first DOM appeared" for a remount caused by the second click.
+    const hasVisibleSwitching = () => Array.from(main.querySelectorAll('[data-hnl-tab-switching="true"]'))
+      .some((node) => {
+        const element = node;
+        return getComputedStyle(element).display !== 'none' && element.getClientRects().length > 0;
+      });
+    const sameTabButton = visibleNavButton(singleTab);
+    const sameTabBefore = main.getAttribute('data-hnl-mounted-tab') || '';
+    const sameTabInstanceBefore = main.querySelector(`[data-hnl-tab-instance="${singleTab}"]`);
+    const sameTabSwitchingBefore = hasVisibleSwitching();
+    sameTabButton.click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await new Promise((resolve) => setTimeout(resolve, 32));
+    const sameTabAfter = main.getAttribute('data-hnl-mounted-tab') || '';
+    const sameTabInstanceAfter = main.querySelector(`[data-hnl-tab-instance="${singleTab}"]`);
+    const sameTabPreservedInstance = Boolean(sameTabInstanceBefore && sameTabInstanceAfter && sameTabInstanceBefore === sameTabInstanceAfter);
+    const sameTabSwitchingAfter = hasVisibleSwitching();
+    longTaskObserver?.disconnect();
+
+    return {
+      available,
+      mobileRuntime,
+      singleTab,
+      singleActive,
+      singleSwitchMs,
+      singleMounted,
+      singleMountedMs,
+      singleInstanceReady: Boolean(singleInstance),
+      finalTab,
+      finalActive: rapidFinalActive,
+      finalMounted: rapidFinalMounted,
+      finalTarget: rapidFinalTarget,
+      finalInstanceReady: Boolean(finalInstance),
+      rapidFinalInstances,
+      singleInstanceConnectedAfterRapid,
+      commits,
+      targets,
+      targetLatencies,
+      sameTabBefore,
+      sameTabAfter,
+      sameTabPreservedInstance,
+      sameTabSwitchingBefore,
+      sameTabSwitchingAfter,
+      revisitVisualMs,
+      revisitMountedMs,
+      revisitMounted,
+      revisitPreservedInstance,
+      revisitSwitching,
+      longTasks,
+      totalMs: performance.now() - startedAt,
+    };
+  }, { desktopLike });
+
+  assert(result.singleActive === result.singleTab, `${label}: visible destination shell did not settle on one click (${result.singleActive} != ${result.singleTab})`);
+  assert(result.singleSwitchMs <= 120, `${label}: visible destination shell exceeded 120ms (${result.singleSwitchMs.toFixed(1)}ms)`);
+  assert(result.singleMounted === result.singleTab, `${label}: heavy content did not settle on one click (${result.singleMounted} != ${result.singleTab})`);
+  assert(result.singleInstanceReady, `${label}: first heavy-content DOM instance did not mount`);
+  assert(result.singleMountedMs <= 900, `${label}: first heavy-content mount exceeded 900ms (${result.singleMountedMs.toFixed(1)}ms)`);
+  assert(result.finalActive === result.finalTab, `${label}: rapid navigation visual shell did not settle on last click (${result.finalActive} != ${result.finalTab})`);
+  assert(result.finalMounted === result.finalTab, `${label}: rapid navigation heavy content did not settle on last click (${result.finalMounted} != ${result.finalTab})`);
+  assert(result.finalInstanceReady, `${label}: rapid navigation final heavy-content DOM instance did not mount`);
+  assert(result.targets.every((target, index) => target === result.available[index]), `${label}: requested nav target did not respond to every rapid click — ${JSON.stringify(result.targetLatencies)}`);
+  const maxTargetLatency = Math.max(...result.targetLatencies.map((entry) => entry.ms));
+  assert(maxTargetLatency <= 220, `${label}: rapid navigation target feedback exceeded 220ms (${maxTargetLatency.toFixed(1)}ms)`);
+  const heavyTabs = new Set(['floorplan', 'crew', 'warehouse', 'volume', 'config', 'chat', 'ai']);
+  const intermediateHeavyCommits = result.commits.filter((tab) => tab && tab !== result.finalTab && heavyTabs.has(tab));
+  assert(intermediateHeavyCommits.length === 0, `${label}: intermediate heavy tabs committed during rapid navigation — ${JSON.stringify(result.commits)}`);
+  assert(result.revisitMounted === result.singleTab, `${label}: warmed tab revisit did not settle to ${result.singleTab}`);
+  if (!result.mobileRuntime) {
+    assert(result.revisitPreservedInstance, `${label}: desktop-runtime warmed primary tab was remounted instead of reusing its existing DOM instance`);
+    assert(!result.revisitSwitching, `${label}: desktop-runtime warmed primary tab revisit displayed a loading state`);
+    assert(result.revisitMountedMs <= 180, `${label}: desktop-runtime warmed tab revisit commit exceeded 180ms (${result.revisitMountedMs.toFixed(1)}ms)`);
+  } else {
+    assert(!result.singleInstanceConnectedAfterRapid, `${label}: mobile-runtime kept the previous primary DOM connected after navigating away — ${JSON.stringify(result.rapidFinalInstances)}`);
+    assert(result.rapidFinalInstances.length === 1 && result.rapidFinalInstances[0] === result.finalTab, `${label}: mobile-runtime must keep exactly the final primary tab mounted — ${JSON.stringify(result.rapidFinalInstances)}`);
+    assert(result.revisitMountedMs <= 320, `${label}: cached mobile-runtime tab remount exceeded 320ms (${result.revisitMountedMs.toFixed(1)}ms)`);
+  }
+  assert(result.revisitVisualMs <= 120, `${label}: warmed tab revisit shell exceeded 120ms (${result.revisitVisualMs.toFixed(1)}ms)`);
+  assert(result.sameTabBefore === result.singleTab && result.sameTabAfter === result.singleTab, `${label}: re-tapping warmed active tab changed mounted content`);
+  assert(result.sameTabPreservedInstance, `${label}: re-tapping warmed active tab remounted its existing DOM instance`);
+  assert(!(result.sameTabSwitchingBefore === false && result.sameTabSwitchingAfter === true), `${label}: re-tapping warmed active tab introduced a new visible loading state`);
+  assert(result.totalMs <= 2200, `${label}: rapid navigation settle path exceeded 2200ms (${result.totalMs.toFixed(1)}ms)`);
+  const maxLongTaskMs = result.longTasks.length ? Math.max(...result.longTasks) : 0;
+  assert(maxLongTaskMs <= 200, `${label}: warm interaction produced a Long Task >200ms (${maxLongTaskMs.toFixed(1)}ms)`);
+  pass(`${label} primary navigation responsiveness`, `shell ${result.singleSwitchMs.toFixed(1)}ms · first content ${result.singleMountedMs.toFixed(1)}ms · revisit ${result.revisitMountedMs.toFixed(1)}ms · ${result.available.length} rapid tabs · max target ${maxTargetLatency.toFixed(1)}ms · max long task ${maxLongTaskMs.toFixed(1)}ms`);
+}
+
+async function verifyMobileMoreNavigation(page, label) {
+  const viewport = page.viewportSize();
+  if (!viewport || viewport.width >= 1024) return;
+
+  const result = await page.evaluate(async () => {
+    const main = document.querySelector('main[data-hnl-active-tab]');
+    const navSurface = document.querySelector('[data-hnl-nav-surface="mobile"]');
+    if (!main || !navSurface) throw new Error('Mobile navigation diagnostic surface missing');
+    const visibleButton = (tab) => Array.from(navSurface.querySelectorAll(`button[data-hnl-nav-tab="${tab}"]`))
+      .find((button) => getComputedStyle(button).display !== 'none' && button.getClientRects().length > 0);
+    const more = visibleButton('more');
+    if (!more) throw new Error('Visible mobile More button missing');
+
+    const required = ['volume', 'chat', 'config'];
+    const optional = ['checklist', 'ai', 'superadmin'];
+    const tested = [];
+    const targetLatencies = [];
+    const settleLatencies = [];
+
+    for (const tab of [...required, ...optional]) {
+      if (!visibleButton(tab)) {
+        more.click();
+        const menuDeadline = performance.now() + 800;
+        while (performance.now() < menuDeadline && !visibleButton(tab)) {
+          await new Promise((resolve) => setTimeout(resolve, 8));
+        }
+      }
+      const button = visibleButton(tab);
+      if (!button) {
+        // Optional entries can legitimately be absent for this project/account.
+        if (required.includes(tab)) throw new Error(`Required mobile More destination missing: ${tab}`);
+        const openMore = visibleButton('more');
+        if (openMore) openMore.click();
+        continue;
+      }
+
+      const clickAt = performance.now();
+      button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', isPrimary: true }));
+      button.click();
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const target = main.getAttribute('data-hnl-navigation-target') || '';
+      targetLatencies.push({ tab, ms: performance.now() - clickAt, target });
+
+      const settleStartedAt = performance.now();
+      const settleDeadline = performance.now() + 1500;
+      while (performance.now() < settleDeadline && main.getAttribute('data-hnl-mounted-tab') !== tab) {
+        await new Promise((resolve) => setTimeout(resolve, 8));
+      }
+      settleLatencies.push({ tab, ms: performance.now() - settleStartedAt, active: main.getAttribute('data-hnl-mounted-tab') || '' });
+      tested.push(tab);
+      await new Promise((resolve) => setTimeout(resolve, 380));
+    }
+
+    return { required, tested, targetLatencies, settleLatencies };
+  });
+
+  assert(result.required.every((tab) => result.tested.includes(tab)), `${label}: mobile More paths did not cover required destinations — ${JSON.stringify(result.tested)}`);
+  assert(result.targetLatencies.every((entry) => entry.target === entry.tab), `${label}: mobile More destination feedback mismatch — ${JSON.stringify(result.targetLatencies)}`);
+  const maxTargetLatency = Math.max(...result.targetLatencies.map((entry) => entry.ms));
+  const maxSettleLatency = Math.max(...result.settleLatencies.map((entry) => entry.ms));
+  assert(maxTargetLatency <= 220, `${label}: mobile More target feedback exceeded 220ms (${maxTargetLatency.toFixed(1)}ms)`);
+  assert(result.settleLatencies.every((entry) => entry.active === entry.tab && entry.ms <= 900), `${label}: mobile More destination settle exceeded 900ms — ${JSON.stringify(result.settleLatencies)}`);
+  pass(`${label} mobile More navigation paths`, `${result.tested.join('→')} · max target ${maxTargetLatency.toFixed(1)}ms · max settle ${maxSettleLatency.toFixed(1)}ms`);
+}
+
 async function verifySettingsFeatureSheets(page, label) {
   const viewport = page.viewportSize();
   const desktopRail = Boolean(viewport && viewport.width >= 1024);
-  const moreButton = page.getByRole('button', { name: 'Thêm', exact: true });
+  const moreButton = page.getByRole('button', { name: 'Mở thêm phân hệ', exact: true });
   if (!desktopRail) {
     assert(await moreButton.count() > 0, `${label}: Thêm mobile bottom-nav button not found`);
     await moreButton.click();
@@ -93,7 +451,7 @@ async function verifySettingsFeatureSheets(page, label) {
 
   const settingsCards = [
     { name: 'Trung tâm đồng bộ & sao lưu dự án', selector: syncSelector, card: syncCard, closeMode: 'x' },
-    { name: 'HNL Health Center', selector: healthSelector, card: healthCard, closeMode: 'history' },
+    { name: 'Trung tâm kiểm tra dữ liệu (Health Center)', selector: healthSelector, card: healthCard, closeMode: 'history' },
     {
       name: 'Cài đặt định dạng số & ngày tháng',
       selector: null,
@@ -106,7 +464,12 @@ async function verifySettingsFeatureSheets(page, label) {
       card: page.locator('details').filter({ hasText: 'Chất lượng ảnh & dung lượng' }).first(),
       closeMode: 'backdrop',
     },
-    { name: 'Dữ liệu đã ẩn & lịch sử', selector: trashSelector, card: trashCard, closeMode: 'x' },
+    { name: 'Thùng rác', selector: trashSelector, card: trashCard, closeMode: 'x' },
+    {
+      name: 'Quản lý mẫu', selector: '#catalog-template-manager-card',
+      card: page.locator('#catalog-template-manager-card'), closeMode: 'x',
+    },
+    { name: 'Hướng dẫn sử dụng & Trợ giúp', selector: '#user-guide-center-card', card: page.locator('#user-guide-center-card'), closeMode: 'x' },
   ];
 
   for (const [index, item] of settingsCards.entries()) {
@@ -135,7 +498,7 @@ async function verifySettingsFeatureSheets(page, label) {
     assert(sharedStyles[i].boxShadow === sharedStyles[0].boxShadow, `${label}: Settings cards do not share the same shadow`);
     assert(sharedStyles[i].overflowX <= 1, `${label}: Settings card ${i + 1} overflows horizontally`);
   }
-  pass(`${label} five Settings cards share one design system`);
+  pass(`${label} seven Settings cards share one design system`);
 
   const syncSummary = syncCard.locator('summary').first();
   const syncClosedBox = await syncSummary.boundingBox();
@@ -165,6 +528,41 @@ async function verifySettingsFeatureSheets(page, label) {
 
     const sheet = await waitForSettingsSheet(page, sheetKey, true);
     const backdrop = page.locator(`[data-hnl-settings-sheet-backdrop="${sheetKey}"]`);
+    if (item.name === 'Quản lý mẫu') {
+      const tabs = ['Đội thi công', 'Hạng mục thi công', 'Định mức vật tư', 'Vật tư', 'Thiết bị'];
+      const manager = sheet.locator('[data-hnl-template-manager]');
+      await manager.waitFor({ state: 'visible', timeout: 10000 });
+      for (const tabName of tabs) {
+        const tab = manager.getByRole('button', { name: tabName, exact: true });
+        await tab.click();
+        assert(await tab.count() === 1, `${label}: missing Catalog nested tab ${tabName}`);
+      }
+      pass(`${label} Catalog all 5 nested Settings tabs`);
+    }
+    if (item.name === 'Hướng dẫn sử dụng & Trợ giúp') {
+      const guide = sheet.locator('[data-hnl-user-guide="true"]');
+      await guide.waitFor({ state: 'visible', timeout: 10000 });
+      const pc = guide.locator('[data-hnl-guide-platform="pc"]');
+      const mobile = guide.locator('[data-hnl-guide-platform="mobile"]');
+      assert(await pc.count() === 1 && await mobile.count() === 1, `${label}: Guide PC/mobile selectors missing`);
+      const typography = await guide.evaluate((el) => {
+        const platformButtons = Array.from(el.querySelectorAll('[data-hnl-guide-platform]'));
+        return {
+          fontSize: parseFloat(getComputedStyle(el).fontSize),
+          buttonWidths: platformButtons.map((b) => b.getBoundingClientRect().width),
+          searchWidth: el.querySelector('[data-hnl-guide-search]')?.getBoundingClientRect().width ?? 0,
+        };
+      });
+      assert(typography.fontSize >= 11.9 && typography.fontSize <= 12.2, `${label}: Guide text must match Settings 12px base`);
+      if (desktopRail) {
+        assert(typography.buttonWidths.every((w) => w > 60 && w <= 181), `${label}: Desktop guide buttons must not stretch, got ${typography.buttonWidths}`);
+        assert(typography.searchWidth > 0 && typography.searchWidth <= 561, `${label}: Desktop guide search must remain compact`);
+      }
+      await mobile.click();
+      assert((await mobile.getAttribute('aria-pressed')) === 'true', `${label}: Switching guide to mobile failed`);
+      await pc.click();
+      pass(`${label} user guide typography/platform layout`, `${typography.buttonWidths.map((w) => Math.round(w)).join('/')}px`);
+    }
     await backdrop.waitFor({ state: 'visible', timeout: 10000 });
 
     const metrics = await page.evaluate((key) => {
@@ -291,7 +689,7 @@ async function verifySettingsFeatureSheets(page, label) {
     assert(!historyMarker, `${label}: ${item.name} left a stale feature-sheet history marker after close`);
   }
 
-  pass(`${label} five Settings entries open in shared feature sheets`);
+  pass(`${label} seven Settings entries open in shared feature sheets`);
   pass(`${label} Settings sheet close contract`, 'X + Back + Escape + backdrop');
 
   if (desktopRail) {
@@ -345,7 +743,7 @@ async function verifyMaterialNeedFeatureSheet(page, label) {
   await sheet.getByText('Tất cả hạng mục đã khai', { exact: true }).first().waitFor({ state: 'visible', timeout: 10000 });
   pass(`${label} Material Need multi-room + declared work-category filters visible`);
 
-  const closeButton = sheet.getByRole('button', { name: /^Đóng Gợi ý vật tư tổng hợp$/ }).first();
+  const closeButton = sheet.getByRole('button', { name: /^Đóng Gợi ý vật tư tổng hợp · Nhu cầu theo phạm vi$/ }).first();
   await closeButton.waitFor({ state: 'visible', timeout: 10000 });
   await closeButton.click();
   await waitForSettingsSheet(page, 'material-need-details', false);
@@ -357,8 +755,8 @@ const runtimeOfflineIdentity = {
   displayName: 'Runtime Golden Offline Admin',
 };
 
-async function seedRememberedOfflineAdmin(context) {
-  await context.addInitScript(({ identity }) => {
+async function seedRememberedOfflineAdmin(context, desktopMode = null) {
+  await context.addInitScript(({ identity, desktopMode }) => {
     try {
       Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => false });
     } catch {}
@@ -387,8 +785,11 @@ async function seedRememberedOfflineAdmin(context) {
       }]));
       localStorage.setItem('active_project_id', projectId);
       sessionStorage.setItem('active_project_id', projectId);
+      // Legacy shell/touch-target tests intentionally start in classic; the modern
+      // default is certified independently rather than suppressing it in the app.
+      if (desktopMode === 'classic') localStorage.setItem('hnl_desktop_workspace_mode_v1', 'classic');
     } catch {}
-  }, { identity: runtimeOfflineIdentity });
+  }, { identity: runtimeOfflineIdentity, desktopMode });
 }
 
 async function verifySignedOutGate(browser, label, viewport, screenshotPath) {
@@ -411,7 +812,7 @@ async function verifySignedOutGate(browser, label, viewport, screenshotPath) {
   });
   assert(response && response.status() === 200, `${label}: signed-out Hosting navigation failed`);
   await page.locator('[data-hnl-auth-gate="signed-out"]').waitFor({ state: 'visible', timeout: 20000 });
-  await page.getByRole('button', { name: 'Đăng nhập bằng Google', exact: true }).waitFor({ state: 'visible', timeout: 10000 });
+  await page.getByRole('button', { name: 'Đăng nhập với Google', exact: true }).waitFor({ state: 'visible', timeout: 10000 });
   assert(await page.locator('aside').count() === 0, `${label}: desktop navigation rail leaked before login`);
   assert(await page.locator('button[title*="Trung tâm bảo mật" i]').count() === 0, `${label}: Security Center leaked before login`);
   assert(await page.getByText('Ghi nhận quân số', { exact: true }).count() === 0, `${label}: project UI leaked before login`);
@@ -423,14 +824,287 @@ async function verifySignedOutGate(browser, label, viewport, screenshotPath) {
   await context.close();
 }
 
-async function runViewport(browser, label, viewport, screenshotPath) {
+async function verifyUiUxV3Shell(page, context, label) {
+  const viewport = page.viewportSize();
+  const header = page.locator('[data-hnl-global-header]').first();
+  await header.waitFor({ state: 'visible', timeout: 10000 });
+  const headerBox = await header.boundingBox();
+  assert(headerBox, `${label}: global header measurement failed`);
+  if (viewport && viewport.width >= 1024) {
+    assert(headerBox.height <= 84, `${label}: compact desktop header exceeded 84px (${headerBox.height.toFixed(1)}px)`);
+  }
+
+  const actionBar = header.locator('[data-hnl-header-actions]').first();
+  assert(await actionBar.count() > 0, `${label}: header quick-action bar missing`);
+  const actionMetrics = await actionBar.locator('button, a').evaluateAll((nodes) => nodes
+    .filter((node) => {
+      const style = getComputedStyle(node);
+      const rect = node.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+    })
+    .map((node) => {
+      const rect = node.getBoundingClientRect();
+      return { width: rect.width, height: rect.height, label: node.getAttribute('title') || node.getAttribute('aria-label') || node.textContent || '' };
+    }));
+  assert(actionMetrics.length >= 4, `${label}: not enough visible header actions for touch-target audit`);
+  const undersized = actionMetrics.filter((item) => item.width < 35.5 || item.height < 35.5);
+  assert(undersized.length === 0, `${label}: header action below 36px touch target — ${JSON.stringify(undersized)}`);
+  pass(`${label} UI/UX V3 compact header + touch targets`, `${Math.round(headerBox.height)}px · ${actionMetrics.length} actions`);
+
+  await context.setOffline(true);
+  const offlineBanner = page.locator('[data-hnl-offline-banner]').first();
+  await offlineBanner.waitFor({ state: 'visible', timeout: 10000 });
+  const offlineMetrics = await offlineBanner.evaluate((banner) => {
+    const text = banner.querySelector('[data-hnl-offline-safety-text]');
+    const chip = banner.querySelector('[data-hnl-offline-status-chip]');
+    if (!text || !chip) return null;
+    const textStyle = getComputedStyle(text);
+    const textRect = text.getBoundingClientRect();
+    const lineHeight = Number.parseFloat(textStyle.lineHeight) || 16;
+    return {
+      text: text.textContent || '',
+      bannerOverflow: banner.scrollWidth - banner.clientWidth,
+      whiteSpace: textStyle.whiteSpace,
+      textOverflow: textStyle.textOverflow,
+      lines: Math.ceil(textRect.height / lineHeight),
+      chipVisible: chip.getBoundingClientRect().width > 0 && chip.getBoundingClientRect().height > 0,
+    };
+  });
+  assert(offlineMetrics, `${label}: offline safety/banner hooks missing`);
+  assert(offlineMetrics.bannerOverflow <= 2, `${label}: offline banner overflows horizontally (${offlineMetrics.bannerOverflow}px)`);
+  assert(offlineMetrics.whiteSpace !== 'nowrap' && offlineMetrics.textOverflow !== 'ellipsis', `${label}: offline safety text is still truncating`);
+  assert(offlineMetrics.lines <= 2, `${label}: offline safety copy exceeded two lines (${offlineMetrics.lines})`);
+  assert(offlineMetrics.chipVisible, `${label}: offline status chip is not visible`);
+  assert(/(VIEWER chỉ được xem|chờ Firestore|tạm thời chỉ xem|tự đồng bộ)/.test(offlineMetrics.text), `${label}: offline safety meaning is not visible — ${offlineMetrics.text}`);
+
+  const previousTheme = await page.evaluate(() => document.documentElement.getAttribute('data-hnl-theme'));
+  const darkSmoke = await page.evaluate(() => {
+    document.documentElement.setAttribute('data-hnl-theme', 'dark');
+    const headerEl = document.querySelector('[data-hnl-global-header]');
+    const bannerEl = document.querySelector('[data-hnl-offline-banner]');
+    if (!headerEl || !bannerEl) return null;
+    const headerStyle = getComputedStyle(headerEl);
+    const bannerStyle = getComputedStyle(bannerEl);
+    return {
+      headerBg: headerStyle.backgroundColor,
+      headerText: headerStyle.color,
+      bannerBg: bannerStyle.backgroundColor,
+      bannerText: bannerStyle.color,
+    };
+  });
+  assert(darkSmoke, `${label}: dark-mode smoke could not inspect changed shell surfaces`);
+  assert(darkSmoke.headerBg !== 'rgba(0, 0, 0, 0)' && darkSmoke.bannerBg !== 'rgba(0, 0, 0, 0)', `${label}: dark-mode changed surface became transparent`);
+  assert(darkSmoke.headerBg !== darkSmoke.headerText && darkSmoke.bannerBg !== darkSmoke.bannerText, `${label}: dark-mode changed surface lost readable contrast`);
+  await page.evaluate((theme) => {
+    if (theme) document.documentElement.setAttribute('data-hnl-theme', theme);
+    else document.documentElement.removeAttribute('data-hnl-theme');
+  }, previousTheme);
+  pass(`${label} UI/UX V3 offline safety + dark-mode smoke`, `${offlineMetrics.lines} lines · chip visible`);
+
+  await context.setOffline(false);
+  const reconnectProbeOk = await page.evaluate(async () => {
+    try {
+      const response = await fetch(`/__/firebase/init.json?qlct_uiux_reconnect=${Date.now()}`, {
+        method: 'GET',
+        cache: 'no-store',
+        credentials: 'same-origin',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  });
+  assert(reconnectProbeOk, `${label}: network stack did not recover after Playwright offline emulation`);
+
+  // Keep this shell check scoped to what Playwright offline emulation guarantees:
+  // browser network recovery. The live backend golden separately proves that Firestore
+  // pending writes survive disableNetwork -> enableNetwork and publish cross-account.
+  // Do not reload or synthesize navigator.onLine here because Chromium can retain a stale
+  // flag and reloading would discard the remembered-offline identity fixture used by this UI run.
+  pass(`${label} UI/UX V3 reconnect network recovery`, 'Firebase Hosting probe ok after offline emulation');
+  await page.waitForTimeout(250);
+}
+
+// Exercise the actual opt-in PC Workspace; the generic viewport golden above
+// intentionally begins in classic mode and cannot certify V3.2's removed bars.
+// Fixture is browser-local verified offline identity: never changes live data.
+async function verifyModernPcWorkspace(page, label, switchFromClassic = false) {
+  if (switchFromClassic) {
+    const switcher = page.locator('[data-hnl-pc-mode-toggle="classic"] button').first();
+    await switcher.waitFor({ state: 'visible', timeout: 10000 });
+    await switcher.click();
+  }
+  await page.waitForFunction(() =>
+    document.querySelector('[data-hnl-desktop-design]')?.getAttribute('data-hnl-desktop-design') === 'modern',
+  null, { timeout: 10000 });
+  const state = await page.evaluate(() => {
+    const shell = document.querySelector('[data-hnl-desktop-design="modern"]');
+    const rail = document.querySelector('[data-hnl-nav-surface="desktop"]');
+    const darkHeader = shell?.querySelector('[data-hnl-global-header]');
+    const contextHeader = shell?.querySelector('.hnl-pc-workspace-heading');
+    const quickNav = shell?.querySelector('.hnl-pc-quick-nav');
+    const commands = contextHeader?.querySelector('.hnl-pc-heading-actions');
+    const actionLabels = [...(commands?.querySelectorAll('button') || [])]
+      .map((element) => (element.textContent || '').trim());
+    return {
+      darkHeaderMounted: Boolean(darkHeader),
+      darkHeaderHidden: Boolean(darkHeader) && getComputedStyle(darkHeader).display === 'none',
+      contextHeaderVisible: Boolean(contextHeader) && contextHeader.getBoundingClientRect().height > 0,
+      quickNavHidden: !quickNav || getComputedStyle(quickNav).display === 'none',
+      railWidth: rail?.getBoundingClientRect().width || 0,
+      railVisible: Boolean(rail) && getComputedStyle(rail).display !== 'none',
+      actionLabels,
+      undoRedo: commands?.querySelectorAll('button[title*="Hoàn tác"],button[title*="Khôi phục"]')?.length || 0,
+      overflow: Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0) - window.innerWidth,
+    };
+  });
+  assert(state.darkHeaderMounted && state.darkHeaderHidden, `${label}: redundant black header not hidden in modern PC: ${JSON.stringify(state)}`);
+  assert(state.contextHeaderVisible, `${label}: modern context header missing`);
+  assert(state.quickNavHidden, `${label}: duplicated horizontal top-level tabs still visible`);
+  assert(state.railVisible && state.railWidth >= 83 && state.railWidth <= 85, `${label}: original 84px rail lost: ${state.railWidth}`);
+  assert(['Dự án','Báo cáo','Thông báo','Bảo mật','PC cũ'].every((name) => state.actionLabels.some((label) => label.includes(name))),
+    `${label}: missing contextual action: ${JSON.stringify(state.actionLabels)}`);
+  assert(state.undoRedo === 2, `${label}: Undo/Redo handlers not available in contextual toolbar`);
+  assert(state.overflow <= 12, `${label}: modern PC horizontal overflow ${state.overflow}px`);
+  await page.screenshot({ path: `runtime-evidence/${label}-modern-pc.png`, fullPage: false });
+  pass(`${label} V3.2 real modern PC compact navigation`, `84px rail · no black header · no duplicated tabs · ${state.actionLabels.length} actions`);
+  if (switchFromClassic) {
+    await page.locator('.hnl-pc-heading-actions .hnl-pc-mode-switch').click();
+    await page.waitForFunction(() =>
+      document.querySelector('[data-hnl-desktop-design]')?.getAttribute('data-hnl-desktop-design') === 'classic',
+    null, { timeout: 10000 });
+    const restored = await page.locator('[data-hnl-global-header]').first().isVisible();
+    assert(restored, `${label}: classic black header did not restore after switching back`);
+    pass(`${label} classic PC restoration after V3.2`, 'same page, no data changes');
+  }
+}
+
+
+/* PC layout regression: measure the REAL hosted modals, not a static mock.
+ * Opening tabs is read-only; do not modify PIN, role, messages or Cloud data. */
+async function verifyPcCenterButtonWidths(page) {
+  const within = (actual, expected) => Math.abs(actual - expected) <= 2;
+  const check = async (center, attribute, label) => {
+    const result = await page.evaluate(({ center, attribute }) => {
+      const root = document.querySelector('[data-hnl-pc-v3-center="' + center + '"]');
+      const shell = root?.querySelector(':scope > div');
+      const tabBar = root?.querySelector('[' + attribute + '="true"]');
+      if (!shell || !tabBar) return null;
+      const a = shell.getBoundingClientRect();
+      const b = tabBar.getBoundingClientRect();
+      return {
+        modalWidth: a.width, display: getComputedStyle(tabBar).display,
+        tabWidths: Array.from(tabBar.querySelectorAll(':scope > button'), node => node.getBoundingClientRect().width),
+        centerOffset: Math.abs((a.left + a.right - b.left - b.right) / 2),
+        overflow: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth,
+      };
+    }, { center, attribute });
+    assert(result && result.tabWidths.length >= 2, label + ': tabs/modal not rendered');
+    assert(result.modalWidth > 750 && result.modalWidth <= 1152, label + ': modal width changed: ' + JSON.stringify(result));
+    assert(result.display === 'flex', label + ': tabs not centered with flex: ' + JSON.stringify(result));
+    assert(result.tabWidths.every(width => within(width, 180)), label + ': stretched tabs: ' + JSON.stringify(result));
+    assert(result.centerOffset <= 20, label + ': tabs not centered: ' + JSON.stringify(result));
+    assert(result.overflow <= 12, label + ': horizontal overflow: ' + JSON.stringify(result));
+    pass('live PC ' + label + ' width and tabs', Math.round(result.modalWidth) + 'px modal, tabs 180px centered');
+  };
+
+  const securityOpen = page.locator('.hnl-pc-heading-actions button').filter({ hasText: /Bảo mật/ }).first();
+  await securityOpen.waitFor({ state: 'visible', timeout: 10000 });
+  await securityOpen.click();
+  await page.locator('[data-hnl-security-primary-tabs="true"]').waitFor({ state: 'visible', timeout: 10000 });
+  await check('security-center', 'data-hnl-security-primary-tabs', 'Security Center');
+  await page.screenshot({ path: 'runtime-evidence/pc-security-center-live-buttons.png', fullPage: false });
+  await closeVisibleModal(page, 'Security Center');
+  await page.locator('[data-hnl-pc-v3-center="security-center"]').waitFor({ state: 'hidden', timeout: 10000 });
+
+  const notificationOpen = page.locator('.hnl-pc-heading-actions button').filter({ hasText: /Thông báo/ }).first();
+  await notificationOpen.waitFor({ state: 'visible', timeout: 10000 });
+  await notificationOpen.click();
+  await page.locator('[data-hnl-notification-primary-tabs="true"]').waitFor({ state: 'visible', timeout: 10000 });
+  await check('notification-center', 'data-hnl-notification-primary-tabs', 'Notification Center');
+  await page.screenshot({ path: 'runtime-evidence/pc-notification-center-live-buttons.png', fullPage: false });
+  await page.locator('[data-hnl-notification-primary-tabs="true"] > button').nth(1).click();
+  const chat = page.locator('[data-hnl-notification-open-chat="true"]');
+  await chat.waitFor({ state: 'visible', timeout: 10000 });
+  const chatWidth = await chat.evaluate(node => node.getBoundingClientRect().width);
+  assert(within(chatWidth, 180), 'Notification open-chat action stretched: ' + chatWidth);
+  pass('live PC notification open-chat button width', Math.round(chatWidth) + 'px');
+  await page.screenshot({ path: 'runtime-evidence/pc-notification-messages-live-buttons.png', fullPage: false });
+  await closeVisibleModal(page, 'Notification Center');
+  await page.locator('[data-hnl-pc-v3-center="notification-center"]').waitFor({ state: 'hidden', timeout: 10000 });
+}
+
+// V3.4 changed the default for a fresh PC: test it without a saved preference.
+// The classic-focused generic viewport golden keeps its original header contract.
+async function verifyDefaultModernPc(browser) {
+  const label = 'desktop-default-modern';
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 900 }, locale: 'vi-VN', serviceWorkers: 'allow',
+  });
+  await seedRememberedOfflineAdmin(context);
+  try {
+    const page = await context.newPage();
+    const response = await page.goto(`${hostingUrl}/?runtimeGoldenDefaultModern=${Date.now()}`, {
+      waitUntil: 'domcontentloaded', timeout: 45000,
+    });
+    assert(response?.status() === 200, `${label}: DEV Hosting navigation failed`);
+    const warehouseNav = page.locator('[data-hnl-nav-surface="desktop"] [data-hnl-nav-tab="warehouse"]');
+    await warehouseNav.waitFor({ state: 'visible', timeout: 20000 });
+    await warehouseNav.click();
+    await page.locator('[data-hnl-pc-workspace-title="warehouse"]').waitFor({ state: 'visible', timeout: 20000 });
+    const savedMode = await page.evaluate(() => localStorage.getItem('hnl_desktop_workspace_mode_v1'));
+    assert(savedMode === null, `${label}: unexpected saved desktop mode ${savedMode}`);
+    await verifyModernPcWorkspace(page, label);
+    await verifyPcCenterButtonWidths(page);
+    pass(`${label} fresh PC auto-modern`, 'no saved preference; 84px rail and modern header');
+  } finally {
+    await context.close();
+  }
+}
+
+async function verifyChromeDesktopSite980(browser) {
+  const label = 'chrome-android-desktop-site-980';
+  const context = await browser.newContext({
+    viewport: { width: 980, height: 852 },
+    screen: { width: 393, height: 852 },
+    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    locale: 'vi-VN',
+    hasTouch: true,
+    isMobile: true,
+    serviceWorkers: 'allow',
+  });
+  await seedRememberedOfflineAdmin(context);
+  const page = await context.newPage();
+  const response = await page.goto(`${hostingUrl}/?runtimeGolden=${Date.now()}&viewport=${label}`, {
+    waitUntil: 'domcontentloaded', timeout: 45000,
+  });
+  assert(response?.status() === 200, `${label}: DEV Hosting navigation failed`);
+  // A new offline browser session opens Home; navigate through the actual original rail.
+  const warehouseNav = page.locator('[data-hnl-nav-surface="desktop"] [data-hnl-nav-tab="warehouse"]');
+  await warehouseNav.waitFor({ state: 'visible', timeout: 20000 });
+  await warehouseNav.click();
+  await page.locator('[data-hnl-pc-workspace-title="warehouse"]').waitFor({ state: 'visible', timeout: 20000 });
+  const detection = await page.evaluate(() => ({
+    detected: document.documentElement.dataset.hnlBrowserDesktop,
+    width: window.innerWidth,
+    mobileBottomNav: document.querySelector('[data-hnl-nav-surface="mobile"]')?.getBoundingClientRect().height || 0,
+  }));
+  assert(detection.detected === 'true' && detection.width === 980, `${label}: Chrome desktop-site bridge not detected: ${JSON.stringify(detection)}`);
+  assert(detection.mobileBottomNav === 0, `${label}: mobile bottom navigation should be hidden`);
+  await verifyModernPcWorkspace(page, label);
+  await context.close();
+}
+
+async function runViewport(browser, label, viewport, screenshotPath, contextOverrides = {}) {
   const context = await browser.newContext({
     viewport,
     locale: 'vi-VN',
     serviceWorkers: 'allow',
     ignoreHTTPSErrors: false,
+    ...contextOverrides,
   });
-  await seedRememberedOfflineAdmin(context);
+  await seedRememberedOfflineAdmin(context, 'classic');
   const page = await context.newPage();
 
   page.on('pageerror', error => report.pageErrors.push({ label, message: String(error?.message || error) }));
@@ -462,6 +1136,8 @@ async function runViewport(browser, label, viewport, screenshotPath) {
   assert(title === 'HNL Quản Lý Thi Công', `${label}: unexpected title: ${title}`);
   pass(`${label} document title`, title);
 
+  await verifyStaleAssetCacheGuard(page, label);
+
   await page.waitForTimeout(2500);
   assert(report.forbiddenRequests.filter(x => x.label === label).length === 0, `${label}: browser contacted PROD backend`);
   pass(`${label} no PROD Firebase/R2 network request`);
@@ -483,6 +1159,10 @@ async function runViewport(browser, label, viewport, screenshotPath) {
   const wifiBadge = page.locator('button[title*="Wi-Fi" i], button[title*="wifi" i]');
   assert(await wifiBadge.count() === 0, `${label}: legacy Wi-Fi header badge returned`);
   pass(`${label} header account/network badges removed`);
+  await verifyUiUxV3Shell(page, context, label);
+
+  await verifyRapidPrimaryNavigation(page, label);
+  await verifyMobileMoreNavigation(page, label);
 
   const securityButton = page.locator('button[title*="Trung tâm bảo mật" i]').first();
   assert(await securityButton.count() > 0, `${label}: Security Center button not found`);
@@ -491,6 +1171,11 @@ async function runViewport(browser, label, viewport, screenshotPath) {
   await securityTitle.waitFor({ state: 'visible', timeout: 10000 });
   const accountEntry = page.getByText('Tài khoản Google/Firebase', { exact: true });
   await accountEntry.waitFor({ state: 'visible', timeout: 10000 });
+  if (label === 'mobile' || label === 'mobile-tall') {
+    const tabsDisplay = await page.locator('[data-hnl-security-primary-tabs="true"]').evaluate(node => getComputedStyle(node).display);
+    assert(tabsDisplay === 'grid', label + ': PC tab sizing leaked to mobile');
+    pass(label + ' Security tabs retain responsive mobile grid');
+  }
   pass(`${label} Security Center owns Google/Firebase account entry`);
 
   await closeVisibleModal(page, `${label} Security Center`);
@@ -526,6 +1211,9 @@ async function runViewport(browser, label, viewport, screenshotPath) {
 
   await page.screenshot({ path: screenshotPath, fullPage: true });
   pass(`${label} screenshot captured`, screenshotPath);
+  if (label === 'desktop' || label === 'desktop-compact') {
+    await verifyModernPcWorkspace(page, label, true);
+  }
 
   await context.close();
 }
@@ -623,6 +1311,40 @@ async function verifyColdStartOffline(browser) {
   assert(swState.assets.some((asset) => /\.js$/i.test(asset)), 'cold-start: CacheStorage has no hashed JS chunk');
   pass('cold-start Service Worker controls installed build', `${swState.assets.length} hashed assets cached`);
 
+  const poisonGuard = await page.evaluate(async () => {
+    const path = `/assets/__hnl_runtime_poison_${Date.now()}.js`;
+    const cacheNames = await caches.keys();
+    const activeCacheName = cacheNames.find((name) => name.startsWith('hnl-thi-cong-cache-'));
+    if (!activeCacheName) return { error: 'HNL_CACHE_NOT_FOUND' };
+
+    const cache = await caches.open(activeCacheName);
+    await cache.put(path, new Response('<!doctype html><html><body>poison</body></html>', {
+      status: 200,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    }));
+
+    const response = await fetch(path, { cache: 'no-store' });
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+    const prefix = (await response.text()).slice(0, 96).trim().toLowerCase();
+
+    let stillCached = false;
+    for (const name of await caches.keys()) {
+      const candidate = await caches.open(name);
+      if (await candidate.match(path)) {
+        stillCached = true;
+        break;
+      }
+    }
+
+    return { status: response.status, contentType, prefix, stillCached };
+  });
+
+  assert(!poisonGuard.error, `cold-start SW poison guard setup failed: ${poisonGuard.error || 'unknown'}`);
+  assert(poisonGuard.status === 404, `cold-start SW poison guard expected 404, got ${poisonGuard.status}`);
+  assert(!poisonGuard.contentType.includes('text/html') && !poisonGuard.prefix.startsWith('<!doctype html') && !poisonGuard.prefix.startsWith('<html'), 'cold-start SW poison guard returned HTML for JS URL');
+  assert(!poisonGuard.stillCached, 'cold-start SW poison guard did not delete poisoned CacheStorage entry');
+  pass('cold-start Service Worker purges poisoned hashed JS cache', 'HTTP 404 · text-safe · poisoned entry deleted');
+
   const cdp = await context.newCDPSession(page);
   await cdp.send('Network.enable');
   await cdp.send('Network.clearBrowserCache');
@@ -667,7 +1389,7 @@ async function verifyNarrowDesktopRuntime(browser) {
   const railBox = await rail.boundingBox();
   assert(railBox && railBox.x >= -1 && railBox.width >= 80, 'desktop EXE narrow runtime left rail moved out of viewport');
 
-  const moreButton = page.getByRole('button', { name: 'Thêm', exact: true });
+  const moreButton = page.getByRole('button', { name: 'Mở thêm phân hệ', exact: true });
   const moreButtonCount = await moreButton.count();
   if (moreButtonCount > 0) {
     assert(!(await moreButton.first().isVisible()), 'desktop EXE narrow runtime incorrectly switched to mobile bottom navigation');
@@ -679,16 +1401,83 @@ async function verifyNarrowDesktopRuntime(browser) {
   await context.close();
 }
 
+// Chromium geometry matrix for representative phone widths and rotations.
+// Actual WebKit notch insets still require physical iOS Home Screen verification.
+async function verifyPhoneSafeAreaViewportMatrix(browser) {
+  const samples = [
+    ['compact-iphone-320', 320, 568], ['android-small-360', 360, 800],
+    ['iphone-se-375', 375, 667], ['iphone-13-390', 390, 844],
+    ['pixel-393', 393, 852], ['android-large-412', 412, 915],
+    ['iphone-max-430', 430, 932], ['iphone-landscape-844', 844, 390],
+    ['large-landscape-932', 932, 430],
+  ];
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 }, locale: 'vi-VN',
+    hasTouch: true, isMobile: true, serviceWorkers: 'allow',
+  });
+  await seedRememberedOfflineAdmin(context, 'classic');
+  try {
+    const page = await context.newPage();
+    const response = await page.goto(`${hostingUrl}/?runtimeGoldenSafeArea=${Date.now()}`, {
+      waitUntil: 'domcontentloaded', timeout: 45000,
+    });
+    assert(response?.status() === 200, 'phone viewport matrix: DEV Hosting page failed');
+    await page.locator('[data-hnl-global-header]').first().waitFor({ state: 'visible', timeout: 20000 });
+    await page.locator('[data-hnl-nav-surface="mobile"]').first().waitFor({ state: 'visible', timeout: 20000 });
+    for (const [label, width, height] of samples) {
+      await page.setViewportSize({ width, height });
+      const metrics = await page.evaluate(() => {
+        window.scrollTo(0, 0);
+        const header = document.querySelector('[data-hnl-global-header]');
+        const logo = header?.querySelector('img');
+        const nav = document.querySelector('[data-hnl-nav-surface="mobile"]');
+        if (!header || !logo || !nav) return null;
+        const h = header.getBoundingClientRect();
+        const b = logo.getBoundingClientRect();
+        const n = nav.getBoundingClientRect();
+        return {
+          w: innerWidth, ht: innerHeight, pad: parseFloat(getComputedStyle(header).paddingTop) || 0,
+          headerTop: h.top, logoTop: b.top, logoLeft: b.left, logoRight: b.right,
+          navLeft: n.left, navRight: n.right, navTop: n.top, navBottom: n.bottom,
+          overflow: Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0) - innerWidth,
+        };
+      });
+      assert(metrics && metrics.w === width && metrics.ht === height, `${label}: viewport/shell unavailable — ${JSON.stringify(metrics)}`);
+      assert(metrics.logoTop >= metrics.headerTop + metrics.pad - 1, `${label}: project logo escaped header safe top`);
+      assert(metrics.logoLeft >= -1 && metrics.logoRight <= width + 1, `${label}: project logo clipped horizontally`);
+      assert(metrics.navLeft >= -1 && metrics.navRight <= width + 1 && metrics.navTop >= -1 && metrics.navBottom <= height + 2, `${label}: nav outside viewport`);
+      assert(metrics.overflow <= 12, `${label}: horizontal overflow ${metrics.overflow}px`);
+      pass(`phone viewport ${label}`, `${width}×${height} · header and nav visible`);
+      if (label === 'iphone-13-390' || label === 'iphone-landscape-844') {
+        await page.screenshot({ path: `runtime-evidence/safe-area-${label}.png`, fullPage: false });
+      }
+    }
+  } finally {
+    await context.close();
+  }
+}
+
 let browser;
 try {
   browser = await chromium.launch({ headless: true });
   await verifySignedOutGate(browser, 'login-desktop', { width: 1440, height: 900 }, 'runtime-evidence/login-desktop.png');
   await verifySignedOutGate(browser, 'login-mobile', { width: 393, height: 852 }, 'runtime-evidence/login-mobile.png');
   await runViewport(browser, 'desktop', { width: 1440, height: 900 }, 'runtime-evidence/desktop.png');
+  await verifyDefaultModernPc(browser);
   await runViewport(browser, 'desktop-720p', { width: 1280, height: 720 }, 'runtime-evidence/desktop-720p.png');
-  await runViewport(browser, 'desktop-compact', { width: 1088, height: 610 }, 'runtime-evidence/desktop-compact.png');
+  await runViewport(browser, 'desktop-compact', { width: 1088, height: 706 }, 'runtime-evidence/desktop-compact.png');
+  await verifyChromeDesktopSite980(browser);
   await verifyNarrowDesktopRuntime(browser);
   await runViewport(browser, 'mobile', { width: 393, height: 852 }, 'runtime-evidence/mobile.png');
+  await runViewport(browser, 'mobile-tall', { width: 393, height: 902 }, 'runtime-evidence/mobile-tall.png');
+  await verifyPhoneSafeAreaViewportMatrix(browser);
+  const iPadTouchContext = {
+    userAgent: 'Mozilla/5.0 (iPad; CPU OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1',
+    hasTouch: true,
+    isMobile: true,
+  };
+  await runViewport(browser, 'tablet-portrait', { width: 820, height: 1180 }, 'runtime-evidence/tablet-portrait.png', iPadTouchContext);
+  await runViewport(browser, 'tablet-landscape', { width: 1180, height: 820 }, 'runtime-evidence/tablet-landscape.png', iPadTouchContext);
   await verifyColdStartOffline(browser);
 
   const fatalConsole = report.consoleErrors.filter(item => {

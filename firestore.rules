@@ -174,6 +174,22 @@ service cloud.firestore {
         ]);
     }
 
+    // A locked or deleted Khu/Khối cannot receive a floor, even from stale
+    // offline clients. Projects without shared settings remain legacy-compatible.
+    function floorGroupIsNotDeleting(projectId) {
+      let sharedPath = /databases/$(database)/documents/projects/$(projectId)/settings/shared;
+      return !exists(sharedPath) || floorGroupIsNotDeletingFromSettings(projectId);
+    }
+
+    function floorGroupIsNotDeletingFromSettings(projectId) {
+      let shared = get(/databases/$(database)/documents/projects/$(projectId)/settings/shared).data;
+      let groupId = request.resource.data.get('structureGroupId',
+        shared.get('structure', {}).get('defaultGroupId', ''));
+      return groupId is string
+        && !(groupId in shared.get('structureGroupDeleteLocks', {}))
+        && !(groupId in shared.get('structureGroupDeletedIds', []));
+    }
+
     // Room geometry/identity is ADMIN-owned project structure. EDITOR may update
     // field progress, assignment, inspection and due-date data on an existing room.
     function editorRoomOperationalUpdateOnly() {
@@ -186,6 +202,96 @@ service cloud.firestore {
           'updatedAt', 'updatedByUid', 'updatedByEmail', 'updatedByDeviceId',
           'updatedByDeviceName', 'revision'
         ]);
+    }
+
+    // P1-09. Do not rewrite an existing photo's record, owner, or lifecycle.
+    function editorPhotoIdentityAndLifecycleAreSafe(projectId) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'entityType', 'entityId', 'createdAt'
+        ])
+        && (!('createdByUid' in resource.data) || request.resource.data.createdByUid == resource.data.createdByUid)
+        && (!('projectId' in request.resource.data) || request.resource.data.projectId == projectId)
+        && (!('updatedByUid' in request.resource.data) || request.resource.data.updatedByUid == request.auth.uid)
+        && (!('deleted' in resource.data) || resource.data.deleted != true)
+        && (!('deletedAt' in resource.data) || resource.data.deletedAt == null)
+        && ((!('deleted' in request.resource.data) || request.resource.data.deleted != true)
+          || (request.resource.data.deletedAt is number && request.resource.data.deletedAt > 0
+            && request.resource.data.deletedByUid == request.auth.uid));
+    }
+
+    function editorPhotoPointerScopedToSource(projectId, recordId) {
+      return request.resource.data.projectId == projectId
+        && request.resource.data.storagePath is string
+        && request.resource.data.storagePath.matches(
+          '^projects/' + projectId + '/media/[^/]+/[^/]+/'
+          + recordId + '(--[a-f0-9]{64})?/original\\.(jpg|png|webp|heic|pdf)$')
+        && (!('cloudFileId' in request.resource.data)
+          || request.resource.data.cloudFileId == (
+            (request.resource.data.storageProvider == 'r2' ? 'r2:' : 'storage:')
+            + request.resource.data.storagePath))
+        && (!('cloudUrl' in request.resource.data)
+          || request.resource.data.cloudUrl == (
+            (request.resource.data.storageProvider == 'r2' ? 'r2:' : 'storage:')
+            + request.resource.data.storagePath));
+    }
+
+    function editorPhotoCreateSafe(projectId, recordId) {
+      return editorCreatesActiveOnly()
+        && request.resource.data.entityType in ['defect', 'crewRecord', 'chat', 'inventory']
+        && request.resource.data.entityId is string
+        && (!('projectId' in request.resource.data) || request.resource.data.projectId == projectId)
+        && (!('updatedByUid' in request.resource.data) || request.resource.data.updatedByUid == request.auth.uid)
+        && (!request.resource.data.keys().hasAny([
+          'storagePath', 'storageProvider', 'thumbnailPath', 'cloudFileId', 'cloudUrl'
+        ]) || editorPhotoPointerScopedToSource(projectId, recordId));
+    }
+
+    function editorPhotoCloudPointerValid(projectId, recordId) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'storagePath', 'storageProvider', 'thumbnailPath', 'cloudFileId', 'cloudUrl'
+        ]) || editorPhotoPointerScopedToSource(projectId, recordId);
+    }
+
+    // Audit V4 P1-07 (partial): prevent EDITOR forging derived balance identity,
+    // migration tombstones or provenance. A complete ledger delta proof still
+    // requires a separate getAfter-verified voucher protocol for EVERY atomic
+    // write path, including legacy repair; this function does not certify that.
+    function editorBalanceCreateMetadataSafe() {
+      return request.resource.data.keys().hasOnly([
+          'id', 'projectId', 'itemKind', 'materialId', 'materialName', 'unit',
+          'onHand', 'revision', 'updatedAt', 'updatedByUid'
+        ])
+        && request.resource.data.itemKind in ['material', 'equipment']
+        && request.resource.data.materialName is string
+        && request.resource.data.materialName.size() > 0
+        && request.resource.data.unit is string
+        && request.resource.data.unit.size() > 0
+        && request.resource.data.revision == 1
+        && request.resource.data.updatedAt is number
+        && request.resource.data.updatedByUid == request.auth.uid;
+    }
+
+    function editorBalanceUpdateMetadataSafe() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'onHand', 'revision', 'updatedAt', 'updatedByUid',
+          // Allow backfilling incomplete legacy identities only. Existing ones
+          // remain immutable to EDITOR; ADMIN retains the unit migration path.
+          'itemKind', 'materialId', 'materialName', 'unit'
+        ])
+        && (!('itemKind' in resource.data) || request.resource.data.itemKind == resource.data.itemKind)
+        && (!('materialId' in resource.data) || resource.data.materialId == null
+          || request.resource.data.materialId == resource.data.materialId)
+        && (!('materialName' in resource.data) || request.resource.data.materialName == resource.data.materialName)
+        && (!('unit' in resource.data) || request.resource.data.unit == resource.data.unit)
+        && request.resource.data.itemKind in ['material', 'equipment']
+        && request.resource.data.materialName is string
+        && request.resource.data.materialName.size() > 0
+        && request.resource.data.unit is string
+        && request.resource.data.unit.size() > 0
+        && (!('revision' in resource.data)
+          || request.resource.data.revision == resource.data.revision + 1)
+        && request.resource.data.updatedAt is number
+        && request.resource.data.updatedByUid == request.auth.uid;
     }
 
     // Checklist definition (floor/category/title/due-date/room binding) belongs to
@@ -227,6 +333,32 @@ service cloud.firestore {
         || name == 'crew_records';
     }
 
+
+    // EDITOR may delete ONLY their own crew log. A tightly bounded Trash receipt
+    // is required to let ADMIN recover it, without revealing other Trash snapshots.
+    function editorOwnCrewTrashReceipt(projectId, receiptId) {
+      let d = request.resource.data;
+      return isEditor(projectId) && projectIsActive(projectId)
+        && d.keys().hasOnly(['id', 'projectId', 'deletedAt', 'expiresAt', 'retentionDays', 'deletedByUid', 'deletedByEmail', 'deletedByName', 'deletedItems', 'relatedBefore', 'approxBytes'])
+        && d.id == receiptId && d.projectId == projectId
+        && d.deletedByUid == request.auth.uid
+        && d.deletedByEmail == signedInEmail()
+        && d.deletedAt is number && d.deletedAt > 0
+        && d.retentionDays in [3, 7, 15, 30, 60, 90]
+        && d.expiresAt == d.deletedAt + d.retentionDays * 86400000
+        && d.deletedItems is list && d.deletedItems.size() == 1
+        && d.deletedItems[0].collection == 'crewRecords'
+        && d.deletedItems[0].entityId is string
+        && d.deletedItems[0].entityId.size() > 0
+        && d.deletedItems[0].snapshot.id == d.deletedItems[0].entityId
+        && d.deletedItems[0].snapshot.createdByUid == request.auth.uid
+        && d.relatedBefore is map && d.relatedBefore.keys().size() == 0
+        && exists(/databases/$(database)/documents/projects/$(projectId)/crew_records/$(d.deletedItems[0].entityId))
+        && get(/databases/$(database)/documents/projects/$(projectId)/crew_records/$(d.deletedItems[0].entityId)).data.deleted == true
+        && get(/databases/$(database)/documents/projects/$(projectId)/crew_records/$(d.deletedItems[0].entityId)).data.createdByUid == request.auth.uid
+        && get(/databases/$(database)/documents/projects/$(projectId)/crew_records/$(d.deletedItems[0].entityId)).data.deletedByUid == request.auth.uid
+        && get(/databases/$(database)/documents/projects/$(projectId)/crew_records/$(d.deletedItems[0].entityId)).data.deletedAt == d.deletedAt;
+    }
 
     function isCanonicalMemberRole(role) {
       return role == 'ADMIN' || role == 'EDITOR' || role == 'VIEWER';
@@ -412,6 +544,52 @@ service cloud.firestore {
         allow delete: if false;
       }
 
+      // Warehouse order planning follows canEditWarehouseData (ADMIN/EDITOR), not
+      // generic ENGINEER field-operation permissions.
+      function canWriteWarehouseOrder(projectId) {
+        return canAdminOperate(projectId) || (
+          projectIsActive(projectId) && isGoogleAuthed()
+          && canonicalMemberActive(projectId) && canonicalMemberRole(projectId) == 'EDITOR'
+        );
+      }
+
+      // Shared order PLANNING, not inventory ledger. One immutable item identity per row;
+      // revision increments prevent blind overwrites from two devices. No delete.
+      function validSharedOrderPayload(projectId, recordId) {
+        let d = request.resource.data;
+        return d.keys().hasOnly([
+          'projectId', 'itemKey', 'quantity', 'kgPerUnit', 'quantityExpression',
+          'kgPerUnitExpression', 'expectedDeliveryDate', 'revision', 'updatedAt', 'updatedByUid'
+        ]) && d.keys().hasAll([
+          'projectId', 'itemKey', 'quantity', 'kgPerUnit', 'quantityExpression',
+          'kgPerUnitExpression', 'expectedDeliveryDate', 'revision', 'updatedAt', 'updatedByUid'
+        ])
+        && d.projectId == projectId
+        && d.itemKey is string && d.itemKey.size() > 0 && d.itemKey.size() <= 500
+        && d.quantity is number && d.quantity >= 0 && d.quantity <= 1000000000000
+        && (d.kgPerUnit == null || (d.kgPerUnit is number && d.kgPerUnit > 0 && d.kgPerUnit <= 1000000000000))
+        && d.quantityExpression is string && d.quantityExpression.size() <= 160
+        && d.kgPerUnitExpression is string && d.kgPerUnitExpression.size() <= 160
+        && d.expectedDeliveryDate is string && (
+          d.expectedDeliveryDate == '' || d.expectedDeliveryDate.matches('^20[0-9]{2}-[0-9]{2}-[0-9]{2}$')
+        )
+        && d.updatedAt is number && d.updatedAt > 0
+        && d.updatedByUid == request.auth.uid
+        && d.revision is int && d.revision >= 1;
+      }
+
+      match /warehouse_order_drafts/{recordId} {
+        allow read: if isMember(projectId);
+        allow create: if canWriteWarehouseOrder(projectId) && validSharedOrderPayload(projectId, recordId)
+          && request.resource.data.revision == 1;
+        allow update: if canWriteWarehouseOrder(projectId) && validSharedOrderPayload(projectId, recordId)
+          && request.resource.data.projectId == resource.data.projectId
+          && request.resource.data.itemKey == resource.data.itemKey
+          && resource.data.revision is int
+          && request.resource.data.revision == resource.data.revision + 1;
+        allow delete: if false;
+      }
+
       // Append-only, identity-bound audit stream. This path is intentionally
       // excluded from the generic project-data rule below.
       match /activityLogs/{logId} {
@@ -543,24 +721,83 @@ service cloud.firestore {
         }
       }
 
-      // Derived warehouse balances. Inventory transaction rows remain the ledger/source;
+      // ADMIN-owned metadata; warehouse vouchers remain the ONLY source of stock.
+      // Explicit path is excluded from generic writes to enforce the schema and
+      // prevent hard-deletion of a catalog identity on any device.
+      match /equipment_catalog/{equipmentId} {
+        allow read: if isMember(projectId);
+        allow create: if canAdminOperate(projectId)
+          && request.resource.data.id == equipmentId
+          && request.resource.data.projectId == projectId
+          && request.resource.data.name is string && request.resource.data.name.size() > 0
+          && (!('displayName' in request.resource.data) || (request.resource.data.displayName is string && request.resource.data.displayName.size() > 0 && request.resource.data.displayName.size() <= 180))
+          && request.resource.data.unit is string && request.resource.data.unit.size() > 0
+          && request.resource.data.category is string
+          && request.resource.data.brand is string
+          && request.resource.data.model is string
+          && request.resource.data.specifications is string
+          && request.resource.data.notes is string
+          && request.resource.data.revision == 1
+          && request.resource.data.createdAt is number
+          && request.resource.data.updatedAt is number
+          && (!('order' in request.resource.data) || (request.resource.data.order is int && request.resource.data.order > 0))
+          && request.resource.data.keys().hasOnly([
+            'id','projectId','name','displayName','unit','category','brand','model',
+            'specifications','notes','revision','createdAt','updatedAt','order'
+          ]);
+        allow update: if canAdminOperate(projectId)
+          && request.resource.data.id == resource.data.id
+          && request.resource.data.projectId == resource.data.projectId
+          && request.resource.data.name == resource.data.name
+          && (!('displayName' in request.resource.data) || (request.resource.data.displayName is string && request.resource.data.displayName.size() > 0 && request.resource.data.displayName.size() <= 180))
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.unit is string && request.resource.data.unit.size() > 0
+          && request.resource.data.revision == resource.data.revision + 1
+          && request.resource.data.updatedAt >= resource.data.updatedAt
+          && (!('order' in request.resource.data) || (request.resource.data.order is int && request.resource.data.order > 0))
+          // Only ADMIN can soft-delete/restore; never hard-delete catalog identities.
+          // A trashed row is immutable except for a lifecycle restore.
+          && (!('deletedAt' in resource.data) || resource.data.deletedAt == null
+            || request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'deletedAt','deletedByUid','revision','updatedAt'
+            ]))
+          && (!('deletedAt' in request.resource.data)
+            || request.resource.data.deletedAt == null
+            || (request.resource.data.deletedAt is number && request.resource.data.deletedAt > 0))
+          && (!('deletedByUid' in request.resource.data)
+            || request.resource.data.deletedByUid == null
+            || request.resource.data.deletedByUid == request.auth.uid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'displayName','unit','category','brand','model','specifications','notes','revision','updatedAt',
+            'deletedAt','deletedByUid','order'
+          ]);
+        allow delete: if false;
+      }
+
+            // Derived warehouse balances. Inventory transaction rows remain the ledger/source;
       // this aggregate exists only for online atomic stock validation and fast reads.
       // Clients may read it, but normal generic autosave cannot hard-delete it.
       match /inventory_balances/{balanceId} {
         allow read: if isMember(projectId);
-        allow create: if canEdit(projectId)
+        // Evaluate the EDITOR branch only once: repeating canEdit/isAdmin
+        // exceeds Firestore's 1000-expression limit for otherwise valid writes.
+        allow create: if projectIsActive(projectId)
           && request.resource.data.id == balanceId
           && request.resource.data.projectId == projectId
           && request.resource.data.onHand is number
           && request.resource.data.onHand >= 0
-          && request.resource.data.revision >= 1;
-        allow update: if canEdit(projectId)
+          && request.resource.data.revision >= 1
+          && ((isEditor(projectId) && editorBalanceCreateMetadataSafe())
+            || isAdmin(projectId));
+        allow update: if projectIsActive(projectId)
           && request.resource.data.id == resource.data.id
           && request.resource.data.projectId == resource.data.projectId
           && request.resource.data.onHand is number
           && request.resource.data.onHand >= 0
           && request.resource.data.revision > resource.data.revision
-          && request.resource.data.updatedAt >= resource.data.updatedAt;
+          && request.resource.data.updatedAt >= resource.data.updatedAt
+          && ((isEditor(projectId) && editorBalanceUpdateMetadataSafe())
+            || isAdmin(projectId));
         allow delete: if false;
       }
 
@@ -576,40 +813,56 @@ service cloud.firestore {
       // Core business records are soft-delete only and reject stale revision/updatedAt
       // overwrites. Shared settings/trash metadata are ADMIN-owned structure; legacy
       // floor_plan_images Firestore fallback is read-only until verified purge.
+      // Field-photo writes are matched separately to stay within the Firestore
+      // Rules expression budget while preserving ADMIN legacy migration rights.
+      match /photos/{photoId} {
+        allow create: if isEditor(projectId) && projectIsActive(projectId)
+          && editorPhotoCreateSafe(projectId, photoId)
+          && coreCreateLifecycleIsValid(photoId);
+        allow update: if isEditor(projectId) && projectIsActive(projectId)
+          && editorPhotoIdentityAndLifecycleAreSafe(projectId)
+          && editorPhotoCloudPointerValid(projectId, photoId)
+          && coreIdentityUpdateIsValid(photoId) && lifecycleUpdateIsMonotonic();
+      }
+
       match /{collectionName}/{recordId} {
-        allow read: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
+        allow read: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts'
           && isMember(projectId)
+          && (collectionName != 'trash' || canAdminOperate(projectId))
           && (collectionName != 'work_volumes' || !('unitPrice' in resource.data) || isAdmin(projectId));
         // Master project structure is ADMIN-only. EDITOR may create operational records
         // (defect, warehouse transaction, crew log, photo metadata) and may update only
         // explicitly allowed operational fields on rooms/checklist. VIEWER remains read-only.
-        allow create: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
+        allow create: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts'
           && !isLegacyReadOnlyCollection(collectionName)
+          && (collectionName != 'floor_plans' || floorGroupIsNotDeleting(projectId))
           && (collectionName != 'work_volumes' || !('unitPrice' in request.resource.data))
           && (
             canAdminOperate(projectId)
+            || (collectionName == 'trash' && editorOwnCrewTrashReceipt(projectId, recordId))
             || (isEditor(projectId) && projectIsActive(projectId) && (
-              (collectionName == 'photos' && editorCreatesActiveOnly())
+              (collectionName == 'photos' && false)
               || (collectionName == 'crew_records' && editorCreatesOwnedCrewRecord())
               || (collectionName != 'crew_records' && isEditorOperationalCollection(collectionName) && editorCreatesActiveOnly())
             ))
           )
           && (!isCoreBusinessCollection(collectionName) || coreCreateLifecycleIsValid(recordId));
-        allow update: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
+        allow update: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts'
           && !isLegacyReadOnlyCollection(collectionName)
+          && (collectionName != 'floor_plans' || floorGroupIsNotDeleting(projectId))
           && (collectionName != 'work_volumes' || !('unitPrice' in request.resource.data))
           && (
             canAdminOperate(projectId)
+            || (collectionName == 'trash' && isEditor(projectId) && resource.data.deletedByUid == request.auth.uid && request.resource.data == resource.data)
             || (isEditor(projectId) && projectIsActive(projectId) && (
               (collectionName == 'rooms' && editorRoomOperationalUpdateOnly())
               || (collectionName == 'checklist' && editorChecklistOperationalUpdateOnly())
-              || collectionName == 'photos'
               || (collectionName == 'crew_records' && (editorUpdatesActiveCrewRecord() || editorSoftDeletesOwnCrewRecord()))
               || (collectionName != 'crew_records' && isEditorOperationalCollection(collectionName) && editorKeepsActiveLifecycle())
             ))
           )
           && (!isCoreBusinessCollection(collectionName) || (coreIdentityUpdateIsValid(recordId) && lifecycleUpdateIsMonotonic()));
-        allow delete: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
+        allow delete: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts'
           && canAdminOperate(projectId)
           && !isCoreBusinessCollection(collectionName);
 

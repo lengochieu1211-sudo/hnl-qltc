@@ -64,7 +64,7 @@ namespace QLTCAnPhu
             Current = this;
             theme = Program.DesktopUiTheme.ReadFromSystem();
 
-            Text = "HNL QLTC";
+            Text = Program.GetAppDisplayName();
             StartPosition = FormStartPosition.CenterScreen;
             MinimumSize = new Size(980, 680);
             Size = new Size(1280, 820);
@@ -119,7 +119,7 @@ namespace QLTCAnPhu
             brandLabel = new Label
             {
                 AutoSize = true,
-                Text = "HNL QLTC",
+                Text = Program.GetAppDisplayName(),
                 Font = new Font("Segoe UI", 11.5F, FontStyle.Bold),
                 Location = new Point(46, 5),
                 Tag = "title",
@@ -130,7 +130,7 @@ namespace QLTCAnPhu
             releaseLabel = new Label
             {
                 AutoSize = true,
-                Text = Program.GetReleaseTag(),
+                Text = Program.GetReleaseTag() + (Program.IsDevBuild() ? " • DEV" : string.Empty),
                 Font = new Font("Segoe UI", 8F, FontStyle.Bold),
                 Location = new Point(47, 25),
                 Tag = "subtle",
@@ -284,12 +284,12 @@ namespace QLTCAnPhu
 
             trayIcon = new NotifyIcon
             {
-                Text = "HNL QLTC",
+                Text = Program.GetAppDisplayName(),
                 Visible = true,
                 Icon = Icon
             };
             var trayMenu = new ContextMenuStrip();
-            trayMenu.Items.Add("Mở HNL QLTC", null, delegate { RestoreFromTray(); ShowWebApp(); });
+            trayMenu.Items.Add("Mở " + Program.GetAppDisplayName(), null, delegate { RestoreFromTray(); ShowWebApp(); });
             trayMenu.Items.Add("Công cụ máy tính", null, delegate { RestoreFromTray(); ShowHome(); });
             trayMenu.Items.Add("Trung tâm đồng bộ", null, delegate { RestoreFromTray(); OpenSyncCenter(); });
             trayMenu.Items.Add(new ToolStripSeparator());
@@ -374,7 +374,9 @@ namespace QLTCAnPhu
 
             if (embeddedRuntime != null && embeddedRuntime.IsReady)
             {
-                embeddedRuntime.Navigate(Program.BuildAppUrl());
+                // Preserve the live WebView when returning from the native home/tray.
+                // Re-navigating to BuildAppUrl here reloads React and can discard an
+                // in-progress form that the user temporarily left to copy information.
                 webStatusLabel.Text = "HNL QLTC đang chạy bên trong ứng dụng Windows.";
             }
         }
@@ -1037,6 +1039,11 @@ namespace QLTCAnPhu
             int ready = 0;
             if (localStore != null && localStore.IsReady)
             {
+                if (localStore.IsOperationBusy)
+                {
+                    menu.Items[0].Text = "↻ Đang cập nhật dữ liệu local...";
+                    return;
+                }
                 pending = localStore.CountQueuePending();
                 ready = localStore.CountQueueReady();
             }
@@ -1099,6 +1106,19 @@ namespace QLTCAnPhu
                 return;
             }
 
+            if (localStore.IsOperationBusy)
+            {
+                syncStatusLabel.Text = "Dữ liệu cục bộ: đang cập nhật nền...";
+                if (syncButton != null)
+                {
+                    syncButton.Text = string.Empty;
+                    SetToolbarGlyph(syncButton, ToolbarGlyph.SyncWarning);
+                    syncButton.Tag = "toolbar-icon-warning";
+                    chromeToolTip.SetToolTip(syncButton, "Đang cập nhật dữ liệu local ở nền");
+                }
+                return;
+            }
+
             int pending = localStore.CountQueuePending();
             int ready = localStore.CountQueueReady();
             int waiting = pending + ready;
@@ -1119,24 +1139,60 @@ namespace QLTCAnPhu
         private void RefreshLocalIndex(bool showMessage)
         {
             if (localStore == null || !localStore.IsReady) return;
-            try
+            if (Interlocked.Exchange(ref maintenanceRunning, 1) != 0)
             {
-                WorkspaceIndexResult result = localStore.RefreshIndex(Program.DesktopPaths.WorkspaceRoot);
-                RefreshSyncStatus();
                 if (showMessage)
                 {
                     MessageBox.Show(
-                        "Đã cập nhật dữ liệu local.\n\nFile: " + result.IndexedFiles + "\nQueue mới: " + result.EnqueuedFiles,
+                        "Dữ liệu local đang được cập nhật ở nền. Hãy thử lại sau vài giây.",
                         "HNL QLTC",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Information
                     );
                 }
+                return;
             }
-            catch (Exception ex)
+
+            syncStatusLabel.Text = "Dữ liệu cục bộ: đang quét nền...";
+            ThreadPool.QueueUserWorkItem(delegate
             {
-                if (showMessage) MessageBox.Show(ex.Message, "HNL QLTC", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
+                WorkspaceIndexResult result = null;
+                Exception failure = null;
+                try
+                {
+                    result = localStore.RefreshIndex(Program.DesktopPaths.WorkspaceRoot);
+                    localStore.RefreshBridgeManifest(Program.DesktopPaths.WorkspaceRoot);
+                }
+                catch (Exception ex)
+                {
+                    failure = ex;
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref maintenanceRunning, 0);
+                    try
+                    {
+                        BeginInvoke((MethodInvoker)delegate
+                        {
+                            if (IsDisposed || Disposing) return;
+                            RefreshSyncStatus();
+                            if (!showMessage) return;
+                            if (failure != null)
+                            {
+                                MessageBox.Show(failure.Message, "HNL QLTC", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                                return;
+                            }
+                            MessageBox.Show(
+                                "Đã cập nhật dữ liệu local.\n\nFile: " + (result == null ? 0 : result.IndexedFiles) + "\nQueue mới: " + (result == null ? 0 : result.EnqueuedFiles),
+                                "HNL QLTC",
+                                MessageBoxButtons.OK,
+                                MessageBoxIcon.Information
+                            );
+                        });
+                    }
+                    catch { }
+                }
+            });
         }
 
         private void RunBackgroundMaintenance()
@@ -1148,9 +1204,19 @@ namespace QLTCAnPhu
             {
                 try
                 {
-                    localStore.RefreshIndex(Program.DesktopPaths.WorkspaceRoot);
-                    localStore.ProcessOneQueueItem(Program.DesktopPaths.WorkspaceRoot);
-                    localStore.RefreshBridgeManifest(Program.DesktopPaths.WorkspaceRoot);
+                    bool bridgeRefreshed = false;
+                    if (localStore.IsIndexRefreshDue(TimeSpan.FromMinutes(5)))
+                    {
+                        localStore.RefreshIndex(Program.DesktopPaths.WorkspaceRoot);
+                        bridgeRefreshed = true;
+                    }
+
+                    BackgroundQueueResult queueResult = localStore.ProcessOneQueueItem(Program.DesktopPaths.WorkspaceRoot);
+                    if (queueResult != null && queueResult.Processed) bridgeRefreshed = true;
+
+                    // Refresh ACK/bridge state once per maintenance tick only when the
+                    // preceding operation did not already do it.
+                    if (!bridgeRefreshed) localStore.RefreshBridgeManifest(Program.DesktopPaths.WorkspaceRoot);
                     localStore.RunRetentionMaintenanceIfDue();
                 }
                 catch { }

@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {generateKeyPairSync,randomBytes,publicEncrypt,createCipheriv,createHash,constants} from 'node:crypto';
+import {gzipSync} from 'node:zlib';
+import {decryptSnapshot,inventory,restoreToEmptyEmulator,assertIsolatedEmulator} from './p2115-firestore-restore-core.mjs';
+const hash=b=>createHash('sha256').update(b).digest('hex'),{publicKey,privateKey}=generateKeyPairSync('rsa',{modulusLength:2048});
+const project='hnl-qltc-dev',prefix='projects/'+project+'/databases/(default)/documents/';
+const rows=[{document:{name:prefix+'projects/p1',fields:{name:{stringValue:'QA'}},createTime:'t',updateTime:'t'}},{document:{name:prefix+'projects/p1/rooms/r1',fields:{qty:{integerValue:'2'}},createTime:'t',updateTime:'t'}}];
+const plain=Buffer.from(rows.map(x=>JSON.stringify(x)).join('\n')+'\n'),zipped=gzipSync(plain),key=randomBytes(32),iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',key,iv),encrypted=Buffer.concat([cipher.update(zipped),cipher.final()]);
+const manifest={format:'HNL-QLTC-P2115-FIRESTORE-V1',project,documents:2,plaintextBytes:plain.length,plaintextSha256:hash(plain),encryptedBytes:encrypted.length,encryptedSha256:hash(encrypted),wrappedKeyBase64:publicEncrypt({key:publicKey,oaepHash:'sha256',padding:constants.RSA_PKCS1_OAEP_PADDING},key).toString('base64'),ivBase64:iv.toString('base64'),tagBase64:cipher.getAuthTag().toString('base64')};key.fill(0);
+const documents=decryptSnapshot({encrypted,manifest,privateKeyPem:privateKey});assert.equal(inventory(documents).documents,2);
+const memory=new Map(),fakeFetch=async(url,options={})=>{if(url.endsWith(':listCollectionIds'))return {ok:true,status:200,json:async()=>({collectionIds:[]})};const path=decodeURIComponent(url.split('/documents/')[1]);if(options.method==='PATCH'){memory.set(path,JSON.parse(options.body));return {ok:true,status:200,json:async()=>memory.get(path)};}return memory.has(path)?{ok:true,status:200,json:async()=>memory.get(path)}:{ok:false,status:404,json:async()=>({})};};
+assert.deepEqual(await restoreToEmptyEmulator({host:'127.0.0.1:8080',targetProject:'hnl-qltc-restore-isolated',documents,fetchImpl:fakeFetch}),inventory(documents));
+assert.throws(()=>assertIsolatedEmulator({host:'firestore.googleapis.com',targetProject:'com-example-qlct-61329'}),/EMULATOR/);
+assert.throws(()=>decryptSnapshot({encrypted:Buffer.concat([encrypted,Buffer.from('x')]),manifest,privateKeyPem:privateKey}),/INTEGRITY/);
+assert.throws(()=>decryptSnapshot({encrypted,manifest:{...manifest,documents:3},privateKeyPem:privateKey}),/DOCUMENT_COUNT/);
+console.log('7/7 P21.15 encrypted decrypt + isolated restore guard tests PASS');

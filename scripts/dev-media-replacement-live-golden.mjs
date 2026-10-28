@@ -133,6 +133,30 @@ async function requireStatus(label, response, expected) {
   return response;
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function fetchR2(input, init = {}) {
+  const maxAttempts = 6;
+  let response = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    response = await fetch(input, init);
+    if (response.status !== 503) return response;
+
+    const body = await response.clone().text().catch(() => '');
+    const authBackendUnavailable = !body || body.includes('AUTH_BACKEND_UNAVAILABLE');
+    if (!authBackendUnavailable || attempt === maxAttempts - 1) return response;
+
+    const retryAfter = String(response.headers.get('retry-after') || '').trim();
+    const retryAfterSeconds = /^\d+(?:\.\d+)?$/.test(retryAfter) ? Number(retryAfter) : 0;
+    const fallbackMs = Math.min(5000, 1500 * (2 ** attempt));
+    const delayMs = Math.min(5000, Math.max(fallbackMs, retryAfterSeconds * 1000));
+    report.r2AuthBackendRetries = Number(report.r2AuthBackendRetries || 0) + 1;
+    console.warn(`R2 auth backend unavailable (attempt ${attempt + 1}/${maxAttempts}); retrying in ${delayMs}ms`);
+    await sleep(delayMs);
+  }
+  return response;
+}
+
 async function putR2(identity, storagePath, payload, assetId, expectedSha) {
   const metadata = encodeURIComponent(JSON.stringify({
     projectId: pid,
@@ -143,7 +167,7 @@ async function putR2(identity, storagePath, payload, assetId, expectedSha) {
     createdAt: String(Date.now()),
     golden: 'true',
   }));
-  const response = await requireStatus(`PUT ${assetId}`, await fetch(r2Endpoint(storagePath), {
+  const response = await requireStatus(`PUT ${assetId}`, await fetchR2(r2Endpoint(storagePath), {
     method: 'PUT',
     headers: {
       Authorization: `Bearer ${identity.idToken}`,
@@ -159,7 +183,7 @@ async function putR2(identity, storagePath, payload, assetId, expectedSha) {
   if (!serverSha) throw new Error(`PUT ${assetId}: missing SHA256`);
   if (serverSha !== expectedSha) throw new Error(`PUT ${assetId}: SHA mismatch ${serverSha} != ${expectedSha}`);
 
-  const head = await requireStatus(`HEAD ${assetId}`, await fetch(r2Endpoint(storagePath), {
+  const head = await requireStatus(`HEAD ${assetId}`, await fetchR2(r2Endpoint(storagePath), {
     method: 'HEAD',
     headers: { Authorization: `Bearer ${identity.idToken}`, Origin: hostingUrl },
   }), 200);
@@ -170,7 +194,7 @@ async function putR2(identity, storagePath, payload, assetId, expectedSha) {
 }
 
 async function getR2(identity, storagePath) {
-  const response = await requireStatus(`GET ${storagePath}`, await fetch(r2Endpoint(storagePath), {
+  const response = await requireStatus(`GET ${storagePath}`, await fetchR2(r2Endpoint(storagePath), {
     headers: { Authorization: `Bearer ${identity.idToken}`, Origin: hostingUrl },
   }), 200);
   return Buffer.from(await response.arrayBuffer());
@@ -344,7 +368,7 @@ try {
     try {
       const adminIdToken = await adminClient.auth.currentUser.getIdToken(true);
       for (const storagePath of [pathA, pathB].filter(Boolean)) {
-        const response = await fetch(r2Endpoint(storagePath), {
+        const response = await fetchR2(r2Endpoint(storagePath), {
           method: 'DELETE',
           headers: { Authorization: `Bearer ${adminIdToken}`, Origin: hostingUrl },
         });

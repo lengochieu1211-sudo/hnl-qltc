@@ -9,6 +9,7 @@ import { db, fetchProjectUserRoleFromCloud, getCurrentRealFirebaseUser } from '.
 import { purgeBinaryObject } from './binaryStorage';
 import { getAsyncItem, setAsyncItem } from '../utils/asyncStorage';
 import type { TrashOperation } from './trash';
+import { STATE_KEY_TO_CLOUD_NAME, type RealtimeStateKey } from '../config/realtimeCollections';
 
 export type BinaryPurgeArea = 'photos' | 'floor-plans';
 
@@ -181,6 +182,43 @@ async function readOperation(projectId: string, operationId: string): Promise<Tr
   if (!snap.exists()) return null;
   const data = snap.data() as TrashOperation;
   return { ...data, id: operationId, projectId };
+}
+
+/** Every operation, including those with no binary media, must be backed by a
+ * real server-side tombstone before its recovery receipt may be purged.
+ * Otherwise a failed/unsynced delete could destroy its only recovery snapshot.
+ * This is a preflight, not a replacement for the per-binary live reference checks.
+ */
+async function assertTrashTargetsDeletedOnServer(operation: TrashOperation): Promise<void> {
+  if (!Array.isArray(operation.deletedItems) || operation.deletedItems.length === 0) {
+    throw new Error('TRASH_PURGE_EMPTY_OPERATION');
+  }
+  const checks = await Promise.all(operation.deletedItems.map(async (target) => {
+    if (target.collection === 'structureGroups') {
+      const structureSnap = await getDocFromServer(doc(db, 'projects', operation.projectId, 'settings', 'shared'));
+      const groups = structureSnap.data()?.structure?.groups;
+      if (!Array.isArray(groups) || !target.entityId || String(target.entityId).includes('/')
+        || target.snapshot?.id !== target.entityId) throw new Error('TRASH_PURGE_STRUCTURE_RECEIPT_INVALID');
+      if (groups.some((group: any) => group.id === target.entityId)) {
+        throw new Error('TRASH_PURGE_STRUCTURE_GROUP_STILL_ACTIVE');
+      }
+      const floors = await getDocsFromServer(collection(db, 'projects', operation.projectId, 'floor_plans'));
+      if (floors.docs.some((row) => row.data()?.structureGroupId === target.entityId)) {
+        throw new Error('TRASH_PURGE_STRUCTURE_GROUP_HAS_FLOOR_REFERENCES');
+      }
+      return true;
+    }
+    const cloudName = STATE_KEY_TO_CLOUD_NAME[target.collection as RealtimeStateKey];
+    if (!cloudName || !target.entityId || String(target.entityId).includes('/')) {
+      throw new Error(`TRASH_PURGE_UNKNOWN_TARGET:${target.collection}/${target.entityId}`);
+    }
+    const row = await getDocFromServer(doc(db, 'projects', operation.projectId, cloudName, target.entityId));
+    if (!row.exists() || (row.data()?.deleted !== true && !(Number(row.data()?.deletedAt || 0) > 0))) {
+      throw new Error(`TRASH_PURGE_TARGET_NOT_TOMBSTONED:${cloudName}/${target.entityId}`);
+    }
+    return true;
+  }));
+  if (checks.length !== operation.deletedItems.length) throw new Error('TRASH_PURGE_INCOMPLETE_VERIFICATION');
 }
 
 function assertOperationDue(operation: TrashOperation, force: boolean): void {
@@ -367,6 +405,10 @@ export async function purgeTrashOperationBinaries(
     throw err;
   }
 
+  // Fail CLOSED for all 9 business collections, not just image-bearing targets.
+  // Never discard a Trash receipt if the original deletion was not Cloud-confirmed.
+  await assertTrashTargetsDeletedOnServer(operation);
+
   let purged = 0;
   let retainedShared = 0;
   const queuedAreas: BinaryPurgeArea[] = [];
@@ -415,6 +457,7 @@ export async function drainBinaryPurgeRetryQueues(projectId: string): Promise<Bi
           continue;
         }
         assertOperationDue(operation, entry.force);
+        await assertTrashTargetsDeletedOnServer(operation);
         await processArea(operation, area);
         await clearRetry(area, projectId, entry.operationId);
       } catch (err) {

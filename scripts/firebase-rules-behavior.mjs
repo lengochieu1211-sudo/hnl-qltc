@@ -14,6 +14,10 @@ import {
   getDoc,
   updateDoc,
   deleteDoc,
+  deleteField,
+  runTransaction,
+  getDocsFromServer,
+  collection,
 } from 'firebase/firestore';
 import {
   getStorage,
@@ -140,15 +144,96 @@ try {
     id: 'WV-RULE-1', projectId: pid, workVolumeId: 'WV-RULE-1', unitPrice: 110000, updatedAt: Date.now(),
   }));
   await expectAllowed('ADMIN reads isolated work-volume financial record', () => getDoc(workVolumeFinancialRef));
+  await expectAllowed('ADMIN restore may sanitize a legacy work-volume price field with deleteField merge', () => setDoc(workVolumeRef, {
+    unitPrice: deleteField(), revision: 2, updatedAt: Date.now() + 1,
+  }, { merge: true }));
   await expectDenied('ADMIN cannot embed unitPrice back into shared work-volume document', () => setDoc(doc(db, 'projects', pid, 'work_volumes', 'WV-PRICE-LEAK'), {
     id: 'WV-PRICE-LEAK', title: 'Không được phép', floor: 'Tầng 1', category: 'Trần', unit: 'm²',
     planned: 1, actual: 0, unitPrice: 123456, status: 'Chưa thi công',
     revision: 1, createdAt: Date.now(), updatedAt: Date.now(), deleted: false, deletedAt: null,
   }));
 
+  // Equipment catalog: ADMIN-only metadata, reversible soft delete, never hard delete.
+  const equipmentRef = doc(db, 'projects', pid, 'equipment_catalog', 'EQ-RULE-TEST-1');
+  const equipmentFixture = {
+    id: 'EQ-RULE-TEST-1', projectId: pid, name: 'Máy cắt kiểm thử', unit: 'Cái',
+    category: 'Thiết bị', brand: '', model: '', specifications: '', notes: '',
+    revision: 1, createdAt: Date.now(), updatedAt: Date.now(),
+  };
+  await expectAllowed('ADMIN creates equipment master', () => setDoc(equipmentRef, equipmentFixture));
+  await expectAllowed('ADMIN edits equipment display label without modifying warehouse name', () => updateDoc(equipmentRef, {
+    displayName: 'Máy hàn CO₂', revision: 2, updatedAt: Date.now() + 2,
+  }));
+  await expectDenied('ADMIN cannot change warehouse-identity name directly', () => updateDoc(equipmentRef, {
+    name: 'Mã đổi không an toàn', revision: 3, updatedAt: Date.now() + 4,
+  }));
+  await expectDenied('ADMIN cannot use blank display label', () => updateDoc(equipmentRef, {
+    displayName: '', revision: 3, updatedAt: Date.now() + 6,
+  }));
+  await expectAllowed('ADMIN changes equipment metadata unit with revision', () => updateDoc(equipmentRef, {
+    unit: 'Bộ', revision: 3, updatedAt: Date.now() + 10,
+  }));
+  await expectAllowed('ADMIN soft-deletes equipment identity', () => updateDoc(equipmentRef, {
+    deletedAt: Date.now(), deletedByUid: ownerUid, revision: 4, updatedAt: Date.now() + 20,
+  }));
+  await expectDenied('ADMIN cannot edit trashed equipment metadata', () => updateDoc(equipmentRef, {
+    category: 'Đổi trái phép', revision: 5, updatedAt: Date.now() + 30,
+  }));
+  await expectDenied('ADMIN cannot hard-delete equipment master', () => deleteDoc(equipmentRef));
+  await expectAllowed('ADMIN restores equipment by original identity', () => updateDoc(equipmentRef, {
+    deletedAt: null, deletedByUid: null, revision: 5, updatedAt: Date.now() + 40,
+  }));
+  await expectDenied('ADMIN cannot mark deletedAt as unsafe string', () => updateDoc(equipmentRef, {
+    deletedAt: 'unsafe', deletedByUid: ownerUid, revision: 6, updatedAt: Date.now() + 50,
+  }));
+  await expectAllowed('ADMIN assigns equipment manual order without changing inventory', () => updateDoc(equipmentRef, {
+    order: 2, revision: 6, updatedAt: Date.now() + 60,
+  }));
+  await expectDenied('ADMIN cannot assign invalid negative manual order', () => updateDoc(equipmentRef, {
+    order: -1, revision: 6, updatedAt: Date.now() + 70,
+  }));
+  await expectDenied('ADMIN cannot assign fractional manual order', () => updateDoc(equipmentRef, {
+    order: 1.5, revision: 6, updatedAt: Date.now() + 80,
+  }));
+
+  // One project-scoped draft per material/unit; no stock mutation.
+  const orderKey = JSON.stringify(['material','thanh xương','cây']);
+  const orderRef = doc(db, 'projects', pid, 'warehouse_order_drafts', encodeURIComponent(orderKey));
+  const orderFixture = {
+    projectId: pid, itemKey: orderKey, quantity: 24, kgPerUnit: 0.75,
+    quantityExpression: '=12*2', kgPerUnitExpression: '', expectedDeliveryDate: '',
+    revision: 1, updatedAt: Date.now(), updatedByUid: ownerUid,
+  };
+  await expectAllowed('ADMIN creates shared order draft without mutating stock', () => setDoc(orderRef, orderFixture));
+  await expectAllowed('ADMIN reads shared order draft', () => getDoc(orderRef));
+  const orderDateKey = 'hnl-warehouse-order-expected-date';
+  const orderDateRef = doc(db, 'projects', pid, 'warehouse_order_drafts', encodeURIComponent(orderDateKey));
+  await expectAllowed('ADMIN sets expected delivery date without warehouse ledger write', () => setDoc(orderDateRef, {
+    projectId: pid, itemKey: orderDateKey, quantity: 0, kgPerUnit: null,
+    quantityExpression: '', kgPerUnitExpression: '', expectedDeliveryDate: '2026-10-30',
+    revision: 1, updatedAt: Date.now(), updatedByUid: ownerUid,
+  }));
+  await expectDenied('ADMIN cannot skip order draft revision', () => updateDoc(orderRef, {
+    quantity: 99, revision: 3, updatedByUid: ownerUid,
+  }));
+  await expectDenied('ADMIN cannot add unrelated order field', () => updateDoc(orderRef, {
+    stockBalance: 1000, revision: 2, updatedByUid: ownerUid,
+  }));
+  await expectDenied('ADMIN cannot hard-delete order draft', () => deleteDoc(orderRef));
+
   await signIn(editorEmail);
   const editorUid = auth.currentUser.uid;
 
+  await expectAllowed('EDITOR reads shared order draft', () => getDoc(orderRef));
+  await expectAllowed('EDITOR reads expected order date', () => getDoc(orderDateRef));
+  await expectAllowed('EDITOR updates quantity with next version', () => updateDoc(orderRef, {
+    quantity: 30, quantityExpression: '=15*2', revision: 2,
+    updatedAt: Date.now(), updatedByUid: editorUid,
+  }));
+  await expectDenied('EDITOR cannot replace order project identity', () => updateDoc(orderRef, {
+    projectId: 'other-project', revision: 3, updatedByUid: editorUid,
+  }));
+  await expectDenied('EDITOR cannot hard-delete shared order draft', () => deleteDoc(orderRef));
   await expectAllowed('EDITOR reads private member contact', () => getDoc(memberContactRef));
   await expectDenied('EDITOR cannot write private member contact', () => setDoc(memberContactRef, {
     projectId: pid, email: editorEmail, phone: '0999999999', displayName: 'Editor Escalation',
@@ -157,6 +242,15 @@ try {
 
   await signIn(viewerEmail);
   await expectAllowed('VIEWER remains a valid project member', () => getDoc(doc(db, 'projects', pid)));
+  await expectAllowed('VIEWER reads shared order draft', () => getDoc(orderRef));
+  await expectAllowed('VIEWER reads delivery date', () => getDoc(orderDateRef));
+  await expectDenied('VIEWER cannot update order quantity', () => updateDoc(orderRef, {
+    quantity: 5, revision: 3, updatedByUid: viewerUid,
+  }));
+  await expectDenied('VIEWER cannot create order draft', () => setDoc(doc(db,'projects',pid,'warehouse_order_drafts','viewer-draft'), {
+    ...orderFixture, itemKey:'viewer-draft', updatedByUid:viewerUid,
+  }));
+
   await expectDenied('VIEWER cannot read private member contact', () => getDoc(memberContactRef));
   await expectDenied('VIEWER cannot write private member contact', () => setDoc(doc(db, 'projects', pid, 'memberContacts', viewerEmail), {
     projectId: pid, email: viewerEmail, phone: '0888888888', displayName: 'Viewer Test',
@@ -164,6 +258,14 @@ try {
   }));
   await signIn(editorEmail);
 
+  await expectAllowed('EDITOR may read equipment master', () => getDoc(equipmentRef));
+  await expectDenied('EDITOR cannot soft-delete equipment master', () => updateDoc(equipmentRef, {
+    deletedAt: Date.now(), deletedByUid: editorUid, revision: 5, updatedAt: Date.now() + 60,
+  }));
+  await expectDenied('EDITOR cannot reorder equipment master', () => updateDoc(equipmentRef, {
+    order: 1, revision: 6, updatedAt: Date.now() + 90,
+  }));
+  await expectDenied('EDITOR cannot hard-delete equipment master', () => deleteDoc(equipmentRef));
   await expectAllowed('EDITOR reads work-volume master definition', () => getDoc(workVolumeRef));
   await expectDenied('EDITOR cannot read isolated work-volume financial record', () => getDoc(workVolumeFinancialRef));
   await expectDenied('EDITOR cannot create work-volume master definition', () => setDoc(doc(db, 'projects', pid, 'work_volumes', 'WV-RULE-EDITOR'), {
@@ -178,7 +280,7 @@ try {
   }));
 
   await expectAllowed('EDITOR reads shared settings', () => getDoc(sharedSettingsRef));
-  await expectAllowed('EDITOR reads trash metadata', () => getDoc(trashRef));
+  await expectDenied('EDITOR cannot read protected Trash snapshots', () => getDoc(trashRef));
   await expectDenied('EDITOR cannot mutate shared settings', () => updateDoc(sharedSettingsRef, {
     driveAutoSyncEnabled: true, updatedAt: Date.now() + 30,
   }));
@@ -199,6 +301,120 @@ try {
   await expectAllowed('ADMIN creates floor-plan structure', () => setDoc(floorPlanRef, {
     id: 'FP-RULE-1', floorName: 'Tầng 1', order: 0, revision: 1, updatedAt: Date.now(), deleted: false, deletedAt: null,
   }));
+  // P1 O03: a Cloud lock MUST stop stale clients from creating or moving a
+  // floor into the group while a two-phase delete is in progress. The deleted
+  // group ID remains denied after lock release, until an atomic restore.
+  const raceGroupId = 'SG-RACE-TEST';
+  const floorRacePayload = (id, structureGroupId) => ({
+    id, floorName: 'Tầng kiểm thử', structureGroupId, order: 1,
+    revision: 1, updatedAt: Date.now(), deleted: false, deletedAt: null,
+  });
+  await expectAllowed('ADMIN can create floor before group-delete lock', () =>
+    setDoc(doc(db, 'projects', pid, 'floor_plans', 'FP-RACE-EXISTING'),
+      floorRacePayload('FP-RACE-EXISTING', raceGroupId)));
+  await expectAllowed('ADMIN acquires delete lock in shared settings', () =>
+    updateDoc(sharedSettingsRef, { structureGroupDeleteLocks: { [raceGroupId]: { token: 'RACE-TEST', lockedAt: Date.now() } } }));
+  await expectDenied('ADMIN cannot create floor in locked Khu/Khối', () =>
+    setDoc(doc(db, 'projects', pid, 'floor_plans', 'FP-RACE-LOCKED'),
+      floorRacePayload('FP-RACE-LOCKED', raceGroupId)));
+  await expectDenied('ADMIN cannot move existing floor into locked Khu/Khối', () =>
+    updateDoc(floorPlanRef, { structureGroupId: raceGroupId, revision: 2, updatedAt: Date.now() + 1 }));
+  await expectAllowed('ADMIN can still create floor in unlocked Khu/Khối', () =>
+    setDoc(doc(db, 'projects', pid, 'floor_plans', 'FP-RACE-OTHER'),
+      floorRacePayload('FP-RACE-OTHER', 'SG-OTHER-TEST')));
+  await expectAllowed('ADMIN closes lock and records deleted group guard atomically', () =>
+    updateDoc(sharedSettingsRef, { structureGroupDeleteLocks: {}, structureGroupDeletedIds: [raceGroupId] }));
+  await expectDenied('ADMIN cannot resurrect floor in deleted Khu/Khối', () =>
+    setDoc(doc(db, 'projects', pid, 'floor_plans', 'FP-RACE-STALE'),
+      floorRacePayload('FP-RACE-STALE', raceGroupId)));
+  await expectAllowed('ADMIN clears deleted-group guard on restore', () =>
+    updateDoc(sharedSettingsRef, { structureGroupDeletedIds: [] }));
+  await expectAllowed('ADMIN may create floor after original group is restored', () =>
+    setDoc(doc(db, 'projects', pid, 'floor_plans', 'FP-RACE-RESTORED'),
+      floorRacePayload('FP-RACE-RESTORED', raceGroupId)));
+
+  // Real two-user race on two separate Firebase Auth/Firestore clients.
+  // A second ADMIN starts a floor write AFTER the delete lock commits.
+  // The server must reject that stale-floor write while the first ADMIN
+  // reads the complete floor index and deletes the empty Khu/Khối.
+  const secondApp = initializeApp({
+    apiKey: 'demo-key', authDomain: `${projectId}.firebaseapp.com`, projectId,
+  }, `rules-second-admin-${nonce}`);
+  try {
+    const secondAuth = getAuth(secondApp);
+    const secondDb = getFirestore(secondApp);
+    connectAuthEmulator(secondAuth, 'http://127.0.0.1:9099', { disableWarnings: true });
+    connectFirestoreEmulator(secondDb, '127.0.0.1', 8080);
+    const secondEmail = `admin2-${nonce}@example.test`;
+    await createUserWithEmailAndPassword(secondAuth, secondEmail, password);
+    await expectAllowed('owner grants real second ADMIN for race regression', () =>
+      setDoc(doc(db, 'projects', pid, 'members', secondEmail), {
+        email: secondEmail, role: 'ADMIN', active: true, assignedAt: Date.now(),
+      }));
+    const activeGroup = 'SG-TWO-ADMIN';
+    const activeStructure = {
+      enabled: true, label: 'Khu / Khối',
+      groups: [
+        { id: 'SG-MAIN', name: 'Khu đang làm', order: 0 },
+        { id: activeGroup, name: 'Khu thử xóa', order: 1 },
+      ],
+      defaultGroupId: 'SG-MAIN',
+    };
+    await expectAllowed('ADMIN initializes two-group Cloud structure', () =>
+      updateDoc(sharedSettingsRef, { structure: activeStructure, trash: { enabled: true, retentionDays: 7 } }));
+    const token = 'LOCK-TWO-ADMIN';
+    await expectAllowed('first ADMIN locks group before querying floors', () =>
+      runTransaction(db, async (tx) => {
+        const snap = await tx.get(sharedSettingsRef);
+        if (!snap.exists()) throw Error('TWO_ADMIN_SETTINGS_MISSING');
+        tx.update(sharedSettingsRef, {
+          structureGroupDeleteLocks: { ...(snap.data().structureGroupDeleteLocks || {}),
+            [activeGroup]: { token, lockedAt: Date.now() } },
+        });
+      }));
+    const secondFloor = doc(secondDb, 'projects', pid, 'floor_plans', 'FP-TWO-ADMIN-LATE');
+    await expectDenied('second ADMIN cannot create a floor after first ADMIN locks group', () =>
+      setDoc(secondFloor, floorRacePayload('FP-TWO-ADMIN-LATE', activeGroup)));
+    // Real Cloud query follows the lock. The second client's denied row
+    // must not appear, and the group removal/Trash receipt commit together.
+    const indexed = await getDocsFromServer(collection(db, 'projects', pid, 'floor_plans'));
+    await expectAllowed('first ADMIN commits empty-group deletion and receipt atomically', () =>
+      runTransaction(db, async (tx) => {
+        const settings = await tx.get(sharedSettingsRef);
+        if (settings.data()?.structureGroupDeleteLocks?.[activeGroup]?.token !== token) {
+          throw Error('TWO_ADMIN_LOCK_LOST');
+        }
+        const floors = await Promise.all(indexed.docs.map((entry) => tx.get(entry.ref)));
+        if (floors.some((item) => item.exists() && item.data()?.structureGroupId === activeGroup)) {
+          throw Error('TWO_ADMIN_GROUP_NOT_EMPTY');
+        }
+        tx.update(sharedSettingsRef, {
+          structure: { ...activeStructure, groups: activeStructure.groups.filter((g) => g.id !== activeGroup) },
+          structureGroupDeleteLocks: {}, structureGroupDeletedIds: [activeGroup],
+        });
+        tx.set(doc(db, 'projects', pid, 'trash', 'TRASH-TWO-ADMIN'), {
+          id: 'TRASH-TWO-ADMIN', projectId: pid, deletedAt: Date.now(),
+          deletedItems: [{ collection: 'structureGroups', entityId: activeGroup }],
+        });
+      }));
+    await expectDenied('second ADMIN cannot recreate deleted group floor after lock release', () =>
+      setDoc(secondFloor, floorRacePayload('FP-TWO-ADMIN-LATE', activeGroup)));
+    await expectAllowed('first ADMIN restores group and deleted-ID guard together', () =>
+      runTransaction(db, async (tx) => {
+        const snap = await tx.get(sharedSettingsRef);
+        const deletedIds = snap.data()?.structureGroupDeletedIds || [];
+        tx.update(sharedSettingsRef, {
+          structure: activeStructure,
+          structureGroupDeletedIds: deletedIds.filter((id) => id !== activeGroup),
+        });
+        tx.delete(doc(db, 'projects', pid, 'trash', 'TRASH-TWO-ADMIN'));
+      }));
+    await expectAllowed('second ADMIN may create floor once original group is restored', () =>
+      setDoc(secondFloor, floorRacePayload('FP-TWO-ADMIN-LATE', activeGroup)));
+  } finally {
+    await deleteApp(secondApp);
+  }
+
   await expectAllowed('ADMIN creates room geometry', () => setDoc(roomRef, {
     id: 'ROOM-RULE-1', floorId: 'FP-RULE-1', roomName: 'Căn 01', floorName: 'Tầng 1', workCategory: 'Trần chìm',
     x: 10, y: 10, width: 20, height: 15, frameStatus: 'Chưa làm', boardStatus: 'Chưa làm',
@@ -325,6 +541,62 @@ try {
     deleted: true, deletedAt: Date.now(), revision: 3, updatedAt: invUpdatedAt + 20,
   }));
 
+  // P1-07: balance identity and provenance guards. These fixtures are separate
+  // from the warehouse ledger: full voucher-delta validation is still pending.
+  const balanceRef = doc(db, 'projects', pid, 'inventory_balances', 'BAL-RULE-1');
+  const balanceNow = Date.now();
+  const balanceSeed = {
+    id: 'BAL-RULE-1', projectId: pid, itemKind: 'material', materialId: 'MAT-RULE-1',
+    materialName: 'Tấm TC', unit: 'tấm', onHand: 10, revision: 1,
+    updatedAt: balanceNow, updatedByUid: editorUid,
+  };
+  await expectAllowed('EDITOR can create valid derived balance metadata', () => setDoc(balanceRef, balanceSeed));
+  await expectDenied('EDITOR cannot impersonate owner in new balance metadata', () => setDoc(doc(db, 'projects', pid, 'inventory_balances', 'BAL-SPOOF-UID'), {
+    ...balanceSeed, id: 'BAL-SPOOF-UID', updatedByUid: ownerUid,
+  }));
+  await expectDenied('EDITOR cannot create balance migration tombstone', () => setDoc(doc(db, 'projects', pid, 'inventory_balances', 'BAL-SPOOF-RENAME'), {
+    ...balanceSeed, id: 'BAL-SPOOF-RENAME', renamedTo: 'another-key', renamedToUnit: 'hộp',
+  }));
+  await expectDenied('EDITOR cannot create balance with spoofed revision', () => setDoc(doc(db, 'projects', pid, 'inventory_balances', 'BAL-SPOOF-REV'), {
+    ...balanceSeed, id: 'BAL-SPOOF-REV', revision: 300,
+  }));
+  await expectAllowed('EDITOR may update stock balance while retaining metadata', () => updateDoc(balanceRef, {
+    onHand: 11, revision: 2, updatedAt: balanceNow + 1, updatedByUid: editorUid,
+  }));
+  await expectDenied('EDITOR cannot swap balance materialId', () => updateDoc(balanceRef, {
+    materialId: 'MAT-OTHER', onHand: 11, revision: 3, updatedAt: balanceNow + 2, updatedByUid: editorUid,
+  }));
+  await expectDenied('EDITOR cannot change balance material name and unit', () => updateDoc(balanceRef, {
+    materialName: 'Tấm giả', unit: 'thùng', revision: 3, updatedAt: balanceNow + 2, updatedByUid: editorUid,
+  }));
+  await expectDenied('EDITOR cannot forge balance updater', () => updateDoc(balanceRef, {
+    onHand: 12, revision: 3, updatedAt: balanceNow + 2, updatedByUid: ownerUid,
+  }));
+  await expectDenied('EDITOR cannot jump balance revision', () => updateDoc(balanceRef, {
+    onHand: 12, revision: 99, updatedAt: balanceNow + 2, updatedByUid: editorUid,
+  }));
+  await expectDenied('EDITOR cannot write migration tombstone on an existing balance', () => updateDoc(balanceRef, {
+    renamedTo: 'another-key', revision: 3, updatedAt: balanceNow + 2, updatedByUid: editorUid,
+  }));
+  await signIn(ownerEmail);
+  await expectAllowed('ADMIN retains atomic unit migration metadata permission', () => updateDoc(balanceRef, {
+    unit: 'thùng', renamedTo: 'renamed-balance', renamedToUnit: 'thùng',
+    revision: 3, updatedAt: balanceNow + 2, updatedByUid: ownerUid,
+  }));
+  const legacyBalanceRef = doc(db, 'projects', pid, 'inventory_balances', 'BAL-LEGACY-RULE-1');
+  await expectAllowed('ADMIN seeds legacy balance without a materialId', () => setDoc(legacyBalanceRef, {
+    ...balanceSeed, id: 'BAL-LEGACY-RULE-1', itemKind: 'material', materialId: null, updatedByUid: ownerUid,
+  }));
+  await signIn(editorEmail);
+  await expectAllowed('EDITOR may fill missing legacy materialId during transaction', () => updateDoc(legacyBalanceRef, {
+    materialId: 'MAT-RULE-1', onHand: 11, revision: 2, updatedAt: balanceNow + 1, updatedByUid: editorUid,
+  }));
+  await signIn(viewerEmail);
+  await expectDenied('VIEWER cannot forge derived warehouse balance', () => updateDoc(legacyBalanceRef, {
+    onHand: 999, revision: 3, updatedAt: balanceNow + 2, updatedByUid: viewerUid,
+  }));
+  await signIn(editorEmail);
+
   const crewRef = doc(db, 'projects', pid, 'crew_records', 'CREW-RULE-1');
   await expectDenied('EDITOR cannot create crew record without creator identity', () => setDoc(doc(db, 'projects', pid, 'crew_records', 'CREW-NO-OWNER'), {
     id: 'CREW-NO-OWNER', date: '2026-08-27', teamName: 'Đội A', workerCount: 5,
@@ -343,10 +615,30 @@ try {
   await expectDenied('EDITOR cannot rewrite crew creator identity', () => updateDoc(crewRef, {
     createdByUid: ownerUid, revision: 3, updatedAt: crewUpdatedAt + 20,
   }));
+  const crewDeletedAt = Date.now();
   await expectAllowed('EDITOR may soft-delete own crew record', () => updateDoc(crewRef, {
-    deleted: true, deletedAt: Date.now(), deletedByUid: editorUid, deletedBy: editorUid,
+    deleted: true, deletedAt: crewDeletedAt, deletedByUid: editorUid, deletedBy: editorUid,
     revision: 3, updatedAt: crewUpdatedAt + 30,
   }));
+  const ownCrewReceiptRef = doc(db, 'projects', pid, 'trash', 'TRASH-EDITOR-OWN-CREW');
+  const ownCrewReceipt = {
+    id: 'TRASH-EDITOR-OWN-CREW', projectId: pid, deletedAt: crewDeletedAt,
+    expiresAt: crewDeletedAt + 7 * 86400000, retentionDays: 7,
+    deletedByUid: editorUid, deletedByEmail: editorEmail,
+    deletedByName: 'Editor Test', approxBytes: 125,
+    deletedItems: [{ collection: 'crewRecords', entityId: 'CREW-RULE-1',
+      label: 'Quân số / nhật ký: Đội A', snapshot: { id: 'CREW-RULE-1', createdByUid: editorUid } }],
+    relatedBefore: {},
+  };
+  await expectAllowed('EDITOR saves own crew Trash receipt after tombstone', () => setDoc(ownCrewReceiptRef, ownCrewReceipt));
+  await expectAllowed('EDITOR can retry the same immutable crew Trash receipt', () => setDoc(ownCrewReceiptRef, ownCrewReceipt));
+  await expectDenied('EDITOR cannot read protected own crew receipt', () => getDoc(ownCrewReceiptRef));
+  await expectDenied('EDITOR cannot forge another crew Trash receipt', () => setDoc(doc(db, 'projects', pid, 'trash', 'TRASH-EDITOR-FORGED'), {
+    ...ownCrewReceipt, id: 'TRASH-EDITOR-FORGED',
+    deletedItems: [{ collection: 'crewRecords', entityId: 'CREW-RULE-1',
+      label: 'Ngụy tạo', snapshot: { id: 'CREW-RULE-1', createdByUid: ownerUid } }],
+  }));
+  await expectDenied('EDITOR cannot mutate an own crew Trash receipt', () => updateDoc(ownCrewReceiptRef, { deletedAt: crewDeletedAt + 100 }));
 
   await signIn(ownerEmail);
   const ownerCrewRef = doc(db, 'projects', pid, 'crew_records', 'CREW-OWNER-RULE-1');
@@ -389,10 +681,63 @@ try {
     id: 'PHOTO-META-RULE-1', entityType: 'defect', entityId: 'DF-RULE-1', fileName: 'a.jpg',
     revision: 1, createdAt: Date.now(), updatedAt: Date.now(), deleted: false, deletedAt: null,
   }));
+  await expectDenied('EDITOR cannot create a photo with foreign project pointer', () => setDoc(doc(db, 'projects', pid, 'photos', 'PHOTO-META-SPOOF-CREATE'), {
+    id: 'PHOTO-META-SPOOF-CREATE', entityType: 'defect', entityId: 'DF-RULE-1', projectId: 'other-project',
+    storageProvider: 'r2', storagePath: 'projects/other-project/media/defect/DF-RULE-1/PHOTO-META-SPOOF-CREATE/original.jpg',
+    revision: 1, createdAt: Date.now(), updatedAt: Date.now(), deleted: false, deletedAt: null,
+  }));
+  const immutableSuffix = 'a'.repeat(64);
+  const immutableCreatePath = `projects/${pid}/media/defect/DF-RULE-1/PHOTO-IMMUTABLE-CREATE--${immutableSuffix}/original.jpg`;
+  await expectAllowed('EDITOR may publish a new immutable content-addressed R2 photo', () => setDoc(doc(db, 'projects', pid, 'photos', 'PHOTO-IMMUTABLE-CREATE'), {
+    id: 'PHOTO-IMMUTABLE-CREATE', projectId: pid, entityType: 'defect', entityId: 'DF-RULE-1',
+    storageProvider: 'r2', storagePath: immutableCreatePath, cloudFileId: `r2:${immutableCreatePath}`,
+    revision: 1, createdAt: Date.now(), updatedAt: Date.now(), deleted: false, deletedAt: null,
+  }));
   const photoSnap = await getDoc(photoMetaRef);
   const photoUpdatedAt = Number(photoSnap.data()?.updatedAt || 0);
+  await expectAllowed('EDITOR can annotate a photo without changing linked identity', () => updateDoc(photoMetaRef, {
+    caption: 'Đã kiểm tra thực tế', revision: 2, updatedAt: photoUpdatedAt + 1, updatedByUid: editorUid,
+  }));
+  await expectDenied('EDITOR cannot relink a photo to a different defect', () => updateDoc(photoMetaRef, {
+    entityId: 'DF-OTHER', revision: 3, updatedAt: photoUpdatedAt + 2,
+  }));
+  await expectDenied('EDITOR cannot change a photo project identity', () => updateDoc(photoMetaRef, {
+    projectId: 'other-project', revision: 3, updatedAt: photoUpdatedAt + 2,
+  }));
+  await expectDenied('EDITOR cannot forge existing photo creator timestamp', () => updateDoc(photoMetaRef, {
+    createdAt: 1, revision: 3, updatedAt: photoUpdatedAt + 2,
+  }));
+  await expectDenied('EDITOR cannot spoof actor identity on existing photo', () => updateDoc(photoMetaRef, {
+    updatedByUid: ownerUid, revision: 3, updatedAt: photoUpdatedAt + 2,
+  }));
+  const validR2Path = `projects/${pid}/media/defect/DF-RULE-1/PHOTO-META-RULE-1/original.jpg`;
+  const validThumb = `projects/${pid}/media/defect/DF-RULE-1/PHOTO-META-RULE-1/thumb.jpg`;
+  await expectDenied('EDITOR cannot spoof a cross-project R2 media pointer', () => updateDoc(photoMetaRef, {
+    storageProvider: 'r2', storagePath: 'projects/other-project/media/defect/DF-RULE-1/PHOTO-META-RULE-1/original.jpg',
+    revision: 3, updatedAt: photoUpdatedAt + 2,
+  }));
+  await expectDenied('EDITOR cannot point to another photo assetId', () => updateDoc(photoMetaRef, {
+    projectId: pid, storageProvider: 'r2', storagePath: `projects/${pid}/media/defect/DF-RULE-1/ANOTHER-PHOTO/original.jpg`,
+    revision: 3, updatedAt: photoUpdatedAt + 2,
+  }));
+  await expectAllowed('EDITOR can publish an authenticated R2 photo replacement pointer', () => updateDoc(photoMetaRef, {
+    projectId: pid, storageProvider: 'r2', storagePath: validR2Path, thumbnailPath: validThumb,
+    cloudFileId: `r2:${validR2Path}`, cloudUrl: `r2:${validR2Path}`,
+    revision: 3, updatedAt: photoUpdatedAt + 3, updatedByUid: editorUid,
+  }));
+  await expectDenied('EDITOR cannot swap only the displayed R2 URL to another object', () => updateDoc(photoMetaRef, {
+    cloudFileId: 'r2:projects/other-project/secret.jpg', revision: 4, updatedAt: photoUpdatedAt + 4,
+  }));
+  const immutableReplacementPath = `projects/${pid}/media/defect/DF-RULE-1/PHOTO-META-RULE-1--${immutableSuffix}/original.jpg`;
+  await expectAllowed('EDITOR can replace photo pointer with content-addressed R2 object', () => updateDoc(photoMetaRef, {
+    storagePath: immutableReplacementPath, cloudFileId: `r2:${immutableReplacementPath}`,
+    cloudUrl: `r2:${immutableReplacementPath}`, revision: 4, updatedAt: photoUpdatedAt + 5,
+  }));
   await expectAllowed('EDITOR may soft-delete field photo metadata', () => updateDoc(photoMetaRef, {
-    deleted: true, deletedAt: Date.now(), deletedByUid: editorUid, revision: 2, updatedAt: photoUpdatedAt + 10,
+    deleted: true, deletedAt: Date.now(), deletedByUid: editorUid, revision: 5, updatedAt: photoUpdatedAt + 10,
+  }));
+  await expectDenied('EDITOR cannot silently undelete a photo they already removed', () => updateDoc(photoMetaRef, {
+    deleted: false, deletedAt: null, revision: 6, updatedAt: photoUpdatedAt + 20,
   }));
   await expectDenied('EDITOR cannot manage membership', () => setDoc(doc(db, 'projects', pid, 'members', `x-${nonce}@example.test`), {
     email: `x-${nonce}@example.test`, role: 'VIEWER', active: true,
@@ -417,10 +762,14 @@ try {
   }));
 
   await signIn(viewerEmail);
+  await expectAllowed('VIEWER may read equipment master', () => getDoc(equipmentRef));
+  await expectDenied('VIEWER cannot restore or delete equipment master', () => updateDoc(equipmentRef, {
+    deletedAt: Date.now(), deletedByUid: viewerUid, revision: 5, updatedAt: Date.now() + 70,
+  }));
   await expectAllowed('VIEWER reads project/core record', () => getDoc(recordRef));
   await expectDenied('VIEWER cannot read isolated work-volume financial record', () => getDoc(workVolumeFinancialRef));
   await expectAllowed('VIEWER reads shared settings', () => getDoc(sharedSettingsRef));
-  await expectAllowed('VIEWER reads trash metadata', () => getDoc(trashRef));
+  await expectDenied('VIEWER cannot read protected Trash snapshots', () => getDoc(trashRef));
   await expectDenied('VIEWER cannot mutate shared settings', () => updateDoc(sharedSettingsRef, { driveAutoSyncEnabled: true, updatedAt: Date.now() + 300 }));
   await expectDenied('VIEWER cannot write core record', () => updateDoc(recordRef, { description: 'viewer write', revision: 3, updatedAt: Date.now() + 100 }));
   await expectDenied('VIEWER cannot create defect operational record', () => setDoc(doc(db, 'projects', pid, 'defects', 'DF-VIEWER'), {

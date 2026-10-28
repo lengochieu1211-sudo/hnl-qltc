@@ -1,0 +1,650 @@
+/* HNL QLTC PC Workspace v1: presentation only; NEVER change field values, canvas geometry,
+   nested control callbacks, Firestore/R2, role checks or modal positioning. Opt-in and >=1024px. */
+@media(min-width:960px){
+[data-hnl-desktop-design="modern"]{--pc-bg:#f1f5f9;--pc-card:#fff;--pc-soft:#f8fafc;--pc-border:#dbe3ef;--pc-text:#0f172a;--pc-muted:#475569;--pc-nav:84px;--pc-text-size:13px;--pc-label-size:12px;--pc-control-height:38px;padding-left:var(--pc-nav)!important;background:var(--pc-bg);font-size:var(--pc-text-size)}
+/* V3.2 navigation safety: preserve original BottomNav PC 84px rail byte-for-byte.
+   No wider sidebar, no horizontal button conversion and no duplicate primary tab list. */
+/* Universal module header and quick tools, modeled on the Home dashboard. */
+[data-hnl-desktop-design="modern"] .hnl-pc-workspace-heading{margin:14px 18px 12px;padding:20px 22px 16px;border-radius:20px;border:1px solid var(--pc-border);background:var(--pc-card);box-shadow:0 6px 24px #0f172a0b;color:var(--pc-text)}
+[data-hnl-desktop-design="modern"] .hnl-pc-heading-top{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:18px}
+[data-hnl-desktop-design="modern"] .hnl-pc-heading-main{flex:1 1 410px;min-width:245px}
+[data-hnl-desktop-design="modern"] .hnl-pc-breadcrumb{display:flex;align-items:center;flex-wrap:wrap;gap:6px;color:var(--pc-muted);font-size:11px;font-weight:650}
+[data-hnl-desktop-design="modern"] .hnl-pc-breadcrumb strong{color:var(--hnl-primary-on-light)}
+[data-hnl-desktop-design="modern"] .hnl-pc-heading-main h1{margin-top:8px;font-size:24px;font-weight:850;line-height:1.2;letter-spacing:-.02em}
+[data-hnl-desktop-design="modern"] .hnl-pc-heading-main p{margin-top:5px;color:var(--pc-muted);font-size:13px}
+[data-hnl-desktop-design="modern"] .hnl-pc-context-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:13px}
+[data-hnl-desktop-design="modern"] .hnl-pc-context-row>span{display:inline-flex;align-items:center;gap:6px;max-width:330px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:650;padding:5px 9px;border:1px solid var(--pc-border);border-radius:99px;color:var(--pc-muted);background:var(--pc-soft)}
+[data-hnl-desktop-design="modern"] .hnl-pc-status.is-online{color:#047857}
+[data-hnl-desktop-design="modern"] .hnl-pc-status.is-offline{color:#b45309}
+[data-hnl-desktop-design="modern"] .hnl-pc-heading-actions{display:flex;justify-content:flex-end;align-items:center;gap:7px;flex-wrap:wrap;max-width:730px}
+[data-hnl-desktop-design="modern"] .hnl-pc-heading-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:34px;padding:6px 10px;border:1px solid var(--pc-border);border-radius:11px;background:var(--pc-soft);color:var(--pc-text);font-size:var(--pc-label-size);font-weight:700}
+[data-hnl-desktop-design="modern"] .hnl-pc-heading-actions button:hover{background:color-mix(in srgb,var(--hnl-primary) 8%,white)}
+[data-hnl-desktop-design="modern"] .hnl-pc-heading-actions .hnl-pc-mode-switch{background:color-mix(in srgb,var(--hnl-primary) 10%,white);color:var(--hnl-primary-on-light);border-color:color-mix(in srgb,var(--hnl-primary) 24%,white)}
+[data-hnl-desktop-design="modern"] .hnl-pc-alert-count{display:inline-flex;background:#be123c;color:white;border-radius:99px;font-size:10px;padding:0 5px}
+/* PC modern only: old dark global banner repeats project/action information already visible
+   in the white contextual header. Keep it mounted (no Auth/sync lifecycle change),
+   and keep original banner in classic workspace and ordinary mobile. */
+[data-hnl-desktop-design="modern"] [data-hnl-global-header]{display:none!important}
+[data-hnl-desktop-design="modern"] .hnl-pc-quick-nav{display:none!important} /* BottomNav is the single original primary tab rail. */
+[data-hnl-desktop-design="modern"] .hnl-pc-quick-nav>svg{margin-right:8px;color:var(--pc-muted)}
+[data-hnl-desktop-design="modern"] .hnl-pc-quick-nav button{border-radius:9px;padding:7px 10px;font-size:12px;font-weight:700;color:var(--pc-muted)}
+[data-hnl-desktop-design="modern"] .hnl-pc-quick-nav button:hover,[data-hnl-desktop-design="modern"] .hnl-pc-quick-nav button.is-current{color:var(--hnl-primary-on-light);background:color-mix(in srgb,var(--hnl-primary) 10%,white)}
+[data-hnl-desktop-design="modern"] .hnl-pc-quick-settings{margin-left:auto}
+[data-hnl-desktop-design="modern"] main[data-hnl-pc-workspace="true"]{min-width:0;padding:0 8px 18px}
+/* Shared sub-tabs, filter bars, table typography; leave floorplan drawing viewport intact. */
+[data-hnl-desktop-design="modern"] main[data-hnl-pc-workspace="true"] [data-hnl-nested-nav]{border-radius:12px;border:1px solid var(--pc-border);background:var(--pc-soft);gap:6px}
+[data-hnl-desktop-design="modern"] main[data-hnl-pc-workspace="true"] [data-hnl-nested-nav] button{min-height:36px;border-radius:9px;font-size:12px;font-weight:700}
+[data-hnl-desktop-design="modern"] [data-hnl-warehouse-filter-layout],[data-hnl-desktop-design="modern"] [data-hnl-volume-filter-sort]{padding:12px;border:1px solid var(--pc-border);border-radius:16px;background:var(--pc-card)}
+[data-hnl-desktop-design="modern"] :is([data-hnl-warehouse-filter-layout],[data-hnl-volume-filter-sort]) :is(input,select){min-height:36px;font-size:12px}
+[data-hnl-desktop-design="modern"] main[data-hnl-pc-workspace="true"] [data-hnl-table-row-height="32"] thead th{font-size:11px;font-weight:750}
+[data-hnl-desktop-design="modern"] main[data-hnl-pc-workspace="true"] [data-hnl-table-row-height="32"] tbody td{font-size:12px;line-height:1.45}
+[data-hnl-desktop-design="modern"] :is(button,a,input,select,textarea):focus-visible{outline:2px solid var(--hnl-primary-action);outline-offset:2px}
+/* Classic mode has an explicit opt-in entry; reverting affects only browser-local presentation. */
+.hnl-pc-classic-return{display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:7px 20px;background:#f8fafc;border-bottom:1px solid #e2e8f0;color:#475569;font-size:12px;font-weight:700}
+.hnl-pc-classic-return button{padding:7px 12px;border:1px solid color-mix(in srgb,var(--hnl-primary) 25%,white);border-radius:9px;background:color-mix(in srgb,var(--hnl-primary) 9%,white);color:var(--hnl-primary-on-light);font-weight:750}
+}
+/* Narrow viewports must remain pixel-for-pixel on the existing mobile experience. */
+@media(max-width:1023px){html:not([data-hnl-browser-desktop="true"]) .hnl-pc-workspace-heading,html:not([data-hnl-browser-desktop="true"]) .hnl-pc-classic-return{display:none!important}}
+@media(min-width:960px){html[data-hnl-theme="dark"] [data-hnl-desktop-design="modern"]{--pc-bg:#020617;--pc-card:#0f172a;--pc-soft:#1e293b;--pc-border:#334155;--pc-text:#f1f5f9;--pc-muted:#cbd5e1}
+html[data-hnl-theme="dark"] [data-hnl-desktop-design="modern"] .hnl-pc-breadcrumb strong,html[data-hnl-theme="dark"] [data-hnl-desktop-design="modern"] .hnl-pc-mode-switch,html[data-hnl-theme="dark"] [data-hnl-desktop-design="modern"] .hnl-pc-quick-nav button.is-current{color:var(--hnl-primary-on-dark)}
+html[data-hnl-theme="dark"] .hnl-pc-classic-return{background:#0f172a;color:#e2e8f0;border-color:#334155}}
+
+/* PC Workspace V2 — true module-level layout, while maintaining the classic DOM
+ * and every original business event handler. No selector applies on mobile/classic. */
+@media (min-width: 960px) {
+  [data-hnl-desktop-design="modern"] {
+    --pc-v2-brand: var(--hnl-primary-action, #2563eb);
+    --pc-v2-ink: var(--pc-text, #0f172a);
+    --pc-v2-muted: var(--pc-muted, #475569);
+    --pc-v2-divider: var(--pc-border, #dbe3ef);
+    --pc-v2-card: var(--pc-card, white);
+    --pc-v2-glow: 0 3px 14px rgb(15 23 42 / 5%);
+    background: var(--pc-bg);
+  }
+  [data-hnl-desktop-design="modern"] .hnl-pc-workspace-heading {
+    margin: 10px 14px 10px; padding: 11px 16px 10px;
+    border-radius: 20px; border-top: 4px solid var(--pc-v2-brand);
+    box-shadow: var(--pc-v2-glow);
+  }
+  [data-hnl-desktop-design="modern"] .hnl-pc-heading-main h1 { font-size: 19px; letter-spacing: -.025em; }
+  [data-hnl-desktop-design="modern"] .hnl-pc-quick-nav { margin-top: 12px; padding-top: 12px; }
+  [data-hnl-desktop-design="modern"] main[data-hnl-pc-workspace="true"] {
+    padding: 0 0 30px; min-width: 0;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] {
+    max-width: 1680px; width: 100%; margin: 0 auto;
+    padding: 0 20px 48px; background: transparent;
+    color: var(--pc-v2-ink);
+  }
+  /* KPI deck appears only in the modern desktop mode; the original controls stay live. */
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview {
+    display: grid; grid-template-columns: minmax(240px, .96fr) minmax(0, 2.25fr);
+    gap: 16px; align-items: stretch; margin: 0 0 18px;
+  }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro {
+    position: relative; overflow: hidden; border: 1px solid var(--pc-v2-divider);
+    background: linear-gradient(130deg, color-mix(in srgb, var(--pc-v2-brand) 10%, var(--pc-v2-card)),var(--pc-v2-card) 72%);
+    padding: 19px 21px; border-radius: 18px;
+  }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    background: var(--pc-v2-brand);
+  }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-eyebrow { display: block; font-weight: 800; letter-spacing: .12em; font-size: 10px; color: var(--pc-v2-brand); }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro h3 { margin-top: 8px; font-size: 18px; line-height: 1.3; font-weight: 850; color: var(--pc-v2-ink); }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro p { margin-top: 7px; font-size: 12px; line-height: 1.55; color: var(--pc-v2-muted); }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric {
+    border: 1px solid var(--pc-v2-divider); border-radius: 18px; padding: 17px 18px;
+    background: var(--pc-v2-card); box-shadow: var(--pc-v2-glow);
+    display: flex; flex-direction: column; justify-content: center; min-width: 0;
+  }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric-label { font-size: 12px; font-weight: 750; color: var(--pc-v2-muted); }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric-value { font-size: clamp(19px,2vw,27px); font-weight: 850; letter-spacing: -.035em; color: var(--pc-v2-ink); margin-top: 7px; overflow-wrap: anywhere; }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric small { margin-top: 5px; font-size: 11px; color: var(--pc-v2-muted); }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric--success { border-top: 3px solid #059669; }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric--warning { border-top: 3px solid #d97706; }
+  /* Toolbars and filter decks: same spacing, height and color in all modules. */
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-region="commands"] {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: 16px; padding: 14px 18px; border: 1px solid var(--pc-v2-divider);
+    background: var(--pc-v2-card); border-radius: 17px; box-shadow: var(--pc-v2-glow);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-region="commands"] > div:first-child > h2 { font-size: 14px; font-weight: 800; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-region="commands"] > div:first-child > p { font-size: 11px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-region="commands"] button:not([disabled]),
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-region="commands"] select,
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-region="commands"] input[type="date"] {
+    min-height: 38px;
+  }
+  [data-hnl-desktop-design="modern"] :is([data-hnl-warehouse-filter-layout],[data-hnl-volume-filter-sort]) {
+    border: 1px solid var(--pc-v2-divider); border-radius: 16px;
+    padding: 16px 18px; background: var(--pc-v2-card); box-shadow: var(--pc-v2-glow);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-warehouse-filter-layout] [data-hnl-warehouse-primary-toolbar="type-search-dates"] {
+    grid-template-columns: minmax(220px,.85fr) minmax(220px,1.5fr) minmax(260px,1.1fr);
+    gap: 14px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-warehouse-kind-sort] { border-top: 1px solid var(--pc-v2-divider); padding-top: 12px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-region="stock-summary"],
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-region="inspection"] {
+    border: 1px solid var(--pc-v2-divider); border-radius: 17px; padding: 20px;
+    background: var(--pc-v2-card); box-shadow: var(--pc-v2-glow);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-region="records"] {
+    padding: 18px; border-radius: 18px; border: 1px solid var(--pc-v2-divider);
+    background: var(--pc-v2-card); box-shadow: var(--pc-v2-glow);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-region="records"] > div > h3 { font-size: 14px; font-weight: 800; color: var(--pc-v2-ink); }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-region="records"] > div.grid > div { border-radius: 13px; box-shadow: none; }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="volume"] [data-hnl-pc-region="progress"] {
+    border-radius: 17px; padding: 21px 23px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="crew"] [data-hnl-pc-region="subtabs"] {
+    border: 1px solid var(--pc-v2-divider); border-radius: 13px; background: var(--pc-v2-card);
+    max-width: 470px; padding: 5px; box-shadow: var(--pc-v2-glow);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="crew"] [data-hnl-pc-region="commands"] {
+    display: grid; grid-template-columns: minmax(210px,.9fr) repeat(4,minmax(0,1fr));
+    padding: 16px; align-items: stretch;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="crew"] [data-hnl-pc-region="commands"] > * { min-width: 0; }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="floorplan"] [data-hnl-pc-region="commands"] {
+    display: block;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="floorplan"] [data-hnl-pc-region="commands"] > h2 { display: none; }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="floorplan"] [data-hnl-pc-region="commands"] > div { margin: 0; border: 0; padding: 3px 0; box-shadow: none; }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="floorplan"] [data-hnl-pc-plan-viewport="true"]:not(.fixed) {
+    height: min(70vh, 760px); max-height: none; min-height: 460px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="checklist"] [data-hnl-pc-region="floor-tabs"] {
+    background: var(--pc-v2-card); padding: 11px; border: 1px solid var(--pc-v2-divider);
+    border-radius: 15px; box-shadow: var(--pc-v2-glow);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="checklist"] [data-hnl-pc-region="floor-tabs"] button { min-height: 38px; }
+  /* Existing secondary tab bars and data tables across ALL inner panes. */
+  [data-hnl-desktop-design="modern"] [data-hnl-nested-nav],
+  [data-hnl-desktop-design="modern"] #crew-subtab-navigation {
+    border: 1px solid var(--pc-v2-divider); background: var(--pc-v2-card);
+    border-radius: 13px; padding: 5px; box-shadow: var(--pc-v2-glow);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-nested-nav] button,
+  [data-hnl-desktop-design="modern"] #crew-subtab-navigation button { min-height: 38px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] table { border-collapse: separate; border-spacing: 0; }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] table thead th {
+    font-size: 11px; font-weight: 800; letter-spacing: .018em;
+    background: color-mix(in srgb,var(--pc-v2-brand) 5%,var(--pc-v2-card));
+    border-bottom: 1px solid var(--pc-v2-divider); padding-top: 10px; padding-bottom: 10px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] table tbody tr:hover td {
+    background: color-mix(in srgb,var(--pc-v2-brand) 4%,var(--pc-v2-card));
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] table :is(th,td) { font-size: 12px; vertical-align: middle; }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+    accent-color: var(--pc-v2-brand);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] :is(button,input,select,textarea):focus-visible {
+    outline: 2px solid var(--pc-v2-brand); outline-offset: 2px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="system-center"] {
+    max-width: 1640px; padding: 0 20px 60px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="system-center"] > section:first-child { border-radius: 18px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="system-center"] > section > div.grid { gap: 15px; }
+  /* Native popups/portals need HTML mode class because they attach to document.body. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-module="project-manager"] > div:not(.relative),
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-module="security-center"] > div,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-module="notification-center"] > div {
+    width: min(94vw, 1150px); max-width: 1150px;
+    max-height: min(91vh, 980px); border-radius: 20px;
+    box-shadow: 0 25px 85px rgb(2 6 23 / 25%);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-module="notification-center"] > div > div:first-child {
+    padding: 19px 24px; background: linear-gradient(90deg,#0f172a,#1d4ed8);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet] {
+    width: min(94vw, 1220px); max-width: 1220px;
+    top: 5vh; bottom: 5vh; border-radius: 18px; box-shadow: 0 28px 95px rgb(2 6 23 / 28%);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet] > header { min-height: 78px; padding: 14px 24px; border-bottom: 1px solid #dbe3ef; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet-scrollbody] > div { padding: 22px 28px 30px; }
+}
+@media (min-width: 960px) and (max-width: 1399px) {
+  [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview { grid-template-columns: 1fr; }
+  [data-hnl-desktop-design="modern"] [data-hnl-warehouse-filter-layout] [data-hnl-warehouse-primary-toolbar="type-search-dates"] {
+    grid-template-columns: minmax(200px,1fr) minmax(230px,1.2fr);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-warehouse-date-filter] { grid-column: 1 / -1; }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="crew"] [data-hnl-pc-region="commands"] {
+    grid-template-columns: repeat(3,minmax(0,1fr));
+  }
+}
+@media (max-width: 1023px) {
+  /* The KPI node is present but entirely inert and hidden on mobile and tablets. */
+  html:not([data-hnl-browser-desktop="true"]) .hnl-pc-v2-overview { display: none !important; }
+}
+@media (min-width: 960px) {
+  /* Classic PC remains visually unchanged. */
+  [data-hnl-desktop-design="classic"] .hnl-pc-v2-overview { display: none !important; }
+}
+
+/* PC-focused deep composition for collaboration, AI and settings pages. */
+@media (min-width: 960px) {
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="ai-workspace"],
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="settings-center"],
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="chat-projects"] {
+    max-width: 1630px; width: 100%; padding: 0 22px 60px; margin: 0 auto;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="ai-workspace"] > section,
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="settings-center"] > div.bg-white,
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="chat-projects"] > div.bg-white {
+    border: 1px solid var(--pc-v2-divider); border-radius: 18px; background: var(--pc-v2-card);
+    box-shadow: var(--pc-v2-glow); padding: 22px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="ai-workspace"] > .hnl-ai-hero {
+    border-top: 4px solid var(--pc-v2-brand); padding: 24px 26px;
+    background: linear-gradient(115deg,color-mix(in srgb,var(--pc-v2-brand) 12%,white),#fff 74%);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="ai-workspace"] .hnl-ai-hero .grid.grid-cols-4 {
+    grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="ai-workspace"] .hnl-ai-hero button {
+    min-height: 48px; border-radius: 12px; font-size: 13px; flex-direction: row;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="ai-workspace"] textarea { font-size: 14px; min-height: 108px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="chat-projects"] > div.space-y-2 {
+    display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="chat-projects"] > div.space-y-2 > button {
+    min-height: 100px; margin: 0; border-radius: 16px; padding: 19px 21px;
+    background: var(--pc-v2-card); box-shadow: var(--pc-v2-glow);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="chat-room"] {
+    max-width: 1280px; width: calc(100% - 44px); border-radius: 18px;
+    box-shadow: var(--pc-v2-glow); border: 1px solid var(--pc-v2-divider);
+    margin-bottom: 35px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="chat-room"] > div:first-child {
+    background: color-mix(in srgb,var(--pc-v2-brand) 7%,var(--pc-v2-card));
+    padding: 16px 20px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="chat-room"] > div.flex-1 { padding: 18px 28px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="settings-center"] > div:first-child {
+    padding: 17px 22px; border: 1px solid var(--pc-v2-divider);
+    background: var(--pc-v2-card); border-radius: 16px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="settings-center"] > div.bg-white > h3,
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="settings-center"] > div.bg-white > div:first-child h3 {
+    font-size: 14px; font-weight: 850;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="settings-center"] form :is(input, select, textarea) { min-height: 39px; font-size: 13px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="settings-center"] form label { font-size: 12px; }
+}
+@media (min-width: 1400px) {
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-module="chat-projects"] > div.space-y-2 { grid-template-columns: repeat(3,minmax(0,1fr)); }
+}
+
+/* Chrome Android desktop-site virtual viewport (often 980px) is below Tailwind lg.
+   Bridge only the presentation shell at 960–1023px; preserve normal mobile mode. */
+@media (min-width: 960px) and (max-width: 1023px) {
+  html:not([data-hnl-browser-desktop="true"]) .hnl-pc-classic-return { display: none !important; }
+  html[data-hnl-browser-desktop="true"] [data-hnl-nav-surface="desktop"] { display: flex !important; }
+  html[data-hnl-browser-desktop="true"] [data-hnl-nav-surface="mobile"] { display: none !important; }
+  html[data-hnl-browser-desktop="true"] [data-hnl-app-shell="true"] { max-width: none !important; width: 100% !important; padding-bottom: 16px !important; }
+}
+
+/* HNL PC Workspace V3.1 — deep nested tab and form presentation.
+ * Opt-in only; never style classic PC or the normal mobile viewport.
+ * No business handlers, media geometry, Firestore/R2 or permissions are touched. */
+@media (min-width: 960px) {
+  [data-hnl-desktop-design="modern"] {
+    --hnl-v3-ink: var(--pc-text, #0f172a);
+    --hnl-v3-muted: var(--pc-muted, #64748b);
+    --hnl-v3-paper: var(--pc-card, #ffffff);
+    --hnl-v3-edge: var(--pc-border, #dce4ef);
+    --hnl-v3-accent: var(--hnl-primary-action, #2563eb);
+    --hnl-v3-soft: var(--pc-soft, #f8fafc);
+    --hnl-v3-elev: 0 7px 25px rgb(15 23 42 / 6%);
+  }
+  /* Actual section hierarchy exists in each nested screen and is hidden in classic/mobile. */
+  [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-band {
+    display: flex; align-items: center; gap: 12px; min-width: 0;
+    margin: 24px 1px 12px; padding: 0 2px 11px;
+    border-bottom: 1px solid var(--hnl-v3-edge);
+  }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-index {
+    width: 33px; height: 33px; display: inline-grid; place-items: center; flex: 0 0 auto;
+    border-radius: 11px; background: color-mix(in srgb, var(--hnl-v3-accent) 10%, var(--hnl-v3-paper));
+    border: 1px solid color-mix(in srgb, var(--hnl-v3-accent) 22%, var(--hnl-v3-edge));
+    color: var(--hnl-v3-accent); font-size: 11px; font-weight: 850; font-variant-numeric: tabular-nums;
+  }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-copy { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-copy strong { font-size: 15px; line-height: 1.25; font-weight: 820; color: var(--hnl-v3-ink); }
+  [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-copy small { font-size: 11px; line-height: 1.4; color: var(--hnl-v3-muted); }
+
+  /* Warehouse: actual catalog tabs/search/ledger become a single detailed workspace. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-tabs"] {
+    width: min(100%, 370px); padding: 5px; border: 1px solid var(--hnl-v3-edge);
+    border-radius: 14px; box-shadow: none; margin-bottom: 4px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-tabs"] button { min-height: 42px; font-size: 12px; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-search"] {
+    border-radius: 14px; background: var(--hnl-v3-soft); border: 1px solid var(--hnl-v3-edge);
+    padding: 13px; gap: 12px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-search"] input { min-height: 42px; font-size: 13px; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-grid"] {
+    max-height: min(58vh, 680px); border-radius: 15px; border-color: var(--hnl-v3-edge);
+    scrollbar-gutter: stable;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-grid"] table { border-collapse: separate; border-spacing: 0; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-grid"] thead th {
+    position: sticky; top: 0; background: var(--hnl-v3-soft); color: var(--hnl-v3-ink);
+    border-bottom: 2px solid var(--hnl-v3-edge); padding: 11px 12px; font-size: 11px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-grid"] tbody td { padding-left: 12px; padding-right: 12px; font-size: 12px; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-history"] { padding: 19px; border-radius: 17px; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-history"] > .grid { grid-template-columns: repeat(2, minmax(0, 230px)); gap: 14px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-stock-cards"] > .space-y-2 {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; max-height: 400px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-stock-cards"] > .space-y-2 > * { margin: 0; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-voucher-filter"] {
+    padding: 17px 20px; border-radius: 17px; background: var(--hnl-v3-paper);
+    border: 1px solid var(--hnl-v3-edge); box-shadow: var(--hnl-v3-elev); gap: 15px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-vouchers"] {
+    padding: 20px; border-radius: 19px; border: 1px solid var(--hnl-v3-edge);
+    background: var(--hnl-v3-paper); box-shadow: var(--hnl-v3-elev);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-voucher-card-grid"] { gap: 16px; }
+
+  /* Work Volume: field-level filters, section cards and drilldown table. */
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="volume-filter-panel"] {
+    padding: 16px 19px; border-radius: 17px; background: var(--hnl-v3-paper);
+    border: 1px solid var(--hnl-v3-edge); box-shadow: var(--hnl-v3-elev); gap: 18px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="volume-cards"] { gap: 18px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="volume-cards"] > .grid,
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="volume-cards"] > .space-y-3 { gap: 18px; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="volume-breakdown-filter"] {
+    background: var(--hnl-v3-soft); padding: 18px 22px;
+    border-bottom: 1px solid var(--hnl-v3-edge);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="volume-breakdown-filter"] button { min-height: 40px; }
+
+  /* Crew daily logs and team directory: compact dedicated workspace panes. */
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="crew"] [data-hnl-pc-region="subtabs"] {
+    max-width: 570px; padding: 6px; border: 1px solid var(--hnl-v3-edge);
+    background: var(--hnl-v3-paper); border-radius: 15px;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="crew"] [data-hnl-pc-region="subtabs"] button { min-height: 42px; font-size: 13px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="crew-records"] {
+    padding: 20px; border-radius: 18px; background: var(--hnl-v3-paper);
+    border: 1px solid var(--hnl-v3-edge); box-shadow: var(--hnl-v3-elev);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="crew-records"] > h2 {
+    font-size: 13px; color: var(--hnl-v3-ink); padding-bottom: 10px; border-bottom: 1px solid var(--hnl-v3-edge);
+  }
+
+  /* Floorplan: keep canvas transform / positioning unchanged; modernize surrounding panes only. */
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="floor-drawing"] {
+    padding: 18px; border: 1px solid var(--hnl-v3-edge);
+    border-radius: 20px; box-shadow: var(--hnl-v3-elev);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="floor-drawing"] > div:first-child {
+    min-height: 49px; align-items: center; gap: 14px; border-color: var(--hnl-v3-edge);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="floor-defects"] {
+    background: var(--hnl-v3-paper); border-radius: 18px;
+    border: 1px solid var(--hnl-v3-edge); padding: 18px 20px; box-shadow: var(--hnl-v3-elev);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="floor-defects"] select {
+    min-height: 39px; border-radius: 11px; font-size: 12px;
+  }
+
+  /* Checklist: separate floor/category navigation from inspection cards. */
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="checklist"] [data-hnl-pc-region="floor-tabs"] {
+    background: var(--hnl-v3-paper); border: 1px solid var(--hnl-v3-edge);
+    border-radius: 16px; padding: 10px; gap: 8px; scrollbar-gutter: stable;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="checklist"] [data-hnl-pc-region="floor-tabs"] button { min-height: 39px; border-radius: 11px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="checklist-items"] { gap: 16px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="checklist-items"] > div.border:not(.border-dashed) {
+    padding: 19px 21px; border-radius: 17px; box-shadow: var(--hnl-v3-elev);
+  }
+
+  /* Consistent PC form surfaces in the actual create/edit child tabs. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form] {
+    column-gap: 19px; row-gap: 17px; background: var(--hnl-v3-paper);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form] :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select) {
+    min-height: 41px; border-radius: 11px; border-color: var(--hnl-v3-edge);
+    font-size: 13px; background-color: var(--hnl-v3-paper); color: var(--hnl-v3-ink);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form] textarea { min-height: 82px; line-height: 1.5; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form] label { font-size: 12px; font-weight: 700; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form] :is(input, select, textarea):focus-visible {
+    outline: 2px solid var(--hnl-v3-accent); outline-offset: 1px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form] button:not([disabled]) { min-height: 36px; }
+
+  /* Project, Security, System, Notification, AI and Chat inner surfaces share consistent density. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-center] :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+    min-height: 39px; border-radius: 10px; font-size: 12px;
+  }
+  html[data-hnl-pc-workspace="modern"] :is([data-hnl-pc-v3-center="project-manager"],[data-hnl-pc-v3-center="security-center"],[data-hnl-pc-v3-center="notification-center"]) > div {
+    border-radius: 20px; box-shadow: 0 24px 75px rgb(2 6 23 / 22%);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-center="system-center"] :is(section,article) {
+    border-radius: 17px; border-color: var(--hnl-v3-edge);
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-center="ai-workspace"] :is(textarea,input) { border-radius: 12px; }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-center="chat-projects"] > div.space-y-2 > button {
+    border: 1px solid var(--hnl-v3-edge); transition: border-color .15s, box-shadow .15s;
+  }
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-center="chat-projects"] > div.space-y-2 > button:hover {
+    border-color: var(--hnl-v3-accent); box-shadow: var(--hnl-v3-elev);
+  }
+}
+
+@media (min-width: 1400px) {
+  [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-stock-cards"] > .space-y-2 {
+    grid-template-columns: repeat(3,minmax(0,1fr));
+  }
+}
+/* Never render desktop-only secondary section titles on classic PC or genuine mobile. */
+@media (max-width: 959px) { .hnl-pc-v3-section-band { display: none !important; } }
+@media (min-width: 960px) { [data-hnl-desktop-design="classic"] .hnl-pc-v3-section-band { display: none !important; } }
+
+/* HNL PC Workspace V3.2 — remaining operational dialogs and nested editors.
+ * Presentation-only, opt-in >=960px; no overlays or changes on classic/normal mobile.
+ * Scope by explicit markers: never restyle canvas, image/editor coordinates or Cloud actions. */
+@media (min-width: 960px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window] {
+    --hnl-v32-line: var(--pc-border, #dbe3ef);
+    --hnl-v32-paper: var(--pc-card, #fff);
+    --hnl-v32-soft: var(--pc-soft, #f8fafc);
+    --hnl-v32-ink: var(--pc-text, #0f172a);
+    --hnl-v32-accent: var(--hnl-primary-action, #2563eb);
+    --hnl-v32-shadow: 0 22px 72px rgb(15 23 42 / 18%);
+  }
+  /* Desktop dialogs: large working surface, clear heading, scroll belongs to its pane. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window="material-norm"] > div {
+    width: min(94vw, 1240px); max-width: 1240px; max-height: min(92dvh, 960px);
+    border: 1px solid var(--hnl-v32-line); border-radius: 20px;
+    box-shadow: var(--hnl-v32-shadow);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="catalog-tabs"] {
+    width: min(100%, 470px); gap: 6px; padding: 6px; border: 1px solid var(--hnl-v32-line);
+    border-radius: 14px; flex: 0 0 auto;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="catalog-tabs"] button {
+    min-height: 41px; font-size: 12px; border-radius: 10px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="equipment-catalog"] {
+    min-width: 0; padding: 4px 3px 18px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="equipment-toolbar"] {
+    gap: 12px; padding: 12px 14px; border: 1px solid var(--hnl-v32-line);
+    border-radius: 14px; background: var(--hnl-v32-soft);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="equipment-toolbar"] input {
+    min-height: 41px; font-size: 13px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="equipment-editor"],
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="norm-editor"] {
+    border: 1px solid var(--hnl-v32-line); border-radius: 16px;
+    padding: 16px 18px; background: var(--hnl-v32-paper);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="equipment-editor"] :is(input:not([type="checkbox"]),select,textarea),
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="norm-editor"] :is(input:not([type="checkbox"]),select,textarea) {
+    min-height: 40px; border-radius: 10px; font-size: 13px;
+  }
+
+  /* Quick-edit (Excel-like): do not change cell events, sticky column coordinates or row sizing. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window="quick-grid"] > div {
+    width: min(100%, 1780px); max-height: calc(100dvh - 24px); margin: auto;
+    border-radius: 18px; border: 1px solid var(--hnl-v32-line);
+    box-shadow: var(--hnl-v32-shadow);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="grid-tabs"] {
+    gap: 8px; min-height: 52px; align-items: center; scrollbar-gutter: stable;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="grid-tabs"] button {
+    min-height: 35px; padding-inline: 15px; white-space: nowrap;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="grid-toolbar"] {
+    gap: 10px; padding-block: 13px; background: var(--hnl-v32-soft);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="grid-toolbar"] > input[type="text"],
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="grid-toolbar"] > input:not([type]) {
+    min-height: 40px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="grid-scroll"] {
+    min-height: 0; scrollbar-gutter: stable; overscroll-behavior: contain;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="grid-scroll"] table {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Cross-project source basket: two visible panes and independent scrolling. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window="source-picker"] > div {
+    width: min(94vw, 1100px); max-width: 1100px;
+    max-height: min(91dvh, 900px); border-radius: 20px;
+    box-shadow: var(--hnl-v32-shadow);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="source-selection"] {
+    gap: 16px; padding: 18px; min-height: 0;
+    grid-template-columns: minmax(0,1fr) minmax(235px,295px);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="source-results"] {
+    min-height: 0; scrollbar-gutter: stable;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="source-basket"] {
+    min-width: 0; background: var(--hnl-v32-soft); border-color: var(--hnl-v32-line);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="source-basket"] > div:last-child {
+    scrollbar-gutter: stable;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="template-manager"] {
+    padding: 14px; border: 1px solid var(--hnl-v32-line);
+    border-radius: 16px; background: var(--hnl-v32-paper);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="template-tabs"] {
+    gap: 8px; padding: 5px; background: var(--hnl-v32-soft);
+    border: 1px solid var(--hnl-v32-line); border-radius: 12px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="template-tabs"] button {
+    min-height: 36px; padding-inline: 12px;
+  }
+
+  /* Report window: separate report scope from export actions; maintain exact export flows. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window="report-export"] > div {
+    width: min(94vw, 1180px); max-width: 1180px;
+    max-height: min(92dvh, 1000px); border: 1px solid var(--hnl-v32-line);
+    border-radius: 20px; box-shadow: var(--hnl-v32-shadow);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="report-filters"] {
+    padding: 16px 18px; border-radius: 16px;
+    border: 1px solid var(--hnl-v32-line); background: var(--hnl-v32-paper);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="report-filters"] :is(input,select,button) {
+    min-height: 36px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="report-actions"] {
+    margin-top: 18px; padding: 16px 18px; border: 1px solid var(--hnl-v32-line);
+    border-radius: 16px; background: var(--hnl-v32-soft);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="report-actions"] [data-hnl-report-format] {
+    min-height: 45px; font-size: 13px;
+  }
+
+  /* Crew export is a report, not a generic modal; preserve full wide tables and date labels. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window="crew-share"] > div {
+    max-width: 1380px; border-radius: 20px;
+    box-shadow: var(--hnl-v32-shadow);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="crew-report-body"] {
+    display: flex; flex-direction: column; gap: 17px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="crew-share-actions"] {
+    max-width: 640px; width: 100%; margin-left: auto; gap: 10px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="crew-share-actions"] button {
+    min-height: 44px; font-size: 12px;
+  }
+
+  /* Data conflict resolution keeps its warning semantics and save/merge handlers. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window="conflict-merge"] > div {
+    width: min(94vw, 1220px); max-width: 1220px;
+    max-height: min(92dvh, 940px); border-radius: 20px;
+    box-shadow: var(--hnl-v32-shadow);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="merge-strategy"] {
+    padding: 17px 19px; border-radius: 15px; gap: 14px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="merge-strategy"] button {
+    min-height: 108px;
+  }
+
+  /* Room editing: only form typography/spacing, never floor-plan geometry or overlays. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window="room-editor"] > div {
+    border-radius: 20px; border: 1px solid var(--hnl-v32-line);
+    box-shadow: var(--hnl-v32-shadow);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="room-form"] {
+    padding: 2px 6px 18px 2px; scrollbar-gutter: stable;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="room-form"] :is(input:not([type="checkbox"]):not([type="radio"]),select,textarea) {
+    min-height: 39px; border-radius: 10px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window] :is(button,input,select,textarea):focus-visible {
+    outline: 2px solid var(--hnl-v32-accent); outline-offset: 2px;
+  }
+}
+@media (min-width: 960px) and (max-width: 1100px) {
+  /* Chrome Android 'Desktop site' (~980px): retain separate panes without clipping. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="source-selection"] {
+    grid-template-columns: minmax(0,1fr) minmax(190px,235px); padding: 12px; gap: 10px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-window="quick-grid"] > div {
+    max-height: calc(100dvh - 12px);
+  }
+}
+
+/* V3.2.1 Home: preserve HomeDashboard's original layout. Hide the global dark
+   header only in modern PC, while keeping every global action in a slim toolbar.
+   At 960–1023px only a requested Chrome desktop site may receive this treatment. */
+@media(min-width:1024px){
+  [data-hnl-pc-home-modern="true"] [data-hnl-global-header]{display:none!important}
+  [data-hnl-pc-home-modern="true"] .hnl-pc-home-actions{display:flex}
+}
+@media(min-width:960px) and (max-width:1023px){
+  html[data-hnl-browser-desktop="true"] [data-hnl-pc-home-modern="true"] [data-hnl-global-header]{display:none!important}
+  html[data-hnl-browser-desktop="true"] [data-hnl-pc-home-modern="true"] .hnl-pc-home-actions{display:flex}
+}
+.hnl-pc-home-actions{display:none;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap;padding:8px 18px;border-bottom:1px solid #e2e8f0;background:#fff}
+.hnl-pc-home-actions>button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px;padding:5px 10px;border-radius:10px;border:1px solid #dbe3ef;background:#f8fafc;color:#334155;font-size:12px;font-weight:700}
+.hnl-pc-home-actions>button:hover{background:#eff6ff}
+.hnl-pc-home-actions .hnl-pc-alert-count{display:inline-flex;padding:0 5px;border-radius:99px;background:#be123c;color:white;font-size:10px}

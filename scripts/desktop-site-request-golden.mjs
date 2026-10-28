@@ -1,0 +1,34 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { detectChromeDesktopSiteOnTouchDevice as detect, canUsePcQuickEdit } from '../src/utils/desktopSiteMode.mjs';
+const desktopChrome='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36';
+const mobileChrome='Mozilla/5.0 (Linux; Android 13; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Mobile Safari/537.36';
+const probe=(userAgent,viewportWidth,touchPoints,screenWidth)=>detect({userAgent,viewportWidth,touchPoints,screenWidth});
+assert.equal(probe(mobileChrome,393,5,393),false,'normal Android mobile stays mobile');
+assert.equal(probe(mobileChrome,980,5,393),false,'ordinary mobile UA cannot force desktop');
+assert.equal(probe(desktopChrome,980,5,393),true,'Chrome desktop-site virtual viewport 980px auto-detected');
+assert.equal(probe(desktopChrome,1024,5,393),true,'desktop-site 1024px auto-detected');
+assert.equal(probe(desktopChrome,1280,5,393),true,'desktop-site with wide spoofed viewport auto-detected');
+assert.equal(probe(desktopChrome,1440,5,1440),false,'touchscreen computer does not override user preference');
+assert.equal(probe(desktopChrome,980,0,980),false,'ordinary desktop browser is not mobile desktop-site');
+assert.equal(probe(desktopChrome,393,5,393),false,'narrow screen cannot trigger desktop layout');
+const app=fs.readFileSync('src/App.tsx','utf8');
+const css=fs.readFileSync('src/styles/desktopWorkspace.css','utf8');
+assert.ok(app.includes('forceDesktopRail={isDesktopRuntime || chromeDesktopSite}'));
+assert.ok(app.includes("userChoice === 'modern' || userChoice === 'classic'"),'explicit classic rollback preserved');
+assert.ok(app.includes("return (isDesktopRuntime || window.innerWidth >= 1024 || chromeDesktopSite) ? 'modern' : 'classic'"),'desktop PC and desktop-site auto modern only without saved preference');
+assert.ok(app.includes('document.documentElement.dataset.hnlBrowserDesktop'), 'desktop flag scoped to presentation');
+assert.ok(css.includes('@media (min-width: 960px) and (max-width: 1023px)'),'980px bridge is required');
+assert.ok(css.includes('[data-hnl-app-shell="true"]'),'narrow max-width must be removed in desktop-site mode');
+assert.ok(css.includes('html:not([data-hnl-browser-desktop="true"]) .hnl-pc-v2-overview'),'normal mobile must hide KPI cards');
+const quickEdit = (userAgent, chromeDesktopSite=false, isDesktopRuntime=false) =>
+  canUsePcQuickEdit({userAgent, chromeDesktopSite, isDesktopRuntime});
+assert.equal(quickEdit(desktopChrome), true, 'PC grid stays visible at 1024/1280/1440 and DPI 125/150');
+assert.equal(quickEdit(desktopChrome, false, true), true, 'Windows installed desktop shell retains grid');
+assert.equal(quickEdit(mobileChrome), false, 'Android mobile must not mount heavy Quick Edit');
+assert.equal(quickEdit(desktopChrome, true), false, 'Android Chrome Desktop Site must not mount heavy Quick Edit');
+assert.ok(app.includes('quickEditEnabled={allowPcQuickEdit}'), 'Quick Edit must be independent of the narrow viewport lifecycle');
+assert.equal((app.match(/quickEditEnabled=\{allowPcQuickEdit\}/g) || []).length, 4,
+  'Floorplan, warehouse, crew and volume each keep desktop Quick Edit');
+console.log('PC QUICK EDIT DPI/SMALL VIEWPORT GOLDEN PASS');
+console.log('DESKTOP SITE REQUEST GOLDEN PASS: auto PC on Chrome request + classic override + normal mobile guards');

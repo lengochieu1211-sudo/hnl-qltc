@@ -1,3 +1,4 @@
+import { ExpressionDisplayInput } from './ExpressionDisplayInput';
 import React, { useState, useEffect } from 'react';
 import { 
   X, 
@@ -28,7 +29,7 @@ import {
 import { RoomProgressItem, RoomSubItem, AcceptanceStatus, RoomInspectionResult, Point2D, TeamInfo, ChecklistItem, MaterialNorm, InventoryItem, WorkVolume } from '../types';
 import { ROOM_COLOR_PALETTE } from '../utils/colorPalette';
 import { confirmAsync } from '../utils/confirmAsync';
-import { formatDecimal, evaluateMathExpression, useFormatSettings } from '../utils/numberUtils';
+import { formatDecimal, formatAdaptiveDecimal, evaluateMathExpression, useFormatSettings } from '../utils/numberUtils';
 import { MathNumberInput } from './MathNumberInput';
 import { createEntityId, createDeterministicId } from '../utils/idUtils';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
@@ -41,6 +42,7 @@ import { ContactMenu } from './ContactMenu';
 interface RoomHighlightModalProps {
   isOpen: boolean;
   onClose: () => void;
+  contextReturnLabel?: string;
   roomItem: RoomProgressItem | null; // Null means creating a new room highlight
   initialPos?: { x: number; y: number };
   initialRect?: { x: number; y: number; width: number; height: number };
@@ -55,7 +57,7 @@ interface RoomHighlightModalProps {
   existingRoomNames?: string[];
   defaultInspectorName?: string;
   onAddInventory?: (item: Omit<InventoryItem, 'id'> & { id?: string }) => void | Promise<void>;
-  onSaveRoom: (room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }) => void;
+  onSaveRoom: (room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }) => void | Promise<void>;
   onDeleteRoom?: (id: string) => void;
   onStartRedraw2Point?: (room: RoomProgressItem, tool: 'freehand' | 'polygon' | '2point') => void;
   structureReadOnly?: boolean;
@@ -125,6 +127,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   workVolumes = [],
   existingRoomNames = [],
   defaultInspectorName,
+  contextReturnLabel,
   onAddInventory,
   onSaveRoom,
   onDeleteRoom,
@@ -132,6 +135,14 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   structureReadOnly = false,
   focusOrphanRepair = false,
 }) => {
+  const roomDraftDirtyRef = React.useRef(false);
+  useEffect(() => { roomDraftDirtyRef.current = false; }, [isOpen, roomItem?.id, floorId]);
+  const closeRoomWithDraftGuard = (label: string) => {
+    if (roomDraftDirtyRef.current && !window.confirm(`${label}? Các thay đổi chưa nhấn Lưu sẽ không được lưu. Tiếp tục?`)) return;
+    roomDraftDirtyRef.current = false;
+    onClose();
+  };
+
   const activeDefaultInspector = defaultInspectorName || '';
 
   const [roomName, setRoomName] = useState('');
@@ -941,7 +952,9 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     setSubItems(newSubItems);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const savingRoomRef = React.useRef(false);
+  const handleSubmit = async (e: React.FormEvent) => {
+    if (savingRoomRef.current) return;
     e.preventDefault();
     if (!roomName.trim()) {
       alert('Vui lòng nhập tên hoặc mã Căn / Phòng!');
@@ -1060,8 +1073,10 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       targetBoardDate: secondSub.targetDate || '',
     };
 
+    savingRoomRef.current = true;
+    try {
     if (structureReadOnly && roomItem) {
-      onSaveRoom({
+      await onSaveRoom({
         ...roomItem,
         frameStatus: roomData.frameStatus,
         boardStatus: roomData.boardStatus,
@@ -1088,10 +1103,15 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
         }),
       });
     } else {
-      onSaveRoom(roomData);
+      await onSaveRoom(roomData);
     }
 
     onClose();
+    } catch (err) {
+      alert(`Không thể lưu tiến độ: ${err instanceof Error ? err.message : String(err)}. Dữ liệu chưa được ghi. Vui lòng tải lại và đối chiếu.`);
+    } finally {
+      savingRoomRef.current = false;
+    }
   };
 
   // Combined checklist items list for dropdown selection
@@ -1105,7 +1125,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-y-0 right-0 left-0 lg:left-[84px] bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+    <div data-hnl-pc-v32-window="room-editor" className="fixed inset-y-0 right-0 left-0 lg:left-[84px] bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
       <div className="bg-white w-full sm:max-w-3xl lg:max-w-[1200px] xl:max-w-[1280px] rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 lg:p-6 space-y-4 max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] flex flex-col border border-slate-100 shadow-2xl overflow-hidden">
         
         {/* Header */}
@@ -1121,16 +1141,30 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               <p className="text-xs text-slate-500">Mặt bằng: {floorName}</p>
             </div>
           </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {contextReturnLabel && <button type="button" onClick={() => closeRoomWithDraftGuard('Quay lại')}
+              className="min-h-9 rounded-lg bg-indigo-50 px-3 text-xs font-bold text-indigo-700 hover:bg-indigo-100" data-hnl-room-context-back="true">← Quay lại {contextReturnLabel}</button>}
           <button
-            onClick={onClose}
+            type="button" onClick={() => closeRoomWithDraftGuard('Đóng Căn/Phòng')}
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+            title="Đóng"
           >
             <X className="w-5 h-5" />
           </button>
+          </div>
         </div>
 
         {/* Form Body */}
-        <form ref={formRef} onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain space-y-3.5 pr-1 text-xs">
+        <form data-hnl-pc-v32-region="room-form" ref={formRef} onSubmit={handleSubmit}
+          onChangeCapture={() => { roomDraftDirtyRef.current = true; }}
+          onInputCapture={() => { roomDraftDirtyRef.current = true; }}
+          onClickCapture={(event) => {
+            // Interactive buttons can also mutate nested subitems without input events.
+            const element = event.target as HTMLElement;
+            const button = element.closest('button');
+            if (button?.type === 'button') roomDraftDirtyRef.current = true;
+          }}
+          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain space-y-3.5 pr-1 text-xs">
           {structureReadOnly && (
             <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-[11px] font-semibold text-indigo-800">
               Kỹ sư chỉ cập nhật tiến độ, nghiệm thu, đội thi công, hạn hoàn thành và ghi chú. Tên Căn/Phòng, khối lượng và hình học mặt bằng do Admin quản lý.
@@ -1300,7 +1334,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                 </p>
               )}
 
-              <div className="flex flex-col sm:flex-row gap-2 pt-0.5">
+              <div data-hnl-pc-v35-actions="room-preset" className="flex flex-col sm:flex-row gap-2 pt-0.5">
                 <button
                   type="button"
                   onClick={() => presetSelection && handleApplyPreset(presetSelection, 'append')}
@@ -1391,7 +1425,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                       {/* Progress Status */}
                       <div>
                         <span className="font-bold text-slate-600 block mb-1">▶ Tiến độ thi công:</span>
-                        <div className="grid grid-cols-3 gap-1">
+                        <div data-hnl-pc-v36-room-status="bulk" className="grid grid-cols-3 gap-1">
                           {(['Chưa làm', 'Đang làm', 'Đã hoàn thành'] as AcceptanceStatus[]).map((st) => (
                             <button
                               key={st}
@@ -1410,7 +1444,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                       {/* Inspection Status */}
                       <div>
                         <span className="font-bold text-slate-600 block mb-1">▶ Nghiệm thu:</span>
-                        <div className="grid grid-cols-3 gap-1">
+                        <div data-hnl-pc-v36-room-status="bulk" className="grid grid-cols-3 gap-1">
                           {(['Chưa nghiệm thu', 'Đạt nghiệm thu', 'Chưa đạt (Cần sửa)'] as RoomInspectionResult[]).map((st) => (
                             <button
                               key={st}
@@ -1542,7 +1576,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                         {/* Interactive Input Volume directly in the list */}
                         <div className="flex items-center gap-1.5 shrink-0 bg-emerald-50/70 border border-emerald-100 rounded-xl px-2.5 py-1">
                           <span className="text-[10px] font-extrabold text-emerald-800">Khối lượng:</span>
-                          <input
+                          <ExpressionDisplayInput
                             type="text"
                             disabled={structureReadOnly}
                             placeholder="0"
@@ -1570,10 +1604,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                   ...prev,
                                   [catName]: parsed
                                 }));
-                                setVolumeStrings(prev => ({
-                                  ...prev,
-                                  [catName]: formatDecimal(parsed)
-                                }));
+                                // Keep the user's raw expression. ExpressionDisplayInput
+                                // displays the computed value only while blurred.
                               } else {
                                 const numericVal = typedVal === '' ? 0 : Number(typedVal.replace(/,/g, '.'));
                                 if (!isNaN(numericVal)) {
@@ -1736,7 +1768,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                           {/* Status buttons: Thi công */}
                           <div className="xl:min-h-[104px]">
                             <span className="text-[10.5px] font-bold text-slate-500 block mb-1">▶ Tiến độ thi công:</span>
-                            <div className="grid grid-cols-3 gap-1.5 mb-1.5">
+                            <div data-hnl-pc-v36-room-status="item" className="grid grid-cols-3 gap-1.5 mb-1.5">
                               {(['Chưa làm', 'Đang làm', 'Đã hoàn thành'] as AcceptanceStatus[]).map((st) => (
                                 <button
                                   key={st}
@@ -1761,7 +1793,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                           {/* Status buttons: Nghiệm thu */}
                           <div className="pt-1.5 border-t border-slate-100 xl:border-t-0 xl:pt-0 xl:min-h-[104px]">
                             <span className="text-[10.5px] font-bold text-indigo-700 block mb-1">▶ Nghiệm thu hạng mục này:</span>
-                            <div className="grid grid-cols-3 gap-1.5 mb-1.5">
+                            <div data-hnl-pc-v36-room-status="item" className="grid grid-cols-3 gap-1.5 mb-1.5">
                               {(['Chưa nghiệm thu', 'Đạt nghiệm thu', 'Chưa đạt (Cần sửa)'] as RoomInspectionResult[]).map((st) => (
                                 <button
                                   key={st}
@@ -1880,7 +1912,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             <p className="font-bold text-slate-900 truncate mt-1">{item.materialName}</p>
                             <p className="text-[10px] text-slate-500">
                               {item.normDetails?.length === 1 && item.unitNormPerM2 !== undefined ? (
-                                <>Định mức hao phí: <strong className="text-slate-700">{item.unitNormPerM2} {item.unit}/{item.normBasisUnit || getCategorySourceUnit(item.workCategory || workCategory)}</strong></>
+                                <>Định mức / đơn vị: <strong className="text-slate-700">{formatAdaptiveDecimal(item.unitNormPerM2)} {item.unit}/{item.normBasisUnit || getCategorySourceUnit(item.workCategory || workCategory)}</strong></>
                               ) : (
                                 <>Tổng hợp từ <strong className="text-slate-700">{item.normDetails?.length || item.sourceNormIds.length}</strong> định mức liên kết.</>
                               )}
@@ -1965,7 +1997,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                     <p className="text-[11px] font-extrabold text-amber-900 flex items-center gap-1.5">
                       🎨 Chọn chế độ để vẽ lại vùng cho căn này:
                     </p>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div data-hnl-pc-v39-room-redraw-tools="true" className="grid grid-cols-3 gap-2">
                       <button
                         type="button"
                         onClick={async () => {
@@ -2138,7 +2170,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
           </div>}
 
           {/* Submit Actions */}
-          <div className="pt-2 flex flex-wrap gap-2">
+          <div data-hnl-pc-v35-actions="room-save" className="pt-2 flex flex-wrap gap-2">
             {!structureReadOnly && roomItem && onDeleteRoom && (
               isConfirmingDelete ? (
                 <div className="flex items-center gap-1.5 w-full bg-rose-50 p-2 rounded-xl border border-rose-200">

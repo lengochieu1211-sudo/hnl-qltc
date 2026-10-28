@@ -1,6 +1,6 @@
+import { DesktopWorkspaceMetrics } from './DesktopWorkspaceMetrics';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
-import * as XLSX from 'xlsx';
 import { assertSafeExcelImportFile } from '../utils/excelImportUtils';
 import { 
   ClipboardCheck, 
@@ -30,6 +30,7 @@ import { UserRole, canEditChecklistData, canManageChecklistStructure, canDeleteB
 
 import { QuickSortBar } from './QuickSortBar';
 import { filterChecklistForFloor, isSameChecklistFloor } from '../utils/checklistUtils';
+import { DataManagementMenu } from './DataManagementMenu';
 
 interface ChecklistTabProps {
   checklist: ChecklistItem[];
@@ -80,7 +81,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
   const activeChecklist = useMemo(() => checklist.filter((item) => !item.archivedAt), [checklist]);
   const [selectedFloor, setSelectedFloor] = useState<string>(floors[0] || 'Tầng 1');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [checklistSortBy, setChecklistSortBy] = useState<'none' | 'title' | 'status' | 'dueDate'>('none');
+  const [checklistSortBy, setChecklistSortBy] = useState<'none' | 'title' | 'category' | 'status' | 'dueDate'>('none');
   const [checklistSortOrder, setChecklistSortOrder] = useState<'asc' | 'desc'>('asc');
 
   // Keep selectedFloor in sync with floors. Reset category whenever the
@@ -198,6 +199,11 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
     if (checklistSortBy === 'none') return list;
     
     return list.sort((a, b) => {
+      if (checklistSortBy === 'category') {
+        const comp = a.category.localeCompare(b.category, 'vi', { numeric: true, sensitivity: 'base' })
+          || a.title.localeCompare(b.title, 'vi', { numeric: true, sensitivity: 'base' });
+        return checklistSortOrder === 'asc' ? comp : -comp;
+      }
       if (checklistSortBy === 'title') {
         const comp = a.title.localeCompare(b.title, 'vi', { numeric: true, sensitivity: 'base' });
         return checklistSortOrder === 'asc' ? comp : -comp;
@@ -280,6 +286,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
   };
 
   const handleExportChecklistTemplate = async () => {
+    const XLSX = await import('xlsx');
     const wb = XLSX.utils.book_new();
     const sourceData = activeChecklist.length > 0 ? activeChecklist : [
       {
@@ -330,8 +337,9 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
     }
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
+        const XLSX = await import('xlsx');
         const data = new Uint8Array(event.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         const firstSheetName = workbook.SheetNames[0];
@@ -470,60 +478,58 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
   };
 
   return (
-    <div className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
-      {/* Title */}
-      <div className="flex items-center justify-between">
+    <div data-hnl-workspace-module="checklist" className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
+      <DesktopWorkspaceMetrics eyebrow="KIỂM TRA · NGHIỆM THU"
+        title="Kiểm soát chất lượng" description="Tổng hợp tiêu chí theo tầng đang chọn, không thay đổi điều kiện nghiệm thu."
+        metrics={[
+          { label: 'Tiêu chí', value: summary.total, detail: selectedFloor },
+          { label: 'Đã đạt', value: summary.passed, detail: `${summary.passRate}% tiêu chí`, tone: 'success' },
+          { label: 'Cần xử lý', value: summary.defect + summary.pending, detail: 'Defect + chờ', tone: (summary.defect + summary.pending) ? 'warning' : 'success' },
+        ]} />
+      {/* Title + compact mobile action cluster */}
+      <div data-hnl-pc-region="commands" className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-            <ClipboardCheck className="w-5 h-5 text-emerald-600" />
+            <ClipboardCheck className="w-5 h-5 text-indigo-600" />
             {t('checklist_title')}
           </h2>
-          <p className="text-xs text-slate-500">Tiêu chuẩn thi công &amp; Kỹ sư giám sát: <span className="font-semibold text-indigo-700">{inspectorName}</span></p>
+          <p className="text-xs text-slate-500">Tiêu chuẩn thi công · Kỹ sư giám sát: <span className="font-semibold text-indigo-700">{inspectorName}</span></p>
         </div>
-        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+        <div className="flex items-center justify-end gap-2">
           {canManageStructure && (
             <button
               onClick={() => setShowAddForm(true)}
-              className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl text-xs font-bold shadow active:scale-95 transition-all cursor-pointer"
+              className="flex h-10 items-center gap-1 rounded-xl bg-indigo-600 px-3 text-xs font-bold text-white shadow transition-all hover:bg-indigo-700 active:scale-95 cursor-pointer sm:h-9"
             >
               <Plus className="w-4 h-4" />
-              Thêm Tiêu Chí
+              Thêm tiêu chí
             </button>
           )}
+          <DataManagementMenu
+            triggerLabel="Quản lý dữ liệu"
+            onExportEdit={handleExportChecklistTemplate}
+            onImportFile={canImport && canManageStructure ? handleImportExcelChecklist : undefined}
+            exportLabel="Tải Excel để chỉnh sửa"
+            importLabel="Nhập lại từ Excel"
+          />
         </div>
       </div>
 
-      {/* Excel Import/Export Actions */}
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={handleExportChecklistTemplate}
-          className="flex items-center justify-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-extrabold py-2.5 px-3 rounded-xl shadow-xs transition-all text-xs cursor-pointer"
-          title="Tải mẫu Excel hoặc danh sách checklist hiện tại để chỉnh sửa"
-        >
-          <Download className="w-4 h-4 text-indigo-600" /> Tải Excel để chỉnh sửa
-        </button>
-        {canImport && canManageStructure ? (
-          <label className="flex items-center justify-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 font-extrabold py-2.5 px-3 rounded-xl shadow-xs cursor-pointer transition-all text-xs">
-            <Upload className="w-4 h-4 text-emerald-600" /> Nhập lại từ Excel
-            <input type="file" accept=".xlsx, .xls" onChange={handleImportExcelChecklist} className="hidden" />
-          </label>
-        ) : (
-          <div className="flex items-center justify-center gap-1.5 bg-slate-50 border border-slate-200 text-slate-400 font-extrabold py-2.5 px-3 rounded-xl text-xs" title="Chỉ ADMIN được nhập Checklist từ Excel">
-            <Upload className="w-4 h-4" /> Chỉ ADMIN được nhập
-          </div>
-        )}
+      {/* Floor Chips */}
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="01" aria-label="Tầng & phân loại">
+        <span className="hnl-pc-v3-section-index">01</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Tầng & phân loại</strong><small>Chọn tầng cần kiểm tra, xem tỷ lệ đạt và nhóm nghiệm thu.</small></div>
       </div>
 
-      {/* Floor Chips */}
-      <div className="flex gap-2 overflow-x-auto pb-1 text-xs no-scrollbar">
+      <div data-hnl-pc-region="floor-tabs" role="group" aria-label="Chọn tầng checklist" className="flex gap-2 overflow-x-auto pb-1 text-xs no-scrollbar">
         {floors.map((floor) => (
           <button
             key={floor}
+            aria-pressed={selectedFloor === floor}
             onClick={() => setSelectedFloor(floor)}
             className={`px-3.5 py-2 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
               selectedFloor === floor
-                ? 'bg-emerald-600 text-white shadow-md'
+                ? 'bg-indigo-600 text-white shadow-md'
                 : 'bg-white text-slate-700 border border-slate-200'
             }`}
           >
@@ -534,7 +540,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       </div>
 
       {/* Inspection Pass Rate Summary Card */}
-      <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-2">
+      <div data-hnl-pc-region="inspection" className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-bold text-slate-800">Tỷ lệ nghiệm thu - {selectedFloor}</span>
           <span className="text-xs font-extrabold text-emerald-600">{summary.total > 0 ? `${summary.passRate}% Đạt` : 'Chưa có dữ liệu'}</span>
@@ -560,6 +566,11 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       </div>
 
       {/* Category filter */}
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="02" aria-label="Lọc theo hạng mục">
+        <span className="hnl-pc-v3-section-index">02</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Lọc theo hạng mục</strong><small>Kết hợp nhóm kiểm tra và sắp xếp tiêu chí.</small></div>
+      </div>
+
       {categoriesInUseForFloor.length > 0 && (
         <div className="flex flex-wrap gap-1 text-xs">
           {[{ id: 'all', label: 'Tất Cả' }, ...categoriesInUseForFloor.map((cat, idx) => ({
@@ -586,6 +597,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
         itemCount={sortedFilteredChecklist.length}
         options={[
           { key: 'title', label: 'Nội dung', kind: 'alpha' },
+          { key: 'category', label: 'Hạng mục kiểm tra', kind: 'alpha' },
           { key: 'status', label: 'Trạng thái', kind: 'status' },
           { key: 'dueDate', label: 'Thời hạn', kind: 'deadline', defaultOrder: 'asc' },
         ]}
@@ -640,10 +652,15 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       )}
 
       {/* Checklist items list */}
-      <div className="space-y-3">
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="03" aria-label="Tiêu chí kiểm tra">
+        <span className="hnl-pc-v3-section-index">03</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Tiêu chí kiểm tra</strong><small>Danh sách trạng thái và thao tác nghiệm thu theo quyền hiện tại.</small></div>
+      </div>
+
+      <div data-hnl-pc-v3-inner="checklist-items" className="space-y-3">
         {sortedFilteredChecklist.length === 0 ? (
           <div className="text-center py-8 text-slate-400 text-xs bg-white rounded-2xl border border-dashed border-slate-200">
-            Chưa có tiêu chí checklist nào cho {selectedFloor}.{canManageStructure ? ' Bấm “Thêm Tiêu Chí” hoặc “Nhập Excel” để bắt đầu.' : ''}
+            Chưa có tiêu chí checklist nào cho {selectedFloor}.{canManageStructure ? ' Chọn “Thêm tiêu chí” hoặc “Nhập Excel” để bắt đầu.' : ''}
           </div>
         ) : (
           sortedFilteredChecklist.map((item) => (
@@ -788,12 +805,14 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                 <span className="truncate max-w-[200px]">👤 GS: <strong className="text-slate-700">{item.inspectedBy || inspectorName}</strong></span>
                 <div className="flex items-center gap-2">
                   {canManageStructure && (
-                    <button onClick={() => setEditingChecklistItem(item)} className="text-indigo-600 hover:underline font-bold flex items-center gap-0.5 cursor-pointer">
-                      <Edit className="w-3 h-3" /> Sửa cấu trúc
+                    <button onClick={() => setEditingChecklistItem(item)} className="text-indigo-600 hover:underline font-bold flex items-center gap-0.5 cursor-pointer"
+                      title="Sửa cấu trúc tiêu chí Checklist" aria-label="Sửa tiêu chí Checklist">
+                      <Edit className="w-3 h-3" /> Sửa
                     </button>
                   )}
                   {canDelete && (
-                    <button onClick={() => setDeletingChecklistTarget(item)} className="text-rose-500 hover:underline font-bold flex items-center gap-0.5 cursor-pointer">
+                    <button onClick={() => setDeletingChecklistTarget(item)} className="text-rose-500 hover:underline font-bold flex items-center gap-0.5 cursor-pointer"
+                      title="Xóa tiêu chí Checklist" aria-label="Xóa tiêu chí Checklist">
                       <Trash2 className="w-3 h-3" /> Xóa
                     </button>
                   )}
@@ -810,13 +829,13 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
           <div className="bg-white w-full sm:max-w-2xl lg:max-w-3xl rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-1.5">
-                <Plus className="w-4 h-4 text-emerald-600" />
-                Thêm Tiêu Chí Kiểm Tra ({selectedFloor})
+                <Plus className="w-4 h-4 text-indigo-600" />
+                Thêm tiêu chí kiểm tra ({selectedFloor})
               </h3>
               <button onClick={() => setShowAddForm(false)} className="font-bold text-slate-500 cursor-pointer">✕</button>
             </div>
 
-            <form onSubmit={handleAddSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+            <form data-hnl-pc-v3-form="checklist-create" onSubmit={handleAddSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
               <div>
                 <label className="block text-slate-700 font-bold mb-1">Loại hạng mục</label>
                 <select
@@ -922,7 +941,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                 </div>
               </div>
 
-              <div className="flex gap-2 pt-2 md:col-span-2 lg:col-span-3">
+              <div data-hnl-pc-v35-actions="checklist-save" className="flex gap-2 pt-2 md:col-span-2 lg:col-span-3">
                 <button
                   type="button"
                   onClick={() => setShowAddForm(false)}
@@ -954,7 +973,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
               <button onClick={() => setEditingChecklistItem(null)} className="font-bold text-slate-500 cursor-pointer">✕</button>
             </div>
 
-            <form onSubmit={handleEditSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+            <form data-hnl-pc-v3-form="checklist-edit" onSubmit={handleEditSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
               <div>
                 <label className="block text-slate-700 font-bold mb-1">Vị Trí (Tầng)</label>
                 <select
@@ -1083,7 +1102,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                 </div>
               </div>
 
-              <div className="flex gap-2 pt-2 md:col-span-2 lg:col-span-3">
+              <div data-hnl-pc-v35-actions="checklist-save" className="flex gap-2 pt-2 md:col-span-2 lg:col-span-3">
                 <button
                   type="button"
                   onClick={() => setEditingChecklistItem(null)}
@@ -1095,7 +1114,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                   type="submit"
                   className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md cursor-pointer"
                 >
-                  Lưu Thay Đổi
+                  Lưu thay đổi
                 </button>
               </div>
             </form>

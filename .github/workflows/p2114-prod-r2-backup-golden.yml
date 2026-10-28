@@ -1,0 +1,63 @@
+name: P21.14 PROD R2 isolated backup verification (NO DEPLOY)
+on:
+  push:
+    branches:
+      - release/p21-13-prod-candidate-20261027
+    paths:
+      - 'scripts/p2114-prod-r2-backup*'
+      - '.github/workflows/p2114-prod-r2-backup-golden.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  prod-r2-backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: '4078cafe74946b0d5a67b35143b60071'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify exact branch and PROD source is read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/release/p21-13-prod-candidate-20261027'
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          grep -q '^binding = "PROD_SOURCE"$' scripts/p2114-prod-r2-backup.toml
+          grep -q '^bucket_name = "hnl-qltc-media"$' scripts/p2114-prod-r2-backup.toml
+          grep -q '^binding = "PROD_BACKUP"$' scripts/p2114-prod-r2-backup.toml
+          grep -q '^bucket_name = "hnl-qltc-media-prod-backup"$' scripts/p2114-prod-r2-backup.toml
+          test "$(grep -c '^bucket_name = ' scripts/p2114-prod-r2-backup.toml)" -eq 2
+          ! grep -qE 'PROD_SOURCE\.(put|delete)' scripts/p2114-prod-r2-backup-worker.mjs
+      - name: Start local-only Cloudflare Worker with PROD-read/backup-write bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.153.0 dev --config scripts/p2114-prod-r2-backup.toml --ip 127.0.0.1 --port 8789 > /tmp/p2114-wrangler.log 2>&1 &
+          echo $! > /tmp/p2114-wrangler.pid
+          ready=0
+          for i in $(seq 1 50); do
+            if curl --silent --fail -H 'x-hnl-dev-backup: PROD-SNAPSHOT-P2114' http://127.0.0.1:8789/health | grep -q '"environment":"PROD"'; then ready=1; break; fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then tail -60 /tmp/p2114-wrangler.log; exit 1; fi
+      - name: Snapshot and verify every PROD R2 object, SHA256 and metadata
+        run: node scripts/p2114-prod-r2-backup-runner.mjs
+      - name: Upload signed snapshot manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P2114-PROD-R2-VERIFIED-${{ github.sha }}
+          path: P2114-PROD-R2-BACKUP-VERIFIED-MANIFEST.json
+          retention-days: 30
+          if-no-files-found: warn
+      - name: Stop ephemeral backup worker
+        if: always()
+        shell: bash
+        run: |
+          if [ -f /tmp/p2114-wrangler.pid ]; then kill "$(cat /tmp/p2114-wrangler.pid)" || true; fi
+          tail -20 /tmp/p2114-wrangler.log || true

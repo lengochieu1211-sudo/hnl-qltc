@@ -1,0 +1,1128 @@
+/* HNL QLTC — PC Workspace V3.4: compact, content-sized desktop layout.
+ * Only affects the opt-in modern desktop shell (never classic/mobile).
+ * Deliberately excludes plan viewport/canvas, drag handles, fullscreen overlays,
+ * fixed-position dialogs and virtual/Excel grid sizing. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] {
+    --hnl-compact-gap: 8px;
+    --hnl-compact-card-gap: 12px;
+  }
+  /* Remove excessive padding without interfering with the 84px navigation rail. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    main[data-hnl-pc-workspace="true"] [data-hnl-workspace-module] {
+    max-width: 1660px;
+    padding: 8px 18px 48px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    :is([data-hnl-pc-module="settings-center"], [data-hnl-pc-module="chat-projects"],
+        [data-hnl-pc-module="ai-workspace"], [data-hnl-pc-module="system-center"]) {
+    max-width: 1660px;
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+  /* A restrained compact summary leaves actual field data in the foreground. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview {
+    grid-template-columns: minmax(210px, .62fr) minmax(0, 2.6fr);
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric {
+    padding: 12px 15px;
+    border-radius: 14px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro h3 {
+    font-size: 15px;
+    margin-top: 4px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro p {
+    font-size: 11px;
+    line-height: 1.4;
+    margin-top: 4px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric-grid { gap: 9px; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric-value {
+    margin-top: 3px;
+    font-size: clamp(19px, 1.7vw, 24px);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-band {
+    margin: 16px 1px 8px;
+    padding-bottom: 7px;
+    gap: 9px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-index {
+    width: 27px;
+    height: 27px;
+    border-radius: 8px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-copy strong { font-size: 13px; }
+  /* Fix core issue: command rows must hug their content and wrap, not spread
+     equal-width buttons across a 1280–1920px workspace. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module] [data-hnl-pc-region="commands"] {
+    display: flex;
+    flex-flow: row wrap;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 10px 14px;
+    padding: 11px 13px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module] [data-hnl-pc-region="commands"] > :first-child:not(button) { min-width: 170px; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module]:not([data-hnl-workspace-module="crew"]):not([data-hnl-workspace-module="floorplan"])
+    [data-hnl-pc-region="commands"] > :nth-child(2) {
+    width: auto;
+    max-width: 100%;
+    margin-left: auto;
+    flex: 0 1 auto;
+  }
+  /* The global PC header already names these modules. Remove the second
+     near-identical heading, so the toolbar is a real compact action strip. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    :is([data-hnl-workspace-module="warehouse"], [data-hnl-workspace-module="volume"],
+        [data-hnl-workspace-module="checklist"]) [data-hnl-pc-region="commands"] > :first-child {
+    display: none;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    :is([data-hnl-workspace-module="warehouse"], [data-hnl-workspace-module="volume"],
+        [data-hnl-workspace-module="checklist"]) [data-hnl-pc-region="commands"] > :nth-child(2) {
+    margin-left: 0;
+  }
+  /* Actions are compact and content-sized; never stretch data-entry controls. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    :is([data-hnl-secondary-action-group="warehouse"], [data-hnl-secondary-action-group="crew"]) {
+    display: flex !important;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    width: auto;
+    max-width: 100%;
+    gap: var(--hnl-compact-gap);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    :is([data-hnl-secondary-action-group="warehouse"], [data-hnl-secondary-action-group="crew"]) > * {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: 100%;
+    min-width: 0;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module] [data-hnl-pc-region="commands"]
+    :is(button, [data-hnl-secondary-action-group] > button) {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 36px;
+    height: auto;
+    padding: 7px 12px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  /* CREW: date picker has a stable usable width, then action buttons wrap
+     according to their labels, never fractional grid columns. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module="crew"] [data-hnl-pc-region="commands"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module="crew"] [data-hnl-pc-region="commands"] > :first-child {
+    flex: 0 0 232px;
+    width: 232px;
+    min-width: 215px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module="crew"] [data-hnl-pc-region="commands"] > :first-child button {
+    flex: 0 0 auto;
+  }
+  /* WAREHOUSE: command group wraps tightly; filter uses fixed type/date sizes
+     while search alone grows into remaining horizontal space. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module="warehouse"] [data-hnl-pc-region="commands"] > :nth-child(2) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    width: auto;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-warehouse-primary-toolbar="type-search-dates"] {
+    display: grid;
+    grid-template-columns: minmax(215px, 240px) minmax(230px, 1fr) auto;
+    align-items: end;
+    gap: 10px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-warehouse-primary-toolbar="type-search-dates"] [data-hnl-warehouse-date-filter] {
+    grid-column: auto;
+    width: auto;
+    justify-content: flex-start;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-warehouse-primary-toolbar="type-search-dates"] [data-hnl-warehouse-date-filter] label {
+    width: 132px;
+    max-width: 132px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    :is([data-hnl-warehouse-kind-sort], [data-hnl-pc-v3-inner="volume-filter-panel"]) {
+    gap: 10px;
+    justify-content: flex-start;
+    align-items: center;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    :is([data-hnl-warehouse-sort-controls], [data-hnl-volume-sort-controls]) {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+  /* FLOORPLAN: keep drawing/zoom/coordinates intact; compact the toolbar only. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module="floorplan"] [data-hnl-pc-region="commands"] {
+    display: block;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module="floorplan"] [data-hnl-pc-region="commands"] > div:not(.hnl-pc-v3-section-band) {
+    padding: 4px 0;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module="floorplan"] [data-hnl-pc-region="commands"] > div > div:nth-child(2) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    width: auto;
+    gap: 8px;
+  }
+  /* CHECKLIST: only the floor selector should horizontally scroll. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module="checklist"] [data-hnl-pc-region="floor-tabs"] {
+    padding: 8px;
+    gap: 6px;
+    justify-content: flex-start;
+    max-width: 100%;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-workspace-module="checklist"] [data-hnl-pc-region="floor-tabs"] > button {
+    flex: 0 0 auto;
+    min-height: 34px;
+    padding: 6px 11px;
+  }
+  /* CHAT: project rooms are scannable, not giant equal-height action buttons.
+     Conversation text remains full-width and scroll/attachment logic unchanged. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-module="chat-projects"] > div.space-y-2 {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 350px));
+    gap: 10px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-module="chat-projects"] > div.space-y-2 > button {
+    min-height: 70px;
+    padding: 13px 16px;
+    border-radius: 13px;
+    align-items: center;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-module="settings-center"] { max-width: 1280px; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-module="ai-workspace"] { max-width: 1380px; }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-module="chat-room"] { max-width: 1370px; }
+  /* SETTINGS & AI: place dense forms in clean cards; do not resize fields in
+     project settings, token boxes or freeform AI prompts. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-module="settings-center"] > div.bg-white {
+    padding: 16px 19px;
+    border-radius: 15px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-module="settings-center"] > div:first-child {
+    padding: 13px 18px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-module="ai-workspace"] > section {
+    padding: 16px 18px;
+    border-radius: 15px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-module="ai-workspace"] [data-hnl-pc-deep-tabs="ai-modes"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-start;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-module="ai-workspace"] [data-hnl-pc-deep-tabs="ai-modes"] > button {
+    flex: 0 0 auto;
+    width: auto;
+    min-height: 38px;
+    padding: 7px 13px;
+  }
+}
+/* At 1024–1279px an extra filter row is preferable to squashed inputs. */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-warehouse-primary-toolbar="type-search-dates"] {
+    grid-template-columns: minmax(195px, 230px) minmax(180px, 1fr);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-warehouse-primary-toolbar="type-search-dates"] [data-hnl-warehouse-date-filter] {
+    grid-column: 1 / -1;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview {
+    grid-template-columns: 1fr;
+  }
+}
+/* Chrome Android Desktop Site at 960–1023px: only compact card padding;
+ * existing two-column stack/scroll layout takes precedence. Ordinary mobile
+ * never receives the modern desktop workspace styles. */
+@media (min-width: 960px) and (max-width: 1023px) {
+  html[data-hnl-browser-desktop="true"][data-hnl-pc-workspace="modern"]
+    [data-hnl-desktop-design="modern"] [data-hnl-pc-region="commands"] {
+    gap: 8px;
+    padding: 10px;
+  }
+}
+
+/* PC V3.5: nested-window scrollbars, action width and catalogue contrast.
+ * Decorative-only: preserve actual scroll owners, sticky headers, handlers,
+ * Firestore/R2 and mobile/classic layout. Do not alter any overlay positions. */
+@media (min-width: 1024px) {
+  /* Standardize the thumb of feature sheets and deeper work dialogs. Scrollbars
+     remain operable and visible; they are not replaced by hidden overlays. */
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-settings-sheet-scrollbody],
+    [data-hnl-pc-v32-window] [class*="overflow-y-auto"],
+    [data-hnl-pc-v32-window] [class*="overflow-auto"],
+    [data-hnl-pc-v3-center="notification-center"] [class*="overflow-y-auto"],
+    [data-hnl-pc-v3-form="warehouse"],
+    [data-hnl-pc-v3-form="volume"],
+    [data-hnl-warehouse-catalog-scroll="true"]
+  ) {
+    scrollbar-width: thin;
+    scrollbar-color: #94a3b8 transparent;
+  }
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-settings-sheet-scrollbody],
+    [data-hnl-pc-v32-window] [class*="overflow-y-auto"],
+    [data-hnl-pc-v32-window] [class*="overflow-auto"],
+    [data-hnl-pc-v3-center="notification-center"] [class*="overflow-y-auto"],
+    [data-hnl-pc-v3-form="warehouse"],
+    [data-hnl-pc-v3-form="volume"],
+    [data-hnl-warehouse-catalog-scroll="true"]
+  )::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-settings-sheet-scrollbody],
+    [data-hnl-pc-v32-window] [class*="overflow-y-auto"],
+    [data-hnl-pc-v32-window] [class*="overflow-auto"],
+    [data-hnl-pc-v3-center="notification-center"] [class*="overflow-y-auto"],
+    [data-hnl-pc-v3-form="warehouse"],
+    [data-hnl-pc-v3-form="volume"],
+    [data-hnl-warehouse-catalog-scroll="true"]
+  )::-webkit-scrollbar-thumb {
+    background-color: #94a3b8;
+    border: 2px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
+  /* Keep the actual catalogue scrollable and its two-axis scroll working.
+     Pale indigo edge follows the Material Need panel instead of a dark frame. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-grid"] {
+    border-color: #c7d2fe;
+    background-color: var(--hnl-v3-paper, #fff);
+    scrollbar-gutter: stable;
+    overscroll-behavior: contain;
+  }
+  /* Only the two verified full-width action buttons become content-sized;
+     mobile actions, input widths and full-width list navigation remain intact. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-project-settings-save="true"],
+  html[data-hnl-pc-workspace="modern"] [data-hnl-notification-open-chat="true"] {
+    width: auto;
+    max-width: 100%;
+    min-width: 170px;
+    align-self: flex-start;
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+}
+
+/* V3.5 completion: content-sized form action bars not covered by the toolbar
+ * compact CSS. This is modern-PC only, including portaled modal descendants.
+ * Preserve selection cards, editable controls, destructive confirmations,
+ * mobile, classic mode and all event handlers. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v35-actions="room-save"],
+    [data-hnl-pc-v35-actions="room-preset"],
+    [data-hnl-pc-v35-actions="norm-save"],
+    [data-hnl-pc-v35-actions="warehouse-save"],
+    [data-hnl-pc-v35-actions="volume-save"],
+    [data-hnl-pc-v35-actions="crew-save"],
+    [data-hnl-pc-v35-actions="checklist-save"],
+    [data-hnl-pc-v35-actions="defect-save"],
+    [data-hnl-pc-v35-actions="floor-add"],
+    [data-hnl-pc-v35-actions="drive-sync"],
+    [data-hnl-pc-v35-actions="trash-record"],
+    [data-hnl-report-export-actions="true"] [role="group"][aria-label="Nội dung, PDF và Excel"]
+  ) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v35-actions="room-save"],
+    [data-hnl-pc-v35-actions="room-preset"],
+    [data-hnl-pc-v35-actions="norm-save"],
+    [data-hnl-pc-v35-actions="warehouse-save"],
+    [data-hnl-pc-v35-actions="volume-save"],
+    [data-hnl-pc-v35-actions="crew-save"],
+    [data-hnl-pc-v35-actions="checklist-save"],
+    [data-hnl-pc-v35-actions="defect-save"],
+    [data-hnl-pc-v35-actions="floor-add"],
+    [data-hnl-pc-v35-actions="drive-sync"],
+    [data-hnl-pc-v35-actions="trash-record"],
+    [data-hnl-report-export-actions="true"] [role="group"][aria-label="Nội dung, PDF và Excel"]
+  ) > button {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 38px;
+    padding: 8px 16px;
+    white-space: normal;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v35-actions="room-save"] {
+    justify-content: space-between; /* Delete left, Save right. */
+  }
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v35-actions="room-preset"],
+    [data-hnl-pc-v35-actions="trash-record"],
+    [data-hnl-report-export-actions="true"] [role="group"][aria-label="Nội dung, PDF và Excel"]
+  ) { justify-content: flex-start; }
+}
+
+/* Root fix: the catalogue's native scrollbar is no longer clipped by the
+ * rounded outer border. A 4px inset scroll owner retains sticky headers and
+ * the existing scroll-return marker/history/focus behavior. */
+@media (min-width: 960px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-grid"] {
+    max-height: none;
+    border: 1px solid #c7d2fe;
+    border-radius: 12px;
+    padding: 4px;
+    background: var(--hnl-v3-paper, #fff);
+    box-shadow: none;
+    overflow: hidden;
+    scrollbar-gutter: auto;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-warehouse-catalog-scroll="true"] {
+    max-height: min(58vh, 680px);
+    scrollbar-gutter: stable;
+    overscroll-behavior: contain;
+  }
+}
+
+
+/* PC V3.5 follow-up: entry triggers were not covered by PR #302's modal-footer
+ * selectors. Keep touch-size / full-width selection controls on mobile/classic.
+ * Narrow the Settings launch cards, NOT their portaled working sheets. */
+@media (min-width: 1024px) {
+  /* Settings entries are navigation rows, not command buttons. The V3.5
+   * 600px cap made Section 02/03 look indented against full-width section
+   * bands. Preserve a single aligned column; shrink only actual actions. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet-card] {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  /* FloorPlan and Warehouse launch actions should hug their labels, not fill
+   * a parent grid cell. The actual editors, tables and pick controls stay put. */
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v35-trigger="manage-structure"],
+    [data-hnl-pc-v35-trigger="add-structure-group"],
+    [data-hnl-primary-action="warehouse-create"]
+  ) {
+    width: fit-content;
+    max-width: 100%;
+    min-width: 0;
+    flex: 0 0 auto;
+    justify-self: start;
+    white-space: normal;
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  /* Backup/Auto-save commands are actions, not selectable full-width tiles.
+   * Preserve onClick, file-input label and confirm/permission state. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-center="project-manager"] :is(
+    [data-hnl-pc-v35-trigger="json-export"],
+    [data-hnl-pc-v35-trigger="json-import"],
+    [data-hnl-pc-v35-trigger="json-paste-restore"],
+    [data-hnl-pc-v35-trigger="autosave-permission"],
+    [data-hnl-pc-v35-trigger="autosave-link"]
+  ) {
+    width: fit-content;
+    max-width: 100%;
+    min-width: 0;
+    justify-self: start;
+    flex: 0 0 auto;
+    padding: 9px 15px;
+    text-align: center;
+    white-space: normal;
+  }
+}
+
+/* PC V3.5 Data & Sync follow-up: compact action groups inside the nested
+ * feature sheets. Do not shrink navigation entries, input controls, choices,
+ * restore confirmations, or any touch/mobile/classic layout. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-center="project-manager"]
+    [data-hnl-pc-v35-actions="json-transfer"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-center="project-manager"]
+    [data-hnl-pc-v35-actions="json-transfer"] > :is(button, label),
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-center="project-manager"]
+    [data-hnl-pc-v35-trigger="cloud-resync"] {
+    flex: 0 1 auto;
+    width: fit-content;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 38px;
+    padding: 8px 15px;
+    white-space: normal;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="system-sync-card"]
+    [data-hnl-health-export-actions="true"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="system-sync-card"]
+    [data-hnl-health-export-actions="true"] > button {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: 100%;
+    min-width: 112px;
+    min-height: 40px;
+    padding: 8px 14px;
+    white-space: normal;
+  }
+}
+
+
+/* V3.5 follow-up: buttons inside Warehouse voucher selection and the Floor
+ * manager should not become half-page actions on desktop. The parent form
+ * rows keep their original layout, while mobile remains touch-friendly. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form="warehouse"]
+    [data-hnl-v35-voucher-toggle] {
+    display: inline-grid;
+    grid-template-columns: repeat(2, minmax(128px, 160px));
+    width: fit-content;
+    max-width: 100%;
+    gap: 8px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form="warehouse"]
+    [data-hnl-v35-voucher-toggle] > button {
+    min-height: 38px;
+    width: 100%;
+    padding-inline: 14px;
+    white-space: normal;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v35-actions="floor-manage-add"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v35-actions="floor-manage-add"] > button {
+    flex: 0 1 auto;
+    width: fit-content;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 40px;
+    padding: 10px 16px;
+    white-space: normal;
+  }
+
+  /* Report typography: main section titles 14px; Defect subheading and
+   * field captions 12px; auxiliary descriptions 11px. Exported PDF unchanged. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="report-filters"]
+    > div:first-child > label,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-report-typography="sort-order"] > summary,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-report-typography="page-layout"] > span:first-child {
+    font-size: 14px;
+    line-height: 1.4;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="report-filters"]
+    :is(label, input, select, button),
+  html[data-hnl-pc-workspace="modern"] [data-hnl-report-typography="sort-order"]
+    :is(label, select),
+  html[data-hnl-pc-workspace="modern"] [data-hnl-report-typography="page-layout"]
+    > :is(label, div.grid) :is(label, select, input) {
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-report-scrollbody="true"] {
+    scrollbar-width: thin;
+    scrollbar-color: #94a3b8 transparent;
+  }
+}
+
+
+/* HNL PC V3.5 warehouse voucher layout (following real Windows screenshot):
+ * align two selector groups on one desktop row. Only visual presentation;
+ * keep button actions, data flow, print, classic and mobile unchanged. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form="warehouse"]
+    [data-hnl-v35-voucher-group] {
+    min-width: 0;
+    align-self: stretch;
+    padding: 12px 14px;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    background: #f8fafc;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form="warehouse"]
+    [data-hnl-v35-voucher-group] > label {
+    margin-bottom: 8px;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form="warehouse"]
+    [data-hnl-v35-voucher-product-header="true"] {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    column-gap: 14px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form="warehouse"]
+    [data-hnl-v35-voucher-product-header="true"] > button {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 32px;
+    padding: 5px 10px;
+    border: 1px solid #bfdbfe;
+    border-radius: 9px;
+    background: #eff6ff;
+    white-space: normal;
+  }
+}
+
+
+/* PC V3.5 follow-up: formatting and image-quality selectors in Settings should
+ * read like compact option groups on desktop, not stretched full-width tiles.
+ * Mobile/classic keep the touch-friendly full-width layout. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="formatting-settings-card"]
+    [data-hnl-pc-v35-choice-grid="number-format"] {
+    display: inline-grid;
+    grid-template-columns: repeat(2, minmax(300px, 360px));
+    align-items: stretch;
+    gap: 10px;
+    width: fit-content;
+    max-width: 100%;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="formatting-settings-card"]
+    [data-hnl-pc-v35-choice-card="number-format"] {
+    width: 100%;
+    min-width: 0;
+    max-width: 360px;
+    padding: 13px 14px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="formatting-settings-card"]
+    [data-hnl-pc-v35-choice-grid="date-format"] {
+    display: inline-grid;
+    grid-template-columns: repeat(2, minmax(210px, 280px));
+    align-items: stretch;
+    gap: 10px;
+    width: fit-content;
+    max-width: 100%;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="formatting-settings-card"]
+    [data-hnl-pc-v35-choice-card="date-format"] {
+    width: 100%;
+    min-width: 0;
+    max-width: 280px;
+    padding: 12px 13px;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="image-quality-card"]
+    [data-hnl-pc-v35-quality-row] {
+    padding-bottom: 14px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="image-quality-card"]
+    [data-hnl-pc-v35-choice-grid="image-quality"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    width: fit-content;
+    max-width: 100%;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="image-quality-card"]
+    [data-hnl-pc-v35-choice-card="image-quality"] {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 116px;
+    max-width: 100%;
+    min-height: 34px;
+    padding: 8px 14px;
+    white-space: normal;
+  }
+}
+
+/* PC V3.5 follow-up after real Windows screenshot review.
+ * The shared SettingsFeatureSheet deliberately occupies most of the viewport
+ * for complex editors, but these two short preference sheets should hug their
+ * content. Scope geometry to the two known sheet IDs, not the common shell. */
+@media (min-width: 900px) {
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-settings-sheet="formatting-settings-card"],
+    [data-hnl-settings-sheet="image-quality-card"]
+  ) {
+    top: 50dvh;
+    bottom: auto;
+    left: 50%;
+    right: auto;
+    margin: 0;
+    height: auto;
+    min-height: 0;
+    max-height: calc(100dvh - 48px);
+    max-width: calc(100vw - 48px);
+    transform: translate(-50%, -50%);
+    border-radius: 20px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="formatting-settings-card"] {
+    width: 840px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="image-quality-card"] {
+    width: 880px;
+  }
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-settings-sheet="formatting-settings-card"],
+    [data-hnl-settings-sheet="image-quality-card"]
+  ) [data-hnl-settings-sheet-scrollbody] {
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: calc(100dvh - 140px);
+  }
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-settings-sheet="formatting-settings-card"],
+    [data-hnl-settings-sheet="image-quality-card"]
+  ) [data-hnl-settings-sheet-scrollbody] > div {
+    min-height: 0;
+    padding: 18px 24px 22px;
+  }
+
+  /* Both format groups use the same visual measure. The date presets fit
+   * on one line at PC width, while number examples keep a comfortable width. */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="formatting-settings-card"]
+    [data-hnl-pc-v35-choice-grid="number-format"] {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    max-width: none;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="formatting-settings-card"]
+    [data-hnl-pc-v35-choice-card="number-format"] {
+    max-width: none;
+    min-height: 65px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="formatting-settings-card"]
+    [data-hnl-pc-v35-choice-grid="date-format"] {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    width: 100%;
+    max-width: none;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="formatting-settings-card"]
+    [data-hnl-pc-v35-choice-card="date-format"] {
+    max-width: none;
+    min-height: 65px;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="image-quality-card"]
+    [data-hnl-pc-v35-choice-card="image-quality"] {
+    min-width: 116px;
+    min-height: 38px;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="image-quality-card"]
+    [data-hnl-pc-v35-quality-row] > div:first-child > div:first-child > div:first-child {
+    font-size: 13px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="image-quality-card"]
+    [data-hnl-pc-v35-quality-row] > div:first-child > div:first-child > div:nth-child(2),
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet="image-quality-card"]
+    [data-hnl-settings-sheet-scrollbody] p {
+    font-size: 11px;
+    line-height: 1.45;
+  }
+}
+
+/* Compact plan-view toggle commands only in the modern PC workspace.
+ * The original grid/flexible buttons remain intact on mobile and classic. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v35-view-modes="floorplan"] {
+    display: inline-flex;
+    flex-wrap: wrap;
+    width: fit-content;
+    max-width: 100%;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 6px;
+    padding: 5px;
+    background-color: #e2e8f0;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v35-view-modes="floorplan"] > button {
+    flex: 0 1 auto;
+    width: auto;
+    min-width: 190px;
+    max-width: 100%;
+    min-height: 38px;
+    padding: 8px 13px;
+    white-space: normal;
+  }
+}
+
+
+/* PC V3.5: section 02 heading (left) + view mode controls (right).
+ * Classic and mobile retain the original stacked view-mode row; the wrapper
+ * has no extra visible section heading there. No change to canvas sizing. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-v35-section-row="floor-drawing"] {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    column-gap: 16px;
+    row-gap: 8px;
+    padding: 0 3px 9px;
+    border-bottom: 1px solid var(--hnl-v3-edge, #dce4ef);
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-v35-section-row="floor-drawing"] > [data-hnl-v3-section="02"] {
+    order: 0;
+    flex: 1 1 360px;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"]
+    [data-hnl-pc-v35-section-row="floor-drawing"] > [data-hnl-pc-v35-view-modes="floorplan"] {
+    order: 1;
+    margin: 0 0 0 auto;
+    flex: 0 1 auto;
+    max-width: 100%;
+  }
+}
+
+
+/* PC V3.6: Căn/Phòng progress and inspection buttons keep natural text width.
+ * Only modern PC: Classic and mobile retain their original three-column grid.
+ * Layout-only: no changes to status handlers, disabled/permission guards or data. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v36-room-status] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    width: fit-content;
+    max-width: 100%;
+    gap: 6px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v36-room-status] > button {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: 100%;
+    min-height: 32px;
+    padding: 6px 10px;
+    white-space: normal;
+  }
+}
+
+/* PC V4.0: Crew/Warehouse galleries reflow like the Defect photo grid,
+ * while bounding each square between 104 and 120px to avoid stretched photos
+ * in wide forms. Existing V3.6 marker covers saved and warehouse draft photos.
+ * The Defect gallery, Classic/mobile, photo bytes and sync are unchanged. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v36-photo-thumbnails] {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(104px, clamp(104px, 9vw, 120px)));
+    justify-content: start;
+    gap: 8px;
+    max-width: 100%;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v36-photo-thumbnails] > div {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1 / 1;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v36-photo-thumbnails] > div > img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+}
+
+
+/* PC V3.7: Outside room-card statuses were still stretched by grid-cols-2.
+ * This scope is the room list in FloorPlanDefectTab, NOT RoomHighlightModal.
+ * Keep existing grid on classic/mobile; no status, permission or data changes. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v37-room-card-status="outer"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v37-room-card-status="outer"] > :is(span, button) {
+    display: inline-flex;
+    flex: 0 0 auto;
+    width: max-content;
+    max-width: 100%;
+    min-height: 28px;
+    align-items: center;
+    justify-content: center;
+    padding: 5px 10px;
+    white-space: normal;
+  }
+}
+
+
+/* PC V3.8: Crew/Warehouse photo action overlays match the compact Defect
+ * pencil/delete controls. The general PC form button rule gives every button
+ * min-height: 36px, which stretches icons inside the 104px thumbnails.
+ * Override only these photo actions; the Defect, Classic and mobile stay intact.
+ * Warehouse draft keeps its original remove handler and text glyph off-PC. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v36-photo-thumbnails]
+    [data-hnl-pc-v38-photo-actions="crew-warehouse"] > button,
+  html[data-hnl-pc-workspace="modern"]
+    [data-hnl-pc-v36-photo-thumbnails="warehouse-draft"] > div > button[data-hnl-pc-v38-draft-delete="true"] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 22px;
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+    min-height: 22px;
+    max-width: 22px;
+    max-height: 22px;
+    padding: 0;
+    line-height: 1;
+    aspect-ratio: 1 / 1;
+    border-radius: 9999px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v36-photo-thumbnails]
+    [data-hnl-pc-v38-photo-actions="crew-warehouse"] > button > svg {
+    display: block;
+    flex: 0 0 auto;
+    width: 12px;
+    height: 12px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v36-photo-thumbnails]
+    [data-hnl-pc-v38-photo-actions="crew-warehouse"] > button:last-child > svg {
+    width: 14px;
+    height: 14px;
+  }
+  html[data-hnl-pc-workspace="modern"]
+    [data-hnl-pc-v36-photo-thumbnails="warehouse-draft"] > div > button[data-hnl-pc-v38-draft-delete="true"] > span[data-hnl-pc-v38-draft-glyph] {
+    display: none;
+  }
+  html[data-hnl-pc-workspace="modern"]
+    [data-hnl-pc-v36-photo-thumbnails="warehouse-draft"] > div > button[data-hnl-pc-v38-draft-delete="true"] > svg[data-hnl-pc-v38-draft-icon] {
+    display: block;
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+  }
+}
+
+
+/* PC V3.9: the redraw-tool selection in RoomHighlightModal previously used
+ * grid-cols-3, stretching Freehand/Polygon/Rectangle to one third each.
+ * Keep that original layout in Classic/mobile; scope compact controls to
+ * Modern PC only. This does NOT style coordinate inputs or alter draw logic. */
+@media (min-width: 1024px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v39-room-redraw-tools="true"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v39-room-redraw-tools="true"] > button {
+    display: inline-flex;
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: max-content;
+    max-width: 100%;
+    min-height: 36px;
+    padding: 8px 12px;
+    white-space: nowrap;
+  }
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v39-room-redraw-tools="true"] > button > svg {
+    display: block;
+    flex: 0 0 auto;
+  }
+}
+
+
+/* HNL QLTC — a shared PC size for export/share format buttons.
+ * 112 × 44 px, 8 px gaps; wraps inside narrow PC dialogs instead of
+ * stretching the dialog horizontally. Mobile keeps each existing grid. */
+@media (min-width: 960px) {
+  html [data-hnl-export-format-group="true"],
+  html[data-hnl-pc-workspace="modern"] [data-hnl-export-format-group="true"][data-hnl-export-format-count][role="group"] {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    width: max-content;
+    max-width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+    align-self: flex-start;
+  }
+  html [data-hnl-export-format-group="true"] > button,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-export-format-group="true"][role="group"] > button {
+    box-sizing: border-box;
+    flex: 0 0 112px;
+    width: 112px;
+    min-width: 0;
+    max-width: 112px;
+    min-height: 44px;
+    padding: 8px;
+    font-size: 12px;
+    line-height: 1.25;
+    white-space: normal;
+  }
+}
+
+
+/* HNL QLTC — PC security/notification control density (approved 2026-10-24).
+ * Keep both modal shells at their existing 1150px desktop width, search fields,
+ * data tables and scrolling unchanged. Compact only named action groups.
+ * Mobile and Classic mode retain their original Tailwind layouts. */
+@media (min-width: 960px) {
+  html[data-hnl-pc-workspace="modern"]
+    [data-hnl-security-primary-tabs="true"],
+  html[data-hnl-pc-workspace="modern"]
+    [data-hnl-notification-primary-tabs="true"] {
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    gap: 6px;
+    width: max-content;
+    max-width: 100%;
+    margin-inline: auto;
+  }
+  html[data-hnl-pc-workspace="modern"]
+    [data-hnl-security-primary-tabs="true"] > button,
+  html[data-hnl-pc-workspace="modern"]
+    [data-hnl-notification-primary-tabs="true"] > button {
+    box-sizing: border-box;
+    flex: 0 0 180px;
+    width: 180px;
+    max-width: 30vw;
+    min-width: 0;
+    min-height: 40px;
+    white-space: nowrap;
+  }
+  html[data-hnl-pc-workspace="modern"]
+    [data-hnl-security-auto-lock-tabs="true"] {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+  }
+  html[data-hnl-pc-workspace="modern"]
+    [data-hnl-security-auto-lock-tabs="true"] > button {
+    box-sizing: border-box;
+    flex: 0 0 90px;
+    width: 90px;
+    min-height: 36px;
+  }
+  html[data-hnl-pc-workspace="modern"]
+    [data-hnl-security-sign-in-wrap="true"] {
+    display: flex;
+    justify-content: flex-end;
+  }
+  html[data-hnl-pc-workspace="modern"]
+    [data-hnl-security-sign-in-wrap="true"] > button {
+    box-sizing: border-box;
+    width: min(100%, 280px);
+    min-height: 40px;
+  }
+  html[data-hnl-pc-workspace="modern"]
+    button[data-hnl-security-load-audit="true"] {
+    box-sizing: border-box;
+    display: block;
+    width: min(100%, 220px);
+    min-height: 40px;
+    margin-left: auto;
+  }
+  html[data-hnl-pc-workspace="modern"]
+    button[data-hnl-notification-open-chat="true"] {
+    box-sizing: border-box;
+    display: block;
+    width: min(100%, 180px);
+    min-height: 40px;
+    margin-left: auto;
+  }
+}
+
+/* Security member phone action: on modern PC, place it in the action row
+ * BEFORE Contact, Reset PIN and Delete. Never expand the member card width.
+ * Only one of the two responsive actions is visible: mobile/Classic retain
+ * the original lower full-width action and editor, all callbacks unchanged. */
+@media (min-width: 960px) {
+  html[data-hnl-pc-workspace="modern"]
+    button[data-hnl-security-contact-phone-action="true"] {
+    display: none;
+  }
+  html[data-hnl-pc-workspace="modern"]
+    button[data-hnl-security-contact-phone-inline="true"] {
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: auto;
+    max-width: 180px;
+    min-height: 32px;
+    white-space: nowrap;
+  }
+}

@@ -1,0 +1,52 @@
+name: P21 Trusted Warehouse REAL Firestore Emulator (NO DEPLOY)
+on:
+  pull_request:
+    paths:
+      - 'warehouse-trusted/**'
+      - '.github/workflows/p21-trusted-firestore-integration.yml'
+      - 'firebase.p1-cutover-rules-ci.json'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  p21-real-firestore-tx:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GCLOUD_PROJECT: demo-hnl-qltc-p21
+      FIREBASE_PROJECT_ID: demo-hnl-qltc-p21
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install pinned source dependencies
+        run: npm ci
+      - name: Verify checked-in trusted lock with repeatable npm ci
+        run: |
+          npm ci --prefix warehouse-trusted --ignore-scripts --no-audit --no-fund
+          git diff --exit-code -- warehouse-trusted/package-lock.json
+      - name: Verify real emulator test is syntax valid
+        run: node --check warehouse-trusted/firebase-integration-golden.mjs
+      - name: Build isolated post-migration Rules fixture (not live Rules)
+        run: node scripts/p12-build-dev-cutover-rules.mjs
+      - name: Real Firestore Admin SDK transaction tests (demo emulator only)
+        run: >-
+          npx --yes firebase-tools@13.35.1 emulators:exec
+          --config firebase.p1-cutover-rules-ci.json
+          --only firestore
+          --project demo-hnl-qltc-p21
+          "node warehouse-trusted/firebase-integration-golden.mjs"
+      - name: Preserve trusted lockfile as audit artifact for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: P21-trusted-package-lock-${{ github.event.pull_request.head.sha }}
+          path: warehouse-trusted/package-lock.json
+          if-no-files-found: error
+          retention-days: 45

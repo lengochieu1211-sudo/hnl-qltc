@@ -48,6 +48,9 @@ export function auditLegacyProject(input) {
   const categoryIds = idSet(collections.workVolumes);
   const defectIds = idSet(collections.defects);
   const crewIds = idSet(collections.crewRecords);
+  // A soft-deleted warehouse voucher retains its photos for potential recovery;
+  // do not report these attachments as orphaned until the parent is purged.
+  const inventoryIds = new Set(collections.inventory.map(row => String(row?.id || '')).filter(Boolean));
   const issues = [];
   const stats = {};
 
@@ -85,6 +88,7 @@ export function auditLegacyProject(input) {
     if (!active(p)) return false;
     if (p.entityType === 'defect') return !defectIds.has(String(p.entityId || ''));
     if (p.entityType === 'crewRecord') return !crewIds.has(String(p.entityId || ''));
+    if (p.entityType === 'inventory') return !inventoryIds.has(String(p.entityId || ''));
     return false;
   });
   if (orphanPhotos.length) issues.push({ code:'ORPHAN_PHOTO', collection:'photos', count:orphanPhotos.length, ids:orphanPhotos.slice(0,20).map(x=>x.id) });

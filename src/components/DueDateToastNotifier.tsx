@@ -248,7 +248,7 @@ export const DueDateToastNotifier: React.FC<DueDateToastNotifierProps> = ({
           <div className="flex items-center gap-1.5">
             <button
               onClick={handleNavigateCurrent}
-              className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-xl text-[11px] font-bold flex items-center gap-1 shadow-sm active:scale-95 transition-all cursor-pointer"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-xl text-[11px] font-bold flex items-center gap-1 shadow-sm active:scale-95 transition-all cursor-pointer"
               title="Mở đúng mục để xử lý, không đổi trạng thái trực tiếp từ thông báo"
             >
               <span>Xem ngay</span>

@@ -102,41 +102,36 @@ export function formatVND(val: number | string | undefined | null): string {
  * Safely evaluates simple math expressions like "2 + 3 * 1.5", "10 x 5", "100 : 4", "12,5 + 3,5", "1.000 * 2"
  * Returns the calculated number or null if invalid.
  */
-export function evaluateMathExpression(input: string): number | null {
+export function normalizeMathExpression(input: string): string | null {
   if (!input || typeof input !== 'string' || !input.trim()) return null;
-  
-  let sanitized = input.trim();
 
-  // Convert Vietnamese multiply and divide symbols
-  sanitized = sanitized
+  let sanitized = input.trim()
+    .replace(/^=/, '')
     .replace(/[xX×]/g, '*')
     .replace(/[:÷]/g, '/');
 
   const preset = getNumberFormatPreset();
 
   if (preset === 'comma_dot') {
-    // US / International Mode: Thousands = comma (,), Decimal = dot (.)
-    // Remove thousands commas (commas followed by 3 digits)
     while (/(\d+),(\d{3})/.test(sanitized)) {
       sanitized = sanitized.replace(/(\d+),(\d{3})/g, '$1$2');
     }
-    // If there's still a standalone comma e.g. 12,5 (user typed comma decimal by habit)
     sanitized = sanitized.replace(/,/g, '.');
   } else {
-    // VN / EU Mode: Thousands = dot (.), Decimal = comma (,)
     while (/(\d+)\.(\d{3})/.test(sanitized)) {
       sanitized = sanitized.replace(/(\d+)\.(\d{3})/g, '$1$2');
     }
     sanitized = sanitized.replace(/,/g, '.');
   }
 
-  // Allow only digits, basic operators (+, -, *, /), parentheses, dots, and whitespace
-  if (!/^[0-9+\-*/().\s]+$/.test(sanitized)) {
-    return null;
-  }
+  return /^[0-9+\-*/().\s]+$/.test(sanitized) ? sanitized : null;
+}
+
+export function evaluateMathExpression(input: string): number | null {
+  const sanitized = normalizeMathExpression(input);
+  if (!sanitized) return null;
 
   try {
-    // Safely evaluate using Function
     const result = new Function(`return (${sanitized})`)();
     if (typeof result === 'number' && !isNaN(result) && isFinite(result)) {
       return result;

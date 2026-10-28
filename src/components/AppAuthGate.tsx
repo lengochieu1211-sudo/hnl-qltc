@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Loader2, LockKeyhole, WifiOff } from 'lucide-react';
+import { ArrowRight, Loader2, LockKeyhole, WifiOff } from 'lucide-react';
 import { APP_VERSION } from '../config/appVersion';
+import { BUILD_METADATA } from '../config/buildMetadata';
 import {
   getCurrentRealFirebaseUser,
   signInWithGoogle,
@@ -59,7 +60,6 @@ export const AppAuthGate: React.FC<AppAuthGateProps> = ({ children }) => {
     const handleTheme = () => setPrefersDark(Boolean(media?.matches));
     media?.addEventListener?.('change', handleTheme);
 
-    // If Firebase already restored a real user before React mounted, avoid a login flash.
     if (getCurrentRealFirebaseUser()) setState('authenticated');
     else if (!navigator.onLine && getRememberedVerifiedAuthIdentity()) setState('offline-remembered');
 
@@ -72,10 +72,18 @@ export const AppAuthGate: React.FC<AppAuthGateProps> = ({ children }) => {
     };
   }, []);
 
-  const appEnv = useMemo(
-    () => String((import.meta as any).env?.VITE_APP_ENV || '').toUpperCase() === 'DEV' ? 'DEV' : '',
-    [],
-  );
+  // Installed iOS Web Apps use WebKit in a separate process. Some iOS versions
+  // fail to show the system keyboard on a Google sign-in input in standalone mode.
+  // Detect only this display mode; do not change Firebase redirect/auth semantics.
+  const isIosHomeScreenApp = useMemo(() => {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+    const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const standalone = window.matchMedia?.('(display-mode: standalone)').matches
+      || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+    return ios && standalone;
+  }, []);
+
+  const appEnv = useMemo(() => BUILD_METADATA.environment, []);
 
   if (state === 'authenticated' || state === 'offline-remembered') {
     return <>{children}</>;
@@ -86,8 +94,6 @@ export const AppAuthGate: React.FC<AppAuthGateProps> = ({ children }) => {
       setLoginBusy(true);
       setLoginError('');
       const user = await signInWithGoogle();
-      // Desktop popup returns immediately. Android/mobile redirects and resumes through
-      // the bootstrap redirect completion before this gate mounts again.
       if (user) evaluateAuth();
     } catch (err) {
       setLoginError(err instanceof Error ? err.message : String(err));
@@ -97,66 +103,120 @@ export const AppAuthGate: React.FC<AppAuthGateProps> = ({ children }) => {
   };
 
   const dark = prefersDark;
+  const isDev = appEnv === 'DEV';
+
+  if (state === 'checking') {
+    return (
+      <div
+        className={`min-h-[100dvh] w-full flex items-center justify-center px-4 ${dark ? 'bg-slate-950 text-slate-200' : 'bg-slate-50 text-slate-700'}`}
+        data-hnl-auth-gate="checking"
+      >
+        <div className="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold">
+          <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+          <span>Đang khôi phục phiên đăng nhập…</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
-      className={`min-h-[100dvh] w-full flex items-center justify-center px-4 py-8 ${dark ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900'}`}
+      className={`relative min-h-[100dvh] w-full overflow-hidden ${dark ? 'bg-slate-950 text-slate-100' : 'bg-[#f7faff] text-slate-950'}`}
       data-hnl-auth-gate={state}
     >
-      <div className={`w-full max-w-md overflow-hidden rounded-[28px] border shadow-2xl ${dark ? 'border-slate-800 bg-slate-900' : 'border-slate-200 bg-white'}`}>
-        <div className={`h-1.5 w-full ${dark ? 'bg-blue-500' : 'bg-blue-600'}`} />
-        <div className="px-6 pb-6 pt-7 sm:px-8 sm:pb-8">
+      <div
+        aria-hidden="true"
+        className={`pointer-events-none absolute inset-0 ${dark
+          ? 'bg-[radial-gradient(circle_at_18%_8%,rgba(37,99,235,0.24),transparent_34%),radial-gradient(circle_at_90%_78%,rgba(14,165,233,0.10),transparent_34%)]'
+          : 'bg-[radial-gradient(circle_at_16%_10%,rgba(59,130,246,0.16),transparent_32%),radial-gradient(circle_at_88%_82%,rgba(14,165,233,0.10),transparent_34%)]'}`}
+      />
+      <div
+        aria-hidden="true"
+        className={`pointer-events-none absolute -left-24 top-[18%] h-64 w-64 rotate-45 rounded-[54px] ${dark ? 'bg-blue-900/10' : 'bg-blue-100/45'}`}
+      />
+      <div
+        aria-hidden="true"
+        className={`pointer-events-none absolute -right-24 top-10 h-72 w-72 rotate-45 rounded-[64px] ${dark ? 'bg-sky-900/10' : 'bg-sky-100/40'}`}
+      />
+
+      <div className="relative z-10 mx-auto flex min-h-[100dvh] w-full max-w-md flex-col px-5 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(34px,env(safe-area-inset-top))] sm:px-7">
+        <div className="flex flex-1 flex-col justify-center py-5">
           <div className="text-center">
-            <div className={`mx-auto flex h-20 w-20 items-center justify-center rounded-3xl border p-2 shadow-sm ${dark ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white'}`}>
-              <img src={`/icon.png?v=${APP_VERSION}-auth`} alt="HNL QLTC" className="h-full w-full object-contain" draggable={false} />
-            </div>
-            <h1 className="mt-4 text-2xl font-black tracking-tight">HNL QLTC</h1>
-            <p className={`mt-1 text-sm font-semibold ${dark ? 'text-slate-300' : 'text-slate-600'}`}>Quản lý thi công</p>
+            <img
+              src={`/icon.png?v=${APP_VERSION}-auth-blue`}
+              alt="HNL QLTC"
+              className="mx-auto h-28 w-28 object-contain drop-shadow-[0_16px_28px_rgba(37,99,235,0.16)]"
+              draggable={false}
+            />
+            <h1 className="mt-5 text-[34px] font-black tracking-[-0.045em] sm:text-4xl">
+              HNL <span className="text-blue-600">QLTC</span>
+            </h1>
+            <p className={`mt-1.5 text-[15px] font-semibold ${dark ? 'text-slate-300' : 'text-slate-500'}`}>
+              Quản lý thi công thông minh
+            </p>
+            <div className="mx-auto mt-4 h-1 w-14 rounded-full bg-gradient-to-r from-blue-600 to-sky-400" />
           </div>
 
-          {state === 'checking' ? (
-            <div className={`mt-7 flex items-center justify-center gap-2 rounded-2xl border px-4 py-4 text-sm font-semibold ${dark ? 'border-slate-700 bg-slate-800 text-slate-300' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
-              <Loader2 className="h-4 w-4 animate-spin" /> Đang kiểm tra phiên đăng nhập…
-            </div>
-          ) : (
-            <>
-              <p className={`mx-auto mt-6 max-w-sm text-center text-sm leading-relaxed ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
-                Đăng nhập để truy cập các dự án và dữ liệu được cấp quyền cho tài khoản của bạn.
-              </p>
+          <div className={`mt-10 rounded-[30px] border p-5 shadow-[0_20px_60px_rgba(15,23,42,0.10)] backdrop-blur-sm sm:p-6 ${dark ? 'border-slate-800 bg-slate-900/88' : 'border-white/90 bg-white/92'}`}>
+            <h2 className="text-center text-xl font-black tracking-[-0.025em]">Đăng nhập để tiếp tục</h2>
+            <p className={`mx-auto mt-2 max-w-xs text-center text-[13px] leading-relaxed ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
+              Dùng tài khoản Google đã được cấp quyền để mở đúng dự án.
+            </p>
 
-              {loginError && (
-                <div className={`mt-4 rounded-2xl border px-4 py-3 text-xs leading-relaxed ${dark ? 'border-rose-900/70 bg-rose-950/50 text-rose-200' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
-                  {loginError}
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={handleLogin}
-                disabled={loginBusy}
-                className={`mt-6 flex min-h-12 w-full items-center justify-center gap-3 rounded-2xl border px-4 text-sm font-extrabold shadow-sm transition active:scale-[0.99] disabled:cursor-wait disabled:opacity-60 ${dark ? 'border-slate-700 bg-white text-slate-900 hover:bg-slate-100' : 'border-slate-300 bg-white text-slate-900 hover:bg-slate-50'}`}
-              >
-                {loginBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : googleMark}
-                {loginBusy ? 'Đang mở Google…' : 'Đăng nhập bằng Google'}
-              </button>
-
-              <div className={`mt-5 flex items-start gap-2 rounded-2xl px-3 py-3 text-[11px] leading-relaxed ${dark ? 'bg-slate-800 text-slate-400' : 'bg-slate-50 text-slate-500'}`}>
-                <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>Ứng dụng chỉ mở giao diện dự án sau khi xác nhận tài khoản. Phiên đăng nhập được lưu trên thiết bị để lần sau có thể vào nhanh hơn.</span>
+            {loginError && (
+              <div className={`mt-4 rounded-2xl border px-4 py-3 text-xs leading-relaxed ${dark ? 'border-rose-900/70 bg-rose-950/50 text-rose-200' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
+                {loginError}
               </div>
+            )}
 
-              {typeof navigator !== 'undefined' && !navigator.onLine && (
-                <div className={`mt-3 flex items-start gap-2 rounded-2xl px-3 py-3 text-[11px] ${dark ? 'bg-amber-950/40 text-amber-200' : 'bg-amber-50 text-amber-700'}`}>
-                  <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span>Thiết bị đang ngoại tuyến. Cần có mạng để đăng nhập Google lần đầu.</span>
-                </div>
-              )}
-            </>
-          )}
+            <button
+              type="button"
+              onClick={handleLogin}
+              disabled={loginBusy}
+              className="mt-6 flex min-h-14 w-full items-center justify-between rounded-2xl bg-gradient-to-r from-blue-600 via-blue-600 to-sky-500 px-4 text-white shadow-[0_14px_30px_rgba(37,99,235,0.30)] transition hover:-translate-y-px hover:from-blue-500 hover:to-sky-400 active:translate-y-0 active:scale-[0.995] disabled:cursor-wait disabled:opacity-60"
+            >
+              <span className="flex items-center gap-3">
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-sm">
+                  {loginBusy ? <Loader2 className="h-5 w-5 animate-spin text-blue-600" /> : googleMark}
+                </span>
+                <span className="text-sm font-black sm:text-[15px]">
+                  {loginBusy ? 'Đang mở Google…' : 'Đăng nhập với Google'}
+                </span>
+              </span>
+              <ArrowRight className="h-5 w-5 shrink-0" />
+            </button>
 
-          <div className={`mt-6 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] ${dark ? 'text-slate-500' : 'text-slate-400'}`}>
-            {appEnv && <span>{appEnv}</span>}
-            {appEnv && <span>•</span>}
-            <span>v{APP_VERSION}</span>
+            <div className={`mt-5 flex items-start gap-2.5 rounded-2xl px-3.5 py-3 text-[11px] leading-relaxed ${dark ? 'bg-slate-800/80 text-slate-400' : 'bg-blue-50/70 text-slate-500'}`}>
+              <LockKeyhole className={`mt-0.5 h-4 w-4 shrink-0 ${dark ? 'text-blue-300' : 'text-blue-600'}`} />
+              <span>Mã PIN chỉ dùng để mở khóa nhanh sau khi tài khoản Google đã được xác minh.</span>
+            </div>
+
+            {isIosHomeScreenApp && (
+              <details className={`mt-3 rounded-2xl border px-3.5 py-3 text-[11px] leading-relaxed ${dark ? 'border-slate-700 bg-slate-800/70 text-slate-300' : 'border-blue-100 bg-blue-50/60 text-slate-600'}`}>
+                <summary className="cursor-pointer font-bold">iPhone: đăng nhập Google không hiện bàn phím?</summary>
+                <p className="mt-2">Hãy chạm trực tiếp vào ô email hoặc mật khẩu trên trang Google; nút Đăng nhập không tự mở bàn phím.</p>
+                <p className="mt-1.5">Nếu đã chạm ô nhập nhưng bàn phím vẫn không hiện: đóng hẳn ứng dụng ghim rồi mở lại; nếu cần, khởi động lại iPhone. Thử mở cùng địa chỉ bằng Safari để phân biệt lỗi iOS Web App.</p>
+                <p className="mt-1.5 font-semibold">Không xóa dữ liệu trình duyệt hay gỡ biểu tượng ghim trước khi chắc chắn dữ liệu/ảnh ngoại tuyến đã đồng bộ. Đăng nhập Safari có thể không tự đăng nhập lại ứng dụng ghim.</p>
+              </details>
+            )}
+
+            {typeof navigator !== 'undefined' && !navigator.onLine && (
+              <div className={`mt-3 flex items-start gap-2 rounded-2xl px-3.5 py-3 text-[11px] ${dark ? 'bg-amber-950/40 text-amber-200' : 'bg-amber-50 text-amber-700'}`}>
+                <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>Thiết bị đang ngoại tuyến. Cần có mạng để đăng nhập Google lần đầu.</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className={`pb-1 text-center text-[10px] font-bold tracking-[0.08em] ${dark ? 'text-slate-500' : 'text-slate-400'}`}>
+          <div className="flex items-center justify-center gap-2">
+            {isDev && (
+              <span className={`rounded-full px-2.5 py-1 text-[10px] font-black tracking-[0.12em] ${dark ? 'bg-blue-950 text-blue-300' : 'bg-blue-100 text-blue-700'}`}>
+                DEV
+              </span>
+            )}
+            <span>V{APP_VERSION}</span>
           </div>
         </div>
       </div>

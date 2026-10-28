@@ -1,5 +1,21 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+
+$shellSource = Get-Content -LiteralPath (Join-Path $root 'desktop-wrapper\DesktopWebShellForm.cs') -Raw
+$syncCenterSource = Get-Content -LiteralPath (Join-Path $root 'desktop-wrapper\DesktopSyncCenterForm.cs') -Raw
+if ($shellSource -notmatch 'IsIndexRefreshDue\(TimeSpan\.FromMinutes\(5\)\)') {
+  throw 'Desktop shell must throttle expensive full workspace indexing to at most once per 5 minutes.'
+}
+if ($shellSource -notmatch 'private void RefreshLocalIndex[\s\S]*?ThreadPool\.QueueUserWorkItem') {
+  throw 'Manual desktop workspace refresh must run off the WinForms UI thread.'
+}
+if ($shellSource -notmatch 'localStore\.IsOperationBusy') {
+  throw 'Desktop shell status/menu reads must avoid blocking behind background SQLite maintenance.'
+}
+if ($syncCenterSource -notmatch 'if \(store\.IsOperationBusy\)') {
+  throw 'Sync Center refresh must fail fast while background workspace maintenance owns the SQLite operation gate.'
+}
+
 $cscCandidates = @(
   "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe",
   "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\csc.exe"
@@ -53,6 +69,7 @@ internal static class DesktopLocalStoreGolden
         {
             Assert(store.IsReady, "winsqlite3 opens the local workspace database");
             WorkspaceIndexResult first = store.RefreshIndex(workspace);
+            Assert(!store.IsIndexRefreshDue(TimeSpan.FromMinutes(5)), "recent full workspace index is throttled for five minutes");
             Assert(first.IndexedFiles == 2, "workspace index detects two staging files");
             Assert(first.EnqueuedFiles == 2, "Imports/Photos changes are queued locally");
             Assert(store.CountQueuePending() == 2, "two local preparation jobs are pending");

@@ -1,0 +1,99 @@
+name: P21.16 DEV Preview PC Mobile Golden (NO PROD)
+on:
+  push:
+    branches:
+      - release/p21-13-prod-candidate-20261027
+    paths:
+      - '.github/workflows/p2116-dev-preview-runtime.yml'
+      - 'scripts/p2116-*'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dev-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
+      DEV_PROJECT: hnl-qltc-dev
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
+      VITE_HNL_AI_ENABLED: 'true'
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_GIT_COMMIT: ${{ github.sha }}
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Guard exact DEV project and isolate credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/release/p21-13-prod-candidate-20261027'
+          test "$DEV_PROJECT" = 'hnl-qltc-dev'
+          test "$DEV_PROJECT" != 'com-example-qlct-61329'
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}"
+          node -e "const a=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);if(a.project_id!=='hnl-qltc-dev')process.exit(1)"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/hnl-p2116-dev-service-account.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS" >> "$GITHUB_ENV"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          chmod 600 "$GOOGLE_APPLICATION_CREDENTIALS"
+      - name: Resolve existing DEV SDK (no create app)
+        shell: bash
+        run: |
+          set -euo pipefail
+          APPS="$(npx --yes firebase-tools@13.35.1 apps:list WEB --project "$DEV_PROJECT" --json)"
+          APP_ID="$(printf '%s' "$APPS" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const a=j.result||[];process.stdout.write(String(a.find(x=>x.platform==='WEB')?.appId||a[0]?.appId||''))})")"
+          test -n "$APP_ID"
+          npx --yes firebase-tools@13.35.1 apps:sdkconfig WEB "$APP_ID" --project "$DEV_PROJECT" --json > "$RUNNER_TEMP/p2116-dev-sdk.json"
+          node scripts/p2116-dev-sdk-env.mjs
+      - name: TypeScript Lint Rules Regression Security Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run test:stability
+          npm run security:audit
+          npm run build
+          grep -R -q 'hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev' dist/assets
+      - name: Deploy Firebase DEV preview only
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes firebase-tools@13.35.1 hosting:channel:deploy p2116 --project "$DEV_PROJECT" --config firebase.json --expires 1d --non-interactive --json > "$RUNNER_TEMP/p2116-preview-result.json"
+          node scripts/p2116-preview-evidence.mjs
+      - name: Hosted HTTP and Playwright PC mobile smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location "$P2116_PREVIEW_URL/" -o /tmp/hnl-p2116-index.html
+          grep -Eiq '<!doctype html|<html' /tmp/hnl-p2116-index.html
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install --with-deps chromium > /tmp/hnl-p2116-playwright-install.log 2>&1
+          node scripts/p2116-preview-smoke.mjs
+      - name: Export preview proof and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P2116-DEV-PREVIEW-PC-MOBILE-${{ github.sha }}
+          path: |
+            P2116-DEV-PREVIEW-EVIDENCE.json
+            P2116-DEV-PC-MOBILE-SMOKE.json
+            P2116-PC.png
+            P2116-AndroidPhone.png
+          if-no-files-found: warn
+          retention-days: 14

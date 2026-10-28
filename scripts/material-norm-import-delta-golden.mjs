@@ -1,0 +1,25 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { collectMaterialNormUpserts, mergeMaterialNormUpserts } from '../src/utils/materialNormImportDelta.ts';
+
+const baseA = { id: 'NORM-A', materialName: 'Thạch cao', unit: 'Tấm', factor: 1 };
+const baseB = { id: 'NORM-B', materialName: 'Khung trần', unit: 'Cây', factor: 2 };
+const userA = { ...baseA, factor: 3 };
+const userB = { ...baseB, factor: 4 };
+const serverState = [baseA, userB, { id: 'NORM-C', materialName: 'Ty ren', unit: 'Cây', factor: 2 }];
+const fromStaleDraft = collectMaterialNormUpserts([baseA, baseB], [userA, baseB]);
+assert.deepEqual(fromStaleDraft.map(row => row.id), ['NORM-A']);
+assert.deepEqual(mergeMaterialNormUpserts(serverState, fromStaleDraft), [userA, userB, serverState[2]]);
+assert.deepEqual(mergeMaterialNormUpserts(serverState, []), serverState);
+assert.deepEqual(mergeMaterialNormUpserts(serverState, [{ id: 'NORM-D' }]).map(row=>row.id), ['NORM-A','NORM-B','NORM-C','NORM-D']);
+assert.throws(() => mergeMaterialNormUpserts(serverState, [userA,userA]), /trùng/);
+assert.throws(() => mergeMaterialNormUpserts(serverState, [{ id: '' }]), /thiếu normId/);
+const app = readFileSync('src/App.tsx','utf8');
+const warehouse = readFileSync('src/components/WarehouseTab.tsx','utf8');
+const modal = readFileSync('src/components/MaterialNormModal.tsx','utf8');
+assert.match(app,/materialNorms: mergeMaterialNormUpserts\(prev.materialNorms, canonical\)/);
+assert.doesNotMatch(app,/materialNorms: canonical\s*}/);
+assert.match(warehouse,/onImportNorms\(Array.from\(affectedNormIds\)/);
+assert.match(warehouse,/onImportNorms\(collectMaterialNormUpserts\(materialNorms, newNorms\)\)/);
+assert.match(modal,/collectMaterialNormUpserts\(activeMaterialNorms, merged\)/);
+console.log('MATERIAL NORM DELTA GOLDEN PASS — stale snapshots cannot delete unrelated IDs');

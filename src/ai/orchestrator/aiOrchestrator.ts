@@ -135,13 +135,14 @@ export async function runHnlAiQuestion(params: RunHnlAiQuestionParams): Promise<
     };
   }
 
+  // Giữ enum/mã kỹ thuật nội bộ ổn định; chỉ Việt hóa câu chữ hiển thị cho người dùng.
   if (params.cloudAvailable === false) {
     return {
       plan,
       toolResult,
       narrativeContext,
       cloudStatus: 'offline',
-      warnings: [...baseWarnings, 'AI Cloud đang offline. Kết quả HNL Data/Audit deterministic vẫn khả dụng.'],
+      warnings: [...baseWarnings, 'AI Cloud đang ngoại tuyến. Kết quả HNL Data/bộ kiểm tra xác định vẫn khả dụng.'],
     };
   }
 
@@ -151,7 +152,7 @@ export async function runHnlAiQuestion(params: RunHnlAiQuestionParams): Promise<
       toolResult,
       narrativeContext,
       cloudStatus: 'unavailable',
-      warnings: [...baseWarnings, 'Chưa cấu hình AI Provider/Model. Kết quả deterministic vẫn khả dụng.'],
+      warnings: [...baseWarnings, 'Chưa cấu hình nhà cung cấp/mô hình AI. Kết quả xác định vẫn khả dụng.'],
     };
   }
 
@@ -185,7 +186,7 @@ export async function runHnlAiQuestion(params: RunHnlAiQuestionParams): Promise<
       model: params.model,
       warnings: [
         ...baseWarnings,
-        `AI Provider không thể tạo phần diễn giải an toàn (${message}). Kết quả deterministic vẫn giữ nguyên.`,
+        `Nhà cung cấp AI không thể tạo phần diễn giải an toàn (${message}). Kết quả xác định vẫn giữ nguyên.`,
       ],
     };
   }

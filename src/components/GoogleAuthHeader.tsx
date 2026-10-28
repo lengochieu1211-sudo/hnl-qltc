@@ -11,6 +11,7 @@ import {
   Shield
 } from 'lucide-react';
 import { APP_VERSION } from '../config/appVersion';
+import { BUILD_METADATA } from '../config/buildMetadata';
 import { UndoRedoControls } from './UndoRedoControls';
 import { GoogleAuthStatus } from '../types';
 import { formatDateTime } from '../utils/dateFormatter';
@@ -115,12 +116,18 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
 
   return (
     <>
-      <div className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-30 shadow-lg">
-        <div className="w-full px-3 sm:px-4 py-2.5 sm:py-3">
+      {/* With viewport-fit=cover and black-translucent iOS status bar, keep the
+          sticky project title/logo below the notch. Landscape needs side insets.
+          Insets are supplied by the browser (0 on screens without a cutout),
+          so avoid device-name / user-agent-specific hardcoded padding. */}
+      <div data-hnl-global-header className="safe-area-top bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-30 shadow-lg"
+        style={{ paddingLeft: 'env(safe-area-inset-left, 0px)', paddingRight: 'env(safe-area-inset-right, 0px)' }}>
+        <div className="w-full px-3 sm:px-4 py-2 sm:py-3">
+          <div className="lg:flex lg:items-center lg:gap-3">
           {/* Top Header Row */}
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-1.5 sm:mb-2 lg:mb-0 lg:min-w-0 lg:flex-1">
             <div className="flex items-center gap-2 min-w-0">
-              <div className="w-10 h-10 flex items-center justify-center overflow-hidden shrink-0 select-none bg-transparent">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center overflow-hidden shrink-0 select-none bg-transparent">
                 <img
                   src={logoUrl || `/icon.png?v=${APP_VERSION}-brand20260921`}
                   alt={appDisplayName || 'HNL Quản Lý Thi Công'}
@@ -131,6 +138,11 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 flex-wrap">
+                  {BUILD_METADATA.environment === 'DEV' && (
+                    <span className="shrink-0 rounded-md border border-amber-400/70 bg-amber-400/15 px-1.5 py-0.5 text-[9px] font-black tracking-[0.12em] text-amber-300" title="Môi trường DEV tách biệt PROD">
+                      DEV
+                    </span>
+                  )}
                   {isEditingProject ? (
                     <input
                       type="text"
@@ -182,7 +194,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
           </div>
 
           {/* Action & Control Toolbar Row */}
-          <div className="flex items-center justify-between gap-1.5 bg-slate-800/90 rounded-xl p-1.5 border border-slate-700/70 mt-1.5 shadow-inner overflow-hidden">
+          <div data-hnl-header-actions className="flex items-center justify-between gap-1.5 bg-slate-800/90 rounded-xl p-1.5 border border-slate-700/70 mt-1.5 lg:mt-0 lg:shrink-0 shadow-inner overflow-hidden">
             {/* Left: Undo / Redo (Icon arrows only) */}
             <div className="shrink-0">
               <UndoRedoControls
@@ -192,6 +204,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
                 canRedo={canRedo}
                 variant="dark"
                 showLabel={false}
+                className="[&>button]:min-h-9 [&>button]:min-w-9"
               />
             </div>
 
@@ -201,7 +214,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
               {onOpenNotificationCenter && (
                 <button
                   onClick={onOpenNotificationCenter}
-                  className="relative p-1.5 sm:px-2.5 sm:py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg transition-all shadow-sm active:scale-95 shrink-0 border border-slate-700 cursor-pointer flex items-center justify-center"
+                  className="relative min-h-9 min-w-9 p-1.5 sm:px-2.5 sm:py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg transition-all shadow-sm active:scale-95 shrink-0 border border-slate-700 cursor-pointer flex items-center justify-center"
                   title={dueDateAlertCount > 0 ? `${dueDateAlertCount} cảnh báo đến hạn/quá hạn · mở Trung tâm thông báo` : 'Trung tâm thông báo tiến độ, checklist & defect'}
                   aria-label={dueDateAlertCount > 0 ? `Có ${dueDateAlertCount} cảnh báo đến hạn hoặc quá hạn` : 'Mở Trung tâm thông báo'}
                 >
@@ -218,10 +231,10 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
               {onOpenSecurity && (
                 <button
                   onClick={onOpenSecurity}
-                  className="flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-indigo-200 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 border border-slate-700 cursor-pointer whitespace-nowrap"
+                  className="flex min-h-9 min-w-9 items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-blue-200 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 border border-slate-700 cursor-pointer whitespace-nowrap"
                   title="Trung tâm bảo mật, khóa mã PIN & phân quyền"
                 >
-                  <Shield className="w-4 h-4 text-indigo-400 shrink-0" />
+                  <Shield className="w-4 h-4 text-blue-400 shrink-0" />
                   <span className="hidden sm:inline">Bảo Mật</span>
                   {userRole && (
                     <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
@@ -241,10 +254,10 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
               {onOpenProjectManager && (
                 <button
                   onClick={() => onOpenProjectManager('projects')}
-                  className="flex items-center justify-center gap-1.5 bg-indigo-900/90 hover:bg-indigo-800 text-indigo-100 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 border border-indigo-700/70 cursor-pointer whitespace-nowrap"
+                  className="flex min-h-9 min-w-9 items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-100 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 border border-slate-700 cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2"
                   title="Quản lý danh sách dự án"
                 >
-                  <Folder className="w-4 h-4 text-indigo-300 shrink-0" />
+                  <Folder className="w-4 h-4 text-blue-200 shrink-0" />
                   <span className="hidden sm:inline">Dự án</span>
                 </button>
               )}
@@ -253,10 +266,10 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
               {onOpenExportPdf && (
                 <button
                   onClick={onOpenExportPdf}
-                  className="flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 whitespace-nowrap"
+                  className="flex min-h-9 min-w-9 items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-100 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 border border-slate-700 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2"
                   title="Xuất Báo Cáo PDF & Excel"
                 >
-                  <FileText className="w-4 h-4 text-indigo-100 shrink-0" />
+                  <FileText className="w-4 h-4 text-emerald-200 shrink-0" />
                   <span className="hidden sm:inline">Báo Cáo</span>
                 </button>
               )}
@@ -267,7 +280,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
                   href={syncResult.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-1.5 text-xs bg-emerald-700/90 hover:bg-emerald-600 text-white p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg font-bold transition-colors shrink-0 shadow-sm whitespace-nowrap"
+                  className="flex min-h-9 min-w-9 items-center justify-center gap-1.5 text-xs bg-emerald-700/90 hover:bg-emerald-600 text-white p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg font-bold transition-colors shrink-0 shadow-sm whitespace-nowrap"
                   title="Mở Google Sheets"
                 >
                   <ExternalLink className="w-4 h-4 shrink-0" />
@@ -275,6 +288,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
                 </a>
               )}
             </div>
+          </div>
           </div>
 
 

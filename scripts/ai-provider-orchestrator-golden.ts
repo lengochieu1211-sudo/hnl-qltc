@@ -107,7 +107,7 @@ const outage = await runHnlAiQuestion({
 assert.equal(outage.cloudStatus, 'unavailable');
 assert.equal((outage.toolResult?.data as any)?.assignedRooms, 1);
 assert.equal((outage.toolResult?.data as any)?.inspectedVolumeByUnit['m²'], 100);
-assert.ok(outage.warnings.some((warning) => warning.includes('Kết quả deterministic vẫn giữ nguyên')));
+assert.ok(outage.warnings.some((warning) => warning.includes('Kết quả xác định vẫn giữ nguyên')));
 
 // Offline: do not call cloud at all; deterministic engine remains available.
 const offline = await runHnlAiQuestion({

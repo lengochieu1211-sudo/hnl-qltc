@@ -1,11 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { evaluateMathExpression, formatDecimal } from '../utils/numberUtils';
+import { evaluateMathExpression, formatAdaptiveDecimal, hasMathExpression } from '../utils/numberUtils';
 
 type Props = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'value' | 'onChange'> & {
   value: number | '';
   onValueChange: (value: number | '') => void;
   minValue?: number;
   maxValue?: number;
+  /** Optional durable expression owned by the caller. No schema changes for legacy numeric callers. */
+  expression?: string;
+  onExpressionChange?: (expression: string | undefined) => void;
 };
 
 /**
@@ -18,20 +21,29 @@ export const MathNumberInput: React.FC<Props> = ({
   onValueChange,
   minValue,
   maxValue,
+  expression,
+  onExpressionChange,
   onBlur,
   onFocus,
   className,
   title,
   ...rest
 }) => {
-  const [text, setText] = useState(value === '' ? '' : formatDecimal(value));
+  const [text, setText] = useState(value === '' ? '' : formatAdaptiveDecimal(value));
   const [invalid, setInvalid] = useState(false);
   const focusedRef = useRef(false);
+  const formulaRef = useRef('');
+  const lastValueRef = useRef(value);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!focusedRef.current) setText(value === '' ? '' : formatDecimal(value));
-  }, [value]);
+    if (focusedRef.current) return;
+    const stored = expression || formulaRef.current;
+    // External updates must invalidate a stale local formula rather than hide a new remote value.
+    if (value !== lastValueRef.current && stored && evaluateMathExpression(stored) !== value) formulaRef.current = '';
+    lastValueRef.current = value;
+    setText(value === '' ? '' : formatAdaptiveDecimal(value));
+  }, [value, expression]);
 
   const clamp = (n: number) => {
     let next = n;
@@ -53,14 +65,20 @@ export const MathNumberInput: React.FC<Props> = ({
     if (!text.trim()) {
       setInvalid(false);
       inputRef.current?.setCustomValidity('');
+      formulaRef.current = '';
+      onExpressionChange?.(undefined);
       onValueChange('');
       return;
     }
     const { parsed, isInvalid } = updateValidity(text);
     if (isInvalid || parsed === null || !Number.isFinite(parsed)) return;
     const next = clamp(parsed);
+    const original = text.trim();
+    const formula = (original.startsWith('=') || original.includes('(') || hasMathExpression(original)) ? original : '';
+    formulaRef.current = formula;
+    onExpressionChange?.(formula || undefined);
     onValueChange(next);
-    setText(formatDecimal(next));
+    setText(formatAdaptiveDecimal(next));
   };
 
   return (
@@ -75,6 +93,9 @@ export const MathNumberInput: React.FC<Props> = ({
       className={`${className || ''} ${invalid ? 'border-rose-400 ring-1 ring-rose-300 focus:ring-rose-500' : ''}`.trim()}
       onFocus={(e) => {
         focusedRef.current = true;
+        // Render the preserved formula, not the numeric result, while editing.
+        const preserved = expression || formulaRef.current;
+        if (preserved && evaluateMathExpression(preserved) === value) setText(preserved);
         onFocus?.(e);
       }}
       onChange={(e) => {

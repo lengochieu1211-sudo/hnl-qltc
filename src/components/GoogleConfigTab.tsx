@@ -1,3 +1,5 @@
+import type {WarehouseOrderSync} from '../hooks/useWarehouseOrderSync';
+import {WarehouseOrderSyncPanel} from './WarehouseOrderSyncPanel';
 import { downloadOrShareFile } from '../utils/downloadUtils';
 import React, { useState, useEffect, useMemo } from 'react';
 import { APP_VERSION_LABEL } from '../config/appVersion';
@@ -12,7 +14,7 @@ import {
   Info,
   LogOut,
   Save,
-  Building2,
+  Settings,
   MapPin,
   User,
   Download,
@@ -32,7 +34,8 @@ import {
   RotateCcw,
   Eraser,
   Plus,
-  Layers3
+  Layers3,
+  BookOpen
 } from 'lucide-react';
 import { GoogleAuthStatus, FloorPlan } from '../types';
 import { ConflictMergeModal } from './ConflictMergeModal';
@@ -49,8 +52,13 @@ import { getFloorPlanImageCacheSnapshot, getFloorPlanImageOutboxSnapshot } from 
 import { getProjectPhotoDiagnosticSnapshot } from '../utils/photoStorage';
 import { HealthCenterPanel } from '../healthCenter/HealthCenterPanel';
 import { SettingsAccordionCard } from './SettingsAccordionCard';
+import { UserGuideCenter } from './UserGuideCenter';
+import { WarehouseDeletedVoucherRecovery } from './WarehouseDeletedVoucherRecovery';
+import { confirmAsync } from '../utils/confirmAsync';
+import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
 import { WindowsDesktopSyncBridgeCard } from './WindowsDesktopSyncBridgeCard';
 import { ProjectOfflineMirrorCard } from './ProjectOfflineMirrorCard';
+import { CatalogTemplateManager } from './CatalogTemplateManager';
 import {
   createStructureGroupId,
   normalizeStructureGroupConfig,
@@ -94,9 +102,11 @@ interface GoogleConfigTabProps {
   onUnlinkLocalFile?: () => void;
   onRequestLocalFilePermission?: () => void;
   syncCenterContent?: React.ReactNode;
+  warehouseOrderSync?: WarehouseOrderSync;
 
   // Lightweight project trash (metadata only; no Base64/blob duplication).
   userRole?: UserRole;
+  roleResolved?: boolean;
   trashSettings?: TrashSettings;
   trashOperations?: TrashOperation[];
   onTrashSettingsChange?: (settings: TrashSettings) => void;
@@ -122,6 +132,18 @@ interface GoogleConfigTabProps {
     recordCounts: Record<string, number>;
   };
 }
+
+const formatSyncPhaseLabel = (phase?: string) => {
+  switch (String(phase || '').toLowerCase()) {
+    case 'syncing': return 'Đang đồng bộ';
+    case 'synced': return 'Đã đồng bộ';
+    case 'error': return 'Có lỗi';
+    case 'conflict': return 'Có xung đột';
+    case 'idle':
+    default:
+      return 'Sẵn sàng';
+  }
+};
 
 export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   projectName,
@@ -156,7 +178,9 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   onUnlinkLocalFile,
   onRequestLocalFilePermission,
   syncCenterContent,
+  warehouseOrderSync,
   userRole = 'VIEWER',
+  roleResolved = false,
   trashSettings = { enabled: true, retentionDays: 7 },
   trashOperations = [],
   onTrashSettingsChange,
@@ -170,6 +194,10 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   const [sheetUrl, setSheetUrl] = useState<string | null>(null);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [photoDiagnosticSnapshot, setPhotoDiagnosticSnapshot] = useState<any>(null);
+  const [catalogDraftDirty, setCatalogDraftDirty] = useState(false);
+  const confirmCatalogClose = React.useCallback(() =>
+    !catalogDraftDirty || window.confirm('Mẫu có thay đổi chưa lưu. Đóng và bỏ các thay đổi này?'),
+  [catalogDraftDirty]);
 
   const isIframe = typeof window !== 'undefined' && window.self !== window.top;
 
@@ -185,7 +213,10 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   const [numberFormatPreset, setNumberFormatPresetState] = useState<NumberFormatPreset>(getNumberFormatPreset());
   const [dateFormatPreset, setDateFormatPresetState] = useState<DateFormatPreset>(getDateFormatPreset());
   const [imageQualitySettings, setImageQualitySettingsState] = useState(getImageQualitySettings());
-  const trashApproxBytes = useMemo(() => trashOperations.reduce((sum, item) => sum + Number(item.approxBytes || 0), 0), [trashOperations]);
+  const [warehouseTrashCount, setWarehouseTrashCount] = useState(0);
+  const [warehousePurgeAllToken, setWarehousePurgeAllToken] = useState(0);
+  useEffect(() => { setWarehouseTrashCount(0); }, [activeProjectId]);
+  const totalTrashCount = trashOperations.length + warehouseTrashCount;
   const formatTrashBytes = (bytes: number) => {
     if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB';
     if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -351,7 +382,8 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       isSyncing ||
       syncDiagnostics?.dataCloudPhase === 'syncing' ||
       displayedPhotoPhase === 'syncing' ||
-      driveSyncStatus === 'syncing'
+      driveSyncStatus === 'syncing' ||
+      Boolean(warehouseOrderSync?.pendingCount && warehouseOrderSync.cloudState === 'ready' && warehouseOrderSync.conflicts.length === 0)
     );
     const needsSync = Boolean(
       !syncDiagnostics?.cloudInitialReady ||
@@ -360,10 +392,16 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       syncDiagnostics?.dataCloudPhase === 'conflict' ||
       Number(syncDiagnostics?.pendingData || 0) > 0 ||
       Number(displayedPhotoPending || 0) > 0 ||
-      Number(displayedPendingDriveUploads || 0) > 0
+      Number(displayedPendingDriveUploads || 0) > 0 ||
+      Number(warehouseOrderSync?.pendingCount || 0) > 0 ||
+      Boolean(warehouseOrderSync && warehouseOrderSync.cloudState !== 'ready') ||
+      Number(warehouseOrderSync?.conflicts.length || 0) > 0 ||
+      Boolean(warehouseOrderSync?.cloudError || warehouseOrderSync?.saveError)
     );
 
-    if (offline) return { label: 'Offline', className: 'border-slate-200 bg-slate-100 text-slate-600' };
+    if (offline) return { label: 'Ngoại tuyến', className: 'border-slate-200 bg-slate-100 text-slate-600' };
+    if (warehouseOrderSync?.conflicts.length) return { label: 'Có xung đột', className: 'border-amber-200 bg-amber-50 text-amber-700' };
+    if (warehouseOrderSync?.cloudState === 'error' || warehouseOrderSync?.cloudError || warehouseOrderSync?.saveError) return { label: 'Lỗi đồng bộ', className: 'border-rose-200 bg-rose-50 text-rose-700' };
     if (syncing) return { label: 'Đang đồng bộ', className: 'border-sky-200 bg-sky-50 text-sky-700' };
     if (needsSync) return { label: 'Cần đồng bộ', className: 'border-amber-200 bg-amber-50 text-amber-700' };
     if (syncDiagnostics?.dataCloudPhase === 'synced' || Number(syncDiagnostics?.lastSyncAt || 0) > 0) {
@@ -382,6 +420,11 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     syncDiagnostics?.online,
     syncDiagnostics?.pendingData,
     syncDiagnostics?.roleResolved,
+    warehouseOrderSync?.pendingCount,
+    warehouseOrderSync?.cloudState,
+    warehouseOrderSync?.conflicts.length,
+    warehouseOrderSync?.cloudError,
+    warehouseOrderSync?.saveError,
   ]);
 
   const handleGoToDiagnosticEntity = (photo: any) => {
@@ -403,10 +446,10 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity', { detail: { entityType, entityId } }));
     if (entityType !== 'crewRecord') {
       setSyncMsg(entityType === 'defect'
-        ? 'Đã mở module Defect. Điều hướng chính xác tới Defect sẽ được bổ sung ở lượt kế tiếp.'
+        ? 'Đã mở phân hệ Defect. Điều hướng chính xác tới Defect sẽ được bổ sung ở lượt kế tiếp.'
         : entityType === 'chat'
           ? 'Đã mở Trò chuyện. Điều hướng chính xác tới tin nhắn sẽ được bổ sung ở lượt kế tiếp.'
-          : 'Đã mở module liên quan.');
+          : 'Đã mở phân hệ liên quan.');
     }
   };
 
@@ -466,7 +509,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   // Handle data comparison between device and cloud
   const handleCompareData = async () => {
     if (!hasApiBackend()) {
-      alert('Google Drive compare can server backend. Firebase Hosting mien phi dang chay static-only nen tinh nang nay duoc tat.');
+      alert('Đối chiếu Google Drive cần máy chủ backend. Bản Firebase Hosting hiện chạy tĩnh nên chức năng này đang tắt.');
       return;
     }
     setCheckingCloud(true);
@@ -590,7 +633,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   const handleConnect = async () => {
     try {
       if (!hasApiBackend()) {
-        alert('Google Drive/Sheets OAuth can server backend. Ban web hien dung Firebase Auth/Firestore mien phi.');
+        alert('Google Drive/Sheets OAuth cần máy chủ backend. Bản web hiện dùng Firebase Auth/Firestore.');
         return;
       }
       const res = await apiFetch('/api/auth/url');
@@ -600,10 +643,10 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       if (data.url) {
         window.open(data.url, 'GoogleAuth', 'width=550,height=650');
       } else {
-        alert(data.message || 'Hệ thống đang hoạt động ở Chế độ Tự Do. Mọi cài đặt & dữ liệu của bạn đều được lưu 100% tự động.');
+        alert(data.message || 'Không nhận được liên kết đăng nhập Google Drive. Hãy kiểm tra kết nối và cấu hình dịch vụ rồi thử lại.');
       }
     } catch (e) {
-      alert('Không thể kết nối dịch vụ Google Auth');
+      alert('Không thể kết nối dịch vụ xác thực Google. Vui lòng thử lại.');
     }
   };
 
@@ -644,12 +687,12 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   };
 
   return (
-    <div className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto text-xs">
+    <div data-hnl-settings-surface data-hnl-pc-module="settings-center" className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto text-xs">
       
       {/* Title */}
       <div>
         <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-          <Building2 className="w-5 h-5 text-indigo-600" />
+          <Settings className="w-5 h-5 text-blue-600" />
           {t('config_title')}
         </h2>
         <p className="text-xs text-slate-500 mb-2">{t('config_subtitle')}</p>
@@ -663,6 +706,11 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       </div>
 
       {/* PROJECT SETTINGS FORM CARD */}
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="01" aria-label="Thông tin dự án">
+        <span className="hnl-pc-v3-section-index">01</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Thông tin dự án</strong><small>Cấu hình hiển thị của dự án và tên đơn vị, không thay quyền cloud.</small></div>
+      </div>
+
       <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
         <h3 className="font-bold text-slate-900 border-b border-slate-100 pb-2 flex items-center gap-1.5 text-xs">
           <Save className="w-4 h-4 text-blue-600" /> Thông tin dự án
@@ -725,6 +773,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
 
           <button
             type="submit"
+            data-hnl-project-settings-save="true"
             disabled={userRole !== 'ADMIN'}
             className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md active:scale-98 transition-all flex items-center justify-center gap-2 text-xs cursor-pointer disabled:bg-slate-300 disabled:shadow-none disabled:cursor-not-allowed"
           >
@@ -747,11 +796,16 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
 
 
       {/* SYNC / BACKUP CENTER — shared inline Settings accordion */}
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="02" aria-label="Dữ liệu & đồng bộ">
+        <span className="hnl-pc-v3-section-index">02</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Dữ liệu & đồng bộ</strong><small>Theo dõi kết nối, sao lưu, đối chiếu và phục hồi an toàn.</small></div>
+      </div>
+
       {syncCenterContent && (
         <SettingsAccordionCard
           id="sync-backup-card"
           icon={RefreshCw}
-          iconClassName="text-emerald-600"
+          iconClassName="text-indigo-600"
           title="Trung tâm đồng bộ & sao lưu"
           description="Đồng bộ dữ liệu · R2/ảnh · sao lưu · khôi phục và đối chiếu dữ liệu."
           badge={syncCenterStatus.label}
@@ -769,12 +823,14 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       {syncDiagnostics && (
         <SettingsAccordionCard
           id="system-sync-card"
+          lazy
+          unmountOnClose
           icon={ShieldCheck}
-          iconClassName="text-emerald-600"
-          title="HNL Health Center"
-          description="Chẩn đoán hệ thống · cảnh báo đồng bộ/ảnh/quyền · audit dữ liệu & liên kết."
-          badge={syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'Cloud sẵn sàng' : 'Đang kiểm tra'}
-          badgeClassName={syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}
+          iconClassName="text-indigo-600"
+          title="Trung tâm kiểm tra dữ liệu (Health Center)"
+          description="Chẩn đoán hệ thống · cảnh báo đồng bộ/ảnh/quyền · kiểm tra dữ liệu & liên kết."
+          badge={syncCenterStatus.label}
+          badgeClassName={syncCenterStatus.className}
           bodyClassName="p-0"
         >
           <div className="space-y-3">
@@ -782,40 +838,44 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-2">
             <div>
               <h3 className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
-                <ShieldCheck className="w-4 h-4 text-emerald-600" /> Trạng thái hệ thống & đồng bộ
+                <ShieldCheck className="w-4 h-4 text-indigo-600" /> Trạng thái hệ thống & đồng bộ
               </h3>
-              <p className="text-[10px] text-slate-500 mt-1">Dùng khi thiết bị/tài khoản nhìn dữ liệu hoặc ảnh khác nhau. File chẩn đoán không chứa mật khẩu, token hay binary ảnh thật.</p>
+              <p className="text-[10px] text-slate-500 mt-1">Dùng khi thiết bị/tài khoản nhìn dữ liệu hoặc ảnh khác nhau. Tệp chẩn đoán không chứa mật khẩu, token hay dữ liệu ảnh nhị phân thực tế.</p>
             </div>
-            <span className={`text-[10px] font-bold rounded-lg px-2 py-1 border ${syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-              {syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'Cloud sẵn sàng' : 'Đang kiểm tra'}
+            <span className={`text-[10px] font-bold rounded-lg px-2 py-1 border ${syncCenterStatus.className}`}>
+              {syncCenterStatus.label}
             </span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px]">
             <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5 space-y-1">
-              <div><b>App:</b> {APP_VERSION_LABEL}</div>
-              <div><b>Project ID:</b> <span className="font-mono break-all">{activeProjectId || 'default'}</span></div>
-              <div><b>User:</b> {syncDiagnostics.firebaseUserEmail || 'Chưa xác thực Firebase'}</div>
-              <div><b>Role:</b> {userRole} · {syncDiagnostics.roleResolved ? (syncDiagnostics.roleSource === 'offline-cache' ? 'cache đã xác minh trước đó' : 'đã xác minh Cloud') : 'chưa xác minh'}</div>
-              <div><b>Data schema:</b> v{syncDiagnostics.dataSchemaVersion}</div>
+              <div><b>Ứng dụng:</b> {APP_VERSION_LABEL}</div>
+              <div><b>ID dự án:</b> <span className="font-mono break-all">{activeProjectId || 'default'}</span></div>
+              <div><b>Tài khoản:</b> {syncDiagnostics.firebaseUserEmail || 'Chưa xác thực Firebase'}</div>
+              <div><b>Quyền:</b> {userRole} · {syncDiagnostics.roleResolved ? (syncDiagnostics.roleSource === 'offline-cache' ? 'dữ liệu ngoại tuyến đã xác minh trước đó' : 'đã xác minh Cloud') : 'chưa xác minh'}</div>
+              <div><b>Phiên bản dữ liệu:</b> v{syncDiagnostics.dataSchemaVersion}</div>
             </div>
             <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5 space-y-1">
-              <div><b>Firestore:</b> {syncDiagnostics.dataCloudPhase}</div>
-              <div><b>Realtime bootstrap:</b> {syncDiagnostics.snapshotReadyCount}/9 {syncDiagnostics.cloudInitialReady ? '· sẵn sàng' : '· đang chờ'}</div>
+              <div><b>Dữ liệu Firestore:</b> {formatSyncPhaseLabel(syncDiagnostics.dataCloudPhase)}</div>
+              <div><b>Khởi tạo đồng bộ thời gian thực (realtime):</b> {syncDiagnostics.snapshotReadyCount}/9 {syncDiagnostics.cloudInitialReady ? '· sẵn sàng' : '· đang chờ'}</div>
               <div><b>Dữ liệu chờ:</b> {syncDiagnostics.pendingData}</div>
-              <div><b>Ảnh chờ Cloud:</b> {displayedPhotoPending} · {displayedPhotoPhase}</div>
-              <div><b>Drive:</b> {driveSyncStatus} · pending {displayedPendingDriveUploads}</div>
-              <div><b>Sync cuối:</b> {syncDiagnostics.lastSyncAt > 0 ? formatDateTime(syncDiagnostics.lastSyncAt) : 'Chưa có'}</div>
-              <div><b>Mạng:</b> {syncDiagnostics.online === false ? 'Offline' : 'Online'}</div>
+              {warehouseOrderSync && <div><b>Đặt hàng chờ:</b> {warehouseOrderSync.pendingCount} · <b>Xung đột:</b> {warehouseOrderSync.conflicts.length}</div>}
+              <div><b>Ảnh chờ Cloud:</b> {displayedPhotoPending} · {formatSyncPhaseLabel(displayedPhotoPhase)}</div>
+              <div><b>Drive:</b> {formatSyncPhaseLabel(driveSyncStatus)} · {displayedPendingDriveUploads} tệp chờ</div>
+              <div><b>Đồng bộ gần nhất:</b> {syncDiagnostics.lastSyncAt > 0 ? formatDateTime(syncDiagnostics.lastSyncAt) : 'Chưa có'}</div>
+              <div><b>Mạng:</b> {syncDiagnostics.online === false ? 'Ngoại tuyến' : 'Trực tuyến'}</div>
             </div>
           </div>
+          {warehouseOrderSync && (
+            <WarehouseOrderSyncPanel sync={warehouseOrderSync} canEdit={Boolean(warehouseOrderSync.canEdit && roleResolved && userRole !== 'VIEWER')} />
+          )}
           {displayedLastSyncError && (
             <div className="rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-[10px] text-rose-800 break-words">
-              <b>Lỗi sync gần nhất:</b> {displayedLastSyncError}
+              <b>Lỗi đồng bộ gần nhất:</b> {displayedLastSyncError}
             </div>
           )}
           {syncDiagnostics.duplicateProjectIds.length > 0 && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-2.5 text-[10px] text-amber-900">
-              <b>Cảnh báo project trùng tên:</b> đang có {syncDiagnostics.duplicateProjectIds.length + 1} project cùng tên nhưng khác ID. Không tự gộp. ID khác: {syncDiagnostics.duplicateProjectIds.map((id) => id.slice(0, 8)).join(', ')}.
+              <b>Cảnh báo dự án trùng tên:</b> đang có {syncDiagnostics.duplicateProjectIds.length + 1} project cùng tên nhưng khác ID. Không tự gộp. ID khác: {syncDiagnostics.duplicateProjectIds.map((id) => id.slice(0, 8)).join(', ')}.
             </div>
           )}
           <div className="flex flex-wrap gap-1.5">
@@ -827,7 +887,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
             <div className="flex items-center justify-between gap-2">
               <div>
                 <div className="text-[11px] font-extrabold text-slate-800">Ảnh cần xử lý</div>
-                <div className="text-[10px] text-slate-500">Chỉ hiện ảnh active chưa Cloud-ready hoặc legacy không còn binary local.</div>
+                <div className="text-[10px] text-slate-500">Chỉ hiện ảnh đang dùng chưa sẵn sàng trên Cloud hoặc ảnh cũ không còn dữ liệu ảnh trên máy.</div>
               </div>
               <button type="button" onClick={() => void refreshPhotoDiagnosticSnapshot()} className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-[10px] font-bold text-slate-600 flex items-center gap-1">
                 <RefreshCw className="w-3.5 h-3.5" /> Kiểm tra lại
@@ -841,10 +901,10 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
                   <div key={photo.id} className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <div className="text-[10px] font-extrabold text-amber-900 truncate">{photo.entityType}/{photo.entityId}</div>
-                      <div className="text-[9px] text-amber-700 truncate font-mono">{photo.id} · {photo.storageProvider || 'legacy'} · {photo.binaryUploadState || 'unknown'}{photo.staleLocalCache ? ' · cache cũ' : ''}</div>
+                      <div className="text-[9px] text-amber-700 truncate font-mono">{photo.id} · {photo.storageProvider || 'dữ liệu cũ'} · {photo.binaryUploadState || 'không rõ'}{photo.staleLocalCache ? ' · bộ nhớ đệm cũ' : ''}</div>
                     </div>
                     <button type="button" onClick={() => handleGoToDiagnosticEntity(photo)} className="shrink-0 rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-1.5 text-[10px] font-extrabold flex items-center gap-1">
-                      <ExternalLink className="w-3.5 h-3.5" /> {photo.entityType === 'crewRecord' ? 'Đi tới bản ghi' : 'Mở module'}
+                      <ExternalLink className="w-3.5 h-3.5" /> {photo.entityType === 'crewRecord' ? 'Đi tới bản ghi' : 'Mở phân hệ'}
                     </button>
                   </div>
                 ))}
@@ -861,17 +921,41 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           accessVerified={Boolean(syncDiagnostics.roleResolved)}
           fullAppData={fullAppData}
           photoDiagnostics={photoDiagnosticSnapshot}
+          structureConfig={localStructureConfig}
+          onRefreshPhotoDiagnostics={refreshPhotoDiagnosticSnapshot}
           freshness={syncDiagnostics.cloudInitialReady ? 'live' : 'cache'}
           getSystemDiagnostics={() => buildFullDiagnosticBundle()}
-          onClearSystemDiagnostics={() => { clearRuntimeDiagnostics(); setSyncMsg('Đã xóa log chẩn đoán cũ.'); }}
+          onClearSystemDiagnostics={() => { clearRuntimeDiagnostics(); setSyncMsg('Đã xóa nhật ký chẩn đoán cũ.'); }}
         />
       
           </div>
         </SettingsAccordionCard>
       )}
 
-      {/* APP FORMATTING PREFERENCES CARD */}
       <SettingsAccordionCard
+        id="catalog-template-manager-card"
+        lazy
+        unmountOnClose
+        beforeClose={confirmCatalogClose}
+        icon={Layers3}
+        iconClassName="text-indigo-600"
+        title="Quản lý mẫu"
+        description="Mẫu cá nhân: Đội thi công, Hạng mục thi công, Định mức vật tư, Vật tư và Thiết bị."
+        badge="Theo tài khoản Google"
+        badgeClassName="border-indigo-100 bg-indigo-50 text-indigo-700"
+        bodyClassName="p-0"
+      >
+        <CatalogTemplateManager onDirtyChange={setCatalogDraftDirty} />
+      </SettingsAccordionCard>
+
+      {/* APP FORMATTING PREFERENCES CARD */}
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="03" aria-label="Tùy chọn ứng dụng">
+        <span className="hnl-pc-v3-section-index">03</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Tùy chọn ứng dụng</strong><small>Chuẩn số, ngày, chất lượng ảnh và thời hạn thùng rác.</small></div>
+      </div>
+
+      <SettingsAccordionCard
+        id="formatting-settings-card"
         icon={Sliders}
         iconClassName="text-indigo-600"
         title={t('formatting_settings')}
@@ -888,10 +972,11 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
             <Hash className="w-3.5 h-3.5 text-indigo-500" /> {t('number_format')}
           </label>
 
-          <div className="grid grid-cols-1 gap-2">
+          <div data-hnl-pc-v35-choice-grid="number-format" className="grid grid-cols-1 gap-2">
             <button
               type="button"
               onClick={() => handleNumberFormatChange('dot_comma')}
+              data-hnl-pc-v35-choice-card="number-format"
               className={`p-3 rounded-xl border text-left flex items-start justify-between transition-all ${
                 numberFormatPreset === 'dot_comma'
                   ? 'border-indigo-600 bg-indigo-50/70 text-indigo-950 font-bold ring-2 ring-indigo-500/20'
@@ -914,6 +999,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
             <button
               type="button"
               onClick={() => handleNumberFormatChange('comma_dot')}
+              data-hnl-pc-v35-choice-card="number-format"
               className={`p-3 rounded-xl border text-left flex items-start justify-between transition-all ${
                 numberFormatPreset === 'comma_dot'
                   ? 'border-indigo-600 bg-indigo-50/70 text-indigo-950 font-bold ring-2 ring-indigo-500/20'
@@ -941,7 +1027,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
             <Calendar className="w-3.5 h-3.5 text-indigo-500" /> {t('date_format')}
           </label>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div data-hnl-pc-v35-choice-grid="date-format" className="grid grid-cols-2 gap-2">
             {[
               { id: 'DD/MM/YYYY', label: 'Ngày / Tháng / Năm', eg: '12/08/2026' },
               { id: 'MM/DD/YYYY', label: 'Tháng / Ngày / Năm', eg: '08/12/2026' },
@@ -952,6 +1038,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
                 key={opt.id}
                 type="button"
                 onClick={() => handleDateFormatChange(opt.id as DateFormatPreset)}
+                data-hnl-pc-v35-choice-card="date-format"
                 className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all ${
                   dateFormatPreset === opt.id
                     ? 'border-indigo-600 bg-indigo-50/70 text-indigo-950 font-bold ring-2 ring-indigo-500/20'
@@ -972,6 +1059,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
 
       {/* IMAGE QUALITY & STORAGE CARD */}
       <SettingsAccordionCard
+        id="image-quality-card"
         icon={Sliders}
         iconClassName="text-indigo-600"
         title="Chất lượng ảnh & dung lượng"
@@ -987,21 +1075,21 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           { kind: 'defect' as const, title: 'Ảnh Defect', note: 'Mặc định 1.600 px, ưu tiên nhìn rõ khe, vít, nứt và vị trí lỗi.', options: ['economy','standard','high','original'] as ImageQualityPreset[] },
           { kind: 'crew' as const, title: 'Ảnh báo quân số / thi công', note: 'Mặc định 1.440 px để xem rõ nhưng đồng bộ nhanh hơn.', options: ['economy','standard','high','original'] as ImageQualityPreset[] },
         ]).map((group) => (
-          <div key={group.kind} className="space-y-1.5 border-b border-slate-100 last:border-b-0 pb-3 last:pb-0">
+          <div key={group.kind} data-hnl-pc-v35-quality-row={group.kind} className="space-y-1.5 border-b border-slate-100 last:border-b-0 pb-3 last:pb-0">
             <div className="flex items-center justify-between gap-2">
               <div><div className="font-extrabold text-slate-800 text-[11px]">{group.title}</div><div className="text-[10px] text-slate-500">{group.note}</div></div>
               <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-1 shrink-0">{getImageQualityProfile(group.kind, imageQualitySettings[group.kind]).label}</span>
             </div>
-            <div className={`grid gap-1.5 ${group.options.length >= 5 ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-2 sm:grid-cols-4'}`}>
+            <div data-hnl-pc-v35-choice-grid="image-quality" className={`grid gap-1.5 ${group.options.length >= 5 ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-2 sm:grid-cols-4'}`}>
               {group.options.map((preset) => {
                 const labels: Record<ImageQualityPreset, string> = { auto: 'Tự động', economy: 'Tiết kiệm', standard: 'Tiêu chuẩn', high: 'Cao', original: group.kind === 'floorPlan' ? 'Gần gốc' : 'Rất cao' };
                 const active = imageQualitySettings[group.kind] === preset;
-                return <button key={preset} type="button" onClick={() => handleImageQualityChange(group.kind, preset)} className={`px-2 py-2 rounded-xl border text-[10px] font-bold transition-all ${active ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'}`}>{labels[preset]}</button>;
+                return <button key={preset} type="button" data-hnl-pc-v35-choice-card="image-quality" onClick={() => handleImageQualityChange(group.kind, preset)} className={`px-2 py-2 rounded-xl border text-[10px] font-bold transition-all ${active ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'}`}>{labels[preset]}</button>;
               })}
             </div>
           </div>
         ))}
-        <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-2">Lưu ý: “Gốc/Rất cao” làm file lớn và đồng bộ chậm hơn. Với điện thoại nên giữ Mặt bằng = Tự động, Defect = Tiêu chuẩn, Quân số = Tiêu chuẩn.</p>
+        <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-2">Lưu ý: Chất lượng “Gốc” hoặc “Rất cao” làm tăng dung lượng ảnh và thời gian đồng bộ. Trên điện thoại, nên chọn Mặt bằng: Tự động; Defect: Tiêu chuẩn; Quân số: Tiêu chuẩn.</p>
         </div>
       </SettingsAccordionCard>
 
@@ -1010,27 +1098,23 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         id="trash-recovery-card"
         icon={Trash2}
         iconClassName="text-rose-600"
-        title="Dữ liệu đã ẩn & lịch sử"
-        description="Thùng rác, khôi phục và lịch sử xóa."
-        badge={`${trashOperations.length} mục · ${trashSettings.enabled ? 'Đang bật' : 'Đang tắt'}`}
+        title="Thùng rác"
+        description="Khôi phục hoặc dọn mục đã xóa."
+        badge={`${totalTrashCount} mục · ${trashSettings.enabled ? 'Đang bật' : 'Đang tắt'}`}
         badgeClassName={trashSettings.enabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-100 border-slate-200 text-slate-600'}
         bodyClassName="p-0"
       >
         <div className="space-y-3.5">
-          <div>
-            <p className="text-[10px] text-slate-500">
-              Chỉ lưu metadata cần khôi phục, không nhân đôi Base64/blob/ảnh nhị phân. Mặc định giữ 7 ngày.
-            </p>
-            <p className="text-[10px] text-amber-700 mt-1">
-              Phiếu nhập/xuất kho là lịch sử giao dịch: nếu xóa nhầm hãy ưu tiên Khôi phục rồi Hủy/Điều chỉnh trong Kho; chỉ xóa vĩnh viễn khi chắc chắn không cần đối chiếu.
-            </p>
+          <div className="space-y-1.5 text-[10px] leading-4">
+            <p className="text-slate-600">Mục đã xóa được giữ để khôi phục theo thời hạn bạn chọn. Dự án và thiết bị có Thùng rác riêng.</p>
+            <p className="text-amber-800">Lưu ý: Bỏ phiếu kho khỏi Thùng rác hiện chưa xóa lịch sử và ảnh của phiếu.</p>
           </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <label className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex items-center justify-between gap-3">
             <div>
-              <div className="text-[11px] font-extrabold text-slate-800">Bật Thùng rác</div>
-              <div className="text-[10px] text-slate-500">Tắt = xóa không tạo bản khôi phục mới.</div>
+              <div className="text-[11px] font-bold text-slate-800">Bật Thùng rác</div>
+              <div className="text-[10px] leading-4 text-slate-500">Tắt: mục xóa mới sẽ không thể khôi phục.</div>
             </div>
             <input
               type="checkbox"
@@ -1042,29 +1126,31 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           </label>
 
           <label className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-1">
-            <div className="text-[11px] font-extrabold text-slate-800">Tự dọn sau</div>
+            <div className="text-[11px] font-bold text-slate-800">Tự dọn sau</div>
             <select
               value={trashSettings.retentionDays}
               disabled={userRole !== 'ADMIN' || !trashSettings.enabled}
               onChange={(e) => onTrashSettingsChange?.({ ...trashSettings, retentionDays: Number(e.target.value) as TrashRetentionDays })}
-              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-[11px] font-bold disabled:opacity-50"
+              className="w-full min-h-10 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-[10px] font-bold disabled:opacity-50"
             >
               {[3, 7, 15, 30, 60, 90].map((days) => <option key={days} value={days}>{days} ngày</option>)}
             </select>
           </label>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 border border-slate-200 p-2.5 text-[10px]">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 border border-slate-200 p-2.5 text-[11px] leading-4">
           <div className="text-slate-600">
-            <b className="text-slate-900">{trashOperations.length}</b> lần xóa · metadata ước tính <b className="text-slate-900">{formatTrashBytes(trashApproxBytes)}</b>
+            <b className="text-slate-900">{totalTrashCount}</b> mục có thể khôi phục
           </div>
-          {userRole === 'ADMIN' && trashOperations.length > 0 && (
+          {userRole === 'ADMIN' && totalTrashCount > 0 && (
             <button
               type="button"
-              onClick={() => {
-                if (window.confirm('Dọn sạch toàn bộ Thùng rác? Dữ liệu này sẽ không thể khôi phục.')) void onEmptyTrash?.();
+              onClick={async () => {
+                if (!(await confirmAsync('Dọn các mục trong Thùng rác? Mục đã dọn sẽ không thể khôi phục. Riêng phiếu kho hiện vẫn giữ lịch sử và ảnh.', { confirmLabel: 'Dọn sạch' }))) return;
+                void Promise.resolve(onEmptyTrash?.()).catch((err) => alert('Chưa dọn xong: ' + (err instanceof Error ? err.message : String(err))));
+                setWarehousePurgeAllToken((value) => value + 1);
               }}
-              className="px-2.5 py-1.5 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 font-bold flex items-center gap-1 hover:bg-rose-100"
+              className="min-h-10 px-3 py-2 text-[10px] rounded-lg border border-rose-200 bg-rose-50 text-rose-700 font-bold flex items-center gap-1 hover:bg-rose-100"
             >
               <Eraser className="w-3.5 h-3.5" /> Dọn sạch
             </button>
@@ -1072,13 +1158,13 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         </div>
 
         {!trashSettings.enabled && (
-          <div className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-2.5">
-            Thùng rác đang tắt. Các lần xóa mới sẽ không có bản khôi phục; tombstone kỹ thuật nhỏ vẫn được giữ để chống dữ liệu cũ tự sống lại khi realtime đồng bộ.
+          <div className="text-[10px] leading-4 text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-2.5">
+            Thùng rác đang tắt. Mục mới xóa sẽ không khôi phục được. Ảnh chỉ được dọn sau khi kiểm tra an toàn.
           </div>
         )}
 
-        {trashOperations.length === 0 ? (
-          <div className="text-center text-[11px] text-slate-500 italic py-3">Thùng rác đang trống.</div>
+        {totalTrashCount === 0 ? (
+          <div className="text-center text-[10px] text-slate-500 italic py-3">Thùng rác đang trống.</div>
         ) : (
           <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
             {trashOperations.map((operation) => {
@@ -1089,29 +1175,31 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
                 <div key={operation.id} className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="text-[11px] font-extrabold text-slate-800 truncate">{names.join(' · ') || 'Dữ liệu đã xóa'}</div>
-                      <div className="text-[10px] text-slate-500 mt-0.5">
+                      <div className="text-[11px] font-bold text-slate-800 truncate">{names.join(' · ') || 'Dữ liệu đã xóa'}</div>
+                      <div className="text-[10px] leading-4 text-slate-500 mt-0.5">
                         {formatDateTime(operation.deletedAt)} · {operation.deletedItems?.length || 0} mục · còn {remainingDays} ngày
                       </div>
-                      {operation.deletedByEmail && <div className="text-[9px] text-slate-400 truncate">Xóa bởi: {operation.deletedByEmail}</div>}
+                      {operation.deletedByEmail && <div className="text-[10px] leading-4 text-slate-500 truncate">Xóa bởi: {operation.deletedByEmail}</div>}
                     </div>
-                    <span className="text-[9px] font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-md shrink-0">{formatTrashBytes(Number(operation.approxBytes || 0))}</span>
+                    <span className="text-[10px] font-semibold bg-slate-100 text-slate-600 px-2 py-1 rounded-md shrink-0">{formatTrashBytes(Number(operation.approxBytes || 0))}</span>
                   </div>
                   {userRole === 'ADMIN' && (
-                    <div className="flex items-center gap-2">
+                    <div data-hnl-pc-v35-actions="trash-record" className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={() => void onRestoreTrashOperation?.(operation.id)}
-                        className="flex-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center gap-1 hover:bg-emerald-700"
+                        className="flex-1 min-h-10 px-2.5 py-2 rounded-lg bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center gap-1 hover:bg-emerald-700"
                       >
                         <RotateCcw className="w-3.5 h-3.5" /> Khôi phục
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          if (window.confirm('Xóa vĩnh viễn mục này khỏi Thùng rác?')) void onPurgeTrashOperation?.(operation.id);
+                        onClick={async () => {
+                          if (await confirmAsync('Xóa mục này khỏi Thùng rác? Sẽ không thể khôi phục. Ảnh không còn sử dụng được dọn khi an toàn.', { confirmLabel: 'Xóa' })) {
+                            void onPurgeTrashOperation?.(operation.id);
+                          }
                         }}
-                        className="flex-1 px-2.5 py-1.5 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-[10px] font-bold flex items-center justify-center gap-1 hover:bg-rose-100"
+                        className="flex-1 min-h-10 px-2.5 py-2 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-[10px] font-bold flex items-center justify-center gap-1 hover:bg-rose-100"
                       >
                         <Trash2 className="w-3.5 h-3.5" /> Xóa vĩnh viễn
                       </button>
@@ -1123,10 +1211,29 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           </div>
         )}
 
+        {userRole === 'ADMIN' && roleResolved && FIREBASE_ONLY_RUNTIME && activeProjectId && (
+          <WarehouseDeletedVoucherRecovery key={activeProjectId} projectId={activeProjectId} onCountChange={setWarehouseTrashCount} purgeAllToken={warehousePurgeAllToken} />
+        )}
+
         {userRole !== 'ADMIN' && (
-          <p className="text-[10px] text-slate-500">Chỉ ADMIN được đổi thời gian lưu, khôi phục hoặc xóa vĩnh viễn.</p>
+          <p className="text-[10px] text-slate-500">Chỉ quản trị viên được thay đổi và dọn Thùng rác.</p>
         )}
         </div>
+      </SettingsAccordionCard>
+
+      {/* Read-only, offline-capable manual: shared Settings feature-sheet navigation. */}
+      <SettingsAccordionCard
+        id="user-guide-center-card"
+        icon={BookOpen}
+        iconClassName="text-indigo-600"
+        title="Hướng dẫn sử dụng & Trợ giúp"
+        description="Sổ tay chi tiết theo từng chức năng, có ảnh minh họa riêng cho PC và điện thoại."
+        badge="PC · Điện thoại"
+        badgeClassName="border-indigo-100 bg-indigo-50 text-indigo-700"
+        lazy
+        unmountOnClose
+      >
+        <UserGuideCenter />
       </SettingsAccordionCard>
 
     </div>

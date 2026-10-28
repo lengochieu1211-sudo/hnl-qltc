@@ -14,9 +14,11 @@ on:
       - 'package-lock.json'
       - 'vite.config.ts'
       - '.github/workflows/android-apk.yml'
+      - '.github/workflows/p2116-runtime-candidate.yml'
   push:
     branches:
       - main
+      - release/p21-13-prod-candidate-20261027
     paths:
       - 'android-wrapper/**'
       - 'desktop-wrapper/HNL-QLTC-SHELL-ICON.png'

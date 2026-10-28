@@ -1,0 +1,38 @@
+name: HNL Crew Report PNG/XLSX Click Golden
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'src/components/CrewReportShareModal.tsx'
+      - 'src/utils/crewReportExcel.ts'
+      - 'scripts/crew-report-excel-golden.ts'
+      - 'scripts/crew-report-export-browser-golden.mjs'
+      - 'scripts/fixtures/crew-report/**'
+      - '.github/workflows/crew-report-export-click-golden.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  crew_export_browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsx scripts/crew-report-excel-golden.ts
+      - run: |
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Real crew PNG/XLSX download and share on PC/mobile
+        run: node scripts/crew-report-export-browser-golden.mjs
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-CREW-REPORT-PNG-XLSX-EVIDENCE
+          path: runtime-evidence/crew-*
+          if-no-files-found: warn
+          retention-days: 30

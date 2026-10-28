@@ -40,11 +40,17 @@ import { getDeviceId, getDeviceName } from '../utils/deviceIdentity';
 import { cleanupTransientLocalStorage, estimateLocalStorageBytes } from '../utils/storage';
 import { isSuperAdminEmail } from '../config/superAdmin';
 import { REALTIME_COLLECTIONS } from '../config/realtimeCollections';
+import { compareWorkVolumeManualOrder } from '../utils/catalogDisplayOrder';
 import { formatDateTime } from '../utils/dateFormatter';
 import { CURRENT_DATA_SCHEMA_VERSION, getPendingDataSchemaMigrations, readDataSchemaVersion } from '../config/dataSchema';
 import { clearRememberedVerifiedAuthIdentity } from '../utils/offlineAccess';
+import { assertP21DemoFullProjectSaveBoundary, assertP21DemoWriterBoundary } from '../utils/p21DemoWriterBoundary';
 import type { ProjectStructureConfig } from '../utils/structureGroupUtils';
 const env = (import.meta as any).env || {};
+const p21DemoWriterGates = {
+  roomSidecarDemo: String(env.VITE_P21_ROOM_SIDECAR_DEMO || '') === 'P21_LOCAL_EMULATOR_ONLY',
+  trustedWarehouseDemo: String(env.VITE_P21_TRUSTED_WAREHOUSE_DEMO || '') === 'P21_LOCAL_EMULATOR_ONLY',
+} as const;
 export const APP_ENVIRONMENT: 'DEV' | 'PROD' = String(env.VITE_APP_ENV || (env.DEV || env.MODE === 'development' ? 'DEV' : 'PROD')).toUpperCase() === 'PROD' ? 'PROD' : 'DEV';
 const isDev = APP_ENVIRONMENT === 'DEV';
 const PROD_FIREBASE_PROJECT_ID = 'com-example-qlct-61329';
@@ -258,6 +264,13 @@ export interface CloudProjectSummary {
   updatedAt?: number;
   createdAtSource?: 'cloud' | 'migrating';
   /**
+   * Archived projects remain fully intact in Firestore/R2 but are excluded from
+   * normal active-project navigation until an ADMIN restores them.
+   */
+  archivedAt?: number;
+  archivedByUid?: string;
+  archivedByEmail?: string;
+  /**
    * When this project has been safely merged into another Cloud project, this
    * points to the canonical projectId. The source project is kept as an archive.
    */
@@ -427,8 +440,7 @@ const projectAccessRepairCompleted = new Set<string>();
 const userProjectIndexSignatureCache = new Map<string, string>();
 const discoveryProjectCache = new Map<string, { at: number; summary: CloudProjectSummary | null }>();
 // Coalesce the burst of discovery-source snapshots that arrives during Auth/startup.
-// Entries are invalidated immediately when an authoritative discovery source changes,
-// so this short TTL never replaces canonical role/project verification.
+// Entries are invalidated immediately when an authoritative discovery source changes.
 const DISCOVERY_VERIFICATION_CACHE_MS = 5_000;
 const projectRootMetadataTouchAt = new Map<string, number>();
 
@@ -439,11 +451,19 @@ function normalizeUnitPrice(value: unknown): number {
   return Number.isFinite(amount) && amount >= 0 ? amount : 0;
 }
 
+function normalizeFinancialInputExpression(value: unknown): string | null {
+  const expression = String(value ?? '').trim();
+  if (!expression) return null;
+  const sanitized = expression.replace(/^=/, '').replace(/[xX×]/g, '*').replace(/[:÷]/g, '/');
+  return /^[0-9+\-*/().,\s]+$/.test(sanitized) ? expression : null;
+}
+
 function financialRecordFromWorkVolume(item: any): Record<string, any> | null {
   if (!item?.id || item.unitPrice === undefined || item.unitPrice === null) return null;
   return {
     id: String(item.id),
     unitPrice: normalizeUnitPrice(item.unitPrice),
+    unitPriceExpression: normalizeFinancialInputExpression(item.inputExpressions?.unitPrice),
     deleted: item.deleted === true,
     updatedAt: Number(item.updatedAt || Date.now()),
   };
@@ -621,6 +641,87 @@ async function registerProjectForCurrentUser(projectId: string, projectName: str
   console.debug('[user index write]', projectId, 'written');
 }
 
+export type UserCatalogTemplateKind = 'workVolumes' | 'teams' | 'materialNorms' | 'materials' | 'equipment';
+
+export interface UserCatalogTemplate {
+  id: string;
+  name: string;
+  kind: UserCatalogTemplateKind;
+  items: any[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+const sanitizeCatalogTemplateItems = (items: any[]): any[] => {
+  const safe = Array.isArray(items) ? items.slice(0, 40) : [];
+  return safe.map((item) => JSON.parse(JSON.stringify(item, (_key, value) => value === undefined ? null : value)));
+};
+
+export async function fetchUserCatalogTemplates(): Promise<UserCatalogTemplate[]> {
+  await ensureAuth();
+  const user = getCurrentRealFirebaseUser();
+  if (!user?.uid) return [];
+  const snap = await getDocFromServer(doc(db, 'users', user.uid));
+  if (!snap.exists()) return [];
+  const raw = snap.data()?.catalogTemplates;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item: any) => item && typeof item.id === 'string' && typeof item.name === 'string' && ['workVolumes', 'teams', 'materialNorms', 'materials', 'equipment'].includes(item.kind))
+    .map((item: any) => ({
+      id: String(item.id),
+      name: String(item.name).slice(0, 80),
+      kind: item.kind,
+      items: Array.isArray(item.items) ? item.items.slice(0, 40) : [],
+      createdAt: Number(item.createdAt || 0),
+      updatedAt: Number(item.updatedAt || 0),
+    }))
+    .sort((a: UserCatalogTemplate, b: UserCatalogTemplate) => b.updatedAt - a.updatedAt)
+    .slice(0, 12);
+}
+
+export async function saveUserCatalogTemplate(input: Omit<UserCatalogTemplate, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<UserCatalogTemplate> {
+  await ensureAuth();
+  const user = getCurrentRealFirebaseUser();
+  if (!user?.uid) throw new Error('Bạn cần đăng nhập Google để lưu mẫu dùng chung giữa thiết bị.');
+  const current = await fetchUserCatalogTemplates().catch(() => []);
+  const now = Date.now();
+  const id = String(input.id || `catalog-template-${now}-${Math.random().toString(36).slice(2, 8)}`);
+  const existing = current.find((item) => item.id === id);
+  const next: UserCatalogTemplate = {
+    id,
+    name: String(input.name || '').trim().slice(0, 80) || 'Mẫu chưa đặt tên',
+    kind: input.kind,
+    items: sanitizeCatalogTemplateItems(input.items),
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  };
+  const merged = [next, ...current.filter((item) => item.id !== id)].slice(0, 12);
+  await setDoc(doc(db, 'users', user.uid), { catalogTemplates: merged }, { merge: true });
+  return next;
+}
+
+export async function deleteUserCatalogTemplate(templateId: string): Promise<void> {
+  await ensureAuth();
+  const user = getCurrentRealFirebaseUser();
+  if (!user?.uid) throw new Error('Bạn cần đăng nhập Google.');
+  const current = await fetchUserCatalogTemplates().catch(() => []);
+  await setDoc(doc(db, 'users', user.uid), {
+    catalogTemplates: current.filter((item) => item.id !== templateId),
+  }, { merge: true });
+}
+
+export async function deleteUserCatalogTemplates(templateIds: string[]): Promise<void> {
+  await ensureAuth();
+  const user = getCurrentRealFirebaseUser();
+  if (!user?.uid) throw new Error('Bạn cần đăng nhập Google.');
+  const ids = new Set((templateIds || []).map((id) => String(id || '').trim()).filter(Boolean));
+  if (ids.size === 0) return;
+  const current = await fetchUserCatalogTemplates().catch(() => []);
+  await setDoc(doc(db, 'users', user.uid), {
+    catalogTemplates: current.filter((item) => !ids.has(item.id)),
+  }, { merge: true });
+}
+
 export async function fetchCurrentUserProjectsFromCloud(): Promise<CloudProjectSummary[]> {
   try {
     await ensureAuth();
@@ -677,6 +778,9 @@ export async function fetchCurrentUserProjectsFromCloud(): Promise<CloudProjectS
           createdAt,
           createdAtSource: createdAt ? 'cloud' : 'migrating',
           updatedAt: cloudTimestampToMillis(projectData?.updatedAt) || Number(item?.updatedAt || 0),
+          archivedAt: cloudTimestampToMillis(projectData?.archivedAt),
+          archivedByUid: String(projectData?.archivedByUid || '') || undefined,
+          archivedByEmail: normalizeEmail(projectData?.archivedByEmail) || undefined,
           canonicalProjectId: String(projectData?.canonicalProjectId || projectData?.mergedIntoProjectId || '').trim() || undefined,
         });
       } catch (err) {
@@ -827,6 +931,9 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
             createdAt,
             createdAtSource: createdAt ? 'cloud' as const : 'migrating' as const,
             updatedAt: cloudTimestampToMillis(data?.updatedAt),
+            archivedAt: cloudTimestampToMillis(data?.archivedAt),
+            archivedByUid: String(data?.archivedByUid || '') || undefined,
+            archivedByEmail: normalizeEmail(data?.archivedByEmail) || undefined,
             canonicalProjectId: canonicalRaw && canonicalRaw !== d.id ? canonicalRaw : undefined,
             __deleted: data?.deleted === true,
           } as CloudProjectSummary & { __deleted?: boolean };
@@ -917,6 +1024,9 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
           createdAt,
           createdAtSource: createdAt ? 'cloud' : 'migrating',
           updatedAt,
+          archivedAt: cloudTimestampToMillis(data?.archivedAt),
+          archivedByUid: String(data?.archivedByUid || '') || undefined,
+          archivedByEmail: normalizeEmail(data?.archivedByEmail) || undefined,
           canonicalProjectId,
         };
         discoveryProjectCache.set(cacheKey, { at: Date.now(), summary });
@@ -966,10 +1076,9 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
     }, 160);
   };
 
-  // All six discovery listeners produce an initial snapshot. Waiting until every source
-  // has answered avoids six near-identical canonical verification passes at startup.
-  // A source error is still marked ready so a denied optional legacy/index query cannot
-  // block the authoritative project list forever.
+  // All six discovery listeners produce an initial snapshot. Wait until every source
+  // has answered before canonical verification so startup does not verify the same
+  // project set six times. Errors still mark a source ready and keep discovery fail-closed.
   const initialDiscoverySources = new Set([
     'user-index',
     'invitation',
@@ -1864,6 +1973,7 @@ export async function loadProjectFromFirestoreCache(projectId: string): Promise<
         .map((item) => ({ id: item.id, ...item.data() }))
         .filter((item: any) => item?.deleted !== true && !item?.deletedAt);
       if (stateKey === 'floorPlans') list.sort((a: any, b: any) => Number(a.order || 0) - Number(b.order || 0));
+      if (stateKey === 'workVolumes') list.sort(compareWorkVolumeManualOrder);
       data[stateKey] = list;
       recordCount += list.length;
     } catch (_) {
@@ -1953,6 +2063,12 @@ function sanitizeSubcollectionItemForCloud(subcollection: string, item: any): an
   // be persisted inside work_volumes from schema v6 onward.
   if (subcollection === 'work_volumes' && sanitized && typeof sanitized === 'object') {
     delete sanitized.unitPrice;
+    if (sanitized.inputExpressions && typeof sanitized.inputExpressions === 'object') {
+      const businessExpressions = { ...sanitized.inputExpressions };
+      delete businessExpressions.unitPrice;
+      if (Object.keys(businessExpressions).length > 0) sanitized.inputExpressions = businessExpressions;
+      else delete sanitized.inputExpressions;
+    }
   }
 
   // Floor-plan binaries are uploaded by floorPlanImageSync.ts. When a user replaces
@@ -1975,6 +2091,12 @@ function sanitizeSubcollectionItemForCloud(subcollection: string, item: any): an
         'driveUrl',
         'cloudFileId',
         'storageProvider',
+        'storagePath',
+        'thumbnailPath',
+        'storageMd5Hash',
+        'storageEtag',
+        'imageAssetId',
+        'imageAssetOwnerFloorId',
         'imageMimeType',
         'imageFileSize',
         'imageRevision',
@@ -2026,6 +2148,14 @@ export interface ProjectSharedSettings {
   updatedAt?: number;
   updatedByUid?: string;
   updatedByEmail?: string;
+}
+
+export async function fetchProjectSharedSettingsSnapshot(projectId: string, serverOnly = true): Promise<ProjectSharedSettings | null> {
+  if (!projectId) return null;
+  await ensureAuth();
+  const ref = doc(db, 'projects', projectId, 'settings', 'shared');
+  const snap = serverOnly ? await getDocFromServer(ref) : await getDoc(ref);
+  return snap.exists() ? (snap.data() as ProjectSharedSettings) : null;
 }
 
 export async function saveProjectSharedSettings(projectId: string, patch: Partial<ProjectSharedSettings>): Promise<void> {
@@ -2119,10 +2249,54 @@ export async function saveProjectMetadataToCloud(projectId: string, name: string
   await registerProjectForCurrentUser(projectId, name.trim(), roleInfo?.allowed ? roleInfo.role : 'VIEWER');
 }
 
-export async function saveProjectToCloud(project: { id: string; name: string; syncCode?: string; payload?: any; contractorName?: string; inspectorName?: string; projectLocation?: string; [key: string]: any }): Promise<void> {
+
+/**
+ * Archive/unarchive a project without deleting business records or media.
+ * Archive is ADMIN-only and changes only lightweight root metadata; Firestore/R2
+ * content remains untouched and can be made active again later.
+ */
+export async function setProjectArchivedState(projectId: string, archived: boolean): Promise<number> {
+  if (!projectId) throw new Error('PROJECT_ARCHIVE_ID_REQUIRED');
+  await ensureAuth();
+  const user = getCurrentRealFirebaseUser();
+  if (!user?.uid || !user.email) throw new Error('PROJECT_ARCHIVE_AUTH_REQUIRED');
+
+  const roleInfo = await fetchProjectUserRoleFromCloud(projectId, user);
+  if (roleInfo.verification !== 'verified' || !roleInfo.allowed || roleInfo.role !== 'ADMIN') {
+    throw new Error('PROJECT_ARCHIVE_ADMIN_REQUIRED');
+  }
+
+  const projectRef = doc(db, 'projects', projectId);
+  const snap = await getDocFromServer(projectRef);
+  if (!snap.exists() || snap.data()?.deleted === true) throw new Error('PROJECT_ARCHIVE_NOT_FOUND');
+
+  const now = Date.now();
+  await setDoc(projectRef, {
+    archivedAt: archived ? now : null,
+    archivedByUid: archived ? user.uid : null,
+    archivedByEmail: archived ? normalizeEmail(user.email) : null,
+    updatedAt: now,
+    updatedByUid: user.uid,
+    updatedByEmail: normalizeEmail(user.email),
+    updatedByDeviceId: getDeviceId(),
+    updatedByDeviceName: getDeviceName(),
+  }, { merge: true });
+
+  // Force discovery to re-read the canonical project root on the next index event,
+  // then touch the user's own project index so other open tabs/devices refresh promptly.
+  discoveryProjectCache.delete(`${user.uid}:${projectId}`);
+  await registerProjectForCurrentUser(projectId, String(snap.data()?.name || projectId), roleInfo.role).catch(() => {});
+  return archived ? now : 0;
+}
+
+export async function saveProjectToCloud(project: { id: string; name: string; syncCode?: string; payload?: any; contractorName?: string; inspectorName?: string; projectLocation?: string; [key: string]: any }, options?: { authoritativeBackupRestore?: boolean }): Promise<void> {
   try {
+    // Full import/restore bypasses the diff writer: fail before project metadata writes.
+    assertP21DemoFullProjectSaveBoundary(p21DemoWriterGates);
     await ensureAuth();
+    const authoritativeBackupRestore = options?.authoritativeBackupRestore === true;
     const financialActor = getCurrentRealFirebaseUser();
+    let authoritativeRestoreActor: User | null = null;
     let canWriteFinancials = false;
     if (financialActor) {
       try {
@@ -2140,6 +2314,20 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
         console.warn('[Financial isolation] ADMIN verification unavailable; financial writes skipped:', err);
       }
     }
+    if (authoritativeBackupRestore) {
+      const restoreActor = getCurrentRealFirebaseUser();
+      if (!restoreActor) throw new Error('Khôi phục bản sao lưu cần tài khoản Firebase đã xác thực.');
+      authoritativeRestoreActor = restoreActor;
+      const restoreRole = await fetchProjectUserRoleFromCloud(project.id, restoreActor);
+      if (restoreRole.verification !== 'verified' || !restoreRole.allowed || restoreRole.role !== 'ADMIN') {
+        throw new Error('Chỉ ADMIN đã xác minh mới được khôi phục chính xác dữ liệu từ bản sao lưu.');
+      }
+      // The authoritative restore role check is also the financial-write authority.
+      // Reuse this verified result so a transient earlier preflight cannot silently skip
+      // work_volume_financials and then remove the only legacy unitPrice copy.
+      canWriteFinancials = true;
+    }
+
     let payloadData = project.payload;
     if (!payloadData) {
       const copy = { ...project };
@@ -2198,16 +2386,68 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
     let batch = writeBatch(db);
     let operationCount = 0;
     const now = Date.now();
+    const commitBatch = async (context: string) => {
+      if (operationCount <= 0) return;
+      try {
+        await batch.commit();
+      } catch (err: any) {
+        const wrapped = new Error(`Firestore restore failed at ${context}: ${String(err?.code || err?.message || err)}`);
+        (wrapped as any).code = err?.code || 'restore-write-failed';
+        throw wrapped;
+      }
+      batch = writeBatch(db);
+      operationCount = 0;
+    };
+    const commitWorkVolumeRestoreFinancial = async (itemId: string, financial: Record<string, any>) => {
+      const financialBatch = writeBatch(db);
+      financialBatch.set(
+        doc(db, 'projects', project.id, WORK_VOLUME_FINANCIAL_COLLECTION, itemId),
+        financial,
+        { merge: true },
+      );
+      try {
+        await financialBatch.commit();
+      } catch (err: any) {
+        const wrapped = new Error(`Firestore restore failed at ${WORK_VOLUME_FINANCIAL_COLLECTION}/${itemId}: ${String(err?.code || err?.message || err)}`);
+        (wrapped as any).code = err?.code || 'restore-financial-write-failed';
+        throw wrapped;
+      }
+    };
+
+    // Read independent business collections in parallel before writing. This removes
+    // one network round-trip per collection from manual JSON restore and is safer for an
+    // authoritative restore: if a required collection cannot be read, fail before any
+    // business subcollection writes begin instead of discovering it halfway through.
+    const existingCloudByCollection = new Map<string, Map<string, any>>();
+    const preflightReads = await Promise.all(subNames.map(async ({ cloudName }) => {
+      try {
+        const existingSnap = await getDocs(collection(db, 'projects', project.id, cloudName));
+        return { cloudName, existingSnap, error: null as any };
+      } catch (error: any) {
+        return { cloudName, existingSnap: null as any, error };
+      }
+    }));
+    for (const { cloudName, existingSnap, error } of preflightReads) {
+      const cloudById = new Map<string, any>();
+      if (existingSnap) existingSnap.docs.forEach((row: any) => cloudById.set(row.id, row.data()));
+      existingCloudByCollection.set(cloudName, cloudById);
+      if (!error) continue;
+      console.warn(`[Cloud Sync] Could not read current ${cloudName} revisions before full UPSERT:`, error);
+      if (authoritativeBackupRestore) {
+        const wrapped = new Error(`Firestore restore failed reading current ${cloudName}: ${String(error?.code || error?.message || error)}`);
+        (wrapped as any).code = error?.code || 'restore-read-failed';
+        throw wrapped;
+      }
+    }
 
     for (const { cloudName, stateKey } of subNames) {
       const list = payloadData[stateKey];
-      const cloudById = new Map<string, any>();
-      try {
-        const existingSnap = await getDocs(collection(db, 'projects', project.id, cloudName));
-        existingSnap.docs.forEach((row) => cloudById.set(row.id, row.data()));
-      } catch (err) {
-        console.warn(`[Cloud Sync] Could not read current ${cloudName} revisions before full UPSERT:`, err);
-      }
+      const cloudById = existingCloudByCollection.get(cloudName) || new Map<string, any>();
+      const expectedActiveIds = new Set<string>(
+        (Array.isArray(list) ? list : [])
+          .map((item: any) => String(item?.id || ''))
+          .filter(Boolean)
+      );
 
       // Firebase-only rule: a missing item in a local snapshot is NOT proof of deletion.
       // A device may have an incomplete/offline cache. Deletions travel only as explicit
@@ -2225,16 +2465,37 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
           const cloudUpdatedAt = Number(currentCloud?.updatedAt || 0);
           // A full/import snapshot is never allowed to overwrite a newer Cloud record.
           // Missing/legacy timestamps are accepted only when the Cloud record is also legacy.
-          if (currentCloud && cloudUpdatedAt > 0 && localUpdatedAt <= cloudUpdatedAt) continue;
+          if (!authoritativeBackupRestore && currentCloud && cloudUpdatedAt > 0 && localUpdatedAt <= cloudUpdatedAt) continue;
+          // An explicit ADMIN backup restore is the one path allowed to resurrect an
+          // item that was deleted after the backup. Only IDs present in the backup are
+          // restored; unrelated Cloud tombstones remain untouched.
+          const restoredUpdatedAt = authoritativeBackupRestore
+            ? Math.max(now, cloudUpdatedAt + 1, localUpdatedAt)
+            : Number(item.updatedAt || now);
+          // Keep ADMIN-only price writes out of the work_volumes business batch.
+          // Otherwise a denial in work_volume_financials is incorrectly reported as
+          // "work_volumes", hiding whether lifecycle data or financial RBAC actually failed.
+          const hasLegacyUnitPrice = cloudName === 'work_volumes'
+            && currentCloud != null
+            && Object.prototype.hasOwnProperty.call(currentCloud, 'unitPrice');
+          const hasBackupUnitPrice = item.unitPrice !== undefined && item.unitPrice !== null;
+          let pendingFinancial: Record<string, any> | null = null;
           if (cloudName === 'work_volumes' && canWriteFinancials) {
-            const financial = financialRecordFromWorkVolume(item);
+            // Old PROD documents may still carry unitPrice inside work_volumes even though
+            // schema v6 moved it to work_volume_financials. A v4 backup normally contains
+            // the ADMIN price; older backups fall back to the legacy Cloud value so cleanup
+            // can never destroy the only remaining price copy.
+            const financialSource = authoritativeBackupRestore && hasLegacyUnitPrice && !hasBackupUnitPrice
+              ? { ...item, unitPrice: normalizeUnitPrice(currentCloud.unitPrice) }
+              : item;
+            const financial = financialRecordFromWorkVolume(financialSource);
             if (financial) {
-              batch.set(doc(db, 'projects', project.id, WORK_VOLUME_FINANCIAL_COLLECTION, String(item.id)), {
+              pendingFinancial = {
                 ...financial,
+                updatedAt: restoredUpdatedAt,
                 updatedByUid: financialActor?.uid || '',
                 updatedByEmail: normalizeEmail(financialActor?.email),
-              }, { merge: true });
-              operationCount++;
+              };
             }
           }
           const nextRevision = Math.max(Number(item.revision || 0), Number(currentCloud?.revision || 0) + 1, 1);
@@ -2244,9 +2505,7 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
             // the same missing quantity at the same time; a transaction keeps only one
             // cumulative record and never lets a stale device lower it.
             if (operationCount > 0) {
-              await batch.commit();
-              batch = writeBatch(db);
-              operationCount = 0;
+              await commitBatch(`${cloudName} before room-auto transaction`);
             }
             await runTransaction(db, async (transaction) => {
               const snap = await transaction.get(docRef);
@@ -2266,32 +2525,130 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
             continue;
           }
 
+          // Rules intentionally reject unitPrice inside work_volumes. With merge:true,
+          // merely omitting unitPrice does not remove a legacy PROD field, so request.resource
+          // still contains it and the restore is denied. Preserve the price first, then remove
+          // only that legacy field from the business document.
+          if (authoritativeBackupRestore && cloudName === 'work_volumes' && hasLegacyUnitPrice) {
+            if (!pendingFinancial) {
+              const wrapped = new Error(`Firestore restore cannot preserve legacy work volume price at ${WORK_VOLUME_FINANCIAL_COLLECTION}/${String(item.id)}`);
+              (wrapped as any).code = 'restore-financial-preserve-required';
+              throw wrapped;
+            }
+            await commitWorkVolumeRestoreFinancial(String(item.id), pendingFinancial);
+          }
+          const removeLegacyWorkVolumeUnitPrice =
+            authoritativeBackupRestore && cloudName === 'work_volumes' && hasLegacyUnitPrice;
+
+          const authoritativeDefectArchiveCleanup =
+            authoritativeBackupRestore && cloudName === 'defects' && !item?.archivedAt
+              ? {
+                  // Full Replace must restore the backup's active lifecycle exactly.
+                  // merge:true would otherwise preserve historical archive markers from
+                  // the destination Cloud document and the UI would hide the restored
+                  // Defect even though its ID/server verification succeeded.
+                  archivedAt: deleteField(),
+                  archivedFloorId: deleteField(),
+                  archivedFloorName: deleteField(),
+                }
+              : {};
+
           batch.set(docRef, {
             ...sanitized,
+            ...authoritativeDefectArchiveCleanup,
+            ...(removeLegacyWorkVolumeUnitPrice ? { unitPrice: deleteField() } : {}),
             deleted: false,
             deletedAt: null,
             deletedByUid: null,
-          deletedBy: null,
+            deletedBy: null,
             revision: nextRevision,
-            updatedAt: Number(item.updatedAt || now)
+            updatedAt: restoredUpdatedAt
           }, { merge: true });
           operationCount++;
 
-          if (operationCount >= 400) {
-            await batch.commit();
-            batch = writeBatch(db);
-            operationCount = 0;
+          // Keep per-record diagnostics for authoritative work-volume restore. Legacy
+          // prices are committed first (data-loss guard); clean/new records keep the
+          // previous business-first ordering to avoid orphan financial rows.
+          if (authoritativeBackupRestore && cloudName === 'work_volumes') {
+            await commitBatch(`work_volumes/${String(item.id)}`);
+            if (pendingFinancial && !hasLegacyUnitPrice) {
+              await commitWorkVolumeRestoreFinancial(String(item.id), pendingFinancial);
+            }
+          }
+
+          // Full backup restores may contain many medium/large business records.
+          // Keep batches deliberately below Firestore's request-size ceiling; the 500-write
+          // count limit alone is not sufficient when restoring real project snapshots.
+          if (operationCount >= 100) {
+            await commitBatch(`${cloudName} chunk`);
           }
         }
+      }
+      if (authoritativeBackupRestore) {
+        // "Khôi phục từ bản sao lưu" is a real Full Replace. Rows that are active in
+        // Firestore but absent from the backup must be soft-deleted, not left behind to
+        // reappear on another device. Use the same monotonic lifecycle fields as normal
+        // deletes so Rules/realtime keep one deterministic history.
+        const actor = authoritativeRestoreActor || financialActor;
+        for (const [cloudId, currentCloud] of cloudById.entries()) {
+          if (expectedActiveIds.has(String(cloudId)) || currentCloud?.deleted === true) continue;
+
+          const deletedAt = Math.max(now, Number(currentCloud?.updatedAt || 0) + 1);
+          const deletionRevision = Math.max(Number(currentCloud?.revision || 0) + 1, 1);
+
+          if (cloudName === 'work_volumes' && canWriteFinancials) {
+            batch.set(doc(db, 'projects', project.id, WORK_VOLUME_FINANCIAL_COLLECTION, String(cloudId)), {
+              id: String(cloudId),
+              deleted: true,
+              updatedAt: deletedAt,
+              updatedByUid: actor?.uid || '',
+              updatedByEmail: normalizeEmail(actor?.email),
+            }, { merge: true });
+            operationCount++;
+            if (operationCount >= 100) {
+              await commitBatch(`${cloudName} financial replace chunk`);
+            }
+          }
+
+          batch.set(doc(db, 'projects', project.id, cloudName, String(cloudId)), {
+            id: String(cloudId),
+            deleted: true,
+            deletedAt,
+            deletedByUid: actor?.uid || '',
+            deletedBy: actor?.uid || '',
+            revision: deletionRevision,
+            updatedAt: deletedAt,
+            updatedByUid: actor?.uid || '',
+            updatedByEmail: normalizeEmail(actor?.email),
+            updatedByDeviceId: getDeviceId(),
+            updatedByDeviceName: getDeviceName(),
+          }, { merge: true });
+          operationCount++;
+
+          if (operationCount >= 100) {
+            await commitBatch(`${cloudName} replace chunk`);
+          }
+        }
+      }
+
+      // During explicit backup restore, isolate commits per collection so a Rules/RBAC
+      // rejection identifies the exact business collection without weakening any rule.
+      if (authoritativeBackupRestore) {
+        await commitBatch(cloudName);
       }
     }
 
     if (operationCount > 0) {
-      await batch.commit();
+      await commitBatch('final batch');
     }
-  } catch (err) {
-    console.error("Firestore Write Error:", err);
-    throw new Error('Lỗi lưu dự án lên đám mây: Dữ liệu quá lớn hoặc mất kết nối.');
+  } catch (err: any) {
+    const code = String(err?.code || '').trim();
+    const message = String(err?.message || err || '').trim();
+    console.error("Firestore Write Error:", { code, message, cause: err });
+    const detail = [code, message].filter(Boolean).filter((value, index, all) => all.indexOf(value) === index).join(': ');
+    throw new Error(detail
+      ? `Lỗi lưu dự án lên đám mây (${detail}).`
+      : 'Lỗi lưu dự án lên đám mây. Vui lòng kiểm tra kết nối và thử lại.');
   }
 }
 
@@ -2359,6 +2716,8 @@ export function queueProjectDiffsToFirestoreOffline(
   options: { touchProjectMetadata?: boolean; allowFinancialWrites?: boolean } = {},
 ): { queuedRecords: number; commitPromises: Promise<void>[] } {
   if (!projectId) return { queuedRecords: 0, commitPromises: [] };
+  // Fail before enqueueing ANY batch (including unrelated collections).
+  assertP21DemoWriterBoundary(diffs, p21DemoWriterGates);
   const currentUser = getCurrentAppUser();
   let batch = writeBatch(db);
   let operationCount = 0;
@@ -2481,6 +2840,8 @@ export async function saveProjectDiffsToCloud(
   options: { touchProjectMetadata?: boolean; allowRootMetadataWrite?: boolean; allowFinancialWrites?: boolean; rootTouchIntervalMs?: number; auditDetailLimit?: number } = {}
 ): Promise<void> {
   try {
+    // Fail before root-metadata writes or the first partial 400-record commit.
+    assertP21DemoWriterBoundary(diffs, p21DemoWriterGates);
     await ensureAuth();
 
     const totalChangedRecords =
@@ -2711,6 +3072,7 @@ export interface ProjectCrewReportData {
   projectId: string;
   projectName: string;
   projectLocation?: string;
+  contractorName?: string;
   records: any[];
   teams: any[];
   floorPlans: any[];
@@ -2795,6 +3157,7 @@ export async function fetchProjectCrewReportData(
     projectId,
     projectName: String(projectMeta?.name || projectId),
     projectLocation: String(projectMeta?.projectLocation || ''),
+    contractorName: String(projectMeta?.contractorName || ''),
     records,
     teams,
     floorPlans,
@@ -2852,6 +3215,12 @@ export async function fetchProjectFromCloud(projectId: string, options?: { serve
             if (stateKey === 'workVolumes') {
               const financial = financials.get(docSnap.id);
               item.unitPrice = financial ? normalizeUnitPrice(financial.unitPrice) : 0;
+              const inputExpressions = { ...(item.inputExpressions || {}) };
+              delete inputExpressions.unitPrice;
+              if (canViewFinancials && typeof financial?.unitPriceExpression === 'string' && financial.unitPriceExpression.trim()) {
+                inputExpressions.unitPrice = financial.unitPriceExpression.trim();
+              }
+              item.inputExpressions = Object.keys(inputExpressions).length ? inputExpressions : undefined;
             }
             list.push(item);
           }
@@ -2859,6 +3228,7 @@ export async function fetchProjectFromCloud(projectId: string, options?: { serve
         if (stateKey === 'floorPlans' && Array.isArray(list)) {
           list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
         }
+        if (stateKey === 'workVolumes') list.sort(compareWorkVolumeManualOrder);
         payload[stateKey] = list;
       }
 
@@ -2902,12 +3272,19 @@ export function subscribeToProjectRealtime(
   let workVolumeInitialPending = false;
   const workVolumeRaw = new Map<string, any>();
   const workVolumeFinancials = new Map<string, any>();
-  const mergeWorkVolumeFinancials = (item: any) => ({
-    ...item,
-    unitPrice: includeFinancials
-      ? normalizeUnitPrice(workVolumeFinancials.get(String(item?.id || ''))?.unitPrice)
-      : 0,
-  });
+  const mergeWorkVolumeFinancials = (item: any) => {
+    const financial = workVolumeFinancials.get(String(item?.id || ''));
+    const inputExpressions = { ...(item?.inputExpressions || {}) };
+    delete inputExpressions.unitPrice;
+    if (includeFinancials && typeof financial?.unitPriceExpression === 'string' && financial.unitPriceExpression.trim()) {
+      inputExpressions.unitPrice = financial.unitPriceExpression.trim();
+    }
+    return {
+      ...item,
+      unitPrice: includeFinancials ? normalizeUnitPrice(financial?.unitPrice) : 0,
+      inputExpressions: Object.keys(inputExpressions).length ? inputExpressions : undefined,
+    };
+  };
 
   ensureAuth().then(() => {
     if (isCancelled) return;
@@ -2952,7 +3329,8 @@ export function subscribeToProjectRealtime(
           const wasReady = financialReady;
           financialReady = true;
           if (workVolumeRaw.size > 0) {
-            const merged = Array.from(workVolumeRaw.values()).map(mergeWorkVolumeFinancials);
+            const merged = Array.from(workVolumeRaw.values()).map(mergeWorkVolumeFinancials)
+              .sort(compareWorkVolumeManualOrder);
             onSubcollectionUpdate('workVolumes', merged, workVolumeInitialPending && !wasReady, false);
             workVolumeInitialPending = false;
           }
@@ -2990,6 +3368,7 @@ export function subscribeToProjectRealtime(
             if (stateKey === 'floorPlans') {
               items.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
             }
+            if (stateKey === 'workVolumes') items.sort(compareWorkVolumeManualOrder);
             if (stateKey === 'workVolumes' && includeFinancials && !financialReady) {
               workVolumeInitialPending = true;
               isFirst = false;
@@ -3115,6 +3494,8 @@ export interface ProjectPresenceEntry {
   deviceName?: string;
   appVersion?: string;
   lastSeen?: any;
+  serverSnapshotVerified?: boolean;
+  lastLoginAt?: number;
   clientLastSeen: number;
   updatedAt: number;
 }
@@ -3125,6 +3506,8 @@ export async function updateProjectPresence(projectId: string, module: string, r
   if (!normalizedProjectId || !user || user.isAnonymous || !user.email) return;
   const now = Date.now();
   const ctx = getClientAuditContext();
+  // Firebase Auth's account-level lastSignInTime is distinct from the heartbeat.
+  const lastLoginAt = Date.parse(user.metadata?.lastSignInTime || '');
   await setDoc(
     doc(db, 'projects', normalizedProjectId, 'presence', user.uid),
     sanitizePayloadForCloud({
@@ -3138,6 +3521,7 @@ export async function updateProjectPresence(projectId: string, module: string, r
       deviceName: getDeviceName(),
       ...ctx,
       lastSeen: serverTimestamp(),
+      lastLoginAt: Number.isFinite(lastLoginAt) && lastLoginAt > 0 && lastLoginAt <= now + 60_000 ? lastLoginAt : 0,
       clientLastSeen: now,
       updatedAt: now,
     }),
@@ -3163,9 +3547,11 @@ export function subscribeProjectPresenceRealtime(
     }
     snapshotUnsub = onSnapshot(
       collection(db, 'projects', normalizedProjectId, 'presence'),
+      { includeMetadataChanges: true },
       (snap) => {
         if (disposed) return;
-        onUpdate(snap.docs.map((row) => ({ id: row.id, ...row.data() } as any as ProjectPresenceEntry)));
+        // A cached snapshot cannot prove an account is currently online.
+        onUpdate(snap.docs.map((row) => ({ ...row.data(), id: row.id, serverSnapshotVerified: !snap.metadata.fromCache } as any as ProjectPresenceEntry)));
       },
       (err) => {
         console.warn('Project presence realtime error:', err);

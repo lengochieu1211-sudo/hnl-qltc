@@ -1,7 +1,17 @@
+import { mergeMaterialNormUpserts } from './utils/materialNormImportDelta';
+import {useWarehouseOrderSync} from './hooks/useWarehouseOrderSync';
+import { getHnlPrimaryThemeColors } from './utils/hnlPrimaryTheme';
 import { GlobalConfirmModal } from './components/GlobalConfirmModal';
+import { ContextBackButton } from './components/ContextBackButton';
+import { captureScopedUndoStep, applyScopedUndoStep, type ScopedUndoStep } from './utils/undoRedoScoped';
+import { assertP21DemoFullProjectSaveBoundary, p21DemoLocalMutationError, p21DemoHistoryMutationError } from './utils/p21DemoWriterBoundary';
+import { ROOM_SIDECAR_DEMO_MODE } from './lib/roomSidecarDemoMode';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { DesktopWorkspaceHeader, type DesktopWorkspaceMode } from './components/DesktopWorkspaceHeader';
+import { detectChromeDesktopSiteOnTouchDevice, canUsePcQuickEdit } from './utils/desktopSiteMode.mjs';
 import { HardDrive, RefreshCw } from 'lucide-react';
 import { safeSetLocalStorageItem } from './utils/storage';
+import { prepareFloorPlansForBackupRestore } from './utils/floorPlanBackupRestore';
 import { parseLegacyTimestamp, formatDateTime } from './utils/dateFormatter';
 import { AppLockOverlay } from './components/AppLockOverlay';
 import { AppAuthGate } from './components/AppAuthGate';
@@ -9,7 +19,7 @@ import { SecurityModal } from './components/SecurityModal';
 import { getStoredPinLockConfig, applyRemotePinReset, logAuditAction, getCurrentUserRole, setCurrentUserRole, UserRole, canEditProjectData, canManageProjects, canManageWorkVolumeStructure, canManageFloorPlanStructure, canManageMaterialNorms, canManageTeams, canManageChecklistStructure, canDeleteBusinessData, canDeleteCrewRecord, canManageBackups, canUseGlobalUndoRedo, canEditWarehouseData, canEditDefectData, canEditChecklistData, canEditCrewData, canImportData } from './utils/securityUtils';
 import { cacheVerifiedProjectRole, getCachedVerifiedProjectRole, getRememberedVerifiedAuthIdentity, rememberVerifiedAuthIdentity } from './utils/offlineAccess';
 import { loadVerifiedOfflineBusinessSnapshot, saveVerifiedOfflineBusinessSnapshot } from './lib/verifiedOfflineBusinessSnapshot';
-import { applyVerifiedOfflineWorkingDelta, buildVerifiedOfflineWorkingDelta, loadVerifiedOfflineWorkingDelta, saveVerifiedOfflineWorkingDelta } from './lib/verifiedOfflineWorkingState';
+import { applyVerifiedOfflineWorkingDelta, buildVerifiedOfflineWorkingDelta, clearVerifiedOfflineWorkingDelta, loadVerifiedOfflineWorkingDelta, saveVerifiedOfflineWorkingDelta } from './lib/verifiedOfflineWorkingState';
 import { resolveVerifiedIdentityLabel } from './utils/authIdentityUtils';
 
 function restoreLocalFloorPlanIdentity(cloudItem: any, localItem: any): any {
@@ -129,7 +139,7 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   }
   return merged;
 }
-import { subscribeToProjectRealtime, saveProjectDiffsToCloud, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, subscribeCurrentUserPinResetRealtime, signOutGoogle, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, subscribeProjectSharedSettings, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud, updateProjectPresence } from './lib/firebase';
+import { subscribeToProjectRealtime, saveProjectDiffsToCloud, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, subscribeCurrentUserPinResetRealtime, signOutGoogle, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, subscribeProjectSharedSettings, fetchProjectSharedSettingsSnapshot, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud, updateProjectPresence } from './lib/firebase';
 import { REALTIME_STATE_KEYS, STATE_KEY_TO_CLOUD_NAME } from './config/realtimeCollections';
 import { FIREBASE_ONLY_RUNTIME, LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED, LEGACY_LOCAL_IMPORT_ENABLED } from './config/runtimeArchitecture';
 import { CURRENT_DATA_SCHEMA_VERSION } from './config/dataSchema';
@@ -149,8 +159,6 @@ import {
 } from './types';
 import { GoogleAuthHeader } from './components/GoogleAuthHeader';
 import { OfflineSyncBanner } from './components/OfflineSyncBanner';
-import { ExportPdfModal } from './components/ExportPdfModal';
-import { MaterialNormModal } from './components/MaterialNormModal';
 import { ProjectManagerModal } from './components/ProjectManagerModal';
 import { MultiProjectOverview } from './components/MultiProjectOverview';
 import { HomeDashboard } from './components/HomeDashboard';
@@ -159,13 +167,6 @@ import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { SuperAdminCenter, SuperAdminUiSettings } from './components/SuperAdminCenter';
 import { BottomNav, TabType } from './components/BottomNav';
 import { isSuperAdminEmail } from './config/superAdmin';
-import { 
-  exportWarehouseToExcel, 
-  exportWorkVolumesToExcel, 
-  exportFloorPlanToExcel, 
-  exportChecklistToExcel,
-  exportCrewToExcel
-} from './utils/excelExport';
 import { collectDueDateAlerts, DueDateAlertItem } from './utils/dueDateUtils';
 import { getFileHandle, saveFileHandle, removeFileHandle } from './utils/localSyncDb';
 import { getAllBackupVersions, saveBackupVersion, deleteBackupVersion, BackupVersion } from './utils/backupDb';
@@ -174,7 +175,9 @@ import { getAsyncItem, setAsyncItem, getAllStorageData } from './utils/asyncStor
 import { migrateAndCleanLocalStorage } from './utils/migrateStorage';
 import { confirmAsync } from './utils/confirmAsync';
 import { normalizeImportedData } from './utils/dataNormalizer';
+import { reconcileBackupSnapshot } from './utils/backupSnapshot';
 import { computeDerivedWorkVolumes } from './utils/workVolumeComputation';
+import { compareWorkVolumeManualOrder, reorderVisibleWorkVolumes } from './utils/catalogDisplayOrder';
 import { canonicalNormCategoryIds, canonicalWorkCategoryId, resolveUniqueMaterialIdentity, resolveWorkVolumeRef, validateInventoryOutProvenance, validateMaterialNormCatalog, validateWorkVolumeCatalog } from './utils/linkageIntegrity';
 import { reconcileMaterialNormWorkCategoryLinks } from './utils/projectReconciliation';
 import { createEntityId, createShortToken } from './utils/idUtils';
@@ -189,25 +192,60 @@ import {
   pickAndroidAutoSaveFolder,
   saveTextFileToAndroidAutoFolder
 } from './utils/fileExport';
-import { deleteEntityPhotos, getProjectPhotos, getProjectPhotosWithBinary, restorePhotosFromBackup } from './utils/photoStorage';
+import { getProjectPhotos, getProjectPhotosWithBinary, restorePhotosFromBackup } from './utils/photoStorage';
 import { refreshProjectPhotoMetadataFromCloud, subscribeProjectPhotosRealtime, syncProjectPhotosToCloud, PhotoCloudSyncStatus } from './lib/photoCloudSync';
 import { appendRuntimeDiagnostic } from './lib/runtimeDiagnostics';
 import { isPrimaryDriveReady, PRIMARY_DRIVE_OWNER_EMAIL, uploadProjectBackupToPrimaryDrive } from './lib/primaryDriveBridge';
 import { subscribeConversationReadState, subscribeConversationSummary } from './lib/chatService';
-import { applyFloorPlanImageToMultipleFloors, cacheFloorPlansForOffline, floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, isFloorPlanAutoCacheNetworkSuitable, loadFloorPlanImageFromCloud, resolveFloorPlanImageForDisplay, stageFloorPlanImageOutbox, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
+import { applyFloorPlanImageToMultipleFloors, inspectFloorPlanBulkTargets, cacheFloorPlansForOffline, floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, isFloorPlanAutoCacheNetworkSuitable, isFloorPlanCloudBinaryReady, loadFloorPlanImageFromCloud, resolveFloorPlanImageForDisplay, stageFloorPlanImageOutbox, syncFloorPlanImageToCloud } from './lib/floorPlanImageSync';
+import { shouldAutoMirrorProjectBinaries } from './lib/offlineMirrorSettings';
 import { DEFAULT_TRASH_SETTINGS, TrashOperation, TrashSettings, TrashCollectionKey, deleteTrashOperationFromCloud, estimateTrashBytes, getTrashCollectionLabel, normalizeTrashSettings, sanitizeTrashSnapshot, saveTrashOperationToCloud, subscribeProjectTrash } from './lib/trash';
 import { commitWarehouseTransactionAtomic, updateWarehouseTransactionAtomic, softDeleteWarehouseTransactionAtomic } from './lib/warehouseTransactions';
+import { TRUSTED_WAREHOUSE_DEMO_MODE, trustedImportDemo } from './lib/warehouseTrustedDemoGateway';
+import { renameWarehouseUnitAtomic, type WarehouseUnitRenameInput } from './lib/warehouseUnitMigration';
 import { drainBinaryPurgeRetryQueues, purgeTrashOperationBinaries } from './lib/cloudBinaryPurge';
+import { restoreProjectTrashAtomic } from './lib/trashRestore';
+import { deleteEmptyStructureGroupToTrash } from './lib/structureGroupTrash';
 
 // Heavy screens are code-split so Android does not parse XLSX/PDF-heavy modules at startup.
-const WarehouseTab = React.lazy(() => import('./components/WarehouseTab').then(m => ({ default: m.WarehouseTab })));
-const WorkVolumeTab = React.lazy(() => import('./components/WorkVolumeTab').then(m => ({ default: m.WorkVolumeTab })));
-const FloorPlanDefectTab = React.lazy(() => import('./components/FloorPlanDefectTab').then(m => ({ default: m.FloorPlanDefectTab })));
-const ChecklistTab = React.lazy(() => import('./components/ChecklistTab').then(m => ({ default: m.ChecklistTab })));
-const CrewTab = React.lazy(() => import('./components/CrewTab').then(m => ({ default: m.CrewTab })));
-const GoogleConfigTab = React.lazy(() => import('./components/GoogleConfigTab').then(m => ({ default: m.GoogleConfigTab })));
-const ChatTab = React.lazy(() => import('./features/chat/ChatTab').then(m => ({ default: m.ChatTab })));
-const AiAssistantPage = React.lazy(() => import('./features/ai/AiAssistantPage').then(m => ({ default: m.AiAssistantPage })));
+const loadWarehouseTab = () => import('./components/WarehouseTab');
+const loadWorkVolumeTab = () => import('./components/WorkVolumeTab');
+const loadFloorPlanDefectTab = () => import('./components/FloorPlanDefectTab');
+const loadChecklistTab = () => import('./components/ChecklistTab');
+const loadCrewTab = () => import('./components/CrewTab');
+const loadGoogleConfigTab = () => import('./components/GoogleConfigTab');
+const loadChatTab = () => import('./features/chat/ChatTab');
+const loadAiAssistantPage = () => import('./features/ai/AiAssistantPage');
+const loadExportPdfModal = () => import('./components/ExportPdfModal');
+const loadMaterialNormModal = () => import('./components/MaterialNormModal');
+const WarehouseTab = React.lazy(() => loadWarehouseTab().then(m => ({ default: m.WarehouseTab })));
+const WorkVolumeTab = React.lazy(() => loadWorkVolumeTab().then(m => ({ default: m.WorkVolumeTab })));
+const FloorPlanDefectTab = React.lazy(() => loadFloorPlanDefectTab().then(m => ({ default: m.FloorPlanDefectTab })));
+const ChecklistTab = React.lazy(() => loadChecklistTab().then(m => ({ default: m.ChecklistTab })));
+const CrewTab = React.lazy(() => loadCrewTab().then(m => ({ default: m.CrewTab })));
+const GoogleConfigTab = React.lazy(() => loadGoogleConfigTab().then(m => ({ default: m.GoogleConfigTab })));
+const ChatTab = React.lazy(() => loadChatTab().then(m => ({ default: m.ChatTab })));
+const AiAssistantPage = React.lazy(() => loadAiAssistantPage().then(m => ({ default: m.AiAssistantPage })));
+const ExportPdfModal = React.lazy(() => loadExportPdfModal().then(m => ({ default: m.ExportPdfModal })));
+const MaterialNormModal = React.lazy(() => loadMaterialNormModal().then(m => ({ default: m.MaterialNormModal })));
+
+const PRIMARY_TAB_IDS: TabType[] = ['home', 'floorplan', 'crew', 'warehouse', 'volume', 'config'];
+type ContextReturnKind = 'tab' | 'notifications' | 'health-center' | 'crew-detail' | 'volume-detail';
+interface ContextReturnFrame { tab: TabType; projectId: string; kind: ContextReturnKind; }
+const CONTEXT_TAB_LABEL: Record<TabType, string> = {
+  home: 'Trang chủ', warehouse: 'Kho', volume: 'Khối lượng',
+  floorplan: 'Mặt bằng', checklist: 'Checklist', crew: 'Quân số',
+  chat: 'Trao đổi', ai: 'AI', config: 'Cấu hình', superadmin: 'Super Admin',
+};
+const getRememberedTab = (): TabType => {
+  if (typeof window === 'undefined') return 'home';
+  try {
+    const remembered = sessionStorage.getItem('qlct_active_tab_v1') as TabType | null;
+    return remembered && PRIMARY_TAB_IDS.includes(remembered) ? remembered : 'home';
+  } catch (_) {
+    return 'home';
+  }
+};
 const HNL_AI_ENABLED = String(((import.meta as any).env || {}).VITE_HNL_AI_ENABLED || 'false').toLowerCase() === 'true';
 
 interface AppData {
@@ -264,6 +302,9 @@ export interface ProjectInfo {
   createdAtSource?: 'cloud' | 'local' | 'migrating';
   canonicalProjectId?: string;
   aliases?: string[];
+  archivedAt?: number;
+  archivedByUid?: string;
+  archivedByEmail?: string;
 }
 
 export const getProjectsList = (): ProjectInfo[] => {
@@ -297,7 +338,7 @@ const DEFAULT_SUPER_ADMIN_UI_SETTINGS: SuperAdminUiSettings = {
   scalePercent: 100,
   checklistVisibility: 'auto',
   theme: 'system',
-  primaryColor: '#4f46e5',
+  primaryColor: '#2563eb',
   secondaryColor: '#059669',
   buttonSize: 'standard',
   iconSize: 'standard',
@@ -312,6 +353,13 @@ const normalizeHexColor = (value: unknown, fallback: string): string => {
   return /^#[0-9a-fA-F]{6}$/.test(text) ? text.toLowerCase() : fallback;
 };
 
+const normalizeHnlPrimaryColor = (value: unknown): string => {
+  const normalized = normalizeHexColor(value, DEFAULT_SUPER_ADMIN_UI_SETTINGS.primaryColor);
+  // Migrate only the historical built-in indigo default; preserve every other
+  // explicit SUPER ADMIN custom color.
+  return normalized === '#4f46e5' ? DEFAULT_SUPER_ADMIN_UI_SETTINGS.primaryColor : normalized;
+};
+
 const normalizeSuperAdminUiSettings = (raw: any): SuperAdminUiSettings => {
   const logoCandidate = String(raw?.logoUrl || '').trim();
   const safeLogoUrl = !logoCandidate || logoCandidate.startsWith('/') || /^https:\/\//i.test(logoCandidate) ? logoCandidate : '';
@@ -319,7 +367,7 @@ const normalizeSuperAdminUiSettings = (raw: any): SuperAdminUiSettings => {
     scalePercent: [90, 100, 110, 120].includes(Number(raw?.scalePercent)) ? Number(raw.scalePercent) : 100,
     checklistVisibility: raw?.checklistVisibility === 'always' ? 'always' : 'auto',
     theme: ['light', 'dark', 'system'].includes(String(raw?.theme)) ? raw.theme : 'system',
-    primaryColor: normalizeHexColor(raw?.primaryColor, DEFAULT_SUPER_ADMIN_UI_SETTINGS.primaryColor),
+    primaryColor: normalizeHnlPrimaryColor(raw?.primaryColor),
     secondaryColor: normalizeHexColor(raw?.secondaryColor, DEFAULT_SUPER_ADMIN_UI_SETTINGS.secondaryColor),
     buttonSize: ['compact', 'standard', 'large'].includes(String(raw?.buttonSize)) ? raw.buttonSize : 'standard',
     iconSize: ['small', 'standard', 'large'].includes(String(raw?.iconSize)) ? raw.iconSize : 'standard',
@@ -330,41 +378,281 @@ const normalizeSuperAdminUiSettings = (raw: any): SuperAdminUiSettings => {
   };
 };
 
+const getVerifiedCachedHomeProjects = (): Array<{ id: string; name: string; role?: UserRole }> => {
+  if (typeof window === 'undefined') return [];
+  const online = typeof navigator === 'undefined' ? true : navigator.onLine;
+  const identity = getCurrentRealFirebaseUser() || (!online ? getRememberedVerifiedAuthIdentity() : null);
+  if (!identity) return [];
+  return getProjectsList().flatMap((project) => {
+    if (!project?.id || project.id === 'default' || Number(project.archivedAt || 0) > 0) return [];
+    const verified = getCachedVerifiedProjectRole(project.id, identity);
+    if (!verified?.allowed) return [];
+    return [{
+      id: project.id,
+      name: project.name || project.id,
+      role: verified.role,
+    }];
+  });
+};
+
 function AuthenticatedApp() {
   const isDesktopRuntime = typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('app') === 'desktop';
-  const [activeTab, setActiveTab] = useState<TabType>('home');
+  // Chrome Android 'Desktop site' sends a desktop UA and often a 980px virtual viewport.
+  // Keep mobile lifecycle optimizations; only change visual presentation and navigation.
+  const chromeDesktopSite = typeof window !== 'undefined' && detectChromeDesktopSiteOnTouchDevice({
+    userAgent: navigator.userAgent || '',
+    viewportWidth: window.innerWidth,
+    touchPoints: navigator.maxTouchPoints || 0,
+    screenWidth: window.screen?.width || 0,
+  });
+  const isMobileRuntime = typeof window !== 'undefined'
+    && !isDesktopRuntime
+    && (/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '') || window.innerWidth < 1024);
+  // A narrow Windows viewport (DPI 125%/150%, split screen, or resized EXE) is
+  // not a mobile device. Keep desktop Quick Edit even when mobile tab-lifecycle
+  // optimizations are used. Android Desktop Site must stay excluded.
+  const allowPcQuickEdit = typeof window !== 'undefined' && canUsePcQuickEdit({
+    userAgent: navigator.userAgent || '', chromeDesktopSite, isDesktopRuntime,
+  });
+  // Local-only PC UI preference. It never changes user/project data, Firebase or R2.
+  const [desktopWorkspaceMode, setDesktopWorkspaceMode] = useState<DesktopWorkspaceMode>(() => {
+    try {
+      const userChoice = localStorage.getItem('hnl_desktop_workspace_mode_v1');
+      if (userChoice === 'modern' || userChoice === 'classic') return userChoice;
+      return (isDesktopRuntime || window.innerWidth >= 1024 || chromeDesktopSite) ? 'modern' : 'classic';
+    } catch { return (isDesktopRuntime || (typeof window !== 'undefined' && window.innerWidth >= 1024) || chromeDesktopSite) ? 'modern' : 'classic'; }
+  });
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    document.documentElement.dataset.hnlPcWorkspace = desktopWorkspaceMode;
+    document.documentElement.dataset.hnlBrowserDesktop = chromeDesktopSite ? 'true' : 'false';
+    return () => {
+      delete document.documentElement.dataset.hnlPcWorkspace;
+      delete document.documentElement.dataset.hnlBrowserDesktop;
+    };
+  }, [desktopWorkspaceMode, chromeDesktopSite]);
+
+  const updateDesktopWorkspaceMode = (next: DesktopWorkspaceMode) => {
+    setDesktopWorkspaceMode(next);
+    try { localStorage.setItem('hnl_desktop_workspace_mode_v1', next); } catch { /* private mode */ }
+  };
+  const [activeTab, setActiveTab] = useState<TabType>(getRememberedTab);
+  // Desktop keeps warmed operational screens mounted for instant revisits.
+  // Mobile is the primary field runtime, so keep only the current primary React tree
+  // to prevent RAM/CPU growth after visiting several heavy modules.
+  const [mountedPrimaryTabs, setMountedPrimaryTabs] = useState<TabType[]>(() => [getRememberedTab()]);
+  const activeTabRef = useRef<TabType>(activeTab);
+  activeTabRef.current = activeTab;
+  const [navigationTargetTab, setNavigationTargetTab] = useState<TabType | null>(null);
+  const navigationTargetRef = useRef<TabType | null>(null);
+  // History is only for explicit contextual links; normal tab taps never add a frame.
+  const [contextReturnFrames, setContextReturnFrames] = useState<ContextReturnFrame[]>([]);
+  const visibleTab = navigationTargetTab || activeTab;
+  const navigationRequestRef = useRef(0);
+  const navigationCommitTimerRef = useRef<number | null>(null);
+  const navigationLastRequestAtRef = useRef(0);
+  const navigationRapidUntilRef = useRef(0);
+
+  useEffect(() => {
+    try { sessionStorage.setItem('qlct_active_tab_v1', activeTab); } catch (_) {}
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!PRIMARY_TAB_IDS.includes(activeTab)) return;
+    setMountedPrimaryTabs((previous) => {
+      const next = [...previous.filter((tab) => tab !== activeTab), activeTab];
+      return isMobileRuntime ? next.slice(-1) : next;
+    });
+  }, [activeTab, isMobileRuntime]);
+
+  const preloadTab = React.useCallback((tab: TabType) => {
+    const loader = tab === 'floorplan' ? loadFloorPlanDefectTab
+      : tab === 'crew' ? loadCrewTab
+      : tab === 'warehouse' ? loadWarehouseTab
+      : tab === 'volume' ? loadWorkVolumeTab
+      : tab === 'config' ? loadGoogleConfigTab
+      : tab === 'checklist' ? loadChecklistTab
+      : tab === 'chat' ? loadChatTab
+      : tab === 'ai' ? loadAiAssistantPage
+      : null;
+    if (loader) void loader().catch(() => undefined);
+  }, []);
+
+  // Navigation must stay responsive even when users tap several heavy modules in quick
+  // succession. The target label changes urgently, but the expensive screen mount waits
+  // for a short quiet window. Each new tap cancels the previous commit, so a user moving
+  // Home -> Floor -> Crew -> Warehouse mounts only the final destination instead of
+  // blocking the main thread with every intermediate screen.
+  const navigateToTab = React.useCallback((tab: TabType, preserveContextReturn = false) => {
+    if (!preserveContextReturn) setContextReturnFrames([]);
+    const requestId = ++navigationRequestRef.current;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const sinceLastRequest = navigationLastRequestAtRef.current > 0
+      ? now - navigationLastRequestAtRef.current
+      : Number.POSITIVE_INFINITY;
+    const rapidTap = sinceLastRequest < 220;
+    navigationLastRequestAtRef.current = now;
+    if (rapidTap) navigationRapidUntilRef.current = now + 320;
+    const rapidMode = rapidTap || now < navigationRapidUntilRef.current;
+    const commitDelayMs = rapidMode ? 48 : 0;
+
+    if (tab === activeTabRef.current && navigationTargetRef.current == null) {
+      if (navigationCommitTimerRef.current != null) {
+        window.clearTimeout(navigationCommitTimerRef.current);
+        navigationCommitTimerRef.current = null;
+      }
+      navigationTargetRef.current = null;
+      setNavigationTargetTab(null);
+      return;
+    }
+
+    // Reflect the requested destination immediately. A normal tap commits on the next task
+    // without an artificial 24 ms hold; rapid taps retain a short last-click-wins window
+    // so Android does not mount every intermediate heavy screen.
+    // Paint destination feedback before starting any heavy lazy import.
+    // Desktop hover/background warming already handles intent preloading.
+    navigationTargetRef.current = tab;
+    setNavigationTargetTab(tab);
+
+    if (navigationCommitTimerRef.current != null) {
+      window.clearTimeout(navigationCommitTimerRef.current);
+    }
+    navigationCommitTimerRef.current = window.setTimeout(() => {
+      navigationCommitTimerRef.current = null;
+      if (requestId !== navigationRequestRef.current) return;
+      if (PRIMARY_TAB_IDS.includes(tab)) {
+        setMountedPrimaryTabs((previous) => {
+          const next = [...previous.filter((mountedTab) => mountedTab !== tab), tab];
+          return isMobileRuntime ? next.slice(-1) : next;
+        });
+      }
+      activeTabRef.current = tab;
+      setActiveTab(tab);
+    }, commitDelayMs);
+  }, [isMobileRuntime]);
+
+  const navigateFromLink = React.useCallback((tab: TabType, kind: ContextReturnKind = 'tab') => {
+    const origin = navigationTargetRef.current || activeTabRef.current;
+    // A shortcut within the same module does not create an unusable return loop.
+    if (origin !== tab || kind !== 'tab') {
+      setContextReturnFrames((frames) => [...frames, {
+        tab: origin, projectId: getActiveProjectId(), kind,
+      }].slice(-6));
+    }
+    navigateToTab(tab, true);
+  }, [navigateToTab]);
+
+  useEffect(() => {
+    if (navigationTargetTab === activeTab && navigationTargetRef.current === navigationTargetTab) {
+      navigationTargetRef.current = null;
+      setNavigationTargetTab((current) => current === activeTab ? null : current);
+    }
+  }, [activeTab, navigationTargetTab]);
+
+  useEffect(() => () => {
+    navigationRequestRef.current += 1;
+    navigationTargetRef.current = null;
+    if (navigationCommitTimerRef.current != null) {
+      window.clearTimeout(navigationCommitTimerRef.current);
+      navigationCommitTimerRef.current = null;
+    }
+  }, []);
+
+  // Warm primary field screens after first paint without flooding the main thread.
+  // Parse one lazy chunk at a time during idle periods. Pointer/touch intent still
+  // preloads the exact destination immediately, but background warming never launches
+  // five heavy modules in parallel.
+  useEffect(() => {
+    const connection = (navigator as any).connection;
+    if (connection?.saveData || isMobileRuntime) return;
+    let cancelled = false;
+    let nextTimer: number | null = null;
+    const warmGapMs = 220;
+    const warmTimeoutMs = 900;
+    const loaders = [loadFloorPlanDefectTab, loadCrewTab, loadWarehouseTab, loadWorkVolumeTab, loadGoogleConfigTab];
+    const warm = () => {
+      let index = 0;
+      const next = () => {
+        if (cancelled || index >= loaders.length) return;
+        const loader = loaders[index++];
+        // Truly serialize chunk warming. Launching a new heavy import every 260 ms
+        // allowed Android to parse several screens concurrently during startup.
+        void loader().catch(() => undefined).finally(() => {
+          if (cancelled) return;
+          nextTimer = window.setTimeout(next, warmGapMs);
+        });
+      };
+      next();
+    };
+    const idle = (window as any).requestIdleCallback;
+    const idleId = typeof idle === 'function' ? idle(warm, { timeout: warmTimeoutMs }) : null;
+    const timer = idleId == null ? window.setTimeout(warm, 350) : null;
+    return () => {
+      cancelled = true;
+      if (timer != null) window.clearTimeout(timer);
+      if (nextTimer != null) window.clearTimeout(nextTimer);
+      if (idleId != null && typeof (window as any).cancelIdleCallback === 'function') (window as any).cancelIdleCallback(idleId);
+    };
+  }, [isMobileRuntime]);
 
   // Diagnostic navigation stays decoupled from individual screens. The source screen
   // stores the entity request in sessionStorage, while App only switches modules.
   useEffect(() => {
     const handleDiagnosticOpenTab = (event: Event) => {
-      const detail = (event as CustomEvent<{ entityType?: string }>).detail || {};
+      const detail = (event as CustomEvent<{ entityType?: string; contextReturn?: string }>).detail || {};
+      // WorkVolume already created its volume-detail frame; this event only locates the room.
+      if (detail.contextReturn === 'volume-detail') return;
       const nextTab: TabType | null = detail.entityType === 'crewRecord'
         ? 'crew'
         : detail.entityType === 'defect' || detail.entityType === 'room' || detail.entityType === 'floor'
           ? 'floorplan'
-          : detail.entityType === 'chat'
-            ? 'chat'
-            : null;
-      if (nextTab) setActiveTab(nextTab);
+          : detail.entityType === 'inventory' || detail.entityType === 'materialNorm'
+            ? 'warehouse'
+            : detail.entityType === 'checklist' ? 'checklist'
+              : detail.entityType === 'workVolume' ? 'volume'
+                : detail.entityType === 'chat' ? 'chat' : null;
+      if (nextTab) {
+        let source: ContextReturnKind = 'tab';
+        if (detail.contextReturn === 'crew-detail' && activeTabRef.current === 'crew') source = 'crew-detail';
+        else if (activeTabRef.current === 'config') {
+          try {
+            if (sessionStorage.getItem('qlct_health_center_return_state')) source = 'health-center';
+          } catch (_) { /* storage can be unavailable */ }
+        }
+        navigateFromLink(nextTab, source);
+      }
     };
-    const handleHealthCenterReturn = () => setActiveTab('config');
+    const handleHealthCenterReturn = () => {
+      try {
+        const saved = JSON.parse(sessionStorage.getItem('qlct_health_center_return_state') || 'null');
+        if (saved?.projectId === getActiveProjectId()) sessionStorage.setItem('qlct_health_center_reopen_v1', saved.projectId);
+      } catch (_) {}
+      // This event is also observed by the Settings sheet. Never re-dispatch the
+      // same event from its own handler (would queue an infinite return loop).
+      navigateToTab('config', true);
+    };
     window.addEventListener('qlct-diagnostic-open-entity', handleDiagnosticOpenTab);
     window.addEventListener('qlct-health-center-return', handleHealthCenterReturn);
     return () => {
       window.removeEventListener('qlct-diagnostic-open-entity', handleDiagnosticOpenTab);
       window.removeEventListener('qlct-health-center-return', handleHealthCenterReturn);
     };
-  }, []);
+  }, [navigateFromLink, navigateToTab]);
   const [activeProjectId, setActiveProjectId] = useState<string>(() => getActiveProjectId());
   const activeProjectIdRef = useRef<string>(activeProjectId);
+  // Never reuse a return path after a project switch (especially in multi-project mode).
+  useEffect(() => { setContextReturnFrames([]); }, [activeProjectId]);
   // Firebase-only business data must come from Firestore/its official cache. Legacy
   // localforage may be displayed only as a migration candidate and is read-only until
   // an explicit online Import writes it through the Firestore validation path.
   const [businessDataSource, setBusinessDataSource] = useState<'cloud' | 'firestore-cache' | 'verified-offline-snapshot' | 'legacy-migration-fallback' | 'empty'>('empty');
   const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
   const [isMaterialNormOpen, setIsMaterialNormOpen] = useState(false);
+  const [materialNormInitialTab, setMaterialNormInitialTab] = useState<'material' | 'equipment'>('material');
+  const [materialNormInitialTarget, setMaterialNormInitialTarget] = useState<{ name: string; unit: string } | undefined>();
+  const [materialNormFromWarehouseCatalog, setMaterialNormFromWarehouseCatalog] = useState(false);
+  const [warehouseCatalogReturnToken, setWarehouseCatalogReturnToken] = useState(0);
   const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
   const [projectManagerInitialTab, setProjectManagerInitialTab] = useState<'projects' | 'sync'>('projects');
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
@@ -413,7 +701,7 @@ function AuthenticatedApp() {
     let disposed = false;
     const touchPresence = () => {
       if (disposed || document.visibilityState === 'hidden') return;
-      void updateProjectPresence(activeProjectId, activeTab, currentUserRole).catch((err) =>
+      void updateProjectPresence(activeProjectId, activeTabRef.current, currentUserRole).catch((err) =>
         console.warn('Project presence heartbeat warning:', err)
       );
     };
@@ -431,6 +719,16 @@ function AuthenticatedApp() {
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('focus', handleFocus);
     };
+  }, [activeProjectId, currentUserRole, isOnline, isProjectRoleResolved, projectRoleAllowed]);
+
+  useEffect(() => {
+    if (!isOnline || !isProjectRoleResolved || !projectRoleAllowed || !activeProjectId) return;
+    const timer = window.setTimeout(() => {
+      void updateProjectPresence(activeProjectId, activeTabRef.current, currentUserRole).catch((err) =>
+        console.warn('Project presence tab update warning:', err)
+      );
+    }, 500);
+    return () => window.clearTimeout(timer);
   }, [activeProjectId, activeTab, currentUserRole, isOnline, isProjectRoleResolved, projectRoleAllowed]);
 
   useEffect(() => {
@@ -477,7 +775,16 @@ function AuthenticatedApp() {
       }
 
       const cachedRole = getCachedVerifiedProjectRole(activeProjectId, identity);
-      if (cachedRole) {
+      // SUPER ADMIN is an account-level invariant shared with Firestore Rules. Do not
+      // transiently downgrade this verified Firebase identity to VIEWER while the
+      // project-scoped realtime role subscription is still hydrating.
+      if (realUser && isSuperAdminEmail(realUser.email)) {
+        setCurrentUserRole('ADMIN');
+        setCurrentUserRoleState('ADMIN');
+        setIsProjectRoleResolved(true);
+        setProjectRoleSource('cloud');
+        setProjectRoleAllowed(true);
+      } else if (cachedRole) {
         // Offline startup resumes the last role that was authoritatively verified for
         // this exact uid/email + projectId. VIEWER stays read-only; EDITOR/ADMIN may
         // keep editing the local IndexedDB cache while Cloud is unavailable.
@@ -599,7 +906,7 @@ function AuthenticatedApp() {
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number>(Date.now());
 
   // App Data State with Undo/Redo support
-  const [past, setPast] = useState<AppData[]>([]);
+  const [past, setPast] = useState<ScopedUndoStep[]>([]);
   
   const [isInitializing, setIsInitializing] = useState(true);
   const [isHydrated, setIsHydrated] = useState(false);
@@ -620,8 +927,7 @@ function AuthenticatedApp() {
   const verifiedOfflineBaseMetadataRef = React.useRef<{ projectName: string; contractorName: string; inspectorName: string; projectLocation: string } | null>(null);
   const verifiedOfflineBaseCapturedAtRef = React.useRef<number>(0);
   // The verified recovery snapshot contains all business collections. Serializing it
-  // after every realtime/local render caused visible WebView2/Android stalls. Keep the
-  // first baseline prompt, then cap full snapshot writes to once per 30 seconds/project.
+  // after every realtime/local render can visibly stall WebView2 and Android WebView.
   const verifiedOfflineSnapshotLastSavedAtRef = React.useRef<number>(0);
   const verifiedOfflineSnapshotProjectRef = React.useRef<string>('');
 
@@ -1163,7 +1469,7 @@ function AuthenticatedApp() {
     };
   }, [isHydrated, isRestoring, isLoadingProject, present, projectName, contractorName, inspectorName, projectLocation]);
 
-  const [future, setFuture] = useState<AppData[]>([]);
+  const [future, setFuture] = useState<ScopedUndoStep[]>([]);
 
   const [isSyncing, setIsSyncing] = useState(false);
 
@@ -1193,6 +1499,21 @@ function AuthenticatedApp() {
     const pct = Math.min(120, Math.max(90, Number(superAdminUiSettings.scalePercent) || 100));
     root.style.fontSize = `${pct}%`;
     root.style.setProperty('--hnl-primary', superAdminUiSettings.primaryColor);
+    // Derived UI tokens only: never mutate the persisted Super Admin color or business data.
+    const hnlPalette = getHnlPrimaryThemeColors(superAdminUiSettings.primaryColor);
+    // Browser/PWA address-bar color tracks the effective, contrast-safe brand action.
+    // The manifest intentionally stays at the default HNL color (static install metadata).
+    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute('content', hnlPalette.action);
+    const applyHnlToken = (name: string, value: string) => {
+      if (hnlPalette.custom) root.style.setProperty(name, value);
+      else root.style.removeProperty(name); // Preserve certified default HNL blue shades.
+    };
+    applyHnlToken('--hnl-primary-hover', hnlPalette.hover);
+    applyHnlToken('--hnl-primary-action', hnlPalette.action);
+    applyHnlToken('--hnl-primary-soft', `color-mix(in srgb, ${hnlPalette.primary} 8%, white)`);
+    applyHnlToken('--hnl-primary-ring', `color-mix(in srgb, ${hnlPalette.primary} 32%, white)`);
+    applyHnlToken('--hnl-primary-on-light', hnlPalette.lightText);
+    applyHnlToken('--hnl-primary-on-dark', hnlPalette.darkText);
     root.style.setProperty('--hnl-secondary', superAdminUiSettings.secondaryColor);
     root.dataset.hnlButtonSize = superAdminUiSettings.buttonSize;
     root.dataset.hnlIconSize = superAdminUiSettings.iconSize;
@@ -1247,7 +1568,7 @@ function AuthenticatedApp() {
   // Single source of truth for derived work-volume progress. The catalog keeps
   // authoritative IDs/floor scope/planned values; actual/status come from Room stages.
   const computedWorkVolumes = useMemo(
-    () => computeDerivedWorkVolumes(workVolumes, roomProgressList, floorPlans),
+    () => computeDerivedWorkVolumes(workVolumes, roomProgressList, floorPlans).sort(compareWorkVolumeManualOrder),
     [workVolumes, roomProgressList, floorPlans],
   );
 
@@ -1392,19 +1713,26 @@ function AuthenticatedApp() {
     for (const rawPlan of sourcePlans || []) {
       const plan = { ...rawPlan };
       const currentUrl = String(plan.imageUrl || '').trim();
-      if (currentUrl.startsWith('data:image/')) {
-        result.push(plan);
-        continue;
-      }
+      const hasCloudPointer = Boolean(plan.storagePath || plan.driveFileId || plan.cloudFileId || plan.storageProvider || String(plan.driveUrl || '').startsWith('drive:'));
+      const cloudReady = isFloorPlanCloudBinaryReady(plan);
 
+      // A hydrated Base64/blob is only a display cache. When this row already has an
+      // authoritative cloud revision, always re-read that immutable asset for backup.
+      // Otherwise an old bitmap kept by the uploader can silently replace the newer
+      // Cloud/R2 drawing inside JSON even though storagePath/imageCloudRevision are current.
       let resolved = '';
-      if (currentUrl.startsWith('blob:')) {
+      if (cloudReady && hasCloudPointer) {
+        resolved = String(await loadFloorPlanImageFromCloud(projectId, plan).catch(() => '') || '');
+      }
+      if (!resolved && currentUrl.startsWith('data:image/')) {
+        resolved = currentUrl;
+      }
+      if (!resolved && currentUrl.startsWith('blob:')) {
         try {
           const response = await fetch(currentUrl);
           if (response.ok) resolved = await blobToBackupDataUrl(await response.blob());
         } catch (_) {}
       }
-      const hasCloudPointer = Boolean(plan.storagePath || plan.driveFileId || plan.cloudFileId || plan.storageProvider || String(plan.driveUrl || '').startsWith('drive:'));
       if (!resolved && hasCloudPointer) {
         resolved = String(await loadFloorPlanImageFromCloud(projectId, plan).catch(() => '') || '');
       }
@@ -1415,7 +1743,7 @@ function AuthenticatedApp() {
         } catch (_) {}
       }
       if ((currentUrl || hasCloudPointer) && !resolved.startsWith('data:image/')) {
-        throw new Error(`Không thể đóng gói ảnh mặt bằng ${plan.floorName || plan.id} của dự án ${projectId}; từ chối tạo backup thiếu ảnh.`);
+        throw new Error(`Không thể đóng gói ảnh mặt bằng ${plan.floorName || plan.id} của dự án ${projectId}; từ chối tạo bản sao lưu thiếu ảnh.`);
       }
       result.push({ ...plan, imageUrl: resolved || '' });
     }
@@ -1430,7 +1758,7 @@ function AuthenticatedApp() {
       if (FIREBASE_ONLY_RUNTIME) {
         const photoMeta = await refreshProjectPhotoMetadataFromCloud(projectId);
         if (!photoMeta.verified) {
-          throw new Error(`Không xác minh được metadata ảnh Firestore của dự án ${projectId}; từ chối tạo backup có nguy cơ thiếu ảnh.`);
+          throw new Error(`Không xác minh được thông tin ảnh Firestore của dự án ${projectId}; từ chối tạo bản sao lưu có nguy cơ thiếu ảnh.`);
         }
       }
       const photos = await getProjectPhotosWithBinary(projectId, true);
@@ -1459,7 +1787,44 @@ function AuthenticatedApp() {
     return { projectPhotos, projectPhotoData };
   };
 
+  const buildFirebaseOnlyCanonicalBackupSnapshot = async () => {
+    const localSnapshot = {
+      projectName,
+      contractorName,
+      inspectorName,
+      projectLocation,
+      materialNorms,
+      inventory,
+      workVolumes,
+      floorPlans,
+      defects,
+      roomProgressList,
+      checklist,
+      crewRecords,
+      teams,
+      tombstones: { ...localTombstonesRef.current },
+      updatedAt: lastUpdatedAt,
+    };
+
+    if (!FIREBASE_ONLY_RUNTIME) return localSnapshot;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      throw new Error('Bản sao lưu Firebase-only cần trực tuyến để xác minh dữ liệu Firestore trên máy chủ; từ chối tạo tệp có nguy cơ thiếu dữ liệu.');
+    }
+
+    const cloudRecord = await fetchProjectFromCloud(activeProjectId, { serverOnly: true });
+    if (!cloudRecord) {
+      throw new Error('Không đọc được bản chụp Firestore trên máy chủ của dự án hiện tại; từ chối tạo bản sao lưu không đầy đủ.');
+    }
+    const cloudPayload = getCloudPayload(cloudRecord);
+    if (!cloudPayload) {
+      throw new Error('Bản chụp Firestore trên máy chủ không có dữ liệu hợp lệ; từ chối tạo bản sao lưu không đầy đủ.');
+    }
+
+    return reconcileBackupSnapshot(cloudPayload, localSnapshot);
+  };
+
   const buildSingleProjectBackupObject = async (includePhotoBinary = true) => {
+    const backupSource = await buildFirebaseOnlyCanonicalBackupSnapshot();
     let photos: any[] = [];
     let photoData: Record<string, string> = {};
     if (includePhotoBinary) {
@@ -1477,8 +1842,8 @@ function AuthenticatedApp() {
     }
 
     const floorPlansForBackup = includePhotoBinary
-      ? await hydrateFloorPlansForBackup(activeProjectId, floorPlans)
-      : floorPlans.map((plan) => ({
+      ? await hydrateFloorPlansForBackup(activeProjectId, backupSource.floorPlans || [])
+      : (backupSource.floorPlans || []).map((plan: any) => ({
           ...plan,
           imageUrl: plan.driveFileId
             ? `cloud-floorplan:drive:${activeProjectId}:${plan.driveFileId}`
@@ -1489,8 +1854,12 @@ function AuthenticatedApp() {
                 : plan.imageUrl,
         }));
 
+    // Backup must fail closed if Cloud settings cannot be read; silently omitting
+    // Khu/Khối/workflow/trash settings would create a deceptively incomplete DR file.
+    const sharedSettings = await fetchProjectSharedSettingsSnapshot(activeProjectId, true);
+
     return {
-      schemaVersion: 3,
+      schemaVersion: 4,
       backupType: 'single-project',
       project: {
         id: activeProjectId,
@@ -1501,26 +1870,27 @@ function AuthenticatedApp() {
         updatedAt: lastUpdatedAt,
       },
       data: {
-        projectName,
-        contractorName,
-        inspectorName,
-        projectLocation,
-        materialNorms,
-        inventory,
-        workVolumes,
+        projectName: backupSource.projectName || projectName,
+        contractorName: backupSource.contractorName ?? contractorName,
+        inspectorName: backupSource.inspectorName ?? inspectorName,
+        projectLocation: backupSource.projectLocation ?? projectLocation,
+        ...(sharedSettings ? { sharedSettings } : {}),
+        materialNorms: backupSource.materialNorms || [],
+        inventory: backupSource.inventory || [],
+        workVolumes: backupSource.workVolumes || [],
         floorPlans: floorPlansForBackup,
-        defects,
-        roomProgressList,
-        checklist,
-        crewRecords,
-        teams,
+        defects: backupSource.defects || [],
+        roomProgressList: backupSource.roomProgressList || [],
+        checklist: backupSource.checklist || [],
+        crewRecords: backupSource.crewRecords || [],
+        teams: backupSource.teams || [],
         photos: photos.map((photo) => {
           const { base64, localUri, dataUrl, ...metadataOnly } = photo as any;
           return metadataOnly;
         }),
-        tombstones: { ...localTombstonesRef.current },
+        tombstones: { ...(backupSource.tombstones || {}) },
         ...(includePhotoBinary ? { photoData } : {}),
-        updatedAt: lastUpdatedAt,
+        updatedAt: backupSource.updatedAt || lastUpdatedAt,
       },
     };
   };
@@ -1552,17 +1922,13 @@ function AuthenticatedApp() {
         const projectInfo = projectList.find((project) => project.id === projectId);
         let payload: any;
         if (projectId === activeProjectIdRef.current) {
-          payload = {
-            projectName, contractorName, inspectorName, projectLocation,
-            materialNorms, inventory, workVolumes, floorPlans, defects,
-            roomProgressList, checklist, crewRecords, teams, updatedAt: lastUpdatedAt,
-          };
+          payload = await buildFirebaseOnlyCanonicalBackupSnapshot();
         } else {
           const cloudRecord = await fetchProjectFromCloud(projectId, { serverOnly: true });
           payload = cloudRecord ? getCloudPayload(cloudRecord) : null;
         }
         if (!payload) {
-          throw new Error(`Không đọc được Firestore của dự án ${projectInfo?.name || projectId}; từ chối tạo backup toàn bộ không đầy đủ.`);
+          throw new Error(`Không đọc được Firestore của dự án ${projectInfo?.name || projectId}; từ chối tạo bản sao lưu toàn bộ không đầy đủ.`);
         }
 
         const backupFloorPlans = await hydrateFloorPlansForBackup(projectId, Array.isArray(payload.floorPlans) ? payload.floorPlans : []);
@@ -1570,6 +1936,10 @@ function AuthenticatedApp() {
         allData[getKey('construction_contractor', projectId)] = payload.contractorName || '';
         allData[getKey('construction_inspector', projectId)] = payload.inspectorName || '';
         allData[getKey('construction_project_location', projectId)] = payload.projectLocation || '';
+        const projectSharedSettings = await fetchProjectSharedSettingsSnapshot(projectId, true);
+        if (projectSharedSettings) {
+          allData[getKey('construction_shared_settings', projectId)] = JSON.stringify(projectSharedSettings);
+        }
         allData[getKey('construction_material_norms', projectId)] = JSON.stringify(payload.materialNorms || []);
         allData[getKey('construction_inventory', projectId)] = JSON.stringify(payload.inventory || []);
         allData[getKey('construction_work_volumes', projectId)] = JSON.stringify(payload.workVolumes || []);
@@ -1731,6 +2101,7 @@ function AuthenticatedApp() {
   const [floorPlanImageSyncRetryTick, setFloorPlanImageSyncRetryTick] = useState(0);
   const [floorPlanImageHydrateRetryTick, setFloorPlanImageHydrateRetryTick] = useState(0);
   const [floorPlanSmartCacheRetryTick, setFloorPlanSmartCacheRetryTick] = useState(0);
+  const [floorPlanOfflineMirrorSettingVersion, setFloorPlanOfflineMirrorSettingVersion] = useState(0);
   const [activeFloorViewId, setActiveFloorViewId] = useState<string>('');
 
   const [cloudInitialReady, setCloudInitialReady] = useState<boolean>(false);
@@ -1784,6 +2155,9 @@ function AuthenticatedApp() {
   const priorityCloudSyncRevisionRef = useRef(0);
   const flushedPriorityCloudSyncRevisionRef = useRef(0);
   const [cloudUserKey, setCloudUserKey] = useState<string>('');
+  const warehouseOrderSync=useWarehouseOrderSync(activeProjectId,cloudUserKey.split(':')[0]||(!isOnline?getRememberedVerifiedAuthIdentity()?.uid:undefined)||'unauthenticated',
+    isProjectRoleResolved && projectRoleAllowed && canEditWarehouseData(currentUserRole),
+    isProjectRoleResolved && projectRoleAllowed);
 
   // V6.2.22: VIEWER renders Firestore truth only, but its older IndexedDB cache is not
   // destroyed. If the same account later gains edit rights, reconcile any genuinely
@@ -1874,7 +2248,7 @@ function AuthenticatedApp() {
       );
     };
 
-    getAsyncItem<TrashOperation[]>(getKey('construction_trash', activeProjectId), []).then((localItems) => {
+    if (isProjectRoleResolved && currentUserRole === 'ADMIN' && projectRoleAllowed) getAsyncItem<TrashOperation[]>(getKey('construction_trash', activeProjectId), []).then((localItems) => {
       if (disposed) return;
       const now = Date.now();
       const valid = (Array.isArray(localItems) ? localItems : [])
@@ -1884,6 +2258,7 @@ function AuthenticatedApp() {
       setTrashOperations(valid);
     }).catch(() => {});
 
+    if (isProjectRoleResolved && currentUserRole === 'ADMIN' && projectRoleAllowed) {
     unsubscribeCloud = subscribeProjectTrash(activeProjectId, (cloudItems) => {
       if (disposed) return;
       const now = Date.now();
@@ -1913,12 +2288,17 @@ function AuthenticatedApp() {
         });
       }
     });
+    } else {
+      // Trash receipts may contain protected business snapshots. Show none to non-ADMIN.
+      trashOperationsRef.current = [];
+      setTrashOperations([]);
+    }
 
     return () => {
       disposed = true;
       unsubscribeCloud?.();
     };
-  }, [activeProjectId, cloudUserKey, currentUserRole, isProjectRoleResolved, isOnline]);
+  }, [activeProjectId, cloudUserKey, currentUserRole, isProjectRoleResolved, isOnline, projectRoleAllowed]);
 
   useEffect(() => {
     if (!isProjectRoleResolved || currentUserRole !== 'ADMIN' || !isOnline) return;
@@ -1948,7 +2328,7 @@ function AuthenticatedApp() {
 
   // Chat must only list projects currently authorized by Firestore. Local recovery
   // projects remain available in Project Manager, but are never treated as chat access.
-  const [authorizedChatProjects, setAuthorizedChatProjects] = useState<Array<{ id: string; name: string; role?: UserRole }>>([]);
+  const [authorizedChatProjects, setAuthorizedChatProjects] = useState<Array<{ id: string; name: string; role?: UserRole }>>(getVerifiedCachedHomeProjects);
   const [isMultiProjectOverviewOpen, setIsMultiProjectOverviewOpen] = useState(false);
   const [startupProjectId, setStartupProjectId] = useState<string>(() => {
     try { return localStorage.getItem(STARTUP_PROJECT_ID_KEY) || ''; } catch (_) { return ''; }
@@ -2331,6 +2711,21 @@ function AuthenticatedApp() {
     };
   }, [floorPlans, activeProjectId, activeTab, activeFloorViewId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, floorPlanImageHydrateRetryTick, isOnline, projectRoleSource, projectRoleAllowed]);
 
+  useEffect(() => {
+    const handleOfflineMirrorSettingChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ projectId?: string }>).detail || {};
+      if (detail.projectId && detail.projectId !== activeProjectIdRef.current) return;
+      floorPlanSmartCacheKeyRef.current = '';
+      if (floorPlanSmartCacheRetryTimerRef.current !== null) {
+        window.clearTimeout(floorPlanSmartCacheRetryTimerRef.current);
+        floorPlanSmartCacheRetryTimerRef.current = null;
+      }
+      setFloorPlanOfflineMirrorSettingVersion((version) => version + 1);
+    };
+    window.addEventListener('hnl-offline-mirror-setting-changed', handleOfflineMirrorSettingChanged);
+    return () => window.removeEventListener('hnl-offline-mirror-setting-changed', handleOfflineMirrorSettingChanged);
+  }, []);
+
   // Smart offline cache: after the active drawing is hydrated, quietly prepare the
   // remaining cloud-ready floor plans one-by-one. The active floor is always first.
   // Data Saver / 2G pauses the background pass; a later online/connection-change event
@@ -2339,11 +2734,17 @@ function AuthenticatedApp() {
   useEffect(() => {
     if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || !projectRoleAllowed || projectRoleSource !== 'cloud' || switchingProjectRef.current) return;
     if (!activeProjectId || floorPlans.length === 0 || floorPlanSmartCacheInFlightRef.current) return;
+    if (!shouldAutoMirrorProjectBinaries(activeProjectId)) {
+      // Active-floor hydration remains available, but a user who disabled Offline Mirror
+      // must not pay background IndexedDB/R2 work for every other floor.
+      floorPlanSmartCacheKeyRef.current = '';
+      return;
+    }
 
-    const cloudReadyPlans = floorPlans.filter((plan) => {
-      const revision = Number(plan.imageCloudRevision || plan.imageRevision || 0);
-      return revision > 0 && Boolean(plan.storagePath || plan.driveFileId || plan.cloudFileId || plan.storageProvider);
-    });
+    // Prefetch only binaries that are actually Cloud-stable. Legacy cloned floors can
+    // carry a stale storagePath while imageCloudRevision=0; retrying those every minute
+    // creates needless IndexedDB/R2 work and can make WebView/EXE feel periodically stuck.
+    const cloudReadyPlans = floorPlans.filter((plan) => isFloorPlanCloudBinaryReady(plan));
     if (cloudReadyPlans.length === 0) return;
 
     const signature = cloudReadyPlans
@@ -2355,12 +2756,12 @@ function AuthenticatedApp() {
 
     const projectId = activeProjectId;
     let cancelled = false;
-    const scheduleRetry = () => {
+    const scheduleRetry = (delayMs = 60000) => {
       if (cancelled || floorPlanSmartCacheRetryTimerRef.current !== null) return;
       floorPlanSmartCacheRetryTimerRef.current = window.setTimeout(() => {
         floorPlanSmartCacheRetryTimerRef.current = null;
         if (activeProjectIdRef.current === projectId) setFloorPlanSmartCacheRetryTick((tick) => tick + 1);
-      }, 60000);
+      }, delayMs);
     };
 
     const run = async () => {
@@ -2371,12 +2772,16 @@ function AuthenticatedApp() {
       }
       floorPlanSmartCacheInFlightRef.current = true;
       try {
+        const mobileLike = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '');
         const result = await cacheFloorPlansForOffline(projectId, cloudReadyPlans, undefined, {
           priorityFloorPlanId: activeFloorViewId || cloudReadyPlans[0]?.id || '',
+          maxItems: mobileLike ? 8 : 16,
+          yieldMs: mobileLike ? 48 : 16,
           shouldContinue: () => !cancelled
             && activeProjectIdRef.current === projectId
             && (typeof document === 'undefined' || document.visibilityState !== 'hidden')
-            && isFloorPlanAutoCacheNetworkSuitable(),
+            && isFloorPlanAutoCacheNetworkSuitable()
+            && shouldAutoMirrorProjectBinaries(projectId),
         });
         if (!result.paused && result.failed === 0) {
           floorPlanSmartCacheKeyRef.current = runKey;
@@ -2384,6 +2789,10 @@ function AuthenticatedApp() {
             level: 'info', area: 'floor-plan-cache', projectId, code: 'SMART_CACHE_READY',
             message: `offline-ready=${result.cached + result.downloaded}/${result.total}; downloaded=${result.downloaded}; shared/cache=${result.cached}`,
           });
+        } else if (result.paused && result.failed === 0) {
+          // Continue the remaining floors in a later idle-sized batch instead of
+          // monopolising IndexedDB/network on large 50+ floor projects.
+          scheduleRetry(15000);
         } else {
           scheduleRetry();
         }
@@ -2403,7 +2812,7 @@ function AuthenticatedApp() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [floorPlans, activeProjectId, activeFloorViewId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, isOnline, projectRoleSource, projectRoleAllowed, floorPlanSmartCacheRetryTick]);
+  }, [floorPlans, activeProjectId, activeFloorViewId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, isOnline, projectRoleSource, projectRoleAllowed, floorPlanSmartCacheRetryTick, floorPlanOfflineMirrorSettingVersion]);
 
   useEffect(() => {
     const refreshCloudUser = () => {
@@ -2418,7 +2827,10 @@ function AuthenticatedApp() {
     if (!isOnline) {
       const identity = getCurrentRealFirebaseUser() || getRememberedVerifiedAuthIdentity();
       const cachedProjects = identity
-        ? getProjectsList().filter((project) => getCachedVerifiedProjectRole(project.id, identity)?.allowed === true)
+        ? getProjectsList().filter((project) =>
+            Number(project.archivedAt || 0) <= 0
+            && getCachedVerifiedProjectRole(project.id, identity)?.allowed === true
+          )
         : [];
       setAuthorizedChatProjects(cachedProjects.map((project) => ({
         id: project.id,
@@ -2432,13 +2844,22 @@ function AuthenticatedApp() {
       return;
     }
 
+    // Render only identity-bound, previously verified local project metadata immediately
+    // while the authorization-sensitive realtime discovery performs its server checks.
+    // Realtime remains authoritative and replaces this cache-first seed on first emission.
+    const cachedAuthorized = getVerifiedCachedHomeProjects();
+    if (cachedAuthorized.length > 0) {
+      setAuthorizedChatProjects(cachedAuthorized);
+    }
+
     // Firestore/invitations are the source of truth for the cross-device project index.
     // construction_projects_list remains only a local cache for fast/offline startup.
     // subscribeCurrentUserProjectsRealtime already consumes/verifies invitation/index
-    // sources. Do not run a second server discovery pass here on every app startup.
+    // sources. Do not run a second server discovery pass on every app startup.
     let firstCloudEmission = true;
     const unsubscribe = subscribeCurrentUserProjectsRealtime((remoteProjects) => {
-      setAuthorizedChatProjects(remoteProjects.map((project) => ({
+      const activeRemoteProjects = remoteProjects.filter((project) => Number(project.archivedAt || 0) <= 0);
+      setAuthorizedChatProjects(activeRemoteProjects.map((project) => ({
         id: project.id,
         name: project.name,
         role: project.role === 'ADMIN' || project.role === 'EDITOR' ? project.role : 'VIEWER',
@@ -2461,6 +2882,9 @@ function AuthenticatedApp() {
           updatedAt: Math.max(Number(cached?.updatedAt || 0), Number(remoteProject.updatedAt || 0)),
           canonicalProjectId: remoteProject.canonicalProjectId,
           aliases: remoteProject.aliases,
+          archivedAt: Number(remoteProject.archivedAt || 0) || undefined,
+          archivedByUid: remoteProject.archivedByUid,
+          archivedByEmail: remoteProject.archivedByEmail,
         };
       });
 
@@ -2508,7 +2932,7 @@ function AuthenticatedApp() {
         && !shouldFollowCanonicalRedirect
         && !currentIsAuthorized
         && !hasUserEditedSinceHydrateRef.current
-        && remoteProjects[0]?.id
+        && activeRemoteProjects[0]?.id
         && (currentActive === 'default' || localProjects.length <= 1);
       firstCloudEmission = false;
 
@@ -2520,7 +2944,7 @@ function AuthenticatedApp() {
       }
 
       if (shouldAutoSwitch) {
-        void switchProject(remoteProjects[0].id).catch((err) =>
+        void switchProject(activeRemoteProjects[0].id).catch((err) =>
           console.warn('Authorized project auto-switch warning:', err)
         );
       }
@@ -2756,13 +3180,58 @@ function AuthenticatedApp() {
     );
   };
 
+  // Persist unsent receipts independently of the Cloud snapshot cache. A failed
+  // Firestore receipt must survive reconnect, refresh and subscription overwrites.
+  // Serialize writes to avoid concurrent read/modify/write dropping a receipt.
+  const trashReceiptQueueRef = React.useRef<Promise<void>>(Promise.resolve());
+  const queueTrashReceiptWork = (work: () => Promise<void>) => {
+    const task = trashReceiptQueueRef.current.catch(() => {}).then(work);
+    trashReceiptQueueRef.current = task.catch(() => {});
+    return task;
+  };
+  const flushPendingTrashReceipts = async (projectId: string) => {
+    const actor = getCurrentRealFirebaseUser();
+    if (!projectId || !actor?.uid || !navigator.onLine) return;
+    const key = getKey('construction_trash_pending_receipts', projectId);
+    const pending = await getAsyncItem<TrashOperation[]>(key, []);
+    if (!Array.isArray(pending) || pending.length === 0) return;
+    const remaining: TrashOperation[] = [];
+    for (const operation of pending) {
+      if (!operation?.id || operation.projectId !== projectId || operation.deletedByUid !== actor.uid) {
+        // Never flush another account's pending operations using this login.
+        remaining.push(operation);
+        continue;
+      }
+      try {
+        await saveTrashOperationToCloud(operation);
+      } catch (error) {
+        console.warn('[Trash receipt] Retained for retry after Cloud error:', operation.id, error);
+        remaining.push(operation);
+      }
+    }
+    if (remaining.length !== pending.length) await setAsyncItem(key, remaining);
+  };
   const appendTrashOperation = (operation: TrashOperation) => {
     const next = [operation, ...trashOperationsRef.current.filter((item) => item.id !== operation.id)];
     persistTrashOperations(next, operation.projectId);
-    void saveTrashOperationToCloud(operation).catch((err) =>
-      console.warn('Trash cloud save warning:', err)
-    );
+    void queueTrashReceiptWork(async () => {
+      const key = getKey('construction_trash_pending_receipts', operation.projectId);
+      const pending = await getAsyncItem<TrashOperation[]>(key, []);
+      await setAsyncItem(key, [operation, ...(Array.isArray(pending) ? pending : []).filter((item) => item.id !== operation.id)]);
+      await flushPendingTrashReceipts(operation.projectId);
+    }).catch((error) => console.warn('[Trash receipt] Could not persist pending receipt:', error));
   };
+
+  useEffect(() => {
+    if (!activeProjectId || !cloudUserKey || !isOnline || !isProjectRoleResolved || !projectRoleAllowed) return;
+    const flush = () => {
+      void queueTrashReceiptWork(() => flushPendingTrashReceipts(activeProjectId))
+        .catch((error) => console.warn('[Trash receipt] Retry deferred:', error));
+    };
+    flush();
+    const timer = window.setInterval(flush, 60_000);
+    return () => window.clearInterval(timer);
+  }, [activeProjectId, cloudUserKey, isOnline, isProjectRoleResolved, projectRoleAllowed]);
 
   const previewSuperAdminUiSettings = (next: SuperAdminUiSettings) => {
     if (!isCurrentSuperAdmin) return;
@@ -2788,11 +3257,38 @@ function AuthenticatedApp() {
       return;
     }
     const next = normalizeStructureGroupConfig(nextInput);
+    // A generic/stale settings save must never bypass the atomic group Trash flow.
+    if (structureConfig.groups.some((group) => !next.groups.some((candidate) => candidate.id === group.id))) {
+      alert('Không thể xóa Khu/Khối qua cập nhật cấu hình. Hãy dùng nút Xóa để lưu Thùng rác trước.');
+      return;
+    }
     setStructureConfig(next);
     localStorage.setItem(getKey('construction_structure_config', activeProjectIdRef.current), JSON.stringify(next));
     void saveProjectSharedSettings(activeProjectIdRef.current, { structure: next }).catch((err) =>
       console.warn('Structure shared settings save warning:', err)
     );
+  };
+
+  const handleDeleteEmptyStructureGroup = async (groupId: string) => {
+    if (!isProjectRoleResolved || currentUserRole !== 'ADMIN') {
+      alert('Chỉ ADMIN được xóa Khu/Khối.');
+      return;
+    }
+    const targetProjectId = activeProjectIdRef.current;
+    try {
+      const next = await deleteEmptyStructureGroupToTrash(targetProjectId, groupId);
+      // A user may switch projects during the Cloud transaction. Never hydrate
+      // a different project's structure with the previous project's result.
+      if (activeProjectIdRef.current !== targetProjectId) return;
+      setStructureConfig(next);
+      localStorage.setItem(getKey('construction_structure_config', targetProjectId), JSON.stringify(next));
+      alert('Đã chuyển Khu/Khối vào Thùng rác. ADMIN có thể khôi phục trong thời hạn lưu đã chọn.');
+    } catch (error) {
+      console.warn('[Structure Trash] Deletion denied:', error);
+      if (activeProjectIdRef.current === targetProjectId) {
+        alert('Chưa xóa Khu/Khối: ' + (error instanceof Error ? error.message : String(error)));
+      }
+    }
   };
 
     const handleTrashSettingsChange = (nextInput: TrashSettings) => {
@@ -2816,6 +3312,25 @@ function AuthenticatedApp() {
     }
     const operation = trashOperationsRef.current.find((item) => item.id === operationId);
     if (!operation) return;
+    if (FIREBASE_ONLY_RUNTIME) {
+      if (!isOnline) {
+        alert('Khôi phục Thùng rác cần online và ADMIN được máy chủ xác minh. Dữ liệu chưa thay đổi.');
+        return;
+      }
+      try {
+        const receipt = await restoreProjectTrashAtomic(activeProjectIdRef.current, operationId);
+        // The Firestore realtime listener updates all business arrays and the Trash list.
+        // Do NOT call updateAppData: it could resurrect stale rows or bypass stock checks.
+        const remaining = trashOperationsRef.current.filter((item) => item.id !== operationId);
+        persistTrashOperations(remaining, operation.projectId);
+        alert(`Đã khôi phục ${receipt.restored} mục trên Firestore. Liên kết phục hồi: ${receipt.relatedReconnected}; bỏ qua ${receipt.relatedSkipped} liên kết đã thay đổi trên thiết bị khác.`);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        console.warn('[Trash restore] Verified Cloud transaction rejected:', detail);
+        alert(`Chưa thể khôi phục an toàn: ${detail}. Mục Thùng rác vẫn được giữ để thử lại.`);
+      }
+      return;
+    }
     trashCaptureSuppressedRef.current = true;
     try {
       updateAppData((prev) => {
@@ -2901,6 +3416,9 @@ function AuthenticatedApp() {
   // Sync Lock Ref to avoid circular loops
   const syncLockRef = React.useRef(false);
 
+  // P21 demo only. Prevent repeated notices if React evaluates the updater twice.
+  const p21BlockedNoticeRef = React.useRef(false);
+  const p21LocalGates = { roomSidecarDemo: ROOM_SIDECAR_DEMO_MODE, trustedWarehouseDemo: TRUSTED_WAREHOUSE_DEMO_MODE };
   // Helper to push state changes to history (max 30 steps) and stamp item updatedAt
   const updateAppData = (updater: (prev: AppData) => AppData) => {
     if (FIREBASE_ONLY_RUNTIME && businessDataSource === 'legacy-migration-fallback') {
@@ -2913,17 +3431,53 @@ function AuthenticatedApp() {
       return;
     }
     const mutationActor = getCurrentRealFirebaseUser() || getRememberedVerifiedAuthIdentity();
-    hasUserEditedSinceHydrateRef.current = true;
-    hasUnsavedAllBackupChangesRef.current = true;
     setPresent((prev) => {
       const rawNext = updater(prev);
       if (rawNext === prev) return prev;
-
+      const p21Blocked = p21DemoLocalMutationError(prev, rawNext, p21LocalGates);
+      if (p21Blocked) {
+        if (!p21BlockedNoticeRef.current) {
+          p21BlockedNoticeRef.current = true;
+          window.setTimeout(() => {
+            p21BlockedNoticeRef.current = false;
+            alert('Chế độ thử nghiệm P21: thao tác phòng/kho từ đường lưu cũ bị chặn để tránh hiển thị đã lưu giả. Chưa thay đổi dữ liệu. (' + p21Blocked + ')');
+          }, 0);
+        }
+        return prev; // No dirty/unsaved flags, tombstones or undo snapshot for blocked writes.
+      }
       const now = Date.now();
       const collections: (keyof AppData)[] = [
         'roomProgressList', 'inventory', 'workVolumes', 'floorPlans',
         'defects', 'checklist', 'crewRecords', 'teams', 'materialNorms'
       ];
+
+      // Preflight restore transaction size BEFORE touching tombstones or dirty flags.
+      // One Cloud restore supports at most 150 unique targets (deleted + links).
+      const indexedDiffs = new Map<keyof AppData, { prevMap: Map<string, any>; nextMap: Map<string, any> }>();
+      let predictedDeletes = 0;
+      let predictedLinkedChanges = 0;
+      collections.forEach((col) => {
+        if (prev[col] === rawNext[col]) return;
+        const prevMap = new Map<string, any>();
+        const nextMap = new Map<string, any>();
+        ((prev[col] || []) as any[]).forEach((item) => { if (item?.id) prevMap.set(String(item.id), item); });
+        ((rawNext[col] || []) as any[]).forEach((item) => { if (item?.id) nextMap.set(String(item.id), item); });
+        indexedDiffs.set(col, { prevMap, nextMap });
+        if (trashSettingsRef.current.enabled && !trashCaptureSuppressedRef.current) {
+          for (const id of prevMap.keys()) if (!nextMap.has(id)) predictedDeletes += 1;
+          for (const [id, item] of nextMap) {
+            const before = prevMap.get(id);
+            if (before && before !== item) predictedLinkedChanges += 1;
+          }
+        }
+      });
+      if (predictedDeletes > 0 && predictedDeletes + predictedLinkedChanges > 150) {
+        window.setTimeout(() => alert(`Thao tác có ${predictedDeletes} mục xóa và ${predictedLinkedChanges} liên kết cần khôi phục, vượt giới hạn an toàn 150. Chưa xóa dữ liệu. Hãy chia thành các lượt nhỏ hơn.`), 0);
+        return prev;
+      }
+      // Accepted only after BOTH cutover and Trash-restore preflights pass.
+      hasUserEditedSinceHydrateRef.current = true;
+      hasUnsavedAllBackupChangesRef.current = true;
 
       let stampedNext = rawNext;
       let hasStamped = false;
@@ -2938,10 +3492,9 @@ function AuthenticatedApp() {
         if (prevList !== nextList) {
           markLocalCollectionDirty(col);
           if (col === 'crewRecords' || col === 'defects') priorityCloudSyncRevisionRef.current += 1;
-          const prevMap = new Map<string, any>();
-          (prevList as any[]).forEach(item => { if (item?.id) prevMap.set(String(item.id), item); });
-          const nextMap = new Map<string, any>();
-          (nextList as any[]).forEach(item => { if (item?.id) nextMap.set(String(item.id), item); });
+          const indexed = indexedDiffs.get(col);
+          if (!indexed) return;
+          const { prevMap, nextMap } = indexed;
 
           const addedIds = Array.from(nextMap.keys()).filter((id) => !prevMap.has(id));
           const deletedIds = Array.from(prevMap.keys()).filter((id) => !nextMap.has(id));
@@ -3036,8 +3589,11 @@ function AuthenticatedApp() {
       // Safe asynchronous scheduling to prevent React from warning about nested state updates during rendering
       setTimeout(() => {
         if (trashOperationToAppend) appendTrashOperation(trashOperationToAppend);
-        setPast((p) => { const limit = typeof window !== 'undefined' && window.innerWidth < 768 ? 6 : 15; return [...p.slice(-(limit - 1)), prev]; });
-        setFuture([]);
+        const step = captureScopedUndoStep(prev, next, activeProjectIdRef.current);
+        if (step) {
+          setPast((p) => { const limit = typeof window !== 'undefined' && window.innerWidth < 768 ? 6 : 15; return [...p.slice(-(limit - 1)), step]; });
+          setFuture([]);
+        }
 
         // Update local modified timestamp on any UI action
         if (!syncLockRef.current) {
@@ -3146,41 +3702,45 @@ function AuthenticatedApp() {
     return stampedTarget;
   };
 
-  const handleUndo = () => {
+  // Only the entities touched by an ADMIN action may be replayed. A later
+  // Firestore update to those entities blocks the step instead of reverting it.
+  const runScopedHistoryStep = (direction: 'undo' | 'redo') => {
     if (!isProjectRoleResolved || !canUseGlobalUndoRedo(currentUserRole)) return;
-    if (past.length === 0) return;
-    const previous = past[past.length - 1];
-    const newPast = past.slice(0, past.length - 1);
+    const step = direction === 'undo' ? past[past.length - 1] : future[0];
+    if (!step) return;
+    const blocked = p21DemoHistoryMutationError(step, p21LocalGates);
+    if (blocked) {
+      alert('Hoàn tác/Làm lại phòng hoặc kho chưa được hỗ trợ trong thử nghiệm P21. Không ghi đè bản máy chủ. (' + blocked + ')');
+      return;
+    }
+    const result = applyScopedUndoStep(present, step, direction, activeProjectIdRef.current);
+    if (!result.ok) {
+      setPast([]);
+      setFuture([]);
+      alert('Lịch sử không còn phù hợp: dữ liệu đã thay đổi hoặc dự án đã chuyển. Đã dừng Hoàn tác/Làm lại để không ghi đè dữ liệu thiết bị khác.');
+      return;
+    }
     const now = Date.now();
-    const stampedPrevious = stampStateChanges(previous, present, now);
-
-    setPast(newPast);
-    setFuture((f) => [present, ...f]);
-    setPresent(stampedPrevious);
-    markAllLocalCollectionsDirty();
-
-    // Update modified timestamp
+    const target = stampStateChanges(result.state, present, now);
+    hasUserEditedSinceHydrateRef.current = true;
+    hasUnsavedAllBackupChangesRef.current = true;
+    result.changedCollections.forEach((key) => {
+      markLocalCollectionDirty(key);
+      if (key === 'crewRecords' || key === 'defects') priorityCloudSyncRevisionRef.current += 1;
+    });
+    if (direction === 'undo') {
+      setPast((previous) => previous.slice(0, -1));
+      setFuture((previous) => [step, ...previous]);
+    } else {
+      setFuture((previous) => previous.slice(1));
+      setPast((previous) => [...previous, step]);
+    }
+    setPresent(target);
     setLastUpdatedAt(now);
     localStorage.setItem(getKey('construction_updated_at', activeProjectIdRef.current), String(now));
   };
-
-  const handleRedo = () => {
-    if (!isProjectRoleResolved || !canUseGlobalUndoRedo(currentUserRole)) return;
-    if (future.length === 0) return;
-    const next = future[0];
-    const newFuture = future.slice(1);
-    const now = Date.now();
-    const stampedNext = stampStateChanges(next, present, now);
-
-    setPast((p) => [...p, present]);
-    setPresent(stampedNext);
-    markAllLocalCollectionsDirty();
-    setFuture(newFuture);
-
-    // Update modified timestamp
-    setLastUpdatedAt(now);
-    localStorage.setItem(getKey('construction_updated_at', activeProjectIdRef.current), String(now));
-  };
+  const handleUndo = () => runScopedHistoryStep('undo');
+  const handleRedo = () => runScopedHistoryStep('redo');
 
   useEffect(() => {
     // Fire-and-forget: cleanup huge images on boot
@@ -3215,6 +3775,11 @@ function AuthenticatedApp() {
     if (!isHydrated || isLoadingProject || isRestoring || isInitializing) return;
     if (!isOnline || projectRoleSource === 'offline-cache') return;
     if (switchingProjectRef.current || !cloudUserKey || cloudInitialReady) return;
+    // The realtime role listener already proved this existing project is Cloud-authorized.
+    // Do not fire a second role fetch/bootstrap-version bump while the 9 business
+    // listeners are still delivering their initial snapshot; on slower/mobile projects
+    // that could detach/re-attach all listeners and bill the same initial rows twice.
+    if (projectRoleSource === 'cloud' && projectRoleAllowed) return;
 
     const user = getCurrentRealFirebaseUser();
     if (!user || !activeProjectId) return;
@@ -3239,15 +3804,14 @@ function AuthenticatedApp() {
             setCurrentUserRoleState(roleInfo.role);
           }
           // Existing Cloud projects already have the realtime listener mounted.
-          // Do not force a bootstrap-version bump here: re-binding the listener would
-          // reread metadata + all nine business collections (+ ADMIN financials).
+          // Rebinding here rereads metadata + all business collections.
           return;
         }
 
         const payload = buildCloudProjectPayload();
         await saveProjectToCloud({
           id: projectId,
-          name: projectName || `Du an ${projectId}`,
+          name: projectName || `Dự án ${projectId}`,
           contractorName,
           inspectorName,
           projectLocation,
@@ -3286,7 +3850,8 @@ function AuthenticatedApp() {
     present,
     lastUpdatedAt,
     isOnline,
-    projectRoleSource
+    projectRoleSource,
+    projectRoleAllowed
   ]);
 
   // Firebase Realtime Subcollection-Based Multi-Device Sync Listener
@@ -3632,10 +4197,13 @@ function AuthenticatedApp() {
   ]);
 
   // Photo metadata is realtime; binary image chunks are downloaded lazily only when an image is displayed.
-  // This keeps multi-device image sync complete without loading every photo into phone RAM at startup.
+  // Keep one metadata listener alive while moving between photo-capable tabs. Depending
+  // on each exact activeTab used to tear down/recreate the same Firestore subscription
+  // for Floor Plan -> Crew -> Chat navigation even though the project and identity did
+  // not change. Non-photo tabs still release the listener exactly as before.
+  const photoRealtimeActive = activeTab === 'floorplan' || activeTab === 'crew' || activeTab === 'chat';
   useEffect(() => {
-    const photoTabActive = activeTab === 'floorplan' || activeTab === 'crew' || activeTab === 'chat';
-    if (!photoTabActive || !isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed) {
+    if (!photoRealtimeActive || !isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed) {
       setPhotoCloudStatus({ phase: 'idle', pending: 0 });
       return;
     }
@@ -3644,7 +4212,7 @@ function AuthenticatedApp() {
       if (activeProjectIdRef.current === projectId) setPhotoCloudStatus(status);
     });
     return () => unsubscribePhotos();
-  }, [activeProjectId, activeTab, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, isOnline, projectRoleSource, projectRoleAllowed]);
+  }, [activeProjectId, photoRealtimeActive, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, isOnline, projectRoleSource, projectRoleAllowed]);
 
   const handleUpdateProjectName = (val: string) => {
     if (!isProjectRoleResolved || currentUserRole !== 'ADMIN') return;
@@ -3729,12 +4297,22 @@ function AuthenticatedApp() {
     }
   }, [autoSyncEnabled, activeProjectId, isHydrated, isLoadingProject, isProjectRoleResolved, currentUserRole]);
 
-  const handleRestoreData = async (rawData: any, targetProjectId?: string) => {
+  const handleRestoreData = async (
+    rawData: any,
+    targetProjectId?: string,
+    options?: {
+      authoritativeBackupRestore?: boolean;
+      sharedSettingsRestoreMode?: 'create' | 'replace' | 'merge-newer';
+    }
+  ) => {
     if (!rawData) return;
     if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) {
       alert('Chỉ ADMIN được khôi phục/ghi đè dữ liệu dự án từ bản sao lưu.');
       return;
     }
+    // The full restore bypasses updateAppData; reject it BEFORE setting restore UI
+    // flags, writing any local cache or replacing React state in the P21 rehearsal.
+    assertP21DemoFullProjectSaveBoundary(p21LocalGates);
     const operationProjectId = targetProjectId || activeProjectIdRef.current || getActiveProjectId();
 
     if (switchingProjectRef.current) {
@@ -3747,8 +4325,35 @@ function AuthenticatedApp() {
       setIsRestoring(true);
     }
     console.log('[RESTORE START]', operationProjectId, 'isCurrentActive:', isCurrentActive);
-    const data = normalizeImportedData(rawData, operationProjectId);
+    const normalizedRestoreData = normalizeImportedData(rawData, operationProjectId);
+    const data = Array.isArray(normalizedRestoreData.floorPlans)
+      ? {
+          ...normalizedRestoreData,
+          floorPlans: prepareFloorPlansForBackupRestore(normalizedRestoreData.floorPlans),
+        }
+      : normalizedRestoreData;
+
+    if (options?.authoritativeBackupRestore === true) {
+      // Full Replace may remove Cloud rows that are absent from the backup, so the
+      // backup must explicitly carry all nine business collections. Missing collections
+      // are ambiguous and must fail closed rather than being interpreted as empty.
+      const restoreKeys = REALTIME_STATE_KEYS as (keyof AppData)[];
+      const invalidCollections = restoreKeys.filter((key) => !Array.isArray((data as any)[key]));
+      if (invalidCollections.length > 0) {
+        throw new Error(`Bản sao lưu không đủ dữ liệu để Ghi đè hoàn toàn. Thiếu: ${invalidCollections.join(', ')}.`);
+      }
+      for (const key of restoreKeys) {
+        const list = (data as any)[key] as any[];
+        const ids = list.map((item) => String(item?.id || '').trim());
+        const missingIdCount = ids.filter((id) => !id).length;
+        const uniqueIds = new Set(ids.filter(Boolean));
+        if (missingIdCount > 0 || uniqueIds.size !== list.length) {
+          throw new Error(`Bản sao lưu có ID không hợp lệ/trùng lặp trong ${String(key)}. Dừng Ghi đè hoàn toàn để bảo vệ dữ liệu.`);
+        }
+      }
+    }
     syncLockRef.current = true;
+    let authoritativeVerifiedUpdatedAt = 0;
     try {
       const pid = operationProjectId;
       if (data.projectName) {
@@ -3771,6 +4376,9 @@ function AuthenticatedApp() {
         if (!FIREBASE_ONLY_RUNTIME || LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) await setAsyncItem(getKey('construction_project_location', pid), data.projectLocation || '');
         safeSetLocalStorageItem(getKey('construction_project_location', pid), data.projectLocation || '');
       }
+      const importedSharedSettings = data.sharedSettings && typeof data.sharedSettings === 'object' && !Array.isArray(data.sharedSettings)
+        ? data.sharedSettings
+        : null;
       const nextState = {
         materialNorms: Array.isArray(data.materialNorms) ? data.materialNorms : (isCurrentActive ? present.materialNorms : []),
         inventory: Array.isArray(data.inventory) ? data.inventory : (isCurrentActive ? present.inventory : []),
@@ -3814,11 +4422,137 @@ function AuthenticatedApp() {
           projectLocation: data.projectLocation || '',
           syncCode: pid.slice(0, 8).toUpperCase(),
           payload: nextState,
-        });
+        }, { authoritativeBackupRestore: options?.authoritativeBackupRestore === true });
+
+        if (options?.authoritativeBackupRestore === true) {
+          // Full Replace is only successful after the SERVER confirms exact active IDs.
+          // This closes two restore holes at once:
+          // 1) stale local/offline tombstones can no longer hide rows that the ADMIN just restored;
+          // 2) Cloud-only historical rows cannot survive a UI action labelled "Ghi đè hoàn toàn".
+          const verifiedCloud = await fetchProjectFromCloud(pid, { serverOnly: true });
+          const verifiedPayload = verifiedCloud ? (getCloudPayload(verifiedCloud) || {}) : null;
+          if (!verifiedPayload) {
+            throw new Error('Khôi phục chưa được Server xác nhận. Không thể đọc lại dữ liệu Firestore sau khi ghi.');
+          }
+
+          const restoreKeys = REALTIME_STATE_KEYS as (keyof AppData)[];
+          const restoreMismatches: string[] = [];
+          for (const key of restoreKeys) {
+            const expectedList = Array.isArray(nextState[key]) ? nextState[key] : [];
+            const actualList = Array.isArray((verifiedPayload as any)[key]) ? (verifiedPayload as any)[key] : [];
+            const expectedIds = new Set<string>(expectedList.map((item: any) => String(item?.id || '')).filter(Boolean));
+            const actualIds = new Set<string>(actualList.map((item: any) => String(item?.id || '')).filter(Boolean));
+            const missing = Array.from(expectedIds).filter((id) => !actualIds.has(id));
+            const extra = Array.from(actualIds).filter((id) => !expectedIds.has(id));
+            if (missing.length || extra.length) {
+              restoreMismatches.push(
+                `${String(key)} JSON=${expectedIds.size} Cloud=${actualIds.size}`
+                + (missing.length ? ` thiếu [${missing.slice(0, 3).join(', ')}]` : '')
+                + (extra.length ? ` dư [${extra.slice(0, 3).join(', ')}]` : '')
+              );
+            }
+
+            if (key === 'defects') {
+              const actualById = new Map<string, any>(
+                actualList
+                  .filter((item: any) => item?.id)
+                  .map((item: any) => [String(item.id), item] as const)
+              );
+              const wronglyArchived = expectedList
+                .filter((item: any) => item?.id && !item?.archivedAt)
+                .filter((item: any) => Boolean(actualById.get(String(item.id))?.archivedAt))
+                .map((item: any) => String(item.id));
+              if (wronglyArchived.length > 0) {
+                restoreMismatches.push(
+                  `defects còn archive marker [${wronglyArchived.slice(0, 3).join(', ')}]`
+                );
+              }
+            }
+          }
+          if (restoreMismatches.length > 0) {
+            throw new Error(`Khôi phục Full Replace chưa đạt đối chiếu Server: ${restoreMismatches.join(' | ')}`);
+          }
+
+          // The explicit ADMIN restore supersedes any pre-restore local delete overlay.
+          // Clear it only AFTER Firestore has passed the exact-ID verification above.
+          localTombstonesRef.current = {};
+          persistLocalTombstones(pid);
+          const restoreActor = getCurrentRealFirebaseUser();
+          if (restoreActor?.uid && restoreActor.email) {
+            await clearVerifiedOfflineWorkingDelta(pid, restoreActor);
+          }
+
+          const backupFloorById = new Map(
+            (nextState.floorPlans || []).filter((item: any) => item?.id).map((item: any) => [String(item.id), item] as const)
+          );
+          const verifiedFloorPlans = (Array.isArray((verifiedPayload as any).floorPlans) ? (verifiedPayload as any).floorPlans : [])
+            .map((cloudItem: any) => {
+              const localItem = backupFloorById.get(String(cloudItem?.id || ''));
+              if (!localItem) return cloudItem;
+              return restoreLocalOmittedImages(restoreLocalFloorPlanIdentity(cloudItem, localItem), localItem);
+            })
+            .sort((a: any, b: any) => Number(a?.order || 0) - Number(b?.order || 0));
+
+          const verifiedState: AppData = {
+            materialNorms: Array.isArray((verifiedPayload as any).materialNorms) ? (verifiedPayload as any).materialNorms : [],
+            inventory: Array.isArray((verifiedPayload as any).inventory) ? (verifiedPayload as any).inventory : [],
+            workVolumes: Array.isArray((verifiedPayload as any).workVolumes) ? (verifiedPayload as any).workVolumes : [],
+            floorPlans: verifiedFloorPlans,
+            defects: Array.isArray((verifiedPayload as any).defects) ? (verifiedPayload as any).defects : [],
+            roomProgressList: Array.isArray((verifiedPayload as any).roomProgressList) ? (verifiedPayload as any).roomProgressList : [],
+            checklist: Array.isArray((verifiedPayload as any).checklist) ? (verifiedPayload as any).checklist : [],
+            crewRecords: Array.isArray((verifiedPayload as any).crewRecords) ? (verifiedPayload as any).crewRecords : [],
+            teams: Array.isArray((verifiedPayload as any).teams) ? (verifiedPayload as any).teams : [],
+          };
+
+          lastSyncedPresentRef.current = verifiedState;
+          localDirtyRevisionRef.current = {};
+          localMetadataDirtyRevisionRef.current = 0;
+          authoritativeVerifiedUpdatedAt = parseLegacyTimestamp((verifiedCloud as any)?.updatedAt || (verifiedPayload as any).updatedAt, Date.now());
+
+          if (isCurrentActive) {
+            setPresent(verifiedState);
+            setBusinessDataSource('cloud');
+          }
+          console.log('[RESTORE VERIFIED]', pid, 'defects=', verifiedState.defects.length);
+        }
+
+        if (importedSharedSettings && (options?.authoritativeBackupRestore === true || options?.sharedSettingsRestoreMode)) {
+          // Backup v4 includes project-scoped operational settings. CREATE/new-copy may
+          // restore them directly. SMART MERGE only accepts the incoming settings when
+          // their document timestamp is newer than the current Cloud settings, so a
+          // stale backup cannot silently roll back Khu/Khối/trash/workflow preferences.
+          // Membership/RBAC/PIN/secrets are not part of this backup contract.
+          let settingsToRestore: any = importedSharedSettings;
+          if (options?.sharedSettingsRestoreMode === 'merge-newer') {
+            const currentSharedSettings = await fetchProjectSharedSettingsSnapshot(pid, true);
+            const incomingSettingsTime = parseLegacyTimestamp(importedSharedSettings.updatedAt, 0);
+            const currentSettingsTime = parseLegacyTimestamp(currentSharedSettings?.updatedAt, 0);
+            if (currentSharedSettings && (incomingSettingsTime <= 0 || incomingSettingsTime <= currentSettingsTime)) {
+              settingsToRestore = null;
+            }
+          }
+
+          if (settingsToRestore) {
+            await saveProjectSharedSettings(pid, settingsToRestore);
+            if (isCurrentActive) {
+              if (settingsToRestore.structure) setStructureConfig(normalizeStructureGroupConfig(settingsToRestore.structure));
+              if (settingsToRestore.trash) {
+                const nextTrash = normalizeTrashSettings(settingsToRestore.trash);
+                trashSettingsRef.current = nextTrash;
+                setTrashSettings(nextTrash);
+              }
+              if (settingsToRestore.superAdminUi) setSuperAdminUiSettings(normalizeSuperAdminUiSettings(settingsToRestore.superAdminUi));
+              if (typeof settingsToRestore.driveAutoSyncEnabled === 'boolean') setAutoSyncEnabled(settingsToRestore.driveAutoSyncEnabled);
+            }
+          }
+        }
       }
 
       const parsedSourceTime = parseLegacyTimestamp(data.updatedAt, 0);
-      let updatedTime = parsedSourceTime > 0 ? parsedSourceTime : 0;
+      let updatedTime = authoritativeVerifiedUpdatedAt > 0
+        ? authoritativeVerifiedUpdatedAt
+        : (parsedSourceTime > 0 ? parsedSourceTime : 0);
       if (updatedTime === 0) {
         let maxTime = 0;
         const scanArray = (arr: any[]) => {
@@ -3865,12 +4599,13 @@ function AuthenticatedApp() {
 
   const handleRestoreAllStorageData = async (parsedData: any) => {
     if (!parsedData) return;
+    assertP21DemoFullProjectSaveBoundary(p21LocalGates);
     if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) {
       alert('Chỉ ADMIN được khôi phục toàn bộ dữ liệu hệ thống.');
       return;
     }
     if (FIREBASE_ONLY_RUNTIME) {
-      alert('Firebase-only không phục hồi database bằng cách ghi đè localStorage/IndexedDB. Hãy dùng Import Backup theo từng dự án để dữ liệu được kiểm tra ID/revision và ghi vào Firestore.');
+      alert('Firebase-only không phục hồi cơ sở dữ liệu bằng cách ghi đè localStorage/IndexedDB. Hãy dùng Nhập bản sao lưu theo từng dự án để dữ liệu được kiểm tra ID/phiên bản và ghi vào Firestore.');
       return;
     }
     try {
@@ -3901,7 +4636,7 @@ function AuthenticatedApp() {
 
   // Google Drive Sync Up
   const handleDriveSyncUp = async (customFolderId?: string) => {
-    if (FIREBASE_ONLY_RUNTIME) return { success: false, error: 'Google Drive runtime đã tắt trong Firebase-only. Drive chỉ còn dùng để đọc/migrate dữ liệu legacy.' };
+    if (FIREBASE_ONLY_RUNTIME) return { success: false, error: 'Google Drive ở chế độ chạy Firebase-only đã tắt. Drive chỉ còn dùng để đọc/chuyển đổi dữ liệu cũ.' };
     if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) return { success: false, error: 'Chỉ ADMIN được đồng bộ/sao lưu dữ liệu dự án lên Drive.' };
     const operationProjectId = activeProjectIdRef.current || activeProjectId;
     if (!googleServerBackendAvailable) {
@@ -4072,7 +4807,7 @@ function AuthenticatedApp() {
           };
         }
         console.warn('Drive Sync Up All Notice:', errorData);
-        throw new Error(errorData.error || `Failed to upload all data (Status: ${res.status})`);
+        throw new Error(errorData.error || `Không thể tải toàn bộ dữ liệu lên (trạng thái: ${res.status})`);
       }
       const result = await res.json();
       if (result.success) return { success: true, message: result.message };
@@ -4083,7 +4818,7 @@ function AuthenticatedApp() {
   };
 
   const handleDriveSyncDownAll = async (customFolderId?: string) => {
-    if (FIREBASE_ONLY_RUNTIME) return { success: false, error: 'Drive restore/sync hai chiều đã tắt. Dùng Import Backup thủ công hoặc migration legacy có kiểm chứng.' };
+    if (FIREBASE_ONLY_RUNTIME) return { success: false, error: 'Khôi phục/đồng bộ Drive hai chiều đã tắt. Dùng Nhập bản sao lưu thủ công hoặc chuyển đổi dữ liệu cũ có kiểm chứng.' };
     if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) return { success: false, error: 'Chỉ ADMIN được phục hồi toàn bộ dự án từ Drive.' };
     if (!googleServerBackendAvailable) {
       return {
@@ -4108,7 +4843,7 @@ function AuthenticatedApp() {
             error: errorData.error || 'Chưa kết nối tài khoản Google. Vui lòng kết nối tài khoản Google.'
           };
         }
-        throw new Error('Failed to download all data');
+        throw new Error('Không thể tải toàn bộ dữ liệu xuống.');
       }
       const result = await res.json();
       if (result.success && result.found && result.data) {
@@ -4124,7 +4859,7 @@ function AuthenticatedApp() {
 
   // Local All File Link
   const handleLinkLocalAllFile = async () => {
-    if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) { alert('Chỉ ADMIN được liên kết tệp backup toàn bộ dự án.'); return; }
+    if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) { alert('Chỉ ADMIN được liên kết tệp sao lưu toàn bộ dự án.'); return; }
     try {
       if (isAndroidAutoSaveAvailable()) {
         if (!hasAndroidAutoSaveFolder()) {
@@ -4144,7 +4879,7 @@ function AuthenticatedApp() {
         setLocalAllSyncStatus('synced');
         lastSavedLocalAllSnapshotRef.current = jsonStr;
         hasUnsavedAllBackupChangesRef.current = false;
-        alert(`Da lien ket thu muc Android autosave JSON: ${displayName}`);
+        alert(`Đã liên kết thư mục tự động lưu JSON trên Android: ${displayName}`);
         return;
       }
       if (window.self !== window.top) {
@@ -4545,8 +5280,8 @@ function AuthenticatedApp() {
                 setDataCloudStatus({
                   phase: 'syncing',
                   message: queued.queuedRecords > 0
-                    ? `Offline · ${queued.queuedRecords} thay đổi đã vào hàng chờ Firestore.`
-                    : 'Offline · thay đổi cấu hình đã vào hàng chờ Firestore.',
+                    ? `Ngoại tuyến · ${queued.queuedRecords} thay đổi đã vào hàng chờ Firestore.`
+                    : 'Ngoại tuyến · thay đổi cấu hình đã vào hàng chờ Firestore.',
                 });
 
                 if (queued.commitPromises.length > 0) {
@@ -4560,11 +5295,11 @@ function AuthenticatedApp() {
                       setDataCloudStatus({
                         phase: code === 'permission-denied' ? 'conflict' : 'error',
                         message: code === 'permission-denied'
-                          ? 'Pending offline bị Rules/revision từ chối. Dữ liệu Cloud mới hơn sẽ được realtime hòa giải; không tự ghi đè.'
-                          : `Có pending offline không gửi được: ${firstReason?.message || String(firstReason)}`,
+                          ? 'Thay đổi chờ ngoại tuyến bị Rules (quy tắc)/revision (phiên bản) từ chối. Dữ liệu Cloud mới hơn sẽ được đồng bộ thời gian thực để hòa giải; không tự ghi đè.'
+                          : `Có thay đổi chờ ngoại tuyến không gửi được: ${firstReason?.message || String(firstReason)}`,
                       });
                     } else if (firestorePendingWriteCountRef.current === 0) {
-                      setDataCloudStatus({ phase: 'synced', lastSyncAt: Date.now(), message: 'Các thay đổi offline đã được Firebase xác nhận.' });
+                      setDataCloudStatus({ phase: 'synced', lastSyncAt: Date.now(), message: 'Các thay đổi ngoại tuyến đã được Firebase xác nhận.' });
                     }
                   });
                 }
@@ -5018,7 +5753,7 @@ function AuthenticatedApp() {
   // Link local JSON file for auto sync
   const handleLinkLocalFile = async () => {
     if (FIREBASE_ONLY_RUNTIME) {
-      alert('Firebase-only: tự đồng bộ JSON đã tắt. JSON chỉ dùng Backup / Export / Import thủ công.');
+      alert('Firebase-only: tự đồng bộ JSON đã tắt. JSON chỉ dùng để Sao lưu / Xuất / Nhập thủ công.');
       return;
     }
     try {
@@ -5038,7 +5773,7 @@ function AuthenticatedApp() {
         setLocalSyncPermissionNeeded(false);
         setLocalSyncStatus('synced');
         lastSavedLocalSnapshotRef.current = jsonString;
-        alert(`Da lien ket thu muc Android autosave JSON: ${displayName}`);
+        alert(`Đã liên kết thư mục tự động lưu JSON trên Android: ${displayName}`);
         return;
       }
       if (window.self !== window.top) {
@@ -5138,7 +5873,7 @@ function AuthenticatedApp() {
         setLocalFileName('');
         setLocalSyncPermissionNeeded(false);
         setLocalSyncStatus('idle');
-        alert('Da huy lien ket autosave JSON tren Android.');
+        alert('Đã hủy liên kết thư mục tự động lưu JSON trên Android.');
         return;
       }
       await removeFileHandle(activeProjectId);
@@ -5265,8 +6000,8 @@ function AuthenticatedApp() {
     return reconcileMaterialNormWorkCategoryLinks([normalized], catalog).materialNorms[0] || normalized;
   };
 
-  const handleAddNorm = (normData: Omit<MaterialNorm, 'id'>) => {
-    if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được thêm định mức vật tư.'); return; }
+  const handleAddNorm = (normData: Omit<MaterialNorm, 'id'>): string | null => {
+    if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được thêm định mức vật tư.'); return null; }
     const newId = createEntityId('NORM');
     const identity = resolveUniqueMaterialIdentity({
       materialId: normData.materialId,
@@ -5276,7 +6011,7 @@ function AuthenticatedApp() {
     });
     if (!normData.materialId && identity.state === 'ambiguous') {
       alert('Không thể xác định duy nhất vật tư theo Tên + ĐVT. Hãy sửa materialId/định mức trùng trước.');
-      return;
+      return null;
     }
     const materialId = normData.materialId || (identity.state === 'resolved' ? identity.materialId : resolveNormMaterialId({ ...normData, id: newId }));
     const candidate = normalizeMaterialNormCandidate({ ...normData, id: newId, materialId } as MaterialNorm, present.workVolumes);
@@ -5284,15 +6019,32 @@ function AuthenticatedApp() {
       .filter((issue) => issue.normIds.includes(newId));
     if (issues.length > 0) {
       alert(issues.map((issue) => issue.message).join('\n'));
-      return;
+      return null;
     }
     updateAppData((prev) => ({ ...prev, materialNorms: [candidate, ...prev.materialNorms] }));
+    return materialId || null;
+  };
+
+  const handleRenameWarehouseUnit = async (input: Omit<WarehouseUnitRenameInput, 'projectId'>) => {
+    if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) {
+      throw new Error('Chỉ ADMIN được đổi ĐVT vật tư/thiết bị.');
+    }
+    if (!FIREBASE_ONLY_RUNTIME) {
+      throw new Error('Đổi ĐVT hàng loạt chỉ hỗ trợ dự án Firebase DEV/Cloud đang online.');
+    }
+    const projectId = activeProjectIdRef.current;
+    if (!projectId) throw new Error('Chưa chọn dự án Cloud.');
+    return renameWarehouseUnitAtomic({ ...input, projectId });
   };
 
   const handleUpdateNorm = (id: string, updated: Omit<MaterialNorm, 'id'>) => {
     if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được sửa định mức vật tư.'); return; }
     const existing = present.materialNorms.find((norm) => norm.id === id);
     if (!existing) return;
+    if (!areSameUnit(existing.unit, updated.unit)) {
+      alert('Đổi ĐVT phải dùng chức năng Đổi đơn vị tại Định mức để đồng bộ toàn bộ phiếu kho; không sửa riêng định mức.');
+      return;
+    }
     const candidate = normalizeMaterialNormCandidate({
       ...existing,
       ...updated,
@@ -5319,6 +6071,25 @@ function AuthenticatedApp() {
     if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được xóa định mức vật tư.'); return; }
     const deleteSet = new Set(ids);
     updateAppData((prev) => ({ ...prev, materialNorms: prev.materialNorms.filter((norm) => !deleteSet.has(norm.id)) }));
+  };
+
+  const handleReorderMaterialNorms = (orderedActiveIds: string[]) => {
+    if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) return;
+    if (orderedActiveIds.length < 2 || new Set(orderedActiveIds).size !== orderedActiveIds.length) return;
+    updateAppData((prev) => {
+      const active = prev.materialNorms.filter(item => item.deletedAt == null);
+      if (active.length !== orderedActiveIds.length
+        || active.some(item => !orderedActiveIds.includes(item.id))) return prev;
+      const ranks = new Map(orderedActiveIds.map((id, index) => [id, index + 1]));
+      let changed = false;
+      const materialNorms = prev.materialNorms.map(item => {
+        const nextOrder = ranks.get(item.id);
+        if (nextOrder === undefined || item.order === nextOrder) return item;
+        changed = true;
+        return { ...item, order: nextOrder };
+      });
+      return changed ? { ...prev, materialNorms } : prev;
+    });
   };
 
   const handleImportNorms = (importedNorms: MaterialNorm[]) => {
@@ -5353,13 +6124,31 @@ function AuthenticatedApp() {
       }
     }
 
-    const issues = validateMaterialNormCatalog(canonical, present.workVolumes);
+    const existingNormsById = new Map<string, MaterialNorm>(present.materialNorms.map((norm: MaterialNorm) => [norm.id, norm] as const));
+    const directUnitChanges = canonical.filter((norm) => {
+      const existing = existingNormsById.get(norm.id);
+      return existing && !areSameUnit(existing.unit, norm.unit);
+    });
+    if (directUnitChanges.length) {
+      alert('Không nhập đè ĐVT qua Excel/Bảng chỉnh nhanh. Hãy đổi ĐVT tại từng vật tư trong Định mức để cập nhật phiếu nhập/xuất và số dư cùng lúc.');
+      return;
+    }
+    // Each importer supplies ONLY intentional upserts (edited/new norm IDs).
+    // Never replace the catalog with a stale Quick Edit/Excel/Template snapshot.
+    let nextCatalog: MaterialNorm[];
+    try {
+      nextCatalog = mergeMaterialNormUpserts(present.materialNorms, canonical);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    const issues = validateMaterialNormCatalog(nextCatalog, present.workVolumes);
     if (issues.length > 0) {
       alert(`Import định mức bị hủy trước khi ghi:\n${issues.map((issue) => `• ${issue.message}`).join('\n')}`);
       return;
     }
-    // One atomic local-state commit; Firebase sync consumes the resulting catalog.
-    updateAppData((prev) => ({ ...prev, materialNorms: canonical }));
+    // Merge again with the latest React state; cloud multi-user CAS is a separate gate.
+    updateAppData((prev) => ({ ...prev, materialNorms: mergeMaterialNormUpserts(prev.materialNorms, canonical) }));
   };
 
   // Handlers for Inventory. Every entry is canonicalized at this ledger boundary;
@@ -5381,6 +6170,30 @@ function AuthenticatedApp() {
       throw new Error(legacyIdentity.state === 'ambiguous'
         ? `Vật tư ${raw.materialName} (${unit}) khớp nhiều materialId; không được first-match.`
         : `Vật tư ${raw.materialName} (${unit}) chưa có materialId/định mức duy nhất.`);
+    }
+
+    // Enforce catalog units at the durable ledger boundary, not just the UI.
+    // Renaming an existing unit is a separate ADMIN-only atomic Cloud operation.
+    if (itemKind === 'material') {
+      const matchingNorms: MaterialNorm[] = present.materialNorms.filter((norm: MaterialNorm) =>
+        (norm.deletedAt === undefined || norm.deletedAt === null)
+        && ((explicitId || legacyIdentity.materialId) === resolveNormMaterialId(norm)
+          || (norm.materialName.trim().toLocaleLowerCase('vi-VN') === raw.materialName.trim().toLocaleLowerCase('vi-VN')
+            && !raw.materialId))
+      );
+      const distinctUnits = Array.from(new Set<string>(matchingNorms.map((norm: MaterialNorm) => normalizeUnit(norm.unit) || norm.unit)));
+      if (distinctUnits.length === 1 && !areSameUnit(distinctUnits[0], unit)) {
+        throw new Error(`ĐVT phiếu kho (${unit}) phải theo Định mức vật tư (${distinctUnits[0]}). Hãy tải lại danh mục.`);
+      }
+    } else {
+      const knownUnits = Array.from(new Set<string>(present.inventory.filter((row: InventoryItem) =>
+        row.itemKind === 'equipment'
+        && row.id !== raw.id
+        && row.materialName.trim().toLocaleLowerCase('vi-VN') === raw.materialName.trim().toLocaleLowerCase('vi-VN')
+      ).map((row: InventoryItem) => normalizeUnit(row.unit) || row.unit)));
+      if (knownUnits.length === 1 && !areSameUnit(knownUnits[0], unit)) {
+        throw new Error(`ĐVT thiết bị (${unit}) phải theo danh mục (${knownUnits[0]}). Hãy đổi tại Danh mục thiết bị.`);
+      }
     }
 
     let normalized: InventoryItem = {
@@ -5451,9 +6264,15 @@ function AuthenticatedApp() {
     if (!isProjectRoleResolved || !canEditWarehouseData(currentUserRole)) throw new Error('Tài khoản không có quyền tạo giao dịch kho.');
     const newId = item.id || createEntityId(item.type === 'in' ? 'NK' : 'XK');
     const normalized = prepareInventoryLedgerItem({ ...item, id: newId } as InventoryItem);
+    if (TRUSTED_WAREHOUSE_DEMO_MODE && normalized.sourceType === 'room-auto') {
+      throw new Error('P21_TRUSTED_ROOM_AUTO_REQUIRES_SERVER_VALIDATED_ROOM_FLOW');
+    }
 
     if (FIREBASE_ONLY_RUNTIME) {
       const existing = present.inventory.find((inv) => inv.id === newId);
+      if (existing && !areSameUnit(existing.unit, normalized.unit)) {
+        throw new Error('Không đổi ĐVT của giao dịch đã tồn tại; hãy đổi qua Danh mục.');
+      }
       if (existing) {
         const next = prepareInventoryLedgerItem({
           ...existing,
@@ -5487,6 +6306,9 @@ function AuthenticatedApp() {
     if (!isProjectRoleResolved || !canEditWarehouseData(currentUserRole)) throw new Error('Tài khoản không có quyền sửa giao dịch kho.');
     const current = present.inventory.find((inv) => inv.id === id);
     if (!current) throw new Error('Không tìm thấy giao dịch kho hiện tại. Hãy chờ đồng bộ rồi thử lại.');
+    if (!areSameUnit(current.unit, item.unit)) {
+      throw new Error('Không sửa ĐVT riêng trên phiếu. Hãy đổi tại Danh mục vật tư/thiết bị để cập nhật toàn bộ lịch sử.');
+    }
     const normalized = prepareInventoryLedgerItem({ ...current, ...item, id });
     if (FIREBASE_ONLY_RUNTIME) {
       await updateWarehouseTransactionAtomic(activeProjectIdRef.current, id, normalized);
@@ -5501,7 +6323,7 @@ function AuthenticatedApp() {
   const handleDeleteInventory = async (id: string) => {
     if (!isProjectRoleResolved || !canDeleteBusinessData(currentUserRole)) throw new Error('Chỉ ADMIN được xóa giao dịch kho.');
     if (FIREBASE_ONLY_RUNTIME) {
-      await softDeleteWarehouseTransactionAtomic(activeProjectIdRef.current, id);
+      await softDeleteWarehouseTransactionAtomic(activeProjectIdRef.current, id, trashSettingsRef.current);
       return;
     }
     updateAppData((prev) => ({ ...prev, inventory: prev.inventory.filter((i) => i.id !== id) }));
@@ -5510,7 +6332,7 @@ function AuthenticatedApp() {
   const handleDeleteMultipleInventory = async (ids: string[]) => {
     if (!isProjectRoleResolved || !canDeleteBusinessData(currentUserRole)) throw new Error('Chỉ ADMIN được xóa giao dịch kho.');
     if (FIREBASE_ONLY_RUNTIME) {
-      for (const id of ids) await softDeleteWarehouseTransactionAtomic(activeProjectIdRef.current, id);
+      for (const id of ids) await softDeleteWarehouseTransactionAtomic(activeProjectIdRef.current, id, trashSettingsRef.current);
       return;
     }
     const deleteSet = new Set(ids);
@@ -5520,11 +6342,23 @@ function AuthenticatedApp() {
   const handleImportInventory = async (importedInventory: InventoryItem[]) => {
     if (!isProjectRoleResolved || !canImportData(currentUserRole)) throw new Error('Chỉ ADMIN được nhập dữ liệu kho hàng loạt.');
     // Preflight the complete batch before the first Firestore/local write.
+    const existingItemsById = new Map<string, InventoryItem>(present.inventory.map((item: InventoryItem) => [item.id, item] as const));
+    const alteredUnit = importedInventory.find((item) => {
+      const existing = existingItemsById.get(item.id);
+      return existing && !areSameUnit(existing.unit, item.unit);
+    });
+    if (alteredUnit) {
+      throw new Error(`Import không được đổi ĐVT riêng trên phiếu ${alteredUnit.id}; hãy đổi tại danh mục để đồng bộ lịch sử.`);
+    }
     const normalizedItems = importedInventory.map((item) => prepareInventoryLedgerItem(item));
     const duplicateIds = normalizedItems.map((item) => item.id).filter((id, index, all) => all.indexOf(id) !== index);
     if (duplicateIds.length > 0) throw new Error(`File import có Mã Phiếu trùng: ${Array.from(new Set(duplicateIds)).join(', ')}`);
 
     if (FIREBASE_ONLY_RUNTIME) {
+      if (TRUSTED_WAREHOUSE_DEMO_MODE) {
+        await trustedImportDemo(activeProjectIdRef.current, normalizedItems, existingItemsById);
+        return;
+      }
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
         throw new Error('Import kho cần online để cập nhật ledger + tồn kho bằng Firestore transaction an toàn.');
       }
@@ -5554,6 +6388,9 @@ function AuthenticatedApp() {
       ...item,
       id: newId,
       workCategoryId: item.workCategoryId || newId,
+      order: Math.max(0, ...present.workVolumes.map(work =>
+        typeof work.order === 'number' && Number.isSafeInteger(work.order) && work.order > 0 ? work.order : 0),
+        present.workVolumes.length) + 1,
       unit: normalizeUnit(item.unit) || item.unit,
       planned: Number.isFinite(Number(item.planned)) ? Math.max(0, Number(item.planned)) : 0,
       // actual/status are derived from Room/Stage progress, never authored in the catalog.
@@ -5592,6 +6429,7 @@ function AuthenticatedApp() {
       id: existing.id,
       // Durable category identity is immutable after creation.
       workCategoryId: canonicalId,
+      order: existing.order,
       unit: normalizeUnit(item.unit) || item.unit,
       planned: Number.isFinite(Number(item.planned)) ? Math.max(0, Number(item.planned)) : 0,
       actual: existing.actual || 0,
@@ -5683,6 +6521,7 @@ function AuthenticatedApp() {
         ...item,
         id: existing?.id || item.id,
         workCategoryId: existing ? canonicalWorkCategoryId(existing) : (item.workCategoryId || item.id),
+        order: existing ? existing.order : item.order,
         unit: normalizeUnit(item.unit) || item.unit,
         planned: Math.max(0, Number(item.planned) || 0),
         actual: existing?.actual || 0,
@@ -5703,6 +6542,21 @@ function AuthenticatedApp() {
       return { ...prev, workVolumes: Array.from(prevById.values()) };
     });
     return true;
+  };
+
+  /**
+   * ADMIN-only reorder. The input is a permutation of all VISIBLE item IDs;
+   * hidden category rows retain their exact positions in the full list.
+   * Assign durable numeric ranks once, so realtime/Firestore cache and multi-
+   * device reload do not fall back to the Firestore document-ID order.
+   */
+  const handleReorderWorkVolumes = (visibleOrderedIds: string[]) => {
+    if (!isProjectRoleResolved || !canManageWorkVolumeStructure(currentUserRole)) return;
+    if (visibleOrderedIds.length < 2 || new Set(visibleOrderedIds).size !== visibleOrderedIds.length) return;
+    updateAppData(prev => {
+      const next = reorderVisibleWorkVolumes(prev.workVolumes, visibleOrderedIds);
+      return next ? { ...prev, workVolumes: next } : prev;
+    });
   };
 
   const handleUpdateActualVolume = (_id: string, _newActual: number) => {
@@ -5814,6 +6668,77 @@ function AuthenticatedApp() {
     }));
   };
 
+  const handleUseExistingFloorPlanAsset = async (targetFloorId: string, sourceFloorId: string): Promise<void> => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) throw new Error('FLOOR_PLAN_ADMIN_REQUIRED');
+    if (!targetFloorId || !sourceFloorId || targetFloorId === sourceFloorId) throw new Error('FLOOR_PLAN_SHARED_SOURCE_INVALID');
+
+    const projectId = activeProjectIdRef.current;
+    const sourcePlan = floorPlans.find((plan) => plan.id === sourceFloorId);
+    const targetPlan = floorPlans.find((plan) => plan.id === targetFloorId);
+    if (!sourcePlan || !targetPlan) throw new Error('FLOOR_PLAN_SHARED_TARGET_NOT_FOUND');
+    if (!isFloorPlanCloudBinaryReady(sourcePlan)) throw new Error('FLOOR_PLAN_SHARED_SOURCE_NOT_CLOUD_READY');
+
+    const cloudRevision = Math.max(0, Number(sourcePlan.imageCloudRevision || sourcePlan.imageRevision || 0));
+    const provider = String(sourcePlan.storageProvider || '').trim();
+    const storagePath = String(sourcePlan.storagePath || '').trim();
+    const driveFileId = String(sourcePlan.driveFileId || '').trim();
+    const canonicalImageUrl = provider && storagePath
+      ? `cloud-floorplan:${provider}:${storagePath}`
+      : driveFileId
+        ? `cloud-floorplan:drive:${projectId}:${driveFileId}`
+        : String(sourcePlan.imageUrl || '');
+
+    if (!canonicalImageUrl) throw new Error('FLOOR_PLAN_SHARED_SOURCE_POINTER_MISSING');
+
+    const now = Date.now();
+    const uploaderUid = getCurrentRealFirebaseUser()?.uid || '';
+    updateAppData((prev) => ({
+      ...prev,
+      floorPlans: prev.floorPlans.map((plan) => plan.id === targetFloorId ? {
+        ...plan,
+        imageUrl: canonicalImageUrl,
+        driveFileId: sourcePlan.driveFileId,
+        driveUrl: sourcePlan.driveUrl,
+        cloudFileId: sourcePlan.cloudFileId,
+        storageProvider: sourcePlan.storageProvider,
+        storagePath: sourcePlan.storagePath,
+        thumbnailPath: sourcePlan.thumbnailPath,
+        storageMd5Hash: sourcePlan.storageMd5Hash,
+        storageEtag: sourcePlan.storageEtag,
+        imageMimeType: sourcePlan.imageMimeType,
+        imageFileSize: sourcePlan.imageFileSize,
+        imageRevision: cloudRevision,
+        imageCloudRevision: cloudRevision,
+        imageCloudSyncedAt: sourcePlan.imageCloudSyncedAt,
+        imageAssetId: sourcePlan.imageAssetId || (provider && storagePath ? `floor-plan-asset:${provider}:${storagePath}` : null),
+        imageAssetOwnerFloorId: sourcePlan.imageAssetOwnerFloorId || sourcePlan.id,
+        imageUploadState: 'ready',
+        imagePendingByUid: null,
+        imageOutboxRevision: cloudRevision,
+        uploadedAt: sourcePlan.uploadedAt || new Date().toISOString().split('T')[0],
+        updatedAt: now,
+        revision: Math.max(Number((plan as any).revision || 0), 0) + 1,
+        updatedByUid: uploaderUid || plan.updatedByUid,
+      } : plan),
+    }));
+  };
+
+  const handleInspectFloorPlanBulkTargets = async (ids: string[]) => {
+    const uniqueIds = Array.from(new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean)));
+    const idSet = new Set(uniqueIds);
+    const targets = floorPlans.filter((plan) => idSet.has(plan.id));
+    if (targets.length !== uniqueIds.length) throw new Error('FLOOR_PLAN_BULK_TARGET_NOT_FOUND');
+    const result = await inspectFloorPlanBulkTargets(activeProjectIdRef.current, targets);
+    appendRuntimeDiagnostic({
+      level: result.blocked.length > 0 ? 'warn' : 'info',
+      area: 'floor-plan-image',
+      projectId: activeProjectIdRef.current,
+      code: 'BULK_PREFLIGHT',
+      message: `selected=${uniqueIds.length}; ready=${result.readyIds.length}; blocked=${result.blocked.length}; legacy=${result.legacySafeIds.length}; cloudVerified=${result.cloudVerifiedIds.length}`,
+    });
+    return result;
+  };
+
   const handleUpdateFloorPlanImages = async (ids: string[], imageUrl: string): Promise<number> => {
     if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) throw new Error('FLOOR_PLAN_ADMIN_REQUIRED');
     const uniqueIds = Array.from(new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean)));
@@ -5859,54 +6784,121 @@ function AuthenticatedApp() {
     return result.applied;
   };
 
+  // Floor ID is authoritative. Legacy name-only data may be changed only when
+  // exactly one physical floor in the project has that name (across ALL Khu/Khối).
+  // Duplicate names fail closed rather than silently touching the other building.
+  const unambiguousLegacyFloorMatch = (plans: FloorPlan[], targetId: string, name: unknown) => {
+    const normalized = String(name || '').trim();
+    const matches = plans.filter((floor) => floor.floorName.trim() === normalized);
+    return Boolean(normalized && matches.length === 1 && matches[0].id === targetId);
+  };
+
   const handleRenameFloorPlan = (id: string, newName: string) => {
     if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     const trimmed = newName.trim();
     if (!trimmed) return;
-    const targetPlan = floorPlans.find((fp) => fp.id === id);
-    const oldName = targetPlan?.floorName;
-    updateAppData((prev) => ({
+    updateAppData((prev) => {
+      const target = prev.floorPlans.find((fp) => fp.id === id);
+      if (!target) return prev;
+      const oldName = target.floorName;
+      const matches = (recordId: unknown, name: unknown) =>
+        String(recordId || '').trim() ? recordId === id : unambiguousLegacyFloorMatch(prev.floorPlans, id, name);
+      const renameNames = (raw: unknown) => String(raw || '').split(/[,;\n]+/).map((name) => name.trim()).filter(Boolean)
+        .map((name) => name === oldName ? trimmed : name).join(', ');
+      return {
+        ...prev,
+        floorPlans: prev.floorPlans.map((fp) => fp.id === id ? { ...fp, floorName: trimmed } : fp),
+        roomProgressList: prev.roomProgressList.map((r) => matches(r.floorId, r.floorName) ? { ...r, floorId: id, floorName: trimmed } : r),
+        defects: prev.defects.map((d) => !d.archivedAt && matches(d.floorId, d.floorName) ? { ...d, floorId: id, floorName: trimmed } : d),
+        checklist: prev.checklist.map((c) => !c.archivedAt && matches(c.floorId, c.floorName) ? { ...c, floorId: id, floorName: trimmed } : c),
+        workVolumes: (prev.workVolumes || []).map((w) => {
+          const ids = Array.from(new Set([...(w.floorIds || []), w.floorId || ''].filter(Boolean)));
+          const linkedById = ids.includes(id);
+          const legacyLinked = ids.length === 0 && String(w.floor || '').split(/[,;\n]+/)
+            .some((name) => unambiguousLegacyFloorMatch(prev.floorPlans, id, name));
+          if (!linkedById && !legacyLinked) return w;
+          // On ID-backed records, derive the label from ALL IDs so the other Khu's
+          // duplicate floor name remains present and never gets overwritten.
+          const nextFloor = ids.length > 0
+            ? ids.map((floorId) => floorId === id ? trimmed : prev.floorPlans.find((fp) => fp.id === floorId)?.floorName)
+              .filter(Boolean).join(', ')
+            : renameNames(w.floor);
+          return { ...w, floor: nextFloor || w.floor };
+        }),
+        crewRecords: (prev.crewRecords || []).map((cr) => {
+          const works = cr.floorWorks || [];
+          const hasLink = matches(cr.floorId, cr.floorName)
+            || works.some((fw) => matches(fw.floorId, fw.floorName));
+          if (!hasLink) return cr;
+          const nextWorks = works.map((fw) => matches(fw.floorId, fw.floorName)
+            ? { ...fw, floorId: id, floorName: trimmed } : fw);
+          const renameParent = matches(cr.floorId, cr.floorName) ||
+            (!cr.floorId && unambiguousLegacyFloorMatch(prev.floorPlans, id, cr.floorName));
+          return {
+            ...cr,
+            floorName: nextWorks.length > 0
+              ? Array.from(new Set(nextWorks.map((fw) => fw.floorName).filter(Boolean))).join(', ')
+              : renameParent ? renameNames(cr.floorName) : cr.floorName,
+            floorWorks: nextWorks,
+          };
+        }),
+      };
+    });
+  };
+
+  const applyFloorDeleteToData = (prev: AppData, deleteIdSet: Set<string>, archivedAt: string): AppData => {
+    const originalPlans = prev.floorPlans;
+    const legacyIsDeleted = (name: unknown) => {
+      const normalized = String(name || '').trim();
+      const matches = originalPlans.filter((fp) => fp.floorName.trim() === normalized);
+      return Boolean(normalized && matches.length === 1 && deleteIdSet.has(matches[0].id));
+    };
+    const linkDeleted = (recordFloorId: unknown, name: unknown) =>
+      String(recordFloorId || '').trim() ? deleteIdSet.has(String(recordFloorId)) : legacyIsDeleted(name);
+    const splitNames = (raw: unknown) => String(raw || '').split(/[,;\n]+/).map((name) => name.trim()).filter(Boolean);
+    const workVolumesAfterFloorDelete = (prev.workVolumes || []).map((w) => {
+      const ids = Array.from(new Set([...(w.floorIds || []), w.floorId || ''].filter(Boolean)));
+      const remainingIds = ids.filter((id) => !deleteIdSet.has(id));
+      const linked = ids.some((id) => deleteIdSet.has(id)) ||
+        (ids.length === 0 && splitNames(w.floor).some(legacyIsDeleted));
+      if (!linked) return w;
+      const nextNames = ids.length > 0
+        ? remainingIds.map((id) => originalPlans.find((fp) => fp.id === id)?.floorName).filter(Boolean)
+        : splitNames(w.floor).filter((name) => !legacyIsDeleted(name));
+      return { ...w, floorIds: remainingIds, floorId: remainingIds[0] || undefined,
+        floor: nextNames.length ? nextNames.join(', ') : 'Chưa gán tầng' };
+    });
+    const crewRecordsAfterFloorDelete = (prev.crewRecords || []).map((record) => {
+      const existingWorks = record.floorWorks || [];
+      const nextWorks = existingWorks.filter((fw) => !linkDeleted(fw.floorId, fw.floorName));
+      const parentDeleted = linkDeleted(record.floorId, record.floorName);
+      if (!parentDeleted && nextWorks.length === existingWorks.length) return record;
+      const nextNames = nextWorks.length > 0
+        ? Array.from(new Set(nextWorks.map((fw) => fw.floorName).filter(Boolean)))
+        : parentDeleted ? [] : record.floorId
+          ? splitNames(record.floorName)
+          : splitNames(record.floorName).filter((name) => !legacyIsDeleted(name));
+      return { ...record,
+        floorId: parentDeleted ? nextWorks.find((fw) => fw.floorId)?.floorId : record.floorId,
+        floorName: nextNames.length ? nextNames.join(', ') : undefined,
+        floorWorks: nextWorks,
+      };
+    });
+    return {
       ...prev,
-      floorPlans: prev.floorPlans.map((fp) => (fp.id === id ? { ...fp, floorName: trimmed } : fp)),
-      roomProgressList: prev.roomProgressList.map((r) => (r.floorId === id || (oldName && r.floorName === oldName) ? { ...r, floorId: id, floorName: trimmed } : r)),
-      defects: prev.defects.map((d) => (!d.archivedAt && (d.floorId === id || (oldName && d.floorName === oldName)) ? { ...d, floorId: id, floorName: trimmed } : d)),
-      checklist: prev.checklist.map((c) => {
-        if (!c.archivedAt && (c.floorId === id || (oldName && c.floorName === oldName))) {
-          return { ...c, floorId: id, floorName: trimmed };
-        }
-        return c;
-      }),
-      workVolumes: (prev.workVolumes || []).map((w) => {
-        const floorNames = String(w.floor || '').split(/[,;\n]+/).map((name) => name.trim()).filter(Boolean);
-        const hasFloorId = w.floorId === id || (w.floorIds || []).includes(id);
-        const hasOldName = Boolean(oldName && floorNames.includes(oldName));
-        if (!hasFloorId && !hasOldName) return w;
-        return {
-          ...w,
-          floorId: w.floorId === id ? id : w.floorId,
-          floor: floorNames.length > 0
-            ? floorNames.map((name) => oldName && name === oldName ? trimmed : name).join(', ')
-            : trimmed,
-        };
-      }),
-      crewRecords: (prev.crewRecords || []).map((cr) => {
-        const floorNames = String(cr.floorName || '').split(/[,;\n]+/).map((name) => name.trim()).filter(Boolean);
-        const hasOldName = Boolean(oldName && floorNames.includes(oldName));
-        const hasNestedFloor = (cr.floorWorks || []).some((fw) => fw.floorId === id || (oldName && fw.floorName === oldName));
-        if (cr.floorId !== id && !hasOldName && !hasNestedFloor) return cr;
-        return {
-          ...cr,
-          floorName: floorNames.length > 0
-            ? floorNames.map((name) => oldName && name === oldName ? trimmed : name).join(', ')
-            : (cr.floorId === id ? trimmed : cr.floorName),
-          floorWorks: (cr.floorWorks || []).map((fw) =>
-            fw.floorId === id || (oldName && fw.floorName === oldName)
-              ? { ...fw, floorId: id, floorName: trimmed }
-              : fw
-          ),
-        };
-      }),
-    }));
+      floorPlans: originalPlans.filter((fp) => !deleteIdSet.has(fp.id)).map((fp, index) => ({ ...fp, order: index })),
+      roomProgressList: prev.roomProgressList.filter((r) => !linkDeleted(r.floorId, r.floorName)),
+      defects: prev.defects.map((d) => !d.archivedAt && linkDeleted(d.floorId, d.floorName)
+        ? { ...d, archivedFloorId: d.floorId || originalPlans.find((fp) => legacyIsDeleted(d.floorName) && fp.floorName === d.floorName)?.id,
+            archivedFloorName: d.floorName, archivedAt, floorId: '', roomId: undefined }
+        : d),
+      checklist: prev.checklist.map((c) => !c.archivedAt && linkDeleted(c.floorId, c.floorName)
+        ? { ...c, archivedFloorId: c.floorId || originalPlans.find((fp) => legacyIsDeleted(c.floorName) && fp.floorName === c.floorName)?.id,
+            archivedFloorName: c.floorName, archivedAt, floorId: undefined, roomId: undefined }
+        : c),
+      workVolumes: workVolumesAfterFloorDelete,
+      crewRecords: crewRecordsAfterFloorDelete,
+    };
   };
 
   const handleDeleteFloorPlan = (id: string) => {
@@ -5916,163 +6908,30 @@ function AuthenticatedApp() {
       return;
     }
     const targetPlan = floorPlans.find((fp) => fp.id === id);
+    if (!targetPlan) return;
     const archivedAt = new Date().toISOString();
-    updateAppData((prev) => {
-      const deletedNames = new Set([targetPlan?.floorName].filter((v): v is string => Boolean(v)));
-      const remaining = prev.floorPlans.filter((fp) => fp.id !== id).map((fp, idx) => ({ ...fp, order: idx }));
-
-      const workVolumesAfterFloorDelete = (prev.workVolumes || []).map((w) => {
-        const nextFloorIds = (w.floorIds || []).filter((floorId) => floorId !== id);
-        const nextFloorNames = String(w.floor || '')
-          .split(/[,;\n]+/)
-          .map((name) => name.trim())
-          .filter(Boolean)
-          .filter((name) => !deletedNames.has(name));
-        const hadDeletedLink = w.floorId === id || (w.floorIds || []).includes(id) || [...deletedNames].some((name) => String(w.floor || '').split(/[,;\n]+/).map(v => v.trim()).includes(name));
-        if (!hadDeletedLink) return w;
-        return {
-          ...w,
-          floorId: w.floorId === id ? (nextFloorIds[0] || undefined) : w.floorId,
-          floorIds: nextFloorIds,
-          floor: nextFloorNames.length > 0 ? nextFloorNames.join(', ') : 'Chưa gán tầng',
-        };
-      });
-
-      const crewRecordsAfterFloorDelete = (prev.crewRecords || []).map((record) => {
-        const nextFloorWorks = (record.floorWorks || []).filter((fw) => fw.floorId !== id && !deletedNames.has(fw.floorName));
-        const nextFloorNames = String(record.floorName || '')
-          .split(/[,;\n]+/)
-          .map((name) => name.trim())
-          .filter(Boolean)
-          .filter((name) => !deletedNames.has(name));
-        const hadDeletedLink = record.floorId === id || (record.floorWorks || []).some((fw) => fw.floorId === id || deletedNames.has(fw.floorName));
-        if (!hadDeletedLink && nextFloorNames.length === String(record.floorName || '').split(/[,;\n]+/).map(v => v.trim()).filter(Boolean).length) return record;
-        return {
-          ...record,
-          floorId: record.floorId === id ? (nextFloorWorks[0]?.floorId || undefined) : record.floorId,
-          floorName: nextFloorNames.length > 0 ? nextFloorNames.join(', ') : undefined,
-          floorWorks: nextFloorWorks,
-        };
-      });
-
-      return {
-        ...prev,
-        floorPlans: remaining,
-        roomProgressList: prev.roomProgressList.filter((r) => r.floorId !== id),
-        // Preserve QA history when deleting a drawing/floor. Detach it from the active
-        // floor so old Defects/Checklist do not count as current work.
-        defects: prev.defects.map((d) =>
-          d.floorId === id || (targetPlan && d.floorName === targetPlan.floorName)
-            ? { ...d, archivedFloorId: id, archivedFloorName: d.floorName || targetPlan?.floorName, archivedAt, floorId: '', roomId: undefined }
-            : d
-        ),
-        checklist: prev.checklist.map((c) =>
-          c.floorId === id || (targetPlan && c.floorName === targetPlan.floorName)
-            ? { ...c, archivedFloorId: id, archivedFloorName: c.floorName || targetPlan?.floorName, archivedAt, floorId: undefined, roomId: undefined }
-            : c
-        ),
-        workVolumes: workVolumesAfterFloorDelete,
-        crewRecords: crewRecordsAfterFloorDelete,
-      };
-    });
-
-    if (targetPlan) {
-      if (trashSettingsRef.current.enabled && floorPlanNeedsCloudUpload(targetPlan)) {
-        // Trash does not duplicate Base64/blob data. Ensure a pending local drawing gets a
-        // recoverable cloud binary before its active floor record disappears.
-        void syncFloorPlanImageToCloud(activeProjectIdRef.current, targetPlan).catch((err) =>
-          console.warn('Trash pre-delete floor-plan upload warning:', err)
-        );
-      } else if (!trashSettingsRef.current.enabled) {
-        void deleteFloorPlanImageFromCloud(activeProjectIdRef.current, targetPlan).catch((err) =>
-          console.warn('Delete floor-plan cloud image warning:', err)
-        );
-      }
+    updateAppData((prev) => prev.floorPlans.length <= 1 ? prev : applyFloorDeleteToData(prev, new Set([id]), archivedAt));
+    if (trashSettingsRef.current.enabled && floorPlanNeedsCloudUpload(targetPlan)) {
+      void syncFloorPlanImageToCloud(activeProjectIdRef.current, targetPlan).catch((err) =>
+        console.warn('Trash pre-delete floor-plan upload warning:', err));
     }
+    // Preserve the Cloud binary; only verified purge can delete media.
   };
 
   const handleDeleteMultipleFloorPlans = (ids: string[]) => {
     if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
-    const requestedIdsOuter = new Set(ids);
-    let cloudPlansToDelete = floorPlans.filter((fp) => requestedIdsOuter.has(fp.id));
-    if (cloudPlansToDelete.length >= floorPlans.length && floorPlans.length > 0) {
-      cloudPlansToDelete = cloudPlansToDelete.filter((fp) => fp.id !== floorPlans[0].id);
-    }
+    const cloudPlansToDelete = floorPlans.filter((fp) => ids.includes(fp.id) && (fp.id !== floorPlans[0]?.id || ids.length < floorPlans.length));
     const archivedAt = new Date().toISOString();
-
     updateAppData((prev) => {
-      const requestedIds = new Set(ids);
-      let idsToReallyDelete = ids;
-      let remainingPlans = prev.floorPlans.filter((fp) => !requestedIds.has(fp.id));
-
-      // Luôn giữ ít nhất một mặt bằng để project không rơi vào trạng thái không hợp lệ.
-      if (remainingPlans.length === 0 && prev.floorPlans.length > 0) {
-        const keepId = prev.floorPlans[0].id;
-        idsToReallyDelete = ids.filter((id) => id !== keepId);
-        remainingPlans = prev.floorPlans.filter((fp) => fp.id === keepId);
-      }
-
-      const deleteIdSet = new Set(idsToReallyDelete);
-      const targetPlans = prev.floorPlans.filter((fp) => deleteIdSet.has(fp.id));
-      const deletedNames = new Set(targetPlans.map((fp) => fp.floorName));
-
-      const workVolumesAfterFloorDelete = (prev.workVolumes || []).map((w) => {
-        const oldFloorIds = w.floorIds || [];
-        const nextFloorIds = oldFloorIds.filter((floorId) => !deleteIdSet.has(floorId));
-        const oldFloorNames = String(w.floor || '').split(/[,;\n]+/).map((name) => name.trim()).filter(Boolean);
-        const nextFloorNames = oldFloorNames.filter((name) => !deletedNames.has(name));
-        const hadDeletedLink = (w.floorId ? deleteIdSet.has(w.floorId) : false) || oldFloorIds.some((floorId) => deleteIdSet.has(floorId)) || oldFloorNames.some((name) => deletedNames.has(name));
-        if (!hadDeletedLink) return w;
-        return {
-          ...w,
-          floorId: w.floorId && deleteIdSet.has(w.floorId) ? (nextFloorIds[0] || undefined) : w.floorId,
-          floorIds: nextFloorIds,
-          floor: nextFloorNames.length > 0 ? nextFloorNames.join(', ') : 'Chưa gán tầng',
-        };
-      });
-
-      const crewRecordsAfterFloorDelete = (prev.crewRecords || []).map((record) => {
-        const oldFloorNames = String(record.floorName || '').split(/[,;\n]+/).map((name) => name.trim()).filter(Boolean);
-        const nextFloorNames = oldFloorNames.filter((name) => !deletedNames.has(name));
-        const nextFloorWorks = (record.floorWorks || []).filter((fw) => !deleteIdSet.has(fw.floorId) && !deletedNames.has(fw.floorName));
-        const hadDeletedLink = (record.floorId ? deleteIdSet.has(record.floorId) : false) || oldFloorNames.some((name) => deletedNames.has(name)) || (record.floorWorks || []).some((fw) => deleteIdSet.has(fw.floorId) || deletedNames.has(fw.floorName));
-        if (!hadDeletedLink) return record;
-        return {
-          ...record,
-          floorId: record.floorId && deleteIdSet.has(record.floorId) ? (nextFloorWorks[0]?.floorId || undefined) : record.floorId,
-          floorName: nextFloorNames.length > 0 ? nextFloorNames.join(', ') : undefined,
-          floorWorks: nextFloorWorks,
-        };
-      });
-
-      return {
-        ...prev,
-        floorPlans: remainingPlans.map((fp, idx) => ({ ...fp, order: idx })),
-        roomProgressList: prev.roomProgressList.filter((r) => !deleteIdSet.has(r.floorId)),
-        defects: prev.defects.map((d) =>
-          deleteIdSet.has(d.floorId) || deletedNames.has(d.floorName)
-            ? { ...d, archivedFloorId: d.floorId || undefined, archivedFloorName: d.floorName, archivedAt, floorId: '', roomId: undefined }
-            : d
-        ),
-        checklist: prev.checklist.map((c) =>
-          deleteIdSet.has(c.floorId || '') || deletedNames.has(c.floorName)
-            ? { ...c, archivedFloorId: c.floorId, archivedFloorName: c.floorName, archivedAt, floorId: undefined, roomId: undefined }
-            : c
-        ),
-        workVolumes: workVolumesAfterFloorDelete,
-        crewRecords: crewRecordsAfterFloorDelete,
-      };
+      const requested = new Set(ids.filter((id) => prev.floorPlans.some((fp) => fp.id === id)));
+      if (requested.size >= prev.floorPlans.length && prev.floorPlans.length > 0) requested.delete(prev.floorPlans[0].id);
+      if (!requested.size) return prev;
+      return applyFloorDeleteToData(prev, requested, archivedAt);
     });
-
     cloudPlansToDelete.forEach((plan) => {
       if (trashSettingsRef.current.enabled && floorPlanNeedsCloudUpload(plan)) {
         void syncFloorPlanImageToCloud(activeProjectIdRef.current, plan).catch((err) =>
-          console.warn('Trash pre-delete floor-plan upload warning:', err)
-        );
-      } else if (!trashSettingsRef.current.enabled) {
-        void deleteFloorPlanImageFromCloud(activeProjectIdRef.current, plan).catch((err) =>
-          console.warn('Delete floor-plan cloud image warning:', err)
-        );
+          console.warn('Trash pre-delete floor-plan upload warning:', err));
       }
     });
   };
@@ -6091,26 +6950,52 @@ function AuthenticatedApp() {
         ? resolveFloorStructureGroupId(sourcePlan, normalizedStructure)
         : sourcePlan.structureGroupId;
 
+      const sourceCloudReady = isFloorPlanCloudBinaryReady(sourcePlan);
+      const sourceImageUrl = String(sourcePlan.imageUrl || '');
+      const sourceHasLocalBinary = sourceImageUrl.startsWith('data:image/') || sourceImageUrl.startsWith('blob:');
+      const sourceCloudRevision = Math.max(0, Number(sourcePlan.imageCloudRevision || 0));
+      const sourceProvider = String(sourcePlan.storageProvider || '').trim();
+      const sourceStoragePath = String(sourcePlan.storagePath || '').trim();
+      const sharedAssetId = sourceCloudReady
+        ? (sourcePlan.imageAssetId || (sourceProvider && sourceStoragePath ? `floor-plan-asset:${sourceProvider}:${sourceStoragePath}` : null))
+        : null;
+      const sharedAssetOwnerFloorId = sourceCloudReady
+        ? (sourcePlan.imageAssetOwnerFloorId || sourcePlan.id)
+        : null;
+
       const newPlan: FloorPlan = {
         ...sourcePlan,
         id: newId,
         floorName: newFloorName,
         ...(duplicateStructureGroupId ? { structureGroupId: duplicateStructureGroupId } : {}),
         uploadedAt: new Date().toISOString().split('T')[0],
-        // The copied Base64/blob URL may be reused locally, but cloud identifiers belong
-        // to the source floor and must never be reused under a new floorId. Reset cloud
-        // metadata so the normal image-sync effect uploads a fresh file for the clone.
-        driveFileId: undefined,
-        driveUrl: undefined,
-        cloudFileId: undefined,
-        storageProvider: undefined,
-        imageCloudRevision: 0,
-        imageCloudSyncedAt: undefined,
-        imageAssetId: null,
-        imageAssetOwnerFloorId: null,
-        imageRevision: now,
+        // A cloud-ready immutable drawing is safe to share between duplicated floors.
+        // This is the same pointer model used by bulk apply: no duplicate upload, no
+        // fake pending revision, and every floor still keeps its own business data.
+        imageUrl: sourceCloudReady || sourceHasLocalBinary ? sourcePlan.imageUrl : '',
+        driveFileId: sourceCloudReady ? sourcePlan.driveFileId : undefined,
+        driveUrl: sourceCloudReady ? sourcePlan.driveUrl : undefined,
+        cloudFileId: sourceCloudReady ? sourcePlan.cloudFileId : undefined,
+        storageProvider: sourceCloudReady ? sourcePlan.storageProvider : undefined,
+        storagePath: sourceCloudReady ? sourcePlan.storagePath : undefined,
+        thumbnailPath: sourceCloudReady ? sourcePlan.thumbnailPath : undefined,
+        storageMd5Hash: sourceCloudReady ? sourcePlan.storageMd5Hash : undefined,
+        storageEtag: sourceCloudReady ? sourcePlan.storageEtag : undefined,
+        imageFileSize: sourceCloudReady ? sourcePlan.imageFileSize : (sourceHasLocalBinary ? sourcePlan.imageFileSize : undefined),
+        imageCloudRevision: sourceCloudReady ? sourceCloudRevision : 0,
+        imageCloudSyncedAt: sourceCloudReady ? sourcePlan.imageCloudSyncedAt : undefined,
+        imageAssetId: sharedAssetId,
+        imageAssetOwnerFloorId: sharedAssetOwnerFloorId,
+        imageRevision: sourceCloudReady ? sourceCloudRevision : now,
         updatedAt: now,
       };
+      // Upload-state markers are persisted runtime metadata but are intentionally not
+      // part of the public FloorPlan business type. Set them explicitly without
+      // widening the schema/type surface.
+      const newPlanRuntime = newPlan as FloorPlan & Record<string, any>;
+      newPlanRuntime.imageUploadState = sourceCloudReady ? 'ready' : undefined;
+      newPlanRuntime.imagePendingByUid = null;
+      newPlanRuntime.imageOutboxRevision = sourceCloudReady ? sourceCloudRevision : undefined;
 
       // Safe duplicate: copy geometry, categories, quantities and assignments, but
       // reset all actual construction / inspection results. A new floor must never
@@ -6271,9 +7156,8 @@ function AuthenticatedApp() {
       ...prev,
       defects: prev.defects.filter((d) => d.id !== id),
     }));
-    if (!trashSettingsRef.current.enabled) {
-      void deleteEntityPhotos(activeProjectIdRef.current, 'defect', id).catch(() => {});
-    }
+    // Do not tombstone photo metadata before the Defect deletion is confirmed
+    // on Firestore. Photos stay available for forensic recovery even with Trash OFF.
   };
 
   const handleDeleteMultipleDefects = (ids: string[]) => {
@@ -6282,9 +7166,7 @@ function AuthenticatedApp() {
       ...prev,
       defects: prev.defects.filter((d) => !ids.includes(d.id)),
     }));
-    if (!trashSettingsRef.current.enabled) {
-      ids.forEach((id) => void deleteEntityPhotos(activeProjectIdRef.current, 'defect', id).catch(() => {}));
-    }
+    // Multiple Defect deletes follow the same fail-closed photo-retention policy.
   };
 
   // Handlers for Room Progress / Acceptance
@@ -6342,6 +7224,60 @@ function AuthenticatedApp() {
           : { ...applyEditorRoomOperationalUpdate(r, updated), updatedAt };
       }),
     }));
+  };
+
+  const handleApplyRoomExcelImport = (rooms: RoomProgressItem[], deleteIds: string[]) => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
+    if (!rooms || rooms.length === 0) return;
+    const updatedAt = Date.now();
+    updateAppData((prev) => {
+      const deleteSet = new Set<string>(deleteIds || []);
+      const incomingById = new Map<string, RoomProgressItem>(rooms.map((room) => [room.id, room] as const));
+      const deletedRoomNameById = new Map<string, string>(
+        prev.roomProgressList
+          .filter((room) => deleteSet.has(room.id))
+          .map((room) => [room.id, room.roomName] as const)
+      );
+      const retained = prev.roomProgressList
+        .filter((room) => !deleteSet.has(room.id))
+        .map((room) => {
+          const incoming = incomingById.get(room.id);
+          if (!incoming) return room;
+          return {
+            ...room,
+            ...incoming,
+            id: room.id,
+            createdAt: room.createdAt || incoming.createdAt || updatedAt,
+            updatedAt,
+          };
+        });
+      const retainedIds = new Set<string>(retained.map((room) => room.id));
+      const additions = rooms
+        .filter((room) => room.id && !retainedIds.has(room.id) && !deleteSet.has(room.id))
+        .map((room) => ({
+          ...room,
+          createdAt: room.createdAt || updatedAt,
+          updatedAt,
+        }));
+      return {
+        ...prev,
+        roomProgressList: [...additions, ...retained],
+        defects: prev.defects.map((defect) => defect.roomId && deleteSet.has(defect.roomId)
+          ? {
+              ...defect,
+              roomId: undefined,
+              positionDetail: defect.positionDetail || `Căn / Phòng đã xóa: ${deletedRoomNameById.get(defect.roomId) || defect.roomId}`,
+            }
+          : defect),
+        checklist: prev.checklist.map((item) => item.roomId && deleteSet.has(item.roomId)
+          ? {
+              ...item,
+              roomId: undefined,
+              notes: item.notes || `Căn / Phòng đã xóa: ${deletedRoomNameById.get(item.roomId) || item.roomId}`,
+            }
+          : item),
+      };
+    });
   };
 
   const handleCreateMultipleRoomProgress = (rooms: RoomProgressItem[]) => {
@@ -6538,10 +7474,17 @@ function AuthenticatedApp() {
 
   const handleCopyCrewRecordsFromDate = (sourceDate: string, targetDate: string) => {
     if (!isProjectRoleResolved || !canEditCrewData(currentUserRole)) { console.warn('[RBAC] Tài khoản không có quyền sao chép nhật ký quân số.'); return; }
+    if (!sourceDate || !targetDate || sourceDate === targetDate) return;
     const actorUid = getCurrentRealFirebaseUser()?.uid || '';
+    const targetRecords = crewRecords.filter((record) => record.date === targetDate);
+    if (targetRecords.some((record) => !canDeleteCrewRecord(currentUserRole, actorUid, record.createdByUid))) {
+      alert('Không thể sao chép đè toàn ngày: có nhật ký của người khác hoặc bản ghi không đủ quyền xóa. Liên hệ ADMIN.');
+      return;
+    }
     const clonedAt = Date.now();
     updateAppData((prev) => {
       const sourceRecords = prev.crewRecords.filter((r) => r.date === sourceDate);
+      if (!sourceRecords.length || prev.crewRecords.some((r) => r.date === targetDate && !canDeleteCrewRecord(currentUserRole, actorUid, r.createdByUid))) return prev;
       const keptRecords = prev.crewRecords.filter((r) => r.date !== targetDate);
       const cloned = sourceRecords.map((r) => ({
         ...r,
@@ -6559,8 +7502,14 @@ function AuthenticatedApp() {
     });
   };
 
-  const floorNames = Array.from(new Set(floorPlans.map((fp) => fp.floorName)));
-  const unhandledDefectsCount = activeDefects.filter((d) => d.status !== 'Đã nghiệm thu').length;
+  const floorNames = useMemo(
+    () => Array.from(new Set(floorPlans.map((fp) => fp.floorName))),
+    [floorPlans],
+  );
+  const unhandledDefectsCount = useMemo(
+    () => activeDefects.reduce((count, defect) => count + (defect.status !== 'Đã nghiệm thu' ? 1 : 0), 0),
+    [activeDefects],
+  );
 
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
   const [floatingAlertsEnabled, setFloatingAlertsEnabled] = useState(true);
@@ -6697,11 +7646,12 @@ function AuthenticatedApp() {
     return collectDueDateAlerts(workVolumes, checklist, activeDefects);
   }, [workVolumes, checklist, activeDefects]);
 
-  const handleNavigateFromAlert = (alertItem: DueDateAlertItem) => {
+  const handleNavigateFromAlert = (alertItem: DueDateAlertItem, fromNotificationCenter = false) => {
+    const kind: ContextReturnKind = fromNotificationCenter ? 'notifications' : 'tab';
     if (alertItem.type === 'workVolume') {
-      setActiveTab('volume');
+      navigateFromLink('volume', kind);
     } else if (alertItem.type === 'checklist') {
-      setActiveTab('checklist');
+      navigateFromLink('checklist', kind);
     } else if (alertItem.type === 'defect') {
       const defect = alertItem.originalItem as DefectItem;
       const navigationRequest = {
@@ -6722,13 +7672,35 @@ function AuthenticatedApp() {
         code: 'REQUEST',
         message: `request defect=${defect.id} floor=${defect.floorId || ''} x=${Number(defect.x || 0)} y=${Number(defect.y || 0)}`,
       });
-      setActiveTab('floorplan');
+      navigateFromLink('floorplan', kind);
       // sessionStorage covers the not-yet-mounted FloorPlan tab. The event covers the
       // important case where the user is ALREADY on Mặt bằng: setActiveTab('floorplan')
       // does not remount the component, so storage-only navigation previously did nothing.
       window.setTimeout(() => {
         window.dispatchEvent(new CustomEvent('qlct-defect-navigation-request', { detail: navigationRequest }));
       }, 50);
+    }
+  };
+
+  const handleContextReturn = () => {
+    const frame = contextReturnFrames[contextReturnFrames.length - 1];
+    if (!frame) return;
+    setContextReturnFrames((previous) => previous.slice(0, -1));
+    if (frame.projectId !== activeProjectId) return;
+    try {
+      const storageKey = frame.kind === 'crew-detail' ? 'qlct_crew_detail_return_v1'
+        : frame.kind === 'volume-detail' ? 'qlct_volume_detail_return_v1' : '';
+      if (storageKey) {
+        const saved = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
+        if (saved?.projectId === activeProjectId) sessionStorage.setItem(storageKey, JSON.stringify({ ...saved, restore: true }));
+      }
+      if (frame.kind === 'health-center') sessionStorage.setItem('qlct_health_center_reopen_v1', activeProjectId);
+    } catch (_) {}
+    // Return without creating another history frame, preserving a prior step for multi-hop links.
+    navigateToTab(frame.tab, true);
+    if (frame.kind === 'notifications') setIsNotificationCenterOpen(true);
+    if (frame.kind === 'health-center') {
+      window.setTimeout(() => window.dispatchEvent(new Event('qlct-health-center-return')), 60);
     }
   };
 
@@ -6739,9 +7711,10 @@ function AuthenticatedApp() {
   const hasExcelExport = ['warehouse', 'volume', 'floorplan', 'checklist', 'crew'].includes(activeTab);
 
   return (
-    <div className={`min-h-screen bg-slate-100 text-slate-900 font-sans selection:bg-blue-200 ${isDesktopRuntime ? 'pl-[84px]' : 'lg:pl-[84px]'}`}>
+    <div data-hnl-desktop-design={visibleTab !== 'home' ? desktopWorkspaceMode : 'classic'} data-hnl-pc-home-modern={visibleTab === 'home' && desktopWorkspaceMode === 'modern' ? 'true' : 'false'} data-hnl-desktop-native={isDesktopRuntime ? 'true' : 'false'} className={`min-h-screen bg-slate-100 text-slate-900 font-sans selection:bg-blue-200 ${isDesktopRuntime || chromeDesktopSite ? 'pl-[84px]' : 'lg:pl-[84px]'}`}>
       {/* Mobile & Responsive Shell Frame */}
       <div
+        data-hnl-app-shell="true"
         className={`w-full max-w-lg md:max-w-3xl lg:max-w-none mx-auto bg-slate-50 min-h-screen shadow-2xl relative border-x border-slate-200 overflow-x-hidden ${isSoftKeyboardOpen ? 'pb-0' : 'pb-[calc(5rem+env(safe-area-inset-bottom))] lg:pb-4'}`}
       >
         {/* Sticky Top Header */}
@@ -6822,61 +7795,122 @@ function AuthenticatedApp() {
           }}
         />
 
-        <ProjectManagerModal 
-          isOpen={isProjectManagerOpen} 
-          onClose={() => setIsProjectManagerOpen(false)} 
-          activeProjectId={activeProjectId}
-          initialTab={projectManagerInitialTab}
-          userRole={currentUserRole}
-          autoSyncEnabled={autoSyncEnabled}
-          setAutoSyncEnabled={setAutoSyncEnabled}
-          onDriveSyncUpAll={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleDriveSyncUpAll : undefined}
-          onDriveSyncDownAll={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleDriveSyncDownAll : undefined}
-          localAllSyncStatus={localAllSyncStatus}
-          localAllFileName={localAllFileName}
-          localAllFileHandle={localAllFileHandle}
-          onLinkLocalAllFile={handleLinkLocalAllFile}
-          onUnlinkLocalAllFile={handleUnlinkLocalAllFile}
-          onRequestLocalAllFilePermission={handleRequestLocalAllFilePermission}
-          autosaveVersions={autosaveVersions}
-          onRestoreAutoSaveVersion={handleRestoreAutoSaveVersion}
-          onCreateManualBackup={handleCreateManualBackup}
-          onDeleteAutoSaveVersion={handleDeleteAutoSaveVersion}
-          fullAppData={{
-            projectName,
-            contractorName,
-            inspectorName,
-            projectLocation,
-            materialNorms,
-            inventory,
-            workVolumes,
-            floorPlans,
-            defects,
-            roomProgressList,
-            checklist,
-            crewRecords,
-            teams,
-            updatedAt: lastUpdatedAt,
-          }}
-          onRestoreData={handleRestoreData}
-          onSwitchProject={switchProject}
-          onFlushCurrentProject={async () => await saveCurrentProject(activeProjectId)}
-          dataCloudStatus={dataCloudStatus}
-          photoCloudStatus={photoCloudStatus}
-        />
+        {isProjectManagerOpen && (
+          <ProjectManagerModal 
+            isOpen={true} 
+            onClose={() => setIsProjectManagerOpen(false)} 
+            activeProjectId={activeProjectId}
+            initialTab={projectManagerInitialTab}
+            userRole={currentUserRole}
+            autoSyncEnabled={autoSyncEnabled}
+            setAutoSyncEnabled={setAutoSyncEnabled}
+            onDriveSyncUpAll={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleDriveSyncUpAll : undefined}
+            onDriveSyncDownAll={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleDriveSyncDownAll : undefined}
+            localAllSyncStatus={localAllSyncStatus}
+            localAllFileName={localAllFileName}
+            localAllFileHandle={localAllFileHandle}
+            onLinkLocalAllFile={handleLinkLocalAllFile}
+            onUnlinkLocalAllFile={handleUnlinkLocalAllFile}
+            onRequestLocalAllFilePermission={handleRequestLocalAllFilePermission}
+            autosaveVersions={autosaveVersions}
+            onRestoreAutoSaveVersion={handleRestoreAutoSaveVersion}
+            onCreateManualBackup={handleCreateManualBackup}
+            onDeleteAutoSaveVersion={handleDeleteAutoSaveVersion}
+            fullAppData={{
+              projectName,
+              contractorName,
+              inspectorName,
+              projectLocation,
+              materialNorms,
+              inventory,
+              workVolumes,
+              floorPlans,
+              defects,
+              roomProgressList,
+              checklist,
+              crewRecords,
+              teams,
+              updatedAt: lastUpdatedAt,
+            }}
+            onRestoreData={handleRestoreData}
+            onSwitchProject={switchProject}
+            onFlushCurrentProject={async () => await saveCurrentProject(activeProjectId)}
+            dataCloudStatus={dataCloudStatus}
+            photoCloudStatus={photoCloudStatus}
+          />
+        )}
 
         {/* Offline & Sync Status Banner */}
         <OfflineSyncBanner onAutoSync={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleSyncAll : undefined} isSyncing={isSyncing} userRole={currentUserRole} roleResolved={isProjectRoleResolved} roleSource={projectRoleSource} firestorePendingWriteCount={firestorePendingWriteCount} firebaseOnly={FIREBASE_ONLY_RUNTIME} verifiedSnapshotFallback={businessDataSource === 'verified-offline-snapshot'} />
 
+        {/* Contextual return is shown only after following a link, never on primary-tab navigation. */}
+        {contextReturnFrames.length > 0 && contextReturnFrames[contextReturnFrames.length - 1].projectId === activeProjectId && (
+          <div className="sticky top-0 z-[65] border-b border-indigo-100 bg-slate-50/95 px-4 py-2 shadow-sm backdrop-blur-sm" data-hnl-cross-module-return="true">
+            <ContextBackButton
+              label={contextReturnFrames[contextReturnFrames.length - 1].kind === 'notifications'
+                ? 'Trung tâm thông báo'
+                : contextReturnFrames[contextReturnFrames.length - 1].kind === 'health-center'
+                  ? 'Trung tâm kiểm tra dữ liệu'
+                  : contextReturnFrames[contextReturnFrames.length - 1].kind === 'crew-detail' ? 'Thống kê Quân số'
+                  : contextReturnFrames[contextReturnFrames.length - 1].kind === 'volume-detail' ? 'Chi tiết khối lượng'
+                    : CONTEXT_TAB_LABEL[contextReturnFrames[contextReturnFrames.length - 1].tab]}
+              onClick={handleContextReturn}
+            />
+          </div>
+        )}
+
+        {/* Shared PC workspace: presentation only; all actions call existing App handlers. */}
+        <DesktopWorkspaceHeader
+          activeTab={visibleTab}
+          mode={desktopWorkspaceMode}
+          onChangeMode={updateDesktopWorkspaceMode}
+          projectName={projectName}
+          online={isOnline}
+          userRole={currentUserRole}
+          onOpenProjects={() => handleOpenProjectManager('projects')}
+          onOpenReports={() => setIsExportPdfOpen(true)}
+          onOpenNotifications={() => setIsNotificationCenterOpen(true)}
+          onOpenSecurity={() => setIsSecurityModalOpen(true)}
+          onNavigate={(tab) => navigateToTab(tab)}
+          showChecklist={showChecklistModule}
+          showAI={HNL_AI_ENABLED}
+          showSuperAdmin={isCurrentSuperAdmin}
+          notificationCount={dueDateAlerts.length}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          canUndo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && past.length > 0}
+          canRedo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && future.length > 0}
+        />
+
         {/* Tab Content */}
-        <main className="animate-in fade-in duration-150">
-          <React.Suspense fallback={<div className="p-8 text-center text-sm text-slate-500"><RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />Đang tải mục...</div>}>
-          {activeTab === 'home' && (
+        <main
+          data-hnl-pc-workspace={visibleTab !== 'home' ? 'true' : 'false'}
+          className="animate-in fade-in duration-150"
+          data-hnl-active-tab={navigationTargetTab || activeTab}
+          data-hnl-mounted-tab={activeTab}
+          data-hnl-navigation-target={navigationTargetTab || activeTab}
+          data-hnl-mobile-runtime={isMobileRuntime ? 'true' : 'false'}
+        >
+          {navigationTargetTab && navigationTargetTab !== activeTab && !mountedPrimaryTabs.includes(navigationTargetTab) && (
+            <div className="min-h-[180px] p-8 text-center text-sm text-slate-500" data-hnl-tab-switching="true">
+              <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />
+              Đang tải mục...
+            </div>
+          )}
+          <React.Suspense fallback={<div className="min-h-[180px] p-8 text-center text-sm text-slate-500" data-hnl-tab-switching="true"><RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />Đang tải mục...</div>}>
+          {((isMobileRuntime ? activeTab === 'home' : mountedPrimaryTabs.includes('home') || activeTab === 'home')) && (
+            <div
+              key="home"
+              data-hnl-tab-instance="home"
+              data-hnl-tab-visible={visibleTab === 'home' ? 'true' : 'false'}
+              style={{ display: visibleTab === 'home' ? 'contents' : 'none' }}
+            >
             <HomeDashboard
               projects={authorizedChatProjects}
               activeProjectId={activeProjectId}
               activeProjectName={projectName}
               activeProjectLocation={projectLocation}
+              activeContractorName={contractorName}
               currentRole={currentUserRole}
               defectOpenCount={unhandledDefectsCount}
               dueAlertCount={dueDateAlerts.length}
@@ -6891,17 +7925,31 @@ function AuthenticatedApp() {
               onStartupProjectChange={handleStartupProjectChange}
               onOpenProject={async (projectId) => {
                 await switchProject(projectId);
-                setActiveTab('floorplan');
+                navigateToTab('floorplan');
               }}
               onManageProjects={() => handleOpenProjectManager('projects')}
               onOpenNotifications={() => setIsNotificationCenterOpen(true)}
-              onOpenCrew={() => setActiveTab('crew')}
-              onOpenFloorPlan={() => setActiveTab('floorplan')}
+              onOpenCrew={() => navigateFromLink('crew')}
+              onOpenFloorPlan={() => navigateFromLink('floorplan')}
             />
+            </div>
           )}
 
-          {activeTab === 'warehouse' && (
+          {((isMobileRuntime ? activeTab === 'warehouse' : mountedPrimaryTabs.includes('warehouse') || activeTab === 'warehouse')) && (
+            <div
+              key="warehouse"
+              data-hnl-tab-instance="warehouse"
+              data-hnl-tab-visible={visibleTab === 'warehouse' ? 'true' : 'false'}
+              style={{ display: visibleTab === 'warehouse' ? 'contents' : 'none' }}
+            >
             <WarehouseTab
+              isActive={visibleTab === 'warehouse'}
+              quickEditEnabled={allowPcQuickEdit}
+              currentProjectId={activeProjectId}
+              orderSync={warehouseOrderSync}
+              projectName={projectName}
+              projectLocation={projectLocation}
+              contractorName={contractorName}
               inventory={inventory}
               userRole={currentUserRole}
               roleResolved={isProjectRoleResolved}
@@ -6911,7 +7959,13 @@ function AuthenticatedApp() {
               onDeleteMultipleInventory={handleDeleteMultipleInventory}
               onSyncSheets={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleSyncAll : undefined}
               materialNorms={computedMaterialNorms}
-              onOpenNormModal={() => setIsMaterialNormOpen(true)}
+              returnToCatalogToken={warehouseCatalogReturnToken}
+              onOpenNormModal={(tab = 'material', target, fromWarehouseCatalog = false) => {
+                setMaterialNormFromWarehouseCatalog(fromWarehouseCatalog);
+                setMaterialNormInitialTab(tab);
+                setMaterialNormInitialTarget(target);
+                setIsMaterialNormOpen(true);
+              }}
               onOpenExportPdf={() => setIsExportPdfOpen(true)}
               onExportExcel={handleExportExcel}
               onUndo={handleUndo}
@@ -6926,39 +7980,76 @@ function AuthenticatedApp() {
               defaultHandler={inspectorName}
               onImportInventory={handleImportInventory}
               onImportNorms={handleImportNorms}
+              onRenameWarehouseUnit={handleRenameWarehouseUnit}
+              onCreateMaterialCatalog={({ materialName, unit, category }) => handleAddNorm({
+                materialName,
+                unit,
+                category,
+                quotaQuantity: 0,
+                unitNormPerM2: 0,
+                workCategories: [],
+                workCategoryIds: [],
+                notes: 'Tạo từ Nhập/Xuất kho; chưa khai báo định mức hao phí.',
+              })}
               onImportWorkVolumes={handleImportWorkVolumes}
             />
+            </div>
           )}
 
-          {activeTab === 'volume' && (
+          {((isMobileRuntime ? activeTab === 'volume' : mountedPrimaryTabs.includes('volume') || activeTab === 'volume')) && (
+            <div
+              key="volume"
+              data-hnl-tab-instance="volume"
+              data-hnl-tab-visible={visibleTab === 'volume' ? 'true' : 'false'}
+              style={{ display: visibleTab === 'volume' ? 'contents' : 'none' }}
+            >
             <WorkVolumeTab
+              isActive={visibleTab === 'volume'}
+              quickEditEnabled={allowPcQuickEdit}
               workVolumes={computedWorkVolumes}
               floorPlans={floorPlans}
               roomProgressList={roomProgressList}
               structureConfig={structureConfig}
               projectName={projectName}
+              currentProjectId={activeProjectId}
               userRole={currentUserRole}
               onAddWorkVolume={handleAddWorkVolume}
               onSaveWorkVolume={handleSaveWorkVolume}
               onImportWorkVolumes={handleImportWorkVolumes}
+              onReorderWorkVolumes={handleReorderWorkVolumes}
               onUpdateActualVolume={handleUpdateActualVolume}
               onDeleteWorkVolume={handleDeleteWorkVolume}
               onDeleteMultipleWorkVolumes={handleDeleteMultipleWorkVolumes}
               onOpenExportPdf={() => setIsExportPdfOpen(true)}
+              onOpenRoomFromDetail={(roomId, floorId) => {
+                const request = { entityType: 'room', contextReturn: 'volume-detail',
+                  projectId: activeProjectId, entityId: roomId, roomId, floorId };
+                try { sessionStorage.setItem('qlct_diagnostic_navigation_request', JSON.stringify(request)); } catch (_) {}
+                navigateFromLink('floorplan', 'volume-detail');
+                window.setTimeout(() => window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity', { detail: request })), 50);
+              }}
               onExportExcel={handleExportExcel}
               onUndo={handleUndo}
               onRedo={handleRedo}
               canUndo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && past.length > 0}
               canRedo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && future.length > 0}
             />
+            </div>
           )}
 
-          {activeTab === 'floorplan' && (
+          {((isMobileRuntime ? activeTab === 'floorplan' : mountedPrimaryTabs.includes('floorplan') || activeTab === 'floorplan')) && (
+            <div
+              key="floorplan"
+              data-hnl-tab-instance="floorplan"
+              data-hnl-tab-visible={visibleTab === 'floorplan' ? 'true' : 'false'}
+              style={{ display: visibleTab === 'floorplan' ? 'contents' : 'none' }}
+            >
             <FloorPlanDefectTab
               projectId={activeProjectId}
               floorPlans={floorPlans}
               structureConfig={structureConfig}
               onStructureConfigChange={handleStructureConfigChange}
+              onDeleteStructureGroup={handleDeleteEmptyStructureGroup}
               defects={activeDefects}
               roomProgressList={roomProgressList}
               checklistItems={activeChecklist}
@@ -6968,12 +8059,22 @@ function AuthenticatedApp() {
               workVolumes={computedWorkVolumes}
               userRole={currentUserRole}
               roleResolved={isProjectRoleResolved}
+              isActive={visibleTab === 'floorplan'}
+              contextReturnLabel={contextReturnFrames.length > 0 && contextReturnFrames[contextReturnFrames.length - 1].projectId === activeProjectId
+                ? contextReturnFrames[contextReturnFrames.length - 1].kind === 'crew-detail' ? 'Thống kê đội'
+                  : contextReturnFrames[contextReturnFrames.length - 1].kind === 'health-center' ? 'Kiểm tra dữ liệu & liên kết'
+                  : contextReturnFrames[contextReturnFrames.length - 1].kind === 'volume-detail' ? 'Chi tiết khối lượng'
+                  : 'màn hình trước' : undefined}
+              onContextReturn={contextReturnFrames.length > 0 && contextReturnFrames[contextReturnFrames.length - 1].projectId === activeProjectId ? handleContextReturn : undefined}
+              quickEditEnabled={allowPcQuickEdit}
               inspectorName={inspectorName}
               onAddInventory={handleAddInventory}
               onAddFloorPlan={handleAddFloorPlan}
               onUpdateFloorPlan={handleUpdateFloorPlan}
               onUpdateFloorPlanImage={handleUpdateFloorPlanImage}
               onUpdateFloorPlanImages={handleUpdateFloorPlanImages}
+              onUseExistingFloorPlanAsset={handleUseExistingFloorPlanAsset}
+              onInspectFloorPlanBulkTargets={handleInspectFloorPlanBulkTargets}
               onRenameFloorPlan={handleRenameFloorPlan}
               onDeleteFloorPlan={handleDeleteFloorPlan}
               onDeleteMultipleFloorPlans={handleDeleteMultipleFloorPlans}
@@ -6986,6 +8087,7 @@ function AuthenticatedApp() {
               onDeleteMultipleDefects={handleDeleteMultipleDefects}
               onSaveRoomProgress={handleSaveRoomProgress}
               onBatchSaveRooms={handleBatchSaveRooms}
+              onApplyRoomExcelImport={handleApplyRoomExcelImport}
               onCreateMultipleRoomProgress={handleCreateMultipleRoomProgress}
               onDeleteRoomProgress={handleDeleteRoomProgress}
               onDeleteMultipleRoomProgress={handleDeleteMultipleRoomProgress}
@@ -7000,9 +8102,10 @@ function AuthenticatedApp() {
               canUndo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && past.length > 0}
               canRedo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && future.length > 0}
             />
+            </div>
           )}
 
-          {activeTab === 'checklist' && (
+          {visibleTab === 'checklist' && activeTab === 'checklist' && (
             <ChecklistTab
               checklist={activeChecklist}
               userRole={currentUserRole}
@@ -7025,14 +8128,23 @@ function AuthenticatedApp() {
             />
           )}
 
-          {activeTab === 'crew' && (
+          {((isMobileRuntime ? activeTab === 'crew' : mountedPrimaryTabs.includes('crew') || activeTab === 'crew')) && (
+            <div
+              key="crew"
+              data-hnl-tab-instance="crew"
+              data-hnl-tab-visible={visibleTab === 'crew' ? 'true' : 'false'}
+              style={{ display: visibleTab === 'crew' ? 'contents' : 'none' }}
+            >
             <CrewTab
+              isActive={visibleTab === 'crew'}
+              quickEditEnabled={allowPcQuickEdit}
               projectId={activeProjectId}
               userRole={currentUserRole}
               roleResolved={isProjectRoleResolved}
               currentUserUid={getCurrentRealFirebaseUser()?.uid || ''}
               projectName={projectName}
               projectLocation={projectLocation}
+              contractorName={contractorName}
               crewRecords={crewRecords}
               floorPlans={floorPlans}
               structureConfig={structureConfig}
@@ -7049,25 +8161,42 @@ function AuthenticatedApp() {
               onOpenExportPdf={() => setIsExportPdfOpen(true)}
               onExportExcel={handleExportExcel}
               teams={teams}
-              onUpdateTeams={(newTeams) => {
+              onUpdateTeams={(newTeams, options) => {
                 if (!isProjectRoleResolved || !canManageTeams(currentUserRole)) {
                   console.warn('[RBAC] Chỉ ADMIN được quản lý danh sách đội thi công.');
                   return;
                 }
                 updateAppData((prev) => {
                   const currentTeams = prev.teams || [];
+                  const effectiveTeams = options?.quickEditUpsertIds
+                    ? (() => {
+                        const allowed = new Set(options.quickEditUpsertIds);
+                        const byId = new Map(currentTeams.map(team => [team.id, team] as const));
+                        newTeams.filter(team => allowed.has(team.id)).forEach(team => {
+                          const current = byId.get(team.id);
+                          byId.set(team.id, { ...(current || {} as TeamInfo), ...team });
+                        });
+                        return Array.from(byId.values());
+                      })()
+                    : newTeams;
                   const deletedTeamNames = currentTeams
-                    .filter(t => !newTeams.some(nt => nt.id === t.id))
+                    .filter(t => !effectiveTeams.some(nt => nt.id === t.id))
                     .map(t => t.name);
 
                   // Map renamed teams
                   const teamNameMap: Record<string, string> = {};
                   currentTeams.forEach(ct => {
-                    const matched = newTeams.find(nt => nt.id === ct.id);
+                    const matched = effectiveTeams.find(nt => nt.id === ct.id);
                     if (matched && matched.name !== ct.name) {
                       teamNameMap[ct.name] = matched.name;
                     }
                   });
+
+                  // A quick edit to team headcount/phone/notes must never rewrite unrelated
+                  // rooms/defects/checklist from another user's potentially newer snapshot.
+                  if (options?.quickEditUpsertIds && !Object.keys(teamNameMap).length && !deletedTeamNames.length) {
+                    return { ...prev, teams: effectiveTeams };
+                  }
 
                   let updatedRoomProgressList = (prev.roomProgressList || []).map(room => {
                     let assignedTeam = room.assignedTeam;
@@ -7106,7 +8235,7 @@ function AuthenticatedApp() {
                   let updatedCrewRecords = (prev.crewRecords || []).map(record => {
                     let teamName = record.teamName;
                     if (teamName && teamNameMap[teamName]) {
-                      const matched = newTeams.find(nt => nt.name === teamNameMap[teamName]);
+                      const matched = effectiveTeams.find(nt => nt.name === teamNameMap[teamName]);
                       return {
                         ...record,
                         teamName: teamNameMap[teamName],
@@ -7118,7 +8247,7 @@ function AuthenticatedApp() {
                   });
 
                   let updatedChecklist = (prev.checklist || []).map(item => {
-                    if (item.teamId && !newTeams.some(nt => nt.id === item.teamId)) {
+                    if (item.teamId && !effectiveTeams.some(nt => nt.id === item.teamId)) {
                       return { ...item, teamId: undefined };
                     }
                     return item;
@@ -7126,7 +8255,7 @@ function AuthenticatedApp() {
 
                   return {
                     ...prev,
-                    teams: newTeams,
+                    teams: effectiveTeams,
                     roomProgressList: updatedRoomProgressList,
                     defects: updatedDefects,
                     crewRecords: updatedCrewRecords,
@@ -7135,10 +8264,11 @@ function AuthenticatedApp() {
                 });
               }}
             />
+            </div>
           )}
 
 
-          {activeTab === 'chat' && (
+          {visibleTab === 'chat' && activeTab === 'chat' && (
             <ChatTab
               activeProjectId={activeProjectId}
               projectName={projectName}
@@ -7149,7 +8279,7 @@ function AuthenticatedApp() {
             />
           )}
 
-          {activeTab === 'superadmin' && isCurrentSuperAdmin && (
+          {visibleTab === 'superadmin' && activeTab === 'superadmin' && isCurrentSuperAdmin && (
             <SuperAdminCenter
               userEmail={currentIdentityEmail || undefined}
               userRole={currentUserRole}
@@ -7160,9 +8290,9 @@ function AuthenticatedApp() {
               showChecklist={showChecklistModule}
               onOpenProjectManager={() => handleOpenProjectManager('sync')}
               onOpenSecurity={() => setIsSecurityModalOpen(true)}
-              onOpenConfig={() => setActiveTab('config')}
+              onOpenConfig={() => navigateFromLink('config')}
               onOpenHiddenHistory={() => {
-                setActiveTab('config');
+                navigateFromLink('config');
                 let attempts = 0;
                 const focusTrash = () => {
                   const target = document.getElementById('trash-recovery-card');
@@ -7185,7 +8315,7 @@ function AuthenticatedApp() {
             />
           )}
 
-          {HNL_AI_ENABLED && activeTab === 'ai' && (
+          {HNL_AI_ENABLED && visibleTab === 'ai' && activeTab === 'ai' && (
             <AiAssistantPage
               projectId={activeProjectId}
               projectName={projectName}
@@ -7204,7 +8334,13 @@ function AuthenticatedApp() {
             />
           )}
 
-          {activeTab === 'config' && (
+          {((isMobileRuntime ? activeTab === 'config' : mountedPrimaryTabs.includes('config') || activeTab === 'config')) && (
+            <div
+              key="config"
+              data-hnl-tab-instance="config"
+              data-hnl-tab-visible={visibleTab === 'config' ? 'true' : 'false'}
+              style={{ display: visibleTab === 'config' ? 'contents' : 'none' }}
+            >
             <GoogleConfigTab
               projectName={projectName}
               setProjectName={handleUpdateProjectName}
@@ -7235,6 +8371,7 @@ function AuthenticatedApp() {
               onLinkLocalFile={handleLinkLocalFile}
               onUnlinkLocalFile={handleUnlinkLocalFile}
               onRequestLocalFilePermission={handleRequestLocalFilePermission}
+              warehouseOrderSync={warehouseOrderSync}
               syncCenterContent={(
                 <ProjectManagerModal
                   inline
@@ -7276,11 +8413,13 @@ function AuthenticatedApp() {
                   onRestoreData={handleRestoreData}
                   onSwitchProject={switchProject}
                   onFlushCurrentProject={async () => await saveCurrentProject(activeProjectId)}
+                  warehouseOrderSync={warehouseOrderSync}
                   dataCloudStatus={dataCloudStatus}
                   photoCloudStatus={photoCloudStatus}
                 />
               )}
               userRole={currentUserRole}
+              roleResolved={isProjectRoleResolved}
               trashSettings={trashSettings}
               trashOperations={trashOperations}
               onTrashSettingsChange={handleTrashSettingsChange}
@@ -7333,49 +8472,72 @@ function AuthenticatedApp() {
                 updatedAt: lastUpdatedAt,
               }}
             />
+            </div>
           )}
           </React.Suspense>
         </main>
 
-        {/* PDF Export Modal */}
-        <ExportPdfModal
-          isOpen={isExportPdfOpen}
-          onClose={() => setIsExportPdfOpen(false)}
-          projectName={projectName}
-          contractorName={contractorName}
-          inspectorName={inspectorName}
-          projectLocation={projectLocation}
-          activeProjectId={activeProjectId}
-          userRole={currentUserRole}
-          inventory={inventory}
-          materialNorms={computedMaterialNorms}
-          workVolumes={computedWorkVolumes}
-          defects={activeDefects}
-          checklist={activeChecklist}
-          floorPlans={floorPlans}
-          structureConfig={structureConfig}
-          roomProgressList={roomProgressList}
-          crewRecords={crewRecords}
-          teams={teams}
-        />
+        {/* Heavy dialogs stay out of startup and mount only on demand. */}
+        {isExportPdfOpen && (
+          <React.Suspense fallback={<div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/55"><div className="rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-xl"><RefreshCw className="mr-2 inline h-4 w-4 animate-spin" />Đang mở xuất PDF...</div></div>}>
+            <ExportPdfModal
+              isOpen={true}
+              onClose={() => setIsExportPdfOpen(false)}
+              projectName={projectName}
+              contractorName={contractorName}
+              inspectorName={inspectorName}
+              projectLocation={projectLocation}
+              activeProjectId={activeProjectId}
+              userRole={currentUserRole}
+              inventory={inventory}
+              materialNorms={computedMaterialNorms}
+              workVolumes={computedWorkVolumes}
+              defects={activeDefects}
+              checklist={activeChecklist}
+              floorPlans={floorPlans}
+              structureConfig={structureConfig}
+              roomProgressList={roomProgressList}
+              crewRecords={crewRecords}
+              teams={teams}
+            />
+          </React.Suspense>
+        )}
 
-        {/* Material Norms Modal */}
-        <MaterialNormModal
-          isOpen={isMaterialNormOpen}
-          userRole={currentUserRole}
-          roleResolved={isProjectRoleResolved}
-          onClose={() => setIsMaterialNormOpen(false)}
-          materialNorms={computedMaterialNorms}
-          onAddNorm={handleAddNorm}
-          onUpdateNorm={handleUpdateNorm}
-          onDeleteNorm={handleDeleteNorm}
-          onDeleteMultipleNorms={handleDeleteMultipleNorms}
-          onImportNorms={handleImportNorms}
-          inventory={inventory}
-          workVolumes={computedWorkVolumes}
-          onImportInventory={handleImportInventory}
-          onImportWorkVolumes={handleImportWorkVolumes}
-        />
+        {isMaterialNormOpen && (
+          <React.Suspense fallback={<div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/55"><div className="rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-xl"><RefreshCw className="mr-2 inline h-4 w-4 animate-spin" />Đang mở định mức...</div></div>}>
+            <MaterialNormModal
+              isOpen={true}
+              initialTab={materialNormInitialTab}
+              initialTarget={materialNormInitialTarget}
+              onBackToWarehouseCatalog={materialNormFromWarehouseCatalog ? () => {
+                setIsMaterialNormOpen(false);
+                setMaterialNormInitialTarget(undefined);
+                setMaterialNormFromWarehouseCatalog(false);
+                setWarehouseCatalogReturnToken(previous => previous + 1);
+              } : undefined}
+              userRole={currentUserRole}
+              roleResolved={isProjectRoleResolved}
+              currentProjectId={activeProjectId}
+              onClose={() => {
+                setIsMaterialNormOpen(false);
+                setMaterialNormInitialTarget(undefined);
+                setMaterialNormFromWarehouseCatalog(false);
+              }}
+              materialNorms={computedMaterialNorms}
+              onAddNorm={handleAddNorm}
+              onUpdateNorm={handleUpdateNorm}
+              onRenameWarehouseUnit={handleRenameWarehouseUnit}
+              onDeleteNorm={handleDeleteNorm}
+              onDeleteMultipleNorms={handleDeleteMultipleNorms}
+              onReorderNorms={handleReorderMaterialNorms}
+              onImportNorms={handleImportNorms}
+              inventory={inventory}
+              workVolumes={computedWorkVolumes}
+              onImportInventory={handleImportInventory}
+              onImportWorkVolumes={handleImportWorkVolumes}
+            />
+          </React.Suspense>
+        )}
 
         {/* Floating alerts never compete with the chat composer / soft keyboard. */}
         {floatingAlertsEnabled && activeTab !== 'chat' && !isSoftKeyboardOpen && (
@@ -7397,10 +8559,10 @@ function AuthenticatedApp() {
           workVolumes={workVolumes}
           checklist={activeChecklist}
           defects={activeDefects}
-          onNavigateToItem={handleNavigateFromAlert}
+          onNavigateToItem={(alert) => handleNavigateFromAlert(alert, true)}
           chatUnreadCount={chatUnreadCount}
           chatMentioned={chatMentioned}
-          onOpenChat={() => { setIsNotificationCenterOpen(false); setActiveTab('chat'); }}
+          onOpenChat={() => { setIsNotificationCenterOpen(false); navigateFromLink('chat', 'notifications'); }}
           floatingAlertsEnabled={floatingAlertsEnabled}
           onFloatingAlertsEnabledChange={updateFloatingAlertsEnabled}
         />
@@ -7408,7 +8570,7 @@ function AuthenticatedApp() {
         {chatToast && activeTab !== 'chat' && !isSoftKeyboardOpen && (
           <button
             type="button"
-            onClick={() => { setChatToast(null); setActiveTab('chat'); }}
+            onClick={() => { setChatToast(null); navigateFromLink('chat'); }}
             className="fixed z-50 right-3 left-3 sm:left-auto sm:w-80 bottom-20 sm:bottom-20 rounded-2xl border border-indigo-200 bg-white p-3 shadow-2xl text-left animate-in slide-in-from-bottom-2"
           >
             <div className="text-[11px] font-extrabold text-indigo-700">{chatToast.sender}</div>
@@ -7419,9 +8581,10 @@ function AuthenticatedApp() {
         {/* Fixed navigation is hidden while the OS keyboard owns the visual viewport. */}
         {!isSoftKeyboardOpen && (
           <BottomNav
-            activeTab={activeTab}
-            forceDesktopRail={isDesktopRuntime}
-            setActiveTab={setActiveTab}
+            activeTab={navigationTargetTab || activeTab}
+            forceDesktopRail={isDesktopRuntime || chromeDesktopSite}
+            setActiveTab={(tab) => navigateToTab(tab)}
+            onPreloadTab={preloadTab}
             defectBadgeCount={unhandledDefectsCount}
             chatBadgeCount={chatUnreadCount}
             showChecklist={showChecklistModule}

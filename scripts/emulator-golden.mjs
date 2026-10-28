@@ -34,7 +34,7 @@ includesAll(securityUtils, [
 includesAll(workVolumeTab, [
   'hasStructureManageAccess',
   "{hasStructureManageAccess && (",
-  "Chỉ ADMIN được nhập Excel để thay đổi cấu trúc hạng mục khối lượng",
+  "Chỉ ADMIN (Quản trị) được nhập Excel để thay đổi cấu trúc hạng mục khối lượng",
   "hasStructureManageAccess && (showAddForm || editingVolume !== null)",
 ], 'Work-volume ADMIN-only structure UI');
 if (workVolumeTab.includes('const hasEditAccess = canEditProjectData')) fail('Regression: EDITOR can still inherit structural WorkVolume controls from generic edit permission');

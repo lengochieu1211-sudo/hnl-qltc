@@ -3,7 +3,7 @@ import { refreshProjectPhotoMetadataFromCloud, uploadPhotoToCloud, verifyPhotoBi
 import { savePhotoAttachment, type PhotoAttachment } from '../utils/photoStorage';
 import type { UserRole } from '../utils/securityUtils';
 
-type BridgeEntityType = PhotoAttachment['entityType'];
+type BridgeEntityType = Exclude<PhotoAttachment['entityType'], 'inventory'>;
 type BridgeCategory = NonNullable<PhotoAttachment['category']>;
 
 export interface WindowsDesktopBridgeItem {

@@ -30,7 +30,7 @@ export function workVolumeAppliesToFloor(work: WorkVolume, floorId?: string, flo
   const normalizedFloorId = String(floorId || '').trim();
   if (ids.length > 0) return Boolean(normalizedFloorId && ids.includes(normalizedFloorId));
   const workFloor = normalizeLinkText(work.floor);
-  if (!workFloor || ['tất cả', 'toàn nhà', 'công trình', 'all'].includes(workFloor)) return true;
+  if (!workFloor || ['tất cả', 'toàn nhà', 'toàn công trình', 'công trình', 'all'].includes(workFloor)) return true;
   const normalizedFloorName = normalizeLinkText(floorName);
   if (!normalizedFloorName) return false;
   return workFloor.split(/[,;\n]+/).map((item) => normalizeLinkText(item)).filter(Boolean).includes(normalizedFloorName);
@@ -42,8 +42,8 @@ export function workVolumeScopesOverlap(a: WorkVolume, b: WorkVolume): boolean {
   if (aIds.length === 0 || bIds.length === 0) {
     const aFloor = normalizeLinkText(a.floor);
     const bFloor = normalizeLinkText(b.floor);
-    const aGlobal = !aFloor || ['tất cả', 'toàn nhà', 'công trình', 'all'].includes(aFloor);
-    const bGlobal = !bFloor || ['tất cả', 'toàn nhà', 'công trình', 'all'].includes(bFloor);
+    const aGlobal = !aFloor || ['tất cả', 'toàn nhà', 'toàn công trình', 'công trình', 'all'].includes(aFloor);
+    const bGlobal = !bFloor || ['tất cả', 'toàn nhà', 'toàn công trình', 'công trình', 'all'].includes(bFloor);
     if (aGlobal || bGlobal) return true;
     const aNames = new Set(aFloor.split(/[,;\n]+/).map(normalizeLinkText).filter(Boolean));
     return bFloor.split(/[,;\n]+/).map(normalizeLinkText).some((name) => aNames.has(name));

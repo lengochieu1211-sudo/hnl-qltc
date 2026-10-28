@@ -1,0 +1,25 @@
+name: P21.4 DEV Trusted Client Bridge Golden (NO DEPLOY)
+on:
+  pull_request:
+    paths:
+      - 'src/lib/warehouseTrustedDemoGateway.ts'
+      - 'src/utils/warehouseTrustedPayload.ts'
+      - 'src/lib/warehouseTransactions.ts'
+      - 'src/lib/warehouseUnitMigration.ts'
+      - 'src/App.tsx'
+      - 'scripts/p21-trusted-client-payload-golden.mjs'
+      - '.github/workflows/p21-trusted-client-bridge-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  client-bridge-pure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify trusted callable payload and fail-closed demo-only integration
+        run: node --experimental-strip-types scripts/p21-trusted-client-payload-golden.mjs

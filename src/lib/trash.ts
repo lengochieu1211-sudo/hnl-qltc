@@ -22,7 +22,8 @@ export type TrashCollectionKey =
   | 'roomProgressList'
   | 'checklist'
   | 'crewRecords'
-  | 'teams';
+  | 'teams'
+  | 'structureGroups';
 
 export interface TrashDeletedItem {
   collection: TrashCollectionKey;
@@ -57,6 +58,7 @@ const collectionLabels: Record<TrashCollectionKey, string> = {
   checklist: 'Checklist',
   crewRecords: 'Quân số / nhật ký',
   teams: 'Đội thi công',
+  structureGroups: 'Khu/Khối',
 };
 
 export function getTrashCollectionLabel(key: TrashCollectionKey): string {

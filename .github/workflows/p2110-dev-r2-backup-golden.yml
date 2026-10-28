@@ -1,0 +1,59 @@
+name: P21.10 DEV R2 metadata-preserving backup (NO PROD)
+on:
+  push:
+    branches:
+      - safety/p21-6-room-sidecar-ui-emulator-20261027
+    paths:
+      - 'scripts/p2110-dev-r2-backup*'
+      - '.github/workflows/p2110-dev-r2-backup-golden.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dev-r2-backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: '4078cafe74946b0d5a67b35143b60071'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Exact source and DEV bucket guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/p21-6-room-sidecar-ui-emulator-20261027'
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          grep -q '^bucket_name = "hnl-qltc-media-dev"$' scripts/p2110-dev-r2-backup.toml
+          grep -q '^bucket_name = "hnl-qltc-media-dev-backup"$' scripts/p2110-dev-r2-backup.toml
+          ! grep -q '^bucket_name = "hnl-qltc-media"$' scripts/p2110-dev-r2-backup.toml
+      - name: Start ephemeral local Wrangler with remote DEV-only R2 bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.153.0 dev --config scripts/p2110-dev-r2-backup.toml --ip 127.0.0.1 --port 8789 > /tmp/hnl-p2110-wrangler.log 2>&1 &
+          echo $! > /tmp/hnl-p2110.pid
+          ready=0
+          for i in $(seq 1 50); do
+            if curl --silent --fail -H 'x-hnl-dev-backup: DEV-ONLY-P2110' http://127.0.0.1:8789/health | grep -q '"environment":"DEV"'; then ready=1; break; fi
+            sleep 2
+          done
+          if [ "$ready" != 1 ]; then tail -80 /tmp/hnl-p2110-wrangler.log; exit 1; fi
+      - name: Snapshot entire DEV R2 and verify every byte + metadata
+        run: node scripts/p2110-dev-r2-backup-runner.mjs
+      - name: Publish verified backup manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P2110-DEV-R2-BACKUP-VERIFIED-${{ github.sha }}
+          path: P2110-DEV-R2-BACKUP-VERIFIED-MANIFEST.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Stop local backup worker
+        if: always()
+        run: |
+          if [ -f /tmp/hnl-p2110.pid ]; then kill "$(cat /tmp/hnl-p2110.pid)" || true; fi
+          tail -20 /tmp/hnl-p2110-wrangler.log || true

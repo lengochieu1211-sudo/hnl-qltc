@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+import type { WorkBook } from 'xlsx';
 
 type AndroidExportBridge = {
   saveBase64File?: (fileName: string, mimeType: string, base64Data: string) => void;
@@ -194,6 +194,7 @@ async function saveTextChunksToAndroid(chunks: Iterable<string>, fileName: strin
 
 export async function saveBlob(blob: Blob, fileName: string, mimeType = blob.type || 'application/octet-stream') {
   const safeName = sanitizeFileName(fileName);
+  if (blob.size <= 0) throw new Error('Không thể xuất tệp rỗng (0 byte).');
 
   if (isAndroidExportBridgeAvailable()) {
     const base64Data = await blobToBase64(blob);
@@ -242,6 +243,7 @@ export async function saveBlob(blob: Blob, fileName: string, mimeType = blob.typ
 // Browser/desktop keeps the normal download attribute behavior.
 export async function saveBlobToDownloads(blob: Blob, fileName: string, mimeType = blob.type || 'application/octet-stream') {
   const safeName = sanitizeFileName(fileName);
+  if (blob.size <= 0) throw new Error('Không thể xuất tệp rỗng (0 byte).');
 
   if (isAndroidExportBridgeAvailable()) {
     const base64Data = await blobToBase64(blob);
@@ -255,15 +257,15 @@ export async function saveBlobToDownloads(blob: Blob, fileName: string, mimeType
       const chunkSize = 256 * 1024;
       try {
         if (!bridge.beginBase64File(sessionId, safeName, mimeType)) {
-          throw new Error('Android download session failed to start.');
+          throw new Error('Không thể bắt đầu phiên tải xuống trên Android.');
         }
         for (let i = 0; i < base64Data.length; i += chunkSize) {
           if (!bridge.appendBase64Chunk(sessionId, base64Data.slice(i, i + chunkSize))) {
-            throw new Error('Android download chunk failed.');
+            throw new Error('Không thể ghi phần dữ liệu tải xuống trên Android.');
           }
         }
         if (!bridge.finishBase64File(sessionId)) {
-          throw new Error('Android download failed to finish.');
+          throw new Error('Không thể hoàn tất tải xuống trên Android.');
         }
       } catch (err) {
         bridge.abortBase64File?.(sessionId);
@@ -282,7 +284,7 @@ export async function saveBlobToDownloads(blob: Blob, fileName: string, mimeType
 export function saveTextFile(text: string, fileName: string, mimeType = 'application/json;charset=utf-8') {
   const safeName = sanitizeFileName(fileName);
   if (hasAndroidTextBridge()) {
-    return saveTextChunksToAndroid(chunkText(text), safeName, mimeType, 'picker');
+    return saveTextChunksToAndroid(chunkText(text), safeName, mimeType, 'downloads');
   }
 
   const blob = new Blob([text], { type: mimeType });
@@ -307,7 +309,7 @@ export async function saveJsonRecordFile(data: Record<string, string>, fileName:
   const mimeType = 'application/json;charset=utf-8';
 
   if (hasAndroidTextBridge()) {
-    await saveTextChunksToAndroid(jsonRecordChunks(data), safeName, mimeType, 'picker');
+    await saveTextChunksToAndroid(jsonRecordChunks(data), safeName, mimeType, 'downloads');
     return;
   }
 
@@ -321,10 +323,16 @@ export async function writeJsonRecordToWritable(writable: { write: (data: string
   }
 }
 
-export function saveWorkbookFile(workbook: XLSX.WorkBook, fileName: string) {
+export async function saveWorkbookFile(workbook: WorkBook, fileName: string,
+  destination: 'picker' | 'downloads' = 'downloads') {
+  // XLSX is a large library. Keep it out of normal app/navigation startup and load it
+  // only when the user actually requests an Excel export.
+  const XLSX = await import('xlsx');
   const data = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
   const blob = new Blob([data], { type: EXCEL_MIME });
-  return saveBlob(blob, fileName, EXCEL_MIME);
+  return destination === 'downloads'
+    ? saveBlobToDownloads(blob, fileName, EXCEL_MIME)
+    : saveBlob(blob, fileName, EXCEL_MIME);
 }
 
 export function saveHtmlPdf(html: string, fileName: string) {
@@ -367,7 +375,7 @@ export async function pickAndroidAutoSaveFolder() {
   }
   const requestId = createAndroidRequestId('folder');
   if (!window.AndroidExport!.pickAutoSaveFolder!(requestId)) {
-    throw new Error('Khong the mo hop chon thu muc tu dong luu.');
+    throw new Error('Không thể mở hộp chọn thư mục tự động lưu.');
   }
   await waitForAndroidResult('android-folder-result', requestId);
   return getAndroidAutoSaveFolderName();
@@ -384,7 +392,7 @@ export async function saveTextFileToAndroidAutoFolder(text: string, fileName: st
     throw new Error('Android autosave folder bridge is not available.');
   }
   if (!hasAndroidAutoSaveFolder()) {
-    throw new Error('Chua chon thu muc tu dong luu JSON tren Android.');
+    throw new Error('Chưa chọn thư mục tự động lưu JSON trên Android.');
   }
   await saveTextChunksToAndroid(chunkText(text), sanitizeFileName(fileName), mimeType, 'autosave');
 }

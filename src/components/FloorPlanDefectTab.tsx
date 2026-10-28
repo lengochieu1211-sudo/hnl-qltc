@@ -1,6 +1,6 @@
+import { DesktopWorkspaceMetrics } from './DesktopWorkspaceMetrics';
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
-import * as XLSX from 'xlsx';
 import { assertSafeExcelImportFile } from '../utils/excelImportUtils';
 import { 
   MapPin, 
@@ -38,7 +38,6 @@ import {
   ZoomOut,
   RotateCcw,
   RotateCw,
-  FileType,
   Move,
   MousePointer,
   Maximize2,
@@ -59,35 +58,40 @@ import {
   ArrowUpDown,
   GripVertical
 } from 'lucide-react';
-import { FloorPlan, DefectItem, DefectCategory, DefectSeverity, DefectStatus, RoomProgressItem, RoomSubItem, Point2D, ChecklistItem, TeamInfo, MaterialNorm, InventoryItem, WorkVolume } from '../types';
+import { FloorPlan, DefectItem, DefectCategory, DefectSeverity, DefectStatus, RoomProgressItem, RoomSubItem, Point2D, ChecklistItem, TeamInfo, MaterialNorm, InventoryItem, WorkVolume, AcceptanceStatus, RoomInspectionResult } from '../types';
 import {
   getFloorStructureGroupName,
   getStructureGroupName,
   normalizeStructureGroupConfig,
   resolveFloorStructureGroupId,
   createStructureGroupId,
+  buildFloorDuplicateNames,
   type ProjectStructureConfig,
 } from '../utils/structureGroupUtils';
 import { UndoRedoControls } from './UndoRedoControls';
 import { getRoomColorStyle, ROOM_COLOR_PALETTE } from '../utils/colorPalette';
 import { getDefectOverdueInfo, getDefectShortCode } from '../utils/defectUtils';
-import { formatDateDDMMYYYY, parseLegacyTimestamp } from '../utils/dateFormatter';
+import { addLocalCalendarDaysToDateInput, formatDateDDMMYYYY, parseLegacyTimestamp, toLocalDateInputValue } from '../utils/dateFormatter';
 import { useFormatSettings, parseExcelNumber, formatDecimal } from '../utils/numberUtils';
 import { createEntityId } from '../utils/idUtils';
 import { normalizeUnit, unitKey } from '../utils/unitUtils';
 import { ImageViewerModal } from './ImageViewerModal';
 import { ImageEditorModal } from './ImageEditorModal';
-import { RoomHighlightModal } from './RoomHighlightModal';
+import { RoomSidecarDemoBridge } from './RoomSidecarDemoBridge';
 import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
 import { PhotoAttachment, deleteEntityPhotos, getEntityPhotos, getPhotoDataUrl, isPhotoSharedCloudReady, savePhotoAttachment } from '../utils/photoStorage';
 import { safeSetLocalStorageItem } from '../utils/storage';
 import { getAsyncItem, removeAsyncItem } from '../utils/asyncStorage';
 import { saveWorkbookFile } from '../utils/fileExport';
-import { convertPdfToImage, describePdfError, getPdfDocumentInfo, loadPdfDocument, renderPdfDocumentPageToImage } from '../utils/pdfToImage';
+import { describePdfError, loadPdfDocument, renderPdfDocumentPageToImage } from '../utils/pdfToImage';
 import { getImageQualityProfile } from '../utils/imageQualitySettings';
 import { detectPdfRoomCandidatesFromDocument, DEFAULT_PDF_ROOM_NAME_PATTERN, PdfRoomCandidate } from '../utils/pdfRoomDetection';
+import type { DxfFloorPlanRenderResult, DxfRoomCandidate } from '../utils/dxfRoomDetection';
 import { QuickSortBar } from './QuickSortBar';
 import { MoveOrderControls } from './MoveOrderControls';
+import { DataManagementMenu } from './DataManagementMenu';
+import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';
+const LazyQuickEditGridModal = React.lazy(() => import('./QuickEditGridModal').then((m) => ({ default: m.QuickEditGridModal })));
 import { UserRole, canManageFloorPlanStructure, canEditDefectData, canDeleteBusinessData } from '../utils/securityUtils';
 import { appendRuntimeDiagnostic } from '../lib/runtimeDiagnostics';
 import { getCurrentRealFirebaseUser } from '../lib/firebase';
@@ -98,6 +102,7 @@ import { ShareEntityMenu } from './ShareEntityMenu';
 import { buildDefectShareText, resolveDefectTeam } from '../utils/defectContactUtils';
 import { isPointInsideRoom, reconcileDefectLinkage, resolveDefectLinkageFromSelection } from '../utils/defectLinkageUtils';
 import { getRoomHighlightBounds, mirrorRoomHighlight, resizeRoomHighlightToBounds, rotateRoomHighlight, snapRotationDelta } from '../utils/roomHighlightGeometry';
+import { DEFAULT_CAD_ALIGNMENT, normalizeCadAlignment, rebuildCadRoomForAlignment, remapPointBetweenCadAlignments, type CadAlignment } from '../utils/cadAlignment';
 
 const getMappedCoordinates = (e: React.PointerEvent | React.MouseEvent | Touch, element: HTMLElement, currentRotation: number) => {
   const rect = element.getBoundingClientRect();
@@ -324,6 +329,7 @@ interface FloorPlanDefectTabProps {
   floorPlans: FloorPlan[];
   structureConfig: ProjectStructureConfig;
   onStructureConfigChange?: (next: ProjectStructureConfig) => void;
+  onDeleteStructureGroup?: (groupId: string) => Promise<void>;
   defects: DefectItem[];
   roomProgressList: RoomProgressItem[];
   checklistItems?: ChecklistItem[];
@@ -334,11 +340,20 @@ interface FloorPlanDefectTabProps {
   inspectorName?: string;
   userRole?: UserRole;
   roleResolved?: boolean;
+  isActive?: boolean;
+  quickEditEnabled?: boolean;
   onAddInventory?: (item: Omit<InventoryItem, 'id'> & { id?: string }) => void;
   onAddFloorPlan: (plan: Omit<FloorPlan, 'id'> & { id?: string }) => void;
   onUpdateFloorPlan?: (id: string, updates: Partial<FloorPlan>) => void;
   onUpdateFloorPlanImage?: (id: string, imageUrl: string) => void | Promise<void>;
   onUpdateFloorPlanImages?: (ids: string[], imageUrl: string) => number | Promise<number>;
+  onUseExistingFloorPlanAsset?: (targetFloorId: string, sourceFloorId: string) => void | Promise<void>;
+  onInspectFloorPlanBulkTargets?: (ids: string[]) => Promise<{
+    readyIds: string[];
+    blocked: Array<{ id: string; floorName: string; reason: string }>;
+    legacySafeIds: string[];
+    cloudVerifiedIds: string[];
+  }>;
   onRenameFloorPlan?: (id: string, newName: string) => void;
   onDeleteFloorPlan?: (id: string) => void;
   onDeleteMultipleFloorPlans?: (ids: string[]) => void;
@@ -351,6 +366,7 @@ interface FloorPlanDefectTabProps {
   onDeleteMultipleDefects?: (ids: string[]) => void;
   onSaveRoomProgress: (room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }) => void;
   onBatchSaveRooms?: (rooms: RoomProgressItem[]) => void;
+  onApplyRoomExcelImport?: (rooms: RoomProgressItem[], deleteIds: string[]) => void;
   onCreateMultipleRoomProgress?: (rooms: RoomProgressItem[]) => void;
   onDeleteRoomProgress: (id: string) => void;
   onDeleteMultipleRoomProgress?: (ids: string[]) => void;
@@ -364,6 +380,8 @@ interface FloorPlanDefectTabProps {
   onRedo?: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
+  contextReturnLabel?: string;
+  onContextReturn?: () => void;
 }
 
 const DEFECT_CATEGORIES: DefectCategory[] = [
@@ -379,6 +397,9 @@ const DEFECT_CATEGORIES: DefectCategory[] = [
   'Khác',
 ];
 
+const getDefaultDefectDueDate = (reference = new Date()) =>
+  addLocalCalendarDaysToDateInput(reference, 3);
+
 type DefectSortBy = 'createdAt' | 'priority' | 'category' | 'floorName' | 'roomName' | 'severity' | 'dueDate' | 'status' | 'assignedTo';
 type SortOrder = 'asc' | 'desc';
 
@@ -391,6 +412,28 @@ interface PendingSmartPdfImport {
   pageNumber: number;
   pageCount: number;
   rooms: PdfRoomCandidate[];
+}
+
+interface PendingDxfReviewCandidate extends DxfRoomCandidate {
+  workCategoryId?: string;
+  workCategoryName?: string;
+}
+
+interface PendingDxfRoomImport {
+  floorId: string;
+  floorName: string;
+  structureGroupId?: string;
+  createFloor?: boolean;
+  fileName: string;
+  unitLabel: string;
+  warnings: string[];
+  candidates: PendingDxfReviewCandidate[];
+  cadFloorPlanDataUrl?: string;
+  cadRenderedEntities?: number;
+  cadSkippedEntities?: number;
+  cadLayers?: string[];
+  useCadFloorPlan?: boolean;
+  dxfExtents?: { minX: number; minY: number; maxX: number; maxY: number };
 }
 
 
@@ -589,7 +632,7 @@ const DefectPhotoStrip: React.FC<DefectPhotoStripProps> = ({
           title="Mở thư viện ảnh"
         >
           <Images className="w-3.5 h-3.5" />
-          {totalCount} ảnh{pendingCount > 0 ? ` · ${pendingCount} chờ Cloud` : ''} · Bấm để xem
+          {totalCount} ảnh{pendingCount > 0 ? ` · ${pendingCount} chờ đồng bộ Cloud` : ''} · Bấm để xem
         </button>
       )}
     </div>
@@ -601,6 +644,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   floorPlans,
   structureConfig,
   onStructureConfigChange,
+  onDeleteStructureGroup,
   defects,
   roomProgressList,
   checklistItems = [],
@@ -611,11 +655,15 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   inspectorName,
   userRole = 'VIEWER',
   roleResolved = false,
+  isActive = true,
+  quickEditEnabled = true,
   onAddInventory,
   onAddFloorPlan,
   onUpdateFloorPlan,
   onUpdateFloorPlanImage,
   onUpdateFloorPlanImages,
+  onUseExistingFloorPlanAsset,
+  onInspectFloorPlanBulkTargets,
   onRenameFloorPlan,
   onDeleteFloorPlan,
   onDeleteMultipleFloorPlans,
@@ -628,6 +676,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   onDeleteMultipleDefects,
   onSaveRoomProgress,
   onBatchSaveRooms,
+  onApplyRoomExcelImport,
   onCreateMultipleRoomProgress,
   onDeleteRoomProgress,
   onDeleteMultipleRoomProgress,
@@ -641,6 +690,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   onRedo,
   canUndo,
   canRedo,
+  contextReturnLabel,
+  onContextReturn,
 }) => {
   const { t } = useLanguage();
   const currentProjectId = projectId || (typeof window !== 'undefined' ? sessionStorage.getItem('active_project_id') || localStorage.getItem('active_project_id') : '') || 'default';
@@ -853,6 +904,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [smartPdfMinAreaPercent, setSmartPdfMinAreaPercent] = useState(0.12);
   const [smartPdfMaxAreaPercent, setSmartPdfMaxAreaPercent] = useState(35);
   const [smartPdfNamePattern, setSmartPdfNamePattern] = useState(DEFAULT_PDF_ROOM_NAME_PATTERN);
+  const isSmartPdfNamePatternValid = React.useMemo(() => {
+    const source = smartPdfNamePattern.trim();
+    if (!source) return true;
+    try {
+      new RegExp(source, 'iu');
+      return true;
+    } catch {
+      return false;
+    }
+  }, [smartPdfNamePattern]);
   const [smartPdfCenterSearchMarginPercent, setSmartPdfCenterSearchMarginPercent] = useState(10);
   const [smartPdfHideOriginalAnnotations, setSmartPdfHideOriginalAnnotations] = useState(true);
   const [smartPdfAllowNumericOnlyNames, setSmartPdfAllowNumericOnlyNames] = useState(false);
@@ -978,6 +1039,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [isDefectPinPlacementMode, setIsDefectPinPlacementMode] = useState(false);
   const [isRoomPinPlacementMode, setIsRoomPinPlacementMode] = useState(false);
 
+  // Placement is one-shot and must not follow users into another floor, project,
+  // view mode or hidden tab (PC keep-alive). Existing room/Defect edits stay intact.
+  React.useEffect(() => {
+    setIsRoomPinPlacementMode(false);
+  }, [selectedFloorId, currentProjectId, viewMode, isActive]);
+
   // Choice modal when clicking blueprint in 'all' mode
   const [clickChoicePos, setClickChoicePos] = useState<{ x: number; y: number } | null>(null);
 
@@ -1003,10 +1070,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   );
   const [dueDate, setDueDate] = useState(() => {
     const saved = localStorage.getItem(getDraftKey('construction_defect_draft_dueDate'));
-    if (saved) return saved;
-    const d = new Date();
-    d.setDate(d.getDate() + 3);
-    return d.toISOString().split('T')[0];
+    const hasOpenDraft = localStorage.getItem(getDraftKey('construction_defect_draft_showDefectModal')) === 'true';
+    // Preserve a genuinely unfinished open draft across reloads, but never let a
+    // closed/stale draft carry an old deadline into a brand-new Defect.
+    if (hasOpenDraft && saved && /^\d{4}-\d{2}-\d{2}$/.test(saved)) return saved;
+    return getDefaultDefectDueDate();
   });
   const [photoUrl, setPhotoUrl] = useState(() => {
     return localStorage.getItem(getDraftKey('construction_defect_draft_photoUrl')) || '';
@@ -1157,6 +1225,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setDescription('');
     setPhotoUrl('');
     setAfterPhotoUrl('');
+    setDueDate(getDefaultDefectDueDate());
     
     // Clear draft storage
     localStorage.removeItem(getDraftKey('construction_defect_draft_pinPos'));
@@ -1201,6 +1270,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [floorPlanRangeStartId, setFloorPlanRangeStartId] = useState<string>('');
   const [floorPlanRangeEndId, setFloorPlanRangeEndId] = useState<string>('');
   const updatePlanInputRef = useRef<HTMLInputElement>(null);
+  const [showCadAlignmentModal, setShowCadAlignmentModal] = useState(false);
+  const [cadAlignmentDraft, setCadAlignmentDraft] = useState<CadAlignment>(DEFAULT_CAD_ALIGNMENT);
 
   // Room Highlight Modal State
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
@@ -1222,9 +1293,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [selectedApartmentIds, setSelectedApartmentIds] = useState<string[]>([]);
   const [selectedFloorIdsForBulk, setSelectedFloorIdsForBulk] = useState<string[]>([]);
   const [isSelectingMultipleFloors, setIsSelectingMultipleFloors] = useState<boolean>(false);
-  const [isManagingMultipleFloors, setIsManagingMultipleFloors] = useState<boolean>(false);
   const [managedSelectedFloorIds, setManagedSelectedFloorIds] = useState<string[]>([]);
   const [managedTargetStructureGroupId, setManagedTargetStructureGroupId] = useState<string>('');
+  const [managedDuplicateCopies, setManagedDuplicateCopies] = useState<number>(1);
+  const [collapsedManagedStructureGroupIds, setCollapsedManagedStructureGroupIds] = useState<string[]>([]);
 
   useEffect(() => {
     // Never carry hidden bulk-delete targets across Khu/Khối filters.
@@ -1232,6 +1304,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setSelectedFloorIdsForBulk([]);
     setIsSelectingMultipleFloors(false);
   }, [selectedStructureGroupId]);
+
+  useEffect(() => {
+    const validGroupIds = new Set(normalizedStructureConfig.groups.map((group) => group.id));
+    setCollapsedManagedStructureGroupIds((current) => current.filter((groupId) => validGroupIds.has(groupId)));
+  }, [normalizedStructureConfig.groups]);
   const [copiedRoomsState, setCopiedRoomsState] = useState<RoomProgressItem[]>([]);
   const [copyNotification, setCopyNotification] = useState<string | null>(null);
   const lastPointerMapPosRef = useRef<{ x: number; y: number }>({ x: 50, y: 50 });
@@ -1318,6 +1395,44 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     return [...grouped, ...floorPlansInSavedOrder.filter((floor) => !included.has(floor.id))];
   }, [floorPlansInSavedOrder, normalizedStructureConfig]);
 
+  // Pure in-memory grouping: showing shared/independent drawings must never add a
+  // Firestore read. Prefer the explicit immutable asset id, with storagePath as a
+  // compatibility key for legacy duplicated floors created before assetId existed.
+  const floorPlanAssetGroups = React.useMemo(() => {
+    const groups = new Map<string, FloorPlan[]>();
+    const keyFor = (plan: FloorPlan) => {
+      const assetId = String(plan.imageAssetId || '').trim();
+      if (assetId) return `asset:${assetId}`;
+      const storagePath = String(plan.storagePath || '').trim();
+      if (storagePath) return `storage:${storagePath}`;
+      const cloudFileId = String(plan.cloudFileId || plan.driveFileId || '').trim();
+      if (cloudFileId) return `cloud:${cloudFileId}`;
+      return `floor:${plan.id}`;
+    };
+    floorPlans.forEach((plan) => {
+      const key = keyFor(plan);
+      const rows = groups.get(key) || [];
+      rows.push(plan);
+      groups.set(key, rows);
+    });
+    return { groups, keyFor };
+  }, [floorPlans]);
+
+  const getFloorPlanAssetGroupInfo = React.useCallback((plan: FloorPlan) => {
+    const key = floorPlanAssetGroups.keyFor(plan);
+    const rows = floorPlanAssetGroups.groups.get(key) || [plan];
+    const hasCloudPointer = Boolean(
+      String(plan.imageAssetId || '').trim()
+      || String(plan.storagePath || '').trim()
+      || String(plan.cloudFileId || plan.driveFileId || '').trim()
+    );
+    return {
+      shared: hasCloudPointer && rows.length > 1,
+      count: rows.length,
+      floorNames: rows.map((row) => row.floorName),
+    };
+  }, [floorPlanAssetGroups]);
+
   const getSavedFloorsForGroup = (groupId: string) =>
     floorPlansInSavedOrder.filter((floor) =>
       !normalizedStructureConfig.enabled || resolveFloorStructureGroupId(floor, normalizedStructureConfig) === groupId
@@ -1366,6 +1481,61 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     else onMoveFloorPlan?.(floorId, direction === 'up' ? 'left' : 'right');
   };
 
+  const moveSelectedFloorsWithinGroups = (direction: 'up' | 'down' | 'top' | 'bottom') => {
+    if (!onReorderFloorPlans || managedSelectedFloorIds.length === 0) return;
+    const selectedSet = new Set(managedSelectedFloorIds);
+    const reorderGroup = (items: FloorPlan[]) => {
+      const next = [...items];
+      if (direction === 'top') {
+        return [
+          ...next.filter((floor) => selectedSet.has(floor.id)),
+          ...next.filter((floor) => !selectedSet.has(floor.id)),
+        ];
+      }
+      if (direction === 'bottom') {
+        return [
+          ...next.filter((floor) => !selectedSet.has(floor.id)),
+          ...next.filter((floor) => selectedSet.has(floor.id)),
+        ];
+      }
+      if (direction === 'up') {
+        for (let index = 1; index < next.length; index += 1) {
+          if (selectedSet.has(next[index].id) && !selectedSet.has(next[index - 1].id)) {
+            [next[index - 1], next[index]] = [next[index], next[index - 1]];
+          }
+        }
+        return next;
+      }
+      for (let index = next.length - 2; index >= 0; index -= 1) {
+        if (selectedSet.has(next[index].id) && !selectedSet.has(next[index + 1].id)) {
+          [next[index], next[index + 1]] = [next[index + 1], next[index]];
+        }
+      }
+      return next;
+    };
+
+    const next = normalizedStructureConfig.enabled
+      ? normalizedStructureConfig.groups.flatMap((group) => reorderGroup(getSavedFloorsForGroup(group.id)))
+      : reorderGroup(floorPlansInSavedOrder);
+    const included = new Set(next.map((floor) => floor.id));
+    const complete = [...next, ...floorPlansInSavedOrder.filter((floor) => !included.has(floor.id))];
+    persistFloorOrder(complete);
+  };
+
+  const toggleManagedStructureGroupCollapsed = (groupId: string) => {
+    setCollapsedManagedStructureGroupIds((current) =>
+      current.includes(groupId) ? current.filter((id) => id !== groupId) : [...current, groupId]
+    );
+  };
+
+  const collapseAllManagedStructureGroups = () => {
+    setCollapsedManagedStructureGroupIds(normalizedStructureConfig.groups.map((group) => group.id));
+  };
+
+  const expandAllManagedStructureGroups = () => {
+    setCollapsedManagedStructureGroupIds([]);
+  };
+
   const changeFloorStructureGroupStable = (floorId: string, nextGroupId: string) => {
     const target = floorPlansInSavedOrder.find((floor) => floor.id === floorId);
     if (!target || !normalizedStructureConfig.groups.some((group) => group.id === nextGroupId)) return;
@@ -1400,7 +1570,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (selectedInSavedOrder.length === 0) return;
 
     const confirmed = await confirmAsync(
-      `Chuyển ${selectedInSavedOrder.length} tầng sang ${targetGroup.name}?\n\nChỉ thay Khu/Khối và thứ tự hiển thị của các tầng được chọn. floorId, Căn/Phòng, Defect, Quân số, Checklist, khối lượng, ảnh mặt bằng và lịch sử vẫn giữ nguyên.`,
+      `Chuyển ${selectedInSavedOrder.length} tầng sang ${targetGroup.name}?\n\nChỉ thay Khu/Khối và thứ tự hiển thị của các tầng được chọn. floorId, Căn / Phòng, Defect, Quân số, Checklist, khối lượng, ảnh mặt bằng và lịch sử vẫn giữ nguyên.`,
       {
         title: 'Chuyển Khu/Khối',
         confirmLabel: `Chuyển ${selectedInSavedOrder.length} tầng`,
@@ -1425,7 +1595,78 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     setManagedSelectedFloorIds([]);
     setManagedTargetStructureGroupId('');
-    setIsManagingMultipleFloors(false);
+  };
+
+  const clearManagedFloorSelection = () => {
+    setManagedSelectedFloorIds([]);
+    setManagedTargetStructureGroupId('');
+    setManagedDuplicateCopies(1);
+  };
+
+  const duplicateManagedFloors = async () => {
+    const selectedSet = new Set(managedSelectedFloorIds);
+    const selectedFloors = managementFloorPlans.filter((floor) => selectedSet.has(floor.id));
+    if (selectedFloors.length === 0 || !onDuplicateFloorPlan) return;
+
+    const copies = Math.max(1, Math.min(20, Math.floor(Number(managedDuplicateCopies) || 1)));
+    const totalNewFloors = selectedFloors.length * copies;
+    if (totalNewFloors > 50) {
+      alert('Mỗi lần chỉ được tạo tối đa 50 tầng mới. Hãy giảm số tầng chọn hoặc số bản nhân.');
+      return;
+    }
+
+    const confirmed = await confirmAsync(
+      `Nhân bản ${selectedFloors.length} tầng × ${copies} bản = ${totalNewFloors} tầng mới?\n\nMỗi bản sao sinh floorId/Căn-Phòng/Checklist ID mới, giữ Khu/Khối và bản vẽ mẫu; tiến độ về trạng thái ban đầu và KHÔNG sao chép Defect, quân số, giao dịch kho hay lịch sử thực tế.`,
+      {
+        title: 'Nhân bản tầng đã chọn',
+        confirmLabel: `Tạo ${totalNewFloors} tầng`,
+      },
+    );
+    if (!confirmed) return;
+
+    const usedNames: string[] = floorPlans.map((floor) => floor.floorName);
+    selectedFloors.forEach((floor) => {
+      const names = buildFloorDuplicateNames(floor.floorName, copies, usedNames);
+      names.forEach((name) => {
+        usedNames.push(name);
+        onDuplicateFloorPlan(floor.id, name);
+      });
+    });
+    clearManagedFloorSelection();
+  };
+
+  const deleteManagedFloors = async () => {
+    const selectedSet = new Set(managedSelectedFloorIds);
+    const selectedFloors = managementFloorPlans.filter((floor) => selectedSet.has(floor.id));
+    if (selectedFloors.length === 0) return;
+    if (selectedFloors.length >= floorPlans.length) {
+      alert('Không thể xóa toàn bộ mặt bằng. Dự án cần duy trì ít nhất 1 tầng.');
+      return;
+    }
+
+    const ids = selectedFloors.map((floor) => floor.id);
+    const idSet = new Set(ids);
+    const nameSet = new Set(selectedFloors.map((floor) => floor.floorName));
+    const roomCount = roomProgressList.filter((room) => idSet.has(room.floorId)).length;
+    const defectCount = defects.filter((defect) => idSet.has(defect.floorId) || nameSet.has(defect.floorName)).length;
+    const checklistCount = checklistItems.filter((item) => idSet.has(item.floorId || '') || nameSet.has(item.floorName)).length;
+
+    const confirmed = await confirmAsync(
+      `Xóa ${selectedFloors.length} tầng đã chọn?\n\n• ${roomCount} Căn / Phòng của các tầng này sẽ bị xóa.\n• ${defectCount} Defect và ${checklistCount} Checklist được giữ làm lịch sử nhưng bỏ liên kết khỏi tầng.\n• Khối lượng và nhật ký đội được giữ lại, chỉ tháo liên kết tới tầng đã xóa.\n• Dự án vẫn giữ ít nhất 1 tầng.`,
+      {
+        title: 'Xóa nhiều tầng',
+        confirmLabel: `Xóa ${selectedFloors.length} tầng`,
+      },
+    );
+    if (!confirmed) return;
+
+    if (idSet.has(selectedFloorId)) {
+      const nextFloor = floorPlans.find((floor) => !idSet.has(floor.id));
+      if (nextFloor) setSelectedFloorId(nextFloor.id);
+    }
+    if (onDeleteMultipleFloorPlans) onDeleteMultipleFloorPlans(ids);
+    else ids.forEach((id) => onDeleteFloorPlan?.(id));
+    clearManagedFloorSelection();
   };
 
   const confirmStructureEnabledChange = async (nextEnabled: boolean) => {
@@ -1437,7 +1678,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     if (nextEnabled) {
       const confirmed = await confirmAsync(
-        `Bật Khu/Khối chỉ bật lớp phân nhóm hiển thị; không đổi floorId, tên tầng, Căn/Phòng, Defect, Quân số, Checklist, khối lượng hoặc ảnh mặt bằng.\n\nDự án hiện có ${floorCount} tầng. Tầng legacy chưa có Khu/Khối rõ ràng sẽ hiển thị trong “${defaultGroup?.name || 'Khu mặc định'}”; dữ liệu tầng không bị migration hoặc đổi ID.`,
+        `Bật Khu / Khối chỉ bật lớp phân nhóm hiển thị; không đổi floorId, tên tầng, Căn / Phòng, Defect, Quân số, Checklist, khối lượng hoặc ảnh mặt bằng.\n\nDự án hiện có ${floorCount} tầng. Tầng từ dữ liệu cũ (legacy) chưa có Khu / Khối rõ ràng sẽ hiển thị trong “${defaultGroup?.name || 'Khu mặc định'}”; dữ liệu tầng không bị chuyển đổi (migration) hoặc đổi ID.`,
         { title: 'Bật Khu/Khối', confirmLabel: 'Bật Khu/Khối' },
       );
       if (!confirmed) return;
@@ -1452,7 +1693,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     onStructureConfigChange(normalizeStructureGroupConfig({ ...normalizedStructureConfig, enabled: nextEnabled }));
     setManagedSelectedFloorIds([]);
     setManagedTargetStructureGroupId('');
-    setIsManagingMultipleFloors(false);
+   
   };
 
   const applyGroupQuickSort = (key: 'name' | 'floors', order: 'asc' | 'desc') => {
@@ -1722,7 +1963,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   const handleBgTouchStart = (e: React.TouchEvent) => {
-    // Paste Căn/Phòng by touch belongs only to Căn/Phòng mode.
+    // Paste Căn / Phòng by touch belongs only to Căn / Phòng mode.
     if (viewMode !== 'highlight') return;
     if (drawTool !== 'none' && drawTool !== 'drag') return;
     if (e.touches.length !== 1) return;
@@ -1948,7 +2189,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   const handleStartRedraw2Point = (room: RoomProgressItem, tool: 'freehand' | 'polygon' | '2point' = '2point') => {
     if (lockedRoomIds.has(room.id)) {
-      setCopyNotification('🔒 Căn/Phòng đang khóa vị trí. Mở khóa trước khi vẽ lại vùng.');
+      setCopyNotification('🔒 Căn / Phòng đang khóa vị trí. Mở khóa trước khi vẽ lại vùng.');
       window.setTimeout(() => setCopyNotification(null), 2200);
       return;
     }
@@ -1963,9 +2204,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   // Download excel template or current room data for Room Highlights
-  const downloadHighlightTemplate = () => {
+  const downloadHighlightTemplate = async (scope: 'current' | 'all' | 'template' = 'current') => {
+    const XLSX = await import('xlsx');
     const wb = XLSX.utils.book_new();
-    const roomsToExport = floorRooms;
+    const roomsToExport = scope === 'template' ? [] : scope === 'all' ? roomProgressList : floorRooms;
+    const floorByIdForExcel = new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.id, floor] as const));
+    const getExcelFloor = (room: RoomProgressItem) => floorByIdForExcel.get(room.floorId);
+    const getExcelGroupName = (room: RoomProgressItem) => {
+      const floor = getExcelFloor(room);
+      return floor ? getStructureGroupName(resolveFloorStructureGroupId(floor, normalizedStructureConfig), normalizedStructureConfig) : '';
+    };
     const teamNameById = new Map(
       teams
         .filter((team) => team.id && team.name?.trim())
@@ -2068,7 +2316,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     });
 
     const roomHeaders = [
-      'STT', '__recordId', 'Tên Căn / Phòng',
+      'STT', '__recordId', '__floorId', normalizedStructureConfig.label || 'Khu/Khối', 'Tầng', 'Tên Căn / Phòng',
       'Hạng Mục Thi Công Chính', '__workCategoryId',
       'Đội Thi Công Căn / Phòng', '__teamId',
       'Khối Lượng Căn / Phòng', 'Đơn Vị Căn / Phòng',
@@ -2079,6 +2327,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const roomData = roomsToExport.map((r, index) => ({
       'STT': index + 1,
       '__recordId': r.id || '',
+      '__floorId': r.floorId || '',
+      [normalizedStructureConfig.label || 'Khu/Khối']: getExcelGroupName(r),
+      'Tầng': getExcelFloor(r)?.floorName || r.floorName || '',
       'Tên Căn / Phòng': r.roomName,
       'Hạng Mục Thi Công Chính': r.workCategory || '',
       '__workCategoryId': resolveExcelCategoryId(r.workCategoryId, r.workCategory),
@@ -2099,17 +2350,17 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }));
     const roomSheet = XLSX.utils.json_to_sheet(roomData, { header: roomHeaders });
     roomSheet['!cols'] = [
-      { wch: 6 }, { wch: 24, hidden: true }, { wch: 26 }, { wch: 24 }, { wch: 24, hidden: true },
+      { wch: 6 }, { wch: 24, hidden: true }, { wch: 24, hidden: true }, { wch: 16 }, { wch: 16 }, { wch: 26 }, { wch: 24 }, { wch: 24, hidden: true },
       { wch: 22 }, { wch: 24, hidden: true }, { wch: 18 }, { wch: 14 },
       { wch: 13 }, { wch: 13 }, { wch: 15 }, { wch: 15 },
       { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 22 }, { wch: 32 }
     ];
-    roomSheet['!autofilter'] = { ref: `A1:S${Math.max(2, roomData.length + 1)}` };
+    roomSheet['!autofilter'] = { ref: `A1:V${Math.max(2, roomData.length + 1)}` };
     roomSheet['!rows'] = [{ hpt: 24 }];
     XLSX.utils.book_append_sheet(wb, roomSheet, 'Can_Phong');
 
     const subItemHeaders = [
-      'STT', '__recordId', 'Tên Căn / Phòng', '__subItemId',
+      'STT', '__recordId', '__floorId', normalizedStructureConfig.label || 'Khu/Khối', 'Tầng', 'Tên Căn / Phòng', '__subItemId',
       'Hạng Mục Thi Công', '__workCategoryId', 'Công Đoạn / Nội Dung',
       'Trạng Thái Thi Công', 'Nghiệm Thu Hạng Mục', 'Hạn Hoàn Thành',
       'Đội Thi Công', '__teamId', 'Khối Lượng', 'Đơn Vị', 'Trọng Số Tiến Độ'
@@ -2118,6 +2369,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       (room.subItems || []).map((subItem, subIndex) => ({
         'STT': `${roomIndex + 1}.${subIndex + 1}`,
         '__recordId': room.id || '',
+        '__floorId': room.floorId || '',
+        [normalizedStructureConfig.label || 'Khu/Khối']: getExcelGroupName(room),
+        'Tầng': getExcelFloor(room)?.floorName || room.floorName || '',
         'Tên Căn / Phòng': room.roomName,
         '__subItemId': subItem.id || '',
         'Hạng Mục Thi Công': subItem.category || room.workCategory || '',
@@ -2138,11 +2392,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     );
     const subItemSheet = XLSX.utils.json_to_sheet(subItemData, { header: subItemHeaders });
     subItemSheet['!cols'] = [
-      { wch: 8 }, { wch: 24, hidden: true }, { wch: 26 }, { wch: 24, hidden: true },
+      { wch: 8 }, { wch: 24, hidden: true }, { wch: 24, hidden: true }, { wch: 16 }, { wch: 16 }, { wch: 26 }, { wch: 24, hidden: true },
       { wch: 24 }, { wch: 24, hidden: true }, { wch: 28 }, { wch: 20 }, { wch: 22 },
       { wch: 16 }, { wch: 22 }, { wch: 24, hidden: true }, { wch: 14 }, { wch: 12 }, { wch: 18 }
     ];
-    subItemSheet['!autofilter'] = { ref: `A1:O${Math.max(2, subItemData.length + 1)}` };
+    subItemSheet['!autofilter'] = { ref: `A1:R${Math.max(2, subItemData.length + 1)}` };
     subItemSheet['!rows'] = [{ hpt: 24 }];
     XLSX.utils.book_append_sheet(wb, subItemSheet, 'Hang_Muc_Thi_Cong');
 
@@ -2182,8 +2436,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     const guideSheet = XLSX.utils.aoa_to_sheet([
       ['HNL QLTC - Mẫu Excel Nghiệm thu Căn / Phòng'],
-      ['1', 'Sheet Can_Phong: chỉnh thông tin cấp Căn / Phòng.'],
-      ['2', 'Sheet Hang_Muc_Thi_Cong: mỗi dòng là một hạng mục/công đoạn của đúng Căn / Phòng.'],
+      ['1', 'Sheet Can_Phong: chỉnh thông tin cấp Căn / Phòng của một hoặc nhiều tầng.'],
+      ['2', 'Sheet Hang_Muc_Thi_Cong: mỗi dòng là một hạng mục/công đoạn của đúng Căn / Phòng; __floorId giữ liên kết tầng.'],
       ['3', 'Có thể đổi Trạng thái, Nghiệm thu, Hạn hoàn thành, Đội thi công, Khối lượng và Đơn vị rồi Nhập Excel lại.'],
       ['4', 'Các cột kỹ thuật __recordId, __subItemId, __teamId, __workCategoryId được ẩn để bảng dễ đọc nhưng vẫn được giữ nguyên khi Nhập Excel lại.'],
       ['5', 'Sheet Danh_Muc_Doi chỉ để tham chiếu đội đã khai báo; nhập lại sẽ liên kết theo __teamId hoặc tên đội trùng khớp.'],
@@ -2208,7 +2462,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     return saveWorkbookFile(
       wb,
-      `Danh_Sach_Phong_${activeFloor ? activeFloor.floorName.replace(/\s+/g, '_') : 'MatBang'}.xlsx`
+      scope === 'template'
+        ? 'Mau_Can_Phong_Hang_Muc_HNL_QLTC.xlsx'
+        : scope === 'all'
+          ? `Can_Phong_Hang_Muc_Toan_Du_An_${Date.now()}.xlsx`
+          : `Danh_Sach_Phong_${activeFloor ? activeFloor.floorName.replace(/\s+/g, '_') : 'MatBang'}.xlsx`
     );
   };
 
@@ -2230,6 +2488,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
+        const XLSX = await import('xlsx');
         const data = new Uint8Array(event.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         const normalizeSheetName = (name: string) => name.trim().toLocaleLowerCase('vi-VN').replace(/\s+/g, '_');
@@ -2268,6 +2527,33 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           return;
         }
 
+        const excelFloorById = new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.id, floor] as const));
+        const excelFloorsByName = new Map<string, FloorPlan[]>();
+        floorPlans.forEach((floor) => {
+          const key = floor.floorName.trim().toLocaleLowerCase('vi-VN');
+          excelFloorsByName.set(key, [...(excelFloorsByName.get(key) || []), floor]);
+        });
+        const resolveExcelTargetFloor = (row: any): FloorPlan => {
+          const rawFloorId = String(row['__floorId'] ?? row['floorId'] ?? '').trim();
+          if (rawFloorId) {
+            const byId = excelFloorById.get(rawFloorId);
+            if (!byId) throw new Error(`Excel tham chiếu __floorId không tồn tại: ${rawFloorId}`);
+            return byId;
+          }
+          const rawFloorName = String(row['Tầng'] ?? row['Tầng / Khu Vực'] ?? row['floorName'] ?? '').trim();
+          if (rawFloorName) {
+            const matches = excelFloorsByName.get(rawFloorName.toLocaleLowerCase('vi-VN')) || [];
+            if (matches.length === 1) return matches[0];
+            if (matches.length > 1) throw new Error(`Tên tầng “${rawFloorName}” bị trùng; hãy dùng file xuất từ HNL có __floorId.`);
+            throw new Error(`Không tìm thấy tầng “${rawFloorName}” trong dự án hiện tại.`);
+          }
+          if (!activeFloor) throw new Error('Không xác định được tầng đích cho dòng Excel.');
+          return activeFloor;
+        };
+        const targetFloorIds = new Set<string>(jsonData.map((row: any) => resolveExcelTargetFloor(row).id));
+        const multiFloorImport = targetFloorIds.size > 1;
+        const singleTargetFloor = targetFloorIds.size === 1 ? excelFloorById.get(Array.from(targetFloorIds)[0]) : undefined;
+
         const preflightRoomConflicts = jsonData.filter((row: any) => {
           const frameStatus = String(row['Trạng Thái Khung Xương'] ?? row['frameStatus'] ?? '').trim();
           const boardStatus = String(row['Trạng Thái Bắn Tấm'] ?? row['boardStatus'] ?? '').trim();
@@ -2303,20 +2589,30 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           }
         }
 
-        const currentFloorRooms = roomProgressList.filter(r => r.floorId === activeFloor?.id);
+        const currentFloorRooms = singleTargetFloor
+          ? roomProgressList.filter((room) => room.floorId === singleTargetFloor.id)
+          : [];
 
         let existingMatchCount = 0;
         let newCount = 0;
         jsonData.forEach((row: any) => {
           const rawName = row[nameMatchKey];
-          if (rawName) {
-            const nameStr = String(rawName).trim();
-            if (nameStr) {
-              const found = currentFloorRooms.find(r => r.roomName.toLowerCase() === nameStr.toLowerCase());
-              if (found) existingMatchCount++;
-              else newCount++;
-            }
+          if (!rawName) return;
+          const nameStr = String(rawName).trim();
+          if (!nameStr) return;
+          const targetFloor = resolveExcelTargetFloor(row);
+          const rawRecordId = String(row['__recordId'] || row['Mã Định Danh'] || row['id'] || '').trim();
+          const foundById = rawRecordId ? roomProgressList.find((room) => room.id === rawRecordId) : undefined;
+          if (rawRecordId && !foundById) {
+            throw new Error(`Căn “${nameStr}” tham chiếu __recordId không tồn tại trong dự án hiện tại: ${rawRecordId}. Hãy để trống ID cho dòng mới.`);
           }
+          if (foundById && foundById.floorId !== targetFloor.id) {
+            throw new Error(`Căn “${nameStr}” có __recordId thuộc tầng khác. Hệ thống từ chối tự chuyển floorId qua Excel.`);
+          }
+          const found = foundById || roomProgressList.find((room) =>
+            room.floorId === targetFloor.id && room.roomName.toLocaleLowerCase('vi-VN') === nameStr.toLocaleLowerCase('vi-VN')
+          );
+          if (found) existingMatchCount++; else newCount++;
         });
 
         if (existingMatchCount === 0 && newCount === 0) {
@@ -2324,41 +2620,52 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           return;
         }
 
-        // Ask Step 1: Merge or choose replace/cancel
-        const wantMerge = await confirmAsync(
-          `📂 Phát hiện ${jsonData.length} phòng trong tệp Excel (${existingMatchCount} phòng trùng tên đã có sẵn, ${newCount} phòng mới).\n\n` +
-          `• Bấm "Đồng ý" để CẬP NHẬT thông tin các phòng cũ & THÊM MỚI các phòng chưa có.\n` +
-          `• Bấm "Hủy" để mở tùy chọn THAY THẾ TOÀN BỘ hoặc HỦY THAO TÁC.`
-        );
-
         let importMode: 'merge' | 'replace' = 'merge';
-
-        if (!wantMerge) {
-          const wantReplace = await confirmAsync(
-            `⚠️ Bạn có chắc chắn muốn XÓA TOÀN BỘ ${currentFloorRooms.length} căn/phòng hiện tại trên mặt bằng "${activeFloor?.floorName}" và THAY THẾ HOÀN TOÀN bằng dữ liệu mới từ file Excel không?\n\n` +
-            `• Bấm "Đồng ý" để XÓA TOÀN BỘ & NẠP LẠI MỚI.\n` +
-            `• Bấm "Hủy" để DỪNG THAO TÁC VÀ GIỮ NGUYÊN DỮ LIỆU CŨ.`
+        if (multiFloorImport) {
+          const confirmedMultiFloor = await confirmAsync(
+            `📂 File Excel chứa ${jsonData.length} Căn / Phòng trên ${targetFloorIds.size} tầng.\n\n` +
+            `• Cập nhật: ${existingMatchCount}\n• Thêm mới: ${newCount}\n\n` +
+            'Import nhiều tầng luôn dùng chế độ HỢP NHẤT an toàn; không xóa các Căn / Phòng không có trong file. Tiếp tục?'
           );
-
-          if (!wantReplace) {
+          if (!confirmedMultiFloor) {
             e.target.value = '';
             return;
           }
-
-          importMode = 'replace';
+        } else {
+          const targetFloorName = singleTargetFloor?.floorName || activeFloor?.floorName || 'Mặt bằng';
+          const wantMerge = await confirmAsync(
+            `📂 Phát hiện ${jsonData.length} phòng trong tệp Excel (${existingMatchCount} phòng hiện có, ${newCount} phòng mới) · ${targetFloorName}.\n\n` +
+            `• Bấm "Đồng ý" để CẬP NHẬT & THÊM MỚI.\n` +
+            `• Bấm "Hủy" để mở tùy chọn THAY THẾ TOÀN BỘ hoặc HỦY.`
+          );
+          if (!wantMerge) {
+            const wantReplace = await confirmAsync(
+              `⚠️ Bạn có chắc chắn muốn XÓA TOÀN BỘ ${currentFloorRooms.length} căn/phòng hiện tại trên "${targetFloorName}" và THAY THẾ bằng file Excel?\n\n` +
+              'Thao tác này chỉ áp dụng cho đúng một tầng đang được file tham chiếu.'
+            );
+            if (!wantReplace) {
+              e.target.value = '';
+              return;
+            }
+            importMode = 'replace';
+          }
         }
 
-        const excelTeamById = new Map(teams.filter((team) => team.id).map((team) => [team.id, team] as const));
-        const excelTeamByName = new Map(
+        const excelTeamById = new Map<string, TeamInfo>(teams.filter((team) => team.id).map((team) => [team.id, team] as const));
+        const excelTeamByName = new Map<string, TeamInfo>(
           teams
             .filter((team) => team.name?.trim())
             .map((team) => [team.name.trim().toLocaleLowerCase('vi-VN'), team] as const)
         );
-        const resolveExcelTeamLink = (rawId: unknown, rawName: unknown) => {
+        const resolveExcelTeamLink = (rawId: unknown, rawName: unknown, existingTeamId?: string) => {
           const id = String(rawId ?? '').trim();
           const name = String(rawName ?? '').trim();
           const byId = id ? excelTeamById.get(id) : undefined;
           if (byId) return { teamId: byId.id, assignedTeam: byId.name.trim() };
+          if (id) {
+            if (existingTeamId && id === existingTeamId) return { teamId: id, assignedTeam: name };
+            throw new Error(`Excel tham chiếu __teamId không tồn tại trong dự án hiện tại: ${id}.`);
+          }
           const byName = name ? excelTeamByName.get(name.toLocaleLowerCase('vi-VN')) : undefined;
           if (byName) return { teamId: byName.id, assignedTeam: byName.name.trim() };
           return { teamId: undefined as string | undefined, assignedTeam: name };
@@ -2375,14 +2682,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           if (item.workCategoryId) excelCategoryById.set(String(item.workCategoryId), entry);
           excelCategoryByName.set(name.toLocaleLowerCase('vi-VN'), entry);
         });
-        const resolveExcelCategory = (rawId: unknown, rawName: unknown) => {
+        const resolveExcelCategory = (rawId: unknown, rawName: unknown, existingCategoryId?: string) => {
           const id = String(rawId ?? '').trim();
           const name = String(rawName ?? '').trim();
           const byId = id ? excelCategoryById.get(id) : undefined;
           if (byId) return byId;
+          if (id) {
+            if (existingCategoryId && id === existingCategoryId) return { id, name };
+            throw new Error(`Excel tham chiếu __workCategoryId không tồn tại trong dự án hiện tại: ${id}.`);
+          }
           const byName = name ? excelCategoryByName.get(name.toLocaleLowerCase('vi-VN')) : undefined;
           if (byName) return byName;
-          return { id, name };
+          return { id: '', name };
         };
         const hasExcelValue = (value: unknown) => value !== undefined && value !== null && String(value).trim() !== '';
 
@@ -2391,6 +2702,21 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         let normalizedInspectionCount = 0;
         let missingTeamWarningCount = 0;
         const processedRoomIds = new Set<string>();
+        const processedRoomNames = new Set<string>();
+        const workbookRoomIds = new Set<string>(
+          jsonData.map((row: any) => String(row['__recordId'] || row['Mã Định Danh'] || row['id'] || '').trim()).filter(Boolean)
+        );
+        detailJsonData.forEach((detailRow: any, detailIndex: number) => {
+          const detailFloorId = String(detailRow['__floorId'] ?? detailRow['floorId'] ?? '').trim();
+          if (detailFloorId && !excelFloorById.has(detailFloorId)) {
+            throw new Error(`Dòng chi tiết ${detailIndex + 2}: __floorId không tồn tại trong dự án hiện tại: ${detailFloorId}.`);
+          }
+          const detailRoomId = String(detailRow['__recordId'] ?? detailRow['roomId'] ?? '').trim();
+          if (detailRoomId && !workbookRoomIds.has(detailRoomId) && !roomProgressList.some((room) => room.id === detailRoomId)) {
+            throw new Error(`Dòng chi tiết ${detailIndex + 2}: __recordId Căn / Phòng không tồn tại: ${detailRoomId}.`);
+          }
+        });
+        const preparedRooms: RoomProgressItem[] = [];
 
         jsonData.forEach((row: any) => {
           const rawRecordId = String(row['__recordId'] || row['Mã Định Danh'] || row['id'] || '').trim();
@@ -2399,6 +2725,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
           const nameStr = String(rawName).trim();
           if (!nameStr) return;
+          const targetFloor = resolveExcelTargetFloor(row);
+          const targetFloorRooms = roomProgressList.filter((room) => room.floorId === targetFloor.id);
 
           const rawX = parseExcelNumber(row['Tọa độ X (%)'] || row['x'] || 20);
           const rawY = parseExcelNumber(row['Tọa độ Y (%)'] || row['y'] || 20);
@@ -2440,40 +2768,49 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           let existingRoomObj: any = null;
           
           // Match by __recordId or name
-          const match = currentFloorRooms.find(r => (rawRecordId && r.id === rawRecordId) || r.roomName.toLowerCase() === nameStr.toLowerCase());
+          const idMatch = rawRecordId ? roomProgressList.find((room) => room.id === rawRecordId) : undefined;
+          if (rawRecordId && !idMatch) {
+            throw new Error(`Căn “${nameStr}” tham chiếu __recordId không tồn tại trong dự án hiện tại: ${rawRecordId}. Hãy để trống ID cho dòng mới.`);
+          }
+          if (idMatch && idMatch.floorId !== targetFloor.id) {
+            throw new Error(`Căn “${nameStr}” có __recordId thuộc tầng khác; không được tự đổi floorId qua Excel.`);
+          }
+          const match = idMatch || targetFloorRooms.find((room) => room.roomName.toLocaleLowerCase('vi-VN') === nameStr.toLocaleLowerCase('vi-VN'));
           if (match) {
             existingId = match.id;
             existingRoomObj = match;
             updatedCount++;
           } else {
-            // Reuse an imported record ID only when it does not belong to a room on
-            // another floor. This prevents an Excel file from silently moving/overwriting
-            // a different floor's room through the global ID update path.
-            const idUsedElsewhere = rawRecordId
-              ? roomProgressList.some((room) => room.id === rawRecordId && room.floorId !== activeFloor?.id)
-              : false;
-            existingId = rawRecordId && !idUsedElsewhere ? rawRecordId : undefined;
             importedCount++;
           }
 
           const targetId = existingId || createEntityId('ROOM');
+          if (processedRoomIds.has(targetId)) throw new Error(`__recordId ${targetId} xuất hiện nhiều lần trong file Excel.`);
+          const roomNameKey = `${targetFloor.id}::${nameStr.toLocaleLowerCase('vi-VN')}`;
+          if (processedRoomNames.has(roomNameKey)) throw new Error(`Tên Căn / Phòng “${nameStr}” bị trùng trong cùng tầng của file Excel.`);
           processedRoomIds.add(targetId);
+          processedRoomNames.add(roomNameKey);
 
           const roomTeamRaw = row['Đội Thi Công Căn / Phòng'] ?? row['assignedTeam'] ?? '';
           const roomTeamIdRaw = row['__teamId'] ?? row['teamId'] ?? '';
-          const roomTeamLink = resolveExcelTeamLink(roomTeamIdRaw, roomTeamRaw);
+          const roomTeamLink = resolveExcelTeamLink(roomTeamIdRaw, roomTeamRaw, existingRoomObj?.teamId);
           const roomCategoryRaw = row['Hạng Mục Thi Công Chính'] ?? row['workCategory'] ?? '';
           const roomCategoryIdRaw = row['__workCategoryId'] ?? row['workCategoryId'] ?? '';
-          const roomCategoryLink = resolveExcelCategory(roomCategoryIdRaw, roomCategoryRaw);
+          const roomCategoryLink = resolveExcelCategory(roomCategoryIdRaw, roomCategoryRaw, existingRoomObj?.workCategoryId);
           const roomVolumeRaw = row['Khối Lượng Căn / Phòng'] ?? row['workVolume'];
           const roomUnitRaw = String(row['Đơn Vị Căn / Phòng'] ?? row['volumeUnit'] ?? '').trim();
 
           const detailRowsForRoom = detailJsonData.filter((detailRow: any) => {
             const detailRoomId = String(detailRow['__recordId'] ?? detailRow['roomId'] ?? '').trim();
             const detailRoomName = String(detailRow['Tên Căn / Phòng'] ?? detailRow['roomName'] ?? '').trim();
+            const detailFloorId = String(detailRow['__floorId'] ?? detailRow['floorId'] ?? '').trim();
+            if (detailFloorId && detailFloorId !== targetFloor.id) return false;
             const idMatches = Boolean(detailRoomId) && [rawRecordId, existingId, targetId].filter(Boolean).includes(detailRoomId);
-            const nameMatches = Boolean(detailRoomName) && detailRoomName.toLocaleLowerCase('vi-VN') === nameStr.toLocaleLowerCase('vi-VN');
-            return idMatches || nameMatches;
+            if (detailRoomId) return idMatches;
+            const nameMatches = Boolean(detailRoomName)
+              && detailRoomName.toLocaleLowerCase('vi-VN') === nameStr.toLocaleLowerCase('vi-VN')
+              && (!detailFloorId || detailFloorId === targetFloor.id);
+            return nameMatches;
           });
 
           const importedSubItems: RoomSubItem[] | undefined = detailRowsForRoom.length > 0
@@ -2486,13 +2823,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     (rawSubItemId && subItem.id === rawSubItemId) ||
                     (!rawSubItemId && subItem.name.trim().toLocaleLowerCase('vi-VN') === itemName.toLocaleLowerCase('vi-VN'))
                   );
+                  if (rawSubItemId && !existingSubItem) {
+                    throw new Error(`Hạng mục “${itemName}” tham chiếu __subItemId không tồn tại trong Căn / Phòng hiện tại: ${rawSubItemId}. Hãy để trống ID cho dòng mới.`);
+                  }
                   const categoryLink = resolveExcelCategory(
-                    detailRow['__workCategoryId'] ?? detailRow['workCategoryId'] ?? existingSubItem?.workCategoryId,
-                    detailRow['Hạng Mục Thi Công'] ?? detailRow['category'] ?? existingSubItem?.category ?? existingRoomObj?.workCategory
+                    detailRow['__workCategoryId'] ?? detailRow['workCategoryId'] ?? '',
+                    detailRow['Hạng Mục Thi Công'] ?? detailRow['category'] ?? existingSubItem?.category ?? existingRoomObj?.workCategory,
+                    existingSubItem?.workCategoryId
                   );
                   const teamLink = resolveExcelTeamLink(
                     detailRow['__teamId'] ?? detailRow['teamId'] ?? '',
-                    detailRow['Đội Thi Công'] ?? detailRow['assignedTeam'] ?? ''
+                    detailRow['Đội Thi Công'] ?? detailRow['assignedTeam'] ?? '',
+                    existingSubItem?.teamId
                   );
                   const rawStatus = String(detailRow['Trạng Thái Thi Công'] ?? detailRow['status'] ?? '').trim();
                   const rawInspection = String(detailRow['Nghiệm Thu Hạng Mục'] ?? detailRow['inspectionStatus'] ?? '').trim();
@@ -2542,12 +2884,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           const safeW = Math.min(100 - safeX, Math.max(5, rawW));
           const safeH = Math.min(100 - safeY, Math.max(5, rawH));
 
-          onSaveRoomProgress({
+          preparedRooms.push({
             ...(existingRoomObj || {}),
             id: targetId,
             createdAt: existingRoomObj?.createdAt || Date.now(),
-            floorId: activeFloor?.id || 'fp-1',
-            floorName: activeFloor?.floorName || 'Mặt bằng',
+            floorId: targetFloor.id,
+            floorName: targetFloor.floorName,
             roomName: nameStr,
             x: safeX,
             y: safeY,
@@ -2567,25 +2909,22 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             workVolume: hasExcelValue(roomVolumeRaw) ? parseExcelNumber(roomVolumeRaw) : existingRoomObj?.workVolume,
             volumeUnit: roomUnitRaw || existingRoomObj?.volumeUnit,
             subItems: importedSubItems,
-          });
+          } as RoomProgressItem);
         });
 
-        // In replace mode, delete only obsolete rooms not present in the Excel file
-        if (importMode === 'replace') {
-          const obsoleteRooms = currentFloorRooms.filter(r => !processedRoomIds.has(r.id));
-          if (obsoleteRooms.length > 0) {
-            if (onDeleteMultipleRoomProgress) {
-              onDeleteMultipleRoomProgress(obsoleteRooms.map(r => r.id));
-            } else {
-              obsoleteRooms.forEach(r => onDeleteRoomProgress(r.id));
-            }
-          }
+        const obsoleteRoomIds = importMode === 'replace' && singleTargetFloor
+          ? currentFloorRooms.filter((room) => !processedRoomIds.has(room.id)).map((room) => room.id)
+          : [];
+        if (!onApplyRoomExcelImport) {
+          throw new Error('Phiên bản ứng dụng chưa hỗ trợ ghi Excel Mặt bằng nguyên tử; hệ thống đã hủy trước khi ghi.');
         }
+        onApplyRoomExcelImport(preparedRooms, obsoleteRoomIds);
 
         alert(
           `🎉 Nhập dữ liệu Mặt bằng từ Excel thành công!\n\n` +
           `• Đã cập nhật/chỉnh sửa: ${updatedCount} phòng/căn\n` +
           `• Đã tạo mới/thêm mới: ${importedCount} phòng/căn\n` +
+          `• Phạm vi tầng: ${targetFloorIds.size}\n` +
           `• Tự sửa nghiệm thu không hợp lệ: ${normalizedInspectionCount} trường hợp\n` +
           `• Hạng mục vẫn chưa gán đội: ${missingTeamWarningCount} dòng`
         );
@@ -2611,6 +2950,79 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     || visibleFloorPlans[0]
     || (!normalizedStructureConfig.enabled || selectedStructureGroupId === 'all' ? floorPlans[0] : undefined);
 
+  const [reuseFloorPlanSourceId, setReuseFloorPlanSourceId] = useState('');
+  const [reuseFloorPlanBusy, setReuseFloorPlanBusy] = useState(false);
+
+  const floorPlanHasReusableCloudAsset = React.useCallback((plan: FloorPlan) => {
+    const imageRevision = Math.max(0, Number(plan.imageRevision || 0));
+    const cloudRevision = Math.max(0, Number(plan.imageCloudRevision || 0));
+    const hasPointer = Boolean(
+      String(plan.storagePath || '').trim()
+      || String(plan.driveFileId || '').trim()
+      || String(plan.cloudFileId || '').trim()
+    );
+    return hasPointer && cloudRevision > 0 && cloudRevision >= imageRevision;
+  }, []);
+
+  const reusableFloorPlanSources = React.useMemo(
+    () => floorPlans.filter((plan) => {
+      if (!floorPlanHasReusableCloudAsset(plan)) return false;
+      if (floorPlanApplyMode === 'single' && plan.id === updatingFloorPlanId) return false;
+      return true;
+    }),
+    [floorPlans, floorPlanApplyMode, updatingFloorPlanId, floorPlanHasReusableCloudAsset],
+  );
+
+  const fullscreenFloorPlans = visibleFloorPlans.length > 0 ? visibleFloorPlans : floorPlans;
+  const fullscreenFloorIndex = Math.max(0, fullscreenFloorPlans.findIndex((plan) => plan.id === activeFloor?.id));
+  const switchFullscreenFloor = React.useCallback((nextIndex: number) => {
+    const target = fullscreenFloorPlans[nextIndex];
+    if (!target) return;
+    setSelectedFloorId(target.id);
+    setZoomScale(1);
+    setRotation(0);
+    setSelectedRoomIds([]);
+    setSelectedRoomForDragId(null);
+    setSelectedDefectIds([]);
+  }, [fullscreenFloorPlans]);
+
+  const applyExistingFloorPlanAsset = async (sourceFloorId: string) => {
+    if (!updatingFloorPlanId || !onUseExistingFloorPlanAsset || reuseFloorPlanBusy || !sourceFloorId) return;
+    const requestedTargetIds = floorPlanApplyMode === 'multiple'
+      ? Array.from(new Set(floorPlanApplySelectedIds))
+      : [updatingFloorPlanId];
+    const effectiveTargetIds = requestedTargetIds.filter((id) => id !== sourceFloorId);
+    if (effectiveTargetIds.length === 0) {
+      alert('Tầng nguồn đang trùng với toàn bộ tầng đích. Hãy chọn một tầng nguồn khác.');
+      return;
+    }
+
+    setReuseFloorPlanBusy(true);
+    try {
+      for (const targetFloorId of effectiveTargetIds) {
+        await onUseExistingFloorPlanAsset(targetFloorId, sourceFloorId);
+      }
+      const source = floorPlans.find((plan) => plan.id === sourceFloorId);
+      setReuseFloorPlanSourceId('');
+      setShowFloorPlanApplyScopeModal(false);
+      setFloorPlanApplyMode('single');
+      setFloorPlanApplySelectedIds([]);
+      setFloorPlanRangeStartId('');
+      setFloorPlanRangeEndId('');
+      setUpdatingFloorPlanId(null);
+      alert(`✅ Đã dùng chung bản vẽ của ${source?.floorName || 'tầng nguồn'} cho ${effectiveTargetIds.length} tầng. Không tải lại dữ liệu ảnh; Defect/Căn / Phòng/tiến độ vẫn giữ riêng từng tầng.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('SOURCE_NOT_CLOUD_READY')) {
+        alert('Tầng nguồn chưa có bản vẽ Cloud hoàn chỉnh. Hãy chờ đồng bộ ảnh xong rồi thử lại.');
+      } else {
+        alert(`Không thể dùng chung bản vẽ tầng: ${message}`);
+      }
+    } finally {
+      setReuseFloorPlanBusy(false);
+    }
+  };
+
   const getFloorTargetState = (dateStr?: string) => {
     if (!dateStr) return { label: 'Chưa đặt hạn', className: 'bg-slate-100 text-slate-600 border-slate-200' };
     const today = new Date();
@@ -2631,8 +3043,405 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setViewingImageSet({ images, initialIndex });
   };
 
-  const floorDefects = defects.filter((d) => d.floorId === activeFloor?.id);
-  const floorRooms = roomProgressList.filter((r) => r.floorId === activeFloor?.id);
+  // Keep current-floor collections referentially stable. These arrays feed keyboard,
+  // linkage-repair and filtered-list effects; recreating them on every UI render made
+  // button/modal/zoom state changes retrigger expensive scans on Android.
+  const activeFloorId = activeFloor?.id;
+  const floorDefects = React.useMemo(
+    () => defects.filter((d) => d.floorId === activeFloorId),
+    [defects, activeFloorId],
+  );
+  const floorRooms = React.useMemo(
+    () => roomProgressList.filter((r) => r.floorId === activeFloorId),
+    [roomProgressList, activeFloorId],
+  );
+  const floorRoomById = React.useMemo(
+    () => new Map<string, RoomProgressItem>(floorRooms.map((room) => [room.id, room] as const)),
+    [floorRooms],
+  );
+  const cadSourceRoomCount = React.useMemo(
+    () => floorRooms.reduce((count, room) => count + (room.cadSource?.format === 'DXF' && room.cadSource.rawPoints?.length ? 1 : 0), 0),
+    [floorRooms],
+  );
+
+  const openCadAlignment = () => {
+    if (!activeFloor || cadSourceRoomCount === 0) return;
+    setCadAlignmentDraft(normalizeCadAlignment(activeFloor.cadAlignment));
+    setShowCadAlignmentModal(true);
+  };
+
+  const applyCadAlignment = async (nextInput: CadAlignment) => {
+    if (!activeFloor || !canManageStructure || cadSourceRoomCount === 0) return;
+    const previous = normalizeCadAlignment(activeFloor.cadAlignment);
+    const next = normalizeCadAlignment(nextInput);
+    if (floorDefects.length > 0 && !onUpdateDefect) {
+      alert('Không thể căn chỉnh CAD an toàn vì tầng đang có Defect nhưng handler cập nhật Defect không khả dụng.');
+      return;
+    }
+
+    const transformedRooms = floorRooms
+      .filter((room) => room.cadSource?.format === 'DXF')
+      .map((room) => rebuildCadRoomForAlignment(room, next));
+
+    const confirmed = await confirmAsync(
+      `Căn chỉnh ${transformedRooms.length} vùng CAD theo mặt bằng hiện tại?\n\nLeft ${next.left.toFixed(1)}% · Top ${next.top.toFixed(1)}% · Width ${next.width.toFixed(1)}% · Height ${next.height.toFixed(1)}% · Xoay ${next.rotation}°\n\nroomId, cadSource.rawPoints và lịch sử nghiệp vụ được giữ nguyên. ${floorDefects.length ? `${floorDefects.length} Defect trên tầng sẽ dịch chuyển cùng lớp CAD để tiếp tục bám đúng vị trí.` : ''}`,
+      { title: 'Căn chỉnh CAD với mặt bằng', confirmLabel: 'Áp dụng căn chỉnh' },
+    );
+    if (!confirmed) return;
+
+    if (transformedRooms.length > 1 && onBatchSaveRooms) onBatchSaveRooms(transformedRooms);
+    else transformedRooms.forEach((room) => onSaveRoomProgress(room));
+
+    if (onUpdateDefect) {
+      floorDefects.forEach((defect) => {
+        const mapped = remapPointBetweenCadAlignments({ x: defect.x, y: defect.y }, previous, next);
+        onUpdateDefect({ ...defect, x: mapped.x, y: mapped.y, updatedAt: Date.now() });
+      });
+    }
+    onUpdateFloorPlan?.(activeFloor.id, { cadAlignment: { ...next, updatedAt: Date.now() } });
+    setCadAlignmentDraft(next);
+    setShowCadAlignmentModal(false);
+    setCopyNotification(`✅ Đã căn chỉnh ${transformedRooms.length} vùng CAD theo mặt bằng.`);
+    window.setTimeout(() => setCopyNotification(null), 3200);
+  };
+
+  const [showQuickEdit, setShowQuickEdit] = useState(false);
+  const [quickEditMode, setQuickEditMode] = useState<'rooms' | 'defects'>('rooms');
+  const [pendingDxfImport, setPendingDxfImport] = useState<PendingDxfRoomImport | null>(null);
+
+  const quickFloorById = React.useMemo(
+    () => showQuickEdit ? new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.id, floor] as const)) : new Map<string, FloorPlan>(),
+    [showQuickEdit, floorPlans],
+  );
+  const quickRoomById = React.useMemo(
+    () => showQuickEdit ? new Map<string, RoomProgressItem>(roomProgressList.map((room) => [room.id, room] as const)) : new Map<string, RoomProgressItem>(),
+    [showQuickEdit, roomProgressList],
+  );
+  const quickPrimaryRoomIdByFloor = React.useMemo(() => {
+    const result = new Map<string, string>();
+    if (!showQuickEdit) return result;
+    roomProgressList.forEach((room) => {
+      if (room.floorId && !result.has(room.floorId)) result.set(room.floorId, room.id);
+    });
+    return result;
+  }, [showQuickEdit, roomProgressList]);
+  const quickTeamByName = React.useMemo(() => showQuickEdit ? new Map<string, TeamInfo>(
+    teams.filter((team) => team.name?.trim()).map((team) => [team.name.trim().toLocaleLowerCase('vi-VN'), team] as const)
+  ) : new Map<string, TeamInfo>(), [showQuickEdit, teams]);
+
+  const floorQuickRows = React.useMemo<QuickGridRow[]>(() => {
+    if (!showQuickEdit) return [];
+    return roomProgressList.flatMap((room) => {
+    const floor = quickFloorById.get(room.floorId);
+    const groupName = floor
+      ? getStructureGroupName(resolveFloorStructureGroupId(floor, normalizedStructureConfig), normalizedStructureConfig)
+      : '';
+    const subItems = room.subItems?.length ? room.subItems : [undefined];
+    const roomDefectCount = defects.filter((defect) => defect.roomId === room.id && !defect.deletedAt).length;
+    return subItems.map((subItem, subIndex) => ({
+      __rowKey: `${room.id}--${subItem?.id || `legacy-${subIndex}`}`,
+      __recordId: room.id,
+      __groupKey: room.id,
+      __groupPrimary: subIndex === 0,
+      __floorPrimary: subIndex === 0 && quickPrimaryRoomIdByFloor.get(room.floorId) === room.id,
+      __floorId: floor?.id || room.floorId,
+      __subItemId: subItem?.id || '',
+      structureGroup: groupName,
+      floorName: floor?.floorName || room.floorName || '',
+      roomName: room.roomName,
+      mainCategory: room.workCategory || '',
+      mainVolume: room.workVolume ?? '',
+      subItemName: subItem?.name || '',
+      subTeamName: subItem?.assignedTeam || (subItem?.teamId ? teams.find((team) => team.id === subItem.teamId)?.name : '') || room.assignedTeam || '',
+      progress: subItem?.status || room.frameStatus,
+      inspection: subItem?.inspectionStatus || room.inspectionStatus || 'Chưa nghiệm thu',
+      targetDate: subItem?.targetDate || room.targetBoardDate || room.targetFrameDate || '',
+      defectCount: roomDefectCount,
+    }));
+  });
+  }, [showQuickEdit, roomProgressList, defects, quickFloorById, quickPrimaryRoomIdByFloor, normalizedStructureConfig, teams]);
+
+  const defectQuickRows = React.useMemo<QuickGridRow[]>(() => {
+    if (!showQuickEdit) return [];
+    return defects.filter((defect) => !defect.deletedAt).map((defect) => {
+    const floor = quickFloorById.get(defect.floorId);
+    const room = defect.roomId ? quickRoomById.get(defect.roomId) : undefined;
+    const groupName = floor
+      ? getStructureGroupName(resolveFloorStructureGroupId(floor, normalizedStructureConfig), normalizedStructureConfig)
+      : '';
+    return {
+      __rowKey: defect.id,
+      __defectId: defect.id,
+      structureGroup: groupName,
+      floorName: floor?.floorName || defect.floorName,
+      roomName: room?.roomName || defect.positionDetail || '',
+      defectCode: getDefectShortCode(defect),
+      description: defect.description,
+      category: defect.category,
+      dueDate: defect.dueDate || '',
+      assignedTo: defect.assignedTo || '',
+      completedAt: defect.completedAt || '',
+      status: defect.status,
+    };
+  });
+  }, [showQuickEdit, defects, quickFloorById, quickRoomById, normalizedStructureConfig]);
+
+  const quickWorkCategoryOptions = React.useMemo(() => showQuickEdit ? Array.from(new Set([
+    ...workVolumes.map((item) => item.title),
+    ...roomProgressList.map((room) => room.workCategory || ''),
+  ].filter(Boolean))) : [], [showQuickEdit, workVolumes, roomProgressList]);
+  const quickTeamOptions = React.useMemo(() => showQuickEdit ? Array.from(new Set([
+    ...teams.map((team) => team.name),
+    ...roomProgressList.flatMap((room) => [
+      room.assignedTeam || '',
+      ...(room.subItems || []).map((subItem) => subItem.assignedTeam || ''),
+    ]),
+    ...defects.map((defect) => defect.assignedTo || ''),
+  ].filter(Boolean))) : [], [showQuickEdit, teams, roomProgressList, defects]);
+
+  const quickStructureGroupOptions = React.useMemo(
+    () => showQuickEdit ? normalizedStructureConfig.groups.map((group) => group.name) : [],
+    [showQuickEdit, normalizedStructureConfig.groups],
+  );
+
+  const roomQuickColumns = React.useMemo<QuickGridColumn[]>(() => showQuickEdit ? [
+    {
+      key: 'structureGroup',
+      label: normalizedStructureConfig.label || 'Khu/Khối',
+      editable: (row) => canManageStructure && normalizedStructureConfig.enabled && Boolean(row.__floorPrimary),
+      type: 'select',
+      options: quickStructureGroupOptions,
+      width: 145,
+    },
+    {
+      key: 'floorName',
+      label: 'Tầng',
+      editable: (row) => canManageStructure && Boolean(row.__floorPrimary),
+      required: true,
+      width: 125,
+    },
+    { key: 'roomName', label: 'Căn / Phòng', editable: (row) => canManageStructure && Boolean(row.__groupPrimary), required: true, width: 155 },
+    { key: 'mainCategory', label: 'Hạng mục chính', editable: (row) => canManageStructure && Boolean(row.__groupPrimary), type: 'select', options: quickWorkCategoryOptions, width: 230 },
+    { key: 'mainVolume', label: 'KL Hạng mục chính', editable: (row) => canManageStructure && Boolean(row.__groupPrimary), type: 'number', width: 145, validate: (value) => Number(value || 0) < 0 ? 'Không được âm' : null },
+    { key: 'subItemName', label: 'Hạng mục phụ / Công đoạn', editable: canManageStructure, width: 230 },
+    { key: 'subTeamName', label: 'Đội thi công hạng mục phụ', editable: canManageStructure, type: 'select', options: quickTeamOptions, width: 190 },
+    { key: 'progress', label: 'Tiến độ', editable: canManageStructure, type: 'select', options: ['Chưa làm', 'Đang làm', 'Đã hoàn thành'], width: 135 },
+    {
+      key: 'inspection',
+      label: 'Nghiệm thu',
+      editable: canManageStructure,
+      type: 'select',
+      options: ['Chưa nghiệm thu', 'Đạt nghiệm thu', 'Chưa đạt (Cần sửa)'],
+      width: 160,
+      validate: (value, row) => value === 'Đạt nghiệm thu' && row.progress !== 'Đã hoàn thành'
+        ? 'Chỉ Đạt nghiệm thu khi Tiến độ = Đã hoàn thành'
+        : null,
+    },
+    { key: 'targetDate', label: 'Hạn hoàn thành', editable: canManageStructure, type: 'date', width: 135 },
+    { key: 'defectCount', label: 'Defect', editable: false, type: 'number', width: 85 },
+  ] : [], [showQuickEdit, canManageStructure, normalizedStructureConfig.enabled, normalizedStructureConfig.label, quickStructureGroupOptions, quickWorkCategoryOptions, quickTeamOptions]);
+
+  const defectQuickColumns = React.useMemo<QuickGridColumn[]>(() => showQuickEdit ? [
+    { key: 'structureGroup', label: normalizedStructureConfig.label || 'Khu/Khối', editable: false, width: 145 },
+    { key: 'floorName', label: 'Tầng', editable: false, width: 125 },
+    { key: 'roomName', label: 'Căn / Phòng', editable: false, width: 155 },
+    { key: 'defectCode', label: 'Defect', editable: false, width: 100 },
+    { key: 'description', label: 'Nội dung defect', editable: canEditDefects, required: true, width: 300 },
+    { key: 'category', label: 'Nhóm lỗi', editable: canEditDefects, type: 'select', options: DEFECT_CATEGORIES, width: 185 },
+    { key: 'dueDate', label: 'Deadline defect', editable: canEditDefects, type: 'date', width: 145 },
+    { key: 'assignedTo', label: 'Đội phụ trách defect', editable: canEditDefects, type: 'select', options: quickTeamOptions, width: 190 },
+    { key: 'completedAt', label: 'Ngày hoàn thành thực tế defect', editable: canEditDefects, type: 'date', width: 190 },
+    { key: 'status', label: 'Trạng thái defect', editable: canEditDefects, type: 'select', options: ['Mới phát hiện', 'Đang sửa', 'Đã khắc phục', 'Đã nghiệm thu'], width: 155 },
+  ] : [], [showQuickEdit, canEditDefects, normalizedStructureConfig.label, quickTeamOptions]);
+
+  const saveRoomQuickRows = async (rows: QuickGridRow[], dirtyCellKeys: Set<string>) => {
+    if (!canManageStructure) return;
+    const dirtyRowKeys = new Set(Array.from(dirtyCellKeys).map((key) => key.split('::')[0]));
+    const dirtyRows = rows.filter((row) => dirtyRowKeys.has(row.__rowKey));
+
+    const floorEditById = new Map<string, { floorName: string; structureGroupId?: string; structureGroupName: string }>();
+    const dirtyFloorIds = Array.from(new Set(
+      dirtyRows
+        .filter((row) => dirtyCellKeys.has(`${row.__rowKey}::floorName`) || dirtyCellKeys.has(`${row.__rowKey}::structureGroup`))
+        .map((row) => String(row.__floorId || '').trim())
+        .filter(Boolean)
+    ));
+
+    dirtyFloorIds.forEach((floorId) => {
+      const floor = floorPlans.find((item) => item.id === floorId);
+      if (!floor) throw new Error(`Không tìm thấy tầng có ID ${floorId}.`);
+      const changedForFloor = dirtyRows.filter((row) => String(row.__floorId || '') === floorId);
+      const pickFloorValue = (key: 'floorName' | 'structureGroup', fallback: string) => {
+        const changed = changedForFloor.filter((row) => dirtyCellKeys.has(`${row.__rowKey}::${key}`));
+        const values = Array.from(new Set(changed.map((row) => String(row[key] ?? '').trim())));
+        if (values.length > 1) throw new Error(`Tầng ${floor.floorName}: cột ${key} có nhiều giá trị khác nhau. Hãy chỉ sửa tại dòng đại diện của tầng.`);
+        return changed.length ? String(changed[changed.length - 1][key] ?? '').trim() : fallback;
+      };
+
+      const nextFloorName = pickFloorValue('floorName', floor.floorName).trim();
+      if (!nextFloorName) throw new Error('Tên tầng không được để trống.');
+      const duplicate = floorPlans.find((item) => item.id !== floorId && item.floorName.trim().toLocaleLowerCase('vi-VN') === nextFloorName.toLocaleLowerCase('vi-VN'));
+      if (duplicate) throw new Error(`Tên tầng “${nextFloorName}” đã tồn tại.`);
+
+      const currentGroupId = resolveFloorStructureGroupId(floor, normalizedStructureConfig);
+      const currentGroupName = getStructureGroupName(currentGroupId, normalizedStructureConfig);
+      const nextGroupName = normalizedStructureConfig.enabled
+        ? pickFloorValue('structureGroup', currentGroupName)
+        : currentGroupName;
+      const nextGroup = normalizedStructureConfig.groups.find(
+        (group) => group.name.trim().toLocaleLowerCase('vi-VN') === nextGroupName.trim().toLocaleLowerCase('vi-VN')
+      );
+      if (normalizedStructureConfig.enabled && !nextGroup) {
+        throw new Error(`${normalizedStructureConfig.label || 'Khu/Khối'} “${nextGroupName}” không tồn tại.`);
+      }
+
+      floorEditById.set(floorId, {
+        floorName: nextFloorName,
+        structureGroupId: nextGroup?.id || currentGroupId,
+        structureGroupName: nextGroupName,
+      });
+    });
+
+    const dirtyRoomIds = Array.from(new Set(dirtyRows.map((row) => String(row.__recordId || '')).filter(Boolean)));
+    const changedRooms: RoomProgressItem[] = [];
+
+    dirtyRoomIds.forEach((roomId) => {
+      const existing = roomProgressList.find((room) => room.id === roomId);
+      if (!existing) return;
+      const allRows = rows.filter((row) => String(row.__recordId || '') === roomId);
+      const changedForRoom = dirtyRows.filter((row) => String(row.__recordId || '') === roomId);
+      const next: RoomProgressItem = { ...existing, subItems: existing.subItems ? existing.subItems.map((item) => ({ ...item })) : [] };
+      const plannedFloorEdit = floorEditById.get(existing.floorId);
+      if (plannedFloorEdit) next.floorName = plannedFloorEdit.floorName;
+
+      const pickShared = (key: string, fallback: unknown) => {
+        const changed = changedForRoom.filter((row) => dirtyCellKeys.has(`${row.__rowKey}::${key}`));
+        const values = Array.from(new Set(changed.map((row) => String(row[key] ?? ''))));
+        if (values.length > 1) throw new Error(`Căn ${existing.roomName}: cột ${key} có nhiều giá trị khác nhau giữa các dòng hạng mục phụ.`);
+        return changed.length ? changed[changed.length - 1][key] : fallback;
+      };
+
+      next.roomName = String(pickShared('roomName', existing.roomName) || '').trim();
+      const mainCategory = String(pickShared('mainCategory', existing.workCategory || '') || '').trim();
+      const categoryDirty = changedForRoom.some((row) => dirtyCellKeys.has(`${row.__rowKey}::mainCategory`));
+      const categoryMatches = categoryDirty ? workVolumes.filter((item) => item.title === mainCategory) : [];
+      if (categoryDirty && mainCategory && categoryMatches.length !== 1) {
+        throw new Error(`Hạng mục “${mainCategory}” không xác định duy nhất ID. Hãy kiểm tra danh mục trước khi đổi.`);
+      }
+      const mainCategoryRecord = categoryMatches[0];
+      if (categoryDirty) {
+        next.workCategory = mainCategory || undefined;
+        next.workCategoryId = mainCategoryRecord ? (mainCategoryRecord.workCategoryId || mainCategoryRecord.id) : undefined;
+      }
+      const mainVolumeValue = pickShared('mainVolume', existing.workVolume ?? '');
+      if (mainVolumeValue !== '' && mainVolumeValue !== undefined) {
+        next.workVolume = Math.max(0, Number(mainVolumeValue || 0));
+        if (mainCategory) {
+          next.categoryVolumes = { ...(existing.categoryVolumes || {}), [mainCategory]: next.workVolume };
+          next.categoryVolumeUnits = { ...(existing.categoryVolumeUnits || {}), [mainCategory]: existing.volumeUnit || 'm²' };
+        }
+      }
+
+      allRows.forEach((row) => {
+        const subId = String(row.__subItemId || '').trim();
+        const rowDirty = Array.from(dirtyCellKeys).some((key) => key.startsWith(`${row.__rowKey}::`));
+        if (!rowDirty) return;
+        let sub = subId ? next.subItems?.find((item) => item.id === subId) : undefined;
+        const name = String(row.subItemName || '').trim();
+        if (!sub && !name) return;
+        if (!sub) {
+          sub = {
+            id: createEntityId('sub-custom'),
+            name,
+            category: mainCategory || undefined,
+            workCategoryId: mainCategoryRecord ? (mainCategoryRecord.workCategoryId || mainCategoryRecord.id) : existing.workCategoryId,
+            status: 'Chưa làm',
+            inspectionStatus: 'Chưa nghiệm thu',
+          };
+          next.subItems = [...(next.subItems || []), sub];
+        }
+        sub.name = name || sub.name;
+        const teamName = String(row.subTeamName || '').trim();
+        const team = quickTeamByName.get(teamName.toLocaleLowerCase('vi-VN'));
+        if (dirtyCellKeys.has(`${row.__rowKey}::subTeamName`)) {
+          const teamMatches = teams.filter((item) => item.name.trim().toLocaleLowerCase('vi-VN') === teamName.toLocaleLowerCase('vi-VN'));
+          if (teamName && teamMatches.length > 1) throw new Error(`Đội “${teamName}” trùng tên, không thể đổi teamId tự động.`);
+          sub.assignedTeam = team?.name || teamName || undefined;
+          sub.teamId = teamMatches[0]?.id;
+        }
+        sub.status = String(row.progress || sub.status || 'Chưa làm') as AcceptanceStatus;
+        sub.inspectionStatus = String(row.inspection || sub.inspectionStatus || 'Chưa nghiệm thu') as RoomInspectionResult;
+        if (sub.inspectionStatus === 'Đạt nghiệm thu' && sub.status !== 'Đã hoàn thành') {
+          throw new Error(`Căn ${next.roomName} / ${sub.name}: không thể Đạt nghiệm thu khi chưa hoàn thành.`);
+        }
+        sub.targetDate = String(row.targetDate || '').trim() || undefined;
+      });
+
+      const operational = next.subItems || [];
+      next.inspectionStatus = operational.length > 0
+        ? operational.every((item) => item.inspectionStatus === 'Đạt nghiệm thu')
+          ? 'Đạt nghiệm thu'
+          : operational.some((item) => item.inspectionStatus === 'Chưa đạt (Cần sửa)')
+            ? 'Chưa đạt (Cần sửa)'
+            : 'Chưa nghiệm thu'
+        : next.inspectionStatus;
+      next.updatedAt = Date.now();
+      changedRooms.push(next);
+    });
+
+    const floorChangeCount = floorEditById.size;
+    const confirmed = await confirmAsync(`Lưu thay đổi cho ${changedRooms.length} Căn / Phòng${floorChangeCount ? ` và ${floorChangeCount} Tầng/Khu-Khối` : ''}? floorId, ID Căn, highlight, Defect và lịch sử được giữ nguyên.`);
+    if (!confirmed) return false;
+
+    if (onBatchSaveRooms) onBatchSaveRooms(changedRooms);
+    else changedRooms.forEach((room) => onSaveRoomProgress(room));
+
+    for (const [floorId, edit] of floorEditById) {
+      const floor = floorPlans.find((item) => item.id === floorId);
+      if (!floor) continue;
+      const currentGroupId = resolveFloorStructureGroupId(floor, normalizedStructureConfig);
+      if (normalizedStructureConfig.enabled && edit.structureGroupId && edit.structureGroupId !== currentGroupId) {
+        if (!onUpdateFloorPlan) throw new Error('Phiên bản ứng dụng chưa hỗ trợ đổi Khu/Khối của tầng.');
+        onUpdateFloorPlan(floorId, { structureGroupId: edit.structureGroupId });
+      }
+      if (edit.floorName !== floor.floorName) {
+        if (!onRenameFloorPlan) throw new Error('Phiên bản ứng dụng chưa hỗ trợ đổi tên tầng an toàn.');
+        onRenameFloorPlan(floorId, edit.floorName);
+      }
+    }
+  };
+
+  const saveDefectQuickRows = async (rows: QuickGridRow[], dirtyCellKeys: Set<string>) => {
+    if (!canEditDefects) return;
+    if (!onUpdateDefect) throw new Error('Phiên bản ứng dụng chưa hỗ trợ cập nhật Defect hàng loạt.');
+    const dirtyRowKeys = new Set(Array.from(dirtyCellKeys).map((key) => key.split('::')[0]));
+    const changedRows = rows.filter((row) => dirtyRowKeys.has(row.__rowKey));
+    const nextDefects = changedRows.map((row) => {
+      const existing = defects.find((defect) => defect.id === String(row.__defectId || row.__rowKey));
+      if (!existing) throw new Error(`Không tìm thấy Defect ${String(row.__defectId || row.__rowKey)}.`);
+      const isDirty = (key: string) => dirtyCellKeys.has(`${row.__rowKey}::${key}`);
+      const assignedTo = isDirty('assignedTo') ? String(row.assignedTo || '').trim() : existing.assignedTo;
+      const matches = isDirty('assignedTo') && assignedTo
+        ? teams.filter((item) => item.name.trim().toLocaleLowerCase('vi-VN') === assignedTo.toLocaleLowerCase('vi-VN')) : [];
+      if (matches.length > 1) throw new Error(`Đội “${assignedTo}” trùng tên. Không thể đổi teamId bằng tên không rõ.`);
+      const nextStatus = isDirty('status') ? String(row.status || existing.status) as DefectStatus : existing.status;
+      return {
+        ...existing,
+        ...(isDirty('description') ? { description: String(row.description || '').trim() } : {}),
+        ...(isDirty('category') ? { category: String(row.category || existing.category) as DefectCategory } : {}),
+        ...(isDirty('dueDate') ? { dueDate: String(row.dueDate || '').trim() || undefined } : {}),
+        ...(isDirty('assignedTo') ? { assignedTo, teamId: matches[0]?.id } : {}),
+        completedAt: isDirty('completedAt') ? String(row.completedAt || '').trim() || undefined
+          : isDirty('status') && (nextStatus === 'Mới phát hiện' || nextStatus === 'Đang sửa') ? undefined : existing.completedAt,
+        status: nextStatus,
+        updatedAt: Date.now(),
+      } as DefectItem;
+    });
+    const confirmed = await confirmAsync(`Lưu ${nextDefects.length} Defect đã chỉnh trong bảng? Ảnh trước/sau sửa và defectId được giữ nguyên.`);
+    if (!confirmed) return false;
+    nextDefects.forEach((defect) => onUpdateDefect(defect));
+  };
+
   const mapFloorDefects = floorDefects.filter((d) => mapLayers.resolvedDefects || !(d.status === 'Đã nghiệm thu' || d.status === 'Đã khắc phục'));
 
   // Generate a collision-safe default name for quick room creation.
@@ -2644,6 +3453,217 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     while (existingNames.has(`căn / phòng ${index}`.toLocaleLowerCase('vi-VN'))) index += 1;
     return `Căn / Phòng ${index}`;
   };
+  const normalizeDxfCatalogName = (value: unknown) =>
+    String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('vi-VN');
+
+  const prepareDxfRoomImport = async (
+    file: File,
+    target: { floorId: string; floorName: string; structureGroupId?: string; createFloor?: boolean }
+  ) => {
+    if (!canManageStructure) return;
+    if (!/\.dxf$/i.test(file.name)) throw new Error('Chỉ chấp nhận tệp AutoCAD DXF (.dxf).');
+    if (file.size <= 0 || file.size > 20 * 1024 * 1024) {
+      throw new Error('DXF rỗng hoặc vượt giới hạn 20 MB. Hãy tách bản vẽ theo tầng trước khi nhập.');
+    }
+
+    const text = await file.text();
+    // DXF parsing/rendering is a specialist path. Keep its ~700-line parser out of the
+    // normal Floor Plan navigation chunk and load it only after the user selects a DXF.
+    const { detectRoomsFromDxf, renderDxfFloorPlanSvgDataUrl } = await import('../utils/dxfRoomDetection');
+    const result = detectRoomsFromDxf(text);
+    let cadRender: DxfFloorPlanRenderResult | null = null;
+    try {
+      cadRender = renderDxfFloorPlanSvgDataUrl(text);
+    } catch (error) {
+      console.warn('DXF CAD background render warning:', error);
+    }
+    const currentFloorRooms = roomProgressList.filter((room) => room.floorId === target.floorId);
+    const existingNames = new Set(currentFloorRooms.map((room) => normalizeDxfCatalogName(room.roomName)));
+    const catalogByExactName = new Map<string, WorkVolume[]>();
+    workVolumes.forEach((work) => {
+      const key = normalizeDxfCatalogName(work.title);
+      if (!key) return;
+      catalogByExactName.set(key, [...(catalogByExactName.get(key) || []), work]);
+    });
+
+    const candidates: PendingDxfReviewCandidate[] = result.candidates.map((candidate) => {
+      const exactMatches = catalogByExactName.get(normalizeDxfCatalogName(candidate.layer)) || [];
+      const mappedWork = exactMatches.length === 1 ? exactMatches[0] : undefined;
+      const nameConflict = existingNames.has(normalizeDxfCatalogName(candidate.roomName));
+      return {
+        ...candidate,
+        selected: candidate.hasDetectedName && !nameConflict,
+        workCategoryId: mappedWork ? (mappedWork.workCategoryId || mappedWork.id) : undefined,
+        workCategoryName: mappedWork?.title,
+      };
+    });
+
+    setPendingDxfImport({
+      floorId: target.floorId,
+      floorName: target.floorName,
+      structureGroupId: target.structureGroupId,
+      createFloor: Boolean(target.createFloor),
+      fileName: file.name,
+      unitLabel: result.unitLabel,
+      cadFloorPlanDataUrl: cadRender?.dataUrl,
+      cadRenderedEntities: cadRender?.renderedEntities,
+      cadSkippedEntities: cadRender?.skippedEntities,
+      cadLayers: cadRender?.layers,
+      useCadFloorPlan: Boolean(cadRender?.dataUrl) && !(floorPlans.find((item) => item.id === target.floorId)?.imageUrl),
+      dxfExtents: result.extents,
+      warnings: [
+        ...result.warnings,
+        ...(cadRender?.skippedEntities ? [`Mặt bằng CAD đã bỏ qua ${cadRender.skippedEntities} entity chưa hỗ trợ hoặc vượt giới hạn render an toàn.`] : []),
+        ...(candidates.some((candidate) => !candidate.hasDetectedName)
+          ? ['Có vùng chưa tìm thấy TEXT/MTEXT bên trong. Các dòng này mặc định chưa chọn; hãy đặt tên rồi chọn nếu đúng Căn / Phòng.']
+          : []),
+        ...(candidates.some((candidate) => existingNames.has(normalizeDxfCatalogName(candidate.roomName)))
+          ? ['Có tên Căn / Phòng đã tồn tại trên tầng. Các dòng trùng tên mặc định chưa chọn để tránh ghi đè highlight hiện có.']
+          : []),
+      ],
+      candidates,
+    });
+  };
+
+  const updatePendingDxfCandidate = (candidateId: string, updates: Partial<PendingDxfReviewCandidate>) => {
+    setPendingDxfImport((current) => current ? {
+      ...current,
+      candidates: current.candidates.map((candidate) => candidate.id === candidateId ? { ...candidate, ...updates } : candidate),
+    } : current);
+  };
+
+  const applyPendingDxfRooms = async () => {
+    if (!pendingDxfImport || !canManageStructure) return;
+    const existingFloor = floorPlans.find((item) => item.id === pendingDxfImport.floorId);
+    const floor: FloorPlan | null = existingFloor || (pendingDxfImport.createFloor ? {
+      id: pendingDxfImport.floorId,
+      floorName: pendingDxfImport.floorName,
+      structureGroupId: pendingDxfImport.structureGroupId,
+      imageUrl: pendingDxfImport.useCadFloorPlan ? (pendingDxfImport.cadFloorPlanDataUrl || '') : '',
+      uploadedAt: new Date().toISOString().split('T')[0],
+    } : null);
+    if (!floor) {
+      alert('Tầng đích không còn tồn tại. Hãy chọn lại DXF.');
+      setPendingDxfImport(null);
+      return;
+    }
+    const selected = pendingDxfImport.candidates.filter((candidate) => candidate.selected);
+    if (!selected.length) {
+      alert('Chưa chọn Căn / Phòng DXF nào để tạo.');
+      return;
+    }
+
+    const existingNames = new Set(
+      roomProgressList
+        .filter((room) => room.floorId === floor.id)
+        .map((room) => normalizeDxfCatalogName(room.roomName))
+    );
+    const selectedNames = new Set<string>();
+    for (const candidate of selected) {
+      const name = candidate.roomName.trim();
+      const key = normalizeDxfCatalogName(name);
+      if (!name) {
+        alert('Có dòng DXF chưa có tên Căn / Phòng.');
+        return;
+      }
+      if (existingNames.has(key)) {
+        alert(`Căn / Phòng “${name}” đã tồn tại trên ${floor.floorName}. Hệ thống không ghi đè highlight qua DXF.`);
+        return;
+      }
+      if (selectedNames.has(key)) {
+        alert(`Tên “${name}” bị trùng trong các dòng DXF đang chọn.`);
+        return;
+      }
+      selectedNames.add(key);
+    }
+
+    const now = Date.now();
+    const newRooms: RoomProgressItem[] = selected.map((candidate, index) => {
+      const work = candidate.workCategoryId
+        ? workVolumes.find((item) => (item.workCategoryId || item.id) === candidate.workCategoryId || item.id === candidate.workCategoryId)
+        : undefined;
+      const mappedArea = work && Number.isFinite(candidate.areaM2) ? Number(candidate.areaM2) : undefined;
+      return {
+        id: createEntityId('ROOM'),
+        floorId: floor.id,
+        floorName: floor.floorName,
+        roomName: candidate.roomName.trim(),
+        workCategory: work?.title,
+        workCategoryId: work ? (work.workCategoryId || work.id) : undefined,
+        categoryVolumes: work && mappedArea !== undefined ? { [work.title]: mappedArea } : undefined,
+        categoryVolumeUnits: work && mappedArea !== undefined ? { [work.title]: 'm²' } : undefined,
+        workVolume: mappedArea,
+        volumeUnit: mappedArea !== undefined ? 'm²' : undefined,
+        x: Math.min(100, Math.max(0, candidate.x)),
+        y: Math.min(100, Math.max(0, candidate.y)),
+        width: Math.min(100, Math.max(0.1, candidate.width)),
+        height: Math.min(100, Math.max(0.1, candidate.height)),
+        points: candidate.points.map((point) => ({
+          x: Math.min(100, Math.max(0, point.x)),
+          y: Math.min(100, Math.max(0, point.y)),
+        })),
+        // DXF room candidates are closed HATCH/LWPOLYLINE boundaries. Keep them as
+        // polygon semantics so rendering + Defect hit-testing use the actual geometry.
+        isPolyline: false,
+        frameStatus: 'Chưa làm',
+        boardStatus: 'Chưa làm',
+        frameInspectionStatus: 'Chưa nghiệm thu',
+        boardInspectionStatus: 'Chưa nghiệm thu',
+        inspectionStatus: 'Chưa nghiệm thu',
+        inspectorName: inspectorName || undefined,
+        notes: `Nhận diện từ DXF · ${candidate.source} · Layer: ${candidate.layer || '(không tên)'}${candidate.areaM2 !== undefined ? ` · Diện tích: ${formatDecimal(candidate.areaM2)} m²` : ''}`,
+        cadSource: {
+          format: 'DXF',
+          rawPoints: candidate.rawPoints,
+          extents: pendingDxfImport.dxfExtents,
+          layer: candidate.layer || '',
+          source: candidate.source,
+        },
+        createdAt: now + index,
+        updatedAt: now + index,
+      };
+    });
+
+    const confirmed = await confirmAsync(
+      `${pendingDxfImport.createFloor ? 'Tạo tầng và ' : 'Tạo '}${newRooms.length} Căn / Phòng từ DXF trên “${floor.floorName}”?\n\n` +
+      '• HATCH/Polyline → polygon highlight\n' +
+      (pendingDxfImport.useCadFloorPlan ? '• CAD DXF → mặt bằng nền cùng hệ tọa độ highlight\n' : '') +
+      '• TEXT/MTEXT → tên Căn / Phòng\n' +
+      '• Diện tích chỉ ghi m² khi DXF có đơn vị hợp lệ và đã gán Hạng mục\n' +
+      '• Không ghi đè Căn / Phòng đã tồn tại'
+    );
+    if (!confirmed) return;
+
+    if (pendingDxfImport.createFloor && !existingFloor) onAddFloorPlan(floor);
+    if (!pendingDxfImport.createFloor && pendingDxfImport.useCadFloorPlan && pendingDxfImport.cadFloorPlanDataUrl && existingFloor && !existingFloor.imageUrl && onUpdateFloorPlanImage) {
+      await onUpdateFloorPlanImage(existingFloor.id, pendingDxfImport.cadFloorPlanDataUrl);
+    }
+    if (onCreateMultipleRoomProgress) onCreateMultipleRoomProgress(newRooms);
+    else newRooms.forEach((room) => onSaveRoomProgress(room));
+    setSelectedFloorId(floor.id);
+    setPendingDxfImport(null);
+    setNewFloorName('');
+    alert(`✅ Đã ${pendingDxfImport.createFloor ? 'tạo tầng và ' : 'tạo '}${newRooms.length} Căn / Phòng từ DXF trên ${floor.floorName}.`);
+  };
+
+  const createPendingDxfFloorOnly = () => {
+    if (!pendingDxfImport?.createFloor || !canManageStructure) return;
+    if (!floorPlans.some((item) => item.id === pendingDxfImport.floorId)) {
+      onAddFloorPlan({
+        id: pendingDxfImport.floorId,
+        floorName: pendingDxfImport.floorName,
+        structureGroupId: pendingDxfImport.structureGroupId,
+        imageUrl: pendingDxfImport.useCadFloorPlan ? (pendingDxfImport.cadFloorPlanDataUrl || '') : '',
+        uploadedAt: new Date().toISOString().split('T')[0],
+      });
+    }
+    setSelectedFloorId(pendingDxfImport.floorId);
+    setPendingDxfImport(null);
+    setNewFloorName('');
+    alert(`✅ Đã tạo tầng “${pendingDxfImport.floorName}”. Không tạo Căn / Phòng tự động.`);
+  };
+
+
   const [draggingRoomsPreview, setDraggingRoomsPreview] = useState<Record<string, RoomProgressItem> | null>(null);
   const draggingRoomsPreviewRef = useRef<Record<string, RoomProgressItem> | null>(null);
 
@@ -2756,7 +3776,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const applySelectedRoomTransform = (kind: 'rotate90' | 'rotate180' | 'mirror-horizontal' | 'mirror-vertical') => {
     if (!canManageStructure || selectedRoomIdsForAction.length === 0) return;
     if (selectedRoomIdsForAction.some((id) => lockedRoomIds.has(id))) {
-      setCopyNotification('🔒 Có Căn/Phòng đang khóa vị trí. Mở khóa trước khi xoay hoặc đối xứng.');
+      setCopyNotification('🔒 Có Căn / Phòng đang khóa vị trí. Mở khóa trước khi xoay hoặc đối xứng.');
       window.setTimeout(() => setCopyNotification(null), 2400);
       return;
     }
@@ -2862,15 +3882,17 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   }, [selectedFloorId, currentProjectId]);
 
   useEffect(() => {
+    if (!isActive) return;
     const pending = pendingFocusRef.current;
     if (!pending || pending.floorId !== selectedFloorId) return;
     requestAnimationFrame(() => requestAnimationFrame(() => {
       focusPlanPoint(pending.x, pending.y);
       pendingFocusRef.current = null;
     }));
-  }, [selectedFloorId]);
+  }, [isActive, selectedFloorId]);
 
   useEffect(() => {
+    if (!isActive) return;
     // Always use the real image ratio once it is available. Resetting to 1.414 at
     // 100% and switching to the real ratio only after zooming changes both scale
     // and geometry on the first wheel step, which makes the drawing jump.
@@ -2878,9 +3900,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (imgEl && imgEl.naturalWidth && imgEl.naturalHeight) {
       setImgAspect(imgEl.naturalWidth / imgEl.naturalHeight);
     }
-  }, [activeFloor?.imageUrl, selectedFloorId, isFullscreen]);
+  }, [isActive, activeFloor?.imageUrl, selectedFloorId, isFullscreen]);
 
   useEffect(() => {
+    if (!isActive) return;
     const el = parentRef.current;
     if (!el) return;
     const obs = new ResizeObserver((entries) => {
@@ -2891,10 +3914,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     obs.observe(el);
     setParentSize({ w: el.clientWidth, h: el.clientHeight });
     return () => obs.disconnect();
-  }, [isFullscreen, selectedFloorId, activeFloor]);
+  }, [isActive, isFullscreen, selectedFloorId, activeFloor]);
 
 
   useEffect(() => {
+    if (!isActive) return;
     const el = parentRef.current;
     if (!el || !selectedFloorId) return;
     let raf = 0;
@@ -2931,7 +3955,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       el.removeEventListener('scroll', update);
       window.removeEventListener('resize', update);
     };
-  }, [selectedFloorId, currentProjectId, isFullscreen]);
+  }, [isActive, selectedFloorId, currentProjectId, isFullscreen]);
 
   const activePointersRef = useRef<Set<number>>(new Set());
   // Floor-plan navigation: touch one-finger pan; desktop middle-mouse or Space+left pan.
@@ -2954,6 +3978,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const zoomScaleRef = useRef(zoomScale);
   useLayoutEffect(() => {
     zoomScaleRef.current = zoomScale;
+    if (!isActive) return;
 
     // Keep the map point under the mouse / pinch midpoint fixed during the exact
     // layout commit that changes the zoom. This avoids stacked requestAnimationFrame
@@ -2972,11 +3997,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const anchoredClientY = nextRect.top + anchor.ry * nextRect.height;
     parent.scrollLeft += anchoredClientX - anchor.clientX;
     parent.scrollTop += anchoredClientY - anchor.clientY;
-  }, [zoomScale, rotation]);
+  }, [isActive, zoomScale, rotation]);
 
 
   useEffect(() => {
-    if (floorViewRestoringRef.current || !selectedFloorId) return;
+    if (!isActive || floorViewRestoringRef.current || !selectedFloorId) return;
     const parent = parentRef.current;
     if (!parent) return;
     try {
@@ -3000,7 +4025,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         scrollHeight: Math.max(1, current.scrollHeight),
       });
     });
-  }, [zoomScale, selectedFloorId, currentProjectId]);
+  }, [isActive, zoomScale, selectedFloorId, currentProjectId]);
 
   const toDisplayedPercent = (x: number, y: number) => {
     if (rotation === 90) return { x: 100 - y, y: x };
@@ -3084,6 +4109,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   useEffect(() => {
+    if (!isActive) return;
     // Bind once on the scroll viewport. Binding both viewport + image caused the same
     // wheel/touch event to be handled twice because the event bubbles.
     const gestureEl = parentRef.current || imageContainerRef.current;
@@ -3173,13 +4199,25 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       gestureEl.removeEventListener('touchcancel', onTouchEnd);
       gestureEl.removeEventListener('wheel', onWheel);
     };
-  }, [selectedFloorId, isFullscreen]);
+  }, [isActive, selectedFloorId, isFullscreen]);
 
 
   useEffect(() => {
+    if (!isActive) {
+      spacePanHeldRef.current = false;
+      return;
+    }
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable) return;
+
+      if (isFullscreen && e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault();
+        e.stopPropagation();
+        const nextIndex = e.key === 'ArrowLeft' ? fullscreenFloorIndex - 1 : fullscreenFloorIndex + 1;
+        switchFullscreenFloor(nextIndex);
+        return;
+      }
 
       // Structural keyboard shortcuts are ADMIN-only. Navigation/escape remain available.
       if (!canManageStructure) {
@@ -3230,7 +4268,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           e.preventDefault();
           e.stopPropagation();
           if (roomsToNudge.some((room) => lockedRoomIds.has(room.id))) {
-            setCopyNotification('🔒 Có Căn/Phòng đang khóa vị trí. Mở khóa trước khi di chuyển.');
+            setCopyNotification('🔒 Có Căn / Phòng đang khóa vị trí. Mở khóa trước khi di chuyển.');
             window.setTimeout(() => setCopyNotification(null), 1800);
             return;
           }
@@ -3291,25 +4329,23 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     window.addEventListener('keydown', handleKeyDown, true);
     window.addEventListener('keyup', handleKeyUp, true);
     return () => { window.removeEventListener('keydown', handleKeyDown, true); window.removeEventListener('keyup', handleKeyUp, true); };
-  }, [selectedRoomForDragId, selectedRoomIds, floorRooms, copiedRoomsState, activeFloor, onSaveRoomProgress, onDeleteRoomProgress, lockedRoomIds, canManageStructure]);
+  }, [isActive, isFullscreen, fullscreenFloorIndex, switchFullscreenFloor, selectedRoomForDragId, selectedRoomIds, floorRooms, copiedRoomsState, activeFloor, onSaveRoomProgress, onDeleteRoomProgress, lockedRoomIds, canManageStructure]);
 
   // Repair legacy/stale links once source data is available. Durable roomId stays
   // authoritative while its room still exists: editing/rotating a highlight must never
   // silently move a historical Defect to another room. Missing/deleted room links still
   // fall back to pin geometry, while a valid teamId is preserved/refreshed after renames.
   React.useEffect(() => {
-    if (!canEditDefects || !onUpdateDefect || floorDefects.length === 0) return;
+    if (!isActive || !canEditDefects || !onUpdateDefect || floorDefects.length === 0) return;
     floorDefects.forEach((defect) => {
       const repaired = reconcileDefectLinkage(defect, floorRooms, teams, { preserveValidRoomId: true });
       if (repaired !== defect) onUpdateDefect(repaired);
     });
-  }, [canEditDefects, floorDefects, floorRooms, teams, onUpdateDefect]);
+  }, [isActive, canEditDefects, floorDefects, floorRooms, teams, onUpdateDefect]);
 
   const filteredDefects = React.useMemo(() => {
-    const getRoomLabel = (defect: DefectItem) => {
-      const matchedRoom = floorRooms.find((room) => room.id === defect.roomId);
-      return matchedRoom?.roomName || defect.positionDetail || defect.axisGrid || '';
-    };
+    const getRoomLabel = (defect: DefectItem) =>
+      floorRoomById.get(defect.roomId || '')?.roomName || defect.positionDetail || defect.axisGrid || '';
 
     const compareDueDate = (a: DefectItem, b: DefectItem) => {
       if (!a.dueDate && !b.dueDate) return 0;
@@ -3351,7 +4387,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
       return defectSortOrder === 'asc' ? comparison : -comparison;
     });
-  }, [floorDefects, floorRooms, statusFilter, defectSortBy, defectSortOrder]);
+  }, [floorDefects, floorRoomById, statusFilter, defectSortBy, defectSortOrder]);
 
   // Helper handlers for floor plan customization (rename, duplicate, delete, quick add)
   const isFloorNameTaken = (name: string, exceptFloorId?: string) => {
@@ -3371,7 +4407,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       return;
     }
     if (isFloorNameTaken(trimmed, floorId)) {
-      alert(`Tên mặt bằng “${trimmed}” đã tồn tại. Vui lòng dùng tên khác để tránh liên kết dữ liệu nhầm tầng.`);
+      alert(`Tên tầng “${trimmed}” đã tồn tại. Vui lòng dùng tên khác để tránh liên kết dữ liệu nhầm tầng.`);
       setInlineEditingName(currentName);
       setInlineEditingFloorId(null);
       return;
@@ -3395,7 +4431,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (!duplicatingFloorTarget) return;
     const finalName = duplicateFloorNameInput.trim() || `${duplicatingFloorTarget.name} (Bản sao)`;
     if (isFloorNameTaken(finalName)) {
-      alert(`Tên mặt bằng “${finalName}” đã tồn tại. Vui lòng đổi tên bản sao trước khi tạo.`);
+      alert(`Tên tầng “${finalName}” đã tồn tại. Vui lòng đổi tên bản sao trước khi tạo.`);
       return;
     }
 
@@ -3462,7 +4498,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const floorName = quickFloorNameInput.trim();
     if (!floorName) return;
     if (isFloorNameTaken(floorName)) {
-      alert(`Tên mặt bằng “${floorName}” đã tồn tại. Vui lòng dùng tên khác.`);
+      alert(`Tên tầng “${floorName}” đã tồn tại. Vui lòng dùng tên khác.`);
       return;
     }
 
@@ -3618,14 +4654,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'vi', { numeric: true, sensitivity: 'base' }));
   }, [floorRooms, resolveOperationalCategoryName]);
 
-  const choosePdfPageNumber = async (file: File): Promise<number | null> => {
-    const info = await getPdfDocumentInfo(file);
-    if (info.pageCount <= 1) return 1;
-    const raw = window.prompt(`PDF có ${info.pageCount} trang. Nhập số trang muốn dùng làm mặt bằng (1-${info.pageCount}):`, '1');
+  const choosePdfPageNumber = (pageCount: number): number | null => {
+    if (pageCount <= 1) return 1;
+    const raw = window.prompt(`PDF có ${pageCount} trang. Nhập số trang muốn dùng làm mặt bằng (1-${pageCount}):`, '1');
     if (raw === null) return null;
     const pageNumber = Math.trunc(Number(raw));
-    if (!Number.isFinite(pageNumber) || pageNumber < 1 || pageNumber > info.pageCount) {
-      alert(`Số trang không hợp lệ. Vui lòng chọn từ 1 đến ${info.pageCount}.`);
+    if (!Number.isFinite(pageNumber) || pageNumber < 1 || pageNumber > pageCount) {
+      alert(`Số trang không hợp lệ. Vui lòng chọn từ 1 đến ${pageCount}.`);
       return null;
     }
     return pageNumber;
@@ -3634,10 +4669,17 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const renderFloorPlanFile = async (file: File): Promise<string | null> => {
     const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
     if (isPdf) {
-      const pageNumber = await choosePdfPageNumber(file);
-      if (pageNumber === null) return null;
-      const profile = getImageQualityProfile('floorPlan');
-      return convertPdfToImage(file, { pageNumber, maxDimension: profile.maxDimension, quality: profile.quality });
+      // Load the PDF exactly once. The old flow opened it once for page-count and again
+      // for rendering, doubling PDF.js decode/worker memory on Android WebView.
+      const pdf = await loadPdfDocument(file);
+      try {
+        const pageNumber = choosePdfPageNumber(Math.max(1, Number(pdf?.numPages || 1)));
+        if (pageNumber === null) return null;
+        const profile = getImageQualityProfile('floorPlan');
+        return await renderPdfDocumentPageToImage(pdf, { pageNumber, maxDimension: profile.maxDimension, quality: profile.quality });
+      } finally {
+        try { await pdf.destroy?.(); } catch {}
+      }
     }
     if (!(file.type || '').startsWith('image/') && !/\.(jpe?g|png|webp)$/i.test(file.name || '')) {
       throw new Error('Chỉ hỗ trợ PDF, JPG, PNG hoặc WebP.');
@@ -3675,6 +4717,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setFloorPlanApplySelectedIds([]);
     setFloorPlanRangeStartId('');
     setFloorPlanRangeEndId('');
+    setReuseFloorPlanSourceId('');
     setUpdatingFloorPlanId(null);
   };
 
@@ -3685,6 +4728,21 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setFloorPlanApplySelectedIds([floorPlanId]);
     setFloorPlanRangeStartId(floorPlanId);
     setFloorPlanRangeEndId(floorPlanId);
+    setShowFloorPlanApplyScopeModal(true);
+  };
+
+  const openFloorPlanApplyScopeForManagedSelection = (floorIds: string[]) => {
+    if (!canManageStructure) return;
+    const requested = new Set(floorIds);
+    const orderedIds = orderedFloorPlansForApply.filter((plan) => requested.has(plan.id)).map((plan) => plan.id);
+    if (orderedIds.length === 0) return;
+    const firstId = orderedIds[0];
+    setUpdatingFloorPlanId(firstId);
+    setFloorPlanApplyMode(orderedIds.length > 1 ? 'multiple' : 'single');
+    setFloorPlanApplySelectedIds(orderedIds);
+    setFloorPlanRangeStartId(firstId);
+    setFloorPlanRangeEndId(orderedIds[orderedIds.length - 1]);
+    setShowManageFloorsModal(false);
     setShowFloorPlanApplyScopeModal(true);
   };
 
@@ -3709,7 +4767,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
       const floorNameClean = file.name.replace(/\.[^/.]+$/, '');
       if (isFloorNameTaken(floorNameClean)) {
-        alert(`Tên mặt bằng “${floorNameClean}” đã tồn tại. Vui lòng đổi tên tệp hoặc dùng chức năng cập nhật bản vẽ của tầng hiện có.`);
+        alert(`Tên tầng “${floorNameClean}” đã tồn tại. Vui lòng đổi tên tệp hoặc dùng chức năng cập nhật bản vẽ của tầng hiện có.`);
         return;
       }
       const newFloorId = createEntityId('fp-pdf');
@@ -3750,28 +4808,68 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }
 
     try {
+      let effectiveTargetIds = targetIds;
+      let skippedPendingNames: string[] = [];
+      let legacySafeCount = 0;
+
+      if (targetIds.length > 1 && onInspectFloorPlanBulkTargets) {
+        const preflight = await onInspectFloorPlanBulkTargets(targetIds);
+        legacySafeCount = preflight.legacySafeIds.length;
+        if (preflight.blocked.length > 0) {
+          skippedPendingNames = preflight.blocked.map((row) => row.floorName);
+          if (preflight.readyIds.length === 0) {
+            alert(`Không có tầng nào sẵn sàng để áp dụng. ${preflight.blocked.length} tầng đang có bản vẽ chờ đồng bộ:\n- ${skippedPendingNames.slice(0, 8).join('\n- ')}${skippedPendingNames.length > 8 ? `\n… và ${skippedPendingNames.length - 8} tầng khác` : ''}\n\nHãy đồng bộ các tầng này xong rồi thử lại.`);
+            return;
+          }
+
+          const confirmed = await confirmAsync(
+            `Có ${preflight.blocked.length}/${targetIds.length} tầng đang có bản vẽ chờ đồng bộ thật nên phải giữ nguyên:\n\n• ${skippedPendingNames.slice(0, 8).join('\n• ')}${skippedPendingNames.length > 8 ? `\n• … và ${skippedPendingNames.length - 8} tầng khác` : ''}\n\nCó thể áp dụng bản vẽ mới cho ${preflight.readyIds.length} tầng đã sẵn sàng và bỏ qua các tầng trên. Defect, Căn / Phòng, vùng tô sáng (highlight), tiến độ và checklist không bị sao chép/chỉnh sửa.`,
+            {
+              title: 'Một số tầng đang chờ đồng bộ',
+              confirmLabel: `Áp dụng cho ${preflight.readyIds.length} tầng`,
+            },
+          );
+          if (!confirmed) return;
+          effectiveTargetIds = preflight.readyIds;
+        }
+      }
+
       beginFloorPlanFileProcessing(file);
       const planUrl = await renderFloorPlanFile(file);
       if (!planUrl) return;
 
-      if (targetIds.length > 1) {
+      if (effectiveTargetIds.length > 1) {
         if (!onUpdateFloorPlanImages) throw new Error('FLOOR_PLAN_BULK_HANDLER_UNAVAILABLE');
-        const applied = await onUpdateFloorPlanImages(targetIds, planUrl);
-        alert(`🎉 Đã áp dụng 1 bản vẽ chung cho ${applied} tầng. Defect, Căn/Phòng và tiến độ từng tầng vẫn giữ riêng.`);
-      } else if (onUpdateFloorPlanImage) {
-        await onUpdateFloorPlanImage(targetIds[0], planUrl);
-        alert('🎉 Đã cập nhật thành công bản vẽ mới cho tầng!');
+        const applied = await onUpdateFloorPlanImages(effectiveTargetIds, planUrl);
+        const suffix = skippedPendingNames.length > 0
+          ? ` Bỏ qua ${skippedPendingNames.length} tầng đang đồng bộ.`
+          : legacySafeCount > 0
+            ? ` Đã nhận diện an toàn ${legacySafeCount} tầng từ dữ liệu cũ (legacy).`
+            : '';
+        alert(`🎉 Đã áp dụng 1 bản vẽ chung cho ${applied} tầng.${suffix} Defect, Căn / Phòng và tiến độ từng tầng vẫn giữ riêng.`);
+      } else if (effectiveTargetIds.length === 1 && onUpdateFloorPlanImage) {
+        await onUpdateFloorPlanImage(effectiveTargetIds[0], planUrl);
+        const suffix = skippedPendingNames.length > 0 ? ` Bỏ qua ${skippedPendingNames.length} tầng đang đồng bộ.` : '';
+        alert(`🎉 Đã cập nhật bản vẽ cho 1 tầng.${suffix}`);
       }
       resetFloorPlanApplyScope();
     } catch (err) {
       console.error('Update floor plan drawing error:', err);
+      appendRuntimeDiagnostic({
+        level: 'warn',
+        area: 'floor-plan-import',
+        projectId: currentProjectId,
+        code: 'FLOOR_PLAN_FILE_READ_FAILED',
+        message: `${file.name}: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`.slice(0, 700),
+      });
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes('FLOOR_PLAN_BULK_REQUIRES_ONLINE')) {
-        alert('Áp dụng cùng một bản vẽ cho nhiều tầng cần có mạng để tạo 1 asset dùng chung an toàn. Hãy kết nối mạng rồi thử lại.');
+        alert('Áp dụng cùng một bản vẽ cho nhiều tầng cần có mạng để tạo 1 tệp bản vẽ dùng chung an toàn. Hãy kết nối mạng rồi thử lại.');
       } else if (message.includes('FLOOR_PLAN_BULK_TARGET_PENDING')) {
-        alert('Có tầng đang chờ tải bản vẽ lên Cloud/R2. Hãy chờ đồng bộ xong rồi áp dụng hàng loạt để tránh ghi đè nhầm revision.');
+        const pendingNames = message.split(':').slice(1).join(':').split('|').map((name) => name.trim()).filter(Boolean);
+        alert(`Có tầng đang chờ tải bản vẽ lên đám mây Cloud/R2${pendingNames.length ? `: ${pendingNames.join(', ')}` : ''}. Hãy chờ đồng bộ xong rồi thử lại; hệ thống không ghi đè phiên bản (revision) đang chờ.`);
       } else if (message.includes('FLOOR_PLAN_ADMIN_REQUIRED') || message.includes('FLOOR_PLAN_ROLE_VERIFICATION_UNAVAILABLE')) {
-        alert('Không xác minh được quyền ADMIN để thay mặt bằng. Hãy kiểm tra kết nối/quyền dự án rồi thử lại.');
+        alert('Không xác minh được quyền ADMIN (Quản trị) để thay mặt bằng. Hãy kiểm tra kết nối/quyền dự án rồi thử lại.');
       } else {
         alert(describePdfError(err));
       }
@@ -3796,7 +4894,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (e.cancelable) e.preventDefault();
     const selectedIdsForDrag = selectedRoomIds.includes(room.id) && handle === 'move' ? selectedRoomIds : [room.id];
     if (selectedIdsForDrag.some((id) => lockedRoomIds.has(id))) {
-      setCopyNotification('🔒 Căn/Phòng đang khóa vị trí. Mở khóa trước khi di chuyển hoặc chỉnh kích thước.');
+      setCopyNotification('🔒 Căn / Phòng đang khóa vị trí. Mở khóa trước khi di chuyển hoặc chỉnh kích thước.');
       window.setTimeout(() => setCopyNotification(null), 2200);
       return;
     }
@@ -4275,6 +5373,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   const openDefectModalForPin = (x: number, y: number) => {
     if (!canEditDefects) return;
+    // A new Defect is a new deadline cycle. Recompute from the device's local
+    // calendar instead of reusing an old React/localStorage draft value.
+    setDueDate(getDefaultDefectDueDate());
     setPinPos({ x, y });
     const { roomAtPosTeam, currentFloorTeams, declaredTeamNames } = getCandidateTeamsForDefect(
       { x, y },
@@ -4411,15 +5512,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }
 
     if (drawTool === 'none') {
-      if (viewMode === 'highlight') {
-        setSelectedRoomForEdit(null);
-        setNewRoomClickPos({ x, y });
-        setNewRoomRect({ x: Math.max(0, x - 8), y: Math.max(0, y - 6), width: 16, height: 12 });
-        setNewRoomPoints(undefined);
-        setIsRoomModalOpen(true);
-        return;
-      }
-      // Tổng hợp/Defect: normal blank tap is inspection only; creation must be explicit.
+      // A normal tap on empty plan space is always inspection/navigation, including
+      // Mặt bằng thi công. Only the explicit "Tạo căn mới" placement tool above
+      // may open the creation form; accidental taps after pan/zoom must not.
       setClickChoicePos(null);
       setSelectedRoomForDragId(null);
       setSelectedRoomIds([]);
@@ -4592,14 +5687,30 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     try {
       setIsUploadingPlan(true);
       const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+      const isDxf = /\.dxf$/i.test(file.name);
       const savedFloorName = newFloorName.trim();
       if (isFloorNameTaken(savedFloorName)) {
-        alert(`Tên mặt bằng “${savedFloorName}” đã tồn tại. Vui lòng dùng tên khác trước khi tải bản vẽ.`);
+        alert(`Tên tầng “${savedFloorName}” đã tồn tại. Vui lòng dùng tên khác trước khi tải bản vẽ.`);
         return;
       }
-      const newFloorId = createEntityId('fp');
+      const newFloorId = createEntityId(isDxf ? 'fp-dxf' : 'fp');
+
+      if (isDxf) {
+        await prepareDxfRoomImport(file, {
+          floorId: newFloorId,
+          floorName: savedFloorName,
+          structureGroupId: normalizedStructureConfig.enabled ? newFloorStructureGroupId : undefined,
+          createFloor: true,
+        });
+        setShowAddFloorModal(false);
+        return;
+      }
 
       if (isPdf) {
+        if (smartPdfDetectionEnabled && !isSmartPdfNamePatternValid) {
+          alert('Quy tắc kỹ thuật tên Căn / Phòng không hợp lệ. Hãy sửa hoặc bấm “Khôi phục mặc định”.');
+          return;
+        }
         const pdf = await loadPdfDocument(file);
         try {
           const pageCount = Math.max(1, Number(pdf.numPages || 1));
@@ -4680,7 +5791,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     } catch (err: any) {
       console.error('Floor plan upload error:', err);
       const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-      alert(isPdf ? describePdfError(err) : (err?.message || 'Không thể đọc tệp mặt bằng.'));
+      const isDxf = /\.dxf$/i.test(file.name);
+      alert(isDxf
+        ? `❌ Không thể nhận diện DXF:\n${err instanceof Error ? err.message : String(err)}`
+        : isPdf
+          ? describePdfError(err)
+          : (err?.message || 'Không thể đọc tệp mặt bằng.'));
     } finally {
       setIsDetectingPdfRooms(false);
       setIsUploadingPlan(false);
@@ -4902,6 +6018,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setDescription('');
     setPhotoUrl('');
     setAfterPhotoUrl('');
+    setDueDate(getDefaultDefectDueDate());
 
     // Clear draft storage
     localStorage.removeItem(getDraftKey('construction_defect_draft_pinPos'));
@@ -4959,15 +6076,22 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   }
 
   return (
-    <div className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
+    <div data-hnl-workspace-module="floorplan" className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
+      <DesktopWorkspaceMetrics eyebrow="THI CÔNG · MẶT BẰNG"
+        title="Điều hành mặt bằng theo tầng" description="Thao tác bản vẽ và Defect vẫn dùng bộ điều khiển hiện tại, không thay đổi tọa độ hoặc ID."
+        metrics={[
+          { label: 'Tầng trong dự án', value: floorPlans.length, detail: 'Giữ nguyên dữ liệu gốc' },
+          { label: 'Tầng đang hiển thị', value: visibleFloorPlans.length, detail: 'Theo bộ lọc Khu/Khối' },
+          { label: 'Tầng đang chọn', value: activeFloor?.floorName || '—', detail: 'Đang xem mặt bằng' },
+        ]} />
       {/* Title Header */}
-      <div className="space-y-2">
+      <div data-hnl-pc-region="commands" className="space-y-2">
         <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2 whitespace-nowrap">
           <Building2 className="w-5 h-5 shrink-0 text-indigo-600" />
           {t('floorplan_title')}
         </h2>
 
-        <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="grid gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-1">
             <div className="text-xs font-medium text-slate-500 min-w-0">
               Đang xem:{' '}
@@ -5009,17 +6133,34 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             </div>
           </div>
 
-          {canManageStructure && (
-            <button
-              type="button"
-              onClick={() => setShowManageFloorsModal(true)}
-              className="w-full shrink-0 flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-3 py-2 rounded-xl text-xs font-bold active:scale-[0.99] transition-all shadow-xs whitespace-nowrap sm:w-auto"
-              title="Quản lý Khu/Khối, đổi tên, sắp xếp và quản lý tầng"
-            >
-              <Settings className="w-3.5 h-3.5 shrink-0" />
-              Quản lý Khu/Khối & Tầng
-            </button>
-          )}
+          <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-flow-col sm:auto-cols-max sm:grid-cols-none sm:items-center">
+            {canManageStructure && (
+              <button
+                type="button"
+                onClick={() => setShowManageFloorsModal(true)}
+                data-hnl-pc-v35-trigger="manage-structure"
+                className="flex h-10 min-w-0 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-indigo-200 bg-indigo-50 px-2 text-[11px] font-bold text-indigo-700 shadow-xs transition-all hover:bg-indigo-100 active:scale-[0.99] sm:h-9 sm:w-auto sm:px-3 sm:text-xs"
+                title="Quản lý Khu/Khối, đổi tên, sắp xếp và quản lý tầng"
+              >
+                <Settings className="w-3.5 h-3.5 shrink-0" />
+                <span className="sm:hidden">Khu/Tầng</span>
+                <span className="hidden sm:inline">Quản lý Khu/Khối &amp; Tầng</span>
+              </button>
+            )}
+            <div className={canManageStructure ? 'min-w-0' : 'col-span-2 justify-self-end'}>
+              <DataManagementMenu
+                fillMobile
+                triggerLabel="Quản lý dữ liệu"
+                onQuickEdit={quickEditEnabled ? (() => { setQuickEditMode('rooms'); setShowQuickEdit(true); }) : undefined}
+                onExportEdit={() => downloadHighlightTemplate('all')}
+                onImportFile={canManageStructure ? handleImportExcelHighlights : undefined}
+                onDownloadTemplate={() => downloadHighlightTemplate('template')}
+                exportLabel="Xuất Căn / Hạng mục để chỉnh sửa"
+                importLabel="Nhập Excel đã chỉnh sửa"
+                templateLabel="Tải mẫu Căn / Hạng mục"
+              />
+            </div>
+          </div>
 
           <input
             type="file"
@@ -5166,6 +6307,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       )}
 
       {/* Floor Plan Selector Chips & Quick Customization Toolbar */}
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="01" aria-label="Khu / Khối & tầng">
+        <span className="hnl-pc-v3-section-index">01</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Khu / Khối & tầng</strong><small>Chọn bản vẽ, điều khiển vùng căn và vị trí Defect.</small></div>
+      </div>
+
       <div className="bg-slate-100/90 p-2.5 rounded-2xl border border-slate-200/80 space-y-2">
         <div className="flex items-center justify-between flex-wrap gap-2 text-[11px] font-extrabold text-slate-600 px-1 border-b border-slate-200/50 pb-1.5">
           <span className="flex items-center gap-1">
@@ -5347,7 +6493,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 </span>
 
                 {defectCount > 0 && (
-                  <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping" title={`${defectCount} lỗi defect`} />
+                  <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping" title={`${defectCount} Defect`} />
                 )}
 
                 {/* Direct Action Quick Buttons on Tab */}
@@ -5361,7 +6507,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         setInlineEditingFloorId(fp.id);
                         setInlineEditingName(fp.floorName);
                       }}
-                      className={`p-1 rounded hover:bg-black/10 transition-colors ${isSelected ? 'text-indigo-100' : 'text-slate-400 hover:text-slate-700'}`}
+                      className={`p-1 rounded hover:bg-black/10 transition-colors ${isSelected ? 'text-indigo-100' : 'text-indigo-700 hover:text-indigo-800'}`}
                       title="Sửa tên tầng trực tiếp"
                     >
                       <Edit3 className="w-3 h-3" />
@@ -5387,7 +6533,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         e.stopPropagation();
                         handleDeleteFloor(fp.id, fp.floorName);
                       }}
-                      className={`p-1 rounded hover:bg-rose-500/20 transition-colors ${isSelected ? 'text-rose-200 hover:text-white' : 'text-slate-400 hover:text-rose-600'}`}
+                      className={`p-1 rounded hover:bg-rose-500/20 transition-colors ${isSelected ? 'text-rose-200 hover:text-white' : 'text-rose-600 hover:text-rose-700'}`}
                       title="Xóa tầng này"
                     >
                       <Trash2 className="w-3 h-3" />
@@ -5432,9 +6578,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
       </div>
 
+      {/* Keep the same mobile/classic order; modern PC places the mode group
+          on the right of section 02 without duplicating button handlers. */}
+      <div data-hnl-pc-v35-section-row="floor-drawing" className="flex flex-col gap-4">
       {/* View mode: the same three names are used everywhere in the app.
           Press the active button again to return to Mặt bằng tổng hợp. */}
-      <div className="bg-slate-200/90 p-1.5 rounded-2xl grid grid-cols-2 gap-1.5 text-xs font-bold shadow-inner">
+      <div data-hnl-pc-v35-view-modes="floorplan" className="bg-slate-200/90 p-1.5 rounded-2xl grid grid-cols-2 gap-1.5 text-xs font-bold shadow-inner">
         <button
           type="button"
           onClick={() => {
@@ -5483,8 +6632,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       </div>
 
       {/* Interactive Blueprint Canvas Viewer Card */}
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="02" aria-label="Không gian bản vẽ">
+        <span className="hnl-pc-v3-section-index">02</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Không gian bản vẽ</strong><small>Công cụ vẽ, di chuyển và xử lý vùng Highlight / Defect.</small></div>
+      </div>
+      </div>{/* End floor drawing section header + view controls */}
+
       {activeFloor && (
-        <div className="bg-white rounded-2xl p-3 border border-slate-200 shadow-sm space-y-2.5">
+        <div data-hnl-pc-v3-inner="floor-drawing" className="bg-white rounded-2xl p-3 border border-slate-200 shadow-sm space-y-2.5">
           {/* Header Row: Title & Action Buttons */}
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-slate-700 w-full pb-2 border-b border-slate-100">
             <div className="flex items-center gap-2">
@@ -5515,6 +6670,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <span>Cập nhật bản vẽ</span>
               </button>}
 
+              {canManageStructure && cadSourceRoomCount > 0 && (
+                <button
+                  type="button"
+                  onClick={openCadAlignment}
+                  className="col-span-2 sm:col-span-1 flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-3 py-2 sm:py-1.5 rounded-xl text-xs font-bold transition-all shadow-2xs active:scale-95"
+                  title="Căn toàn bộ highlight nguồn DXF với ảnh/PDF mặt bằng hiện tại mà không đổi roomId"
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span>Căn chỉnh CAD</span>
+                </button>
+              )}
+
               {canManageStructure && (viewMode === 'highlight' || viewMode === 'all') && (
                 <button
                   type="button"
@@ -5527,10 +6694,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     setNewRoomPoints(undefined);
                     setIsRoomPinPlacementMode((active) => !active);
                   }}
-                  className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-2 sm:py-1.5 rounded-xl flex items-center justify-center gap-1.5 shadow-xs active:scale-95 transition-all min-w-0"
+                  className={`text-xs font-bold px-3 py-2 sm:py-1.5 rounded-xl flex items-center justify-center gap-1.5 shadow-xs active:scale-95 transition-all min-w-0 ${
+                    isRoomPinPlacementMode
+                      ? 'bg-indigo-600 hover:bg-indigo-700 text-white ring-2 ring-indigo-200'
+                      : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                  }`}
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>{isRoomPinPlacementMode ? 'Chạm vị trí Căn / Phòng…' : 'Thêm Căn / Phòng'}</span>
+                  <span>{isRoomPinPlacementMode ? 'Hủy đặt căn' : 'Tạo căn mới'}</span>
                 </button>
               )}
 
@@ -5601,12 +6772,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   }}
                   className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap ${
                     drawTool === 'freehand'
-                      ? 'bg-amber-500 text-slate-950 font-black shadow-sm ring-2 ring-amber-300'
+                      ? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300'
                       : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/90 shadow-2xs'
                   }`}
                   title="Nhấn giữ & kéo chuột/ngón tay để vẽ tự do trên mặt bằng"
                 >
-                  <Pencil className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                  <Pencil className="w-3.5 h-3.5 shrink-0" />
                   <span>Vẽ tự do</span>
                 </button>
 
@@ -5622,12 +6793,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   }}
                   className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap ${
                     drawTool === 'polygon'
-                      ? 'bg-amber-500 text-slate-950 font-black shadow-sm ring-2 ring-amber-300'
+                      ? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300'
                       : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/90 shadow-2xs'
                   }`}
                   title="Chấm 2 hoặc nhiều điểm để vẽ đường thẳng / đa giác, rồi bấm [Xác nhận]"
                 >
-                  <Sparkles className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <Sparkles className="w-3.5 h-3.5 shrink-0" />
                   <span>Vẽ đa giác</span>
                 </button>
 
@@ -5643,7 +6814,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   }}
                   className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap ${
                     drawTool === '2point'
-                      ? 'bg-amber-500 text-slate-950 font-black shadow-sm ring-2 ring-amber-300'
+                      ? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300'
                       : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/90 shadow-2xs'
                   }`}
                   title="Bấm 2 điểm đối góc để tạo khung hình chữ nhật"
@@ -5662,12 +6833,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap ${
                     roomColorMode === 'palette'
                       ? 'bg-indigo-600 text-white shadow-xs hover:bg-indigo-700'
-                      : 'bg-amber-500 text-slate-950 font-black shadow-xs hover:bg-amber-400'
+                      : 'bg-slate-200 text-slate-800 border border-slate-300 shadow-xs hover:bg-slate-300'
                   }`}
                   title="Đổi giữa Chế độ Mỗi căn 1 màu đa sắc phân biệt (Mặc định) và Màu theo Trạng thái Nghiệm thu"
                 >
                   <Palette className="w-3.5 h-3.5 shrink-0" />
-                  <span>{roomColorMode === 'palette' ? 'Mỗi Căn / Phòng 1 màu' : 'Theo trạng thái'}</span>
+                  <span>{roomColorMode === 'palette' ? 'Mỗi căn/phòng một màu' : 'Theo trạng thái'}</span>
                 </button>
 
                 {/* Show/Hide Text Label Toggle */}
@@ -5676,7 +6847,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   onClick={() => setShowTextOverlay(!showTextOverlay)}
                   className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap ${
                     !showTextOverlay
-                      ? 'bg-emerald-600 text-white shadow-xs'
+                      ? 'bg-indigo-600 text-white shadow-xs'
                       : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/90 shadow-2xs'
                   }`}
                   title="Bật/Tắt chế độ chỉ hiện màu Highlight (không hiện chữ rối)"
@@ -5695,18 +6866,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 type="button"
                 onClick={() => setRoomColorMode(roomColorMode === 'palette' ? 'status' : 'palette')}
                 className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all ${
-                  roomColorMode === 'palette' ? 'bg-indigo-600 text-white' : 'bg-amber-500 text-slate-950'
+                  roomColorMode === 'palette' ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-800 border border-slate-300'
                 }`}
                 title="Đổi cách hiển thị màu Căn / Phòng"
               >
                 <Palette className="w-3.5 h-3.5" />
-                <span>{roomColorMode === 'palette' ? 'Mỗi Căn / Phòng 1 màu' : 'Theo trạng thái'}</span>
+                <span>{roomColorMode === 'palette' ? 'Mỗi căn/phòng một màu' : 'Theo trạng thái'}</span>
               </button>
               <button
                 type="button"
                 onClick={() => setShowTextOverlay(!showTextOverlay)}
                 className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all ${
-                  !showTextOverlay ? 'bg-emerald-600 text-white' : 'bg-white text-slate-700 border border-slate-200'
+                  !showTextOverlay ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-200'
                 }`}
                 title="Bật/Tắt nhãn tên Căn / Phòng"
               >
@@ -5995,18 +7166,50 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             </div>
           )}
 
+          {/* Confine all map pin/label z-layers to this canvas so they cannot paint
+              above the global mobile navigation (z-40). Fullscreen retains z-100.
+              Do NOT lift navigation globally: unrelated dialogs still use z-50. */}
           {/* Blueprint Image Outer Container with Controls */}
-          <div className={`${isFullscreen ? 'fixed inset-0 z-[100] bg-slate-950 rounded-none h-[100dvh] w-[100dvw] flex flex-col' : 'relative w-full h-[52dvh] min-h-[320px] max-h-[520px] sm:h-[400px] bg-slate-900 rounded-2xl'} overflow-hidden border border-slate-300 select-none group shadow-inner`}>
+          <div data-hnl-pc-plan-viewport="true" className={`${isFullscreen ? 'fixed inset-0 z-[100] bg-slate-950 rounded-none h-[100dvh] w-[100dvw] flex flex-col' : 'relative w-full h-[52dvh] min-h-[320px] max-h-[520px] sm:h-[400px] bg-slate-900 rounded-2xl'} overflow-hidden isolate border border-slate-300 select-none group shadow-inner`}>
             {/* Fullscreen Pinned Drawing Toolbar & Active Banners */}
             {isFullscreen && (
               <div className="shrink-0 z-[70] pointer-events-auto flex flex-col gap-1.5 p-2 bg-slate-950/95 border-b border-slate-800 shadow-lg">
                 {/* Fullscreen Top Control Bar */}
                 <div className="flex items-center justify-between gap-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-slate-700 shadow-2xl text-white overflow-x-auto no-scrollbar">
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs font-black text-amber-400 bg-amber-400/10 px-2.5 py-1 rounded-xl border border-amber-400/30 flex items-center gap-1.5 shrink-0">
-                      <Maximize2 className="w-3.5 h-3.5" />
-                      <span className="truncate max-w-[100px] sm:max-w-none">{activeFloor?.floorName || 'Toàn Màn Hình'}</span>
-                    </span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => switchFullscreenFloor(fullscreenFloorIndex - 1)}
+                        disabled={fullscreenFloorIndex <= 0}
+                        className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 disabled:opacity-35"
+                        title="Tầng trước · Alt + ←"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <select
+                        value={activeFloor?.id || ''}
+                        onChange={(event) => {
+                          const nextIndex = fullscreenFloorPlans.findIndex((plan) => plan.id === event.target.value);
+                          if (nextIndex >= 0) switchFullscreenFloor(nextIndex);
+                        }}
+                        className="h-9 max-w-[150px] rounded-lg border border-slate-700 bg-slate-800 px-2 text-[11px] font-bold text-white"
+                        title="Chọn nhanh tầng trong chế độ toàn màn hình"
+                      >
+                        {fullscreenFloorPlans.map((plan) => (
+                          <option key={plan.id} value={plan.id}>{plan.floorName}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => switchFullscreenFloor(fullscreenFloorIndex + 1)}
+                        disabled={fullscreenFloorIndex < 0 || fullscreenFloorIndex >= fullscreenFloorPlans.length - 1}
+                        className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 disabled:opacity-35"
+                        title="Tầng sau · Alt + →"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
 
                     {canManageStructure && (viewMode === 'highlight' || viewMode === 'all') && (
                       <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
@@ -6019,14 +7222,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             setDrawHoverPos(null);
                             setPolygonPoints([]);
                           }}
-                          className={`text-[11px] font-extrabold px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all shrink-0 ${
+                          className={`min-h-9 text-[11px] font-extrabold px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all shrink-0 ${
                             drawTool === 'freehand'
-                              ? 'bg-amber-500 text-slate-950 font-black scale-105 shadow-sm'
+                              ? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300'
                               : 'bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700'
                           }`}
                           title="Nhấn giữ & kéo chuột/ngón tay để vẽ tự do"
                         >
-                          <Pencil className="w-3.5 h-3.5 text-amber-400" />
+                          <Pencil className="w-3.5 h-3.5" />
                           <span>Vẽ tự do</span>
                         </button>
 
@@ -6039,14 +7242,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             setDrawHoverPos(null);
                             setPolygonPoints([]);
                           }}
-                          className={`text-[11px] font-extrabold px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all shrink-0 cursor-pointer ${
+                          className={`min-h-9 text-[11px] font-extrabold px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all shrink-0 cursor-pointer ${
                             drawTool === 'polygon'
-                              ? 'bg-amber-500 text-slate-950 font-black scale-105 shadow-sm'
+                              ? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300'
                               : 'bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700'
                           }`}
-                          title="Chấm 2 hoặc nhiều điểm vẽ đường/được đa giác rồi chốt"
+                          title="Chấm ít nhất 2 điểm để vẽ đường hoặc đa giác, sau đó xác nhận"
                         >
-                          <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                          <Sparkles className="w-3.5 h-3.5" />
                           <span>Vẽ đa giác</span>
                         </button>
 
@@ -6059,13 +7262,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             setDrawHoverPos(null);
                             setPolygonPoints([]);
                           }}
-                          className={`text-[11px] font-extrabold px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all shrink-0 cursor-pointer ${
+                          className={`min-h-9 text-[11px] font-extrabold px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all shrink-0 cursor-pointer ${
                             drawTool === '2point'
-                              ? 'bg-amber-500 text-slate-950 font-black scale-105 shadow-sm'
+                              ? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300'
                               : 'bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700'
                           }`}
                           title="Bấm 2 điểm tạo khung chữ nhật"
                         >
+                          <span className="text-sm leading-none shrink-0">📦</span>
                           <span>Vẽ chữ nhật</span>
                         </button>
 
@@ -6073,24 +7277,24 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         <button
                           type="button"
                           onClick={() => setRoomColorMode(roomColorMode === 'palette' ? 'status' : 'palette')}
-                          className={`text-[11px] font-extrabold px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all shrink-0 cursor-pointer ${
+                          className={`min-h-9 text-[11px] font-extrabold px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all shrink-0 cursor-pointer ${
                             roomColorMode === 'palette'
-                              ? 'bg-indigo-600 text-white shadow-xs hover:bg-indigo-500'
-                              : 'bg-amber-500 text-slate-950 font-black shadow-xs hover:bg-amber-400'
+                              ? 'bg-indigo-600 text-white shadow-xs hover:bg-indigo-700'
+                              : 'bg-slate-800 text-slate-200 border border-slate-700 shadow-xs hover:bg-slate-700'
                           }`}
                           title="Đổi giữa Chế độ Mỗi căn 1 màu đa sắc phân biệt và Theo Trạng thái Nghiệm thu"
                         >
                           <Palette className="w-3.5 h-3.5" />
-                          <span>{roomColorMode === 'palette' ? 'Mỗi Căn / Phòng 1 màu' : 'Theo trạng thái'}</span>
+                          <span>{roomColorMode === 'palette' ? 'Mỗi căn/phòng một màu' : 'Theo trạng thái'}</span>
                         </button>
 
                         {/* Toggle Highlight Display */}
                         <button
                           type="button"
                           onClick={() => setShowTextOverlay(!showTextOverlay)}
-                          className={`text-[11px] font-extrabold px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all shrink-0 cursor-pointer ${
+                          className={`min-h-9 text-[11px] font-extrabold px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all shrink-0 cursor-pointer ${
                             !showTextOverlay
-                              ? 'bg-emerald-600 text-white shadow-xs'
+                              ? 'bg-indigo-600 text-white shadow-xs'
                               : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
                           }`}
                           title="Hiện màu sạch / Hiện đầy đủ tên Căn / Phòng"
@@ -6111,10 +7315,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             setNewRoomPoints(undefined);
                             setIsRoomPinPlacementMode((active) => !active);
                           }}
-                          className="text-[11px] bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-xs shrink-0"
+                          className={`min-h-9 text-[11px] font-bold px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-xs shrink-0 ${
+                            isRoomPinPlacementMode
+                              ? 'bg-indigo-600 hover:bg-indigo-700 text-white ring-2 ring-indigo-300'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                          }`}
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          <span>{isRoomPinPlacementMode ? 'Chạm vị trí Căn / Phòng…' : 'Thêm Căn / Phòng'}</span>
+                          <span>{isRoomPinPlacementMode ? 'Hủy đặt căn' : 'Tạo căn mới'}</span>
                         </button>
                       </div>
                     )}
@@ -6132,7 +7340,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           setTouchMenu(null);
                           setIsDefectPinPlacementMode((active) => !active);
                         }}
-                        className={`text-[11px] font-black px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-xs shrink-0 ${
+                        className={`min-h-9 text-[11px] font-black px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-xs shrink-0 ${
                           isDefectPinPlacementMode
                             ? 'bg-amber-400 hover:bg-amber-300 text-slate-950'
                             : 'bg-rose-600 hover:bg-rose-500 text-white'
@@ -6152,6 +7360,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       canRedo={canRedo}
                       variant="dark"
                       showLabel={false}
+                      className="[&>button]:min-h-9 [&>button]:min-w-9"
                     />
                     <button
                       type="button"
@@ -6159,7 +7368,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         setRotation(0);
                         setIsFullscreen(false);
                       }}
-                      className="bg-rose-600/90 hover:bg-rose-600 text-white font-bold text-xs px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-md shrink-0 ml-1"
+                      className="min-h-9 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 font-bold text-xs px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-md shrink-0 ml-1"
                       title="Thu nhỏ màn hình"
                     >
                       <Minimize2 className="w-3.5 h-3.5" />
@@ -6470,7 +7679,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       type="button"
                       onClick={focusCurrentSelection}
                       className="flex items-center gap-1 bg-indigo-900/70 hover:bg-indigo-800 text-indigo-100 text-[11px] font-extrabold px-2 py-1 rounded-lg transition-colors border border-indigo-600 shadow-xs shrink-0"
-                      title="Đưa Căn/Phòng đang chọn vào giữa màn hình"
+                      title="Đưa Căn / Phòng đang chọn vào giữa màn hình"
                     >
                       <MapPin className="w-3.5 h-3.5" />
                       <span className="hidden sm:inline">Focus</span>
@@ -6479,7 +7688,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       type="button"
                       onClick={toggleSelectedRoomLock}
                       className={`flex items-center gap-1 text-[11px] font-extrabold px-2 py-1 rounded-lg transition-colors border shadow-xs shrink-0 ${selectedRoomsAreLocked ? 'bg-amber-500 text-slate-950 border-amber-300' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-600'}`}
-                      title={selectedRoomsAreLocked ? 'Mở khóa vị trí Căn/Phòng đang chọn' : 'Khóa vị trí để tránh kéo/resize nhầm'}
+                      title={selectedRoomsAreLocked ? 'Mở khóa vị trí Căn / Phòng đang chọn' : 'Khóa vị trí để tránh kéo/resize nhầm'}
                     >
                       <ShieldCheck className="w-3.5 h-3.5" />
                       <span>{selectedRoomsAreLocked ? 'Mở khóa' : 'Khóa'}</span>
@@ -6641,8 +7850,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 </div>
                 <div className="grid grid-cols-1 gap-1.5">
                   {([
-                    ['roomRegions', 'Vùng Căn/Phòng'],
-                    ['roomLabels', 'Tên Căn/Phòng'],
+                    ['roomRegions', 'Vùng Căn / Phòng'],
+                    ['roomLabels', 'Tên Căn / Phòng'],
                     ['defects', 'Marker Defect'],
                     ['resolvedDefects', 'Defect đã hoàn thành'],
                   ] as const).map(([key, label]) => (
@@ -6793,7 +8002,6 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             y={pendingDraftHighlight.rect.y}
                             width={pendingDraftHighlight.rect.width}
                             height={pendingDraftHighlight.rect.height}
-                            rx="1"
                             fill="rgba(245, 158, 11, 0.45)"
                             stroke="#f59e0b"
                             strokeWidth={1.2 * strokeScale}
@@ -6811,9 +8019,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         y={Math.min(drawStartPos.y, drawHoverPos.y)}
                         width={Math.abs(drawHoverPos.x - drawStartPos.x)}
                         height={Math.abs(drawHoverPos.y - drawStartPos.y)}
-                        rx="1"
                         fill="rgba(99, 102, 241, 0.35)"
-                        stroke="#4f46e5"
+                        stroke="#2563eb"
                         strokeWidth={0.8 * strokeScale}
                         strokeDasharray="2,2"
                       />
@@ -6939,7 +8146,6 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       y={room.y}
                       width={room.width}
                       height={room.height}
-                      rx="1"
                       fill={fillColor}
                       stroke={isSelectedForDrag ? '#f59e0b' : strokeColor}
                       strokeWidth={(isSelectedForDrag ? 1.2 : 0.6) * strokeScale}
@@ -7013,7 +8219,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     <div
                       style={{ left: `${cx}%`, top: `${cy}%` }}
                       className="absolute -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-none bg-slate-950 text-amber-300 px-2 py-1 rounded-full shadow-xl border border-amber-400 text-[10px] font-black"
-                      title="Căn/Phòng đang khóa vị trí"
+                      title="Căn / Phòng đang khóa vị trí"
                     >
                       🔒
                     </div>
@@ -7183,7 +8389,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           width: `${w}%`,
                           height: `${h}%`,
                         }}
-                        className="absolute border-2 border-dashed border-amber-400 bg-amber-400/30 rounded-xl backdrop-blur-[1px] z-20 pointer-events-none transition-all duration-75 shadow-xl"
+                        className="absolute border-2 border-dashed border-amber-400 bg-amber-400/30 backdrop-blur-[1px] z-20 pointer-events-none transition-all duration-75 shadow-xl"
                       />
                     );
                   })()
@@ -7569,7 +8775,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           {/* Hint text */}
           <p className="text-[10px] text-slate-500 text-center italic">
             {viewMode === 'highlight'
-              ? '💡 Dùng công cụ vẽ để đánh dấu vùng Căn / Phòng thi công trên mặt bằng.'
+              ? (isRoomPinPlacementMode
+                ? '📍 Đang tạo căn mới: chạm vị trí muốn đặt căn; bấm “Hủy đặt căn” để thoát.'
+                : '💡 Chạm mặt bằng để xem/kéo; chỉ tạo căn khi bấm “Tạo căn mới” rồi chọn vị trí. Công cụ vẽ vùng vẫn hoạt động riêng.')
               : viewMode === 'defect'
               ? '💡 Bấm “Thêm Defect” rồi chạm đúng vị trí cần ghim; bấm mã Defect để xem chi tiết.'
               : '💡 Mặt bằng tổng hợp đang hiển thị cả Căn / Phòng thi công và vị trí Defect.'}
@@ -7640,46 +8848,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           )}
 
           {/* Room Cards List */}
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="03" aria-label="Căn / phòng trên tầng">
+        <span className="hnl-pc-v3-section-index">03</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Căn / phòng trên tầng</strong><small>Tra cứu nghiệm thu theo từng căn đang hiển thị.</small></div>
+      </div>
+
           <div className="space-y-2.5 pt-1">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                 <Building2 className="w-4 h-4 text-indigo-600" />
                 Nghiệm thu từng Căn / Phòng ({floorRooms.length})
               </h3>
-              <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-                <button
-                  type="button"
-                  onClick={downloadHighlightTemplate}
-                  className="text-[11px] font-extrabold text-indigo-700 hover:text-indigo-900 bg-white hover:bg-slate-50 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-slate-200 transition-all active:scale-95 shadow-2xs"
-                  title="Tải tệp mẫu Excel để nhập danh sách hàng loạt"
-                >
-                  <Download className="w-3.5 h-3.5" /> Mẫu Excel
-                </button>
-                {canManageStructure && (
-                  <>
-                    <label className="text-[11px] font-extrabold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-emerald-200 cursor-pointer transition-all active:scale-95 shadow-2xs">
-                      <Upload className="w-3.5 h-3.5" /> Nhập Excel
-                      <input
-                        type="file"
-                        accept=".xlsx, .xls"
-                        onChange={handleImportExcelHighlights}
-                        className="hidden"
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        setSelectedRoomForEdit(null);
-                        setNewRoomClickPos({ x: 30, y: 30 });
-                        setIsRoomModalOpen(true);
-                      }}
-                      className="text-xs font-extrabold text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-2.5 py-1 rounded-lg flex items-center gap-1 border border-indigo-200 transition-all active:scale-95 cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> Thêm Căn / Phòng
-                    </button>
-                  </>
-                )}
-              </div>
+
             </div>
 
             {floorRooms.length === 0 ? (
@@ -7919,10 +9099,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               setIsRoomModalOpen(true);
                             }}
                             className="text-[11px] font-semibold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100/80 px-2.5 py-1.5 rounded-lg border border-indigo-200/60 transition-all flex items-center gap-1 cursor-pointer shadow-3xs active:scale-95"
-                            title={canManageStructure ? 'Chỉnh sửa Căn / Phòng và hạng mục thi công' : 'Cập nhật tiến độ, nghiệm thu và ghi chú hiện trường'}
+                            title={canManageStructure ? 'Sửa Căn / Phòng và hạng mục thi công' : 'Cập nhật tiến độ, nghiệm thu và ghi chú hiện trường'}
+                            aria-label={canManageStructure ? `Sửa Căn / Phòng ${room.roomName}` : `Cập nhật tiến độ Căn / Phòng ${room.roomName}`}
                           >
-                            <Pencil className="w-3.5 h-3.5 text-indigo-500" />
-                            <span>{canManageStructure ? 'Chỉnh sửa' : 'Cập nhật'}</span>
+                            <Pencil className="w-3.5 h-3.5 text-indigo-700" />
+                            <span>{canManageStructure ? 'Sửa' : 'Cập nhật'}</span>
                           </button>
 
                           {canManageStructure && (
@@ -7931,6 +9112,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               onClick={() => setDeletingRoomTarget({ id: room.id, name: room.roomName })}
                               className="text-[11px] font-semibold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100/80 px-2.5 py-1.5 rounded-lg border border-rose-200/60 transition-all flex items-center gap-1 cursor-pointer shadow-3xs active:scale-95"
                               title="Xóa Căn / Phòng / vùng highlight này"
+                              aria-label={`Xóa Căn / Phòng ${room.roomName}`}
                             >
                               <Trash2 className="w-3.5 h-3.5 text-rose-500" />
                               <span>Xóa</span>
@@ -7995,7 +9177,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                                         )}
                                       </div>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-1 text-[10px]">
+                                    <div data-hnl-pc-v37-room-card-status="outer" className="grid grid-cols-2 gap-1 text-[10px]">
                                       <span className={`py-1 px-1.5 rounded-lg font-bold border text-center ${
                                         sub.status === 'Đã hoàn thành'
                                           ? 'bg-emerald-600 text-white border-emerald-600'
@@ -8035,7 +9217,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           <span>🏗️ Khung Trần:</span>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-1 text-[10px]">
+                        <div data-hnl-pc-v37-room-card-status="outer" className="grid grid-cols-2 gap-1 text-[10px]">
                           <button
                             type="button"
                             onClick={(e) => handleCycleFrame(e, room)}
@@ -8074,7 +9256,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           <span>📄 Tấm Trần:</span>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-1 text-[10px]">
+                        <div data-hnl-pc-v37-room-card-status="outer" className="grid grid-cols-2 gap-1 text-[10px]">
                           <button
                             type="button"
                             onClick={(e) => handleCycleBoard(e, room)}
@@ -8144,7 +9326,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
       {/* SECTION FOR DEFECT MODE: DEFECT LIST & FILTER */}
       {(viewMode === 'defect' || viewMode === 'all') && (
-        <div className="space-y-3">
+        <div data-hnl-pc-v3-inner="floor-defects" className="space-y-3">
+          <div className="hnl-pc-v3-section-band" data-hnl-v3-section="04" aria-label="Danh sách Defect">
+            <span className="hnl-pc-v3-section-index">04</span>
+            <div className="hnl-pc-v3-section-copy"><strong>Danh sách Defect</strong><small>Bộ lọc trạng thái và danh sách lỗi theo mặt bằng.</small></div>
+          </div>
           <div className="space-y-2">
             <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
               Danh sách Defect ({filteredDefects.length})
@@ -8213,7 +9399,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     type="button"
                     onClick={async () => {
                       const idsToDelete = selectedDefectIds.filter(id => filteredDefects.some(item => item.id === id));
-                      if (await confirmAsync(`Bạn có chắc muốn xóa ${idsToDelete.length} lỗi defect đã chọn?`)) {
+                      if (await confirmAsync(`Bạn có chắc muốn xóa ${idsToDelete.length} Defect đã chọn?`)) {
                         if (onDeleteMultipleDefects) {
                           onDeleteMultipleDefects(idsToDelete);
                         } else {
@@ -8241,7 +9427,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               const overdueInfo = getDefectOverdueInfo(defect);
               const contactTeam = resolveDefectTeam(defect, teams);
               const defectRoomName = defect.roomId
-                ? roomProgressList.find((room) => room.id === defect.roomId)?.roomName || ''
+                ? floorRoomById.get(defect.roomId)?.roomName || ''
                 : '';
               const defectShareText = buildDefectShareText(defect, defectRoomName);
               return (
@@ -8311,8 +9497,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-semibold text-slate-500">
                         <span>📍 Tầng: <strong className="text-slate-700">{defect.floorName || activeFloor?.floorName || 'Chưa rõ'}</strong></span>
-                        {defect.roomId && floorRooms.find((room) => room.id === defect.roomId)?.roomName && (
-                          <span>🏠 Căn/Phòng: <strong className="text-slate-700">{floorRooms.find((room) => room.id === defect.roomId)?.roomName}</strong></span>
+                        {defect.roomId && floorRoomById.get(defect.roomId)?.roomName && (
+                          <span>🏠 Căn / Phòng: <strong className="text-slate-700">{floorRoomById.get(defect.roomId)?.roomName}</strong></span>
                         )}
                       </div>
 
@@ -8388,15 +9574,182 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       )}
 
       {/* Room Highlight Modal */}
-      <RoomHighlightModal
+      {pendingDxfImport && (
+        <div className="fixed inset-0 z-[190] bg-slate-950/60 backdrop-blur-[1px] flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white w-full sm:max-w-6xl rounded-t-3xl sm:rounded-2xl max-h-[96dvh] overflow-hidden flex flex-col shadow-2xl border border-slate-200">
+            <div className="px-4 py-3 border-b border-slate-200 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-black text-slate-900 text-sm">Kiểm tra nhận diện CAD/DXF</h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {pendingDxfImport.fileName} · {pendingDxfImport.floorName} · Đơn vị: {pendingDxfImport.unitLabel}
+                </p>
+              </div>
+              <button type="button" onClick={() => setPendingDxfImport(null)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-600">Đóng</button>
+            </div>
+
+            {pendingDxfImport.warnings.length > 0 && (
+              <div className="mx-4 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10.5px] text-amber-800 space-y-1">
+                {pendingDxfImport.warnings.map((warning, index) => <div key={index}>⚠ {warning}</div>)}
+              </div>
+            )}
+
+            <div className="px-4 pt-4">
+              <label className={`flex items-start gap-3 rounded-xl border p-3 ${pendingDxfImport.cadFloorPlanDataUrl ? 'border-indigo-200 bg-indigo-50/60' : 'border-slate-200 bg-slate-50'}`}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(pendingDxfImport.useCadFloorPlan)}
+                  disabled={!pendingDxfImport.cadFloorPlanDataUrl || Boolean(floorPlans.find((item) => item.id === pendingDxfImport.floorId)?.imageUrl)}
+                  onChange={(event) => setPendingDxfImport((current) => current ? { ...current, useCadFloorPlan: event.target.checked } : current)}
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600"
+                />
+                <div className="min-w-0">
+                  <div className="text-xs font-black text-slate-800">Lấy mặt bằng trực tiếp từ DXF</div>
+                  <div className="mt-0.5 text-[10px] leading-4 text-slate-600">
+                    {pendingDxfImport.cadFloorPlanDataUrl
+                      ? `Render ${pendingDxfImport.cadRenderedEntities || 0} entity CAD · ${pendingDxfImport.cadLayers?.length || 0} layer. Mặt bằng và highlight dùng cùng extents nên khớp tọa độ ngay từ đầu.`
+                      : 'DXF này chưa tạo được nền CAD an toàn; vẫn có thể tạo highlight Căn / Phòng.'}
+                  </div>
+                  {floorPlans.find((item) => item.id === pendingDxfImport.floorId)?.imageUrl && (
+                    <div className="mt-1 text-[10px] font-bold text-amber-700">Tầng đã có mặt bằng nên hệ thống không tự ghi đè. Muốn thay nền hãy dùng chức năng Thay mặt bằng để giữ phiên bản và đồng bộ an toàn.</div>
+                  )}
+                </div>
+              </label>
+            </div>
+
+            <div className="flex-1 overflow-auto p-4">
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="min-w-[1120px] w-full text-[11px] border-collapse">
+                  <thead className="sticky top-0 z-10 bg-slate-100 text-slate-700">
+                    <tr>
+                      <th className="p-2 border-b text-center">Chọn</th>
+                      <th className="p-2 border-b text-left">Căn / Phòng</th>
+                      <th className="p-2 border-b text-left">Nguồn</th>
+                      <th className="p-2 border-b text-left">Layer CAD</th>
+                      <th className="p-2 border-b text-right">Diện tích</th>
+                      <th className="p-2 border-b text-left">Hạng mục thi công</th>
+                      <th className="p-2 border-b text-left">Nhận diện tên</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingDxfImport.candidates.map((candidate) => {
+                      const existing = roomProgressList.find((room) =>
+                        room.floorId === pendingDxfImport.floorId
+                        && normalizeDxfCatalogName(room.roomName) === normalizeDxfCatalogName(candidate.roomName)
+                      );
+                      return (
+                        <tr key={candidate.id} className={existing ? 'bg-amber-50/70' : candidate.selected ? 'bg-sky-50/50' : 'bg-white'}>
+                          <td className="p-2 border-b text-center">
+                            <input
+                              type="checkbox"
+                              checked={candidate.selected && !existing}
+                              disabled={Boolean(existing)}
+                              onChange={(event) => updatePendingDxfCandidate(candidate.id, { selected: event.target.checked })}
+                              className="w-4 h-4 rounded border-slate-300 text-indigo-600"
+                            />
+                          </td>
+                          <td className="p-2 border-b">
+                            <input
+                              value={candidate.roomName}
+                              onChange={(event) => updatePendingDxfCandidate(candidate.id, { roomName: event.target.value, selected: false })}
+                              className="w-full min-w-[140px] rounded-lg border border-slate-300 bg-white px-2 py-1.5 font-bold"
+                            />
+                            {existing && <div className="text-[9px] text-amber-700 font-bold mt-1">Đã tồn tại · không ghi đè</div>}
+                          </td>
+                          <td className="p-2 border-b font-semibold text-slate-600">{candidate.source}</td>
+                          <td className="p-2 border-b text-slate-600">{candidate.layer || '—'}</td>
+                          <td className="p-2 border-b text-right font-bold">
+                            {candidate.areaM2 !== undefined
+                              ? `${formatDecimal(candidate.areaM2)} m²`
+                              : `${formatDecimal(candidate.areaDrawingUnits)} ${candidate.drawingUnitLabel}²`}
+                          </td>
+                          <td className="p-2 border-b">
+                            <select
+                              value={candidate.workCategoryId || ''}
+                              onChange={(event) => {
+                                const work = workVolumes.find((item) => (item.workCategoryId || item.id) === event.target.value || item.id === event.target.value);
+                                updatePendingDxfCandidate(candidate.id, {
+                                  workCategoryId: work ? (work.workCategoryId || work.id) : undefined,
+                                  workCategoryName: work?.title,
+                                });
+                              }}
+                              className="w-full min-w-[220px] rounded-lg border border-slate-300 bg-white px-2 py-1.5"
+                            >
+                              <option value="">-- Chỉ tạo vùng, không nhập KL --</option>
+                              {workVolumes.map((work) => {
+                                const value = work.workCategoryId || work.id;
+                                return <option key={work.id} value={value}>{work.title}</option>;
+                              })}
+                            </select>
+                            {candidate.workCategoryName && candidate.layer && normalizeDxfCatalogName(candidate.workCategoryName) === normalizeDxfCatalogName(candidate.layer) && (
+                              <div className="text-[9px] text-emerald-700 font-bold mt-1">Tự map chính xác theo tên Layer</div>
+                            )}
+                          </td>
+                          <td className="p-2 border-b">
+                            {candidate.hasDetectedName
+                              ? <span className="text-emerald-700 font-bold">{candidate.textType || 'TEXT'} · {Math.round(candidate.confidence * 100)}%</span>
+                              : <span className="text-amber-700 font-bold">Chưa có TEXT/MTEXT</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="px-4 py-3 border-t border-slate-200 bg-white flex flex-wrap items-center gap-2">
+              <div className="mr-auto text-[11px] text-slate-600">
+                <strong>{pendingDxfImport.candidates.filter((candidate) => candidate.selected).length}</strong> / {pendingDxfImport.candidates.length} vùng được chọn
+              </div>
+              <button type="button" onClick={() => setPendingDxfImport(null)} className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-600">Hủy</button>
+              {pendingDxfImport.createFloor && (
+                <button type="button" onClick={createPendingDxfFloorOnly} className="px-3 py-2 rounded-xl border border-indigo-200 bg-indigo-50 text-xs font-bold text-indigo-700">
+                  Chỉ tạo tầng
+                </button>
+              )}
+              <button type="button" onClick={applyPendingDxfRooms} className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-black">
+                {pendingDxfImport.createFloor ? 'Tạo tầng + Căn / Phòng' : 'Tạo Căn / Phòng từ DXF'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {quickEditEnabled && showQuickEdit && <React.Suspense fallback={null}>
+      <LazyQuickEditGridModal
+        open={showQuickEdit}
+        title="Bảng chỉnh nhanh · Mặt bằng"
+        subtitle={quickEditMode === 'rooms'
+          ? 'Chỉnh Căn/Hạng mục của nhiều tầng cùng lúc. Có thể đổi Khu/Khối và tên Tầng tại dòng đại diện; floorId được giữ nguyên để bảo vệ liên kết.'
+          : 'Defect được chỉnh theo defectId; ảnh trước/sau sửa không bị thay đổi.'}
+        tabs={[
+          { key: 'rooms', label: 'Căn & Hạng mục' },
+          { key: 'defects', label: 'Defect' },
+        ]}
+        activeTab={quickEditMode}
+        onTabChange={(key) => setQuickEditMode(key as 'rooms' | 'defects')}
+        columns={quickEditMode === 'rooms' ? roomQuickColumns : defectQuickColumns}
+        rows={quickEditMode === 'rooms' ? floorQuickRows : defectQuickRows}
+        canEdit={quickEditMode === 'rooms' ? canManageStructure : canEditDefects}
+        canAddRows={false}
+        onClose={() => setShowQuickEdit(false)}
+        syncGroupColumns={quickEditMode === 'rooms' ? ['roomName', 'mainCategory', 'mainVolume'] : []}
+        onSave={quickEditMode === 'rooms' ? saveRoomQuickRows : saveDefectQuickRows}
+      />
+      </React.Suspense>}
+
+      <RoomSidecarDemoBridge
+        projectId={currentProjectId}
         isOpen={isRoomModalOpen}
         onClose={() => {
           setIsRoomModalOpen(false);
           setHealthCenterOrphanRepairRoomId(null);
-          try {
+          if (onContextReturn) onContextReturn();
+          else try {
             if (sessionStorage.getItem('qlct_health_center_return_state')) window.dispatchEvent(new Event('qlct-health-center-return'));
           } catch (_) {}
         }}
+        contextReturnLabel={contextReturnLabel}
         roomItem={selectedRoomForEdit}
         initialPos={newRoomClickPos}
         initialRect={newRoomRect}
@@ -8417,6 +9770,80 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         defaultInspectorName={inspectorName}
         onAddInventory={onAddInventory}
       />
+
+      {canManageStructure && showCadAlignmentModal && activeFloor && (
+        <div className="fixed inset-0 z-[240] flex items-end sm:items-center justify-center bg-slate-950/60 p-0 sm:p-4">
+          <div className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+              <div>
+                <h3 className="text-sm font-black text-slate-900">Căn chỉnh CAD với mặt bằng</h3>
+                <p className="mt-0.5 text-[10.5px] text-slate-500">
+                  Áp dụng cho {cadSourceRoomCount} Căn / Phòng nguồn DXF của {activeFloor.floorName}. Dữ liệu CAD gốc và roomId không đổi.
+                </p>
+              </div>
+              <button type="button" onClick={() => setShowCadAlignmentModal(false)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-600">Đóng</button>
+            </div>
+            <div className="p-4 space-y-3 text-xs">
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10.5px] leading-4 text-amber-900">
+                Dùng khi đã import DXF trước rồi mới thêm/thay ảnh hoặc PDF mặt bằng. Chỉnh khung CAD tổng thể thay vì sửa từng căn.
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {([
+                  ['left', 'Lề trái (%)'],
+                  ['top', 'Lề trên (%)'],
+                  ['width', 'Chiều rộng CAD (%)'],
+                  ['height', 'Chiều cao CAD (%)'],
+                ] as const).map(([key, label]) => (
+                  <label key={key} className="space-y-1">
+                    <span className="font-bold text-slate-700">{label}</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={0.1}
+                      value={cadAlignmentDraft[key]}
+                      onChange={(event) => setCadAlignmentDraft((current) => normalizeCadAlignment({ ...current, [key]: Number(event.target.value) }))}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 font-bold"
+                    />
+                  </label>
+                ))}
+              </div>
+              <label className="space-y-1 block">
+                <span className="font-bold text-slate-700">Xoay lớp CAD</span>
+                <select
+                  value={cadAlignmentDraft.rotation}
+                  onChange={(event) => setCadAlignmentDraft((current) => normalizeCadAlignment({ ...current, rotation: Number(event.target.value) as 0 | 90 | 180 | 270 }))}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 font-bold"
+                >
+                  <option value={0}>0°</option>
+                  <option value={90}>90°</option>
+                  <option value={180}>180°</option>
+                  <option value={270}>270°</option>
+                </select>
+              </label>
+              <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-50 border border-slate-200 p-2.5">
+                <button
+                  type="button"
+                  onClick={() => setCadAlignmentDraft(DEFAULT_CAD_ALIGNMENT)}
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700"
+                >
+                  Reset CAD gốc
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void applyCadAlignment(cadAlignmentDraft)}
+                  className="rounded-xl bg-indigo-600 px-3 py-2 text-xs font-black text-white"
+                >
+                  Áp dụng
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-500">
+                Mẹo: nếu ảnh có viền trắng, tăng Lề trái/Lề trên và giảm Width/Height. Có thể áp dụng lại nhiều lần vì highlight luôn được dựng lại từ rawPoints DXF gốc.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add New Floor Plan Modal */}
       {canManageStructure && showAddFloorModal && (
@@ -8476,7 +9903,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         type="checkbox"
                         checked={smartPdfRasterFallback}
                         onChange={(e) => setSmartPdfRasterFallback(e.target.checked)}
-                        className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600"
+                        className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600"
                       />
                       Nếu PDF đã flatten thành ảnh: dò vùng theo màu highlight
                     </label>
@@ -8572,16 +9999,54 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           Cho phép tên chỉ gồm số (VD: 101, 102). Tắt mặc định để tránh nhận nhầm kích thước CAD như 1200/3000.
                         </label>
 
-                        <label className="col-span-2 text-[10px] font-bold text-slate-600">
-                          Quy tắc tên Căn / Phòng (nâng cao)
-                          <input
-                            type="text"
-                            value={smartPdfNamePattern}
-                            onChange={(e) => setSmartPdfNamePattern(e.target.value)}
-                            className="w-full mt-1 border border-slate-200 rounded-lg px-2 py-1.5 font-mono text-[9.5px]"
-                          />
-                          <span className="block text-[9px] text-slate-400 mt-1">Để mặc định nếu không rõ. Nhận tốt A101, A-101, P.101, WC-01, Căn 101, Phòng 01...</span>
-                        </label>
+                        <div className="col-span-2 text-[10px] font-bold text-slate-600">
+                          <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-extrabold text-slate-700">Quy tắc tên Căn / Phòng</span>
+                              <span className="shrink-0 rounded-full border border-blue-200 bg-white px-2 py-0.5 text-[9px] font-extrabold text-blue-700">
+                                Tự động · Khuyên dùng
+                              </span>
+                            </div>
+                            <p className="mt-1 text-[9.5px] font-medium leading-relaxed text-slate-500">
+                              Nhận các dạng phổ biến như A101, A-101, P.101, WC-01, Căn 101, Phòng 01... Không cần nhập ký tự kỹ thuật.
+                            </p>
+                          </div>
+
+                          <details className="mt-2 rounded-xl border border-slate-200 bg-white">
+                            <summary className={`cursor-pointer select-none px-2.5 py-2 text-[9.5px] font-extrabold [&::-webkit-details-marker]:hidden ${isSmartPdfNamePatternValid ? 'text-slate-500' : 'text-rose-700'}`}>
+                              Tùy chỉnh kỹ thuật (Regex)
+                              {!isSmartPdfNamePatternValid && <span className="ml-1 text-rose-600">· cần sửa</span>}
+                            </summary>
+                            <div className="border-t border-slate-100 px-2.5 pb-2.5 pt-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <span className="text-[9px] font-medium leading-relaxed text-slate-400">
+                                  Chỉ dùng khi bản vẽ có quy ước tên đặc biệt.
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setSmartPdfNamePattern(DEFAULT_PDF_ROOM_NAME_PATTERN)}
+                                  className="shrink-0 text-[9px] font-extrabold text-blue-700 hover:text-blue-900"
+                                >
+                                  Khôi phục mặc định
+                                </button>
+                              </div>
+                              <input
+                                type="text"
+                                value={smartPdfNamePattern}
+                                onChange={(e) => setSmartPdfNamePattern(e.target.value)}
+                                spellCheck={false}
+                                autoCorrect="off"
+                                autoCapitalize="none"
+                                dir="ltr"
+                                aria-invalid={!isSmartPdfNamePatternValid}
+                                className={`mt-2 w-full rounded-lg border px-2 py-1.5 font-mono text-[9.5px] ${isSmartPdfNamePatternValid ? 'border-slate-200 text-slate-600' : 'border-rose-400 bg-rose-50 text-rose-700'}`}
+                              />
+                              {isSmartPdfNamePatternValid
+                                ? <span className="mt-1 block text-[9px] font-medium text-slate-400">Quy tắc kỹ thuật đang hợp lệ.</span>
+                                : <span className="mt-1 block text-[9px] font-bold text-rose-600">Quy tắc kỹ thuật không hợp lệ. Hãy sửa hoặc khôi phục mặc định trước khi nhận diện PDF.</span>}
+                            </div>
+                          </details>
+                        </div>
                       </div>
                     )}
                   </>
@@ -8589,15 +10054,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-700 font-bold mb-1">Chọn bản vẽ (PDF/JPG/PNG/WebP)</label>
+                <label className="block text-slate-700 font-bold mb-1">Chọn bản vẽ (PDF/JPG/PNG/WebP/DXF)</label>
                 <input
                   type="file"
-                  accept=".pdf,application/pdf,image/jpeg,image/png,image/webp"
+                  accept=".pdf,.dxf,application/pdf,application/dxf,application/x-dxf,image/jpeg,image/png,image/webp"
                   onChange={handlePlanFileChange}
                   disabled={isUploadingPlan || !newFloorName.trim()}
                   className="w-full text-xs text-slate-500 file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                 />
-                {isUploadingPlan && <p className="text-blue-600 text-[11px] mt-1">Đang xử lý bản vẽ theo chất lượng ảnh đã chọn...</p>}
+                <p className="text-slate-500 text-[10px] mt-1 leading-relaxed">
+                  DXF sẽ nhận diện HATCH/Polyline + TEXT/MTEXT và mở màn hình kiểm tra trước khi tạo tầng/Căn. DXF không tạo ảnh nền; có thể tải ảnh/PDF mặt bằng sau.
+                </p>
+                {isUploadingPlan && <p className="text-blue-600 text-[11px] mt-1">Đang xử lý bản vẽ...</p>}
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
@@ -8816,7 +10284,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <button onClick={handleCancelDefectModal} className="font-bold text-slate-500 hover:text-slate-700">✕</button>
             </div>
 
-            <form onSubmit={handleCreateDefect} className="grid grid-cols-1 lg:grid-cols-6 gap-3.5 text-xs">
+            <form data-hnl-pc-v3-form="defect-create" onSubmit={handleCreateDefect} className="grid grid-cols-1 lg:grid-cols-6 gap-3.5 text-xs">
               <div className="lg:col-span-2">
                 <label className="block text-slate-700 font-bold mb-1">Nhóm lỗi / hạng mục lỗi</label>
                 <select
@@ -8921,7 +10389,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 />
               </div>
 
-              <div className="flex gap-2 pt-2 border-t border-slate-100 lg:col-span-6">
+              <div data-hnl-pc-v35-actions="defect-save" className="flex gap-2 pt-2 border-t border-slate-100 lg:col-span-6">
                 <button
                   type="button"
                   onClick={handleCancelDefectModal}
@@ -8951,7 +10419,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         const activeDefectShareText = buildDefectShareText(activeDefectDetail, activeDefectRoomName);
         const closeDefectDetail = () => {
           setActiveDefectDetail(null);
-          try {
+          if (onContextReturn) onContextReturn();
+          else try {
             if (sessionStorage.getItem('qlct_health_center_return_state')) window.dispatchEvent(new Event('qlct-health-center-return'));
           } catch (_) {}
         };
@@ -8988,7 +10457,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               if (!ok) return;
             }
           }
-          const todayStr = new Date().toISOString().split('T')[0];
+          const todayStr = toLocalDateInputValue(new Date());
           const updated = {
             ...activeDefectDetail,
             status: newStatus,
@@ -9006,7 +10475,25 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
         return (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4">
-            <div className="bg-white w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl rounded-t-3xl sm:rounded-2xl p-5 lg:p-6 space-y-4 max-h-[90vh] overflow-y-auto shadow-2xl">
+            <div className="bg-white w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl rounded-t-3xl sm:rounded-2xl max-h-[95dvh] overflow-y-auto shadow-2xl">
+              {/* Sticky actions stay visible while scrolling long Defect content. */}
+              <div className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-2 shadow-sm">
+                <span className="min-w-0 truncate text-xs font-bold text-slate-700">Chi tiết Defect</span>
+                <div className="flex shrink-0 items-center gap-2">
+                  {contextReturnLabel && onContextReturn && (
+                    <button type="button" onClick={closeDefectDetail}
+                      className="min-h-9 rounded-lg bg-indigo-50 px-3 text-xs font-bold text-indigo-700 hover:bg-indigo-100"
+                      data-hnl-defect-context-back="true">← Quay lại {contextReturnLabel}</button>
+                  )}
+                  <button type="button" onClick={closeDefectDetail}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                    title="Đóng" aria-label="Đóng chi tiết Defect"
+                    data-hnl-defect-detail-dismiss="primary">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-4 p-5 lg:p-6">
               {/* Header */}
               <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                 <div>
@@ -9022,7 +10509,6 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   >
                     {lockedDefectIds.has(activeDefectDetail.id) ? '🔒 Mở khóa vị trí' : '🔓 Khóa vị trí'}
                   </button>}
-                  <button onClick={closeDefectDetail} className="font-bold text-slate-400 hover:text-slate-700">✕</button>
                 </div>
               </div>
 
@@ -9056,7 +10542,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <div className="flex items-center justify-between gap-2 mt-1 flex-wrap">
                     <p className="text-[10px] text-slate-500 font-medium">
                       📍 Vị trí trên mặt bằng: {activeDefectDetail.floorName || 'Mặt bằng'}
-                      {activeDefectRoomName ? <> · 🏠 Căn/Phòng: <strong className="text-slate-700">{activeDefectRoomName}</strong></> : null}
+                      {activeDefectRoomName ? <> · 🏠 Căn / Phòng: <strong className="text-slate-700">{activeDefectRoomName}</strong></> : null}
                       {' '}({Math.round(activeDefectDetail.x)}%, {Math.round(activeDefectDetail.y)}%)
                     </p>
                     <button
@@ -9107,7 +10593,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           setActiveDefectDetail(null);
                         }}
                         className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-800 rounded-lg text-[11px] font-black transition-all shadow-2xs shrink-0"
-                        title="Chọn vị trí mới cho ghim; hệ thống tự cập nhật liên kết Căn/Phòng và Đội theo vị trí mới"
+                        title="Chọn vị trí mới cho ghim; hệ thống tự cập nhật liên kết Căn / Phòng và Đội theo vị trí mới"
                       >
                         <Move className="w-3 h-3" />
                         <span>Di chuyển ghim</span>
@@ -9277,6 +10763,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   </button>
                 </div>
               </div>
+              </div>
             </div>
           </div>
         );
@@ -9335,7 +10822,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   className={`rounded-2xl border p-3 text-left transition ${floorPlanApplyMode === 'multiple' ? 'border-indigo-400 bg-indigo-50 ring-1 ring-indigo-200' : 'border-slate-200 bg-white hover:bg-slate-50'}`}
                 >
                   <div className="text-xs font-extrabold text-slate-900">○ Nhiều tầng</div>
-                  <div className="text-[10px] text-slate-500 mt-1">1 file Cloud/R2 dùng chung · dữ liệu mỗi tầng vẫn riêng</div>
+                  <div className="text-[10px] text-slate-500 mt-1">1 tệp bản vẽ dùng chung trên Cloud/R2 · dữ liệu mỗi tầng vẫn riêng</div>
                 </button>
               </div>
 
@@ -9380,7 +10867,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           />
                           <div className="min-w-0 flex-1">
                             <div className="text-xs font-extrabold text-slate-800 truncate">{getFloorPlanScopeLabel(plan)}</div>
-                            <div className="text-[9px] text-slate-500">{plan.id === updatingFloorPlanId ? 'Tầng bắt đầu thao tác · ' : ''}{plan.imageAssetId ? 'đang dùng asset Cloud' : 'bản vẽ độc lập/legacy'}</div>
+                            <div className="text-[9px] text-slate-500">
+                              {plan.id === updatingFloorPlanId ? 'Tầng bắt đầu thao tác · ' : ''}
+                              {getFloorPlanAssetGroupInfo(plan).shared
+                                ? `Dùng chung bản vẽ · ${getFloorPlanAssetGroupInfo(plan).count} tầng`
+                                : 'Bản vẽ riêng'}
+                            </div>
                           </div>
                         </label>
                       );
@@ -9388,11 +10880,54 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   </div>
 
                   <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[10px] font-semibold text-amber-900">
-                    Chỉ thay <b>ảnh nền mặt bằng</b> cho {floorPlanApplySelectedIds.length} tầng. Defect, Căn/Phòng, highlight, tiến độ, checklist và dữ liệu thi công của từng tầng không bị sao chép hoặc trộn.
+                    Chỉ thay <b>ảnh nền mặt bằng</b> cho {floorPlanApplySelectedIds.length} tầng. Defect, Căn / Phòng, vùng tô sáng (highlight), tiến độ, checklist và dữ liệu thi công của từng tầng không bị sao chép hoặc trộn.
                   </div>
                   <div className="text-[10px] text-slate-500">
-                    Nhiều tầng cần mạng trong lúc áp dụng để upload đúng <b>1 binary</b> và publish cùng một asset bất biến. Sau đó cache offline thông minh cũng chỉ tải asset chung một lần.
+                    Nhiều tầng cần mạng trong lúc áp dụng để upload đúng <b>1 dữ liệu ảnh</b> và công bố cùng một tài nguyên bất biến. Sau đó bộ nhớ ngoại tuyến cũng chỉ tải tài nguyên chung một lần.
                   </div>
+                </div>
+              )}
+
+              {onUseExistingFloorPlanAsset && floorPlans.length > 1 && (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-3 space-y-2.5">
+                  <div>
+                    <div className="text-xs font-extrabold text-emerald-950">Hoặc dùng bản vẽ đã có từ tầng khác</div>
+                    <div className="mt-0.5 text-[10px] text-emerald-800">
+                      Không upload ảnh lại. Chỉ dùng chung asset Cloud/R2 hiện có; dữ liệu thi công của tầng đích vẫn giữ riêng.
+                    </div>
+                  </div>
+                  {reusableFloorPlanSources.length > 0 ? (
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <select
+                        value={reuseFloorPlanSourceId}
+                        onChange={(event) => setReuseFloorPlanSourceId(event.target.value)}
+                        disabled={reuseFloorPlanBusy}
+                        className="min-w-0 flex-1 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-slate-800 disabled:opacity-50"
+                      >
+                        <option value="">Chọn tầng có bản vẽ sẵn…</option>
+                        {reusableFloorPlanSources.map((source) => {
+                          const sharedInfo = getFloorPlanAssetGroupInfo(source);
+                          return (
+                            <option key={source.id} value={source.id}>
+                              {getFloorPlanScopeLabel(source)} · {sharedInfo.shared ? `dùng chung ${sharedInfo.count} tầng` : 'bản vẽ riêng'}
+                            </option>
+                          );
+                        })}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={!reuseFloorPlanSourceId || reuseFloorPlanBusy || (floorPlanApplyMode === 'multiple' && floorPlanApplySelectedIds.length === 0)}
+                        onClick={() => { void applyExistingFloorPlanAsset(reuseFloorPlanSourceId); }}
+                        className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-emerald-700 disabled:opacity-40"
+                      >
+                        {reuseFloorPlanBusy ? 'Đang áp dụng…' : 'Dùng bản vẽ này'}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-semibold text-amber-900">
+                      Chưa có tầng khác với bản vẽ Cloud đã đồng bộ hoàn chỉnh.
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -9437,7 +10972,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 </h3>
                 <p className="text-xs text-slate-500 font-medium">Quản lý cấu trúc Khu/Khối → Tầng và các mặt bằng liên quan</p>
               </div>
-              <button onClick={() => { setEditingStructureLabel(false); setEditingStructureLabelValue(''); setEditingStructureGroupId(null); setEditingStructureGroupName(''); setEditingFloorId(null); setManagedSelectedFloorIds([]); setManagedTargetStructureGroupId(''); setIsManagingMultipleFloors(false); setShowManageFloorsModal(false); }} className="font-bold text-slate-400 hover:text-slate-600 text-lg">✕</button>
+              <button onClick={() => { setEditingStructureLabel(false); setEditingStructureLabelValue(''); setEditingStructureGroupId(null); setEditingStructureGroupName(''); setEditingFloorId(null); setManagedSelectedFloorIds([]); setManagedTargetStructureGroupId(''); setShowManageFloorsModal(false); }} className="font-bold text-slate-400 hover:text-slate-600 text-lg">✕</button>
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1 grid grid-cols-1 lg:grid-cols-[minmax(280px,0.30fr)_minmax(0,0.70fr)] gap-4 items-start">
@@ -9640,15 +11175,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             />
                             <button
                               type="button"
-                              disabled={count > 0 || normalizedStructureConfig.groups.length <= 1}
+                              disabled={count > 0 || normalizedStructureConfig.groups.length <= 1 || !onDeleteStructureGroup}
                               onClick={() => {
-                                if (!window.confirm(`Xóa "${group.name}"? Thao tác này chỉ thực hiện khi Khu/Khối không còn tầng.`)) return;
-                                const groups = normalizedStructureConfig.groups.filter((item) => item.id !== group.id);
-                                onStructureConfigChange(normalizeStructureGroupConfig({
-                                  ...normalizedStructureConfig,
-                                  groups: groups.map((item, index) => ({ ...item, order: index })),
-                                  defaultGroupId: normalizedStructureConfig.defaultGroupId === group.id ? groups[0]?.id : normalizedStructureConfig.defaultGroupId,
-                                }));
+                                if (!window.confirm(`Đưa Khu/Khối "${group.name}" vào Thùng rác? Chỉ xóa khi không có tầng liên kết, kể cả tầng đã xóa.`)) return;
+                                void onDeleteStructureGroup?.(group.id);
                               }}
                               className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 disabled:text-slate-300 disabled:cursor-not-allowed"
                               title={count > 0 ? 'Hãy chuyển các tầng sang Khu/Khối khác trước khi xóa' : 'Xóa Khu/Khối'}
@@ -9674,6 +11204,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         },
                       ],
                     }))}
+                    data-hnl-pc-v35-trigger="add-structure-group"
                     className="w-full rounded-xl border border-dashed border-indigo-300 bg-white py-2 text-[11px] font-bold text-indigo-700"
                   >
                     <Plus className="inline w-3.5 h-3.5 mr-1" />Thêm {normalizedStructureConfig.label || 'Khu / Khối'}
@@ -9684,57 +11215,152 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
             </div>
             <div className="min-w-0 space-y-4">
-            {normalizedStructureConfig.enabled && (
-              <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-3 space-y-2.5">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <div className="text-xs font-extrabold text-indigo-950">Chuyển nhiều tầng giữa Khu/Khối</div>
-                    <div className="text-[10px] text-indigo-700">Chỉ đổi Khu/Khối và thứ tự hiển thị; mọi ID/liên kết nghiệp vụ giữ nguyên.</div>
-                  </div>
-                  {!isManagingMultipleFloors ? (
-                    <button
-                      type="button"
-                      onClick={() => { setIsManagingMultipleFloors(true); setManagedSelectedFloorIds([]); setManagedTargetStructureGroupId(''); }}
-                      className="rounded-xl border border-indigo-200 bg-white px-3 py-2 text-[11px] font-extrabold text-indigo-700 hover:bg-indigo-50"
-                    >
-                      Chọn nhiều
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => { setIsManagingMultipleFloors(false); setManagedSelectedFloorIds([]); setManagedTargetStructureGroupId(''); }}
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-600 hover:bg-slate-50"
-                    >
-                      Hủy chọn
-                    </button>
+            <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-3 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-xs font-extrabold text-indigo-950">Thao tác tầng đã chọn</div>
+                  <div className="text-[10px] text-indigo-700">Đánh dấu checkbox ở từng tầng hoặc chọn cả Khu/Khối, sau đó Di chuyển thứ tự / Đổi Khu/Khối / Thay bản vẽ / Nhân bản / Xóa.</div>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setManagedSelectedFloorIds(managementFloorPlans.map((floor) => floor.id))}
+                    disabled={managementFloorPlans.length === 0 || managedSelectedFloorIds.length === managementFloorPlans.length}
+                    className="rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-indigo-700 disabled:opacity-40"
+                  >
+                    Chọn tất cả
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearManagedFloorSelection}
+                    disabled={managedSelectedFloorIds.length === 0}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-600 disabled:opacity-40"
+                  >
+                    Bỏ chọn
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/70 bg-white/80 p-2.5 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="text-[11px] font-extrabold text-slate-700">Đã chọn {managedSelectedFloorIds.length} tầng</div>
+                  {normalizedStructureConfig.enabled && (
+                    <>
+                      <select
+                        value={managedTargetStructureGroupId}
+                        onChange={(event) => setManagedTargetStructureGroupId(event.target.value)}
+                        disabled={managedSelectedFloorIds.length === 0}
+                        className="min-w-[170px] flex-1 rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-bold text-slate-800 disabled:opacity-40"
+                      >
+                        <option value="">Chọn Khu/Khối đích…</option>
+                        {normalizedStructureConfig.groups.map((group) => (
+                          <option key={group.id} value={group.id}>{group.name}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={managedSelectedFloorIds.length === 0 || !managedTargetStructureGroupId}
+                        onClick={() => { void moveSelectedFloorsToStructureGroupStable(managedSelectedFloorIds, managedTargetStructureGroupId); }}
+                        className="rounded-xl bg-indigo-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Đổi Khu/Khối
+                      </button>
+                    </>
                   )}
                 </div>
 
-                {isManagingMultipleFloors && (
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <div className="text-[10px] font-bold text-slate-600 shrink-0">Đã chọn {managedSelectedFloorIds.length} tầng</div>
-                    <select
-                      value={managedTargetStructureGroupId}
-                      onChange={(event) => setManagedTargetStructureGroupId(event.target.value)}
-                      className="min-w-0 flex-1 rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-bold text-slate-800"
-                    >
-                      <option value="">Chọn Khu/Khối đích…</option>
-                      {normalizedStructureConfig.groups.map((group) => (
-                        <option key={group.id} value={group.id}>{group.name}</option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      disabled={managedSelectedFloorIds.length === 0 || !managedTargetStructureGroupId}
-                      onClick={() => { void moveSelectedFloorsToStructureGroupStable(managedSelectedFloorIds, managedTargetStructureGroupId); }}
-                      className="rounded-xl bg-indigo-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      Chuyển Khu/Khối
-                    </button>
-                  </div>
-                )}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] font-extrabold text-slate-600">Di chuyển thứ tự:</span>
+                  <button
+                    type="button"
+                    disabled={managedSelectedFloorIds.length === 0 || !onReorderFloorPlans || floorSortBy !== 'none'}
+                    onClick={() => moveSelectedFloorsWithinGroups('top')}
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                    title="Đưa các tầng đã chọn lên đầu trong Khu/Khối hiện tại"
+                  >
+                    <ChevronsUp className="inline h-3.5 w-3.5 mr-1" />Đầu
+                  </button>
+                  <button
+                    type="button"
+                    disabled={managedSelectedFloorIds.length === 0 || !onReorderFloorPlans || floorSortBy !== 'none'}
+                    onClick={() => moveSelectedFloorsWithinGroups('up')}
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                    title="Di chuyển các tầng đã chọn lên 1 bậc, giữ nguyên thứ tự nội bộ"
+                  >
+                    <ArrowUp className="inline h-3.5 w-3.5 mr-1" />Lên
+                  </button>
+                  <button
+                    type="button"
+                    disabled={managedSelectedFloorIds.length === 0 || !onReorderFloorPlans || floorSortBy !== 'none'}
+                    onClick={() => moveSelectedFloorsWithinGroups('down')}
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                    title="Di chuyển các tầng đã chọn xuống 1 bậc, giữ nguyên thứ tự nội bộ"
+                  >
+                    <ArrowDown className="inline h-3.5 w-3.5 mr-1" />Xuống
+                  </button>
+                  <button
+                    type="button"
+                    disabled={managedSelectedFloorIds.length === 0 || !onReorderFloorPlans || floorSortBy !== 'none'}
+                    onClick={() => moveSelectedFloorsWithinGroups('bottom')}
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                    title="Đưa các tầng đã chọn xuống cuối trong Khu/Khối hiện tại"
+                  >
+                    <ChevronsDown className="inline h-3.5 w-3.5 mr-1" />Cuối
+                  </button>
+                  {floorSortBy !== 'none' && managedSelectedFloorIds.length > 0 && (
+                    <span className="text-[9px] font-semibold text-amber-700">Bấm “Thứ tự đã lưu” để bật di chuyển thủ công.</span>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex items-center gap-1.5 text-[10px] font-bold text-slate-600">
+                    Số bản / tầng
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={managedDuplicateCopies}
+                      onChange={(event) => setManagedDuplicateCopies(Math.max(1, Math.min(20, Number(event.target.value) || 1)))}
+                      disabled={managedSelectedFloorIds.length === 0}
+                      className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-center text-xs font-extrabold text-slate-800 disabled:opacity-40"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={managedSelectedFloorIds.length === 0}
+                    onClick={() => openFloorPlanApplyScopeForManagedSelection(managedSelectedFloorIds)}
+                    className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-extrabold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
+                    title="Thay ảnh/PDF mặt bằng cho các tầng đang chọn"
+                  >
+                    <Upload className="inline h-3.5 w-3.5 mr-1" />
+                    Thay bản vẽ
+                  </button>
+                  <button
+                    type="button"
+                    disabled={managedSelectedFloorIds.length === 0 || !onDuplicateFloorPlan}
+                    onClick={() => { void duplicateManagedFloors(); }}
+                    className="rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-extrabold text-indigo-700 hover:bg-indigo-50 disabled:opacity-40"
+                  >
+                    <Copy className="inline h-3.5 w-3.5 mr-1" />
+                    Nhân bản
+                  </button>
+                  <button
+                    type="button"
+                    disabled={managedSelectedFloorIds.length === 0 || managedSelectedFloorIds.length >= floorPlans.length}
+                    onClick={() => { void deleteManagedFloors(); }}
+                    className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-extrabold text-rose-700 hover:bg-rose-50 disabled:opacity-40"
+                  >
+                    <Trash2 className="inline h-3.5 w-3.5 mr-1" />
+                    Xóa
+                  </button>
+                  {managedSelectedFloorIds.length > 0 && (
+                    <span className="text-[10px] font-semibold text-slate-500">
+                      Nhân bản sẽ tạo {Math.min(50, managedSelectedFloorIds.length * Math.max(1, managedDuplicateCopies || 1))} tầng mới.
+                    </span>
+                  )}
+                </div>
               </div>
-            )}
+            </div>
 
             {/* Quick Sort Floors Controls */}
             {(normalizedStructureConfig.enabled
@@ -9770,6 +11396,30 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               </div>
             )}
 
+            {normalizedStructureConfig.enabled && normalizedStructureConfig.groups.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                <div className="text-[10px] font-extrabold text-slate-700">Hiển thị Khu/Khối & Tầng</div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={collapseAllManagedStructureGroups}
+                    disabled={normalizedStructureConfig.groups.every((group) => collapsedManagedStructureGroupIds.includes(group.id))}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+                  >
+                    <ChevronsUp className="inline h-3.5 w-3.5 mr-1" />Thu gọn tất cả
+                  </button>
+                  <button
+                    type="button"
+                    onClick={expandAllManagedStructureGroups}
+                    disabled={collapsedManagedStructureGroupIds.length === 0}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+                  >
+                    <ChevronsDown className="inline h-3.5 w-3.5 mr-1" />Mở tất cả
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* List of Floor Plans */}
             <div className="space-y-2.5">
               {managementFloorPlans.map((fp, index) => {
@@ -9788,14 +11438,15 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   ? managementFloorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === currentGroupId)
                   : managementFloorPlans;
                 const currentGroupIndex = currentGroupFloors.findIndex((floor) => floor.id === fp.id);
+                const isCurrentGroupCollapsed = normalizedStructureConfig.enabled && collapsedManagedStructureGroupIds.includes(currentGroupId);
+                if (isCurrentGroupCollapsed && !showGroupHeader) return null;
 
                 return (
                   <div key={fp.id} className="space-y-2.5">
                     {showGroupHeader && (
                       <div className="flex items-center justify-between rounded-xl border border-indigo-100 bg-indigo-50/70 px-3 py-2">
                         <div className="min-w-0 flex items-center gap-2">
-                          {isManagingMultipleFloors && (
-                            <label
+                          <label
                               className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[10px] font-bold text-indigo-700"
                               title={`Chọn tất cả ${currentGroupFloors.length} tầng trong ${getStructureGroupName(currentGroupId, normalizedStructureConfig)}`}
                             >
@@ -9814,14 +11465,22 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               />
                               <span>Chọn tất cả</span>
                             </label>
-                          )}
-                          <div className="min-w-0 truncate text-xs font-extrabold text-indigo-900" title={getStructureGroupName(currentGroupId, normalizedStructureConfig)}>
-                            {getStructureGroupName(currentGroupId, normalizedStructureConfig)}
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => toggleManagedStructureGroupCollapsed(currentGroupId)}
+                            className="min-w-0 flex items-center gap-1 truncate text-left text-xs font-extrabold text-indigo-900 hover:text-indigo-700"
+                            title={isCurrentGroupCollapsed ? 'Mở các tầng trong Khu/Khối' : 'Thu gọn các tầng trong Khu/Khối'}
+                          >
+                            {isCurrentGroupCollapsed
+                              ? <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                              : <ChevronUp className="h-3.5 w-3.5 shrink-0" />}
+                            <span className="truncate">{getStructureGroupName(currentGroupId, normalizedStructureConfig)}</span>
+                          </button>
                         </div>
                         <div className="text-[10px] font-bold text-indigo-600">{currentGroupFloors.length} tầng</div>
                       </div>
                     )}
+                  {!isCurrentGroupCollapsed && (
                   <div
                     className={`p-3 rounded-2xl border transition-all grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2.5 min-w-0 ${
                       isSelected
@@ -9834,10 +11493,6 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       tabIndex={0}
                       onClick={() => {
                         if (isEditingThis) return;
-                        if (isManagingMultipleFloors) {
-                          setManagedSelectedFloorIds((current) => current.includes(fp.id) ? current.filter((id) => id !== fp.id) : [...current, fp.id]);
-                          return;
-                        }
                         setSelectedFloorId(fp.id);
                         setShowManageFloorsModal(false);
                       }}
@@ -9845,18 +11500,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         if (event.key !== 'Enter' && event.key !== ' ') return;
                         event.preventDefault();
                         if (isEditingThis) return;
-                        if (isManagingMultipleFloors) {
-                          setManagedSelectedFloorIds((current) => current.includes(fp.id) ? current.filter((id) => id !== fp.id) : [...current, fp.id]);
-                          return;
-                        }
                         setSelectedFloorId(fp.id);
                         setShowManageFloorsModal(false);
                       }}
                       className="min-w-0 flex flex-1 items-center gap-3 text-left"
-                      title={isManagingMultipleFloors ? 'Chọn/bỏ chọn tầng' : `Mở ${fp.floorName}`}
+                      title={`Mở ${fp.floorName}`}
                     >
-                      {isManagingMultipleFloors && (
-                        <input
+                      <input
                           type="checkbox"
                           checked={managedSelectedFloorIds.includes(fp.id)}
                           onChange={(event) => {
@@ -9868,7 +11518,6 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           className="h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                           aria-label={`Chọn ${fp.floorName}`}
                         />
-                      )}
                       <div className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden shrink-0 relative group">
                         <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5 text-[9px] text-slate-400 font-bold bg-slate-100">
                           <ImageIcon className="w-4 h-4" />
@@ -9878,6 +11527,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           <img
                             src={fp.imageUrl}
                             alt={fp.floorName}
+                            loading="lazy"
+                            decoding="async"
                             className="relative z-10 w-full h-full object-cover"
                             onError={(event) => { event.currentTarget.style.display = 'none'; }}
                           />
@@ -9937,6 +11588,17 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               <span className="font-bold text-indigo-600">{getFloorStructureGroupName(fp, normalizedStructureConfig)}</span>
                             </>
                           )}
+                          <span>•</span>
+                          {getFloorPlanAssetGroupInfo(fp).shared ? (
+                            <span
+                              className="font-bold text-emerald-700"
+                              title={`Dùng chung với: ${getFloorPlanAssetGroupInfo(fp).floorNames.join(', ')}`}
+                            >
+                              🔗 Dùng chung bản vẽ · {getFloorPlanAssetGroupInfo(fp).count} tầng
+                            </span>
+                          ) : (
+                            <span className="font-bold text-slate-500">🖼️ Bản vẽ riêng</span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -9986,7 +11648,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         <select
                           value={resolveFloorStructureGroupId(fp, normalizedStructureConfig)}
                           onChange={(event) => changeFloorStructureGroupStable(fp.id, event.target.value)}
-                          disabled={isManagingMultipleFloors}
+                          disabled={managedSelectedFloorIds.length > 0}
                           className="min-w-0 max-w-[150px] rounded-xl border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[10px] font-bold text-indigo-700 disabled:opacity-40"
                           title={`Gán tầng vào ${normalizedStructureConfig.label}`}
                         >
@@ -9995,7 +11657,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           ))}
                         </select>
                       )}
-                      {floorSortBy === 'none' && !isManagingMultipleFloors && (
+                      {floorSortBy === 'none' && managedSelectedFloorIds.length === 0 && (
                         <MoveOrderControls
                           disableUp={currentGroupIndex === 0}
                           disableDown={currentGroupIndex === currentGroupFloors.length - 1}
@@ -10009,7 +11671,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         onClick={async () => {
                           openFloorPlanApplyScope(fp.id);
                         }}
-                        disabled={isManagingMultipleFloors}
+                        disabled={managedSelectedFloorIds.length > 0}
                         className="flex bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-1.5 rounded-xl text-xs font-bold items-center gap-1 transition-all disabled:opacity-40"
                         title="Cập nhật tệp ảnh hoặc PDF bản vẽ mới cho tầng này"
                       >
@@ -10018,13 +11680,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       </button>
                     </div>
                   </div>
+                  )}
                   </div>
                 );
               })}
             </div>
 
             {/* Bottom Add Actions */}
-            <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row gap-2">
+            <div data-hnl-pc-v35-actions="floor-manage-add" className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row gap-2">
               <button
                 type="button"
                 onClick={async () => {
@@ -10107,7 +11770,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 💡 Hệ thống sẽ tự động khởi tạo mặt bằng cho tầng mới. Bạn có thể tự do vẽ các khung highlight hoặc tải bản vẽ riêng lên bất kỳ lúc nào!
               </p>
 
-              <div className="flex gap-2 pt-2">
+              <div data-hnl-pc-v35-actions="floor-add" className="flex gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowQuickAddFloorModal(false)}
@@ -10185,7 +11848,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             <form onSubmit={handleConfirmDuplicateFloor} className="space-y-3">
               <div>
                 <label className="block text-xs font-extrabold text-slate-700 mb-1">
-                  Tên mặt bằng tầng mới:
+                  Tên tầng mới:
                 </label>
                 <input
                   type="text"

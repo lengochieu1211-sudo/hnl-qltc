@@ -65,7 +65,7 @@ export const ProjectOfflineMirrorCard: React.FC<Props> = ({ activeProjectId, flo
   const run = async (keepEnabled = enabled) => {
     if (!projectId || busy || floorPlanBusy) return;
     setBusy(true);
-    setMessage('Đang chuẩn bị dữ liệu offline…');
+    setMessage('Đang chuẩn bị dữ liệu ngoại tuyến…');
     try {
       if (keepEnabled) setProjectOfflineMirrorEnabled(projectId, true);
       const result = await prepareProjectOfflineMirror(projectId, floorPlans, (next) => {
@@ -74,9 +74,9 @@ export const ProjectOfflineMirrorCard: React.FC<Props> = ({ activeProjectId, flo
       });
       await refreshSnapshot();
       if (result.photoFailed || result.floorPlanFailed) {
-        setMessage(`Đã cập nhật offline; còn ${result.photoFailed + result.floorPlanFailed} mục chưa tải được. Có thể bấm Đồng bộ lại.`);
+        setMessage(`Đã cập nhật dữ liệu ngoại tuyến; còn ${result.photoFailed + result.floorPlanFailed} mục chưa tải được. Có thể bấm Đồng bộ lại.`);
       } else {
-        setMessage('Dự án đã sẵn sàng offline trên thiết bị này. Ảnh/mặt bằng sẽ ưu tiên đọc từ cache local.');
+        setMessage('Dự án đã sẵn sàng dùng ngoại tuyến trên thiết bị này. Ảnh/mặt bằng sẽ ưu tiên đọc từ bộ nhớ đệm trên máy.');
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -90,16 +90,16 @@ export const ProjectOfflineMirrorCard: React.FC<Props> = ({ activeProjectId, flo
   const refreshFloorPlans = async () => {
     if (!projectId || busy || floorPlanBusy) return;
     setFloorPlanBusy(true);
-    setFloorPlanMessage('Đang cập nhật riêng mặt bằng offline…');
+    setFloorPlanMessage('Đang cập nhật riêng mặt bằng để dùng ngoại tuyến…');
     try {
       const result = await cacheFloorPlansForOffline(projectId, floorPlans, (next) => {
-        setFloorPlanMessage(`Mặt bằng offline ${next.completed}/${next.total}`);
+        setFloorPlanMessage(`Mặt bằng ngoại tuyến ${next.completed}/${next.total}`);
       });
       await refreshSnapshot();
       if (result.failed > 0) {
         setFloorPlanMessage(`Đã cập nhật ${result.cached + result.downloaded}/${result.total} mặt bằng; còn ${result.failed} mục chưa tải được.`);
       } else {
-        setFloorPlanMessage(`Mặt bằng offline đã sẵn sàng ${result.cached + result.downloaded}/${result.total}.`);
+        setFloorPlanMessage(`Mặt bằng ngoại tuyến đã sẵn sàng ${result.cached + result.downloaded}/${result.total}.`);
       }
     } catch (error) {
       setFloorPlanMessage(error instanceof Error ? error.message : String(error));
@@ -114,7 +114,7 @@ export const ProjectOfflineMirrorCard: React.FC<Props> = ({ activeProjectId, flo
     setProjectOfflineMirrorEnabled(projectId, next);
     setEnabled(next);
     if (next) await run(true);
-    else setMessage('Đã tắt tự duy trì offline. Cache hiện có vẫn được giữ để tránh phải tải lại; xóa cache là thao tác riêng.');
+    else setMessage('Đã tắt tự duy trì ngoại tuyến. Dữ liệu đã lưu trên máy vẫn được giữ để tránh phải tải lại; xóa bộ nhớ đệm là thao tác riêng.');
   };
 
   const totalBytes = Number(snapshot?.photoBytes || 0) + Number(snapshot?.floorPlanBytes || 0);
@@ -126,19 +126,19 @@ export const ProjectOfflineMirrorCard: React.FC<Props> = ({ activeProjectId, flo
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-slate-800">
-            <Database className="h-4 w-4 text-emerald-700" /> Dữ liệu offline trên thiết bị
+            <Database className="h-4 w-4 text-emerald-700" /> Dữ liệu ngoại tuyến trên thiết bị
           </div>
-          <div className="mt-1 text-[10px] text-slate-600">Giữ dữ liệu dự án, ảnh và mặt bằng trong cache local/IndexedDB để mở nhanh và tiếp tục làm việc khi mất mạng. Cloud vẫn là nguồn chuẩn.</div>
+          <div className="mt-1 text-[10px] text-slate-600">Giữ dữ liệu dự án, ảnh và mặt bằng trong bộ nhớ đệm trên máy (IndexedDB) để mở nhanh và tiếp tục làm việc khi mất mạng. Cloud vẫn là nguồn chuẩn.</div>
         </div>
         <span className={`shrink-0 rounded-lg border px-2 py-1 text-[9px] font-extrabold ${ready ? 'border-emerald-200 bg-white text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
-          {ready ? 'Offline sẵn sàng' : `${totalReady}/${totalItems || 0} sẵn sàng`}
+          {ready ? 'Ngoại tuyến sẵn sàng' : `${totalReady}/${totalItems || 0} sẵn sàng`}
         </span>
       </div>
 
       <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 text-[9px]">
         <span className="rounded-lg border border-slate-200 bg-white px-2 py-1.5"><b>Ảnh:</b> {snapshot?.photoReady || 0}/{snapshot?.photoTotal || 0}</span>
         <span className="rounded-lg border border-slate-200 bg-white px-2 py-1.5"><b>Mặt bằng:</b> {snapshot?.floorPlanReady || 0}/{snapshot?.floorPlanTotal || 0}</span>
-        <span className="rounded-lg border border-slate-200 bg-white px-2 py-1.5"><b>Local:</b> {formatBytes(totalBytes)}</span>
+        <span className="rounded-lg border border-slate-200 bg-white px-2 py-1.5"><b>Trên máy:</b> {formatBytes(totalBytes)}</span>
         <span className="rounded-lg border border-slate-200 bg-white px-2 py-1.5"><b>Lần cuối:</b> {lastSyncAt > 0 ? formatDateTime(lastSyncAt) : 'Chưa tải đủ'}</span>
       </div>
 
@@ -155,7 +155,7 @@ export const ProjectOfflineMirrorCard: React.FC<Props> = ({ activeProjectId, flo
           onClick={() => void toggleEnabled()}
           className={`rounded-lg px-3 py-2 text-[10px] font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-50 ${enabled ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-slate-700 hover:bg-slate-800'}`}
         >
-          {busy ? <span className="flex items-center gap-1.5"><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Đang tải…</span> : enabled ? <span className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5" /> Giữ sẵn offline: Bật</span> : <span className="flex items-center gap-1.5"><WifiOff className="h-3.5 w-3.5" /> Bật dùng offline</span>}
+          {busy ? <span className="flex items-center gap-1.5"><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Đang tải…</span> : enabled ? <span className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5" /> Giữ sẵn để dùng ngoại tuyến: Bật</span> : <span className="flex items-center gap-1.5"><WifiOff className="h-3.5 w-3.5" /> Bật dùng ngoại tuyến</span>}
         </button>
         <button
           type="button"
@@ -163,7 +163,7 @@ export const ProjectOfflineMirrorCard: React.FC<Props> = ({ activeProjectId, flo
           onClick={() => void run(enabled)}
           className="rounded-lg border border-emerald-200 bg-white px-3 py-2 text-[10px] font-extrabold text-emerald-800 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50 flex items-center gap-1.5"
         >
-          <Download className="h-3.5 w-3.5" /> Đồng bộ offline ngay
+          <Download className="h-3.5 w-3.5" /> Đồng bộ ngoại tuyến ngay
         </button>
         <button
           type="button"
@@ -177,7 +177,7 @@ export const ProjectOfflineMirrorCard: React.FC<Props> = ({ activeProjectId, flo
 
       {message && <div className="text-[10px] font-semibold text-emerald-900 break-words">{message}</div>}
       {floorPlanMessage && <div className="text-[10px] font-semibold text-indigo-800 break-words">{floorPlanMessage}</div>}
-      <div className="text-[9px] text-slate-500">Tắt chế độ offline không xóa cache local. Không có thao tác nào ở đây tự xóa dữ liệu Cloud/R2.</div>
+      <div className="text-[9px] text-slate-500">Tắt chế độ ngoại tuyến không xóa dữ liệu đã lưu trên máy. Không có thao tác nào ở đây tự xóa dữ liệu Cloud/R2.</div>
     </div>
   );
 };

@@ -49,7 +49,7 @@ export function apiUrl(path: string) {
 
 export function apiFetch(path: string, init?: RequestInit) {
   if (!hasApiBackend()) {
-    throw new Error('Tinh nang Google Drive/Sheets can backend server. Firebase Hosting mien phi dang chay static-only nen tinh nang nay duoc tat de tranh loi va tranh phat sinh chi phi.');
+    throw new Error('Google Drive/Sheets cần máy chủ backend. Bản Firebase Hosting hiện chạy tĩnh nên chức năng này đang tắt để tránh lỗi và chi phí ngoài dự kiến.');
   }
 
   return fetch(apiUrl(path), init);

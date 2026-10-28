@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LanguageProvider } from './context/LanguageContext';
 import './index.css';
+import './styles/desktopWorkspace.css';
+import './styles/desktopWorkspaceDeep.css';
+import './styles/desktopWorkspaceCompact.css';
 import { registerServiceWorker } from './serviceWorkerRegistration';
 import { cleanupTransientLocalStorage, estimateLocalStorageBytes } from './utils/storage';
 import { migrateAndCleanLocalStorage } from './utils/migrateStorage';
@@ -185,6 +188,24 @@ function installConnectivityWatchdog() {
 
 installConnectivityWatchdog();
 
+function notifyAndroidStartupReadyAfterPaint() {
+  if (typeof window === 'undefined') return;
+
+  const notify = () => {
+    try {
+      (window as any).AndroidStartup?.markReady?.();
+    } catch (err) {
+      console.warn('[Android startup handoff] markReady failed:', err);
+    }
+  };
+
+  // createRoot().render() is concurrent. Wait for two animation frames so the Auth Gate
+  // or authenticated App has actually painted before native Android fades its splash.
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(notify);
+  });
+}
+
 async function bootstrap() {
   // IMPORTANT: run storage cleanup/migration before importing App. App imports Firebase.
   // On affected browsers Firestore can touch WebStorage client-state metadata during
@@ -252,6 +273,7 @@ async function bootstrap() {
     </StrictMode>,
   );
 
+  notifyAndroidStartupReadyAfterPaint();
   registerServiceWorker();
 }
 
@@ -262,5 +284,6 @@ bootstrap().catch((err) => {
   const root = document.getElementById('root');
   if (root) {
     root.innerHTML = '<div style="padding:24px;font-family:system-ui;color:#991b1b">Không thể khởi động ứng dụng. Hãy tải lại trang.</div>';
+    notifyAndroidStartupReadyAfterPaint();
   }
 });

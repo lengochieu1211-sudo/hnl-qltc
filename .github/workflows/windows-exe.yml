@@ -12,6 +12,8 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'vite.config.ts'
+      - 'scripts/stability-gate.mjs'
+      - 'scripts/android-wrapper-golden.mjs'
       - 'scripts/desktop-launcher-golden.mjs'
       - 'scripts/windows-icon-golden.ps1'
       - 'scripts/windows-desktop-local-store-golden.ps1'
@@ -19,10 +21,12 @@ on:
       - 'scripts/windows-installer-golden.mjs'
       - 'scripts/windows-installer-runtime-golden.ps1'
       - '.github/workflows/windows-exe.yml'
+      - '.github/workflows/p2116-runtime-candidate.yml'
   push:
     branches:
       - dev
       - main
+      - release/p21-13-prod-candidate-20261027
     paths:
       - 'desktop-wrapper/**'
       - 'src/**'
@@ -31,6 +35,8 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'vite.config.ts'
+      - 'scripts/stability-gate.mjs'
+      - 'scripts/android-wrapper-golden.mjs'
       - 'scripts/desktop-launcher-golden.mjs'
       - 'scripts/windows-icon-golden.ps1'
       - 'scripts/windows-desktop-local-store-golden.ps1'

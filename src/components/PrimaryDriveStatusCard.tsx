@@ -161,9 +161,9 @@ export const PrimaryDriveStatusCard: React.FC<Props> = ({ activeProjectId, userR
       try {
         const inventory = await getPrimaryDriveProjectInventory(activeProjectId);
         setDriveInventory(inventory);
-        setMessage({ type: 'ok', text: `${res?.message || `Đã kết nối Drive chính ${PRIMARY_DRIVE_OWNER_EMAIL}.`} ProjectId: ${activeProjectId}. Folder: ${inventory.folderName || '—'}.` });
+        setMessage({ type: 'ok', text: `${res?.message || `Đã kết nối Drive chính ${PRIMARY_DRIVE_OWNER_EMAIL}.`} ID dự án: ${activeProjectId}. Thư mục: ${inventory.folderName || '—'}.` });
       } catch (inventoryErr: any) {
-        setMessage({ type: 'info', text: `${res?.message || `Đã kết nối Drive chính ${PRIMARY_DRIVE_OWNER_EMAIL}.`} Apps Script hiện chưa hỗ trợ đối chiếu projectId; hãy cập nhật lại Code.gs V6.2.14 rồi triển khai Web App mới. (${inventoryErr?.message || 'inventoryProject chưa có'})` });
+        setMessage({ type: 'info', text: `${res?.message || `Đã kết nối Drive chính ${PRIMARY_DRIVE_OWNER_EMAIL}.`} Apps Script hiện chưa hỗ trợ đối chiếu ID dự án; hãy cập nhật lại Code.gs V6.2.14 rồi triển khai Web App mới. (${inventoryErr?.message || 'inventoryProject chưa có'})` });
       }
     } catch (err: any) {
       setMessage({ type: 'error', text: err?.message || String(err) });
@@ -175,12 +175,12 @@ export const PrimaryDriveStatusCard: React.FC<Props> = ({ activeProjectId, userR
   const handleReconcile = async () => {
     try {
       setBusy('reconcile');
-      setMessage({ type: 'info', text: 'Đang đối chiếu file thực tế trên Drive theo projectId. Không xóa hoặc gộp thư mục.' });
+      setMessage({ type: 'info', text: 'Đang đối chiếu tệp thực tế trên Drive theo ID dự án. Không xóa hoặc gộp thư mục.' });
       const inventory = await getPrimaryDriveProjectInventory(activeProjectId);
       setDriveInventory(inventory);
       await refreshPhotoStats();
-      const duplicateNote = (inventory.folderCandidates || []).length > 1 ? ` Có ${inventory.folderCandidates!.length} folder cùng projectId; app chỉ đọc đối chiếu, không tự gộp/xóa.` : '';
-      setMessage({ type: 'ok', text: `Đã đối chiếu Drive: ${inventory.photos.length} ảnh, ${inventory.floorPlans.length} mặt bằng. Folder hiện dùng: ${inventory.folderName || '—'}.${duplicateNote}` });
+      const duplicateNote = (inventory.folderCandidates || []).length > 1 ? ` Có ${inventory.folderCandidates!.length} thư mục cùng ID dự án; ứng dụng chỉ đọc đối chiếu, không tự gộp/xóa.` : '';
+      setMessage({ type: 'ok', text: `Đã đối chiếu Drive: ${inventory.photos.length} ảnh, ${inventory.floorPlans.length} mặt bằng. Thư mục hiện dùng: ${inventory.folderName || '—'}.${duplicateNote}` });
     } catch (err: any) {
       setMessage({ type: 'error', text: err?.message || String(err) });
     } finally {
@@ -240,7 +240,7 @@ export const PrimaryDriveStatusCard: React.FC<Props> = ({ activeProjectId, userR
         Ảnh tự lưu Drive; Firebase giữ dữ liệu và liên kết. User chỉ đăng nhập Google/Firebase một lần; Apps Script lưu file vào Drive chính HNL.
       </p>
       <div className="mt-1 text-[9.5px] text-slate-400 break-all">
-        ProjectId: <b className="text-slate-600">{activeProjectId || '—'}</b>{driveInventory?.folderName ? <> · Folder: <b className="text-slate-600">{driveInventory.folderName}</b></> : null}
+        ID dự án: <b className="text-slate-600">{activeProjectId || '—'}</b>{driveInventory?.folderName ? <> · Thư mục: <b className="text-slate-600">{driveInventory.folderName}</b></> : null}
       </div>
 
       <div className="grid grid-cols-3 gap-1.5 mt-2">
@@ -293,7 +293,7 @@ export const PrimaryDriveStatusCard: React.FC<Props> = ({ activeProjectId, userR
       {!isPrimaryOwner && !config?.webAppUrl && (
         <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-2.5 text-[11px] text-amber-800 flex gap-2">
           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>Drive chính chưa được ADMIN cấu hình Apps Script. User thường chỉ cần đăng nhập Google/Firebase của chính mình; không cần đăng nhập tài khoản Drive chính.</span>
+          <span>Drive chính chưa được ADMIN cấu hình Apps Script. Người dùng thường chỉ cần đăng nhập Google/Firebase của chính mình; không cần đăng nhập tài khoản Drive chính.</span>
         </div>
       )}
 

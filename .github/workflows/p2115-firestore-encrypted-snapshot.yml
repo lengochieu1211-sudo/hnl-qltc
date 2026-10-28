@@ -1,0 +1,79 @@
+name: P21.15 Firestore encrypted read-only backup DEV and PROD (NO DEPLOY)
+on:
+  push:
+    branches:
+      - release/p21-13-prod-candidate-20261027
+    paths:
+      - 'scripts/p2115-firestore-encrypted-snapshot.mjs'
+      - 'scripts/p2115-firestore-backup-public.pem'
+      - '.github/workflows/p2115-firestore-encrypted-snapshot.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  backup-dev:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
+      P2115_FIRESTORE_PROJECT: hnl-qltc-dev
+      P2115_EXPECTED_PROJECT: hnl-qltc-dev
+      P2115_MAX_DOCS: '15000'
+      P2115_MAX_BYTES: '300000000'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check exact release candidate and Firebase DEV-only credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/release/p21-13-prod-candidate-20261027"
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}"
+          node -e "const p=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);if(p.project_id!=='hnl-qltc-dev')process.exit(1)"
+      - name: Read and encrypt all DEV Firestore documents before upload
+        run: node scripts/p2115-firestore-encrypted-snapshot.mjs
+      - name: Upload only encrypted data and non-sensitive manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P2115-DEV-FIRESTORE-ENCRYPTED-${{ github.sha }}
+          path: |
+            P2115-FIRESTORE-hnl-qltc-dev-*.aes256
+            P2115-FIRESTORE-hnl-qltc-dev-*.manifest.json
+          if-no-files-found: warn
+          retention-days: 30
+  backup-prod:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+      P2115_FIRESTORE_PROJECT: com-example-qlct-61329
+      P2115_EXPECTED_PROJECT: com-example-qlct-61329
+      P2115_MAX_DOCS: '15000'
+      P2115_MAX_BYTES: '300000000'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check exact release candidate and Firebase PROD read-only credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/release/p21-13-prod-candidate-20261027"
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}"
+          node -e "const p=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);if(p.project_id!=='com-example-qlct-61329')process.exit(1)"
+      - name: Read and encrypt PROD Firestore documents with public backup key
+        run: node scripts/p2115-firestore-encrypted-snapshot.mjs
+      - name: Upload only encrypted data and non-sensitive manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P2115-PROD-FIRESTORE-ENCRYPTED-${{ github.sha }}
+          path: |
+            P2115-FIRESTORE-com-example-qlct-61329-*.aes256
+            P2115-FIRESTORE-com-example-qlct-61329-*.manifest.json
+          if-no-files-found: warn
+          retention-days: 30

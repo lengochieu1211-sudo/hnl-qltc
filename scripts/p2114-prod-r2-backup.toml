@@ -1,0 +1,13 @@
+name = "hnl-qltc-p2114-local-only-backup"
+main = "p2114-prod-r2-backup-worker.mjs"
+compatibility_date = "2026-10-26"
+
+[[r2_buckets]]
+binding = "PROD_SOURCE"
+bucket_name = "hnl-qltc-media"
+remote = true
+
+[[r2_buckets]]
+binding = "PROD_BACKUP"
+bucket_name = "hnl-qltc-media-prod-backup"
+remote = true

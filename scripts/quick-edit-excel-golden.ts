@@ -1,0 +1,429 @@
+import { gridRectKeys, gridSelectionTSV, parseGridTSV, quickGridCellKey } from '../src/utils/quickGridClipboard';
+import { compareMaterialGroupPriority, compareWorkVolumeManualOrder, isAccessoryCategory,
+  reorderVisibleWorkVolumes } from '../src/utils/catalogDisplayOrder';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+
+const quick = fs.readFileSync('src/components/QuickEditGridModal.tsx', 'utf8');
+const excelExport = fs.readFileSync('src/utils/excelExport.ts', 'utf8');
+const dataMenu = fs.readFileSync('src/components/DataManagementMenu.tsx', 'utf8');
+const actionMenu = fs.readFileSync('src/components/ActionMenuButton.tsx', 'utf8');
+const addSourceMenu = fs.readFileSync('src/components/AddSourceMenu.tsx', 'utf8');
+const checklist = fs.readFileSync('src/components/ChecklistTab.tsx', 'utf8');
+const floor = fs.readFileSync('src/components/FloorPlanDefectTab.tsx', 'utf8');
+const crew = fs.readFileSync('src/components/CrewTabBase.tsx', 'utf8');
+const warehouse = fs.readFileSync('src/components/WarehouseTab.tsx', 'utf8');
+const volume = fs.readFileSync('src/components/WorkVolumeTab.tsx', 'utf8');
+const projectManager = fs.readFileSync('src/components/ProjectManagerModal.tsx', 'utf8');
+const materialNormModal = fs.readFileSync('src/components/MaterialNormModal.tsx', 'utf8');
+const quickSortBar = fs.readFileSync('src/components/QuickSortBar.tsx', 'utf8');
+const catalogTemplatePicker = fs.readFileSync('src/components/CatalogTemplatePickerModal.tsx', 'utf8');
+const dxf = fs.readFileSync('src/utils/dxfRoomDetection.ts', 'utf8');
+const pdfRoomDetection = fs.readFileSync('src/utils/pdfRoomDetection.ts', 'utf8');
+
+
+/** Golden: display-order-only changes must preserve IDs, values and hidden rows. */
+assert.equal(isAccessoryCategory('Phụ kiện & Vít'), true);
+assert.equal(isAccessoryCategory('Vật tư phụ khác'), true);
+assert.equal(isAccessoryCategory('Khung xương'), false);
+assert.equal(isAccessoryCategory('Sơn bả & Mối nối'), false);
+assert.ok(compareMaterialGroupPriority('Phụ kiện & Vít', 'Khung xương') > 0);
+assert.ok(compareMaterialGroupPriority('Sơn bả', 'Vật tư phụ khác') < 0);
+const workOrderBaseline = [
+  { id: 'HM-A', title: 'Trần', order: undefined, planned: 350 },
+  { id: 'HM-B', title: 'Vách', order: undefined, planned: 200 },
+  { id: 'HM-C', title: 'Trần phụ', order: undefined, planned: 115 },
+  { id: 'HM-D', title: 'Sơn', order: undefined, planned: 80 },
+];
+const movedWorkOrder = reorderVisibleWorkVolumes(workOrderBaseline, ['HM-C', 'HM-A']);
+assert.ok(movedWorkOrder, 'Manual ordering must accept a valid visible subset');
+assert.deepEqual(movedWorkOrder.map(item => item.id), ['HM-C','HM-B','HM-A','HM-D'],
+  'Manual reorder must keep unrelated hidden categories in their original slots');
+assert.deepEqual(movedWorkOrder.map(item => item.order), [1,2,3,4],
+  'Manual rank must become durable for all legacy WorkVolume rows on first reorder');
+assert.deepEqual(movedWorkOrder.map(item => item.planned), [115,200,350,80],
+  'Manual reorder must never change planned quantities');
+assert.deepEqual([...movedWorkOrder].sort(compareWorkVolumeManualOrder).map(item => item.id),
+  ['HM-C','HM-B','HM-A','HM-D'], 'Persisted order must replay on another device');
+assert.equal(reorderVisibleWorkVolumes(workOrderBaseline, ['HM-C','HM-C']), null,
+  'Duplicate IDs must fail closed');
+assert.equal(reorderVisibleWorkVolumes(workOrderBaseline, ['HM-C','missing']), null,
+  'Stale/unknown IDs must fail closed');
+assert.equal(reorderVisibleWorkVolumes(workOrderBaseline, ['HM-A','HM-C']), null,
+  'No-op reorder must not create unnecessary Firestore writes');
+const volumeOrderApp = fs.readFileSync('src/App.tsx', 'utf8');
+const volumeOrderCloud = fs.readFileSync('src/lib/firebaseBase.ts', 'utf8');
+assert.match(volume, /<MoveOrderControls/, 'WorkVolume must reuse room-style up\/down buttons');
+assert.match(volume, /draggable=\{canReorderVolumes\}/, 'WorkVolume supports drag only when manual ordering is allowed');
+assert.match(volume, /hasStructureManageAccess && Boolean\(onReorderWorkVolumes\) && volSortBy === 'none'/,
+  'Only ADMIN may reorder, and never while viewing an alternate quick sort');
+assert.match(volume, /resetLabel="Thứ tự thủ công"/, 'Quick sort must reveal the manual order');
+assert.match(volumeOrderApp, /reorderVisibleWorkVolumes\(prev\.workVolumes, visibleOrderedIds\)/,
+  'APP must validate and persist work-volume order without changing IDs');
+assert.match(volumeOrderApp, /order: existing\.order/, 'Editing an existing work category must preserve its manual rank');
+assert.match(volumeOrderCloud, /compareWorkVolumeManualOrder/, 'Firestore cache/live streams must use stable work category order');
+assert.match(warehouse, /compareMaterialGroupPriority/, 'Warehouse must put accessory groups after main materials by default');
+assert.match(materialNormModal, /compareMaterialGroupPriority/, 'Material norm display must also place accessory groups last');
+
+assert.match(quick, /Ctrl\+C \/ Ctrl\+V vùng ô từ Excel/, 'Quick grid must advertise spreadsheet paste');
+// All Quick Edit consumers share the same cell-range gestures; unchanged editability gates remain per module.
+assert.match(warehouse, /spreadsheetSelection/, 'Warehouse preserves its explicit spreadsheet selection');
+assert.match(quick, /spreadsheetSelection = true/, 'Ctrl/Shift selection must be enabled for all shared Quick Edit grids');
+// Intentional Excel-like entry contract: single click selects, one double-click or F2 edits.
+// Source-level regression guards, not a replacement for browser double-click tests.
+assert.match(quick, /onDoubleClick=\{\(\) => beginEdit\(row\.__rowKey, column\.key\)\}/, 'One double-click must enter cell edit mode');
+assert.match(quick, /event\.key === 'F2'/, 'F2 must enter cell edit mode');
+assert.match(quick, /readOnly=\{!editable \|\| \(spreadsheetSelection && editingCellKey !== key\)\}/, 'Input requires edit mode, except read-only cells');
+assert.match(quick, /disabled=\{spreadsheetSelection && editingCellKey !== key\}/, 'Select dropdown requires edit mode');
+assert.match(quick, /onChange=\{\(event\) => changeSelectedDropdown/, 'Dropdown changes still use permission-aware save logic');
+for (const [name, source] of [['Room / Defect', floor], ['Crew / Teams', crew], ['WorkVolume', volume], ['Warehouse', warehouse]]) {
+  assert.match(source, /<LazyQuickEditGridModal/, `${name} must use the common Quick Edit selection handler`);
+}
+assert.match(quick, /if \(!canEdit \|\| !changes\.length\) return/, 'Bulk updates must honor module edit permissions');
+assert.match(quick, /Vùng có ô chỉ đọc hoặc giá trị lựa chọn không hợp lệ/, 'Selection must not bypass read-only cells');
+assert.match(quick, /changeSelectedDropdown/, 'Dropdown selection must support one-action bulk change');
+assert.match(quick, /Vùng có ô chỉ đọc hoặc giá trị lựa chọn không hợp lệ/, 'Bulk paste must fail closed when a locked or unknown-select cell is encountered');
+assert.match(quick, /gridSelectionTSV/, 'Clipboard copy must export selected cells as TSV');
+assert.match(quick, /column\.options\?\.find/, 'Read-only enum cells must show Vietnamese option labels without changing stored codes');
+assert.match(warehouse, /Hệ thống sử dụng chung một bộ tính nhu cầu vật tư/, 'Material Need description must use natural Vietnamese');
+assert.doesNotMatch(warehouse, /Một Material Need Engine duy nhất/, 'Material Need description must not expose English implementation terms');
+const demoRows = [
+  { __rowKey: 'r3', itemKind: 'material', quantity: 3 },
+  { __rowKey: 'r1', itemKind: 'equipment', quantity: 1 },
+  { __rowKey: 'r2', itemKind: 'material', quantity: 2 },
+];
+const demoColumns = [{ key: 'itemKind' }, { key: 'quantity' }];
+const rectangle = gridRectKeys(demoRows, demoColumns, { rowKey: 'r3', columnKey: 'itemKind' }, { rowKey: 'r2', columnKey: 'quantity' });
+assert.equal(rectangle.size, 6, 'Shift must select a rectangular range in visible/sorted row order');
+assert.deepEqual([...gridRectKeys(demoRows, demoColumns, { rowKey: 'r1', columnKey: 'quantity' }, { rowKey: 'r2', columnKey: 'quantity' })],
+  ['r1::quantity', 'r2::quantity'], 'Shift must select consecutive cells in one column');
+const disconnected = new Set([quickGridCellKey('r3', 'itemKind'), quickGridCellKey('r2', 'quantity')]);
+assert.equal(gridSelectionTSV(demoRows, demoColumns, disconnected, (value) => String(value)), 'material\t\n\t\n\t2', 'Ctrl-selected disconnected cells must copy without leaking unselected values');
+assert.equal(gridSelectionTSV(demoRows, demoColumns, rectangle, (value, key) => key === 'itemKind' ? (value === 'material' ? 'Vật tư' : 'Thiết bị') : String(value)),
+  'Vật tư\t3\nThiết bị\t1\nVật tư\t2', 'Clipboard must copy visible localized values in row/column order');
+assert.deepEqual(parseGridTSV('Vật tư\t3\r\nThiết bị\t1\r\n'), [['Vật tư', '3'], ['Thiết bị', '1']], 'Paste must accept Excel CRLF without creating an extra row');
+
+assert.deepEqual(parseGridTSV('"Dòng 1\nDòng 2"\t"ĐVT\tđặc biệt"\r\n"Ty ""ren"""\t5\r\n'),
+  [['Dòng 1\nDòng 2', 'ĐVT\tđặc biệt'], ['Ty "ren"', '5']],
+  'Quoted multiline/tab/escaped quote must stay in their original Excel cells');
+assert.deepEqual(parseGridTSV('Đầu nối 1/2"\t20\n'), [['Đầu nối 1/2"', '20']],
+  'Unquoted literal inch marks must remain intact');
+assert.throws(() => parseGridTSV('"Chưa đóng\t100'), /ngoặc kép chưa đóng/,
+  'Unbalanced quote must reject the entire paste');
+assert.throws(() => parseGridTSV('"Đã đóng"Dữ liệu\t100'), /ngoặc kép đóng/,
+  'Characters after a closing quote must reject the paste rather than shift columns');
+const multilineRows = [
+  { __rowKey: 'm1', note: 'Dòng 1\nDòng 2', specification: 'Cỡ\tđặc biệt' },
+  { __rowKey: 'm2', note: 'Ty "ren"', specification: 'M6 x 40' },
+];
+const multilineColumns = [{ key: 'note' }, { key: 'specification' }];
+const multilineSelection = gridRectKeys(multilineRows, multilineColumns,
+  { rowKey: 'm1', columnKey: 'note' }, { rowKey: 'm2', columnKey: 'specification' });
+const multilineCopied = gridSelectionTSV(multilineRows, multilineColumns, multilineSelection, (value) => String(value));
+assert.deepEqual(parseGridTSV(multilineCopied), multilineRows.map(row => [row.note, row.specification]),
+  'Copy/paste round-trip must preserve multiline text, tabs and double quotes');
+assert.match(quick, /Không thể đọc dữ liệu Excel/, 'Invalid clipboard data must be rejected without staging edits');
+
+
+assert.match(quick, /handlePaste/, 'Quick grid must support multi-cell paste');
+assert.match(quick, /dirtyCellKeys/, 'Quick grid edits must remain staged until save');
+assert.match(quick, /dirtyCellKeys\.size > 0/, 'Quick grid must preserve local draft across realtime/parent refreshes');
+assert.match(quick, /const result = await onSave/, 'Quick grid must wait for the module batch-save result');
+assert.match(quick, /result === false/, 'Quick grid must keep the draft dirty when module confirmation is cancelled');
+assert.match(quick, /Có thay đổi chưa lưu trong Bảng chỉnh nhanh/, 'Quick grid close must guard unsaved local draft');
+assert.match(quick, /Có thay đổi chưa lưu trong bảng hiện tại/, 'Quick grid tab switch must guard unsaved local draft');
+assert.match(quick, /Bỏ thay đổi/, 'Quick grid must support discard');
+assert.match(quick, /Hoàn tác/, 'Quick grid must support undo');
+assert.match(quick, /tabs && tabs\.length/, 'Quick grid must support module-specific table tabs');
+assert.match(quick, /tăng dần → giảm dần → thứ tự ban đầu/, 'Quick grid headers must use tri-state display sorting');
+assert.match(quick, /\+ Trên/, 'Quick grid must support inserting rows above an anchor');
+assert.match(quick, /\+ Dưới/, 'Quick grid must support inserting rows below an anchor');
+assert.match(quick, /deletedRows/, 'Quick grid must stage row deletions until Save');
+assert.match(quick, /canDeleteRows/, 'Quick grid must expose module-controlled multi-row deletion');
+assert.match(quick, /syncGroupColumns/, 'Quick grid must support synchronized shared fields for grouped rows');
+assert.match(quick, /sticky top-0 left-0 z-50/, 'Quick grid select-all corner must be pinned on both axes');
+assert.match(quick, /sticky top-0 z-30 bg-slate-200/, 'Each Quick Edit header cell must own vertical sticky positioning');
+assert.doesNotMatch(quick, /<thead className="sticky top-0/, 'Quick Edit must avoid nested sticky thead/header composition that makes the checkbox drift');
+assert.match(quick, /allowExpression/, 'Quick grid must support safe arithmetic expressions in numeric cells');
+assert.match(quick, /evaluateMathExpression/, 'Quick grid must validate expression-backed numeric cells by numeric result');
+
+assert.match(dataMenu, /Xuất Excel để chỉnh sửa/, 'Data Management menu must be editing-oriented');
+assert.match(dataMenu, /Nhập Excel đã chỉnh sửa/, 'Data Management menu must contain round-trip import');
+assert.match(dataMenu, /Tải Excel mẫu/, 'Data Management menu must contain template action');
+assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /XLSX\.utils\.aoa_to_sheet\(\[workVolumeHeaders\]\)/, 'WorkVolume blank template must retain editable headers');
+assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /XLSX\.utils\.aoa_to_sheet\(\[mainHeaders\]\)/, 'Crew blank template must retain journal headers');
+assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /'__itemKind': item\.itemKind === 'equipment'/, 'Warehouse inbound round-trip must preserve material-vs-equipment identity');
+assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /XLSX\.utils\.aoa_to_sheet\(\[inHeaders\]\)/, 'Warehouse blank inbound template must retain headers');
+assert.match(dataMenu, /if \(onExportReport\)/, 'Data Management report section must render only when a module explicitly supplies a report callback');
+assert.match(dataMenu, /fillMobile/, 'Data Management trigger must support equal-width mobile action rows');
+assert.match(dataMenu, /fillWidth/, 'Data Management trigger must support equal-width desktop/mobile action pairs');
+assert.match(dataMenu, /onExportReport/, 'Data Management menu must support an optional report action without duplicating standalone buttons');
+assert.match(actionMenu, /sm:w-auto/, 'Shared action trigger must be able to fill one mobile grid column without affecting desktop');
+assert.match(actionMenu, /whitespace-nowrap/, 'Shared action trigger must keep its compact label intact on mobile');
+assert.match(dataMenu, /FileSpreadsheet/, 'Data Management export must retain the spreadsheet icon');
+assert.match(dataMenu, /Database/, 'Data Management trigger must use a data icon');
+assert.match(dataMenu, /onQuickEdit/, 'Shared Data Management menu must support the Quick Edit action');
+assert.match(dataMenu, /Quản lý dữ liệu/, 'Shared Data Management menu must expose the approved data-management label');
+assert.match(dataMenu, /triggerTone="secondary"/, 'Data Management trigger must remain visually secondary because it is a lower-frequency action');
+assert.match(dataMenu, /mobileLabel="Dữ liệu"/, 'Data Management must use the compact Dữ liệu label on mobile while retaining its full desktop label');
+assert.match(actionMenu, /mobileLabel\?: string/, 'Shared action menu must support a shorter mobile label without changing its desktop wording');
+assert.match(quickSortBar, /sm:hidden[\s\S]*<select/, 'Quick Sort must collapse to one compact select on mobile');
+assert.match(quickSortBar, /hidden sm:block[\s\S]*Sắp xếp nhanh:/, 'Quick Sort must retain the visible chip bar on tablet\/desktop');
+assert.match(materialNormModal, /expandedNormTagIds/, 'Material Norm cards must support expanding hidden work-category tags on mobile');
+assert.match(materialNormModal, /sm:hidden inline-flex[\s\S]*\+\$\{hiddenCount\}/, 'Material Norm cards must collapse extra mobile tags behind a +N control');
+assert.match(actionMenu, /border-slate-200 bg-white text-slate-600 shadow-none/, 'Shared action menu must support a quiet secondary trigger style');
+assert.match(actionMenu, /placement: 'above' \| 'below'/, 'Shared action menu must support opening above or below the pressed trigger');
+assert.match(actionMenu, /scrollTopBeforeOpenRef/, 'Opening a shared action menu must preserve the page scroll position');
+assert.match(addSourceMenu, /Chọn cách thêm/, 'Shared Add Source menu must expose one consistent source-choice pattern');
+assert.match(addSourceMenu, /Tạo mới để nhập thủ công/, 'Shared Add Source menu must explain create-vs-copy behavior');
+assert.match(actionMenu, /data-hnl-action-menu-mode/, 'Shared action menu must expose its adaptive runtime mode');
+assert.match(actionMenu, /naturalHeight > bestAvailable && naturalHeight > 220/, 'Shared action menu must use bottom sheet only when a longer mobile menu cannot fit near the trigger');
+assert.match(checklist, /<DataManagementMenu/, 'Checklist must use shared Data Management instead of standalone Excel buttons');
+for (const [name, source] of [['floor', floor], ['crew', crew], ['warehouse', warehouse], ['volume', volume]] as const) {
+  assert.match(source, /quickEditEnabled\?: boolean;/, `${name} must expose a Quick Edit runtime enable flag`);
+  assert.match(source, /import\('\.\/QuickEditGridModal'\)/, `${name} must lazy-load Quick Edit instead of parsing the grid with the heavy tab chunk`);
+  assert.doesNotMatch(source, /import \{ QuickEditGridModal,/, `${name} must not statically import the Quick Edit runtime component`);
+  assert.match(source, /quickEditEnabled && showQuickEdit/, `${name} must not mount Quick Edit while disabled or closed`);
+}
+
+assert.match(floor, /Căn & Hạng mục/, 'Floor quick edit must separate room/work rows');
+assert.match(floor, /Deadline defect/, 'Defect quick edit must expose deadline');
+assert.match(floor, /Ngày hoàn thành thực tế defect/, 'Defect quick edit must expose actual completion date');
+assert.match(floor, /__floorId/, 'Multi-floor Excel must keep durable floor ID');
+assert.match(floor, /multiFloorImport/, 'Room Excel import must support multi-floor input');
+assert.match(floor, /không được tự đổi floorId qua Excel/, 'Excel import must fail closed on cross-floor identity mismatch');
+assert.match(floor, /__recordId không tồn tại trong dự án hiện tại/, 'Room Excel import must reject stale technical room IDs instead of falling back to names');
+assert.match(floor, /onApplyRoomExcelImport\(preparedRooms, obsoleteRoomIds\)/, 'Room Excel import must preflight every row then apply one atomic App-state transaction');
+assert.match(floor, /__subItemId không tồn tại/, 'Room detail Excel import must reject stale technical sub-item IDs');
+assert.match(floor, /PDF\/JPG\/PNG\/WebP\/DXF/, 'Add-floor drawing picker must include DXF beside PDF/images');
+assert.match(floor, /createFloor: true/, 'DXF selected from add-floor flow must create the requested new floor only after review');
+assert.doesNotMatch(floor, /<FileType[^>]*\/> Nhận diện CAD\/DXF/, 'Room toolbar must not expose a separate CAD/DXF button');
+assert.match(floor, /Chỉ tạo tầng/, 'DXF review must let the user create the floor without auto-creating rooms');
+assert.match(floor, /Tạo tầng \+ Căn \/ Phòng/, 'DXF review must support creating the floor and detected rooms together');
+assert.match(floor, /isPolyline: false,/, 'DXF closed room boundaries must persist as polygon geometry for fill and Defect hit-testing');
+assert.match(floor, /Tự động · Khuyên dùng/, 'Smart PDF must present the default room-name rule in user-friendly language');
+assert.match(floor, /Tùy chỉnh kỹ thuật \(Regex\)/, 'Raw Smart PDF regex must stay behind an explicit technical disclosure');
+assert.match(floor, /Không cần nhập ký tự kỹ thuật/, 'Normal Smart PDF UI must tell users that technical syntax is not required');
+assert.match(floor, /Khôi phục mặc định/, 'Advanced PDF name regex must provide a safe reset action');
+assert.match(floor, /aria-invalid=\{!isSmartPdfNamePatternValid\}/, 'Advanced PDF name regex must surface invalid syntax before detection');
+assert.doesNotMatch(pdfRoomDetection, /\(\?=\.\*/, 'Default room-name regex should avoid the hard-to-read lookahead form reported on mobile');
+assert.match(floor, /Tạo Căn \/ Phòng từ DXF/, 'DXF import must retain an explicit review/apply path');
+assert.match(floor, /Không ghi đè Căn \/ Phòng đã tồn tại/, 'DXF import must protect existing room highlights');
+assert.match(floor, /Lấy mặt bằng trực tiếp từ DXF/, 'DXF review must offer CAD-background materialization');
+assert.match(floor, /cadSource:/, 'Saved DXF room highlights must retain immutable CAD geometry for later alignment');
+assert.match(volume, /floorId: undefined[\s\S]{0,120}floorIds: targetFloorIds[\s\S]{0,120}floor: GLOBAL_WORK_SCOPE_LABEL/, 'Cross-project Work Volume copy must drop source floor identity and remain global until the target project scopes it explicitly');
+assert.doesNotMatch(volume, /const fallbackFloor = floorPlans\[0\]/, 'Cross-project Work Volume copy must not silently bind the imported catalog to the first target floor');
+assert.doesNotMatch(volume, /floorNamesById/, 'Cross-project Work Volume copy must not depend on non-schema source floor-name metadata');
+assert.match(materialNormModal, /uniqueByCanonicalId\.length !== 1/, 'Material Norm remap must fail closed when a target Work Category title is missing or ambiguous');
+assert.match(materialNormModal, /trùng tên/, 'Material Norm remap must explain ambiguous target Work Category names instead of choosing one silently');
+assert.match(materialNormModal, /inputExpressions/, 'Material Norm editor must retain general/specific arithmetic expressions');
+assert.match(floor, /syncGroupColumns=\{quickEditMode === 'rooms'/, 'Room quick edit must synchronize shared room fields across child rows');
+assert.match(floor, /grid w-full grid-cols-2 gap-2[\s\S]*Khu\/Tầng[\s\S]*triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit/, 'Floor mobile actions must keep Khu/Tầng and Data Management side-by-side while retaining Quick Edit + Excel');
+const acceptanceSection = floor.slice(floor.indexOf('Nghiệm thu từng Căn / Phòng'), floor.indexOf('Quick Sort Controls'));
+assert.doesNotMatch(acceptanceSection, /Thêm Căn \/ Phòng/, 'Acceptance section must not duplicate the add-room action');
+assert.doesNotMatch(acceptanceSection, /Bảng chỉnh nhanh/, 'Acceptance section must not duplicate bulk-edit actions');
+
+
+assert.match(floor, /__floorPrimary/, 'Floor quick edit must expose exactly one canonical editable row per floor');
+assert.match(floor, /floorEditById/, 'Floor quick edit must stage floor-level edits separately from room edits');
+assert.match(floor, /onRenameFloorPlan\(floorId, edit\.floorName\)/, 'Floor quick edit must rename through the existing cascade-safe floor handler');
+assert.match(floor, /onUpdateFloorPlan\(floorId, \{ structureGroupId: edit\.structureGroupId \}\)/, 'Floor quick edit must update Khu/Khối by stable structureGroupId');
+assert.match(floor, /triggerLabel="Quản lý dữ liệu"/, 'Floor Quick Edit + Excel must be consolidated under Quản lý dữ liệu');
+
+assert.match(crew, /Xuất Nhật ký để chỉnh sửa/, 'Crew must export journal for editing');
+assert.match(crew, /Nhập Nhật ký đã chỉnh sửa/, 'Crew must import edited journal');
+assert.match(crew, /chi tiet cong viec/i, 'Crew import must understand detailed work sheet');
+assert.match(crew, /__teamId không tồn tại trong dự án hiện tại/, 'Crew Excel import must reject stale technical team IDs');
+assert.match(crew, /__recordId không tồn tại trong dự án hiện tại/, 'Crew Excel import must reject stale journal IDs');
+assert.match(crew, /onExportReport=\{\(\) => handleExportTeamStats\(\)\}/, 'All-team statistics export must live inside the team Excel menu');
+assert.match(crew, /reportLabel="Báo cáo chi tiết tất cả đội"/, 'Team data menu must clearly distinguish the detailed all-team report from the editable team catalog');
+assert.match(excelExport, /'01-Tổng quan các đội'/, 'All-team statistics must include an overview sheet');
+assert.match(excelExport, /'02-KL theo tầng'/, 'All-team statistics must include floor/category volume detail');
+assert.match(excelExport, /'03-Chi tiết phòng'/, 'All-team statistics must include room detail');
+assert.match(excelExport, /'04-Defect'/, 'All-team statistics must include defect detail');
+assert.match(excelExport, /'05-Nhật ký quân số'/, 'All-team statistics must include crew log detail');
+assert.match(excelExport, /'06-Vật tư đối chiếu'/, 'All-team statistics must include material reconciliation');
+assert.match(excelExport, /'Đội Thi Công': team\.name/, 'All-team detail sheets must identify the source team on each row');
+
+assert.doesNotMatch(crew, /bg-emerald-600[\s\S]{0,220}Báo cáo chi tiết tất cả đội/, 'All-team statistics must not remain as a standalone toolbar button');
+assert.match(crew, /Xuất Excel Đội Này/, 'Single-team report export must remain available');
+assert.match(crew, /grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-between/, 'Team-detail footer must use two balanced mobile columns');
+assert.match(crew, /sm:hidden">Xuất Excel</, 'Team-detail Excel action must use a compact mobile label');
+assert.match(crew, /sm:hidden">Đóng</, 'Team-detail close action must use a compact mobile label');
+assert.match(crew, /w-full sm:w-auto min-h-10 bg-emerald-600/, 'Team-detail Excel action must fill its mobile column');
+assert.match(crew, /selectedLogStructureGroupId/, 'Crew entry must expose an explicit Khu/Khối selection state');
+assert.match(crew, /Danh sách Tầng bên dưới chỉ hiện trong/, 'Crew entry must explain that floor choices are filtered by Khu/Khối');
+assert.match(crew, /key: 'structureGroup'/, 'Crew quick edit must include a Khu/Khối column');
+assert.match(crew, /__groupPrimary: floorIndex === 0 && categoryIndex === 0/, 'Crew quick edit must use one representative row for shared journal fields');
+assert.match(crew, /syncGroupColumns=\{quickEditMode === 'logs'/, 'Crew child rows must stay synchronized with representative shift/date/team values');
+assert.match(crew, /Tầng không thuộc Khu\/Khối này/, 'Crew quick edit must reject floor/group mismatches');
+assert.match(crew, /order-1 col-span-2 lg:order-none lg:col-span-1[\s\S]*aria-label="Chọn ngày quân số"[\s\S]*order-2 col-span-2[\s\S]*Ghi nhận quân số/, 'Crew mobile must show Date first, then the highlighted full-width Record action');
+assert.match(crew, /canOperate \? 'grid-cols-3' : 'grid-cols-2'[\s\S]*Sao chép[\s\S]*Chia sẻ[\s\S]*triggerLabel="Quản lý dữ liệu"/, 'Crew mobile must keep Copy / Share / Data Management in one compact utility row');
+assert.match(crew, /lg:grid-cols-\[220px_minmax\(0,1fr\)_minmax\(0,1fr\)_minmax\(0,1\.1fr\)_minmax\(0,1fr\)\][\s\S]*Chia sẻ báo cáo quân số[\s\S]*triggerLabel="Quản lý dữ liệu"/, 'Crew PC must preserve Date, Record, Copy, Share and Data Management on one aligned row');
+assert.doesNotMatch(crew, /crew-subtab-navigation[^\n]*lg:max-w/, 'Crew primary subtabs must remain full-width like the original layout');
+assert.match(crew, /triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit=\{quickEditEnabled \? \(\(\) => \{ setQuickEditMode\('teams'\); setShowQuickEdit\(true\); \}\) : undefined\}[\s\S]*reportLabel="Báo cáo chi tiết tất cả đội"/, 'Team directory must consolidate Quick Edit and Excel under the same data menu');
+
+// Read-only sorting/filtering: different inventory kinds must never share a hidden
+// view or silently be treated as an alternative unit of the same product.
+assert.match(warehouse, /inventoryKindFilter, setInventoryKindFilter/, 'Warehouse must have an independent material/equipment filter');
+assert.match(warehouse, /data-hnl-catalog-in-history=\{item\.key\}/, 'Catalog inbound totals must open read-only history');
+assert.match(warehouse, /data-hnl-catalog-out-history=\{item\.key\}/, 'Catalog outbound totals must open read-only history');
+assert.match(warehouse, /data-hnl-catalog-history="readonly"/, 'Catalog history must be view-only');
+assert.match(warehouse, /data-hnl-catalog-history-view="visible"/, 'Catalog history must replace table');
+assert.match(warehouse, /activeCatalogHistoryDate/, 'Newest date must auto-expand');
+assert.match(warehouse, /if \(catalogHistory\)[\s\S]{0,220}scrollBody\.scrollTop = 0/, 'Opening warehouse history resets only the detail scroll');
+assert.match(warehouse, /if \(sheet\) sheet\.scrollTop = origin\.sheetTop/, 'Returning from history restores the catalog scroll position');
+assert.match(warehouse, /if \(table\) table\.scrollTop = origin\.tableTop/, 'Returning from history restores the table scroll position');
+assert.match(warehouse, /normalizeMaterialSearch\('sourceName' in item \? item\.sourceName : item\.name\)/, 'Equipment aliases must resolve original ledger identity');
+assert.match(warehouse, /entry\.deletedAt == null/, 'Catalog history excludes deleted transactions');
+assert.match(warehouse, /entry\.type === catalogHistory\.type/, 'Catalog history filters IN vs OUT');
+assert.match(warehouse, /entry\.itemKind === 'equipment'/, 'Catalog history never merges materials with equipment');
+assert.match(warehouse, /normalizeUnit\(entry\.unit\)/, 'Catalog history keeps separate ledger units');
+assert.match(warehouse, /isWarehouseVoucherDateInRange\(entry\.date, catalogHistoryStart, catalogHistoryEnd\)/, 'Catalog history uses the shared legacy-safe date range filter');
+assert.match(warehouse, /Math\.abs\(catalogHistoryTotal - catalogHistory\.expectedTotal\)/, 'Catalog warns on summary mismatch');
+assert.match(warehouse, /matchesType && matchesKind && matchesSearch/, 'Warehouse kind filtering must combine with receipt/issue and search filters');
+assert.match(warehouse, /data-hnl-warehouse-kind-filter=\{key\}/, 'Warehouse must expose the type filter on PC and mobile');
+assert.doesNotMatch(warehouse, /key: 'kind', label: 'Loại hàng'/, 'Warehouse must NOT duplicate the separate material/equipment filter in QuickSortBar');
+assert.match(warehouse, /key: 'material', label: 'Tên vật tư \/ thiết bị'/, 'Warehouse sort label must cover both materials and equipment');
+assert.match(materialNormModal, /key: 'category', label: 'Chủng loại vật tư'/, 'Material catalog quick sort must support category');
+assert.match(materialNormModal, /key: 'unit', label: 'ĐVT'/, 'Material catalog quick sort must support unit');
+assert.match(checklist, /key: 'category', label: 'Hạng mục kiểm tra'/, 'Checklist quick sort must support category without changing stored order');
+
+assert.match(warehouse, /Định mức vật tư/, 'Warehouse quick edit must expose the safe per-work-category norm table');
+assert.match(warehouse, /Nhập kho/, 'Warehouse quick edit must have inbound ledger table');
+assert.match(warehouse, /Xuất kho/, 'Warehouse quick edit must have outbound ledger table');
+assert.match(warehouse, /Tồn kho 🔒/, 'Warehouse stock must be visibly read-only');
+assert.match(warehouse, /quickEditMode === 'stock' \? false/, 'Stock quick table must reject edits');
+assert.match(warehouse, /Mã Phiếu không tồn tại trong dự án hiện tại/, 'Warehouse Excel import must reject stale transaction IDs');
+assert.match(warehouse, /assertKnownReference/, 'Warehouse Excel import must validate technical linkage IDs before writing');
+assert.match(warehouse, /key: 'workCategory'[\s\S]*type: 'select'[\s\S]*options: warehouseWorkOptions/, 'Warehouse norm quick edit must select work categories from the authoritative catalog');
+assert.match(warehouse, /key: 'specificNorm'.*editable: hasNormManageAccess/, 'Warehouse norm quick edit must expose editable per-work-category norm');
+assert.match(warehouse, /key: 'materialName'.*__groupPrimary/, 'Only the grouped primary row may edit the shared material name');
+assert.match(warehouse, /key: 'category'.*__groupPrimary/, 'Only the grouped primary row may edit the shared material group');
+assert.match(warehouse, /key: 'unit'.*editable: false.*required: true/, 'Warehouse Quick Edit must lock catalog-controlled unit cells');
+assert.match(warehouse, /key: 'unit'.*label: 'ĐVT \(tự lấy\)'.*editable: false/, 'Ledger Quick Edit must never change unit on a voucher');
+assert.match(warehouse, /readOnly=\{!isNewMaterialDefinition && \(itemKind === 'material' \|\| !isNewEquipment\)\}/, 'Voucher form must lock units for catalog material and equipment');
+assert.match(warehouse, /isNewMaterialDefinition/, 'New material may declare its first unit only when its name is absent from catalog');
+const equipmentPanel = fs.readFileSync('src/components/EquipmentCatalogPanel.tsx', 'utf8');
+const equipmentService = fs.readFileSync('src/lib/equipmentCatalog.ts', 'utf8');
+assert.match(warehouse, /<span>Thiết lập<\/span>/, 'Warehouse master settings use compact Thiết lập on desktop/mobile');
+assert.match(warehouse, /data-hnl-warehouse-kind-filter=\{key\}/, 'Keep equipment filter outside QuickSortBar');
+assert.doesNotMatch(warehouse, /filter=\{\{\s*label: 'Loại hàng'/, 'Warehouse type filter must not move into the quick sort bar');
+assert.doesNotMatch(warehouse, />Đổi ĐVT thiết bị<\/button>/, 'The old standalone equipment-unit action must be removed from stock catalog');
+assert.match(equipmentPanel, /const migrateUnit = async/, 'Equipment unit correction must migrate from the single field on Save');
+assert.doesNotMatch(equipmentPanel, /ĐVT mới \(chỉ đổi nhãn 1:1\)/, 'Equipment editor must not duplicate the unit input');
+assert.match(equipmentPanel, /const groupOptions = useMemo/, 'Equipment group choices must be derived from existing master categories');
+assert.match(equipmentPanel, /activeRecords\.forEach\(\(record\) =>/, 'Active equipment groups must feed dropdown without resurrecting trashed categories');
+assert.match(equipmentPanel, /<select value=\{customGroup \? '__new_group__' : edit\.category\}/, 'Equipment editor must offer saved equipment groups');
+assert.match(equipmentPanel, /<option value="__new_group__">/, 'Equipment group list must allow an optional new custom group');
+assert.match(equipmentPanel, /setCustomGroup\(true\)/, 'Custom equipment groups must be entered within the editor');
+assert.match(equipmentPanel, /startNew\(\{ category: equipment\.category, unit: equipment\.unit \}\)/, 'Save and add another must preserve group and unit but not reuse the equipment identity');
+assert.match(equipmentPanel, /Lưu &amp; thêm tiếp/, 'Equipment editor must provide Save and Add Next');
+assert.match(equipmentPanel, />\s*Hủy\s*</, 'Equipment editor must offer Cancel');
+assert.match(equipmentPanel, /editingExisting \? 'Lưu thay đổi' : 'Lưu'/, 'Equipment editor must show Save Changes in edit mode and Save in create mode');
+assert.match(equipmentPanel, /data-hnl-equipment-editor="true"/, 'The equipment setup editor must use the normal application form');
+assert.match(warehouse, /data-hnl-catalog-settings-link="true"/, 'Warehouse catalog must open contextual material/equipment master editor');
+assert.match(warehouse, /onOpenNormModal\(warehouseCatalogTab, undefined, true\)/, 'Warehouse setup route must follow currently selected tab and remember the catalog as return origin');
+assert.doesNotMatch(warehouse, />Chỉnh thông tin<\/button>/, 'Warehouse catalog must not repeat editing on each equipment row');
+assert.doesNotMatch(warehouse, /data-hnl-primary-action="warehouse-equipment-create"/, 'Warehouse catalog must not mistakenly open a stock voucher for creating metadata');
+
+assert.match(equipmentService, /saveEquipmentCatalogBatch/, 'Equipment master edits must write separately from the inventory ledger');
+assert.match(warehouse, /key: 'equipment', label: 'Thiết bị'/, 'Warehouse quick edit must contain an equipment master tab');
+assert.match(warehouse, /key: 'unit', label: 'ĐVT \(sửa 1:1 an toàn\)', editable: hasNormManageAccess/, 'Equipment Quick Edit must permit ADMIN to edit unit inline');
+assert.match(warehouse, /const changedUnitRows = changedRows\.filter/, 'Equipment Quick Edit must identify old-vs-new units');
+assert.match(warehouse, /changedUnitRows\.length && changedRows\.length !== 1/, 'Multiple changed rows with unit migration must fail closed before writes');
+assert.match(warehouse, /equipmentMetadata,\s*\}\);/, 'Quick Edit unit correction must include display metadata atomically');
+assert.match(warehouse, /onRenameWarehouseUnit\(\{[\s\S]*kind: 'equipment'[\s\S]*equipmentMetadata/, 'Quick Edit must reuse the atomic ledger/balance migration');
+assert.match(warehouse, /error instanceof EquipmentUnitMigrationRequiredError/, 'Cloud-only history must trigger an atomic correction rather than silent overwrite');
+assert.match(warehouse, /return false;[\s\S]*if \(changedUnitRows\.length\)/, 'Rejected bulk correction must retain dirty cells');
+assert.doesNotMatch(warehouse, /Hãy dùng nút Đổi ĐVT \(1:1\) trong Thiết lập thiết bị/, 'No reference to obsolete equipment unit button');
+
+const unitMigration = fs.readFileSync('src/lib/warehouseUnitMigration.ts', 'utf8');
+assert.match(unitMigration, /runTransaction\(db/, 'Warehouse unit rename must use Firestore transaction');
+assert.match(unitMigration, /MAX_TRANSACTION_DOCUMENTS/, 'Oversized unit migrations must fail closed rather than partially write');
+assert.match(unitMigration, /target\.exists \|\| targetLedgerRows\.length > 0/, 'Equipment unit rename must refuse reusing or merging historic destination balances');
+const warehouseTransactions = fs.readFileSync('src/lib/warehouseTransactions.ts', 'utf8');
+assert.match(warehouseTransactions, /assertCurrentWarehouseUnit\(balanceSnap\.data\(\), item\)/, 'New voucher writes must reject stale catalog units');
+assert.match(warehouseTransactions, /assertCurrentWarehouseUnit\(newBalanceSnap\.data\(\), nextItem\)/, 'Edited voucher writes must reject stale catalog units');
+assert.match(warehouse, /key: 'generalNorm'.*__groupPrimary/, 'Only the grouped primary row may edit the shared general norm');
+assert.match(warehouse, /Nhu cầu vật tư theo định mức.*editable: false/, 'Derived material quota must be read-only in Quick Edit');
+assert.match(warehouse, /syncGroupColumns=\{quickEditMode === 'norms'/, 'Grouped norm rows must synchronize shared edits across child rows');
+assert.match(warehouse, /workCategoryNormsById/, 'Warehouse norm quick edit must persist per-work-category norms in the existing ID map');
+assert.match(warehouse, /inputExpressions/, 'Warehouse must persist quantity and norm expressions instead of flattening them to numbers');
+assert.match(warehouse, /readExcelFormulaByHeaders/, 'Warehouse Excel import must read real cell formulas for round-trip editing');
+assert.match(warehouse, /Không thể đổi ĐVT/, 'Quick norm edit must block unsafe unit changes when warehouse history exists');
+assert.match(warehouse, /Không thể xóa Hạng mục cuối cùng/, 'Quick norm edit must protect the final work-category link');
+assert.match(warehouse, /requiresAnchorForInsert=\{quickEditMode === 'norms'\}/, 'Norm child insertion must require an existing material anchor');
+assert.match(warehouse, /canAddRows=\{quickEditMode === 'norms' \? hasNormManageAccess/, 'Norm quick edit may add child links only under ADMIN material-norm access');
+assert.match(warehouse, /key: 'itemKind'.*label: 'Loại hàng'.*editable: \(row\) => hasImportAccess && Boolean\(row\.__new\).*type: 'select'/, 'Warehouse ledger Quick Edit must expose item kind for new rows while keeping existing transaction kind read-only');
+assert.match(warehouse, /itemKind: item\.itemKind === 'equipment' \? 'equipment' : 'material'/, 'Warehouse Quick Edit rows must preserve existing material-vs-equipment identity');
+assert.match(warehouse, /const resolvedItemKind: InventoryItemKind = existing[\s\S]*row\.itemKind === 'equipment'/, 'Warehouse Quick Edit save must resolve item kind before creating a new ledger transaction');
+assert.match(warehouse, /materialId: resolvedItemKind === 'material'[\s\S]*: undefined/, 'Equipment Quick Edit transactions must never receive a materialId');
+assert.match(warehouse, /normQuantity: item\.itemKind === 'material' \? item\.normQuantity : ''[\s\S]*remainingNeed: item\.itemKind === 'material' \? item\.remainingNeed : ''/, 'Equipment stock rows must leave material norm-demand fields blank');
+assert.match(warehouse, /order-first col-span-2[\s\S]*Tạo phiếu/, 'Warehouse mobile primary Create Voucher action must occupy a full highlighted row');
+assert.match(warehouse, /lg:grid-flow-col[\s\S]*Tạo phiếu[\s\S]*Danh mục kho[\s\S]*triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit/, 'Warehouse PC actions must keep Create Voucher first, then Catalog/Norms, with consolidated data management');
+
+assert.match(volume, /Khối lượng thực hiện/, 'WorkVolume quick table must show actual volume');
+assert.match(volume, /key: 'actual'.*editable: false/, 'Actual volume must be read-only');
+assert.match(volume, /Khu\/Khối tự đồng bộ từ các tầng đã gán/, 'WorkVolume structure scope must derive from floor assignments');
+assert.match(volume, /__recordId không tồn tại trong dự án hiện tại/, 'WorkVolume Excel import must reject stale record IDs');
+assert.match(volume, /__floorId\/__floorIds không tồn tại/, 'WorkVolume Excel import must reject stale floor IDs');
+assert.match(volume, /canDeleteRows=\{hasStructureManageAccess\}/, 'WorkVolume quick edit must allow ADMIN-staged row deletion');
+assert.match(volume, /inputExpressions/, 'WorkVolume must retain planned and unit-price expressions');
+assert.match(volume, /readExcelFormulaByHeaders/, 'WorkVolume Excel import must round-trip real cell formulas');
+assert.match(volume, /\['KL Định Mức', 'Khối lượng định mức', 'Khối lượng kế hoạch', 'planned'\]/, 'WorkVolume Excel import must keep legacy planned-quantity aliases while accepting the new Khối lượng kế hoạch header');
+assert.match(excelExport, /'Khối lượng kế hoạch'/, 'New Excel exports must use Khối lượng kế hoạch');
+assert.match(excelExport, /'Khối lượng thực hiện \(chỉ xem - không nhập lại\)'/, 'New Excel exports must use Khối lượng thực hiện and clearly mark it read-only');
+
+assert.match(dxf, /HATCH/, 'DXF detector must support HATCH');
+assert.match(dxf, /LWPOLYLINE/, 'DXF detector must support closed polylines');
+assert.match(dxf, /MTEXT/, 'DXF detector must support MTEXT');
+assert.match(dxf, /areaM2/, 'DXF detector must calculate metric area');
+assert.match(dxf, /\$EXTMIN/, 'DXF detector must prefer drawing extents for alignment');
+assert.match(dxf, /readHatchBoundaryShapes/, 'DXF detector must parse all HATCH boundary paths, not only the first loop');
+assert.match(dxf, /alignedX/, 'DXF TEXT reader must honor justified alignment point 11\/21');
+assert.match(dxf, /measurement/, 'DXF room-name selection must de-prioritize area/measurement labels');
+
+assert.match(projectManager, /Tạo từ mẫu công trình/, 'Project creation must expose template-based creation');
+assert.match(projectManager, /templateSourceProjectId/, 'Template creation must allow choosing another accessible project as source');
+assert.match(projectManager, /workVolumes: templateCopyOptions\.workVolumes \? templateWorkVolumes : \[\]/, 'Template clone must include work-category catalog when selected');
+assert.match(projectManager, /materialNorms: templateCopyOptions\.materialNorms/, 'Template clone must include material norms without warehouse transactions');
+assert.match(projectManager, /inventory: \[\]/, 'Template clone must never copy warehouse transaction history');
+assert.match(projectManager, /saveProjectSharedSettings\(newProjectId, \{ structure: templateSourceStructure \}\)/, 'Template clone must preserve Khu/Khối structure settings');
+assert.match(volume, /onOpenSourcePicker=\{\(\) => setShowTemplatePicker\(true\)\}/, 'Work Volume must keep the existing cross-project/template picker behind Add Source');
+assert.match(crew, /onOpenSourcePicker=\{\(\) => setShowTeamTemplatePicker\(true\)\}/, 'Team directory must keep the existing cross-project/template picker behind Add Source');
+assert.match(materialNormModal, /onOpenSourcePicker=\{\(\) => setShowNormTemplatePicker\(true\)\}/, 'Material Norms must keep the existing cross-project/template picker behind Add Source');
+assert.match(catalogTemplatePicker, /Lưu giỏ thành mẫu/, 'Cross-project picker must support saving a reusable personal template');
+assert.match(catalogTemplatePicker, /Mẫu đã lưu/, 'Cross-project picker must support loading saved templates');
+assert.match(catalogTemplatePicker, /fetchProjectFromCloud\(sourceProjectId, \{ serverOnly: true \}\)/, 'Cross-project picker must server-verify source project data');
+assert.match(catalogTemplatePicker, /fetchUserCatalogTemplates/, 'Reusable templates must be read from the signed-in user cloud profile');
+
+console.log('Quick Edit + Excel + DXF Golden: PASS');
+
+assert.match(volume, /grid w-full grid-cols-\[minmax\(0,1fr\)_auto\][\s\S]*<AddSourceMenu[\s\S]*triggerLabel="Thêm hạng mục"[\s\S]*triggerLabel="Quản lý dữ liệu"/, 'Work Volume mobile Add Source and compact Data Management must share one action row');
+assert.match(volume, /sm:grid-flow-col[\s\S]*<AddSourceMenu[\s\S]*triggerLabel="Thêm hạng mục"[\s\S]*triggerLabel="Quản lý dữ liệu"[\s\S]*onQuickEdit/, 'Work Volume PC actions must use shared Add Source plus consolidated Data Management');
+
+// HNL shared-grid P1: desktop keyboard/pointer, mobile long-press, and Warehouse Order tabs.
+const warehouseOrderSource = fs.readFileSync('src/components/WarehouseOrderSheet.tsx', 'utf8');
+const warehouseOrderSync = fs.readFileSync('src/hooks/useWarehouseOrderSync.ts', 'utf8');
+assert.match(quick, /ArrowUp: \[-1, 0\], ArrowDown: \[1, 0\], ArrowLeft: \[0, -1\], ArrowRight: \[0, 1\]/,
+  'Arrow navigation stays in the visible rectangular grid');
+assert.match(quick, /event\.key === 'F2'/, 'F2/double-click must enter editing explicitly');
+assert.match(quick, /onDoubleClick=\{\(\) => beginEdit/, 'Double-click must edit the chosen cell');
+assert.match(quick, /data-quick-grid-cell="true"/, 'Cells expose stable identity for drag selection');
+assert.match(quick, /setPointerCapture\(event\.pointerId\)/, 'Desktop drag captures the pointer');
+assert.match(quick, /onPointerMove=\{handleMouseDragMove\}/, 'Desktop drag expands range');
+assert.match(quick, /addEventListener\('touchmove', listener, \{ passive: false \}\)/,
+  'Mobile long-press uses cancelable touch drag without disabling normal scrolling');
+assert.match(quick, /onTouchStart=\{beginTouchSelection\}/, 'Mobile long press starts at touched cell');
+assert.match(quick, /new Set\(visibleGridRef\.current\.rows\.flatMap/, 'Ctrl+A selects only the visible table, never the toolbar');
+assert.match(quick, /bg-indigo-100/, 'Selected range has a clear highlight');
+assert.match(quick, /ring-2 ring-inset ring-indigo-500/, 'Selected cells keep the visible selection border');
+assert.match(warehouse, /key: 'order-material', label: 'Đặt hàng vật tư'/, 'Material order appears in shared Quick Edit');
+assert.match(warehouse, /key: 'order-equipment', label: 'Đặt hàng thiết bị'/, 'Equipment order appears in shared Quick Edit');
+assert.match(warehouse, /orderSync\.setValue\(update\.key, 'quantity'/, 'Quick Edit order changes must use original Cloud queue');
+assert.match(warehouse, /orderSync\.setValue\(update\.key, 'kgPerUnit'/, 'Order weight uses original Cloud queue');
+assert.match(warehouse, /Dữ liệu đặt hàng đã đồng bộ thay đổi trên thiết bị khác/, 'Order saves must reject stale Cloud rows');
+assert.match(warehouse, /editable: false, width: 240/, 'Order identity remains read-only');
+assert.match(warehouseOrderSource, /data-hnl-warehouse-order="cloud-synced-with-local-backup"/, 'Original order sheet remains available');
+assert.match(warehouseOrderSync, /conflictsRef\.current\.add\(key\)/, 'Cloud sync revision conflict protections stay in place');

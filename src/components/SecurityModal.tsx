@@ -292,7 +292,10 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setPinConfig(getStoredPinLockConfig());
-      setRoleState(getCurrentUserRole());
+      const openingUser = getCurrentFirebaseUser();
+      const openingRole = isSuperAdminEmail(openingUser?.email) ? 'ADMIN' : getCurrentUserRole();
+      setRoleState(openingRole);
+      if (openingRole === 'ADMIN') setCurrentUserRole('ADMIN');
       setAuditLogs([]);
       setAuditRangeMode('today');
       setAuditSelectedDate(toLocalDateInputValue(new Date()));
@@ -764,7 +767,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
     if (!u) {
       u = await signInWithGoogle();
       if (!u) {
-        throw new Error('Can dang nhap Google bang tai khoan ADMIN/Owner de dong bo phan quyen Cloud.');
+        throw new Error('Cần đăng nhập Google bằng tài khoản ADMIN/chủ sở hữu để đồng bộ phân quyền Cloud.');
       }
       setCloudUser(u);
     }
@@ -777,13 +780,13 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
     const claimResult = await claimProjectOwnership(projectId, u, getSelectedProjectName(projectId));
     if (!claimResult.success) {
-      throw new Error(claimResult.message || 'Tai khoan hien tai khong co quyen ADMIN tren Cloud cho du an nay.');
+      throw new Error(claimResult.message || 'Tài khoản hiện tại không có quyền ADMIN trên Cloud của dự án này.');
     }
 
     const refreshedInfo = await fetchProjectUserRoleFromCloud(projectId, u);
     setCloudRoleInfo(refreshedInfo);
     if (!refreshedInfo.allowed || refreshedInfo.role !== 'ADMIN') {
-      throw new Error('Da khoi phuc owner nhung chua xac nhan duoc quyen ADMIN Cloud. Hay thu dong bo lai.');
+      throw new Error('Đã khôi phục chủ sở hữu nhưng chưa xác nhận được quyền ADMIN trên Cloud. Hãy thử đồng bộ lại.');
     }
 
     return u;
@@ -797,11 +800,11 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
     const pidAtSubmit = selectedPid;
     const email = newMemberEmail.trim().toLowerCase();
     if (!email) {
-      setMemberMsg({ type: 'error', text: 'Vui long nhap email thanh vien.' });
+      setMemberMsg({ type: 'error', text: 'Vui lòng nhập email thành viên.' });
       return;
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setMemberMsg({ type: 'error', text: 'Email thanh vien khong hop le.' });
+      setMemberMsg({ type: 'error', text: 'Email thành viên không hợp lệ.' });
       return;
     }
 
@@ -832,7 +835,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       if (selectedPidRef.current === pidAtSubmit) {
         setProjectMembers((await fetchProjectMembersFromCloud(pidAtSubmit)).filter((m: any) => m?.email && m?.active !== false));
         setNewMemberEmail('');
-        setMemberMsg({ type: 'success', text: `Da luu quyen ${newMemberRole} cho ${email}.` });
+        setMemberMsg({ type: 'success', text: `Đã lưu quyền ${newMemberRole} cho ${email}.` });
         await refreshCloudStatus(pidAtSubmit);
       }
       const roleDescription = `${existingMember ? 'Đổi' : 'Gán'} quyền ${newMemberRole} cho ${email}`;
@@ -849,7 +852,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       if (selectedPidRef.current === pidAtSubmit) {
         setMemberMsg({
           type: 'error',
-          text: `Chua thay doi quyen tren Cloud: ${err?.message || err}`
+          text: `Chưa thay đổi quyền trên Cloud: ${err?.message || err}`
         });
       }
     } finally {
@@ -865,7 +868,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
     const existingMembers = (await fetchProjectMembersFromCloud(pidAtSubmit)).filter((m: any) => m?.email && m?.active !== false);
     const targetMember = existingMembers.find((m: any) => String(m.email).toLowerCase() === email.toLowerCase());
     if (targetMember?.role === 'ADMIN' && countAdmins(existingMembers) <= 1) {
-      setMemberMsg({ type: 'error', text: 'Khong the xoa ADMIN cuoi cung cua du an. Hay them/chuyen mot ADMIN khac truoc.' });
+      setMemberMsg({ type: 'error', text: 'Không thể xóa ADMIN cuối cùng của dự án. Hãy thêm hoặc chuyển một ADMIN khác trước.' });
       return;
     }
 
@@ -881,7 +884,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
         if (selectedPidRef.current === pidAtSubmit) {
           setProjectMembers((await fetchProjectMembersFromCloud(pidAtSubmit)).filter((m: any) => m?.email && m?.active !== false));
-          setMemberMsg({ type: 'success', text: `Da xoa quyen cua ${email}.` });
+          setMemberMsg({ type: 'success', text: `Đã xóa quyền của ${email}.` });
           await refreshCloudStatus(pidAtSubmit);
         }
         const revokeDescription = `Thu hồi quyền truy cập của ${email}`;
@@ -898,7 +901,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
         if (selectedPidRef.current === pidAtSubmit) {
           setMemberMsg({
             type: 'error',
-            text: `Chua thu hoi quyen tren Cloud: ${err?.message || err}`
+            text: `Chưa thu hồi quyền trên Cloud: ${err?.message || err}`
           });
         }
       } finally {
@@ -980,7 +983,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
     if (!isCompanySuperAdmin) return;
     const ok = await confirmAsync(`Reset PIN từ xa cho ${email}?
 
-PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nhập Google lại trước khi tiếp tục.`);
+PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng sẽ phải đăng nhập Google lại trước khi tiếp tục.`);
     if (!ok) return;
     setMemberMsg(null);
     try {
@@ -1041,8 +1044,19 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
     if (!entry) return 0;
     const rawLastSeen = entry.lastSeen as any;
     const serverSeen = Number(rawLastSeen?.toMillis?.() || (Number(rawLastSeen?.seconds || 0) * 1000) || 0);
-    return Math.max(serverSeen, Number(entry.clientLastSeen || 0), Number(entry.updatedAt || 0));
+    // Client clocks can run ahead. Prefer Firestore serverTimestamp and never
+    // classify a future clock as online. Older records get a bounded fallback.
+    const fallback = Math.max(Number(entry.clientLastSeen || 0), Number(entry.updatedAt || 0));
+    const seen = serverSeen > 0 ? serverSeen : fallback;
+    return Number.isFinite(seen) && seen > 0 && seen <= presenceNow + 60_000 ? seen : 0;
   };
+  const presenceIsActive = (entry?: ProjectPresenceEntry) => {
+    const seen = presenceLastSeenMs(entry);
+    return Boolean(entry?.serverSnapshotVerified && seen > 0 && seen <= presenceNow && presenceNow - seen <= 120_000);
+  };
+  const presenceExactTime = (seen: number) => new Date(seen).toLocaleString('vi-VN', {
+    hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric', hour12: false,
+  });
   const presenceModuleLabel = (module?: string) => {
     const map: Record<string, string> = {
       warehouse: 'Kho vật tư',
@@ -1072,28 +1086,30 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
   const projectMemberEmails = new Set(projectMembers.map((member) => String(member?.email || '').trim().toLowerCase()).filter(Boolean));
   const activePresenceCount = projectPresence.filter((entry) => {
     const email = String(entry?.email || '').trim().toLowerCase();
-    const seen = presenceLastSeenMs(entry);
-    return projectMemberEmails.has(email) && seen > 0 && presenceNow - seen <= 120_000;
+    return projectMemberEmails.has(email) && presenceIsActive(entry);
   }).length;
+  // Zalo-style relative label is only presentation: Cloud-confirmed presence
+  // and the 120-second activity window remain the authoritative online signal.
   const presenceRecencyLabel = (entry?: ProjectPresenceEntry) => {
     const seen = presenceLastSeenMs(entry);
-    if (!seen) return 'Chưa ghi nhận hoạt động';
-    const age = Math.max(0, presenceNow - seen);
-    if (age <= 120_000) return 'Đang hoạt động';
-    const minutes = Math.max(1, Math.floor(age / 60_000));
-    if (minutes < 60) return `${minutes} phút trước`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours} giờ trước`;
-
-    const today = new Date(presenceNow);
-    today.setHours(0, 0, 0, 0);
-    const seenDay = new Date(seen);
-    seenDay.setHours(0, 0, 0, 0);
-    const calendarDays = Math.max(1, Math.round((today.getTime() - seenDay.getTime()) / 86_400_000));
-    const timeLabel = new Date(seen).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-    if (calendarDays === 1) return `Hôm qua · ${timeLabel}`;
-    if (calendarDays < 7) return `${calendarDays} ngày trước · ${formatDateTime(seen)}`;
-    return `Lần cuối ${formatDateTime(seen)}`;
+    if (!seen) return 'Chưa ghi nhận truy cập';
+    if (presenceIsActive(entry)) return 'Đang truy cập';
+    if (seen > presenceNow) return 'Đang xác minh thời gian truy cập';
+    const elapsed = Math.max(0, presenceNow - seen);
+    if (elapsed < 5 * 60_000) return 'Vừa truy cập';
+    if (elapsed < 60 * 60_000) return `Truy cập ${Math.max(1, Math.floor(elapsed / 60_000))} phút trước`;
+    // Check calendar day before the hour bucket: yesterday at 23:00 should
+    // still be "Truy cập hôm qua" if the user opens this at 07:00.
+    // Use local calendar days, not elapsed 24h buckets (DST-safe).
+    const nowDate = new Date(presenceNow);
+    const lastDate = new Date(seen);
+    const nowDay = Date.UTC(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate());
+    const lastDay = Date.UTC(lastDate.getFullYear(), lastDate.getMonth(), lastDate.getDate());
+    const days = Math.max(0, Math.round((nowDay - lastDay) / 86_400_000));
+    if (days === 1) return `Truy cập hôm qua lúc ${lastDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
+    if (days === 0 && elapsed < 24 * 60 * 60_000) return `Truy cập ${Math.floor(elapsed / 3_600_000)} giờ trước`;
+    if (days < 7) return `Truy cập ${days} ngày trước`;
+    return 'Truy cập lần cuối';
   };
 
   const auditModuleLabels: Record<string, string> = {
@@ -1385,7 +1401,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/65 backdrop-blur-xs z-[200] flex items-center justify-center p-3 md:p-4 animate-in fade-in duration-200">
+    <div data-hnl-pc-v3-center="security-center" data-hnl-pc-module="security-center" className="fixed inset-0 bg-slate-900/65 backdrop-blur-xs z-[200] flex items-center justify-center p-3 md:p-4 animate-in fade-in duration-200">
       <div className="bg-white w-full max-w-lg rounded-2xl p-4 md:p-6 shadow-2xl relative border border-slate-100 flex flex-col max-h-[92vh] overflow-hidden">
         
         {/* Header */}
@@ -1440,6 +1456,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                 type="button"
                 disabled={isAccountBusy}
                 onClick={() => void handleAccountSignIn()}
+                data-hnl-primary-action="security-sign-in"
                 className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-600 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50"
               >
                 <LogIn className="h-3.5 w-3.5" /> {isAccountBusy ? 'Đang đăng nhập...' : 'Đăng nhập'}
@@ -1454,7 +1471,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
         </div>
 
         {/* Tabs */}
-        <div className={`grid ${canReadAudit ? 'grid-cols-3' : 'grid-cols-2'} gap-1 p-1 bg-slate-100 rounded-xl mt-2.5 shrink-0`}>
+        <div data-hnl-security-primary-tabs="true" className={`grid ${canReadAudit ? 'grid-cols-3' : 'grid-cols-2'} gap-1 p-1 bg-slate-100 rounded-xl mt-2.5 shrink-0`}>
           <button
             type="button"
             onClick={() => setActiveTab('pin')}
@@ -1465,7 +1482,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
             }`}
           >
             <Lock className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Khóa Mã PIN</span>
+            <span className="truncate">Khóa PIN</span>
           </button>
 
           <button
@@ -1478,7 +1495,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
             }`}
           >
             <Users className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Phân Quyền</span>
+            <span className="truncate">Phân quyền</span>
           </button>
 
           {canReadAudit && (
@@ -1666,7 +1683,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                     <span>Cài Đặt Tự Động Khóa</span>
                   </h4>
 
-                  <div className="grid grid-cols-4 gap-1.5">
+                  <div data-hnl-security-auto-lock-tabs="true" className="grid grid-cols-4 gap-1.5">
                     {[
                       { label: '1 phút', val: 1 },
                       { label: '5 phút', val: 5 },
@@ -1844,7 +1861,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                   )}
 
                   {!cloudUser && (
-                    <div className="pt-2">
+                    <div data-hnl-security-sign-in-wrap="true" className="pt-2">
                       <button
                         type="button"
                         onClick={async () => {
@@ -1944,7 +1961,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                       EDITOR (Kỹ sư)
                     </div>
                     <p className="text-slate-500 leading-relaxed">
-                      Cập nhật tiến độ phòng, khối lượng, defect, chấm công, ảnh hiện trường. Không xem đơn giá và không thể xóa/quản lý dự án.
+                      Cập nhật tiến độ Căn / Phòng, khối lượng, Defect, quân số/nhật ký thi công và ảnh hiện trường. Không xem đơn giá và không thể xóa/quản lý dự án.
                     </p>
                   </div>
                   <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-1">
@@ -1953,7 +1970,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                       VIEWER (Chỉ xem)
                     </div>
                     <p className="text-slate-500 leading-relaxed">
-                      Chế độ chỉ đọc: Xem tiến độ, mặt bằng, khuyết tật, ảnh đính kèm và báo cáo. Bị khóa mọi thao tác sửa đổi dữ liệu.
+                      Chế độ chỉ đọc: Xem tiến độ, mặt bằng, Defect, ảnh đính kèm và báo cáo. Bị khóa mọi thao tác sửa đổi dữ liệu.
                     </p>
                   </div>
                 </div>
@@ -2077,7 +2094,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                 <div className="flex items-center gap-1.5 rounded-lg border border-emerald-100 bg-emerald-50/60 px-2.5 py-1.5 text-[10px] font-bold text-emerald-800">
                   <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
                   Đang hoạt động: {activePresenceCount}/{projectMembers.length}
-                  <span className="font-medium text-emerald-700">· cập nhật khoảng 45 giây/lần</span>
+                  <span className="font-medium text-emerald-700">· trạng thái gần đúng trong 2 phút · cập nhật ~45 giây/lần</span>
                 </div>
 
                 <div className="space-y-1 pt-1 max-h-48 overflow-y-auto">
@@ -2091,7 +2108,11 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                       const contact = getEffectiveMemberContact(email);
                       const phoneValue = contactDrafts[email] ?? contact?.phone ?? '';
                       const presence = presenceByEmail.get(email);
-                      const presenceActive = Boolean(presence && presenceNow - presenceLastSeenMs(presence) <= 120_000);
+                      const presenceActive = presenceIsActive(presence);
+                      const openPhoneEditor = () => {
+                        setContactDrafts((prev) => ({ ...prev, [email]: contact?.phone || '' }));
+                        setEditingContactEmail(email);
+                      };
                       return (
                       <div
                         key={m.email}
@@ -2108,6 +2129,14 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                                 <span>{presenceRecencyLabel(presence)}</span>
                                 {presence && <span>· {presenceModuleLabel(presence.module)} · {presenceClientLabel(presence)}</span>}
                               </div>
+                              {presence && presenceLastSeenMs(presence) > 0 && (
+                                <div className="mt-0.5 text-[9.5px] text-slate-500">
+                                  Lần cuối hoạt động: {presenceExactTime(presenceLastSeenMs(presence))}
+                                </div>
+                              )}
+                              {presence && Number.isFinite(Number(presence.lastLoginAt)) && Number(presence.lastLoginAt) > 0 && Number(presence.lastLoginAt) <= presenceNow && (
+                                <div className="mt-0.5 text-[9.5px] text-slate-500">Đăng nhập Firebase gần nhất: {presenceExactTime(Number(presence.lastLoginAt))}</div>
+                              )}
                             </div>
                             <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase ${
                               m.role === 'ADMIN'
@@ -2120,12 +2149,22 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                             </span>
                           </div>
                           <div className="flex items-center gap-1 shrink-0">
+                            {canManageProjectMembers && editingContactEmail !== email && (
+                              <button
+                                type="button"
+                                data-hnl-security-contact-phone-inline="true"
+                                onClick={openPhoneEditor}
+                                className="hidden px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-[10px] font-extrabold hover:bg-slate-50 whitespace-nowrap"
+                              >
+                                {contact?.phone ? 'Sửa số điện thoại' : 'Thêm số điện thoại'}
+                              </button>
+                            )}
                             {canReadMemberContacts && <ContactMenu
                               target={{ name: m.displayName || m.email, phone: contact?.phone }}
                               context={{ type: 'member', projectId: selectedPid, entityId: email }}
                               triggerLabel={contact?.phone ? 'Liên hệ' : 'Chia sẻ'}
                             />}
-                            {isCompanySuperAdmin && <button type="button" onClick={() => void handleRemotePinReset(m.email)} className="px-2 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 text-[9px] font-extrabold whitespace-nowrap" title="Vô hiệu hóa PIN local của user khi thiết bị online">Reset PIN</button>}
+                            {isCompanySuperAdmin && <button type="button" onClick={() => void handleRemotePinReset(m.email)} className="px-2 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 text-[9px] font-extrabold whitespace-nowrap" title="Vô hiệu hóa PIN cục bộ của người dùng khi thiết bị trực tuyến">Reset PIN</button>}
                             {canManageProjectMembers && <button
                               type="button"
                               onClick={() => handleRemoveMemberSafe(m.email)}
@@ -2151,10 +2190,8 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                           ) : (
                             <button
                               type="button"
-                              onClick={() => {
-                                setContactDrafts((prev) => ({ ...prev, [email]: contact?.phone || '' }));
-                                setEditingContactEmail(email);
-                              }}
+                              onClick={openPhoneEditor}
+                              data-hnl-security-contact-phone-action="true"
                               className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-[10px] font-extrabold hover:bg-slate-50"
                             >
                               {contact?.phone ? 'Sửa số điện thoại' : 'Thêm số điện thoại'}
@@ -2417,6 +2454,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
 
               {auditHasMore && !auditLoading && (
                 <button
+                  data-hnl-security-load-audit="true"
                   type="button"
                   onClick={() => void handleLoadMoreAudit()}
                   disabled={auditLoadingMore}

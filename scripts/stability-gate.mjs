@@ -20,6 +20,7 @@ const mergeWorkflow = read('.github/workflows/firebase-hosting-merge.yml');
 const prWorkflow = read('.github/workflows/firebase-hosting-pull-request.yml');
 const buildWorkflow = read('.github/workflows/build.yml');
 const firebaseJson = read('firebase.json');
+const firebaseProdJson = read('firebase.prod.json');
 const firebase = read('src/lib/firebase.ts');
 const firebaseBase = read('src/lib/firebaseBase.ts');
 const securityModal = read('src/components/SecurityModal.tsx');
@@ -30,12 +31,17 @@ const storageRules = read('storage.rules');
 const sw = read('public/sw.js');
 const swRegistration = read('src/serviceWorkerRegistration.ts');
 const devRuntimeWorkflow = read('.github/workflows/dev-runtime-golden.yml');
+const devDeployWorkflow = read('.github/workflows/firebase-dev-environment.yml');
 const hostedBrowserGolden = read('scripts/dev-hosted-browser-golden.mjs');
 const cloudBinaryPurge = read('src/lib/cloudBinaryPurge.ts');
 const photoSync = read('src/lib/photoCloudSync.ts');
 const photoStorage = read('src/utils/photoStorage.ts');
 const photoPicker = read('src/components/PhotoAttachmentPicker.tsx');
 const androidMain = read('android-wrapper/src/com/qlct/app/MainActivity.java');
+const androidStyles = read('android-wrapper/res/values/styles.xml');
+const androidStyles31 = read('android-wrapper/res/values-v31/styles.xml');
+const indexCss = read('src/index.css');
+const mainTsx = read('src/main.tsx');
 const desktopBuild = read('desktop-wrapper/build-launcher.ps1');
 const androidBuild = read('android-wrapper/build-apk.ps1');
 const imageCompressor = read('src/utils/imageCompressor.ts');
@@ -52,6 +58,7 @@ const security = read('src/utils/securityUtils.ts');
 const offlineAccess = read('src/utils/offlineAccess.ts');
 const diagnostics = read('src/lib/runtimeDiagnostics.ts');
 const authHeader = read('src/components/GoogleAuthHeader.tsx');
+const contextBackButton = read('src/components/ContextBackButton.tsx');
 const floorPlanDefect = read('src/components/FloorPlanDefectTab.tsx');
 const defectContactUtils = read('src/utils/defectContactUtils.ts');
 const crewTabBase = read('src/components/CrewTabBase.tsx');
@@ -61,6 +68,12 @@ const shareUtils = read('src/utils/shareUtils.ts');
 const fileExport = read('src/utils/fileExport.ts');
 const configTab = read('src/components/GoogleConfigTab.tsx');
 const bottomNav = read('src/components/BottomNav.tsx');
+const actionMenuButton = read('src/components/ActionMenuButton.tsx');
+const addSourceMenu = read('src/components/AddSourceMenu.tsx');
+const dataManagementMenu = read('src/components/DataManagementMenu.tsx');
+const quickSortBar = read('src/components/QuickSortBar.tsx');
+const checklistTab = read('src/components/ChecklistTab.tsx');
+const offlineSyncBanner = read('src/components/OfflineSyncBanner.tsx');
 const healthCenterPanelBase = read('src/healthCenter/HealthCenterPanelBase.tsx');
 const runtimeDiagnostics = read('src/lib/runtimeDiagnostics.ts');
 const roomHighlight = read('src/components/RoomHighlightModal.tsx');
@@ -102,8 +115,8 @@ requireAll(securityModal, [
   'auditActionSentence',
   'auditReadableChange',
   'ID thiết bị',
-  'Hôm qua ·',
-  'Lần cuối ',
+  'Truy cập hôm qua lúc',
+  'Lần cuối hoạt động:',
   "logAuditAction('ROLE_CHANGE', roleDescription);",
   "if (!isOpen || !selectedPid)",
   "if (!isOpen || !selectedPid || !canReadMemberContacts)",
@@ -152,7 +165,7 @@ requireAll(firebase, ['queueProjectDiffsToFirestoreOffline', 'writeBatch(db)', '
 requireAll(app, ['canQueueOfflineFirestoreWrite', 'queueProjectDiffsToFirestoreOffline', 'Promise.allSettled(queued.commitPromises)', 'firestorePendingWriteCount'], 'App durable offline autosave');
 if (!app.includes('if (FIREBASE_ONLY_RUNTIME) return;') || !app.includes('Legacy data is migration input only')) fail('automatic legacy editor recovery is still active in Firebase-only runtime');
 const offlineBanner = read('src/components/OfflineSyncBanner.tsx');
-if (!offlineBanner.includes('hàng chờ Firestore bền vững') || offlineBanner.includes('construction_offline_pending')) fail('offline UI still depends on custom localStorage pending counter');
+if (!offlineBanner.includes('chờ Firestore') || offlineBanner.includes('construction_offline_pending')) fail('offline UI must surface Firestore pending writes without custom localStorage pending counters');
 pass('offline mutation durability uses Firestore SDK pending writes, not React/localStorage-only state');
 
 if (!exists('storage.rules') || !firebaseJson.includes('"storage"') || !firebaseJson.includes('"rules": "storage.rules"')) fail('Firebase Storage fallback rules are not retained in firebase.json');
@@ -225,11 +238,11 @@ requireAll(imageCompressor, [
 requireAll(photoSync, ['lastErrorPhotoId', 'photoSyncErrorCode', "area: 'photo-sync'", 'ảnh đang chờ Cloud/R2', 'isPhotoSharedCloudReady(photo)'], 'photo outbox exposes exact R2 failure and preserves pending status through realtime hydration');
 requireAll(photoStorage, ['getProjectPhotoDiagnosticSnapshot', 'localBinaryCount', 'checksumPrefix', 'belongsToCurrentUploader'], 'photo diagnostics export contains metadata/outbox evidence without binary payload');
 requireAll(app, ['qlct-defect-navigation-request', "area: 'defect-navigation'", "code: 'REQUEST'"], 'Defect notification navigation dispatches same-tab event plus storage fallback');
-requireAll(floorPlanDefect, ['qlct-defect-navigation-request', "code: 'OPEN_TARGET'", 'requestedFloor=', 'pendingCount', "getEntityPhotos(projectId, 'defect', defect.id)", 'activeDefectRoomName', '🏠 Căn/Phòng:'], 'Defect view consumes deep-link, shows linked room and opens defect-wide photo gallery with Cloud pending state');
+requireAll(floorPlanDefect, ['qlct-defect-navigation-request', "code: 'OPEN_TARGET'", 'requestedFloor=', 'pendingCount', "getEntityPhotos(projectId, 'defect', defect.id)", 'activeDefectRoomName', '🏠 Căn / Phòng:'], 'Defect view consumes deep-link, shows linked room and opens defect-wide photo gallery with Cloud pending state');
 if (floorPlanDefect.includes('⚡ Chọn Nhanh Bằng 1 Click:') || floorPlanDefect.includes('✅ Đội Defect đang chọn:') || floorPlanDefect.includes('🏢 Đội trên mặt bằng tầng:') || floorPlanDefect.includes('📋 Đội đã khai báo:')) fail('Defect team selector still renders duplicate quick-pick blocks below the canonical selector');
 requireAll(floorPlanDefect, ['buildDefectShareText(defect, defectRoomName)', 'buildDefectShareText(activeDefectDetail, activeDefectRoomName)'], 'Defect share resolves linked room name in list and detail flows');
 requireAll(defectContactUtils, ['buildDefectShareText(defect: DefectItem, roomName =', 'Căn/Phòng:'], 'Defect share text includes resolved Căn/Phòng name');
-requireAll(crewTabBase, ['openRoomOnFloorPlan', 'openDefectOnFloorPlan', 'qlct_diagnostic_navigation_request', 'qlct_pending_defect_navigation', 'Mở Defect trên mặt bằng', 'Căn/Phòng:'], 'Team statistics can drill down from room/defect summaries to the exact floor-plan entity');
+requireAll(crewTabBase, ['openRoomOnFloorPlan', 'openDefectOnFloorPlan', 'qlct_diagnostic_navigation_request', 'qlct_pending_defect_navigation', 'Mở Defect trên mặt bằng', 'Căn / Phòng:'], 'Team statistics can drill down from room/defect summaries to the exact floor-plan entity');
 requireAll(crewTabBase, [
   "'__teamId': item.id",
   "'Tên Đội Thi Công': item.name",
@@ -240,15 +253,19 @@ requireAll(crewTabBase, [
 ], 'Team Excel export/import keeps visible team names separate from hidden technical teamId');
 requireAll(floorPlanDefect, ['tryHandleDefectPlacementEvent', 'relocatingDefectId', '<span>Di chuyển ghim</span>', 'const placement = getCandidateTeamsForDefect(', 'const roomAtPoint = placement.roomAtPos;', 'placement.roomAtPosTeam || defect.assignedTo', '...linkage'], 'Defect pin placement wins over room highlight hit-testing and explicit relocation recomputes durable linkage');
 requireAll(imageViewer, ['swipeStartRef', 'Math.abs(dx) < 48', 'handleNext()', 'handlePrev()'], 'image viewer supports one-finger horizontal gallery swipe while preserving pinch zoom');
-requireAll(chatTab, ['ensureDraftAttachmentsCloudReady', 'verifyPhotoBinaryReadyInCloud', 'Ảnh đang chờ Cloud/R2', 'ImageViewerModal', 'openMessageImageGallery'], 'chat shows Cloud state, blocks message publication until photo is durable, and opens multi-image gallery');
+requireAll(chatTab, ['ensureDraftAttachmentsCloudReady', 'verifyPhotoBinaryReadyInCloud', 'Ảnh đang chờ đồng bộ Cloud/R2', 'ImageViewerModal', 'openMessageImageGallery'], 'chat shows Cloud state, blocks message publication until photo is durable, and opens multi-image gallery');
 requireAll(imageViewer, ['Tải xuống', 'Chia sẻ', 'handleDownload', 'handleShare', 'saveBlobToDownloads', 'sharePreparedContent', 'allowTextFallback: false'], 'opened image viewer exposes download/share actions without cluttering thumbnails');
 requireAll(fileExport, ['saveBlobToDownloads', 'finishBase64File(sessionId)', 'Download/QLTC'], 'viewer image download uses direct Android Download/QLTC path and browser download fallback');
 requireAll(shareUtils, ['allowTextFallback?: boolean', 'params.allowTextFallback === false'], 'image-only share can fail closed instead of silently sharing text without the photo');
-requireAll(configTab, ['HNL Health Center', 'Trạng thái hệ thống & đồng bộ', 'getProjectPhotoDiagnosticSnapshot', 'clearRuntimeDiagnostics', 'getSystemDiagnostics={() => buildFullDiagnosticBundle()}'], 'system diagnostics stay inside unified Health Center and feed the combined export bundle');
-requireAll(healthCenterPanelBase, ['Xuất &amp; chia sẻ chẩn đoán', 'Xuất JSON', 'Xuất Excel', 'Copy chẩn đoán', 'Xóa log chẩn đoán cũ', 'Xử lý hạng mục'], 'Health Center keeps one compact combined export area at the bottom');
+requireAll(configTab, ['<Settings className="w-5 h-5 text-blue-600" />', "{t('config_title')}"], 'Settings screen title uses the standard gear icon and HNL blue accent');
+if (configTab.includes('<Building2 className="w-5 h-5')) fail('Settings screen title must not use a project/building icon');
+
+requireAll(configTab, ['Trung tâm kiểm tra dữ liệu (Health Center)', 'Trạng thái hệ thống & đồng bộ', 'getProjectPhotoDiagnosticSnapshot', 'clearRuntimeDiagnostics', 'getSystemDiagnostics={() => buildFullDiagnosticBundle()}'], 'system diagnostics stay inside unified Health Center and feed the combined export bundle');
+requireAll(healthCenterPanelBase, ['Xuất &amp; chia sẻ chẩn đoán', 'data-hnl-health-export-format="text"', 'data-hnl-health-export-format="json"', 'data-hnl-health-export-format="excel"', 'aria-label="Sao chép chẩn đoán"', 'aria-label="Xuất JSON"', 'aria-label="Xuất Excel"', 'Xóa nhật ký chẩn đoán cũ', 'Xử lý hạng mục'], 'Health Center keeps one compact combined export area at the bottom');
+requireAll(healthCenterPanelBase, ['bg-slate-800 px-1.5', 'bg-violet-600 px-1.5', 'bg-green-600 px-1.5', 'grid grid-cols-3 gap-2', "copyCombinedDiagnostics()", "exportReport('json')", "exportReport('excel')"], 'Diagnostic Content/JSON/Excel preserve actions with slate/violet/green palette in one responsive row');
 if (['Audit PDF', 'Chẩn đoán hệ thống JSON', 'onExportSystemDiagnostics', 'onCopySystemDiagnostics'].some((marker) => healthCenterPanelBase.includes(marker))) fail('Health Center duplicate/PDF export controls must stay removed');
 requireAll(fileExport, ['saveTextFileToDownloads', "'downloads'", 'finishTextFile'], 'Android diagnostics direct Download/QLTC export avoids zero-byte picker provider');
-requireAll(bottomNav, ["{t('config')}", "setActiveTab('config')"], 'More menu keeps original Cấu hình entry; Health Center lives inside Config');
+requireAll(bottomNav, ["{t('config')}", "activate('config')"], 'More menu keeps original Cấu hình entry through the responsive navigation helper; Health Center lives inside Config');
 requireAll(roomHighlight, ['Hạng mục mồ côi cần xử lý', 'Gán lại hạng mục', 'projectWorkCategoryTitles', '⚠️ Đã xóa: {catName} — chọn hạng mục mới', 'focusOrphanRepair'], 'room editor exposes deterministic orphan repair and excludes deleted categories from normal dropdown');
 requireAll(runtimeDiagnostics, ['MAX_ENTRIES = 200', 'clearRuntimeDiagnostics', 'redacted-api-key', 'Bearer [redacted]'], 'runtime diagnostics retains useful history and redacts secrets');
 pass('photo gallery no longer clears synced metadata on initial auth emission; camera input waits for non-empty MediaStore bytes');
@@ -259,6 +276,35 @@ requireAll(androidMain, [
   'copyGalleryUriToStableCache',
   'PickerCacheProvider.AUTHORITY',
 ], 'Android gallery materializes OEM/Google Photos content into app-owned cache');
+requireAll(androidMain, [
+  'createStartupSplashView',
+  'HNL Quản Lý Thi Công',
+  'Đang khởi tạo ứng dụng…',
+  'webView.setVisibility(View.INVISIBLE)',
+  'new AndroidStartupBridge()',
+  'public void markReady()',
+  'showStartupContent()',
+  'startupSplashHandler.postDelayed(startupSplashFailsafe, 15000L)',
+  'R.drawable.hnl_splash_logo',
+], 'Android cold start keeps native HNL splash until the rendered Web UI is ready');
+if (androidMain.includes('if (allowFallback) showStartupContent();')) fail('Android page commit/finish callbacks must not reveal WebView before React paint');
+requireAll(androidStyles, ['android:windowBackground', 'android:colorBackground', '@color/hnl_startup_background'], 'Android legacy launch preview uses branded startup background');
+requireAll(androidStyles31, ['android:windowSplashScreenBackground', 'android:colorBackground', '@color/hnl_startup_background', '@drawable/hnl_system_splash_logo'], 'Android 12+ launch preview and system splash share branded startup background with a size-matched system icon');
+requireAll(androidBuild, ['hnl_system_splash_logo.png', 'SystemLogo = 104', 'SystemLogo = 416'], 'Android system splash uses separate safe-area padding from native splash');
+if (!indexCss.includes('html[data-hnl-theme="dark"] .text-slate-950')) fail('Dark theme must remap text-slate-950 so Home title/KPI values remain readable');
+requireAll(indexCss, ['--hnl-primary: #2563eb', '--hnl-primary-hover: #1d4ed8', '--hnl-primary-soft: #eff6ff'], 'HNL UI primary palette is standardized on blue');
+requireAll(bottomNav, ['text-[10px]', 'const overflowNavItemClass', 'const overflowNavIconClass', "overflowNavItemClass('checklist')", "overflowNavItemClass('ai')", "overflowNavItemClass('chat', true)"], 'Mobile bottom navigation keeps readable labels and uses the shared HNL blue active / slate inactive hierarchy');
+requireAll(authHeader, ['w-9 h-9 sm:w-10 sm:h-10', 'bg-slate-800 hover:bg-slate-700 text-slate-100', 'border border-slate-700'], 'Mobile header Project/Report buttons share the existing secondary slate palette');
+requireAll(contextBackButton, ['data-hnl-context-back-button="true"', 'min-h-10', 'focus-visible:ring-2', 'Quay lại {label}'], 'Shared accessible context-return action');
+requireAll(app, ['contextReturnFrames', 'navigateFromLink', 'handleContextReturn', 'data-hnl-cross-module-return="true"', 'getActiveProjectId(), kind', 'setContextReturnFrames([])', "navigateFromLink('floorplan', kind)", "navigateFromLink('checklist', kind)", "navigateFromLink('crew')", "navigateFromLink('config')"], 'Contextual cross-module return to the proper source, reset on project and direct nav');
+requireAll(read('src/components/WarehouseTab.tsx'), ['onOpenNormModal(warehouseCatalogTab, undefined, true)', '}, true);'], 'Catalog settings and item drill-down both preserve the warehouse return origin');
+requireAll(read('src/components/MaterialNormModal.tsx'), ['ContextBackButton', 'data-hnl-back-to-warehouse-catalog="true"', 'returnToWarehouseCatalog()'], 'Material Norm uses shared return control with unsaved edits guard');
+const nativeSplashAttachIndex = androidMain.indexOf('setContentView(startupRoot);');
+const coldWebViewCreateIndex = androidMain.indexOf('webView = new WebView(this);');
+if (nativeSplashAttachIndex < 0 || coldWebViewCreateIndex <= nativeSplashAttachIndex) fail('Android cold start must attach native HNL splash before constructing WebView');
+requireAll(androidMain, ['initializeWebRuntime(startupRoot, savedInstanceState)', 'startupRoot.postDelayed(', '32L'], 'Android cold WebView initialization defers until native splash has a frame');
+requireAll(mainTsx, ['notifyAndroidStartupReadyAfterPaint', 'AndroidStartup?.markReady?.()', 'window.requestAnimationFrame(notify)'], 'React paint explicitly owns Android splash handoff');
+
 const pickerProvider = read('android-wrapper/src/com/qlct/app/PickerCacheProvider.java');
 requireAll(pickerProvider, ['ParcelFileDescriptor.MODE_READ_ONLY', 'OpenableColumns.DISPLAY_NAME', 'OpenableColumns.SIZE'], 'Android app-owned picker ContentProvider');
 pass('Android Gallery returns stable app-owned binary to WebView instead of ephemeral OEM content URI');
@@ -274,6 +320,7 @@ requireAll(app, ['? 250 : 150', 'Math.min(30000, 750 * Math.pow(2', 'photoOutbox
 requireAll(photoSync, ['PHOTO_INITIAL_SYNC_DELAY_MS = 1200', 'requestIdleCallback(run, { timeout: 1000 })', '}, 5000);'], 'photo initial reconciliation latency');
 requireAll(desktopBuild, ['HNL-QLTC-SHELL-ICON.png', 'Write-HnlIcoFromPng -PngPath $logoSource -IcoPath $generatedIcon', 'HNL.QLTC.Brand.Icon', 'HNL.QLTC.Brand.Png', 'Certified multi-resolution ICO'], 'Windows dedicated shell icon, embedded branding resources and multi-resolution icon generation');
 requireAll(androidBuild, ['desktop-wrapper\\HNL-QLTC-SHELL-ICON.png', "'mipmap-mdpi' = 48", "'mipmap-hdpi' = 72", "'mipmap-xhdpi' = 96", "'mipmap-xxhdpi' = 144", "'mipmap-xxxhdpi' = 192", 'ic_launcher.png', 'ic_launcher_round.png'], 'Android dedicated shell launcher icon generation');
+requireAll(androidBuild, ['HNL-QLTC-SPLASH-SOURCE.png', '9ab45895172034ccb4e1386a41a49e5222a32310dc30b48f5b2cea6e14a5c34d', "'drawable-mdpi' = @{ Canvas = 288; Logo = 172; SystemLogo = 104 }", "'drawable-xxxhdpi' = @{ Canvas = 1152; Logo = 688; SystemLogo = 416 }", 'legacyNoDpiSplash', 'legacyNoDpiSystemSplash'], 'Android splash uses the approved 1254px master with separate density-aware native/system safe areas');
 requireAll(authHeader, ['/icon.png?v=${APP_VERSION}-brand20260921'], 'Web/in-app unified HNL brand fallback');
 if (!desktopBuild.includes('HNL-QLTC-SHELL-ICON.png') || !androidBuild.includes('HNL-QLTC-SHELL-ICON.png')) fail('Windows and Android must continue to use the same certified HNL master artwork');
 if (desktopBuild.includes('Optimize-HnlSmallIconFrame')) fail('Windows icon builder must not visually alter the certified HNL logo with custom sharpening/contrast');
@@ -324,19 +371,95 @@ requireAll(app, ['commitWarehouseTransactionAtomic', 'updateWarehouseTransaction
 const warehouseTab = read('src/components/WarehouseTab.tsx');
 if (!warehouseTab.includes('FIREBASE_ONLY_RUNTIME') || !warehouseTab.includes('Không thể xuất vượt tồn kho')) fail('warehouse UI still offers a negative-stock override in Firebase-only runtime');
 pass('warehouse transaction/derived-balance safety engine is wired into runtime');
+// React passes its click event as the first argument when a parameterized
+// inventory creator is directly bound to onClick. An event is not an item kind.
+requireAll(warehouseTab, [
+  "onClick={() => openCreateInventory('material')}",
+  "onOpenNormModal(warehouseCatalogTab, undefined, true)",
+  "data-hnl-catalog-settings-link",
+  "if (kind === 'equipment') {",
+  "const openCreateInventory = (kind: InventoryItemKind = 'material') =>",
+  'setItemKind(kind);',
+  "const editingKind: InventoryItemKind = item.itemKind === 'equipment' ? 'equipment' : 'material';",
+  'setItemKind(editingKind);',
+], 'Warehouse voucher default material, equipment selector and single master setup route');
+if (warehouseTab.includes('onClick={openCreateInventory}')) {
+  fail('Warehouse create button must not pass a React click event as itemKind');
+}
+pass('Warehouse create default event regression: material by default, equipment/edit preserved');
+requireAll(warehouseTab, [
+  'data-hnl-warehouse-voucher-id={item.id}',
+  'title={`Mã phiếu: ${item.id}`}',
+  "current === item.id ? null : item.id",
+  "'block max-w-[108px] truncate sm:max-w-[170px]'",
+  "'block max-w-full break-all whitespace-normal select-text'",
+  'navigator.clipboard.writeText(item.id)',
+], 'Warehouse voucher ID is only visually truncated; full immutable ID remains available on click/copy');
 
 requireAll(warehouseTab, [
-  "${hasImportAccess ? 'grid-cols-2' : 'grid-cols-1'}",
-  '<span>Tải Excel để chỉnh sửa</span>',
-  '{hasImportAccess && (',
-], 'warehouse role-aware Excel actions');
+  'const availableStockSummaries = editingInventory',
+  'inventory.filter((row) => row.id !== editingInventory.id)',
+  'const matchedStockSummary = availableStockSummaries.find',
+], 'Warehouse edit OUT excludes its old signed quantity before client stock check; server atomic invariant unchanged');
+
+
+requireAll(warehouseTab, [
+  'data-hnl-warehouse-catalog-scroll="true"',
+  'data-hnl-warehouse-catalog-table="auto-width"',
+  'w-max min-w-full table-auto whitespace-nowrap',
+  'data-hnl-warehouse-catalog-header="aligned"',
+  "warehouseCatalogTab === 'equipment' ? 'Nhóm thiết bị' : 'Chủng loại vật tư'",
+  '>Nhu cầu định mức</th>',
+], 'Warehouse catalog uses one auto-width table: full Chủng loại vật tư / Nhóm thiết bị and Nhu cầu định mức stay aligned with Nhập / Xuất / Tồn kho');
+
+requireAll(warehouseTab, [
+  '<DataManagementMenu',
+  'triggerLabel="Quản lý dữ liệu"',
+  "onQuickEdit={quickEditEnabled ? (() => { setQuickEditMode('norms'); setShowQuickEdit(true); }) : undefined}",
+  'onImportFile={hasImportAccess ? handleFileChangeExcel : undefined}',
+  "quickEditMode === 'stock' ? false",
+], 'warehouse role-aware data-management actions');
 if (warehouseTab.includes('<span>Chỉ ADMIN được nhập</span>')) fail('warehouse must hide unavailable import action instead of showing a disabled ADMIN-only placeholder');
 const workVolumeTab = read('src/components/WorkVolumeTab.tsx');
 requireAll(workVolumeTab, [
-  '<Download className="w-3.5 h-3.5" /> Tải Excel để chỉnh sửa',
-  '{hasStructureManageAccess && (',
-], 'work-volume role-aware Excel actions');
-pass('Excel action bars are visually consistent across ADMIN, ENGINEER and VIEWER without weakening RBAC');
+  '<DataManagementMenu',
+  'triggerLabel="Quản lý dữ liệu"',
+  'onQuickEdit={quickEditEnabled ? (() => setShowQuickEdit(true)) : undefined}',
+  'onImportFile={hasStructureManageAccess ? handleImportExcelWorkVolumes : undefined}',
+  "key: 'actual', label: 'Khối lượng thực hiện', editable: false",
+], 'work-volume role-aware data-management actions');
+pass('Data-management action bars are visually consistent across ADMIN, ENGINEER and VIEWER without weakening RBAC');
+requireAll(crewTabBase, ["canOperate ? 'grid-cols-3' : 'grid-cols-2'", 'lg:contents', '<span className="sm:hidden">Sao chép</span>', '<span className="sm:hidden">Chia sẻ</span>'], 'Crew mobile groups secondary actions instead of leaving Data Management alone on a row');
+requireAll(warehouseTab, ['grid grid-cols-3 gap-2 lg:contents', '<span className="sm:hidden">Danh mục</span>', '<span>Thiết lập</span>', 'triggerLabel="Quản lý dữ liệu"'], 'Warehouse mobile groups Catalog / Setup / Data without title overflow');
+requireAll(workVolumeTab, ['grid w-full grid-cols-[minmax(0,1fr)_auto]', 'triggerLabel="Thêm hạng mục"', 'triggerLabel="Quản lý dữ liệu"'], 'Work Volume mobile keeps Add + Data on one row');
+requireAll(checklistTab, ['flex items-center justify-end gap-2', 'Thêm tiêu chí', 'triggerLabel="Quản lý dữ liệu"'], 'Checklist mobile keeps Add + Data in one action cluster');
+requireAll(floorPlanDefect, ['grid w-full grid-cols-2 gap-2', '<span className="sm:hidden">Khu/Tầng</span>', 'triggerLabel="Quản lý dữ liệu"'], 'Floor Plan mobile keeps Khu/Tầng + Data side-by-side');
+requireAll(authHeader, ['data-hnl-global-header', 'lg:flex lg:items-center lg:gap-3', 'lg:mb-0 lg:min-w-0 lg:flex-1', 'data-hnl-header-actions', '[&>button]:min-h-9 [&>button]:min-w-9'], 'compact desktop header + mobile touch-target contract');
+requireAll(offlineSyncBanner, ['data-hnl-offline-banner', 'data-hnl-offline-safety-text', 'data-hnl-offline-status-chip', 'bg-amber-50 text-amber-900 border-b border-amber-200', 'VIEWER chỉ được xem', 'chờ Firestore'], 'offline safety banner readable semantic contract');
+if (offlineSyncBanner.includes('className="truncate"') || offlineSyncBanner.includes('bg-amber-950')) fail('offline safety banner must not hide critical copy or regress to the heavy dark warning surface');
+requireAll(materialNormModal, ['bg-slate-100 text-slate-700 border border-slate-200'], 'Material work-category neutral semantic tag');
+if (materialNormModal.includes('bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-md')) fail('Material work-category tag must not look like success state');
+requireAll(crewTabBase, ['data-hnl-secondary-action-group="crew"', 'hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900', '<FileText className="h-4 w-4 shrink-0 text-slate-600" />'], 'Crew report share secondary action semantics');
+requireAll(warehouseTab, ['data-hnl-secondary-action-group="warehouse"', '<Layers className="h-4 w-4 shrink-0 text-slate-600" />', '<Sliders className="h-4 w-4 shrink-0 text-slate-600" />'], 'Warehouse secondary catalog/norm icon and tone match Crew');
+requireAll(indexCss, ['[data-hnl-secondary-action-group] > button', 'html[data-hnl-theme="dark"] [data-hnl-secondary-action-group] > button', 'font-weight: 700;', 'box-shadow: none;'], 'Scoped secondary actions have uniform light/dark weight and surface');
+if (crewTabBase.includes('rounded-xl border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-extrabold text-emerald-700')) fail('Crew report share must not use success-green');
+requireAll(checklistTab, ["selectedFloor === floor", "? 'bg-indigo-600 text-white shadow-md'"], 'Checklist floor selection uses tokenized HNL brand primary');
+requireAll(floorPlanDefect, ['bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300', 'className="h-9 w-9 inline-flex', 'className="h-9 max-w-[150px]', 'min-h-9 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700'], 'Floor Plan semantic selection + fullscreen touch-target contract');
+if (floorPlanDefect.includes('bg-rose-600/90 hover:bg-rose-600')) fail('Floor Plan minimize must not look destructive');
+
+requireAll(actionMenuButton, ['createPortal', 'data-hnl-action-menu-mode', "placement: 'above' | 'below'", 'naturalHeight > bestAvailable && naturalHeight > 220', 'scrollTopBeforeOpenRef', 'sm:w-auto', 'border-blue-600 bg-blue-600', 'border-slate-200 bg-white text-slate-600 shadow-none'], 'shared action menu adaptive near-trigger popover / bottom-sheet fallback with primary/secondary hierarchy');
+requireAll(addSourceMenu, ['Chọn cách thêm', 'Tạo mới để nhập thủ công', 'Lấy từ công trình/mẫu'], 'shared Add Source menu');
+requireAll(dataManagementMenu, ['Quản lý dữ liệu', 'Bảng chỉnh nhanh', '.xlsx,.xls', 'onExportReport', 'triggerTone="secondary"'], 'shared Data Management menu remains a visually secondary utility action');
+requireAll(actionMenuButton, ['mobileLabel?: string', 'data-hnl-mobile-label={mobileLabel || undefined}', 'sm:hidden', 'hidden truncate sm:inline'], 'shared action trigger supports compact mobile wording and exposes it for Runtime Golden without changing desktop labels');
+requireAll(dataManagementMenu, ['mobileLabel="Dữ liệu"'], 'Data Management uses a compact mobile trigger label');
+requireAll(quickSortBar, ['sm:hidden', '<select', 'Sắp xếp:', 'hidden sm:block', 'Sắp xếp nhanh:'], 'Quick Sort is compact on mobile while retaining desktop quick chips');
+requireAll(materialNormModal, ['expandedNormTagIds', 'hiddenCount', "wIdx > 0 && !expanded ? 'hidden sm:inline-block' : 'inline-block'", "sm:hidden inline-flex", "'Thu gọn'"], 'Material Norm cards collapse extra mobile work-category tags behind +N without conflicting display utilities');
+requireAll(checklistTab, ['<DataManagementMenu', 'exportLabel="Tải Excel để chỉnh sửa"', 'importLabel="Nhập lại từ Excel"'], 'Checklist unified data-management entry');
+requireAll(crewTabBase, ['<AddSourceMenu', 'triggerLabel="Thêm đội"', 'onOpenSourcePicker={() => setShowTeamTemplatePicker(true)}'], 'Team directory shared Add Source entry');
+requireAll(crewTabBase, ['reportLabel="Báo cáo chi tiết tất cả đội"', 'onExportReport={() => handleExportTeamStats()}'], 'Team directory distinguishes detailed all-team reporting from editable catalog export');
+
+requireAll(materialNormModal, ['<AddSourceMenu', 'triggerLabel="Thêm định mức"', 'onOpenSourcePicker={() => setShowNormTemplatePicker(true)}'], 'Material Norm shared Add Source entry');
+requireAll(workVolumeTab, ['<AddSourceMenu', 'triggerLabel="Thêm hạng mục"', 'onOpenSourcePicker={() => setShowTemplatePicker(true)}'], 'Work Volume shared Add Source entry');
 
 const multiProjectAccess = read('src/components/MultiProjectAccessPanel.tsx');
 const multiProjectOverview = read('src/components/MultiProjectOverview.tsx');
@@ -392,11 +515,14 @@ requireAll(homeDashboard, [
   'TỔNG',
 ], 'Trang chủ dashboard');
 requireAll(crewReportShare, [
-  '1 ngày',
+  'Hôm nay',
+  'Hôm qua',
+  '7 ngày',
+  'Tháng này',
+  'Khoảng ngày',
   'relative isolate max-h-[42vh] overflow-auto overscroll-contain',
   '<tr className="h-8">',
   'sticky top-[31px]',
-  'Nhiều ngày',
   'Sao chép nội dung',
   'Chia sẻ nội dung',
   'Chia sẻ ảnh',
@@ -405,6 +531,7 @@ requireAll(crewReportShare, [
   'Tổng QS/ngày',
   'TỔNG',
 ], 'crew report share center');
+if (crewReportShare.includes('>1 ngày</button>') || crewReportShare.includes('>Nhiều ngày</button>')) fail('Crew report must not duplicate quick date presets with 1 ngày / Nhiều ngày buttons');
 requireAll(crewReportUtils, [
   'buildCrewReportRows',
   'buildCrewReportText',
@@ -422,6 +549,19 @@ requireAll(firebaseBase, [
   "'teams'",
   'CREW_REPORT_ACCESS_DENIED',
 ], 'targeted multi-project crew report reader');
+requireAll(app, [
+  "primaryColor: '#2563eb'",
+  "normalized === '#4f46e5' ? DEFAULT_SUPER_ADMIN_UI_SETTINGS.primaryColor : normalized",
+  "root.style.setProperty('--hnl-primary', superAdminUiSettings.primaryColor)",
+], 'HNL blue default + legacy primary migration while preserving custom colors');
+requireAll(indexCss, [
+  '.bg-indigo-50',
+  '.text-indigo-950',
+  '.border-indigo-100',
+  '.ring-indigo-500',
+  '.focus\\:ring-indigo-500:focus',
+  '.hover\\:bg-indigo-50:hover',
+], 'legacy indigo utilities render through the HNL primary token');
 requireAll(bottomNav, [
   "'home' | 'warehouse'",
   "label: 'Trang chủ'",
@@ -431,23 +571,73 @@ requireAll(bottomNav, [
   'bg-white text-slate-700',
   'bg-blue-50 text-blue-700',
 ], 'responsive desktop-left/mobile-bottom navigation');
+requireAll(bottomNav, [
+  'const isOverflowTabActive',
+  'const overflowNavItemClass',
+  'const overflowNavIconClass',
+  "overflowNavItemClass('volume')",
+  "overflowNavItemClass('checklist')",
+  "overflowNavItemClass('ai')",
+  "overflowNavItemClass('chat', true)",
+  "overflowNavItemClass('config')",
+  "isOverflowTabActive(tab) ? 'text-blue-600' : 'text-slate-500'",
+], 'mobile overflow navigation uses the same HNL blue active / slate inactive hierarchy as primary navigation');
+if (bottomNav.includes('font-extrabold text-blue-700 hover:bg-blue-50') && bottomNav.includes('data-hnl-nav-tab="ai"')) {
+  fail('mobile overflow AI entry must not be visually louder than normal navigation items');
+}
 if (bottomNav.includes('APP_VERSION') || bottomNav.includes('HNL QLTC · Trang chủ')) fail('desktop rail must not duplicate header branding/version');
 requireAll(app, [
   'STARTUP_PROJECT_ID_KEY',
   "new URLSearchParams(window.location.search).get('app') === 'desktop'",
-  "isDesktopRuntime ? 'pl-[84px]' : 'lg:pl-[84px]'",
-  'forceDesktopRail={isDesktopRuntime}',
-  "useState<TabType>('home')",
+  "isDesktopRuntime || chromeDesktopSite ? 'pl-[84px]' : 'lg:pl-[84px]'",
+  'forceDesktopRail={isDesktopRuntime || chromeDesktopSite}',
+  "useState<TabType>(getRememberedTab)",
   '<HomeDashboard',
   'startupNavigationAppliedForRef',
   "setActiveTab('floorplan')",
 ], 'Home + quick-start routing');
+requireAll(app, [
+  'navigationRequestRef',
+  'navigationCommitTimerRef',
+  'window.clearTimeout(navigationCommitTimerRef.current)',
+  'requestId !== navigationRequestRef.current',
+  'commitDelayMs = rapidMode ? 48 : 0',
+  'setNavigationTargetTab(tab)',
+  'rapidTap = sinceLastRequest < 220',
+  'navigationRapidUntilRef.current = now + 320',
+  'data-hnl-navigation-target',
+  'data-hnl-tab-switching="true"',
+  'tab === activeTabRef.current',
+
+], 'adaptive navigation last-click-wins debounce');
+const navigationCoordinator = app.slice(app.indexOf('const navigateToTab'), app.indexOf('// Warm primary field screens'));
+if (navigationCoordinator.includes('React.startTransition')) fail('settled rapid navigation commit must not use React.startTransition');
+requireAll(hostedBrowserGolden, ['intermediateHeavyCommits', 'heavyTabs.has(tab)', 'singleMountedMs', 'revisitMountedMs', 'verifyStaleAssetCacheGuard'], 'Runtime navigation measures visible shell, committed heavy content, warmed revisit cost, and stale asset cache safety');
 pass('multi-project RBAC is preserved while startup now routes through Home or the explicitly pinned project');
 
 if (!floorPlanDefect.includes('operationalWorkCategoryCatalog') || !floorPlanDefect.includes('getOperationalRoomSubItems')) fail('floor-plan ghost-category filter missing');
 if (!roomHighlight.includes("const [workCategory, setWorkCategory] = useState('')") || !roomHighlight.includes('projectWorkCategoryTitles')) fail('room editor still seeds a deleted/hard-coded category');
 if (!photoSync.includes('snapshotIsInitial = firstSnapshot') || !photoSync.includes('firstSnapshot = false')) fail('photo realtime initial snapshot race guard missing');
 if (!floorPlanDefect.includes('photoLoadSeqRef') || !floorPlanDefect.includes('loadSeq === photoLoadSeqRef.current')) fail('Defect photo stale-read guard missing');
+requireAll(floorPlanDefect, [
+  'Quy tắc tên Căn / Phòng',
+  'Tự động · Khuyên dùng',
+  'Không cần nhập ký tự kỹ thuật',
+  'Tùy chỉnh kỹ thuật (Regex)',
+  'Khôi phục mặc định',
+], 'Smart PDF room-name rule progressive disclosure');
+if (!app.includes("normalized === '#4f46e5' ? DEFAULT_SUPER_ADMIN_UI_SETTINGS.primaryColor : normalized")) {
+  fail('App must retain the one-way legacy #4f46e5 -> HNL blue migration guard');
+}
+for (const [label, source] of [
+  ['Floor plan UI', floorPlanDefect],
+  ['PDF export', exportPdf],
+  ['AI export', read('src/ai/export/aiReportExport.ts')],
+  ['Health export', read('src/healthCenter/healthCenterExport.ts')],
+  ['Crew report share', read('src/components/CrewReportShareModal.tsx')],
+]) {
+  if (source.toLowerCase().includes('#4f46e5')) fail(`${label} reintroduced legacy indigo primary #4f46e5`);
+}
 pass('known regression guards retained');
 
 requireAll(projectManager, [
@@ -457,8 +647,13 @@ requireAll(projectManager, [
   "if (FIREBASE_ONLY_RUNTIME) {",
   "if (!FIREBASE_ONLY_RUNTIME) {",
 ], 'Project Manager Firebase-only source-of-truth guards');
-if (!projectManager.includes('inventory: []') || !projectManager.includes('floorPlans: templateFloorPlans') || !projectManager.includes("imageUrl: ''") || !projectManager.includes('defects: []') || !projectManager.includes('crewRecords: []') || !projectManager.includes('teams: []')) {
-  fail('Firebase-only template clone may copy operational/transaction/media datasets');
+if (!projectManager.includes('inventory: []')
+  || !projectManager.includes('floorPlans: templateCopyOptions.structure ? templateFloorPlans : []')
+  || !projectManager.includes("imageUrl: ''")
+  || !projectManager.includes('defects: []')
+  || !projectManager.includes('crewRecords: []')
+  || !projectManager.includes('teams: templateCopyOptions.teams ? templateTeams : []')) {
+  fail('Firebase-only template clone may copy operational/transaction/media datasets or bypass explicit catalog selection');
 }
 pass('Project Manager cloud-first sync/pull/create guards retained');
 
@@ -486,19 +681,22 @@ if (app.includes("FIREBASE_ONLY_ALL_BACKUP_CLOUD_SOURCE") && app.includes("const
 pass('Firebase-only JSON backup is Cloud/live-state sourced and media-complete/fail-closed');
 
 if (!sw.includes("new URL(self.location.href).searchParams.get('v')") || !swRegistration.includes('APP_VERSION')) fail('service worker cache version is not derived from canonical app version');
+if (!firebaseJson.includes('"source": "!/assets/**"') && !firebaseJson.includes('"source": "!/@(assets)/**"')) fail('DEV Hosting must exclude /assets/** from SPA index rewrite');
+if (!firebaseProdJson.includes('"source": "!/assets/**"') && !firebaseProdJson.includes('"source": "!/@(assets)/**"')) fail('PROD Hosting must exclude /assets/** from SPA index rewrite');
+requireAll(sw, ["contentType.includes('text/html')", 'Hashed asset not found', "'Cache-Control': 'no-store'"], 'service-worker hashed asset HTML fallback guard');
+if (!devDeployWorkflow.includes('Missing hashed asset must return 404') || !devDeployWorkflow.includes('entry JS asset has non-JavaScript Content-Type')) fail('DEV deploy must verify hashed asset HTTP/MIME integrity');
+if (!swRegistration.includes('requestIdleCallback') || !swRegistration.includes('window.setTimeout(registerCurrentBuildServiceWorker, 900)')) fail('service worker registration must defer install work until the first interactive window settles');
 requireAll(vite, ['hnl-service-worker-asset-manifest', 'sw-assets.json', 'assets = Object.keys(bundle)'], 'Vite service-worker asset manifest');
-requireAll(sw, ['loadBuildAssetManifest', 'SW_ASSET_MANIFEST_HAS_NO_JS_CHUNKS', 'cache.addAll(required)'], 'service-worker complete app-shell precache');
-requireAll(hostedBrowserGolden, ['verifyColdStartOffline', 'Network.clearBrowserCache', 'context.setOffline(true)', 'CacheStorage'], 'Runtime Golden cold-start offline');
-const devRuntimeHasGlobalPushTrigger = !devRuntimeWorkflow.includes('    paths:');
-if (!devRuntimeHasGlobalPushTrigger) {
-  for (const trigger of ['public/sw.js', 'vite.config.ts', 'src/serviceWorkerRegistration.ts', 'scripts/stability-gate.mjs']) {
-    if (!devRuntimeWorkflow.includes(`- '${trigger}'`)) fail(`DEV Runtime Golden trigger missing ${trigger}`);
-  }
-}
-pass(devRuntimeHasGlobalPushTrigger
-  ? 'DEV Runtime Golden runs on every dev push without a path filter'
-  : 'DEV Runtime Golden path filter covers critical cold-start sources');
-if (!devRuntimeWorkflow.includes('npm run test:stability')) fail('DEV Runtime Golden must run Stability Gate before deploy');
+requireAll(firebaseJson, ['"source": "/"', 'no-cache, no-store, must-revalidate'], 'DEV root app-shell no-cache');
+requireAll(sw, ['loadBuildAssetManifest', 'SW_ASSET_MANIFEST_HAS_NO_JS_CHUNKS', 'isValidAssetResponse', "path === '/' || path === '/index.html'", "path.startsWith('/assets/')", 'deletePoisonedAssetCacheEntries', 'cacheOneAsset', 'cacheAssetsInBatches', 'SW_INVALID_ASSET_RESPONSE'], 'service-worker MIME-safe app-shell precache');
+if (sw.includes('cache.addAll(batch)')) fail('service worker precache still trusts HTTP 200 without validating hashed asset MIME');
+requireAll(hostedBrowserGolden, ['data-hnl-mounted-tab', 'verifyColdStartOffline', 'Network.clearBrowserCache', 'context.setOffline(true)', 'CacheStorage'], 'Runtime Golden visual-vs-mounted navigation + cold-start offline');
+if (!devRuntimeWorkflow.includes('  workflow_dispatch:') || !devRuntimeWorkflow.includes("      - '.github/dev-release-approval.json'") || !devRuntimeWorkflow.includes('x.head_sha===process.env.TARGET_SHA')) fail('DEV Runtime Golden must only auto-run on exact approved DEV releases');
+if (!buildWorkflow.includes('      - dev') || !buildWorkflow.includes('node scripts/dev-deploy-budget-golden.mjs')) fail('DEV CI must run on every dev push and prevent Hosting release regressions');
+if (!devRuntimeWorkflow.includes('node scripts/dev-release-gate.mjs verify')) fail('Runtime Golden must verify exact hosted commit');
+if (devRuntimeWorkflow.includes('deploy --only hosting')) fail('Runtime Golden must not deploy Hosting a second time');
+pass('DEV source pushes run CI; approved DEV release alone triggers hosted Golden with exact SHA verification');
+if (!devRuntimeWorkflow.includes('npm run test:stability')) fail('DEV Runtime Golden must keep Stability Gate before hosted regression');
 requireAll(cloudBinaryPurge, ['getDocsFromServer', 'collectBinaryPointers', 'construction_binary_purge_', 'BINARY_PURGE_ADMIN_REQUIRED'], 'physical binary purge safety');
 requireAll(diagnostics, ['sanitizeDiagnosticValue', '[redacted]'], 'diagnostics redaction');
 pass('service worker/version, cold-start and diagnostics safety');
@@ -519,13 +717,13 @@ requireAll(firebaseBase, [
   'initialDiscoverySources',
   'scheduleDiscoveryEmit',
   'initial-sources-ready',
-], 'Firestore project discovery read coalescing');
+], 'DEV Firestore project discovery read coalescing');
 requireAll(app, [
   'verifiedOfflineSnapshotLastSavedAtRef',
   'verifiedOfflineSnapshotProjectRef',
   'minSnapshotIntervalMs = 30_000',
   'Math.max(1_200, minSnapshotIntervalMs - elapsed)',
-], 'verified offline full-snapshot write throttle');
+], 'verified offline full-snapshot serialization throttle');
 const bootstrapExistingCloudStart = app.indexOf('if (roleInfo.allowed || roleInfo.isCloudSynced)');
 const bootstrapCreateStart = app.indexOf('const payload = buildCloudProjectPayload()', bootstrapExistingCloudStart);
 if (bootstrapExistingCloudStart < 0 || bootstrapCreateStart < 0) fail('Cloud project bootstrap branches missing');
@@ -533,6 +731,18 @@ const existingCloudBootstrapBranch = app.slice(bootstrapExistingCloudStart, boot
 if (existingCloudBootstrapBranch.includes('setCloudBootstrapVersion')) fail('Existing Cloud project bootstrap must not force realtime listener rebind');
 if (app.includes('Global project discovery refresh warning:')) fail('App startup must not run a redundant manual project-discovery server pass');
 if (!app.includes('subscribeCurrentUserProjectsRealtime already consumes/verifies invitation/index')) fail('Startup project-discovery dedupe marker missing');
-pass('PROD read amplification + full-snapshot stall guards retained');
+pass('DEV read amplification + full-snapshot stall guards retained');
+
+
+
+// Orphaned explicit category IDs must never enter category/unit fallback calculations.
+{
+  const needs = read('src/utils/materialNeedEngine.ts');
+  const teams = read('src/utils/teamMaterialReconciliation.ts');
+  const health = read('src/healthCenter/HealthCenterPanelBase.tsx');
+  if (!needs.includes("issue.code === 'ORPHAN_CATEGORY'") || !needs.includes('if (scope.unresolved.length > 0) return false')) throw new Error('Missing fail-closed material norm scope guard');
+  if (!teams.includes('if (scope.unresolved.length > 0) return 0')) throw new Error('Team material reconciliation must reject orphaned norms');
+  if (!health.includes('Kiểm tra lại dữ liệu hiện có') || !health.includes('Chi tiết kỹ thuật') || !health.includes("defects: 'Defect'")) throw new Error('Health Center labels and Defect terminology regression');
+}
 
 console.log('STABILITY GATE PASS – V6.3.0 Firebase-only RC architecture');

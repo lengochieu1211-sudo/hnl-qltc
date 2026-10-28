@@ -1,11 +1,13 @@
+import type {WarehouseOrderSync} from '../hooks/useWarehouseOrderSync';
 import { downloadOrShareFile } from '../utils/downloadUtils';
 import React, { useState, useEffect, useMemo } from 'react';
+import { ViewportModalPortal } from './ViewportModalPortal';
 import { 
   X, Plus, Folder, Trash2, HardDrive, Download, Upload, RefreshCw, 
   CheckCircle2, AlertTriangle, ShieldCheck, ArrowLeftRight, Search, Edit3, Check, Building2, Copy, Sparkles, FolderPlus,
   Cloud, CloudUpload, CloudDownload, Smartphone, Monitor, Share2, Layers,
   CheckSquare, Square, FileSpreadsheet, Layers3, CheckCircle, Database, History, Eye,
-  Lock, Key, ShieldAlert
+  Lock, Key, ShieldAlert, Archive
 } from 'lucide-react';
 import { ProjectInfo, getProjectsList, getActiveProjectId, setActiveProject, saveProjectsList, getKey } from '../App';
 import { safeSetLocalStorageItem } from '../utils/storage';
@@ -21,9 +23,11 @@ import {
   onAuthUserChanged,
   subscribeProjectSharedSettings,
   saveProjectSharedSettings,
+  fetchProjectSharedSettingsSnapshot,
   subscribeCurrentUserProjectsRealtime,
   refreshCurrentUserProjectDiscovery,
   saveProjectMetadataToCloud,
+  setProjectArchivedState,
   deleteCloudProject,
   restoreCloudProject,
   fetchProjectDeletionStateFromServer,
@@ -50,12 +54,14 @@ import { formatDateTime, parseLegacyTimestamp } from '../utils/dateFormatter';
 import { useFormatSettings } from '../utils/numberUtils';
 import { detectOrphanProjectData, cleanupOrphanProjectData, OrphanScanResult, OrphanProjectInfo } from '../utils/projectReconciliation';
 import { isStorageKeyOwnedByProject, getProjectStorageKeys } from '../utils/projectStorageUtils';
-import { deleteProjectPhotos, getProjectPhotos, saveProjectPhotos, getProjectPhotosWithBinary, restorePhotosFromBackup } from '../utils/photoStorage';
+import { deleteProjectPhotos, getProjectPhotos, saveProjectPhotos, getProjectPhotosWithBinary, restorePhotosFromBackup, type PhotoAttachment } from '../utils/photoStorage';
 import { logAuditAction, UserRole, getCurrentUserRole, canManageProjects, canEditProjectData, canManageBackups } from '../utils/securityUtils';
 import { encryptBackupData, decryptBackupData, isEncryptedBackup, EncryptedBackupContainer } from '../utils/cryptoUtils';
 import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
 import { refreshProjectPhotoMetadataFromCloud, syncProjectPhotosToCloud } from '../lib/photoCloudSync';
-import { floorPlanNeedsCloudUpload, loadFloorPlanImageFromCloud, syncFloorPlanImageToCloud } from '../lib/floorPlanImageSync';
+import { floorPlanNeedsCloudUpload, isFloorPlanCloudBinaryReady, loadFloorPlanImageFromCloud, syncFloorPlanImageToCloud } from '../lib/floorPlanImageSync';
+import { prepareFloorPlansForBackupRestore } from '../utils/floorPlanBackupRestore';
+import { selectAuthoritativeRestorePhotos } from '../utils/backupRestoreMedia';
 
 interface ProjectManagerModalProps {
   isOpen: boolean;
@@ -77,7 +83,14 @@ interface ProjectManagerModalProps {
   handleExportAllJson?: () => void;
   handleImportAllJson?: (e: React.ChangeEvent<HTMLInputElement>) => void;
   fullAppData?: any;
-  onRestoreData?: (data: any, targetProjectId?: string) => void | Promise<void>;
+  onRestoreData?: (
+    data: any,
+    targetProjectId?: string,
+    options?: {
+      authoritativeBackupRestore?: boolean;
+      sharedSettingsRestoreMode?: 'create' | 'replace' | 'merge-newer';
+    }
+  ) => void | Promise<void>;
   autosaveVersions?: any[];
   onRestoreAutoSaveVersion?: (version: any) => void;
   onCreateManualBackup?: () => void;
@@ -85,6 +98,7 @@ interface ProjectManagerModalProps {
   onSwitchProject?: (id: string) => Promise<void>;
   onFlushCurrentProject?: () => Promise<void>;
   userRole?: UserRole;
+  warehouseOrderSync?: WarehouseOrderSync;
   dataCloudStatus?: { phase: 'idle' | 'syncing' | 'synced' | 'error' | 'conflict'; lastSyncAt?: number; message?: string };
   photoCloudStatus?: { phase: 'idle' | 'syncing' | 'synced' | 'error'; pending?: number; message?: string; lastSyncAt?: number };
 }
@@ -119,11 +133,15 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   userRole,
   dataCloudStatus,
   photoCloudStatus,
+  warehouseOrderSync,
 }) => {
   useFormatSettings();
   const effectiveRole = userRole || getCurrentUserRole();
   const canManage = canManageProjects(effectiveRole);
   const canEdit = canEditProjectData(effectiveRole);
+  const orderConflictCount=warehouseOrderSync?.conflicts.length||0;
+  const orderSyncError=Boolean(warehouseOrderSync?.cloudError||warehouseOrderSync?.saveError);
+  const orderWaiting=Boolean(warehouseOrderSync?.pendingCount);
   const canBackup = canManageBackups(effectiveRole);
   const hasDriveBackend = !FIREBASE_ONLY_RUNTIME && Boolean(onDriveSyncUpAll && onDriveSyncDownAll);
 
@@ -132,6 +150,8 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [projectSortBy, setProjectSortBy] = useState<'name' | 'createdAt' | 'updatedAt'>('name');
   const [projectSortOrder, setProjectSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [projectViewMode, setProjectViewMode] = useState<'active' | 'archived'>('active');
+  const [archivingProjectId, setArchivingProjectId] = useState<string | null>(null);
   const [autosaveSortBy, setAutosaveSortBy] = useState<'date' | 'project' | 'type'>('date');
   const [autosaveSortOrder, setAutosaveSortOrder] = useState<'asc' | 'desc'>('desc');
   const [cloudBackupSortBy, setCloudBackupSortBy] = useState<'date' | 'name' | 'projects'>('date');
@@ -168,6 +188,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           updatedAt: Number(p.updatedAt || cached.get(p.id)?.updatedAt || 0),
           canonicalProjectId: p.canonicalProjectId,
           aliases: p.aliases,
+          archivedAt: Number(p.archivedAt || 0) || undefined,
+          archivedByUid: p.archivedByUid,
+          archivedByEmail: p.archivedByEmail,
         }));
         saveProjectsList(next); // local cache only
         setProjects(next);
@@ -195,6 +218,15 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const [isCreating, setIsCreating] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [duplicateFromCurrent, setDuplicateFromCurrent] = useState(false);
+  const [templateSourceProjectId, setTemplateSourceProjectId] = useState<string>(() => activeProjectId || getActiveProjectId());
+  const [templateCopyOptions, setTemplateCopyOptions] = useState({ structure: true, workVolumes: true, materialNorms: true, teams: true, checklist: true });
+
+  useEffect(() => {
+    if (!duplicateFromCurrent) return;
+    if (!projects.some((project) => project.id === templateSourceProjectId)) {
+      setTemplateSourceProjectId(activeId || getActiveProjectId());
+    }
+  }, [projects, activeId, duplicateFromCurrent, templateSourceProjectId]);
 
   // Rename state
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
@@ -305,7 +337,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   const purgeDeletedProjectLocal = async (entry: { projectId: string; name?: string; deletedAt: number; expiresAt: number; retentionDays: number }) => {
     if (!canManage) return;
-    if (!window.confirm(`Xóa vĩnh viễn dữ liệu cục bộ của "${entry.name || entry.projectId}"? Dự án Cloud vẫn giữ tombstone để chống tự sống lại.`)) return;
+    if (!window.confirm(`Xóa vĩnh viễn dữ liệu cục bộ của "${entry.name || entry.projectId}"? Bản ghi đánh dấu đã xóa (tombstone) trên đám mây vẫn được giữ để dữ liệu cũ không tự xuất hiện trở lại.`)) return;
     try {
       // Even an explicit local purge must verify another device has not restored the
       // Cloud project. Network/RBAC failure keeps the only local recoverable copy.
@@ -439,6 +471,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     }[];
   } | null>(null);
   const [isExecutingMultiSync, setIsExecutingMultiSync] = useState(false);
+  const [multiSyncProgress, setMultiSyncProgress] = useState<{ label: string; done?: number; total?: number } | null>(null);
 
   // Legacy single project conflict modal state & Paste JSON state
   const [pendingImportData, setPendingImportData] = useState<any | null>(null);
@@ -625,9 +658,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       setOrphanScanResult(refreshed);
 
       logAuditAction('PROJECT_RECOVER_LOCAL', `Đã khôi phục dự án cục bộ lên Cloud, giữ nguyên ID: ${orphan.id}`, orphan.id);
-      alert(`Đã khôi phục dự án “${restoredName}” lên Cloud với đúng ID cũ. Dự án sẽ xuất hiện lại trong danh sách và đồng bộ trên các thiết bị.`);
+      alert(`Đã khôi phục dự án “${restoredName}” lên đám mây (Cloud) với đúng ID cũ. Dự án sẽ xuất hiện lại trong danh sách và đồng bộ trên các thiết bị.`);
     } catch (e: any) {
-      setErrorMessage(`Không thể khôi phục dự án lên Cloud: ${e?.message || e}`);
+      setErrorMessage(`Không thể khôi phục dự án lên đám mây (Cloud): ${e?.message || e}`);
     } finally {
       setRecoveringOrphanId(null);
     }
@@ -686,23 +719,28 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     for (const rawPlan of Array.isArray(plans) ? plans : []) {
       const plan = { ...rawPlan };
       const currentUrl = String(plan.imageUrl || '').trim();
-      if (currentUrl.startsWith('data:image/')) {
-        result.push(plan);
-        continue;
-      }
+      const hasCloudPointer = Boolean(
+        plan.storagePath || plan.driveFileId || plan.cloudFileId || plan.storageProvider ||
+        String(plan.driveUrl || '').startsWith('drive:')
+      );
+      const cloudReady = isFloorPlanCloudBinaryReady(plan as any);
 
+      // Base64/blob can be a stale hydrated cache from an older drawing. If the
+      // authoritative row is already cloud-ready, back up the immutable Cloud/R2 asset
+      // identified by storagePath/imageCloudRevision instead of trusting that cache.
       let resolved = '';
-      if (currentUrl.startsWith('blob:')) {
+      if (cloudReady && hasCloudPointer) {
+        resolved = String(await loadFloorPlanImageFromCloud(projectId, plan).catch(() => '') || '');
+      }
+      if (!resolved && currentUrl.startsWith('data:image/')) {
+        resolved = currentUrl;
+      }
+      if (!resolved && currentUrl.startsWith('blob:')) {
         try {
           const response = await fetch(currentUrl);
           if (response.ok) resolved = await blobToBackupDataUrl(await response.blob());
         } catch (_) {}
       }
-
-      const hasCloudPointer = Boolean(
-        plan.storagePath || plan.driveFileId || plan.cloudFileId || plan.storageProvider ||
-        String(plan.driveUrl || '').startsWith('drive:')
-      );
       if (!resolved && hasCloudPointer) {
         resolved = String(await loadFloorPlanImageFromCloud(projectId, plan).catch(() => '') || '');
       }
@@ -715,7 +753,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       }
 
       if ((currentUrl || hasCloudPointer) && !resolved.startsWith('data:image/')) {
-        throw new Error(`Không thể đóng gói ảnh mặt bằng ${plan.floorName || plan.id || ''} của dự án ${projectId}. Từ chối tạo backup thiếu ảnh.`);
+        throw new Error(`Không thể đóng gói ảnh mặt bằng ${plan.floorName || plan.id || ''} của dự án ${projectId}. Từ chối tạo bản sao lưu thiếu ảnh.`);
       }
       result.push({ ...plan, imageUrl: resolved || '' });
     }
@@ -749,7 +787,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         payload = cloudRecord ? getCloudPayload(cloudRecord) : null;
       }
       if (!payload) {
-        throw new Error(`Không đọc được dữ liệu Firestore của dự án ${projectInfo?.name || projectId}; từ chối tạo backup không đầy đủ.`);
+        throw new Error(`Không đọc được dữ liệu Firestore của dự án ${projectInfo?.name || projectId}; từ chối tạo bản sao lưu không đầy đủ.`);
       }
 
       const floorPlansForBackup = await hydrateFloorPlansForBackup(projectId, payload.floorPlans || []);
@@ -865,7 +903,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     const exportedProjects: string[] = [];
     let processedData = { ...exportedData };
     
-    if (exportedData && exportedData.schemaVersion === 3 && exportedData.data) {
+    if (exportedData && Number(exportedData.schemaVersion || 0) >= 3 && exportedData.data) {
       const d = exportedData.data;
       const pid = exportedData.project?.id || 'active';
       const suffix = pid === 'default' ? '' : `_${pid}`;
@@ -1080,7 +1118,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         label: 'Nhân công & Đội thợ', 
         count: crewCount, 
         icon: History,
-        details: `${crewCount} đội & nhật ký chấm công`
+        details: `${crewCount} đội & nhật ký quân số`
       });
     }
 
@@ -1357,7 +1395,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         label: 'Nhân công & Đội thợ', 
         count: crewCount, 
         icon: History,
-        details: `${crewCount} đội & nhật ký chấm công`
+        details: `${crewCount} đội & nhật ký quân số`
       });
     }
 
@@ -1401,7 +1439,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   // 1. Export JSON based on chosen scope
   const handleExportJsonForScope = async () => {
-    if (!canBackup) { alert('Chỉ ADMIN được xuất bản sao dữ liệu dự án.'); return; }
+    if (!canBackup) { alert('Chỉ ADMIN (Quản trị) được xuất bản sao dữ liệu dự án.'); return; }
     try {
       if (exportEncrypt && (!exportPassword || exportPassword.length < 4)) {
         alert('Vui lòng nhập mật khẩu mã hóa từ 4 ký tự trở lên để bảo vệ tệp sao lưu.');
@@ -1421,7 +1459,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         if (FIREBASE_ONLY_RUNTIME) {
           const verifiedPhotoMeta = await refreshProjectPhotoMetadataFromCloud(activeId);
           if (!verifiedPhotoMeta.verified) {
-            throw new Error('Không xác minh được metadata ảnh từ Firestore; từ chối xuất backup có nguy cơ thiếu ảnh.');
+            throw new Error('Không xác minh được thông tin ảnh từ Firestore; từ chối xuất bản sao lưu có nguy cơ thiếu ảnh.');
           }
         }
         normalized.floorPlans = await hydrateFloorPlansForBackup(activeId, normalized.floorPlans || []);
@@ -1434,7 +1472,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         });
 
         finalDataToExport = {
-          schemaVersion: 3,
+          schemaVersion: 4,
           backupType: "single-project",
           project: {
             id: activeId,
@@ -1445,6 +1483,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             contractorName: normalized.contractorName || '',
             inspectorName: normalized.inspectorName || '',
             projectLocation: normalized.projectLocation || '',
+            ...(normalized.sharedSettings ? { sharedSettings: normalized.sharedSettings } : {}),
             materialNorms: normalized.materialNorms || [],
             inventory: normalized.inventory || [],
             workVolumes: normalized.workVolumes || [],
@@ -1477,7 +1516,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           if (FIREBASE_ONLY_RUNTIME) {
             const verifiedPhotoMeta = await refreshProjectPhotoMetadataFromCloud(pId);
             if (!verifiedPhotoMeta.verified) {
-              throw new Error(`Không xác minh được metadata ảnh Firestore của dự án ${pId}; từ chối xuất backup thiếu ảnh.`);
+              throw new Error(`Không xác minh được thông tin ảnh Firestore của dự án ${pId}; từ chối xuất bản sao lưu thiếu ảnh.`);
             }
           }
           const pPhotos = await getProjectPhotosWithBinary(pId, true);
@@ -1595,7 +1634,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       await downloadOrShareFile(newFileName, blob, 'application/json');
 
       logAuditAction('BACKUP_EXPORT', `Đã đổi mật khẩu mã hóa cho file sao lưu: ${newFileName}`);
-      alert(`🎉 Đổi mật khẩu file backup thành công!\n\nDữ liệu đã được giải mã bằng mật khẩu cũ và mã hóa lại bằng mật khẩu mới. File mới đã được xuất với tên:\n${newFileName}`);
+      alert(`🎉 Đổi mật khẩu tệp sao lưu thành công!\n\nDữ liệu đã được giải mã bằng mật khẩu cũ và mã hóa lại bằng mật khẩu mới. Tệp mới đã được xuất với tên:\n${newFileName}`);
       
       setPendingEncryptedPayload(null);
       setDecryptPassword('');
@@ -1612,7 +1651,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   // 2. Process Imported JSON Data (File or Pasted Text)
   const processImportedJsonData = async (parsedData: any, fileName?: string, fileSize?: number) => {
-    if (!canBackup) { alert('Chỉ ADMIN được khôi phục/nhập bản sao dữ liệu dự án.'); return; }
+    if (!canBackup) { alert('Chỉ ADMIN (Quản trị) được khôi phục/nhập bản sao dữ liệu dự án.'); return; }
     try {
       const candidates = extractProjectsFromImportData(parsedData);
       if (!candidates || candidates.length === 0) {
@@ -1679,6 +1718,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const executeMultiProjectSync = async () => {
     if (!multiProjectSyncState || isExecutingMultiSync) return;
     setIsExecutingMultiSync(true);
+    setMultiSyncProgress({ label: 'Chuẩn bị dữ liệu hiện tại…' });
 
     try {
       if (onFlushCurrentProject) {
@@ -1692,9 +1732,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       // Firebase Storage before the import is considered successful.
       if (FIREBASE_ONLY_RUNTIME) {
         if (typeof navigator !== 'undefined' && !navigator.onLine) {
-          throw new Error('Import Firebase-only cần online để kiểm tra quyền/revision và tải ảnh lên Firebase Storage.');
+          throw new Error('Khôi phục bằng Firebase cần trực tuyến để kiểm tra quyền/phiên bản và tải ảnh lên Firebase Storage.');
         }
-        if (!onRestoreData) throw new Error('Thiếu Firestore restore handler cho Firebase-only import.');
+        if (!onRestoreData) throw new Error('Thiếu bộ xử lý khôi phục Firestore cho dữ liệu Firebase.');
 
         let firebaseList = getProjectsList();
         let createdCount = 0;
@@ -1727,23 +1767,93 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             payload = { ...candData, projectName: displayName };
           }
 
-          await onRestoreData(payload, targetId);
+          if (Array.isArray(payload.floorPlans)) {
+            payload = {
+              ...payload,
+              floorPlans: prepareFloorPlansForBackupRestore(payload.floorPlans),
+            };
+          }
 
-          const candidatePhotos = candData.photos
+          setMultiSyncProgress({ label: `Khôi phục dữ liệu · ${displayName}` });
+          await onRestoreData(payload, targetId, {
+            authoritativeBackupRestore: action === 'OVERWRITE_FILE',
+            sharedSettingsRestoreMode:
+              action === 'OVERWRITE_FILE'
+                ? 'replace'
+                : action === 'SMART_MERGE'
+                  ? 'merge-newer'
+                  : (action === 'CREATE_PRESERVE_ID' || action === 'IMPORT_AS_NEW_COPY')
+                    ? 'create'
+                    : undefined,
+          });
+          if (action === 'OVERWRITE_FILE') {
+            setMultiSyncProgress({
+              label: `Đã xác minh Cloud · ${candidate.itemCounts.defects} Defect · ${displayName}`
+            });
+          }
+
+          const rawCandidatePhotosSource = candData.photos
             || (multiProjectSyncState.rawData?.projectPhotos && multiProjectSyncState.rawData.projectPhotos[candidate.id]);
+          const rawCandidatePhotos: PhotoAttachment[] = Array.isArray(rawCandidatePhotosSource) ? rawCandidatePhotosSource : [];
           const candidatePhotoData = candData.photoData || candData.photoDataMap || candidate.photoData
             || (multiProjectSyncState.rawData?.projectPhotoData && multiProjectSyncState.rawData.projectPhotoData[candidate.id]);
-          if (Array.isArray(candidatePhotos) && candidatePhotos.length > 0) {
-            await restorePhotosFromBackup(targetId, candidatePhotos, candidatePhotoData);
-            const photoResult = await syncProjectPhotosToCloud(targetId);
+          const authoritativePhotoSelection = action === 'OVERWRITE_FILE'
+            ? selectAuthoritativeRestorePhotos(rawCandidatePhotos, payload)
+            : { photos: rawCandidatePhotos, skippedParentless: [] as PhotoAttachment[] };
+          const candidatePhotos = authoritativePhotoSelection.photos;
+          if (authoritativePhotoSelection.skippedParentless.length > 0) {
+            console.warn(
+              '[JSON Restore] Skipped parentless backup media during authoritative restore:',
+              authoritativePhotoSelection.skippedParentless.map((photo: any) => ({
+                id: photo?.id || '',
+                entityType: photo?.entityType || '',
+                entityId: photo?.entityId || '',
+              }))
+            );
+          }
+          if (candidatePhotos.length > 0) {
+            setMultiSyncProgress({ label: 'Chuẩn bị ảnh từ JSON…', done: 0, total: candidatePhotos.length });
+            await restorePhotosFromBackup(targetId, candidatePhotos, candidatePhotoData, {
+              concurrency: 2,
+              onProgress: (done, total) => setMultiSyncProgress({ label: 'Chuẩn bị ảnh từ JSON…', done, total }),
+            });
+            setMultiSyncProgress({ label: 'Đối chiếu & đồng bộ ảnh Cloud…', done: 0, total: candidatePhotos.length });
+            const photoResult = await syncProjectPhotosToCloud(targetId, {
+              // During JSON restore, sync only the media selected from this backup.
+              // Stale local cache entries from earlier project history must not turn a
+              // valid business restore into an unrelated media repair attempt.
+              photoIds: candidatePhotos.map((photo: any) => String(photo?.id || '')).filter(Boolean),
+              // Read-only verification can safely run in parallel for unchanged
+              // content-addressed R2 objects; actual repairs/uploads remain sequential.
+              readyVerifyConcurrency: 3,
+              onProgress: (done, total) => setMultiSyncProgress({ label: 'Đối chiếu & đồng bộ ảnh Cloud…', done, total }),
+            });
             if (Number(photoResult.failed || 0) > 0) {
-              throw new Error(`Import ảnh dự án ${targetId} còn ${photoResult.failed} ảnh chưa tải lên Firebase Storage.`);
+              const failedId = String(photoResult.lastErrorPhotoId || '').trim();
+              const failedDetail = String(photoResult.lastError || '').trim();
+              throw new Error(
+                `Đồng bộ ảnh Cloud/R2 dự án ${targetId} thất bại ${photoResult.failed}/${candidatePhotos.length}`
+                + (failedId ? ` · photoId=${failedId}` : '')
+                + (failedDetail ? ` · ${failedDetail}` : '')
+              );
             }
           }
 
-          for (const floorPlan of Array.isArray(payload.floorPlans) ? payload.floorPlans : []) {
-            if (!floorPlan?.id || !floorPlanNeedsCloudUpload(floorPlan)) continue;
-            await syncFloorPlanImageToCloud(targetId, floorPlan);
+          const floorPlansToUpload = (Array.isArray(payload.floorPlans) ? payload.floorPlans : [])
+            .filter((floorPlan: any) => floorPlan?.id && floorPlanNeedsCloudUpload(floorPlan));
+          let floorPlanDone = 0;
+          if (floorPlansToUpload.length > 0) {
+            setMultiSyncProgress({ label: 'Khôi phục ảnh mặt bằng…', done: 0, total: floorPlansToUpload.length });
+          }
+          for (const floorPlan of floorPlansToUpload) {
+            try {
+              await syncFloorPlanImageToCloud(targetId, floorPlan);
+              floorPlanDone++;
+              setMultiSyncProgress({ label: 'Khôi phục ảnh mặt bằng…', done: floorPlanDone, total: floorPlansToUpload.length });
+            } catch (err: any) {
+              const code = String(err?.code || err?.message || err);
+              throw new Error(`Khôi phục ảnh mặt bằng thất bại tại floor_plans/${String(floorPlan.id)}: ${code}`);
+            }
           }
 
           const existingIndex = firebaseList.findIndex((project) => project.id === targetId);
@@ -1764,11 +1874,12 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           if (!firstImportedId) firstImportedId = targetId;
         }
 
+        setMultiSyncProgress({ label: 'Hoàn tất & cập nhật danh sách dự án…' });
         saveProjectsList(firebaseList);
         setProjects(firebaseList);
         setMultiProjectSyncState(null);
         logAuditAction('BACKUP_IMPORT_FIREBASE_ONLY', `Import Firestore/Storage: mới ${createdCount}, cập nhật ${updatedCount}, bỏ qua ${skippedCount}`);
-        alert(`🎉 Import Firebase-only hoàn tất!\n• Mới: ${createdCount}\n• Cập nhật/merge: ${updatedCount}\n• Bỏ qua: ${skippedCount}`);
+        alert(`🎉 Khôi phục dữ liệu Firebase hoàn tất!\n• Mới: ${createdCount}\n• Cập nhật/gộp: ${updatedCount}\n• Bỏ qua: ${skippedCount}`);
         if (firstImportedId && onSwitchProject && firstImportedId !== activeId) {
           await onSwitchProject(firstImportedId);
           setActiveId(firstImportedId);
@@ -2023,20 +2134,21 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       alert('Lỗi khi đồng bộ dự án: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsExecutingMultiSync(false);
+      setMultiSyncProgress(null);
     }
   };
 
   const executeFullReplaceRestore = async () => {
     if (!multiProjectSyncState) return;
     if (FIREBASE_ONLY_RUNTIME) {
-      alert('Firebase-only không cho phép FULL REPLACE kiểu xóa database cục bộ. Hãy dùng Import/SMART MERGE; dữ liệu Cloud chỉ được soft-delete hoặc migrate bằng quy trình backup + dry-run + verify riêng.');
+      alert('Chế độ Firebase không cho phép khôi phục thay thế toàn bộ theo cách xóa cơ sở dữ liệu cục bộ. Hãy dùng Nhập/Gộp thông minh; dữ liệu trên đám mây chỉ được đánh dấu xóa hoặc di chuyển bằng quy trình sao lưu + chạy thử (dry-run) + xác minh riêng.');
       return;
     }
     const candidates = multiProjectSyncState.items.map(it => it.candidate);
     const count = candidates.length;
 
     const confirm = await confirmAsync(
-      `⚠️ CẢNH BÁO KHÔI PHỤC toàn bộ & THAY THẾ (FULL REPLACE):\n\n` +
+      `⚠️ CẢNH BÁO KHÔI PHỤC TOÀN BỘ & THAY THẾ:\n\n` +
       `Thao tác này sẽ:\n` +
       `1. XÓA HOÀN TOÀN các dự án hiện có trên máy không nằm trong tệp sao lưu này.\n` +
       `2. Ghi đè toàn bộ dữ liệu của ${count} dự án trong tệp sao lưu vào máy.\n` +
@@ -2334,13 +2446,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       let normalized: any;
       let statsSource: any;
       if (FIREBASE_ONLY_RUNTIME) {
-        if (!fullAppData) throw new Error('Thiếu live Firestore-derived state; từ chối đồng bộ từ cache legacy.');
+        if (!fullAppData) throw new Error('Thiếu trạng thái Firestore trực tiếp đã xác minh; từ chối đồng bộ từ bộ nhớ đệm dữ liệu cũ.');
         normalized = normalizeImportedData({
           ...fullAppData,
           projectName: fullAppData.projectName || currentProj.name,
         }, curId);
         statsSource = {
-          schemaVersion: 3,
+          schemaVersion: 4,
           project: { id: curId, name: normalized.projectName || currentProj.name },
           data: normalized,
         };
@@ -2583,9 +2695,21 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         updatedAt: now,
       };
 
-      const sourceContractor = duplicateFromCurrent ? String(fullAppData?.contractorName || '') : '';
-      const sourceInspector = duplicateFromCurrent ? String(fullAppData?.inspectorName || '') : '';
-      const sourceLocation = duplicateFromCurrent ? String(fullAppData?.projectLocation || '') : '';
+      let templateSourceData: any = duplicateFromCurrent ? fullAppData : null;
+      let templateSourceStructure: any = undefined;
+      const selectedTemplateProjectId = duplicateFromCurrent ? (templateSourceProjectId || activeId) : '';
+      if (duplicateFromCurrent && selectedTemplateProjectId) {
+        if (selectedTemplateProjectId !== activeId) {
+          const sourceRecord = await fetchProjectFromCloud(selectedTemplateProjectId, { serverOnly: true });
+          if (!sourceRecord) throw new Error('Không đọc được dự án nguồn để tạo mẫu.');
+          templateSourceData = getCloudPayload(sourceRecord);
+        }
+        const sourceShared = await fetchProjectSharedSettingsSnapshot(selectedTemplateProjectId, true).catch(() => null);
+        templateSourceStructure = sourceShared?.structure;
+      }
+      const sourceContractor = duplicateFromCurrent ? String(templateSourceData?.contractorName || '') : '';
+      const sourceInspector = duplicateFromCurrent ? String(templateSourceData?.inspectorName || '') : '';
+      const sourceLocation = duplicateFromCurrent ? String(templateSourceData?.projectLocation || '') : '';
       let hadQuotaIssue = false;
 
       if (FIREBASE_ONLY_RUNTIME) {
@@ -2595,7 +2719,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         // stock/transactions, volumes, floor plans, defects, manpower and media are NOT
         // cloned accidentally, and no business array is written to localforage.
         if (duplicateFromCurrent) {
-          if (!fullAppData) throw new Error('Thiếu dữ liệu dự án đang mở để sao chép mẫu.');
+          if (!templateSourceData) throw new Error('Thiếu dữ liệu dự án nguồn để sao chép mẫu.');
           const resetLifecycle = (item: any) => ({
             ...item,
             revision: 1,
@@ -2606,10 +2730,11 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             deletedByUid: null,
             deletedBy: null,
           });
-          const templateFloorPlans = (Array.isArray(fullAppData.floorPlans) ? fullAppData.floorPlans : []).map((plan: any) => ({
+          const templateFloorPlans = (Array.isArray(templateSourceData.floorPlans) ? templateSourceData.floorPlans : []).map((plan: any) => ({
             id: plan.id,
             floorName: plan.floorName,
             order: plan.order,
+            structureGroupId: templateCopyOptions.structure ? plan.structureGroupId : undefined,
             imageUrl: '',
             uploadedAt: '',
             revision: 1,
@@ -2620,7 +2745,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             deletedByUid: null,
             deletedBy: null,
           }));
-          const templateRooms = (Array.isArray(fullAppData.roomProgressList) ? fullAppData.roomProgressList : []).map((room: any) => resetLifecycle({
+          const templateRooms = (Array.isArray(templateSourceData.roomProgressList) ? templateSourceData.roomProgressList : []).map((room: any) => resetLifecycle({
             ...room,
             frameStatus: 'Chưa làm',
             boardStatus: 'Chưa làm',
@@ -2629,8 +2754,8 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             inspectionStatus: 'Chưa nghiệm thu',
             inspectorName: '',
             notes: '',
-            assignedTeam: '',
-            teamId: '',
+            assignedTeam: templateCopyOptions.teams ? (room.assignedTeam || '') : '',
+            teamId: templateCopyOptions.teams ? (room.teamId || '') : '',
             targetFrameDate: undefined,
             targetBoardDate: undefined,
             subItems: Array.isArray(room.subItems) ? room.subItems.map((sub: any) => ({
@@ -2638,35 +2763,46 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               status: 'Chưa làm',
               inspectionStatus: 'Chưa nghiệm thu',
               targetDate: undefined,
-              assignedTeam: '',
-              teamId: '',
+              assignedTeam: templateCopyOptions.teams ? (sub.assignedTeam || '') : '',
+              teamId: templateCopyOptions.teams ? (sub.teamId || '') : '',
             })) : [],
           }));
-          const templateChecklist = (Array.isArray(fullAppData.checklist) ? fullAppData.checklist : []).map((item: any) => resetLifecycle({
+          const templateChecklist = (Array.isArray(templateSourceData.checklist) ? templateSourceData.checklist : []).map((item: any) => resetLifecycle({
             ...item,
             status: 'pending',
             dueDate: undefined,
             notes: '',
             inspectedBy: '',
             inspectedAt: undefined,
-            teamId: '',
+            teamId: templateCopyOptions.teams ? (item.teamId || '') : '',
+          }));
+          const templateWorkVolumes = (Array.isArray(templateSourceData.workVolumes) ? templateSourceData.workVolumes : []).map((work: any) => resetLifecycle({
+            ...work,
+            planned: 0,
+            actual: 0,
+            unitPrice: 0,
+            status: 'Chưa thi công',
+            dueDate: undefined,
+          }));
+          const templateTeams = (Array.isArray(templateSourceData.teams) ? templateSourceData.teams : []).map((team: any) => resetLifecycle({
+            ...team,
           }));
           const templatePayload = {
             projectName: trimmedName,
             contractorName: sourceContractor,
             inspectorName: sourceInspector,
             projectLocation: sourceLocation,
-            materialNorms: (Array.isArray(fullAppData.materialNorms) ? fullAppData.materialNorms : []).map(resetLifecycle),
+            materialNorms: templateCopyOptions.materialNorms ? (Array.isArray(templateSourceData.materialNorms) ? templateSourceData.materialNorms : []).map(resetLifecycle) : [],
             inventory: [],
-            workVolumes: [],
+            workVolumes: templateCopyOptions.workVolumes ? templateWorkVolumes : [],
             // Preserve floor IDs/names so copied room references remain valid, but do
             // not copy any floor-plan binary/Storage/Drive pointer into the new project.
-            floorPlans: templateFloorPlans,
+            floorPlans: templateCopyOptions.structure ? templateFloorPlans : [],
             defects: [],
-            roomProgressList: templateRooms,
-            checklist: templateChecklist,
+            roomProgressList: templateCopyOptions.structure ? templateRooms : [],
+            checklist: templateCopyOptions.checklist ? templateChecklist : [],
             crewRecords: [],
-            teams: [],
+            teams: templateCopyOptions.teams ? templateTeams : [],
             updatedAt: now,
           };
           await saveProjectToCloud({
@@ -2678,6 +2814,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             syncCode: newProjectId.slice(0, 8).toUpperCase(),
             payload: templatePayload,
           });
+          if (templateCopyOptions.structure && templateSourceStructure) {
+            await saveProjectSharedSettings(newProjectId, { structure: templateSourceStructure });
+          }
         } else {
           await saveProjectMetadataToCloud(newProjectId, trimmedName, {
             contractorName: '',
@@ -2762,7 +2901,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       setIsCreating(false);
 
       if (hadQuotaIssue) {
-        alert('Tạo dự án mới thành công! Do bộ nhớ đầy, một số dữ liệu cache legacy lớn đã được bỏ qua.');
+        alert('Tạo dự án mới thành công! Do bộ nhớ đầy, một số dữ liệu trong bộ nhớ đệm cũ (legacy cache) có dung lượng lớn đã được bỏ qua.');
       }
 
       if (onSwitchProject) {
@@ -2776,6 +2915,47 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     } catch (err) {
       console.error("Error creating project:", err);
       setErrorMessage('Lỗi khi tạo dự án mới: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
+  const handleArchiveProject = async (project: ProjectInfo, archived: boolean) => {
+    if (!canManage || archivingProjectId) return;
+    if (archived && project.id === activeId) {
+      setErrorMessage('Dự án đang mở chưa thể lưu trữ. Hãy chuyển sang dự án khác trước rồi lưu trữ dự án này.');
+      return;
+    }
+    const verb = archived ? 'lưu trữ' : 'khôi phục khỏi lưu trữ';
+    const accepted = await confirmAsync(
+      archived
+        ? `Lưu trữ dự án “${project.name}”?\n\nDữ liệu Firestore/R2 KHÔNG bị xóa. Dự án chỉ được ẩn khỏi danh sách đang hoạt động và có thể khôi phục lại bất cứ lúc nào.`
+        : `Đưa dự án “${project.name}” trở lại danh sách đang hoạt động?`
+    );
+    if (!accepted) return;
+
+    setArchivingProjectId(project.id);
+    setErrorMessage(null);
+    try {
+      const archivedAt = await setProjectArchivedState(project.id, archived);
+      const next = projects.map((item) => item.id === project.id ? {
+        ...item,
+        archivedAt: archived ? archivedAt : undefined,
+        archivedByUid: archived ? getCurrentRealFirebaseUser()?.uid : undefined,
+        archivedByEmail: archived ? (getCurrentRealFirebaseUser()?.email || '').toLowerCase() : undefined,
+        updatedAt: Math.max(Number(item.updatedAt || 0), Date.now()),
+      } : item);
+      saveProjectsList(next);
+      setProjects(next);
+      logAuditAction(
+        archived ? 'PROJECT_ARCHIVE' : 'PROJECT_UNARCHIVE',
+        `${archived ? 'Lưu trữ' : 'Khôi phục'} dự án: ${project.id}`,
+        project.id
+      );
+      if (archived) setProjectViewMode('active');
+    } catch (err) {
+      console.error('Project archive update failed:', err);
+      setErrorMessage(`Không thể ${verb} dự án: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setArchivingProjectId(null);
     }
   };
 
@@ -2873,6 +3053,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const duplicateGroups = useMemo(() => {
     const groups = new Map<string, ProjectInfo[]>();
     projects.forEach((project) => {
+      if (Number(project.archivedAt || 0) > 0) return;
       const key = normalizeProjectNameForDuplicate(project.name);
       if (!key) return;
       const current = groups.get(key) || [];
@@ -3069,7 +3250,11 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     return applyOrder(av - bv);
   });
 
+  const activeProjectCount = projects.filter((project) => Number(project.archivedAt || 0) <= 0).length;
+  const archivedProjectCount = projects.filter((project) => Number(project.archivedAt || 0) > 0).length;
   const filteredProjects = sortedProjectsAll.filter(p => {
+    const archived = Number(p.archivedAt || 0) > 0;
+    if ((projectViewMode === 'archived') !== archived) return false;
     const q = searchQuery.trim().toLowerCase();
     return !q || p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q) || shortProjectId(p.id).toLowerCase().includes(q);
   });
@@ -3099,7 +3284,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   });
 
   return (
-    <div className={inline ? 'w-full' : 'fixed inset-0 bg-slate-900/65 backdrop-blur-md z-[180] flex items-center justify-center p-3 md:p-4 animate-in fade-in duration-200'}>
+    <div data-hnl-pc-v3-center="project-manager" data-hnl-pc-module="project-manager" className={inline ? 'w-full' : 'fixed inset-0 bg-slate-900/65 backdrop-blur-md z-[180] flex items-center justify-center p-3 md:p-4 animate-in fade-in duration-200'}>
       <div className={inline ? 'relative w-full' : 'bg-white w-full max-w-xl rounded-2xl p-3.5 md:p-5 shadow-2xl relative border border-slate-100 flex flex-col max-h-[92vh] overflow-hidden'}>
         
         {/* Header */}
@@ -3163,7 +3348,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                <div data-hnl-pc-v35-actions="json-transfer" className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => {
@@ -3174,12 +3359,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       }
                       setShowJsonScopePicker(true);
                     }}
+                    data-hnl-pc-v35-trigger="json-export"
                     className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center justify-center gap-1.5 text-xs transition-colors cursor-pointer shadow-xs active:scale-95"
                   >
                     <Download className="w-3.5 h-3.5" /> Xuất bản sao JSON {exportEncrypt ? '🔒' : ''}
                   </button>
 
-                  <label className="w-full py-2 bg-slate-50 hover:bg-slate-100 border border-slate-300 text-slate-700 rounded-xl font-bold flex items-center justify-center gap-1.5 text-xs transition-colors cursor-pointer active:scale-95">
+                  <label data-hnl-pc-v35-trigger="json-import" className="w-full py-2 bg-slate-50 hover:bg-slate-100 border border-slate-300 text-slate-700 rounded-xl font-bold flex items-center justify-center gap-1.5 text-xs transition-colors cursor-pointer active:scale-95">
                     <Upload className="w-3.5 h-3.5 text-slate-600" /> Khôi phục từ JSON
                     <input type="file" accept=".json" className="hidden" onChange={handleImportJsonForScope} />
                   </label>
@@ -3231,7 +3417,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         </label>
                         <input
                           type="password"
-                          placeholder="Nhập mật khẩu bảo vệ file..."
+                          placeholder="Nhập mật khẩu bảo vệ tệp..."
                           value={exportPassword}
                           onChange={(e) => setExportPassword(e.target.value)}
                           className="w-full px-2.5 py-1.5 bg-white border border-indigo-200 rounded-lg text-xs font-mono outline-none focus:border-indigo-600"
@@ -3252,10 +3438,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-[10px] text-rose-800 space-y-1">
                         <div className="font-extrabold flex items-center gap-1 text-rose-900">
                           <ShieldAlert className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                          <span>CẢNH BÁO BẢO MẬT MẬT KHẨU BACKUP:</span>
+                          <span>CẢNH BÁO BẢO MẬT MẬT KHẨU SAO LƯU:</span>
                         </div>
                         <p className="leading-normal">
-                          Mật khẩu này không thể khôi phục nếu bị quên. Hãy lưu mật khẩu ở nơi an toàn. Nếu quên mật khẩu, file backup mã hóa sẽ không thể mở hay khôi phục.
+                          Mật khẩu này không thể khôi phục nếu bị quên. Hãy lưu mật khẩu ở nơi an toàn. Nếu quên mật khẩu, tệp sao lưu mã hóa sẽ không thể mở hay khôi phục.
                         </p>
                       </div>
                     </div>
@@ -3289,6 +3475,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         type="button"
                         onClick={handleRestoreFromPastedJson}
                         disabled={!pasteValue.trim()}
+                        data-hnl-pc-v35-trigger="json-paste-restore"
                         className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg font-bold text-[11px] transition-colors cursor-pointer"
                       >
                         Khôi Phục Dữ Liệu Từ JSON Đã Dán
@@ -3339,6 +3526,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                           <button
                             type="button"
                             onClick={onRequestLocalAllFilePermission}
+                            data-hnl-pc-v35-trigger="autosave-permission"
                             className="w-full py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10.5px] flex items-center justify-center gap-1 shadow-xs"
                           >
                             <ShieldCheck className="w-3.5 h-3.5" /> Cho Phép Ghi Để Đồng Bộ Auto-Save
@@ -3353,6 +3541,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         <button
                           type="button"
                           onClick={onLinkLocalAllFile}
+                          data-hnl-pc-v35-trigger="autosave-link"
                           className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 rounded-xl font-extrabold flex items-center justify-center gap-1.5 text-[11px] transition-colors cursor-pointer shadow-xs active:scale-98"
                         >
                           <ArrowLeftRight className="w-3.5 h-3.5 text-indigo-600" />
@@ -3477,7 +3666,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                                     setProjects(getProjectsList());
                                   }
                                 }}
-                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                                className="p-1 text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded transition-colors cursor-pointer"
                                 title="Xóa bản sao lưu"
                               >
                                 <Trash2 className="w-3 h-3" />
@@ -3492,7 +3681,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               </div>
               ) : (
                 <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-[10.5px] text-slate-600">
-                  <span className="font-bold">Sao lưu/khôi phục dữ liệu:</span> chỉ ADMIN được xuất, nhập hoặc phục hồi bản sao dự án. Đồng bộ realtime Firebase vẫn hoạt động theo quyền hiện tại.
+                  <span className="font-bold">Sao lưu/khôi phục dữ liệu:</span> chỉ ADMIN (Quản trị) được xuất, nhập hoặc phục hồi bản sao dự án. Đồng bộ thời gian thực (realtime) Firebase vẫn hoạt động theo quyền hiện tại.
                 </div>
               )}
 
@@ -3525,9 +3714,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     {cloudStatusMsg.type === 'success' && cloudStatusMsg.stats && (
                       <button 
                         onClick={() => setExportedFileInfo({
-                          title: 'Chi tiết Sao Lưu Cloud',
+                          title: 'Chi tiết sao lưu đám mây',
                           fileName: `Cloud_Sync_${getActiveProjectId()}`,
-                          fileSizeStr: 'Cloud Storage',
+                          fileSizeStr: 'Lưu trữ đám mây',
                           ...cloudStatusMsg.stats
                         })}
                         className="mt-1 self-start flex items-center gap-1.5 px-3 py-1.5 bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-100 rounded-lg text-[10.5px] shadow-xs transition-colors cursor-pointer"
@@ -3553,16 +3742,16 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     <span className={`shrink-0 text-[9px] px-2 py-1 rounded-full font-bold border ${
                       !googleUser || googleUser.isAnonymous ? 'bg-amber-50 text-amber-700 border-amber-200' :
                       typeof navigator !== 'undefined' && !navigator.onLine ? 'bg-slate-100 text-slate-600 border-slate-200' :
-                      dataCloudStatus?.phase === 'conflict' ? 'bg-amber-50 text-amber-800 border-amber-200' :
-                      dataCloudStatus?.phase === 'error' ? 'bg-rose-50 text-rose-700 border-rose-200' :
-                      dataCloudStatus?.phase === 'syncing' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                      (dataCloudStatus?.phase === 'conflict' || orderConflictCount>0) ? 'bg-amber-50 text-amber-800 border-amber-200' :
+                      (dataCloudStatus?.phase === 'error' || orderSyncError) ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                      (dataCloudStatus?.phase === 'syncing' || orderWaiting) ? 'bg-blue-50 text-blue-700 border-blue-200' :
                       'bg-emerald-50 text-emerald-700 border-emerald-200'
                     }`}>
                       {!googleUser || googleUser.isAnonymous ? 'Chưa xác thực' :
-                       typeof navigator !== 'undefined' && !navigator.onLine ? '● Offline' :
-                       dataCloudStatus?.phase === 'conflict' ? '● Có xung đột' :
-                       dataCloudStatus?.phase === 'error' ? '● Có lỗi đồng bộ' :
-                       dataCloudStatus?.phase === 'syncing' ? '● Đang đồng bộ nền' : '● Đã đồng bộ'}
+                       typeof navigator !== 'undefined' && !navigator.onLine ? '● Ngoại tuyến' :
+                       (dataCloudStatus?.phase === 'conflict' || orderConflictCount>0) ? '● Có xung đột' :
+                       (dataCloudStatus?.phase === 'error' || orderSyncError) ? '● Có lỗi đồng bộ' :
+                       (dataCloudStatus?.phase === 'syncing' || orderWaiting) ? '● Đang đồng bộ nền' : '● Đã đồng bộ'}
                     </span>
                   </div>
 
@@ -3572,14 +3761,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       <p className="font-bold text-slate-800 truncate">{projects.find(p => p.id === (activeProjectId || activeId))?.name || activeProjectId || activeId}</p>
                     </div>
                     <div className="bg-white border border-indigo-100 rounded-lg px-2 py-1.5">
-                      <span className="text-slate-400">Nội dung Cloud</span>
+                      <span className="text-slate-400">Nội dung đám mây</span>
                       <p className="font-bold text-slate-800">Dữ liệu + ảnh đầy đủ</p>
                     </div>
                   </div>
                   <div className="text-[9px] text-slate-500 space-y-1">
                     {googleUser && !googleUser.isAnonymous ? (
                       <p className="flex items-center justify-between gap-2">
-                        <span>Dữ liệu nghiệp vụ đồng bộ realtime bằng Firestore; ảnh/file mới lưu qua R2 theo quyền dự án.</span>
+                        <span>Dữ liệu nghiệp vụ đồng bộ thời gian thực bằng Firestore; ảnh/tệp mới lưu qua R2 theo quyền dự án.</span>
                         {dataCloudStatus?.lastSyncAt ? <span className="shrink-0">Lần cuối {new Date(dataCloudStatus.lastSyncAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</span> : null}
                       </p>
                     ) : (
@@ -3599,6 +3788,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         type="button"
                         onClick={handleUploadActiveProjectToCloud}
                         disabled={isSyncingCurrentProject || !googleUser || googleUser.isAnonymous}
+                        data-hnl-pc-v35-trigger="cloud-resync"
                         className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg font-bold text-[10.5px] flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs"
                       >
                         <CloudUpload className="w-3.5 h-3.5" /> Đồng bộ lại dự án này
@@ -3639,7 +3829,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 {canBackup && cloudBackups.length > 0 && (
                 <div className="group pt-2 border-t border-slate-100">
                   <div className="select-none flex items-center justify-between mb-1.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
-                    <span>Phiên bản đám mây ({cloudBackups.length})</span>
+                    <span>Bản sao lưu trên đám mây ({cloudBackups.length})</span>
                   </div>
                   <div>
 
@@ -3692,7 +3882,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                             <button
                               type="button"
                               onClick={() => handleDeleteCloudBackup({ id: b.id, name: b.backupName || 'Bản sao lưu' })}
-                              className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors cursor-pointer"
+                              className="p-1 text-rose-600 hover:text-rose-700 rounded transition-colors cursor-pointer"
                               title="Xóa bản sao lưu"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -3713,14 +3903,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   <div className="flex items-center justify-between">
                     <span className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
                       <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                      Đồng Bộ Trực Tiếp Google Drive
+                      Đồng bộ trực tiếp Google Drive
                     </span>
                     <span className="text-[9px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-bold">
-                      Google OAuth
+                      Google OAuth (xác thực)
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2">
+                  <div data-hnl-pc-v35-actions="drive-sync" className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={handleDriveSyncUpAction}
@@ -3728,7 +3918,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl font-bold flex items-center justify-center gap-1.5 text-xs transition-colors cursor-pointer shadow-xs"
                     >
                       {isDriveSyncing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CloudUpload className="w-3.5 h-3.5" />}
-                      <span>Đẩy Lên Google Drive</span>
+                      <span>Đẩy lên Google Drive</span>
                     </button>
 
                     <button
@@ -3738,7 +3928,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       className="w-full py-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 disabled:opacity-50 text-slate-800 rounded-xl font-bold flex items-center justify-center gap-1.5 text-xs transition-colors cursor-pointer"
                     >
                       {isDriveSyncing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CloudDownload className="w-3.5 h-3.5" />}
-                      <span>Tải Từ Google Drive</span>
+                      <span>Tải từ Google Drive</span>
                     </button>
                   </div>
                   {/* Google Drive Status Message */}
@@ -3781,6 +3971,29 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           {modalTab === 'projects' && (
             <div className="space-y-3">
               
+              <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => setProjectViewMode('active')}
+                  className={`rounded-lg px-3 py-1.5 text-[10.5px] font-extrabold transition-all ${projectViewMode === 'active' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  Đang hoạt động ({activeProjectCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProjectViewMode('archived')}
+                  className={`rounded-lg px-3 py-1.5 text-[10.5px] font-extrabold transition-all ${projectViewMode === 'archived' ? 'bg-white text-amber-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  Đã lưu trữ ({archivedProjectCount})
+                </button>
+              </div>
+
+              {projectViewMode === 'archived' && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] leading-relaxed text-amber-900">
+                  Dự án lưu trữ vẫn giữ nguyên Firestore, R2, ảnh và ID. Danh sách hoạt động/Home/Chat không tải dự án này cho tới khi ADMIN khôi phục.
+                </div>
+              )}
+
               {/* Search Bar */}
               {projects.length > 2 && (
                 <div className="relative">
@@ -3861,13 +4074,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     const isActive = proj.id === activeId;
                     const isEditing = editingProjectId === proj.id;
                     const isDuplicate = duplicateProjectIds.has(proj.id);
+                    const isArchived = Number(proj.archivedAt || 0) > 0;
 
                     return (
                       <div 
                         key={proj.id} 
                         className={`p-3 rounded-2xl border transition-all ${
                           isActive 
-                            ? 'bg-gradient-to-r from-indigo-50/90 to-blue-50/50 border-indigo-300 ring-2 ring-indigo-500/20 shadow-xs' 
+                            ? 'hnl-project-selected-card bg-gradient-to-r from-blue-50/90 to-blue-50/50 border-indigo-300 ring-2 ring-indigo-500/20 shadow-xs' 
                             : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/60'
                         }`}
                       >
@@ -3904,15 +4118,20 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         ) : (
                           <div className="flex items-center justify-between gap-3">
                             <div 
-                              className="flex-1 min-w-0 cursor-pointer"
-                              onClick={() => handleSwitchProject(proj.id)}
+                              className={`flex-1 min-w-0 ${isArchived ? 'cursor-default' : 'cursor-pointer'}`}
+                              onClick={() => { if (!isArchived) void handleSwitchProject(proj.id); }}
                             >
                               <div className="flex items-center gap-2 min-w-0">
                                 <Folder className={`w-4 h-4 shrink-0 ${isActive ? 'text-indigo-600' : 'text-slate-400'}`} />
                                 <p className={`font-bold text-xs truncate ${isActive ? 'text-indigo-900' : 'text-slate-800'}`}>
                                   {proj.name} <span className="font-mono text-[10px] text-slate-400">· {shortProjectId(proj.id)}</span>
                                 </p>
-                                {isDuplicate && (
+                                {isArchived && (
+                                  <span className="shrink-0 text-[9px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded-full">
+                                    Đã lưu trữ
+                                  </span>
+                                )}
+                                                                {isDuplicate && (
                                   <span className="shrink-0 text-[9px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded-full">
                                     Trùng tên · ID khác
                                   </span>
@@ -3928,11 +4147,22 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                               </div>
                               <p className="text-[10px] text-slate-400 mt-0.5 pl-6 font-medium">
                                 Khởi tạo: {formatProjectCreatedAt(proj)} · ID {shortProjectId(proj.id)}
+                                {isArchived && proj.archivedAt ? ` · Lưu trữ: ${formatDateTime(Number(proj.archivedAt))}` : ''}
                               </p>
                             </div>
                             
                             <div className="flex items-center gap-1.5 shrink-0">
-                              {isActive ? (
+                              {isArchived ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleArchiveProject(proj, false)}
+                                  disabled={archivingProjectId === proj.id}
+                                  className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-2.5 py-1 rounded-lg shadow-xs"
+                                >
+                                  {archivingProjectId === proj.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Archive className="w-3 h-3" />}
+                                  Khôi phục
+                                </button>
+                              ) : isActive ? (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-indigo-600 text-white px-2.5 py-1 rounded-lg shadow-xs">
                                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
                                   Đang mở
@@ -3951,22 +4181,34 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                                 </button>
                               )}
                               
-                              {canManage && (
+                              {canManage && !isArchived && (
                                 <button
                                   type="button"
                                   onClick={(e) => handleStartRename(proj, e)}
-                                  className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                                  className="p-1 text-indigo-700 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
                                   title="Đổi tên dự án"
                                 >
                                   <Edit3 className="w-3.5 h-3.5" />
                                 </button>
                               )}
 
-                              {canManage && !isActive && (
+                              {canManage && !isArchived && !isActive && (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleArchiveProject(proj, true)}
+                                  disabled={archivingProjectId === proj.id}
+                                  className="p-1 text-slate-400 hover:text-amber-700 hover:bg-amber-50 disabled:opacity-50 rounded-lg transition-colors cursor-pointer"
+                                  title="Lưu trữ dự án (không xóa dữ liệu)"
+                                >
+                                  {archivingProjectId === proj.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Archive className="w-3.5 h-3.5" />}
+                                </button>
+                              )}
+
+                              {canManage && !isArchived && !isActive && (
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteProject(proj.id)}
-                                  className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                  className="p-1 text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                                   title="Xóa dự án"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
@@ -3976,7 +4218,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                           </div>
                         )}
 
-                        {!isEditing && isDuplicate && canManage && (
+                        {!isEditing && !isArchived && isDuplicate && canManage && (
                           <div className="mt-2 pl-6 flex items-center justify-between gap-2 border-t border-amber-100 pt-2">
                             <span className="text-[10px] text-amber-700 font-semibold">
                               Chọn ID này làm dự án chính
@@ -4057,20 +4299,61 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all"
                   />
 
-                  <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer bg-white p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors">
-                    <input 
-                      type="checkbox" 
-                      checked={duplicateFromCurrent} 
-                      onChange={(e) => setDuplicateFromCurrent(e.target.checked)}
-                      className="w-4 h-4 mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
-                    />
-                    <div>
-                      <span className="font-bold text-slate-800">Sao chép mẫu từ dự án hiện tại</span>
-                      <p className="text-[10px] text-slate-500 font-normal mt-0.5">
-                        Giữ định mức + cấu trúc tầng/phòng + mẫu kiểm tra; đặt lại tiến độ. Không sao chép tồn kho, defect, quân số hoặc ảnh.
-                      </p>
-                    </div>
-                  </label>
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-2.5">
+                    <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={duplicateFromCurrent} 
+                        onChange={(e) => {
+                          setDuplicateFromCurrent(e.target.checked);
+                          if (e.target.checked) setTemplateSourceProjectId(activeId || getActiveProjectId());
+                        }}
+                        className="w-4 h-4 mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <div>
+                        <span className="font-bold text-slate-800">Tạo từ mẫu công trình</span>
+                        <p className="text-[10px] text-slate-500 font-normal mt-0.5">
+                          Chỉ sao chép danh mục/cấu trúc đã chọn; luôn đặt lại tiến độ. Không sao chép tồn kho, phiếu nhập/xuất, defect, quân số, ảnh hoặc lịch sử.
+                        </p>
+                      </div>
+                    </label>
+                    {duplicateFromCurrent && (
+                      <div className="pl-6 space-y-2">
+                        <select
+                          value={templateSourceProjectId}
+                          onChange={(e) => setTemplateSourceProjectId(e.target.value)}
+                          className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-[11px] font-bold text-slate-800"
+                        >
+                          {projects.map((project) => <option key={project.id} value={project.id}>Mẫu từ: {project.name}{project.id === activeId ? ' (đang mở)' : ''}</option>)}
+                        </select>
+                        <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+                          {([
+                            ['structure', 'Khu/Khối · Tầng · Căn'],
+                            ['workVolumes', 'Hạng mục thi công'],
+                            ['materialNorms', 'Định mức vật tư'],
+                            ['teams', 'Danh mục đội thi công'],
+                            ['checklist', 'Mẫu checklist'],
+                          ] as const).map(([key, label]) => (
+                            <label key={key} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2 py-1.5 cursor-pointer hover:bg-slate-50">
+                              <input
+                                type="checkbox"
+                                checked={templateCopyOptions[key]}
+                                disabled={key === 'workVolumes' && templateCopyOptions.materialNorms}
+                                onChange={(e) => setTemplateCopyOptions((current) => {
+                                  const next = { ...current, [key]: e.target.checked };
+                                  if (key === 'materialNorms' && e.target.checked) next.workVolumes = true;
+                                  return next;
+                                })}
+                                className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600"
+                              />
+                              <span className={`font-semibold ${key === 'workVolumes' && templateCopyOptions.materialNorms ? 'text-slate-400' : 'text-slate-700'}`}>{label}</span>
+                            </label>
+                          ))}
+                        </div>
+                        <div className="text-[9px] leading-4 text-amber-700 font-semibold">Thiết bị hiện chưa có master catalog độc lập; không tạo giao dịch kho giả chỉ để làm mẫu.</div>
+                      </div>
+                    )}
+                  </div>
 
                   <div className="flex gap-2 pt-1">
                     <button
@@ -4232,6 +4515,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
       {/* Smart Conflict Resolution & Merge Modal */}
       {showConflictModal && pendingImportData && (
+        <ViewportModalPortal>
         <ConflictMergeModal
           localData={fullAppData}
           importedData={pendingImportData}
@@ -4253,14 +4537,16 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             setPendingImportData(null);
           }}
         />
+        </ViewportModalPortal>
       )}
 
       {/* MULTI-PROJECT INTELLIGENT SYNC & IMPORT MODAL */}
       {multiProjectSyncState && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs z-[280] flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
+        <ViewportModalPortal>
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs z-[340] flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col border border-indigo-100 shadow-2xl overflow-hidden">
             {/* Header */}
-            <div className="p-4 sm:p-5 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-indigo-50/40 flex items-center justify-between">
+            <div className="hnl-multiproject-sync-header p-4 sm:p-5 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-blue-50/40 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0">
                   <Layers className="w-5 h-5" />
@@ -4523,8 +4809,16 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
             {/* Footer */}
             <div className="p-4 border-t border-slate-100 bg-slate-50 flex flex-wrap items-center justify-between gap-3">
-              <div className="text-xs text-slate-500">
-                {multiProjectSyncState.items.filter(it => it.action !== 'SKIP' && it.action !== 'KEEP_LOCAL').length} / {multiProjectSyncState.items.length} dự án sẽ được nạp/đồng bộ
+              <div className="text-xs text-slate-500 min-w-0">
+                <div>{multiProjectSyncState.items.filter(it => it.action !== 'SKIP' && it.action !== 'KEEP_LOCAL').length} / {multiProjectSyncState.items.length} dự án sẽ được nạp/đồng bộ</div>
+                {isExecutingMultiSync && multiSyncProgress ? (
+                  <div className="mt-1 font-semibold text-indigo-700 truncate max-w-[280px] sm:max-w-md" title={multiSyncProgress.label}>
+                    {multiSyncProgress.label}
+                    {Number.isFinite(multiSyncProgress.total) && Number(multiSyncProgress.total) > 0
+                      ? ` ${Number(multiSyncProgress.done || 0)}/${Number(multiSyncProgress.total)}`
+                      : ''}
+                  </div>
+                ) : null}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button
@@ -4553,7 +4847,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 >
                   {isExecutingMultiSync ? (
                     <>
-                      <RefreshCw className="w-4 h-4 animate-spin" /> Đang đồng bộ...
+                      <RefreshCw className="w-4 h-4 animate-spin" /> {multiSyncProgress?.label || 'Đang đồng bộ…'}
                     </>
                   ) : (
                     <>
@@ -4565,11 +4859,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             </div>
           </div>
         </div>
+        </ViewportModalPortal>
       )}
 
       {/* CONFIRM DELETE CLOUD BACKUP MODAL */}
       {canBackup && deletingCloudBackupTarget && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[250] flex items-center justify-center p-4 animate-in fade-in duration-150">
+        <ViewportModalPortal>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[330] flex items-center justify-center p-4 animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl p-5 max-w-xs w-full space-y-4 border border-rose-100 shadow-2xl text-center">
             <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto">
               <Trash2 className="w-6 h-6" />
@@ -4598,12 +4894,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             </div>
           </div>
         </div>
+        </ViewportModalPortal>
       )}
 
       {/* 📥 SUCCESSFUL MANUAL EXPORT SUMMARY OVERLAY */}
       {/* JSON export scope picker: shown only on explicit JSON export. */}
       {showJsonScopePicker && (
-        <div className="fixed inset-0 z-100 flex items-center justify-center p-3 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+        <ViewportModalPortal>
+        <div data-hnl-viewport-overlay="json-export-scope" className="fixed inset-0 z-[320] flex items-center justify-center p-3 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl p-4 w-full max-w-md shadow-2xl border border-slate-200 space-y-3 max-h-[86vh] overflow-y-auto">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-2.5 min-w-0">
@@ -4661,7 +4959,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             {saveScope === 'selected' && (
               <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[10.5px] font-bold text-slate-700">Chọn dự án cần đưa vào file JSON</span>
+                  <span className="text-[10.5px] font-bold text-slate-700">Chọn dự án cần đưa vào tệp JSON</span>
                   <button
                     type="button"
                     onClick={selectAllProjects}
@@ -4718,10 +5016,12 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             </div>
           </div>
         </div>
+        </ViewportModalPortal>
       )}
 
       {exportedFileInfo && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[270] flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <ViewportModalPortal>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[330] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-5 max-w-sm w-full space-y-4 border border-emerald-100 shadow-2xl relative">
             <button 
               type="button" 
@@ -4735,7 +5035,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-2 shadow-xs">
                 <CheckCircle className="w-6 h-6 text-emerald-600" />
               </div>
-              <h3 className="text-sm font-extrabold text-slate-950">Xuất File JSON Thành Công!</h3>
+              <h3 className="text-sm font-extrabold text-slate-950">Xuất tệp JSON thành công!</h3>
               <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">
                 Tệp sao lưu cục bộ đã được nén hoàn tất và tải về thiết bị của bạn.
               </p>
@@ -4843,11 +5143,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             </div>
           </div>
         </div>
+        </ViewportModalPortal>
       )}
 
       {/* 📥 SUCCESSFUL MANUAL IMPORT SUMMARY OVERLAY */}
       {importedFileInfo && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[270] flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <ViewportModalPortal>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[330] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-5 max-w-sm w-full space-y-4 border border-indigo-100 shadow-2xl relative">
             <button 
               type="button" 
@@ -4969,11 +5271,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             </div>
           </div>
         </div>
+        </ViewportModalPortal>
       )}
 
       {/* Decrypt Password Modal for AES-GCM Encrypted Backups */}
       {pendingEncryptedPayload && (
-        <div className="fixed inset-0 z-100 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+        <ViewportModalPortal>
+        <div className="fixed inset-0 z-[320] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-5 w-full max-w-md shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
@@ -5032,14 +5336,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   className="text-[11px] text-indigo-600 font-bold hover:underline flex items-center gap-1 cursor-pointer"
                 >
                   <Key className="w-3.5 h-3.5 text-indigo-500" />
-                  <span>{showReencryptOptions ? 'Ẩn tùy chọn đổi mật khẩu file' : 'Muốn đổi mật khẩu mới cho file backup này?'}</span>
+                  <span>{showReencryptOptions ? 'Ẩn tùy chọn đổi mật khẩu tệp' : 'Muốn đổi mật khẩu mới cho tệp sao lưu này?'}</span>
                 </button>
 
                 {showReencryptOptions && (
                   <div className="mt-2 p-3 bg-indigo-50/60 border border-indigo-200 rounded-xl space-y-2 animate-in fade-in duration-150">
                     <div>
                       <label className="block text-[10px] font-extrabold text-indigo-950 mb-0.5">
-                        Mật Khẩu Mới Cho File Backup (Tối thiểu 4 ký tự):
+                        Mật khẩu mới cho tệp sao lưu (tối thiểu 4 ký tự):
                       </label>
                       <input
                         type="password"
@@ -5115,6 +5419,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             </div>
           </div>
         </div>
+        </ViewportModalPortal>
       )}
     </div>
   );

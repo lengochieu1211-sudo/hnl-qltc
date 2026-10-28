@@ -51,7 +51,8 @@ for (const marker of [
   if (!security.includes(marker)) fail(`Member presence UI missing ${marker}`);
 }
 for (const marker of [
-  'updateProjectPresence(activeProjectId, activeTab, currentUserRole)',
+  'updateProjectPresence(activeProjectId, activeTabRef.current, currentUserRole)',
+  'Project presence tab update warning:',
   '45_000',
   "document.visibilityState === 'hidden'",
 ]) {

@@ -1,8 +1,8 @@
 import { downloadOrShareFile } from '../utils/downloadUtils';
 import React, { useState, useEffect, useMemo } from 'react';
+import { ViewportModalPortal } from './ViewportModalPortal';
 import { FileText, Download, Printer, X, CheckCircle2, Filter, Mail, Package, BarChart3, Building2, ClipboardCheck, FileSpreadsheet, Users, Copy, HelpCircle, Camera, Image as ImageIcon, ChevronDown } from 'lucide-react';
 import { InventoryItem, WorkVolume, DefectItem, ChecklistItem, FloorPlan, RoomProgressItem, MaterialNorm, CrewRecord, TeamInfo } from '../types';
-import { exportAllToExcel, exportAllToExcelBase64, exportTeamStatisticsToExcel } from '../utils/excelExport';
 import { formatDateDDMMYYYY, formatDateTime, formatFloorName, parseLegacyTimestamp } from '../utils/dateFormatter';
 import { getCrewShiftCounts } from '../utils/crewUtils';
 import { getRoomColorStyle } from '../utils/colorPalette';
@@ -12,7 +12,7 @@ import { getProjectPhotosWithBinary } from '../utils/photoStorage';
 import { computeDefectLabelPositions, computeRoomLabelPositions } from '../utils/pdfMapUtils';
 import { canViewFinancials, getCurrentUserRole, UserRole } from '../utils/securityUtils';
 import { apiFetch, hasApiBackend } from '../utils/api';
-import { saveHtmlPdf } from '../utils/fileExport';
+import { saveHtmlPdf, saveTextFileToDownloads, isAndroidExportBridgeAvailable } from '../utils/fileExport';
 import { calculateStockSummary } from '../utils/inventoryUtils';
 import { isDisplayableFloorPlanUrl, loadFloorPlanImageFromCloud } from '../lib/floorPlanImageSync';
 import { computeWorkVolumeDetailBreakdown } from '../utils/workVolumeComputation';
@@ -22,6 +22,11 @@ import {
   resolveFloorStructureGroupId,
   type ProjectStructureConfig,
 } from '../utils/structureGroupUtils';
+
+// Keep optional HTML and Android picker exports available in source as a fallback,
+// but hide the redundant '...' menu in the normal Report UI on all platforms.
+// Do not remove the handlers: this is a reversible, presentation-only change.
+const SHOW_LEGACY_REPORT_EXPORT_MENU = false;
 
 const escapeHtml = (value: unknown): string => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -173,6 +178,11 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     .filter((sub) => isActiveReportCategory(sub.category || room.workCategory || ''));
 
   // Module checkboxes
+  const [androidReportBusy, setAndroidReportBusy] = useState(false);
+  // Synchronously gate repeated taps, including before React renders a busy state.
+  const reportExportInFlightRef = React.useRef(false);
+  const [reportExportBusy, setReportExportBusy] = useState<'pdf' | 'xlsx' | 'html' | null>(null);
+  const [reportExportMessage, setReportExportMessage] = useState('');
   const [includeWarehouse, setIncludeWarehouse] = useState(true);
   const [includeWorkVolumes, setIncludeWorkVolumes] = useState(true);
   const [includeFloorPlan, setIncludeFloorPlan] = useState(true);
@@ -350,7 +360,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const roomMatchesTeamScope = (room: RoomProgressItem): boolean => allTeamsSelected || teamMatchesScope(room.teamId, room.assignedTeam) || (room.subItems || []).some((sub) => teamMatchesScope(sub.teamId, sub.assignedTeam));
 
   // Cascading options are strictly upstream -> downstream:
-  // Khu/Khối -> Tầng -> Căn/Phòng -> Đội. A selected team may filter report rows,
+  // Khu/Khối -> Tầng -> Căn / Phòng -> Đội. A selected team may filter report rows,
   // but it must never remove room options and create a cyclic/stale selection graph.
   const roomScopeOptions = baseRoomScopeOptions.slice().sort((a, b) => {
     const floorA = effectiveFloorPlans.find((floor) => floor.id === a.floorId)?.floorName || a.floorName || '';
@@ -524,7 +534,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 
   const getDefectReportGroupLabel = (defect: DefectItem): string => {
     if (defectReportSortMode === 'category-floor-room') return `Hạng mục: ${defect.category || 'Chưa phân loại'}`;
-    if (defectReportSortMode === 'room-floor-category') return `Phòng/Căn: ${getDefectRoomName(defect)} · ${formatFloorName(defect.floorName)}`;
+    if (defectReportSortMode === 'room-floor-category') return `Căn / Phòng: ${getDefectRoomName(defect)} · ${formatFloorName(defect.floorName)}`;
     if (defectReportSortMode === 'created-desc') return `Ngày tạo: ${formatDateDDMMYYYY(defect.createdAt)}`;
     if (defectReportSortMode === 'status-due') return `Trạng thái: ${defect.status}`;
     if (defectReportSortMode === 'code-asc' || defectReportSortMode === 'code-desc') return 'Theo mã Defect hiển thị';
@@ -665,7 +675,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
       ? `${normalizedStructureConfig.label}: ${selectedStructureGroupIds.map((id) => getStructureGroupName(id, normalizedStructureConfig)).join(', ')}`
       : '',
     !isAllSelected ? scopedFloorPlans.map((floor) => floor.floorName).join(', ') : '',
-    !allRoomsSelected ? `Căn/Phòng: ${selectedRoomIds.map((id) => roomProgressList.find((room) => room.id === id)?.roomName || id).join(', ')}` : '',
+    !allRoomsSelected ? `Căn / Phòng: ${selectedRoomIds.map((id) => roomProgressList.find((room) => room.id === id)?.roomName || id).join(', ')}` : '',
     !allTeamsSelected ? `Đội: ${selectedTeamIds.map((id) => teams.find((team) => team.id === id)?.name || id).join(', ')}` : '',
   ].filter(Boolean);
   const reportScopeLabel = reportScopeParts.length > 0 ? reportScopeParts.join(' · ') : 'Toàn bộ công trình';
@@ -697,7 +707,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
       }).join('');
       return `
         <div class="page-break-avoid" style="margin:10px 0 14px;">
-          <div style="font-size:10.5px;font-weight:800;color:#1e1b4b;margin:0 0 5px;">
+          <div style="font-size:10.5px;font-weight:800;color:#1e3a8a;margin:0 0 5px;">
             ${h(item.title)} · ${h(item.unit || '')}
           </div>
           <table>
@@ -716,7 +726,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
             <tbody>${body}</tbody>
             <tfoot>
               <tr>
-                <td colspan="${normalizedStructureConfig.enabled ? 4 : 3}"><strong>TỔNG · ${detail.rows.length} Căn/Phòng</strong></td>
+                <td colspan="${normalizedStructureConfig.enabled ? 4 : 3}"><strong>TỔNG · ${detail.rows.length} Căn / Phòng</strong></td>
                 <td style="text-align:right;"><strong>${formatDecimal(detail.totalAssigned)}</strong></td>
                 <td style="text-align:right;color:#166534;"><strong>${formatDecimal(detail.totalActual)}</strong></td>
                 <td style="text-align:right;"><strong>${formatDecimal(Math.max(0, detail.totalAssigned - detail.totalActual))}</strong></td>
@@ -766,11 +776,14 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         <meta charset="UTF-8">
         <title>Báo cáo tổng hợp thi công &amp; nghiệm thu - ${h(projectName || 'Công trình')}</title>
         <style>
-          @page { size: ${pdfPaperSize} ${pdfOrientation}; margin: 10mm 10mm 12mm 10mm; }
+          @page { size: ${pdfPaperSize} ${pdfOrientation}; margin: 14mm 12mm 15mm 12mm; }
           * { box-sizing: border-box; }
           body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 0; padding: 12px; color: #0f172a; line-height: 1.4; background: #fff; font-size: 10px; }
-          .header { border-bottom: 2.5px solid #4f46e5; padding-bottom: 10px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: flex-start; }
-          .header h1 { margin: 0; color: #1e1b4b; font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: -0.2px; }
+          .header { border-bottom: 2.5px solid #2563eb; padding-bottom: 9px; margin-bottom: 12px; page-break-inside: avoid; break-inside: avoid; }
+          .header .report-meta { display: flex; gap: 12px; justify-content: space-between; margin-top: 9px; text-align: left; }
+          .header .report-meta > div:first-child { flex: 1.7; min-width: 0; }
+          .header .report-meta > div:last-child { flex: 1; min-width: 0; text-align: right; }
+          .header h1 { margin: 0; color: #1e3a8a; font-size: 16px; line-height: 1.35; font-weight: 800; text-align: center; text-transform: uppercase; letter-spacing: -0.2px; }
           .header p { margin: 2px 0 0; color: #475569; font-size: 10.5px; }
           .badge { display: inline-block; max-width: 100%; padding: 2px 5px; border-radius: 4px; font-weight: 700; font-size: 8.8px; white-space: normal; word-break: break-word; overflow-wrap: anywhere; line-height: 1.25; text-align: center; vertical-align: middle; }
           .badge-passed { background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }
@@ -790,7 +803,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           .wrap-cell { white-space: normal; word-break: break-word; overflow-wrap: anywhere; line-height: 1.3; }
           .map-legend td, .map-legend th { padding: 4px 5px; }
           tr:nth-child(even) { background-color: #f8fafc; }
-          .section-title { font-size: 12px; font-weight: 800; margin-top: 14px; margin-bottom: 8px; color: #1e1b4b; border-left: 4px solid #4f46e5; padding-left: 8px; background: #f1f5f9; padding-top: 4px; padding-bottom: 4px; page-break-after: avoid; break-after: avoid; text-transform: uppercase; }
+          .section-title { font-size: 12px; font-weight: 800; margin-top: 14px; margin-bottom: 8px; color: #1e3a8a; border-left: 4px solid #2563eb; padding-left: 8px; background: #f1f5f9; padding-top: 4px; padding-bottom: 4px; page-break-after: avoid; break-after: avoid; text-transform: uppercase; }
           .footer { font-size: 8.5px; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 6px; margin-top: 20px; }
           .page-break-avoid { page-break-inside: avoid; break-inside: avoid; }
           @media print {
@@ -810,8 +823,9 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         </div>
 
         <div class="header">
-          <div>
-            <h1>Báo cáo tổng hợp thi công &amp; nghiệm thu</h1>
+          <h1>Báo cáo tổng hợp thi công &amp; nghiệm thu</h1>
+          <div class="report-meta">
+            <div>
             <p><strong>Dự án:</strong> ${h(projectName || '—')} | <strong>Khu vực:</strong> ${h(areaText)}</p>
             ${displayProjectLocation ? `<p><strong>Địa điểm:</strong> ${h(displayProjectLocation)}</p>` : ''}
             ${displayContractor !== '—' ? `<p><strong>Đơn vị thi công:</strong> ${h(displayContractor)}</p>` : ''}
@@ -819,7 +833,8 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           </div>
           <div style="text-align: right;">
             <p><strong>Ngày xuất:</strong> ${formatDateTime(new Date())}</p>
-            <p style="color: #4f46e5; font-weight: bold;">Hệ thống quản lý thi công &amp; nghiệm thu</p>
+            <p style="color: #2563eb; font-weight: bold;">Hệ thống quản lý thi công &amp; nghiệm thu</p>
+            </div>
           </div>
         </div>
 
@@ -838,7 +853,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           ` : ''}
           ${includeFloorPlan ? `
             <div class="card">
-              <h3 style="color: #4f46e5;">${filteredRooms.length}</h3>
+              <h3 style="color: #2563eb;">${filteredRooms.length}</h3>
               <p>Khu vực / Phòng</p>
             </div>
             <div class="card">
@@ -854,7 +869,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           ` : ''}
           ${includeCrew ? `
             <div class="card">
-              <h3 style="color: #4f46e5;">${filteredCrew.reduce((sum, c) => sum + c.workerCount, 0)}</h3>
+              <h3 style="color: #2563eb;">${filteredCrew.reduce((sum, c) => sum + c.workerCount, 0)}</h3>
               <p>TỔNG LƯỢT NHÂN CÔNG</p>
             </div>
           ` : ''}
@@ -936,7 +951,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         ${includeFloorPlan && targetFloorPlans.length > 0 ? `
           <div class="section-title">🖼️ MẶT BẰNG CĂN / PHÒNG &amp; SƠ ĐỒ DEFECT</div>
           <div class="page-break-avoid" style="display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin:0 0 10px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:7px;background:#f8fafc;font-size:8.8px;color:#475569;">
-            <span><strong style="color:#4f46e5;">● Căn/Phòng:</strong> ${pdfRoomCodeStyle === 'hash' ? '#1, #2…' : pdfRoomCodeStyle === 'room' ? 'C1, C2…' : '1, 2, 3…'}</span>
+            <span><strong style="color:#2563eb;">● Căn / Phòng:</strong> ${pdfRoomCodeStyle === 'hash' ? '#1, #2…' : pdfRoomCodeStyle === 'room' ? 'C1, C2…' : '1, 2, 3…'}</span>
             <span><strong style="color:#e11d48;">● Defect:</strong> ${pdfDefectCodeStyle === 'df' ? 'DF-01, DF-02…' : '01, 02, 03…'}</span>
             <span>Số/mã trên bản vẽ khớp với bảng chú giải, danh sách Defect và phụ lục ảnh.</span>
             <span style="color:#64748b;">Mã hệ thống DF-xxxx chỉ dùng để truy vết kỹ thuật.</span>
@@ -950,7 +965,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
             if (!hasRooms && !hasDefects) {
               return `
                 <div class="page-break-avoid" style="margin-bottom: 16px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; background: #f8fafc;">
-                  <span style="font-weight: bold; color: #1e1b4b; font-size: 11px;">📍 Sơ đồ mặt bằng: ${h(formatFloorName(fp.floorName))}</span>
+                  <span style="font-weight: bold; color: #1e3a8a; font-size: 11px;">📍 Sơ đồ mặt bằng: ${h(formatFloorName(fp.floorName))}</span>
                   <span style="color: #64748b; font-size: 10px; margin-left: 8px;">(Chưa có khu vực/phòng được đánh dấu &amp; Không có Defect)</span>
                 </div>
               `;
@@ -977,8 +992,8 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
             );
 
             return `
-              <div class="page-break-avoid" style="margin-bottom: 20px; border: 1px solid #cbd5e1; border-radius: 10px; padding: 12px; background: #fff;">
-                <h4 style="margin: 0 0 10px 0; font-size: 12.5px; color: #1e1b4b; font-weight: bold; border-bottom: 2px solid #4f46e5; padding-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+              <div style="margin-bottom: 20px; border: 1px solid #cbd5e1; border-radius: 10px; padding: 12px; background: #fff;">
+                <h4 style="margin: 0 0 10px 0; font-size: 12.5px; color: #1e3a8a; font-weight: bold; border-bottom: 2px solid #2563eb; padding-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
                   <span>📍 Sơ đồ mặt bằng: <strong>${h(formatFloorName(fp.floorName))}</strong></span>
                   <span style="font-size: 10px; font-weight: normal; color: #475569;">(${fpRooms.length} khu vực/phòng, ${fpDefects.length} defect)</span>
                 </h4>
@@ -986,7 +1001,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                 <div style="display: flex; flex-direction: column; gap: 14px;">
                   <!-- Vùng đánh dấu Map -->
                   <div style="width: 100%;">
-                    <p style="margin: 0 0 6px 0; font-size: 10.5px; font-weight: bold; color: #4f46e5;">
+                    <p style="margin: 0 0 6px 0; font-size: 10.5px; font-weight: bold; color: #2563eb;">
                       1. Mặt bằng vùng đánh dấu khu vực / phòng (${fpRooms.length} khu vực)
                     </p>
 
@@ -1048,8 +1063,8 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                       <!-- Legend Table below Vùng đánh dấu Map -->
                       ${fpRooms.length > 0 ? `
                         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 8px; margin-bottom: 6px;">
-                          <p style="margin: 0 0 4px 0; font-size: 9.5px; font-weight: bold; color: #1e1b4b;">Chú giải mã vị trí khu vực / phòng (${h(formatFloorName(fp.floorName))}):</p>
-                          <p style="margin: 0 0 5px 0; font-size: 8.5px; color: #64748b;">🟣 Ký hiệu tím = Căn/Phòng. Mã trên bản vẽ khớp với cột Mã trong bảng chú giải.</p>
+                          <p style="margin: 0 0 4px 0; font-size: 9.5px; font-weight: bold; color: #1e3a8a;">Chú giải mã vị trí khu vực / phòng (${h(formatFloorName(fp.floorName))}):</p>
+                          <p style="margin: 0 0 5px 0; font-size: 8.5px; color: #64748b;">🟣 Ký hiệu tím = Căn / Phòng. Mã trên bản vẽ khớp với cột Mã trong bảng chú giải.</p>
                           <table style="width: 100%; border-collapse: collapse; margin-bottom: 0; font-size: 9px; table-layout: fixed;">
                             <thead>
                               <tr style="background: #e2e8f0;">
@@ -1266,7 +1281,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                 const groupLabel = getDefectReportGroupLabel(d);
                 const previousGroup = index > 0 ? getDefectReportGroupLabel(defectsForReport[index - 1]) : '';
                 const groupHeader = groupLabel !== previousGroup
-                  ? `<tr><td colspan="7" style="background:#eef2ff;color:#3730a3;font-weight:900;font-size:9px;padding:5px 7px;border-top:1.4px solid #c7d2fe;">${h(groupLabel)}</td></tr>`
+                  ? `<tr><td colspan="7" style="background:#eff6ff;color:#1d4ed8;font-weight:900;font-size:9px;padding:5px 7px;border-top:1.4px solid #bfdbfe;">${h(groupLabel)}</td></tr>`
                   : '';
                 return `${groupHeader}
                 <tr>
@@ -1425,7 +1440,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                   <td>${formatDateDDMMYYYY(c.date)}</td>
                   <td><strong>${escapeHtml(c.teamName)}</strong></td>
                   <td>${escapeHtml(c.leaderName)}</td>
-                  <td style="text-align: center; font-weight: bold; color: #4f46e5;">${c.workerCount}</td>
+                  <td style="text-align: center; font-weight: bold; color: #2563eb;">${c.workerCount}</td>
                   <td style="text-align: center;">${escapeHtml(getCrewShiftSummary(c))}</td>
                   <td>${escapeHtml(c.floorName || '-')}</td>
                   <td>
@@ -1530,14 +1545,30 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
       await downloadOrShareFile(`Bao_Cao_Tong_Hop_${safeProjectName}_${dateStr}.html`, blob, 'text/html');
     } catch (err) {
       console.error('Download HTML report error:', err);
-      alert('Không thể tải file báo cáo HTML.');
+      alert('Không thể tải tệp báo cáo HTML.');
     }
   };
 
-  // High-fidelity HTML Print / Save as PDF with FULL Unicode Vietnamese support (Có dấu 100%)
-  const handlePrintHTML = () => {
+  const handleDownloadHtmlToQLTC = async () => {
     if (!ensureReportPhotosReady()) return;
     if (includeFloorPlan && isResolvingFloorPlansForExport) {
+      alert('Đang tải ảnh mặt bằng từ Cloud. Vui lòng chờ hoàn tất.');
+      return;
+    }
+    try {
+      setAndroidReportBusy(true);
+      const safeName = (projectName || 'Du_An').replace(/[^a-zA-Z0-9_-\s]/g,'').trim().replace(/\s+/g,'_');
+      const fileName='Bao_Cao_Tong_Hop_'+safeName+'_'+new Date().toISOString().slice(0,10)+'.html';
+      await saveTextFileToDownloads(getReportHtml(),fileName,'text/html;charset=utf-8');
+    } catch(e) {
+      alert('Không lưu được HTML vào QLTC: '+(e instanceof Error?e.message:String(e)));
+    } finally { setAndroidReportBusy(false); }
+  };
+
+  // High-fidelity HTML Print / Save as PDF with FULL Unicode Vietnamese support (Có dấu 100%)
+  const handlePrintHTML = (readyPrintWindow: Window | null = null, preflightPassed = false) => {
+    if (!preflightPassed && !ensureReportPhotosReady()) return;
+    if (!preflightPassed && includeFloorPlan && isResolvingFloorPlansForExport) {
       alert('Đang tải ảnh mặt bằng từ Cloud để xuất PDF. Vui lòng chờ hoàn tất.');
       return;
     }
@@ -1549,6 +1580,19 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     }
     const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
     const blobUrl = URL.createObjectURL(blob);
+
+    // A popup is opened in the original click gesture before yielding for a paint.
+    // Navigate that same window after report generation; do not open a second popup.
+    if (readyPrintWindow && !readyPrintWindow.closed) {
+      try {
+        readyPrintWindow.location.replace(blobUrl);
+        readyPrintWindow.focus();
+        window.setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+        return;
+      } catch (error) {
+        console.warn('Prepared PDF window unavailable; falling back to standard print:', error);
+      }
+    }
 
     try {
       const printWindow = window.open(blobUrl, '_blank');
@@ -1592,16 +1636,16 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         } catch (err) {
           console.warn('Iframe print error, falling back to direct file download:', err);
           handleDownloadHtmlReport();
-          alert('⚠️ Trình duyệt hạn chế cửa sổ in. Đã tải File Báo Cáo (.html) về thiết bị của bạn! Hãy mở tệp để in hoặc Lưu dưới dạng PDF.');
+          alert('⚠️ Trình duyệt hạn chế cửa sổ in. Đã tải tệp báo cáo (.html) về thiết bị của bạn! Hãy mở tệp để in hoặc Lưu dưới dạng PDF.');
         }
       }, 500);
     } else {
       handleDownloadHtmlReport();
-      alert('⚠️ Đã tự động tải File Báo Cáo (.html) về thiết bị! Mở tệp để xem và in/lưu dưới dạng PDF.');
+      alert('⚠️ Đã tự động tải tệp báo cáo (.html) về thiết bị! Mở tệp để xem và in/lưu dưới dạng PDF.');
     }
   };
 
-  const handleCopySummaryText = () => {
+  const handleCopySummaryText = async () => {
     const areaText = reportScopeLabel;
     const text = `
 📋 *BÁO CÁO THI CÔNG & NGHIỆM THU - ${projectName.toUpperCase()}*
@@ -1620,9 +1664,33 @@ ${includeCrew ? `- Tổng lượt nhân công: ${filteredCrew.reduce((sum, c) =>
 Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
     `.trim();
 
-    navigator.clipboard.writeText(text);
-    setCopiedText(true);
-    setTimeout(() => setCopiedText(false), 3000);
+    try {
+      if (typeof navigator.clipboard?.writeText === 'function') {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // WebView/older browsers can lack Clipboard API: use a temporary,
+        // off-screen textarea without modifying any project data.
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-10000px';
+        document.body.appendChild(textarea);
+        try {
+          textarea.select();
+          if (!document.execCommand('copy')) throw new Error('Clipboard not available');
+        } finally {
+          textarea.remove();
+        }
+      }
+      setCopiedText(true);
+      setReportExportMessage('Đã sao chép nội dung báo cáo. Có thể dán vào Zalo hoặc Email.');
+      setTimeout(() => setCopiedText(false), 3000);
+    } catch (error) {
+      console.warn('Copy report summary failed:', error);
+      setCopiedText(false);
+      alert('Không sao chép được nội dung. Hãy kiểm tra quyền bộ nhớ tạm hoặc thử lại.');
+    }
   };
 
   const handleCopyHtmlReport = () => {
@@ -1639,8 +1707,9 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
     }
   };
 
-  const handleExportExcel = () => {
-    exportAllToExcel({
+  const handleExportExcel = async (destination: 'picker' | 'downloads' = 'picker') => {
+    const { exportAllToExcel } = await import('../utils/excelExport');
+    await exportAllToExcel({
       projectName,
       projectLocation: displayProjectLocation,
       inventory,
@@ -1664,7 +1733,78 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
         checklist: includeChecklist,
         crew: includeCrew,
       },
-    });
+    }, destination);
+  };
+
+  // Permit the browser to show the pending state before blocking on large report
+  // HTML/base64 or XLSX generation. Keep a timer fallback for a background tab.
+  const waitForReportPaint = (): Promise<void> => new Promise(resolve => {
+    let finished = false;
+    const done = () => {
+      if (finished) return;
+      finished = true;
+      window.clearTimeout(timeout);
+      resolve();
+    };
+    const timeout = window.setTimeout(done, 250);
+    window.requestAnimationFrame(() => window.requestAnimationFrame(done));
+  });
+
+  const runReportExport = async (format: 'pdf' | 'xlsx' | 'html') => {
+    if (reportExportInFlightRef.current || androidReportBusy) return;
+    // Keep PDF popup creation in the original user gesture on PC/Web. Android
+    // uses the native PrintManager bridge, not a browser window.
+    if (format === 'pdf') {
+      if (!ensureReportPhotosReady()) return;
+      if (includeFloorPlan && isResolvingFloorPlansForExport) {
+        alert('Đang tải ảnh mặt bằng từ Cloud để xuất PDF. Vui lòng chờ hoàn tất.');
+        return;
+      }
+    }
+    reportExportInFlightRef.current = true;
+    setReportExportBusy(format);
+    setReportExportMessage('');
+    let printWindow: Window | null = null;
+    if (format === 'pdf' && typeof window.AndroidExport?.saveHtmlPdf !== 'function') {
+      try {
+        printWindow = window.open('about:blank', '_blank');
+        if (printWindow) {
+          printWindow.document.write('<!doctype html><html lang="vi"><meta charset="utf-8"><title>Đang chuẩn bị PDF</title><body style="font: 16px system-ui,sans-serif;padding:24px">Đang chuẩn bị báo cáo PDF…</body></html>');
+          printWindow.document.close();
+        }
+      } catch (error) {
+        console.warn('Cannot prepare the PDF print window:', error);
+        printWindow = null;
+      }
+    }
+    try {
+      await waitForReportPaint();
+      if (format === 'pdf') {
+        handlePrintHTML(printWindow, true);
+        setReportExportMessage(isAndroidExportBridgeAvailable()
+          ? 'Đã mở màn hình in PDF. Hãy chọn nơi lưu; nếu Tải xuống tạo file 0 byte, chọn thư mục khác và kiểm tra file đã lưu.'
+          : 'Đã mở bản xem trước để in hoặc lưu PDF.');
+      } else if (format === 'xlsx') {
+        await handleExportExcel(isAndroidExportBridgeAvailable() ? 'downloads' : 'picker');
+        setReportExportMessage(isAndroidExportBridgeAvailable()
+          ? 'Đã lưu Excel vào Tải xuống/QLTC.'
+          : 'Đã yêu cầu tải Excel. Hãy kiểm tra thư mục tải xuống.');
+      } else if (isAndroidExportBridgeAvailable()) {
+        await handleDownloadHtmlToQLTC();
+        setReportExportMessage('Đã yêu cầu lưu HTML vào Tải xuống/QLTC.');
+      } else {
+        await handleDownloadHtmlReport();
+        setReportExportMessage('Đã yêu cầu tải HTML. Hãy kiểm tra thư mục tải xuống.');
+      }
+    } catch (error) {
+      if (printWindow && !printWindow.closed) printWindow.close();
+      console.error('Report export failed:', error);
+      setReportExportMessage('Lỗi xuất báo cáo: ' + (error instanceof Error ? error.message : String(error)));
+      alert('Không thể chuẩn bị báo cáo. ' + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      reportExportInFlightRef.current = false;
+      setReportExportBusy(null);
+    }
   };
 
   const handleUploadExcelToDrive = async () => {
@@ -1672,9 +1812,10 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
     setDriveUploadError(null);
     try {
       if (!hasApiBackend()) {
-        throw new Error('Google Drive upload can server backend. Firebase Hosting mien phi dang chay static-only nen hay tai file truc tiep ve may.');
+        throw new Error('Tải PDF lên Google Drive cần máy chủ backend. Bản Firebase Hosting hiện chạy tĩnh; hãy tải tệp trực tiếp về máy.');
       }
 
+      const { exportAllToExcelBase64 } = await import('../utils/excelExport');
       const base64 = exportAllToExcelBase64({
         projectName,
         projectLocation: displayProjectLocation,
@@ -1741,7 +1882,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
     setDriveUploadError(null);
     try {
       if (!hasApiBackend()) {
-        throw new Error('Google Drive upload can server backend. Firebase Hosting mien phi dang chay static-only nen hay tai file truc tiep ve may.');
+        throw new Error('Tải PDF lên Google Drive cần máy chủ backend. Bản Firebase Hosting hiện chạy tĩnh; hãy tải tệp trực tiếp về máy.');
       }
 
       const htmlContent = getReportHtml();
@@ -1783,10 +1924,11 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-      <div className="bg-white w-full sm:max-w-2xl md:max-w-3xl lg:max-w-5xl rounded-t-3xl sm:rounded-2xl p-5 lg:p-6 space-y-4 max-h-[94vh] overflow-y-auto border border-slate-100 shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+    <ViewportModalPortal>
+    <div data-hnl-pc-v32-window="report-export" className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[210] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+      <div className="bg-white w-full sm:max-w-2xl md:max-w-3xl lg:max-w-5xl rounded-t-3xl sm:rounded-2xl flex flex-col max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden border border-slate-100 shadow-2xl">
+        {/* Header stays outside the scrolling content to prevent an exposed padding gap. */}
+        <div data-hnl-report-fixed-header="true" className="shrink-0 z-20 flex items-center justify-between border-b border-slate-100 bg-white px-5 lg:px-6 pt-5 lg:pt-6 pb-3">
           <div className="flex items-center gap-2">
             <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
               <FileText className="w-5 h-5" />
@@ -1804,12 +1946,13 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
           </button>
         </div>
 
+        <div data-hnl-report-scrollbody="true" className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 lg:px-6 pt-4 pb-5 lg:pb-6">
         {/* Options */}
         <div className="space-y-4 text-xs">
           {/* Unified report scope + Defect filters */}
-          <div className="space-y-2">
+          <div data-hnl-pc-v32-region="report-filters" className="space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <label className="text-slate-700 font-bold flex items-center gap-1.5">
+              <label className="text-sm text-slate-700 font-bold flex items-center gap-1.5">
                 <Filter className="w-3.5 h-3.5 text-indigo-600" />
                 Phạm vi &amp; bộ lọc báo cáo
               </label>
@@ -1832,7 +1975,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   setDefectCompletedFrom('');
                   setDefectCompletedTo('');
                 }}
-                className="text-[10px] font-extrabold text-indigo-600 hover:text-indigo-800"
+                className="text-xs font-extrabold text-indigo-600 hover:text-indigo-800"
               >
                 Xóa bộ lọc
               </button>
@@ -1960,61 +2103,72 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               </div>
 
               <div className="border-t border-slate-200 pt-3">
-                <div className="mb-2 text-[10px] font-extrabold text-slate-600">Defect trong phạm vi trên</div>
+                <div className="mb-2 text-xs font-extrabold text-slate-600">Defect trong phạm vi trên</div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                  <select value={defectStatusFilter} onChange={(e) => setDefectStatusFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700">
+                  <select value={defectStatusFilter} onChange={(e) => setDefectStatusFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700">
                     <option value="all">Tất cả trạng thái Defect</option>
                     <option value="Mới phát hiện">Mới phát hiện</option>
                     <option value="Đang sửa">Đang sửa</option>
                     <option value="Đã khắc phục">Đã khắc phục</option>
                     <option value="Đã nghiệm thu">Đã nghiệm thu</option>
                   </select>
-                  <select value={defectCategoryFilter} onChange={(e) => setDefectCategoryFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700">
+                  <select value={defectCategoryFilter} onChange={(e) => setDefectCategoryFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700">
                     <option value="all">Tất cả hạng mục lỗi</option>
                     {defectCategoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
                   </select>
-                  <select value={defectCreatorFilter} onChange={(e) => setDefectCreatorFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700">
+                  <select value={defectCreatorFilter} onChange={(e) => setDefectCreatorFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700">
                     <option value="all">Tất cả người tạo</option>
                     {defectCreatorOptions.map((creator) => <option key={creator} value={creator}>{creator}</option>)}
                   </select>
-                  <label className="space-y-1">
-                    <span className="block text-[9.5px] font-bold text-slate-500">Defect tạo từ ngày</span>
-                    <input type="date" value={defectCreatedFrom} onChange={(e) => setDefectCreatedFrom(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px]" />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="block text-[9.5px] font-bold text-slate-500">Defect tạo đến ngày</span>
-                    <input type="date" value={defectCreatedTo} onChange={(e) => setDefectCreatedTo(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px]" />
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="space-y-1">
-                      <span className="block text-[9.5px] font-bold text-slate-500">Xong từ</span>
-                      <input type="date" value={defectCompletedFrom} onChange={(e) => setDefectCompletedFrom(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px]" />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="block text-[9.5px] font-bold text-slate-500">Xong đến</span>
-                      <input type="date" value={defectCompletedTo} onChange={(e) => setDefectCompletedTo(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px]" />
-                    </label>
+                </div>
+                {/* Compact date groups keep one-line captions and the original four filter states. */}
+                <div data-hnl-report-defect-dates="compact-groups" className="mt-2 grid grid-cols-1 gap-2.5 lg:grid-cols-2">
+                  <div role="group" aria-label="Ngày tạo Defect" className="min-w-0">
+                    <p className="mb-1 text-xs font-semibold leading-4 text-slate-600">Ngày tạo Defect</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="min-w-0">
+                        <span className="mb-1 block text-xs font-medium leading-4 text-slate-600">Từ ngày</span>
+                        <input type="date" aria-label="Defect tạo từ ngày" value={defectCreatedFrom} onChange={(e) => setDefectCreatedFrom(e.target.value)} className="block min-w-0 w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" />
+                      </label>
+                      <label className="min-w-0">
+                        <span className="mb-1 block text-xs font-medium leading-4 text-slate-600">Đến ngày</span>
+                        <input type="date" aria-label="Defect tạo đến ngày" value={defectCreatedTo} onChange={(e) => setDefectCreatedTo(e.target.value)} className="block min-w-0 w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" />
+                      </label>
+                    </div>
+                  </div>
+                  <div role="group" aria-label="Ngày hoàn thành" className="min-w-0">
+                    <p className="mb-1 text-xs font-semibold leading-4 text-slate-600">Ngày hoàn thành</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="min-w-0">
+                        <span className="mb-1 block text-xs font-medium leading-4 text-slate-600">Từ ngày</span>
+                        <input type="date" aria-label="Hoàn thành từ ngày" value={defectCompletedFrom} onChange={(e) => setDefectCompletedFrom(e.target.value)} className="block min-w-0 w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" />
+                      </label>
+                      <label className="min-w-0">
+                        <span className="mb-1 block text-xs font-medium leading-4 text-slate-600">Đến ngày</span>
+                        <input type="date" aria-label="Hoàn thành đến ngày" value={defectCompletedTo} onChange={(e) => setDefectCompletedTo(e.target.value)} className="block min-w-0 w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" />
+                      </label>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <p className="text-[10px] text-slate-500">
-                Khu/Khối → Tầng → Căn/Phòng → Đội là phạm vi chung. Bộ lọc trạng thái/hạng mục/người tạo/ngày chỉ thu hẹp phần Defect và phụ lục ảnh Defect.
+              <p className="text-[11px] leading-relaxed text-slate-500">
+                Khu/Khối → Tầng → Căn / Phòng → Đội là phạm vi chung. Bộ lọc trạng thái/hạng mục/người tạo/ngày chỉ thu hẹp phần Defect và phụ lục ảnh Defect.
               </p>
             </div>
           </div>
 
           {/* Sorting for each report section. Photo appendices intentionally inherit their parent table order. */}
-          <details open className="group bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden">
-            <summary className="cursor-pointer select-none px-3 py-2.5 text-[11px] font-extrabold text-slate-800 flex items-center justify-between gap-2">
+          <details open data-hnl-report-typography="sort-order" className="group bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden">
+            <summary className="cursor-pointer select-none px-3 py-2.5 text-sm font-extrabold text-slate-800 flex items-center justify-between gap-2">
               <span>↕️ Sắp xếp từng phần trong PDF</span>
-              <span className="text-[10px] text-slate-400 group-open:hidden">Mở</span>
-              <span className="text-[10px] text-slate-400 hidden group-open:inline">Thu gọn</span>
+              <span className="text-[11px] text-slate-400 group-open:hidden">Mở</span>
+              <span className="text-[11px] text-slate-400 hidden group-open:inline">Thu gọn</span>
             </summary>
             <div className="border-t border-slate-200 p-3 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <label className="space-y-1">
-                <span className="block text-[10px] font-bold text-slate-600">Kho vật tư</span>
-                <select value={warehouseReportSortMode} onChange={(e) => setWarehouseReportSortMode(e.target.value as typeof warehouseReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                <span className="block text-xs font-bold text-slate-600">Kho vật tư</span>
+                <select value={warehouseReportSortMode} onChange={(e) => setWarehouseReportSortMode(e.target.value as typeof warehouseReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                   <option value="material-asc">Tên vật tư A → Z</option>
                   <option value="material-desc">Tên vật tư Z → A</option>
                   <option value="stock-desc">Tồn kho nhiều → ít</option>
@@ -2023,8 +2177,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-[10px] font-bold text-slate-600">Khối lượng thi công</span>
-                <select value={workVolumeReportSortMode} onChange={(e) => setWorkVolumeReportSortMode(e.target.value as typeof workVolumeReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                <span className="block text-xs font-bold text-slate-600">Khối lượng thi công</span>
+                <select value={workVolumeReportSortMode} onChange={(e) => setWorkVolumeReportSortMode(e.target.value as typeof workVolumeReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                   <option value="category-title">Phân loại → Hạng mục</option>
                   <option value="title-asc">Hạng mục A → Z</option>
                   <option value="planned-desc">KL kế hoạch lớn → nhỏ</option>
@@ -2033,28 +2187,28 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-[10px] font-bold text-slate-600">Mặt bằng</span>
-                <select value={floorPlanReportSortMode} onChange={(e) => setFloorPlanReportSortMode(e.target.value as typeof floorPlanReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                <span className="block text-xs font-bold text-slate-600">Mặt bằng</span>
+                <select value={floorPlanReportSortMode} onChange={(e) => setFloorPlanReportSortMode(e.target.value as typeof floorPlanReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                   <option value="floor-asc">Tầng thấp → cao / A → Z</option>
                   <option value="floor-desc">Tầng cao → thấp / Z → A</option>
                   <option value="defect-desc">Tầng nhiều Defect → ít</option>
-                  <option value="room-desc">Tầng nhiều Căn/Phòng → ít</option>
+                  <option value="room-desc">Tầng nhiều Căn / Phòng → ít</option>
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-[10px] font-bold text-slate-600">Tiến độ Căn / Phòng</span>
-                <select value={roomReportSortMode} onChange={(e) => setRoomReportSortMode(e.target.value as typeof roomReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
-                  <option value="floor-room">Tầng → Căn/Phòng</option>
-                  <option value="room-floor">Căn/Phòng → Tầng</option>
-                  <option value="category-floor-room">Hạng mục → Tầng → Căn/Phòng</option>
+                <span className="block text-xs font-bold text-slate-600">Tiến độ Căn / Phòng</span>
+                <select value={roomReportSortMode} onChange={(e) => setRoomReportSortMode(e.target.value as typeof roomReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
+                  <option value="floor-room">Tầng → Căn / Phòng</option>
+                  <option value="room-floor">Căn / Phòng → Tầng</option>
+                  <option value="category-floor-room">Hạng mục → Tầng → Căn / Phòng</option>
                   <option value="work-status">Trạng thái thi công → Tầng/Phòng</option>
                   <option value="inspection-status">Nghiệm thu → Tầng/Phòng</option>
-                  <option value="team-floor-room">Đội → Tầng → Căn/Phòng</option>
+                  <option value="team-floor-room">Đội → Tầng → Căn / Phòng</option>
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-[10px] font-bold text-slate-600">Nhật ký nhân công + phụ lục ảnh</span>
-                <select value={crewReportSortMode} onChange={(e) => setCrewReportSortMode(e.target.value as typeof crewReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                <span className="block text-xs font-bold text-slate-600">Nhật ký nhân công + phụ lục ảnh</span>
+                <select value={crewReportSortMode} onChange={(e) => setCrewReportSortMode(e.target.value as typeof crewReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                   <option value="date-desc">Ngày mới → cũ</option>
                   <option value="date-asc">Ngày cũ → mới</option>
                   <option value="team-date">Đội → Ngày mới nhất</option>
@@ -2063,8 +2217,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-[10px] font-bold text-slate-600">Checklist</span>
-                <select value={checklistReportSortMode} onChange={(e) => setChecklistReportSortMode(e.target.value as typeof checklistReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                <span className="block text-xs font-bold text-slate-600">Checklist</span>
+                <select value={checklistReportSortMode} onChange={(e) => setChecklistReportSortMode(e.target.value as typeof checklistReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                   <option value="floor-category">Tầng → Hạng mục</option>
                   <option value="category-floor">Hạng mục → Tầng</option>
                   <option value="status-floor">Kết quả → Tầng</option>
@@ -2072,11 +2226,11 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-[10px] font-bold text-slate-600">Defect + phụ lục ảnh Defect</span>
-                <select value={defectReportSortMode} onChange={(e) => setDefectReportSortMode(e.target.value as typeof defectReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
-                  <option value="floor-room-category">Tầng → Phòng/Căn → Hạng mục</option>
-                  <option value="room-floor-category">Phòng/Căn → Tầng → Hạng mục</option>
-                  <option value="category-floor-room">Hạng mục → Tầng → Phòng/Căn</option>
+                <span className="block text-xs font-bold text-slate-600">Defect + phụ lục ảnh Defect</span>
+                <select value={defectReportSortMode} onChange={(e) => setDefectReportSortMode(e.target.value as typeof defectReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
+                  <option value="floor-room-category">Tầng → Căn / Phòng → Hạng mục</option>
+                  <option value="room-floor-category">Căn / Phòng → Tầng → Hạng mục</option>
+                  <option value="category-floor-room">Hạng mục → Tầng → Căn / Phòng</option>
                   <option value="created-desc">Defect mới nhất → cũ nhất</option>
                   <option value="status-due">Trạng thái → Hạn xử lý → Tầng/Phòng</option>
                   <option value="code-asc">Mã Defect 01 → 02 → 03</option>
@@ -2084,12 +2238,12 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </select>
               </label>
             </div>
-            <p className="px-3 pb-3 text-[10px] text-slate-500">Phụ lục ảnh Defect đi đúng thứ tự Defect đã chọn; phụ lục ảnh nhân công đi theo đúng thứ tự Nhật ký nhân công.</p>
+            <p className="px-3 pb-3 text-[11px] leading-relaxed text-slate-500">Phụ lục ảnh Defect đi đúng thứ tự Defect đã chọn; phụ lục ảnh nhân công đi theo đúng thứ tự Nhật ký nhân công.</p>
           </details>
 
           {/* Report Content Checkboxes */}
           <div>
-            <label className="block text-slate-700 font-bold mb-1.5">Hạng mục chọn xuất báo cáo</label>
+            <label className="block text-sm text-slate-700 font-bold mb-1.5">Hạng mục chọn xuất báo cáo</label>
             <div className="grid grid-cols-2 gap-2">
               <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeWarehouse ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
                 <input
@@ -2099,7 +2253,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <Package className="w-4 h-4 text-blue-600 shrink-0" />
-                <span className="text-[11px]">Kho Vật Tư</span>
+                <span className="text-xs">Kho Vật Tư</span>
               </label>
 
               <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeWorkVolumes ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
@@ -2110,7 +2264,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <BarChart3 className="w-4 h-4 text-blue-600 shrink-0" />
-                <span className="text-[11px]">Khối lượng</span>
+                <span className="text-xs">Khối lượng</span>
               </label>
 
               {includeWorkVolumes && (
@@ -2122,7 +2276,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                     className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
                   />
                   <FileSpreadsheet className="w-4 h-4 text-blue-600 shrink-0" />
-                  <span className="text-[11px]">Chi tiết Khối lượng</span>
+                  <span className="text-xs">Chi tiết Khối lượng</span>
                 </label>
               )}
 
@@ -2134,7 +2288,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <Building2 className="w-4 h-4 text-indigo-600 shrink-0" />
-                <span className="text-[11px]">Mặt bằng &amp; Defect</span>
+                <span className="text-xs">Mặt bằng &amp; Defect</span>
               </label>
 
               {checklist.length > 0 && <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeChecklist ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
@@ -2145,7 +2299,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <ClipboardCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span className="text-[11px]">Checklist</span>
+                <span className="text-xs">Checklist</span>
               </label>}
 
               <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeCrew ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
@@ -2156,7 +2310,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <Users className="w-4 h-4 text-indigo-600 shrink-0" />
-                <span className="text-[11px]">Nhật ký nhân công</span>
+                <span className="text-xs">Nhật ký nhân công</span>
               </label>
 
               <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeCrewPhotos ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
@@ -2167,7 +2321,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <Camera className="w-4 h-4 text-sky-600 shrink-0" />
-                <span className="text-[11px]">Phụ lục ảnh đội</span>
+                <span className="text-xs">Phụ lục ảnh đội</span>
               </label>
 
               <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeDefectPhotos ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
@@ -2178,7 +2332,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <ImageIcon className="w-4 h-4 text-rose-600 shrink-0" />
-                <span className="text-[11px]">Phụ lục ảnh Defect</span>
+                <span className="text-xs">Phụ lục ảnh Defect</span>
               </label>
 
               <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeSignatures ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
@@ -2189,39 +2343,39 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <FileText className="w-4 h-4 text-slate-600 shrink-0" />
-                <span className="text-[11px]">Chữ ký đơn vị</span>
+                <span className="text-xs">Chữ ký đơn vị</span>
               </label>
             </div>
           </div>
 
           {/* Tùy chỉnh nâng cao */}
-          <div className="pt-1 space-y-2 text-slate-700 bg-slate-50 p-3 rounded-2xl border border-slate-200">
-            <span className="block font-bold text-slate-800 text-[11px]">⚙️ Tùy chỉnh bố cục báo cáo:</span>
+          <div data-hnl-report-typography="page-layout" className="pt-1 space-y-2 text-slate-700 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+            <span className="block font-bold text-slate-800 text-sm">⚙️ Tùy chỉnh bố cục báo cáo:</span>
             <div className="grid grid-cols-2 gap-2 pb-1">
               <label className="space-y-1">
-                <span className="block text-[10px] font-semibold text-slate-600">Khổ giấy PDF</span>
+                <span className="block text-xs font-semibold text-slate-600">Khổ giấy PDF</span>
                 <select
                   value={pdfPaperSize}
                   onChange={(e) => setPdfPaperSize(e.target.value as 'A4' | 'A3')}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold"
                 >
                   <option value="A4">A4</option>
                   <option value="A3">A3</option>
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="block text-[10px] font-semibold text-slate-600">Hướng giấy</span>
+                <span className="block text-xs font-semibold text-slate-600">Hướng giấy</span>
                 <select
                   value={pdfOrientation}
                   onChange={(e) => setPdfOrientation(e.target.value as 'portrait' | 'landscape')}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold"
                 >
                   <option value="portrait">Dọc (Dọc)</option>
                   <option value="landscape">Ngang (Ngang)</option>
                 </select>
               </label>
             </div>
-            <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] font-medium">
+            <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-medium">
               <input
                 type="checkbox"
                 checked={skipEmptyFloors}
@@ -2231,7 +2385,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               <span>🚫 Bỏ qua các tầng/mặt bằng không có dữ liệu</span>
             </label>
 
-            <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] font-medium">
+            <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-medium">
               <input
                 type="checkbox"
                 checked={onlyDefectMapIfHasDefects}
@@ -2242,49 +2396,49 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
             </label>
 
             <details className="group bg-white border border-indigo-100 rounded-xl overflow-hidden">
-              <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-extrabold text-indigo-800 flex items-center justify-between gap-2">
+              <summary className="cursor-pointer select-none px-3 py-2 text-sm font-extrabold text-indigo-800 flex items-center justify-between gap-2">
                 <span>🎨 Tùy chỉnh highlight & ký hiệu trên PDF</span>
-                <span className="text-[10px] text-slate-400 group-open:hidden">Mở</span>
-                <span className="text-[10px] text-slate-400 hidden group-open:inline">Thu gọn</span>
+                <span className="text-[11px] text-slate-400 group-open:hidden">Mở</span>
+                <span className="text-[11px] text-slate-400 hidden group-open:inline">Thu gọn</span>
               </summary>
               <div className="border-t border-indigo-100 p-3 space-y-3">
-                <p className="text-[10px] text-slate-500 leading-relaxed">
+                <p className="text-[11px] text-slate-500 leading-relaxed">
                   Chỉ ảnh hưởng bản PDF/HTML xuất ra, không làm thay đổi màu, tọa độ hay dữ liệu Căn / Phòng trong dự án.
                 </p>
 
                 <div className="grid grid-cols-2 gap-2">
                   <label className="space-y-1 min-w-0">
-                    <span className="flex items-center justify-between gap-1 text-[10px] font-bold text-slate-600">
+                    <span className="flex items-center justify-between gap-1 text-xs font-bold text-slate-600">
                       <span>Độ đậm highlight</span><strong className="text-indigo-700">{pdfHighlightOpacity}%</strong>
                     </span>
                     <input type="range" min="0" max="60" step="2" value={pdfHighlightOpacity} onChange={(e) => setPdfHighlightOpacity(Number(e.target.value))} className="w-full accent-indigo-600" />
                   </label>
                   <label className="space-y-1 min-w-0">
-                    <span className="flex items-center justify-between gap-1 text-[10px] font-bold text-slate-600">
+                    <span className="flex items-center justify-between gap-1 text-xs font-bold text-slate-600">
                       <span>Độ dày viền vùng</span><strong className="text-indigo-700">{pdfHighlightBorderWidth.toFixed(2)}</strong>
                     </span>
                     <input type="range" min="0" max="0.8" step="0.05" value={pdfHighlightBorderWidth} onChange={(e) => setPdfHighlightBorderWidth(Number(e.target.value))} className="w-full accent-indigo-600" />
                   </label>
                   <label className="space-y-1 min-w-0">
-                    <span className="flex items-center justify-between gap-1 text-[10px] font-bold text-slate-600">
+                    <span className="flex items-center justify-between gap-1 text-xs font-bold text-slate-600">
                       <span>Size ký hiệu Căn / Phòng</span><strong className="text-indigo-700">{Math.round(pdfRoomMarkerSizeScale * 100)}%</strong>
                     </span>
                     <input type="range" min="0.7" max="1.8" step="0.1" value={pdfRoomMarkerSizeScale} onChange={(e) => setPdfRoomMarkerSizeScale(Number(e.target.value))} className="w-full accent-indigo-600" />
                   </label>
                   <label className="space-y-1 min-w-0">
-                    <span className="flex items-center justify-between gap-1 text-[10px] font-bold text-slate-600">
+                    <span className="flex items-center justify-between gap-1 text-xs font-bold text-slate-600">
                       <span>Size ký hiệu Defect</span><strong className="text-rose-700">{Math.round(pdfDefectMarkerSizeScale * 100)}%</strong>
                     </span>
                     <input type="range" min="0.6" max="1.6" step="0.1" value={pdfDefectMarkerSizeScale} onChange={(e) => setPdfDefectMarkerSizeScale(Number(e.target.value))} className="w-full accent-rose-600" />
                   </label>
                   <label className="space-y-1 min-w-0">
-                    <span className="flex items-center justify-between gap-1 text-[10px] font-bold text-slate-600">
+                    <span className="flex items-center justify-between gap-1 text-xs font-bold text-slate-600">
                       <span>Size chữ ký hiệu</span><strong className="text-indigo-700">{Math.round(pdfMarkerFontScale * 100)}%</strong>
                     </span>
                     <input type="range" min="0.7" max="1.8" step="0.1" value={pdfMarkerFontScale} onChange={(e) => setPdfMarkerFontScale(Number(e.target.value))} className="w-full accent-indigo-600" />
                   </label>
                   <label className="space-y-1 min-w-0 col-span-2">
-                    <span className="flex items-center justify-between gap-1 text-[10px] font-bold text-slate-600">
+                    <span className="flex items-center justify-between gap-1 text-xs font-bold text-slate-600">
                       <span>Độ mờ ký hiệu</span><strong className="text-indigo-700">{pdfMarkerOpacity}%</strong>
                     </span>
                     <input type="range" min="30" max="100" step="5" value={pdfMarkerOpacity} onChange={(e) => setPdfMarkerOpacity(Number(e.target.value))} className="w-full accent-indigo-600" />
@@ -2293,23 +2447,23 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
                 <div className="grid grid-cols-2 gap-2">
                   <label className="space-y-1">
-                    <span className="block text-[10px] font-bold text-slate-600">Ký hiệu Căn / Phòng</span>
-                    <select value={pdfRoomCodeStyle} onChange={(e) => setPdfRoomCodeStyle(e.target.value as 'number' | 'hash' | 'room')} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                    <span className="block text-xs font-bold text-slate-600">Ký hiệu Căn / Phòng</span>
+                    <select value={pdfRoomCodeStyle} onChange={(e) => setPdfRoomCodeStyle(e.target.value as 'number' | 'hash' | 'room')} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                       <option value="number">Số ngắn: 1, 2, 11</option>
                       <option value="hash">Dạng #: #1, #2</option>
                       <option value="room">Dạng C: C1, C2</option>
                     </select>
                   </label>
                   <label className="space-y-1">
-                    <span className="block text-[10px] font-bold text-slate-600">Ký hiệu Defect</span>
-                    <select value={pdfDefectCodeStyle} onChange={(e) => setPdfDefectCodeStyle(e.target.value as 'number' | 'df')} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                    <span className="block text-xs font-bold text-slate-600">Ký hiệu Defect</span>
+                    <select value={pdfDefectCodeStyle} onChange={(e) => setPdfDefectCodeStyle(e.target.value as 'number' | 'df')} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
                       <option value="number">Số ngắn: 01, 02</option>
                       <option value="df">Mã ngắn: DF-01, DF-02</option>
                     </select>
                   </label>
                 </div>
 
-                <div className="grid grid-cols-2 gap-1.5 text-[10.5px] text-slate-700">
+                <div className="grid grid-cols-2 gap-1.5 text-xs text-slate-700">
                   <label className="flex items-center gap-2 cursor-pointer select-none"><input type="checkbox" checked={pdfShowRoomMarkers} onChange={(e) => setPdfShowRoomMarkers(e.target.checked)} className="w-3.5 h-3.5 rounded text-indigo-600" /><span>Hiện ký hiệu Căn / Phòng</span></label>
                   <label className="flex items-center gap-2 cursor-pointer select-none"><input type="checkbox" checked={pdfShowDefectMarkers} onChange={(e) => setPdfShowDefectMarkers(e.target.checked)} className="w-3.5 h-3.5 rounded text-indigo-600" /><span>Hiện ký hiệu Defect</span></label>
                   <label className="flex items-center gap-2 cursor-pointer select-none"><input type="checkbox" checked={pdfShowMarkerOutline} onChange={(e) => setPdfShowMarkerOutline(e.target.checked)} className="w-3.5 h-3.5 rounded text-indigo-600" /><span>Viền/vòng quanh ký hiệu</span></label>
@@ -2318,8 +2472,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 space-y-2">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-extrabold text-slate-700">Xem trước nhanh ký hiệu PDF</span>
-                    <span className="text-[9px] text-slate-400">Vùng tím = Căn / Phòng · Chấm đỏ = vị trí Defect thật · Nhãn = ký hiệu in</span>
+                    <span className="text-xs font-extrabold text-slate-700">Xem trước nhanh ký hiệu PDF</span>
+                    <span className="text-[11px] text-slate-400">Vùng tím = Căn / Phòng · Chấm đỏ = vị trí Defect thật · Nhãn = ký hiệu in</span>
                   </div>
                   <div className="relative h-24 overflow-hidden rounded-lg border border-slate-200 bg-white">
                     <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'linear-gradient(#cbd5e1 1px, transparent 1px), linear-gradient(90deg, #cbd5e1 1px, transparent 1px)', backgroundSize: '16px 16px' }} />
@@ -2328,7 +2482,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                     {pdfShowRoomMarkers && (
                       <div
                         className="absolute left-[28%] top-[48%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white text-indigo-700 font-black flex items-center justify-center"
-                        style={{ minWidth: `${28 * pdfRoomMarkerSizeScale}px`, height: `${22 * pdfRoomMarkerSizeScale}px`, paddingInline: `${5 * pdfRoomMarkerSizeScale}px`, fontSize: `${10 * pdfMarkerFontScale}px`, opacity: pdfMarkerOpacity / 100, border: pdfShowMarkerOutline ? '2px solid #4f46e5' : 'none' }}
+                        style={{ minWidth: `${28 * pdfRoomMarkerSizeScale}px`, height: `${22 * pdfRoomMarkerSizeScale}px`, paddingInline: `${5 * pdfRoomMarkerSizeScale}px`, fontSize: `${10 * pdfMarkerFontScale}px`, opacity: pdfMarkerOpacity / 100, border: pdfShowMarkerOutline ? '2px solid #2563eb' : 'none' }}
                       >
                         {pdfRoomCodeStyle === 'hash' ? '#1' : pdfRoomCodeStyle === 'room' ? 'C1' : '1'}
                       </div>
@@ -2357,7 +2511,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 </div>
 
                 <div className="flex items-center justify-between gap-2 bg-indigo-50/60 border border-indigo-100 rounded-lg p-2">
-                  <span className="text-[9.5px] text-indigo-800 leading-relaxed">Khuyến nghị in thi công: highlight 14–20%, viền 0.20–0.30, Căn/Phòng 100%, Defect 90%, giữ đường dẫn.</span>
+                  <span className="text-[11px] text-indigo-800 leading-relaxed">Khuyến nghị in thi công: highlight 14–20%, viền 0.20–0.30, Căn / Phòng 100%, Defect 90%, giữ đường dẫn.</span>
                   <button
                     type="button"
                     onClick={() => {
@@ -2374,7 +2528,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                       setPdfRoomCodeStyle('number');
                       setPdfDefectCodeStyle('number');
                     }}
-                    className="shrink-0 px-2 py-1 rounded-lg bg-white border border-indigo-200 text-indigo-700 font-bold text-[10px] hover:bg-indigo-100"
+                    className="shrink-0 px-2 py-1 rounded-lg bg-white border border-indigo-200 text-indigo-700 font-bold text-xs hover:bg-indigo-100"
                   >
                     Mặc định
                   </button>
@@ -2383,51 +2537,89 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
             </details>
           </div>
 
-          {/* Action Buttons */}
-          <div className="space-y-2 pt-2">
+          {/* Keep only three primary actions visible. Legacy HTML/picker routes remain intact. */}
+          <section data-hnl-pc-v32-region="report-actions" data-hnl-report-export-actions="true" aria-label="Xuất và chia sẻ báo cáo" className="space-y-2 border-t border-slate-200 pt-3">
+            <div className="flex items-center justify-between gap-2">
+              <h4 className="text-sm font-extrabold text-slate-800">Xuất báo cáo</h4>
+              {/* Temporarily hide the complete legacy menu (including its trigger) on Web, Windows and APK. */}
+              {SHOW_LEGACY_REPORT_EXPORT_MENU && (
+              <details data-hnl-report-other-save="true" className="relative">
+                <summary title="Tùy chọn xuất khác" aria-label="Tùy chọn xuất khác" className="flex h-8 w-9 cursor-pointer list-none items-center justify-center rounded-lg text-lg font-extrabold text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400">⋯</summary>
+                <div className="absolute bottom-full right-0 z-30 mb-1 grid w-52 gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                  <button type="button" data-hnl-report-secondary-format="html"
+                    onClick={() => void runReportExport('html')}
+                    disabled={androidReportBusy || reportExportBusy !== null}
+                    className="min-h-10 rounded-lg px-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50">
+                    Tải HTML (.html)
+                  </button>
+                  {isAndroidExportBridgeAvailable() && (
+                    <>
+                      <button type="button" onClick={() => void handleExportExcel('picker')}
+                        disabled={androidReportBusy || reportExportBusy !== null}
+                        className="min-h-10 rounded-lg px-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50">
+                        Excel: chọn nơi lưu
+                      </button>
+                      <button type="button" onClick={() => void handleDownloadHtmlReport()}
+                        disabled={androidReportBusy || reportExportBusy !== null}
+                        className="min-h-10 rounded-lg px-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50">
+                        HTML: chia sẻ file
+                      </button>
+                    </>
+                  )}
+                </div>
+              </details>
+              )}
+            </div>
             {includeFloorPlan && isResolvingFloorPlansForExport && (
-              <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[10px] font-semibold text-sky-700">
-                Đang tải ảnh mặt bằng cần thiết từ Cloud… Xuất PDF/HTML sẽ sẵn sàng ngay sau khi hoàn tất.
-              </div>
+              <p role="status" className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-700">
+                Đang tải ảnh mặt bằng từ Cloud. Vui lòng chờ trước khi xuất PDF/HTML.
+              </p>
             )}
-            <button
-              type="button"
-              onClick={handlePrintHTML}
-              className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl font-black flex items-center justify-center gap-2 shadow-md active:scale-98 transition-all text-xs border border-indigo-400 cursor-pointer"
-            >
-              <Printer className="w-4 h-4 text-amber-300" />
-              <span>Xuất PDF</span>
-            </button>
+            {(reportExportBusy || reportExportMessage) && (
+              <p role="status" aria-live="polite" data-hnl-report-export-pending="true" className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800">
+                {reportExportBusy
+                  ? `Đang chuẩn bị ${reportExportBusy === 'pdf' ? 'PDF' : reportExportBusy === 'xlsx' ? 'Excel' : 'HTML'}… Vui lòng chờ.`
+                  : reportExportMessage}
+              </p>
+            )}
+            <div className="grid grid-cols-3 gap-2" role="group" aria-label="Nội dung, PDF và Excel" data-hnl-export-format-group="true" data-hnl-export-format-count="3">
+              <button
+                type="button"
+                data-hnl-report-format="text"
+                onClick={() => void handleCopySummaryText()}
+                title="Sao chép nội dung tóm tắt (có quân số khi được chọn) để gửi Zalo hoặc Email"
+                className="flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-900 bg-slate-900 px-2 py-2 text-xs font-bold text-white shadow-sm transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
+              >
+                {copiedText ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <Copy className="h-4 w-4 shrink-0" />}
+                {copiedText ? 'Đã chép' : 'Nội dung'}
+              </button>
+              <button
+                type="button"
+                data-hnl-report-format="pdf"
+                onClick={() => void runReportExport('pdf')}
+                disabled={androidReportBusy || reportExportBusy !== null}
+                title="Mở màn hình xem/in để lưu PDF"
+                className="flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-red-600 bg-red-600 px-2 py-2 text-xs font-bold text-white shadow-sm transition-colors hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 focus-visible:ring-offset-2 disabled:opacity-50"
+              >
+                <Printer className="h-4 w-4 shrink-0" /> {reportExportBusy === 'pdf' ? 'Đang tạo…' : 'PDF'}
+              </button>
+              <button
+                type="button"
+                data-hnl-report-format="xlsx"
+                onClick={() => void runReportExport('xlsx')}
+                disabled={androidReportBusy || reportExportBusy !== null}
+                title={isAndroidExportBridgeAvailable() ? 'Lưu Excel vào Tải xuống/QLTC' : 'Tải Excel (.xlsx)'}
+                className="flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-green-600 bg-green-600 px-2 py-2 text-xs font-bold text-white shadow-sm transition-colors hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300 focus-visible:ring-offset-2 disabled:opacity-50"
+              >
+                <FileSpreadsheet className="h-4 w-4 shrink-0" /> {reportExportBusy === 'xlsx' ? 'Đang tạo…' : 'Excel'}
+              </button>
+            </div>
 
-            <button
-              type="button"
-              onClick={handleDownloadHtmlReport}
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow active:scale-98 transition-all text-xs cursor-pointer"
-            >
-              <Download className="w-4 h-4 text-sky-200" />
-              Tải File Báo Cáo HTML (.html - Mở &amp; In / Lưu PDF Dễ Dàng)
-            </button>
-
-            <button
-              type="button"
-              onClick={handleExportExcel}
-              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow active:scale-98 transition-all text-xs cursor-pointer"
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              Tải File Excel (.xlsx) Các Hạng Mục Đã Chọn
-            </button>
-
-            <button
-              type="button"
-              onClick={handleCopySummaryText}
-              className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl font-bold flex items-center justify-center gap-2 active:scale-98 transition-all text-xs cursor-pointer"
-            >
-              {copiedText ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <Mail className="w-4 h-4 text-slate-600" />}
-              {copiedText ? 'Đã sao chép nội dung!' : 'Sao Chép Tóm Tắt Gửi Zalo / Email'}
-            </button>
-          </div>
+          </section>
         </div>
+        </div>{/* End of independent report scrollbody */}
       </div>
     </div>
+    </ViewportModalPortal>
   );
 };

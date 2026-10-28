@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ShieldCheck,
   UsersRound,
@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { UserRole } from '../utils/securityUtils';
 import { getDateFormatPreset } from '../utils/dateFormatter';
+import { confirmAsync } from '../utils/confirmAsync';
 
 export interface SuperAdminUiSettings {
   scalePercent: number;
@@ -71,14 +72,33 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
   const [draftUi, setDraftUi] = useState<SuperAdminUiSettings>(uiSettings);
   const [savingUi, setSavingUi] = useState(false);
   const [uiMessage, setUiMessage] = useState('');
+  const unsavedPreviewRef = useRef(false);
+  const lastSavedUiRef = useRef(uiSettings);
+  const cancelPreviewRef = useRef<() => void>(() => undefined);
+  cancelPreviewRef.current = () => {
+    if (unsavedPreviewRef.current) onPreviewUiSettings(lastSavedUiRef.current);
+    unsavedPreviewRef.current = false;
+  };
+  useEffect(() => () => cancelPreviewRef.current(), []);
+  const closeUiSettingsPanel = async () => {
+    if (unsavedPreviewRef.current && !(await confirmAsync(
+      'Thay đổi giao diện đang xem trước chưa lưu. Bỏ thay đổi và quay về Quản trị hệ thống?',
+      { title: 'Bỏ thay đổi chưa lưu', confirmLabel: 'Bỏ thay đổi', cancelLabel: 'Tiếp tục chỉnh sửa' }
+    ))) return;
+    cancelPreviewRef.current();
+    setDraftUi(lastSavedUiRef.current);
+    setShowUiSettings(false);
+    setUiMessage('');
+  };
 
-  useEffect(() => setDraftUi(uiSettings), [uiSettings]);
+  useEffect(() => { setDraftUi(uiSettings); if (!unsavedPreviewRef.current) lastSavedUiRef.current = uiSettings; }, [uiSettings]);
 
   const updateDraft = (patch: Partial<SuperAdminUiSettings>) => {
     const next = { ...draftUi, ...patch };
     setDraftUi(next);
+    unsavedPreviewRef.current = true;
     onPreviewUiSettings(next);
-    setUiMessage('Đang xem trước — chưa lưu lên Cloud.');
+    setUiMessage('Đang xem trước — chưa lưu lên đám mây.');
   };
 
   const saveDraft = async () => {
@@ -86,6 +106,8 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
     setUiMessage('');
     try {
       await onSaveUiSettings(draftUi);
+      lastSavedUiRef.current = draftUi;
+      unsavedPreviewRef.current = false;
       setUiMessage('Đã lưu giao diện cho dự án.');
     } catch (err: any) {
       setUiMessage(`Không lưu được: ${err?.message || err}`);
@@ -117,25 +139,25 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
   const actions = [
     {
       title: 'Người dùng & phân quyền',
-      description: 'Mở quản lý quyền truy cập, vai trò, reset PIN từ xa và các kiểm soát bảo mật.',
+      description: 'Quản lý quyền truy cập, vai trò, đặt lại mã PIN từ xa và các thiết lập bảo mật.',
       icon: UsersRound,
       onClick: onOpenSecurity,
     },
     {
       title: 'Dự án & dữ liệu',
-      description: 'Quản lý dự án, backup/khôi phục và phạm vi đồng bộ của dự án hiện tại.',
+      description: 'Quản lý dự án, sao lưu, khôi phục và phạm vi đồng bộ của dự án hiện tại.',
       icon: FolderKanban,
       onClick: onOpenProjectManager,
     },
     {
-      title: 'Dữ liệu đã ẩn & lịch sử',
-      description: 'Khôi phục hoặc dọn dữ liệu đã xóa: Căn/Phòng, Hạng mục, Định mức, Phiếu nhập/xuất kho, Mặt bằng, Defect, Checklist, Quân số và Đội thi công.',
+      title: 'Thùng rác',
+      description: 'Khôi phục hoặc dọn mục đã xóa.',
       icon: DatabaseZap,
       onClick: () => openConfigSection('trash-recovery-card', onOpenHiddenHistory),
     },
     {
-      title: 'Giao diện & module',
-      description: `Theme: ${uiSettings.theme} · Cỡ ${uiSettings.scalePercent}% · Checklist: ${showChecklist ? 'đang hiện' : 'tự ẩn'}.`,
+      title: 'Giao diện và phân hệ',
+      description: `Chủ đề: ${uiSettings.theme === 'system' ? 'Theo hệ thống' : uiSettings.theme === 'dark' ? 'Tối' : 'Sáng'} · Cỡ chữ ${uiSettings.scalePercent}% · Checklist: ${showChecklist ? 'đang hiện' : 'tự ẩn'}.`,
       icon: Palette,
       onClick: openUiSettingsPanel,
     },
@@ -146,16 +168,16 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
       onClick: onOpenNotificationCenter,
     },
     {
-      title: 'Đồng bộ, R2 & Chẩn đoán',
-      description: `Ảnh đang chờ: ${pendingPhotoCount}. Mở HNL Health Center để kiểm tra Firebase/R2, ảnh, đồng bộ, chẩn đoán và phục hồi.`,
+      title: 'Đồng bộ, R2 và chẩn đoán',
+      description: `Ảnh đang chờ: ${pendingPhotoCount}. Mở Trung tâm kiểm tra dữ liệu (Health Center) để kiểm tra Firebase/R2, ảnh, đồng bộ, chẩn đoán và phục hồi.`,
       icon: CloudCog,
       onClick: () => openConfigSection('system-sync-card'),
     },
   ];
 
   return (
-    <div className="max-w-5xl mx-auto px-3 sm:px-5 pb-24 space-y-4">
-      <section className="rounded-3xl bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-white p-5 shadow-xl border border-indigo-800/40">
+    <div data-hnl-pc-v3-center="system-center" data-hnl-pc-module="system-center" className="max-w-5xl mx-auto px-3 sm:px-5 pb-24 space-y-4">
+      <section className="rounded-3xl bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 text-white p-5 shadow-xl border border-blue-800/40">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full bg-amber-400/15 border border-amber-300/30 px-3 py-1 text-[11px] font-extrabold text-amber-200">
@@ -183,11 +205,11 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
         </div>
         <div className="grid sm:grid-cols-2 gap-2.5">
           {actions.map(({ title, description, icon: Icon, onClick }) => (
-            <button key={title} type="button" onClick={onClick} className="group text-left rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:border-indigo-300 hover:shadow-md transition-all">
+            <button key={title} type="button" onClick={onClick} className="group text-left rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:border-blue-300 hover:shadow-md transition-all">
               <div className="flex gap-3">
-                <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0"><Icon className="w-5 h-5" /></div>
+                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center shrink-0"><Icon className="w-5 h-5" /></div>
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2"><span className="font-extrabold text-sm text-slate-900">{title}</span><ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-500" /></div>
+                  <div className="flex items-center justify-between gap-2"><span className="font-extrabold text-sm text-slate-900">{title}</span><ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-500" /></div>
                   <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{description}</p>
                 </div>
               </div>
@@ -197,49 +219,49 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
       </section>
 
       {showUiSettings && (
-        <section id="superadmin-ui-settings-card" className="rounded-3xl border border-indigo-200 bg-white shadow-sm overflow-hidden scroll-mt-24 transition-shadow">
-          <div className="px-4 py-3 bg-indigo-50 border-b border-indigo-100 flex items-center justify-between gap-3">
-            <div><h3 className="text-sm font-black text-indigo-950">Giao diện & Module · V2</h3><p className="text-[10px] text-indigo-700 mt-0.5">Xem trước tức thời. Chỉ khi bấm “Áp dụng & Lưu” mới đồng bộ Cloud.</p></div>
-            <button type="button" onClick={() => { setShowUiSettings(false); onPreviewUiSettings(uiSettings); }} className="text-[11px] font-bold text-slate-500 px-2 py-1 rounded-lg hover:bg-white">Đóng</button>
+        <section id="superadmin-ui-settings-card" data-hnl-brand-panel className="rounded-3xl border border-blue-200 bg-white shadow-sm overflow-hidden scroll-mt-24 transition-shadow">
+          <div className="px-4 py-3 bg-blue-50 border-b border-blue-100 flex items-center justify-between gap-3">
+            <div><h3 className="text-sm font-black text-blue-950">Giao diện và phân hệ</h3><p className="text-[10px] text-blue-700 mt-0.5">Thay đổi được xem trước ngay. Chỉ khi chọn “Áp dụng và lưu” mới lưu cài đặt lên đám mây.</p></div>
+            <button type="button" onClick={() => void closeUiSettingsPanel()} className="text-[11px] font-bold text-slate-500 px-2 py-1 rounded-lg hover:bg-white">Đóng</button>
           </div>
 
           <div className="p-4 space-y-5">
             <div className="grid lg:grid-cols-2 gap-4">
               <div className="rounded-2xl border border-slate-200 p-3 space-y-3">
-                <div className="flex items-center gap-2"><ImageIcon className="w-4 h-4 text-indigo-600"/><h4 className="text-xs font-black text-slate-800">Nhận diện ứng dụng</h4></div>
+                <div className="flex items-center gap-2"><ImageIcon className="w-4 h-4 text-blue-600"/><h4 className="text-xs font-black text-slate-800">Nhận diện ứng dụng</h4></div>
                 <label className="block space-y-1"><span className="text-[10px] font-bold text-slate-600">Tên hiển thị</span><input value={draftUi.appDisplayName} maxLength={40} onChange={(e) => updateDraft({ appDisplayName: e.target.value })} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs" placeholder="HNL QLTC" /></label>
-                <label className="block space-y-1"><span className="text-[10px] font-bold text-slate-600">Logo URL (HTTPS)</span><input value={draftUi.logoUrl} onChange={(e) => updateDraft({ logoUrl: e.target.value })} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs" placeholder="https://.../logo.png · để trống dùng logo mặc định" /></label>
-                <div className="flex items-center gap-3 rounded-xl bg-slate-50 border border-slate-200 p-3"><div className="w-12 h-12 rounded-xl bg-white border border-slate-200 overflow-hidden flex items-center justify-center"><img src={draftUi.logoUrl || '/icon.png?v=20260921-unified1'} onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/icon.png?v=20260921-unified1'; }} className="w-full h-full object-contain" alt="Preview logo" /></div><div><div className="text-xs font-black text-slate-800">{draftUi.appDisplayName || 'HNL QLTC'}</div><div className="text-[10px] text-slate-500">Preview logo + tên ứng dụng</div></div></div>
+                <label className="block space-y-1"><span className="text-[10px] font-bold text-slate-600">Đường dẫn logo (HTTPS)</span><input value={draftUi.logoUrl} onChange={(e) => updateDraft({ logoUrl: e.target.value })} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs" placeholder="https://.../logo.png · để trống dùng logo mặc định" /></label>
+                <div className="flex items-center gap-3 rounded-xl bg-slate-50 border border-slate-200 p-3"><div className="w-12 h-12 rounded-xl bg-white border border-slate-200 overflow-hidden flex items-center justify-center"><img src={draftUi.logoUrl || '/icon.png?v=20260921-unified1'} onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/icon.png?v=20260921-unified1'; }} className="w-full h-full object-contain" alt="Xem trước logo" /></div><div><div className="text-xs font-black text-slate-800">{draftUi.appDisplayName || 'HNL QLTC'}</div><div className="text-[10px] text-slate-500">Xem trước logo và tên ứng dụng</div></div></div>
               </div>
 
               <div className="rounded-2xl border border-slate-200 p-3 space-y-3">
-                <div className="flex items-center gap-2"><Palette className="w-4 h-4 text-indigo-600"/><h4 className="text-xs font-black text-slate-800">Theme & màu sắc</h4></div>
-                <label className="block space-y-1"><span className="text-[10px] font-bold text-slate-600">Theme</span><select value={draftUi.theme} onChange={(e) => updateDraft({ theme: e.target.value as SuperAdminUiSettings['theme'] })} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold"><option value="system">Theo hệ thống</option><option value="light">Sáng</option><option value="dark">Tối</option></select></label>
+                <div className="flex items-center gap-2"><Palette className="w-4 h-4 text-blue-600"/><h4 className="text-xs font-black text-slate-800">Chủ đề và màu sắc</h4></div>
+                <label className="block space-y-1"><span className="text-[10px] font-bold text-slate-600">Chủ đề</span><select value={draftUi.theme} onChange={(e) => updateDraft({ theme: e.target.value as SuperAdminUiSettings['theme'] })} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold"><option value="system">Theo hệ thống</option><option value="light">Sáng</option><option value="dark">Tối</option></select></label>
                 <div className="grid grid-cols-2 gap-2">
-                  <label className="space-y-1"><span className="text-[10px] font-bold text-slate-600">Màu chủ đạo</span><div className="flex gap-2"><input type="color" value={draftUi.primaryColor} onChange={(e) => updateDraft({ primaryColor: e.target.value })} className="w-11 h-10 rounded-lg border border-slate-300 p-1"/><input value={draftUi.primaryColor} onChange={(e) => updateDraft({ primaryColor: e.target.value })} className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 text-[10px] font-mono"/></div></label>
+                  <label className="space-y-1"><span className="text-[10px] font-bold text-slate-600">Màu chủ đạo · xanh HNL mặc định</span><div className="flex gap-2"><input type="color" value={draftUi.primaryColor} onChange={(e) => updateDraft({ primaryColor: e.target.value })} className="w-11 h-10 rounded-lg border border-slate-300 p-1"/><input value={draftUi.primaryColor} onChange={(e) => updateDraft({ primaryColor: e.target.value })} className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 text-[10px] font-mono"/></div></label>
                   <label className="space-y-1"><span className="text-[10px] font-bold text-slate-600">Màu phụ</span><div className="flex gap-2"><input type="color" value={draftUi.secondaryColor} onChange={(e) => updateDraft({ secondaryColor: e.target.value })} className="w-11 h-10 rounded-lg border border-slate-300 p-1"/><input value={draftUi.secondaryColor} onChange={(e) => updateDraft({ secondaryColor: e.target.value })} className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 text-[10px] font-mono"/></div></label>
                 </div>
               </div>
 
               <div className="rounded-2xl border border-slate-200 p-3 space-y-3">
-                <div className="flex items-center gap-2"><Type className="w-4 h-4 text-indigo-600"/><h4 className="text-xs font-black text-slate-800">Chữ & mật độ</h4></div>
+                <div className="flex items-center gap-2"><Type className="w-4 h-4 text-blue-600"/><h4 className="text-xs font-black text-slate-800">Chữ và mật độ</h4></div>
                 <label className="space-y-1 block"><span className="text-[10px] font-bold text-slate-600">Cỡ chữ / tỷ lệ giao diện</span><select value={draftUi.scalePercent} onChange={(e) => updateDraft({ scalePercent: Number(e.target.value) })} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold"><option value={90}>90% · Nhỏ</option><option value={100}>100% · Tiêu chuẩn</option><option value={110}>110% · Lớn</option><option value={120}>120% · Rất lớn</option></select></label>
                 <label className="space-y-1 block"><span className="text-[10px] font-bold text-slate-600">Mật độ giao diện</span><select value={draftUi.density} onChange={(e) => updateDraft({ density: e.target.value as SuperAdminUiSettings['density'] })} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold"><option value="compact">Gọn</option><option value="standard">Tiêu chuẩn</option><option value="comfortable">Thoáng / dễ chạm</option></select></label>
                 <label className="space-y-1 block"><span className="text-[10px] font-bold text-slate-600">Bo góc</span><select value={draftUi.borderRadius} onChange={(e) => updateDraft({ borderRadius: e.target.value as SuperAdminUiSettings['borderRadius'] })} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold"><option value="square">Vuông</option><option value="soft">Mềm</option><option value="round">Bo tròn</option></select></label>
               </div>
 
               <div className="rounded-2xl border border-slate-200 p-3 space-y-3">
-                <div className="flex items-center gap-2"><MousePointerClick className="w-4 h-4 text-indigo-600"/><h4 className="text-xs font-black text-slate-800">Nút, icon & module</h4></div>
+                <div className="flex items-center gap-2"><MousePointerClick className="w-4 h-4 text-blue-600"/><h4 className="text-xs font-black text-slate-800">Nút, biểu tượng và phân hệ</h4></div>
                 <div className="grid grid-cols-2 gap-2">
                   <label className="space-y-1"><span className="text-[10px] font-bold text-slate-600">Kích thước nút</span><select value={draftUi.buttonSize} onChange={(e) => updateDraft({ buttonSize: e.target.value as SuperAdminUiSettings['buttonSize'] })} className="w-full rounded-xl border border-slate-300 px-2 py-2 text-xs"><option value="compact">Nhỏ</option><option value="standard">Chuẩn</option><option value="large">Lớn</option></select></label>
-                  <label className="space-y-1"><span className="text-[10px] font-bold text-slate-600">Kích thước icon</span><select value={draftUi.iconSize} onChange={(e) => updateDraft({ iconSize: e.target.value as SuperAdminUiSettings['iconSize'] })} className="w-full rounded-xl border border-slate-300 px-2 py-2 text-xs"><option value="small">Nhỏ</option><option value="standard">Chuẩn</option><option value="large">Lớn</option></select></label>
+                  <label className="space-y-1"><span className="text-[10px] font-bold text-slate-600">Kích thước biểu tượng</span><select value={draftUi.iconSize} onChange={(e) => updateDraft({ iconSize: e.target.value as SuperAdminUiSettings['iconSize'] })} className="w-full rounded-xl border border-slate-300 px-2 py-2 text-xs"><option value="small">Nhỏ</option><option value="standard">Chuẩn</option><option value="large">Lớn</option></select></label>
                 </div>
-                <label className="space-y-1 block"><span className="text-[10px] font-bold text-slate-600">Hiển thị Checklist</span><select value={draftUi.checklistVisibility} onChange={(e) => updateDraft({ checklistVisibility: e.target.value as SuperAdminUiSettings['checklistVisibility'] })} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold"><option value="auto">Tự ẩn khi chưa có dữ liệu</option><option value="always">Luôn hiện module Checklist</option></select></label>
+                <label className="space-y-1 block"><span className="text-[10px] font-bold text-slate-600">Hiển thị Checklist</span><select value={draftUi.checklistVisibility} onChange={(e) => updateDraft({ checklistVisibility: e.target.value as SuperAdminUiSettings['checklistVisibility'] })} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold"><option value="auto">Tự ẩn khi chưa có dữ liệu</option><option value="always">Luôn hiện phân hệ Checklist</option></select></label>
               </div>
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-              <div className="flex items-center gap-2 mb-2"><MonitorSmartphone className="w-4 h-4 text-indigo-600"/><span className="text-[11px] font-black text-slate-700">Preview Mobile / PC</span></div>
+              <div className="flex items-center gap-2 mb-2"><MonitorSmartphone className="w-4 h-4 text-blue-600"/><span className="text-[11px] font-black text-slate-700">Xem trước trên điện thoại và PC</span></div>
               <div className="grid sm:grid-cols-2 gap-2">
                 <div className="rounded-xl border border-slate-300 bg-white p-3"><div className="text-[9px] text-slate-400">Điện thoại</div><div className="mt-2 h-20 rounded-lg border border-slate-200 p-2" style={{ borderRadius: draftUi.borderRadius === 'square' ? 2 : draftUi.borderRadius === 'round' ? 18 : 10 }}><div className="h-3 w-2/3 rounded" style={{ backgroundColor: draftUi.primaryColor }}></div><div className="mt-2 h-2 w-full bg-slate-200 rounded"></div><div className="mt-2 h-7 w-20 text-white text-[9px] flex items-center justify-center" style={{ backgroundColor: draftUi.secondaryColor, borderRadius: 8 }}>Nút mẫu</div></div></div>
                 <div className="rounded-xl border border-slate-300 bg-white p-3"><div className="text-[9px] text-slate-400">PC</div><div className="mt-2 h-20 rounded-lg border border-slate-200 p-2 flex gap-2"><div className="w-1/4 rounded bg-slate-100"></div><div className="flex-1"><div className="h-3 w-1/2 rounded" style={{ backgroundColor: draftUi.primaryColor }}></div><div className="mt-2 h-2 w-full bg-slate-200 rounded"></div><div className="mt-2 h-2 w-3/4 bg-slate-200 rounded"></div></div></div></div>
@@ -247,13 +269,13 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
             </div>
 
             <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 flex flex-wrap gap-2 items-center justify-between">
-              <div className="text-[10px] text-slate-500">Định dạng ngày vẫn dùng nguồn chuẩn Cài đặt → Cấu hình để không có hai nguồn cấu hình.</div>
+              <div className="text-[10px] text-slate-500">Định dạng ngày dùng chung thiết lập tại Cài đặt → Cấu hình, tránh cấu hình trùng lặp.</div>
               <button type="button" onClick={onOpenConfig} className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-[10px] font-extrabold text-slate-700">Mở cấu hình ngày · {getDateFormatPreset()}</button>
             </div>
             {uiMessage && <div className="text-[10px] font-semibold text-slate-600 bg-slate-50 rounded-lg px-3 py-2">{uiMessage}</div>}
             <div className="flex flex-wrap gap-2 justify-end">
-              <button type="button" disabled={savingUi} onClick={async () => { setSavingUi(true); try { await onResetUiSettings(); setUiMessage('Đã khôi phục mặc định.'); } finally { setSavingUi(false); } }} className="px-3 py-2 rounded-xl border border-slate-300 text-[11px] font-bold text-slate-600 disabled:opacity-50">Khôi phục mặc định</button>
-              <button type="button" disabled={savingUi} onClick={() => void saveDraft()} className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-[11px] font-extrabold shadow-sm disabled:opacity-50">{savingUi ? 'Đang lưu…' : 'Áp dụng & Lưu'}</button>
+              <button type="button" disabled={savingUi} onClick={async () => { setSavingUi(true); try { await onResetUiSettings(); unsavedPreviewRef.current = false; setUiMessage('Đã khôi phục mặc định.'); } finally { setSavingUi(false); } }} className="px-3 py-2 rounded-xl border border-slate-300 text-[11px] font-bold text-slate-600 disabled:opacity-50">Khôi phục mặc định</button>
+              <button type="button" disabled={savingUi} onClick={() => void saveDraft()} data-hnl-primary-action="superadmin-ui-save" className="px-4 py-2 rounded-xl bg-blue-600 text-white text-[11px] font-extrabold shadow-sm disabled:opacity-50">{savingUi ? 'Đang lưu…' : 'Áp dụng và lưu'}</button>
             </div>
           </div>
         </section>

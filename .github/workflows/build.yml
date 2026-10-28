@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - dev
   pull_request:
 
 jobs:
@@ -33,6 +34,19 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: DEV deploy budget regression
+        run: node scripts/dev-deploy-budget-golden.mjs
+
+      - name: Warehouse catalog and order regression
+        run: node --experimental-strip-types scripts/warehouse-order-golden.mjs
+      - name: Warehouse XLSX formulas and grid Golden
+        run: npx tsx scripts/warehouse-export-formulas-golden.ts
+      - name: Warehouse order Cloud and formula data golden
+        run: npx tsx scripts/warehouse-order-cloud-golden.ts
+
+      - name: Floor-plan room-creation safety regression
+        run: node scripts/floorplan-room-creation-guard-golden.mjs
 
       - name: Stability Gate
         run: npm run test:stability

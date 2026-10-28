@@ -33,8 +33,13 @@ html[data-hnl-theme="dark"] .bg-white.border-indigo-100 .text-slate-950 {
   color: var(--hnl-dark-text) !important;
 }
 
-html[data-hnl-theme="dark"] [class*="bg-indigo-50/"],
-html[data-hnl-theme="dark"] [class*="bg-indigo-100/"] { background-color: rgb(49 46 129 / .34) !important; }
+/* Nested indigo utilities denote the configurable HNL brand, not violet status. */
+html[data-hnl-theme="dark"] [class*="bg-indigo-50/"] {
+  background-color: color-mix(in srgb, var(--hnl-primary) 24%, var(--hnl-dark-surface)) !important;
+}
+html[data-hnl-theme="dark"] [class*="bg-indigo-100/"] {
+  background-color: color-mix(in srgb, var(--hnl-primary) 34%, var(--hnl-dark-surface)) !important;
+}
 html[data-hnl-theme="dark"] [class*="bg-blue-50/"],
 html[data-hnl-theme="dark"] [class*="bg-blue-100/"],
 html[data-hnl-theme="dark"] [class*="bg-blue-200/"] { background-color: rgb(30 64 175 / .30) !important; }
@@ -76,7 +81,9 @@ html[data-hnl-theme="dark"] [class*="border-gray-100/"],
 html[data-hnl-theme="dark"] [class*="border-gray-200/"],
 html[data-hnl-theme="dark"] [class*="border-gray-300/"] { border-color: var(--hnl-dark-border) !important; }
 html[data-hnl-theme="dark"] [class*="border-indigo-100/"],
-html[data-hnl-theme="dark"] [class*="border-indigo-200/"] { border-color: rgb(129 140 248 / .48) !important; }
+html[data-hnl-theme="dark"] [class*="border-indigo-200/"] {
+  border-color: color-mix(in srgb, var(--hnl-primary-on-dark) 48%, transparent) !important;
+}
 html[data-hnl-theme="dark"] [class*="border-blue-100/"],
 html[data-hnl-theme="dark"] [class*="border-blue-200/"] { border-color: rgb(96 165 250 / .46) !important; }
 html[data-hnl-theme="dark"] [class*="border-emerald-100/"],
@@ -101,7 +108,7 @@ html[data-hnl-theme="dark"] .text-indigo-600,
 html[data-hnl-theme="dark"] .text-indigo-700,
 html[data-hnl-theme="dark"] .text-indigo-800,
 html[data-hnl-theme="dark"] .text-indigo-900,
-html[data-hnl-theme="dark"] .text-indigo-950 { color: #a5b4fc !important; }
+html[data-hnl-theme="dark"] .text-indigo-950 { color: var(--hnl-primary-on-dark) !important; }
 html[data-hnl-theme="dark"] .text-violet-500,
 html[data-hnl-theme="dark"] .text-violet-600,
 html[data-hnl-theme="dark"] .text-violet-700,
@@ -156,6 +163,8 @@ html[data-hnl-theme="dark"] .text-pink-900 { color: #f9a8d4 !important; }
  * light RGB values even after neutral/pale background guards run. Scope the fix to
  * the exact active-card gradient so dark mode stays dark without changing status UI. */
 html[data-hnl-theme="dark"] .bg-gradient-to-r.from-indigo-50\/90.to-blue-50\/50 {
-  background-image: linear-gradient(to right, rgb(49 46 129 / .42), rgb(30 64 175 / .28)) !important;
-  border-color: rgb(99 102 241 / .66) !important;
+  background-image: linear-gradient(to right,
+    color-mix(in srgb, var(--hnl-primary) 32%, var(--hnl-dark-surface)),
+    color-mix(in srgb, var(--hnl-primary) 18%, var(--hnl-dark-surface))) !important;
+  border-color: color-mix(in srgb, var(--hnl-primary-on-dark) 50%, transparent) !important;
 }

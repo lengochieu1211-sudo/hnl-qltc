@@ -12,6 +12,7 @@ export interface CrewReportProjectInput {
   projectId: string;
   projectName: string;
   projectLocation?: string;
+  contractorName?: string;
   records: CrewRecord[];
   teams?: TeamInfo[];
   floorPlans?: FloorPlan[];
@@ -22,6 +23,7 @@ export interface CrewReportRow {
   projectId: string;
   projectName: string;
   projectLocation?: string;
+  contractorName?: string;
   date: string;
   structureGroupId: string;
   structureGroupName: string;
@@ -53,11 +55,48 @@ export interface CrewReportDailySummary {
 
 const normalizeKey = (value: unknown): string => String(value || '').trim().toLocaleLowerCase('vi-VN');
 
+/** Highlight only the date text for Sundays in shared crew reports.
+ * Compute from the YYYY-MM-DD calendar key (UTC noon), not browser timezone.
+ */
+export const isCrewReportSunday = (dateKey: string): boolean => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day, 12));
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() + 1 === month
+    && date.getUTCDate() === day
+    && date.getUTCDay() === 0;
+};
+
 export const toCrewReportDateKey = (date: Date): string => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+};
+
+/** Shared date ranges for the Home and Crew-report quick selectors (device-local calendar days). */
+export type CrewReportDatePreset = 'today' | 'yesterday' | '7days' | 'month';
+
+export const getCrewReportPresetRange = (
+  preset: CrewReportDatePreset,
+  referenceDate = new Date(),
+): { startDate: string; endDate: string } => {
+  // Noon avoids DST transitions around midnight while retaining local calendar dates.
+  const localDay = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate(), 12);
+  const today = toCrewReportDateKey(localDay);
+  if (preset === 'today') return { startDate: today, endDate: today };
+  if (preset === 'month') return {
+    startDate: toCrewReportDateKey(new Date(localDay.getFullYear(), localDay.getMonth(), 1, 12)),
+    endDate: today,
+  };
+  const first = new Date(localDay);
+  first.setDate(first.getDate() - (preset === 'yesterday' ? 1 : 6));
+  const startDate = toCrewReportDateKey(first);
+  return { startDate, endDate: preset === 'yesterday' ? startDate : today };
 };
 
 export const listCrewReportDates = (startDate: string, endDate: string): string[] => {
@@ -194,6 +233,7 @@ export function buildCrewReportRows(
     const { structureEnabled, resolveRecordGroup } = buildProjectGroupResolver(project);
     const baseTeamDirectory = new Map<string, { teamId?: string; teamName: string; leaderName?: string }>();
     const teamNameToBaseKey = new Map<string, string>();
+    const ambiguousTeamNames = new Set<string>();
 
     for (const team of project.teams || []) {
       if (team.deletedAt) continue;
@@ -206,13 +246,22 @@ export function buildCrewReportRows(
         leaderName: String(team.leader || '').trim() || undefined,
       });
       const normalizedName = normalizeKey(teamName);
-      if (normalizedName) teamNameToBaseKey.set(normalizedName, key);
+      if (normalizedName) {
+        if (teamNameToBaseKey.has(normalizedName) && teamNameToBaseKey.get(normalizedName) !== key) {
+          ambiguousTeamNames.add(normalizedName);
+        } else {
+          teamNameToBaseKey.set(normalizedName, key);
+        }
+      }
     }
 
     const canonicalRecordTeamKey = (record: CrewRecord): string => {
       const recordId = String(record.teamId || '').trim();
       if (recordId) return `id:${recordId}`;
       const normalizedName = normalizeKey(record.teamName);
+      // Legacy name-only reports must not be silently assigned to the last
+      // directory team when two distinct team IDs share a display name.
+      if (ambiguousTeamNames.has(normalizedName)) return resolveRecordTeamKey(record);
       return teamNameToBaseKey.get(normalizedName) || resolveRecordTeamKey(record);
     };
 
@@ -241,7 +290,8 @@ export function buildCrewReportRows(
           group,
           baseTeamKey,
           teamId: baseTeam?.teamId || record.teamId || undefined,
-          teamName,
+          teamName: ambiguousTeamNames.has(normalizeKey(record.teamName)) && !record.teamId
+            ? `${teamName} (chưa xác định đội)` : teamName,
           leaderName: baseTeam?.leaderName || String(record.leaderName || '').trim() || undefined,
         });
       }
@@ -283,6 +333,7 @@ export function buildCrewReportRows(
           projectId: project.projectId,
           projectName: project.projectName,
           projectLocation: project.projectLocation,
+          contractorName: project.contractorName,
           date,
           structureGroupId: team.group.id,
           structureGroupName: team.group.name,
@@ -402,6 +453,7 @@ export interface CrewReportProjectMatrix {
   projectId: string;
   projectName: string;
   projectLocation?: string;
+  contractorName?: string;
   groups: CrewReportMatrixGroup[];
   teams: CrewReportMatrixTeam[];
   dates: CrewReportMatrixDateRow[];
@@ -485,6 +537,7 @@ export function buildCrewReportMatrices(rows: CrewReportRow[]): CrewReportProjec
       projectId,
       projectName: first?.projectName || projectId,
       projectLocation: first?.projectLocation,
+      contractorName: first?.contractorName,
       groups,
       teams,
       dates,

@@ -6,6 +6,7 @@ import {
   resolveAuthoritativeWorkVolumeRef,
   resolveUniqueMaterialIdentity,
   resolveWorkVolumeRef,
+  workVolumeAppliesToFloor,
   validateInventoryOutProvenance,
   validateMaterialNormCatalog,
   validateWorkVolumeCatalog,
@@ -32,6 +33,11 @@ const norm = (id: string, materialId: string | undefined, categoryIds: string[],
 
 const w1 = work('CAT-F1', 'F1');
 const w2 = work('CAT-F2', 'F2');
+const globalWork: WorkVolume = { ...work('CAT-GLOBAL', 'F1', 'Trần toàn công trình'), floor: 'Toàn công trình', floorId: undefined, floorIds: [] };
+assert.equal(workVolumeAppliesToFloor(globalWork, 'F1', 'Tầng 1'), true);
+assert.equal(workVolumeAppliesToFloor(globalWork, 'F2', 'Tầng 2'), true);
+assert.equal(resolveWorkVolumeRef({ workVolumes: [globalWork], workCategoryId: 'CAT-GLOBAL', floorId: 'F2' }).state, 'resolved');
+console.log('PASS linkage: global WorkVolume scope applies to every linked floor');
 assert.equal(resolveWorkVolumeRef({ workVolumes: [w1, w2], workCategoryName: w1.title, floorId: 'F1' }).work?.id, 'CAT-F1');
 assert.equal(resolveWorkVolumeRef({ workVolumes: [w1, w2], workCategoryName: w1.title }).state, 'ambiguous');
 console.log('PASS linkage: floor-aware name fallback and authoritative IDs');
@@ -183,6 +189,30 @@ assert.equal(teamMaterialLine.issuedQty, 8);
 assert.equal(teamMaterialLine.varianceQty, -2);
 console.log('PASS teams: material reconciliation compares issued project stock against constructed volume × norm');
 
+// P0: duplicate material+category norms must never double expected demand.
+// Retain issued warehouse quantity and surface the catalog warning instead.
+const duplicateTeamReconciliation = computeTeamMaterialReconciliation({
+  team: teamA,
+  stats: stats['TEAM-A'],
+  inventory: [{ id: 'OUT-DUP', type: 'out', materialId: 'MAT-TEAM', materialName: 'Vít đội', unit: 'hộp', quantity: 8, location: '', handler: '', date: '2026-09-14', issuePurpose: 'project-work', sourceTeamId: 'TEAM-A' }],
+  materialNorms: [teamMaterialNorm, { ...teamMaterialNorm, id: 'N-TEAM-DUP' }],
+  workVolumes: [w1],
+});
+const duplicateTeamLine = duplicateTeamReconciliation.find((line) => line.materialId === 'MAT-TEAM');
+assert.ok(duplicateTeamLine?.integrityWarning?.includes('trùng hạng mục'), 'duplicate norm must carry actionable warning');
+assert.equal(duplicateTeamLine?.expectedAssignedQty, 0, 'duplicate material expected assigned volume must fail closed');
+assert.equal(duplicateTeamLine?.expectedConstructedQty, 0, 'duplicate material expected constructed volume must fail closed');
+assert.equal(duplicateTeamLine?.issuedQty, 8, 'actual warehouse issues must survive duplicate norm detection');
+assert.equal(duplicateTeamLine?.issuedVsConstructedPercent, undefined, 'unsafe ratio must not be published');
+assert.ok(!teamMaterialLine.integrityWarning, 'unique material norms must retain ordinary calculations');
+const unlinkedTeamReconciliation = computeTeamMaterialReconciliation({
+  team: teamA, stats: stats['TEAM-A'], inventory: [],
+  materialNorms: [{ ...teamMaterialNorm, id: 'N-TEAM-ORPHAN-2', workCategoryId: 'CAT-MISSING', workCategoryIds: ['CAT-MISSING'] }],
+  workVolumes: [w1],
+});
+assert.ok(unlinkedTeamReconciliation.some((line) => line.integrityWarning), 'orphaned norm must surface a warning');
+console.log('PASS P0: shared catalog validation blocks duplicate norms while preserving warehouse issues');
+
 const zeroQuantityAssignedRoom = room('R-TEAM-ZERO', 'F1', {}, {
   workCategoryId: 'CAT-F1', workCategory: w1.title, workVolume: 0,
   teamId: 'TEAM-A', assignedTeam: 'Đội A',
@@ -232,5 +262,29 @@ const reconciled = reconcileMaterialNormWorkCategoryLinks([staleNorm], [w1]).mat
 assert.deepEqual(reconciled.workCategoryIds, ['DELETED-CATEGORY']);
 assert.equal(reconciled.workCategoryId, 'DELETED-CATEGORY');
 console.log('PASS lifecycle: reconciliation preserves stale authoritative IDs for Health repair');
+
+// Regression: do not apply a norm whose authoritative work-category ID is gone.
+// Even a matching source unit must not produce a fabricated team requirement.
+const orphanedTeamNorm: MaterialNorm = {
+  ...teamMaterialNorm,
+  id: 'N-TEAM-ORPHAN',
+  workCategoryId: 'CAT-MISSING',
+  workCategoryIds: ['CAT-MISSING'],
+  workCategoryNormsById: undefined,
+  unitNormPerM2: 2,
+};
+const orphanedTeam = computeTeamMaterialReconciliation({
+  team: teamA, stats: stats['TEAM-A'], inventory: [],
+  materialNorms: [orphanedTeamNorm], workVolumes: [w1],
+});
+assert.equal(orphanedTeam.find((line) => line.materialName === 'Vít đội')?.expectedAssignedQty || 0, 0);
+assert.equal(orphanedTeam.find((line) => line.materialName === 'Vít đội')?.expectedConstructedQty || 0, 0);
+const partlyOrphanedTeam = computeTeamMaterialReconciliation({
+  team: teamA, stats: stats['TEAM-A'], inventory: [], workVolumes: [w1],
+  materialNorms: [{ ...teamMaterialNorm, workCategoryIds: ['CAT-F1', 'CAT-MISSING'] }],
+});
+assert.equal(partlyOrphanedTeam.find((line) => line.materialName === 'Vít đội')?.expectedAssignedQty || 0, 0,
+  'A norm mixing valid and orphan IDs must be blocked until the catalog link is repaired');
+console.log('PASS team materials: orphaned or partially orphaned norm cannot generate demand');
 
 console.log('LINKAGE CALCULATION GOLDEN PASS');

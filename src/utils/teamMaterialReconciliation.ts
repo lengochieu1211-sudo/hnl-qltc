@@ -1,6 +1,6 @@
 import type { InventoryItem, MaterialNorm, TeamInfo, WorkVolume } from '../types';
 import type { TeamStatistics } from './teamUtils';
-import { canonicalNormCategoryIds } from './linkageIntegrity';
+import { canonicalNormCategoryIds, validateMaterialNormCatalog } from './linkageIntegrity';
 import { buildMaterialAliasMap, getMaterialIdentityKey, resolveNormMaterialId } from './inventoryUtils';
 import { areSameUnit, normalizeUnit } from './unitUtils';
 import { naturalCompare } from './sortUtils';
@@ -16,6 +16,8 @@ export interface TeamMaterialReconciliationLine {
   issuedQty: number;
   varianceQty: number;
   issuedVsConstructedPercent?: number;
+  /** A catalog conflict makes expected quantities/variance unsafe to present. */
+  integrityWarning?: string;
 }
 
 const round2 = (value: number) => Math.round((Number(value) || 0) * 100) / 100;
@@ -27,9 +29,11 @@ function normFactorForCategory(
   workVolumes: WorkVolume[],
 ): number {
   const categoryId = String(category.workCategoryId || '').trim();
-  const scopedIds = canonicalNormCategoryIds(norm, workVolumes).ids;
-
-  if (categoryId && scopedIds.length > 0 && !scopedIds.includes(categoryId)) return 0;
+  const scope = canonicalNormCategoryIds(norm, workVolumes);
+  // Do not apply an orphaned norm to a different category sharing the same unit.
+  if (scope.unresolved.length > 0) return 0;
+  const scopedIds = scope.ids;
+  if (scopedIds.length > 0 && (!categoryId || !scopedIds.includes(categoryId))) return 0;
 
   if (categoryId && norm.workCategoryNormsById && Object.keys(norm.workCategoryNormsById).length > 0) {
     if (norm.workCategoryNormsById[categoryId] !== undefined) {
@@ -69,14 +73,37 @@ export function computeTeamMaterialReconciliation(params: {
   const inventory = params.inventory.filter((item) => item.itemKind !== 'equipment').filter(active);
   const aliasMap = buildMaterialAliasMap(materialNorms);
   const lines = new Map<string, TeamMaterialReconciliationLine>();
+  // Use the SAME catalog validator as Material Need. Do not double-count duplicate
+  // norm contributions; preserve issued stock and all original records untouched.
+  const normIssues = validateMaterialNormCatalog(materialNorms, workVolumes);
+  const blockedNormIds = new Set(normIssues.flatMap((issue) => issue.normIds));
+  const warningByMaterial = new Map<string, Set<string>>();
 
   const canonicalKey = (materialId?: string, materialName?: string, unit?: string) => {
     const resolved = materialId ? (aliasMap.get(String(materialId)) || String(materialId)) : undefined;
     return getMaterialIdentityKey(resolved, materialName, unit);
   };
 
+  for (const issue of normIssues) {
+    for (const norm of materialNorms.filter((item) => issue.normIds.includes(item.id))) {
+      const materialId = resolveNormMaterialId(norm);
+      const key = canonicalKey(materialId, norm.materialName, norm.unit);
+      const warnings = warningByMaterial.get(key) || new Set<string>();
+      warnings.add(issue.message);
+      warningByMaterial.set(key, warnings);
+      if (!lines.has(key)) {
+        lines.set(key, {
+          materialKey: key, materialId, materialName: norm.materialName,
+          category: norm.category || 'Vật tư', unit: normalizeUnit(norm.unit) || norm.unit,
+          expectedAssignedQty: 0, expectedConstructedQty: 0, issuedQty: 0, varianceQty: 0,
+        });
+      }
+    }
+  }
+
   stats.categoryBreakdown.forEach((category) => {
     materialNorms.forEach((norm) => {
+      if (blockedNormIds.has(norm.id)) return;
       const factor = normFactorForCategory(norm, category, workVolumes);
       if (!(factor > 0)) return;
       const materialId = resolveNormMaterialId(norm);
@@ -124,13 +151,15 @@ export function computeTeamMaterialReconciliation(params: {
       const expectedConstructedQty = round2(line.expectedConstructedQty);
       const issuedQty = round2(line.issuedQty);
       const varianceQty = round2(issuedQty - expectedConstructedQty);
+      const integrityWarning = Array.from(warningByMaterial.get(line.materialKey) || []).join('; ');
       return {
         ...line,
         expectedAssignedQty,
         expectedConstructedQty,
         issuedQty,
         varianceQty,
-        ...(expectedConstructedQty > 0 ? { issuedVsConstructedPercent: Math.round((issuedQty / expectedConstructedQty) * 100) } : {}),
+        ...(integrityWarning ? { integrityWarning } : {}),
+        ...(!integrityWarning && expectedConstructedQty > 0 ? { issuedVsConstructedPercent: Math.round((issuedQty / expectedConstructedQty) * 100) } : {}),
       };
     })
     .sort((a, b) => naturalCompare(a.category, b.category) || naturalCompare(a.materialName, b.materialName));

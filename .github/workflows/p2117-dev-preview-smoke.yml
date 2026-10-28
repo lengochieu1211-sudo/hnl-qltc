@@ -1,0 +1,112 @@
+name: P21.17 DEV preview + PC/mobile browser smoke (NO PROD)
+on:
+  push:
+    branches:
+      - release/p21-13-prod-candidate-20261027
+    paths:
+      - '.github/workflows/p2117-dev-preview-smoke.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev
+      VITE_HNL_AI_ENABLED: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev.web.app
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_GIT_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Pin source, DEV service-account and isolated backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/release/p21-13-prod-candidate-20261027'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}"
+          node -e "const j=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);if(j.project_id!=='hnl-qltc-dev'||j.type!=='service_account')process.exit(1)"
+          test "$VITE_APP_ENV" = DEV
+          test "$VITE_R2_GATEWAY_URL" = 'https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev'
+          test "$VITE_ENABLE_LEGACY_DRIVE_WRITE" = false
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/hnl-dev-sa.json"
+          chmod 600 "$RUNNER_TEMP/hnl-dev-sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/hnl-dev-sa.json" >> "$GITHUB_ENV"
+      - name: Fetch exact DEV Web SDK config, never PROD
+        shell: bash
+        run: |
+          set -euo pipefail
+          APPS="$(npx --yes firebase-tools@13.35.1 apps:list WEB --project hnl-qltc-dev --json)"
+          APP_ID="$(printf '%s' "$APPS" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s),a=Array.isArray(j.result)?j.result:[];process.stdout.write(String(a.find(x=>x.platform==='WEB')?.appId||a[0]?.appId||''))})")"
+          test -n "$APP_ID"
+          npx --yes firebase-tools@13.35.1 apps:sdkconfig WEB "$APP_ID" --project hnl-qltc-dev --json > "$RUNNER_TEMP/hnl-dev-sdk.json"
+          node - <<'NODE'
+          const fs=require('fs');const j=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/hnl-dev-sdk.json','utf8'));
+          const fields=['apiKey','appId','messagingSenderId','projectId','storageBucket','authDomain'],out={};
+          function walk(x){if(!x)return;if(typeof x==='string'){try{walk(JSON.parse(x))}catch{};for(const k of fields){const m=x.match(new RegExp(k+'\\s*:\\s*[\"\\\']([^\"\\\']+)[\"\\\']'));if(m&&!out[k])out[k]=m[1];}return;}if(Array.isArray(x)){for(const y of x)walk(y);return;}if(typeof x==='object'){for(const [k,v] of Object.entries(x)){if(fields.includes(k)&&typeof v==='string'&&!out[k])out[k]=v;walk(v)}}}
+          walk(j);out.projectId ||= 'hnl-qltc-dev';out.authDomain='hnl-qltc-dev.web.app';out.storageBucket ||= 'hnl-qltc-dev.firebasestorage.app';
+          if(out.projectId!=='hnl-qltc-dev'||fields.some(k=>!out[k]))throw Error('Invalid DEV Firebase SDK config');
+          const names={apiKey:'VITE_FIREBASE_API_KEY',appId:'VITE_FIREBASE_APP_ID',messagingSenderId:'VITE_FIREBASE_MESSAGING_SENDER_ID',projectId:'VITE_FIREBASE_PROJECT_ID',storageBucket:'VITE_FIREBASE_STORAGE_BUCKET',authDomain:'VITE_FIREBASE_AUTH_DOMAIN'};
+          for(const [k,v] of Object.entries(names))fs.appendFileSync(process.env.GITHUB_ENV,v+'='+out[k]+'\n');
+          console.log('DEV Firebase SDK isolation PASS');
+          NODE
+      - name: Build candidate for DEV preview
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run security:audit
+          npm run build
+          ! grep -R -q 'hnl-qltc-r2-gateway\.lengochieu1211\.workers\.dev' dist/assets
+          grep -R -q 'hnl-qltc-r2-gateway-dev' dist/assets
+      - name: Deploy preview channel on DEV Firebase Hosting ONLY
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$VITE_FIREBASE_PROJECT_ID" = 'hnl-qltc-dev'
+          test "$VITE_APP_ENV" = DEV
+          npx --yes firebase-tools@13.35.1 hosting:channel:deploy p2117-candidate --project hnl-qltc-dev --config firebase.json --expires 1d --non-interactive --json > "$RUNNER_TEMP/hnl-preview-result.json"
+          node - <<'NODE'
+          const fs=require('fs');const j=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/hnl-preview-result.json','utf8'));
+          const urls=[];function walk(v){if(!v)return;if(typeof v==='string'){if(v.includes('web.app')||v.includes('firebaseapp.com'))urls.push(...v.match(/https:\/\/[^\s\"']+/g)||[]);}else if(Array.isArray(v))v.forEach(walk);else if(typeof v==='object')Object.values(v).forEach(walk)}walk(j);
+          const url=urls.find(u=>u.includes('hnl-qltc-dev--p2117-candidate')&&u.startsWith('https://'));
+          if(!url)throw Error('No isolated DEV preview URL returned');
+          const clean=url.replace(/[\],}]+$/,'').replace(/\/$/,'');
+          fs.appendFileSync(process.env.GITHUB_ENV,'P2117_PREVIEW_URL='+clean+'\n');
+          fs.writeFileSync('P2117-DEV-PREVIEW-URL.txt',clean+'\n');
+          console.log('DEV preview channel deployed for candidate SHA: '+process.env.GITHUB_SHA);
+          NODE
+      - name: Smoke exact DEV preview HTML and bundle via fetch (no live mutation)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${P2117_PREVIEW_URL:-}"
+          CODE="$(curl --retry 5 --retry-delay 2 -sS -L -o "$RUNNER_TEMP/preview.html" -w '%{http_code}' "$P2117_PREVIEW_URL/?p2117=$GITHUB_SHA")"
+          test "$CODE" = 200
+          grep -q 'id="root"' "$RUNNER_TEMP/preview.html"
+          ! grep -q 'com-example-qlct-61329' "$RUNNER_TEMP/preview.html"
+          echo 'DEV preview HTTP smoke PASS; PC/mobile interactive Runtime Golden still separate'
+      - name: Upload preview URL and smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P2117-DEV-PREVIEW-${{ github.sha }}
+          path: P2117-DEV-PREVIEW-URL.txt
+          if-no-files-found: warn
+          retention-days: 2

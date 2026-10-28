@@ -1,6 +1,6 @@
+import { DesktopWorkspaceMetrics } from './DesktopWorkspaceMetrics';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
-import * as XLSX from 'xlsx';
 import { assertSafeExcelImportFile } from '../utils/excelImportUtils';
 import { 
   Users, 
@@ -11,6 +11,7 @@ import {
   Copy, 
   ChevronLeft, 
   ChevronRight, 
+  ChevronDown, 
   MapPin, 
   Clipboard, 
   User, 
@@ -31,8 +32,7 @@ import {
   PackageSearch
 } from 'lucide-react';
 import { CrewRecord, FloorPlan, TeamInfo, RoomProgressItem, DefectItem, CrewFloorWork, CrewFloorCategoryWork, AcceptanceStatus, RoomInspectionResult, WorkVolume, InventoryItem, MaterialNorm } from '../types';
-import { formatDateDDMMYYYY } from '../utils/dateFormatter';
-import { exportTeamStatisticsToExcel } from '../utils/excelExport';
+import { formatDateDDMMYYYY, formatExcelDate } from '../utils/dateFormatter';
 import { confirmAsync } from '../utils/confirmAsync';
 import { formatDecimal, evaluateMathExpression, useFormatSettings, parseExcelNumber } from '../utils/numberUtils';
 import { isTeamMatch, getTeamCategoriesForRoom, calculateTeamStatistics, isTeamWorkCompletedInRoom, FloorGroupDetail, getSubItemGroupWeight } from '../utils/teamUtils';
@@ -43,6 +43,11 @@ import { deleteEntityPhotos } from '../utils/photoStorage';
 import { saveWorkbookFile } from '../utils/fileExport';
 import { createEntityId } from '../utils/idUtils';
 import { QuickSortBar } from './QuickSortBar';
+import { DataManagementMenu } from './DataManagementMenu';
+import { AddSourceMenu } from './AddSourceMenu';
+import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';
+const LazyQuickEditGridModal = React.lazy(() => import('./QuickEditGridModal').then((m) => ({ default: m.QuickEditGridModal })));
+const LazyCatalogTemplatePickerModal = React.lazy(() => import('./CatalogTemplatePickerModal').then((m) => ({ default: m.CatalogTemplatePickerModal })));
 import { UserRole, canEditCrewData, canDeleteBusinessData, canDeleteCrewRecord, canManageTeams, canImportData } from '../utils/securityUtils';
 import { findWorsenedTeamNameConflict, normalizeTeamDirectoryName, resolveUniqueTeamByDirectoryName } from '../utils/teamDirectoryIntegrity';
 import { canonicalWorkCategoryId, isActiveRecord, normalizeLinkText, resolveWorkVolumeRef, workVolumeAppliesToFloor } from '../utils/linkageIntegrity';
@@ -86,12 +91,15 @@ const CrewPhotoCount: React.FC<{ projectId?: string; recordId: string }> = ({ pr
 };
 
 interface CrewTabProps {
+  isActive?: boolean;
+  quickEditEnabled?: boolean;
   projectId?: string;
   userRole: UserRole;
   roleResolved: boolean;
   currentUserUid?: string;
   projectName?: string;
   projectLocation?: string;
+  contractorName?: string;
   crewRecords: CrewRecord[];
   floorPlans: FloorPlan[];
   structureConfig: ProjectStructureConfig;
@@ -108,7 +116,7 @@ interface CrewTabProps {
   onOpenExportPdf?: () => void;
   onExportExcel?: () => void;
   teams?: TeamInfo[];
-  onUpdateTeams?: (teams: TeamInfo[]) => void;
+  onUpdateTeams?: (teams: TeamInfo[], options?: { quickEditUpsertIds: string[] }) => void;
 }
 
 const buildCrewRecordShareText = (record: CrewRecord, projectName?: string, projectLocation?: string) => {
@@ -141,16 +149,6 @@ const buildCrewRecordShareText = (record: CrewRecord, projectName?: string, proj
     'Lưu ý: Sáng/Chiều/Tối là quân số theo ca, không cộng thành số người duy nhất trong ngày.',
   ].filter(Boolean).join('\n');
 };
-
-const COMMON_TASKS = [
-  'Bắn tấm thạch cao trần vách',
-  'Lắp dựng khung xương chính & phụ',
-  'Sơn bả matit hoàn thiện trần',
-  'Trét mối nối & dán băng keo thủy tinh',
-  'Vệ sinh mặt bằng & tập kết vật tư',
-  'Sửa chữa lỗi & vá dặm lỗ điện nước',
-  'Thi công cách âm / bảo ôn bông thủy tinh'
-];
 
 type TeamSortOrder = SortOrder;
 type TeamLogSortMode = 'date' | 'floor';
@@ -218,12 +216,15 @@ const getCrewLogFloorLabel = (log: CrewRecord, floorPlans: FloorPlan[]) => {
 
 
 export const CrewTab: React.FC<CrewTabProps> = ({
+  isActive = true,
+  quickEditEnabled = true,
   projectId = 'default-project',
   userRole,
   roleResolved,
   currentUserUid = '',
   projectName,
   projectLocation,
+  contractorName,
   crewRecords,
   floorPlans,
   structureConfig,
@@ -261,9 +262,16 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
   // Khu/Khối remains in persisted data; Crew lists/statistics stay project-wide and show location per item.
   const selectedStructureGroupId = 'all';
+  // Explicit Khu/Khối selector for the crew log editor. This is separate from the
+  // project-wide list scope so users can see/control the hierarchy without hiding logs.
+  const [selectedLogStructureGroupId, setSelectedLogStructureGroupId] = useState('');
+  const activeLogStructureGroupId = normalizedStructureConfig.enabled
+    && normalizedStructureConfig.groups.some((group) => group.id === selectedLogStructureGroupId)
+      ? selectedLogStructureGroupId
+      : normalizedStructureConfig.defaultGroupId;
 
   const floorById = useMemo(
-    () => new Map(floorPlans.map((floor) => [floor.id, floor] as const)),
+    () => new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.id, floor] as const)),
     [floorPlans],
   );
 
@@ -335,8 +343,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   );
 
   const logFloorPlans = useMemo(
-    () => floorPlans,
-    [floorPlans],
+    () => normalizedStructureConfig.enabled
+      ? floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === activeLogStructureGroupId)
+      : floorPlans,
+    [floorPlans, normalizedStructureConfig, activeLogStructureGroupId],
   );
 
   // Load custom teams list from props
@@ -360,9 +370,44 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [teamListSortBy, setTeamListSortBy] = useState<'structure' | 'name' | 'leader' | 'count'>('structure');
   const [teamListSortOrder, setTeamListSortOrder] = useState<TeamSortOrder>('asc');
 
+  const rememberCrewDetailForReturn = () => {
+    if (!selectedTeamForDetail || !projectId) return;
+    try {
+      sessionStorage.setItem('qlct_crew_detail_return_v1', JSON.stringify({
+        projectId, teamId: selectedTeamForDetail.id, tab: detailModalTab,
+        defectFilter, teamDefectSortBy, teamDefectSortOrder,
+        createdAt: Date.now(), restore: false,
+      }));
+    } catch (_) { /* navigation still works when storage is unavailable */ }
+  };
+
+  // Mobile unmounts inactive modules. Recreate only the requested, same-project modal.
+  useEffect(() => {
+    if (!isActive) return;
+    try {
+      const raw = sessionStorage.getItem('qlct_crew_detail_return_v1');
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (!saved?.restore) return;
+      if (saved.projectId !== projectId || Date.now() - Number(saved.createdAt || 0) > 15 * 60_000) {
+        sessionStorage.removeItem('qlct_crew_detail_return_v1');
+        return;
+      }
+      const team = teams.find((item) => item.id === saved.teamId);
+      if (!team) return; // Wait for authorized team data; never synthesize a team.
+      setSelectedTeamForDetail(team);
+      setDetailModalTab(['rooms', 'materials', 'defects', 'logs'].includes(saved.tab) ? saved.tab : 'rooms');
+      setDefectFilter(['all', 'open', 'resolved'].includes(saved.defectFilter) ? saved.defectFilter : 'all');
+      if (['floor', 'room', 'status', 'due'].includes(saved.teamDefectSortBy)) setTeamDefectSortBy(saved.teamDefectSortBy);
+      if (['asc', 'desc'].includes(saved.teamDefectSortOrder)) setTeamDefectSortOrder(saved.teamDefectSortOrder);
+      sessionStorage.removeItem('qlct_crew_detail_return_v1');
+    } catch (_) { try { sessionStorage.removeItem('qlct_crew_detail_return_v1'); } catch (_) {} }
+  }, [isActive, projectId, teams]);
+
   const openRoomOnFloorPlan = (room: RoomProgressItem) => {
     const request = {
       entityType: 'room',
+      contextReturn: 'crew-detail',
       projectId: projectId || '',
       entityId: room.id,
       roomId: room.id,
@@ -371,6 +416,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     try {
       sessionStorage.setItem('qlct_diagnostic_navigation_request', JSON.stringify(request));
     } catch (_) {}
+    rememberCrewDetailForReturn();
     setSelectedTeamForDetail(null);
     window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity', { detail: request }));
   };
@@ -378,6 +424,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const openDefectOnFloorPlan = (defect: DefectItem) => {
     const request = {
       entityType: 'defect',
+      contextReturn: 'crew-detail',
       projectId: projectId || '',
       defectId: defect.id,
       floorId: defect.floorId,
@@ -388,16 +435,21 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     try {
       sessionStorage.setItem('qlct_pending_defect_navigation', JSON.stringify(request));
     } catch (_) {}
+    rememberCrewDetailForReturn();
     setSelectedTeamForDetail(null);
     window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity', { detail: request }));
+    // Desktop keeps the FloorPlan module mounted: storage is only read on mount/dependency
+    // changes. Send the same event as notification links after App switches tabs.
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent('qlct-defect-navigation-request', { detail: request })), 50);
   };
 
   // Sync state if prop changes
   useEffect(() => {
+    if (!isActive) return;
     if (propTeams) {
       setTeams(propTeams);
     }
-  }, [propTeams]);
+  }, [isActive, propTeams]);
 
   // Validate before mutating local state so a rejected duplicate never appears as saved
   // and no form state needs to be destroyed/remounted to recover.
@@ -480,8 +532,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [showCopyDatePicker, setShowCopyDatePicker] = useState(false);
   const [copyDatePickerValue, setCopyDatePickerValue] = useState('');
   const [showCrewReportShare, setShowCrewReportShare] = useState(false);
+  const [showQuickEdit, setShowQuickEdit] = useState(false);
+  const [showTeamTemplatePicker, setShowTeamTemplatePicker] = useState(false);
+  const [quickEditMode, setQuickEditMode] = useState<'logs' | 'teams'>('logs');
 
   useEffect(() => {
+    if (!isActive) return;
     if (!canOperate) {
       setShowAddLogModal(false);
       setEditingRecord(null);
@@ -500,7 +556,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       setDeletingTeamTarget(null);
       setSelectedTeamIds([]);
     }
-  }, [canOperate, canDelete, canManageTeamDirectory, roleResolved, userRole, currentUserUid]);
+  }, [isActive, canOperate, canDelete, canManageTeamDirectory, roleResolved, userRole, currentUserUid]);
 
   // Daily Log Form State
   const [teamName, setTeamName] = useState('');
@@ -514,6 +570,15 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [taskDescription, setTaskDescription] = useState('');
   const [notes, setNotes] = useState('');
   const [floorWorks, setFloorWorks] = useState<CrewFloorWork[]>([]);
+  const [crewPicker, setCrewPicker] = useState<{ floorIndex: number; categoryIndex: number; kind: 'category' | 'subitem' } | null>(null);
+  const [crewPickerQuery, setCrewPickerQuery] = useState('');
+  const [crewCustomEntry, setCrewCustomEntry] = useState(false);
+  const openCrewPicker = (floorIndex: number, categoryIndex: number, kind: 'category' | 'subitem') => {
+    setCrewPicker({ floorIndex, categoryIndex, kind });
+    setCrewPickerQuery('');
+    setCrewCustomEntry(false);
+  };
+
 
   const activeWorkVolumeCatalog = useMemo(
     () => workVolumes.filter((item) => isActiveRecord(item) && String(item.title || '').trim()),
@@ -568,6 +633,16 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         }
       ]
     };
+  };
+
+  const handleLogStructureGroupChange = (groupId: string) => {
+    setSelectedLogStructureGroupId(groupId);
+    const availableFloors = normalizedStructureConfig.enabled
+      ? floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === groupId)
+      : floorPlans;
+    const next = createDefaultFloorWork(availableFloors[0]);
+    setFloorWorks(next ? [next] : []);
+    setSelectedFloorId(next?.floorId || '');
   };
 
   const addFloorWork = () => {
@@ -712,10 +787,16 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
   // Synchronize Daily Log Form values
   const [activeLogEntityId, setActiveLogEntityId] = useState<string>(`crew_${Date.now()}`);
+  const [crewSaveMessage, setCrewSaveMessage] = useState('');
 
   useEffect(() => {
+    if (!isActive) return;
     if (editingRecord) {
       setActiveLogEntityId(editingRecord.id);
+      const editingGroupId = normalizedStructureConfig.enabled
+        ? (getRecordStructureGroupIds(editingRecord)[0] || normalizedStructureConfig.defaultGroupId)
+        : normalizedStructureConfig.defaultGroupId;
+      setSelectedLogStructureGroupId(editingGroupId);
       setTeamName(editingRecord.teamName);
       setTeamId(editingRecord.teamId || '');
       setLeaderName(editingRecord.leaderName);
@@ -746,6 +827,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       setNotes(editingRecord.notes || '');
     } else {
       setActiveLogEntityId(`crew_${Date.now()}`);
+      setCrewSaveMessage('');
+      const defaultGroupId = normalizedStructureConfig.defaultGroupId;
+      setSelectedLogStructureGroupId(defaultGroupId);
       // Set to first team in directory if available, otherwise blank
       if (teams.length > 0) {
         setTeamName(teams[0].name);
@@ -764,28 +848,25 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         setAfternoonCount(5);
         setEveningCount(0);
       }
-      const availableFloors = floorPlans;
+      const availableFloors = normalizedStructureConfig.enabled
+        ? floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === defaultGroupId)
+        : floorPlans;
       if (availableFloors.length > 0) {
-        setFloorWorks([{
-          floorId: availableFloors[0].id,
-          floorName: availableFloors[0].floorName,
-          categories: [{
-            categoryName: 'Thi công thạch cao',
-            subItems: ['Bắn tấm khung chìm', 'Bả matit 2 lớp']
-          }]
-        }]);
+        const defaultFloorWork = createDefaultFloorWork(availableFloors[0]);
+        setFloorWorks(defaultFloorWork ? [defaultFloorWork] : []);
         setSelectedFloorId(availableFloors[0].id);
       } else {
         setFloorWorks([]);
         setSelectedFloorId('');
       }
-      setTaskDescription(COMMON_TASKS[0]);
+      setTaskDescription('');
       setNotes('');
     }
-  }, [editingRecord, showAddLogModal, floorPlans, teams, normalizedStructureConfig]);
+  }, [isActive, editingRecord, showAddLogModal, floorPlans, teams, normalizedStructureConfig]);
 
   // Synchronize Manage Team Form values
   useEffect(() => {
+    if (!isActive) return;
     if (editingTeam) {
       setTName(editingTeam.name);
       setTLeader(editingTeam.leader);
@@ -799,7 +880,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       setTPhone('');
       setTNotes('');
     }
-  }, [editingTeam, showTeamModal]);
+  }, [isActive, editingTeam, showTeamModal]);
 
   // Paste from Clipboard or Prompt
   const handlePasteClipboard = async () => {
@@ -820,9 +901,53 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     }
   };
 
-  // Pick Contact from Device Contact List
+  // Pick Contact from Device Contact List. The APK uses a native ACTION_PICK bridge
+  // (user-selected contact only, no blanket READ_CONTACTS permission). Chromium-based
+  // browsers can use the Contact Picker API. Unsupported desktop/iOS web surfaces fall
+  // back explicitly to paste/manual entry instead of pretending direct access worked.
   const handlePickContact = async () => {
-    let success = false;
+    const androidBridge = (window as any).AndroidContact;
+    if (androidBridge && typeof androidBridge.pickContact === 'function') {
+      const requestId = `contact-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const picked = await new Promise<{ success: boolean; name?: string; phone?: string; cancelled?: boolean }>((resolve) => {
+        const timeout = window.setTimeout(() => {
+          window.removeEventListener('android-contact-result', onResult as EventListener);
+          resolve({ success: false });
+        }, 30_000);
+        const onResult = (event: Event) => {
+          const detail = (event as CustomEvent<any>).detail || {};
+          if (detail.requestId !== requestId) return;
+          window.clearTimeout(timeout);
+          window.removeEventListener('android-contact-result', onResult as EventListener);
+          resolve({
+            success: Boolean(detail.success),
+            name: String(detail.name || ''),
+            phone: String(detail.phone || ''),
+            cancelled: Boolean(detail.cancelled),
+          });
+        };
+        window.addEventListener('android-contact-result', onResult as EventListener);
+        try {
+          const started = androidBridge.pickContact(requestId);
+          if (started === false) {
+            window.clearTimeout(timeout);
+            window.removeEventListener('android-contact-result', onResult as EventListener);
+            resolve({ success: false });
+          }
+        } catch (_) {
+          window.clearTimeout(timeout);
+          window.removeEventListener('android-contact-result', onResult as EventListener);
+          resolve({ success: false });
+        }
+      });
+      if (picked.cancelled) return;
+      if (picked.success && picked.phone) {
+        setTPhone(picked.phone.replace(/[^\d+]/g, '') || picked.phone);
+        if (picked.name && !tLeader) setTLeader(picked.name);
+        return;
+      }
+    }
+
     if ('contacts' in navigator && 'select' in (navigator as any).contacts) {
       try {
         const props = ['name', 'tel'];
@@ -832,22 +957,19 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           if (contact.tel && contact.tel.length > 0) {
             const rawPhone = contact.tel[0].replace(/[^\d+]/g, '');
             setTPhone(rawPhone || contact.tel[0]);
-            success = true;
-          }
-          if (contact.name && contact.name.length > 0 && !tLeader) {
-            setTLeader(contact.name[0]);
+            if (contact.name && contact.name.length > 0 && !tLeader) setTLeader(contact.name[0]);
+            return;
           }
         } else {
-          return; // user cancelled
+          return;
         }
       } catch (err) {
-        console.log('Contact picker not allowed in iframe or failed:', err);
+        console.log('Contact picker not allowed or failed:', err);
       }
     }
 
-    if (!success) {
-      await handlePasteClipboard();
-    }
+    alert('Thiết bị/trình duyệt này chưa cho Web truy cập trực tiếp danh bạ. Hãy dùng nút Dán hoặc nhập số điện thoại. APK Android hỗ trợ chọn trực tiếp từ danh bạ.');
+    await handlePasteClipboard();
   };
 
   // Navigate Date
@@ -928,7 +1050,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       .sort((a, b) => naturalCompare(a, b));
   };
 
-  const sortedTeams = (() => {
+  const sortedTeams = useMemo(() => {
     const list = [...teams];
     list.sort((a, b) => {
       let comparison = 0;
@@ -948,7 +1070,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       return teamListSortOrder === 'asc' ? comparison : -comparison;
     });
     return list;
-  })();
+  }, [teams, teamListSortBy, teamListSortOrder, crewRecords, roomProgressList, defects, floorById, normalizedStructureConfig]);
 
   // Statistics for the selected date
   const stats = useMemo(() => {
@@ -1017,6 +1139,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const handleLogSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canOperate) return;
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const saveAndContinue = !editingRecord && submitter?.value === 'continue';
     if (!teamName.trim()) {
       alert('Vui lòng chọn hoặc nhập tên đội thi công!');
       return;
@@ -1041,10 +1165,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       alert(`Một bản ghi quân số chỉ được chọn các tầng trong cùng ${normalizedStructureConfig.label}.`);
       return;
     }
-    const fallbackFloor = selectedFloorId ? floorById.get(selectedFloorId) : undefined;
     const currentGroupId = normalizedStructureConfig.enabled
-      ? (selectedGroupIds[0] || (fallbackFloor ? resolveFloorStructureGroupId(fallbackFloor, normalizedStructureConfig) : normalizedStructureConfig.defaultGroupId))
+      ? activeLogStructureGroupId
       : normalizedStructureConfig.defaultGroupId;
+    if (normalizedStructureConfig.enabled && selectedGroupIds.some((groupId) => groupId !== currentGroupId)) {
+      alert(`Tầng đã chọn không thuộc ${normalizedStructureConfig.label} “${getStructureGroupName(currentGroupId, normalizedStructureConfig)}”. Hãy chọn lại tầng.`);
+      return;
+    }
     const existingRecord = crewRecords.find(
       (r) => r.date === selectedDate
         && r.teamName.toLowerCase() === normalizedTeamName.toLowerCase()
@@ -1138,14 +1265,35 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     } else {
       onAddCrewRecord({ ...recordData, id: activeLogEntityId });
     }
+    if (saveAndContinue) {
+      // A follow-up crew record is a NEW independent entity. Never reuse the
+      // saved photo/entity ID, work details, team identity or count values.
+      // Keep only the selected date/structure group/floor for fast site entry.
+      setActiveLogEntityId(createEntityId('crew'));
+      setTeamName('');
+      setTeamId('');
+      setLeaderName('');
+      setWorkerCount(0);
+      setMorningCount(0);
+      setAfternoonCount(0);
+      setEveningCount(0);
+      setTaskDescription('');
+      setFloorWorks([]);
+      setNotes('');
+      setCrewPicker(null);
+      setCrewSaveMessage('Đã gửi ghi nhận để lưu. Chọn đội tiếp theo và nhập quân số mới.');
+      return;
+    }
     setShowAddLogModal(false);
     returnToHealthCenterIfPending();
   };
 
   // Handle Team Directory Submission
-  const handleTeamSubmit = (e: React.FormEvent) => {
+  const handleTeamSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!canManageTeamDirectory) return;
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const submitMode = submitter?.value === 'continue' ? 'continue' : 'close';
     if (!tName.trim()) {
       alert('Vui lòng nhập tên đội thi công!');
       return;
@@ -1176,6 +1324,14 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     }
     if (!updateTeamsAndParent(nextTeams)) return;
     setEditingTeam(null);
+    if (!editingTeam && submitMode === 'continue') {
+      setTName('');
+      setTLeader('');
+      setTCount(5);
+      setTPhone('');
+      setTNotes('');
+      return;
+    }
     setShowTeamModal(false);
   };
 
@@ -1192,7 +1348,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       return;
     }
     setCopySourceDate(sourceDate);
-    if (filteredRecords.length > 0) setShowCopyConfirm(true);
+    // This operation overwrites the ENTIRE destination date, including records
+    // hidden by the current Khu/Khối filter. Always preview it when any exist.
+    if (crewRecords.some((record) => record.date === selectedDate)) setShowCopyConfirm(true);
     else onCopyCrewRecordsFromDate(sourceDate, selectedDate);
   };
 
@@ -1216,19 +1374,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const executeDeleteRecord = async () => {
     if (!deletingRecordTarget || !canDeleteRecord(deletingRecordTarget)) return;
     if (deletingRecordTarget) {
-      if (projectId) {
-        let trashEnabled = true;
-        try {
-          const settingsKey = projectId === 'default' ? 'construction_trash_settings' : `construction_trash_settings_${projectId}`;
-          const settings = JSON.parse(localStorage.getItem(settingsKey) || '{}');
-          trashEnabled = settings?.enabled !== false;
-        } catch (_) {}
-        if (!trashEnabled) {
-          try {
-            await deleteEntityPhotos(projectId, 'crewRecord', deletingRecordTarget.id);
-          } catch (_) {}
-        }
-      }
+      // Retain photos until the Cloud confirms deletion and reference-safe purge.
+      // With Trash OFF there is no recovery snapshot, so deleting binary or photo
+      // metadata first would irreversibly lose evidence if the log write fails.
       onDeleteCrewRecord(deletingRecordTarget.id);
       setDeletingRecordTarget(null);
     }
@@ -1243,9 +1391,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     }
   };
 
-  const handleExportTeamsTemplate = () => {
+  const handleExportTeamsTemplate = async (templateOnly = false) => {
+    const XLSX = await import('xlsx');
     const wb = XLSX.utils.book_new();
-    const sourceData = teams.length > 0 ? teams : [
+    const sourceData = !templateOnly && teams.length > 0 ? teams : [
       {
         name: 'Đội Thạch Cao Hà Nội',
         leader: 'Đội trưởng Hùng',
@@ -1285,7 +1434,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     return saveWorkbookFile(wb, 'Mau_Danh_Sach_Doi_Thi_Cong.xlsx');
   };
 
-  const handleExportTeamStats = (teamName?: string) => {
+  const handleExportTeamStats = async (teamName?: string) => {
+    const { exportTeamStatisticsToExcel } = await import('../utils/excelExport');
     const currentProjName = projectName || 'Công Trình';
     exportTeamStatisticsToExcel({
       teams,
@@ -1301,6 +1451,174 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     });
   };
 
+  const handleExportCrewLogsEdit = async () => {
+    const { exportCrewRecordsToExcel } = await import('../utils/excelExport');
+    exportCrewRecordsToExcel(structureScopedCrewRecords, teams, projectName || 'Công Trình');
+  };
+
+  const handleDownloadCrewLogTemplate = async () => {
+    const { exportCrewRecordsToExcel } = await import('../utils/excelExport');
+    exportCrewRecordsToExcel([], teams, projectName || 'Công Trình');
+  };
+
+  const handleImportCrewLogsExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canOperate) { e.target.value = ''; return; }
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try { assertSafeExcelImportFile(file); } catch (error) {
+      alert(`❌ ${error instanceof Error ? error.message : 'Tệp Excel không hợp lệ.'}`);
+      e.target.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const XLSX = await import('xlsx');
+        const data = new Uint8Array(event.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const normalizeSheetName = (name: string) => name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLocaleLowerCase('vi-VN');
+      const mainName = workbook.SheetNames.find((name) => normalizeSheetName(name).includes('nhat ky')) || workbook.SheetNames[0];
+        const mainRows = XLSX.utils.sheet_to_json<any>(workbook.Sheets[mainName]);
+        if (!mainRows.length) throw new Error('Sheet Nhật ký quân số không có dữ liệu.');
+
+        const detailName = workbook.SheetNames.find((name) => normalizeSheetName(name).includes('chi tiet cong viec'));
+        const detailRows = detailName ? XLSX.utils.sheet_to_json<any>(workbook.Sheets[detailName]) : [];
+        const floorByName = new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.floorName.trim().toLocaleLowerCase('vi-VN'), floor] as const));
+        const mainRecordIds = new Set<string>(mainRows.map((row: any) => String(row['__recordId'] || '').trim()).filter(Boolean));
+        detailRows.forEach((row: any, detailIndex: number) => {
+          const detailRecordId = String(row['__recordId'] || '').trim();
+          if (detailRecordId && !mainRecordIds.has(detailRecordId) && !crewRecords.some((record) => record.id === detailRecordId)) {
+            throw new Error(`Dòng chi tiết ${detailIndex + 2}: __recordId không tồn tại trong dự án hiện tại: ${detailRecordId}.`);
+          }
+          const detailFloorId = String(row['__floorId'] || '').trim();
+          if (detailFloorId && !floorPlans.some((floor) => floor.id === detailFloorId)) {
+            throw new Error(`Dòng chi tiết ${detailIndex + 2}: __floorId không tồn tại trong dự án hiện tại: ${detailFloorId}.`);
+          }
+        });
+        const detailByRecord = new Map<string, any[]>();
+        const detailByDateTeam = new Map<string, any[]>();
+        detailRows.forEach((row: any) => {
+          const recordId = String(row['__recordId'] || '').trim();
+          const date = formatExcelDate(row['Ngày Ghi Nhận'] || row['Ngày'] || '');
+          const teamName = String(row['Tên Đội Thi Công'] || row['Đội Thi Công'] || '').trim();
+          if (recordId) detailByRecord.set(recordId, [...(detailByRecord.get(recordId) || []), row]);
+          if (date && teamName) {
+            const key = `${date}::${normalizeTeamDirectoryName(teamName)}`;
+            detailByDateTeam.set(key, [...(detailByDateTeam.get(key) || []), row]);
+          }
+        });
+
+        const prepared: Array<{ existing?: CrewRecord; record: CrewRecord }> = [];
+        const seenExistingIds = new Set<string>();
+
+        mainRows.forEach((row: any, rowIndex: number) => {
+          const recordId = String(row['__recordId'] || '').trim();
+          const date = formatExcelDate(row['Ngày Ghi Nhận'] || row['Ngày'] || row['date']);
+          const teamIdRaw = String(row['__teamId'] || '').trim();
+          const teamNameRaw = String(row['Tên Đội Thi Công'] || row['Đội Thi Công'] || row['teamName'] || '').trim();
+          if (!date || !teamNameRaw) throw new Error(`Dòng ${rowIndex + 2}: thiếu Ngày hoặc Tên Đội Thi Công.`);
+
+          const teamById = teamIdRaw ? teams.find((team) => team.id === teamIdRaw) : undefined;
+          if (teamIdRaw && !teamById) throw new Error(`Dòng ${rowIndex + 2}: __teamId không tồn tại trong dự án hiện tại: ${teamIdRaw}.`);
+          const teamByName = resolveUniqueTeamByDirectoryName(teams, teamNameRaw);
+          const linkedTeam = teamById || teamByName;
+
+          let existing = recordId ? crewRecords.find((record) => record.id === recordId) : undefined;
+          if (recordId && !existing) throw new Error(`Dòng ${rowIndex + 2}: __recordId không tồn tại trong dự án hiện tại: ${recordId}. Hãy để trống ID cho Nhật ký mới.`);
+          if (!existing && !recordId) {
+            const matches = crewRecords.filter((record) =>
+              record.date === date && normalizeTeamDirectoryName(record.teamName) === normalizeTeamDirectoryName(teamNameRaw)
+            );
+            if (matches.length > 1) throw new Error(`Dòng ${rowIndex + 2}: Nhật ký ${date} / ${teamNameRaw} bị mơ hồ; hãy dùng file xuất từ ứng dụng có __recordId.`);
+            existing = matches[0];
+          }
+          if (existing && seenExistingIds.has(existing.id)) throw new Error(`Dòng ${rowIndex + 2}: __recordId ${existing.id} xuất hiện nhiều lần.`);
+          if (existing) seenExistingIds.add(existing.id);
+
+          const morning = Math.max(0, parseExcelNumber(row['Ca Sáng (Người)'] ?? row['Sáng'] ?? existing?.morningCount ?? 0));
+          const afternoon = Math.max(0, parseExcelNumber(row['Ca Chiều (Người)'] ?? row['Chiều'] ?? existing?.afternoonCount ?? 0));
+          const evening = Math.max(0, parseExcelNumber(row['Ca Tối (Người)'] ?? row['Tối'] ?? existing?.eveningCount ?? 0));
+          const detailKey = `${date}::${normalizeTeamDirectoryName(teamNameRaw)}`;
+          const workRows = recordId ? (detailByRecord.get(recordId) || detailByDateTeam.get(detailKey) || []) : (detailByDateTeam.get(detailKey) || []);
+
+          const floorWorksById = new Map<string, CrewFloorWork>();
+          workRows.forEach((detail: any) => {
+            const floorIdRaw = String(detail['__floorId'] || '').trim();
+            const floorNameRaw = String(detail['Tầng / Khu Vực'] || detail['Tầng'] || '').trim();
+            const floorById = floorIdRaw ? floorPlans.find((item) => item.id === floorIdRaw) : undefined;
+            if (floorIdRaw && !floorById) throw new Error(`Chi tiết Nhật ký tham chiếu __floorId không tồn tại: ${floorIdRaw}.`);
+            const floor = floorById || floorByName.get(floorNameRaw.toLocaleLowerCase('vi-VN'));
+            if (!floor) return;
+            const categoryName = String(detail['Hạng Mục Chính'] || detail['Hạng Mục Thi Công'] || '').trim();
+            const subItems = String(detail['Hạng Mục Phụ / Công Đoạn'] || detail['Công Đoạn'] || '')
+              .split(/[;\n]+/).map((item) => item.trim()).filter(Boolean);
+            const current = floorWorksById.get(floor.id) || { floorId: floor.id, floorName: floor.floorName, categories: [] };
+            if (categoryName) {
+              const category = current.categories.find((item) => normalizeLinkText(item.categoryName) === normalizeLinkText(categoryName));
+              if (category) category.subItems = Array.from(new Set([...category.subItems, ...subItems]));
+              else current.categories.push({ categoryName, subItems });
+            }
+            floorWorksById.set(floor.id, current);
+          });
+
+          const floorWorks = floorWorksById.size ? Array.from(floorWorksById.values()) : (existing?.floorWorks || []);
+          const firstFloor = floorWorks[0];
+          const floorName = floorWorks.length ? floorWorks.map((item) => item.floorName).join(', ') : String(row['Vị Trí Làm Việc (Tầng)'] || existing?.floorName || '');
+          const taskDescription = floorWorks.length
+            ? floorWorks.map((fw) => `[${fw.floorName}]: ` + fw.categories.map((category) => `${category.categoryName} (${category.subItems.join(', ')})`).join('; ')).join(' | ')
+            : String(row['Nhiệm Vụ / Hạng Mục'] || existing?.taskDescription || '');
+
+          const record: CrewRecord = {
+            ...(existing || {} as CrewRecord),
+            id: existing?.id || createEntityId('crew'),
+            date,
+            teamId: linkedTeam?.id || existing?.teamId,
+            teamName: linkedTeam?.name || teamNameRaw,
+            leaderName: String(row['Trưởng Nhóm / Đội Trưởng'] || linkedTeam?.leader || existing?.leaderName || '').trim(),
+            workerCount: Math.max(morning, afternoon, evening),
+            morningCount: morning,
+            afternoonCount: afternoon,
+            eveningCount: evening,
+            floorId: firstFloor?.floorId || existing?.floorId,
+            floorName,
+            structureGroupId: firstFloor && normalizedStructureConfig.enabled
+              ? resolveFloorStructureGroupId(floorPlans.find((floor) => floor.id === firstFloor.floorId), normalizedStructureConfig)
+              : existing?.structureGroupId,
+            floorWorks,
+            taskDescription,
+            shift: [morning > 0 ? 'Sáng' : '', afternoon > 0 ? 'Chiều' : '', evening > 0 ? 'Tối' : ''].filter(Boolean).join(', ') || 'Nghỉ',
+            notes: String(row['Ghi Chú'] ?? existing?.notes ?? '').trim() || undefined,
+            updatedAt: existing?.updatedAt,
+          };
+          prepared.push({ existing, record });
+        });
+
+        const updatedCount = prepared.filter((item) => item.existing).length;
+        const addedCount = prepared.length - updatedCount;
+        const confirmed = await confirmAsync(
+          `Kiểm tra Nhật ký Excel hoàn tất:\n\n• Cập nhật: ${updatedCount}\n• Thêm mới: ${addedCount}\n• Ảnh hiện trường: giữ nguyên\n\nTiếp tục ghi dữ liệu?`
+        );
+        if (!confirmed) return;
+
+        prepared.forEach(({ existing, record }) => {
+          if (existing) {
+            const { id, ...updates } = record;
+            onUpdateCrewRecord(existing.id, updates);
+          } else {
+            onAddCrewRecord(record);
+          }
+        });
+        alert(`🎉 Nhập Nhật ký quân số thành công: ${updatedCount} cập nhật, ${addedCount} thêm mới.`);
+      } catch (error: any) {
+        alert(`❌ Nhập Nhật ký Excel bị hủy trước khi ghi dữ liệu:\n${error?.message || String(error)}`);
+      } finally {
+        e.target.value = '';
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
   const handleImportExcelTeams = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!canImportTeams) { e.target.value = ''; return; }
     const file = e.target.files?.[0];
@@ -1312,8 +1630,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     }
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
+        const XLSX = await import('xlsx');
         const data = new Uint8Array(event.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         const firstSheetName = workbook.SheetNames[0];
@@ -1418,7 +1737,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           `🎉 Nhập Đội Thi Công từ Excel thành công!\n\n` +
           `• Đã cập nhật/chỉnh sửa: ${updatedCount} đội\n` +
           `• Đã thêm mới: ${addedCount} đội\n` +
-          `• Bỏ qua do thiếu thông tin, tên đội trùng ID kỹ thuật hoặc tên đội legacy bị trùng/không đủ teamId: ${skippedCount} dòng`
+          `• Bỏ qua do thiếu thông tin, tên đội trùng ID kỹ thuật hoặc tên đội từ dữ liệu cũ (legacy) bị trùng/thiếu mã đội kỹ thuật (teamId): ${skippedCount} dòng`
         );
       } catch (err: any) {
         alert(`❌ Lỗi đọc hoặc phân tích tệp Excel:\n${err.message || err}`);
@@ -1428,13 +1747,265 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     e.target.value = '';
   };
 
+  const crewQuickRows = useMemo<QuickGridRow[]>(() => {
+    if (!showQuickEdit) return [];
+    return crewRecords.flatMap((record) => {
+    const counts = getCrewShiftCounts(record);
+    const floorWorks = record.floorWorks?.length
+      ? record.floorWorks
+      : [{ floorId: record.floorId || '', floorName: record.floorName || '', categories: [{ categoryName: '', subItems: [] }] }];
+    return floorWorks.flatMap((floorWork, floorIndex) => {
+      const categories = floorWork.categories?.length ? floorWork.categories : [{ categoryName: '', subItems: [] }];
+      const linkedFloor = floorById.get(floorWork.floorId);
+      const groupId = linkedFloor
+        ? resolveFloorStructureGroupId(linkedFloor, normalizedStructureConfig)
+        : (record.structureGroupId || normalizedStructureConfig.defaultGroupId);
+      const structureGroup = getStructureGroupName(groupId, normalizedStructureConfig);
+      return categories.map((category, categoryIndex) => ({
+        __rowKey: `${record.id}--${floorIndex}--${categoryIndex}`,
+        __recordId: record.id,
+        __floorId: floorWork.floorId,
+        __groupKey: record.id,
+        __groupPrimary: floorIndex === 0 && categoryIndex === 0,
+        date: record.date,
+        teamName: record.teamName,
+        morning: counts.morning,
+        afternoon: counts.afternoon,
+        evening: counts.evening,
+        structureGroup,
+        floorName: floorWork.floorName || record.floorName || '',
+        categoryName: category.categoryName || '',
+        subItems: (category.subItems || []).join('; '),
+      }));
+    });
+  });
+  }, [showQuickEdit, crewRecords, floorById, normalizedStructureConfig]);
+
+  const teamQuickRows = useMemo<QuickGridRow[]>(() => showQuickEdit ? teams.map((team) => ({
+    __rowKey: team.id,
+    __teamId: team.id,
+    __baseRevision: Number(team.revision || 0),
+    __baseUpdatedAt: Number(team.updatedAt || 0),
+    name: team.name,
+    leader: team.leader,
+    defaultCount: team.defaultCount,
+    phone: team.phone || '',
+    notes: team.notes || '',
+  })) : [], [showQuickEdit, teams]);
+
+  const crewTeamOptions = useMemo(() => showQuickEdit ? Array.from(new Set([
+    ...teams.map((team) => team.name),
+    ...crewRecords.map((record) => record.teamName),
+  ].filter(Boolean))) : [], [showQuickEdit, teams, crewRecords]);
+  const crewStructureOptions = useMemo(
+    () => showQuickEdit ? normalizedStructureConfig.groups.map((group) => group.name) : [],
+    [showQuickEdit, normalizedStructureConfig],
+  );
+  const crewFloorOptions = useMemo(() => showQuickEdit ? Array.from(new Set([
+    ...floorPlans.map((floor) => floor.floorName),
+    ...crewRecords.flatMap((record) => (record.floorWorks || []).map((work) => work.floorName)),
+  ].filter(Boolean))) : [], [showQuickEdit, floorPlans, crewRecords]);
+  const crewCategoryOptions = useMemo(() => showQuickEdit ? Array.from(new Set([
+    ...activeWorkVolumeCatalog.map((item) => item.title),
+    ...crewRecords.flatMap((record) => (record.floorWorks || []).flatMap((work) => (work.categories || []).map((category) => category.categoryName))),
+  ].filter(Boolean))) : [], [showQuickEdit, activeWorkVolumeCatalog, crewRecords]);
+
+  const crewQuickColumns = useMemo<QuickGridColumn[]>(() => showQuickEdit ? [
+    { key: 'date', label: 'Ngày', type: 'date', editable: (row) => canOperate && Boolean(row.__groupPrimary), required: true, width: 135 },
+    { key: 'teamName', label: 'Đội thi công', type: 'select', options: crewTeamOptions, editable: (row) => canOperate && Boolean(row.__groupPrimary), required: true, width: 180 },
+    { key: 'morning', label: 'Ca sáng', type: 'number', editable: (row) => canOperate && Boolean(row.__groupPrimary), width: 95, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
+    { key: 'afternoon', label: 'Ca chiều', type: 'number', editable: (row) => canOperate && Boolean(row.__groupPrimary), width: 95, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
+    { key: 'evening', label: 'Ca tối', type: 'number', editable: (row) => canOperate && Boolean(row.__groupPrimary), width: 95, validate: (value) => Number(value) < 0 ? 'Không được âm' : null },
+    {
+      key: 'structureGroup',
+      label: normalizedStructureConfig.label || 'Khu/Khối',
+      type: 'select',
+      options: crewStructureOptions,
+      editable: canOperate && normalizedStructureConfig.enabled,
+      required: normalizedStructureConfig.enabled,
+      width: 160,
+      validate: (value, row) => {
+        if (!normalizedStructureConfig.enabled) return null;
+        const group = normalizedStructureConfig.groups.find((item) => normalizeLinkText(item.name) === normalizeLinkText(String(value || '')));
+        if (!group) return 'Khu/Khối không hợp lệ';
+        const floor = floorPlans.find((item) => normalizeLinkText(item.floorName) === normalizeLinkText(String(row.floorName || '')));
+        if (floor && resolveFloorStructureGroupId(floor, normalizedStructureConfig) !== group.id) return 'Tầng không thuộc Khu/Khối này';
+        return null;
+      },
+    },
+    { key: 'floorName', label: 'Tầng', type: 'select', options: crewFloorOptions, editable: canOperate, required: true, width: 150 },
+    { key: 'categoryName', label: 'Hạng mục chính', type: 'select', options: crewCategoryOptions, editable: canOperate, width: 220 },
+    { key: 'subItems', label: 'Hạng mục phụ / Công đoạn', editable: canOperate, width: 260 },
+  ] : [], [showQuickEdit, canOperate, crewTeamOptions, crewStructureOptions, crewFloorOptions, crewCategoryOptions, normalizedStructureConfig, floorPlans]);
+
+  const teamQuickColumns = useMemo<QuickGridColumn[]>(() => showQuickEdit ? [
+    { key: 'name', label: 'Tên đội', editable: canManageTeamDirectory, required: true, width: 200 },
+    { key: 'leader', label: 'Trưởng nhóm', editable: canManageTeamDirectory, required: true, width: 190 },
+    { key: 'defaultCount', label: 'Quân số định biên', editable: canManageTeamDirectory, type: 'number', required: true, width: 135, validate: (value) => Number(value) <= 0 ? 'Phải lớn hơn 0' : null },
+    { key: 'phone', label: 'Số điện thoại', editable: canManageTeamDirectory, width: 150 },
+    { key: 'notes', label: 'Mô tả / Ghi chú', editable: canManageTeamDirectory, width: 280 },
+  ] : [], [showQuickEdit, canManageTeamDirectory]);
+
+  const saveQuickCrewRows = async (rows: QuickGridRow[], dirtyCellKeys: Set<string>) => {
+    if (!canOperate) return;
+    const dirtyRowKeys = new Set(Array.from(dirtyCellKeys).map((key) => key.split('::')[0]));
+    const dirtyRows = rows.filter((row) => dirtyRowKeys.has(row.__rowKey));
+    const grouped = new Map<string, QuickGridRow[]>();
+    dirtyRows.forEach((row) => {
+      const key = String(row.__recordId || row.__rowKey);
+      grouped.set(key, [...(grouped.get(key) || []), row]);
+    });
+
+    // Existing floorWork keeps exact floorId; label lookups must be unambiguous.
+    const prepared: Array<{ existing?: CrewRecord; record: CrewRecord }> = [];
+
+    for (const [recordKey, changedGroup] of grouped) {
+      const existing = crewRecords.find((record) => record.id === recordKey);
+      const allRowsForRecord = rows.filter((row) => String(row.__recordId || row.__rowKey) === recordKey);
+      const sourceRows = allRowsForRecord.length ? allRowsForRecord : changedGroup;
+      const pickShared = (key: string, fallback: unknown) => {
+        const changed = changedGroup.filter((row) => dirtyCellKeys.has(`${row.__rowKey}::${key}`));
+        const values = Array.from(new Set(changed.map((row) => String(row[key] ?? ''))));
+        if (values.length > 1) throw new Error(`Nhật ký ${existing?.date || ''} / ${existing?.teamName || ''}: cột ${key} có nhiều giá trị khác nhau.`);
+        return changed.length ? changed[changed.length - 1][key] : fallback;
+      };
+
+      const date = String(pickShared('date', existing?.date || sourceRows[0]?.date || selectedDate) || '').trim();
+      const teamNameValue = String(pickShared('teamName', existing?.teamName || sourceRows[0]?.teamName || '') || '').trim();
+      const teamChanged = changedGroup.some((row) => dirtyCellKeys.has(`${row.__rowKey}::teamName`));
+      const team = teamChanged || !existing ? resolveUniqueTeamByDirectoryName(teams, teamNameValue)
+        : teams.find((item) => item.id === existing.teamId);
+      const morning = Math.max(0, Number(pickShared('morning', existing ? getCrewShiftCounts(existing).morning : 0) || 0));
+      const afternoon = Math.max(0, Number(pickShared('afternoon', existing ? getCrewShiftCounts(existing).afternoon : 0) || 0));
+      const evening = Math.max(0, Number(pickShared('evening', existing ? getCrewShiftCounts(existing).evening : 0) || 0));
+      const fallbackGroupId = existing ? (getRecordStructureGroupIds(existing)[0] || normalizedStructureConfig.defaultGroupId) : normalizedStructureConfig.defaultGroupId;
+      const fallbackGroupName = getStructureGroupName(fallbackGroupId, normalizedStructureConfig);
+      const structureGroupName = String(pickShared('structureGroup', sourceRows[0]?.structureGroup || fallbackGroupName) || '').trim();
+      const structureGroup = normalizedStructureConfig.groups.find((group) => normalizeLinkText(group.name) === normalizeLinkText(structureGroupName));
+      if (normalizedStructureConfig.enabled && !structureGroup) throw new Error(`Không tìm thấy ${normalizedStructureConfig.label} “${structureGroupName}”.`);
+      const structureGroupId = structureGroup?.id || fallbackGroupId;
+
+      const floorWorksById = new Map<string, CrewFloorWork>();
+      sourceRows.forEach((row) => {
+        const floorNameValue = String(row.floorName || '').trim();
+        const originalFloorId = String(row.__floorId || '').trim();
+        const floorChanged = dirtyCellKeys.has(`${row.__rowKey}::floorName`);
+        const candidates = floorPlans.filter((item) =>
+          normalizeLinkText(item.floorName) === normalizeLinkText(floorNameValue)
+          && (!normalizedStructureConfig.enabled || resolveFloorStructureGroupId(item, normalizedStructureConfig) === structureGroupId));
+        const floor = originalFloorId && !floorChanged
+          ? floorById.get(originalFloorId)
+          : candidates.length === 1 ? candidates[0] : undefined;
+        if (!floor) throw new Error(`Tầng “${floorNameValue}” chưa xác định duy nhất trong Khu/Khối. Hãy chọn lại tầng đúng định danh.`);
+        if (normalizedStructureConfig.enabled && resolveFloorStructureGroupId(floor, normalizedStructureConfig) !== structureGroupId) {
+          throw new Error(`Tầng “${floor.floorName}” không thuộc ${normalizedStructureConfig.label} “${getStructureGroupName(structureGroupId, normalizedStructureConfig)}”.`);
+        }
+        const categoryName = String(row.categoryName || '').trim();
+        const subItems = String(row.subItems || '').split(/[;\n]+/).map((item) => item.trim()).filter(Boolean);
+        const current = floorWorksById.get(floor.id) || { floorId: floor.id, floorName: floor.floorName, categories: [] };
+        if (categoryName) {
+          const existingCategory = current.categories.find((item) => normalizeLinkText(item.categoryName) === normalizeLinkText(categoryName));
+          if (existingCategory) existingCategory.subItems = Array.from(new Set([...existingCategory.subItems, ...subItems]));
+          else current.categories.push({ categoryName, subItems });
+        }
+        floorWorksById.set(floor.id, current);
+      });
+      const floorWorks = Array.from(floorWorksById.values());
+      const firstFloor = floorWorks[0];
+      const taskDescriptionValue = floorWorks.map((fw) => `[${fw.floorName}]: ` + fw.categories.map((category) => `${category.categoryName} (${category.subItems.join(', ')})`).join('; ')).join(' | ');
+      const record: CrewRecord = {
+        ...(existing || {} as CrewRecord),
+        id: existing?.id || createEntityId('crew'),
+        date,
+        teamId: team?.id || existing?.teamId,
+        teamName: team?.name || teamNameValue,
+        leaderName: team?.leader || existing?.leaderName || '',
+        workerCount: Math.max(morning, afternoon, evening),
+        morningCount: morning,
+        afternoonCount: afternoon,
+        eveningCount: evening,
+        floorId: firstFloor?.floorId || existing?.floorId,
+        floorName: floorWorks.map((fw) => fw.floorName).join(', ') || existing?.floorName,
+        structureGroupId: normalizedStructureConfig.enabled ? structureGroupId : existing?.structureGroupId,
+        floorWorks,
+        taskDescription: taskDescriptionValue || existing?.taskDescription || '',
+        shift: [morning > 0 ? 'Sáng' : '', afternoon > 0 ? 'Chiều' : '', evening > 0 ? 'Tối' : ''].filter(Boolean).join(', ') || 'Nghỉ',
+        notes: existing?.notes,
+        updatedAt: existing?.updatedAt,
+      };
+      prepared.push({ existing, record });
+    }
+
+    const confirmed = await confirmAsync(`Bảng chỉnh nhanh sẽ lưu ${prepared.length} Nhật ký. Ảnh hiện trường và ID bản ghi được giữ nguyên. Tiếp tục?`);
+    if (!confirmed) return false;
+    prepared.forEach(({ existing, record }) => {
+      if (existing) {
+        const { id, ...updates } = record;
+        onUpdateCrewRecord(existing.id, updates);
+      } else {
+        onAddCrewRecord(record);
+      }
+    });
+  };
+
+  const saveQuickTeamRows = async (rows: QuickGridRow[], dirtyCellKeys: Set<string>, deletedRows: QuickGridRow[] = []) => {
+    if (!canManageTeamDirectory || !onUpdateTeams) return false;
+    if (deletedRows.length) throw new Error('Không xóa đội bằng Bảng chỉnh nhanh. Hãy dùng thao tác Xóa đội riêng có xác nhận.');
+    const dirtyRowKeys = new Set(Array.from(dirtyCellKeys).map((key) => key.split('::')[0]));
+    const changedRows = rows.filter((row) => dirtyRowKeys.has(row.__rowKey));
+    if (!changedRows.length) return false;
+    const updates: TeamInfo[] = changedRows.map((row) => {
+      const id = String(row.__teamId || '').trim() || createEntityId('team');
+      const original = teams.find((team) => team.id === id);
+      if (String(row.__teamId || '').trim() && !original) throw new Error(`Đội ${id} đã bị thay đổi/xóa. Hãy tải lại danh mục.`);
+      if (original && (Number(original.revision || 0) !== Number(row.__baseRevision || 0)
+        || Number(original.updatedAt || 0) !== Number(row.__baseUpdatedAt || 0))) {
+        throw new Error(`Đội “${original.name}” đã được tài khoản khác cập nhật. Hãy tải lại trước khi lưu.`);
+      }
+      const value = (key: 'name' | 'leader' | 'defaultCount' | 'phone' | 'notes', fallback: unknown) =>
+        dirtyCellKeys.has(`${row.__rowKey}::${key}`) ? row[key] : fallback;
+      return {
+        ...(original || {} as TeamInfo), id,
+        name: String(value('name', original?.name || '') || '').trim(),
+        leader: String(value('leader', original?.leader || '') || '').trim(),
+        defaultCount: Math.max(1, Number(value('defaultCount', original?.defaultCount || 1) || 1)),
+        phone: String(value('phone', original?.phone || '') || '').trim() || undefined,
+        notes: String(value('notes', original?.notes || '') || '').trim() || undefined,
+      };
+    });
+    const byId = new Map<string, TeamInfo>(teams.map((team) => [team.id, team] as const));
+    updates.forEach((team) => byId.set(team.id, team));
+    const nextTeams = Array.from(byId.values());
+    if (findWorsenedTeamNameConflict(teams, nextTeams)) throw new Error('Tên đội bị trùng/không rõ liên kết. Hãy đổi tên đội trước khi lưu.');
+    const confirmed = await confirmAsync(`Lưu ${updates.length} đội đã chỉnh? Không xóa đội ngoài bảng và giữ nguyên metadata của đội cũ.`);
+    if (!confirmed) return false;
+    onUpdateTeams(nextTeams, { quickEditUpsertIds: updates.map((team) => team.id) });
+    setTeams(nextTeams);
+  };
+
+  const activeQuickRows = quickEditMode === 'logs' ? crewQuickRows : teamQuickRows;
+  const activeQuickColumns = quickEditMode === 'logs' ? crewQuickColumns : teamQuickColumns;
+
   return (
-    <div className="pb-24 pt-4 px-4 w-full max-w-6xl mx-auto bg-slate-50 min-h-screen text-slate-800" id="crew-tab-container">
+    <div data-hnl-workspace-module="crew" className="pb-24 pt-4 px-4 w-full max-w-6xl mx-auto bg-slate-50 min-h-screen text-slate-800" id="crew-tab-container">
+      <DesktopWorkspaceMetrics eyebrow="HIỆN TRƯỜNG · NHÂN SỰ"
+        title="Điều phối quân số & nhật ký" description="Tra cứu nhật ký theo ngày, quản lý đội và báo cáo từ dữ liệu dự án."
+        metrics={[
+          { label: 'Nhật ký đang lọc', value: filteredRecords.length, detail: 'Theo bộ lọc hiện hành' },
+          { label: 'Đội thi công', value: teams.length, detail: 'Danh sách đội dự án' },
+          { label: 'Tầng', value: floorPlans.length, detail: 'Theo cấu trúc dự án' },
+        ]} />
       
       {/* Sub-tab Navigation Selector */}
-      <div className="flex bg-slate-200 p-1.5 rounded-xl mb-4 shadow-sm" id="crew-subtab-navigation">
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="01" aria-label="Nhật ký & đội thi công">
+        <span className="hnl-pc-v3-section-index">01</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Nhật ký & đội thi công</strong><small>Chuyển qua nhật ký theo ngày hoặc quản lý thông tin đội.</small></div>
+      </div>
+
+      <div data-hnl-pc-region="subtabs" role="group" aria-label="Nhật ký và quản lý đội thi công" className="flex bg-slate-200 p-1.5 rounded-xl mb-4 shadow-sm" id="crew-subtab-navigation">
         <button
           onClick={() => setActiveSubTab('logs')}
+          aria-pressed={activeSubTab === 'logs'}
           className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-bold rounded-lg transition-all ${
             activeSubTab === 'logs' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
           }`}
@@ -1443,6 +2014,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         </button>
         <button
           onClick={() => setActiveSubTab('teams')}
+          aria-pressed={activeSubTab === 'teams'}
           className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-bold rounded-lg transition-all ${
             activeSubTab === 'teams' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
           }`}
@@ -1453,50 +2025,131 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
       {activeSubTab === 'logs' ? (
         <>
-          {/* Date controller. Khu/Khối is shown on each log/team card instead of a global filter. */}
-          <div className="mb-4">
-            <div className="flex items-center justify-between bg-white px-3 py-2.5 rounded-xl border border-slate-200 shadow-sm">
-            <button 
-              onClick={handlePrevDay}
-              className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition"
-              title="Ngày trước"
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </button>
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="02" aria-label="Điều hành theo ngày">
+        <span className="hnl-pc-v3-section-index">02</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Điều hành theo ngày</strong><small>Chọn ngày, ghi quân số, chia sẻ hoặc nhập / xuất Excel.</small></div>
+      </div>
 
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-indigo-600" />
-              <input 
-                type="date"
-                value={selectedDate}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  const today = getTodayString();
-                  if (val > today) {
-                    alert('Không thể chọn quân số của ngày hôm sau!');
-                    setSelectedDate(today);
-                  } else {
-                    setSelectedDate(val);
-                  }
-                }}
-                max={getTodayString()}
-                className="hnl-crew-date-input font-bold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-0 cursor-pointer text-sm" aria-label="Chọn ngày quân số"
-              />
+          <div data-hnl-pc-region="commands" className="mb-4 grid grid-cols-2 gap-2 lg:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1fr)] lg:items-stretch">
+            <div className="order-1 col-span-2 lg:order-none lg:col-span-1">
+              <div className="flex h-10 items-center justify-between rounded-xl border border-slate-200 bg-white px-2.5 shadow-sm">
+                <button
+                  onClick={handlePrevDay}
+                  className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition"
+                  title="Ngày trước"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <div className="flex min-w-0 items-center justify-center gap-1.5">
+                  <Calendar className="w-4 h-4 shrink-0 text-indigo-600" />
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const today = getTodayString();
+                      if (val > today) {
+                        alert('Không thể chọn quân số của ngày hôm sau!');
+                        setSelectedDate(today);
+                      } else {
+                        setSelectedDate(val);
+                      }
+                    }}
+                    max={getTodayString()}
+                    className="hnl-crew-date-input min-w-0 bg-transparent text-sm font-bold text-slate-800 border-none focus:outline-none focus:ring-0 cursor-pointer"
+                    aria-label="Chọn ngày quân số"
+                  />
+                </div>
+                <button
+                  onClick={handleNextDay}
+                  className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition"
+                  title="Ngày tiếp theo"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
-            <button 
-              onClick={handleNextDay}
-              className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition"
-              title="Ngày tiếp theo"
-            >
-              <ChevronRight className="w-5 h-5" />
-            </button>
+            {canOperate && (
+              <button
+                onClick={async () => {
+                  setEditingRecord(null);
+                  setShowAddLogModal(true);
+                }}
+                data-hnl-primary-action="crew-record-create"
+                className="order-2 col-span-2 flex h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-3 text-sm font-extrabold text-white shadow-md transition hover:bg-blue-700 active:scale-[0.99] lg:order-none lg:col-span-1 lg:h-10 lg:text-xs"
+              >
+                <Plus className="w-4 h-4" /> Ghi nhận quân số
+              </button>
+            )}
+
+            <div data-hnl-secondary-action-group="crew" className={`order-3 col-span-2 grid gap-2 ${canOperate ? 'grid-cols-3' : 'grid-cols-2'} lg:contents`}>
+              {canOperate && (
+                <button
+                  onClick={handleOpenCopyDatePicker}
+                  className="flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900 lg:px-3 lg:text-xs"
+                  title="Chọn ngày nguồn để sao chép quân số"
+                >
+                  <Copy className="h-4 w-4 shrink-0 text-slate-600" />
+                  <span className="sm:hidden">Sao chép</span>
+                  <span className="hidden sm:inline">Sao chép quân số</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setShowCrewReportShare(true)}
+                className="flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900 lg:px-3 lg:text-xs"
+              >
+                <FileText className="h-4 w-4 shrink-0 text-slate-600" />
+                <span className="sm:hidden">Chia sẻ</span>
+                <span className="hidden sm:inline">Chia sẻ báo cáo quân số</span>
+              </button>
+
+              <DataManagementMenu
+                fillWidth
+                triggerLabel="Quản lý dữ liệu"
+                onQuickEdit={quickEditEnabled ? (() => { setQuickEditMode('logs'); setShowQuickEdit(true); }) : undefined}
+                onExportEdit={handleExportCrewLogsEdit}
+                onImportFile={canOperate ? handleImportCrewLogsExcel : undefined}
+                onDownloadTemplate={handleDownloadCrewLogTemplate}
+                exportLabel="Xuất Nhật ký để chỉnh sửa"
+                importLabel="Nhập Nhật ký đã chỉnh sửa"
+                templateLabel="Tải mẫu Nhật ký"
+              />
             </div>
           </div>
 
+          {showCopyDatePicker && (
+            <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50/70 p-3">
+              <div className="text-[11px] font-bold text-indigo-800 mb-2">Chọn ngày cần sao chép quân số</div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  max={getTodayString()}
+                  value={copyDatePickerValue}
+                  onChange={(e) => setCopyDatePickerValue(e.target.value)}
+                  className="flex-1 min-w-0 bg-white border border-indigo-200 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-800"
+                  aria-label="Ngày nguồn sao chép quân số"
+                />
+                <button
+                  type="button"
+                  disabled={!copyDatePickerValue || copyDatePickerValue === selectedDate}
+                  onClick={() => {
+                    requestCopyFromDate(copyDatePickerValue);
+                    setShowCopyDatePicker(false);
+                  }}
+                  className="shrink-0 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Sao chép
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Statistics widgets */}
           <div className="grid grid-cols-2 gap-3 mb-4">
-            <div className="bg-gradient-to-br from-indigo-500 to-blue-600 text-white p-4 rounded-xl shadow-md">
+            <div className="bg-gradient-to-br from-blue-500 to-blue-700 text-white p-4 rounded-xl shadow-md">
               <div className="flex justify-between items-start">
                 <span className="text-white/80 text-[10px] font-bold tracking-wider uppercase">
                   {selectedDate === getTodayString() ? 'Tổng quân số hôm nay' : `Tổng Quân Số Ngày ${formatDateDDMMYYYY(selectedDate)}`}
@@ -1552,71 +2205,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
             </div>
           )}
-
-          {/* Functional Actions */}
-          {canOperate && (
-            <>
-            <div className="flex items-center gap-2 mb-4">
-              <button
-                onClick={async () => {
-                  setEditingRecord(null);
-                  setShowAddLogModal(true);
-                }}
-                className="flex-1 flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-4 rounded-xl shadow-sm transition text-xs"
-              >
-                <Plus className="w-4 h-4" /> Ghi nhận quân số
-              </button>
-
-              <button
-                onClick={handleOpenCopyDatePicker}
-                className="flex-1 flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold py-2.5 px-4 rounded-xl shadow-sm transition text-xs"
-                title="Chọn ngày nguồn để sao chép quân số"
-              >
-                <Copy className="w-3.5 h-3.5" /> Sao chép quân số
-              </button>
-            </div>
-
-            {showCopyDatePicker && (
-              <div className="mb-4 -mt-2 rounded-xl border border-indigo-200 bg-indigo-50/70 p-3">
-                <div className="text-[11px] font-bold text-indigo-800 mb-2">Chọn ngày cần sao chép quân số</div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="date"
-                    max={getTodayString()}
-                    value={copyDatePickerValue}
-                    onChange={(e) => setCopyDatePickerValue(e.target.value)}
-                    className="flex-1 min-w-0 bg-white border border-indigo-200 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-800"
-                    aria-label="Ngày nguồn sao chép quân số"
-                  />
-                  <button
-                    type="button"
-                    disabled={!copyDatePickerValue || copyDatePickerValue === selectedDate}
-                    onClick={() => {
-                      requestCopyFromDate(copyDatePickerValue);
-                      setShowCopyDatePicker(false);
-                    }}
-                    className="shrink-0 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    Sao chép
-                  </button>
-                </div>
-              </div>
-            )}
-            </>
-          )}
-
-          <div className="mb-4">
-            <button
-              type="button"
-              onClick={() => setShowCrewReportShare(true)}
-              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 text-xs font-extrabold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
-            >
-              <FileText className="h-4 w-4" /> Chia sẻ báo cáo quân số
-            </button>
-          </div>
-
           {/* Daily Records List */}
-          <div className="space-y-3">
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="03" aria-label="Lịch sử ghi nhận">
+        <span className="hnl-pc-v3-section-index">03</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Lịch sử ghi nhận</strong><small>Tìm và mở nhật ký theo đội, tầng, số lượng nhân công.</small></div>
+      </div>
+
+          <div data-hnl-pc-v3-inner="crew-records" className="space-y-3">
             <h2 className="text-xs font-bold text-slate-400 tracking-wider uppercase flex items-center gap-1.5 px-1">
               <Clipboard className="w-3.5 h-3.5 text-indigo-500" /> Nhật ký làm việc ({formatDateDDMMYYYY(selectedDate)})
             </h2>
@@ -1689,7 +2284,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     }}
                     className="text-slate-500 hover:text-rose-600 font-bold flex items-center gap-1 cursor-pointer transition-colors"
                   >
-                    <Trash2 className="w-3.5 h-3.5 text-slate-400 hover:text-rose-500" /> Xóa Tất Cả
+                    <Trash2 className="w-3.5 h-3.5 text-rose-600" /> Xóa Tất Cả
                   </button>
                 </div>
               </div>
@@ -1808,7 +2403,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                             setEditingRecord(record);
                             setShowAddLogModal(true);
                           }}
-                          className="flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 transition"
+                          className="flex items-center gap-1 text-xs text-indigo-700 hover:text-indigo-800 transition"
                           title="Sửa bản ghi"
                         >
                           <Edit2 className="w-3.5 h-3.5" /> <span>Sửa</span>
@@ -1818,7 +2413,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           onClick={() => {
                             setDeletingRecordTarget(record);
                           }}
-                          className="flex items-center gap-1 text-xs text-slate-500 hover:text-rose-600 transition"
+                          className="flex items-center gap-1 text-xs text-rose-600 hover:text-rose-700 transition"
                           title={canDelete ? 'Xóa bản ghi' : 'Xóa bản ghi do bạn tạo (có thể khôi phục trong Thùng rác)'}
                         >
                           <Trash2 className="w-3.5 h-3.5" /> <span className="text-rose-500 font-semibold">Xóa</span>
@@ -1844,49 +2439,35 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </p>
 
             <div className="mt-3.5 pt-3 border-t border-slate-100">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {canManageTeamDirectory && <button
-                  type="button"
-                  onClick={async () => {
-                    setEditingTeam(null);
-                    setShowTeamModal(true);
-                  }}
-                  className="h-10 px-3 flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs shadow-2xs transition-all active:scale-95"
-                >
-                  <Plus className="w-4 h-4 shrink-0" />
-                  <span className="truncate">Thêm đội mới</span>
-                </button>}
-
-                <button
-                  type="button"
-                  onClick={() => handleExportTeamStats()}
-                  className="h-10 px-3 flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs shadow-2xs transition-all active:scale-95"
-                  title="Tải báo cáo Excel thống kê căn, tầng, khối lượng và defect của tất cả các đội thi công"
-                >
-                  <Download className="w-4 h-4 shrink-0" />
-                  <span className="truncate">Xuất báo cáo Excel</span>
-                </button>
-
-                {canManageTeamDirectory && <button
-                  type="button"
-                  onClick={handleExportTeamsTemplate}
-                  className="h-10 px-3 flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold rounded-xl border border-slate-200 text-xs shadow-2xs transition-all active:scale-95"
-                  title="Tải mẫu Excel danh bạ đội thi công"
-                >
-                  <FileSpreadsheet className="w-4 h-4 text-slate-500 shrink-0" />
-                  <span className="truncate">Tải Excel để chỉnh sửa</span>
-                </button>}
-
-                {canImportTeams && <label className="h-10 px-3 flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold rounded-xl border border-slate-200 text-xs shadow-2xs cursor-pointer transition-all active:scale-95">
-                  <Upload className="w-4 h-4 text-slate-500 shrink-0" />
-                  <span className="truncate">Nhập lại từ Excel</span>
-                  <input
-                    type="file"
-                    accept=".xlsx, .xls"
-                    onChange={handleImportExcelTeams}
-                    className="hidden"
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:flex sm:justify-between">
+                {canManageTeamDirectory && (
+                  <AddSourceMenu
+                    triggerLabel="Thêm đội"
+                    createLabel="Tạo đội mới"
+                    fillMobile
+                    onCreateNew={() => {
+                      setEditingTeam(null);
+                      setShowTeamModal(true);
+                    }}
+                    onOpenSourcePicker={() => setShowTeamTemplatePicker(true)}
                   />
-                </label>}
+                )}
+
+                <div className={canManageTeamDirectory ? 'min-w-0 sm:ml-auto' : 'col-span-2 justify-self-end sm:ml-auto'}>
+                  <DataManagementMenu
+                    fillMobile
+                    triggerLabel="Quản lý dữ liệu"
+                    onQuickEdit={quickEditEnabled ? (() => { setQuickEditMode('teams'); setShowQuickEdit(true); }) : undefined}
+                    onExportEdit={() => handleExportTeamsTemplate(false)}
+                    onImportFile={canImportTeams ? handleImportExcelTeams : undefined}
+                    onDownloadTemplate={() => handleExportTeamsTemplate(true)}
+                    onExportReport={() => handleExportTeamStats()}
+                    exportLabel="Xuất danh mục đội để chỉnh sửa"
+                    importLabel="Nhập danh mục đội đã chỉnh sửa"
+                    templateLabel="Tải mẫu danh mục đội"
+                    reportLabel="Báo cáo chi tiết tất cả đội"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -1954,7 +2535,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <div className="bg-white border border-dashed border-slate-300 rounded-xl p-8 text-center flex flex-col items-center justify-center shadow-sm">
                 <Users className="w-8 h-8 text-slate-300 mb-2" />
                 <p className="text-xs text-slate-400 font-medium">Chưa có đội thi công nào được thêm.</p>
-                <p className="text-[10px] text-slate-400 mt-1">{canManageTeamDirectory ? 'Bấm Thêm đội để bắt đầu.' : 'Chỉ ADMIN được quản lý danh mục đội thi công.'}</p>
+                <p className="text-[10px] text-slate-400 mt-1">{canManageTeamDirectory ? 'Bấm Thêm đội để bắt đầu.' : 'Chỉ ADMIN (Quản trị) được quản lý danh mục đội thi công.'}</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
@@ -2040,7 +2621,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           setDetailModalTab('rooms');
                         }}
                         className="bg-indigo-50/70 border border-indigo-100 p-2 rounded-lg cursor-pointer hover:bg-indigo-100/70 transition text-center"
-                        title="Xem các căn/phòng & khối lượng đội đang phụ trách"
+                        title="Xem các Căn / Phòng & khối lượng đội đang phụ trách"
                       >
                         <div className="text-[10px] text-indigo-500 font-bold uppercase tracking-wider">Căn / Phòng & khối lượng</div>
                         <div className="text-xs font-black text-indigo-700 flex flex-col items-center justify-center gap-0.5 mt-0.5">
@@ -2080,7 +2661,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                             ? 'bg-rose-50/70 border-rose-200 hover:bg-rose-100/70' 
                             : 'bg-emerald-50/70 border-emerald-100 hover:bg-emerald-100/70'
                         }`}
-                        title="Xem các defect/lỗi gán cho đội"
+                        title="Xem các Defect gán cho đội"
                       >
                         <div className={`text-[10px] font-bold uppercase tracking-wider ${openDefectsCount > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
                           Defect tồn đọng
@@ -2163,17 +2744,19 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       )}
                     </div>
 
-                    {/* Primary Button to open statistics modal */}
-                    <button
-                      onClick={async () => {
-                        setSelectedTeamForDetail(team);
-                        setDetailModalTab('rooms');
-                      }}
-                      className="w-full mt-auto flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-3 rounded-xl transition text-xs shadow-xs active:scale-98"
-                    >
-                      <BarChart3 className="w-4 h-4 text-indigo-400" />
-                      <span>Xem thống kê Căn / Phòng & Defect</span>
-                    </button>
+                    {/* Keep at least 12px below the contact row, even when mt-auto has no spare space. */}
+                    <div className="mt-auto pt-3" data-hnl-team-statistics-action="true">
+                      <button
+                        onClick={async () => {
+                          setSelectedTeamForDetail(team);
+                          setDetailModalTab('rooms');
+                        }}
+                        className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-3 rounded-xl transition text-xs shadow-xs active:scale-98"
+                      >
+                        <BarChart3 className="w-4 h-4 text-indigo-400" />
+                        <span>Xem thống kê Căn / Phòng & Defect</span>
+                      </button>
+                    </div>
 
                     {/* Team edit / delete actions */}
                     {canManageTeamDirectory && <div className="flex items-center justify-end gap-3 mt-2.5 pt-2 border-t border-slate-100">
@@ -2182,7 +2765,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           setEditingTeam(team);
                           setShowTeamModal(true);
                         }}
-                        className="flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 transition"
+                        className="flex items-center gap-1 text-xs text-indigo-700 hover:text-indigo-800 transition"
                         title="Sửa thông tin đội"
                       >
                         <Edit2 className="w-3.5 h-3.5" /> <span>Sửa</span>
@@ -2191,7 +2774,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         onClick={async () => {
                           setDeletingTeamTarget(team);
                         }}
-                        className="flex items-center gap-1 text-xs text-slate-500 hover:text-rose-600 transition"
+                        className="flex items-center gap-1 text-xs text-rose-600 hover:text-rose-700 transition"
                         title="Xóa đội"
                       >
                         <Trash2 className="w-3.5 h-3.5" /> <span className="text-rose-500 font-semibold">Xóa</span>
@@ -2238,7 +2821,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </div>
 
             {/* Modal Form */}
-            <form onSubmit={handleLogSubmit} className="flex-1 min-h-0 p-4 lg:p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 overflow-y-auto overscroll-contain">
+            <form data-hnl-pc-v3-form="crew-log" onSubmit={handleLogSubmit} className="flex-1 min-h-0 p-4 lg:p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 overflow-y-auto overscroll-contain">
               {/* Date (Informative) */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Ngày Ghi Nhận</label>
@@ -2247,6 +2830,22 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   <span>{formatDateDDMMYYYY(selectedDate)}</span>
                 </div>
               </div>
+
+              {normalizedStructureConfig.enabled && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">{normalizedStructureConfig.label}</label>
+                  <select
+                    value={activeLogStructureGroupId}
+                    onChange={(e) => handleLogStructureGroupChange(e.target.value)}
+                    className="w-full text-xs bg-white border border-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-semibold"
+                  >
+                    {normalizedStructureConfig.groups.map((group) => (
+                      <option key={group.id} value={group.id}>{group.name}</option>
+                    ))}
+                  </select>
+                  <div className="mt-1 text-[10px] text-slate-400">Danh sách Tầng bên dưới chỉ hiện trong {normalizedStructureConfig.label} đã chọn.</div>
+                </div>
+              )}
 
               {/* Dynamic Team selection with Auto-fill */}
               <div>
@@ -2383,7 +2982,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                             <button
                               type="button"
                               onClick={() => removeFloorWork(fIdx)}
-                              className="text-slate-400 hover:text-rose-600 p-1 rounded transition mt-4"
+                              className="text-rose-600 hover:text-rose-700 p-1 rounded transition mt-4"
                               title="Xoá tầng này"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -2391,6 +2990,50 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           )}
                         </div>
 
+                        {crewPicker?.floorIndex === fIdx && (() => {
+                          const selected = fw.categories[crewPicker.categoryIndex];
+                          if (!selected) return null;
+                          const options = crewPicker.kind === 'category'
+                            ? getWorkVolumeOptionsForFloor(fw.floorId, fw.floorName).map(item => item.title)
+                            : getSubItemSuggestions(fw.floorId, fw.floorName, selected.categoryName);
+                          const uniqueOptions = Array.from(new Set(options.filter(Boolean)));
+                          const matches = uniqueOptions.filter(name => normalizeLinkText(name).includes(normalizeLinkText(crewPickerQuery)));
+                          const selectName = (name: string) => {
+                            if (crewPicker.kind === 'category') updateCategoryName(fIdx, crewPicker.categoryIndex, name);
+                            else if (!selected.subItems.some(existing => normalizeLinkText(existing) === normalizeLinkText(name))) {
+                              addSubItemToCategory(fIdx, crewPicker.categoryIndex, name);
+                            }
+                            setCrewPicker(null);
+                          };
+                          return (
+                            <div className="fixed inset-0 z-[110] flex items-end sm:items-center sm:justify-center bg-black/50" onClick={() => setCrewPicker(null)}>
+                              <div role="dialog" aria-modal="true" aria-label={crewPicker.kind === 'category' ? 'Chọn hạng mục thi công' : 'Chọn công đoạn'} onClick={e => e.stopPropagation()} className="w-full sm:max-w-lg bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[70dvh] min-h-0 overflow-hidden">
+                                <div className="flex justify-between items-center gap-3 p-4 border-b border-slate-200">
+                                  <h3 className="font-bold text-slate-800 text-sm">{crewPicker.kind === 'category' ? 'Chọn hạng mục thi công' : 'Chọn công đoạn'}</h3>
+                                  <button type="button" onClick={() => setCrewPicker(null)} aria-label="Đóng danh sách" className="p-2 rounded hover:bg-slate-100"><X className="w-5 h-5" /></button>
+                                </div>
+                                <div className="p-3 border-b border-slate-100 space-y-2">
+                                  {crewCustomEntry ? (
+                                    <form onSubmit={e => { e.preventDefault(); const name = crewPickerQuery.trim(); if (name) selectName(uniqueOptions.find(item => normalizeLinkText(item) === normalizeLinkText(name)) || name); }} className="flex gap-2">
+                                      <input autoFocus value={crewPickerQuery} onChange={e => setCrewPickerQuery(e.target.value)} placeholder="Nhập tên mới..." className="min-w-0 flex-1 border rounded-lg px-3 py-2 text-sm" />
+                                      <button type="submit" disabled={!crewPickerQuery.trim()} className="bg-indigo-600 disabled:opacity-50 text-white px-3 rounded-lg text-sm">Xác nhận</button>
+                                    </form>
+                                  ) : (
+                                    <input value={crewPickerQuery} onChange={e => setCrewPickerQuery(e.target.value)} placeholder="Tìm trong danh sách..." className="w-full border rounded-lg px-3 py-2 text-sm" />
+                                  )}
+                                  <button type="button" onClick={() => { setCrewCustomEntry(!crewCustomEntry); setCrewPickerQuery(''); }} className="text-sm font-medium text-indigo-700">
+                                    {crewCustomEntry ? '← Quay lại danh sách' : '+ Nhập tên mới'}
+                                  </button>
+                                </div>
+                                {!crewCustomEntry && <div className="overflow-y-auto overscroll-contain flex-1 min-h-0 p-2">
+                                  {matches.length ? matches.map(name => (
+                                    <button key={name} type="button" onClick={() => selectName(name)} className="w-full text-left break-words px-3 py-3 border-b border-slate-100 hover:bg-indigo-50 text-sm text-slate-800">{name}</button>
+                                  )) : <p className="p-3 text-sm text-slate-500">Không có mục phù hợp. Chọn “Nhập tên mới” để thêm.</p>}
+                                </div>}
+                              </div>
+                            </div>
+                          );
+                        })()}
                         {/* Categories on this floor */}
                         <div className="space-y-2 pt-1 border-t border-slate-100">
                           <div className="flex items-center justify-between">
@@ -2407,19 +3050,14 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           {fw.categories.map((cat, cIdx) => (
                             <div key={cIdx} className="bg-slate-50 p-2 rounded border border-slate-200 space-y-2">
                               <div className="flex items-center gap-2">
-                                <input
-                                  type="text"
-                                  list={`crew-category-options-${fIdx}`}
-                                  placeholder="Chọn hạng mục đã khai báo hoặc nhập khác..."
-                                  value={cat.categoryName}
-                                  onChange={(e) => updateCategoryName(fIdx, cIdx, e.target.value)}
-                                  className="flex-1 text-xs bg-white border border-slate-200 px-2 py-1 rounded font-medium focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                                />
-                                <datalist id={`crew-category-options-${fIdx}`}>
-                                  {getWorkVolumeOptionsForFloor(fw.floorId, fw.floorName).map((item) => (
-                                    <option key={item.id} value={item.title} />
-                                  ))}
-                                </datalist>
+                                <button
+                                  type="button"
+                                  onClick={() => openCrewPicker(fIdx, cIdx, 'category')}
+                                  className="flex-1 min-w-0 flex items-center justify-between gap-2 text-left text-xs bg-white border border-slate-200 px-3 py-2.5 rounded font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                >
+                                  <span className="min-w-0 break-words">{cat.categoryName || 'Chọn hạng mục thi công...'}</span>
+                                  <ChevronDown className="w-4 h-4 shrink-0" />
+                                </button>
                                 {fw.categories.length > 1 && (
                                   <button
                                     type="button"
@@ -2448,40 +3086,14 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                       </button>
                                     </span>
                                   ))}
-                                  <div className="flex items-center gap-1">
-                                    <input
-                                      id={`sub-input-${fIdx}-${cIdx}`}
-                                      type="text"
-                                      list={`crew-subitem-options-${fIdx}-${cIdx}`}
-                                      placeholder="Chọn công đoạn đã khai báo hoặc nhập khác..."
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                          e.preventDefault();
-                                          addSubItemToCategory(fIdx, cIdx, (e.target as HTMLInputElement).value);
-                                          (e.target as HTMLInputElement).value = '';
-                                        }
-                                      }}
-                                      className="text-[10px] bg-white border border-slate-200 px-2 py-0.5 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 w-52 max-w-full"
-                                    />
-                                    <datalist id={`crew-subitem-options-${fIdx}-${cIdx}`}>
-                                      {getSubItemSuggestions(fw.floorId, fw.floorName, cat.categoryName).map((name) => (
-                                        <option key={name} value={name} />
-                                      ))}
-                                    </datalist>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const inputEl = document.getElementById(`sub-input-${fIdx}-${cIdx}`) as HTMLInputElement;
-                                        if (inputEl && inputEl.value.trim()) {
-                                          addSubItemToCategory(fIdx, cIdx, inputEl.value);
-                                          inputEl.value = '';
-                                        }
-                                      }}
-                                      className="bg-indigo-600 hover:bg-indigo-700 text-white rounded px-2 py-0.5 text-[10px] font-bold shrink-0 transition"
-                                    >
-                                      Thêm
-                                    </button>
-                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => openCrewPicker(fIdx, cIdx, 'subitem')}
+                                    className="flex items-center justify-between gap-2 text-left text-xs bg-white border border-slate-200 px-3 py-2.5 rounded min-h-10 w-full"
+                                  >
+                                    <span>Chọn hoặc thêm công đoạn...</span>
+                                    <ChevronDown className="w-4 h-4 shrink-0" />
+                                  </button>
                                 </div>
                               </div>
                             </div>
@@ -2507,6 +3119,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               {/* Hình ảnh đính kèm */}
               <div className="pt-1 md:col-span-2 lg:col-span-4">
                 <PhotoAttachmentPicker
+                  key={activeLogEntityId}
                   projectId={projectId}
                   entityType="crewRecord"
                   entityId={activeLogEntityId}
@@ -2515,29 +3128,18 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 />
               </div>
 
-              {/* Buttons */}
-              <div className="sticky bottom-0 z-10 -mx-4 lg:-mx-5 -mb-4 lg:-mb-5 mt-1 flex gap-2.5 border-t border-slate-100 bg-white px-4 lg:px-5 py-3 md:col-span-2 lg:col-span-4">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!editingRecord && activeLogEntityId && projectId) {
-                      try {
-                        await deleteEntityPhotos(projectId, 'crewRecord', activeLogEntityId);
-                      } catch (_) {}
-                    }
-                    setShowAddLogModal(false);
-                    setEditingRecord(null);
-                    returnToHealthCenterIfPending();
-                  }}
-                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-lg text-xs transition"
-                >
-                  Hủy bỏ
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 px-4 rounded-lg text-xs transition"
-                >
-                  {editingRecord ? 'Lưu thay đổi' : 'Ghi nhận'}
+              {/* One-step close / multi-entry actions; the header X remains available for cancelling. */}
+              {crewSaveMessage && <p role="status" className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 md:col-span-2 lg:col-span-4">{crewSaveMessage}</p>}
+              <div data-hnl-pc-v35-actions="crew-save" className="sticky bottom-0 z-10 -mx-4 lg:-mx-5 -mb-4 lg:-mb-5 mt-1 flex gap-2.5 border-t border-slate-100 bg-white px-4 lg:px-5 py-3 md:col-span-2 lg:col-span-4">
+                {!editingRecord && (
+                  <button type="submit" name="submitMode" value="continue"
+                    className="flex-1 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100">
+                    Lưu &amp; thêm tiếp
+                  </button>
+                )}
+                <button type="submit" name="submitMode" value="close"
+                  className="flex-1 rounded-lg bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-indigo-500">
+                  {editingRecord ? 'Lưu thay đổi' : 'Lưu & đóng'}
                 </button>
               </div>
             </form>
@@ -2555,7 +3157,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             {/* Modal Header */}
             <div className="shrink-0 flex justify-between items-center bg-slate-900 px-4 py-3 text-white">
               <h3 className="font-bold text-sm">
-                {editingTeam ? '✍️ Sửa Thông Tin Đội' : '👥 Thêm Đội Thi Công Mới'}
+                {editingTeam ? 'Sửa thông tin đội' : 'Thêm đội'}
               </h3>
               <button 
                 onClick={async () => {
@@ -2569,7 +3171,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </div>
 
             {/* Modal Form */}
-            <form onSubmit={handleTeamSubmit} className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <form data-hnl-pc-v3-form="crew-team" onSubmit={handleTeamSubmit} className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               {/* Team Name */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Tên Đội Thi Công</label>
@@ -2666,22 +3268,24 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Buttons */}
-              <div className="flex gap-2.5 pt-2 sm:col-span-2">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setShowTeamModal(false);
-                    setEditingTeam(null);
-                  }}
-                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-lg text-xs transition"
-                >
-                  Hủy bỏ
-                </button>
+              <div className={`grid gap-2.5 pt-2 sm:col-span-2 ${editingTeam ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                {!editingTeam && (
+                  <button
+                    type="submit"
+                    name="submitMode"
+                    value="continue"
+                    className="border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold py-2.5 px-4 rounded-lg text-xs transition active:scale-95"
+                  >
+                    Lưu & thêm tiếp
+                  </button>
+                )}
                 <button
                   type="submit"
-                  className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 px-4 rounded-lg text-xs transition"
+                  name="submitMode"
+                  value="close"
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 px-4 rounded-lg text-xs transition"
                 >
-                  {editingTeam ? 'Lưu thay đổi' : 'Thêm mới'}
+                  {editingTeam ? 'Lưu thay đổi' : 'Lưu & đóng'}
                 </button>
               </div>
             </form>
@@ -2761,7 +3365,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
               <h3 className="font-bold text-slate-900 text-sm mb-1">Trùng bản ghi nhật ký</h3>
               <p className="text-xs text-slate-500 leading-relaxed mb-4">
-                Ngày <strong className="text-slate-800">{formatDateDDMMYYYY(selectedDate)}</strong> hiện đang có {filteredRecords.length} ghi nhận quân số. Bạn có muốn sao chép đè/thêm dữ liệu của ngày nguồn ({formatDateDDMMYYYY(copySourceDate)}) sang hôm nay không?
+                Toàn bộ ngày <strong className="text-slate-800">{formatDateDDMMYYYY(selectedDate)}</strong> hiện có <strong>{crewRecords.filter((record) => record.date === selectedDate).length} bản ghi</strong> (bao gồm các Khu/Khối không hiển thị trong bộ lọc). Xác nhận thay thế toàn bộ bằng <strong>{crewRecords.filter((record) => record.date === copySourceDate).length} bản ghi</strong> từ ngày {formatDateDDMMYYYY(copySourceDate)}? Ảnh gắn với bản ghi cũ không được tự động xóa khỏi Cloud.
               </p>
               <div className="flex gap-2.5">
                 <button
@@ -2957,7 +3561,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
               {/* KPI Summary Strip */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 p-3 bg-white border-b border-slate-200 text-xs">
-                <button type="button" onClick={() => setDetailModalTab('rooms')} className="bg-indigo-50/80 border border-indigo-100 p-2 rounded-xl text-center hover:bg-indigo-100/80 transition cursor-pointer" title="Xem các Căn/Phòng đội đang làm">
+                <button type="button" onClick={() => setDetailModalTab('rooms')} className="bg-indigo-50/80 border border-indigo-100 p-2 rounded-xl text-center hover:bg-indigo-100/80 transition cursor-pointer" title="Xem các Căn / Phòng đội đang làm">
                   <div className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider">Căn / Phòng & Tầng</div>
                   <div className="text-sm sm:text-base font-black text-indigo-900 mt-0.5 flex items-center justify-center gap-1">
                     <Home className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
@@ -2968,7 +3572,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   </div>
                 </button>
 
-                <button type="button" onClick={() => setDetailModalTab('rooms')} className="bg-emerald-50/80 border border-emerald-100 p-2 rounded-xl text-center hover:bg-emerald-100/80 transition cursor-pointer" title="Xem chi tiết khối lượng theo Căn/Phòng và tầng">
+                <button type="button" onClick={() => setDetailModalTab('rooms')} className="bg-emerald-50/80 border border-emerald-100 p-2 rounded-xl text-center hover:bg-emerald-100/80 transition cursor-pointer" title="Xem chi tiết khối lượng theo Căn / Phòng và tầng">
                   <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Khối lượng thi công</div>
                   <div className="text-sm sm:text-base font-black text-emerald-900 mt-0.5 flex items-center justify-center gap-1 min-w-0">
                     <BarChart3 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
@@ -2997,12 +3601,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     openDefectsList.length > 0 ? 'text-rose-900' : 'text-slate-800'
                   }`}>
                     <AlertTriangle className="w-3.5 h-3.5" />
-                    <span>{openDefectsList.length} lỗi</span>
+                    <span>{openDefectsList.length} Defect</span>
                   </div>
                   <div className={`text-[10px] mt-0.5 font-medium ${
                     openDefectsList.length > 0 ? 'text-rose-700' : 'text-slate-500'
                   }`}>
-                    {teamDefects.length} tổng defect
+                    {teamDefects.length} tổng Defect
                   </div>
                 </button>
 
@@ -3054,9 +3658,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Modal Tabs */}
-              <div className="flex border-b border-slate-200 bg-white px-3 pt-2 gap-1 overflow-x-auto shrink-0">
+              <div data-hnl-pc-deep-tabs="crew-team-detail" role="group" aria-label="Chi tiết đội thi công" className="flex border-b border-slate-200 bg-white px-3 pt-2 gap-1 overflow-x-auto shrink-0">
                 <button
                   onClick={() => setDetailModalTab('rooms')}
+                  aria-pressed={detailModalTab === 'rooms'}
                   className={`flex items-center gap-1.5 py-2 px-3 text-xs font-bold border-b-2 transition whitespace-nowrap ${
                     detailModalTab === 'rooms'
                       ? 'border-indigo-600 text-indigo-700'
@@ -3069,6 +3674,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
                 <button
                   onClick={() => setDetailModalTab('defects')}
+                  aria-pressed={detailModalTab === 'defects'}
                   className={`flex items-center gap-1.5 py-2 px-3 text-xs font-bold border-b-2 transition whitespace-nowrap ${
                     detailModalTab === 'defects'
                       ? 'border-rose-600 text-rose-700'
@@ -3086,6 +3692,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
                 <button
                   onClick={() => setDetailModalTab('materials')}
+                  aria-pressed={detailModalTab === 'materials'}
                   className={`flex items-center gap-1.5 py-2 px-3 text-xs font-bold border-b-2 transition whitespace-nowrap ${
                     detailModalTab === 'materials'
                       ? 'border-cyan-600 text-cyan-700'
@@ -3098,6 +3705,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
                 <button
                   onClick={() => setDetailModalTab('logs')}
+                  aria-pressed={detailModalTab === 'logs'}
                   className={`flex items-center gap-1.5 py-2 px-3 text-xs font-bold border-b-2 transition whitespace-nowrap ${
                     detailModalTab === 'logs'
                       ? 'border-indigo-600 text-indigo-700'
@@ -3289,14 +3897,14 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                                             let statusTextStr = "Chưa làm";
                                                             let statusColorStr = "bg-slate-50 text-slate-400 border border-slate-100";
                                                             if (isDone) {
-                                                              statusTextStr = "Đã xong";
+                                                              statusTextStr = "Đã hoàn thành";
                                                               statusColorStr = "bg-emerald-50 text-emerald-700 border border-emerald-100 font-medium";
                                                             } else if (hasStarted) {
                                                               statusTextStr = "Đang làm";
                                                               statusColorStr = "bg-amber-50 text-amber-700 border border-amber-100 font-medium";
                                                             }
 
-                                                            let inspectionTextStr = "Chưa NT";
+                                                            let inspectionTextStr = "Chưa nghiệm thu";
                                                             let inspectionColorStr = "bg-slate-50 text-slate-400 border border-slate-100";
                                                             if (isApproved) {
                                                               inspectionTextStr = "Đạt NT";
@@ -3358,6 +3966,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 {/* SUB TAB 2: MATERIAL RECONCILIATION */}
                 {detailModalTab === 'materials' && (
                   <div className="space-y-3">
+                    {selectedTeamMaterialReconciliation.some((line) => line.integrityWarning) && (
+                      <div role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs font-bold text-rose-800">
+                        <AlertTriangle className="mr-1 inline h-4 w-4" /> Định mức vật tư có liên kết trùng hoặc không hợp lệ. Nhu cầu và chênh lệch của vật tư bị cảnh báo tạm ẩn; phiếu xuất kho vẫn giữ nguyên. Kiểm tra danh mục Định mức trước khi đối chiếu.
+                      </div>
+                    )}
                     <QuickSortBar
                       itemCount={selectedTeamMaterialReconciliation.length}
                       options={[
@@ -3384,10 +3997,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           <thead className="bg-slate-100 text-slate-700">
                             <tr>
                               <th className="p-2 text-left">Vật tư</th>
-                              <th className="p-2 text-right">ĐM theo KL giao</th>
-                              <th className="p-2 text-right">ĐM theo KL đã thi công</th>
+                              <th className="p-2 text-right">Nhu cầu theo KL giao</th>
+                              <th className="p-2 text-right">Nhu cầu theo KL thực hiện</th>
                               <th className="p-2 text-right">Đã xuất cho đội</th>
-                              <th className="p-2 text-right">Chênh lệch Xuất - ĐM</th>
+                              <th className="p-2 text-right">Chênh lệch Xuất - Nhu cầu</th>
                               <th className="p-2 text-right">Tỷ lệ</th>
                             </tr>
                           </thead>
@@ -3400,12 +4013,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                   <td className="p-2">
                                     <div className="font-extrabold text-slate-900">{line.materialName}</div>
                                     <div className="text-[10px] text-slate-500">{line.category} · {line.unit}</div>
+                                    {line.integrityWarning && <div role="alert" className="mt-1 text-[10px] font-semibold text-rose-700">⚠ {line.integrityWarning}</div>}
                                   </td>
-                                  <td className="p-2 text-right font-semibold">{formatDecimal(line.expectedAssignedQty)} {line.unit}</td>
-                                  <td className="p-2 text-right font-extrabold text-indigo-700">{formatDecimal(line.expectedConstructedQty)} {line.unit}</td>
+                                  <td className="p-2 text-right font-semibold">{line.integrityWarning ? 'Chưa xác định' : `${formatDecimal(line.expectedAssignedQty)} ${line.unit}`}</td>
+                                  <td className="p-2 text-right font-extrabold text-indigo-700">{line.integrityWarning ? 'Chưa xác định' : `${formatDecimal(line.expectedConstructedQty)} ${line.unit}`}</td>
                                   <td className="p-2 text-right font-extrabold text-cyan-700">{formatDecimal(line.issuedQty)} {line.unit}</td>
                                   <td className={`p-2 text-right font-extrabold ${over ? 'text-rose-700' : under ? 'text-amber-700' : 'text-emerald-700'}`}>
-                                    {line.varianceQty > 0 ? '+' : ''}{formatDecimal(line.varianceQty)} {line.unit}
+                                    {line.integrityWarning ? 'Chưa xác định' : `${line.varianceQty > 0 ? '+' : ''}${formatDecimal(line.varianceQty)} ${line.unit}`}
                                   </td>
                                   <td className="p-2 text-right">
                                     {line.issuedVsConstructedPercent !== undefined ? `${line.issuedVsConstructedPercent}%` : '—'}
@@ -3418,7 +4032,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       </div>
                     )}
                     <p className="text-[10px] text-slate-500">
-                      “ĐM theo KL giao” là nhu cầu lý thuyết nếu đội thi công hết toàn bộ khối lượng được giao; dùng để tham khảo kế hoạch cấp vật tư. Cột đối chiếu chính là “ĐM theo KL đã thi công”.
+                      “Nhu cầu theo KL giao” là lượng vật tư lý thuyết nếu đội thi công hết toàn bộ khối lượng được giao; dùng để tham khảo kế hoạch cấp vật tư. Cột đối chiếu chính là “Nhu cầu theo KL thực hiện”.
                     </p>
                   </div>
                 )}
@@ -3529,7 +4143,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                   {defectRoomName && (
                                     <>
                                       <span className="text-slate-300">·</span>
-                                      <span>Căn/Phòng: <strong className="text-slate-700">{defectRoomName}</strong></span>
+                                      <span>Căn / Phòng: <strong className="text-slate-700">{defectRoomName}</strong></span>
                                     </>
                                   )}
                                 </p>
@@ -3651,25 +4265,104 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Footer */}
-              <div className="bg-white border-t border-slate-200 p-3 flex items-center justify-between gap-2 shrink-0">
+              <div className="bg-white border-t border-slate-200 p-3 grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-between shrink-0">
                 <button
                   onClick={() => handleExportTeamStats(team.name)}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-3.5 rounded-xl text-xs flex items-center gap-1.5 transition shadow-2xs active:scale-95"
+                  className="w-full sm:w-auto min-h-10 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition shadow-2xs active:scale-95 whitespace-nowrap"
                   title="Tải báo cáo Excel thống kê chi tiết cho đội thi công này"
                 >
-                  <Download className="w-4 h-4" /> Xuất Excel Đội Này
+                  <Download className="w-4 h-4 shrink-0" />
+                  <span className="sm:hidden">Xuất Excel</span>
+                  <span className="hidden sm:inline">Xuất Excel Đội Này</span>
                 </button>
                 <button
                   onClick={() => setSelectedTeamForDetail(null)}
-                  className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 px-5 rounded-xl text-xs transition"
+                  className="w-full sm:w-auto min-h-10 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 px-3 sm:px-5 rounded-xl text-xs transition whitespace-nowrap"
                 >
-                  Đóng thống kê
+                  <span className="sm:hidden">Đóng</span>
+                  <span className="hidden sm:inline">Đóng thống kê</span>
                 </button>
               </div>
             </div>
           </div>
         );
       })()}
+
+      {showTeamTemplatePicker && <React.Suspense fallback={null}>
+      <LazyCatalogTemplatePickerModal
+        open={showTeamTemplatePicker}
+        onClose={() => setShowTeamTemplatePicker(false)}
+        currentProjectId={projectId}
+        currentItems={teams.filter((team) => !team.deletedAt)}
+        kind="teams"
+        title="Lấy Đội thi công từ công trình/mẫu"
+        onImport={async (rows) => {
+          if (!canManageTeamDirectory) return;
+          const existingNames = new Set(teams.map((team) => normalizeTeamDirectoryName(team.name)));
+          const additions: TeamInfo[] = [];
+          rows.forEach((row) => {
+            const source = row.item as TeamInfo;
+            const key = normalizeTeamDirectoryName(source.name);
+            if (!key || existingNames.has(key)) return;
+            additions.push({
+              ...source,
+              id: createEntityId('team-template'),
+              name: String(source.name || '').trim(),
+              leader: String(source.leader || '').trim(),
+              defaultCount: Math.max(0, Number(source.defaultCount) || 0),
+              phone: source.phone ? String(source.phone).trim() : '',
+              notes: source.notes ? String(source.notes).trim() : '',
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+              revision: 1,
+              deletedAt: null,
+            });
+            existingNames.add(key);
+          });
+          if (additions.length) updateTeamsAndParent([...teams, ...additions]);
+        }}
+      />
+      </React.Suspense>}
+
+      {quickEditEnabled && showQuickEdit && <React.Suspense fallback={null}>
+      <LazyQuickEditGridModal
+        open={showQuickEdit}
+        title={quickEditMode === 'logs' ? 'Bảng chỉnh nhanh · Nhật ký quân số' : 'Bảng chỉnh nhanh · Danh mục đội'}
+        subtitle={quickEditMode === 'logs'
+          ? 'Một Nhật ký có thể có nhiều dòng Tầng/Hạng mục. Quân số theo ca dùng chung theo record và chỉ ghi khi bấm Lưu.'
+          : 'Đổi tên/đội trưởng/quân số định biên/điện thoại trực tiếp; teamId được giữ nguyên.'}
+        columns={activeQuickColumns}
+        rows={activeQuickRows}
+        canEdit={quickEditMode === 'logs' ? canOperate : canManageTeamDirectory}
+        canAddRows={quickEditMode === 'logs' ? canOperate : canManageTeamDirectory}
+        createEmptyRow={(index) => quickEditMode === 'logs' ? ({
+          __rowKey: `new-crew-${Date.now()}-${index}`,
+          __new: true,
+          __recordId: '',
+          __floorId: '',
+          date: selectedDate,
+          teamName: teams[0]?.name || '',
+          morning: 0,
+          afternoon: 0,
+          evening: 0,
+          floorName: floorPlans[0]?.floorName || '',
+          categoryName: activeWorkVolumeCatalog[0]?.title || '',
+          subItems: '',
+        }) : ({
+          __rowKey: `new-team-${Date.now()}-${index}`,
+          __new: true,
+          __teamId: '',
+          name: '',
+          leader: '',
+          defaultCount: 1,
+          phone: '',
+          notes: '',
+        })}
+        onClose={() => setShowQuickEdit(false)}
+        syncGroupColumns={quickEditMode === 'logs' ? ['date', 'teamName', 'morning', 'afternoon', 'evening'] : []}
+        onSave={quickEditMode === 'logs' ? saveQuickCrewRows : saveQuickTeamRows}
+      />
+      </React.Suspense>}
 
       <CrewReportShareModal
         isOpen={showCrewReportShare}
@@ -3678,13 +4371,14 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           projectId,
           projectName: projectName || 'Dự án',
           projectLocation,
+          contractorName,
           records: structureScopedCrewRecords,
           teams,
           floorPlans,
           structureConfig: normalizedStructureConfig,
         }]}
-        initialStartDate={selectedDate}
-        initialEndDate={selectedDate}
+        initialStartDate={getTodayString()}
+        initialEndDate={getTodayString()}
         maxDate={getTodayString()}
         title="Báo cáo quân số"
       />

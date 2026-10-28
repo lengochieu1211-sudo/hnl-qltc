@@ -1,0 +1,138 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { getHnlPrimaryThemeColors, hnlContrastRatio } from '../src/utils/hnlPrimaryTheme.ts';
+const base = new URL('../', import.meta.url);
+const css = fs.readFileSync(new URL('src/index.css', base), 'utf8');
+const app = fs.readFileSync(new URL('src/App.tsx', base), 'utf8');
+const nav = fs.readFileSync(new URL('src/components/BottomNav.tsx', base), 'utf8');
+const admin = fs.readFileSync(new URL('src/components/SuperAdminCenter.tsx', base), 'utf8');
+const home = fs.readFileSync(new URL('src/components/HomeDashboard.tsx', base), 'utf8');
+const settings = fs.readFileSync(new URL('src/components/GoogleConfigTab.tsx', base), 'utf8');
+assert.equal(getHnlPrimaryThemeColors('#2563eb').hover, '#1d4ed8');
+const html = fs.readFileSync(new URL('index.html', base), 'utf8');
+const manifest = JSON.parse(fs.readFileSync(new URL('public/manifest.json', base), 'utf8'));
+assert.match(html, /name="theme-color" content="#2563eb"/);
+assert.equal(manifest.theme_color, '#2563eb');
+assert.match(app, /setAttribute\('content', hnlPalette\.action\)/);
+assert.ok(!html.includes('name="theme-color" content="#4f46e5"'));
+for (const primary of ['#2563eb', '#9333ea', '#facc15', '#ffffff', '#000000', '#00ff00']) {
+  const palette = getHnlPrimaryThemeColors(primary);
+  assert.ok(hnlContrastRatio(palette.action, '#ffffff') >= 4.5, `button contrast ${primary}`);
+  assert.ok(hnlContrastRatio(palette.lightText, '#ffffff') >= 4.5, `light text ${primary}`);
+  assert.ok(hnlContrastRatio(palette.darkText, '#0f172a') >= 4.5, `dark text ${primary}`);
+  console.log(`${primary}: action=${palette.action}, darkText=${palette.darkText}, light=${hnlContrastRatio(palette.lightText, '#ffffff').toFixed(2)}, dark=${hnlContrastRatio(palette.darkText, '#0f172a').toFixed(2)}`);
+}
+assert.match(css, /html\[data-hnl-theme="dark"\] \.text-indigo-600/);
+assert.match(css, /\[data-hnl-nav-surface\] \.bg-blue-50/);
+assert.match(css, /\[data-hnl-brand-panel\] \.bg-blue-600/);
+assert.match(app, /getHnlPrimaryThemeColors\(superAdminUiSettings.primaryColor\)/);
+assert.match(nav, /data-hnl-nav-surface="mobile"/);
+assert.match(nav, /data-hnl-nav-surface="desktop"/);
+assert.match(admin, /data-hnl-brand-panel/);
+assert.match(home, /data-hnl-home-primary-action/);
+assert.match(settings, /data-hnl-settings-surface/);
+assert.match(css, /\.bg-rose-50/);
+assert.match(css, /\.bg-emerald-50/);
+assert.match(css, /\.bg-amber-50/);
+// Deep-sheet brand/action regression: do not globally recolor semantic blue data/status.
+const warehouse = fs.readFileSync(new URL('src/components/WarehouseTab.tsx', base), 'utf8');
+const crew = fs.readFileSync(new URL('src/components/CrewTabBase.tsx', base), 'utf8');
+const security = fs.readFileSync(new URL('src/components/SecurityModal.tsx', base), 'utf8');
+const floorPlan = fs.readFileSync(new URL('src/components/FloorPlanDefectTab.tsx', base), 'utf8');
+assert.match(css, /\[data-hnl-primary-action\] \{ background-color: var\(--hnl-primary-action\)/);
+assert.match(css, /\[data-hnl-nested-nav\] \.text-blue-700/);
+assert.match(warehouse, /data-hnl-primary-action="warehouse-create"/);
+assert.match(warehouse, /data-hnl-primary-action="warehouse-equipment-create"/);
+assert.match(warehouse, /data-hnl-nested-nav="warehouse-catalog"/);
+assert.match(crew, /data-hnl-primary-action="crew-record-create"/);
+assert.match(security, /data-hnl-primary-action="security-sign-in"/);
+assert.match(admin, /data-hnl-primary-action="superadmin-ui-save"/);
+assert.match(floorPlan, /drawTool === 'freehand'\s*\? 'bg-indigo-600/);
+assert.match(floorPlan, /drawTool === 'polygon'\s*\? 'bg-indigo-600/);
+assert.match(floorPlan, /drawTool === '2point'\s*\? 'bg-indigo-600/);
+assert.match(floorPlan, /isRoomPinPlacementMode\s*\? 'bg-indigo-600/);
+// Defect action remains semantic rose, and selected/highlight strokes must not change.
+assert.match(floorPlan, /bg-rose-600 hover:bg-rose-700/);
+assert.match(floorPlan, /stroke="#f59e0b"/);
+assert.match(warehouse, /bg-sky-100/);
+assert.match(security, /bg-rose-100 text-rose-700/);
+// Copy only: no false "100% saved" when Google authentication URL is missing.
+assert.doesNotMatch(settings, /lưu 100% tự động/i);
+assert.match(settings, /Không nhận được liên kết đăng nhập Google Drive/);
+assert.match(admin, /Áp dụng và lưu/);
+assert.match(security, /Khóa PIN/);
+assert.match(security, /Phân quyền/);
+// Secondary actions are visually neutral; meaningful sync/health states stay semantic.
+const healthPanel = fs.readFileSync(new URL('src/healthCenter/HealthCenterPanelBase.tsx', base), 'utf8');
+assert.match(warehouse, /<Layers className="[^"]*text-slate-600"/);
+assert.match(warehouse, /onClick=\{onOpenNormModal\}\s+className="[^"]*border-slate-200 bg-slate-50[^"]*text-slate-700/);
+assert.match(warehouse, /<Sliders className="[^"]*text-slate-600"/);
+assert.match(crew, /onClick=\{\(\) => setShowCrewReportShare\(true\)\}[\s\S]{0,380}hover:bg-slate-100/);
+assert.match(crew, /data-hnl-secondary-action-group="crew"/);
+assert.match(warehouse, /data-hnl-secondary-action-group="warehouse"/);
+assert.match(css, /\[data-hnl-secondary-action-group\] > button \{/);
+assert.match(css, /html\[data-hnl-theme="dark"\] \[data-hnl-secondary-action-group\] > button \{/);
+assert.match(crew, /<FileText className="[^"]*text-slate-600"/);
+assert.match(settings, /icon=\{RefreshCw\}\s+iconClassName="text-indigo-600"\s+title="Trung tâm đồng bộ & sao lưu"/);
+assert.match(settings, /icon=\{ShieldCheck\}\s+iconClassName="text-indigo-600"\s+title="Trung tâm kiểm tra dữ liệu \(Health Center\)"/);
+assert.match(settings, /<ShieldCheck className="w-4 h-4 text-indigo-600" \/> Trạng thái hệ thống & đồng bộ/);
+assert.match(healthPanel, /<ShieldCheck className="h-4 w-4 text-indigo-600" \/> Kiểm tra dữ liệu & liên kết/);
+assert.match(settings, /bg-emerald-50 text-emerald-700 border-emerald-200/);
+assert.match(settings, /bg-amber-50 text-amber-700 border-amber-200/);
+assert.match(healthPanel, /text-emerald-600">CÓ THỂ SỬA AN TOÀN/);
+assert.match(healthPanel, /text-red-600">LỖI/);
+console.log('HNL SECONDARY ACTIONS + HEALTH SEMANTIC COLORS: PASS');
+console.log('HNL NESTED BRAND + VIETNAMESE COPY GOLDEN: PASS');
+// Deep audit: selected controls use the palette's tokenized indigo-compatibility classes.
+const checklist = fs.readFileSync(new URL('src/components/ChecklistTab.tsx', base), 'utf8');
+const workVolume = fs.readFileSync(new URL('src/components/WorkVolumeTab.tsx', base), 'utf8');
+const notifications = fs.readFileSync(new URL('src/components/NotificationCenterModal.tsx', base), 'utf8');
+const dueToast = fs.readFileSync(new URL('src/components/DueDateToastNotifier.tsx', base), 'utf8');
+const exportPdf = fs.readFileSync(new URL('src/components/ExportPdfModal.tsx', base), 'utf8');
+assert.match(home, /active \? 'bg-indigo-600 text-white hover:bg-indigo-700'/);
+assert.match(home, /aria-hidden|Mở nhanh dự án đang làm/);
+assert.match(home, /accentColor: 'var\(--hnl-primary\)'/);
+assert.match(home, /setShowReportShare\(true\)[^\n]+border-slate-200 bg-slate-50/);
+assert.doesNotMatch(home, /setShowReportShare\(true\)[^\n]+border-emerald-200 bg-emerald-50/);
+assert.match(home, /backgroundImage: 'linear-gradient\(90deg, var\(--hnl-primary\)/);
+assert.match(home, /Cảnh báo và thao tác nhanh/);
+assert.match(checklist, /<ClipboardCheck className="w-5 h-5 text-indigo-600"/);
+assert.match(checklist, /selectedFloor === floor\s+\? 'bg-indigo-600 text-white shadow-md'/);
+assert.match(checklist, /Thêm tiêu chí kiểm tra/);
+assert.match(checklist, /Lưu thay đổi/);
+assert.match(workVolume, /selectedCategory === catId\s+\? 'bg-indigo-600 text-white shadow-sm'/);
+assert.match(workVolume, /value="close"\s+className="py-2.5 bg-indigo-600/);
+assert.match(notifications, /Tất cả \(\{counts\.all\}\)/);
+assert.match(notifications, /Quá hạn \(\{counts\.overdue\}\)/);
+assert.match(notifications, /Đến hạn hôm nay \(\{counts\.today\}\)/);
+assert.match(notifications, /Sắp đến hạn \(3 ngày\) \(\{counts\.soon\}\)/);
+assert.match(dueToast, /bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5/);
+assert.match(exportPdf, /data-hnl-report-secondary-format="html"/);
+assert.doesNotMatch(exportPdf, /data-hnl-report-format="html"/);
+assert.match(exportPdf, /data-hnl-report-format="text"/);
+assert.match(exportPdf, /await handleDownloadHtmlToQLTC\(\)/);
+assert.match(exportPdf, /await handleDownloadHtmlReport\(\)/);
+assert.match(exportPdf, /data-hnl-report-secondary-format="html"/);
+// Semantic tones are excluded from brand recoloring (zero false success / error cues).
+assert.match(home, /isOnline \? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'/);
+assert.match(checklist, /<div className="bg-emerald-500 h-full/);
+assert.match(checklist, /<div className="bg-rose-500 h-full/);
+assert.match(checklist, /<div className="bg-amber-400 h-full/);
+assert.match(notifications, /filterType === 'overdue'[\s\S]{0,165}'bg-rose-600 text-white shadow-sm'/);
+assert.match(notifications, /filterType === 'today'[\s\S]{0,165}'bg-amber-600 text-white shadow-sm'/);
+assert.match(settings, /bg-emerald-50 text-emerald-700 border-emerald-200/);
+assert.match(settings, /bg-amber-50 text-amber-700 border-amber-200/);
+const header = fs.readFileSync(new URL('src/components/GoogleAuthHeader.tsx', base), 'utf8');
+const diagnostic = fs.readFileSync(new URL('src/healthCenter/HealthCenterPanelBase.tsx', base), 'utf8');
+const backup = fs.readFileSync(new URL('src/components/ProjectManagerModal.tsx', base), 'utf8');
+const crewShare = fs.readFileSync(new URL('src/components/CrewReportShareModal.tsx', base), 'utf8');
+assert.ok((header.match(/bg-slate-800 hover:bg-slate-700 text-slate-100/g) || []).length >= 2, 'Project and Report buttons use the same secondary palette');
+assert.match(backup, /bg-emerald-600 hover:bg-emerald-700 text-white/);
+for (const color of ['slate-800', 'green-700']) {
+  assert.ok(diagnostic.includes('bg-' + color) && crewShare.includes('bg-' + color),
+    'Diagnostic buttons must share neutral/Excel colors: ' + color);
+}
+assert.ok(diagnostic.includes('bg-violet-600') && crewShare.includes('bg-sky-600'),
+  'JSON and Image must have distinct semantic colors from Excel');
+console.log('HNL HOME/CHECKLIST/WORK VOLUME/NOTIFICATION/EXPORT BRAND + COPY: PASS');
+console.log('HNL PRIMARY COLOR SOURCE GOLDEN: PASS');

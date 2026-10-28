@@ -12,6 +12,7 @@ export type ShareContentResult = {
   requestedFiles: number;
   sharedFiles: number;
   fallbackToText: boolean;
+  failureReason?: 'native-share-failed' | 'native-file-limit' | 'browser-file-sharing-unavailable';
 };
 
 const MAX_SHARE_FILES = 6;
@@ -85,44 +86,42 @@ function dataUrlToFile(attachment: ShareAttachmentPayload): File | null {
   }
 }
 
-async function tryWebFileShare(title: string, text: string, url: string, files: File[]): Promise<'shared' | 'cancelled' | 'unsupported'> {
-  if (files.length === 0 || typeof navigator === 'undefined' || typeof navigator.share !== 'function') return 'unsupported';
-  try {
-    if (typeof navigator.canShare === 'function' && !navigator.canShare({ files })) return 'unsupported';
-  } catch (_) {
-    return 'unsupported';
-  }
+type WebFileShareResult = { status: 'shared' | 'cancelled' | 'unsupported'; sharedFiles: number };
 
+async function tryWebFileShare(title: string, text: string, url: string, files: File[]): Promise<WebFileShareResult> {
+  const unsupported: WebFileShareResult = { status: 'unsupported', sharedFiles: 0 };
+  if (files.length === 0 || typeof navigator === 'undefined' || typeof navigator.share !== 'function') return unsupported;
+  const canSend = (selected: File[]): boolean => {
+    try { return typeof navigator.canShare !== 'function' || navigator.canShare({ files: selected }); }
+    catch (_) { return false; }
+  };
   const shareText = [text, url].filter(Boolean).join('\n');
-  const attempts: ShareData[] = [
-    { title, text: shareText || undefined, files },
-    // Some OEM Chromium/WebView builds accept file sharing but reject text + files.
-    { files },
-  ];
 
-  for (const shareData of attempts) {
-    try {
-      await navigator.share(shareData);
-      return 'shared';
-    } catch (error: any) {
-      if (error?.name === 'AbortError') return 'cancelled';
-      // Retry a more conservative payload for DataError/NotAllowedError/TypeError.
-    }
-  }
+  // Some Android browsers do not accept ACTION_SEND_MULTIPLE from Web Share.
+  // Crucially: do NOT return early when canShare({files}) is false for 2+ files.
+  // Try one file on this SAME click, before losing transient user activation.
+  const groups = canSend(files) ? [files] : [];
+  if (files.length > 1 && canSend([files[0]])) groups.push([files[0]]);
+  if (!groups.length) return unsupported;
 
-  // A few Android browsers reject multi-file shares even when canShare({files}) returns true.
-  if (files.length > 1) {
-    try {
-      const first = files[0];
-      if (typeof navigator.canShare !== 'function' || navigator.canShare({ files: [first] })) {
-        await navigator.share({ title, text: shareText || undefined, files: [first] });
-        return 'shared';
+  for (const group of groups) {
+    const attempts: ShareData[] = [
+      { title, text: shareText || undefined, files: group },
+      { files: group }, // Some OEM browsers reject combined text + files.
+    ];
+    for (const payload of attempts) {
+      try {
+        await navigator.share(payload);
+        return { status: 'shared', sharedFiles: group.length };
+      } catch (error: any) {
+        if (error?.name === 'AbortError') return { status: 'cancelled', sharedFiles: 0 };
+        if (error?.name === 'NotAllowedError' || error?.name === 'SecurityError') return unsupported;
+        // No second call if transient user activation was already consumed.
+        if (typeof navigator.userActivation?.isActive === 'boolean' && !navigator.userActivation.isActive) return unsupported;
       }
-    } catch (error: any) {
-      if (error?.name === 'AbortError') return 'cancelled';
     }
   }
-  return 'unsupported';
+  return unsupported;
 }
 
 export async function sharePreparedContent(params: {
@@ -144,9 +143,12 @@ export async function sharePreparedContent(params: {
 
     const totalBytes = decoded.reduce((sum, item) => sum + item.decoded.bytes, 0);
     const bridge = getAndroidContactBridge();
-    if (decoded.length > 0 && totalBytes <= MAX_NATIVE_SHARE_BYTES && bridge && typeof bridge.shareFiles === 'function') {
-      try {
-        const payload = decoded.map(({ attachment, decoded: item }) => {
+    const nativeAvailable = Boolean(bridge && typeof bridge.shareFiles === 'function');
+    if (decoded.length > 0 && nativeAvailable) {
+      const nativeShare = (items: typeof decoded): boolean => {
+        const size = items.reduce((sum, item) => sum + item.decoded.bytes, 0);
+        if (size > MAX_NATIVE_SHARE_BYTES) return false;
+        const payload = items.map(({ attachment, decoded: item }) => {
           const actualMimeType = item.mimeType || attachment.mimeType || 'image/jpeg';
           return {
             fileName: normalizeShareFileName(attachment.fileName, actualMimeType, attachment.id),
@@ -154,20 +156,34 @@ export async function sharePreparedContent(params: {
             base64: item.base64,
           };
         });
-        const ok = bridge.shareFiles(title, [text, url].filter(Boolean).join('\n'), JSON.stringify(payload));
-        if (ok !== false) {
-          return { status: 'shared', requestedFiles: requested.length, sharedFiles: payload.length, fallbackToText: false };
+        return bridge.shareFiles(title, [text, url].filter(Boolean).join('\n'), JSON.stringify(payload)) !== false;
+      };
+      try {
+        if (nativeShare(decoded)) {
+          return { status: 'shared', requestedFiles: requested.length, sharedFiles: decoded.length, fallbackToText: false };
         }
-      } catch (_) {}
+        // Some Android OEM share sheets reject ACTION_SEND_MULTIPLE, but accept
+        // ACTION_SEND. Retry ONE image only if the initial native chooser failed.
+        // The UI must say 1/N, never imply every original photo was shared.
+        if (decoded.length > 1 && nativeShare([decoded[0]])) {
+          return { status: 'shared', requestedFiles: requested.length, sharedFiles: 1, fallbackToText: false };
+        }
+      } catch (_) { /* Native chooser errors must not fake a successful share. */ }
+      // The app-owned native bridge already attempted startActivity; falling back
+      // to Web Share in the APK can lose user activation or launch two choosers.
+      if (params.allowTextFallback === false) {
+        return { status: 'failed', requestedFiles: requested.length, sharedFiles: 0, fallbackToText: false,
+          failureReason: totalBytes > MAX_NATIVE_SHARE_BYTES ? 'native-file-limit' : 'native-share-failed' };
+      }
     }
 
     const files = requested.map(dataUrlToFile).filter((file): file is File => Boolean(file));
     const webShare = await tryWebFileShare(title, text, url, files);
-    if (webShare === 'shared') {
-      // Multi-file retry may have fallen back to one file. Report conservatively if canShare is flaky.
-      return { status: 'shared', requestedFiles: requested.length, sharedFiles: files.length > 0 ? Math.min(files.length, requested.length) : 0, fallbackToText: false };
+    if (webShare.status === 'shared') {
+      // Never claim all photos were sent if the browser only accepted one.
+      return { status: 'shared', requestedFiles: requested.length, sharedFiles: webShare.sharedFiles, fallbackToText: false };
     }
-    if (webShare === 'cancelled') {
+    if (webShare.status === 'cancelled') {
       return { status: 'cancelled', requestedFiles: requested.length, sharedFiles: 0, fallbackToText: false };
     }
   }
@@ -178,6 +194,7 @@ export async function sharePreparedContent(params: {
       requestedFiles: requested.length,
       sharedFiles: 0,
       fallbackToText: false,
+      failureReason: 'browser-file-sharing-unavailable',
     };
   }
 

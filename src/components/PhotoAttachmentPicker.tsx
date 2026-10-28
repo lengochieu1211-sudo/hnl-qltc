@@ -10,15 +10,18 @@ import { QuickSortBar } from './QuickSortBar';
 
 interface PhotoAttachmentPickerProps {
   projectId: string;
-  entityType: 'crewRecord' | 'defect' | 'chat';
+  entityType: 'crewRecord' | 'defect' | 'chat' | 'inventory';
   entityId: string;
-  category?: 'crew_progress' | 'defect_before' | 'defect_after';
+  category?: 'crew_progress' | 'defect_before' | 'defect_after' | 'warehouse_receipt';
   label?: string;
   maxPhotos?: number;
   readOnly?: boolean;
   /** Compact Crew count button that opens the same full-screen viewer as Defect photos. */
   compactViewerButton?: boolean;
   onPhotosChanged?: (photos: PhotoAttachment[]) => void;
+  /** Only used by Warehouse: staged local files are imported after voucher commit. */
+  initialFiles?: File[];
+  onInitialFilesProcessed?: (remainingFiles: File[]) => void;
 }
 
 const notifyPhotoAttachmentsChanged = (detail?: Record<string, any>) => {
@@ -44,6 +47,17 @@ const isLegacyFirestorePhoto = (photo: PhotoAttachment) => {
 };
 
 const photoPickerServerRefreshKeys = new Set<string>();
+// All warehouse voucher badges read the same project photo index. Share a single
+// in-flight server refresh instead of rereading every photo document per voucher.
+const warehousePhotoMetadataRefreshes = new Map<string, Promise<{ verified: boolean; count: number }>>();
+const refreshWarehousePhotoMetadataOnce = (projectId: string, refreshKey: string) => {
+  const existing = warehousePhotoMetadataRefreshes.get(refreshKey);
+  if (existing) return existing;
+  const request = refreshProjectPhotoMetadataFromCloud(projectId)
+    .finally(() => { warehousePhotoMetadataRefreshes.delete(refreshKey); });
+  warehousePhotoMetadataRefreshes.set(refreshKey, request);
+  return request;
+};
 
 export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   projectId,
@@ -54,7 +68,9 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   maxPhotos = 10,
   readOnly = false,
   compactViewerButton = false,
-  onPhotosChanged
+  onPhotosChanged,
+  initialFiles,
+  onInitialFilesProcessed
 }) => {
   const [photos, setPhotos] = useState<PhotoAttachment[]>([]);
   const [photoDataUrls, setPhotoDataUrls] = useState<Record<string, string>>({});
@@ -115,9 +131,14 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       // Firestore event/tab change. The auth UID is part of the key so account switching
       // on the same phone gets an independent first refresh. Photo binaries remain lazy.
       const authUid = getCurrentRealFirebaseUser()?.uid || 'signed-out';
-      const refreshKey = `${authUid}:${projectId}:${entityType}:${entityId}:${category}`;
+      const isWarehousePhoto = entityType === 'inventory';
+      const refreshKey = isWarehousePhoto
+        ? `${authUid}:${projectId}:inventory:${category}`
+        : `${authUid}:${projectId}:${entityType}:${entityId}:${category}`;
       if (items.length === 0 && typeof navigator !== 'undefined' && navigator.onLine && !photoPickerServerRefreshKeys.has(refreshKey)) {
-        const refreshed = await refreshProjectPhotoMetadataFromCloud(projectId).catch(() => ({ verified: false, count: 0 }));
+        const refreshed = await (isWarehousePhoto
+          ? refreshWarehousePhotoMetadataOnce(projectId, refreshKey)
+          : refreshProjectPhotoMetadataFromCloud(projectId)).catch(() => ({ verified: false, count: 0 }));
         // Cache a refresh decision only after a real server read succeeds. A transient
         // auth/network failure must never permanently turn an existing gallery into 0/10
         // for the rest of this app session.
@@ -141,11 +162,22 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       let unresolved = items.filter((p) => !urlMap[p.id]);
       const binaryRecoveryKey = `${refreshKey}:binary`;
       if (unresolved.length > 0 && typeof navigator !== 'undefined' && navigator.onLine && !photoPickerServerRefreshKeys.has(binaryRecoveryKey)) {
-        const refreshed = await refreshProjectPhotoMetadataFromCloud(projectId).catch(() => ({ verified: false, count: 0 }));
+        const refreshed = await (isWarehousePhoto
+          ? refreshWarehousePhotoMetadataOnce(projectId, binaryRecoveryKey)
+          : refreshProjectPhotoMetadataFromCloud(projectId)).catch(() => ({ verified: false, count: 0 }));
         if (refreshed.verified) photoPickerServerRefreshKeys.add(binaryRecoveryKey);
         items = await getEntityPhotos(projectId, entityType, entityId, category);
         urlMap = await resolveUrls(items);
         unresolved = items.filter((p) => !urlMap[p.id]);
+      }
+      // Cloud refresh and binary downloads are asynchronous. Account/project/receipt
+      // changes may start a newer load while this one is in flight. Discard the old
+      // result BEFORE touching photo counts/errors or thumbnails; otherwise an older
+      // account's result can overwrite the active receipt even when its URLs are
+      // already rejected by the sequence guard.
+      if (loadSeq !== loadSeqRef.current) {
+        Object.values(urlMap).forEach(revokeBlobUrl);
+        return;
       }
       setPhotos(items);
       setPhotoLoadErrors(Object.fromEntries(unresolved.map((p) => [
@@ -155,11 +187,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
           : 'Không tải được binary ảnh từ Cloud/R2.'
       ])));
       
-      // Load data URLs / thumbnails asynchronously
-      if (loadSeq !== loadSeqRef.current) {
-        Object.values(urlMap).forEach(revokeBlobUrl);
-        return;
-      }
+      // Load data URLs / thumbnails only for the latest active request.
       setPhotoDataUrls((prev) => {
         Object.values(prev).forEach(revokeBlobUrl);
         photoDataUrlsRef.current = urlMap;
@@ -239,14 +267,14 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     viewerLoadingPhotoIdsRef.current.clear();
   }, []);
 
-  const processSelectedFiles = async (files: FileList | File[] | null) => {
-    if (readOnly) return;
+  const processSelectedFiles = async (files: FileList | File[] | null): Promise<File[]> => {
     const selected = files ? Array.from(files) : [];
-    if (selected.length === 0 || !projectId || !entityId) return;
+    if (readOnly || !projectId || !entityId) return selected;
+    if (selected.length === 0) return [];
 
     if (photos.length + selected.length > maxPhotos) {
       alert(`Bạn chỉ có thể chèn tối đa ${maxPhotos} ảnh!`);
-      return;
+      return selected;
     }
 
     const imageNamePattern = /\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i;
@@ -257,14 +285,15 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     });
     if (invalid) {
       alert(`Tệp "${invalid.name || 'đã chọn'}" không phải hình ảnh hợp lệ.`);
-      return;
+      return selected;
     }
 
     setUploading(true);
     setSyncNotice('');
+    // Persisted files are removed from the retry queue, not the whole original batch.
+    const savedNow: PhotoAttachment[] = [];
+    const optimisticUrls: Record<string, string> = {};
     try {
-      const savedNow: PhotoAttachment[] = [];
-      const optimisticUrls: Record<string, string> = {};
 
       for (const file of selected) {
         // Some Android galleries return HEIC/HEIF. Browser decoding support differs by device,
@@ -321,6 +350,10 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
         }
       }
 
+    } catch (err: any) {
+      console.error('Error uploading photo:', err);
+      alert(err?.message || 'Có lỗi xảy ra khi xử lý ảnh. Vui lòng thử lại.');
+    } finally {
       // Render immediately from the just-compressed data URL. Do not wait for IndexedDB/cloud
       // round-trips; this fixes the "saved but image does not appear" behavior on mobile.
       if (savedNow.length > 0) {
@@ -335,7 +368,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
         });
       }
 
-      notifyPhotoAttachmentsChanged({
+      if (savedNow.length > 0) notifyPhotoAttachmentsChanged({
         operation: 'add',
         entityType,
         entityId,
@@ -345,15 +378,25 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       });
       // No immediate self-reload: the optimistic thumbnail is already correct.
       // Avoiding a second IndexedDB pass materially reduces mobile RAM/CPU spikes.
-    } catch (err: any) {
-      console.error('Error uploading photo:', err);
-      alert(err?.message || 'Có lỗi xảy ra khi xử lý ảnh. Vui lòng thử lại.');
-    } finally {
       setUploading(false);
       if (cameraInputRef.current) cameraInputRef.current.value = '';
       if (libraryInputRef.current) libraryInputRef.current.value = '';
     }
+    return selected.slice(savedNow.length);
   };
+
+  const initialImportStartedRef = useRef(false);
+  useEffect(() => {
+    if (!initialFiles?.length) initialImportStartedRef.current = false;
+  }, [initialFiles]);
+  useEffect(() => {
+    if (loading || readOnly || initialImportStartedRef.current || !initialFiles?.length) return;
+    initialImportStartedRef.current = true;
+    // Only the unfinished files are offered for explicit retry; never resave accepted photos.
+    void processSelectedFiles(initialFiles)
+      .then((remaining) => onInitialFilesProcessed?.(remaining))
+      .catch(() => onInitialFilesProcessed?.(initialFiles));
+  }, [loading, readOnly, initialFiles, projectId, entityId]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     await processSelectedFiles(e.target.files);
@@ -563,6 +606,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
 
   if (compactViewerButton) {
     const pendingCount = photos.filter((photoItem) => !isPhotoSharedCloudReady(photoItem)).length;
+    const isWarehouseVoucher = entityType === 'inventory';
     const canOpenViewer = viewablePhotos.length > 0;
     const openViewer = () => {
       if (!canOpenViewer) return;
@@ -585,14 +629,18 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
                 ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
                 : 'bg-slate-50 border-slate-200 text-slate-500'
           } disabled:cursor-default`}
-          title={photos.length > 0 ? 'Mở ảnh hiện trường toàn màn hình' : 'Chưa có ảnh hiện trường'}
+          title={isWarehouseVoucher
+            ? photos.length > 0 ? 'Xem ảnh giao nhận toàn màn hình' : 'Chưa có ảnh giao nhận'
+            : photos.length > 0 ? 'Mở ảnh hiện trường toàn màn hình' : 'Chưa có ảnh hiện trường'}
         >
           <Images className="w-3.5 h-3.5" />
           {loading
             ? 'Đang kiểm tra ảnh...'
             : photos.length > 0
-              ? `${photos.length} ảnh hiện trường${pendingCount > 0 ? ` · ${pendingCount} chờ Cloud` : ''} · Bấm để xem`
-              : 'Chưa có ảnh hiện trường'}
+              ? isWarehouseVoucher
+                ? `${photos.length} ảnh${pendingCount > 0 ? ` · ${pendingCount} chờ Cloud` : ''}`
+                : `${photos.length} ảnh hiện trường${pendingCount > 0 ? ` · ${pendingCount} chờ Cloud` : ''} · Bấm để xem`
+              : isWarehouseVoucher ? 'Chưa có ảnh' : 'Chưa có ảnh hiện trường'}
         </button>
 
         {viewingIndex !== null && (
@@ -608,6 +656,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
               void ensureViewerFullImage(index);
             }}
             isImageLoading={Boolean(viewerLoadingIds[viewablePhotos[viewerCurrentIndex]?.id || ''])}
+            shareText={entityType === 'inventory' ? '' : undefined}
           />
         )}
       </>
@@ -687,7 +736,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
             : 'Chưa có hình ảnh được đính kèm (Bấm "Chụp ảnh" hoặc "Thư viện" để thêm ảnh)'}
         </div>
       ) : (
-        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+        <div data-hnl-pc-v36-photo-thumbnails={entityType === 'crewRecord' || entityType === 'inventory' ? 'crew-warehouse' : undefined} className="grid grid-cols-3 sm:grid-cols-4 gap-2">
           {sortedPhotos.map((photo) => {
             const url = photoDataUrls[photo.id] || photo.localUri || (isDirectPhotoUrl(photo.cloudUrl) ? photo.cloudUrl : '');
             const legacyUnrecoverable = !url && isLegacyFirestorePhoto(photo) && Boolean(photoLoadErrors[photo.id]);
@@ -767,7 +816,10 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
                 
                 {/* Control Action Overlay & Top-Right Delete X */}
                 {!readOnly && url && (
-                  <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
+                  <div
+                    data-hnl-pc-v38-photo-actions={entityType === 'crewRecord' || entityType === 'inventory' ? 'crew-warehouse' : undefined}
+                    className="absolute top-1 right-1 flex items-center gap-1 z-10"
+                  >
                     <button
                       type="button"
                       onClick={(e) => handleStartEditPhoto(photo, e)}
@@ -813,6 +865,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
             void ensureViewerFullImage(index);
           }}
           isImageLoading={Boolean(viewerLoadingIds[viewablePhotos[viewerCurrentIndex]?.id || ''])}
+          shareText={entityType === 'inventory' ? '' : undefined}
         />
       )}
 

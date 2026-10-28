@@ -1,9 +1,14 @@
 name: Deploy HNL QLTC DEV Environment
 
 on:
-  push:
-    branches: [dev]
   workflow_dispatch:
+  # One-shot opt-in from a standalone, explicitly user-approved marker commit.
+  # Ordinary dev source pushes must NEVER publish Hosting.
+  push:
+    branches:
+      - dev
+    paths:
+      - '.github/dev-release-approval.json'
 
 permissions:
   contents: read
@@ -12,7 +17,7 @@ permissions:
 
 concurrency:
   group: hnl-qltc-dev-release
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   DEV_FIRESTORE_LOCATION: asia-southeast1
@@ -27,10 +32,36 @@ env:
   PROD_AI_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
 
 jobs:
+  approval:
+    name: Explicit DEV release approval gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout approval commit
+        if: github.event_name == 'push'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Validate one-shot marker and unchanged source
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/dev' || { echo '::error::DEV approval event is not on dev'; exit 1; }
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA" || { echo '::error::Approval checkout SHA mismatch'; exit 1; }
+          # Only the dedicated approval file may change in the approved commit.
+          CHANGED_FILES="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA")"
+          test "$CHANGED_FILES" = '.github/dev-release-approval.json' || { echo '::error::Approval commit contains unrelated source changes'; exit 1; }
+          APPROVED_BASE_SHA="$(node -e "const fs=require('fs');const a=JSON.parse(fs.readFileSync('.github/dev-release-approval.json','utf8'));if(a.intent!=='DEPLOY-FIREBASE-DEV'||a.project_id!=='hnl-qltc-dev'||typeof a.approved_source_sha!=='string'||!/^[0-9a-f]{40}$/.test(a.approved_source_sha))process.exit(2);process.stdout.write(a.approved_source_sha)")"
+          test "$APPROVED_BASE_SHA" = "$(git rev-parse HEAD^)" || { echo '::error::Approval source SHA is not the immediate DEV parent'; exit 1; }
+          echo "Explicit one-shot DEV release approval validated: $APPROVED_BASE_SHA -> $GITHUB_SHA"
+
   rules:
+    needs: approval
     name: Wait for exact Firebase Rules certification
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 35
     steps:
       - name: Require Firebase Rules certification for exact DEV SHA
         env:
@@ -38,30 +69,53 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          API="https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs?per_page=100"
+          # Use the exact package workflow job, not a stale commit check-run.
+          # Never pass when the Firebase Rules job is absent or incomplete.
+          RUNS_API="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA&branch=dev&event=push&per_page=100"
           for attempt in $(seq 1 75); do
-            JSON="$(curl --fail --silent --show-error \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H 'Accept: application/vnd.github+json' \
-              -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "$API")"
-            INFO="$(printf '%s' "$JSON" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=(j.check_runs||[]).filter(x=>x.name==='Firebase Rules certification').sort((a,b)=>String(b.started_at||'').localeCompare(String(a.started_at||'')))[0];process.stdout.write(r?[String(r.status||''),String(r.conclusion||''),String(r.details_url||'')].join('|'):'missing||')})")"
-            STATUS="${INFO%%|*}"
-            REST="${INFO#*|}"; CONCLUSION="${REST%%|*}"; DETAILS="${REST#*|}"
-            if [ "$STATUS" = 'completed' ] && [ "$CONCLUSION" = 'success' ]; then
-              echo "Exact Firebase Rules certification: PASS (${GITHUB_SHA})"
-              echo "Evidence: $DETAILS"
-              exit 0
+            RUNS="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "$RUNS_API")"
+            RUN_ID="$(printf '%s' "$RUNS" | TARGET_SHA="$GITHUB_SHA" node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=(j.workflow_runs||[]).filter(x=>x.head_sha===process.env.TARGET_SHA&&x.name==='Package HNL QLTC DEV Deliverables'&&x.event==='push').sort((a,b)=>(Number(b.run_attempt||0)-Number(a.run_attempt||0))||(Number(b.id||0)-Number(a.id||0)))[0];process.stdout.write(String(r?.id||''))})")"
+            if [ -n "$RUN_ID" ]; then
+              JOBS_API="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100"
+              JOBS="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "$JOBS_API")"
+              INFO="$(printf '%s' "$JOBS" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=(j.jobs||[]).filter(x=>x.name==='Firebase Rules certification').sort((a,b)=>Number(b.id||0)-Number(a.id||0))[0];process.stdout.write(r?[String(r.status||''),String(r.conclusion||''),String(r.html_url||'')].join('|'):'missing||')})")"
+              STATUS="$(printf '%s' "$INFO" | cut -d '|' -f 1)"
+              CONCLUSION="$(printf '%s' "$INFO" | cut -d '|' -f 2)"
+              if [ "$STATUS" = 'completed' ] && [ "$CONCLUSION" = 'success' ]; then
+                echo "Exact Firebase Rules certification: PASS ($GITHUB_SHA; package run $RUN_ID)"
+                echo "Evidence: $INFO"
+                exit 0
+              fi
+              if [ "$STATUS" = 'completed' ] && [ "$CONCLUSION" != 'success' ]; then
+                echo "::error::Firebase Rules certification failed for $GITHUB_SHA (run $RUN_ID): $INFO"
+                exit 1
+              fi
+            else
+              INFO="missing package run"
             fi
-            if [ "$STATUS" = 'completed' ] && [ -n "$CONCLUSION" ] && [ "$CONCLUSION" != 'success' ]; then
-              echo "::error::Firebase Rules certification failed for ${GITHUB_SHA}: $INFO"
-              exit 1
-            fi
-            echo "Waiting exact Firebase Rules certification for ${GITHUB_SHA} ($attempt/75): $INFO"
+            echo "Waiting exact Firebase Rules job for $GITHUB_SHA ($attempt/75): $INFO"
             sleep 10
           done
-          echo "::error::Timed out waiting for exact Firebase Rules certification: ${GITHUB_SHA}"
+          echo "::error::Timed out waiting for exact Firebase Rules job: $GITHUB_SHA"
           exit 1
+
+      - name: Require exact HEAD full CI build PASS before DEV release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNS_API="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA&branch=dev&event=push&per_page=100"
+          for attempt in $(seq 1 120); do
+            RUNS="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "$RUNS_API")"
+            STATE="$(printf '%s' "$RUNS" | TARGET_SHA="$GITHUB_SHA" node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=(j.workflow_runs||[]).find(x=>x.head_sha===process.env.TARGET_SHA&&x.name==='Build'&&x.event==='push');process.stdout.write(r?String(r.status)+'|'+String(r.conclusion||''):'missing|')})")"
+            case "$STATE" in
+              completed\|success) echo "Exact DEV CI Build: PASS ($GITHUB_SHA)"; exit 0 ;;
+              completed\|*) echo "::error::Exact DEV CI Build failed ($GITHUB_SHA): $STATE"; exit 1 ;;
+              *) echo "Waiting full DEV CI Build ($attempt/120): $STATE"; sleep 10 ;;
+            esac
+          done
+          echo "::error::Cannot release DEV: exact HEAD full CI Build has not passed"; exit 1
 
   deploy_dev:
     needs: rules
@@ -72,6 +126,16 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Verify exact live DEV HEAD before touching any resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/dev' || { echo '::error::Not DEV branch'; exit 1; }
+          CURRENT_SHA="$(git ls-remote origin refs/heads/dev | cut -f1)"
+          test "$CURRENT_SHA" = "$GITHUB_SHA" || { echo '::error::DEV HEAD changed; refusing stale release'; exit 1; }
 
       - name: DEV credential preflight
         id: preflight
@@ -79,13 +143,13 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${FIREBASE_SERVICE_ACCOUNT:-}" ]; then
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "DEV_WAITING_FOR_SECRET=FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV"
-            exit 0
+            echo '::error::Missing DEV secret FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV; no deployment happened'
+            exit 1
           fi
           DEV_PROJECT_ID="$(printf '%s' "$FIREBASE_SERVICE_ACCOUNT" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);process.stdout.write(String(j.project_id||''))})")"
           test -n "$DEV_PROJECT_ID" || { echo '::error::DEV service account JSON has no project_id'; exit 1; }
           test "$DEV_PROJECT_ID" != "$PROD_FIREBASE_PROJECT_ID" || { echo '::error::REFUSING: DEV service account points to PROD project'; exit 1; }
+          test "$DEV_PROJECT_ID" = 'hnl-qltc-dev' || { echo '::error::REFUSING: unexpected Firebase DEV project'; exit 1; }
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo '::error::Missing CLOUDFLARE_API_TOKEN for isolated DEV Cloudflare resources'; exit 1; }
           test "$DEV_R2_URL" != "$PROD_R2_URL" || { echo '::error::REFUSING: DEV R2 URL equals PROD R2 URL'; exit 1; }
           test "$DEV_AI_WORKER" != "$PROD_AI_WORKER" || { echo '::error::REFUSING: DEV AI worker equals PROD AI worker'; exit 1; }
@@ -269,7 +333,10 @@ jobs:
           test "$audit_ok" = 1 || { echo '::error::Security audit unavailable after 3 transient retries'; exit 1; }
 
           npm run build
-          grep -R -q 'HNL AI Assistant' dist/assets || { echo '::error::AI UI marker missing from DEV build'; exit 1; }
+          node scripts/dev-deploy-budget-golden.mjs
+          node scripts/dev-release-gate.mjs self-test
+          node scripts/dev-release-gate.mjs write
+          grep -R -q 'Trợ lý HNL AI' dist/assets || { echo '::error::AI UI marker missing from DEV build'; exit 1; }
           grep -R -q 'hnl-qltc-ai-gateway-dev' dist/assets || { echo '::error::DEV AI gateway missing from DEV build'; exit 1; }
 
       - name: Resolve Cloudflare account
@@ -383,12 +450,28 @@ jobs:
           set -euo pipefail
           npx --yes firebase-tools@13.35.1 deploy --only firestore:rules --project "$DEV_PROJECT_ID" --non-interactive
 
+      - name: Require exact current DEV branch HEAD before publish
+        if: steps.preflight.outputs.configured == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          CURRENT_SHA="$(git ls-remote origin refs/heads/dev | cut -f1)"
+          test "$CURRENT_SHA" = "$GITHUB_SHA" || { echo "::error::DEV HEAD changed during release; refusing to publish stale source"; exit 1; }
+          test -s dist/hnl-dev-release.json || { echo '::error::Missing DEV release identity manifest'; exit 1; }
+
       - name: Deploy DEV Hosting
         if: steps.preflight.outputs.configured == 'true'
         shell: bash
         run: |
           set -euo pipefail
           npx --yes firebase-tools@13.35.1 deploy --only hosting --project "$DEV_PROJECT_ID" --non-interactive
+          ok=0
+          for i in $(seq 1 12); do
+            if node scripts/dev-release-gate.mjs verify; then ok=1; break; fi
+            echo "Waiting for DEV Hosting release identity to propagate ($i/12)"
+            sleep 5
+          done
+          test "$ok" = 1 || { echo '::error::DEV Hosting did not serve the exact release build'; exit 1; }
           echo "DEV Hosting: $DEV_HOSTING_URL"
 
       - name: Smoke DEV Hosting
@@ -403,5 +486,26 @@ jobs:
             sleep 2
           done
           test "$ok" = 1 || { echo '::error::DEV Hosting smoke failed'; exit 1; }
+
+          ENTRY_ASSET="$(grep -oE 'src="/assets/[^"]+\.js"' /tmp/dev-index.html | head -1 | cut -d'"' -f2)"
+          test -n "$ENTRY_ASSET" || { echo '::error::Unable to resolve DEV entry JS asset'; exit 1; }
+          ENTRY_HEADERS="$(mktemp)"
+          ENTRY_BODY="$(mktemp)"
+          ENTRY_CODE="$(curl --silent --show-error -D "$ENTRY_HEADERS" -o "$ENTRY_BODY" --write-out '%{http_code}' "${DEV_HOSTING_URL}${ENTRY_ASSET}")"
+          test "$ENTRY_CODE" = '200' || { echo "::error::DEV entry asset HTTP $ENTRY_CODE"; exit 1; }
+          grep -Eqi '^content-type: .*javascript' "$ENTRY_HEADERS" || { echo '::error::DEV entry JS asset has non-JavaScript Content-Type'; cat "$ENTRY_HEADERS"; exit 1; }
+          if head -c 64 "$ENTRY_BODY" | grep -Eqi '<!doctype html|<html'; then
+            echo '::error::DEV entry JS asset body is HTML'
+            exit 1
+          fi
+
+          MISSING_CODE="$(curl --silent --output /tmp/dev-missing-asset.txt --write-out '%{http_code}' "${DEV_HOSTING_URL}/assets/__hnl_missing_asset_${GITHUB_RUN_ID}.js")"
+          test "$MISSING_CODE" = '404' || { echo "::error::Missing hashed asset must return 404, got $MISSING_CODE"; head -c 120 /tmp/dev-missing-asset.txt || true; exit 1; }
+          if cmp -s /tmp/dev-index.html /tmp/dev-missing-asset.txt; then
+            echo '::error::Missing hashed asset was rewritten to the app index.html body'
+            exit 1
+          fi
+          echo 'DEV stale hashed asset boundary: PASS (HTTP 404, not app index.html)'
+
           curl --fail --silent --show-error "${DEV_AI_URL}/health?hostingSmoke=${GITHUB_RUN_ID}" | grep -q '"ok":true' || { echo '::error::DEV AI health after Hosting deploy failed'; exit 1; }
           echo "DEV_READY_URL=$DEV_HOSTING_URL"

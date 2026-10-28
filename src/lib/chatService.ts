@@ -47,7 +47,7 @@ async function commitProjectMessage(input: SendMessageInput, persistOutbox: bool
       id: messageId,
       input: { ...input, conversationId },
       createdAt: Date.now(),
-    }).catch((err) => console.warn('[Chat outbox] Could not persist queued message:', err));
+    });
   }
 
   // IMPORTANT: the message itself is committed independently from the conversation
@@ -251,8 +251,9 @@ export async function sendProjectMessage(input: SendMessageInput): Promise<strin
   const messageId = deterministicMessageId(user.uid, input.clientMessageId);
 
   // Persist first so switching to Firestore memory cache does not sacrifice offline chat.
-  await putChatOutbox({ id: messageId, input: normalizedInput, createdAt: Date.now() })
-    .catch((err) => console.warn('[Chat outbox] Could not persist before send:', err));
+  // Fail before opening a Firestore write when no durable offline copy exists.
+  // ChatTab retains its draft and attachments if this throws (quota / IndexedDB).
+  await putChatOutbox({ id: messageId, input: normalizedInput, createdAt: Date.now() });
 
   let returnedAsQueued = false;
   const commitPromise = commitProjectMessage(normalizedInput, false);

@@ -1,0 +1,54 @@
+name: HNL Warehouse Catalog P0 Click Golden
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'src/components/WarehouseTab.tsx'
+      - 'src/components/WarehouseVoucherShareSheet.tsx'
+      - 'src/utils/warehouseVoucherPrint.ts'
+      - 'src/utils/warehouseVoucherTextPdf.ts'
+      - 'src/utils/warehouseVoucherPdfFont.ts'
+      - 'scripts/warehouse-voucher-browser-golden.mjs'
+      - 'scripts/warehouse-voucher-layout-golden.ts'
+      - 'scripts/warehouse-catalog-browser-golden.mjs'
+      - 'scripts/material-norm-form-browser-golden.mjs'
+      - 'src/components/MaterialNormModal.tsx'
+      - 'src/components/EquipmentCatalogPanel.tsx'
+      - 'scripts/fixtures/warehouse-catalog/**'
+      - '.github/workflows/warehouse-catalog-click-golden.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real_click_desktop_mobile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: |
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Real WarehouseTab click on desktop and phone
+        run: node scripts/warehouse-catalog-browser-golden.mjs
+      - name: Norm Add/Edit width on 1280 desktop, 1024 laptop and 393 mobile
+        run: node scripts/material-norm-form-browser-golden.mjs
+      - name: Warehouse voucher date/type selection regression
+        run: npx tsx scripts/warehouse-voucher-selection-golden.ts
+      - name: Warehouse vouchers PNG/Excel/searchable Unicode PDF desktop and phone
+        run: node scripts/warehouse-voucher-browser-golden.mjs
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-WAREHOUSE-CATALOG-P0-CLICK-${{ github.run_number }}
+          path: |
+            runtime-evidence/catalog-click-*
+            runtime-evidence/voucher-*
+            runtime-evidence/norm-layout-*
+
+          if-no-files-found: warn
+          retention-days: 30

@@ -32,6 +32,55 @@ async function loadBuildAssetManifest() {
   return assets;
 }
 
+function isValidAssetResponse(url, response) {
+  if (!response || !response.ok || response.type !== 'basic') return false;
+  const path = new URL(url, self.location.origin).pathname.toLowerCase();
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+
+  // The executable app shell intentionally includes HTML. Only these two canonical
+  // navigation entries may be cached as HTML; hashed /assets URLs must never accept it.
+  if (path === '/' || path === '/index.html') return contentType.includes('text/html');
+
+  if (path.startsWith('/assets/')) {
+    if (contentType.includes('text/html')) return false;
+    if (path.endsWith('.js') || path.endsWith('.mjs')) return contentType.includes('javascript');
+    if (path.endsWith('.css')) return contentType.includes('text/css');
+    return true;
+  }
+
+  if (path.endsWith('.json')) return contentType.includes('json');
+  if (/\.(?:png|jpg|jpeg|gif|webp|svg|ico)$/i.test(path)) return contentType.startsWith('image/');
+  return !contentType.includes('text/html');
+}
+
+async function deletePoisonedAssetCacheEntries(request) {
+  for (const cacheName of await caches.keys()) {
+    if (!cacheName.startsWith('hnl-thi-cong-cache-')) continue;
+    const cache = await caches.open(cacheName);
+    const cached = await cache.match(request);
+    if (cached && !isValidAssetResponse(request.url, cached)) {
+      await cache.delete(request);
+      console.warn('[SW] Deleted poisoned asset cache entry:', request.url, cacheName);
+    }
+  }
+}
+
+async function cacheOneAsset(cache, url) {
+  const response = await fetch(url, { cache: 'no-store' });
+  if (!isValidAssetResponse(url, response)) {
+    await cache.delete(url);
+    throw new Error(`SW_INVALID_ASSET_RESPONSE:${url}:${response.status}:${response.headers.get('content-type') || 'unknown'}`);
+  }
+  await cache.put(url, response.clone());
+}
+
+async function cacheAssetsInBatches(cache, urls, batchSize = 4) {
+  for (let index = 0; index < urls.length; index += batchSize) {
+    const batch = urls.slice(index, index + batchSize);
+    await Promise.all(batch.map((url) => cacheOneAsset(cache, url)));
+  }
+}
+
 // Install Event: atomically pre-cache the complete hashed Vite app shell. If any
 // required chunk is missing, installation fails and the previous certified worker/cache
 // stays active instead of activating a half-build that cannot cold-start offline.
@@ -45,7 +94,9 @@ self.addEventListener('install', (event) => {
       build: SW_BUILD_ID,
       hashedAssets: buildAssets.length,
     });
-    await cache.addAll(required);
+    // Keep complete offline coverage, but avoid flooding low-end Android/WebView
+    // with every JS/CSS request at once during first install/update.
+    await cacheAssetsInBatches(cache, required, 4);
     await self.skipWaiting();
   })());
 });
@@ -122,17 +173,38 @@ self.addEventListener('fetch', (event) => {
   // after deployment can combine code from two builds. The cache remains an offline
   // fallback, so installed/PWA use still works without connectivity.
   if (url.origin === self.location.origin && url.pathname.startsWith('/assets/')) {
-    event.respondWith(
-      fetch(request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-            const responseToCache = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, responseToCache));
-          }
-          return networkResponse;
-        })
-        .catch(() => caches.match(request))
-    );
+    event.respondWith((async () => {
+      let cachedResponse = await caches.match(request);
+      if (cachedResponse && !isValidAssetResponse(request.url, cachedResponse)) {
+        await deletePoisonedAssetCacheEntries(request);
+        cachedResponse = undefined;
+      }
+
+      try {
+        const networkResponse = await fetch(request, { cache: 'no-store' });
+
+        // Hashed JS/CSS must never execute or enter CacheStorage with the wrong MIME.
+        // Firebase Hosting can return an HTML error document for a real HTTP 404;
+        // convert that to a MIME-safe plain 404 and purge any previously poisoned entry.
+        if (!isValidAssetResponse(request.url, networkResponse)) {
+          await deletePoisonedAssetCacheEntries(request);
+          if (cachedResponse && isValidAssetResponse(request.url, cachedResponse)) return cachedResponse;
+          return new Response('Hashed asset not found', {
+            status: 404,
+            statusText: 'Not Found',
+            headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
+          });
+        }
+
+        const responseToCache = networkResponse.clone();
+        void caches.open(CACHE_NAME).then((cache) => cache.put(request, responseToCache));
+        return networkResponse;
+      } catch {
+        if (cachedResponse && isValidAssetResponse(request.url, cachedResponse)) return cachedResponse;
+        await deletePoisonedAssetCacheEntries(request);
+        return Response.error();
+      }
+    })());
     return;
   }
 

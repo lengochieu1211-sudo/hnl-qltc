@@ -1,0 +1,114 @@
+name: P21.16 DEV Hosted Preview + PC/Mobile Golden (NO PROD)
+on:
+  push:
+    branches:
+      - release/p21-13-prod-candidate-20261027
+    paths:
+      - '.github/workflows/p2116-runtime-candidate.yml'
+      - 'scripts/p2116-*'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  hosted-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
+      VITE_HNL_AI_ENABLED: 'true'
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_USE_FIREBASE_EMULATORS: 'false'
+      VITE_FIREBASE_APP_CHECK_SITE_KEY: ''
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Restrict exact source, Firebase DEV, and service account project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/release/p21-13-prod-candidate-20261027'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "$FIREBASE_SERVICE_ACCOUNT"
+          node -e "const s=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);if(s.project_id!=='hnl-qltc-dev')throw Error('DEV project only')"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = '57eea2b878e17da64d7a6191fda178eaff3b8488'
+          git merge-base --is-ancestor origin/main HEAD
+          grep -q '\"dompurify\": \"3.4.17\"' package.json
+          echo "Build and preview DEV only. No main or PROD changes."
+      - name: Prepare temporary DEV-only service account
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/hnl-p2116-dev-sa.json"
+          chmod 600 "$RUNNER_TEMP/hnl-p2116-dev-sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/hnl-p2116-dev-sa.json" >> "$GITHUB_ENV"
+      - name: Resolve existing DEV Firebase WebApp without creating resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes firebase-tools@13.35.1 apps:list WEB --project hnl-qltc-dev --json > "$RUNNER_TEMP/p2116-apps.json"
+          APP_ID="$(node scripts/p2116-dev-firebase-sdk.mjs appid "$RUNNER_TEMP/p2116-apps.json")"
+          npx --yes firebase-tools@13.35.1 apps:sdkconfig WEB "$APP_ID" --project hnl-qltc-dev --json > "$RUNNER_TEMP/p2116-sdk.json"
+          node scripts/p2116-dev-firebase-sdk.mjs sdk "$RUNNER_TEMP/p2116-sdk.json"
+      - name: Deterministic full quality and security gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run test:stability
+          node --experimental-strip-types scripts/p216-room-sidecar-ui-golden.mjs
+          node --experimental-strip-types scripts/p217-writer-boundary-golden.mjs
+          node --experimental-strip-types scripts/p218-writer-cutover-boundary-golden.mjs
+          node --experimental-strip-types scripts/p219-restore-preflight-golden.mjs
+          npm run security:audit
+          npm run build
+          test -s dist/index.html
+          grep -R -l 'hnl-qltc-dev' dist/assets/ > "$RUNNER_TEMP/p2116-dev-bundles.txt"
+          test -s "$RUNNER_TEMP/p2116-dev-bundles.txt"
+          rm -f dist/server.cjs dist/server.cjs.map
+      - name: Deploy only an expiring DEV Hosting preview channel
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes firebase-tools@13.35.1 hosting:channel:deploy p2116-candidate --project hnl-qltc-dev --expires 1d --json > "$RUNNER_TEMP/p2116-preview-output.json"
+          node - <<'NODE'
+          const fs=require('fs');
+          const text=fs.readFileSync(process.env.RUNNER_TEMP+'/p2116-preview-output.json','utf8');
+          const match=text.match(/https:\/\/hnl-qltc-dev--[a-z0-9-]+\.web\.app/);
+          if(!match)throw Error('Cannot prove Firebase DEV preview URL from CLI output');
+          fs.appendFileSync(process.env.GITHUB_ENV,'P2116_PREVIEW_URL='+match[0]+'\n');
+          console.log('DEV-only preview: '+match[0]);
+          NODE
+      - name: Install Chromium and run responsive hosted DEV browser smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install --with-deps chromium
+          P2116_EXPECTED_SHA="$GITHUB_SHA" node scripts/p2116-preview-browser-golden.mjs
+          node scripts/warehouse-catalog-browser-golden.mjs
+      - name: Preserve screenshots and exact HEAD evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P2116-DEV-PREVIEW-PC-MOBILE-${{ github.sha }}
+          path: runtime-evidence/**
+          if-no-files-found: warn
+          retention-days: 30

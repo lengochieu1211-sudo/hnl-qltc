@@ -168,3 +168,28 @@ export function moveFloorsToStructureGroup(
       }
     : floor);
 }
+
+export function buildFloorDuplicateNames(
+  baseNameInput: string,
+  copiesInput: number,
+  existingNames: readonly string[] = [],
+): string[] {
+  const baseName = cleanText(baseNameInput) || 'Tầng';
+  const copies = Math.max(1, Math.min(20, Math.floor(Number(copiesInput) || 1)));
+  const used = new Set(existingNames.map((name) => cleanText(name).toLocaleLowerCase('vi-VN')).filter(Boolean));
+  const result: string[] = [];
+  let ordinal = 1;
+
+  for (let index = 0; index < copies; index += 1) {
+    let candidate = ordinal === 1 ? `${baseName} (Bản sao)` : `${baseName} (Bản sao ${ordinal})`;
+    while (used.has(candidate.toLocaleLowerCase('vi-VN'))) {
+      ordinal += 1;
+      candidate = `${baseName} (Bản sao ${ordinal})`;
+    }
+    used.add(candidate.toLocaleLowerCase('vi-VN'));
+    result.push(candidate);
+    ordinal += 1;
+  }
+  return result;
+}
+

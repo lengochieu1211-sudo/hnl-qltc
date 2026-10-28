@@ -781,6 +781,20 @@ CREATE INDEX IF NOT EXISTS idx_sync_history_occurred ON sync_history(occurred_ut
 
             }
 
+        internal bool IsIndexRefreshDue(TimeSpan minimumInterval)
+        {
+            lock (operationGate)
+            {
+                if (!IsReady) return false;
+                string raw = ScalarText("SELECT value FROM desktop_meta WHERE key='last_index_utc' LIMIT 1;");
+                DateTime last;
+                if (!DateTime.TryParse(raw, null, DateTimeStyles.RoundtripKind, out last)) return true;
+                TimeSpan safeInterval = minimumInterval <= TimeSpan.Zero ? TimeSpan.FromMinutes(5) : minimumInterval;
+                return DateTime.UtcNow - last.ToUniversalTime() >= safeInterval;
+            }
+        }
+
+
         private void EnsureSyncQueueBridgeNonceColumn()
         {
             bool exists = false;

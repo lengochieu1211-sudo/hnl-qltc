@@ -144,7 +144,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
   const systemTitle = (log: ProjectAuditCloudEntry) => {
     const action = String(log.action || '').toUpperCase();
     if (action.includes('ROLE') || action.includes('MEMBER') || action.includes('ACCESS')) return 'Phân quyền dự án';
-    if (action.includes('BACKUP') || action.includes('RESTORE')) return 'Sao lưu & khôi phục';
+    if (action.includes('BACKUP') || action.includes('RESTORE')) return 'Sao lưu và khôi phục';
     if (action.includes('SYNC')) return 'Đồng bộ hệ thống';
     if (action.includes('PIN') || action.includes('SECURITY')) return 'Bảo mật';
     if (action.includes('PROJECT') || action.includes('INVITE')) return 'Dự án';
@@ -184,11 +184,11 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[100] flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
+    <div data-hnl-pc-v3-center="notification-center" data-hnl-pc-module="notification-center" className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[100] flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
       <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden border border-slate-100">
         
         {/* Modal Header */}
-        <div className="p-4 bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white flex items-center justify-between shrink-0">
+        <div className="p-4 bg-gradient-to-r from-slate-900 via-slate-800 to-blue-950 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 bg-amber-500/20 border border-amber-500/40 rounded-2xl flex items-center justify-center">
               <Bell className="w-5 h-5 text-amber-400" />
@@ -217,7 +217,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
         </div>
 
         <div className="px-3 pt-3 bg-white border-b border-slate-100 shrink-0">
-          <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl">
+          <div data-hnl-notification-primary-tabs="true" className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl">
             <button onClick={() => setSection('work')} className={`px-2 py-2 rounded-lg text-[11px] font-extrabold ${section === 'work' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>Công việc</button>
             <button onClick={() => setSection('messages')} className={`px-2 py-2 rounded-lg text-[11px] font-extrabold flex items-center justify-center gap-1 ${section === 'messages' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>Tin nhắn {chatUnreadCount > 0 && <span className="bg-rose-600 text-white rounded-full px-1.5 text-[9px]">{chatUnreadCount > 9 ? '9+' : chatUnreadCount}</span>}</button>
             <button onClick={() => setSection('system')} className={`px-2 py-2 rounded-lg text-[11px] font-extrabold flex items-center justify-center gap-1 ${section === 'system' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>
@@ -273,7 +273,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                   : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
               }`}
             >
-              Tất Cả ({counts.all})
+              Tất cả ({counts.all})
             </button>
             <button
               onClick={() => setFilterType('overdue')}
@@ -283,7 +283,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                   : 'bg-white text-rose-700 border border-rose-200 hover:bg-rose-50'
               }`}
             >
-              <AlertTriangle className="w-3.5 h-3.5" /> Quá Hạn ({counts.overdue})
+              <AlertTriangle className="w-3.5 h-3.5" /> Quá hạn ({counts.overdue})
             </button>
             <button
               onClick={() => setFilterType('today')}
@@ -293,7 +293,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                   : 'bg-white text-amber-700 border border-amber-200 hover:bg-amber-50'
               }`}
             >
-              <Clock className="w-3.5 h-3.5" /> Đến Hạn Hôm Nay ({counts.today})
+              <Clock className="w-3.5 h-3.5" /> Đến hạn hôm nay ({counts.today})
             </button>
             <button
               onClick={() => setFilterType('soon')}
@@ -303,7 +303,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                   : 'bg-white text-blue-700 border border-blue-200 hover:bg-blue-50'
               }`}
             >
-              <Bell className="w-3.5 h-3.5" /> Sắp Tới (3 ngày) ({counts.soon})
+              <Bell className="w-3.5 h-3.5" /> Sắp đến hạn (3 ngày) ({counts.soon})
             </button>
           </div>
         </div>
@@ -330,7 +330,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
             <div className="text-center py-12 px-4 space-y-2 text-slate-400">
               <CheckCircle2 className="w-12 h-12 mx-auto text-emerald-400 opacity-60" />
               <p className="text-sm font-bold text-slate-700">Không có thông báo nào trong danh mục này</p>
-              <p className="text-xs">Không có tiến độ, checklist hoặc defect nào thuộc bộ lọc hiện tại cần cảnh báo.</p>
+              <p className="text-xs">Không có tiến độ, Checklist hoặc Defect nào thuộc bộ lọc hiện tại cần cảnh báo.</p>
             </div>
           ) : (
             sortedFilteredAlerts.map((alert) => {
@@ -432,7 +432,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                 </div>
                 {chatUnreadCount > 0 && <span className="rounded-full bg-rose-600 text-white text-[10px] font-extrabold px-2 py-1">{chatUnreadCount > 9 ? '9+' : chatUnreadCount}</span>}
               </div>
-              <button type="button" onClick={onOpenChat} className="mt-3 w-full rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white py-2 text-xs font-extrabold">Mở Trao đổi</button>
+              <button type="button" data-hnl-notification-open-chat="true" onClick={onOpenChat} className="mt-3 w-full rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white py-2 text-xs font-extrabold">Mở Trao đổi</button>
             </div>
           </div>
         ) : (
@@ -456,7 +456,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
               <div className="rounded-2xl border border-slate-200 bg-white p-5 text-center">
                 <Settings2 className="w-8 h-8 mx-auto text-slate-400" />
                 <div className="mt-2 text-sm font-extrabold text-slate-800">Chưa có sự kiện hệ thống</div>
-                <p className="mt-1 text-xs text-slate-500">Khi có đổi quyền, bảo mật, đồng bộ, backup/restore hoặc sự kiện dự án thật, thông báo sẽ xuất hiện tại đây.</p>
+                <p className="mt-1 text-xs text-slate-500">Khi có thay đổi quyền, bảo mật, đồng bộ, sao lưu/khôi phục hoặc sự kiện dự án thật, thông báo sẽ xuất hiện tại đây.</p>
               </div>
             ) : (
               systemEventLogs.map((log) => {

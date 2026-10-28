@@ -1,4 +1,8 @@
+import { collectMaterialNormUpserts } from '../utils/materialNormImportDelta';
+import { ExpressionDisplayInput } from './ExpressionDisplayInput';
 import React, { useState, useEffect } from 'react';
+import { ViewportModalPortal } from './ViewportModalPortal';
+import { ContextBackButton } from './ContextBackButton';
 import { 
   X, 
   Plus, 
@@ -20,30 +24,41 @@ import {
   Calculator
 } from 'lucide-react';
 import { MaterialNorm, InventoryItem, WorkVolume } from '../types';
-import * as XLSX from 'xlsx';
-import { exportWarehouseUpdateTemplate } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
 import { formatExcelDate } from '../utils/dateFormatter';
-import { formatDecimal, formatAdaptiveDecimal, evaluateMathExpression, useFormatSettings, parseExcelNumber } from '../utils/numberUtils';
+import { formatDecimal, formatAdaptiveDecimal, evaluateMathExpression, hasMathExpression, useFormatSettings, parseExcelNumber } from '../utils/numberUtils';
 import { getResolvedNormWorkCategories } from '../utils/projectReconciliation';
 import { normalizeUnit, unitKey, areSameUnit } from '../utils/unitUtils';
 import { createEntityId } from '../utils/idUtils';
 import { calculateStockSummary, getMaterialIdentityKey, resolveNormMaterialId } from '../utils/inventoryUtils';
-import { assertSafeExcelImportFile, parseExcelNumberRecord, parseExcelStringArray, sameStringSet } from '../utils/excelImportUtils';
+import { assertSafeExcelImportFile, parseExcelNumberRecord, parseExcelStringArray, parseExcelStringRecord, readExcelFormulaByHeaders, sameStringSet } from '../utils/excelImportUtils';
 import { UserRole, canManageMaterialNorms, canImportData } from '../utils/securityUtils';
 
 import { QuickSortBar } from './QuickSortBar';
+import { compareMaterialGroupPriority, catalogOrderRank, reorderVisibleCatalogItems } from '../utils/catalogDisplayOrder';
+import { COMMON_CATEGORIES } from '../utils/warehouseMaterialCategory';
+export { COMMON_CATEGORIES } from '../utils/warehouseMaterialCategory';
+import { MoveOrderControls } from './MoveOrderControls';
+import { EquipmentCatalogPanel } from './EquipmentCatalogPanel';
+import { CatalogTemplatePickerModal } from './CatalogTemplatePickerModal';
+import { AddSourceMenu } from './AddSourceMenu';
 
 interface MaterialNormModalProps {
   isOpen: boolean;
+  initialTab?: 'material' | 'equipment';
+  initialTarget?: { name: string; unit: string };
+  onBackToWarehouseCatalog?: () => void;
   userRole: UserRole;
   roleResolved: boolean;
+  currentProjectId?: string;
   onClose: () => void;
   materialNorms: MaterialNorm[];
   onAddNorm: (norm: Omit<MaterialNorm, 'id'>) => void;
   onUpdateNorm: (id: string, updated: Omit<MaterialNorm, 'id'>) => void;
+  onRenameWarehouseUnit?: (input: { kind: 'material' | 'equipment'; materialId?: string; materialName: string; fromUnit: string; toUnit: string }) => Promise<{ norms: number; vouchers: number }>;
   onDeleteNorm: (id: string) => void;
   onDeleteMultipleNorms?: (ids: string[]) => void;
+  onReorderNorms?: (orderedActiveIds: string[]) => void;
   onImportNorms?: (norms: MaterialNorm[]) => void;
   inventory: InventoryItem[];
   workVolumes?: WorkVolume[];
@@ -52,14 +67,6 @@ interface MaterialNormModalProps {
 }
 
 export const COMMON_UNITS = ['Tấm', 'Thanh', 'Hộp (1000 con)', 'Bộ', 'Bao (25kg)', 'Cuộn (50m)', 'm²', 'm', 'kg', 'Thùng'];
-
-export const COMMON_CATEGORIES = [
-  'Tấm thạch cao',
-  'Khung xương',
-  'Phụ kiện & Vít',
-  'Sơn bả & Mối nối',
-  'Vật tư phụ khác'
-];
 
 export const WORK_CATEGORIES_LIST = [
   'Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn',
@@ -75,14 +82,20 @@ export const WORK_CATEGORIES_LIST = [
 
 export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   isOpen,
+  initialTab = 'material',
+  initialTarget,
+  onBackToWarehouseCatalog,
   userRole,
   roleResolved,
+  currentProjectId,
   onClose,
   materialNorms,
   onAddNorm,
   onUpdateNorm,
+  onRenameWarehouseUnit,
   onDeleteNorm,
   onDeleteMultipleNorms,
+  onReorderNorms,
   onImportNorms,
   inventory,
   workVolumes,
@@ -90,15 +103,41 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   onImportInventory,
 }) => {
   const hasManageAccess = roleResolved && canManageMaterialNorms(userRole);
+  const [catalogTab, setCatalogTab] = useState<'material' | 'equipment'>(initialTab);
+  const [materialDraftDirty, setMaterialDraftDirty] = useState(false);
+  const [equipmentDraftDirty, setEquipmentDraftDirty] = useState(false);
+  const [equipmentBusy, setEquipmentBusy] = useState(false);
+  const returnToWarehouseCatalog = async () => {
+    if (!onBackToWarehouseCatalog || equipmentBusy) return;
+    const dirty = catalogTab === 'equipment' ? equipmentDraftDirty
+      : mode !== 'list' && materialDraftDirty;
+    if (dirty && !(await confirmAsync(
+      'Bạn có thay đổi chưa lưu. Quay lại Danh mục kho sẽ hủy phần chỉnh sửa chưa lưu. Tiếp tục?',
+      {title:'Xác nhận quay lại Danh mục kho',confirmLabel:'Quay lại',cancelLabel:'Tiếp tục chỉnh sửa'}
+    ))) return;
+    onBackToWarehouseCatalog();
+  };
+  const closeMaterialModal = async () => {
+    if (equipmentBusy) return;
+    const dirty = catalogTab === 'equipment' ? equipmentDraftDirty : mode !== 'list' && materialDraftDirty;
+    if (dirty && !(await confirmAsync(
+      'Có thay đổi vật tư/thiết bị chưa lưu. Đóng sẽ bỏ phần chỉnh sửa này. Tiếp tục?',
+      { title: 'Xác nhận đóng', confirmLabel: 'Bỏ thay đổi', cancelLabel: 'Tiếp tục chỉnh sửa' }
+    ))) return;
+    onClose();
+  };
   const hasImportAccess = roleResolved && canImportData(userRole);
   const activeMaterialNorms = React.useMemo(() => materialNorms.filter((norm) => norm.deletedAt === undefined || norm.deletedAt === null), [materialNorms]);
   const activeWorkVolumes = React.useMemo(() => (workVolumes || []).filter((volume) => volume.deletedAt === undefined || volume.deletedAt === null), [workVolumes]);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
-  const [normSortBy, setNormSortBy] = useState<'none' | 'materialName' | 'quotaQuantity' | 'stock'>('none');
+  const [normSortBy, setNormSortBy] = useState<'none' | 'materialName' | 'category' | 'unit' | 'quotaQuantity' | 'stock'>('none');
   const [normSortOrder, setNormSortOrder] = useState<'asc' | 'desc'>('asc');
   useFormatSettings();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedNormIds, setSelectedNormIds] = useState<string[]>([]);
+  const [draggedNormId, setDraggedNormId] = useState<string | null>(null);
+  const [expandedNormTagIds, setExpandedNormTagIds] = useState<Set<string>>(() => new Set());
+  const [showNormTemplatePicker, setShowNormTemplatePicker] = useState(false);
   
   const workCategoriesList = React.useMemo(() => {
     const list = new Set<string>();
@@ -123,6 +162,8 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   // Modal mode: 'list' | 'add' | 'edit'
   const [mode, setMode] = useState<'list' | 'add' | 'edit'>('list');
   const [editingId, setEditingId] = useState<string | null>(null);
+  const directCatalogTargetHandled = React.useRef(false);
+  const [directCatalogMatchCount, setDirectCatalogMatchCount] = useState(0);
   const [deletingNormTarget, setDeletingNormTarget] = useState<MaterialNorm | null>(null);
 
   useEffect(() => {
@@ -175,6 +216,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
+        const XLSX = await import('xlsx');
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         
@@ -182,13 +224,10 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
         let outCount = 0;
         let normsUpdatedCount = 0;
         let normsAddedCount = 0;
-        let volumesUpdatedCount = 0;
-        let volumesAddedCount = 0;
 
         let newInventory = [...inventory];
         const importedInventoryRows: InventoryItem[] = [];
         let newNorms = [...materialNorms];
-        let newWorkVolumes = workVolumes ? [...workVolumes] : [];
 
         // 1. Sheet "Nhập Kho"
         const inSheetName = workbook.SheetNames.find(
@@ -360,6 +399,10 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             const importedWorkCategoryIds = parseExcelStringArray(row['__workCategoryIds'] || row['workCategoryIds'])
               || (rawWorkCategoryId ? [String(rawWorkCategoryId).trim()] : undefined);
             const importedWorkCategoryNormsById = parseExcelNumberRecord(row['__workCategoryNormsById'] || row['workCategoryNormsById']);
+            const importedInputExpressions = parseExcelStringRecord(row['__inputExpressions'] || row['inputExpressions']);
+            const generalNormFormula = readExcelFormulaByHeaders(sheet, XLSX.utils, rIdx + 1, ['Định Mức / m2', 'Định Mức Hao Phí / m2', 'Định Mức Tiêu Hao (1m2)', 'unitNormPerM2']);
+            const generalNormFormulaValue = generalNormFormula ? evaluateMathExpression(generalNormFormula) : null;
+            if (generalNormFormula && generalNormFormulaValue === null) throw new Error(`Dòng ${rIdx + 2}: công thức Định Mức / đơn vị không an toàn hoặc không hợp lệ.`);
             const importedWorkCategories = workCategoryStr ? workCategoryStr.split(',').map(value => value.trim()).filter(Boolean) : undefined;
             const normalizedImportedUnit = normalizeUnit(unitStr) || unitStr;
             let existingIdx = -1;
@@ -384,6 +427,10 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               ? String(rawWorkCategoryId).trim()
               : (finalWorkCategoryIds?.[0] || existingNorm?.workCategoryId);
 
+            const nextInputExpressions = { ...(importedInputExpressions || existingNorm?.inputExpressions || {}) };
+            delete nextInputExpressions.unitNormPerM2;
+            if (generalNormFormula) nextInputExpressions.unitNormPerM2 = generalNormFormula;
+
             const normData: MaterialNorm = {
               ...(existingNorm || {}),
               id: importedNormId,
@@ -397,7 +444,8 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               materialName: materialNameStr,
               unit: normalizedImportedUnit,
               quotaQuantity: quotaQuantityNum,
-              unitNormPerM2: unitNormPerM2Num || undefined,
+              unitNormPerM2: generalNormFormulaValue !== null ? generalNormFormulaValue : (unitNormPerM2Num || undefined),
+              inputExpressions: Object.keys(nextInputExpressions).length ? nextInputExpressions : undefined,
               normBasisUnit: normalizeUnit(row['ĐVT Khối Lượng Nguồn'] || row['Đơn Vị Khối Lượng Nguồn'] || row['normBasisUnit'] || '') || existingNorm?.normBasisUnit,
               notes: notesStr || undefined
             };
@@ -412,70 +460,11 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
           });
         }
 
-        // 4. Sheet "Hạng Mục Thi Công"
-        const volumeSheetName = workbook.SheetNames.find(
-          name => {
-            const n = name.toLowerCase();
-            return n.includes('khoi luong') || n.includes('khối lượng') || n.includes('hang muc') || n.includes('hạng mục');
-          }
-        );
+        // Sheet "Hạng Mục Thi Công (Chỉ xem)" is intentionally reference-only.
+        // Hạng mục/Khối lượng has one authoritative editing surface: WorkVolumeTab.
+        // Do not mutate WorkVolume from Kho/Định mức Excel.
 
-        if (volumeSheetName && workVolumes) {
-          const sheet = workbook.Sheets[volumeSheetName];
-          const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
-          
-          jsonData.forEach((row, rIdx) => {
-            const titleRaw = row['Tên Hạng Mục Công Việc'] || row['Tên Hạng Mục'] || row['Hạng mục'] || row['title'];
-            if (!titleRaw) return;
-
-            const titleStr = String(titleRaw).trim();
-            const floorStr = String(row['Tầng / Khu Vực'] || row['Tầng'] || row['floor'] || 'Tầng 1').trim();
-            const categoryStr = String(row['Phân Loại'] || row['category'] || 'khung_tran').trim() as any;
-            const unitStr = String(row['Đơn Vị Tính'] || row['Đơn Vị'] || row['unit'] || 'm2').trim();
-            const plannedNum = parseExcelNumber(row['KL Định Mức'] || row['KL Kế Hoạch'] || row['planned'] || 0);
-            const unitPriceNum = parseExcelNumber(row['Đơn Giá (VNĐ)'] || row['Đơn Giá'] || row['unitPrice'] || 0);
-            const rawVolId = row['__workCategoryId'] || row['__recordId'] || row['Mã Hạng Mục'] || row['id'];
-            const rawRecordId = row['__recordId'] || row['id'];
-            const rawFloorId = row['__floorId'] || row['floorId'];
-            const importedFloorIds = parseExcelStringArray(row['__floorIds'] || row['floorIds'])
-              || (rawFloorId ? [String(rawFloorId).trim()] : undefined);
-            const dueDate = formatExcelDate(row['Ngày Hạn Định'] || row['Hạn Định'] || row['dueDate']);
-            const rawVolIdStr = rawVolId ? String(rawVolId).trim() : '';
-            const rawRecordIdStr = rawRecordId ? String(rawRecordId).trim() : '';
-            const existingIdx = rawVolIdStr || rawRecordIdStr
-              ? newWorkVolumes.findIndex(w => (w.workCategoryId && w.workCategoryId === rawVolIdStr) || w.id === rawRecordIdStr || w.id === rawVolIdStr)
-              : newWorkVolumes.findIndex(w => w.title.toLocaleLowerCase('vi-VN') === titleStr.toLocaleLowerCase('vi-VN') && w.floor.toLocaleLowerCase('vi-VN') === floorStr.toLocaleLowerCase('vi-VN'));
-            const existingVolume = existingIdx >= 0 ? newWorkVolumes[existingIdx] : undefined;
-            const recordId = existingVolume?.id || rawRecordIdStr || rawVolIdStr || createEntityId('HM');
-
-            const volumeData: WorkVolume = {
-              ...(existingVolume || {} as WorkVolume),
-              id: recordId,
-              workCategoryId: existingVolume?.workCategoryId || rawVolIdStr || recordId,
-              title: titleStr,
-              floor: floorStr,
-              floorId: rawFloorId ? String(rawFloorId).trim() : (importedFloorIds?.[0] || existingVolume?.floorId),
-              floorIds: importedFloorIds || existingVolume?.floorIds,
-              category: categoryStr,
-              unit: normalizeUnit(unitStr) || unitStr,
-              planned: plannedNum,
-              actual: existingVolume?.actual || 0,
-              unitPrice: unitPriceNum,
-              status: existingVolume?.status || 'Chưa thi công',
-              dueDate: dueDate || existingVolume?.dueDate,
-            };
-
-            if (existingIdx >= 0) {
-              newWorkVolumes[existingIdx] = volumeData;
-              volumesUpdatedCount++;
-            } else {
-              newWorkVolumes.push(volumeData);
-              volumesAddedCount++;
-            }
-          });
-        }
-
-        const totalItemsFound = inCount + outCount + normsUpdatedCount + normsAddedCount + volumesUpdatedCount + volumesAddedCount;
+        const totalItemsFound = inCount + outCount + normsUpdatedCount + normsAddedCount;
 
         if (totalItemsFound === 0) {
           alert(
@@ -485,7 +474,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             `  - Nhập Kho: chứa chữ 'nhap' hoặc 'nhập'\n` +
             `  - Xuất Kho: chứa chữ 'xuat' hoặc 'xuất'\n` +
             `  - Định Mức Vật Tư: chứa chữ 'dinh muc' hoặc 'định mức'\n` +
-            `  - Hạng Mục Thi Công: chứa chữ 'khoi luong', 'khối lượng', 'hang muc' hoặc 'hạng mục'\n\n` +
+            `  - Hạng Mục Thi Công (Chỉ xem): bảng tham chiếu, không nhập ngược từ module Kho/Định mức\n\n` +
             `Vui lòng kiểm tra lại tên các Sheet và tiêu đề cột dữ liệu trong tệp.`
           );
           return;
@@ -496,7 +485,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
           `📥 NHẬP KHO: ${inCount} phiếu nhập\n` +
           `📤 XUẤT KHO: ${outCount} phiếu xuất\n` +
           `📋 ĐỊNH MỨC VẬT TƯ: ${normsUpdatedCount} cập nhật, ${normsAddedCount} mới\n` +
-          `🏗️ HẠNG MỤC THI CÔNG: ${volumesUpdatedCount} cập nhật, ${volumesAddedCount} mới\n\n` +
+          `🏗️ HẠNG MỤC THI CÔNG: chỉ tham chiếu, không sửa từ file này\n\n` +
           `Bạn có đồng ý áp dụng các thay đổi này vào hệ thống không?`;
 
         const confirmUpdate = await confirmAsync(confirmMsg);
@@ -505,10 +494,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             await onImportInventory(importedInventoryRows);
           }
           if (onImportNorms && (normsUpdatedCount > 0 || normsAddedCount > 0)) {
-            onImportNorms(newNorms);
-          }
-          if (onImportWorkVolumes && workVolumes && (volumesUpdatedCount > 0 || volumesAddedCount > 0)) {
-            onImportWorkVolumes(newWorkVolumes);
+            onImportNorms(collectMaterialNormUpserts(materialNorms, newNorms));
           }
           alert('🎉 Đã cập nhật thành công dữ liệu từ tệp Excel!');
         }
@@ -539,7 +525,22 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     return map;
   }, [inventory, activeMaterialNorms]);
 
-  const categoriesInUse = Array.from(new Set(activeMaterialNorms.map((n) => n.category).filter(Boolean)));
+  const categoriesInUse = React.useMemo<string[]>(
+    () => Array.from(new Set<string>(
+      activeMaterialNorms
+        .map((norm) => norm.category?.trim())
+        .filter((value): value is string => Boolean(value))
+    )).sort((a, b) => compareMaterialGroupPriority(a, b)
+      || a.localeCompare(b, 'vi', { numeric: true, sensitivity: 'base' })),
+    [activeMaterialNorms]
+  );
+
+  const materialCategoryOptions = React.useMemo(() => {
+    const options = new Set<string>(COMMON_CATEGORIES);
+    categoriesInUse.forEach((cat) => options.add(cat));
+    return Array.from(options).sort((a, b) => compareMaterialGroupPriority(a, b)
+      || a.localeCompare(b, 'vi', { numeric: true, sensitivity: 'base' }));
+  }, [categoriesInUse]);
 
   const filteredNorms = activeMaterialNorms.filter((norm) => {
     const matchesCategory = selectedCategoryFilter === 'all' || norm.category === selectedCategoryFilter;
@@ -550,11 +551,31 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     return matchesCategory && matchesSearch;
   });
 
+  const hasSavedNormOrder = activeMaterialNorms.some(item => catalogOrderRank(item.order) !== Number.MAX_SAFE_INTEGER);
+  const compareDefaultNorms = (a: MaterialNorm, b: MaterialNorm) => {
+    if (hasSavedNormOrder) {
+      const rank = catalogOrderRank(a.order) - catalogOrderRank(b.order);
+      if (rank) return rank;
+    }
+    return compareMaterialGroupPriority(a.category, b.category);
+  };
+  const fullManualNormOrder = [...activeMaterialNorms].sort(compareDefaultNorms);
+
   const sortedFilteredNorms = React.useMemo(() => {
     const norms = [...filteredNorms];
-    if (normSortBy === 'none') return norms;
+    if (normSortBy === 'none') {
+      // Cloud order wins when present; legacy catalogs retain accessories last.
+      return norms.sort(compareDefaultNorms);
+    }
     
     return norms.sort((a, b) => {
+      if (normSortBy === 'category' || normSortBy === 'unit') {
+        const aKey = normSortBy === 'category' ? a.category : a.unit;
+        const bKey = normSortBy === 'category' ? b.category : b.unit;
+        const comp = String(aKey || '').localeCompare(String(bKey || ''), 'vi', { numeric: true, sensitivity: 'base' })
+          || a.materialName.localeCompare(b.materialName, 'vi', { numeric: true, sensitivity: 'base' });
+        return normSortOrder === 'asc' ? comp : -comp;
+      }
       if (normSortBy === 'materialName') {
         const comp = a.materialName.localeCompare(b.materialName, 'vi', { numeric: true, sensitivity: 'base' });
         return normSortOrder === 'asc' ? comp : -comp;
@@ -571,7 +592,20 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       }
       return 0;
     });
-  }, [filteredNorms, normSortBy, normSortOrder, stockMap]);
+  }, [filteredNorms, normSortBy, normSortOrder, stockMap, hasSavedNormOrder]);
+
+  const canReorderNorms = hasManageAccess && Boolean(onReorderNorms) && normSortBy === 'none';
+  const moveVisibleNorm = (sourceId: string, targetId: string) => {
+    if (!canReorderNorms || sourceId === targetId) return;
+    const visibleIds = sortedFilteredNorms.map(item => item.id);
+    const from = visibleIds.indexOf(sourceId);
+    const to = visibleIds.indexOf(targetId);
+    if (from < 0 || to < 0 || from === to) return;
+    visibleIds.splice(from, 1);
+    visibleIds.splice(to, 0, sourceId);
+    const result = reorderVisibleCatalogItems(fullManualNormOrder, visibleIds);
+    if (result) onReorderNorms?.(result.map(item => item.id));
+  };
 
   const [workCategories, setWorkCategories] = useState<string[]>([]);
 
@@ -657,7 +691,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
 
   const handleOpenEdit = async (norm: MaterialNorm) => {
     setEditingId(norm.id);
-    if (COMMON_CATEGORIES.includes(norm.category)) {
+    if (materialCategoryOptions.includes(norm.category)) {
       setCategory(norm.category);
       setCustomCategory('');
     } else {
@@ -700,18 +734,50 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     setQuotaQuantity(norm.quotaQuantity);
     setQuotaQuantityStr(norm.quotaQuantity.toString());
     setUnitNormPerM2(norm.unitNormPerM2 || '');
-    setUnitNormPerM2Str(norm.unitNormPerM2 !== undefined ? norm.unitNormPerM2.toString() : '');
+    setUnitNormPerM2Str(norm.inputExpressions?.unitNormPerM2 || (norm.unitNormPerM2 !== undefined ? norm.unitNormPerM2.toString() : ''));
     setWorkCategoryNorms(norm.workCategoryNorms || {});
     const initialNormsStr: Record<string, string> = {};
     if (norm.workCategoryNorms) {
       Object.entries(norm.workCategoryNorms).forEach(([cat, val]) => {
-        initialNormsStr[cat] = val.toString();
+        const matched = activeWorkVolumes.find((work) => work.title === cat || work.id === cat || work.workCategoryId === cat);
+        const canonicalId = matched?.workCategoryId || matched?.id;
+        initialNormsStr[cat] = (canonicalId && norm.inputExpressions?.[`workCategoryNorm:${canonicalId}`]) || val.toString();
+      });
+    }
+    if (norm.workCategories) {
+      norm.workCategories.forEach((cat) => {
+        if (initialNormsStr[cat] !== undefined) return;
+        const matched = activeWorkVolumes.find((work) => work.title === cat || work.id === cat || work.workCategoryId === cat);
+        const canonicalId = matched?.workCategoryId || matched?.id;
+        const value = canonicalId ? norm.workCategoryNormsById?.[canonicalId] : undefined;
+        if (value !== undefined) initialNormsStr[cat] = (canonicalId && norm.inputExpressions?.[`workCategoryNorm:${canonicalId}`]) || String(value);
       });
     }
     setWorkCategoryNormsStr(initialNormsStr);
     setNotes(norm.notes || '');
     setMode('edit');
   };
+
+  // Warehouse rows group norms by name and unit, not by normative record ID.
+  // Multiple hạng mục may legitimately share that identity; never pick one.
+  useEffect(() => {
+    if (!isOpen || !initialTarget || initialTab !== 'material' || catalogTab !== 'material'
+        || directCatalogTargetHandled.current || !roleResolved) return;
+    directCatalogTargetHandled.current = true;
+    const sameName = (value: string) => value.trim().toLocaleLowerCase('vi-VN')
+      === initialTarget.name.trim().toLocaleLowerCase('vi-VN');
+    const expectedUnit = unitKey(normalizeUnit(initialTarget.unit) || initialTarget.unit);
+    const matches = activeMaterialNorms.filter(norm => sameName(norm.materialName)
+      && unitKey(normalizeUnit(norm.unit) || norm.unit) === expectedUnit);
+    setDirectCatalogMatchCount(matches.length);
+    setSearchTerm(initialTarget.name);
+    setSelectedCategoryFilter('all');
+    if (hasManageAccess && matches.length === 1) {
+      void handleOpenEdit(matches[0]);
+    } else {
+      setMode('list');
+    }
+  }, [isOpen, initialTarget, initialTab, catalogTab, roleResolved, hasManageAccess, activeMaterialNorms]);
 
   const parseInteractiveNumericInput = (raw: string): number | null => {
     const trimmed = String(raw || '').trim();
@@ -728,7 +794,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   const commitQuotaFormula = () => {
     const parsed = parseInteractiveNumericInput(quotaQuantityStr);
     if (parsed === null) {
-      alert('Công thức Hao phí định mức không hợp lệ. Ví dụ: 100*5, 1220/3 hoặc (50+20)*2.');
+      alert('Công thức định mức tổng không hợp lệ. Ví dụ: 100*5, 1220/3 hoặc (50+20)*2.');
       return false;
     }
     setQuotaQuantity(parsed);
@@ -744,11 +810,10 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     }
     const parsed = parseInteractiveNumericInput(raw);
     if (parsed === null) {
-      alert('Công thức Hao phí / đơn vị khối lượng không hợp lệ. Ví dụ: 0.35, 1/2.88 hoặc 2*0.35.');
+      alert('Công thức định mức vật tư / đơn vị không hợp lệ. Ví dụ: 0.35, 1/2.88 hoặc 2*0.35.');
       return false;
     }
     setUnitNormPerM2(parsed);
-    setUnitNormPerM2Str(formatAdaptiveDecimal(parsed));
     return true;
   };
 
@@ -768,13 +833,14 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       return false;
     }
     setWorkCategoryNorms(prev => ({ ...prev, [cat]: parsed }));
-    setWorkCategoryNormsStr(prev => ({ ...prev, [cat]: formatAdaptiveDecimal(parsed) }));
     return true;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!hasManageAccess) return;
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const submitMode = submitter?.value === 'continue' ? 'continue' : 'close';
     const finalCategory = category === 'khac' ? customCategory.trim() : category;
     const finalUnit = unit === 'khac' ? customUnit.trim() : unit;
 
@@ -791,13 +857,8 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       return;
     }
 
-    const quotaParsedForSubmit = parseInteractiveNumericInput(quotaQuantityStr);
-    if (quotaQuantityStr.trim() && quotaParsedForSubmit === null) {
-      alert('Hao phí định mức có công thức hoặc số nhập không hợp lệ. Ví dụ hợp lệ: 500, 100*5, 1220/3.');
-      return;
-    }
     if (unitNormPerM2Str.trim() && parseInteractiveNumericInput(unitNormPerM2Str) === null) {
-      alert('Hao phí / đơn vị khối lượng có công thức hoặc số nhập không hợp lệ.');
+      alert('Định mức vật tư / đơn vị có công thức hoặc số nhập không hợp lệ.');
       return;
     }
     const invalidOverrideCategory = workCategories.find((cat) => {
@@ -809,34 +870,42 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       return;
     }
 
-    if (!quotaQuantity || Number(quotaQuantity) <= 0) {
-      alert('Vui lòng nhập số lượng định mức công trình hợp lệ (> 0)!');
-      return;
-    }
     if (workCategories.length === 0) {
-      alert('Vui lòng chọn ít nhất một hạng mục thi công liên kết!');
+      alert('Vui lòng chọn ít nhất một hạng mục thi công áp dụng!');
       return;
     }
 
     if (mode === 'edit' && editingId) {
-      const editingNorm = materialNorms.find(n => n.id === editingId);
+      const editingNorm = materialNorms.find((n) => n.id === editingId);
       if (editingNorm && !areSameUnit(editingNorm.unit, finalUnit)) {
-        const normKey = editingNorm.materialName.trim().toLocaleLowerCase('vi-VN');
-        const stableMaterialId = resolveNormMaterialId(editingNorm);
-        const existingTransactions = inventory.filter((i) =>
-          (stableMaterialId && (i.materialId === stableMaterialId || i.materialId === editingNorm.id || i.materialId === `MAT-${editingNorm.id}`)) ||
-          (!i.materialId
-            && i.materialName.trim().toLocaleLowerCase('vi-VN') === normKey
-            && areSameUnit(i.unit, editingNorm.unit))
-        ).length;
-        if (existingTransactions > 0) {
-          alert(
-            `Không thể đổi trực tiếp đơn vị tính của vật tư "${editingNorm.materialName}" vì đã có ${existingTransactions} giao dịch kho.\n\n` +
-            `ĐVT hiện tại: ${editingNorm.unit}\nĐVT muốn đổi: ${finalUnit}\n\n` +
-            'Để tránh làm sai tồn kho lịch sử, hãy tạo một vật tư mới hoặc thực hiện quy đổi bằng phiếu điều chỉnh có hệ số rõ ràng.'
-          );
+        if (!onRenameWarehouseUnit) {
+          alert('Không có dịch vụ đổi ĐVT Cloud an toàn. Dữ liệu chưa được thay đổi.');
           return;
         }
+        const materialId = resolveNormMaterialId(editingNorm);
+        if (!materialId) {
+          alert('Vật tư chưa có materialId hợp lệ. Không được đổi ĐVT để tránh mất liên kết.');
+          return;
+        }
+        const confirmed = await confirmAsync(
+          `Đổi ĐVT cho toàn bộ “${editingNorm.materialName}” từ ${editingNorm.unit} thành ${finalUnit}?\n\n`
+          + 'Tất cả định mức cùng materialId, các phiếu nhập/xuất và số dư tồn kho liên quan sẽ cập nhật cùng lúc trên Firebase.\n'
+          + 'Đây CHỈ là đổi tên đơn vị tỷ lệ 1:1; số lượng và định mức hao phí không đổi.\n'
+          + 'Nếu Hộp ↔ Con, Bao ↔ kg, Bộ ↔ Cái cần quy đổi số lượng, hãy HỦY.\n\n'
+          + 'Các trường khác trong biểu mẫu không được lưu trong lần đổi ĐVT này; hãy chỉnh lại sau.'
+        );
+        if (!confirmed) return;
+        try {
+          const result = await onRenameWarehouseUnit({
+            kind: 'material', materialId, materialName: editingNorm.materialName,
+            fromUnit: editingNorm.unit, toUnit: finalUnit,
+          });
+          alert(`Đã cập nhật ${result.norms} định mức và ${result.vouchers} phiếu Nhập/Xuất. Chờ đồng bộ tự động để thấy ĐVT mới.`);
+          setMode('list');
+        } catch (error: any) {
+          alert(`Không thể đổi ĐVT: ${error?.message || String(error)}\nDữ liệu chưa được thay đổi.`);
+        }
+        return;
       }
     }
 
@@ -868,6 +937,25 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       });
     });
 
+    const editingNormForQuota = mode === 'edit' && editingId ? materialNorms.find((item) => item.id === editingId) : undefined;
+    const derivedQuotaQuantity = computedAutoQuota !== null
+      ? computedAutoQuota
+      : Math.max(0, Number(editingNormForQuota?.quotaQuantity || 0));
+
+    const inputExpressions = { ...(editingNormForQuota?.inputExpressions || {}) };
+    delete inputExpressions.unitNormPerM2;
+    Object.keys(inputExpressions).filter((key) => key.startsWith('workCategoryNorm:')).forEach((key) => delete inputExpressions[key]);
+    if (hasMathExpression(unitNormPerM2Str) && parseInteractiveNumericInput(unitNormPerM2Str) !== null) {
+      inputExpressions.unitNormPerM2 = unitNormPerM2Str.trim();
+    }
+    workCategories.forEach((catName) => {
+      const raw = String(workCategoryNormsStr[catName] || '').trim();
+      if (!hasMathExpression(raw) || parseInteractiveNumericInput(raw) === null) return;
+      const matched = activeWorkVolumes.find((work) => work.title === catName || work.id === catName || work.workCategoryId === catName);
+      const canonicalId = matched?.workCategoryId || matched?.id;
+      if (canonicalId) inputExpressions[`workCategoryNorm:${canonicalId}`] = raw;
+    });
+
     const normData: Omit<MaterialNorm, 'id'> = {
       category: finalCategory,
       workCategoryId: selectedWorkCategoryIds[0] || '',
@@ -878,8 +966,9 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       workCategoryNormsById: normCategoryNormsById,
       materialName: materialName.trim(),
       unit: finalUnit,
-      quotaQuantity: Number(quotaQuantity),
+      quotaQuantity: derivedQuotaQuantity,
       unitNormPerM2: unitNormPerM2 ? Number(unitNormPerM2) : undefined,
+      inputExpressions: Object.keys(inputExpressions).length ? inputExpressions : undefined,
       normBasisUnit: !hasMixedBasisUnits && selectedBasisUnits.length === 1
         ? (Object.values(selectedWorkCategoryUnits).find((u): u is string => typeof u === 'string' && Boolean(u) && u !== 'Nhiều ĐVT') || undefined)
         : undefined,
@@ -888,6 +977,19 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
 
     if (mode === 'add') {
       onAddNorm(normData);
+      if (submitMode === 'continue') {
+        setMaterialName('');
+        setQuotaQuantity(100);
+        setQuotaQuantityStr('100');
+        setUnitNormPerM2('');
+        setUnitNormPerM2Str('');
+        setWorkCategoryNorms({});
+        setWorkCategoryNormsStr({});
+        setNotes('');
+        setEditingId(null);
+        setMode('add');
+        return;
+      }
     } else if (mode === 'edit' && editingId) {
       onUpdateNorm(editingId, normData);
     }
@@ -898,8 +1000,9 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-      <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 space-y-4 max-h-[92vh] flex flex-col border border-slate-100 shadow-2xl">
+    <ViewportModalPortal>
+    <div data-hnl-pc-v32-window="material-norm" data-hnl-overlay-stack="elevated" className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[210] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+      <div className="bg-white w-full max-w-5xl rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 space-y-4 max-h-[92vh] flex flex-col border border-slate-100 shadow-2xl">
         
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 pb-3 shrink-0">
@@ -908,21 +1011,63 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               <Sliders className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900">Định mức &amp; chủng loại vật tư</h3>
-              <p className="text-xs text-slate-500">{hasManageAccess ? 'Quản lý tiêu chuẩn & định mức công trình' : 'Xem định mức công trình · chỉ ADMIN được chỉnh sửa'}</p>
+              <h3 className="text-base font-bold text-slate-900">Quản lý vật tư, thiết bị &amp; định mức</h3>
+              <p className="text-xs text-slate-500">{hasManageAccess ? 'Quản lý thông số vật tư, định mức và thiết bị' : 'Xem danh mục · chỉ ADMIN được chỉnh sửa'}</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
+          <button type="button"
+            onClick={() => void closeMaterialModal()}
+            aria-label="Đóng quản lý vật tư thiết bị"
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* View Switcher: List vs Add/Edit */}
-        {mode === 'list' ? (
+        {onBackToWarehouseCatalog && (
+          <ContextBackButton
+            data-hnl-back-to-warehouse-catalog="true"
+            label="Danh mục kho"
+            disabled={equipmentBusy}
+            onClick={() => void returnToWarehouseCatalog()}
+            className="self-start"
+          />
+        )}
+        <div data-hnl-pc-v32-region="catalog-tabs" className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1" role="tablist" aria-label="Vật tư, thiết bị và định mức">
+          {([
+            { key: 'material', label: 'Vật tư · Định mức' },
+            { key: 'equipment', label: 'Thiết bị' },
+          ] as const).map(tab => (
+            <button key={tab.key} type="button" role="tab" aria-selected={catalogTab === tab.key}
+              data-hnl-master-catalog-tab={tab.key}
+              onClick={() => { setCatalogTab(tab.key); setMode('list'); }}
+              className={`rounded-lg px-3 py-2 text-xs font-extrabold ${catalogTab === tab.key ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600'}`}>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Equipment parameters deliberately do NOT participate in material norms. */}
+        {catalogTab === 'equipment' ? (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <EquipmentCatalogPanel
+              initialTarget={initialTab === 'equipment' ? initialTarget : undefined}
+              onDraftDirtyChange={setEquipmentDraftDirty}
+              onBusyChange={setEquipmentBusy}
+              projectId={currentProjectId || ''}
+              inventory={inventory}
+              canManage={hasManageAccess}
+              onRenameWarehouseUnit={onRenameWarehouseUnit}
+            />
+          </div>
+        ) : mode === 'list' ? (
           <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+            {initialTarget && initialTab === 'material' && directCatalogMatchCount > 1 && (
+              <p data-hnl-catalog-target-ambiguous="true" className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                Có {directCatalogMatchCount} định mức cho “{initialTarget.name}” ({initialTarget.unit}).
+                Hãy chọn đúng hạng mục để xem hoặc chỉnh sửa.
+              </p>
+            )}
             
             {/* Top Action & Search Bar */}
             <div className="flex items-center gap-2">
@@ -937,13 +1082,13 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                 />
               </div>
               {hasManageAccess && (
-                <button
-                  onClick={handleOpenAdd}
-                  className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold shadow transition-all shrink-0 active:scale-95"
-                >
-                  <Plus className="w-4 h-4" />
-                  Thêm định mức
-                </button>
+                <AddSourceMenu
+                  triggerLabel="Thêm định mức"
+                  createLabel="Tạo định mức mới"
+                  align="right"
+                  onCreateNew={handleOpenAdd}
+                  onOpenSourcePicker={() => setShowNormTemplatePicker(true)}
+                />
               )}
             </div>
 
@@ -981,7 +1126,9 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               itemCount={sortedFilteredNorms.length}
               options={[
                 { key: 'materialName', label: 'Tên vật tư', kind: 'alpha' },
-                { key: 'quotaQuantity', label: 'Số định mức', kind: 'number' },
+                { key: 'category', label: 'Chủng loại vật tư', kind: 'alpha' },
+                { key: 'unit', label: 'ĐVT', kind: 'alpha' },
+                { key: 'quotaQuantity', label: 'Nhu cầu định mức', kind: 'number' },
                 { key: 'stock', label: 'Số lượng nhập kho', kind: 'number' },
               ]}
               activeKey={normSortBy === 'none' ? null : normSortBy}
@@ -991,6 +1138,12 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               onReset={() => { setNormSortBy('none'); setNormSortOrder('asc'); }}
             />
 
+            {canReorderNorms && sortedFilteredNorms.length > 1 && (
+              <p className="text-[11px] text-slate-500">Sắp xếp thủ công: kéo-thả trên PC hoặc dùng mũi tên lên/xuống trên điện thoại. Thứ tự được đồng bộ theo dự án.</p>
+            )}
+            {hasManageAccess && normSortBy !== 'none' && (
+              <p className="text-[11px] text-slate-500">Tắt Sắp xếp nhanh để đổi vị trí thủ công; thứ tự đã lưu không bị mất.</p>
+            )}
             {/* Material Norm List */}
             {sortedFilteredNorms.length === 0 ? (
               <div className="text-center py-8 text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200 p-4">
@@ -1041,7 +1194,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                   </div>
                 </div>}
 
-                {sortedFilteredNorms.map((norm) => {
+                {sortedFilteredNorms.map((norm, normIndex) => {
                   const stockKey = getMaterialIdentityKey(resolveNormMaterialId(norm), norm.materialName, norm.unit);
                   const actualStock = stockMap[stockKey]?.inQty || 0;
                   const percent = norm.quotaQuantity > 0 ? Math.round((actualStock / norm.quotaQuantity) * 100) : 0;
@@ -1050,6 +1203,15 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                   return (
                     <div
                       key={norm.id}
+                      draggable={canReorderNorms}
+                      onDragStart={() => setDraggedNormId(norm.id)}
+                      onDragEnd={() => setDraggedNormId(null)}
+                      onDragOver={event => { if (canReorderNorms && draggedNormId) event.preventDefault(); }}
+                      onDrop={event => {
+                        event.preventDefault();
+                        if (draggedNormId) moveVisibleNorm(draggedNormId, norm.id);
+                        setDraggedNormId(null);
+                      }}
                       className="bg-slate-50 border border-slate-200/80 hover:border-indigo-300 rounded-2xl p-3 space-y-2 transition-all shadow-xs"
                     >
                       <div className="flex items-start justify-between gap-2">
@@ -1073,19 +1235,56 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                               </span>
                               {(() => {
                                 const resolvedCats = getResolvedNormWorkCategories(norm, activeWorkVolumes);
-                                return resolvedCats.map((wCat, wIdx) => (
-                                  <span key={`${wCat}-${wIdx}`} className="inline-block px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-md">
-                                    🏗️ {wCat}
-                                  </span>
-                                ));
+                                const expanded = expandedNormTagIds.has(norm.id);
+                                const hiddenCount = Math.max(0, resolvedCats.length - 1);
+                                return (
+                                  <>
+                                    {resolvedCats.map((wCat, wIdx) => (
+                                      <span
+                                        key={`${wCat}-${wIdx}`}
+                                        className={`px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 text-[10px] font-bold rounded-md ${wIdx > 0 && !expanded ? 'hidden sm:inline-block' : 'inline-block'}`}
+                                      >
+                                        🏗️ {wCat}
+                                      </span>
+                                    ))}
+                                    {hiddenCount > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setExpandedNormTagIds((current) => {
+                                          const next = new Set(current);
+                                          if (next.has(norm.id)) next.delete(norm.id);
+                                          else next.add(norm.id);
+                                          return next;
+                                        })}
+                                        className="sm:hidden inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-extrabold text-slate-600 active:scale-95"
+                                        aria-expanded={expanded}
+                                        title={expanded ? 'Thu gọn hạng mục' : 'Xem thêm hạng mục'}
+                                      >
+                                        {expanded ? 'Thu gọn' : `+${hiddenCount}`}
+                                      </button>
+                                    )}
+                                  </>
+                                );
                               })()}
                             </div>
                             <h4 className="text-xs font-bold text-slate-900 leading-snug">{norm.materialName}</h4>
                           </div>
                         </div>
                         {hasManageAccess && <div className="flex items-center gap-1 shrink-0 justify-end">
-                          <button onClick={() => handleOpenEdit(norm)} className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Sửa định mức"><Edit3 className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => setDeletingNormTarget(norm)} className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors" title="Xóa định mức"><Trash2 className="w-3.5 h-3.5" /></button>
+                          {canReorderNorms && <MoveOrderControls
+                            label={'Sắp xếp ' + norm.materialName}
+                            showDragHandle
+                            onMoveUp={() => { if (normIndex > 0) moveVisibleNorm(norm.id, sortedFilteredNorms[normIndex - 1].id); }}
+                            onMoveDown={() => { if (normIndex + 1 < sortedFilteredNorms.length) moveVisibleNorm(norm.id, sortedFilteredNorms[normIndex + 1].id); }}
+                            disableUp={normIndex === 0}
+                            disableDown={normIndex === sortedFilteredNorms.length - 1}
+                          />}
+                          <button type="button" onClick={() => void handleOpenEdit(norm)}
+                             className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-lg text-indigo-700 transition-colors hover:bg-indigo-50 hover:text-indigo-800"
+                             title="Sửa định mức" aria-label={`Sửa định mức ${norm.materialName}`}><Edit3 className="h-3.5 w-3.5" /></button>
+                          <button type="button" onClick={() => setDeletingNormTarget(norm)}
+                             className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-lg text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
+                             title="Xóa định mức" aria-label={`Xóa định mức ${norm.materialName}`}><Trash2 className="h-3.5 w-3.5" /></button>
                         </div>}
                       </div>
 
@@ -1096,11 +1295,11 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                           <p className="font-bold text-slate-800">{norm.unit}</p>
                         </div>
                         <div>
-                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Hao phí định mức</p>
+                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Nhu cầu vật tư theo định mức</p>
                           <p className="font-bold text-indigo-600">{formatAdaptiveDecimal(norm.quotaQuantity)} {norm.unit}</p>
                         </div>
                         <div>
-                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Hao phí / ĐVT nguồn</p>
+                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Định mức vật tư / đơn vị</p>
                           <p className="font-semibold text-slate-700">
                             {norm.unitNormPerM2 !== undefined && norm.unitNormPerM2 !== null
                               ? `${formatAdaptiveDecimal(norm.unitNormPerM2)} ${norm.unit}/${norm.normBasisUnit || 'm²'}`
@@ -1134,10 +1333,10 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
           </div>
         ) : (
           /* Add / Edit Form */
-          <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto space-y-3.5 pr-1 text-xs">
+          <form onSubmit={handleSubmit} data-hnl-pc-v32-region="norm-editor" data-hnl-norm-editor="true" className="mx-auto w-full max-w-3xl lg:max-w-none flex-1 overflow-y-auto space-y-3.5 pr-1 text-xs" onChangeCapture={() => setMaterialDraftDirty(true)}>
             <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-200">
               <span className="font-bold text-slate-800">
-                {mode === 'add' ? 'Thêm chủng loại & định mức' : 'Cập nhật định mức vật tư'}
+                {mode === 'add' ? 'Tạo định mức mới' : 'Cập nhật định mức vật tư'}
               </span>
               <button
                 type="button"
@@ -1148,15 +1347,17 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               </button>
             </div>
 
+            {/* Single column on mobile; paired core fields fill the equipment-sized desktop dialog. */}
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:items-start">
             {/* Category Select */}
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Chủng Loại Vật Tư Công Trình *</label>
+              <label className="block font-bold text-slate-700 mb-1">Chủng loại vật tư công trình *</label>
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
                 className="w-full border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500"
               >
-                {COMMON_CATEGORIES.map((cat) => (
+                {materialCategoryOptions.map((cat) => (
                   <option key={cat} value={cat}>{cat}</option>
                 ))}
                 <option value="khac">Chủng loại khác (Nhập tùy chỉnh)</option>
@@ -1175,7 +1376,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             {/* Work Category Select (Hạng Mục Thi Công Căn Hộ) */}
             <div>
               <label className="block font-bold text-slate-700 mb-1.5 flex items-center justify-between">
-                <span>Liên kết hạng mục thi công căn / phòng *</span>
+                <span>Hạng mục thi công áp dụng *</span>
                 <span className="text-[10px] text-indigo-600 font-bold">(Chọn một hoặc nhiều hạng mục)</span>
               </label>
               
@@ -1243,73 +1444,25 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               )}
             </div>
 
+            </div>
+
             {/* Quotas Input Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:items-start">
               <div className="flex flex-col">
                 <div className="flex items-start justify-between gap-2 mb-1 sm:min-h-[2.75rem]">
-                  <label className="block font-bold text-slate-700 leading-tight pt-0.5">Hao phí định mức *</label>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {evaluateMathExpression(quotaQuantityStr) !== null && /[+\-*/xX×:÷]/.test(quotaQuantityStr) && (
-                      <span className="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded text-[10px] font-extrabold animate-pulse">
-                        = {formatDecimal(evaluateMathExpression(quotaQuantityStr))}
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={commitQuotaFormula}
-                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-indigo-200 bg-indigo-50 text-indigo-700 text-[10px] font-extrabold hover:bg-indigo-100"
-                      title="Tính công thức đang nhập"
-                    >
-                      <Calculator className="w-3 h-3" /> Tính
-                    </button>
-                  </div>
+                  <label className="block font-bold text-slate-700 leading-tight pt-0.5">Nhu cầu vật tư theo định mức</label>
+                  <span className="text-[9px] font-extrabold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-1.5 py-0.5">Tự tính</span>
                 </div>
-                <input
-                  type="text"
-                  placeholder="VD: 500 hoặc 100*5"
-                  value={quotaQuantityStr}
-                  onChange={(e) => {
-                    const typedVal = e.target.value;
-                    setQuotaQuantityStr(typedVal);
-                    if (typedVal === '') {
-                      setQuotaQuantity('');
-                      return;
-                    }
-                    const parsed = parseInteractiveNumericInput(typedVal);
-                    if (parsed !== null) setQuotaQuantity(parsed);
-                  }}
-                  onBlur={() => {
-                    if (quotaQuantityStr.trim()) commitQuotaFormula();
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      commitQuotaFormula();
-                    }
-                  }}
-                  className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-indigo-600 focus:ring-2 focus:ring-indigo-500"
-                  required
-                />
-                {computedAutoQuota !== null ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setQuotaQuantity(computedAutoQuota);
-                      setQuotaQuantityStr(formatDecimal(computedAutoQuota));
-                    }}
-                    className="mt-1 text-[10px] text-indigo-700 hover:text-indigo-900 font-extrabold flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 p-1.5 rounded-lg border border-indigo-200 transition-all active:scale-95 text-left w-full"
-                    title={`Khối lượng liên kết (${selectedWorkCategoriesVolumeLabel || '0'}) × định mức hao phí (${formatAdaptiveDecimal(unitNormPerM2)})`}
-                  >
-                    <span>💡 Áp dụng định mức: <strong>{formatDecimal(computedAutoQuota)}</strong> {unit === 'khac' ? customUnit : unit}</span>
-                  </button>
-                ) : (
-                  <span className="text-[10px] text-slate-400 mt-0.5 block">Tổng số định mức toàn công trình</span>
-                )}
+                <div className="w-full border border-slate-200 rounded-xl p-2.5 font-black text-indigo-700 bg-slate-50 min-h-[41px] flex items-center">
+                  {computedAutoQuota !== null ? `${formatDecimal(computedAutoQuota)} ${unit === 'khac' ? customUnit : unit}` : '0'}
+                </div>
+                <span className="text-[10px] text-slate-500 mt-1 block leading-4">
+                  Tự động = Σ(Khối lượng kế hoạch hạng mục × Định mức riêng/chung). Không nhập tay để tránh hai nguồn dữ liệu.
+                </span>
               </div>
               <div className="flex flex-col">
                 <div className="flex items-start justify-between gap-2 mb-1 sm:min-h-[2.75rem]">
-                  <label className="block font-bold text-slate-700 leading-tight pt-0.5">Hao phí / đơn vị khối lượng (không bắt buộc)</label>
+                  <label className="block font-bold text-slate-700 leading-tight pt-0.5">Định mức vật tư / đơn vị (không bắt buộc)</label>
                   <div className="flex items-center gap-1 shrink-0">
                     {evaluateMathExpression(unitNormPerM2Str) !== null && /[+\-*/xX×:÷]/.test(unitNormPerM2Str) && (
                       <span className="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded text-[10px] font-extrabold">
@@ -1327,7 +1480,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                     </button>
                   </div>
                 </div>
-                <input
+                <ExpressionDisplayInput
                   type="text"
                   placeholder="VD: 0.35 hoặc 1/2.88"
                   value={unitNormPerM2Str}
@@ -1432,29 +1585,142 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             </div>
 
             {/* Submit Action */}
-            <div className="pt-2 flex gap-2">
-              <button
-                type="button"
-                onClick={() => setMode('list')}
-                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl active:scale-95 transition-all"
-              >
-                Hủy
-              </button>
+            <div data-hnl-pc-v35-actions="norm-save" className={`pt-2 grid gap-2 ${mode === 'edit' ? 'grid-cols-1' : 'grid-cols-2'}`}>
+              {mode === 'add' && (
+                <button
+                  type="submit"
+                  name="submitMode"
+                  value="continue"
+                  className="py-3 border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold rounded-xl active:scale-95 transition-all"
+                >
+                  Lưu & thêm tiếp
+                </button>
+              )}
               <button
                 type="submit"
-                className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md active:scale-95 transition-all flex items-center justify-center gap-1.5"
+                name="submitMode"
+                value="close"
+                className="py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md active:scale-95 transition-all flex items-center justify-center gap-1.5"
               >
                 <Save className="w-4 h-4" />
-                Lưu định mức
+                {mode === 'edit' ? 'Lưu thay đổi' : 'Lưu & đóng'}
               </button>
             </div>
           </form>
         )}
       </div>
 
+      <CatalogTemplatePickerModal
+        open={showNormTemplatePicker}
+        onClose={() => setShowNormTemplatePicker(false)}
+        currentProjectId={currentProjectId}
+        currentItems={activeMaterialNorms}
+        kind="materialNorms"
+        title="Lấy Định mức vật tư từ công trình/mẫu"
+        onImport={async (rows) => {
+          if (!hasManageAccess || !onImportNorms) return;
+          const targetWorksByName = new Map<string, WorkVolume[]>();
+          activeWorkVolumes.forEach((work) => {
+            const key = String(work.title || '').trim().toLocaleLowerCase('vi-VN');
+            if (!key) return;
+            targetWorksByName.set(key, [...(targetWorksByName.get(key) || []), work]);
+          });
+          const merged = [...activeMaterialNorms];
+          const skipped: string[] = [];
+          let changed = false;
+
+          for (const row of rows) {
+            const source = row.item as MaterialNorm;
+            const sourceNames = Array.from(new Set([
+              ...(Array.isArray(source.workCategories) ? source.workCategories : []),
+              ...(source.workCategory ? [source.workCategory] : []),
+            ].map((name) => String(name || '').trim()).filter(Boolean)));
+            const targetWorks: WorkVolume[] = [];
+            const unresolvedNames: string[] = [];
+            sourceNames.forEach((name) => {
+              const candidates = targetWorksByName.get(name.toLocaleLowerCase('vi-VN')) || [];
+              const uniqueByCanonicalId = Array.from(new Map(
+                candidates.map((work) => [String(work.workCategoryId || work.id), work] as [string, WorkVolume]),
+              ).values());
+              if (uniqueByCanonicalId.length !== 1) {
+                unresolvedNames.push(`${name}${uniqueByCanonicalId.length > 1 ? ' (trùng tên)' : ' (không có)'}`);
+                return;
+              }
+              targetWorks.push(uniqueByCanonicalId[0]);
+            });
+            if (unresolvedNames.length) {
+              skipped.push(`${source.materialName}: Hạng mục ${unresolvedNames.join(', ')}`);
+              continue;
+            }
+
+            const targetIds = targetWorks.map((work) => String(work.workCategoryId || work.id));
+            const normalizedUnit = normalizeUnit(source.unit) || source.unit;
+            const existingIndex = merged.findIndex((norm) =>
+              norm.materialName.trim().toLocaleLowerCase('vi-VN') === String(source.materialName || '').trim().toLocaleLowerCase('vi-VN')
+              && (normalizeUnit(norm.unit) || norm.unit) === normalizedUnit
+            );
+
+            const remappedNormsById: Record<string, number> = {};
+            targetWorks.forEach((work) => {
+              const name = String(work.title || '').trim();
+              const sourceIdIndex = sourceNames.findIndex((candidate) => candidate.toLocaleLowerCase('vi-VN') === name.toLocaleLowerCase('vi-VN'));
+              const sourceId = sourceIdIndex >= 0 ? source.workCategoryIds?.[sourceIdIndex] : undefined;
+              const value = source.workCategoryNorms?.[name]
+                ?? (sourceId ? source.workCategoryNormsById?.[sourceId] : undefined)
+                ?? source.unitNormPerM2;
+              if (value !== undefined && Number.isFinite(Number(value))) remappedNormsById[String(work.workCategoryId || work.id)] = Number(value);
+            });
+
+            if (existingIndex >= 0) {
+              const existing = merged[existingIndex];
+              const names = Array.from(new Set([...(existing.workCategories || (existing.workCategory ? [existing.workCategory] : [])), ...sourceNames]));
+              const ids = Array.from(new Set([...(existing.workCategoryIds || (existing.workCategoryId ? [existing.workCategoryId] : [])), ...targetIds]));
+              merged[existingIndex] = {
+                ...existing,
+                workCategories: names,
+                workCategoryIds: ids,
+                workCategory: names[0],
+                workCategoryId: ids[0],
+                workCategoryNorms: { ...(existing.workCategoryNorms || {}), ...(source.workCategoryNorms || {}) },
+                workCategoryNormsById: { ...(existing.workCategoryNormsById || {}), ...remappedNormsById },
+                unitNormPerM2: existing.unitNormPerM2 ?? source.unitNormPerM2,
+                notes: [existing.notes, source.notes].filter(Boolean).join(' · '),
+                updatedAt: Date.now(),
+              };
+              changed = true;
+            } else {
+              const id = createEntityId('norm-template');
+              merged.push({
+                ...source,
+                id,
+                materialId: resolveNormMaterialId({ id, materialName: source.materialName, unit: normalizedUnit }),
+                unit: normalizedUnit,
+                workCategories: sourceNames,
+                workCategoryIds: targetIds,
+                workCategory: sourceNames[0],
+                workCategoryId: targetIds[0],
+                workCategoryNormsById: remappedNormsById,
+                quotaQuantity: 0,
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                revision: 1,
+                deletedAt: null,
+              });
+              changed = true;
+            }
+          }
+
+          if (skipped.length) {
+            alert('Một số định mức chưa được lấy vì Hạng mục ở công trình hiện tại đang thiếu hoặc trùng tên nên không thể remap an toàn:\n' + skipped.map((item) => '• ' + item).join('\n') + '\n\nHãy bổ sung hoặc làm rõ Hạng mục thi công, sau đó lấy lại Định mức.');
+          }
+          if (changed) onImportNorms(collectMaterialNormUpserts(activeMaterialNorms, merged));
+        }}
+      />
+
       {/* Delete Confirmation Modal Overlay */}
       {hasManageAccess && deletingNormTarget && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-60 flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <ViewportModalPortal>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[330] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-5 max-w-xs w-full space-y-4 border border-slate-100 shadow-2xl text-center">
             <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto">
               <AlertCircle className="w-6 h-6" />
@@ -1487,7 +1753,9 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             </div>
           </div>
         </div>
+        </ViewportModalPortal>
       )}
     </div>
+    </ViewportModalPortal>
   );
 };

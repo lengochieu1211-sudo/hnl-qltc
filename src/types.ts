@@ -1,6 +1,7 @@
 export type TransactionType = 'in' | 'out';
 export type InventoryItemKind = 'material' | 'equipment';
 export type InventoryIssuePurpose = 'project-work' | 'external-project' | 'other';
+export type NumericInputExpressions = Record<string, string>;
 
 /** Canonical Firestore lifecycle fields for Firebase-only records.
  * Legacy rows may omit them; migration/normalization must treat missing deletedAt as active. */
@@ -23,6 +24,8 @@ export interface InventoryItem {
   materialName: string;
   unit: string;
   quantity: number;
+  /** Original safe arithmetic expressions entered by the user. Numeric fields stay authoritative for calculations. */
+  inputExpressions?: NumericInputExpressions;
   location: string;
   handler: string;
   date: string;
@@ -65,8 +68,12 @@ export interface WorkVolume {
   planned: number;
   actual: number;
   unitPrice: number;
+  /** Original safe arithmetic expressions entered by the user (for example planned/unitPrice). */
+  inputExpressions?: NumericInputExpressions;
   status: 'Chưa thi công' | 'Đang thi công' | 'Đã hoàn thành';
   dueDate?: string; // Hạn định hoàn thành (YYYY-MM-DD)
+  /** ADMIN-managed presentation rank; legacy rows without order remain valid. */
+  order?: number;
   subItems?: string[]; // Hạng mục con / công đoạn lấy từ căn hộ
   updatedAt?: number;
   revision?: number;
@@ -102,6 +109,18 @@ export interface FloorPlan {
   imageDisplayRevision?: number;
   imageDisplaySource?: 'memory' | 'cache' | 'cloud' | 'legacy' | 'remote-url' | string;
   imageOfflineStale?: boolean;
+  /**
+   * Optional mapping from the immutable DXF coordinate space to the currently displayed
+   * floor-plan image. Legacy/CAD-native floors default to the full 0..100 canvas.
+   */
+  cadAlignment?: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+    rotation: 0 | 90 | 180 | 270;
+    updatedAt?: number;
+  };
   storagePath?: string;
   thumbnailPath?: string;
   storageMd5Hash?: string;
@@ -216,12 +235,16 @@ export interface MaterialNorm {
   workCategories?: string[]; // Danh sách các hạng mục thi công áp dụng (chọn nhiều)
   workCategoryIds?: string[]; // Danh sách ID các hạng mục thi công áp dụng
   materialName: string; // Tên vật tư
+  /** Optional display rank only; does not affect warehouse IDs or quantities. */
+  order?: number;
   unit: string; // Tên đơn vị tính (Tấm, Thanh, Hộp, Bao, Bộ, m2...)
   quotaQuantity: number; // Số lượng định mức công trình
   unitNormPerM2?: number; // Legacy field name: hao phí trên 1 đơn vị khối lượng nguồn (VD: 0.35 Tấm/m²)
   normBasisUnit?: string; // Đơn vị khối lượng nguồn áp dụng cho unitNormPerM2 (m², m, bộ...).
   workCategoryNorms?: Record<string, number>; // Định mức riêng theo tên hạng mục
   workCategoryNormsById?: Record<string, number>; // Định mức riêng theo ID hạng mục
+  /** Original safe arithmetic expressions for general/specific norm inputs. */
+  inputExpressions?: NumericInputExpressions;
   notes?: string;
   updatedAt?: number;
   revision?: number;
@@ -266,6 +289,8 @@ export interface RoomProgressItem {
   categoryVolumes?: Record<string, number>; // Khối lượng riêng theo từng hạng mục thi công đang có trong căn hộ
   categoryVolumeUnits?: Record<string, string>; // ĐVT riêng theo từng hạng mục (m², m, bộ, cái...). Nếu thiếu sẽ fallback volumeUnit.
   subItems?: RoomSubItem[]; // Danh sách các hạng mục/công đoạn thi công & nghiệm thu chi tiết
+  /** P21 server migration marker; never inferred from local cache. */
+  subItemProgressMigrated?: boolean;
   workVolume?: number; // Khối lượng thi công (VD: 45.5 m2)
   volumeUnit?: string; // Đơn vị tính (VD: m2, m, căn)
   x: number; // Tỷ lệ vị trí X trên MB (0-100%)
@@ -274,6 +299,8 @@ export interface RoomProgressItem {
   height: number; // Chiều cao vùng highlight (0-100%)
   points?: Point2D[]; // Các điểm tọa độ vẽ tự do (polygon freehand)
   isPolyline?: boolean; // Nếu true: Vẽ đường thẳng / đường gấp khúc hở, ngược lại vẽ Đa giác khép kín
+  /** Optional immutable CAD source geometry used to re-align highlights when a drawing background changes. */
+  cadSource?: { format: 'DXF'; rawPoints: Point2D[]; extents?: { minX: number; minY: number; maxX: number; maxY: number }; layer?: string; source?: 'HATCH' | 'LWPOLYLINE' };
   frameStatus: AcceptanceStatus; // Thi công Khung trần
   boardStatus: AcceptanceStatus; // Thi công Bắn tấm
   frameInspectionStatus?: RoomInspectionResult; // Nghiệm thu Khung trần riêng
@@ -371,7 +398,7 @@ export interface ProjectInfo {
 }
 
 export interface SingleProjectBackup {
-  schemaVersion: 3;
+  schemaVersion: 3 | 4;
   backupType: 'single-project';
   project: ProjectInfo;
   data: {
@@ -379,6 +406,17 @@ export interface SingleProjectBackup {
     contractorName?: string;
     inspectorName?: string;
     projectLocation?: string;
+    /** Project-scoped shared settings. Security membership/RBAC/PIN/secrets are intentionally excluded. */
+    sharedSettings?: {
+      driveAutoSyncEnabled?: boolean;
+      syncOptions?: Record<string, boolean>;
+      report?: Record<string, any>;
+      workflow?: Record<string, any>;
+      photoBackup?: Record<string, any>;
+      trash?: { enabled?: boolean; retentionDays?: number };
+      structure?: import('./utils/structureGroupUtils').ProjectStructureConfig;
+      superAdminUi?: Record<string, any>;
+    };
     materialNorms: MaterialNorm[];
     inventory: InventoryItem[];
     workVolumes: WorkVolume[];

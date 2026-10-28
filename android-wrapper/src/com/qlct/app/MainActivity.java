@@ -8,6 +8,7 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
@@ -16,13 +17,20 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
+import android.os.CancellationSignal;
+import android.os.ParcelFileDescriptor;
 import android.provider.OpenableColumns;
 import android.print.PrintAttributes;
+import android.print.PageRange;
 import android.print.PrintDocumentAdapter;
 import android.print.PrintManager;
 import android.provider.DocumentsContract;
 import android.provider.MediaStore;
+import android.provider.ContactsContract;
 import android.util.Base64;
+import android.graphics.Color;
+import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
@@ -32,6 +40,11 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.ProgressBar;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
@@ -41,12 +54,17 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.json.JSONObject;
 import org.json.JSONArray;
@@ -56,13 +74,26 @@ public class MainActivity extends Activity {
     private static final int STORAGE_PERMISSION_REQUEST = 1002;
     private static final int EXPORT_CREATE_DOCUMENT_REQUEST = 1003;
     private static final int AUTO_SAVE_TREE_REQUEST = 1004;
+    private static final int CONTACT_PICK_REQUEST = 1005;
     private static final String LOCAL_FALLBACK_URL = "file:///android_asset/www/index.html";
     private static final String PREFS_NAME = "qlct_native_prefs";
     private static final String PREF_AUTO_SAVE_TREE_URI = "auto_save_tree_uri";
 
     private WebView webView;
+    private View startupSplash;
+    private boolean startupContentShown = false;
+    private final Handler startupSplashHandler = new Handler(Looper.getMainLooper());
+    private final Runnable startupSplashFailsafe = new Runnable() {
+        @Override
+        public void run() {
+            showStartupContent();
+        }
+    };
     private WebView authPopupWebView;
     private WebView printWebView;
+    // The Android print adapter needs a fully rendered, attached WebView until
+    // the system print transaction finishes (including Save as PDF).
+    private boolean pdfPrintInProgress = false;
     private ValueCallback<Uri[]> filePathCallback;
     private Uri pendingCameraImageUri;
     private boolean fileChooserDirectCamera = false;
@@ -70,22 +101,50 @@ public class MainActivity extends Activity {
     private boolean loadedFallback = false;
     private PendingExport pendingExport;
     private String pendingAutoSaveTreeRequestId;
+    private String pendingContactRequestId;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        webView = new WebView(this);
-        webView.setLayoutParams(new ViewGroup.LayoutParams(
+        FrameLayout startupRoot = new FrameLayout(this);
+        startupRoot.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
-        setContentView(webView);
+        startupRoot.setBackgroundColor(getStartupBackgroundColor());
+
+        startupSplash = createStartupSplashView();
+        startupRoot.addView(startupSplash, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+
+        // Draw the lightweight native HNL splash before constructing WebView.
+        // Cold WebView initialization can block the UI thread for hundreds of
+        // milliseconds on OEM Android builds; doing it first leaves a gray
+        // launcher/startup frame visible before our branded content appears.
+        setContentView(startupRoot);
         requestLegacyStoragePermissionIfNeeded();
+        startupRoot.postDelayed(
+                () -> initializeWebRuntime(startupRoot, savedInstanceState),
+                32L);
+    }
+
+    private void initializeWebRuntime(FrameLayout startupRoot, Bundle savedInstanceState) {
+        if (isFinishing() || isDestroyed()) return;
+
+        webView = new WebView(this);
+        webView.setBackgroundColor(getStartupBackgroundColor());
+        webView.setVisibility(View.INVISIBLE);
+        // The native splash is already visible; insert WebView behind it.
+        startupRoot.addView(webView, 0, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
 
         configureWebView(webView);
 
         startUrl = getConfiguredStartUrl();
         webView.setWebViewClient(createAppWebViewClient(true));
+        webView.addJavascriptInterface(new AndroidStartupBridge(), "AndroidStartup");
         webView.addJavascriptInterface(new AndroidExportBridge(), "AndroidExport");
         webView.addJavascriptInterface(new AndroidContactBridge(), "AndroidContact");
         webView.setWebChromeClient(new WebChromeClient() {
@@ -161,7 +220,117 @@ public class MainActivity extends Activity {
             }
         });
 
-        webView.loadUrl(startUrl);
+        boolean restoredWebViewState = savedInstanceState != null && webView.restoreState(savedInstanceState) != null;
+        if (restoredWebViewState) {
+            // A configuration/process recreation already has a rendered WebView state.
+            showStartupContent();
+        } else {
+            webView.loadUrl(startUrl);
+            // Fail-safe only. Normal cold start removes the native splash only after
+            // React has painted and calls AndroidStartup.markReady(). Never expose the
+            // WebView just because HTML committed: that caused the visible white/gray gap.
+            startupSplashHandler.postDelayed(startupSplashFailsafe, 15000L);
+        }
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    @SuppressWarnings("deprecation")
+    private int getStartupBackgroundColor() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            return getColor(R.color.hnl_startup_background);
+        }
+        return getResources().getColor(R.color.hnl_startup_background);
+    }
+
+    private View createStartupSplashView() {
+        final boolean darkMode =
+                (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                        == Configuration.UI_MODE_NIGHT_YES;
+        final int backgroundColor = getStartupBackgroundColor();
+        final int titleColor = Color.parseColor(darkMode ? "#F8FAFC" : "#0F172A");
+        final int subtitleColor = Color.parseColor(darkMode ? "#CBD5E1" : "#64748B");
+
+        FrameLayout splash = new FrameLayout(this);
+        splash.setBackgroundColor(backgroundColor);
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setGravity(Gravity.CENTER_HORIZONTAL);
+        content.setPadding(dp(28), dp(28), dp(28), dp(28));
+
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.hnl_splash_logo);
+        logo.setContentDescription("HNL QLTC");
+        logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        LinearLayout.LayoutParams logoParams = new LinearLayout.LayoutParams(dp(96), dp(96));
+        logoParams.bottomMargin = dp(20);
+        content.addView(logo, logoParams);
+
+        TextView title = new TextView(this);
+        title.setText("HNL Quản Lý Thi Công");
+        title.setTextColor(titleColor);
+        title.setTextSize(20);
+        title.setGravity(Gravity.CENTER);
+        title.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        titleParams.bottomMargin = dp(8);
+        content.addView(title, titleParams);
+
+        TextView subtitle = new TextView(this);
+        subtitle.setText("Đang khởi tạo ứng dụng…");
+        subtitle.setTextColor(subtitleColor);
+        subtitle.setTextSize(13);
+        subtitle.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        subtitleParams.bottomMargin = dp(18);
+        content.addView(subtitle, subtitleParams);
+
+        ProgressBar progress = new ProgressBar(this);
+        progress.setIndeterminate(true);
+        content.addView(progress, new LinearLayout.LayoutParams(dp(32), dp(32)));
+
+        FrameLayout.LayoutParams contentParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER);
+        splash.addView(content, contentParams);
+        return splash;
+    }
+
+    private void showStartupContent() {
+        if (startupContentShown) return;
+        startupContentShown = true;
+        startupSplashHandler.removeCallbacks(startupSplashFailsafe);
+
+        if (webView != null) {
+            webView.setVisibility(View.VISIBLE);
+        }
+        if (startupSplash != null) {
+            View splash = startupSplash;
+            startupSplash = null;
+            splash.animate()
+                    .alpha(0f)
+                    .setDuration(140L)
+                    .withEndAction(() -> {
+                        if (splash.getParent() instanceof ViewGroup) {
+                            ((ViewGroup) splash.getParent()).removeView(splash);
+                        }
+                    })
+                    .start();
+        }
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        if (webView != null) webView.saveState(outState);
+        super.onSaveInstanceState(outState);
     }
 
     private String getConfiguredStartUrl() {
@@ -211,6 +380,10 @@ public class MainActivity extends Activity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 return request != null && handleUrlOverride(request.getUrl().toString());
             }
+
+            // Do not reveal the WebView from page lifecycle callbacks. HTML can commit
+            // several frames before React/Auth Gate paints, which previously exposed a
+            // blank white/gray frame. AndroidStartup.markReady() owns the cold-start handoff.
 
             @Override
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
@@ -509,25 +682,69 @@ public class MainActivity extends Activity {
         }
     }
 
+    public class AndroidStartupBridge {
+        @JavascriptInterface
+        public void markReady() {
+            runOnUiThread(() -> showStartupContent());
+        }
+    }
+
+    // Android JavaScriptInterface calls run off the main thread. Never tell the Web
+    // UI a share chooser was opened before startActivity has actually returned.
+    // This reports dispatch success, NOT that the user selected a recipient.
+    private boolean openNativeShareChooser(Intent chooser, String failureMessage) {
+        final CountDownLatch finished = new CountDownLatch(1);
+        final AtomicBoolean opened = new AtomicBoolean(false);
+        runOnUiThread(() -> {
+            try {
+                startActivity(chooser);
+                opened.set(true);
+            } catch (Exception error) {
+                showToast(failureMessage + ": " + error.getMessage());
+            } finally {
+                finished.countDown();
+            }
+        });
+        try {
+            return finished.await(8, TimeUnit.SECONDS) && opened.get();
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
     public class AndroidContactBridge {
+        @JavascriptInterface
+        public boolean pickContact(String requestId) {
+            try {
+                final String safeRequestId = requestId == null ? "" : requestId;
+                runOnUiThread(() -> {
+                    try {
+                        pendingContactRequestId = safeRequestId;
+                        Intent intent = new Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI);
+                        startActivityForResult(intent, CONTACT_PICK_REQUEST);
+                    } catch (Exception error) {
+                        pendingContactRequestId = null;
+                        dispatchAndroidContactEvent(safeRequestId, false, false, "", "", error.getMessage());
+                    }
+                });
+                return true;
+            } catch (Exception error) {
+                return false;
+            }
+        }
+
         @JavascriptInterface
         public boolean shareText(String title, String text) {
             try {
                 final String safeTitle = title == null || title.trim().isEmpty() ? "HNL QLTC" : title.trim();
                 final String safeText = text == null ? "" : text;
                 if (safeText.trim().isEmpty()) return false;
-                runOnUiThread(() -> {
-                    try {
-                        Intent sendIntent = new Intent(Intent.ACTION_SEND);
-                        sendIntent.setType("text/plain");
-                        sendIntent.putExtra(Intent.EXTRA_SUBJECT, safeTitle);
-                        sendIntent.putExtra(Intent.EXTRA_TEXT, safeText);
-                        startActivity(Intent.createChooser(sendIntent, "Chia se tu HNL QLTC"));
-                    } catch (Exception error) {
-                        showToast("Khong the mo chia se he thong: " + error.getMessage());
-                    }
-                });
-                return true;
+                Intent sendIntent = new Intent(Intent.ACTION_SEND);
+                sendIntent.setType("text/plain");
+                sendIntent.putExtra(Intent.EXTRA_SUBJECT, safeTitle);
+                sendIntent.putExtra(Intent.EXTRA_TEXT, safeText);
+                return openNativeShareChooser(Intent.createChooser(sendIntent, "Chia se tu HNL QLTC"), "Khong the mo chia se he thong");
             } catch (Exception error) {
                 return false;
             }
@@ -575,24 +792,19 @@ public class MainActivity extends Activity {
                 }
                 if (uris.isEmpty()) return false;
 
-                runOnUiThread(() -> {
-                    try {
-                        Intent share = new Intent(uris.size() > 1 ? Intent.ACTION_SEND_MULTIPLE : Intent.ACTION_SEND);
-                        share.setType(uris.size() > 1 ? "image/*" : mimeTypes.get(0));
-                        share.putExtra(Intent.EXTRA_TEXT, safeText);
-                        share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                        if (uris.size() > 1) share.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
-                        else share.putExtra(Intent.EXTRA_STREAM, uris.get(0));
+                Intent share = new Intent(uris.size() > 1 ? Intent.ACTION_SEND_MULTIPLE : Intent.ACTION_SEND);
+                share.setType(uris.size() > 1 ? "image/*" : mimeTypes.get(0));
+                // Self-contained report cards already have readable text in the image.
+                // Omit empty EXTRA_TEXT to avoid an empty/duplicate Zalo message bubble.
+                if (!safeText.trim().isEmpty()) share.putExtra(Intent.EXTRA_TEXT, safeText);
+                share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                if (uris.size() > 1) share.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
+                else share.putExtra(Intent.EXTRA_STREAM, uris.get(0));
 
-                        ClipData clip = ClipData.newUri(getContentResolver(), "HNL QLTC share", uris.get(0));
-                        for (int i = 1; i < uris.size(); i++) clip.addItem(new ClipData.Item(uris.get(i)));
-                        share.setClipData(clip);
-                        startActivity(Intent.createChooser(share, safeTitle));
-                    } catch (Exception error) {
-                        showToast("Khong the chia se anh: " + error.getMessage());
-                    }
-                });
-                return true;
+                ClipData clip = ClipData.newUri(getContentResolver(), "Phiếu và ảnh chia sẻ", uris.get(0));
+                for (int i = 1; i < uris.size(); i++) clip.addItem(new ClipData.Item(uris.get(i)));
+                share.setClipData(clip);
+                return openNativeShareChooser(Intent.createChooser(share, safeTitle), "Khong the mo chia se tep");
             } catch (Exception error) {
                 showToast("Khong the chuan bi anh chia se: " + error.getMessage());
                 return false;
@@ -628,6 +840,7 @@ public class MainActivity extends Activity {
         public void saveBase64File(String fileName, String mimeType, String base64Data) {
             try {
                 byte[] bytes = Base64.decode(base64Data, Base64.DEFAULT);
+                if (bytes.length == 0) throw new IOException("Empty export: refusing zero-byte download");
                 saveBytesToDownloads(fileName, mimeType, bytes);
                 showToast("Da luu file vao Download/QLTC: " + fileName);
             } catch (Exception error) {
@@ -732,6 +945,7 @@ public class MainActivity extends Activity {
 
             try {
                 export.output.close();
+                requireNonEmptyExport(export.tempFile);
                 saveFileToDownloads(export.fileName, export.mimeType, export.tempFile);
                 showToast("Da luu file vao Download/QLTC: " + export.fileName);
                 return true;
@@ -756,6 +970,7 @@ public class MainActivity extends Activity {
 
             try {
                 export.output.close();
+                requireNonEmptyExport(export.tempFile);
                 startCreateDocumentForExport(new PendingExport(requestId, export.fileName, export.mimeType, export.tempFile));
                 return true;
             } catch (Exception error) {
@@ -788,6 +1003,7 @@ public class MainActivity extends Activity {
 
             try {
                 export.output.close();
+                requireNonEmptyExport(export.tempFile);
                 writeFileToAutoSaveFolder(export.fileName, export.mimeType, export.tempFile);
                 showToast("Da tu dong luu JSON: " + export.fileName);
                 dispatchAndroidEvent("android-autosave-result", requestId, true, "Saved", export.fileName);
@@ -984,26 +1200,59 @@ public class MainActivity extends Activity {
     }
 
     private void renderHtmlToPdf(final String fileName, String html) {
+        // Never replace the WebView backing an active Android print transaction.
+        if (pdfPrintInProgress) {
+            showToast("Dang xu ly PDF truoc. Vui long cho hoan tat.");
+            return;
+        }
+        if (html == null || html.trim().isEmpty()) {
+            showToast("Bao cao PDF khong co noi dung de in");
+            return;
+        }
+        pdfPrintInProgress = true;
         destroyTemporaryWebView(printWebView);
-        printWebView = new WebView(this);
-        printWebView.setAlpha(0f);
-        printWebView.getSettings().setJavaScriptEnabled(false);
-        printWebView.getSettings().setDomStorageEnabled(true);
-        addContentView(printWebView, new ViewGroup.LayoutParams(1, 1));
+        final WebView pdfView = new WebView(this);
+        printWebView = pdfView;
+        pdfView.setBackgroundColor(Color.WHITE);
+        pdfView.setVisibility(View.VISIBLE);
+        pdfView.getSettings().setJavaScriptEnabled(false);
+        pdfView.getSettings().setDomStorageEnabled(true);
 
-        printWebView.setWebViewClient(new WebViewClient() {
+        // Important: a 1x1 transparent WebView can produce an empty A4 PDF.
+        // Give Chromium a real, attached, visible full-size rendering surface.
+        addContentView(pdfView, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+        pdfView.setWebViewClient(new WebViewClient() {
+            private boolean printRequested = false;
+
             @Override
-            public void onPageFinished(WebView view, String url) {
-                new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+            public void onPageFinished(final WebView view, String url) {
+                if (printRequested || view != printWebView) return;
+                printRequested = true;
+                // onPageFinished means HTML loaded, not that Chromium has painted.
+                // Wait for the next compositor frame before creating the adapter.
+                view.post(new Runnable() {
                     @Override
                     public void run() {
-                        openPrintManager(fileName);
+                        if (view != printWebView) return;
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            view.postVisualStateCallback(System.nanoTime(), new WebView.VisualStateCallback() {
+                                @Override
+                                public void onComplete(long requestId) {
+                                    if (view == printWebView) {
+                                        view.postDelayed(() -> openPrintManager(fileName, view), 350L);
+                                    }
+                                }
+                            });
+                        } else {
+                            view.postDelayed(() -> openPrintManager(fileName, view), 700L);
+                        }
                     }
-                }, 1000);
+                });
             }
         });
-
-        printWebView.loadDataWithBaseURL(
+        pdfView.loadDataWithBaseURL(
                 "file:///android_asset/www/",
                 html,
                 "text/html",
@@ -1011,29 +1260,101 @@ public class MainActivity extends Activity {
                 null);
     }
 
-    private void openPrintManager(String fileName) {
-        if (printWebView == null) {
-            showToast("Khong co noi dung PDF de in");
+    private void openPrintManager(final String fileName, final WebView pdfView) {
+        if (pdfView == null || pdfView != printWebView || !pdfPrintInProgress) {
             return;
         }
-
         PrintManager printManager = (PrintManager) getSystemService(PRINT_SERVICE);
         if (printManager == null) {
             showToast("Thiet bi khong ho tro in/luu PDF");
+            finishReportPrinting(pdfView);
             return;
         }
+        try {
+            final PrintDocumentAdapter contentAdapter = pdfView.createPrintDocumentAdapter(fileName);
+            // Do not destroy the rendered page until the print service has fully
+            // finished layout/write; otherwise saving PDF may yield a blank page.
+            PrintDocumentAdapter adapter = new PrintDocumentAdapter() {
+                @Override
+                public void onStart() {
+                    contentAdapter.onStart();
+                }
 
-        PrintDocumentAdapter adapter = printWebView.createPrintDocumentAdapter(fileName);
-        PrintAttributes attributes = new PrintAttributes.Builder()
-                .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
-                .setResolution(new PrintAttributes.Resolution("qlct_pdf", "QLCT PDF", 300, 300))
-                .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
-                .build();
-        printManager.print(fileName, adapter, attributes);
-        showToast("Chon 'Luu thanh PDF' de xuat bao cao");
+                @Override
+                public void onLayout(PrintAttributes oldAttributes, PrintAttributes newAttributes,
+                        CancellationSignal cancellationSignal, LayoutResultCallback callback, Bundle extras) {
+                    contentAdapter.onLayout(oldAttributes, newAttributes, cancellationSignal, callback, extras);
+                }
+
+                @Override
+                public void onWrite(PageRange[] pages, ParcelFileDescriptor destination,
+                        CancellationSignal cancellationSignal, WriteResultCallback callback) {
+                    contentAdapter.onWrite(pages, destination, cancellationSignal, callback);
+                }
+
+                @Override
+                public void onFinish() {
+                    try {
+                        contentAdapter.onFinish();
+                    } finally {
+                        runOnUiThread(() -> finishReportPrinting(pdfView));
+                    }
+                }
+            };
+            PrintAttributes attributes = new PrintAttributes.Builder()
+                    .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
+                    .setResolution(new PrintAttributes.Resolution("qlct_pdf", "QLCT PDF", 300, 300))
+                    .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
+                    .build();
+            printManager.print(fileName, adapter, attributes);
+            showToast("Chon 'Luu thanh PDF' de xuat bao cao");
+        } catch (Exception error) {
+            finishReportPrinting(pdfView);
+            showToast("Khong the mo man hinh PDF: " + error.getMessage());
+        }
+    }
+
+    private void finishReportPrinting(WebView pdfView) {
+        if (pdfView == printWebView) {
+            destroyTemporaryWebView(pdfView);
+            pdfPrintInProgress = false;
+        }
+    }
+
+    private void requireNonEmptyExport(File source) throws IOException {
+        if (source == null || !source.isFile() || source.length() <= 0) {
+            throw new IOException("Empty export: no content to save");
+        }
+    }
+
+    // A successful SAF picker can still leave a 0-byte document. Verify actual stored bytes.
+    private byte[] hashStream(InputStream input) throws IOException {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[64 * 1024];
+            int count;
+            while ((count = input.read(buffer)) != -1) digest.update(buffer, 0, count);
+            return digest.digest();
+        } catch (NoSuchAlgorithmException error) {
+            throw new IOException("SHA-256 unavailable", error);
+        } finally {
+            input.close();
+        }
+    }
+
+    private void verifySavedFile(Uri uri, File expectedFile) throws IOException {
+        requireNonEmptyExport(expectedFile);
+        InputStream saved = getContentResolver().openInputStream(uri);
+        if (saved == null) throw new IOException("Cannot read back exported document");
+        byte[] expected = hashStream(new FileInputStream(expectedFile));
+        byte[] actual = hashStream(saved);
+        if (!MessageDigest.isEqual(expected, actual)) {
+            throw new IOException("Saved content differs from export source (possibly 0 bytes)");
+        }
     }
 
     private Uri saveBytesToDownloads(String fileName, String mimeType, byte[] bytes) throws IOException {
+        if (bytes == null || bytes.length == 0) throw new IOException("Empty export: no content to save");
         String safeFileName = sanitizeFileName(fileName);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -1041,22 +1362,33 @@ public class MainActivity extends Activity {
             values.put(MediaStore.MediaColumns.DISPLAY_NAME, safeFileName);
             values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
             values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/QLTC");
+            values.put(MediaStore.MediaColumns.IS_PENDING, 1);
 
             Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
             if (uri == null) {
                 throw new IOException("MediaStore insert failed");
             }
 
-            OutputStream output = getContentResolver().openOutputStream(uri);
-            if (output == null) {
-                throw new IOException("Cannot open output stream");
-            }
+            boolean published = false;
             try {
-                output.write(bytes);
+                OutputStream output = getContentResolver().openOutputStream(uri, "wt");
+                if (output == null) throw new IOException("Cannot open output stream");
+                try { output.write(bytes); } finally { output.close(); }
+                InputStream saved = getContentResolver().openInputStream(uri);
+                if (saved == null) throw new IOException("Cannot read back download");
+                byte[] actual = hashStream(saved);
+                MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                if (!MessageDigest.isEqual(digest.digest(bytes), actual)) throw new IOException("Download content mismatch");
+                ContentValues done = new ContentValues();
+                done.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                if (getContentResolver().update(uri, done, null, null) != 1) throw new IOException("Cannot publish verified download");
+                published = true;
+                return uri;
+            } catch (NoSuchAlgorithmException error) {
+                throw new IOException("SHA-256 unavailable", error);
             } finally {
-                output.close();
+                if (!published) getContentResolver().delete(uri, null, null);
             }
-            return uri;
         }
 
         File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "QLTC");
@@ -1085,22 +1417,27 @@ public class MainActivity extends Activity {
             values.put(MediaStore.MediaColumns.DISPLAY_NAME, safeFileName);
             values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
             values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/QLTC");
+            values.put(MediaStore.MediaColumns.IS_PENDING, 1);
 
             Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
             if (uri == null) {
                 throw new IOException("MediaStore insert failed");
             }
 
-            OutputStream output = getContentResolver().openOutputStream(uri);
-            if (output == null) {
-                throw new IOException("Cannot open output stream");
-            }
+            boolean published = false;
             try {
-                copyFileToOutput(sourceFile, output);
+                OutputStream output = getContentResolver().openOutputStream(uri, "wt");
+                if (output == null) throw new IOException("Cannot open output stream");
+                try { copyFileToOutput(sourceFile, output); } finally { output.close(); }
+                verifySavedFile(uri, sourceFile);
+                ContentValues done = new ContentValues();
+                done.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                if (getContentResolver().update(uri, done, null, null) != 1) throw new IOException("Cannot publish verified download");
+                published = true;
+                return uri;
             } finally {
-                output.close();
+                if (!published) getContentResolver().delete(uri, null, null);
             }
-            return uri;
         }
 
         File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "QLTC");
@@ -1136,6 +1473,7 @@ public class MainActivity extends Activity {
         } finally {
             output.close();
         }
+        verifySavedFile(uri, export.tempFile);
     }
 
     private Uri getAutoSaveTreeUri() {
@@ -1242,6 +1580,7 @@ public class MainActivity extends Activity {
     }
 
     private void copyFileToOutput(File sourceFile, OutputStream output) throws IOException {
+        requireNonEmptyExport(sourceFile);
         FileInputStream input = new FileInputStream(sourceFile);
         try {
             byte[] buffer = new byte[64 * 1024];
@@ -1337,6 +1676,21 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void dispatchAndroidContactEvent(final String requestId, final boolean success, final boolean cancelled, final String name, final String phone, final String message) {
+        runOnUiThread(() -> {
+            if (webView == null) return;
+            String script = "window.dispatchEvent(new CustomEvent('android-contact-result',{detail:{requestId:"
+                    + JSONObject.quote(requestId == null ? "" : requestId)
+                    + ",success:" + (success ? "true" : "false")
+                    + ",cancelled:" + (cancelled ? "true" : "false")
+                    + ",name:" + JSONObject.quote(name == null ? "" : name)
+                    + ",phone:" + JSONObject.quote(phone == null ? "" : phone)
+                    + ",message:" + JSONObject.quote(message == null ? "" : message)
+                    + "}}));";
+            webView.evaluateJavascript(script, null);
+        });
+    }
+
     @Override
     public void onBackPressed() {
         if (authPopupWebView != null) {
@@ -1359,6 +1713,37 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == CONTACT_PICK_REQUEST) {
+            String requestId = pendingContactRequestId;
+            pendingContactRequestId = null;
+            if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+                dispatchAndroidContactEvent(requestId, false, true, "", "", "Cancelled");
+                return;
+            }
+            Cursor cursor = null;
+            try {
+                Uri uri = data.getData();
+                cursor = getContentResolver().query(
+                        uri,
+                        new String[]{ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER},
+                        null, null, null);
+                if (cursor != null && cursor.moveToFirst()) {
+                    int nameColumn = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME);
+                    int phoneColumn = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER);
+                    String name = nameColumn >= 0 ? cursor.getString(nameColumn) : "";
+                    String phone = phoneColumn >= 0 ? cursor.getString(phoneColumn) : "";
+                    dispatchAndroidContactEvent(requestId, phone != null && phone.trim().length() > 0, false, name, phone, "Picked");
+                } else {
+                    dispatchAndroidContactEvent(requestId, false, false, "", "", "Contact unavailable");
+                }
+            } catch (Exception error) {
+                dispatchAndroidContactEvent(requestId, false, false, "", "", error.getMessage());
+            } finally {
+                if (cursor != null) cursor.close();
+            }
+            return;
+        }
 
         if (requestCode == FILE_CHOOSER_REQUEST && filePathCallback != null) {
             if (fileChooserDirectCamera) {
@@ -1435,6 +1820,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        startupSplashHandler.removeCallbacks(startupSplashFailsafe);
         closeAuthPopup();
 
         if (webView != null) {

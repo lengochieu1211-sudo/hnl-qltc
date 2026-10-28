@@ -1,7 +1,8 @@
+import { ExpressionDisplayInput } from './ExpressionDisplayInput';
+import { DesktopWorkspaceMetrics } from './DesktopWorkspaceMetrics';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useLanguage } from '../context/LanguageContext';
-import * as XLSX from 'xlsx';
-import { assertSafeExcelImportFile } from '../utils/excelImportUtils';
+import { assertSafeExcelImportFile, readExcelFormulaByHeaders } from '../utils/excelImportUtils';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -24,12 +25,12 @@ import {
   Eye,
   X,
   Layers3,
-  Search
+  Search,
+  Copy
 } from 'lucide-react';
 import { WorkVolume, CategoryType, FloorPlan, RoomProgressItem } from '../types';
-import { exportWorkVolumesTemplate } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
-import { formatDecimal, formatVND, evaluateMathExpression, useFormatSettings, parseVietnameseNumber, parseExcelNumber } from '../utils/numberUtils';
+import { formatDecimal, formatVND, evaluateMathExpression, hasMathExpression, useFormatSettings, parseVietnameseNumber, parseExcelNumber } from '../utils/numberUtils';
 import { getTodayDateString, addDaysToDateString, formatDateVN, calculateDiffDays } from '../utils/dueDateUtils';
 import { getCurrentUserRole, canViewFinancials, canManageWorkVolumeStructure, UserRole } from '../utils/securityUtils';
 import { normalizeUnit, unitKey } from '../utils/unitUtils';
@@ -44,13 +45,46 @@ import {
 } from '../utils/structureGroupUtils';
 
 import { QuickSortBar } from './QuickSortBar';
+import { MoveOrderControls } from './MoveOrderControls';
+import { compareWorkVolumeManualOrder } from '../utils/catalogDisplayOrder';
+import { DataManagementMenu } from './DataManagementMenu';
+import { AddSourceMenu } from './AddSourceMenu';
+import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';
+const LazyQuickEditGridModal = React.lazy(() => import('./QuickEditGridModal').then((m) => ({ default: m.QuickEditGridModal })));
+const LazyCatalogTemplatePickerModal = React.lazy(() => import('./CatalogTemplatePickerModal').then((m) => ({ default: m.CatalogTemplatePickerModal })));
+
+const WORK_CATEGORY_SUGGESTIONS = ['Trần', 'Vách', 'Trần & Vách', 'Cửa', 'Khác'];
+const GLOBAL_WORK_SCOPE_LABEL = 'Toàn công trình';
+const isGlobalWorkScopeText = (value: unknown): boolean => {
+  const normalized = String(value || '').trim().toLocaleLowerCase('vi-VN');
+  return !normalized || ['toàn công trình', 'toàn nhà', 'công trình', 'all', 'tất cả'].includes(normalized);
+};
+
+const inferWorkCategoryGroup = (rawTitle: string): string => {
+  const normalized = rawTitle
+    .trim()
+    .toLocaleLowerCase('vi-VN')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (!normalized) return '';
+  const hasCeiling = /(^|\s)(tran|ceiling)(\s|$)/.test(normalized);
+  const hasWall = /(^|\s)(vach|tuong|wall)(\s|$)/.test(normalized);
+  if (hasCeiling && hasWall) return 'Trần & Vách';
+  if (hasCeiling) return 'Trần';
+  if (hasWall) return 'Vách';
+  if (/(^|\s)(cua|door)(\s|$)/.test(normalized)) return 'Cửa';
+  return '';
+};
 
 interface WorkVolumeTabProps {
+  isActive?: boolean;
+  quickEditEnabled?: boolean;
   workVolumes: WorkVolume[];
   floorPlans?: FloorPlan[];
   roomProgressList?: RoomProgressItem[];
   structureConfig: ProjectStructureConfig;
   projectName?: string;
+  currentProjectId?: string;
   userRole?: UserRole;
   onAddWorkVolume: (item: Omit<WorkVolume, 'id'>) => void;
   onSaveWorkVolume?: (item: Omit<WorkVolume, 'id'> & { id?: string }) => void;
@@ -58,7 +92,10 @@ interface WorkVolumeTabProps {
   onUpdateActualVolume: (id: string, newActual: number) => void;
   onDeleteWorkVolume: (id: string) => void;
   onDeleteMultipleWorkVolumes?: (ids: string[]) => void;
+  /** ADMIN-only persistent ordering; ids are the entire current visible subset. */
+  onReorderWorkVolumes?: (visibleOrderedIds: string[]) => void;
   onOpenExportPdf?: () => void;
+  onOpenRoomFromDetail?: (roomId: string, floorId: string) => void;
   onExportExcel?: () => void;
   onUndo?: () => void;
   onRedo?: () => void;
@@ -67,11 +104,14 @@ interface WorkVolumeTabProps {
 }
 
 export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
+  isActive = true,
+  quickEditEnabled = true,
   workVolumes,
   floorPlans = [],
   roomProgressList = [],
   structureConfig,
   projectName,
+  currentProjectId,
   userRole,
   onAddWorkVolume,
   onSaveWorkVolume,
@@ -79,7 +119,9 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   onUpdateActualVolume,
   onDeleteWorkVolume,
   onDeleteMultipleWorkVolumes,
+  onReorderWorkVolumes,
   onOpenExportPdf,
+  onOpenRoomFromDetail,
   onExportExcel,
   onUndo,
   onRedo,
@@ -91,11 +133,19 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   const hasFinancialAccess = canViewFinancials(effectiveRole);
   const hasStructureManageAccess = canManageWorkVolumeStructure(effectiveRole);
 
+  // Select physical floor IDs, never a name that may be shared by multiple Khu/Khối.
   const floorOptions = useMemo(() => {
-    if (!floorPlans || floorPlans.length === 0) {
-      return ['Tầng 1', 'Tầng 2', 'Tầng 3', 'Tầng 4', 'Sảnh / Ngoại thất'];
-    }
-    return floorPlans.map(fp => fp.floorName);
+    const counts = new Map<string, number>();
+    floorPlans.forEach((floor) => {
+      const name = floor.floorName.trim().toLocaleLowerCase('vi-VN');
+      counts.set(name, (counts.get(name) || 0) + 1);
+    });
+    return floorPlans.map((floor) => ({
+      id: floor.id,
+      label: (counts.get(floor.floorName.trim().toLocaleLowerCase('vi-VN')) || 0) > 1
+        ? `${floor.floorName} [${floor.id}]`
+        : floor.floorName,
+    }));
   }, [floorPlans]);
 
   // Extract unique categories from workVolumes
@@ -117,9 +167,11 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   const [deletingVolumeTarget, setDeletingVolumeTarget] = useState<WorkVolume | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [isImportFromRoomsOpen, setIsImportFromRoomsOpen] = useState(false);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [selectedRoomIdsForImport, setSelectedRoomIdsForImport] = useState<string[]>([]);
   const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
   const [detailVolumeTarget, setDetailVolumeTarget] = useState<WorkVolume | null>(null);
+  const detailReturnViewRef = useRef<{ top: number; left: number; roomId: string } | null>(null);
   const [detailStructureGroupIds, setDetailStructureGroupIds] = useState<string[]>([]);
   const [detailFloorIds, setDetailFloorIds] = useState<string[]>([]);
   const [detailRoomIds, setDetailRoomIds] = useState<string[]>([]);
@@ -131,10 +183,246 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   const [showDetailFloorPicker, setShowDetailFloorPicker] = useState(false);
   const [showDetailRoomPicker, setShowDetailRoomPicker] = useState(false);
   const [showDetailTeamPicker, setShowDetailTeamPicker] = useState(false);
+  const [showQuickEdit, setShowQuickEdit] = useState(false);
+
+  useEffect(() => {
+    if (!isActive) return;
+    try {
+      const raw = sessionStorage.getItem('qlct_volume_detail_return_v1');
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (!saved?.restore) return;
+      if (saved.projectId !== currentProjectId || Date.now() - Number(saved.createdAt || 0) > 15 * 60_000) {
+        sessionStorage.removeItem('qlct_volume_detail_return_v1');
+        return;
+      }
+      const item = workVolumes.find((value) => value.id === saved.volumeId);
+      if (!item) return;
+      detailReturnViewRef.current = {
+        top: Math.max(0, Number(saved.scrollTop) || 0),
+        left: Math.max(0, Number(saved.scrollLeft) || 0),
+        roomId: String(saved.fromRoomId || ''),
+      };
+      setDetailVolumeTarget(item);
+      setDetailSearch(typeof saved.search === 'string' ? saved.search : '');
+      setDetailStructureGroupIds(Array.isArray(saved.structureGroupIds) ? saved.structureGroupIds : []);
+      setDetailFloorIds(Array.isArray(saved.floorIds) ? saved.floorIds : []);
+      setDetailRoomIds(Array.isArray(saved.roomIds) ? saved.roomIds : []);
+      setDetailTeamNames(Array.isArray(saved.teamNames) ? saved.teamNames : []);
+      if (['floor', 'room', 'team', 'assigned', 'actual', 'progress'].includes(saved.sortBy)) setDetailSortBy(saved.sortBy);
+      if (['asc', 'desc'].includes(saved.sortOrder)) setDetailSortOrder(saved.sortOrder);
+      sessionStorage.removeItem('qlct_volume_detail_return_v1');
+    } catch (_) { try { sessionStorage.removeItem('qlct_volume_detail_return_v1'); } catch (_) {} }
+  }, [isActive, currentProjectId, workVolumes]);
+
+  useEffect(() => {
+    if (!isActive || !detailVolumeTarget || !detailReturnViewRef.current) return;
+    const id = window.requestAnimationFrame(() => {
+      const origin = detailReturnViewRef.current;
+      if (!origin) return;
+      const body = document.querySelector<HTMLElement>('[data-hnl-volume-detail-scrollbody="true"]');
+      if (body) { body.scrollTop = origin.top; body.scrollLeft = origin.left; }
+      const target = Array.from(document.querySelectorAll<HTMLElement>('[data-hnl-volume-detail-room]'))
+        .find(node => node.dataset.hnlVolumeDetailRoom === origin.roomId);
+      target?.focus({ preventScroll: true });
+      detailReturnViewRef.current = null;
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [isActive, detailVolumeTarget, detailSearch, detailSortBy, detailSortOrder]);
+
+  const openRoomFromVolumeDetail = (roomId: string, floorId: string) => {
+    if (!detailVolumeTarget || !onOpenRoomFromDetail || !currentProjectId) return;
+    try {
+      sessionStorage.setItem('qlct_volume_detail_return_v1', JSON.stringify({
+        projectId: currentProjectId, volumeId: detailVolumeTarget.id,
+        search: detailSearch, structureGroupIds: detailStructureGroupIds,
+        floorIds: detailFloorIds, roomIds: detailRoomIds, teamNames: detailTeamNames,
+        sortBy: detailSortBy, sortOrder: detailSortOrder,
+        scrollTop: document.querySelector<HTMLElement>('[data-hnl-volume-detail-scrollbody="true"]')?.scrollTop ?? 0,
+        scrollLeft: document.querySelector<HTMLElement>('[data-hnl-volume-detail-scrollbody="true"]')?.scrollLeft ?? 0,
+        fromRoomId: roomId,
+        createdAt: Date.now(), restore: false,
+      }));
+    } catch (_) { /* contextual navigation remains available */ }
+    setDetailVolumeTarget(null);
+    onOpenRoomFromDetail(roomId, floorId);
+  };
+
+  const quickEditFloorNameToIds = useMemo(() => {
+    const map = new Map<string, string[]>();
+    if (!showQuickEdit) return map;
+    floorPlans.forEach((floor) => {
+      for (const token of [floor.floorName, `${floor.floorName} [${floor.id}]`, floor.id]) {
+        const key = token.trim().toLocaleLowerCase('vi-VN');
+        if (key) map.set(key, Array.from(new Set([...(map.get(key) || []), floor.id])));
+      }
+    });
+    return map;
+  }, [showQuickEdit, floorPlans]);
+
+  const resolveQuickEditFloorIds = (raw: unknown): string[] => {
+    if (isGlobalWorkScopeText(raw)) return [];
+    const names = String(raw || '').split(/[,;\n]+/).map((item) => item.trim()).filter(Boolean);
+    const floorIds = names.map((name) => {
+      const matches = quickEditFloorNameToIds.get(name.toLocaleLowerCase('vi-VN')) || [];
+      if (matches.length !== 1) throw new Error(matches.length
+        ? `Tên tầng “${name}” trùng tại nhiều khu. Dùng “Tên tầng [ID tầng]”.`
+        : `Không tìm thấy tầng: ${name}`);
+      return matches[0];
+    });
+    return Array.from(new Set(floorIds));
+  };
+
+  const quickEditRows = useMemo<QuickGridRow[]>(() => {
+    if (!showQuickEdit) return [];
+    return workVolumes.map((item) => {
+    const ids = Array.from(new Set([...(item.floorIds || []), item.floorId || ''].filter(Boolean)));
+    const floors = ids.map((id) => floorPlans.find((floor) => floor.id === id)).filter((floor): floor is FloorPlan => Boolean(floor));
+    const groupNames = Array.from(new Set(floors.map((floor) =>
+      getStructureGroupName(resolveFloorStructureGroupId(floor, normalizedStructureConfig), normalizedStructureConfig)
+    ).filter(Boolean)));
+    return {
+      __rowKey: item.id,
+      __recordId: item.id,
+      title: item.title,
+      structureGroups: groupNames.join(', '),
+      floors: floors.length ? floors.map((floor) => {
+        const duplicate = floorPlans.filter((candidate) => candidate.floorName.trim().toLocaleLowerCase('vi-VN') === floor.floorName.trim().toLocaleLowerCase('vi-VN')).length > 1;
+        return duplicate ? `${floor.floorName} [${floor.id}]` : floor.floorName;
+      }).join(', ') : (item.floor || GLOBAL_WORK_SCOPE_LABEL),
+      category: item.category,
+      planned: item.inputExpressions?.planned || item.planned,
+      actual: item.actual,
+      unit: item.unit,
+      unitPrice: hasFinancialAccess ? (item.inputExpressions?.unitPrice || item.unitPrice) : '',
+      dueDate: item.dueDate || '',
+    };
+  });
+  }, [showQuickEdit, workVolumes, floorPlans, normalizedStructureConfig, hasFinancialAccess]);
+
+  const quickEditColumns = useMemo<QuickGridColumn[]>(() => {
+    if (!showQuickEdit) return [];
+    const columns: QuickGridColumn[] = [
+      { key: 'title', label: 'Hạng mục thi công', editable: hasStructureManageAccess, required: true, width: 230 },
+      { key: 'structureGroups', label: normalizedStructureConfig.label || 'Khu/Khối', editable: false, width: 150 },
+      {
+        key: 'floors',
+        label: 'Tầng / Vị trí',
+        editable: hasStructureManageAccess,
+        required: false,
+        width: 190,
+        validate: (value) => {
+          if (isGlobalWorkScopeText(value)) return null;
+          const names = String(value || '').split(/[,;\n]+/).map((item) => item.trim()).filter(Boolean);
+          const invalid = names.find((name) => (quickEditFloorNameToIds.get(name.toLocaleLowerCase('vi-VN')) || []).length !== 1);
+          if (!invalid) return null;
+          const matches = quickEditFloorNameToIds.get(invalid.toLocaleLowerCase('vi-VN')) || [];
+          return matches.length > 1 ? `Trùng tên tầng “${invalid}”: nhập “Tên tầng [ID tầng]”` : `Không tìm thấy tầng: ${invalid}`;
+        },
+      },
+      { key: 'category', label: 'Nhóm hạng mục', editable: hasStructureManageAccess, required: true, width: 160 },
+      { key: 'planned', label: 'Khối lượng kế hoạch', editable: hasStructureManageAccess, type: 'number', allowExpression: true, required: true, width: 150, validate: (value) => { const parsed = evaluateMathExpression(String(value ?? '')); return parsed !== null && parsed < 0 ? 'Không được âm' : null; } },
+      { key: 'actual', label: 'Khối lượng thực hiện', editable: false, type: 'number', width: 150 },
+      { key: 'unit', label: 'Đơn vị', editable: hasStructureManageAccess, required: true, width: 100 },
+    ];
+    if (hasFinancialAccess) columns.push({ key: 'unitPrice', label: 'Đơn giá', editable: hasStructureManageAccess, type: 'number', allowExpression: true, width: 130, validate: (value) => { const parsed = evaluateMathExpression(String(value ?? '')); return parsed !== null && parsed < 0 ? 'Không được âm' : null; } });
+    columns.push({ key: 'dueDate', label: 'Hạn hoàn thành', editable: hasStructureManageAccess, type: 'date', width: 145 });
+    return columns;
+  }, [showQuickEdit, hasStructureManageAccess, hasFinancialAccess, normalizedStructureConfig.label, quickEditFloorNameToIds]);
+
+  const saveQuickEditRows = async (
+    rows: QuickGridRow[],
+    dirtyCellKeys: Set<string>,
+    deletedRows: QuickGridRow[] = [],
+  ) => {
+    if (!hasStructureManageAccess) return;
+    const dirtyRowKeys = new Set(Array.from(dirtyCellKeys).map((key) => key.split('::')[0]));
+    const changedRows = rows.filter((row) => dirtyRowKeys.has(row.__rowKey));
+    const deleteIds = deletedRows
+      .map((row) => String(row.__recordId || row.__rowKey || '').trim())
+      .filter((id) => Boolean(id) && workVolumes.some((item) => item.id === id));
+    if (!changedRows.length && !deleteIds.length) return;
+
+    const upserts: WorkVolume[] = changedRows.map((row) => {
+      const existing = workVolumes.find((item) => item.id === String(row.__recordId || row.__rowKey));
+      const rawFloorScope = String(row.floors || '').trim();
+      // Editing any other column must not re-resolve (and silently reassign) floor IDs.
+      const floorChanged = dirtyCellKeys.has(`${row.__rowKey}::floors`) || !existing;
+      const floorIds = floorChanged ? resolveQuickEditFloorIds(rawFloorScope)
+        : Array.from(new Set([...(existing.floorIds || []), existing.floorId || ''].filter(Boolean)));
+      if (floorChanged && !isGlobalWorkScopeText(rawFloorScope) && !floorIds.length) {
+        throw new Error(`Hạng mục “${String(row.title || '')}” chưa có tầng hợp lệ.`);
+      }
+      const recordId = existing?.id || createEntityId('HM');
+      return {
+        ...(existing || {} as WorkVolume),
+        id: recordId,
+        workCategoryId: existing?.workCategoryId || recordId,
+        title: String(row.title || '').trim(),
+        floorIds,
+        floorId: floorIds[0],
+        floor: !floorChanged && existing ? existing.floor : floorIds.length > 0
+          ? floorIds.map((id) => floorPlans.find((floor) => floor.id === id)?.floorName).filter(Boolean).join(', ')
+          : GLOBAL_WORK_SCOPE_LABEL,
+        category: String(row.category || existing?.category || inferWorkCategoryGroup(String(row.title || '')) || 'Khác').trim(),
+        planned: Math.max(0, evaluateMathExpression(String(row.planned ?? '')) ?? 0),
+        actual: Number(existing?.actual || 0),
+        unit: normalizeUnit(String(row.unit || existing?.unit || 'm²')) || String(row.unit || existing?.unit || 'm²'),
+        unitPrice: hasFinancialAccess
+          ? Math.max(0, evaluateMathExpression(String(row.unitPrice ?? existing?.unitPrice ?? 0)) ?? 0)
+          : Number(existing?.unitPrice || 0),
+        inputExpressions: (() => {
+          const next = { ...(existing?.inputExpressions || {}) };
+          const plannedRaw = String(row.planned ?? '').trim();
+          delete next.planned;
+          if (hasMathExpression(plannedRaw) && evaluateMathExpression(plannedRaw) !== null) next.planned = plannedRaw;
+          if (hasFinancialAccess) {
+            const priceRaw = String(row.unitPrice ?? '').trim();
+            delete next.unitPrice;
+            if (hasMathExpression(priceRaw) && evaluateMathExpression(priceRaw) !== null) next.unitPrice = priceRaw;
+          }
+          return Object.keys(next).length ? next : undefined;
+        })(),
+        status: existing?.status || 'Chưa thi công',
+        dueDate: String(row.dueDate || '').trim() || undefined,
+      };
+    });
+
+    const deleteSet = new Set(deleteIds);
+    const nextCatalogById = new Map<string, WorkVolume>(
+      workVolumes.filter((item) => !deleteSet.has(item.id)).map((item) => [item.id, item] as const)
+    );
+    upserts.forEach((item) => nextCatalogById.set(item.id, item));
+    const issues = validateWorkVolumeCatalog(Array.from(nextCatalogById.values()));
+    if (issues.length) throw new Error(issues.map((issue) => issue.message).join('\n'));
+
+    const confirmed = await confirmAsync(
+      `Bảng chỉnh nhanh đã kiểm tra:\n\n` +
+      `• ${upserts.length} hạng mục thêm/sửa\n` +
+      `• ${deleteIds.length} hạng mục chờ xóa\n\n` +
+      'Khối lượng thực hiện là dữ liệu chỉ đọc. Xóa danh mục không tự remap ID lịch sử. Tiếp tục?'
+    );
+    if (!confirmed) return false;
+
+    if (upserts.length > 0) {
+      if (onImportWorkVolumes) {
+        if (!onImportWorkVolumes(upserts)) throw new Error('Dữ liệu hạng mục đã thay đổi trên thiết bị khác; hệ thống đã hủy ghi.');
+      } else if (onSaveWorkVolume) {
+        upserts.forEach((item) => onSaveWorkVolume(item));
+      } else {
+        throw new Error('Phiên bản ứng dụng chưa có handler lưu hạng mục hàng loạt.');
+      }
+    }
+    if (deleteIds.length > 0) {
+      if (onDeleteMultipleWorkVolumes) onDeleteMultipleWorkVolumes(deleteIds);
+      else deleteIds.forEach((id) => onDeleteWorkVolume(id));
+    }
+  };
 
   // Role changes can happen without remounting this tab. Never leave an ADMIN-only
   // modal/selection open after switching to EDITOR/VIEWER in the same browser session.
   useEffect(() => {
+    if (!isActive) return;
     if (hasStructureManageAccess) return;
     setSelectedItemIds([]);
     setShowAddForm(false);
@@ -142,15 +430,16 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     setDeletingVolumeTarget(null);
     setIsImportFromRoomsOpen(false);
     setSelectedRoomIdsForImport([]);
-  }, [hasStructureManageAccess]);
+  }, [isActive, hasStructureManageAccess]);
 
   // New Work Volume Form State
   const [title, setTitle] = useState('');
-  const [selectedFloors, setSelectedFloors] = useState<string[]>(() => [floorOptions[0] || 'Tầng 1']);
+  const [selectedFloors, setSelectedFloors] = useState<string[]>([]);
   const [isFloorDropdownOpen, setIsFloorDropdownOpen] = useState(false);
   const floorDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!isActive) return;
     function handleClickOutside(event: MouseEvent) {
       if (floorDropdownRef.current && !floorDropdownRef.current.contains(event.target as Node)) {
         setIsFloorDropdownOpen(false);
@@ -158,9 +447,10 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [isActive]);
 
-  const [category, setCategory] = useState<string>('khung_tran');
+  const [category, setCategory] = useState<string>('');
+  const [categoryManuallyEdited, setCategoryManuallyEdited] = useState(false);
   const [unit, setUnit] = useState('m2');
   const [planned, setPlanned] = useState<number | ''>(350);
   const [plannedStr, setPlannedStr] = useState<string>('350');
@@ -168,13 +458,6 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   const [unitPrice, setUnitPrice] = useState<number | ''>(110000);
   const [unitPriceStr, setUnitPriceStr] = useState<string>('110000');
   const [dueDate, setDueDate] = useState<string>('');
-
-  // Keep floor state in sync with floorOptions
-  useEffect(() => {
-    if (!editingVolume && floorOptions.length > 0) {
-      setSelectedFloors([floorOptions[0]]);
-    }
-  }, [floorOptions, editingVolume]);
 
   // Financial calculations
   const totals = useMemo(() => {
@@ -285,9 +568,11 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     });
   }, [detailBreakdown, detailSearch, detailStructureGroupIds, detailFloorIds, detailRoomIds, detailTeamNames, detailSortBy, detailSortOrder, floorPlans, normalizedStructureConfig]);
 
-  useEffect(() => { setDetailFloorIds((ids) => ids.filter((id) => detailVisibleFloorOptions.some((floor) => floor.id === id))); }, [detailVisibleFloorOptions]);
-  useEffect(() => { setDetailRoomIds((ids) => ids.filter((id) => detailVisibleRoomOptions.some((row) => row.roomId === id))); }, [detailVisibleRoomOptions]);
-  useEffect(() => { setDetailTeamNames((names) => names.filter((name) => detailVisibleTeamOptions.includes(name))); }, [detailVisibleTeamOptions]);
+  // Do not clear a saved breakdown's filters during the first render of a contextual return:
+  // the selected volume is restored by an effect and its computed rows arrive one render later.
+  useEffect(() => { if (!isActive || !detailBreakdown) return; setDetailFloorIds((ids) => ids.filter((id) => detailVisibleFloorOptions.some((floor) => floor.id === id))); }, [isActive, detailBreakdown, detailVisibleFloorOptions]);
+  useEffect(() => { if (!isActive || !detailBreakdown) return; setDetailRoomIds((ids) => ids.filter((id) => detailVisibleRoomOptions.some((row) => row.roomId === id))); }, [isActive, detailBreakdown, detailVisibleRoomOptions]);
+  useEffect(() => { if (!isActive || !detailBreakdown) return; setDetailTeamNames((names) => names.filter((name) => detailVisibleTeamOptions.includes(name))); }, [isActive, detailBreakdown, detailVisibleTeamOptions]);
 
   const detailStructureSummary = detailStructureGroupIds.length === 0
     ? `Tất cả ${normalizedStructureConfig.label}`
@@ -295,13 +580,13 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       ? (normalizedStructureConfig.groups.find((group) => group.id === detailStructureGroupIds[0])?.name || `1 ${normalizedStructureConfig.label}`)
       : `${detailStructureGroupIds.length} ${normalizedStructureConfig.label}`;
   const detailFloorSummary = detailFloorIds.length === 0 ? 'Tất cả tầng' : detailFloorIds.length === 1 ? (detailVisibleFloorOptions.find((floor) => floor.id === detailFloorIds[0])?.floorName || '1 tầng') : `${detailFloorIds.length} tầng`;
-  const detailRoomSummary = detailRoomIds.length === 0 ? 'Tất cả Căn/Phòng' : detailRoomIds.length === 1 ? (detailVisibleRoomOptions.find((row) => row.roomId === detailRoomIds[0])?.roomName || '1 Căn/Phòng') : `${detailRoomIds.length} Căn/Phòng`;
+  const detailRoomSummary = detailRoomIds.length === 0 ? 'Tất cả Căn / Phòng' : detailRoomIds.length === 1 ? (detailVisibleRoomOptions.find((row) => row.roomId === detailRoomIds[0])?.roomName || '1 Căn / Phòng') : `${detailRoomIds.length} Căn / Phòng`;
   const detailTeamSummary = detailTeamNames.length === 0 ? 'Tất cả đội' : detailTeamNames.length === 1 ? detailTeamNames[0] : `${detailTeamNames.length} đội`;
   const hasDetailFilters = detailSearch.trim().length > 0 || detailStructureGroupIds.length > 0 || detailFloorIds.length > 0 || detailRoomIds.length > 0 || detailTeamNames.length > 0;
 
     const sortedFilteredVolumes = useMemo(() => {
     const volumes = [...filteredVolumes];
-    if (volSortBy === 'none') return volumes;
+    if (volSortBy === 'none') return volumes.sort(compareWorkVolumeManualOrder);
     
     return volumes.sort((a, b) => {
       if (volSortBy === 'title') {
@@ -322,12 +607,37 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     });
   }, [filteredVolumes, volSortBy, volSortOrder]);
 
+  const canReorderVolumes = hasStructureManageAccess && Boolean(onReorderWorkVolumes) && volSortBy === 'none';
+  const reorderVisibleWorkVolumes = (draggedId: string, targetId: string, placeAfter = false) => {
+    if (!canReorderVolumes || draggedId === targetId) return;
+    const reordered = sortedFilteredVolumes.map(item => item.id);
+    const sourceIndex = reordered.indexOf(draggedId);
+    const destinationIndex = reordered.indexOf(targetId);
+    if (sourceIndex < 0 || destinationIndex < 0) return;
+    reordered.splice(sourceIndex, 1);
+    const insertAt = reordered.indexOf(targetId) + (placeAfter ? 1 : 0);
+    reordered.splice(insertAt, 0, draggedId);
+    if (reordered.some((id, index) => id !== sortedFilteredVolumes[index]?.id)) {
+      onReorderWorkVolumes?.(reordered);
+    }
+  };
+  const moveVisibleWorkVolume = (id: string, direction: -1 | 1) => {
+    if (!canReorderVolumes) return;
+    const ordered = sortedFilteredVolumes.map(item => item.id);
+    const source = ordered.indexOf(id);
+    const destination = source + direction;
+    if (source < 0 || destination < 0 || destination >= ordered.length) return;
+    [ordered[source], ordered[destination]] = [ordered[destination], ordered[source]];
+    onReorderWorkVolumes?.(ordered);
+  };
+
   const handleCloseModal = async () => {
     setShowAddForm(false);
     setEditingVolume(null);
     setTitle('');
-    setSelectedFloors([floorOptions[0] || 'Tầng 1']);
-    setCategory('khung_tran');
+    setSelectedFloors([]);
+    setCategory('');
+    setCategoryManuallyEdited(false);
     setUnit('m2');
     setPlanned(350);
     setPlannedStr('350');
@@ -337,17 +647,19 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     setDueDate('');
   };
 
-  const handleAddSubmit = (e: React.FormEvent) => {
+  const handleAddSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const submitMode = submitter?.value === 'continue' ? 'continue' : 'close';
     if (!hasStructureManageAccess) {
-      alert('Chỉ ADMIN được tạo hoặc sửa định nghĩa hạng mục khối lượng. Kỹ sư cập nhật tiến độ tại Mặt bằng.');
+      alert('Chỉ ADMIN (Quản trị) được tạo hoặc sửa định nghĩa hạng mục khối lượng. Kỹ sư cập nhật tiến độ tại Mặt bằng.');
       handleCloseModal();
       return;
     }
 
     const parsedPlanned = evaluateMathExpression(plannedStr);
     if (plannedStr.trim() && parsedPlanned === null) {
-      alert('Khối lượng định mức có công thức/số không hợp lệ. Ví dụ: 100*5 hoặc 1220/3.');
+      alert('Khối lượng kế hoạch có công thức/số không hợp lệ. Ví dụ: 100*5 hoặc 1220/3.');
       return;
     }
     const finalPlanned = parsedPlanned ?? Number(planned);
@@ -360,12 +672,17 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     const finalUnitPrice = parsedUnitPrice ?? 0;
 
     if (!title.trim() || !finalPlanned || finalPlanned <= 0) {
-      alert('Vui lòng điền tên hạng mục và khối lượng định mức hợp lệ!');
+      alert('Vui lòng điền tên hạng mục và khối lượng kế hoạch hợp lệ!');
       return;
     }
 
-    const floorNames = selectedFloors.length > 0 ? selectedFloors : ['Tầng 1'];
-    const matchedFloorIds = floorNames.map(fName => floorPlans?.find(fp => (fp.floorName || fp.id) === fName)?.id || fName);
+    const matchedFloorIds = selectedFloors.filter((id) => floorPlans.some((floor) => floor.id === id));
+    if (matchedFloorIds.length !== selectedFloors.length) {
+      alert('Một số tầng đã bị xóa hoặc thay đổi. Vui lòng chọn lại trước khi lưu.');
+      return;
+    }
+    const floorNames = matchedFloorIds.map((id) => floorPlans.find((fp) => fp.id === id)!.floorName);
+    const floorScopeLabel = floorNames.length > 0 ? floorNames.join(', ') : GLOBAL_WORK_SCOPE_LABEL;
     const assignedWorkCategoryId = editingVolume?.workCategoryId || createEntityId('CAT');
 
     if (editingVolume) {
@@ -373,14 +690,23 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         onSaveWorkVolume({
           id: editingVolume.id,
           workCategoryId: assignedWorkCategoryId,
+          floorId: matchedFloorIds[0],
           floorIds: matchedFloorIds,
           title: title.trim(),
-          floor: floorNames.join(', '),
-          category,
+          floor: floorScopeLabel,
+          category: category.trim() || inferWorkCategoryGroup(title) || 'Khác',
           unit: normalizeUnit(unit) || unit,
           planned: finalPlanned,
           actual: Number(actual || 0),
           unitPrice: finalUnitPrice,
+          inputExpressions: (() => {
+            const next = { ...(editingVolume.inputExpressions || {}) };
+            delete next.planned;
+            delete next.unitPrice;
+            if (hasMathExpression(plannedStr) && parsedPlanned !== null) next.planned = plannedStr.trim();
+            if (hasMathExpression(unitPriceStr) && parsedUnitPrice !== null) next.unitPrice = unitPriceStr.trim();
+            return Object.keys(next).length ? next : undefined;
+          })(),
           status: Number(actual) >= finalPlanned ? 'Đã hoàn thành' : Number(actual) > 0 ? 'Đang thi công' : 'Chưa thi công',
           dueDate: dueDate ? dueDate : undefined,
         });
@@ -388,17 +714,35 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     } else {
       onAddWorkVolume({
         workCategoryId: assignedWorkCategoryId,
+        floorId: matchedFloorIds[0],
         floorIds: matchedFloorIds,
         title: title.trim(),
-        floor: floorNames.join(', '),
-        category,
+        floor: floorScopeLabel,
+        category: category.trim() || inferWorkCategoryGroup(title) || 'Khác',
         unit: normalizeUnit(unit) || unit,
         planned: finalPlanned,
         actual: Number(actual || 0),
         unitPrice: finalUnitPrice,
+        inputExpressions: (() => {
+          const next: Record<string, string> = {};
+          if (hasMathExpression(plannedStr) && parsedPlanned !== null) next.planned = plannedStr.trim();
+          if (hasMathExpression(unitPriceStr) && parsedUnitPrice !== null) next.unitPrice = unitPriceStr.trim();
+          return Object.keys(next).length ? next : undefined;
+        })(),
         status: Number(actual) >= finalPlanned ? 'Đã hoàn thành' : Number(actual) > 0 ? 'Đang thi công' : 'Chưa thi công',
         dueDate: dueDate ? dueDate : undefined,
       });
+    }
+
+    if (!editingVolume && submitMode === 'continue') {
+      setTitle('');
+      setCategory('');
+      setCategoryManuallyEdited(false);
+      setPlanned(350);
+      setPlannedStr('350');
+      setActual(0);
+      setEditingVolume(null);
+      return;
     }
 
     handleCloseModal();
@@ -406,7 +750,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
   const handleImportExcelWorkVolumes = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!hasStructureManageAccess) {
-      alert('⚠️ Chỉ ADMIN được nhập Excel để thay đổi cấu trúc hạng mục khối lượng.');
+      alert('⚠️ Chỉ ADMIN (Quản trị) được nhập Excel để thay đổi cấu trúc hạng mục khối lượng.');
       e.target.value = '';
       return;
     }
@@ -430,6 +774,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
+        const XLSX = await import('xlsx');
         const data = new Uint8Array(event.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         const worksheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -457,11 +802,16 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           const unit = normalizeUnit(String(row['Đơn Vị Tính'] || row['Đơn vị Tính'] || row['Đơn vị'] || row['unit'] || 'm²').trim()) || 'm²';
 
           let existing: WorkVolume | undefined;
-          if (rawRecordId) existing = workVolumes.find((work) => work.id === rawRecordId);
-          if (!existing && rawCategoryId) {
+          if (rawRecordId) {
+            existing = workVolumes.find((work) => work.id === rawRecordId);
+            if (!existing) throw new Error(`Dòng ${rowIndex + 2}: __recordId không tồn tại trong dự án hiện tại: ${rawRecordId}. Hãy để trống ID cho hạng mục mới.`);
+          }
+          if (rawCategoryId) {
             const matches = workVolumes.filter((work) => canonicalWorkCategoryId(work) === rawCategoryId);
+            if (matches.length === 0) throw new Error(`Dòng ${rowIndex + 2}: __workCategoryId không tồn tại trong dự án hiện tại: ${rawCategoryId}.`);
             if (matches.length > 1) throw new Error(`Dòng ${rowIndex + 2}: __workCategoryId ${rawCategoryId} không duy nhất.`);
-            existing = matches[0];
+            if (existing && matches[0].id !== existing.id) throw new Error(`Dòng ${rowIndex + 2}: __recordId và __workCategoryId tham chiếu hai hạng mục khác nhau.`);
+            existing = existing || matches[0];
           }
           if (!existing && !rawRecordId && !rawCategoryId) {
             const matches = workVolumes.filter((work) =>
@@ -469,7 +819,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               && work.floor.trim().toLocaleLowerCase('vi-VN') === floorText.toLocaleLowerCase('vi-VN')
               && (normalizeUnit(work.unit) || work.unit) === unit,
             );
-            if (matches.length > 1) throw new Error(`Dòng ${rowIndex + 2}: hạng mục legacy ${title} / ${floorText} / ${unit} bị mơ hồ.`);
+            if (matches.length > 1) throw new Error(`Dòng ${rowIndex + 2}: hạng mục từ dữ liệu cũ (legacy) ${title} / ${floorText} / ${unit} bị mơ hồ.`);
             existing = matches[0];
           }
 
@@ -485,20 +835,41 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
             }
           }
           if (rawFloorId && !floorIds.includes(rawFloorId)) floorIds.unshift(rawFloorId);
-          if (floorIds.length === 0 && floorText) {
-            floorIds = floorText.split(/[,;\n]+/).map((name) => name.trim()).filter(Boolean)
-              .map((name) => floorPlans.find((floor) => floor.floorName === name)?.id)
-              .filter((value): value is string => Boolean(value));
+          const unknownFloorIds = floorIds.filter((id) => !floorPlans.some((floor) => floor.id === id));
+          if (unknownFloorIds.length) throw new Error(`Dòng ${rowIndex + 2}: __floorId/__floorIds không tồn tại: ${unknownFloorIds.join(', ')}.`);
+          if (floorIds.length === 0 && floorText && !isGlobalWorkScopeText(floorText)) {
+            const floorNames = floorText.split(/[,;\n]+/).map((name) => name.trim()).filter(Boolean);
+            floorIds = floorNames.map((name) => {
+              const matches = floorPlans.filter((floor) => floor.floorName.trim().toLocaleLowerCase('vi-VN') === name.toLocaleLowerCase('vi-VN'));
+              if (matches.length === 0) throw new Error(`Dòng ${rowIndex + 2}: không tìm thấy tầng “${name}”.`);
+              if (matches.length > 1) throw new Error(`Dòng ${rowIndex + 2}: tên tầng “${name}” bị trùng; hãy dùng __floorId/__floorIds.`);
+              return matches[0].id;
+            });
           }
 
-          const recordId = existing?.id || rawRecordId || createEntityId('HM');
-          if (touchedIds.has(recordId)) throw new Error(`Dòng ${rowIndex + 2}: record ID ${recordId} xuất hiện nhiều lần trong cùng file.`);
+          const recordId = existing?.id || createEntityId('HM');
+          if (touchedIds.has(recordId)) throw new Error(`Dòng ${rowIndex + 2}: ID bản ghi ${recordId} xuất hiện nhiều lần trong cùng tệp.`);
           touchedIds.add(recordId);
-          const categoryId = existing ? canonicalWorkCategoryId(existing) : (rawCategoryId || recordId);
+          const categoryId = existing ? canonicalWorkCategoryId(existing) : recordId;
+          const plannedFormula = readExcelFormulaByHeaders(worksheet, XLSX.utils, rowIndex + 1, ['KL Định Mức', 'Khối lượng định mức', 'Khối lượng kế hoạch', 'planned']);
+          const priceFormula = readExcelFormulaByHeaders(worksheet, XLSX.utils, rowIndex + 1, ['Đơn Giá (VNĐ)', 'Đơn Giá', 'unitPrice']);
+          const plannedFormulaValue = plannedFormula ? evaluateMathExpression(plannedFormula) : null;
+          const priceFormulaValue = priceFormula ? evaluateMathExpression(priceFormula) : null;
+          if (plannedFormula && plannedFormulaValue === null) throw new Error(`Dòng ${rowIndex + 2}: công thức Khối lượng kế hoạch không an toàn/hợp lệ.`);
+          if (priceFormula && priceFormulaValue === null) throw new Error(`Dòng ${rowIndex + 2}: công thức Đơn Giá không an toàn/hợp lệ.`);
           const plannedParsed = parseExcelNumber(row['KL Định Mức'] ?? row['Khối lượng định mức'] ?? row['Khối lượng kế hoạch'] ?? row['planned']);
           const priceParsed = parseExcelNumber(row['Đơn Giá (VNĐ)'] ?? row['Đơn Giá'] ?? row['unitPrice']);
-          const planned = Number.isFinite(plannedParsed) ? Math.max(0, plannedParsed) : Math.max(0, Number(existing?.planned || 0));
-          const unitPrice = Number.isFinite(priceParsed) ? priceParsed : Number(existing?.unitPrice || 0);
+          const planned = plannedFormulaValue !== null
+            ? Math.max(0, plannedFormulaValue)
+            : Number.isFinite(plannedParsed) ? Math.max(0, plannedParsed) : Math.max(0, Number(existing?.planned || 0));
+          const unitPrice = priceFormulaValue !== null
+            ? Math.max(0, priceFormulaValue)
+            : Number.isFinite(priceParsed) ? priceParsed : Number(existing?.unitPrice || 0);
+          const inputExpressions = { ...(existing?.inputExpressions || {}) };
+          delete inputExpressions.planned;
+          delete inputExpressions.unitPrice;
+          if (plannedFormula) inputExpressions.planned = plannedFormula;
+          if (priceFormula) inputExpressions.unitPrice = priceFormula;
           const dueDateRaw = row['Ngày Hạn Định'] ?? row['Hạn Định'] ?? row['Hạn Hoàn Thành'] ?? row['dueDate'];
           const dueDate = dueDateRaw === undefined || String(dueDateRaw).trim() === '' ? existing?.dueDate : normalizeDate(dueDateRaw);
           if (dueDateRaw && !dueDate) throw new Error(`Dòng ${rowIndex + 2}: ngày hạn không hợp lệ (${String(dueDateRaw)}).`);
@@ -508,16 +879,17 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
             id: recordId,
             workCategoryId: categoryId,
             title,
-            floor: floorText || existing?.floor || '',
-            floorId: floorIds[0] || existing?.floorId,
-            floorIds: floorIds.length > 0 ? Array.from(new Set(floorIds)) : existing?.floorIds,
-            category: String(row['Nhóm Hạng Mục'] || row['Nhóm hạng mục'] || row['Phân Loại'] || row['category'] || existing?.category || 'khung_tran').trim() as CategoryType,
+            floor: floorText || (floorIds.length > 0 ? existing?.floor : GLOBAL_WORK_SCOPE_LABEL),
+            floorId: floorIds[0],
+            floorIds: Array.from(new Set(floorIds)),
+            category: String(row['Nhóm Hạng Mục'] || row['Nhóm hạng mục'] || row['Phân Loại'] || row['category'] || existing?.category || inferWorkCategoryGroup(title) || 'Khác').trim() as CategoryType,
             unit,
             planned,
             // Excel actual/status are reporting fields only; never import them into master.
             actual: existing?.actual || 0,
             status: existing?.status || 'Chưa thi công',
             unitPrice,
+            inputExpressions: Object.keys(inputExpressions).length ? inputExpressions : undefined,
             dueDate,
           });
           if (existing) updatedCount += 1; else addedCount += 1;
@@ -531,15 +903,15 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         if (issues.length > 0) throw new Error(issues.map((issue) => issue.message).join('\n'));
 
         const confirmed = await confirmAsync(
-          `Đã preflight toàn bộ file: ${updatedCount} cập nhật, ${addedCount} thêm mới.\n\n` +
-          'Không import actual/status; ID hạng mục và phạm vi tầng được giữ authoritative. Tiếp tục ghi một lần?',
+          `Đã kiểm tra toàn bộ tệp trước khi nhập: ${updatedCount} cập nhật, ${addedCount} thêm mới.\n\n` +
+          'Không nhập ngược khối lượng thực hiện/trạng thái; ID hạng mục và phạm vi tầng vẫn là dữ liệu chuẩn. Tiếp tục ghi một lần?',
         );
         if (!confirmed) return;
-        if (!onImportWorkVolumes) throw new Error('Phiên bản ứng dụng chưa hỗ trợ import atomic WorkVolume.');
-        if (!onImportWorkVolumes(upserts)) throw new Error('Catalog thay đổi trong lúc import; hệ thống đã hủy toàn bộ, chưa ghi dòng nào.');
+        if (!onImportWorkVolumes) throw new Error('Phiên bản ứng dụng hiện chưa hỗ trợ nhập Khối lượng theo cơ chế ghi toàn bộ hoặc không ghi.');
+        if (!onImportWorkVolumes(upserts)) throw new Error('Danh mục đã thay đổi trong lúc nhập Excel; hệ thống đã hủy toàn bộ, chưa ghi dòng nào.');
         alert(`🎉 Nhập Khối lượng thành công: ${updatedCount} cập nhật, ${addedCount} thêm mới.`);
       } catch (err: any) {
-        alert(`❌ Import Khối lượng bị hủy trước khi ghi dữ liệu:\n${err?.message || String(err)}`);
+        alert(`❌ Nhập Khối lượng từ Excel bị hủy trước khi ghi dữ liệu:\n${err?.message || String(err)}`);
       } finally {
         e.target.value = '';
       }
@@ -550,41 +922,37 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   useFormatSettings();
 
   return (
-    <div className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
-      {/* Title */}
-      <div className="flex items-center justify-between">
-        <div>
+    <div data-hnl-workspace-module="volume" className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
+      <DesktopWorkspaceMetrics eyebrow="THI CÔNG · KHỐI LƯỢNG"
+        title="Theo dõi thực hiện" description="Số liệu từ hạng mục hiện có; quyền xem giá trị vẫn tuân theo vai trò người dùng."
+        metrics={[
+          { label: 'Hạng mục', value: workVolumes.length, detail: 'Đang theo dõi' },
+          { label: 'Hạng mục phù hợp lọc', value: filteredVolumes.length, detail: 'Theo loại công việc' },
+          { label: 'Tiến độ tổng hợp', value: `${totals.percent}%`, detail: 'Theo dữ liệu hiện tại', tone: 'success' },
+        ]} />
+      {/* Title + horizontal PC actions */}
+      <div data-hnl-pc-region="commands" className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-            <BarChart3 className="w-5 h-5 text-blue-600" />
+            <BarChart3 className="w-5 h-5 text-indigo-600" />
             {t('volume_title')}
           </h2>
           <p className="text-xs text-slate-500">{t('volume_subtitle')}</p>
         </div>
-        <div className="flex items-center gap-1.5 flex-wrap justify-end">
-          <button
-            type="button"
-            onClick={() => exportWorkVolumesTemplate(workVolumes, projectName, hasFinancialAccess)}
-            className="text-xs font-bold text-indigo-700 hover:text-indigo-900 bg-white hover:bg-slate-50 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-slate-200 transition-all active:scale-95 shadow-2xs cursor-pointer"
-            title={hasStructureManageAccess ? 'Tải tệp Excel chứa dữ liệu hiện tại để chỉnh sửa' : 'Tải tệp Excel để chỉnh sửa ngoại tuyến (không kèm đơn giá)'}
-          >
-            <Download className="w-3.5 h-3.5" /> Tải Excel để chỉnh sửa
-          </button>
+
+        <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] gap-2 sm:w-auto sm:grid-flow-col sm:auto-cols-max sm:grid-cols-none sm:items-center">
           {hasStructureManageAccess && (
-            <>
-              <label className="text-xs font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-emerald-200 cursor-pointer transition-all active:scale-95 shadow-2xs">
-                <Upload className="w-3.5 h-3.5" /> Nhập lại từ Excel
-                <input
-                  type="file"
-                  accept=".xlsx, .xls"
-                  onChange={handleImportExcelWorkVolumes}
-                  className="hidden"
-                />
-              </label>
-              <button
-                onClick={async () => {
+            <div className="min-w-0">
+              <AddSourceMenu
+                triggerLabel="Thêm hạng mục"
+                createLabel="Tạo hạng mục mới"
+                fillMobile
+                align="right"
+                onCreateNew={() => {
                   setTitle('');
-                  setSelectedFloors([floorOptions[0] || 'Tầng 1']);
-                  setCategory('khung_tran');
+                  setSelectedFloors([]);
+                  setCategory('');
+                  setCategoryManuallyEdited(false);
                   setUnit('m2');
                   setPlanned(350);
                   setPlannedStr('350');
@@ -594,18 +962,28 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                   setEditingVolume(null);
                   setShowAddForm(true);
                 }}
-                className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1.5 rounded-xl text-xs font-bold shadow active:scale-95 transition-all"
-              >
-                <Plus className="w-4 h-4" />
-                Thêm
-              </button>
-            </>
+                onOpenSourcePicker={() => setShowTemplatePicker(true)}
+              />
+            </div>
           )}
+          <div className={hasStructureManageAccess ? 'min-w-0' : 'col-span-2 justify-self-end'}>
+            <DataManagementMenu
+              fillMobile
+              triggerLabel="Quản lý dữ liệu"
+              onQuickEdit={quickEditEnabled ? (() => setShowQuickEdit(true)) : undefined}
+              onExportEdit={() => import('../utils/excelExport').then(({ exportWorkVolumesTemplate }) => exportWorkVolumesTemplate(workVolumes, projectName, hasFinancialAccess))}
+              onImportFile={hasStructureManageAccess ? handleImportExcelWorkVolumes : undefined}
+              onDownloadTemplate={() => import('../utils/excelExport').then(({ exportWorkVolumesTemplate }) => exportWorkVolumesTemplate([], projectName, hasFinancialAccess))}
+              exportLabel="Xuất hạng mục để chỉnh sửa"
+              importLabel="Nhập hạng mục đã chỉnh sửa"
+              templateLabel="Tải mẫu hạng mục"
+            />
+          </div>
         </div>
       </div>
 
       {/* Contract & Progress Overview Dashboard */}
-      <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-blue-950 text-white rounded-2xl p-4 shadow-lg space-y-3">
+      <div data-hnl-pc-region="progress" className="bg-gradient-to-br from-slate-900 via-slate-800 to-blue-950 text-white rounded-2xl p-4 shadow-lg space-y-3">
         <div className="flex items-center justify-between border-b border-slate-700/80 pb-2">
           <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
             <TrendingUp className="w-4 h-4 text-emerald-400" />
@@ -671,9 +1049,15 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         )}
       </div>
 
-      {/* Filter Tabs */}
+      {/* Category filters and quick sorting share one desktop toolbar. */}
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="01" aria-label="Bộ lọc hạng mục">
+        <span className="hnl-pc-v3-section-index">01</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Bộ lọc hạng mục</strong><small>Chọn nhóm công việc và sắp xếp theo tiến độ hoặc khối lượng.</small></div>
+      </div>
+
+      <div data-hnl-pc-v3-inner="volume-filter-panel" className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center" data-hnl-volume-filter-sort="responsive-toolbar">
       {availableCategories.length > 0 && (
-        <div className="flex gap-1 overflow-x-auto pb-1 text-xs no-scrollbar">
+        <div className="flex min-w-0 gap-1 overflow-x-auto pb-1 text-xs no-scrollbar lg:pb-0 lg:max-w-[44%] lg:shrink-0" data-hnl-volume-category-filters="true" role="group" aria-label="Lọc theo hạng mục thi công">
           {['all', ...availableCategories].map((catId) => {
             const label = catId === 'all' ? 'Tất cả' : 
                           catId === 'khung_tran' ? ' Khung Trần' : 
@@ -682,10 +1066,11 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
             return (
               <button
                 key={catId}
+                aria-pressed={selectedCategory === catId}
                 onClick={() => setSelectedCategory(catId)}
                 className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all ${
                   selectedCategory === catId
-                    ? 'bg-blue-600 text-white shadow-sm'
+                    ? 'bg-indigo-600 text-white shadow-sm'
                     : 'bg-white text-slate-600 border border-slate-200'
                 }`}
               >
@@ -697,6 +1082,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       )}
 
       {/* Quick Sort Work Volumes */}
+      <div className="min-w-0 lg:flex-1" data-hnl-volume-sort-controls="true">
       <QuickSortBar
         itemCount={sortedFilteredVolumes.length}
         options={[
@@ -709,10 +1095,21 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         onChange={(key, order) => { setVolSortBy(key); setVolSortOrder(order); }}
         onToggleOrder={() => setVolSortOrder((order) => order === 'asc' ? 'desc' : 'asc')}
         onReset={() => { setVolSortBy('none'); setVolSortOrder('asc'); }}
+        resetLabel="Thứ tự thủ công"
       />
+      </div>
+      </div>
+      {hasStructureManageAccess && volSortBy !== 'none' && (
+        <p className="text-[11px] text-slate-500">Chọn “Thứ tự thủ công” để di chuyển hạng mục lên/xuống hoặc kéo thả.</p>
+      )}
 
       {/* Items List */}
-      <div className="space-y-3">
+      <div className="hnl-pc-v3-section-band" data-hnl-v3-section="02" aria-label="Danh mục & tiến độ">
+        <span className="hnl-pc-v3-section-index">02</span>
+        <div className="hnl-pc-v3-section-copy"><strong>Danh mục & tiến độ</strong><small>Theo dõi từng hạng mục, phân bổ căn/phòng và hạn hoàn thành.</small></div>
+      </div>
+
+      <div data-hnl-pc-v3-inner="volume-cards" className="space-y-3">
         {sortedFilteredVolumes.length > 0 && (
           <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2">
             {hasStructureManageAccess ? (
@@ -765,13 +1162,25 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
-          {sortedFilteredVolumes.map((item) => {
+          {sortedFilteredVolumes.map((item, index) => {
             const itemPercent = item.planned > 0 ? Math.min(100, Math.round((item.actual / item.planned) * 100)) : 0;
             const isDone = item.planned > 0 && item.actual >= item.planned;
 
             return (
               <div
                 key={item.id}
+                draggable={canReorderVolumes}
+                onDragStart={canReorderVolumes ? event => {
+                  event.dataTransfer.effectAllowed = 'move';
+                  event.dataTransfer.setData('text/plain', item.id);
+                } : undefined}
+                onDragOver={canReorderVolumes ? event => event.preventDefault() : undefined}
+                onDrop={canReorderVolumes ? event => {
+                  event.preventDefault();
+                  const draggedId = event.dataTransfer.getData('text/plain');
+                  // Drop BEFORE this item, preserving all hidden category rows.
+                  if (draggedId) reorderVisibleWorkVolumes(draggedId, item.id);
+                } : undefined}
                 className={`bg-white rounded-2xl p-3.5 border transition-all duration-150 space-y-2.5 ${
                   selectedItemIds.includes(item.id)
                     ? 'border-indigo-300 bg-indigo-50/10 shadow-xs'
@@ -812,6 +1221,17 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                           </span>
                         </div>
                         <h4 className="text-xs font-bold text-slate-900 leading-snug">{item.title}</h4>
+                        {canReorderVolumes && (
+                          <MoveOrderControls
+                            showDragHandle
+                            label={`Sắp xếp thứ tự hạng mục ${item.title}`}
+                            disableUp={index === 0}
+                            disableDown={index === sortedFilteredVolumes.length - 1}
+                            onMoveUp={() => moveVisibleWorkVolume(item.id, -1)}
+                            onMoveDown={() => moveVisibleWorkVolume(item.id, 1)}
+                            className="mt-1"
+                          />
+                        )}
 
                         {/* Due Date Badge */}
                         {item.dueDate && (
@@ -942,7 +1362,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                             setDetailSearch('');
                           }}
                           className="text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-extrabold text-[11px]"
-                          title="Xem chi tiết khối lượng theo Khu/Khối, Tầng, Căn/Phòng và đội"
+                          title="Xem chi tiết khối lượng theo Khu/Khối, Tầng, Căn / Phòng và đội"
                         >
                           <Eye className="w-3.5 h-3.5" /> Xem chi tiết
                         </button>
@@ -952,27 +1372,32 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                             onClick={async () => {
                               setEditingVolume(item);
                               setTitle(item.title);
-                              setSelectedFloors(item.floor ? item.floor.split(',').map(s => s.trim()).filter(Boolean) : [floorOptions[0] || 'Tầng 1']);
-                              setCategory(item.category);
+                              const scopedFloorIds = Array.from(new Set([...(item.floorIds || []), item.floorId || ''].filter(Boolean)))
+                                .filter((id) => floorPlans.some((floor) => floor.id === id));
+                              setSelectedFloors(scopedFloorIds);
+                              setCategory(item.category || '');
+                              setCategoryManuallyEdited(Boolean(item.category));
                               setUnit(item.unit);
                               setPlanned(item.planned);
-                              setPlannedStr(item.planned.toString());
+                              setPlannedStr(item.inputExpressions?.planned || item.planned.toString());
                               setActual(item.actual);
                               setUnitPrice(item.unitPrice);
-                              setUnitPriceStr(item.unitPrice.toString());
+                              setUnitPriceStr(item.inputExpressions?.unitPrice || item.unitPrice.toString());
                               setDueDate(item.dueDate || '');
                             }}
-                            className="text-amber-600 hover:text-amber-800 flex items-center gap-1 font-semibold text-[11px]"
-                            title="Chỉnh sửa thông tin hạng mục"
+                            className="text-indigo-700 hover:text-indigo-800 flex items-center gap-1 font-semibold text-[11px]"
+                            title="Sửa thông tin hạng mục khối lượng"
+                            aria-label={`Sửa hạng mục khối lượng ${item.title}`}
                           >
-                            <Edit2 className="w-3 h-3" /> Sửa thông tin
+                            <Edit2 className="w-3 h-3" /> Sửa
                           </button>
                           <button
                             onClick={() => setDeletingVolumeTarget(item)}
-                            className="text-rose-500 hover:text-rose-700 p-1"
+                            className="text-rose-500 hover:text-rose-700 flex items-center gap-1 font-semibold text-[11px]"
                             title="Xóa hạng mục khối lượng"
+                            aria-label={`Xóa hạng mục khối lượng ${item.title}`}
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-3.5 h-3.5" /> Xóa
                           </button>
                         </div>
                       )}
@@ -987,13 +1412,85 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         )}
       </div>
 
+      {showTemplatePicker && <React.Suspense fallback={null}>
+      <LazyCatalogTemplatePickerModal
+        open={showTemplatePicker}
+        onClose={() => setShowTemplatePicker(false)}
+        currentProjectId={currentProjectId}
+        currentItems={workVolumes.filter((item) => !item.deletedAt)}
+        kind="workVolumes"
+        title="Lấy Hạng mục thi công từ công trình/mẫu"
+        onImport={async (rows) => {
+          if (!hasStructureManageAccess || !onImportWorkVolumes) return;
+          const existingKeys = new Set(workVolumes.map((item) => `${item.title.trim().toLocaleLowerCase('vi-VN')}|${normalizeUnit(item.unit) || item.unit}`));
+          const imported: WorkVolume[] = [];
+          for (const row of rows) {
+            const source = row.item as WorkVolume;
+            const key = `${String(source.title || '').trim().toLocaleLowerCase('vi-VN')}|${normalizeUnit(source.unit) || source.unit}`;
+            if (!source.title || existingKeys.has(key)) continue;
+            // A copied catalog item is independent from the source project. Source floor IDs
+            // are never valid in the target project. Keep it global until the target project
+            // explicitly narrows the scope or links it from a Room/FloorPlan.
+            const targetFloorIds: string[] = [];
+            const id = createEntityId('work-template');
+            imported.push({
+              ...source,
+              id,
+              workCategoryId: id,
+              floorId: undefined,
+              floorIds: targetFloorIds,
+              floor: GLOBAL_WORK_SCOPE_LABEL,
+              planned: 0,
+              actual: 0,
+              unitPrice: 0,
+              status: 'Chưa thi công',
+              dueDate: undefined,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            } as WorkVolume);
+            existingKeys.add(key);
+          }
+          if (imported.length) onImportWorkVolumes(imported);
+        }}
+      />
+      </React.Suspense>}
+
+      {quickEditEnabled && showQuickEdit && <React.Suspense fallback={null}>
+      <LazyQuickEditGridModal
+        open={showQuickEdit}
+        title="Bảng chỉnh nhanh · Khối lượng"
+        subtitle="Khu/Khối tự đồng bộ từ các tầng đã gán. KL đã làm là dữ liệu thực tế chỉ đọc."
+        columns={quickEditColumns}
+        rows={quickEditRows}
+        canEdit={hasStructureManageAccess}
+        canAddRows={hasStructureManageAccess}
+        canDeleteRows={hasStructureManageAccess}
+        createEmptyRow={(index) => ({
+          __rowKey: `new-work-${Date.now()}-${index}`,
+          __new: true,
+          __recordId: '',
+          title: '',
+          structureGroups: '',
+          floors: GLOBAL_WORK_SCOPE_LABEL,
+          category: '',
+          planned: 0,
+          actual: 0,
+          unit: 'm²',
+          unitPrice: 0,
+          dueDate: '',
+        })}
+        onClose={() => setShowQuickEdit(false)}
+        onSave={saveQuickEditRows}
+      />
+      </React.Suspense>}
+
       {/* Add / Edit Work Volume Modal */}
       {hasStructureManageAccess && (showAddForm || editingVolume !== null) && (
         <div className="fixed inset-y-0 right-0 left-0 lg:left-[84px] bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="bg-white w-full sm:max-w-2xl lg:max-w-[1100px] rounded-t-3xl sm:rounded-2xl max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col shadow-2xl">
             <div className="shrink-0 flex items-center justify-between border-b border-slate-100 px-5 pt-5 pb-3">
               <h3 className="text-base font-bold text-slate-900">
-                {editingVolume ? 'Sửa hạng mục khối lượng' : 'Thêm hạng mục khối lượng'}
+                {editingVolume ? 'Sửa hạng mục khối lượng' : 'Tạo hạng mục mới'}
               </h3>
               <button
                 onClick={handleCloseModal}
@@ -1003,14 +1500,18 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleAddSubmit} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-5 pt-4 grid grid-cols-1 lg:grid-cols-6 gap-3 text-xs">
+            <form data-hnl-pc-v3-form="volume" onSubmit={handleAddSubmit} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-5 pt-4 grid grid-cols-1 lg:grid-cols-6 gap-3 text-xs">
               <div className="lg:col-span-6">
                 <label className="block text-slate-700 font-bold mb-1">Tên hạng mục Công Việc *</label>
                 <input
                   type="text"
-                  placeholder="Ví dụ: Thi công khung trần chìm Tầng 3"
+                  placeholder="Ví dụ: Trần thạch cao khung chìm"
                   value={title}
-                  onChange={(e) => setTitle(e.target.value)}
+                  onChange={(e) => {
+                    const nextTitle = e.target.value;
+                    setTitle(nextTitle);
+                    if (!categoryManuallyEdited) setCategory(inferWorkCategoryGroup(nextTitle));
+                  }}
                   className="w-full border border-slate-200 rounded-xl p-2.5 font-medium"
                   required
                 />
@@ -1019,7 +1520,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:col-span-6 items-start">
                 <div className="flex flex-col min-w-0">
                   <label className="h-6 text-slate-700 font-bold mb-1 flex items-center justify-between gap-2">
-                    <span>Vị trí tầng</span>
+                    <span>Phạm vi tầng <span className="font-medium text-slate-400">(không bắt buộc)</span></span>
                     {floorPlans && floorPlans.length > 0 && (
                       <span className="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 font-bold">
                         Đồng bộ từ Mặt bằng
@@ -1032,38 +1533,45 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                       onClick={() => setIsFloorDropdownOpen(!isFloorDropdownOpen)}
                     >
                       <span className="truncate">
-                        {selectedFloors.length > 0 ? selectedFloors.join(', ') : 'Chọn tầng...'}
+                        {selectedFloors.length > 0 ? selectedFloors.map((id) => floorOptions.find((floor) => floor.id === id)?.label || id).join(', ') : 'Toàn công trình'}
                       </span>
                       <ChevronDown className="w-5 h-5 text-slate-400 flex-shrink-0" />
                     </div>
                     {isFloorDropdownOpen && (
                       <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-50 max-h-48 overflow-y-auto">
-                        {floorOptions.map(fName => (
+                        <div
+                          className="p-2.5 flex items-center hover:bg-indigo-50 cursor-pointer border-b border-slate-100"
+                          onClick={() => setSelectedFloors([])}
+                        >
+                          <input type="checkbox" checked={selectedFloors.length === 0} readOnly className="mr-2.5 w-4 h-4 text-blue-600 rounded border-slate-300" />
+                          <span className="font-bold text-indigo-700 truncate">Toàn công trình</span>
+                        </div>
+                        {floorOptions.map(floorOption => (
                           <div 
-                            key={fName} 
+                            key={floorOption.id} 
                             className="p-2.5 flex items-center hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-0"
                             onClick={() => {
                               setSelectedFloors(prev => {
-                                if (prev.includes(fName)) {
-                                  const next = prev.filter(f => f !== fName);
-                                  return next.length > 0 ? next : [fName]; // Prevent empty
+                                if (prev.includes(floorOption.id)) {
+                                  return prev.filter(f => f !== floorOption.id);
                                 }
-                                return [...prev, fName];
+                                return [...prev, floorOption.id];
                               });
                             }}
                           >
                             <input 
                               type="checkbox" 
-                              checked={selectedFloors.includes(fName)} 
+                              checked={selectedFloors.includes(floorOption.id)} 
                               readOnly 
                               className="mr-2.5 w-4 h-4 text-blue-600 rounded border-slate-300"
                             />
-                            <span className="font-medium text-slate-700 truncate">{fName}</span>
+                            <span className="font-medium text-slate-700 truncate">{floorOption.label}</span>
                           </div>
                         ))}
                       </div>
                     )}
                   </div>
+                  <p className="mt-1 text-[10px] text-slate-500">Không chọn tầng = áp dụng toàn công trình; khi gán vào Căn/Mặt bằng, tầng thực tế lấy từ liên kết của Căn.</p>
                 </div>
                 <div className="flex flex-col min-w-0">
                   <label className="h-6 text-slate-700 font-bold mb-1 flex items-center">Nhóm hạng mục</label>
@@ -1071,33 +1579,33 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                     type="text"
                     list="category-options"
                     value={category}
-                    onChange={(e) => setCategory(e.target.value)}
+                    onChange={(e) => {
+                      setCategory(e.target.value);
+                      setCategoryManuallyEdited(true);
+                    }}
                     className="w-full min-h-11 border border-slate-200 rounded-xl p-2.5 font-bold text-indigo-700"
                     placeholder="Nhập hoặc chọn nhóm"
                   />
                   <datalist id="category-options">
-                    {availableCategories.map(catId => (
-                      <option key={catId} value={catId}>
-                        {catId === 'khung_tran' ? 'Khung Trần' : 
-                         catId === 'ban_tam' ? 'Bắn Tấm' : 
-                         catId === 'son_ba' ? 'Sơn Bả' : catId}
-                      </option>
+                    {Array.from(new Set([...WORK_CATEGORY_SUGGESTIONS, ...availableCategories])).map((group) => (
+                      <option key={group} value={group} />
                     ))}
                   </datalist>
+                  <p className="mt-1 text-[10px] text-slate-500">Gợi ý tự động theo tên hạng mục; vẫn có thể nhập nhóm khác.</p>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end lg:col-span-6">
                 <div>
                   <div className="h-6 flex items-center justify-between text-slate-700 font-bold text-[11px] sm:text-xs truncate mb-1">
-                    <span>Khối lượng định mức *</span>
+                    <span>Khối lượng kế hoạch *</span>
                     {livePlannedCalc !== null && (
                       <span className="text-blue-600 bg-blue-50 px-1 py-0.5 rounded text-[9px] font-extrabold animate-pulse" title="Kết quả tính toán">
                         = {formatDecimal(livePlannedCalc)}
                       </span>
                     )}
                   </div>
-                  <input
+                  <ExpressionDisplayInput
                     type="text"
                     value={plannedStr}
                     onChange={(e) => {
@@ -1108,10 +1616,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                     }}
                     onBlur={() => {
                       const parsed = evaluateMathExpression(plannedStr);
-                      if (parsed !== null) {
-                        setPlanned(parsed);
-                        setPlannedStr(formatDecimal(parsed));
-                      }
+                      if (parsed !== null) setPlanned(parsed);
                     }}
                     className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-blue-600 focus:ring-2 focus:ring-blue-500"
                     required
@@ -1119,7 +1624,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 </div>
                 <div>
                   <div className="h-6 flex items-center justify-between gap-1 text-slate-700 font-bold text-[11px] sm:text-xs truncate mb-1">
-                    <span className="truncate">Khối lượng đã làm</span>
+                    <span className="truncate">Khối lượng thực hiện</span>
                     <span className="text-[9px] text-emerald-600 font-semibold bg-emerald-50 px-1 py-0.5 rounded border border-emerald-100 shrink-0" title="Khối lượng thực hiện tự động cập nhật từ Mặt bằng">🔗 MB</span>
                   </div>
                   <input
@@ -1154,7 +1659,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                       </span>
                     )}
                   </label>
-                  <input
+                  <ExpressionDisplayInput
                     type="text"
                     value={unitPriceStr}
                     onChange={(e) => {
@@ -1165,10 +1670,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                     }}
                     onBlur={() => {
                       const parsed = evaluateMathExpression(unitPriceStr);
-                      if (parsed !== null) {
-                        setUnitPrice(parsed);
-                        setUnitPriceStr(formatDecimal(parsed));
-                      }
+                      if (parsed !== null) setUnitPrice(parsed);
                     }}
                     className="w-full border border-slate-200 rounded-xl p-2.5 font-bold focus:ring-2 focus:ring-indigo-500"
                   />
@@ -1231,19 +1733,24 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 </div>
               </div>
 
-              <div className="sticky bottom-0 z-10 -mx-5 -mb-5 mt-1 flex gap-2 border-t border-slate-100 bg-white px-5 py-4 lg:col-span-6">
-                <button
-                  type="button"
-                  onClick={handleCloseModal}
-                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-slate-600 transition"
-                >
-                  Hủy
-                </button>
+              <div data-hnl-pc-v35-actions="volume-save" className={`sticky bottom-0 z-10 -mx-5 -mb-5 mt-1 grid gap-2 border-t border-slate-100 bg-white px-5 py-4 lg:col-span-6 ${editingVolume ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                {!editingVolume && (
+                  <button
+                    type="submit"
+                    name="submitMode"
+                    value="continue"
+                    className="py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 font-bold text-indigo-700 transition hover:bg-indigo-100 active:scale-95"
+                  >
+                    Lưu & thêm tiếp
+                  </button>
+                )}
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md"
+                  name="submitMode"
+                  value="close"
+                  className="py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md"
                 >
-                  {editingVolume ? 'Cập nhật hạng mục' : 'Tạo hạng mục'}
+                  {editingVolume ? 'Cập nhật hạng mục' : 'Lưu & đóng'}
                 </button>
               </div>
             </form>
@@ -1262,7 +1769,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 </div>
                 <p className="mt-1 text-[11px] text-slate-500">
                   Tổng danh mục: <strong>{formatDecimal(detailVolumeTarget.actual)}</strong> / {formatDecimal(detailVolumeTarget.planned)} {detailVolumeTarget.unit}
-                  {' · '}Phân bổ qua Căn/Phòng: <strong>{formatDecimal(detailBreakdown.totalActual)}</strong> / {formatDecimal(detailBreakdown.totalAssigned)} {detailVolumeTarget.unit}
+                  {' · '}Phân bổ qua Căn / Phòng: <strong>{formatDecimal(detailBreakdown.totalActual)}</strong> / {formatDecimal(detailBreakdown.totalAssigned)} {detailVolumeTarget.unit}
                 </p>
               </div>
               <button type="button" onClick={() => setDetailVolumeTarget(null)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-500" aria-label="Đóng chi tiết khối lượng">
@@ -1270,7 +1777,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               </button>
             </div>
 
-            <div className="p-3 sm:p-4 border-b border-slate-200 bg-slate-50/80 space-y-2">
+            <div data-hnl-pc-v3-inner="volume-breakdown-filter" className="p-3 sm:p-4 border-b border-slate-200 bg-slate-50/80 space-y-2">
               <div className={`grid grid-cols-1 gap-2 sm:grid-cols-2 ${normalizedStructureConfig.enabled ? 'xl:grid-cols-4' : 'xl:grid-cols-3'}`}>
                 {normalizedStructureConfig.enabled && (
                   <div className="relative">
@@ -1308,7 +1815,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                   </button>
                   {showDetailRoomPicker && (
                     <div className="absolute left-0 right-0 z-30 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
-                      <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50"><input type="checkbox" checked={detailRoomIds.length === 0} onChange={() => setDetailRoomIds([])} /> Tất cả Căn/Phòng</label>
+                      <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50"><input type="checkbox" checked={detailRoomIds.length === 0} onChange={() => setDetailRoomIds([])} /> Tất cả Căn / Phòng</label>
                       {detailVisibleRoomOptions.map((row) => <label key={row.roomId} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50"><input type="checkbox" checked={detailRoomIds.includes(row.roomId)} onChange={() => setDetailRoomIds((ids) => ids.includes(row.roomId) ? ids.filter((id) => id !== row.roomId) : [...ids, row.roomId])} /><span className="min-w-0 truncate"><span className="font-semibold">{row.roomName}</span><span className="text-slate-500"> · {row.floorName}</span></span></label>)}
                     </div>
                   )}
@@ -1328,7 +1835,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <div className="relative min-w-0 flex-1">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <input value={detailSearch} onChange={(event) => setDetailSearch(event.target.value)} placeholder="Tìm Căn/Phòng, tầng hoặc đội..." className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-xs font-semibold text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+                  <input value={detailSearch} onChange={(event) => setDetailSearch(event.target.value)} placeholder="Tìm Căn / Phòng, tầng hoặc đội..." className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-xs font-semibold text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
                 </div>
                 {hasDetailFilters && (
                   <button type="button" onClick={() => { setDetailSearch(''); setDetailStructureGroupIds([]); setDetailFloorIds([]); setDetailRoomIds([]); setDetailTeamNames([]); }} className="min-h-10 rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-extrabold text-indigo-700 hover:bg-indigo-50">Đặt lại bộ lọc</button>
@@ -1339,35 +1846,35 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 minItems={0}
                 options={[
                   { key: 'floor', label: 'Tầng', kind: 'floor' },
-                  { key: 'room', label: 'Căn/Phòng', kind: 'alpha' },
+                  { key: 'room', label: 'Căn / Phòng', kind: 'alpha' },
                   { key: 'team', label: 'Đội', kind: 'alpha' },
                   { key: 'assigned', label: 'Khối lượng', kind: 'number' },
-                  { key: 'actual', label: 'Đã làm', kind: 'number' },
+                  { key: 'actual', label: 'Khối lượng thực hiện', kind: 'number' },
                   { key: 'progress', label: 'Tiến độ', kind: 'number' },
                 ]}
                 activeKey={detailSortBy}
                 order={detailSortOrder}
                 onChange={(key, order) => { setDetailSortBy(key as typeof detailSortBy); setDetailSortOrder(order); }}
                 onReset={() => { setDetailSortBy('floor'); setDetailSortOrder('asc'); }}
-                summary={`${detailRows.length} Căn/Phòng`}
+                summary={`${detailRows.length} Căn / Phòng`}
               />
             </div>
 
-            <div className="flex-1 overflow-auto p-3 sm:p-4">
+            <div className="flex-1 overflow-auto p-3 sm:p-4" data-hnl-volume-detail-scrollbody="true">
               {detailRows.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-xs text-slate-500">Không có Căn/Phòng phù hợp phạm vi lọc.</div>
+                <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-xs text-slate-500">Không có Căn / Phòng phù hợp phạm vi lọc.</div>
               ) : (
-                <div className="min-w-[760px] overflow-hidden rounded-2xl border border-slate-200">
-                  <table className="w-full text-[11px]">
+                <div className="min-w-max overflow-hidden rounded-2xl border border-slate-200">
+                  <table className="w-max min-w-full table-auto whitespace-nowrap text-[11px] leading-4" data-hnl-table-row-height="32">
                     <thead className="bg-slate-100 text-slate-700">
-                      <tr>
-                        {normalizedStructureConfig.enabled && <th className="px-3 py-2 text-left">{normalizedStructureConfig.label}</th>}
-                        <th className="px-3 py-2 text-left">Tầng</th>
-                        <th className="px-3 py-2 text-left">Căn / Phòng</th>
-                        <th className="px-3 py-2 text-left">Đội thi công</th>
-                        <th className="px-3 py-2 text-right">Khối lượng</th>
-                        <th className="px-3 py-2 text-right">Đã thực hiện</th>
-                        <th className="px-3 py-2 text-right">Tiến độ</th>
+                      <tr className="h-8">
+                        {normalizedStructureConfig.enabled && <th className="px-2 py-0 text-left">{normalizedStructureConfig.label}</th>}
+                        <th className="px-2 py-0 text-left">Tầng</th>
+                        <th className="px-2 py-0 text-left">Căn / Phòng</th>
+                        <th className="px-2 py-0 text-left">Đội thi công</th>
+                        <th className="px-2 py-0 text-right">Khối lượng</th>
+                        <th className="px-2 py-0 text-right">Đã thực hiện</th>
+                        <th className="px-2 py-0 text-right">Tiến độ</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -1375,14 +1882,22 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                         const floor = floorPlans.find((item) => item.id === row.floorId);
                         const groupId = floor ? resolveFloorStructureGroupId(floor, normalizedStructureConfig) : normalizedStructureConfig.defaultGroupId;
                         return (
-                          <tr key={row.roomId} className="bg-white hover:bg-indigo-50/40">
-                            {normalizedStructureConfig.enabled && <td className="px-3 py-2 font-bold text-indigo-700">{getStructureGroupName(groupId, normalizedStructureConfig)}</td>}
-                            <td className="px-3 py-2 font-semibold text-slate-700">{row.floorName}</td>
-                            <td className="px-3 py-2 font-extrabold text-slate-900">{row.roomName}</td>
-                            <td className="px-3 py-2 text-slate-600">{row.teamNames.length > 0 ? row.teamNames.join(', ') : 'Chưa gán đội'}</td>
-                            <td className="px-3 py-2 text-right font-semibold">{formatDecimal(row.assignedVolume)} {detailVolumeTarget.unit}</td>
-                            <td className="px-3 py-2 text-right font-extrabold text-emerald-700">{formatDecimal(row.actualVolume)} {detailVolumeTarget.unit}</td>
-                            <td className="px-3 py-2 text-right">
+                          <tr key={row.roomId} className="h-8 bg-white hover:bg-indigo-50/40">
+                            {normalizedStructureConfig.enabled && <td className="px-2 py-0 font-bold text-indigo-700">{getStructureGroupName(groupId, normalizedStructureConfig)}</td>}
+                            <td className="px-2 py-0 font-semibold text-slate-700">{row.floorName}</td>
+                            <td className="px-2 py-0 font-extrabold text-slate-900">
+                              {onOpenRoomFromDetail ? (
+                                <button type="button" data-hnl-volume-detail-room={row.roomId} onClick={() => openRoomFromVolumeDetail(row.roomId, row.floorId)}
+                                  className="h-8 min-h-8 rounded-md px-1 text-left text-indigo-700 underline decoration-dotted underline-offset-2 hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-indigo-500"
+                                  title={`Mở căn/phòng ${row.roomName} trên Mặt bằng; có thể quay lại Chi tiết khối lượng`}>
+                                  {row.roomName}
+                                </button>
+                              ) : row.roomName}
+                            </td>
+                            <td className="px-2 py-0 text-slate-600">{row.teamNames.length > 0 ? row.teamNames.join(', ') : 'Chưa gán đội'}</td>
+                            <td className="px-2 py-0 text-right font-semibold">{formatDecimal(row.assignedVolume)} {detailVolumeTarget.unit}</td>
+                            <td className="px-2 py-0 text-right font-extrabold text-emerald-700">{formatDecimal(row.actualVolume)} {detailVolumeTarget.unit}</td>
+                            <td className="px-2 py-0 text-right">
                               <span className={`inline-flex min-w-[48px] justify-center rounded-full px-2 py-1 font-extrabold ${row.progressPercent >= 100 ? 'bg-emerald-100 text-emerald-800' : row.progressPercent > 0 ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-500'}`}>
                                 {row.progressPercent}%
                               </span>
@@ -1392,11 +1907,11 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                       })}
                     </tbody>
                     <tfoot className="bg-slate-50 font-extrabold text-slate-800">
-                      <tr>
-                        <td colSpan={normalizedStructureConfig.enabled ? 4 : 3} className="px-3 py-2">TỔNG TRONG PHẠM VI ĐANG XEM · {detailRows.length} Căn/Phòng</td>
-                        <td className="px-3 py-2 text-right">{formatDecimal(detailRows.reduce((sum, row) => sum + row.assignedVolume, 0))} {detailVolumeTarget.unit}</td>
-                        <td className="px-3 py-2 text-right text-emerald-700">{formatDecimal(detailRows.reduce((sum, row) => sum + row.actualVolume, 0))} {detailVolumeTarget.unit}</td>
-                        <td className="px-3 py-2 text-right">—</td>
+                      <tr className="h-8">
+                        <td colSpan={normalizedStructureConfig.enabled ? 4 : 3} className="px-2 py-0">TỔNG TRONG PHẠM VI ĐANG XEM · {detailRows.length} Căn / Phòng</td>
+                        <td className="px-2 py-0 text-right">{formatDecimal(detailRows.reduce((sum, row) => sum + row.assignedVolume, 0))} {detailVolumeTarget.unit}</td>
+                        <td className="px-2 py-0 text-right text-emerald-700">{formatDecimal(detailRows.reduce((sum, row) => sum + row.actualVolume, 0))} {detailVolumeTarget.unit}</td>
+                        <td className="px-2 py-0 text-right">—</td>
                       </tr>
                     </tfoot>
                   </table>

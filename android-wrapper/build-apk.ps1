@@ -76,6 +76,7 @@ $alignedApk = Join-Path $build 'qlct-aligned.apk'
 $keystore = Join-Path $root 'qlct-debug.keystore'
 $finalApk = Join-Path $projectRoot 'HNL-QLTC-Android.apk'
 $stringsXml = Join-Path $root 'res\values\strings.xml'
+$manifestXml = Join-Path $root 'AndroidManifest.xml'
 $webUrlFile = Join-Path $root 'web-url.txt'
 
 $packageJsonPath = Join-Path $projectRoot 'package.json'
@@ -112,12 +113,19 @@ $strings = $strings -replace '<string name="web_url">.*?</string>', "<string nam
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($stringsXml, $strings, $utf8NoBom)
 
+$isDevWrapper = $webUrl -match 'hnl-qltc-dev\.web\.app' -or $webUrl -match '([?&])env=dev(?:&|$)'
+$wrapperLabel = if ($isDevWrapper) { 'HNL QLTC DEV' } else { 'HNL Quản Lý Thi Công' }
+$manifest = Get-Content -Raw -LiteralPath $manifestXml
+$manifest = $manifest -replace 'android:label="[^"]*"', "android:label=`"$wrapperLabel`""
+[System.IO.File]::WriteAllText($manifestXml, $manifest, $utf8NoBom)
+
 Write-Output "Android SDK: $sdk"
 Write-Output "Android build-tools: $buildTools"
 Write-Output "Android platform: $platform"
 Write-Output "JAVA_HOME: $javaHome"
 Write-Output "Android versionName=$appVersion versionCode=$versionCode"
 Write-Output "Android wrapper web URL: $webUrl"
+Write-Output "Android wrapper label: $wrapperLabel"
 
 if (-not (Test-Path -LiteralPath (Join-Path $dist 'index.html'))) {
     throw 'Missing web build. Run npm run build before building the APK.'
@@ -144,6 +152,17 @@ Get-ChildItem -LiteralPath $assets -Recurse -Filter '*.map' | Remove-Item -Force
 # Dedicated launcher branding: keep separate from Web/in-app logo assets.
 $launcherIconSource = Join-Path $projectRoot 'desktop-wrapper\HNL-QLTC-SHELL-ICON.png'
 if (-not (Test-Path -LiteralPath $launcherIconSource)) { throw "Missing HNL shell launcher icon source: $launcherIconSource" }
+
+# Dedicated Android splash source: exact user-approved 1254x1254 Drive artwork.
+# Keep it independent from launcher/icon branding so splash sharpness changes cannot
+# alter taskbar/launcher identity.
+$splashLogoSource = Join-Path $root 'assets\HNL-QLTC-SPLASH-SOURCE.png'
+$expectedSplashSourceSha256 = '9ab45895172034ccb4e1386a41a49e5222a32310dc30b48f5b2cea6e14a5c34d'
+if (-not (Test-Path -LiteralPath $splashLogoSource)) { throw "Missing HNL splash source: $splashLogoSource" }
+$actualSplashSourceSha256 = (Get-FileHash -LiteralPath $splashLogoSource -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actualSplashSourceSha256 -ne $expectedSplashSourceSha256) {
+    throw "Unexpected HNL splash source SHA256: $actualSplashSourceSha256"
+}
 
 Add-Type -AssemblyName System.Drawing
 function Write-HnlLauncherPng {
@@ -197,6 +216,75 @@ function Write-HnlAndroidLauncherIcons {
 }
 
 Write-HnlAndroidLauncherIcons -SourcePath $launcherIconSource
+
+function Write-HnlAndroidSplashAssets {
+    param([Parameter(Mandatory = $true)][string] $SourcePath)
+    $source = [System.Drawing.Image]::FromFile($SourcePath)
+    try {
+        if ($source.Width -ne 1254 -or $source.Height -ne 1254) {
+            throw "Unexpected HNL splash source dimensions: $($source.Width)x$($source.Height)"
+        }
+
+        # Android 12+ no-background splash artwork uses a 288dp canvas. Build every
+        # density from the 1254px master so physical xxhdpi/xxxhdpi devices never
+        # upscale the old 288px nodpi bitmap. Keep the same 172/288 safe-area ratio.
+        $targets = [ordered]@{
+            'drawable-mdpi' = @{ Canvas = 288; Logo = 172; SystemLogo = 104 }
+            'drawable-hdpi' = @{ Canvas = 432; Logo = 258; SystemLogo = 156 }
+            'drawable-xhdpi' = @{ Canvas = 576; Logo = 344; SystemLogo = 208 }
+            'drawable-xxhdpi' = @{ Canvas = 864; Logo = 516; SystemLogo = 312 }
+            'drawable-xxxhdpi' = @{ Canvas = 1152; Logo = 688; SystemLogo = 416 }
+        }
+
+        # A stale nodpi output from APK #383 would shadow density-aware resources.
+        $legacyNoDpiSplash = Join-Path $root 'res\drawable-nodpi\hnl_splash_logo.png'
+        $legacyNoDpiSystemSplash = Join-Path $root 'res\drawable-nodpi\hnl_system_splash_logo.png'
+        foreach ($legacySplash in @($legacyNoDpiSplash, $legacyNoDpiSystemSplash)) {
+            if (Test-Path -LiteralPath $legacySplash) {
+                Remove-Item -LiteralPath $legacySplash -Force
+            }
+        }
+
+        foreach ($entry in $targets.GetEnumerator()) {
+            $canvasSize = [int]$entry.Value.Canvas
+            $logoSize = [int]$entry.Value.Logo
+            $systemLogoSize = [int]$entry.Value.SystemLogo
+            $folder = Join-Path $root ('res\' + $entry.Key)
+            New-Item -ItemType Directory -Force -Path $folder | Out-Null
+
+            foreach ($asset in @(
+                @{ Name = 'hnl_splash_logo.png'; Logo = $logoSize },
+                @{ Name = 'hnl_system_splash_logo.png'; Logo = $systemLogoSize }
+            )) {
+                $outputPath = Join-Path $folder ([string]$asset.Name)
+                $assetLogoSize = [int]$asset.Logo
+                $bitmap = New-Object System.Drawing.Bitmap($canvasSize, $canvasSize, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+                $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+                try {
+                    $graphics.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceOver
+                    $graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+                    $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+                    $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+                    $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+                    $graphics.Clear([System.Drawing.Color]::Transparent)
+                    $offset = [int](($canvasSize - $assetLogoSize) / 2)
+                    $graphics.DrawImage($source, (New-Object System.Drawing.Rectangle($offset, $offset, $assetLogoSize, $assetLogoSize)))
+                    $bitmap.Save($outputPath, [System.Drawing.Imaging.ImageFormat]::Png)
+                } finally {
+                    $graphics.Dispose()
+                    $bitmap.Dispose()
+                }
+            }
+        }
+    } finally {
+        $source.Dispose()
+    }
+    Write-Output "Android splash source: android-wrapper/assets/HNL-QLTC-SPLASH-SOURCE.png SHA256=$expectedSplashSourceSha256"
+    Write-Output "Android native splash densities: mdpi=288/172 hdpi=432/258 xhdpi=576/344 xxhdpi=864/516 xxxhdpi=1152/688"
+    Write-Output "Android system splash densities: mdpi=288/104 hdpi=432/156 xhdpi=576/208 xxhdpi=864/312 xxxhdpi=1152/416"
+}
+
+Write-HnlAndroidSplashAssets -SourcePath $splashLogoSource
 
 Invoke-Tool $aapt2 @('compile', '--dir', (Join-Path $root 'res'), '-o', $compiled)
 Invoke-Tool $aapt2 @(

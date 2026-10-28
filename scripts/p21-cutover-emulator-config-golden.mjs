@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const config=JSON.parse(readFileSync('firebase.p1-cutover-rules-ci.json','utf8'));
+assert.equal(config.firestore.rules,'firestore.warehouse-cutover.dev.rules');
+assert.equal(config.emulators.auth.host,'127.0.0.1');
+assert.equal(config.emulators.firestore.host,'127.0.0.1');
+assert.equal(config.emulators.auth.port,9099);
+assert.equal(config.emulators.firestore.port,8080);
+for(const key of ['functions','hosting','storage','remoteconfig'])assert.equal(key in config,false);
+assert.equal(config.emulators.singleProjectMode,true);
+const source=readFileSync('scripts/p21-cutover-rules-behavior.mjs','utf8');
+assert.match(source,/P21_EMULATOR_ONLY/);
+assert.match(source,/P21_UNSAFE_ALLOW/);
+assert.match(source,/EDITOR cannot rewrite legacy room subItems/);
+assert.match(source,/ADMIN client also cannot forge balance/);
+assert.match(source,/VIEWER cannot create balance/);
+console.log('P21 DEV CUTOVER EMULATOR CONFIG STATIC GUARD PASS — EMULATOR MUST STILL RUN');

@@ -1,5 +1,6 @@
 import localforage from 'localforage';
 import type { SendMessageInput } from '../lib/chatService';
+import { writeAndVerifyChatOutbox } from './chatOutboxDurability';
 
 export interface ChatOutboxEntry {
   id: string;
@@ -12,8 +13,14 @@ const store = localforage.createInstance({
   storeName: 'chat_outbox',
 });
 
+/** Persist and read back before a send can be acknowledged as queued.
+ * An IndexedDB/quota failure must NEVER be silently treated as an offline queue.
+ */
 export async function putChatOutbox(entry: ChatOutboxEntry): Promise<void> {
-  await store.setItem(entry.id, entry);
+  await writeAndVerifyChatOutbox(entry,
+    (id, value) => store.setItem(id, value),
+    (id) => store.getItem<ChatOutboxEntry>(id),
+  );
 }
 
 export async function removeChatOutbox(id: string): Promise<void> {

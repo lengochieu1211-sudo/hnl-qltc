@@ -1,0 +1,105 @@
+name: P21.13 PROD release candidate integration (SAFE BRANCH ONLY)
+on:
+  push:
+    branches:
+      - release/p21-13-prod-candidate-20261027
+    paths:
+      - '.github/workflows/p2113-prod-candidate.yml'
+permissions:
+  contents: write
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Strict branch and old-PROD pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/release/p21-13-prod-candidate-20261027'
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = '57eea2b878e17da64d7a6191fda178eaff3b8488'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git ls-remote origin "$GITHUB_REF" | cut -f1)" = "$GITHUB_SHA"
+      - name: Preserve 27 PROD hotfix commits in candidate merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'HNL Safety Integration'
+          git config user.email 'hnl-safety-integration@users.noreply.github.com'
+          git merge --no-commit --no-ff -X ours origin/main
+          test -z "$(git diff --name-only --diff-filter=U)"
+          test "$(git rev-parse MERGE_HEAD)" = '57eea2b878e17da64d7a6191fda178eaff3b8488'
+          node - <<'NODE'
+          const fs=require('fs');
+          const app=fs.readFileSync('src/App.tsx','utf8'),db=fs.readFileSync('src/lib/firebaseBase.ts','utf8');
+          if(!app.includes('verifiedOfflineSnapshotLastSavedAtRef')||!app.includes('minSnapshotIntervalMs'))throw Error('Lost verified offline snapshot throttling');
+          if(!db.includes('DISCOVERY_VERIFICATION_CACHE_MS')||!db.includes('scheduleDiscoveryEmit'))throw Error('Lost PROD Firestore startup throttling');
+          for(const n of ['src/components/CrewReportShareModal.tsx','src/components/MaterialNormModal.tsx','src/index.css'])if(!fs.existsSync(n)||fs.readFileSync(n,'utf8').includes('<<<<<<<'))throw Error('PROD UI conflict '+n);
+          console.log('DEV P21 + PROD performance hotfix semantics retained');
+          NODE
+      - name: Patch DOMPurify advisory and regenerate deterministic lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8'));
+          if(!p.overrides?.dompurify)throw Error('Missing security override from PROD');
+          p.overrides.dompurify='3.4.17';
+          fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');
+          NODE
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          npm ci
+      - name: Full TypeScript, lint, Rules, regressions and advisory audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run test:stability
+          node --experimental-strip-types scripts/p216-room-sidecar-ui-golden.mjs
+          node --experimental-strip-types scripts/p217-writer-boundary-golden.mjs
+          node --experimental-strip-types scripts/p218-writer-cutover-boundary-golden.mjs
+          node --experimental-strip-types scripts/p219-restore-preflight-golden.mjs
+          npm run security:audit
+          npm run build
+      - name: Commit verified candidate MERGE; never push main/dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "$GITHUB_REF" | cut -f1)" = "$GITHUB_SHA"
+          git add package.json package-lock.json
+          git commit -m 'candidate(p21.13): retain PROD hotfix history and patch DOMPurify; all deterministic gates pass'
+          MAIN_SHA="$(git rev-parse origin/main)"
+          git merge-base --is-ancestor "$MAIN_SHA" HEAD
+          git merge-base --is-ancestor "$GITHUB_SHA" HEAD
+          echo "CANDIDATE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          git push --force-with-lease="refs/heads/release/p21-13-prod-candidate-20261027:${GITHUB_SHA}" origin HEAD:refs/heads/release/p21-13-prod-candidate-20261027
+          echo 'Only release-candidate branch updated; main, dev, Firebase, R2 untouched.'
+      - name: Export integration report
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "P21.13 source event HEAD=${GITHUB_SHA}"
+            echo "PROD baseline=57eea2b878e17da64d7a6191fda178eaff3b8488"
+            echo "candidate current HEAD=$(git rev-parse HEAD)"
+            echo "release candidate no deploy"
+            git status --short || true
+          } > P2113-CANDIDATE-REPORT.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: P2113-CANDIDATE-REPORT-${{ github.sha }}
+          path: P2113-CANDIDATE-REPORT.txt
+          retention-days: 30

@@ -8,10 +8,13 @@ import { createHnlAiProjectSnapshot } from '../ai/data/projectSnapshot';
 import { buildHealthCenterReport, type HealthCenterIssue, type HealthCenterModule, type HealthCenterSeverity } from './healthCenterEngine';
 import { buildHealthCenterCopyText, exportHealthCenterExcel, exportHealthCenterJson } from './healthCenterExport';
 import { buildHealthCenterRepairPreview } from './healthCenterRepair';
+import { buildHealthCenterNavigationRequest } from './healthCenterNavigation';
 import { buildHealthCenterRepairBackupPayload, type HealthCenterRepairBackupPayload } from './healthCenterRepairApply';
 import { commitHealthCenterRepair } from './healthCenterRepairCommit';
 import { persistHealthCenterRepairToCloud } from './healthCenterRepairCloudPersist';
 import { getHealthCenterRepairBlockReason } from './healthCenterRepairPreflight';
+import { isOrphanRelatedIssue } from './healthCenterOrphanScan';
+import type { ProjectStructureConfig } from '../utils/structureGroupUtils';
 
 interface HealthCenterPanelProps {
   projectId: string;
@@ -21,13 +24,15 @@ interface HealthCenterPanelProps {
   fullAppData?: any;
   freshness?: 'live' | 'cache';
   photoDiagnostics?: any;
+  structureConfig?: ProjectStructureConfig;
+  onRefreshPhotoDiagnostics?: () => Promise<void>;
   onApplyRepair?: (nextData: any, context: { auditSnapshotId: string; operationCount: number; backup: HealthCenterRepairBackupPayload }) => void | Promise<void>;
   getSystemDiagnostics?: () => Promise<Record<string, unknown>>;
   onClearSystemDiagnostics?: () => void | Promise<void>;
 }
 
 type SeverityFilter = 'ALL' | HealthCenterSeverity;
-type ModuleFilter = 'ALL' | HealthCenterModule;
+type ModuleFilter = 'ALL' | 'ORPHAN' | HealthCenterModule;
 
 const array = <T,>(value: unknown): T[] => Array.isArray(value) ? value as T[] : [];
 
@@ -48,7 +53,7 @@ function actionLabel(issue: HealthCenterIssue): string {
 function moduleLabel(value: HealthCenterModule): string {
   const labels: Record<HealthCenterModule, string> = {
     system: 'Hệ thống', firebase: 'Firebase', r2: 'R2/Ảnh', sync: 'Đồng bộ', rooms: 'Tầng/Căn', defects: 'Defect',
-    crew: 'Quân số', quantities: 'Khối lượng', inventory: 'Kho', materialNorms: 'Định mức', checklist: 'Checklist', links: 'Liên kết ID',
+    crew: 'Quân số', quantities: 'Khối lượng', inventory: 'Kho', materialNorms: 'Định mức', checklist: 'Checklist', links: 'Liên kết bản ghi',
   };
   return labels[value];
 }
@@ -67,6 +72,8 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
   fullAppData,
   freshness = 'live',
   photoDiagnostics,
+  structureConfig,
+  onRefreshPhotoDiagnostics,
   onApplyRepair,
   getSystemDiagnostics,
   onClearSystemDiagnostics,
@@ -79,6 +86,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
   const [exporting, setExporting] = useState<string | null>(null);
   const [showRepairPreview, setShowRepairPreview] = useState(false);
   const [message, setMessage] = useState('');
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     try {
@@ -121,20 +129,37 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
       context: { projectId, role: userRole, accessVerified, screen: 'health-center', timeZone: 'Asia/Ho_Chi_Minh' },
       snapshot,
       photoDiagnostics,
+      structureConfig,
     });
-  }, [accessVerified, freshness, fullAppData, photoDiagnostics, projectId, projectName, runAt, userRole]);
+  }, [accessVerified, freshness, fullAppData, photoDiagnostics, projectId, projectName, runAt, structureConfig, userRole]);
 
   const filtered = useMemo(() => {
     if (!report) return [];
     const needle = query.trim().toLocaleLowerCase('vi');
     return report.issues.filter((issue) => {
       if (severity !== 'ALL' && issue.severity !== severity) return false;
-      if (module !== 'ALL' && issue.module !== module) return false;
+      if (module === 'ORPHAN' && !isOrphanRelatedIssue(issue)) return false;
+      if (module !== 'ALL' && module !== 'ORPHAN' && issue.module !== module) return false;
       if (!needle) return true;
       return [issue.ruleId, issue.message, issue.location.date, issue.location.teamName, issue.location.floorName, issue.location.roomName, issue.location.workItem, issue.entityId]
         .some((value) => String(value || '').toLocaleLowerCase('vi').includes(needle));
     });
   }, [module, query, report, severity]);
+
+  const orphanCount = useMemo(() => report?.issues.filter(isOrphanRelatedIssue).length || 0, [report]);
+  const refreshChecks = async () => {
+    if (checking) return;
+    setChecking(true);
+    setShowRepairPreview(false);
+    try {
+      await onRefreshPhotoDiagnostics?.();
+    } catch (_err) {
+      setMessage('Chưa tải lại được danh sách ảnh. Có thể kiểm tra phần dữ liệu đã có.');
+    } finally {
+      setRunAt(Date.now());
+      setChecking(false);
+    }
+  };
 
   const repairPreview = useMemo(() => {
     if (!report || userRole !== 'ADMIN') return null;
@@ -153,30 +178,31 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
   };
 
   const openIssue = (issue: HealthCenterIssue) => {
+    const request = buildHealthCenterNavigationRequest(projectId, issue);
+    const routable = ['crewRecord', 'room', 'defect', 'floor', 'inventory', 'materialNorm', 'checklist', 'workVolume'].includes(request.entityType);
+    if (!routable) {
+      setMessage('Đây là thông tin chẩn đoán hệ thống hoặc lỗi chưa có màn hình điều hướng phù hợp. Không thay đổi dữ liệu.');
+      return;
+    }
     try {
       sessionStorage.setItem('qlct_health_center_return_state', JSON.stringify({
         projectId, severity, module, query, issueId: issue.id, createdAt: Date.now(),
       }));
-      sessionStorage.setItem('qlct_diagnostic_navigation_request', JSON.stringify({
-        projectId,
-        entityType: issue.entityType,
-        entityId: issue.entityId,
-        floorId: issue.location.floorId || '',
-        roomId: issue.location.roomId || '',
-        teamId: issue.location.teamId || '',
-        ruleId: issue.ruleId,
-        createdAt: Date.now(),
-      }));
-    } catch { /* best effort */ }
-    window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity', { detail: {
-      entityType: issue.entityType,
-      entityId: issue.entityId,
-      floorId: issue.location.floorId,
-      roomId: issue.location.roomId,
-      teamId: issue.location.teamId,
-      ruleId: issue.ruleId,
-    } }));
-    setMessage('Đã gửi yêu cầu mở đúng bản ghi liên quan. Nếu module chưa hỗ trợ deep-link chi tiết, HNL sẽ mở module gần nhất.');
+      if (request.entityType === 'defect') {
+        sessionStorage.setItem('qlct_pending_defect_navigation', JSON.stringify({
+          projectId, defectId: request.entityId, floorId: request.floorId || '',
+          requestedAt: Date.now(),
+        }));
+      } else if (request.entityType === 'room' || request.entityType === 'crewRecord') {
+        sessionStorage.setItem('qlct_diagnostic_navigation_request', JSON.stringify(request));
+      }
+    } catch (_) { /* still permit viewing without session persistence */ }
+    // Close the source feature sheet, otherwise its portal blocks the destination.
+    window.dispatchEvent(new Event('qlct-health-center-navigate-out'));
+    window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity', { detail: request }));
+    setMessage(['crewRecord', 'room', 'defect'].includes(request.entityType)
+      ? 'Đang mở bản ghi liên quan. Dùng Quay về Trung tâm kiểm tra dữ liệu để tiếp tục.'
+      : 'Đã mở phân hệ liên quan. Bản ghi cần tìm được nêu trong chi tiết lỗi; dùng Quay về Trung tâm kiểm tra dữ liệu để tiếp tục.');
   };
 
   const buildCombinedExportInput = async () => ({
@@ -195,7 +221,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
       const input = await buildCombinedExportInput();
       if (kind === 'json') await exportHealthCenterJson(input);
       if (kind === 'excel') await exportHealthCenterExcel(input);
-      setMessage(`Đã xuất ${kind.toUpperCase()} tổng hợp Audit dữ liệu + hệ thống/đồng bộ + ảnh R2 theo Snapshot ${report.auditSnapshotId}.`);
+      setMessage(`Đã xuất ${kind.toUpperCase()} tổng hợp kiểm tra dữ liệu + hệ thống/đồng bộ + ảnh R2 theo bản kiểm tra ${report.auditSnapshotId}.`);
     } catch (err) {
       setMessage(`Không xuất được ${kind.toUpperCase()}: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -210,9 +236,9 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
     try {
       const input = await buildCombinedExportInput();
       await navigator.clipboard.writeText(buildHealthCenterCopyText(input));
-      setMessage('Đã copy chẩn đoán đầy đủ: build/quyền + Firebase/realtime + R2/ảnh + mặt bằng/revision + runtime log + Audit.');
+      setMessage('Đã sao chép chẩn đoán đầy đủ: bản dựng/quyền + Firebase/thời gian thực + R2/ảnh + mặt bằng/phiên bản + nhật ký thời gian chạy (runtime) + kiểm tra.');
     } catch (err) {
-      setMessage(`Không copy được chẩn đoán tổng hợp: ${err instanceof Error ? err.message : String(err)}`);
+      setMessage(`Không sao chép được chẩn đoán tổng hợp: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setExporting(null);
     }
@@ -225,9 +251,9 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
     try {
       const payload = buildHealthCenterRepairBackupPayload({ projectId, preview: repairPreview, fullAppData });
       await saveRepairBackupPayload(payload);
-      setMessage(`Đã xuất backup trước sửa cho Audit Snapshot ID ${repairPreview.auditSnapshotId}. Chưa có dữ liệu nào bị thay đổi.`);
+      setMessage(`Đã xuất bản sao lưu trước sửa cho mã kiểm tra ${repairPreview.auditSnapshotId}. Chưa có dữ liệu nào bị thay đổi.`);
     } catch (err) {
-      setMessage(`Không xuất được backup trước sửa: ${err instanceof Error ? err.message : String(err)}`);
+      setMessage(`Không xuất được bản sao lưu trước sửa: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setExporting(null);
     }
@@ -242,7 +268,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
         const diagnostics = await getSystemDiagnostics();
         const repairBlockReason = getHealthCenterRepairBlockReason(diagnostics);
         if (repairBlockReason) {
-          setMessage(`Repair tạm khóa: ${repairBlockReason}`);
+          setMessage(`Sửa an toàn tạm khóa: ${repairBlockReason}`);
           return;
         }
       }
@@ -255,7 +281,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
         fullAppData: fullAppData || {},
         saveBackup: saveRepairBackupPayload,
         confirmApply: async ({ operationCount, auditSnapshotId }) => await confirmAsync(
-          `Health Center đã lưu backup trước sửa.\n\nÁp dụng ${operationCount} thay đổi deterministic-unique của Audit Snapshot ${auditSnapshotId}?\n\nChỉ các field hiển thị trong Repair Preview được phép thay đổi.`
+          `Trung tâm kiểm tra dữ liệu đã lưu bản sao lưu trước sửa.\n\nÁp dụng ${operationCount} thay đổi có đích xác định duy nhất của bản kiểm tra ${auditSnapshotId}?\n\nChỉ các trường hiển thị trong phần Xem trước sửa lỗi được phép thay đổi.`
         ),
         persist: async (nextData, context) => {
           if (onApplyRepair) {
@@ -281,25 +307,26 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
         window.setTimeout(() => setRunAt(Date.now()), 500);
       }
     } catch (err) {
-      setMessage(`Không áp dụng được Repair: ${err instanceof Error ? err.message : String(err)}`);
+      setMessage(`Không áp dụng được sửa an toàn: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setExporting(null);
     }
   };
 
   if (!accessVerified) {
-    return <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800">Health Center chỉ chạy sau khi quyền dự án đã được xác minh.</div>;
+    return <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800">Trung tâm kiểm tra dữ liệu chỉ chạy sau khi quyền dự án đã được xác minh.</div>;
   }
   if (!report) return null;
 
   return <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:p-4">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <div className="flex items-center gap-2 font-bold text-slate-900"><ShieldCheck className="h-4 w-4 text-emerald-600" /> Audit dữ liệu & liên kết</div>
-        <div className="mt-1 text-[10px] font-semibold text-slate-500">Phát hiện orphan · mở đúng bản ghi · sửa có xác nhận · không tự xóa lịch sử</div>
-        <div className="mt-1 break-all text-[9px] text-slate-400">Snapshot: {report.auditSnapshotId}</div>
+        <div className="flex items-center gap-2 font-bold text-slate-900"><ShieldCheck className="h-4 w-4 text-indigo-600" /> Kiểm tra dữ liệu & liên kết</div>
+        <div className="mt-1 text-xs leading-5 text-slate-600">Kiểm tra căn/phòng, mặt bằng, hạng mục, ảnh và các liên kết. Chỉ báo lỗi, không tự xóa.</div>
+        <div className="mt-1 text-xs font-semibold text-amber-700">{orphanCount} liên kết cần xem {photoDiagnostics?.truncated ? '· danh sách ảnh chưa đầy đủ' : ''}</div>
+        <div className="mt-1 break-all text-[9px] text-slate-400">Mã bản kiểm tra: {report.auditSnapshotId}</div>
       </div>
-      <button type="button" onClick={() => { setRunAt(Date.now()); setShowRepairPreview(false); }} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700"><RefreshCw className="h-3.5 w-3.5" /> Quét lại</button>
+      <button type="button" onClick={() => void refreshChecks()} disabled={checking} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${checking ? 'animate-spin' : ''}`} /> {checking ? 'Đang kiểm tra…' : 'Kiểm tra lại dữ liệu hiện có'}</button>
     </div>
 
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -314,7 +341,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
         <option value="ALL">Tất cả mức độ</option><option value="ERROR">Lỗi nghiêm trọng</option><option value="WARNING">Cảnh báo</option><option value="REVIEW">Cần xác nhận</option><option value="SUGGESTION">Đề xuất</option>
       </select>
       <select value={module} onChange={(e) => { setModule(e.target.value as ModuleFilter); setShowRepairPreview(false); }} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs">
-        <option value="ALL">Tất cả module</option>{(['system','firebase','r2','sync','rooms','defects','crew','quantities','inventory','materialNorms','checklist','links'] as HealthCenterModule[]).map((x) => <option key={x} value={x}>{moduleLabel(x)}</option>)}
+        <option value="ALL">Tất cả phân hệ</option><option value="ORPHAN">Dữ liệu mất liên kết ({orphanCount})</option>{(['system','firebase','r2','sync','rooms','defects','crew','quantities','inventory','materialNorms','checklist','links'] as HealthCenterModule[]).map((x) => <option key={x} value={x}>{moduleLabel(x)}</option>)}
       </select>
       <input value={query} onChange={(e) => { setQuery(e.target.value); setShowRepairPreview(false); }} placeholder="Tìm ngày, đội, tầng, căn, hạng mục..." className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs" />
     </div>
@@ -326,10 +353,10 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
 
     {showRepairPreview && repairPreview && <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <div><div className="text-xs font-black text-emerald-800">Repair Preview · chưa ghi dữ liệu</div><div className="mt-0.5 text-[9px] font-semibold text-emerald-700">Chỉ liệt kê repair deterministic-unique. Orphan thật, ambiguous và lỗi nghiệp vụ không được tự sửa.</div></div>
+        <div><div className="text-xs font-black text-emerald-800">Xem trước sửa lỗi · chưa ghi dữ liệu</div><div className="mt-0.5 text-[9px] font-semibold text-emerald-700">Chỉ liệt kê thay đổi có đích xác định duy nhất. Dữ liệu mất liên kết thật, trường hợp mơ hồ và lỗi nghiệp vụ không được tự sửa.</div></div>
         <div className="flex flex-wrap gap-1.5">
-          <button type="button" disabled={Boolean(exporting)} onClick={() => void exportRepairBackup()} className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-white px-2.5 py-1.5 text-[10px] font-bold text-emerald-800"><Download className="h-3.5 w-3.5" /> Backup trước sửa</button>
-          <button type="button" disabled={Boolean(exporting) || !repairPreview.canApply || freshness !== 'live'} onClick={() => void applySafeRepair()} className="inline-flex items-center gap-1 rounded-lg border border-emerald-700 bg-emerald-700 px-2.5 py-1.5 text-[10px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"><Wrench className="h-3.5 w-3.5" /> {exporting === 'repair-apply' ? 'Đang kiểm tra...' : 'Backup & Áp dụng sửa an toàn'}</button>
+          <button type="button" disabled={Boolean(exporting)} onClick={() => void exportRepairBackup()} className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-white px-2.5 py-1.5 text-[10px] font-bold text-emerald-800"><Download className="h-3.5 w-3.5" /> Sao lưu trước sửa</button>
+          <button type="button" disabled={Boolean(exporting) || !repairPreview.canApply || freshness !== 'live'} onClick={() => void applySafeRepair()} className="inline-flex items-center gap-1 rounded-lg border border-emerald-700 bg-emerald-700 px-2.5 py-1.5 text-[10px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"><Wrench className="h-3.5 w-3.5" /> {exporting === 'repair-apply' ? 'Đang kiểm tra...' : 'Sao lưu & áp dụng sửa an toàn'}</button>
         </div>
       </div>
       <div className="space-y-1.5">
@@ -339,10 +366,10 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
           <div className="mt-1 text-[9px] text-slate-500">{op.ruleId} · {op.reason}</div>
         </div>)}
       </div>
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[9px] font-semibold text-amber-800">Apply chỉ chạy khi snapshot Cloud đang live và preflight sync an toàn: online, không conflict/error/syncing, pending data = 0, realtime đủ nguồn. Luồng bắt buộc: preflight → snapshot còn mới → backup thành công → ADMIN xác nhận → kiểm tra before-value → chỉ ghi Defect/Quân số qua cloud diff chuẩn có revision → realtime re-audit.</div>
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[9px] font-semibold text-amber-800">Chỉ sửa khi dữ liệu vừa được tải từ máy chủ, kết nối và đồng bộ ổn định, không còn nội dung đang chờ gửi. Các bước bắt buộc: kiểm tra dữ liệu → sao lưu thành công → Quản trị viên xác nhận → đối chiếu giá trị gốc trước khi sửa → chỉ cập nhật dữ liệu Defect/Quân số đã xác minh → kiểm tra lại đồng bộ. Mã phiên bản và chi tiết kỹ thuật vẫn được lưu trong báo cáo.</div>
     </div>}
 
-    {report.issues.length === 0 ? <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold text-emerald-700"><CheckCircle2 className="h-4 w-4" /> Không phát hiện vấn đề trong snapshot hiện tại.</div> : null}
+    {report.issues.length === 0 ? <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold text-emerald-700"><CheckCircle2 className="h-4 w-4" /> Không phát hiện vấn đề trong bản kiểm tra hiện tại.</div> : null}
 
     <div className="max-h-[560px] space-y-2 overflow-auto pr-1">
       {filtered.map((issue) => {
@@ -356,9 +383,9 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
               <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] font-semibold text-slate-600">
                 {issue.location.date && <span>Ngày: {issue.location.date}</span>}{issue.location.teamName && <span>Đội: {issue.location.teamName}</span>}{issue.location.floorName && <span>Tầng: {issue.location.floorName}</span>}{issue.location.roomName && <span>Căn: {issue.location.roomName}</span>}{issue.location.shift && <span>Ca: {issue.location.shift}</span>}{issue.location.workItem && <span>Công việc: {issue.location.workItem}</span>}
               </div>
-              <div className="mt-1 break-all text-[9px] text-slate-400">{issue.ruleId} · {issue.entityType}:{issue.entityId}</div>
-              <div className="mt-2 flex flex-wrap gap-1.5"><button type="button" onClick={() => openIssue(issue)} className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[9px] font-bold text-indigo-700"><ExternalLink className="h-3 w-3" /> {issue.ruleId === 'ROOM_ORPHAN_WORK_CATEGORY_REFERENCE' && userRole === 'ADMIN' ? 'Xử lý hạng mục' : 'Xem bản ghi'}</button><ExpandCollapseButton expanded={isOpen} onToggle={() => setExpanded(isOpen ? null : issue.id)} expandLabel="Xem liên kết" collapseLabel="Ẩn liên kết" className="min-h-7 rounded-md border-slate-200 px-2 py-1 text-[9px] text-slate-600" /></div>
-              {isOpen && <div className="mt-2 rounded-lg bg-slate-50 p-2 text-[9px] text-slate-600"><div><b>Evidence:</b> {issue.evidenceIds.join(', ') || '—'}</div><div className="mt-1 break-all"><b>Chi tiết:</b> {JSON.stringify(issue.details || {})}</div></div>}
+              
+              <div className="mt-2 flex flex-wrap gap-1.5"><button type="button" onClick={() => openIssue(issue)} className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[9px] font-bold text-indigo-700"><ExternalLink className="h-3 w-3" /> {issue.ruleId === 'ROOM_ORPHAN_WORK_CATEGORY_REFERENCE' && userRole === 'ADMIN' ? 'Xử lý hạng mục' : 'Xem bản ghi'}</button><ExpandCollapseButton expanded={isOpen} onToggle={() => setExpanded(isOpen ? null : issue.id)} expandLabel="Chi tiết kỹ thuật" collapseLabel="Ẩn chi tiết kỹ thuật" className="min-h-7 rounded-md border-slate-200 px-2 py-1 text-[9px] text-slate-600" /></div>
+              {isOpen && <div className="mt-2 rounded-lg bg-slate-50 p-2 text-[9px] text-slate-600"><div className="break-all"><b>Mã kiểm tra và bản ghi:</b> {issue.ruleId} · {issue.entityType}:{issue.entityId}</div><div className="mt-1"><b>Bằng chứng:</b> {issue.evidenceIds.join(', ') || '—'}</div><div className="mt-1 break-all"><b>Chi tiết kỹ thuật:</b> {JSON.stringify(issue.details || {})}</div></div>}
             </div>
           </div>
         </div>;
@@ -369,16 +396,29 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
     <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3 space-y-2">
       <div>
         <div className="text-[10px] font-extrabold text-slate-700">Xuất &amp; chia sẻ chẩn đoán</div>
-        <div className="mt-0.5 text-[9px] font-semibold text-slate-500">Một file chứa chung Audit dữ liệu/liên kết + trạng thái hệ thống/đồng bộ + ảnh R2. PDF đã bỏ để tránh trùng.</div>
+        <div className="mt-0.5 text-[9px] font-semibold text-slate-500">Một tệp chứa chung kiểm tra dữ liệu/liên kết + trạng thái hệ thống/đồng bộ + ảnh R2. PDF đã bỏ để tránh trùng.</div>
       </div>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <button type="button" disabled={Boolean(exporting)} onClick={() => void exportReport('json')} className="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-bold disabled:opacity-50"><FileJson className="h-3.5 w-3.5" /> Xuất JSON</button>
-        <button type="button" disabled={Boolean(exporting)} onClick={() => void exportReport('excel')} className="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-[10px] font-bold text-indigo-700 disabled:opacity-50"><FileSpreadsheet className="h-3.5 w-3.5" /> Xuất Excel</button>
-        <button type="button" disabled={Boolean(exporting)} onClick={() => void copyCombinedDiagnostics()} className="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50"><Copy className="h-3.5 w-3.5" /> Copy chẩn đoán</button>
+      {/* Consistent format palette: Content (slate), JSON (violet), Excel (green). Actions unchanged. */}
+      <div className="grid grid-cols-3 gap-2" role="group" aria-label="Nội dung, JSON và Excel" data-hnl-health-export-actions="true" data-hnl-export-format-group="true" data-hnl-export-format-count="3">
+        <button type="button" data-hnl-health-export-format="text" disabled={Boolean(exporting)}
+          onClick={() => void copyCombinedDiagnostics()} title="Sao chép chẩn đoán đầy đủ" aria-label="Sao chép chẩn đoán"
+          className="inline-flex min-h-11 min-w-0 items-center justify-center gap-1 rounded-xl bg-slate-800 px-1.5 text-xs font-bold text-white transition-colors hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:opacity-40">
+          <Copy className="h-4 w-4 shrink-0" /> {exporting === 'copy' ? 'Đang chép…' : 'Nội dung'}
+        </button>
+        <button type="button" data-hnl-health-export-format="json" disabled={Boolean(exporting)}
+          onClick={() => void exportReport('json')} title="Xuất chẩn đoán ra tệp JSON" aria-label="Xuất JSON"
+          className="inline-flex min-h-11 min-w-0 items-center justify-center gap-1 rounded-xl bg-violet-600 px-1.5 text-xs font-bold text-white transition-colors hover:bg-violet-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 focus-visible:ring-offset-2 disabled:opacity-40">
+          <FileJson className="h-4 w-4 shrink-0" /> {exporting === 'json' ? 'Đang xuất…' : 'JSON'}
+        </button>
+        <button type="button" data-hnl-health-export-format="excel" disabled={Boolean(exporting)}
+          onClick={() => void exportReport('excel')} title="Xuất chẩn đoán ra Excel" aria-label="Xuất Excel"
+          className="inline-flex min-h-11 min-w-0 items-center justify-center gap-1 rounded-xl bg-green-600 px-1.5 text-xs font-bold text-white transition-colors hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300 focus-visible:ring-offset-2 disabled:opacity-40">
+          <FileSpreadsheet className="h-4 w-4 shrink-0" /> {exporting === 'excel' ? 'Đang xuất…' : 'Excel'}
+        </button>
       </div>
-      <div className="text-[9px] font-semibold text-slate-500">Đang hiển thị/xuất {filtered.length}/{report.issues.length} vấn đề · {report.recordsScanned} record đã quét</div>
+      <div className="text-[9px] font-semibold text-slate-500">Đang hiển thị/xuất {filtered.length}/{report.issues.length} vấn đề · {report.recordsScanned} bản ghi đã quét</div>
       {onClearSystemDiagnostics && <div className="border-t border-slate-100 pt-2">
-        <button type="button" disabled={Boolean(exporting)} onClick={() => void onClearSystemDiagnostics()} className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[9px] font-bold text-slate-500 hover:bg-slate-50 hover:text-rose-600 disabled:opacity-50"><Eraser className="h-3.5 w-3.5" /> Xóa log chẩn đoán cũ</button>
+        <button type="button" disabled={Boolean(exporting)} onClick={() => void onClearSystemDiagnostics()} className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[9px] font-bold text-slate-500 hover:bg-slate-50 hover:text-rose-600 disabled:opacity-50"><Eraser className="h-3.5 w-3.5" /> Xóa nhật ký chẩn đoán cũ</button>
       </div>}
     </div>
   </div>;

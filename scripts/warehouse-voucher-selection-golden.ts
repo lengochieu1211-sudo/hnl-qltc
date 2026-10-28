@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import type { InventoryItem } from '../src/types';
+import { selectWarehouseVouchers } from '../src/components/WarehouseVoucherShareSheet';
+const a:InventoryItem={id:'A-IN',type:'in',itemKind:'material',materialName:'Tấm TC',unit:'Tấm',quantity:12,date:'2026-10-14',location:'Kho A',handler:'A'};
+const b:InventoryItem={...a,id:'B-OUT',type:'out',date:'2026-10-13',quantity:3};
+const c:InventoryItem={...a,id:'C-EQ',itemKind:'equipment',materialName:'Máy bắn vít',unit:'Cái',quantity:2};
+const d:InventoryItem={...a,id:'DELETED',deletedAt:Date.now()};
+const rows=[a,b,c,d];
+const query={period:'range' as const,start:'2026-10-13',end:'2026-10-14',kind:'all' as const,direction:'all' as const};
+assert.deepEqual(selectWarehouseVouchers(rows,query).map(x=>x.id),['A-IN','C-EQ','B-OUT']);
+assert.deepEqual(selectWarehouseVouchers(rows,{...query,kind:'equipment'}).map(x=>x.id),['C-EQ']);
+assert.deepEqual(selectWarehouseVouchers(rows,{...query,direction:'out'}).map(x=>x.id),['B-OUT']);
+assert.deepEqual(selectWarehouseVouchers(rows,{...query,period:'today',today:'2026-10-14'}).map(x=>x.id),['A-IN','C-EQ']);
+assert.deepEqual(selectWarehouseVouchers(rows,{...query,period:'yesterday',yesterday:'2026-10-13'}).map(x=>x.id),['B-OUT']);
+assert.deepEqual(selectWarehouseVouchers(rows,{...query,start:'2026-10-15',end:'2026-10-13'}),[]);
+console.log('Warehouse voucher date/type/kind/deleted regression PASS');

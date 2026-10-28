@@ -27,11 +27,32 @@ const memberContactService = fs.readFileSync('src/lib/memberContactService.ts', 
 assert.match(memberContactService, /updatedByEmail[,\s]/, 'member contact writes must include updatedByEmail required by Firestore Rules');
 
 const contactUtils = fs.readFileSync('src/utils/contactUtils.ts', 'utf8');
+const crewTab = fs.readFileSync('src/components/CrewTabBase.tsx', 'utf8');
+const androidMain = fs.readFileSync('android-wrapper/src/com/qlct/app/MainActivity.java', 'utf8');
+const desktopShell = fs.readFileSync('desktop-wrapper/DesktopWebShellForm.cs', 'utf8');
 assert.match(contactUtils, /https:\/\/chat\.zalo\.me\//, 'web Zalo fallback must use the stable web chat origin');
 assert.doesNotMatch(contactUtils, /window\.open\('https:\/\/zalo\.me\//, 'web must not force the generic zalo.me root deep link');
+assert.match(crewTab, /AndroidContact[\s\S]*pickContact/, 'Crew team phone picker must prefer the APK native contact bridge');
+assert.match(androidMain, /Intent\.ACTION_PICK, ContactsContract\.CommonDataKinds\.Phone\.CONTENT_URI/, 'Android APK must use the user-scoped system contact picker');
+assert.match(androidMain, /android-contact-result/, 'Android contact picker must return the selected name and phone to WebView');
+assert.match(androidMain, /webView\.saveState\(outState\)/, 'Android wrapper must preserve WebView navigation state across Activity recreation');
 
 
 const appSource = fs.readFileSync('src/App.tsx', 'utf8');
+assert.match(appSource, /qlct_active_tab_v1/, 'Web/mobile shell must remember the active primary tab across an unavoidable page recreation');
+assert.match(appSource, /Warm primary field screens after first paint without flooding the main thread/, 'desktop primary lazy tabs must still warm after first paint without blocking input');
+assert.match(appSource, /loader\(\)\.catch\(\(\) => undefined\)\.finally\(\(\) => \{[\s\S]*?nextTimer = window\.setTimeout\(next, warmGapMs\)/, 'desktop primary lazy tabs must warm truly sequentially instead of overlapping heavy parses');
+assert.match(appSource, /connection\?\.saveData \|\| isMobileRuntime/, 'mobile field runtime must skip background lazy-tab warming');
+assert.match(appSource, /return isMobileRuntime \? next\.slice\(-1\) : next/, 'mobile field runtime must keep only the current primary React tree while desktop keeps warmed tabs');
+assert.match(appSource, /navigationRequestRef/, 'rapid primary navigation must coalesce stale heavy-screen transitions');
+assert.match(appSource, /navigationCommitTimerRef/, 'rapid primary navigation must debounce heavy-screen commits during continuous taps');
+assert.match(appSource, /commitDelayMs = rapidMode \? 48 : 0/, 'single navigation must avoid an artificial hold while rapid navigation still coalesces heavy mounts');
+assert.match(appSource, /rapidTap = sinceLastRequest < 220/, 'rapid navigation mode must be driven by actual tap cadence');
+const navigationCoordinator = appSource.slice(appSource.indexOf('const navigateToTab'), appSource.indexOf('// Warm primary field screens'));
+assert.doesNotMatch(navigationCoordinator, /React\.startTransition/, 'settled rapid navigation commit must not remain transition-delayed');
+
+const showWebAppSection = desktopShell.slice(desktopShell.indexOf('internal void ShowWebApp()'), desktopShell.indexOf('private void InitializeEmbeddedWeb()'));
+assert.doesNotMatch(showWebAppSection, /Navigate\(Program\.BuildAppUrl\(\)\)/, 'Windows EXE must not re-navigate the WebView when returning from native home/tray');
 assert.match(appSource, /const securityModalProjects = React\.useMemo\(/, 'SecurityModal projects must stay referentially stable across Android VisualViewport keyboard renders');
 assert.doesNotMatch(appSource, /<SecurityModal[\s\S]{0,500}projects=\{getProjectsList\(\)\}/, 'SecurityModal must not receive a fresh projects array on every App render');
 

@@ -42,15 +42,21 @@ export function registerServiceWorker() {
         });
     };
 
-    // Bootstrap intentionally waits for storage/Auth/redirect preflight before mounting App.
-    // On a fresh or fast browser that work can finish after window.load has already fired.
-    // Register immediately in that case; otherwise wait for the one remaining load event.
-    // This guarantees first-install app-shell precaching instead of silently missing the
-    // Service Worker until the user's next page load.
+    const scheduleRegistration = () => {
+      const idle = (window as any).requestIdleCallback;
+      if (typeof idle === 'function') {
+        idle(registerCurrentBuildServiceWorker, { timeout: 2200 });
+      } else {
+        window.setTimeout(registerCurrentBuildServiceWorker, 900);
+      }
+    };
+
+    // Keep first-install offline coverage, but do not let service-worker installation
+    // compete with the first interactive paint and first user tap on Android/WebView.
     if (document.readyState === 'complete') {
-      registerCurrentBuildServiceWorker();
+      scheduleRegistration();
     } else {
-      window.addEventListener('load', registerCurrentBuildServiceWorker, { once: true });
+      window.addEventListener('load', scheduleRegistration, { once: true });
     }
   }
 }

@@ -8,7 +8,7 @@ import { runHnlAiQuestion, type HnlAiOrchestratorResult } from '../../ai/orchest
 import { HnlManagedAiProvider, type HnlManagedProviderId } from '../../ai/providers/hnlManagedProvider';
 import type { AiProviderModelInfo } from '../../ai/providers/providerTypes';
 import type { AiAuditIssue, AiAuditSummary } from '../../ai/core/contracts';
-import { exportHnlAiExcel, exportHnlAiPdf, type HnlAiReportExportInput } from '../../ai/export/aiReportExport';
+import type { HnlAiReportExportInput } from '../../ai/export/aiReportExport';
 
 export type AiAssistantMode = 'data' | 'audit' | 'ai' | 'hybrid';
 
@@ -38,15 +38,15 @@ export interface AiAssistantPageProps {
 }
 
 const MODE_META: Record<AiAssistantMode, { label: string; icon: React.ElementType; hint: string }> = {
-  data: { label: 'HNL Data', icon: Database, hint: 'Số liệu deterministic từ dữ liệu dự án.' },
-  audit: { label: 'Audit', icon: FileSearch, hint: 'Rule Engine kiểm tra logic và liên kết.' },
+  data: { label: 'HNL Data', icon: Database, hint: 'Số liệu được tính trực tiếp, nhất quán từ dữ liệu dự án.' },
+  audit: { label: 'Kiểm tra dữ liệu', icon: FileSearch, hint: 'Bộ quy tắc kiểm tra logic và liên kết.' },
   ai: { label: 'AI chung', icon: Bot, hint: 'Kiến thức AI bên ngoài; dữ liệu HNL chỉ được gửi khi bạn cho phép cho từng câu hỏi.' },
-  hybrid: { label: 'HNL + AI', icon: BrainCircuit, hint: 'Engine tính trước, AI chỉ diễn giải.' },
+  hybrid: { label: 'HNL + AI', icon: BrainCircuit, hint: 'Bộ tính HNL tính trước, AI chỉ diễn giải.' },
 };
 
 const QUICK_PROMPTS: Record<AiAssistantMode, string[]> = {
   data: ['Đội Nguyên đang làm gì hiện tại?', 'Tổng hợp đội Nguyên tuần này'],
-  audit: ['Audit toàn dự án', 'Kiểm tra toàn bộ Defect', 'Kiểm tra quân số bất thường', 'Kiểm tra khối lượng'],
+  audit: ['Kiểm tra toàn dự án', 'Kiểm tra toàn bộ Defect', 'Kiểm tra quân số bất thường', 'Kiểm tra khối lượng'],
   ai: ['Báo cáo khối lượng đội Nguyên', 'Biện pháp thi công trần thạch cao chống cháy', 'Viết email nhắc tổng thầu xử lý tồn tại'],
   hybrid: ['Dựa trên dữ liệu hiện tại, phân tích Defect và đề xuất ưu tiên', 'Kiểm tra toàn dự án và giải thích các rủi ro chính'],
 };
@@ -70,14 +70,29 @@ function isAuditSummary(value: unknown): value is AiAuditSummary {
   return Boolean(candidate && Array.isArray(candidate.issues) && typeof candidate.errorCount === 'number');
 }
 
+function aiFreshnessLabel(value: string): string {
+  if (value === 'live') return 'Trực tiếp';
+  if (value === 'cache') return 'Bộ nhớ đệm';
+  if (value === 'fixture') return 'Dữ liệu kiểm thử';
+  return value || '—';
+}
+
+function aiKindLabel(value: string): string {
+  if (value === 'FACT') return 'Dữ liệu nguồn';
+  if (value === 'CALCULATED') return 'Tính toán';
+  if (value === 'INFERENCE') return 'Suy luận';
+  if (value === 'RECOMMENDATION') return 'Đề xuất';
+  return value || '—';
+}
+
 function humanizeAiError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error || '');
   if (/INVALID_TEXT|PROMPT_TOO_LARGE|BODY_TOO_LARGE|HNL_AI_CONTEXT_TOO_LARGE/i.test(message)) {
     return 'Dữ liệu HNL gửi sang AI quá lớn cho một câu hỏi. HNL đã tự thu gọn dữ liệu; nếu vẫn gặp lỗi, hãy chỉ chọn các nhóm cần dùng (ví dụ Khối lượng + Quân số).';
   }
   if (/AUTH_REQUIRED|HNL_AI_AUTH_REQUIRED/i.test(message)) return 'Phiên đăng nhập AI đã hết hạn. Hãy đăng nhập lại tài khoản Google rồi thử lại.';
-  if (/MODEL_NOT_AVAILABLE/i.test(message)) return 'Model vừa chọn không còn khả dụng. Hãy chọn model khác trong danh sách rồi gửi lại.';
-  if (/CLOUDFLARE_EMPTY_RESPONSE/i.test(message)) return 'Cloudflare Workers AI không trả nội dung. Hãy thử lại hoặc chọn model khác.';
+  if (/MODEL_NOT_AVAILABLE/i.test(message)) return 'Mô hình AI vừa chọn không còn khả dụng. Hãy chọn mô hình khác trong danh sách rồi gửi lại.';
+  if (/CLOUDFLARE_EMPTY_RESPONSE/i.test(message)) return 'Cloudflare Workers AI không trả nội dung. Hãy thử lại hoặc chọn mô hình khác.';
   return message || 'Không thể gửi câu hỏi đến AI.';
 }
 
@@ -237,14 +252,14 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
     try {
       if (!props.accessVerified) throw new Error('Quyền truy cập dự án chưa được xác minh.');
       if (mode === 'ai') {
-        if (!props.online) throw new Error('AI Cloud đang offline. Chế độ AI chung cần có mạng.');
-        if (!provider || !model || !providerReady) throw new Error(providerId === 'cloudflare' ? 'Cloudflare HNL Managed AI chưa sẵn sàng.' : 'Provider chưa có HNL Managed API. Hãy nhập API Key riêng cho phiên này hoặc chọn provider khác.');
+        if (!props.online) throw new Error('AI Cloud đang ngoại tuyến. Chế độ AI chung cần có mạng.');
+        if (!provider || !model || !providerReady) throw new Error(providerId === 'cloudflare' ? 'Cloudflare HNL Managed AI chưa sẵn sàng.' : 'Nhà cung cấp chưa có HNL Managed API. Hãy nhập API Key riêng cho phiên này hoặc chọn nhà cung cấp khác.');
         const response = await provider.chat({
           mode: 'GENERAL_AI', model,
           messages: [
             { role: 'system', content: externalAiOptIn
-              ? 'Bạn là HNL AI Assistant. Chỉ được dùng phần dữ liệu HNL đã được người dùng cho phép và đính kèm trong đúng câu hỏi này. Dữ liệu là read-only, đã tối thiểu hóa/ẩn thông tin liên hệ. Nếu có deterministicMaterialNeeds thì đây là nguồn DUY NHẤT cho số lượng vật tư: phải trình bày đúng khung/tấm/phụ kiện theo kết quả này, không được thay bằng hạng mục m² và không tự tính lại từ rooms/workVolumes/định mức. Với khối lượng: ưu tiên quantitySummaryByTeamAndCategory và quantityDetails; không được suy diễn khối lượng theo khoảng ngày nếu dữ liệu chỉ là snapshot hiện tại hoặc updatedAt. Không suy đoán trường bị thiếu và không được yêu cầu hay thực hiện thao tác sửa/xóa dữ liệu HNL.'
-              : 'Bạn là HNL AI Assistant. Trả lời ngắn gọn, chuyên nghiệp. Không giả định hoặc tuyên bố đang đọc dữ liệu dự án HNL trong chế độ AI chung.' },
+              ? 'Bạn là Trợ lý HNL AI. Chỉ được dùng phần dữ liệu HNL đã được người dùng cho phép và đính kèm trong đúng câu hỏi này. Dữ liệu là read-only, đã tối thiểu hóa/ẩn thông tin liên hệ. Nếu có deterministicMaterialNeeds thì đây là nguồn DUY NHẤT cho số lượng vật tư: phải trình bày đúng khung/tấm/phụ kiện theo kết quả này, không được thay bằng hạng mục m² và không tự tính lại từ rooms/workVolumes/định mức. Với khối lượng: ưu tiên quantitySummaryByTeamAndCategory và quantityDetails; không được suy diễn khối lượng theo khoảng ngày nếu dữ liệu chỉ là snapshot hiện tại hoặc updatedAt. Không suy đoán trường bị thiếu và không được yêu cầu hay thực hiện thao tác sửa/xóa dữ liệu HNL.'
+              : 'Bạn là Trợ lý HNL AI. Trả lời ngắn gọn, chuyên nghiệp. Không giả định hoặc tuyên bố đang đọc dữ liệu dự án HNL trong chế độ AI chung.' },
             { role: 'user', content: externalAiOptIn
               ? buildExternalAiQuestionPayload(
                   text,
@@ -305,12 +320,13 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
     if (exportBusy) return;
     const input = createExportInput();
     if (!input) {
-      setExportNotice('Chưa có kết quả HNL deterministic để xuất.');
+      setExportNotice('Chưa có kết quả HNL để xuất.');
       return;
     }
     setExportBusy(kind);
     setExportNotice('');
     try {
+      const { exportHnlAiExcel, exportHnlAiPdf } = await import('../../ai/export/aiReportExport');
       if (kind === 'excel') {
         await exportHnlAiExcel(input);
         setExportNotice('Đã tạo báo cáo Excel HNL AI.');
@@ -328,25 +344,25 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
   const inspectedMeta = auditInspect ? getIssueBusinessMeta(auditInspect.issue) : null;
 
   return (
-    <div className="max-w-5xl mx-auto px-3 sm:px-5 pb-28 space-y-4">
-      <section className="rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-cyan-50 p-4 shadow-sm">
+    <div data-hnl-pc-v3-center="ai-workspace" data-hnl-pc-module="ai-workspace" className="max-w-5xl mx-auto px-3 sm:px-5 pb-28 space-y-4">
+      <section className="hnl-ai-hero rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 via-white to-cyan-50 p-4 shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shrink-0"><Sparkles className="w-6 h-6" /></div>
             <div className="min-w-0">
-              <h2 className="text-lg font-black text-slate-900">HNL AI Assistant</h2>
+              <h2 className="text-lg font-black text-slate-900">Trợ lý HNL AI</h2>
               <p className="text-xs text-slate-600 truncate">{props.projectName} · {props.role} · {timeZone}</p>
             </div>
           </div>
           <div className="flex items-center gap-1 text-[11px] font-semibold text-slate-600">
             {props.online ? <ShieldCheck className="w-4 h-4 text-emerald-600" /> : <WifiOff className="w-4 h-4 text-amber-600" />}
-            {props.online ? 'Online' : 'Offline cache'}
+            {props.online ? 'Trực tuyến' : 'Dữ liệu ngoại tuyến'}
           </div>
         </div>
-        <div className="mt-4 grid grid-cols-4 gap-1.5">
+        <div data-hnl-pc-deep-tabs="ai-modes" role="group" aria-label="Chế độ trợ lý AI" className="mt-4 grid grid-cols-4 gap-1.5">
           {(Object.keys(MODE_META) as AiAssistantMode[]).map((key) => {
             const item = MODE_META[key]; const Icon = item.icon; const active = mode === key;
-            return <button key={key} onClick={() => { setMode(key); if (key !== 'ai') { setExternalAiOptIn(false); setExternalAiFullProject(false); } setResult(null); setGeneralText(''); setError(''); setExportNotice(''); setAuditInspect(null); }} className={`rounded-xl px-2 py-2 text-[11px] font-bold flex flex-col sm:flex-row items-center justify-center gap-1 ${active ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}><Icon className="w-4 h-4" />{item.label}</button>;
+            return <button key={key} aria-pressed={active} onClick={() => { setMode(key); if (key !== 'ai') { setExternalAiOptIn(false); setExternalAiFullProject(false); } setResult(null); setGeneralText(''); setError(''); setExportNotice(''); setAuditInspect(null); }} className={`rounded-xl px-2 py-2 text-[11px] font-bold flex flex-col sm:flex-row items-center justify-center gap-1 ${active ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}><Icon className="w-4 h-4" />{item.label}</button>;
           })}
         </div>
         <p className="mt-2 text-[11px] text-slate-500">{MODE_META[mode].hint}</p>
@@ -360,31 +376,31 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
                 {(Object.keys(PROVIDER_META) as HnlManagedProviderId[]).map((id) => <option key={id} value={id}>{PROVIDER_META[id].label}</option>)}
               </select>
             </label>
-            <label className="text-[11px] font-bold text-slate-700">Model
+            <label className="text-[11px] font-bold text-slate-700">Mô hình AI
               <select value={model} disabled={modelsLoading || models.length === 0} onChange={(e) => setModel(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-800 disabled:opacity-60">
-                {modelsLoading && <option value="">Đang tải model...</option>}
-                {!modelsLoading && models.length === 0 && <option value="">Chưa có model</option>}
+                {modelsLoading && <option value="">Đang tải mô hình...</option>}
+                {!modelsLoading && models.length === 0 && <option value="">Chưa có mô hình</option>}
                 {models.map((item) => <option key={item.id} value={item.id}>{item.displayName || item.id}</option>)}
               </select>
             </label>
           </div>
           {providerId !== 'cloudflare' && <div className="mt-2">
-            <div className="flex items-center justify-between gap-2"><label className="text-[11px] font-bold text-slate-700">API Key riêng</label><span className="text-[10px] font-semibold text-emerald-700">Chỉ giữ trong bộ nhớ phiên này</span></div>
+            <div className="flex items-center justify-between gap-2"><label className="text-[11px] font-bold text-slate-700">Khóa API (API Key) riêng</label><span className="text-[10px] font-semibold text-emerald-700">Chỉ giữ trong bộ nhớ phiên này</span></div>
             <div className="mt-1 flex gap-2">
-              <input type={showApiKey ? 'text' : 'password'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" spellCheck={false} placeholder={`Nhập ${selectedProvider.label} API Key`} className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800" />
+              <input type={showApiKey ? 'text' : 'password'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" spellCheck={false} placeholder={`Nhập khóa API (API Key) ${selectedProvider.label}`} className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800" />
               <button type="button" onClick={() => setShowApiKey((value) => !value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-[11px] font-bold text-slate-700">{showApiKey ? 'Ẩn' : 'Hiện'}</button>
               {apiKey && <button type="button" onClick={() => setApiKey('')} className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-bold text-rose-700">Xóa</button>}
             </div>
-            <p className="mt-1.5 text-[10px] leading-4 text-slate-500">{selectedProvider.apiHint} API Key bạn nhập không lưu vào Firestore, localStorage, APK/EXE hay log của HNL; tải lại ứng dụng sẽ phải nhập lại.</p>
+            <p className="mt-1.5 text-[10px] leading-4 text-slate-500">{selectedProvider.apiHint} Khóa API (API Key) bạn nhập không lưu vào Firestore, localStorage, APK/EXE hay nhật ký của HNL; tải lại ứng dụng sẽ phải nhập lại.</p>
           </div>}
-          <div className="mt-2 text-[10px] font-semibold text-slate-600">Trạng thái: {modelsLoading ? 'Đang đọc danh sách model...' : providerReady ? `${selectedProvider.label} · ${hasSessionApiKey ? 'API riêng phiên này' : 'HNL Managed'}` : providerId === 'cloudflare' ? 'HNL Managed chưa sẵn sàng' : 'Chưa có credential — nhập API Key riêng hoặc dùng HNL Managed nếu đã cấu hình'}</div>
+          <div className="mt-2 text-[10px] font-semibold text-slate-600">Trạng thái: {modelsLoading ? 'Đang đọc danh sách mô hình...' : providerReady ? `${selectedProvider.label} · ${hasSessionApiKey ? 'Khóa riêng phiên này' : 'Dịch vụ HNL'}` : providerId === 'cloudflare' ? 'Dịch vụ HNL chưa sẵn sàng' : 'Chưa có thông tin xác thực — nhập khóa API (API Key) riêng hoặc dùng dịch vụ HNL nếu đã cấu hình'}</div>
         </div>}
         {mode === 'ai' && <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
           <label className="flex items-start gap-2 text-[11px] font-bold text-amber-950">
             <input type="checkbox" checked={externalAiOptIn} onChange={(e) => setExternalAiOptIn(e.target.checked)} className="mt-0.5 h-4 w-4" />
             <span>Cho phép AI bên ngoài sử dụng dữ liệu HNL trong câu hỏi này</span>
           </label>
-          <p className="mt-1 text-[10px] leading-4 text-amber-800">Mặc định TẮT. Quyền này chỉ dùng một lần; sau khi gửi thành công sẽ tự tắt. Chỉ dữ liệu đã chọn bên dưới được gửi, ở dạng read-only và đã tối thiểu hóa.</p>
+          <p className="mt-1 text-[10px] leading-4 text-amber-800">Mặc định TẮT. Quyền này chỉ dùng một lần; sau khi gửi thành công sẽ tự tắt. Chỉ dữ liệu đã chọn bên dưới được gửi, ở dạng chỉ đọc và đã tối thiểu hóa.</p>
           {externalAiOptIn && <label className="mt-2 flex items-start gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-[10px] font-semibold text-indigo-950">
             <input
               type="checkbox"
@@ -394,14 +410,14 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
             />
             <span>
               <strong>Phân tích dữ liệu thô toàn dự án</strong>
-              <span className="block mt-0.5 font-normal leading-4 text-indigo-800">Gửi snapshot toàn dự án đã ẩn thông tin liên hệ, giới hạn dung lượng và chỉ đọc. Dùng cho phân tích tổng thể; câu hỏi vật tư vẫn bắt buộc dùng Material Need Engine, không cho AI tự nhân m².</span>
+              <span className="block mt-0.5 font-normal leading-4 text-indigo-800">Gửi bản chụp dữ liệu toàn dự án đã ẩn thông tin liên hệ, giới hạn dung lượng và chỉ đọc. Dùng cho phân tích tổng thể; câu hỏi vật tư vẫn bắt buộc dùng Bộ tính nhu cầu vật tư (Material Need Engine), không cho AI tự nhân m².</span>
             </span>
           </label>}
           {externalAiOptIn && !externalAiFullProject && <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-1.5">
             {([['progress','Tiến độ'],['quantities','Khối lượng'],['defects','Defect'],['crew','Quân số'],['inventory','Vật tư'],['checklist','Checklist']] as Array<[keyof ExternalAiDataSelection, string]>).map(([key, label]) => <label key={key} className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-white px-2 py-1.5 text-[10px] font-semibold text-slate-700"><input type="checkbox" checked={externalAiSelection[key]} onChange={(e) => setExternalAiSelection((current) => ({ ...current, [key]: e.target.checked }))} />{label}</label>)}
           </div>}
-          {externalAiOptIn && externalAiFullProject && <p className="mt-2 text-[10px] leading-4 text-indigo-800">Toàn bộ 6 nhóm dữ liệu được chọn tự động cho câu hỏi này: Tiến độ, Khối lượng, Defect, Quân số, Vật tư và Checklist. HNL vẫn áp dụng giới hạn số dòng/kích thước payload và fail-closed khi dữ liệu không đủ.</p>}
-          {externalAiOptIn && !externalAiFullProject && externalAiSelection.quantities && <p className="mt-2 text-[10px] leading-4 text-amber-800">Khối lượng được gửi theo snapshot hiện tại, có liên kết đội/tầng/căn/hạng mục/đơn vị. HNL không gán khối lượng cho một khoảng ngày nếu dữ liệu nguồn không có lịch sử khối lượng theo ngày.</p>}
+          {externalAiOptIn && externalAiFullProject && <p className="mt-2 text-[10px] leading-4 text-indigo-800">Toàn bộ 6 nhóm dữ liệu được chọn tự động cho câu hỏi này: Tiến độ, Khối lượng, Defect, Quân số, Vật tư và Checklist. HNL vẫn giới hạn số dòng/kích thước dữ liệu gửi và sẽ dừng an toàn khi dữ liệu không đủ.</p>}
+          {externalAiOptIn && !externalAiFullProject && externalAiSelection.quantities && <p className="mt-2 text-[10px] leading-4 text-amber-800">Khối lượng được gửi theo bản chụp dữ liệu hiện tại, có liên kết đội/tầng/căn/hạng mục/đơn vị. HNL không gán khối lượng cho một khoảng ngày nếu dữ liệu nguồn không có lịch sử khối lượng theo ngày.</p>}
         </div>}
         <div className="flex flex-wrap gap-2 mb-3">
           {QUICK_PROMPTS[mode].map((prompt) => <button key={prompt} onClick={() => void runQuestion(prompt)} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100">{prompt}</button>)}
@@ -415,7 +431,7 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
 
       {error && <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800 flex gap-2"><AlertTriangle className="w-5 h-5 shrink-0" />{error}</div>}
       {exportNotice && <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">{exportNotice}</div>}
-      {!props.online && mode !== 'ai' && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">AI Cloud đang offline. HNL Data/Audit vẫn chạy từ dữ liệu Firestore cache đã có trên thiết bị.</div>}
+      {!props.online && mode !== 'ai' && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">AI Cloud đang ngoại tuyến. HNL Data/Kiểm tra vẫn dùng dữ liệu Firestore đã lưu trên thiết bị.</div>}
 
       {generalText && <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="text-xs font-black text-indigo-700 mb-2">AI</div><div className="whitespace-pre-wrap text-sm text-slate-800">{generalText}</div></section>}
 
@@ -424,21 +440,21 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
       {toolResult && <>
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-            <div className="flex items-center gap-2"><h3 className="font-black text-slate-900">Kết quả HNL</h3><span className="text-[10px] rounded-full bg-emerald-50 text-emerald-700 px-2 py-1 font-bold">{toolResult.metadata.freshness.toUpperCase()}</span></div>
+            <div className="flex items-center gap-2"><h3 className="font-black text-slate-900">Kết quả HNL</h3><span className="text-[10px] rounded-full bg-emerald-50 text-emerald-700 px-2 py-1 font-bold">{aiFreshnessLabel(toolResult.metadata.freshness)}</span></div>
             <div className="flex items-center gap-2">
               <button disabled={Boolean(exportBusy)} onClick={() => void runExport('excel')} className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-bold text-emerald-800 disabled:opacity-50 flex items-center gap-1.5">{exportBusy === 'excel' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileSpreadsheet className="w-3.5 h-3.5" />}Excel</button>
               <button disabled={Boolean(exportBusy)} onClick={() => void runExport('pdf')} className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[11px] font-bold text-rose-800 disabled:opacity-50 flex items-center gap-1.5">{exportBusy === 'pdf' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}PDF</button>
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {toolResult.facts.map((fact) => <div key={fact.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="text-[10px] font-bold text-slate-500">{fact.kind}</div><div className="text-xs text-slate-600 mt-1">{fact.label}</div><div className="text-lg font-black text-slate-900">{String(fact.value ?? '—')} {fact.unit || ''}</div></div>)}
+            {toolResult.facts.map((fact) => <div key={fact.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="text-[10px] font-bold text-slate-500">{aiKindLabel(fact.kind)}</div><div className="text-xs text-slate-600 mt-1">{fact.label}</div><div className="text-lg font-black text-slate-900">{String(fact.value ?? '—')} {fact.unit || ''}</div></div>)}
           </div>
         </section>
 
         {audit && audit.issues.length > 0 && <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-3">
             <h3 className="font-black text-slate-900">Vấn đề phát hiện</h3>
-            <p className="mt-1 text-[11px] text-slate-500">Nhấn vào từng lỗi để kiểm tra bản ghi và liên kết nguồn. Audit chỉ đọc, không tự sửa dữ liệu.</p>
+            <p className="mt-1 text-[11px] text-slate-500">Nhấn vào từng lỗi để kiểm tra bản ghi và liên kết nguồn. Bộ kiểm tra chỉ đọc, không tự sửa dữ liệu.</p>
           </div>
           <div className="space-y-2 max-h-[560px] overflow-auto">
             {audit.issues.slice(0, 100).map((issue, index) => {
@@ -468,9 +484,9 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
           </div>
         </section>}
 
-        {result.narrative?.statements?.length ? <section className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4"><h3 className="font-black text-indigo-900 mb-2">AI nhận xét</h3>{result.narrative.statements.map((statement, index) => <div key={index} className="mb-2 last:mb-0"><div className="text-[10px] font-black text-indigo-600">{statement.kind}</div><p className="text-sm text-indigo-950">{statement.text}</p></div>)}</section> : null}
+        {result.narrative?.statements?.length ? <section className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4"><h3 className="font-black text-indigo-900 mb-2">AI nhận xét</h3>{result.narrative.statements.map((statement, index) => <div key={index} className="mb-2 last:mb-0"><div className="text-[10px] font-black text-indigo-600">{aiKindLabel(statement.kind)}</div><p className="text-sm text-indigo-950">{statement.text}</p></div>)}</section> : null}
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-4 text-xs text-slate-600 shadow-sm"><h3 className="font-black text-slate-800 mb-2">Nguồn dữ liệu</h3><div>Tool: {toolResult.metadata.tool}</div><div>Records: {toolResult.metadata.recordsUsed}/{toolResult.metadata.recordsScanned}</div><div>Collections: {toolResult.metadata.sourceCollections.join(', ')}</div><div>Evidence: {toolResult.evidence.length} record</div><div>As of: {new Date(toolResult.metadata.asOf).toLocaleString()}</div>{result.warnings.map((warning) => <div key={warning} className="mt-1 text-amber-700">⚠ {warning}</div>)}</section>
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 text-xs text-slate-600 shadow-sm"><h3 className="font-black text-slate-800 mb-2">Nguồn dữ liệu</h3><div>Công cụ: {toolResult.metadata.tool}</div><div>Bản ghi: {toolResult.metadata.recordsUsed}/{toolResult.metadata.recordsScanned}</div><div>Nguồn dữ liệu: {toolResult.metadata.sourceCollections.join(', ')}</div><div>Bằng chứng: {toolResult.evidence.length} bản ghi</div><div>Dữ liệu đến: {new Date(toolResult.metadata.asOf).toLocaleString()}</div>{result.warnings.map((warning) => <div key={warning} className="mt-1 text-amber-700">⚠ {warning}</div>)}</section>
       </>}
 
       {auditInspect && inspectedMeta && <div className="fixed inset-0 z-[120] bg-black/55 p-3 flex items-end sm:items-center justify-center" onClick={() => setAuditInspect(null)}>
@@ -497,28 +513,28 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
                 <h4 className="text-xs font-black text-slate-900 mb-2">Dữ liệu nghiệp vụ của bản ghi</h4>
                 {Object.keys(inspectedMeta.record).length > 0 ? <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {Object.entries(inspectedMeta.record).filter(([key, value]) => value !== undefined && value !== null && !/image|photo|base64|password|token|secret/i.test(key)).slice(0, 36).map(([key, value]) => <div key={key} className="rounded-lg border border-slate-200 p-2"><div className="text-[10px] font-mono text-slate-500">{key}</div><div className="mt-0.5 text-xs text-slate-800 break-words">{compactText(value)}</div></div>)}
-                </div> : <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">Không tìm thấy bản ghi gốc trong snapshot hiện tại. Hãy chạy Audit lại sau khi dữ liệu đồng bộ hoàn tất.</div>}
+                </div> : <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">Không tìm thấy bản ghi gốc trong bản chụp dữ liệu hiện tại. Hãy chạy kiểm tra lại sau khi dữ liệu đồng bộ hoàn tất.</div>}
               </div>
             </> : <>
               <div>
-                <h4 className="text-xs font-black text-slate-900 mb-2">Liên kết đang được Audit đối chiếu</h4>
+                <h4 className="text-xs font-black text-slate-900 mb-2">Liên kết đang được bộ kiểm tra đối chiếu</h4>
                 <div className="space-y-2 text-xs">
                   <div className="rounded-lg border border-slate-200 p-3"><span className="font-bold">Đội:</span> {inspectedMeta.teamName || '—'}<div className="mt-1 text-[10px] text-slate-500">teamId: {inspectedMeta.teamId || '—'}</div></div>
-                  <div className="rounded-lg border border-slate-200 p-3"><span className="font-bold">Tầng theo liên kết:</span> {inspectedMeta.currentFloorName || inspectedMeta.floorName || '—'}<div className="mt-1 text-[10px] text-slate-500">floorId: {inspectedMeta.floorId || '—'}</div>{inspectedMeta.savedFloorName && inspectedMeta.currentFloorName && inspectedMeta.savedFloorName !== inspectedMeta.currentFloorName && <div className="mt-2 text-amber-800">Tên lưu trong record: <b>{inspectedMeta.savedFloorName}</b> → tên tầng hiện tại: <b>{inspectedMeta.currentFloorName}</b></div>}</div>
+                  <div className="rounded-lg border border-slate-200 p-3"><span className="font-bold">Tầng theo liên kết:</span> {inspectedMeta.currentFloorName || inspectedMeta.floorName || '—'}<div className="mt-1 text-[10px] text-slate-500">floorId: {inspectedMeta.floorId || '—'}</div>{inspectedMeta.savedFloorName && inspectedMeta.currentFloorName && inspectedMeta.savedFloorName !== inspectedMeta.currentFloorName && <div className="mt-2 text-amber-800">Tên lưu trong bản ghi: <b>{inspectedMeta.savedFloorName}</b> → tên tầng hiện tại: <b>{inspectedMeta.currentFloorName}</b></div>}</div>
                   <div className="rounded-lg border border-slate-200 p-3"><span className="font-bold">Bản ghi:</span> {auditInspect.issue.entityType || '—'}<div className="mt-1 text-[10px] text-slate-500">entityId: {auditInspect.issue.entityId || '—'}</div></div>
                 </div>
               </div>
               {Object.keys(inspectedMeta.details).length > 0 && <div>
-                <h4 className="text-xs font-black text-slate-900 mb-2">Chi tiết Rule Engine</h4>
+                <h4 className="text-xs font-black text-slate-900 mb-2">Chi tiết bộ quy tắc</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">{Object.entries(inspectedMeta.details).map(([key, value]) => <div key={key} className="rounded-lg border border-slate-200 p-2"><div className="text-[10px] font-mono text-slate-500">{key}</div><div className="mt-0.5 text-xs text-slate-800 break-words">{compactText(value)}</div></div>)}</div>
               </div>}
             </>}
-            <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-[11px] leading-5 text-blue-900">Panel này chỉ dùng để kiểm tra. HNL AI/Audit không tự sửa hoặc xóa bản ghi. Nếu dữ liệu cần thay đổi, hãy sửa ở màn hình nghiệp vụ tương ứng rồi chạy Audit lại.</div>
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-[11px] leading-5 text-blue-900">Bảng này chỉ dùng để kiểm tra. HNL AI/bộ kiểm tra không tự sửa hoặc xóa bản ghi. Nếu dữ liệu cần thay đổi, hãy sửa ở màn hình nghiệp vụ tương ứng rồi chạy kiểm tra lại.</div>
           </div>
         </div>
       </div>}
 
-      <div className="text-center text-[10px] text-slate-400">HNL AI READ + ANALYZE + EXPORT ONLY · Không có quyền tự sửa/xóa dữ liệu</div>
+      <div className="text-center text-[10px] text-slate-400">HNL AI chỉ đọc, phân tích và xuất báo cáo · Không có quyền tự sửa/xóa dữ liệu</div>
     </div>
   );
 };
