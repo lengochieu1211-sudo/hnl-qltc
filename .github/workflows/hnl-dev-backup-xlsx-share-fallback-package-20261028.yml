@@ -1,0 +1,127 @@
+name: HNL DEV BACKUP XLSX share fix FULL PATCH REPORT SHA256 (NO DEPLOY)
+on:
+  push:
+    branches: [safety/dev-backup-voucher-excel-style-20261028]
+    paths: ['.github/workflows/hnl-dev-backup-xlsx-share-fallback-package-20261028.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: hnl-qltc-dev-backup-xlsx-share-handoff
+  cancel-in-progress: false
+jobs:
+  exact-source-handoff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PREVIOUS_QA: 04b3998ba3e2072d4b5648309d321fdf1e925095
+      VERIFIED_RELEASE_SHA: de09e252ac8cfae6d27cf4785533d3228a6e019b
+      VERIFIED_RELEASE_RUN: '40724765882'
+      EXPECTED_LIVE: sites/hnl-qltc-dev-backup/versions/9742c0a348837456
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact source since previous handoff, no additional business change
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-voucher-excel-style-20261028'
+          git merge-base --is-ancestor "$PREVIOUS_QA" HEAD
+          test "$(git diff --name-only "$VERIFIED_RELEASE_SHA" HEAD)" = '.github/workflows/hnl-dev-backup-xlsx-share-fallback-package-20261028.yml'
+          node - <<'NODE'
+          const cp=require('node:child_process');
+          const files=cp.execFileSync('git',['diff','--name-only',process.env.PREVIOUS_QA,'HEAD'],{encoding:'utf8'}).trim().split('\n').filter(Boolean).sort();
+          const want=[
+            'src/utils/shareUtils.ts',
+            'src/components/WarehouseVoucherShareSheet.tsx',
+            'scripts/warehouse-voucher-browser-golden.mjs',
+            '.github/workflows/hnl-dev-backup-voucher-controlled-live-20261028.yml',
+            '.github/workflows/hnl-dev-backup-voucher-share-fallback-ci-20261028.yml',
+            '.github/workflows/hnl-dev-backup-xlsx-share-fallback-preview-20261028.yml',
+            '.github/workflows/hnl-dev-backup-xlsx-share-fallback-live-20261028.yml',
+            '.github/workflows/hnl-dev-backup-xlsx-share-fallback-package-20261028.yml'
+          ].sort();
+          if(JSON.stringify(files)!==JSON.stringify(want))throw Error('UNREVIEWED_CHANGE '+JSON.stringify(files));
+          NODE
+          curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$VERIFIED_RELEASE_RUN" > "$RUNNER_TEMP/release.json"
+          node - <<'NODE'
+          const fs=require('fs'),r=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/release.json','utf8'));
+          if(r.status!=='completed'||r.conclusion!=='success'||r.head_sha!==process.env.VERIFIED_RELEASE_SHA)throw Error('NO_VERIFIED_RELEASE');
+          console.log('PASS exact successful Hosting release run',r.id);
+          NODE
+          node scripts/source-lint.mjs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Read only verify DEV Backup Hosting LIVE after release
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        run: |
+          set -euo pipefail
+          npm ci
+          node --input-type=module <<'NODE'
+          import {google} from 'googleapis';
+          const c=JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT||'{}');
+          if(c.type!=='service_account'||c.project_id!=='hnl-qltc-dev-backup'||!c.private_key)throw Error('WRONG_BACKUP_ACCOUNT');
+          const g=new google.auth.GoogleAuth({credentials:c,scopes:['https://www.googleapis.com/auth/firebase.hosting.readonly']});
+          const t=(await(await g.getClient()).getAccessToken()).token;
+          const r=await fetch('https://firebasehosting.googleapis.com/v1beta1/sites/hnl-qltc-dev-backup/channels/live/releases?pageSize=1',{headers:{Authorization:'Bearer '+t}});
+          if(!r.ok)throw Error('LIVE_READ_FAILED');
+          const actual=(await r.json()).releases?.[0]?.version?.name;
+          if(actual!==process.env.EXPECTED_LIVE)throw Error('LIVE_CONCURRENT_CHANGE_STOP '+actual);
+          console.log('PASS current DEV Backup LIVE version',actual);
+          NODE
+      - name: Produce exact HEAD FULL source ZIP PATCH ZIP REPORT SHA256 and validate both archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p deliverables/patch-tree
+          git archive --format=zip --output=deliverables/HNL-QLTC-DEV-BACKUP-XLSX-SHARE-FULL-SOURCE.zip HEAD
+          python3 - <<'PY'
+          import os,shutil,subprocess
+          paths=subprocess.check_output(['git','diff','--name-only',os.environ['PREVIOUS_QA'],'HEAD'],text=True).splitlines()
+          for path in paths:
+            if not os.path.isfile(path):raise SystemExit('MISSING_PATCH_FILE '+path)
+            dest=os.path.join('deliverables/patch-tree',path)
+            os.makedirs(os.path.dirname(dest),exist_ok=True)
+            shutil.copy2(path,dest)
+          with open('deliverables/patch-tree/CHANGED-FILES.txt','w') as f:f.write('\n'.join(paths)+'\n')
+          PY
+          (cd deliverables/patch-tree && zip -q -r ../HNL-QLTC-DEV-BACKUP-XLSX-SHARE-PATCH.zip .)
+          rm -rf deliverables/patch-tree
+          cat > deliverables/REPORT.md <<EOF
+          HNL QLTC DEV BACKUP XLSX BROWSER SHARE FALLBACK - 2026-10-28
+          Exact current QA HEAD: $GITHUB_SHA
+          Baseline previous QA checkpoint: $PREVIOUS_QA
+          GitHub release workflow SHA: $VERIFIED_RELEASE_SHA
+          GitHub release run: $VERIFIED_RELEASE_RUN COMPLETED SUCCESS
+          Firebase Hosting LIVE: $EXPECTED_LIVE
+          Source change: uses pre-built File for native navigator.share; when browser refuses XLSX/PDF, downloads identical file with explicit Zalo/Downloads instructions.
+          Browser desktop/mobile Chromium fixture golden, typecheck, lint, Rules, A3/A4, offline and build: CI run 40723812473 PASS.
+          Preview stage run 40724389181 PASS.
+          Hosting controlled LIVE release run 40724765882 PASS, previous version retained in hnl-xlsx-share-fallback-rollback-20261028.
+          Data/Firestore/R2/Rules/DEV main/PROD unchanged. No production or primary DEV push.
+          Actual user Chrome Android/Zalo Runtime Golden: still pending. NOT CERTIFIED.
+          FULL SOURCE is git archive of exact QA HEAD (tracked sources; no node_modules/dist).
+          PATCH contains only changes since previous checkpoint, plus CHANGED-FILES.txt.
+          EOF
+          (cd deliverables && sha256sum HNL-QLTC-DEV-BACKUP-XLSX-SHARE-*.zip REPORT.md > SHA256SUMS.txt)
+          unzip -tq deliverables/HNL-QLTC-DEV-BACKUP-XLSX-SHARE-FULL-SOURCE.zip
+          unzip -tq deliverables/HNL-QLTC-DEV-BACKUP-XLSX-SHARE-PATCH.zip
+          for p in package.json package-lock.json firebase.json .github/workflows/hnl-dev-backup-xlsx-share-fallback-live-20261028.yml; do
+            unzip -p deliverables/HNL-QLTC-DEV-BACKUP-XLSX-SHARE-FULL-SOURCE.zip "$p" >/dev/null || exit 1
+          done
+          echo 'PASS FULL/PATCH/source/CHECKSUM'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-DEV-BACKUP-XLSX-SHARE-FULL-PATCH-REPORT-SHA256
+          path: deliverables/
+          if-no-files-found: warn
+          retention-days: 30
