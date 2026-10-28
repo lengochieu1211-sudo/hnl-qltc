@@ -1,0 +1,110 @@
+name: HNL DEV BACKUP 4 issues candidate CI ONLY (NO DEPLOY)
+on:
+  push:
+    branches: [safety/dev-backup-4-fixes-20261028]
+    paths:
+      - '.github/workflows/hnl-dev-backup-four-issues-ci-only.yml'
+      - 'patches/DEV_BACKUP_FOUR_ISSUES_20261028.patch'
+permissions:
+  contents: read
+concurrency:
+  group: hnl-dev-backup-four-issues-ci-only
+  cancel-in-progress: false
+jobs:
+  four-issues-ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      CI: 'true'
+      VITE_APP_ENV: DEV
+      VITE_DEV_FIREBASE_TARGET: backup
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_HNL_AI_ENABLED: 'false'
+      VITE_USE_FIREBASE_EMULATORS: 'false'
+      VITE_FIREBASE_PROJECT_ID: hnl-qltc-dev-backup
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev-backup.web.app
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_GIT_COMMIT: 3a4c9179cb41c34a97b4d3cf31487a87b4e4a1c7
+    steps:
+      - name: Checkout isolated audit branch (read-only token)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact source and apply minimal patch ONLY in runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-4-fixes-20261028'
+          git merge-base --is-ancestor '3a4c9179cb41c34a97b4d3cf31487a87b4e4a1c7' HEAD
+          python3 - <<'PY'
+          import subprocess
+          changed=set(subprocess.check_output(['git','diff','--name-only','3a4c9179cb41c34a97b4d3cf31487a87b4e4a1c7','HEAD']).decode().splitlines())
+          expected={'.github/workflows/hnl-dev-backup-four-issues-ci-only.yml','patches/DEV_BACKUP_FOUR_ISSUES_20261028.patch'}
+          if changed != expected: raise SystemExit('REFUSING_UNAUDITED_SOURCE_CHANGES '+repr(changed))
+          print('PASS exact DEV Backup baseline; only audit patch and CI workflow added')
+          PY
+          git apply --check patches/DEV_BACKUP_FOUR_ISSUES_20261028.patch
+          git apply patches/DEV_BACKUP_FOUR_ISSUES_20261028.patch
+          node scripts/dev-backup-four-issues-golden.mjs
+          node --experimental-strip-types scripts/dev-backup-four-issues-geometry-golden.mjs
+      - name: Verify public Firebase DEV BACKUP SDK without changing project
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 3 'https://hnl-qltc-dev-backup.web.app/__/firebase/init.json' -o "$RUNNER_TEMP/backup-public-sdk.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const cfg=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/backup-public-sdk.json','utf8'));
+          if(cfg.projectId!=='hnl-qltc-dev-backup'||!cfg.apiKey||!cfg.appId||!cfg.messagingSenderId)throw Error('Wrong DEV BACKUP SDK or missing public Web App');
+          const m={VITE_FIREBASE_API_KEY:cfg.apiKey,VITE_FIREBASE_APP_ID:cfg.appId,VITE_FIREBASE_MESSAGING_SENDER_ID:cfg.messagingSenderId,VITE_FIREBASE_PROJECT_ID:cfg.projectId,VITE_FIREBASE_STORAGE_BUCKET:cfg.storageBucket||'hnl-qltc-dev-backup.firebasestorage.app',VITE_FIREBASE_AUTH_DOMAIN:'hnl-qltc-dev-backup.web.app'};
+          fs.appendFileSync(process.env.GITHUB_ENV,Object.entries(m).map(([k,v])=>k+'='+v).join('\n')+'\n');
+          console.log('PASS DEV BACKUP projectId and first-party Auth origin');
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: TypeScript / Lint / Firebase Rules Emulator / Regression / Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const a=require('./package.json'),b=require('./package-lock.json');if(a.version!==b.version||a.name!==b.name)process.exit(2)"
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          node scripts/dev-backup-four-issues-golden.mjs
+          node --experimental-strip-types scripts/dev-backup-four-issues-geometry-golden.mjs
+          node scripts/rbac-matrix.mjs
+          node scripts/offline-golden.mjs
+          node scripts/firebase-only-golden.mjs
+          node --experimental-strip-types scripts/warehouse-order-golden.mjs
+          npm run security:audit
+          npm run build
+          test -s dist/index.html
+          grep -R -q 'hnl-qltc-dev-backup.web.app' dist/assets
+          grep -R -q 'hnl-qltc-r2-gateway-dev-backup' dist/assets
+          if grep -R -q 'hnl-qltc-r2-gateway.lengochieu1211.workers.dev' dist/assets; then
+            echo '::error::PROD R2 gateway found in DEV Backup bundle';exit 1
+          fi
+          echo 'DEV_BACKUP_FOUR_ISSUES_CI_PASS: NO LIVE DEPLOY'
+      - name: Record evidence (no secrets or tokens)
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          printf 'source=3a4c9179cb41c34a97b4d3cf31487a87b4e4a1c7\nhead=%s\nproject=hnl-qltc-dev-backup\nauthDomain=hnl-qltc-dev-backup.web.app\nstatus=%s\nNo Hosting/Firestore/R2 or PROD deployment was attempted.\n' "$GITHUB_SHA" "${{ job.status }}" > evidence/DEV-BACKUP-FOUR-ISSUES-CI.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-DEV-BACKUP-FOUR-ISSUES-CI
+          path: evidence/DEV-BACKUP-FOUR-ISSUES-CI.txt
+          retention-days: 30
