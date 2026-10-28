@@ -39,7 +39,8 @@ jobs:
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
-          import {createSign} from 'node:crypto';
+          import {createSign,createHash} from 'node:crypto';
+          import {execFileSync} from 'node:child_process';
           import {writeFileSync} from 'node:fs';
           const sa=JSON.parse(process.env.FIREBASE_PROD_READ_CREDENTIAL);
           const project='com-example-qlct-61329',site='hnlqltc';
@@ -75,12 +76,26 @@ jobs:
             if(!pageToken)break;
             if(i===9)throw new Error('RULES_PAGINATION_LIMIT');
           }
-          const rulesComplete=ruleList.some(x=>x.name.includes('/releases/cloud.firestore'))&&ruleList.some(x=>x.name.includes('/releases/firebase.storage'));
-          const rulesStatus=rulesComplete?'RULES_POINTERS_VERIFIED':'RULES_POINTERS_REQUIRE_REVIEW';
-          const out={format:'P21.42-READ-ONLY-PROD-ROLLBACK-ANCHORS',project,site,readAt:new Date().toISOString(),mainBefore:'57eea2b878e17da64d7a6191fda178eaff3b8488',releaseCandidate:'f36bd19fa30228f8056a0251ff1db81daad92500',hostingLive:hosting[0],hostingRecent:hosting.slice(0,3),rulesReleasePointers:ruleList,allRulesReleaseNames:allRuleReleases,rulesStatus,stage:'PREDEPLOY_BASELINE_ONLY',scope:'GET_ONLY_NO_DEPLOY',notes:'Immutable live Hosting version and ruleset pointers recorded. Validate source/rollback rights before any restoration.'};
+          const firestoreRule=ruleList.find(x=>x.name.includes('/releases/cloud.firestore'));
+          const storageRule=ruleList.find(x=>x.name.includes('/releases/firebase.storage'));
+          if(!firestoreRule?.rulesetName)throw new Error('NO_FIRESTORE_RULESET_POINTER');
+          const rulesComplete=!!storageRule?.rulesetName;
+          const rulesStatus=rulesComplete?'RULES_POINTERS_VERIFIED':'STORAGE_RELEASE_NOT_FOUND';
+          let liveFirestoreRuleFingerprint=null,mainFirestoreRuleFingerprint=null,firestoreRulesMatchMain=null,firestoreRuleFetchStatus='NOT_READ';
+          try {
+            const ruleset=await get('https://firebaserules.googleapis.com/v1/'+firestoreRule.rulesetName);
+            const texts=(ruleset.source?.files||[]).filter(f=>typeof f.content==='string').map(f=>f.content);
+            const main=execFileSync('git',['show','57eea2b878e17da64d7a6191fda178eaff3b8488:firestore.rules'],{encoding:'utf8'});
+            const sha=t=>createHash('sha256').update(t).digest('hex');
+            liveFirestoreRuleFingerprint=texts.map(sha).sort();mainFirestoreRuleFingerprint=sha(main);
+            firestoreRulesMatchMain=texts.some(t=>t===main);
+            firestoreRuleFetchStatus=texts.length?'READ_ONLY_SOURCE_HASHED':'RULESET_WITHOUT_SOURCE';
+          }catch(err){firestoreRuleFetchStatus='UNAVAILABLE:'+String(err.message).slice(0,90);}
+
+          const out={format:'P21.42-READ-ONLY-PROD-ROLLBACK-ANCHORS',project,site,readAt:new Date().toISOString(),mainBefore:'57eea2b878e17da64d7a6191fda178eaff3b8488',releaseCandidate:'f36bd19fa30228f8056a0251ff1db81daad92500',hostingLive:hosting[0],hostingRecent:hosting.slice(0,3),rulesReleasePointers:ruleList,allRulesReleaseNames:allRuleReleases,rulesStatus,firestoreRuleFetchStatus,liveFirestoreRuleFingerprint,mainFirestoreRuleFingerprint,firestoreRulesMatchMain,stage:'PREDEPLOY_BASELINE_ONLY',scope:'GET_ONLY_NO_DEPLOY',notes:'Immutable live Hosting version and ruleset pointers recorded. Validate source/rollback rights before any restoration.'};
           writeFileSync('P2142-PROD-ROLLBACK-ANCHORS.json',JSON.stringify(out,null,2)+'\n',{mode:0o600});
-          console.log(JSON.stringify({site,hostingLive:out.hostingLive,firestoreRules:ruleList.filter(x=>x.name.includes('/releases/cloud.firestore')).map(x=>x.rulesetName),storageRules:ruleList.filter(x=>x.name.includes('/releases/firebase.storage')).map(x=>x.rulesetName),allRuleReleaseNames:allRuleReleases.map(x=>x.name),rulesStatus,stage:out.stage}));
-          if(!rulesComplete)process.exitCode=2;
+          console.log(JSON.stringify({site,hostingLive:out.hostingLive,firestoreRules:ruleList.filter(x=>x.name.includes('/releases/cloud.firestore')).map(x=>x.rulesetName),storageRules:ruleList.filter(x=>x.name.includes('/releases/firebase.storage')).map(x=>x.rulesetName),allRuleReleaseNames:allRuleReleases.map(x=>x.name),rulesStatus,firestoreRuleFetchStatus,firestoreRulesMatchMain,stage:out.stage}));
+          if(firestoreRulesMatchMain===false)process.exitCode=2;
           NODE
       - name: Upload sanitized, source-pinned rollback anchors
         if: always()
