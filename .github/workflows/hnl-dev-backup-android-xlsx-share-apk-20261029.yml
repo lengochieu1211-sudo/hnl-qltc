@@ -1,0 +1,175 @@
+name: HNL DEV BACKUP isolated Android APK XLSX native share (NO DEPLOY / NO PROD)
+on:
+  push:
+    branches: [safety/dev-backup-voucher-excel-style-20261028]
+    paths: ['.github/workflows/hnl-dev-backup-android-xlsx-share-apk-20261029.yml']
+permissions:
+  contents: read
+concurrency:
+  group: hnl-dev-backup-android-xlsx-share-build
+  cancel-in-progress: false
+jobs:
+  apk:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      BASELINE_SHA: 37d8bf77349c879693f74dcdaa546127a6890971
+      TARGET_PROJECT: hnl-qltc-dev-backup
+      TARGET_DOMAIN: hnl-qltc-dev-backup.web.app
+      TARGET_R2: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+      BACKUP_PACKAGE: com.qlct.app.devbackup
+      QLCT_WEB_URL: https://hnl-qltc-dev-backup.web.app/?app=android&env=dev
+      QLCT_RELEASE_TAG: 6.3.0-devbackup-xlsx-20261029
+      VITE_APP_ENV: DEV
+      VITE_DEV_FIREBASE_TARGET: backup
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_FIREBASE_PROJECT_ID: hnl-qltc-dev-backup
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev-backup.web.app
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_HNL_AI_ENABLED: 'false'
+      VITE_GIT_COMMIT: 37d8bf77349c879693f74dcdaa546127a6890971
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      QLCT_ANDROID_KEYSTORE_BASE64: ${{ secrets.HNL_QLTC_DEV_ANDROID_KEYSTORE_BASE64 }}
+      QLCT_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.HNL_QLTC_DEV_ANDROID_KEYSTORE_PASSWORD }}
+      QLCT_ANDROID_KEY_PASSWORD: ${{ secrets.HNL_QLTC_DEV_ANDROID_KEYSTORE_PASSWORD }}
+      QLCT_ANDROID_KEY_ALIAS: ${{ secrets.HNL_QLTC_DEV_ANDROID_KEY_ALIAS }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Refuse unreviewed app changes, wrong environment, PROD/DEV collisions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REF -ne 'refs/heads/safety/dev-backup-voucher-excel-style-20261028') { throw 'WRONG_QA_BRANCH' }
+          $changed = @(git diff --name-only $env:BASELINE_SHA HEAD)
+          if ($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or $changed[0] -ne '.github/workflows/hnl-dev-backup-android-xlsx-share-apk-20261029.yml') { throw ('UNREVIEWED_APP_CHANGE: ' + ($changed -join ',')) }
+          if ($env:BACKUP_PACKAGE -in @('com.qlct.app','com.qlct.app.dev')) { throw 'PACKAGE_COLLISION' }
+          if ($env:VITE_APP_ENV -ne 'DEV' -or $env:VITE_FIREBASE_PROJECT_ID -ne $env:TARGET_PROJECT -or $env:VITE_FIREBASE_AUTH_DOMAIN -ne $env:TARGET_DOMAIN -or $env:VITE_R2_GATEWAY_URL -ne $env:TARGET_R2) { throw 'WRONG_DEV_BACKUP_TARGET' }
+          if (-not $env:QLCT_WEB_URL.StartsWith('https://hnl-qltc-dev-backup.web.app/')) { throw 'WRONG_ANDROID_WEBVIEW_URL' }
+          if ($env:QLCT_WEB_URL -match 'hnlqltc\.web\.app|com-example-qlct-61329') { throw 'PROD_URL_FORBIDDEN' }
+          Write-Host 'PASS exact QA source and isolated DEV BACKUP endpoint'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Load Firebase Web public config of existing DEV BACKUP (no new project)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $c = Invoke-RestMethod -Uri 'https://hnl-qltc-dev-backup.web.app/__/firebase/init.json' -TimeoutSec 30
+          if ($c.projectId -ne $env:TARGET_PROJECT -or -not $c.apiKey -or -not $c.appId) { throw 'BACKUP_FIREBASE_PUBLIC_IDENTITY_MISMATCH' }
+          @(
+            "VITE_FIREBASE_API_KEY=$($c.apiKey)",
+            "VITE_FIREBASE_APP_ID=$($c.appId)",
+            "VITE_FIREBASE_MESSAGING_SENDER_ID=$($c.messagingSenderId)",
+            "VITE_FIREBASE_STORAGE_BUCKET=$(if ($c.storageBucket) { $c.storageBucket } else { 'hnl-qltc-dev-backup.firebasestorage.app' })"
+          ) | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host 'PASS public Firebase DEV BACKUP SDK credentials'
+      - name: Install, TypeScript, lint, Firebase Rules and native Android bridge golden
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw 'NPM_CI_FAILED' }
+          npm run typecheck
+          if ($LASTEXITCODE -ne 0) { throw 'TYPESCRIPT_FAILED' }
+          npm run lint
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LINT_FAILED' }
+          npm run test:rules
+          if ($LASTEXITCODE -ne 0) { throw 'RULES_FAILED' }
+          node scripts/android-wrapper-golden.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'ANDROID_WRAPPER_GOLDEN_FAILED' }
+          node scripts/android-export-zero-byte-golden.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'ANDROID_EXPORT_GOLDEN_FAILED' }
+          npx tsx scripts/warehouse-voucher-xlsx-style-golden.ts
+          if ($LASTEXITCODE -ne 0) { throw 'WAREHOUSE_XLSX_GOLDEN_FAILED' }
+          Write-Host 'PASS TS/lint/Rules/Android bridge/export/Excel regression'
+      - name: Build exact QA web bundle for native offline fallback
+        shell: pwsh
+        run: |
+          npm run build
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path './dist/index.html')) { throw 'BUNDLE_BUILD_FAILED' }
+          $content = (Get-ChildItem './dist/assets' -File -Filter '*.js' | ForEach-Object { Get-Content -Raw -LiteralPath $_.FullName }) -join "`n"
+          if ($content -notmatch 'hnl-qltc-dev-backup\.web\.app' -or $content -notmatch 'hnl-qltc-r2-gateway-dev-backup' -or $content -notmatch 'Trình duyệt chưa cho chia sẻ trực tiếp') { throw 'WRONG_DEV_BACKUP_ASSETS' }
+          Write-Host 'PASS Web assets target backup only and contain XLSX share patch'
+      - name: Isolate unique APK package, native FileProvider authority and visible label
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $utf8 = New-Object System.Text.UTF8Encoding($false)
+          $manifestPath = './android-wrapper/AndroidManifest.xml'
+          $old = Get-Content -Raw -LiteralPath $manifestPath
+          if ($old -notmatch 'package="com\.qlct\.app"' -or $old -notmatch 'android:authorities="com\.qlct\.app\.picker"') { throw 'WRONG_ORIGINAL_MANIFEST' }
+          $new = $old.Replace('com.qlct.app', $env:BACKUP_PACKAGE)
+          [System.IO.File]::WriteAllText((Resolve-Path $manifestPath), $new, $utf8)
+          Get-ChildItem './android-wrapper/src' -Recurse -Filter '*.java' | ForEach-Object {
+            $body = Get-Content -Raw -LiteralPath $_.FullName
+            $body = $body.Replace('com.qlct.app', $env:BACKUP_PACKAGE)
+            [System.IO.File]::WriteAllText($_.FullName, $body, $utf8)
+          }
+          # Keep DEV signing while clearly labeling this QA-only app differently.
+          $scriptPath = './android-wrapper/build-apk.ps1'
+          $build = Get-Content -Raw -LiteralPath $scriptPath
+          $build = $build.Replace("'HNL QLTC DEV'","'HNL QLTC BACKUP'")
+          [System.IO.File]::WriteAllText((Resolve-Path $scriptPath), $build, $utf8)
+          $check = Get-Content -Raw -LiteralPath $manifestPath
+          $bridge = Get-Content -Raw -LiteralPath './android-wrapper/src/com/qlct/app/MainActivity.java'
+          $provider = Get-Content -Raw -LiteralPath './android-wrapper/src/com/qlct/app/PickerCacheProvider.java'
+          if ($check -notmatch 'com\.qlct\.app\.devbackup' -or $bridge -notmatch 'com\.qlct\.app\.devbackup' -or $provider -notmatch 'com\.qlct\.app\.devbackup') { throw 'NATIVE_PACKAGE_REWRITE_FAILED' }
+          if ($provider -notmatch 'com\.qlct\.app\.devbackup\.picker') { throw 'URI_PROVIDER_AUTHORITY_NOT_ISOLATED' }
+          Write-Host 'PASS unique Android package and native content provider'
+      - name: Build signed isolated DEV BACKUP APK with native sharing
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./android-wrapper/build-apk.ps1
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path './HNL-QLTC-Android.apk')) { throw 'ANDROID_APK_BUILD_FAILED' }
+          Move-Item -LiteralPath './HNL-QLTC-Android.apk' -Destination './HNL-QLTC-DEV-BACKUP-XLSX-SHARE.apk' -Force
+          $apk = Get-Item -LiteralPath './HNL-QLTC-DEV-BACKUP-XLSX-SHARE.apk'
+          if ($apk.Length -lt 1000000) { throw 'APK_TOO_SMALL' }
+          $xml = Get-Content -Raw -LiteralPath './android-wrapper/res/values/strings.xml'
+          if ($xml -notmatch 'https://hnl-qltc-dev-backup\.web\.app/') { throw 'APK_WEB_URL_NOT_BACKUP' }
+          if ($xml -match 'https://hnlqltc\.web\.app|com-example-qlct-61329') { throw 'PROD_WEB_URL_LEAK' }
+          $sdk = if ($env:ANDROID_SDK_ROOT) { $env:ANDROID_SDK_ROOT } else { $env:ANDROID_HOME }
+          $tools = Get-ChildItem (Join-Path $sdk 'build-tools') -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          $aapt = Join-Path $tools.FullName 'aapt.exe'
+          $badging = & $aapt dump badging './HNL-QLTC-DEV-BACKUP-XLSX-SHARE.apk'
+          if ($LASTEXITCODE -ne 0 -or ($badging -join "`n") -notmatch "package: name='com\.qlct\.app\.devbackup'") { throw 'FINAL_APK_PACKAGE_MISMATCH' }
+          if (($badging -join "`n") -notmatch "application-label:'HNL QLTC BACKUP'") { throw 'FINAL_APK_LABEL_MISMATCH' }
+          $digest=(Get-FileHash -LiteralPath $apk.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          New-Item -ItemType Directory -Force -Path './evidence' | Out-Null
+          @(
+            "APK=$($apk.Name)",
+            "SHA256=$digest",
+            "SIZE=$($apk.Length)",
+            "SOURCE_QA_HEAD=$env:GITHUB_SHA",
+            "APP_BASELINE=$env:BASELINE_SHA",
+            "FIREBASE_PROJECT=$env:TARGET_PROJECT",
+            "WEB_URL=$env:QLCT_WEB_URL",
+            "R2_GATEWAY=$env:TARGET_R2",
+            "PACKAGE=$env:BACKUP_PACKAGE",
+            "NATIVE_SHARE=AndroidContact.shareFiles",
+            "PROD_OR_MAIN_DEV_TOUCHED=false",
+            "PHYSICAL_ANDROID_SHARE_RUNTIME_GOLDEN=PENDING",
+            "SIGNATURE=DEV_KEY_OR_EPHEMERAL_TEST_KEY"
+          ) | Out-File -LiteralPath './evidence/ANDROID-DEV-BACKUP-APK-BUILD-REPORT.txt' -Encoding utf8
+          Write-Host "PASS isolated DEV Backup APK SHA256 $digest size $($apk.Length)"
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: HNL-QLTC-DEV-BACKUP-ANDROID-XLSX-SHARE-APK
+          path: |
+            HNL-QLTC-DEV-BACKUP-XLSX-SHARE.apk
+            evidence/ANDROID-DEV-BACKUP-APK-BUILD-REPORT.txt
+          if-no-files-found: error
+          retention-days: 30
