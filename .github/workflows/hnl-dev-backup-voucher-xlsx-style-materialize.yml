@@ -1,0 +1,88 @@
+name: DEV BACKUP Warehouse Voucher XLSX style audited source handoff (NO DEPLOY)
+on:
+  push:
+    branches: [safety/dev-backup-voucher-excel-style-20261028]
+    paths: ['.github/workflows/hnl-dev-backup-voucher-xlsx-style-materialize.yml']
+permissions:
+  contents: write
+concurrency:
+  group: hnl-dev-backup-voucher-style-materialize
+  cancel-in-progress: false
+jobs:
+  handoff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Verify exact CI-PASS baseline and stage identical patched source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-voucher-excel-style-20261028'
+          git merge-base --is-ancestor '9713b6e86e2542db56ff116ef1cfa7f635336daf' HEAD
+          test "$(git diff --name-only '9713b6e86e2542db56ff116ef1cfa7f635336daf' HEAD)" = '.github/workflows/hnl-dev-backup-voucher-xlsx-style-materialize.yml'
+          test "$(git hash-object 'patches/DEV_BACKUP_WAREHOUSE_VOUCHER_XLSX_STYLE_20261028.patch')" = '71bda63e9b307b10775020883303dffd6554062b'
+          git apply --check 'patches/DEV_BACKUP_WAREHOUSE_VOUCHER_XLSX_STYLE_20261028.patch'
+          git apply 'patches/DEV_BACKUP_WAREHOUSE_VOUCHER_XLSX_STYLE_20261028.patch'
+          node scripts/source-lint.mjs
+          python3 - <<'PY'
+          import subprocess
+          files={x[3:] for x in subprocess.check_output(['git','status','--porcelain','--untracked-files=all']).decode().splitlines()}
+          expected={'src/utils/warehouseVoucherExcel.ts','src/utils/warehouseVoucherXlsxStyle.ts','scripts/warehouse-voucher-xlsx-style-golden.ts'}
+          if files!=expected:raise SystemExit('Refusing unreviewed changed files: '+repr(files))
+          print('Three audited source files only')
+          PY
+      - name: Verify same REAL XLSX output, unchanged package lock before source commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npx tsx scripts/warehouse-voucher-xlsx-style-golden.ts
+          npx tsx scripts/warehouse-voucher-layout-golden.ts
+          node --experimental-strip-types scripts/warehouse-report-format-golden.mjs
+      - name: Commit only 3 reviewed source and test files to isolated QA branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-voucher-excel-style-20261028'
+          git config user.name 'HNL QLTC DEV Backup QA'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add -- src/utils/warehouseVoucherExcel.ts src/utils/warehouseVoucherXlsxStyle.ts scripts/warehouse-voucher-xlsx-style-golden.ts
+          git commit -m 'fix(dev-backup): style real warehouse voucher Excel pages like PDF, Catalog and Orders'
+          git push origin HEAD:refs/heads/safety/dev-backup-voucher-excel-style-20261028
+          echo "EXACT_QA_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Package FULL SOURCE, PATCH, SHA256 and handoff report from exact HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p handoff
+          git archive --format=zip --output=handoff/HNL-QLTC-WAREHOUSE-VOUCHER-XLSX-FULL-SOURCE.zip HEAD
+          python3 - <<'PY'
+          import subprocess,zipfile,pathlib,hashlib
+          d=pathlib.Path('handoff')
+          names=subprocess.check_output(['git','diff','--name-only','--diff-filter=ACMRT','000e842d51967f49c3d9c4bbe4dcda1ad26783f4','HEAD']).decode().splitlines()
+          with zipfile.ZipFile(d/'HNL-QLTC-WAREHOUSE-VOUCHER-XLSX-PATCH.zip','w',zipfile.ZIP_DEFLATED) as z:
+            for name in names:z.write(name)
+            z.writestr('CHANGED-FILES.txt','\n'.join(names)+'\n')
+            z.writestr('PATCH.diff',subprocess.check_output(['git','diff','--binary','000e842d51967f49c3d9c4bbe4dcda1ad26783f4','HEAD']))
+          with (d/'SHA256SUMS.txt').open('w') as out:
+            for file in sorted(d.glob('*.zip')):
+              with zipfile.ZipFile(file) as z: assert z.testzip() is None
+              out.write(hashlib.sha256(file.read_bytes()).hexdigest()+'  '+file.name+'\n')
+          PY
+          printf 'HNL QLTC DEV BACKUP WAREHOUSE VOUCHER XLSX STYLE\nBaseline: 000e842d51967f49c3d9c4bbe4dcda1ad26783f4\nQA HEAD: %s\nTests: GitHub Actions 40705406979 SUCCESS\nScope: XLSX export only; no PDF/ledger/Firebase/PROD changes.\nRealtime multiuser and Android export runtime still pending.\n' "$(git rev-parse HEAD)" > handoff/REPORT.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-DEV-BACKUP-WAREHOUSE-VOUCHER-XLSX-STYLE-SOURCE-HANDOFF
+          path: handoff/
+          if-no-files-found: warn
+          retention-days: 30
