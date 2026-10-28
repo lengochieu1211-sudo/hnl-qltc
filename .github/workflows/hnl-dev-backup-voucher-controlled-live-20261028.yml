@@ -122,7 +122,7 @@ jobs:
           fs.mkdirSync('evidence',{recursive:true});
           fs.writeFileSync('evidence/PREFLIGHT.json',JSON.stringify({appSource:process.env.SOURCE_SHA,ciSha:process.env.CI_SHA,ciRun:process.env.CI_RUN,qaWorkflowSha:process.env.GITHUB_SHA,previewWorkflowRun:40706366246,project:'hnl-qltc-dev-backup',liveVersion:live,stageVersion:stage,verifiedPreviewAssetNames:expected,stableExcelVendorByteParity:true,nonDeterministicViteBuildTimeAcknowledged:true,productionTouched:false,backupDataTouched:false},null,2));
           fs.appendFileSync(process.env.GITHUB_ENV,'EXPECTED_STAGE='+stage+'\n');
-          console.log('PASS immutable staged files ('+assets.length+') and LIVE version anchor');
+          console.log('PASS immutable staged files ('+expected.length+') and LIVE version anchor');
           NODE
       - name: Clone verified old DEV Backup LIVE to dedicated Hosting rollback channel
         env:
