@@ -1,0 +1,89 @@
+name: P21.42 PROD live Hosting and Rules rollback anchors (READ ONLY)
+on:
+  push:
+    branches:
+      - safety/p2142-prod-live-rollback-anchors-20261028
+    paths:
+      - '.github/workflows/p2142-prod-live-rollback-anchors.yml'
+permissions:
+  contents: read
+jobs:
+  snapshot-live-anchors:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      EXPECTED_PROJECT: com-example-qlct-61329
+      EXPECTED_SITE: hnlqltc
+      EXPECTED_CANDIDATE_SHA: f36bd19fa30228f8056a0251ff1db81daad92500
+      FIREBASE_PROD_READ_CREDENTIAL: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify exact candidate ancestry, isolated branch and correct PROD project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/p2142-prod-live-rollback-anchors-20261028'
+          test "$EXPECTED_PROJECT" = 'com-example-qlct-61329'
+          test "$EXPECTED_SITE" = 'hnlqltc'
+          git merge-base --is-ancestor "$EXPECTED_CANDIDATE_SHA" HEAD
+          test -n "\${FIREBASE_PROD_READ_CREDENTIAL:-}"
+          node -e "const a=JSON.parse(process.env.FIREBASE_PROD_READ_CREDENTIAL);if(a.type!=='service_account'||a.project_id!=='com-example-qlct-61329'||!a.private_key||!a.client_email)process.exit(2)"
+      - name: Read PROD live Hosting release and immutable Firestore/Storage Ruleset pointers (NO DEPLOY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import {createSign} from 'node:crypto';
+          import {writeFileSync} from 'node:fs';
+          const sa=JSON.parse(process.env.FIREBASE_PROD_READ_CREDENTIAL);
+          const project='com-example-qlct-61329',site='hnlqltc';
+          if(sa.project_id!==project)throw new Error('WRONG_PROJECT_REFUSED');
+          const enc=x=>Buffer.from(JSON.stringify(x)).toString('base64url');
+          const now=Math.floor(Date.now()/1000),a=enc({alg:'RS256',typ:'JWT'});
+          const b=enc({iss:sa.client_email,scope:'https://www.googleapis.com/auth/firebase.readonly https://www.googleapis.com/auth/firebase.hosting.readonly',aud:'https://oauth2.googleapis.com/token',iat:now,exp:now+1800});
+          const sig=createSign('RSA-SHA256');sig.update(a+'.'+b);sig.end();
+          const tokenRes=await fetch('https://oauth2.googleapis.com/token',{method:'POST',body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion:a+'.'+b+'.'+sig.sign(sa.private_key).toString('base64url')}),signal:AbortSignal.timeout(30000)});
+          if(!tokenRes.ok)throw new Error('READ_ONLY_AUTH_HTTP_'+tokenRes.status);
+          const token=(await tokenRes.json()).access_token;
+          if(!token)throw new Error('READ_ONLY_AUTH_EMPTY');
+          async function get(url) {
+            const r=await fetch(url,{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(40000)});
+            if(!r.ok)throw new Error('READ_ONLY_FETCH_HTTP_'+r.status+':'+new URL(url).hostname);
+            return r.json();
+          }
+          const h=await get('https://firebasehosting.googleapis.com/v1beta1/sites/'+site+'/channels/live/releases?pageSize=3');
+          const hosting=(h.releases||[]).map(x=>({name:x.name||'',versionName:x.version?.name||'',releaseTime:x.releaseTime||'',type:x.type||''})).sort((x,y)=>y.releaseTime.localeCompare(x.releaseTime));
+          if(!hosting.length||!hosting[0].versionName)throw new Error('NO_PROD_LIVE_HOSTING_VERSION');
+          const ruleList=[];
+          let pageToken='';
+          for(let i=0;i<10;i++){
+            const url='https://firebaserules.googleapis.com/v1/projects/'+project+'/releases?pageSize=100'+(pageToken?'&pageToken='+encodeURIComponent(pageToken):'');
+            const x=await get(url);
+            for(const y of x.releases||[]) {
+              if(y.name?.startsWith('projects/'+project+'/releases/cloud.firestore')||y.name?.startsWith('projects/'+project+'/releases/firebase.storage')){
+                ruleList.push({name:y.name||'',rulesetName:y.rulesetName||'',updateTime:y.updateTime||''});
+              }
+            }
+            pageToken=x.nextPageToken||'';
+            if(!pageToken)break;
+            if(i===9)throw new Error('RULES_PAGINATION_LIMIT');
+          }
+          if(!ruleList.some(x=>x.name.includes('/releases/cloud.firestore'))||!ruleList.some(x=>x.name.includes('/releases/firebase.storage')))throw new Error('MISSING_LIVE_RULESET_POINTER');
+          const out={format:'P21.42-READ-ONLY-PROD-ROLLBACK-ANCHORS',project,site,readAt:new Date().toISOString(),mainBefore:'57eea2b878e17da64d7a6191fda178eaff3b8488',releaseCandidate:'f36bd19fa30228f8056a0251ff1db81daad92500',hostingLive:hosting[0],hostingRecent:hosting.slice(0,3),rulesReleasePointers:ruleList,stage:'PREDEPLOY_BASELINE_ONLY',scope:'GET_ONLY_NO_DEPLOY',notes:'Immutable live Hosting version and ruleset pointers recorded. Validate source/rollback rights before any restoration.'};
+          writeFileSync('P2142-PROD-ROLLBACK-ANCHORS.json',JSON.stringify(out,null,2)+'\n',{mode:0o600});
+          console.log(JSON.stringify({site,hostingLive:out.hostingLive,firestoreRules:ruleList.filter(x=>x.name.includes('/releases/cloud.firestore')).map(x=>x.rulesetName),storageRules:ruleList.filter(x=>x.name.includes('/releases/firebase.storage')).map(x=>x.rulesetName),stage:out.stage}));
+          NODE
+      - name: Upload sanitized, source-pinned rollback anchors
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P2142-PROD-READONLY-ANCHORS-${{ github.sha }}
+          path: P2142-PROD-ROLLBACK-ANCHORS.json
+          if-no-files-found: warn
+          retention-days: 60
