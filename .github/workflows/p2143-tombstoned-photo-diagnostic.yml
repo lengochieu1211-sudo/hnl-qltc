@@ -86,7 +86,7 @@ jobs:
             const parts=key.split('/'),sameProjectPrefix=parts[0]==='projects'&&parts.length>=3?parts.slice(0,2).join('/')+'/':null;
             const cands=(byBasename.get(key.split('/').at(-1))||[]).filter(o=>sameProjectPrefix&&o.key.startsWith(sameProjectPrefix));
             if(!cands.length){bucket(byMatch,'noSameTenantAlternative');continue}
-            const size=Number(raw.fileSize??raw.sizeBytes??raw.byteSize||0);
+            const size=Number(raw.fileSize??raw.sizeBytes??raw.byteSize??0);
             const hash=String(raw.contentHash||raw.sha256||raw.storageMd5Hash||'').toLowerCase();
             const sha=/^[a-f0-9]{64}$/.test(hash)?hash:'';
             const exact=cands.filter(o=>(!size||Number(o.size)===size)&&(!sha||String(o.custom_metadata?.sha256||o.custom_metadata?.contentSha256||'').toLowerCase()===sha));
