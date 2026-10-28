@@ -1,0 +1,69 @@
+name: P21.40 DEV Backup Hosting LIVE provenance (READ ONLY - NO DEPLOY)
+on:
+  push:
+    branches:
+      - safety/p2140-dev-backup-hosting-provenance-20261028
+    paths:
+      - '.github/workflows/p2140-dev-backup-hosting-provenance.yml'
+permissions:
+  contents: read
+jobs:
+  verify-hosting-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      TARGET_FIREBASE_PROJECT: hnl-qltc-dev-backup
+      EXPECTED_P21_CANDIDATE_SHA: f36bd19fa30228f8056a0251ff1db81daad92500
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify isolated read-only context
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/safety/p2140-dev-backup-hosting-provenance-20261028
+          git merge-base --is-ancestor "$EXPECTED_P21_CANDIDATE_SHA" HEAD
+          test "$TARGET_FIREBASE_PROJECT" = hnl-qltc-dev-backup
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}"
+          node -e "const a=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);if(a.type!=='service_account'||a.project_id!=='hnl-qltc-dev-backup'||!a.private_key)process.exit(2)"
+      - name: Read current DEV Backup LIVE Firebase Hosting release only
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import {createSign} from 'node:crypto';
+          import {writeFileSync} from 'node:fs';
+          const s=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+          if(s.project_id!=='hnl-qltc-dev-backup')throw Error('WRONG_PROJECT_REFUSED');
+          const enc=x=>Buffer.from(JSON.stringify(x)).toString('base64url');
+          const now=Math.floor(Date.now()/1000);
+          const a=enc({alg:'RS256',typ:'JWT'}),b=enc({iss:s.client_email,scope:'https://www.googleapis.com/auth/firebase.hosting.readonly',aud:'https://oauth2.googleapis.com/token',iat:now,exp:now+1800});
+          const signer=createSign('RSA-SHA256');signer.update(a+'.'+b);signer.end();
+          const login=await fetch('https://oauth2.googleapis.com/token',{method:'POST',body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion:a+'.'+b+'.'+signer.sign(s.private_key).toString('base64url')}),signal:AbortSignal.timeout(30000)});
+          if(!login.ok)throw Error('AUTH_HTTP_'+login.status);
+          const token=(await login.json()).access_token;if(!token)throw Error('NO_ACCESS_TOKEN');
+          const u='https://firebasehosting.googleapis.com/v1beta1/sites/hnl-qltc-dev-backup/channels/live/releases?pageSize=5';
+          const response=await fetch(u,{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(40000)});
+          if(!response.ok)throw Error('HOSTING_LIVE_READ_HTTP_'+response.status);
+          const data=await response.json(),rows=Array.isArray(data.releases)?data.releases:[];
+          const clean=rows.map(r=>({name:r.name||'',type:r.type||'',releaseTime:r.releaseTime||'',versionName:r.version?.name||''})).sort((x,y)=>y.releaseTime.localeCompare(x.releaseTime));
+          if(!clean.length)throw Error('NO_LIVE_RELEASES_FOUND');
+          const latest=clean[0];
+          const report={status:'READ_ONLY_HOSTING_LIVE_PROVENANCE',project:'hnl-qltc-dev-backup',domain:'hnl-qltc-dev-backup.firebaseapp.com',checkedAt:new Date().toISOString(),latest,recent:clean.slice(0,4),p2137GithubRun:40635293146,p2137CandidateSha:process.env.EXPECTED_P21_CANDIDATE_SHA,sourceAttribution:'GitHub P21.37 deployed this candidate; Hosting API release ID/time alone cannot cryptographically prove JS bundle SHA',noDeploy:true};
+          writeFileSync('P2140-DEV-BACKUP-HOSTING-READONLY.json',JSON.stringify(report,null,2)+'\n',{mode:0o600});
+          console.log(JSON.stringify({project:report.project,latest:report.latest,checkedAt:report.checkedAt,sourceAttribution:report.sourceAttribution}));
+          NODE
+      - name: Upload sanitized release metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P2140-HOSTING-PROVENANCE-${{ github.sha }}
+          path: P2140-DEV-BACKUP-HOSTING-READONLY.json
+          if-no-files-found: warn
+          retention-days: 30
