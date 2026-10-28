@@ -37,6 +37,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: DEV Backup exact-project credential gate (NO deploy on failure)
         env:
           FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
