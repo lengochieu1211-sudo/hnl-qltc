@@ -1,0 +1,111 @@
+name: HNL DEV BACKUP Android browser XLSX share fallback golden (CI ONLY)
+on:
+  push:
+    branches: [safety/dev-backup-voucher-excel-style-20261028]
+    paths: ['.github/workflows/hnl-dev-backup-voucher-share-fallback-ci-20261028.yml']
+permissions:
+  contents: read
+concurrency:
+  group: hnl-dev-backup-xlsx-share-fallback-ci
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      CI: 'true'
+      BASELINE: 04b3998ba3e2072d4b5648309d321fdf1e925095
+      VITE_APP_ENV: DEV
+      VITE_DEV_FIREBASE_TARGET: backup
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+      VITE_FIREBASE_PROJECT_ID: hnl-qltc-dev-backup
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev-backup.web.app
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_HNL_AI_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact QA HEAD ancestor and minimal-scope patch guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-voucher-excel-style-20261028'
+          git merge-base --is-ancestor "$BASELINE" HEAD
+          node - <<'NODE'
+          const cp=require('node:child_process');
+          const files=cp.execFileSync('git',['diff','--name-only',process.env.BASELINE,'HEAD'],{encoding:'utf8'}).trim().split('\n').filter(Boolean).sort();
+          const allowed=[
+            'src/utils/shareUtils.ts',
+            'src/components/WarehouseVoucherShareSheet.tsx',
+            'scripts/warehouse-voucher-browser-golden.mjs',
+            '.github/workflows/hnl-dev-backup-voucher-share-fallback-ci-20261028.yml'
+          ].sort();
+          if(JSON.stringify(files)!==JSON.stringify(allowed))throw Error('UNREVIEWED_APP_CHANGE '+JSON.stringify(files));
+          NODE
+          node - <<'NODE'
+          const p=require('./package.json'),l=require('./package-lock.json');
+          if(p.name!==l.name||p.version!==l.version)throw Error('PACKAGE_LOCK_MISMATCH');
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Verify exact Firebase DEV Backup public SDK and prepare isolated build
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 3 'https://hnl-qltc-dev-backup.web.app/__/firebase/init.json' -o "$RUNNER_TEMP/sdk.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const c=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/sdk.json','utf8'));
+          if(c.projectId!=='hnl-qltc-dev-backup'||!c.apiKey||!c.appId)throw Error('WRONG_FIREBASE_PROJECT');
+          fs.appendFileSync(process.env.GITHUB_ENV,Object.entries({
+            VITE_FIREBASE_API_KEY:c.apiKey,VITE_FIREBASE_APP_ID:c.appId,
+            VITE_FIREBASE_MESSAGING_SENDER_ID:c.messagingSenderId,
+            VITE_FIREBASE_STORAGE_BUCKET:c.storageBucket||'hnl-qltc-dev-backup.firebasestorage.app',
+            VITE_GIT_COMMIT:process.env.GITHUB_SHA
+          }).map(([k,v])=>k+'='+v).join('\n')+'\n');
+          NODE
+          npm ci
+      - name: TypeScript lint Rules and existing voucher/offline regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npx tsx scripts/warehouse-voucher-xlsx-style-golden.ts
+          npx tsx scripts/dev-backup-voucher-a3-a4-matrix-golden.ts
+          node scripts/chat-outbox-durability-golden.mjs
+          node scripts/offline-golden.mjs
+          npm run build
+          test -s dist/index.html
+          grep -R -q 'hnl-qltc-dev-backup.web.app' dist/assets
+          grep -R -q 'hnl-qltc-r2-gateway-dev-backup' dist/assets
+      - name: Browser Chromium native XLSX share + unsupported canShare download fallback (desktop/mobile)
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install --with-deps chromium
+          node scripts/warehouse-voucher-browser-golden.mjs
+      - name: Save evidence with no data or secrets
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          printf 'DEV Backup only\nqaHead=%s\nstatus=%s\nNo Firebase Hosting/Firestore/R2/PROD changes.\nPhysical Android browser with Zalo still needs user verification.\n' "$GITHUB_SHA" "${{ job.status }}" > evidence/XLSX-SHARE-FALLBACK-CI.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-DEV-BACKUP-XLSX-SHARE-FALLBACK-CI
+          path: |
+            evidence/
+            runtime-evidence/voucher-*
+          if-no-files-found: warn
+          retention-days: 30
