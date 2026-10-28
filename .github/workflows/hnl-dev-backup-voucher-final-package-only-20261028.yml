@@ -41,6 +41,13 @@ jobs:
           if changed!=expected:raise SystemExit('UNREVIEWED_APPLICATION_CHANGE '+str(sorted(changed^expected)))
           print('PASS application business tree unchanged from',os.environ['APP_SOURCE'])
           PY
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install required Google API library for read-only LIVE check
+        run: npm ci
       - name: Read only verify DEV Backup LIVE already promoted (do not deploy)
         env:
           FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
