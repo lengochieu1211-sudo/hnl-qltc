@@ -244,7 +244,7 @@ jobs:
             try:
               with open(p,'r',encoding='utf8') as f:c=f.read()
             except (UnicodeError,OSError):continue
-            if '-----BEGIN PRIVATE KEY-----' in c:raise SystemExit('PRIVATE_KEY_LITERAL_IN_SOURCE '+p)
+            if ('-----BEGIN ' + 'PRIVATE KEY-----') in c:raise SystemExit('PRIVATE_KEY_LITERAL_IN_SOURCE '+p)
           print('PASS no private key literals or service account files in tracked source')
           PY
           git archive --format=zip --output=deliverables/HNL-QLTC-DEV-BACKUP-QA-FULL-SOURCE.zip HEAD
