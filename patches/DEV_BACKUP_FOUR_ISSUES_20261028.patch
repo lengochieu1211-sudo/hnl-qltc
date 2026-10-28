@@ -1,0 +1,305 @@
+--- a/scripts/dev-backup-four-issues-geometry-golden.mjs
++++ b/scripts/dev-backup-four-issues-geometry-golden.mjs
+@@ -0,0 +1,17 @@
++import assert from 'node:assert/strict';
++import { getRoomHighlightBounds, resizeRoomHighlightSide, resizeRoomHighlightToBounds } from '../src/utils/roomHighlightGeometry.ts';
++const base={id:'room-lock-safe',floorId:'f1',roomName:'A101',x:10,y:20,width:20,height:15,updatedAt:1,
++  points:[{x:10,y:20},{x:30,y:20},{x:30,y:35},{x:10,y:35}],isPolyline:false,
++  frameStatus:'Chưa làm',boardStatus:'Chưa làm',inspectionStatus:'Chưa nghiệm thu',positionLocked:false};
++const a=resizeRoomHighlightSide(base,'e',{x:10,y:20,width:25,height:15});
++assert.deepEqual(a.points,[{x:10,y:20},{x:35,y:20},{x:35,y:35},{x:10,y:35}]);
++assert.equal(a.id,base.id);assert.equal(a.positionLocked,false);
++const b=resizeRoomHighlightSide(base,'n',{x:10,y:15,width:20,height:20});
++assert.deepEqual(b.points,[{x:10,y:15},{x:30,y:15},{x:30,y:35},{x:10,y:35}]);
++const polygon={...base,x:10,y:10,width:30,height:30,points:[{x:10,y:10},{x:40,y:12},{x:35,y:30},{x:15,y:40},{x:12,y:25}]};
++const c=resizeRoomHighlightSide(polygon,'e',{x:10,y:10,width:34,height:30});
++assert.deepEqual(c.points,[{x:10,y:10},{x:44,y:12},{x:35,y:30},{x:15,y:40},{x:12,y:25}], 'Side resize must not stretch any other polygon vertex');
++const scaled=resizeRoomHighlightToBounds(base,{x:5,y:5,width:30,height:50});
++assert.deepEqual(getRoomHighlightBounds(scaled),{x:5,y:5,width:30,height:50,cx:20,cy:30});
++assert.deepEqual(base.points,[{x:10,y:20},{x:30,y:20},{x:30,y:35},{x:10,y:35}], 'Original room must not be mutated');
++console.log('DEV BACKUP GEOMETRY SIDE VS CORNER GOLDEN PASS');
+
+--- a/scripts/dev-backup-four-issues-golden.mjs
++++ b/scripts/dev-backup-four-issues-golden.mjs
+@@ -0,0 +1,23 @@
++import fs from 'node:fs';
++import assert from 'node:assert/strict';
++const read=p=>fs.readFileSync(p,'utf8');
++const floor=read('src/components/FloorPlanDefectTab.tsx');
++const crew=read('src/components/CrewTabBase.tsx');
++const order=read('src/components/WarehouseOrderSheet.tsx');
++const geo=read('src/utils/roomHighlightGeometry.ts');
++const types=read('src/types.ts');
++assert(crew.includes('inline-flex w-full sm:w-auto sm:max-w-full'), 'Team statistics button stays over-wide on PC');
++assert(crew.includes('sm:flex sm:flex-wrap sm:justify-end'), 'Team form action buttons do not shrink on PC');
++assert(order.includes('flex min-w-0 flex-row items-center'), 'Expected-date inline label missing');
++assert(order.includes('formatAdaptiveDecimal(n)'), 'Order number format not tied to preferences');
++assert(order.includes('formatPreset=getNumberFormatPreset()'), 'Number fields not refreshed on number-format changes');
++assert(geo.includes('export function resizeRoomHighlightSide('), 'No side-only polygon transformation');
++assert(floor.includes("resizeRoomHighlightSide(initRoom, activeDragHandle as 'n' | 's' | 'e' | 'w'"), 'Side-only geometry not wired to UI');
++assert(floor.includes('data-hnl-defect-created-at="true"'), 'Defect creation date not visible in detail');
++assert(floor.includes('formatDateDDMMYYYY(activeDefectDetail.createdAt)'), 'Defect creation date not formatted');
++assert(types.includes('positionLocked?: boolean;'), 'Cloud lock optional field missing');
++assert(floor.includes('onUpdateDefect({ ...source, positionLocked })'), 'Defect locks do not use Cloud update path');
++assert(floor.includes('map((room) => ({ ...room, positionLocked: !unlock }))'), 'Room locks do not use Cloud update path');
++assert(floor.includes('room.positionLocked === true') && floor.includes('defect.positionLocked === true'), 'Cloud lock subscription not reflected in UI');
++assert(floor.includes('positionLocked === undefined && legacy.has'), 'Existing local-only lock migration fallback missing');
++console.log('DEV BACKUP FOUR ISSUES UI SOURCE REGRESSION PASS (cloud lock reconciliation included; runtime multiuser gate pending)');
+
+--- a/src/components/CrewTabBase.tsx
++++ b/src/components/CrewTabBase.tsx
+@@ -2751,7 +2751,7 @@
+                           setSelectedTeamForDetail(team);
+                           setDetailModalTab('rooms');
+                         }}
+-                        className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-3 rounded-xl transition text-xs shadow-xs active:scale-98"
++                        className="inline-flex w-full sm:w-auto sm:max-w-full items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-3 rounded-xl transition text-xs shadow-xs active:scale-98"
+                       >
+                         <BarChart3 className="w-4 h-4 text-indigo-400" />
+                         <span>Xem thống kê Căn / Phòng & Defect</span>
+@@ -3268,13 +3268,13 @@
+               </div>
+ 
+               {/* Buttons */}
+-              <div className={`grid gap-2.5 pt-2 sm:col-span-2 ${editingTeam ? 'grid-cols-1' : 'grid-cols-2'}`}>
++              <div className={`grid gap-2.5 pt-2 sm:col-span-2 sm:flex sm:flex-wrap sm:justify-end ${editingTeam ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                 {!editingTeam && (
+                   <button
+                     type="submit"
+                     name="submitMode"
+                     value="continue"
+-                    className="border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold py-2.5 px-4 rounded-lg text-xs transition active:scale-95"
++                    className="min-w-0 sm:min-w-[130px] sm:w-auto border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold py-2.5 px-4 rounded-lg text-xs transition active:scale-95"
+                   >
+                     Lưu & thêm tiếp
+                   </button>
+@@ -3283,7 +3283,7 @@
+                   type="submit"
+                   name="submitMode"
+                   value="close"
+-                  className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 px-4 rounded-lg text-xs transition"
++                  className="min-w-0 sm:min-w-[130px] sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 px-4 rounded-lg text-xs transition"
+                 >
+                   {editingTeam ? 'Lưu thay đổi' : 'Lưu & đóng'}
+                 </button>
+
+--- a/src/components/FloorPlanDefectTab.tsx
++++ b/src/components/FloorPlanDefectTab.tsx
+@@ -101,7 +101,7 @@
+ import { ShareEntityMenu } from './ShareEntityMenu';
+ import { buildDefectShareText, resolveDefectTeam } from '../utils/defectContactUtils';
+ import { isPointInsideRoom, reconcileDefectLinkage, resolveDefectLinkageFromSelection } from '../utils/defectLinkageUtils';
+-import { getRoomHighlightBounds, mirrorRoomHighlight, resizeRoomHighlightToBounds, rotateRoomHighlight, snapRotationDelta } from '../utils/roomHighlightGeometry';
++import { getRoomHighlightBounds, mirrorRoomHighlight, resizeRoomHighlightSide, resizeRoomHighlightToBounds, rotateRoomHighlight, snapRotationDelta } from '../utils/roomHighlightGeometry';
+ import { DEFAULT_CAD_ALIGNMENT, normalizeCadAlignment, rebuildCadRoomForAlignment, remapPointBetweenCadAlignments, type CadAlignment } from '../utils/cadAlignment';
+ 
+ const getMappedCoordinates = (e: React.PointerEvent | React.MouseEvent | Touch, element: HTMLElement, currentRotation: number) => {
+@@ -848,6 +848,7 @@
+     } catch {
+       setMapLayers({ roomRegions: true, roomLabels: true, defects: true, resolvedDefects: true });
+     }
++    // Legacy local-only locks stay as an offline fallback until a Cloud lock value exists.
+     setLockedRoomIds(readIdSet(getDraftKey('construction_floorplan_locked_rooms')));
+     setLockedDefectIds(readIdSet(getDraftKey('construction_floorplan_locked_defects')));
+     requestAnimationFrame(() => { projectUiSettingsHydratingRef.current = false; });
+@@ -867,6 +868,25 @@
+     if (projectUiSettingsHydratingRef.current) return;
+     localStorage.setItem(getDraftKey('construction_floorplan_locked_defects'), JSON.stringify(Array.from(lockedDefectIds)));
+   }, [lockedDefectIds, currentProjectId]);
++
++  // Cloud is the authority when positionLocked is explicitly present. Older rooms/defects
++  // with no Cloud lock flag retain the previous device-local value until toggled on this device.
++  // No bulk migration or silent overwrite of shared data happens during hydration.
++  React.useEffect(() => {
++    const legacy = readIdSet(getDraftKey('construction_floorplan_locked_rooms'));
++    const cloudAware = new Set(roomProgressList.filter((room) =>
++      room.positionLocked === true || (room.positionLocked === undefined && legacy.has(room.id))
++    ).map((room) => room.id));
++    setLockedRoomIds((prev) => prev.size === cloudAware.size && Array.from(prev).every((id) => cloudAware.has(id)) ? prev : cloudAware);
++  }, [roomProgressList, currentProjectId]);
++
++  React.useEffect(() => {
++    const legacy = readIdSet(getDraftKey('construction_floorplan_locked_defects'));
++    const cloudAware = new Set(defects.filter((defect) =>
++      defect.positionLocked === true || (defect.positionLocked === undefined && legacy.has(defect.id))
++    ).map((defect) => defect.id));
++    setLockedDefectIds((prev) => prev.size === cloudAware.size && Array.from(prev).every((id) => cloudAware.has(id)) ? prev : cloudAware);
++  }, [defects, currentProjectId]);
+ 
+   const [statusFilter, setStatusFilter] = useState<string>('all');
+   const [defectSortBy, setDefectSortBy] = useState<DefectSortBy>('createdAt');
+@@ -3797,20 +3817,33 @@
+   };
+ 
+   const toggleSelectedRoomLock = () => {
+-    if (selectedRoomIdsForAction.length === 0) return;
++    if (!canManageStructure || selectedRoomIdsForAction.length === 0) return;
++    const unlock = selectedRoomIdsForAction.every((id) => lockedRoomIds.has(id));
++    const selectedSet = new Set(selectedRoomIdsForAction);
++    const changes = roomProgressList.filter((room) => selectedSet.has(room.id))
++      .map((room) => ({ ...room, positionLocked: !unlock }));
++    if (changes.length === 0) return;
++    // Persist on canonical room records; their existing Cloud subscriptions supply multiuser updates.
++    if (onBatchSaveRooms && changes.length > 1) onBatchSaveRooms(changes);
++    else changes.forEach((room) => onSaveRoomProgress(room));
+     setLockedRoomIds((prev) => {
+       const next = new Set(prev);
+-      const shouldUnlock = selectedRoomIdsForAction.every((id) => next.has(id));
+-      selectedRoomIdsForAction.forEach((id) => shouldUnlock ? next.delete(id) : next.add(id));
++      changes.forEach((room) => unlock ? next.delete(room.id) : next.add(room.id));
+       return next;
+     });
+   };
+ 
+   const toggleDefectLock = (defectId: string) => {
+-    if (!canEditDefects) return;
++    if (!canEditDefects || !onUpdateDefect) return;
++    const source = defects.find((item) => item.id === defectId);
++    if (!source) return;
++    const positionLocked = !lockedDefectIds.has(defectId);
++    // The existing Defect Cloud update path preserves createdAt, ID, photo and status.
++    onUpdateDefect({ ...source, positionLocked });
++    setActiveDefectDetail((prev) => prev?.id === defectId ? { ...prev, positionLocked } : prev);
+     setLockedDefectIds((prev) => {
+       const next = new Set(prev);
+-      if (next.has(defectId)) next.delete(defectId); else next.add(defectId);
++      if (positionLocked) next.add(defectId); else next.delete(defectId);
+       return next;
+     });
+   };
+@@ -5151,7 +5184,10 @@
+         // the actual vertices together with the bounding box instead of moving an
+         // invisible box while leaving the visible highlight behind.
+         if (newPoints && initRoom.points && initRoom.points.length >= 2) {
+-          const resized = resizeRoomHighlightToBounds(initRoom, { x: newX, y: newY, width: newW, height: newH });
++          const desiredBounds = { x: newX, y: newY, width: newW, height: newH };
++          const resized = typeof activeDragHandle === 'string' && ['n', 's', 'e', 'w'].includes(activeDragHandle)
++            ? resizeRoomHighlightSide(initRoom, activeDragHandle as 'n' | 's' | 'e' | 'w', desiredBounds)
++            : resizeRoomHighlightToBounds(initRoom, desiredBounds);
+           newX = resized.x;
+           newY = resized.y;
+           newW = resized.width;
+@@ -10499,6 +10535,9 @@
+                 <div>
+                   <span className="text-[10px] font-black text-slate-400">[{getDefectShortCode(activeDefectDetail.id)}]</span>
+                   <h3 className="text-base font-extrabold text-slate-900">{activeDefectDetail.category}</h3>
++                  <p className="mt-1 text-xs font-semibold text-slate-500" data-hnl-defect-created-at="true">
++                    Ngày tạo Defect: {activeDefectDetail.createdAt ? formatDateDDMMYYYY(activeDefectDetail.createdAt) : 'Chưa ghi nhận'}
++                  </p>
+                 </div>
+                 <div className="flex items-center gap-1.5">
+                   {canEditDefects && <button
+
+--- a/src/components/WarehouseOrderSheet.tsx
++++ b/src/components/WarehouseOrderSheet.tsx
+@@ -8,13 +8,14 @@
+   type WarehouseOrderItem, type WarehouseOrderKind, type WarehouseOrderValues,
+ } from '../utils/warehouseCatalogOrder';
+ import { compareWarehouseOrderDisplayItems } from '../utils/catalogDisplayOrder';
++import { formatAdaptiveDecimal, getNumberFormatPreset, useFormatSettings } from '../utils/numberUtils';
+ import type {WarehouseOrderSync} from '../hooks/useWarehouseOrderSync';
+ 
+ type Props={
+   open:boolean;onClose:()=>void;projectId:string;projectName:string;projectLocation:string;contractorName:string;
+   items:WarehouseOrderItem[];canEdit:boolean;initialKind:WarehouseOrderKind;sync:WarehouseOrderSync;
+ };
+-const vi=(n:number)=>new Intl.NumberFormat('vi-VN',{maximumFractionDigits:3}).format(n);
++const vi=(n:number)=>formatAdaptiveDecimal(n);
+ const empty:WarehouseOrderValues={quantity:0,kgPerUnit:null};
+ /** Blurred = evaluated number; focused = original editable expression. */
+ const NumberField:React.FC<{
+@@ -22,12 +23,14 @@
+   emptyAsBlank?:boolean;positive?:boolean;label:string;editable:boolean;
+   parseValue:(text:string)=>number|null;field:'quantity'|'kgPerUnit';
+ }>=({value,expression,onCommit,emptyAsBlank,positive,label,editable,parseValue,field})=>{
+-  const format=(n:number|null)=>n===null||(emptyAsBlank&&n===0)?'':new Intl.NumberFormat('vi-VN',{maximumFractionDigits:10}).format(n);
++  useFormatSettings();
++  const formatPreset=getNumberFormatPreset();
++  const format=(n:number|null)=>n===null||(emptyAsBlank&&n===0)?'':formatAdaptiveDecimal(n);
+   const [text,setText]=useState(format(value));
+   const [error,setError]=useState(false);
+   const focused=useRef(false);
+   const inputRef=useRef<HTMLInputElement>(null);
+-  useEffect(()=>{if(!focused.current)setText(format(value));},[value,expression,emptyAsBlank]);
++  useEffect(()=>{if(!focused.current)setText(format(value));},[value,expression,emptyAsBlank,formatPreset]);
+   const commit=()=>{
+     if(!editable){setText(format(value));return;}
+     const raw=text.trim();
+@@ -55,6 +58,7 @@
+   </div>;
+ };
+ export const WarehouseOrderSheet:React.FC<Props>=({open,onClose,projectId,projectName,projectLocation,contractorName,items,canEdit,initialKind,sync})=>{
++  useFormatSettings();
+   const [kind,setKind]=useState<WarehouseOrderKind>(initialKind);
+   const [search,setSearch]=useState('');
+   useEffect(()=>{setKind(initialKind);setSearch('');},[projectId,initialKind]);
+@@ -94,10 +98,10 @@
+           className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-xs" />
+       </div>
+       <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs" data-hnl-warehouse-order-sync="centralized">
+-        <label className="flex flex-col gap-1 font-semibold text-slate-700">Ngày dự kiến hàng về
++        <label className="flex min-w-0 flex-row items-center gap-2 font-semibold text-slate-700"><span className="shrink-0">Ngày dự kiến hàng về</span>
+           <input aria-label="Ngày dự kiến hàng về" type="date" value={expectedDate} disabled={!canEdit}
+             onChange={e=>updateExpectedDate(e.target.value)}
+-            className="h-10 rounded-lg border border-slate-300 bg-white px-2 text-xs" />
++            className="h-10 min-w-0 w-[142px] sm:w-[166px] rounded-lg border border-slate-300 bg-white px-2 text-xs" />
+         </label>
+         {(conflicts.length>0 || cloudError || pendingCount>0) && <span role="status" aria-live="polite" className="text-amber-700 font-semibold">
+           {conflicts.length>0?`${conflicts.length} dòng xung đột`:cloudError?'Lỗi đồng bộ':`Còn ${pendingCount} thay đổi chờ`} · Xử lý tại Kiểm tra dữ liệu → Trạng thái hệ thống & đồng bộ
+
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -176,6 +176,8 @@
+   severity: DefectSeverity;
+   assignedTo: string; // Người / Đội chịu trách nhiệm
+   createdBy?: string; // Người tạo (QC, Giám sát,...)
++  /** Đồng bộ khóa vị trí ghim giữa các thiết bị. Legacy records omit this flag. */
++  positionLocked?: boolean;
+   dueDate?: string; // Deadline sửa (YYYY-MM-DD)
+   completedAt?: string; // Ngày hoàn thành sửa (YYYY-MM-DD)
+   imageUrl?: string; // Ảnh trước khi sửa
+@@ -299,6 +301,8 @@
+   height: number; // Chiều cao vùng highlight (0-100%)
+   points?: Point2D[]; // Các điểm tọa độ vẽ tự do (polygon freehand)
+   isPolyline?: boolean; // Nếu true: Vẽ đường thẳng / đường gấp khúc hở, ngược lại vẽ Đa giác khép kín
++  /** Khóa tọa độ / hình dạng Căn/Phòng trên Cloud. Chỉ ADMIN sửa hình học. */
++  positionLocked?: boolean;
+   /** Optional immutable CAD source geometry used to re-align highlights when a drawing background changes. */
+   cadSource?: { format: 'DXF'; rawPoints: Point2D[]; extents?: { minX: number; minY: number; maxX: number; maxY: number }; layer?: string; source?: 'HATCH' | 'LWPOLYLINE' };
+   frameStatus: AcceptanceStatus; // Thi công Khung trần
+
+--- a/src/utils/roomHighlightGeometry.ts
++++ b/src/utils/roomHighlightGeometry.ts
+@@ -113,6 +113,32 @@
+   return roomWithPoints(room, scaled);
+ }
+ 
++/** Dragging a SIDE moves only the vertices on that boundary.
++ * Corners continue using resizeRoomHighlightToBounds (whole-shape scaling).
++ * Works for rectangles and irregular polygons without stretching interior points. */
++export function resizeRoomHighlightSide(
++  room: RoomProgressItem,
++  side: 'n' | 's' | 'e' | 'w',
++  desiredBounds: Pick<RoomHighlightBounds, 'x' | 'y' | 'width' | 'height'>,
++): RoomProgressItem {
++  const points = getRoomHighlightPoints(room);
++  const before = getRoomHighlightBounds(points);
++  const vertical = side === 'n' || side === 's';
++  const originalEdge = side === 'n' ? before.y : side === 's' ? before.y + before.height
++    : side === 'w' ? before.x : before.x + before.width;
++  const targetEdge = side === 'n' ? desiredBounds.y : side === 's' ? desiredBounds.y + desiredBounds.height
++    : side === 'w' ? desiredBounds.x : desiredBounds.x + desiredBounds.width;
++  const displacement = targetEdge - originalEdge;
++  // Input coordinates are percentages rounded to 0.1; retain other vertices exactly.
++  const moved = points.map((point) => {
++    const axis = vertical ? point.y : point.x;
++    if (Math.abs(axis - originalEdge) > 0.11) return { ...point };
++    return vertical ? { ...point, y: round1(clamp(point.y + displacement)) }
++      : { ...point, x: round1(clamp(point.x + displacement)) };
++  });
++  return roomWithPoints(room, moved);
++}
++
+ export function normalizeRotationDelta(degrees: number): number {
+   let normalized = degrees % 360;
+   if (normalized > 180) normalized -= 360;
