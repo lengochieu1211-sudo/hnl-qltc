@@ -71,6 +71,7 @@ jobs:
           node scripts/dev-firebase-switch-golden.mjs
           node scripts/offline-golden.mjs
           node scripts/auth-popup-golden.mjs
+          node --experimental-strip-types scripts/backup-mobile-auth-golden.mjs
           node scripts/rbac-matrix.mjs
           node scripts/android-wrapper-golden.mjs
           node scripts/desktop-launcher-golden.mjs

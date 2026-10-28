@@ -254,6 +254,33 @@ async function bootstrap() {
     });
   }
 
+  // DEV BACKUP mobile login is resumed once on the first-party Firebase Auth
+  // Hosting origin. Consume the one-shot URL marker BEFORE starting Google's
+  // redirect, otherwise the return navigation would loop into another login.
+  const { getBackupMobileLoginResumeCleanUrl } = await import('./lib/backupMobileAuth');
+  const backupAuthConfig = {
+    appEnvironment: String(import.meta.env.VITE_APP_ENV || ''),
+    devTarget: String(import.meta.env.VITE_DEV_FIREBASE_TARGET || ''),
+    projectId: String(import.meta.env.VITE_FIREBASE_PROJECT_ID || ''),
+    authDomain: String(import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || ''),
+  };
+  const backupResumeCleanUrl = getBackupMobileLoginResumeCleanUrl(window.location.href, backupAuthConfig);
+  if (backupResumeCleanUrl) {
+    window.history.replaceState(window.history.state, '', backupResumeCleanUrl);
+    try {
+      const { getCurrentRealFirebaseUser, signInWithGoogle } = await import('./lib/firebase');
+      if (!getCurrentRealFirebaseUser()) await signInWithGoogle();
+    } catch (err) {
+      appendRuntimeDiagnostic({
+        level: 'error',
+        area: 'firebase-auth',
+        code: 'BACKUP_MOBILE_LOGIN_RESUME_FAILED',
+        message: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+      });
+      console.error('[DEV Backup Auth] Could not resume mobile Google login:', err);
+    }
+  }
+
   // Dynamic imports intentionally happen after storage/Auth/redirect preflight.
   // App Check is optional until DEV/PROD site keys are provisioned; missing key is a
   // deliberate no-op.

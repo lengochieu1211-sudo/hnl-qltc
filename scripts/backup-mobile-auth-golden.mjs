@@ -1,0 +1,25 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { getBackupMobileLoginHandoffUrl, getBackupMobileLoginResumeCleanUrl, BACKUP_MOBILE_LOGIN_RESUME_KEY } from '../src/lib/backupMobileAuth.ts';
+const cfg = { appEnvironment:'DEV',devTarget:'backup',projectId:'hnl-qltc-dev-backup',authDomain:'hnl-qltc-dev-backup.firebaseapp.com' };
+const source = fs.readFileSync('src/lib/firebaseBase.ts','utf8');
+const bootstrap = fs.readFileSync('src/main.tsx','utf8');
+let count = 0;
+function test(name,fn){fn();++count;console.log(`PASS BACKUP MOBILE AUTH: ${name}`)}
+const start = 'https://hnl-qltc-dev-backup.web.app/du-an?tab=crew#top';
+const expected = 'https://hnl-qltc-dev-backup.firebaseapp.com/du-an?tab=crew&'+BACKUP_MOBILE_LOGIN_RESUME_KEY+'=1#top';
+test('backup web.app mobile login hands off to first-party auth origin',()=>assert.equal(getBackupMobileLoginHandoffUrl(start,cfg),expected));
+test('one-shot marker is consumed without losing path, query or fragment',()=>assert.equal(getBackupMobileLoginResumeCleanUrl(expected,cfg),'https://hnl-qltc-dev-backup.firebaseapp.com/du-an?tab=crew#top'));
+test('same-origin callback does not initiate another redirect',()=>assert.equal(getBackupMobileLoginResumeCleanUrl('https://hnl-qltc-dev-backup.firebaseapp.com/',cfg),null));
+test('firebaseapp.com login never starts a cross-origin loop',()=>assert.equal(getBackupMobileLoginHandoffUrl('https://hnl-qltc-dev-backup.firebaseapp.com/',cfg),null));
+test('primary DEV cannot be forwarded',()=>assert.equal(getBackupMobileLoginHandoffUrl(start,{...cfg,devTarget:'primary'}),null));
+test('PROD cannot be forwarded',()=>assert.equal(getBackupMobileLoginHandoffUrl(start,{...cfg,appEnvironment:'PROD'}),null));
+test('wrong Firebase project cannot be forwarded',()=>assert.equal(getBackupMobileLoginHandoffUrl(start,{...cfg,projectId:'com-example-qlct-61329'}),null));
+test('unapproved Auth domain cannot be forwarded',()=>assert.equal(getBackupMobileLoginHandoffUrl(start,{...cfg,authDomain:'hnl-qltc-dev.web.app'}),null));
+test('third-party URLs cannot use the resume marker',()=>assert.equal(getBackupMobileLoginResumeCleanUrl('https://evil.example/?'+BACKUP_MOBILE_LOGIN_RESUME_KEY+'=1',cfg),null));
+test('marker cannot be silently triggered on backup web.app',()=>assert.equal(getBackupMobileLoginResumeCleanUrl('https://hnl-qltc-dev-backup.web.app/?'+BACKUP_MOBILE_LOGIN_RESUME_KEY+'=1',cfg),null));
+test('mobile branch still calls signInWithRedirect after same-origin handoff',()=>assert.ok(source.includes('await signInWithRedirect(auth, provider)')&&source.includes('getBackupMobileLoginHandoffUrl')));
+test('desktop popup transport stays unchanged',()=>assert.ok(source.includes('await signInWithPopup(auth, provider)')));
+test('one-shot handoff consumed before a new Google redirect',()=>assert.ok(bootstrap.indexOf('window.history.replaceState(window.history.state')<bootstrap.indexOf('if (!getCurrentRealFirebaseUser()) await signInWithGoogle()')));
+test('existing Google redirect completion precedes the resume handoff',()=>assert.ok(bootstrap.indexOf('await completeFirebaseAuthRedirect()')<bootstrap.indexOf('getBackupMobileLoginResumeCleanUrl(window.location.href')));
+console.log(`${count}/${count} DEV BACKUP mobile auth regression tests PASS (source/pure logic; not physical-device Runtime Golden)`);
