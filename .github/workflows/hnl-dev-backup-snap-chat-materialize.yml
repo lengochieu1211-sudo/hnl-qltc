@@ -1,0 +1,123 @@
+name: HNL DEV BACKUP snap/chat audited source handoff (NO DEPLOY)
+on:
+  push:
+    branches: [safety/dev-backup-snap-chat-unread-20261028]
+    paths: ['.github/workflows/hnl-dev-backup-snap-chat-materialize.yml']
+permissions:
+  contents: write
+concurrency:
+  group: hnl-dev-backup-snap-chat-materialize
+  cancel-in-progress: false
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CI: 'true'
+      VITE_APP_ENV: DEV
+      VITE_DEV_FIREBASE_TARGET: backup
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+      VITE_FIREBASE_PROJECT_ID: hnl-qltc-dev-backup
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev-backup.web.app
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_HNL_AI_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Guard exact tested source + reviewed patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-snap-chat-unread-20261028'
+          git merge-base --is-ancestor '38e1e2bfe9e691af1da7d22bc51dcd8364bda11c' HEAD
+          test "$(git diff --name-only '38e1e2bfe9e691af1da7d22bc51dcd8364bda11c' HEAD)" = '.github/workflows/hnl-dev-backup-snap-chat-materialize.yml'
+          test "$(git hash-object patches/DEV_BACKUP_SNAP_CHAT_UNREAD_20261028.patch)" = '41e43863fe1de03f62754963159ed63dc9403d05'
+          git apply --check patches/DEV_BACKUP_SNAP_CHAT_UNREAD_20261028.patch
+          git apply patches/DEV_BACKUP_SNAP_CHAT_UNREAD_20261028.patch
+          node --experimental-strip-types scripts/dev-backup-ortho-snap-chat-unread-golden.mjs
+      - name: Validate public Firebase config read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 3 'https://hnl-qltc-dev-backup.web.app/__/firebase/init.json' -o "$RUNNER_TEMP/sdk.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const c=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/sdk.json','utf8'));
+          if(c.projectId!=='hnl-qltc-dev-backup'||!c.apiKey||!c.appId)throw Error('WRONG_BACKUP_PROJECT');
+          const e={VITE_FIREBASE_API_KEY:c.apiKey,VITE_FIREBASE_APP_ID:c.appId,VITE_FIREBASE_MESSAGING_SENDER_ID:c.messagingSenderId,VITE_FIREBASE_STORAGE_BUCKET:c.storageBucket||'hnl-qltc-dev-backup.firebasestorage.app'};
+          fs.appendFileSync(process.env.GITHUB_ENV,Object.entries(e).map(([k,v])=>k+'='+v).join('\n')+'\n');
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Repeat source gates before commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          node --experimental-strip-types scripts/dev-backup-ortho-snap-chat-unread-golden.mjs
+          node scripts/offline-golden.mjs
+          npm run build
+          test -s dist/index.html
+          grep -R -q 'hnl-qltc-dev-backup.web.app' dist/assets
+      - name: Commit exactly 7 reviewed files to isolated QA branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-snap-chat-unread-20261028'
+          python3 - <<'PY'
+          import subprocess
+          actual={r[3:] for r in subprocess.check_output(['git','status','--porcelain','--untracked-files=all']).decode().splitlines()}
+          allowed={
+            'src/App.tsx','src/components/FloorPlanDefectTab.tsx',
+            'src/features/chat/ChatTab.tsx','src/lib/chatService.ts',
+            'src/utils/chatUnread.ts','src/utils/roomHighlightSnap.ts',
+            'scripts/dev-backup-ortho-snap-chat-unread-golden.mjs'}
+          if actual!=allowed:raise SystemExit('REFUSING_UNEXPECTED_WORKTREE '+str(actual))
+          print('PASS exactly seven intended files')
+          PY
+          git config user.name 'HNL QLTC DEV Backup QA'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add -- src/App.tsx src/components/FloorPlanDefectTab.tsx src/features/chat/ChatTab.tsx src/lib/chatService.ts src/utils/chatUnread.ts src/utils/roomHighlightSnap.ts scripts/dev-backup-ortho-snap-chat-unread-golden.mjs
+          git commit -m 'fix(dev-backup): orthogonal polygon snap and consistent realtime chat unread badge'
+          git push origin HEAD:refs/heads/safety/dev-backup-snap-chat-unread-20261028
+          echo "MATERIALIZED_QA_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: FULL SOURCE / changed-file PATCH / report / SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p handoff
+          git archive --format=zip --output=handoff/HNL-QLTC-SNAP-CHAT-FULL-SOURCE.zip HEAD
+          python3 - <<'PY'
+          import hashlib,subprocess,zipfile,pathlib
+          folder=pathlib.Path('handoff')
+          files=subprocess.check_output(['git','diff','--name-only','--diff-filter=ACMRT','dcdfd38fcde3411e4c756abbcf717d5828855e25','HEAD']).decode().splitlines()
+          with zipfile.ZipFile(folder/'HNL-QLTC-SNAP-CHAT-PATCH.zip','w',zipfile.ZIP_DEFLATED) as z:
+            for name in files:z.write(name)
+            z.writestr('CHANGED-FILES.txt','\n'.join(files)+'\n')
+            z.writestr('PATCH.diff',subprocess.check_output(['git','diff','--binary','dcdfd38fcde3411e4c756abbcf717d5828855e25','HEAD']))
+          with open(folder/'SHA256SUMS.txt','w') as out:
+            for f in sorted(folder.glob('*.zip')):
+              with zipfile.ZipFile(f) as z:
+                assert z.testzip() is None
+              out.write(hashlib.sha256(f.read_bytes()).hexdigest()+'  '+f.name+'\n')
+          print('PASS FULL/PATCH ZIP CRC and SHA256')
+          PY
+          printf 'DEV BACKUP QA SOURCE\nBaseline: dcdfd38fcde3411e4c756abbcf717d5828855e25\nExact HEAD: %s\nCI-only, no LIVE/PROD deploy.\nReal multi-user chat/Android snap runtime still pending.\n' "$(git rev-parse HEAD)" > handoff/REPORT.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-DEV-BACKUP-SNAP-CHAT-EXACT-SOURCE-HANDOFF
+          path: handoff/
+          if-no-files-found: warn
+          retention-days: 30
