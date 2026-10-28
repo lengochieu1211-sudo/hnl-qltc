@@ -1,0 +1,95 @@
+name: HNL DEV BACKUP magnetic orthogonal snap UI CI ONLY (NO DEPLOY)
+on:
+  push:
+    branches: [safety/dev-backup-magnetic-snap-20261028]
+    paths:
+      - '.github/workflows/hnl-dev-backup-magnetic-snap-ci.yml'
+permissions:
+  contents: read
+concurrency:
+  group: hnl-dev-backup-snap-chat-unread-ci
+  cancel-in-progress: false
+jobs:
+  safe-ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      CI: 'true'
+      VITE_APP_ENV: DEV
+      VITE_DEV_FIREBASE_TARGET: backup
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+      VITE_FIREBASE_PROJECT_ID: hnl-qltc-dev-backup
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev-backup.web.app
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_HNL_AI_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pin exact DEV BACKUP source and apply PATCH in isolated runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-magnetic-snap-20261028'
+          git merge-base --is-ancestor '66aaf46f0f4e25a48191b7ad4b23094f0f15d5bc' HEAD
+          node --input-type=module <<'NODE'
+          import {execFileSync} from 'node:child_process';
+          const list=execFileSync('git',['diff','--name-only','66aaf46f0f4e25a48191b7ad4b23094f0f15d5bc','HEAD'],{encoding:'utf8'}).trim().split('\n').filter(Boolean).sort();
+          const allowed=['.github/workflows/hnl-dev-backup-magnetic-snap-ci.yml','patches/DEV_BACKUP_MAGNETIC_SNAP_NO_ALT_20261028.patch'].sort();
+          if(JSON.stringify(list)!==JSON.stringify(allowed))throw Error('UNREVIEWED_FILE_DIFFERENCE '+JSON.stringify(list));
+          console.log('PASS exact inherited DEV Backup HEAD');
+          NODE
+          git apply --check patches/DEV_BACKUP_MAGNETIC_SNAP_NO_ALT_20261028.patch
+          git apply patches/DEV_BACKUP_MAGNETIC_SNAP_NO_ALT_20261028.patch
+          node --experimental-strip-types scripts/dev-backup-ortho-snap-chat-unread-golden.mjs
+      - name: Public DEV Backup SDK only, no cloud writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 3 'https://hnl-qltc-dev-backup.web.app/__/firebase/init.json' -o "$RUNNER_TEMP/sdk.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const cfg=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/sdk.json','utf8'));
+          if(cfg.projectId!=='hnl-qltc-dev-backup'||!cfg.apiKey||!cfg.appId)throw Error('WRONG_DEV_BACKUP_PROJECT');
+          const env={VITE_FIREBASE_API_KEY:cfg.apiKey,VITE_FIREBASE_APP_ID:cfg.appId,VITE_FIREBASE_MESSAGING_SENDER_ID:cfg.messagingSenderId,VITE_FIREBASE_STORAGE_BUCKET:cfg.storageBucket||'hnl-qltc-dev-backup.firebasestorage.app'};
+          fs.appendFileSync(process.env.GITHUB_ENV,Object.entries(env).map(([k,v])=>k+'='+v).join('\n')+'\n');
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: TypeScript, lint, Rules, geometry, chat/offline regression, Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const p=require('./package.json'),l=require('./package-lock.json');if(p.name!==l.name||p.version!==l.version)process.exit(2)"
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          node --experimental-strip-types scripts/dev-backup-ortho-snap-chat-unread-golden.mjs
+          node scripts/chat-outbox-durability-golden.mjs
+          node scripts/dev-backup-four-issues-golden.mjs
+          node scripts/offline-golden.mjs
+          npm run build
+          test -s dist/index.html
+          grep -R -q 'hnl-qltc-dev-backup.web.app' dist/assets
+          grep -R -q 'hnl-qltc-r2-gateway-dev-backup' dist/assets
+          echo 'QA PASS: ONLY DEV BACKUP. NO HOSTING/PROD DEPLOY.'
+      - name: Save non-secret CI evidence
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          printf 'Scope: DEV BACKUP CI only\nExact source base: 66aaf46f0f4e25a48191b7ad4b23094f0f15d5bc\nRun SHA: %s\nStatus: %s\nNo Hosting LIVE/PROD/Firestore/R2 change\n' "$GITHUB_SHA" "${{ job.status }}" > evidence/DEV-BACKUP-SNAP-CHAT-CI.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-DEV-BACKUP-SNAP-CHAT-UNREAD-CI-EVIDENCE
+          path: evidence/
+          retention-days: 30
