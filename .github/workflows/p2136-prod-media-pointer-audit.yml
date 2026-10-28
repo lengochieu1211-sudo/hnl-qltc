@@ -5,6 +5,7 @@ on:
       - safety/p2136-prod-media-pointer-audit-20261028
     paths:
       - '.github/workflows/p2136-prod-media-pointer-audit.yml'
+      - 'scripts/p2136-prod-media-pointer-audit.mjs'
   workflow_dispatch:
 permissions:
   contents: read
