@@ -1,0 +1,75 @@
+name: HNL DEV BACKUP magnetic snap audited source handoff (NO DEPLOY)
+on:
+  push:
+    branches: [safety/dev-backup-magnetic-snap-20261028]
+    paths: ['.github/workflows/hnl-dev-backup-magnetic-snap-materialize.yml']
+permissions:
+  contents: write
+concurrency:
+  group: hnl-dev-backup-magnetic-snap-materialize
+  cancel-in-progress: false
+jobs:
+  handoff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Enforce same already-tested PATCH, branch, exact parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-magnetic-snap-20261028'
+          git merge-base --is-ancestor '4a436bb6f406526dddb15e19a7fecf273d713fe9' HEAD
+          test "$(git diff --name-only '4a436bb6f406526dddb15e19a7fecf273d713fe9' HEAD)" = '.github/workflows/hnl-dev-backup-magnetic-snap-materialize.yml'
+          test "$(git hash-object patches/DEV_BACKUP_MAGNETIC_SNAP_NO_ALT_20261028.patch)" = '601a8e4b2f17851b0e9650e8c9f64f3f21200926'
+          git apply --check patches/DEV_BACKUP_MAGNETIC_SNAP_NO_ALT_20261028.patch
+          git apply patches/DEV_BACKUP_MAGNETIC_SNAP_NO_ALT_20261028.patch
+          node --experimental-strip-types scripts/dev-backup-ortho-snap-chat-unread-golden.mjs
+          python3 - <<'PY'
+          import subprocess
+          actual={x[3:] for x in subprocess.check_output(['git','status','--porcelain','--untracked-files=all']).decode().splitlines()}
+          expected={'src/components/FloorPlanDefectTab.tsx','scripts/dev-backup-ortho-snap-chat-unread-golden.mjs'}
+          if actual!=expected:raise SystemExit('REFUSING_UNAUDITED_CHANGED_FILES: '+str(actual))
+          print('Reviewed changed files only: '+', '.join(sorted(expected)))
+          PY
+      - name: Materialize only two changed files in QA branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'HNL QLTC DEV Backup QA'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add -- src/components/FloorPlanDefectTab.tsx scripts/dev-backup-ortho-snap-chat-unread-golden.mjs
+          git commit -m 'fix(dev-backup): intuitive break-away snap with alignment guide, no Alt key'
+          git push origin HEAD:refs/heads/safety/dev-backup-magnetic-snap-20261028
+          echo "EXACT_QA_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Package FULL SOURCE and incremental PATCH from exact commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p handoff
+          git archive --format=zip -o handoff/HNL-QLTC-MAGNETIC-SNAP-FULL-SOURCE.zip HEAD
+          python3 - <<'PY'
+          import subprocess,zipfile,pathlib,hashlib
+          p=pathlib.Path('handoff')
+          names=subprocess.check_output(['git','diff','--name-only','--diff-filter=ACMRT','66aaf46f0f4e25a48191b7ad4b23094f0f15d5bc','HEAD']).decode().splitlines()
+          with zipfile.ZipFile(p/'HNL-QLTC-MAGNETIC-SNAP-PATCH.zip','w',zipfile.ZIP_DEFLATED) as z:
+            for n in names:z.write(n)
+            z.writestr('CHANGED-FILES.txt','\n'.join(names)+'\n')
+            z.writestr('PATCH.diff',subprocess.check_output(['git','diff','--binary','66aaf46f0f4e25a48191b7ad4b23094f0f15d5bc','HEAD']))
+          with (p/'SHA256SUMS.txt').open('w') as out:
+            for f in sorted(p.glob('*.zip')):
+              with zipfile.ZipFile(f) as z:
+                assert z.testzip() is None
+              out.write(hashlib.sha256(f.read_bytes()).hexdigest()+'  '+f.name+'\n')
+          PY
+          printf 'HNL QLTC DEV Backup magnetic snap UX\nCI run #40702389598 PASS\nSource baseline: 66aaf46f0f4e25a48191b7ad4b23094f0f15d5bc\nFinal QA source HEAD: %s\nNo Firebase/PROD deploy or Firestore/R2 mutation.\nAndroid real-runtime check pending.\n' "$(git rev-parse HEAD)" > handoff/REPORT.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-QLTC-DEV-BACKUP-MAGNETIC-SNAP-SOURCE-HANDOFF
+          path: handoff/
+          if-no-files-found: warn
+          retention-days: 30
