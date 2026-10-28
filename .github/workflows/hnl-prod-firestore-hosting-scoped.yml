@@ -1,0 +1,110 @@
+name: HNL QLTC PROD - scoped Firestore Rules and Hosting
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Exact approved source SHA (40 hex)'
+        required: true
+        default: '62bb24547ced6cb6db24aa5bea9d7a95a8ec3208'
+        type: string
+      acknowledge_unverified:
+        description: 'Type ACCEPT-UNVERIFIED-RUNTIME to acknowledge remaining unverified runtime/media gates (NOT a PASS certification)'
+        required: true
+        type: string
+      target:
+        description: 'Deploy stage'
+        required: true
+        default: 'firestore-and-hosting'
+        type: choice
+        options:
+          - firestore-and-hosting
+          - hosting-only
+jobs:
+  scoped_prod:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    concurrency:
+      group: hnl-qltc-prod-scoped
+      cancel-in-progress: false
+    env:
+      VITE_APP_ENV: PROD
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: "true"
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: "false"
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: "false"
+      VITE_FIREBASE_API_KEY: ${{ vars.HNL_PROD_FIREBASE_API_KEY }}
+      VITE_FIREBASE_AUTH_DOMAIN: hnlqltc.web.app
+      VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
+      VITE_FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
+      VITE_FIREBASE_MESSAGING_SENDER_ID: "119152410850"
+      VITE_FIREBASE_APP_ID: "1:119152410850:web:c2aee2135428af34ef5ebb"
+      VITE_FIRESTORE_DATABASE_ID: "(default)"
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
+      VITE_HNL_AI_ENABLED: "true"
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: ${{ inputs.source_sha }}
+    steps:
+      - name: Scope and acknowledgement gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ github.ref }}" = "refs/heads/main"
+          test "${{ inputs.acknowledge_unverified }}" = "ACCEPT-UNVERIFIED-RUNTIME"
+          printf '%s' "${{ inputs.source_sha }}" | grep -Eq '^[0-9a-f]{40}$'
+          test "${{ inputs.source_sha }}" = "62bb24547ced6cb6db24aa5bea9d7a95a8ec3208"
+          echo 'Acknowledgement is a risk acceptance, NOT Runtime Golden / migration parity certification.'
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - name: Validate pinned source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ inputs.source_sha }}"
+          test -f package.json && test -f package-lock.json && test -f firestore.rules
+          test "$(node -p "require('./package.json').version")" = "$(node -p "require('./package-lock.json').version")"
+          test -n "$VITE_FIREBASE_API_KEY" || { echo 'Missing HNL_PROD_FIREBASE_API_KEY repository variable'; exit 1; }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test:rules
+      - run: npm run build
+      - name: Deploy Firestore Rules ONLY (never Storage Rules)
+        if: inputs.target == 'firestore-and-hosting'
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$FIREBASE_SERVICE_ACCOUNT"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-service-account.json"
+          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          npx --yes firebase-tools@13.35.1 deploy --only firestore:rules --config firebase.json --project com-example-qlct-61329 --non-interactive
+      - name: Deploy Hosting ONLY (never R2/AI Workers)
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$FIREBASE_SERVICE_ACCOUNT"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-service-account.json"
+          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          npx --yes firebase-tools@13.35.1 deploy --only hosting --config firebase.prod.json --project com-example-qlct-61329 --non-interactive
+      - name: Smoke PROD HTML
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 5 --retry-delay 3 "https://hnlqltc.web.app/?release=${GITHUB_RUN_ID}" | grep -qi '<div id="root"'
+          echo "PROD hosting smoke PASS; authenticated user runtime NOT certified"
