@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // P21.36: READ-ONLY inventory; never export business documents, asset paths or secrets.
-import {createSign} from 'node:crypto';
+import {createHash,createSign} from 'node:crypto';
 import {writeFileSync} from 'node:fs';
 import {crawlFirestore,listDocumentsQuery} from './p2115-firestore-traversal.mjs';
 const PROD='com-example-qlct-61329',BUCKET='hnl-qltc-media',ACCOUNT='4078cafe74946b0d5a67b35143b60071';
@@ -11,8 +11,10 @@ function decode(v) {
  for(const k of ['stringValue','integerValue','doubleValue','booleanValue'])if(k in v)return v[k];
  return undefined;
 }
-const stats={refs:{},r2Paths:new Map(),invalidR2:0}; 
-function parse(fields) {
+const stats={refs:{},r2Paths:new Map(),invalidR2:0,legacyByCollection:{}};
+function parse(fields,documentName='') {
+ const relative=String(documentName).split('/documents/')[1]||'';
+ const collection=relative.split('/').filter((_,i)=>i%2===0).slice(-1)[0]||'unknown';
  const root=Object.fromEntries(Object.entries(fields||{}).map(([k,v])=>[k,decode(v)]));
  function walk(x,depth=0){
   if(!x||typeof x!=='object'||depth>25)return;
@@ -28,11 +30,16 @@ function parse(fields) {
    else if(provider||raw)type='unknown';
    if(type){
     stats.refs[type]=(stats.refs[type]||0)+1;
+    if(type!=='r2') { const key=collection+':'+type;stats.legacyByCollection[key]=(stats.legacyByCollection[key]||0)+1; }
     if(type==='r2') {
      const path=raw.replace(/^r2:/,'');
      if(!/^projects\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.\/-]+$/.test(path)||path.includes('..'))stats.invalidR2++;
      else {
-      const entry=stats.r2Paths.get(path)||{sizes:new Set(),sha:new Set()};
+      const entry=stats.r2Paths.get(path)||{sizes:new Set(),sha:new Set(),collections:new Set(),states:new Set()};
+      entry.collections.add(collection);
+      // Deletion flags are hints only: nested/photo metadata may have tombstones elsewhere.
+      const deleted=x.deleted===true||Boolean(x.deletedAt)||root.deleted===true||Boolean(root.deletedAt);
+      entry.states.add(deleted?'tombstoned':'not-flagged-deleted');
       const bytes=Number(x.sizeBytes??x.byteSize??x.fileSize);
       if(bytes>0)entry.sizes.add(bytes);
       for(const k of ['sha256','checksum','contentSha256'])if(/^[a-f0-9]{64}$/i.test(String(x[k]||'')))entry.sha.add(String(x[k]).toLowerCase());
@@ -93,7 +100,7 @@ async function live(){
   onCollection:async()=>{},
   onDocument:async(doc)=>{
    if(++documents>15000)throw Error('DOCUMENT_CAP_EXCEEDED');
-   parse(doc.fields||{});
+   parse(doc.fields||{},doc.name);
   }
  });
  if(!documents)throw Error('EMPTY_FIRESTORE_NOT_CERTIFIED');
@@ -110,8 +117,19 @@ async function live(){
  }while(cursor);
  if(!r2.size)throw Error('EMPTY_R2_NOT_CERTIFIED');
  let matched=0,missing=0,sizeMismatch=0,hashMismatch=0,shaMetaAbsent=0;
+ const missingByCollection={},missingByState={},missingDigests=[],missingWithSameBasename=[];
+ const basenames=new Map();for(const k of r2.keys()){const b=k.split('/').at(-1);basenames.set(b,(basenames.get(b)||0)+1)}
  for(const [key,e] of stats.r2Paths){
-  const obj=r2.get(key);if(!obj){missing++;continue;}matched++;
+  const obj=r2.get(key);
+  if(!obj){
+   missing++;
+   missingDigests.push(createHash('sha256').update(key).digest('hex').slice(0,16));
+   for(const c of e.collections)missingByCollection[c]=(missingByCollection[c]||0)+1;
+   for(const st of e.states)missingByState[st]=(missingByState[st]||0)+1;
+   if(basenames.has(key.split('/').at(-1)))missingWithSameBasename.push(createHash('sha256').update(key).digest('hex').slice(0,16));
+   continue;
+  }
+  matched++;
   if(e.sizes.size&&!e.sizes.has(Number(obj.size)))sizeMismatch++;
   if(e.sha.size){
    const sha=String(obj.custom_metadata?.sha256||obj.custom_metadata?.contentSha256||'').toLowerCase();
@@ -126,11 +144,12 @@ async function live(){
   r2Objects:r2.size,r2ReferencedUnique:stats.r2Paths.size,r2MatchedUnique:matched,
   r2MissingUnique:missing,r2MalformedReferences:stats.invalidR2,
   r2SizeMismatches:sizeMismatch,r2ShaMismatches:hashMismatch,r2ShaMetadataAbsent:shaMetaAbsent,
+  missingByCollection,missingByState,missingKeySha256Prefix16:missingDigests.sort(),missingWithSameBasenamePrefix16:missingWithSameBasename.sort(),legacyByCollection:stats.legacyByCollection,
   legacyReferences:(stats.refs.firestoreFallback||0)+(stats.refs.drive||0)+(stats.refs.firebaseStorage||0),
   status:'READ_ONLY_INVENTORY_NOT_MIGRATION_PARITY_CERTIFICATION',
   note:'Metadata-level inventory cannot establish original legacy Drive/Storage byte parity. No business docs, paths or credentials exported.'
  };
  writeFileSync('P2136-PROD-POINTER-SUMMARY.json',JSON.stringify(result,null,2)+'\n',{mode:0o600});
- console.log(JSON.stringify({status:result.status,firestoreDocuments:documents,r2Objects:r2.size,legacyReferences:result.legacyReferences,r2Matched:matched,r2Missing:missing,r2Mismatch:sizeMismatch+hashMismatch}));
+ console.log(JSON.stringify({status:result.status,firestoreDocuments:documents,r2Objects:r2.size,legacyReferences:result.legacyReferences,r2Matched:matched,r2Missing:missing,r2Mismatch:sizeMismatch+hashMismatch,missingByCollection,missingByState}));
  if(missing||sizeMismatch||hashMismatch||stats.invalidR2)process.exitCode=2;
 }
