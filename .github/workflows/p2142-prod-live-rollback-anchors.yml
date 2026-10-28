@@ -60,12 +60,13 @@ jobs:
           const h=await get('https://firebasehosting.googleapis.com/v1beta1/sites/'+site+'/channels/live/releases?pageSize=3');
           const hosting=(h.releases||[]).map(x=>({name:x.name||'',versionName:x.version?.name||'',releaseTime:x.releaseTime||'',type:x.type||''})).sort((x,y)=>y.releaseTime.localeCompare(x.releaseTime));
           if(!hosting.length||!hosting[0].versionName)throw new Error('NO_PROD_LIVE_HOSTING_VERSION');
-          const ruleList=[];
+          const ruleList=[],allRuleReleases=[];
           let pageToken='';
           for(let i=0;i<10;i++){
             const url='https://firebaserules.googleapis.com/v1/projects/'+project+'/releases?pageSize=100'+(pageToken?'&pageToken='+encodeURIComponent(pageToken):'');
             const x=await get(url);
             for(const y of x.releases||[]) {
+              allRuleReleases.push({name:y.name||'',rulesetName:y.rulesetName||'',updateTime:y.updateTime||''});
               if(y.name?.startsWith('projects/'+project+'/releases/cloud.firestore')||y.name?.startsWith('projects/'+project+'/releases/firebase.storage')){
                 ruleList.push({name:y.name||'',rulesetName:y.rulesetName||'',updateTime:y.updateTime||''});
               }
@@ -74,10 +75,12 @@ jobs:
             if(!pageToken)break;
             if(i===9)throw new Error('RULES_PAGINATION_LIMIT');
           }
-          if(!ruleList.some(x=>x.name.includes('/releases/cloud.firestore'))||!ruleList.some(x=>x.name.includes('/releases/firebase.storage')))throw new Error('MISSING_LIVE_RULESET_POINTER');
-          const out={format:'P21.42-READ-ONLY-PROD-ROLLBACK-ANCHORS',project,site,readAt:new Date().toISOString(),mainBefore:'57eea2b878e17da64d7a6191fda178eaff3b8488',releaseCandidate:'f36bd19fa30228f8056a0251ff1db81daad92500',hostingLive:hosting[0],hostingRecent:hosting.slice(0,3),rulesReleasePointers:ruleList,stage:'PREDEPLOY_BASELINE_ONLY',scope:'GET_ONLY_NO_DEPLOY',notes:'Immutable live Hosting version and ruleset pointers recorded. Validate source/rollback rights before any restoration.'};
+          const rulesComplete=ruleList.some(x=>x.name.includes('/releases/cloud.firestore'))&&ruleList.some(x=>x.name.includes('/releases/firebase.storage'));
+          const rulesStatus=rulesComplete?'RULES_POINTERS_VERIFIED':'RULES_POINTERS_REQUIRE_REVIEW';
+          const out={format:'P21.42-READ-ONLY-PROD-ROLLBACK-ANCHORS',project,site,readAt:new Date().toISOString(),mainBefore:'57eea2b878e17da64d7a6191fda178eaff3b8488',releaseCandidate:'f36bd19fa30228f8056a0251ff1db81daad92500',hostingLive:hosting[0],hostingRecent:hosting.slice(0,3),rulesReleasePointers:ruleList,allRulesReleaseNames:allRuleReleases,rulesStatus,stage:'PREDEPLOY_BASELINE_ONLY',scope:'GET_ONLY_NO_DEPLOY',notes:'Immutable live Hosting version and ruleset pointers recorded. Validate source/rollback rights before any restoration.'};
           writeFileSync('P2142-PROD-ROLLBACK-ANCHORS.json',JSON.stringify(out,null,2)+'\n',{mode:0o600});
-          console.log(JSON.stringify({site,hostingLive:out.hostingLive,firestoreRules:ruleList.filter(x=>x.name.includes('/releases/cloud.firestore')).map(x=>x.rulesetName),storageRules:ruleList.filter(x=>x.name.includes('/releases/firebase.storage')).map(x=>x.rulesetName),stage:out.stage}));
+          console.log(JSON.stringify({site,hostingLive:out.hostingLive,firestoreRules:ruleList.filter(x=>x.name.includes('/releases/cloud.firestore')).map(x=>x.rulesetName),storageRules:ruleList.filter(x=>x.name.includes('/releases/firebase.storage')).map(x=>x.rulesetName),allRuleReleaseNames:allRuleReleases.map(x=>x.name),rulesStatus,stage:out.stage}));
+          if(!rulesComplete)process.exitCode=2;
           NODE
       - name: Upload sanitized, source-pinned rollback anchors
         if: always()
