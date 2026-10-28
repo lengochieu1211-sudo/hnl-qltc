@@ -5,6 +5,14 @@ on:
       - release/p21-13-prod-candidate-20261027
     paths:
       - '.github/workflows/p2119-dev-backup-preview.yml'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'scripts/p2115-firestore-encrypted-snapshot.mjs'
+      - 'scripts/p2115-firestore-traversal.mjs'
+      - 'scripts/p2115-firestore-traversal-golden.mjs'
+      - 'scripts/p2115-firestore-restore-core.mjs'
+      - 'scripts/p2115-firestore-restore-golden.mjs'
+      - 'scripts/p2115-firestore-isolated-restore.mjs'
   workflow_dispatch:
 permissions:
   contents: read
