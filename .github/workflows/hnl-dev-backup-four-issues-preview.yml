@@ -1,0 +1,148 @@
+name: HNL DEV BACKUP four issues ISOLATED Hosting PREVIEW (NO LIVE / NO PROD)
+on:
+  push:
+    branches: [safety/dev-backup-4-fixes-20261028]
+    paths: ['.github/workflows/hnl-dev-backup-four-issues-preview.yml']
+permissions:
+  contents: read
+concurrency:
+  group: hnl-qltc-dev-backup-four-issues-preview
+  cancel-in-progress: false
+jobs:
+  backup-hosting-preview-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      EXPECTED_SOURCE: 50b602c7ebb2f184b483e6477c6a5987d3724add
+      EXPECTED_OLD_LIVE: sites/hnl-qltc-dev-backup/versions/d0cb65233d33f424
+      BACKUP_PROJECT: hnl-qltc-dev-backup
+      PREVIEW_CHANNEL: hnl-four-fixes-qa-20261028
+      VITE_APP_ENV: DEV
+      VITE_DEV_FIREBASE_TARGET: backup
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev-backup.web.app
+      VITE_FIREBASE_PROJECT_ID: hnl-qltc-dev-backup
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_HNL_AI_ENABLED: 'false'
+      VITE_GIT_COMMIT: 50b602c7ebb2f184b483e6477c6a5987d3724add
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Source SHA and service-account isolation (NO LIVE)
+        shell: bash
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-4-fixes-20261028'
+          git merge-base --is-ancestor "$EXPECTED_SOURCE" HEAD
+          test "$(git diff --name-only "$EXPECTED_SOURCE" HEAD)" = '.github/workflows/hnl-dev-backup-four-issues-preview.yml'
+          node --input-type=module <<'NODE'
+          const c=JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT||'{}');
+          if(c.project_id!==process.env.BACKUP_PROJECT||c.type!=='service_account'||!c.private_key)throw Error('WRONG_FIREBASE_SERVICE_ACCOUNT');
+          if(process.env.VITE_FIREBASE_AUTH_DOMAIN!=='hnl-qltc-dev-backup.web.app')throw Error('AUTH_DOMAIN_MISMATCH');
+          if(process.env.VITE_R2_GATEWAY_URL!=='https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev')throw Error('R2_MISMATCH');
+          NODE
+      - name: Read current LIVE Hosting version, refuse mismatched source
+        shell: bash
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import {google} from 'googleapis';
+          const auth=new google.auth.GoogleAuth({credentials:JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT),scopes:['https://www.googleapis.com/auth/firebase.hosting.readonly']});
+          const token=(await (await auth.getClient()).getAccessToken()).token;
+          const r=await fetch('https://firebasehosting.googleapis.com/v1beta1/sites/hnl-qltc-dev-backup/channels/live/releases?pageSize=1',{headers:{Authorization:'Bearer '+token}});
+          if(!r.ok)throw Error('LIVE_READ_FAILED '+r.status);
+          const current=(await r.json()).releases?.[0]?.version?.name;
+          if(current!==process.env.EXPECTED_OLD_LIVE)throw Error('REFUSE_STALE_LIVE_BASELINE '+current);
+          console.log('PASS current DEV BACKUP LIVE unchanged',current);
+          NODE
+      - name: Read PUBLIC Firebase SDK for DEV Backup only
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 3 'https://hnl-qltc-dev-backup.web.app/__/firebase/init.json' -o "$RUNNER_TEMP/backup-sdk.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const c=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/backup-sdk.json','utf8'));
+          if(c.projectId!=='hnl-qltc-dev-backup'||!c.apiKey||!c.appId)throw Error('INVALID_BACKUP_SDK');
+          const e={VITE_FIREBASE_API_KEY:c.apiKey,VITE_FIREBASE_APP_ID:c.appId,VITE_FIREBASE_MESSAGING_SENDER_ID:c.messagingSenderId,VITE_FIREBASE_STORAGE_BUCKET:c.storageBucket||'hnl-qltc-dev-backup.firebasestorage.app'};
+          fs.appendFileSync(process.env.GITHUB_ENV,Object.entries(e).map(([k,v])=>k+'='+v).join('\n')+'\n');
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Revalidate exact code and build STATIC candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run typecheck
+          npm run lint
+          node scripts/dev-backup-four-issues-golden.mjs
+          node --experimental-strip-types scripts/dev-backup-four-issues-geometry-golden.mjs
+          npm run build
+          test -s dist/index.html
+          grep -R -q 'hnl-qltc-dev-backup.web.app' dist/assets
+          grep -R -q 'hnl-qltc-r2-gateway-dev-backup' dist/assets
+          node - <<'NODE'
+          const fs=require('fs');
+          const cfg=JSON.parse(fs.readFileSync('firebase.json','utf8'));
+          if(cfg.hosting?.public!=='dist')throw Error('Unexpected Hosting public');
+          fs.writeFileSync('hosting-preview-only.json',JSON.stringify({hosting:cfg.hosting}));
+          NODE
+      - name: Deploy candidate to PREVIEW CHANNEL ONLY, never LIVE
+        shell: bash
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        run: |
+          set -euo pipefail
+          test "$BACKUP_PROJECT" = 'hnl-qltc-dev-backup'
+          printf '%s' "$FIREBASE_BACKUP_SERVICE_ACCOUNT" > "$RUNNER_TEMP/backup-sa.json"
+          chmod 600 "$RUNNER_TEMP/backup-sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/backup-sa.json"
+          trap 'rm -f "$RUNNER_TEMP/backup-sa.json"' EXIT
+          npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$PREVIEW_CHANNEL" --expires 7d --project "$BACKUP_PROJECT" --config "$GITHUB_WORKSPACE/hosting-preview-only.json" --non-interactive --json > "$RUNNER_TEMP/preview-response.json"
+          test -s "$RUNNER_TEMP/preview-response.json"
+          node --input-type=module <<'NODE'
+          import {google} from 'googleapis';import fs from 'node:fs';
+          const auth=new google.auth.GoogleAuth({credentials:JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT),scopes:['https://www.googleapis.com/auth/firebase.hosting.readonly']});
+          const token=(await (await auth.getClient()).getAccessToken()).token;
+          const get=async u=>fetch(u,{headers:{Authorization:'Bearer '+token}});
+          const ch=await get('https://firebasehosting.googleapis.com/v1beta1/sites/hnl-qltc-dev-backup/channels/'+process.env.PREVIEW_CHANNEL);
+          if(!ch.ok)throw Error('Cannot read preview metadata');
+          const info=await ch.json(),url=info.url;
+          if(!url||!url.includes('hnl-qltc-dev-backup--')||!url.includes('.web.app'))throw Error('UNEXPECTED_PREVIEW_URL '+url);
+          const html=await fetch(url+'/?qa=4issues');
+          if(!html.ok||!(await html.text()).includes('id="root"'))throw Error('PREVIEW_ROOT_SMOKE_FAILED');
+          const js=fs.readdirSync('dist/assets').find(x=>/^firebaseBase-.*\.js$/.test(x));
+          if(!js)throw Error('No firebaseBase output');
+          const asset=await fetch(url+'/assets/'+js);
+          if(!asset.ok||!Buffer.from(await asset.arrayBuffer()).equals(fs.readFileSync('dist/assets/'+js)))throw Error('PREVIEW_BUNDLE_BYTE_MISMATCH');
+          const live=await get('https://firebasehosting.googleapis.com/v1beta1/sites/hnl-qltc-dev-backup/channels/live/releases?pageSize=1');
+          const version=(await live.json()).releases?.[0]?.version?.name;
+          if(version!==process.env.EXPECTED_OLD_LIVE)throw Error('LIVE_WAS_CHANGED_BY_OTHER_PROCESS');
+          fs.mkdirSync('evidence',{recursive:true});
+          fs.writeFileSync('evidence/FOUR-ISSUES-PREVIEW.json',JSON.stringify({
+            project:'hnl-qltc-dev-backup',url,source:process.env.EXPECTED_SOURCE,previewVersion:info.release?.version?.name||'check release API',
+            oldLiveVersion:version,liveChanged:false,prodChanged:false,cloudDataChanged:false,
+            browserSignedInGolden:false,multiUserLockGolden:false
+          },null,2));
+          console.log('DEV Backup isolated PREVIEW smoke PASS',url);
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-DEV-BACKUP-FOUR-ISSUES-PREVIEW-REPORT
+          path: evidence/FOUR-ISSUES-PREVIEW.json
+          if-no-files-found: warn
+          retention-days: 30
