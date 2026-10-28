@@ -11,7 +11,7 @@ function decode(v) {
  for(const k of ['stringValue','integerValue','doubleValue','booleanValue'])if(k in v)return v[k];
  return undefined;
 }
-const stats={refs:{},r2Paths:new Map(),invalidR2:0,legacyByCollection:{}};
+const stats={refs:{},r2Paths:new Map(),invalidR2:0,legacyByCollection:{},legacyByState:{},legacyByCollectionAndState:{}};
 function parse(fields,documentName='') {
  const relative=String(documentName).split('/documents/')[1]||'';
  const collection=relative.split('/').filter((_,i)=>i%2===0).slice(-1)[0]||'unknown';
@@ -30,7 +30,13 @@ function parse(fields,documentName='') {
    else if(provider||raw)type='unknown';
    if(type){
     stats.refs[type]=(stats.refs[type]||0)+1;
-    if(type!=='r2') { const key=collection+':'+type;stats.legacyByCollection[key]=(stats.legacyByCollection[key]||0)+1; }
+    if(type!=='r2') {
+     const state=(x.deleted===true||Boolean(x.deletedAt)||root.deleted===true||Boolean(root.deletedAt))?'tombstoned':'not-flagged-deleted';
+     const key=collection+':'+type,byState=type+':'+state,byCollection=key+':'+state;
+     stats.legacyByCollection[key]=(stats.legacyByCollection[key]||0)+1;
+     stats.legacyByState[byState]=(stats.legacyByState[byState]||0)+1;
+     stats.legacyByCollectionAndState[byCollection]=(stats.legacyByCollectionAndState[byCollection]||0)+1;
+    }
     if(type==='r2') {
      const path=raw.replace(/^r2:/,'');
      if(!/^projects\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.\/-]+$/.test(path)||path.includes('..'))stats.invalidR2++;
@@ -144,12 +150,12 @@ async function live(){
   r2Objects:r2.size,r2ReferencedUnique:stats.r2Paths.size,r2MatchedUnique:matched,
   r2MissingUnique:missing,r2MalformedReferences:stats.invalidR2,
   r2SizeMismatches:sizeMismatch,r2ShaMismatches:hashMismatch,r2ShaMetadataAbsent:shaMetaAbsent,
-  missingByCollection,missingByState,missingKeySha256Prefix16:missingDigests.sort(),missingWithSameBasenamePrefix16:missingWithSameBasename.sort(),legacyByCollection:stats.legacyByCollection,
+  missingByCollection,missingByState,missingKeySha256Prefix16:missingDigests.sort(),missingWithSameBasenamePrefix16:missingWithSameBasename.sort(),legacyByCollection:stats.legacyByCollection,legacyByState:stats.legacyByState,legacyByCollectionAndState:stats.legacyByCollectionAndState,
   legacyReferences:(stats.refs.firestoreFallback||0)+(stats.refs.drive||0)+(stats.refs.firebaseStorage||0),
   status:'READ_ONLY_INVENTORY_NOT_MIGRATION_PARITY_CERTIFICATION',
   note:'Metadata-level inventory cannot establish original legacy Drive/Storage byte parity. No business docs, paths or credentials exported.'
  };
  writeFileSync('P2136-PROD-POINTER-SUMMARY.json',JSON.stringify(result,null,2)+'\n',{mode:0o600});
- console.log(JSON.stringify({status:result.status,firestoreDocuments:documents,r2Objects:r2.size,legacyReferences:result.legacyReferences,r2Matched:matched,r2Missing:missing,r2Mismatch:sizeMismatch+hashMismatch,missingByCollection,missingByState}));
+ console.log(JSON.stringify({status:result.status,firestoreDocuments:documents,r2Objects:r2.size,legacyReferences:result.legacyReferences,legacyByState:stats.legacyByState,r2Matched:matched,r2Missing:missing,r2Mismatch:sizeMismatch+hashMismatch,missingByCollection,missingByState}));
  if(missing||sizeMismatch||hashMismatch||stats.invalidR2)process.exitCode=2;
 }
