@@ -1,0 +1,43 @@
+--- a/src/components/FloorPlanDefectTab.tsx
++++ b/src/components/FloorPlanDefectTab.tsx
+@@ -8681,7 +8681,7 @@
+                         style={{ left: `${x}%`, top: `${y}%`, touchAction: 'manipulation' }}
+                         className="absolute -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-auto w-7 h-7 sm:w-6 sm:h-6 rounded-full bg-transparent cursor-pointer"
+                         aria-label={`Mở Defect ${shortDefectCode}`}
+-                        title={`${shortDefectCode} · ${defect.category}${defect.description ? ` · ${defect.description}` : ''}`}
++                        title={`${shortDefectCode} · ${defect.category} · Tạo: ${defect.createdAt ? formatDateDDMMYYYY(defect.createdAt) : 'Chưa ghi nhận'}${defect.description ? ` · ${defect.description}` : ''}`}
+                       />
+                       <div
+                         onPointerDown={(e) => e.stopPropagation()}
+@@ -8692,7 +8692,7 @@
+                         }}
+                         style={{ left: `${markerX}%`, top: `${markerY}%` }}
+                         className="absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer z-50 pointer-events-auto transition-transform hover:scale-110 active:scale-105"
+-                        title={`${shortDefectCode} · ${defect.category}${defect.description ? ` · ${defect.description}` : ''}`}
++                        title={`${shortDefectCode} · ${defect.category} · Tạo: ${defect.createdAt ? formatDateDDMMYYYY(defect.createdAt) : 'Chưa ghi nhận'}${defect.description ? ` · ${defect.description}` : ''}`}
+                       >
+                         <div
+                           style={{
+@@ -9506,6 +9506,9 @@
+                           <div>
+                             <span className="text-[10px] font-black text-slate-400 mr-1.5">[{getDefectShortCode(defect.id)}]</span>
+                             <span className="text-xs font-extrabold text-slate-900 leading-snug">{defect.category}</span>
++                            <p className="mt-0.5 text-[10px] font-semibold text-slate-500" data-hnl-defect-list-created-at="true">
++                              Ngày tạo: {defect.createdAt ? formatDateDDMMYYYY(defect.createdAt) : 'Chưa ghi nhận'}
++                            </p>
+                           </div>
+                         </div>
+ 
+--- a/scripts/dev-backup-defect-card-date-golden.mjs
++++ b/scripts/dev-backup-defect-card-date-golden.mjs
+@@ -0,0 +1,10 @@
++import fs from 'node:fs';
++import assert from 'node:assert/strict';
++const source = fs.readFileSync('src/components/FloorPlanDefectTab.tsx','utf8');
++assert(source.includes('data-hnl-defect-list-created-at="true"'),'Missing visible date in list card');
++assert(source.includes("Ngày tạo: {defect.createdAt ? formatDateDDMMYYYY(defect.createdAt) : 'Chưa ghi nhận'}"),'Date must come from original createdAt, preserve legacy fallback');
++assert.equal((source.match(/data-hnl-defect-list-created-at="true"/g)||[]).length,1,'Expected exactly one list date');
++assert(source.includes('data-hnl-defect-created-at="true"'),'Existing detail date preserved');
++assert.equal((source.match(/· Tạo: \$\{defect.createdAt \? formatDateDDMMYYYY\(defect.createdAt\)/g)||[]).length,2,'Both map marker tooltips must use the creation date');
++assert(source.includes("{ key: 'createdAt', label: 'Ngày ghi nhận'"),'CreatedAt sort remains supported');
++console.log('DEFECT OUTSIDE CARD + MAP TOOLTIP DATE PASS');
