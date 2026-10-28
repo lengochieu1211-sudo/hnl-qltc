@@ -36,7 +36,7 @@ jobs:
       VITE_ENABLE_LEGACY_DRIVE_READ: "true"
       VITE_ENABLE_LEGACY_DRIVE_WRITE: "false"
       VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: "false"
-      VITE_FIREBASE_API_KEY: ${{ vars.HNL_PROD_FIREBASE_API_KEY }}
+      VITE_FIREBASE_API_KEY: AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY
       VITE_FIREBASE_AUTH_DOMAIN: hnlqltc.web.app
       VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
       VITE_FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
@@ -69,7 +69,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "${{ inputs.source_sha }}"
           test -f package.json && test -f package-lock.json && test -f firestore.rules
           test "$(node -p "require('./package.json').version")" = "$(node -p "require('./package-lock.json').version")"
-          test -n "$VITE_FIREBASE_API_KEY" || { echo 'Missing HNL_PROD_FIREBASE_API_KEY repository variable'; exit 1; }
+          test -n "$VITE_FIREBASE_API_KEY"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
