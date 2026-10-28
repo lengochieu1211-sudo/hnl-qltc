@@ -75,7 +75,7 @@ jobs:
           npx tsx scripts/warehouse-voucher-layout-golden.ts
           node --experimental-strip-types scripts/warehouse-report-format-golden.mjs
           npx tsx scripts/warehouse-export-formulas-golden.ts
-          node scripts/warehouse-voucher-browser-golden.mjs
+          npx tsx scripts/warehouse-voucher-selection-golden.ts
           npm run security:audit
           npm run build
           test -s dist/index.html
