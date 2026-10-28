@@ -1,0 +1,39 @@
+diff --git a/.github/workflows/p2137-dev-backup-canonical-smoke.yml b/.github/workflows/p2137-dev-backup-canonical-smoke.yml
+--- a/.github/workflows/p2137-dev-backup-canonical-smoke.yml
++++ b/.github/workflows/p2137-dev-backup-canonical-smoke.yml
+@@ -1,2 +1,2 @@
+-name: P21.37 DEV Backup canonical same-origin candidate (HOSTING ONLY)
++name: P21.37 DEV Backup WEB.APP first-party Auth candidate (HOSTING ONLY)
+ on:
+@@ -31,3 +31,3 @@
+       VITE_USE_FIREBASE_EMULATORS: 'false'
+-      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev-backup.firebaseapp.com
++      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev-backup.web.app
+       VITE_GIT_COMMIT: f36bd19fa30228f8056a0251ff1db81daad92500
+@@ -108,3 +108,3 @@
+           if(cfg.projectId!=='hnl-qltc-dev-backup'||!cfg.apiKey||!cfg.appId||!cfg.messagingSenderId)throw Error('Invalid DEV Backup SDK identity');
+-          cfg.authDomain='hnl-qltc-dev-backup.firebaseapp.com';
++          cfg.authDomain='hnl-qltc-dev-backup.web.app';
+           cfg.storageBucket||='hnl-qltc-dev-backup.firebasestorage.app';
+@@ -156,5 +156,5 @@
+           test "$VITE_FIREBASE_PROJECT_ID" = "$BACKUP_PROJECT"
+-          test "$VITE_FIREBASE_AUTH_DOMAIN" = 'hnl-qltc-dev-backup.firebaseapp.com'
++          test "$VITE_FIREBASE_AUTH_DOMAIN" = 'hnl-qltc-dev-backup.web.app'
+           test "$VITE_R2_GATEWAY_URL" = 'https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev'
+-          grep -R -q 'hnl-qltc-dev-backup.firebaseapp.com' dist/assets
++          grep -R -q 'hnl-qltc-dev-backup.web.app' dist/assets
+           node - <<'NODE'
+@@ -171,3 +171,3 @@
+ 
+-      - name: Canonical Firebaseapp Hosting public smoke (signed-in Golden not yet PASS)
++      - name: Canonical Webapp Hosting public smoke (signed-in Golden not yet PASS)
+         shell: bash
+@@ -175,5 +175,5 @@
+           set -euo pipefail
+-          curl --fail --silent --show-error --location 'https://hnl-qltc-dev-backup.firebaseapp.com/?p2137=1' | grep -q 'id="root"'
+-          curl --fail --silent --show-error 'https://hnl-qltc-dev-backup.firebaseapp.com/__/firebase/init.json' | grep -q '"projectId": "hnl-qltc-dev-backup"'
+-          printf '%s\n' '{"phase":"P21.37","source":"f36bd19fa30228f8056a0251ff1db81daad92500","project":"hnl-qltc-dev-backup","origin":"hnl-qltc-dev-backup.firebaseapp.com","scope":"Hosting-only","rollback":"p2137-rollback","authenticatedGolden":false,"prodChanged":false}' > P2137-DEV-BACKUP-REPORT.json
++          curl --fail --silent --show-error --location 'https://hnl-qltc-dev-backup.web.app/?p2137=1' | grep -q 'id="root"'
++          curl --fail --silent --show-error 'https://hnl-qltc-dev-backup.web.app/__/firebase/init.json' | grep -q '"projectId": "hnl-qltc-dev-backup"'
++          printf '%s\n' '{"phase":"P21.37","source":"f36bd19fa30228f8056a0251ff1db81daad92500","project":"hnl-qltc-dev-backup","origin":"hnl-qltc-dev-backup.web.app","scope":"Hosting-only","rollback":"p2137-rollback","authenticatedGolden":false,"prodChanged":false}' > P2137-DEV-BACKUP-REPORT.json
+           echo 'DEV Backup canonical public smoke PASS; authenticated user golden remains pending'

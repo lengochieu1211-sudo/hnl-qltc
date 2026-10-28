@@ -1,0 +1,143 @@
+name: HNL DEV BACKUP web.app Auth PREVIEW BUILD / CI ONLY (NO DEPLOY)
+
+on:
+  push:
+    branches:
+      - safety/p2137-webapp-auth-ci-only
+    paths:
+      - '.github/workflows/hnl-dev-backup-webapp-auth-ci-only.yml'
+      - 'patches/P21.37_DEV_BACKUP_AUTH_WEBAPP_ONLY.patch'
+      - 'scripts/check-p2137-webapp-auth.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hnl-qltc-dev-backup-auth-ci-only-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate-webapp-firstparty:
+    name: TypeScript / Lint / Rules Emulator / Build (NEVER DEPLOY)
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_DEV_FIREBASE_TARGET: backup
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+      VITE_HNL_AI_ENABLED: 'false'
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_USE_FIREBASE_EMULATORS: 'false'
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev-backup.web.app
+      VITE_FIREBASE_PROJECT_ID: hnl-qltc-dev-backup
+      VITE_GIT_COMMIT: f36bd19fa30228f8056a0251ff1db81daad92500
+      CI: 'true'
+    steps:
+      - name: Checkout CI-only review branch (no repository write token)
+        uses: actions/checkout@v4
+        with:
+          path: preflight
+          persist-credentials: false
+      - name: Checkout EXACT P21 source, not P20 Backup
+        uses: actions/checkout@v4
+        with:
+          ref: f36bd19fa30228f8056a0251ff1db81daad92500
+          path: source
+          persist-credentials: false
+      - name: Verify exact P21 commit and original P21.37 workflow blob
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = f36bd19fa30228f8056a0251ff1db81daad92500
+          mkdir -p source/.github/workflows
+          curl --fail --silent --show-error --location --retry 3 \
+            'https://raw.githubusercontent.com/lengochieu1211-sudo/hnl-qltc/10277ea796263562867dc68af1342c991da84bc2/.github/workflows/p2137-dev-backup-canonical-smoke.yml' \
+            -o source/.github/workflows/p2137-dev-backup-canonical-smoke.yml
+          test "$(git -C source hash-object .github/workflows/p2137-dev-backup-canonical-smoke.yml)" = 4fda6722ba2b0c9fbe8a35ca73bc2bd4a8031247
+          git -C source apply --check "${GITHUB_WORKSPACE}/preflight/patches/P21.37_DEV_BACKUP_AUTH_WEBAPP_ONLY.patch"
+          git -C source apply "${GITHUB_WORKSPACE}/preflight/patches/P21.37_DEV_BACKUP_AUTH_WEBAPP_ONLY.patch"
+          node preflight/scripts/check-p2137-webapp-auth.mjs source
+      - name: Fetch public Firebase Web App identity for correct BACKUP project (read-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 3 \
+            'https://hnl-qltc-dev-backup.web.app/__/firebase/init.json' \
+            -o "${RUNNER_TEMP}/backup-public-sdk.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const x = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/backup-public-sdk.json','utf8'));
+          if(x.projectId !== 'hnl-qltc-dev-backup' || !x.apiKey || !x.appId || !x.messagingSenderId) {
+            throw new Error('Refuse: Public SDK configuration is not the existing DEV Backup Web App');
+          }
+          const env = {
+            VITE_FIREBASE_API_KEY:x.apiKey,
+            VITE_FIREBASE_APP_ID:x.appId,
+            VITE_FIREBASE_MESSAGING_SENDER_ID:x.messagingSenderId,
+            VITE_FIREBASE_PROJECT_ID:x.projectId,
+            VITE_FIREBASE_STORAGE_BUCKET:x.storageBucket || 'hnl-qltc-dev-backup.firebasestorage.app',
+            VITE_FIREBASE_AUTH_DOMAIN:'hnl-qltc-dev-backup.web.app'
+          };
+          fs.appendFileSync(process.env.GITHUB_ENV, Object.entries(env).map(([k,v])=>`${k}=${v}`).join('\n')+'\n');
+          console.log('PASS: public Web SDK identity = hnl-qltc-dev-backup; authDomain first-party web.app');
+          NODE
+      - name: Node toolchain (CI only)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+      - name: Install / check / Rules emulator / build without deployment
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          node scripts/auth-popup-golden.mjs
+          node scripts/rbac-matrix.mjs
+          node scripts/offline-golden.mjs
+          npm run security:audit
+          npm run build
+          grep -R -q 'hnl-qltc-dev-backup.web.app' dist/assets
+          grep -R -q 'hnl-qltc-r2-gateway-dev-backup' dist/assets
+          if grep -R -q 'hnl-qltc-r2-gateway.lengochieu1211.workers.dev' dist/assets; then
+            echo '::error::PROD media gateway detected inside Backup bundle'
+            exit 1
+          fi
+          echo 'CI_ONLY_PASS: no deploy; Android signed-in test still required'
+      - name: Write evidence without tokens or secrets
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          fs.mkdirSync('preflight-evidence', {recursive:true});
+          fs.writeFileSync('preflight-evidence/WEBAPP-AUTH-CI-RESULT.json',JSON.stringify({
+            phase:'P21.37-webapp-firstparty-CI-only',
+            appSource:'f36bd19fa30228f8056a0251ff1db81daad92500',
+            workflowBlobOriginal:'4fda6722ba2b0c9fbe8a35ca73bc2bd4a8031247',
+            firebaseProjectId:'hnl-qltc-dev-backup',
+            authDomain:'hnl-qltc-dev-backup.web.app',
+            r2Gateway:'hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev',
+            tested:'typecheck lint rules emulator auth source checks rbac offline security audit build',
+            deployment:false,liveHostingChanged:false,prodChanged:false,
+            authenticatedAndroidGolden:false
+          },null,2)+'\n');
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: p2137-webapp-auth-ci-only-evidence
+          path: preflight-evidence/WEBAPP-AUTH-CI-RESULT.json
+          retention-days: 30
