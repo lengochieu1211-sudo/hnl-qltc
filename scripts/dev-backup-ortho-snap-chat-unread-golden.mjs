@@ -6,7 +6,7 @@ const snap=(p,anchors,opts={})=>snapRoomPointOrthogonal(p,anchors,{width:1000,he
 assert.deepEqual(snap({x:20.5,y:63},[{x:20,y:30}]),{x:20,y:63},'Snap X to vertical edge');
 assert.deepEqual(snap({x:40,y:10.6},[{x:20,y:10}]),{x:40,y:10},'Snap Y to horizontal edge');
 assert.deepEqual(snap({x:60,y:60},[{x:20,y:20}]),{x:60,y:60},'Outside tolerance no snapping');
-assert.deepEqual(snap({x:20.5,y:63},[{x:20,y:30}],{disabled:true}),{x:20.5,y:63},'Alt bypass');
+assert.deepEqual(snap({x:20.5,y:63},[{x:20,y:30}],{disabled:true}),{x:20.5,y:63},'Optional explicit snap bypass in reusable helper');
 assert.deepEqual(snap({x:20.5,y:10.5},[{x:20,y:10}]),{x:20.5,y:10},'No zero-length corner snap');
 assert.deepEqual(snap({x:20.5,y:30.5},[{x:20,y:10},{x:40,y:30}]),{x:20,y:30},'Snap both axes to different neighbours');
 assert.equal(getChatUnreadCount(12,12,5000,3000),0,'Same counters: timestamp ghost must not appear');
@@ -22,4 +22,7 @@ for(const file of ['src/App.tsx','src/features/chat/ChatTab.tsx']){
 }
 const floor=fs.readFileSync(new URL('../src/components/FloorPlanDefectTab.tsx',import.meta.url),'utf8');
 assert.equal((floor.match(/snapRoomPointOrthogonal\(/g)||[]).length,3,'Draw, hover and drag use same orthogonal snap');
+assert.doesNotMatch(floor,/disabled: e\.altKey/, 'All three pointer paths snap automatically without Alt');
+assert.match(floor,/data-hnl-orthogonal-snap-guide="polygon"/, 'Visible alignment cue while polygon snapping');
+assert.match(floor,/kéo xa tự nhả/, 'UI explains natural break-away without keyboard modifier');
 console.log('PASS orthogonal snap and shared unread badge regression');

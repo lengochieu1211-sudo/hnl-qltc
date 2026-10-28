@@ -5073,10 +5073,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     lastPointerMapPosRef.current = { x, y };
     // During polygon drawing, preview the exact point that will be committed on click.
-    // Holding Alt bypasses ortho snap (useful for intentionally diagonal edges).
+    // Pull beyond the pixel capture radius to draw a diagonal; no modifier key needed.
     const currentDrawHover = drawTool === 'polygon' && polygonPoints.length > 0
       ? snapRoomPointOrthogonal({ x, y }, [polygonPoints[polygonPoints.length - 1]],
-          { width: rect.width, height: rect.height }, { disabled: e.altKey })
+          { width: rect.width, height: rect.height }, {})
       : { x, y };
     setDrawHoverPos(currentDrawHover);
 
@@ -5142,7 +5142,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           newPoints[(activeDragHandle + 1) % newPoints.length],
         ].filter(Boolean);
         newPoints[activeDragHandle] = snapRoomPointOrthogonal(
-          { x, y }, neighbours, { width: rect.width, height: rect.height }, { disabled: e.altKey },
+          { x, y }, neighbours, { width: rect.width, height: rect.height }, {},
         );
 
         // Recalculate bounding box
@@ -5504,7 +5504,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       // Use the same snap as hover so the saved corner matches the visual preview.
       const snapped = snapRoomPointOrthogonal(
         { x, y }, polygonPoints.length ? [polygonPoints[polygonPoints.length - 1]] : [],
-        { width: rect.width, height: rect.height }, { disabled: e.altKey },
+        { width: rect.width, height: rect.height }, {},
       );
       setPolygonPoints((prev) => [...prev, snapped]);
       setDrawHoverPos(snapped);
@@ -7612,7 +7612,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         <span>
                           <strong>Đang vẽ lại vùng cho căn "{redrawingRoomTarget.roomName}":</strong>{' '}
                           {drawTool === 'freehand' && 'Nhấn giữ & rê ngón tay/chuột để vẽ tự do. Nhả tay để lưu!'}
-                          {drawTool === 'polygon' && `Chấm từng điểm góc đa giác mới (Đã chấm ${polygonPoints.length} góc). Bắt cạnh ngang/dọc tự động (Alt: tắt). Bấm nút Chốt để lưu!`}
+                          {drawTool === 'polygon' && `Chấm từng điểm góc đa giác mới (Đã chấm ${polygonPoints.length} góc). Rà gần cạnh ngang/dọc để bắt điểm; kéo xa tự nhả. Bấm nút Chốt để lưu!`}
                           {drawTool === '2point' && 'Bấm 2 điểm đối góc trên mặt bằng để vẽ khung hình chữ nhật!'}
                         </span>
                       </div>
@@ -8094,6 +8094,20 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 {/* Live Polygon Point-by-Point Drawing Preview */}
                 {polygonPoints.length > 0 && (
                   <g>
+                    {drawHoverPos && (() => {
+                      const previous = polygonPoints[polygonPoints.length - 1];
+                      const raw = lastPointerMapPosRef.current;
+                      const vertical = drawHoverPos.x === previous.x && raw.x !== previous.x;
+                      const horizontal = drawHoverPos.y === previous.y && raw.y !== previous.y;
+                      if (!vertical && !horizontal) return null;
+                      return (
+                        <g data-hnl-orthogonal-snap-guide="polygon" pointerEvents="none">
+                          {vertical && <line x1={previous.x} y1={previous.y} x2={drawHoverPos.x} y2={drawHoverPos.y} stroke="#22d3ee" strokeWidth={0.65 * strokeScale} strokeDasharray="1.3,0.9" />}
+                          {horizontal && <line x1={previous.x} y1={previous.y} x2={drawHoverPos.x} y2={drawHoverPos.y} stroke="#22d3ee" strokeWidth={0.65 * strokeScale} strokeDasharray="1.3,0.9" />}
+                          <circle cx={drawHoverPos.x} cy={drawHoverPos.y} r={1.25 * strokeScale} fill="none" stroke="#22d3ee" strokeWidth={0.7 * strokeScale} />
+                        </g>
+                      );
+                    })()}
                     <polyline
                       points={
                         drawHoverPos && (drawHoverPos.x !== polygonPoints[polygonPoints.length - 1].x || drawHoverPos.y !== polygonPoints[polygonPoints.length - 1].y)
