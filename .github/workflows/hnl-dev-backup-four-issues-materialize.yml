@@ -1,0 +1,128 @@
+name: HNL DEV BACKUP four issues materialize audited source (SAFE BRANCH ONLY)
+on:
+  push:
+    branches: [safety/dev-backup-4-fixes-20261028]
+    paths: ['.github/workflows/hnl-dev-backup-four-issues-materialize.yml']
+permissions:
+  contents: write
+concurrency:
+  group: hnl-dev-backup-four-issues-safe-source-patch
+  cancel-in-progress: false
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      VITE_APP_ENV: DEV
+      VITE_DEV_FIREBASE_TARGET: backup
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+      VITE_FIREBASE_PROJECT_ID: hnl-qltc-dev-backup
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev-backup.web.app
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_HNL_AI_ENABLED: 'false'
+    steps:
+      - name: Checkout exact protected QA branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Hard stop outside QA branch or source ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-4-fixes-20261028'
+          git merge-base --is-ancestor '7b40f376bb616773153b07307cce2b94148c79f5' HEAD
+          test "$(git diff --name-only '7b40f376bb616773153b07307cce2b94148c79f5' HEAD)" = '.github/workflows/hnl-dev-backup-four-issues-materialize.yml'
+          test "$(git hash-object patches/DEV_BACKUP_FOUR_ISSUES_20261028.patch)" = '082eb613f8df0d27ea7702efc35a477ea031318f'
+          git apply --check patches/DEV_BACKUP_FOUR_ISSUES_20261028.patch
+          git apply patches/DEV_BACKUP_FOUR_ISSUES_20261028.patch
+          node scripts/dev-backup-four-issues-golden.mjs
+          node --experimental-strip-types scripts/dev-backup-four-issues-geometry-golden.mjs
+      - name: Fetch PUBLIC DEV Backup SDK for reproducible build
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 3 'https://hnl-qltc-dev-backup.web.app/__/firebase/init.json' -o "$RUNNER_TEMP/sdk.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const c=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/sdk.json','utf8'));
+          if(c.projectId!=='hnl-qltc-dev-backup'||!c.apiKey||!c.appId)throw Error('Not DEV Backup');
+          const e={VITE_FIREBASE_API_KEY:c.apiKey,VITE_FIREBASE_APP_ID:c.appId,VITE_FIREBASE_MESSAGING_SENDER_ID:c.messagingSenderId,VITE_FIREBASE_STORAGE_BUCKET:c.storageBucket||'hnl-qltc-dev-backup.firebasestorage.app'};
+          fs.appendFileSync(process.env.GITHUB_ENV,Object.entries(e).map(([k,v])=>k+'='+v).join('\n')+'\n');
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Repeat critical gates before source commit (no deploy)
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          node scripts/rbac-matrix.mjs
+          node scripts/offline-golden.mjs
+          npm run build
+          test -s dist/index.html
+          grep -R -q 'hnl-qltc-dev-backup.web.app' dist/assets
+      - name: Commit ONLY reviewed 7 files to this QA branch (never dev/main/prod)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-4-fixes-20261028'
+          python3 - <<'PY'
+          import subprocess
+          actual=set(subprocess.check_output(['git','status','--porcelain','--untracked-files=all']).decode().splitlines())
+          paths=set()
+          for l in actual:
+            p=l[3:]
+            if not p.startswith('dist/') and p not in ('node_modules/',):
+              paths.add(p)
+          allowed={
+            'src/components/CrewTabBase.tsx','src/components/FloorPlanDefectTab.tsx',
+            'src/components/WarehouseOrderSheet.tsx','src/types.ts',
+            'src/utils/roomHighlightGeometry.ts',
+            'scripts/dev-backup-four-issues-golden.mjs',
+            'scripts/dev-backup-four-issues-geometry-golden.mjs'}
+          if paths!=allowed:raise SystemExit('REFUSING_UNEXPECTED_WORKTREE_CHANGED_FILES '+str(paths))
+          print('Seven reviewed files only')
+          PY
+          git config user.name "HNL QLTC DEV Backup QA"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -- src/components/CrewTabBase.tsx src/components/FloorPlanDefectTab.tsx src/components/WarehouseOrderSheet.tsx src/types.ts src/utils/roomHighlightGeometry.ts scripts/dev-backup-four-issues-golden.mjs scripts/dev-backup-four-issues-geometry-golden.mjs
+          git commit -m 'fix(dev-backup): Cloud-backed position locks, compact PC UI, order formatting, edge resize, defect date'
+          git push origin HEAD:refs/heads/safety/dev-backup-4-fixes-20261028
+          echo "REVIEWED_QA_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "Source QA commit: $(git rev-parse HEAD)"
+      - name: Write source audit evidence and immutable ZIP packages
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source-handoff
+          git archive --format=zip -o source-handoff/HNL-QLTC-4ISSUES-DEV-BACKUP-FULL-SOURCE.zip HEAD
+          python3 - <<'PY'
+          import zipfile,hashlib,pathlib,subprocess
+          dest=pathlib.Path('source-handoff')
+          files=subprocess.check_output(['git','diff','--name-only','--diff-filter=ACMRT','3a4c9179cb41c34a97b4d3cf31487a87b4e4a1c7','HEAD']).decode().splitlines()
+          with zipfile.ZipFile(dest/'HNL-QLTC-4ISSUES-DEV-BACKUP-PATCH.zip','w',zipfile.ZIP_DEFLATED) as z:
+            for path in files:z.write(path)
+            z.writestr('CHANGED-FILES.txt','\n'.join(files)+'\n')
+          for f in dest.glob('*.zip'):
+            with zipfile.ZipFile(f) as z:
+              if z.testzip():raise RuntimeError('ZIP CRC FAILED')
+          (dest/'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in dest.glob('*.zip')))
+          PY
+          printf 'Source DEV Backup P21 baseline 3a4c9179cb41c34a97b4d3cf31487a87b4e4a1c7\nQA HEAD %s\nNo LIVE hosting or PROD deployment\nRuntime multiuser / Android Golden pending\n' "$(git rev-parse HEAD)" > source-handoff/REPORT.txt
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: HNL-QLTC-DEV-BACKUP-FOUR-ISSUES-SOURCE-HANDOFF
+          path: source-handoff/
+          retention-days: 30
