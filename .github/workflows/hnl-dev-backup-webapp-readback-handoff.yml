@@ -1,0 +1,119 @@
+name: HNL DEV Backup web.app post-release readback and exact-HEAD source handoff (NO DEPLOY)
+on:
+  push:
+    branches: [safety/p2137-webapp-auth-ci-only]
+    paths: ['.github/workflows/hnl-dev-backup-webapp-readback-handoff.yml']
+permissions:
+  contents: read
+jobs:
+  handoff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      APP_SHA: f36bd19fa30228f8056a0251ff1db81daad92500
+      RELEASE_SHA: c65a2dbb2c7dd904b17628579a72517081228cb5
+      OLD_LIVE_VERSION: sites/hnl-qltc-dev-backup/versions/3dab49909aa59e96
+      BACKUP_PROJECT: hnl-qltc-dev-backup
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Pin actual HEAD, unchanged P21 business source and no deploy modifications
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/p2137-webapp-auth-ci-only'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$RELEASE_SHA" HEAD
+          test "$(git diff --name-only "$RELEASE_SHA" HEAD)" = '.github/workflows/hnl-dev-backup-webapp-readback-handoff.yml'
+          node - <<'NODE'
+          const {execFileSync}=require('node:child_process');
+          const files=execFileSync('git',['diff','--name-only',process.env.APP_SHA,'HEAD'],{encoding:'utf8'}).trim().split('\n').filter(Boolean);
+          const allowed=new Set([
+            '.github/workflows/hnl-dev-backup-webapp-auth-ci-only.yml',
+            '.github/workflows/hnl-dev-backup-webapp-auth-publish.yml',
+            '.github/workflows/hnl-dev-backup-webapp-readback-handoff.yml',
+            'patches/P21.37_DEV_BACKUP_AUTH_WEBAPP_ONLY.patch',
+            'scripts/check-p2137-webapp-auth.mjs']);
+          if(files.length!==5||files.some(f=>!allowed.has(f)))throw Error('SOURCE_CHANGED_OUTSIDE_AUDITED_CONTROL_FILES');
+          console.log('PASS exact HEAD; no P21 application source mutation');
+          NODE
+      - name: Install locked dependencies to use read-only Hosting API
+        shell: bash
+        run: npm ci
+      - name: Firebase Hosting LIVE/STAGE/ROLLBACK read-only verification
+        shell: bash
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import {google} from 'googleapis';
+          import fs from 'node:fs';
+          const sa=JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT||'{}');
+          if(sa.project_id!=='hnl-qltc-dev-backup'||sa.type!=='service_account')throw Error('WRONG_FIREBASE_PROJECT');
+          const g=new google.auth.GoogleAuth({credentials:sa,scopes:['https://www.googleapis.com/auth/firebase.hosting.readonly']});
+          const token=(await (await g.getClient()).getAccessToken()).token;
+          const prefix='https://firebasehosting.googleapis.com/v1beta1/sites/hnl-qltc-dev-backup/channels/';
+          async function version(ch){
+            const r=await fetch(prefix+ch+'/releases?pageSize=1',{headers:{Authorization:'Bearer '+token}});
+            if(!r.ok)throw Error('Hosting GET '+ch+' failed '+r.status);
+            const x=(await r.json()).releases?.[0];
+            if(!x?.version?.name)throw Error('No release '+ch);
+            return {release:x.name,version:x.version.name,releaseTime:x.releaseTime};
+          }
+          const live=await version('live');
+          const stage=await version('p2137-webapp-stage-20261028');
+          const rollback=await version('p2137-webapp-rollback');
+          if(live.version===process.env.OLD_LIVE_VERSION)throw Error('LIVE not upgraded');
+          if(live.version!==stage.version)throw Error('LIVE differs from tested preview: '+live.version+' != '+stage.version);
+          if(rollback.version!==process.env.OLD_LIVE_VERSION)throw Error('Rollback does not preserve original version');
+          const index=await fetch('https://hnl-qltc-dev-backup.web.app/?readback='+process.env.GITHUB_RUN_ID);
+          if(!index.ok||!(await index.text()).includes('id="root"'))throw Error('LIVE WEB.APP HTML not accessible');
+          const auth=await fetch('https://hnl-qltc-dev-backup.web.app/assets/firebaseBase-BgLuxjlZ.js?readback='+process.env.GITHUB_RUN_ID);
+          if(!auth.ok)throw Error('LIVE Auth JS missing');
+          const code=await auth.text();
+          if(!code.includes('hnl-qltc-dev-backup.web.app'))throw Error('LIVE Auth domain still not first-party');
+          fs.mkdirSync('handoff',{recursive:true});
+          fs.writeFileSync('handoff/LIVE-READBACK.json',JSON.stringify({branch:process.env.GITHUB_REF,source:process.env.APP_SHA,gitHead:process.env.GITHUB_SHA,
+            live,stage,rollback,authDomain:'hnl-qltc-dev-backup.web.app',verifiedWebStatic:true,
+            signedInAndroidGolden:false,prodOrPrimaryDevChanged:false},null,2));
+          console.log('PASS DEV Backup LIVE independent readback',live.version);
+          NODE
+      - name: Package FULL source and minimal changed-file PATCH from exact Git HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p handoff
+          git archive --format=zip --output=handoff/HNL-QLTC-P2137-WEBAPP-AUTH-FULL-SOURCE.zip HEAD
+          python3 - <<'PY'
+          from subprocess import check_output
+          import zipfile,hashlib,pathlib
+          files=[v.decode() for v in check_output(['git','diff','--name-only','--diff-filter=ACMRT','-z','f36bd19fa30228f8056a0251ff1db81daad92500','HEAD']).split(b'\0') if v]
+          with zipfile.ZipFile('handoff/HNL-QLTC-P2137-WEBAPP-AUTH-PATCH.zip','w',compression=zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+            for name in files: z.write(name)
+            z.writestr('CHANGED-FILES.txt','\n'.join(files)+'\n')
+            z.writestr('PATCH.diff',check_output(['git','diff','--binary','f36bd19fa30228f8056a0251ff1db81daad92500','HEAD']))
+          with zipfile.ZipFile('handoff/HNL-QLTC-P2137-WEBAPP-AUTH-FULL-SOURCE.zip') as z:
+            assert z.testzip() is None
+          with zipfile.ZipFile('handoff/HNL-QLTC-P2137-WEBAPP-AUTH-PATCH.zip') as z:
+            assert z.testzip() is None
+          with open('handoff/SHA256SUMS.txt','w') as o:
+            for p in sorted(pathlib.Path('handoff').glob('*.zip')):
+              o.write(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n')
+          print('PASS full source + patch ZIP integrity, exact Git HEAD')
+          PY
+          printf 'HNL QLTC DEV BACKUP WEB.APP FIRST-PARTY AUTH RELEASE\nAPP SOURCE: %s\nHANDOFF HEAD: %s\nCI: https://github.com/lengochieu1211-sudo/hnl-qltc/actions/runs/40680390104\nDEPLOY: https://github.com/lengochieu1211-sudo/hnl-qltc/actions/runs/40684293556\nSCOPE: Firebase Hosting only, no Rules/Firestore/R2 changes.\nSigned-in Android real-device Golden still pending.\n' "$APP_SHA" "$GITHUB_SHA" > handoff/REPORT.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-QLTC-P2137-WEBAPP-AUTH-EXACT-HEAD-HANDOFF
+          path: handoff/
+          if-no-files-found: error
+          retention-days: 30
