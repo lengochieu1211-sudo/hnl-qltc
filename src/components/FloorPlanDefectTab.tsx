@@ -101,7 +101,7 @@ import { ContactMenu } from './ContactMenu';
 import { ShareEntityMenu } from './ShareEntityMenu';
 import { buildDefectShareText, resolveDefectTeam } from '../utils/defectContactUtils';
 import { isPointInsideRoom, reconcileDefectLinkage, resolveDefectLinkageFromSelection } from '../utils/defectLinkageUtils';
-import { getRoomHighlightBounds, mirrorRoomHighlight, resizeRoomHighlightToBounds, rotateRoomHighlight, snapRotationDelta } from '../utils/roomHighlightGeometry';
+import { getRoomHighlightBounds, mirrorRoomHighlight, resizeRoomHighlightSide, resizeRoomHighlightToBounds, rotateRoomHighlight, snapRotationDelta } from '../utils/roomHighlightGeometry';
 import { DEFAULT_CAD_ALIGNMENT, normalizeCadAlignment, rebuildCadRoomForAlignment, remapPointBetweenCadAlignments, type CadAlignment } from '../utils/cadAlignment';
 
 const getMappedCoordinates = (e: React.PointerEvent | React.MouseEvent | Touch, element: HTMLElement, currentRotation: number) => {
@@ -848,6 +848,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     } catch {
       setMapLayers({ roomRegions: true, roomLabels: true, defects: true, resolvedDefects: true });
     }
+    // Legacy local-only locks stay as an offline fallback until a Cloud lock value exists.
     setLockedRoomIds(readIdSet(getDraftKey('construction_floorplan_locked_rooms')));
     setLockedDefectIds(readIdSet(getDraftKey('construction_floorplan_locked_defects')));
     requestAnimationFrame(() => { projectUiSettingsHydratingRef.current = false; });
@@ -867,6 +868,25 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (projectUiSettingsHydratingRef.current) return;
     localStorage.setItem(getDraftKey('construction_floorplan_locked_defects'), JSON.stringify(Array.from(lockedDefectIds)));
   }, [lockedDefectIds, currentProjectId]);
+
+  // Cloud is the authority when positionLocked is explicitly present. Older rooms/defects
+  // with no Cloud lock flag retain the previous device-local value until toggled on this device.
+  // No bulk migration or silent overwrite of shared data happens during hydration.
+  React.useEffect(() => {
+    const legacy = readIdSet(getDraftKey('construction_floorplan_locked_rooms'));
+    const cloudAware = new Set(roomProgressList.filter((room) =>
+      room.positionLocked === true || (room.positionLocked === undefined && legacy.has(room.id))
+    ).map((room) => room.id));
+    setLockedRoomIds((prev) => prev.size === cloudAware.size && Array.from(prev).every((id) => cloudAware.has(id)) ? prev : cloudAware);
+  }, [roomProgressList, currentProjectId]);
+
+  React.useEffect(() => {
+    const legacy = readIdSet(getDraftKey('construction_floorplan_locked_defects'));
+    const cloudAware = new Set(defects.filter((defect) =>
+      defect.positionLocked === true || (defect.positionLocked === undefined && legacy.has(defect.id))
+    ).map((defect) => defect.id));
+    setLockedDefectIds((prev) => prev.size === cloudAware.size && Array.from(prev).every((id) => cloudAware.has(id)) ? prev : cloudAware);
+  }, [defects, currentProjectId]);
 
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [defectSortBy, setDefectSortBy] = useState<DefectSortBy>('createdAt');
@@ -3797,20 +3817,33 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   const toggleSelectedRoomLock = () => {
-    if (selectedRoomIdsForAction.length === 0) return;
+    if (!canManageStructure || selectedRoomIdsForAction.length === 0) return;
+    const unlock = selectedRoomIdsForAction.every((id) => lockedRoomIds.has(id));
+    const selectedSet = new Set(selectedRoomIdsForAction);
+    const changes = roomProgressList.filter((room) => selectedSet.has(room.id))
+      .map((room) => ({ ...room, positionLocked: !unlock }));
+    if (changes.length === 0) return;
+    // Persist on canonical room records; their existing Cloud subscriptions supply multiuser updates.
+    if (onBatchSaveRooms && changes.length > 1) onBatchSaveRooms(changes);
+    else changes.forEach((room) => onSaveRoomProgress(room));
     setLockedRoomIds((prev) => {
       const next = new Set(prev);
-      const shouldUnlock = selectedRoomIdsForAction.every((id) => next.has(id));
-      selectedRoomIdsForAction.forEach((id) => shouldUnlock ? next.delete(id) : next.add(id));
+      changes.forEach((room) => unlock ? next.delete(room.id) : next.add(room.id));
       return next;
     });
   };
 
   const toggleDefectLock = (defectId: string) => {
-    if (!canEditDefects) return;
+    if (!canEditDefects || !onUpdateDefect) return;
+    const source = defects.find((item) => item.id === defectId);
+    if (!source) return;
+    const positionLocked = !lockedDefectIds.has(defectId);
+    // The existing Defect Cloud update path preserves createdAt, ID, photo and status.
+    onUpdateDefect({ ...source, positionLocked });
+    setActiveDefectDetail((prev) => prev?.id === defectId ? { ...prev, positionLocked } : prev);
     setLockedDefectIds((prev) => {
       const next = new Set(prev);
-      if (next.has(defectId)) next.delete(defectId); else next.add(defectId);
+      if (positionLocked) next.add(defectId); else next.delete(defectId);
       return next;
     });
   };
@@ -5151,7 +5184,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         // the actual vertices together with the bounding box instead of moving an
         // invisible box while leaving the visible highlight behind.
         if (newPoints && initRoom.points && initRoom.points.length >= 2) {
-          const resized = resizeRoomHighlightToBounds(initRoom, { x: newX, y: newY, width: newW, height: newH });
+          const desiredBounds = { x: newX, y: newY, width: newW, height: newH };
+          const resized = typeof activeDragHandle === 'string' && ['n', 's', 'e', 'w'].includes(activeDragHandle)
+            ? resizeRoomHighlightSide(initRoom, activeDragHandle as 'n' | 's' | 'e' | 'w', desiredBounds)
+            : resizeRoomHighlightToBounds(initRoom, desiredBounds);
           newX = resized.x;
           newY = resized.y;
           newW = resized.width;
@@ -10499,6 +10535,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <div>
                   <span className="text-[10px] font-black text-slate-400">[{getDefectShortCode(activeDefectDetail.id)}]</span>
                   <h3 className="text-base font-extrabold text-slate-900">{activeDefectDetail.category}</h3>
+                  <p className="mt-1 text-xs font-semibold text-slate-500" data-hnl-defect-created-at="true">
+                    Ngày tạo Defect: {activeDefectDetail.createdAt ? formatDateDDMMYYYY(activeDefectDetail.createdAt) : 'Chưa ghi nhận'}
+                  </p>
                 </div>
                 <div className="flex items-center gap-1.5">
                   {canEditDefects && <button
