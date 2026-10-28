@@ -1,0 +1,99 @@
+name: HNL DEV BACKUP JSON EXPORT PROGRESS CI ONLY (NO DEPLOY)
+on:
+  push:
+    branches: [safety/dev-backup-json-export-progress-20261028]
+    paths:
+      - '.github/workflows/hnl-dev-backup-json-export-progress-ci.yml'
+      - 'patches/DEV_BACKUP_JSON_EXPORT_PROGRESS_20261028.patch'
+permissions:
+  contents: read
+concurrency:
+  group: hnl-dev-backup-json-export-progress-ci-only
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      CI: 'true'
+      VITE_APP_ENV: DEV
+      VITE_DEV_FIREBASE_TARGET: backup
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+      VITE_FIREBASE_PROJECT_ID: hnl-qltc-dev-backup
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev-backup.web.app
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_HNL_AI_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Ensure original DEV BACKUP source and only controlled PATCH
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-json-export-progress-20261028'
+          git merge-base --is-ancestor '616924badc5718303df461a3e1ea9b41b24bd36e' HEAD
+          node - <<'NODE'
+          const {execFileSync}=require('node:child_process');
+          const changed=execFileSync('git',['diff','--name-only','616924badc5718303df461a3e1ea9b41b24bd36e','HEAD'],{encoding:'utf8'}).trim().split('\n').filter(Boolean).sort();
+          const expected=['.github/workflows/hnl-dev-backup-json-export-progress-ci.yml','patches/DEV_BACKUP_JSON_EXPORT_PROGRESS_20261028.patch'].sort();
+          if(JSON.stringify(changed)!==JSON.stringify(expected))throw Error('REFUSE_UNREVIEWED_SOURCE_CHANGES '+JSON.stringify(changed));
+          console.log('Source-only QA, DEV BACKUP exact parent verified');
+          NODE
+          git apply --check 'patches/DEV_BACKUP_JSON_EXPORT_PROGRESS_20261028.patch'
+          git apply 'patches/DEV_BACKUP_JSON_EXPORT_PROGRESS_20261028.patch'
+          node scripts/dev-backup-json-export-progress-golden.mjs
+          node scripts/android-export-zero-byte-golden.mjs
+      - name: Read public Firebase Web configuration (no data writes)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 3 'https://hnl-qltc-dev-backup.web.app/__/firebase/init.json' -o "$RUNNER_TEMP/backup-sdk.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const c=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/backup-sdk.json','utf8'));
+          if(c.projectId!=='hnl-qltc-dev-backup'||!c.apiKey||!c.appId)throw Error('WRONG_DEV_BACKUP_SDK');
+          const env={VITE_FIREBASE_API_KEY:c.apiKey,VITE_FIREBASE_APP_ID:c.appId,VITE_FIREBASE_MESSAGING_SENDER_ID:c.messagingSenderId,VITE_FIREBASE_STORAGE_BUCKET:c.storageBucket||'hnl-qltc-dev-backup.firebasestorage.app'};
+          fs.appendFileSync(process.env.GITHUB_ENV,Object.entries(env).map(([k,v])=>k+'='+v).join('\n')+'\n');
+          console.log('DEV Backup SDK read only and first-party Auth');
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: TypeScript, Lint, Rules, backup regression, Android 0-byte, Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const p=require('./package.json'),l=require('./package-lock.json');if(p.name!==l.name||p.version!==l.version)process.exit(2)"
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run test:backup-cloud-authority
+          npm run test:restore-json-media
+          node scripts/android-export-zero-byte-golden.mjs
+          node scripts/dev-backup-json-export-progress-golden.mjs
+          node scripts/offline-golden.mjs
+          npm run build
+          test -s dist/index.html
+          grep -R -q 'hnl-qltc-dev-backup.web.app' dist/assets
+          grep -R -q 'hnl-qltc-r2-gateway-dev-backup' dist/assets
+          echo 'DEV BACKUP JSON EXPORT PROGRESS CI PASS — NO DEPLOY'
+      - name: Record CI evidence (no credentials)
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          printf 'Project: hnl-qltc-dev-backup\nBase: 616924badc5718303df461a3e1ea9b41b24bd36e\nWorkflow SHA: %s\nResult: %s\nFirebase/Hosting/Firestore/R2/PROD unchanged\n' "$GITHUB_SHA" "${{ job.status }}" > evidence/JSON-EXPORT-PROGRESS-CI.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-DEV-BACKUP-JSON-EXPORT-PROGRESS-CI
+          path: evidence/JSON-EXPORT-PROGRESS-CI.txt
+          retention-days: 30
