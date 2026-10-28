@@ -1,0 +1,123 @@
+name: HNL DEV BACKUP Defect created-at card CI and source handoff (NO DEPLOY)
+on:
+  push:
+    branches: [safety/dev-backup-defect-created-at-card-20261028]
+    paths:
+      - '.github/workflows/hnl-dev-backup-defect-createdat-card-ci.yml'
+permissions:
+  contents: write
+concurrency:
+  group: hnl-dev-backup-defect-card-date-ci
+  cancel-in-progress: false
+jobs:
+  card-date:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      CI: 'true'
+      VITE_APP_ENV: DEV
+      VITE_DEV_FIREBASE_TARGET: backup
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+      VITE_FIREBASE_PROJECT_ID: hnl-qltc-dev-backup
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev-backup.web.app
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_HNL_AI_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Assert exact DEV Backup baseline and stage two-file patch in runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-defect-created-at-card-20261028'
+          git merge-base --is-ancestor '073e798ca863d212f262354d6a9ca67e589c394b' HEAD
+          node - <<'NODE'
+          const {execFileSync}=require('node:child_process');
+          const p=execFileSync('git',['diff','--name-only','073e798ca863d212f262354d6a9ca67e589c394b','HEAD'],{encoding:'utf8'}).trim().split('\n').filter(Boolean).sort();
+          const expected=['.github/workflows/hnl-dev-backup-defect-createdat-card-ci.yml','patches/DEV_BACKUP_DEFECT_CARD_CREATED_AT_20261028.patch'].sort();
+          if(JSON.stringify(p)!==JSON.stringify(expected))throw Error('UNREVIEWED_GIT_CHANGES '+p);
+          NODE
+          git apply --check patches/DEV_BACKUP_DEFECT_CARD_CREATED_AT_20261028.patch
+          git apply patches/DEV_BACKUP_DEFECT_CARD_CREATED_AT_20261028.patch
+          node scripts/dev-backup-defect-card-date-golden.mjs
+      - name: Public SDK for DEV Backup read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 3 'https://hnl-qltc-dev-backup.web.app/__/firebase/init.json' -o "$RUNNER_TEMP/sdk.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const c=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/sdk.json','utf8'));
+          if(c.projectId!=='hnl-qltc-dev-backup'||!c.apiKey||!c.appId)throw Error('WRONG_DEV_BACKUP_SDK');
+          const x={VITE_FIREBASE_API_KEY:c.apiKey,VITE_FIREBASE_APP_ID:c.appId,VITE_FIREBASE_MESSAGING_SENDER_ID:c.messagingSenderId,VITE_FIREBASE_STORAGE_BUCKET:c.storageBucket||'hnl-qltc-dev-backup.firebasestorage.app'};
+          fs.appendFileSync(process.env.GITHUB_ENV,Object.entries(x).map(([k,v])=>k+'='+v).join('\n')+'\n');
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: TypeScript, lint, Rules, geometry/regression, build
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const p=require('./package.json'),l=require('./package-lock.json');if(p.name!==l.name||p.version!==l.version)process.exit(1)"
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          node scripts/dev-backup-four-issues-golden.mjs
+          node scripts/dev-backup-defect-card-date-golden.mjs
+          node scripts/offline-golden.mjs
+          npm run build
+          grep -R -q 'hnl-qltc-dev-backup.web.app' dist/assets
+      - name: Commit ONLY one React component and regression test on QA branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-defect-created-at-card-20261028'
+          python3 - <<'PY'
+          import subprocess
+          a={x[3:] for x in subprocess.check_output(['git','status','--porcelain','--untracked-files=all']).decode().splitlines()}
+          expect={'src/components/FloorPlanDefectTab.tsx','scripts/dev-backup-defect-card-date-golden.mjs'}
+          if a!=expect: raise SystemExit('REFUSE_UNEXPECTED_FILES '+str(a))
+          PY
+          git config user.name 'HNL QLTC DEV Backup QA'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add -- src/components/FloorPlanDefectTab.tsx scripts/dev-backup-defect-card-date-golden.mjs
+          git commit -m 'fix(dev-backup): display Defect createdAt on list cards and map hover'
+          git push origin HEAD:refs/heads/safety/dev-backup-defect-created-at-card-20261028
+          echo "QA_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Exact-HEAD FULL SOURCE and PATCH ZIPs (NO DEPLOY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p handoff
+          git archive --format=zip --output=handoff/HNL-QLTC-DEFECT-CREATED-DATE-FULL-SOURCE.zip HEAD
+          python3 - <<'PY'
+          import subprocess,zipfile,pathlib,hashlib
+          before='073e798ca863d212f262354d6a9ca67e589c394b'
+          names=subprocess.check_output(['git','diff','--name-only','--diff-filter=ACMRT',before,'HEAD']).decode().splitlines()
+          with zipfile.ZipFile('handoff/HNL-QLTC-DEFECT-CREATED-DATE-PATCH.zip','w',zipfile.ZIP_DEFLATED) as z:
+            for p in names:z.write(p)
+            z.writestr('CHANGED-FILES.txt','\n'.join(names)+'\n')
+            z.writestr('PATCH.diff',subprocess.check_output(['git','diff','--binary',before,'HEAD']))
+          for p in pathlib.Path('handoff').glob('*.zip'):
+            with zipfile.ZipFile(p) as z:
+              assert z.testzip() is None
+          pathlib.Path('handoff/SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in pathlib.Path('handoff').glob('*.zip')))
+          print('FULL and PATCH ZIP CRC PASS')
+          PY
+          printf 'DEV Backup created-at outside card and map tooltip\nBase: 073e798ca863d212f262354d6a9ca67e589c394b\nQA exact HEAD: %s\nOnly QA branch modified; LIVE/PROD unchanged.\n' "$(git rev-parse HEAD)" > handoff/REPORT.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-DEV-BACKUP-DEFECT-CREATED-AT-CARD-FULL-PATCH
+          path: handoff/
+          if-no-files-found: warn
+          retention-days: 30
