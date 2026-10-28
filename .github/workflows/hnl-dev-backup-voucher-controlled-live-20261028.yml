@@ -185,10 +185,20 @@ jobs:
           if(!h1.ok||!h2.ok)throw Error('PUBLIC_SITE_UNAVAILABLE');
           const b1=Buffer.from(await h1.arrayBuffer()),b2=Buffer.from(await h2.arrayBuffer());
           if(!b1.equals(b2))throw Error('LIVE_HTML_DIFFERS_FROM_STAGE');
-          const assets=fs.readdirSync('dist/assets').filter(n=>/\.(js|css)$/.test(n));
-          for(const name of assets){
-            const a=await fetch(live+'/assets/'+name),b=await fetch(stage+'/assets/'+name);
-            if(!a.ok||!b.ok||!Buffer.from(await a.arrayBuffer()).equals(Buffer.from(await b.arrayBuffer())))throw Error('LIVE_JS_CSS_NOT_PARITY '+name);
+          // Use the immutable manifest deployed with the verified Preview.
+          // A fresh Vite build has different clock/buildId asset hashes and must
+          // NOT be used as the inventory for LIVE-to-Preview byte comparison.
+          const [manifestLive,manifestPreview]=await Promise.all([fetch(live+'/sw-assets.json'),fetch(stage+'/sw-assets.json')]);
+          if(!manifestLive.ok||!manifestPreview.ok)throw Error('SERVICE_WORKER_MANIFEST_MISSING');
+          const [liveManifest,stageManifest]=await Promise.all([manifestLive.arrayBuffer(),manifestPreview.arrayBuffer()]);
+          if(!Buffer.from(liveManifest).equals(Buffer.from(stageManifest)))throw Error('LIVE_MANIFEST_DIFFERS_FROM_STAGE');
+          const assets=JSON.parse(Buffer.from(stageManifest).toString('utf8')).assets;
+          if(!Array.isArray(assets)||assets.length<20||
+            !assets.includes('/assets/index-Dj1AP0zE.js')||!assets.includes('/assets/firebaseBase-Cd4fu9cJ.js')||!assets.includes('/assets/App-D0iPBiBk.js'))throw Error('BAD_OR_UNRECOGNIZED_STAGE_ASSET_MANIFEST');
+          for(const asset of assets){
+            if(typeof asset!=='string'||!asset.startsWith('/assets/')||!/\.(js|css)$/.test(asset))throw Error('UNSAFE_ASSET_PATH');
+            const [a,b]=await Promise.all([fetch(live+asset),fetch(stage+asset)]);
+            if(!a.ok||!b.ok||!Buffer.from(await a.arrayBuffer()).equals(Buffer.from(await b.arrayBuffer())))throw Error('LIVE_JS_CSS_NOT_PARITY '+asset);
           }
           fs.writeFileSync('evidence/DEV-BACKUP-LIVE-RELEASE.json',JSON.stringify({appSource:process.env.SOURCE_SHA,qaWorkflowHead:process.env.GITHUB_SHA,liveRelease:release?.name,liveVersion:v,previousLiveVersion:process.env.EXPECTED_LIVE,rollbackChannel:process.env.ROLLBACK_CHANNEL,previewChannel:process.env.PREVIEW_CHANNEL,publicByteParity:true,assets:assets.length,hostingOnly:true,productionChanged:false,primaryDevChanged:false,firestoreRulesOrDataChanged:false,r2Changed:false,authenticatedPhysicalPCAndroidGolden:false,multiUserOfflineR2Golden:false,certified:false},null,2));
           console.log('PASS controlled DEV BACKUP Hosting LIVE; physical Android/PC multiuser still pending');
