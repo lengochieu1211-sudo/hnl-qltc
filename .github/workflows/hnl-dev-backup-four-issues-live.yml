@@ -138,7 +138,7 @@ jobs:
           }
           const liveHtml=await publicIndex(liveOrigin),previewHtml=await publicIndex(stageOrigin);
           if(!liveHtml.includes('id="root"')||liveHtml!==previewHtml)throw Error('LIVE HTML differs from previously verified Preview');
-          const assets=[...liveHtml.matchAll(/src="(\\/assets\\/[^"]+\\.js)"/g)].map(x=>x[1]);
+          const assets=[...liveHtml.matchAll(/src="(\/assets\/[^"]+\.js)"/g)].map(x=>x[1]);
           if(assets.length<1)throw Error('No versioned entry script in Hosted HTML');
           for(const asset of assets){
             const [liveAsset,stageAsset]=await Promise.all([fetch(liveOrigin+asset),fetch(stageOrigin+asset)]);
