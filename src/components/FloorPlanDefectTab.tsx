@@ -102,6 +102,7 @@ import { ShareEntityMenu } from './ShareEntityMenu';
 import { buildDefectShareText, resolveDefectTeam } from '../utils/defectContactUtils';
 import { isPointInsideRoom, reconcileDefectLinkage, resolveDefectLinkageFromSelection } from '../utils/defectLinkageUtils';
 import { getRoomHighlightBounds, mirrorRoomHighlight, resizeRoomHighlightSide, resizeRoomHighlightToBounds, rotateRoomHighlight, snapRotationDelta } from '../utils/roomHighlightGeometry';
+import { snapRoomPointOrthogonal } from '../utils/roomHighlightSnap';
 import { DEFAULT_CAD_ALIGNMENT, normalizeCadAlignment, rebuildCadRoomForAlignment, remapPointBetweenCadAlignments, type CadAlignment } from '../utils/cadAlignment';
 
 const getMappedCoordinates = (e: React.PointerEvent | React.MouseEvent | Touch, element: HTMLElement, currentRotation: number) => {
@@ -5071,7 +5072,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const y = Math.min(100, Math.max(0, Math.round(rawY * 10) / 10));
 
     lastPointerMapPosRef.current = { x, y };
-    setDrawHoverPos({ x, y });
+    // During polygon drawing, preview the exact point that will be committed on click.
+    // Holding Alt bypasses ortho snap (useful for intentionally diagonal edges).
+    const currentDrawHover = drawTool === 'polygon' && polygonPoints.length > 0
+      ? snapRoomPointOrthogonal({ x, y }, [polygonPoints[polygonPoints.length - 1]],
+          { width: rect.width, height: rect.height }, { disabled: e.altKey })
+      : { x, y };
+    setDrawHoverPos(currentDrawHover);
 
     // Handle Active Drag-and-Resize on Highlight Region
     if (activeDragHandle !== null && dragStartInfo) {
@@ -5130,7 +5137,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         return;
       } else if (typeof activeDragHandle === 'number' && newPoints) {
         // Drag individual polygon point
-        newPoints[activeDragHandle] = { x, y };
+        const neighbours = [
+          newPoints[(activeDragHandle + newPoints.length - 1) % newPoints.length],
+          newPoints[(activeDragHandle + 1) % newPoints.length],
+        ].filter(Boolean);
+        newPoints[activeDragHandle] = snapRoomPointOrthogonal(
+          { x, y }, neighbours, { width: rect.width, height: rect.height }, { disabled: e.altKey },
+        );
 
         // Recalculate bounding box
         let minX = 100, minY = 100, maxX = 0, maxY = 0;
@@ -5488,8 +5501,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     // Polygon Point-by-Point Mode (2 or more points)
     if (drawTool === 'polygon') {
-      setPolygonPoints((prev) => [...prev, { x, y }]);
-      setDrawHoverPos({ x, y });
+      // Use the same snap as hover so the saved corner matches the visual preview.
+      const snapped = snapRoomPointOrthogonal(
+        { x, y }, polygonPoints.length ? [polygonPoints[polygonPoints.length - 1]] : [],
+        { width: rect.width, height: rect.height }, { disabled: e.altKey },
+      );
+      setPolygonPoints((prev) => [...prev, snapped]);
+      setDrawHoverPos(snapped);
       return;
     }
 
@@ -7594,7 +7612,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         <span>
                           <strong>Đang vẽ lại vùng cho căn "{redrawingRoomTarget.roomName}":</strong>{' '}
                           {drawTool === 'freehand' && 'Nhấn giữ & rê ngón tay/chuột để vẽ tự do. Nhả tay để lưu!'}
-                          {drawTool === 'polygon' && `Chấm từng điểm góc đa giác mới (Đã chấm ${polygonPoints.length} góc). Bấm nút Chốt để lưu!`}
+                          {drawTool === 'polygon' && `Chấm từng điểm góc đa giác mới (Đã chấm ${polygonPoints.length} góc). Bắt cạnh ngang/dọc tự động (Alt: tắt). Bấm nút Chốt để lưu!`}
                           {drawTool === '2point' && 'Bấm 2 điểm đối góc trên mặt bằng để vẽ khung hình chữ nhật!'}
                         </span>
                       </div>

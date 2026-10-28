@@ -296,14 +296,15 @@ export async function markConversationRead(projectId: string, conversationId = G
 
 export function subscribeConversationReadState(
   projectId: string,
-  onUpdate: (lastReadAtMillis: number, lastReadMessageCount?: number) => void,
+  onUpdate: (lastReadAtMillis: number, lastReadMessageCount?: number | null) => void,
   conversationId = GENERAL_CONVERSATION_ID,
 ): Unsubscribe {
   const user = getCurrentRealFirebaseUser();
-  if (!user) { onUpdate(0, 0); return () => {}; }
+  if (!user) { onUpdate(0, null); return () => {}; }
   return onSnapshot(readStateRef(projectId, user.uid, conversationId), (snap) => {
-    onUpdate(toMillis(snap.data()?.lastReadAt), Number(snap.data()?.lastReadMessageCount || 0));
-  }, () => onUpdate(0, 0));
+    const count = snap.data()?.lastReadMessageCount;
+    onUpdate(toMillis(snap.data()?.lastReadAt), typeof count === 'number' && Number.isFinite(count) ? count : null);
+  }, () => onUpdate(0, null));
 }
 
 export function subscribeConversationSummary(
