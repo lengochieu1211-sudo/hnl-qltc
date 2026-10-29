@@ -657,6 +657,7 @@ function AuthenticatedApp() {
   const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
   const [projectManagerInitialTab, setProjectManagerInitialTab] = useState<'projects' | 'sync'>('projects');
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
+  const [securityModalEntryPoint, setSecurityModalEntryPoint] = useState<'account' | 'switch' | 'rbac' | 'pin'>('pin');
   const [currentUserRole, setCurrentUserRoleState] = useState<UserRole>(() => getCurrentUserRole());
   const [isProjectRoleResolved, setIsProjectRoleResolved] = useState(false);
   const [projectRoleSource, setProjectRoleSource] = useState<'cloud' | 'offline-cache' | 'unresolved'>('unresolved');
@@ -7729,7 +7730,10 @@ function AuthenticatedApp() {
   };
   const handleDesktopLockNow = () => {
     if (getStoredPinLockConfig().enabled) setIsAppLocked(true);
-    else setIsSecurityModalOpen(true); // Allow the owner to configure PIN first.
+    else {
+      setSecurityModalEntryPoint('pin');
+      setIsSecurityModalOpen(true); // Allow the owner to configure PIN first.
+    }
   };
 
   return (
@@ -8616,7 +8620,10 @@ function AuthenticatedApp() {
             roleResolved={isProjectRoleResolved && projectRoleAllowed}
             online={isOnline}
             hasPendingSync={desktopAccountHasPendingSync}
-            onOpenAccount={() => setIsSecurityModalOpen(true)}
+            onOpenAccount={(section) => {
+              setSecurityModalEntryPoint(section);
+              setIsSecurityModalOpen(true);
+            }}
             onLockNow={handleDesktopLockNow}
             onSignOut={handleDesktopAccountSignOut}
           />
@@ -8625,7 +8632,13 @@ function AuthenticatedApp() {
         {/* Security & Access Control Modal */}
         <SecurityModal
           isOpen={isSecurityModalOpen}
-          onClose={() => setIsSecurityModalOpen(false)}
+          onClose={() => {
+            setIsSecurityModalOpen(false);
+            setSecurityModalEntryPoint('pin');
+          }}
+          entryPoint={securityModalEntryPoint}
+          onSafeAccountSignOut={handleDesktopAccountSignOut}
+          signOutBlocked={!isOnline || desktopAccountHasPendingSync}
           onLockNow={() => setIsAppLocked(true)}
           activeProjectId={activeProjectId}
           projects={securityModalProjects}
