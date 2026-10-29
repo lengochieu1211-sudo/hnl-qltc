@@ -1,0 +1,114 @@
+name: HNL DEV BACKUP PC account avatar – isolated CI (NO DEPLOY / NO PROD)
+on:
+  push:
+    branches: [safety/dev-backup-pc-account-avatar-20261029]
+    paths: ['.github/workflows/hnl-dev-backup-pc-account-avatar-ci-20261029.yml']
+permissions:
+  contents: read
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      BASE_SHA: 87bf32c1d085a1374b64a04f5cae8c97a26336b7
+      VITE_APP_ENV: DEV
+      VITE_DEV_FIREBASE_TARGET: backup
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+      VITE_FIREBASE_PROJECT_ID: hnl-qltc-dev-backup
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev-backup.web.app
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_HNL_AI_ENABLED: 'false'
+      VITE_GIT_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact source and scope gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-pc-account-avatar-20261029'
+          node - <<'NODE'
+          const cp=require('node:child_process');
+          const expected=new Set([
+            'src/App.tsx','src/components/BottomNav.tsx','src/components/DesktopAccountMenu.tsx',
+            'scripts/fixtures/desktop-account/index.html','scripts/fixtures/desktop-account/main.tsx',
+            'scripts/dev-backup-pc-account-menu-golden.mjs',
+            '.github/workflows/hnl-dev-backup-pc-account-avatar-ci-20261029.yml'
+          ]);
+          const actual=cp.execFileSync('git',['diff','--name-only',process.env.BASE_SHA,'HEAD'],{encoding:'utf8'}).trim().split('\n');
+          if(actual.length!==expected.size||actual.some(file=>!expected.has(file)))throw Error('UNEXPECTED_DIFF '+actual.join(','));
+          if(process.env.VITE_FIREBASE_PROJECT_ID!=='hnl-qltc-dev-backup'||!process.env.VITE_R2_GATEWAY_URL.includes('dev-backup'))throw Error('WRONG_ENVIRONMENT');
+          console.log('PASS source exact scope',actual.length);
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Fetch public Firebase DEV Backup SDK configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 'https://hnl-qltc-dev-backup.web.app/__/firebase/init.json' -o "$RUNNER_TEMP/sdk.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const c=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/sdk.json','utf8'));
+          if(c.projectId!=='hnl-qltc-dev-backup'||!c.apiKey||!c.appId)throw Error('WRONG_DEV_BACKUP_FIREBASE_PUBLIC_ID');
+          fs.appendFileSync(process.env.GITHUB_ENV,Object.entries({
+            VITE_FIREBASE_API_KEY:c.apiKey,
+            VITE_FIREBASE_APP_ID:c.appId,
+            VITE_FIREBASE_MESSAGING_SENDER_ID:c.messagingSenderId,
+            VITE_FIREBASE_STORAGE_BUCKET:c.storageBucket||'hnl-qltc-dev-backup.firebasestorage.app'
+          }).map(([k,v])=>k+'='+v).join('\n')+'\n');
+          NODE
+      - name: Install pinned dependencies, TypeScript, lint, Rules
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          node scripts/auth-popup-golden.mjs
+          node scripts/rbac-matrix.mjs
+          node scripts/offline-golden.mjs
+      - name: Chromium PC and mobile menu behavior golden
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx playwright install --with-deps chromium
+          node scripts/dev-backup-pc-account-menu-golden.mjs
+      - name: Build and guard DEV Backup public bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build
+          test -s dist/index.html
+          grep -R -q 'Mở menu tài khoản Google' dist/assets
+          grep -R -q 'hnl-qltc-dev-backup.web.app' dist/assets
+          grep -R -q 'hnl-qltc-r2-gateway-dev-backup' dist/assets
+          node - <<'NODE'
+          const fs=require('node:fs'),c=JSON.parse(fs.readFileSync('firebase.json','utf8'));
+          if(c.hosting?.public!=='dist')throw Error('HOSTING_DIR_CHANGED');
+          fs.mkdirSync('evidence',{recursive:true});
+          fs.writeFileSync('evidence/PC-ACCOUNT-AVATAR-CI.json',JSON.stringify({
+            source:process.env.GITHUB_SHA,baseline:process.env.BASE_SHA,
+            target:'hnl-qltc-dev-backup',prodTouched:false,devMainTouched:false,
+            firebaseRulesChanged:false,firestoreDataChanged:false,r2Changed:false,
+            mobileNavChanged:false,pcAvatarGolden:true,
+            deploy:false,certified:false
+          },null,2));
+          console.log('PASS PC ACCOUNT AVATAR DEV BACKUP CI BUILD');
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-DEV-BACKUP-PC-ACCOUNT-AVATAR-CI-EVIDENCE
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
