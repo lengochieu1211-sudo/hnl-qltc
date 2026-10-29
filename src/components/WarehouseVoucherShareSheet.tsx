@@ -152,10 +152,20 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
         const result=await sharePreparedContent({title:'Phiếu nhập/xuất kho',
           text:'Phiếu kho · '+chosen.length+' dòng vật tư · '+pages.length+' trang '+options.paperSize,
           attachments:files.map(file=>({id:file.id,fileName:file.fileName,mimeType:file.mimeType,dataUrl:file.dataUrl})),
+          // Avoid re-decoding large XLSX data URLs during the short browser share gesture.
+          browserFiles:files.map(file=>new File([file.blob],file.fileName,{type:file.mimeType})),
           allowTextFallback:false});
         if(result.status==='shared')setMessage('Đã yêu cầu mở bảng chia sẻ '+formatLabel(menu)+'.');
         else if(result.status==='cancelled')setMessage('Đã hủy chia sẻ.');
-        else throw new Error('Thiết bị không hỗ trợ chia sẻ file trực tiếp. Hãy chọn Tải '+formatLabel(menu)+'.');
+        else if(result.failureReason==='browser-file-sharing-unavailable'
+          && !isAndroidExportBridgeAvailable() && files.length===1 && (menu==='xlsx'||menu==='pdf')){
+          // Some mobile browsers reject XLSX/PDF as a Web Share attachment.
+          // Never send text instead of the real file or claim Zalo has received it.
+          await saveBlobToDownloads(files[0].blob,files[0].fileName,files[0].mimeType);
+          setMessage('Trình duyệt chưa cho chia sẻ trực tiếp '+formatLabel(menu)+
+            '. Đã yêu cầu tải file về máy. Mở Quản lý tệp → Tải xuống → chọn file → Chia sẻ → Zalo.');
+        }else throw new Error('Trình duyệt/thiết bị không cho chia sẻ '+formatLabel(menu)+
+          ' trực tiếp. Hãy chọn Tải '+formatLabel(menu)+' rồi chia sẻ file từ Tải xuống.');
       }
       setMenu(null);
     }catch(e){setError(e instanceof Error?e.message:'Không thể tải hoặc chia sẻ phiếu kho.');}

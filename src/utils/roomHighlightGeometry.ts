@@ -113,6 +113,32 @@ export function resizeRoomHighlightToBounds(
   return roomWithPoints(room, scaled);
 }
 
+/** Dragging a SIDE moves only the vertices on that boundary.
+ * Corners continue using resizeRoomHighlightToBounds (whole-shape scaling).
+ * Works for rectangles and irregular polygons without stretching interior points. */
+export function resizeRoomHighlightSide(
+  room: RoomProgressItem,
+  side: 'n' | 's' | 'e' | 'w',
+  desiredBounds: Pick<RoomHighlightBounds, 'x' | 'y' | 'width' | 'height'>,
+): RoomProgressItem {
+  const points = getRoomHighlightPoints(room);
+  const before = getRoomHighlightBounds(points);
+  const vertical = side === 'n' || side === 's';
+  const originalEdge = side === 'n' ? before.y : side === 's' ? before.y + before.height
+    : side === 'w' ? before.x : before.x + before.width;
+  const targetEdge = side === 'n' ? desiredBounds.y : side === 's' ? desiredBounds.y + desiredBounds.height
+    : side === 'w' ? desiredBounds.x : desiredBounds.x + desiredBounds.width;
+  const displacement = targetEdge - originalEdge;
+  // Input coordinates are percentages rounded to 0.1; retain other vertices exactly.
+  const moved = points.map((point) => {
+    const axis = vertical ? point.y : point.x;
+    if (Math.abs(axis - originalEdge) > 0.11) return { ...point };
+    return vertical ? { ...point, y: round1(clamp(point.y + displacement)) }
+      : { ...point, x: round1(clamp(point.x + displacement)) };
+  });
+  return roomWithPoints(room, moved);
+}
+
 export function normalizeRotationDelta(degrees: number): number {
   let normalized = degrees % 360;
   if (normalized > 180) normalized -= 360;

@@ -1,3 +1,4 @@
+import { listBlockedChatOutbox } from '../../utils/chatOutbox';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, CheckCheck, ImagePlus, Loader2, MessageCircle, MoreVertical, Reply, Send, Trash2, Pencil, X } from 'lucide-react';
 import type { QueryDocumentSnapshot } from 'firebase/firestore';
@@ -18,6 +19,7 @@ import {
 } from '../../lib/chatService';
 import { isPresenceConfigured, setTyping, startPresence } from '../../lib/presenceService';
 import { createEntityId } from '../../utils/idUtils';
+import { getChatUnreadCount } from '../../utils/chatUnread';
 import type { ChatAttachment, ProjectChatMessage } from './types';
 import { UnreadBadge } from './UnreadBadge';
 import { getPhotoDataUrl, getProjectPhotos, isPhotoSharedCloudReady, savePhotoAttachment } from '../../utils/photoStorage';
@@ -115,9 +117,9 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
   const [isSending, setIsSending] = useState(false);
   const [failedSend, setFailedSend] = useState<SendMessageInput | null>(null);
   const [lastReadAt, setLastReadAt] = useState(0);
-  const [lastReadMessageCount, setLastReadMessageCount] = useState(0);
+  const [lastReadMessageCount, setLastReadMessageCount] = useState<number | null>(null);
   const [lastMessageAt, setLastMessageAt] = useState(0);
-  const [messageCount, setMessageCount] = useState(0);
+  const [messageCount, setMessageCount] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const typingTimer = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -131,7 +133,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
     typeof window !== 'undefined' ? (window.visualViewport?.height || window.innerHeight) : 720
   );
   const user = getCurrentRealFirebaseUser();
-  const unread = Math.max(0, messageCount - lastReadMessageCount) || (lastMessageAt > lastReadAt ? 1 : 0);
+  const unread = getChatUnreadCount(messageCount, lastReadMessageCount, lastMessageAt, lastReadAt);
 
   useEffect(() => startPresence(), []);
 
@@ -151,21 +153,34 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
 
   useEffect(() => {
     if (!activeProjectId) return;
-    const unsubSummary = subscribeConversationSummary(activeProjectId, (summary) => { setLastMessageAt(summary?.lastMessageAtMillis || 0); setMessageCount(Number(summary?.messageCount || 0)); });
-    const unsubRead = subscribeConversationReadState(activeProjectId, (millis, count) => { setLastReadAt(millis); setLastReadMessageCount(Number(count || 0)); });
+    const unsubSummary = subscribeConversationSummary(activeProjectId, (summary) => { setLastMessageAt(summary?.lastMessageAtMillis || 0); setMessageCount(typeof summary?.messageCount === 'number' ? summary.messageCount : null); });
+    const unsubRead = subscribeConversationReadState(activeProjectId, (millis, count) => { setLastReadAt(millis); setLastReadMessageCount(typeof count === 'number' ? count : null); });
     return () => { unsubSummary(); unsubRead(); };
   }, [activeProjectId]);
 
   useEffect(() => {
+    const uid = getCurrentRealFirebaseUser()?.uid || '';
+    let disposed = false;
+    // Never carry a previous account/project's private failed draft into this view.
+    setFailedSend(null);
+    setSendError('');
+    if (uid && activeProjectId) {
+      void listBlockedChatOutbox(uid, activeProjectId).then((entries) => {
+        if (disposed || getCurrentRealFirebaseUser()?.uid !== uid || !entries.length) return;
+        setFailedSend(entries[0].input);
+        setSendError(entries[0].failedMessage || 'Tin nhắn bị từ chối trước đó, nội dung vẫn được lưu trên thiết bị.');
+      }).catch(() => {});
+    }
     const handleAsyncSendError = (event: Event) => {
       const detail = (event as CustomEvent<any>).detail || {};
-      if (String(detail.projectId || '') !== activeProjectId) return;
+      if (String(detail.projectId || '') !== activeProjectId || String(detail.senderUid || '') !== uid
+        || getCurrentRealFirebaseUser()?.uid !== uid) return;
       setSendError(detail.message || 'Tin nhắn đã xếp hàng nhưng không gửi được.');
       if (detail.input) setFailedSend(detail.input as SendMessageInput);
     };
     window.addEventListener(CHAT_SEND_ERROR_EVENT, handleAsyncSendError as EventListener);
-    return () => window.removeEventListener(CHAT_SEND_ERROR_EVENT, handleAsyncSendError as EventListener);
-  }, [activeProjectId]);
+    return () => { disposed = true; window.removeEventListener(CHAT_SEND_ERROR_EVENT, handleAsyncSendError as EventListener); };
+  }, [activeProjectId, user?.uid]);
 
   useEffect(() => {
     if (view !== 'room' || !activeProjectId) return;

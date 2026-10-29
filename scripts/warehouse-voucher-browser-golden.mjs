@@ -151,6 +151,49 @@ try {
   assert(firstSheet['!merges']?.length>2,tag+': expected print layout merges');
   assert.equal(firstSheet['!cols']?.[4]?.hidden,true,tag+': original ID must be retained in the hidden fifth Excel column');
   results.push({viewport:tag,format:'xlsx',mode:'single',bytes:excelBytes.length,file:excelDl.suggestedFilename()});
+  // Chrome Android/PC compatibility: share the original File when Web Share is supported.
+  await page.evaluate(()=>{
+    window.__voucherSharedFileInfo=null;
+    Object.defineProperty(navigator,'canShare',{configurable:true,value:data=>Array.isArray(data?.files)&&data.files.length===1});
+    Object.defineProperty(navigator,'share',{configurable:true,value:async data=>{
+      if(!data.files?.length)throw Error('File payload missing');
+      window.__voucherSharedFileInfo={name:data.files[0].name,type:data.files[0].type,size:data.files[0].size};
+    }});
+  });
+  await sheet.locator('[data-hnl-voucher-format="xlsx"]').click();
+  const supportedShare=page.locator('[data-hnl-voucher-action="xlsx-share"]');
+  await assertEventuallyEnabled(supportedShare);
+  await supportedShare.click();
+  const shared=await page.evaluate(()=>window.__voucherSharedFileInfo);
+  assert(shared?.name?.endsWith('.xlsx')&&shared.size===excelBytes.length,
+    tag+': native Share must use the exact already-prepared XLSX binary');
+  assert.equal(shared.type,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    tag+': Web Share XLSX must preserve the proper MIME type');
+  assert.match(await sheet.locator('[role="status"]').innerText(),/bảng chia sẻ Excel/,
+    tag+': successful share should show status, not another download');
+  // On Android browsers that reject XLSX in canShare(), download the actual
+  // file on the SAME click with truthful Zalo instructions and no empty file.
+  await page.evaluate(()=>{
+    window.__voucherShareCalled=false;
+    Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});
+    Object.defineProperty(navigator,'share',{configurable:true,value:async()=>{
+      window.__voucherShareCalled=true;throw Error('Should not invoke unsupported Web Share');
+    }});
+  });
+  await sheet.locator('[data-hnl-voucher-format="xlsx"]').click();
+  const unsupportedShare=page.locator('[data-hnl-voucher-action="xlsx-share"]');
+  await assertEventuallyEnabled(unsupportedShare);
+  const shareFallback=page.waitForEvent('download',{timeout:30000});
+  await unsupportedShare.click();
+  const fallbackDownload=await shareFallback;
+  assert.equal(await page.evaluate(()=>window.__voucherShareCalled),false,
+    tag+': unsupported canShare must not call native share');
+  assert.equal(fallbackDownload.suggestedFilename(),excelDl.suggestedFilename(),
+    tag+': sharing fallback must keep correct XLSX filename');
+  const fallbackBytes=fs.readFileSync(await fallbackDownload.path());
+  assert(fallbackBytes.equals(excelBytes),tag+': fallback XLSX must be byte-identical to normal download');
+  assert.match(await sheet.locator('[role="status"]').innerText(),/Tải xuống.*Zalo/,
+    tag+': browser fallback must tell how to send the real file via Zalo');
   // The existing PNG/PDF paths must remain operational.
   
   for(const format of ['png','pdf']){

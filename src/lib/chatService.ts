@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   getDoc,
+  getDocFromServer,
   getDocs,
   increment,
   limit,
@@ -12,13 +13,15 @@ import {
   setDoc,
   startAfter,
   updateDoc,
+  writeBatch,
   where,
   type DocumentSnapshot,
   type QueryDocumentSnapshot,
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db, getCurrentRealFirebaseUser } from './firebase';
-import { listChatOutbox, putChatOutbox, removeChatOutbox } from '../utils/chatOutbox';
+import { blockChatOutbox, listChatOutbox, putChatOutbox, removeChatOutbox } from '../utils/chatOutbox';
+import { isCurrentChatSender, shouldAutoFlushChatEntry } from '../utils/chatOutboxRecovery';
 import type { ProjectChatMessage, ProjectConversationSummary, ChatReplyTo, ChatAttachment } from '../features/chat/types';
 
 export const GENERAL_CONVERSATION_ID = 'general';
@@ -32,7 +35,16 @@ function deterministicMessageId(uid: string, clientMessageId: string): string {
   return `${uid}_${clientMessageId}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 190);
 }
 
-async function commitProjectMessage(input: SendMessageInput, persistOutbox: boolean): Promise<string> {
+function assertChatSenderStillCurrent(expectedUid: string): void {
+  if (!isCurrentChatSender(expectedUid, getCurrentRealFirebaseUser()?.uid)) {
+    // Reconnect or IndexedDB writes may finish after logout/account switching.
+    // Keep the original owner's outbox and never send it under a new UID.
+    throw new Error('Tài khoản đã thay đổi; tin vẫn được giữ trên thiết bị của tài khoản gửi ban đầu.');
+  }
+}
+
+async function commitProjectMessage(input: SendMessageInput, persistOutbox: boolean, expectedSenderUid: string): Promise<string> {
+  assertChatSenderStillCurrent(expectedSenderUid);
   const user = getCurrentRealFirebaseUser();
   if (!user || !user.email) throw new Error('Bạn cần đăng nhập Google để gửi tin nhắn.');
   const conversationId = input.conversationId || GENERAL_CONVERSATION_ID;
@@ -50,10 +62,11 @@ async function commitProjectMessage(input: SendMessageInput, persistOutbox: bool
     });
   }
 
-  // IMPORTANT: the message itself is committed independently from the conversation
-  // summary. A stale/strict summary rule must never make an otherwise valid message
-  // disappear. The deterministic message ID keeps retries idempotent.
-  await setDoc(msgRef, {
+  // Atomic message + summary: never acknowledge a persisted message whose unread
+  // counter failed. Firestore writeBatch supports offline queuing; the durable
+  // IndexedDB outbox remains until server acknowledgment.
+  const batch = writeBatch(db);
+  batch.set(msgRef, {
     id: messageId,
     conversationId,
     projectId: input.projectId,
@@ -69,15 +82,9 @@ async function commitProjectMessage(input: SendMessageInput, persistOutbox: bool
     attachments,
     editedAt: null,
     deletedAt: null,
-  }, { merge: false });
+  });
 
-  // Once the message exists on Firestore it is safe to remove the outbox item.
-  await removeChatOutbox(messageId).catch(() => {});
-
-  // Conversation summary drives unread badges only. Keep it best-effort so a
-  // summary permission/index issue cannot block chat delivery.
-  try {
-    await setDoc(conversationRef(input.projectId, conversationId), {
+  batch.set(conversationRef(input.projectId, conversationId), {
       id: conversationId,
       projectId: input.projectId,
       lastMessageAt: serverTimestamp(),
@@ -87,10 +94,15 @@ async function commitProjectMessage(input: SendMessageInput, persistOutbox: bool
       lastMentions: Array.from(new Set((input.mentions || []).filter(Boolean))),
       messageCount: increment(1),
       updatedAt: serverTimestamp(),
-    }, { merge: true });
-  } catch (summaryErr) {
-    console.warn('[Chat] Message sent but conversation summary update failed:', summaryErr);
-  }
+  }, { merge: true });
+
+  // The server applies both writes or neither. The message ID is deterministic,
+  // and the message's immutable createdAt rule rejects an old ID replay, so a
+  // repeated batch cannot increment messageCount a second time.
+  // Last synchronous guard before the Firestore batch is handed to the SDK.
+  assertChatSenderStillCurrent(expectedSenderUid);
+  await batch.commit();
+  await removeChatOutbox(messageId).catch(() => {});
 
   return messageId;
 }
@@ -113,26 +125,39 @@ export async function flushChatOutbox(): Promise<void> {
     if (!user || !user.email || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
     const rows = await listChatOutbox().catch(() => []);
     for (const row of rows) {
+      // A different Google account may have signed in during an earlier await.
+      if (!isCurrentChatSender(user.uid, getCurrentRealFirebaseUser()?.uid)) break;
       const input = row.input;
       // Outbox entries belong to the account that created their deterministic ID.
       if (!row.id.startsWith(`${user.uid}_`)) continue;
+      // Rejected drafts require an explicit user retry; avoid unauthorized retry loops.
+      if (!shouldAutoFlushChatEntry(row)) continue;
       try {
         const conversationId = input.conversationId || GENERAL_CONVERSATION_ID;
         const msgRef = doc(messageCollection(input.projectId, conversationId), row.id);
-        const existing = await getDoc(msgRef);
+        // A local pending write is not server acknowledgment. Only a server
+        // read may remove the durable outbox after an earlier commit/reconnect.
+        const existing = await getDocFromServer(msgRef);
+        // Do not acknowledge/delete A's outbox or send A's message while B is signed in.
+        if (!isCurrentChatSender(user.uid, getCurrentRealFirebaseUser()?.uid)) break;
         if (existing.exists()) {
           await removeChatOutbox(row.id);
           continue;
         }
-        await commitProjectMessage(input, false);
+        await commitProjectMessage(input, false, user.uid);
       } catch (err: any) {
+        // Auth switched while the request was pending: preserve A's row as-is.
+        if (!isCurrentChatSender(user.uid, getCurrentRealFirebaseUser()?.uid)) break;
         if (isPermanentChatSendError(err)) {
-          await removeChatOutbox(row.id).catch(() => {});
-          console.warn('[Chat outbox] Permanent send failure; removed from retry queue:', err);
+          await blockChatOutbox(row.id, 'Firebase từ chối gửi; tin vẫn lưu trên thiết bị để gửi lại.').catch((storageError) => {
+            console.warn('[Chat outbox] Cannot mark rejected draft; original entry retained:', storageError);
+          });
+          console.warn('[Chat outbox] Permission-rejected message retained for manual retry:', err);
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent(CHAT_SEND_ERROR_EVENT, {
               detail: {
                 projectId: input.projectId,
+                senderUid: user.uid,
                 conversationId: input.conversationId || GENERAL_CONVERSATION_ID,
                 input,
                 message: err?.message || 'Tin nhắn bị Firebase từ chối. Hãy kiểm tra quyền rồi bấm Gửi lại.',
@@ -256,15 +281,16 @@ export async function sendProjectMessage(input: SendMessageInput): Promise<strin
   await putChatOutbox({ id: messageId, input: normalizedInput, createdAt: Date.now() });
 
   let returnedAsQueued = false;
-  const commitPromise = commitProjectMessage(normalizedInput, false);
+  const commitPromise = commitProjectMessage(normalizedInput, false, user.uid);
   commitPromise.catch((err: any) => {
     if (isPermanentChatSendError(err)) {
-      void removeChatOutbox(messageId).catch(() => {});
+      void blockChatOutbox(messageId, 'Firebase từ chối gửi; tin vẫn lưu trên thiết bị để gửi lại.').catch(() => {});
     }
     if (!returnedAsQueued || typeof window === 'undefined') return;
     window.dispatchEvent(new CustomEvent(CHAT_SEND_ERROR_EVENT, {
       detail: {
         projectId: input.projectId,
+        senderUid: user.uid,
         conversationId,
         input: normalizedInput,
         message: err?.message || 'Không gửi được tin nhắn.',
@@ -296,14 +322,15 @@ export async function markConversationRead(projectId: string, conversationId = G
 
 export function subscribeConversationReadState(
   projectId: string,
-  onUpdate: (lastReadAtMillis: number, lastReadMessageCount?: number) => void,
+  onUpdate: (lastReadAtMillis: number, lastReadMessageCount?: number | null) => void,
   conversationId = GENERAL_CONVERSATION_ID,
 ): Unsubscribe {
   const user = getCurrentRealFirebaseUser();
-  if (!user) { onUpdate(0, 0); return () => {}; }
+  if (!user) { onUpdate(0, null); return () => {}; }
   return onSnapshot(readStateRef(projectId, user.uid, conversationId), (snap) => {
-    onUpdate(toMillis(snap.data()?.lastReadAt), Number(snap.data()?.lastReadMessageCount || 0));
-  }, () => onUpdate(0, 0));
+    const count = snap.data()?.lastReadMessageCount;
+    onUpdate(toMillis(snap.data()?.lastReadAt), typeof count === 'number' && Number.isFinite(count) ? count : null);
+  }, () => onUpdate(0, null));
 }
 
 export function subscribeConversationSummary(
