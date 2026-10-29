@@ -17,3 +17,8 @@ export function isChatEntryBlockedForUser(entry: RecoverableChatEntry, uid: stri
     && entry.input?.projectId === projectId);
 }
 export const shouldAutoFlushChatEntry = (entry: RecoverableChatEntry): boolean => entry.deliveryState !== 'blocked';
+
+/** Prevent an offline retry from crossing Google account boundaries. */
+export function isCurrentChatSender(expectedUid: string, currentUid?: string | null): boolean {
+  return Boolean(expectedUid && currentUid && expectedUid === currentUid);
+}
