@@ -8,7 +8,7 @@ interface DesktopAccountMenuProps {
   roleResolved: boolean;
   online: boolean;
   hasPendingSync: boolean;
-  onOpenSecurity: () => void;
+  onOpenSecurity: (section: 'account' | 'switch' | 'rbac') => void;
   onLockNow: () => void;
   onSignOut: () => Promise<void>;
 }
@@ -101,13 +101,13 @@ export const DesktopAccountMenu: React.FC<DesktopAccountMenuProps> = ({
             </p>
           )}
           <div className="my-2 border-t border-slate-100" />
-          <button type="button" role="menuitem" className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => launch(onOpenSecurity)}>
+          <button type="button" role="menuitem" className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => launch(() => onOpenSecurity('account'))}>
             <UserRound className="h-4 w-4 text-indigo-600" /> Thông tin tài khoản
           </button>
-          <button type="button" role="menuitem" className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => launch(onOpenSecurity)}>
+          <button type="button" role="menuitem" className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => launch(() => onOpenSecurity('switch'))}>
             <Settings className="h-4 w-4 text-indigo-600" /> Đăng nhập / Đổi tài khoản
           </button>
-          <button type="button" role="menuitem" className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => launch(onOpenSecurity)}>
+          <button type="button" role="menuitem" className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => launch(() => onOpenSecurity('rbac'))}>
             <ShieldCheck className="h-4 w-4 text-indigo-600" /> Bảo mật & phân quyền
           </button>
           <button type="button" role="menuitem" className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => launch(onLockNow)}>
