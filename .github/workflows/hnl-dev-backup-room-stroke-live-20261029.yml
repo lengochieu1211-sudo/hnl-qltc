@@ -14,15 +14,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      SOURCE_SHA: 950fb4091171281df435773b132483f292769dc9
-      STAGE_WORKFLOW_SHA: d4b1b6ca45f1a65491947ac4292e09d249f2925f
-      CI_RUN: '40807389437'
-      PREVIEW_RUN: '40807623352'
+      SOURCE_SHA: 4ca8d52dbcf3cc13bba46e6a34861012a72e24db
+      STAGE_WORKFLOW_SHA: 527895d0109bd16fb96ebcff0b0ea9ce96811448
+      CI_RUN: '40882949722'
+      PREVIEW_RUN: '40888469373'
       PROJECT: hnl-qltc-dev-backup
-      PREVIEW_CHANNEL: hnl-room-stroke-qa-20261029
-      ROLLBACK_CHANNEL: hnl-room-stroke-rollback-20261029
-      OLD_LIVE: sites/hnl-qltc-dev-backup/versions/dcb606ceb3b3104b
-      NEW_LIVE: sites/hnl-qltc-dev-backup/versions/ef82f84f9c6f901b
+      PREVIEW_CHANNEL: hnl-p2180-qa-20261029
+      ROLLBACK_CHANNEL: hnl-p2180-rollback-20261029
+      OLD_LIVE: sites/hnl-qltc-dev-backup/versions/ef82f84f9c6f901b
+      NEW_LIVE: sites/hnl-qltc-dev-backup/versions/f5cd1dc6972e508a
       VITE_APP_ENV: DEV
       VITE_RUNTIME_BACKEND: firebase-only
       VITE_BINARY_STORAGE_PROVIDER: r2
@@ -49,7 +49,8 @@ jobs:
           if(c.type!=='service_account'||c.project_id!=='hnl-qltc-dev-backup'||!c.private_key)throw Error('WRONG_BACKUP_ACCOUNT');
           if(process.env.VITE_FIREBASE_AUTH_DOMAIN!=='hnl-qltc-dev-backup.web.app'||!process.env.VITE_R2_GATEWAY_URL.includes('dev-backup'))throw Error('BACKEND_NOT_ISOLATED');
           NODE
-          for pair in "$CI_RUN:$SOURCE_SHA" "$PREVIEW_RUN:$STAGE_WORKFLOW_SHA"; do
+          test "$(git rev-parse "$SOURCE_SHA^{tree}")" = "$(git rev-parse 162da7879653dbc63e9eed698fc2361521f23a21^{tree})" || exit 1
+          for pair in "$CI_RUN:162da7879653dbc63e9eed698fc2361521f23a21" "$PREVIEW_RUN:$STAGE_WORKFLOW_SHA"; do
             RUN_ID="${pair%%:*}"; WANT_SHA="${pair#*:}"
             curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" -o "$RUNNER_TEMP/run-$RUN_ID.json"
             WANT_SHA="$WANT_SHA" RUN_ID="$RUN_ID" node - <<'NODE'
@@ -97,7 +98,7 @@ jobs:
             if(!r.ok||bytes.length<200)throw Error('UNREADABLE_PREVIEW_ASSET '+asset);
             if(bytes.includes(Buffer.from('non-scaling-stroke')))hasUniformStroke=true;
           }
-          if(!hasUniformStroke)throw Error('NEW_XLSX_FALLBACK_CODE_NOT_IN_PREVIEW');
+          if(!hasUniformStroke)throw Error('P2180_SOURCE_STROKE_MARKER_ABSENT_IN_PREVIEW');
           fs.mkdirSync('evidence',{recursive:true});
           fs.writeFileSync('evidence/PREFLIGHT.json',JSON.stringify({source:process.env.SOURCE_SHA,ciRun:process.env.CI_RUN,previewRun:process.env.PREVIEW_RUN,previewUrl:url,liveBefore:live,previewVersion:stage,assetCount:assets.length,sourceContainsUniformStroke:true,project:'hnl-qltc-dev-backup'},null,2));
           fs.appendFileSync(process.env.GITHUB_ENV,'EXPECTED_PREVIEW_URL='+url+'\n');
