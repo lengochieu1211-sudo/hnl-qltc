@@ -1,4 +1,5 @@
 name: HNL DEV BACKUP uniform room highlight SVG stroke – isolated CI (NO DEPLOY / NO PROD)
+# Re-run TypeScript + real SVG raster golden after test-scope variable correction.
 # Regression v2: tab selection stays stable while project metadata changes.
 on:
   push:
