@@ -6,6 +6,12 @@ import { chromium } from 'playwright';
 const app=fs.readFileSync('src/App.tsx','utf8');
 const nav=fs.readFileSync('src/components/BottomNav.tsx','utf8');
 const avatar=fs.readFileSync('src/components/DesktopAccountMenu.tsx','utf8');
+const security=fs.readFileSync('src/components/SecurityModal.tsx','utf8');
+assert(security.includes("setActiveTab(entryPoint === 'account' || entryPoint === 'switch' ? 'account' : entryPoint)"),'Security center must select a fresh tab on every new open');
+assert(security.includes("data-hnl-security-account-section={entryPoint === 'switch' ? 'switch' : 'info'}"),'Account info and change-account entry must have deliberate content');
+assert(security.includes('const remaining = getCurrentFirebaseUser()'),'Canceling account logout must not falsify auth state');
+assert(app.includes('setSecurityModalEntryPoint(section)') && app.includes('entryPoint={securityModalEntryPoint}'),'App must carry menu command to Security Center');
+assert(avatar.includes("onOpenSecurity('account')") && avatar.includes("onOpenSecurity('switch')") && avatar.includes("onOpenSecurity('rbac')"),'Avatar commands must not all open the same page');
 assert(app.includes('desktopAccountHasPendingSync')&&app.includes('await signOutGoogle()'),'Auth signout must use existing confirmed Firebase path');
 assert(app.includes('firestorePendingWriteCount > 0')&&app.includes('Number(photoCloudStatus.pending || 0) > 0'),'Pending Firestore/photo safeguards must remain');
 assert(app.includes('onLockNow={handleDesktopLockNow}')&&app.includes('onSignOut={handleDesktopAccountSignOut}'),'Existing app callbacks must be wired');
@@ -40,8 +46,16 @@ try {
     assert((await menu.innerText()).includes('Quản trị viên'),'Role label must render');
     await menu.getByRole('menuitem',{name:'Thông tin tài khoản'}).click();
     assert.equal(await page.evaluate(()=>window.__testNav.account),1,'Account action must call parent');
+    assert.equal(await page.locator('[data-hnl-account-selected-section]').innerText(),'account','Account info should select account view, not PIN from last open');
+    await trigger.click();await menu.getByRole('menuitem',{name:'Đăng nhập / Đổi tài khoản'}).click();
+    assert.equal(await page.locator('[data-hnl-account-selected-section]').innerText(),'switch','Switch account must select switch view');
+    await trigger.click();await menu.getByRole('menuitem',{name:'Bảo mật & phân quyền'}).click();
+    assert.equal(await page.locator('[data-hnl-account-selected-section]').innerText(),'rbac','Security and role item must select RBAC view');
+    await trigger.click();await menu.getByRole('menuitem',{name:'Thông tin tài khoản'}).click();
+    assert.equal(await page.locator('[data-hnl-account-selected-section]').innerText(),'account','Reopening account must reset from previous RBAC view');
     await trigger.click();await menu.getByRole('menuitem',{name:'Khóa ứng dụng'}).click();
     assert.equal(await page.evaluate(()=>window.__testNav.lock),1,'Lock action must call parent');
+    assert.equal(await page.locator('[data-hnl-account-selected-section]').innerText(),'pin','PIN command must be independent of previously opened view');
     await trigger.click();await page.keyboard.press('Escape');assert(!(await menu.isVisible()),'Escape closes account flyout');
     await trigger.click();await page.locator('[data-hnl-fixture-content]').click({position:{x:600,y:200}});assert(!(await menu.isVisible()),'Outside click closes flyout');
   } else {
@@ -54,4 +68,4 @@ try {
   console.log('PASS account menu fixture '+width+'px');await ctx.close();
  }
 } finally {await browser?.close();vite.kill('SIGTERM');}
-console.log('PASS DEV Backup PC account avatar: desktop/mobile visual and guarded callback golden');
+console.log('PASS DEV Backup PC account avatar: independent account/switch/role/PIN routes, desktop/mobile safety regression');
