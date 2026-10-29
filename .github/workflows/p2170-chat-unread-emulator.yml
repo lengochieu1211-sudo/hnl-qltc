@@ -1,0 +1,59 @@
+name: P21.70 Chat Unread 2 synthetic users Emulator risk proof (NO DEPLOY)
+on:
+  push:
+    branches: [audit/p2170-chat-unread-two-user-emulator-20261029]
+    paths:
+      - .github/workflows/p2170-chat-unread-emulator.yml
+      - scripts/p2170-chat-unread-two-user-emulator.mjs
+permissions:
+  contents: read
+jobs:
+  scoped_unread:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GCLOUD_PROJECT: demo-hnl-qltc-p2170
+      FIREBASE_PROJECT_ID: demo-hnl-qltc-p2170
+      FIRESTORE_EMULATOR_HOST: 127.0.0.1:8080
+      FIREBASE_AUTH_EMULATOR_HOST: 127.0.0.1:9099
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Require exact DEV, QA, main heads and workflow-only audit additions
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/audit/p2170-chat-unread-two-user-emulator-20261029'
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = 'ad69668ec02202811203ad36a3c70798d8874ec8'
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = 'b2557860fbb3b128b5f2c9863e99d0f8b1f78686'
+          test "$(git ls-remote origin refs/heads/safety/dev-backup-room-highlight-uniform-stroke-20261029 | cut -f1)" = '04a7ab041f631e6fd5e764d12da1c878f4b82afc'
+          diff="$(git diff --name-only ad69668ec02202811203ad36a3c70798d8874ec8 HEAD | sort)"
+          expected="$(printf '%s\n' .github/workflows/p2170-chat-unread-emulator.yml scripts/p2170-chat-unread-two-user-emulator.mjs | sort)"
+          test "$diff" = "$expected"
+          test "$GCLOUD_PROJECT" = demo-hnl-qltc-p2170
+          echo 'Source unchanged, isolated fixture only, no live credentials.'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Two synthetic identities, actual Firestore Rules and Auth emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes firebase-tools@13.35.1 emulators:exec --config firebase.rules-ci.json --only auth,firestore --project demo-hnl-qltc-p2170 "node scripts/p2170-chat-unread-two-user-emulator.mjs"
+      - name: Upload non-sensitive results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-P2170-CHAT-UNREAD-SYNTHETIC-EMULATOR-RISKS
+          path: evidence/*.json
+          if-no-files-found: warn
+          retention-days: 30
