@@ -1,0 +1,98 @@
+name: HNL DEV BACKUP PC avatar – FULL PATCH REPORT SHA256 (NO DEPLOY)
+on:
+  push:
+    branches: [safety/dev-backup-pc-account-avatar-20261029]
+    paths: ['.github/workflows/hnl-dev-backup-pc-account-avatar-package-20261029.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      BASE_SHA: 87bf32c1d085a1374b64a04f5cae8c97a26336b7
+      SOURCE_SHA: e1cee6ffcea7eeab1e8227dd90f68565d257a18e
+      CI_RUN: '40800074210'
+      CI_SHA: 607193f78caae1302971297f4c68c3543aef27ca
+      PREVIEW_RUN: '40800339197'
+      PREVIEW_SHA: 8f7b33860c9e84460486492bcf62cbaa7e45a914
+      LIVE_RUN: '40800524833'
+      LIVE_SHA: e1cee6ffcea7eeab1e8227dd90f68565d257a18e
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact SHA, previous CI and live, and forbidden PROD changes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-pc-account-avatar-20261029'
+          test "$(git diff --name-only "$SOURCE_SHA" HEAD)" = '.github/workflows/hnl-dev-backup-pc-account-avatar-package-20261029.yml'
+          for record in "$CI_RUN:$CI_SHA" "$PREVIEW_RUN:$PREVIEW_SHA" "$LIVE_RUN:$LIVE_SHA"; do
+            id="${record%%:*}"; sha="${record#*:}"
+            curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$id" -o "$RUNNER_TEMP/$id.json"
+            ID="$id" WANT_SHA="$sha" node - <<'NODE'
+          const fs=require('fs'),r=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/'+process.env.ID+'.json'));
+          if(r.status!=='completed'||r.conclusion!=='success'||r.head_sha!==process.env.WANT_SHA)throw Error('NOT_PASS '+process.env.ID);
+          console.log('PASS',r.name,r.id);
+          NODE
+          done
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = 'b2557860fbb3b128b5f2c9863e99d0f8b1f78686'
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = 'd6effaf03a08a9879fa172a345992922916036d2'
+          node scripts/source-lint.mjs
+      - name: Package complete current QA source and minimal patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p output/patch
+          git archive --format=zip HEAD -o output/HNL-QLTC-DEV-BACKUP-PC-AVATAR-FULL-SOURCE.zip
+          git diff --name-only "$BASE_SHA" HEAD > output/CHANGED-FILES.txt
+          while IFS= read -r path; do
+            test -n "$path"
+            test -f "$path"
+            mkdir -p "output/patch/$(dirname "$path")"
+            cp "$path" "output/patch/$path"
+          done < output/CHANGED-FILES.txt
+          (cd output/patch && zip -qr ../HNL-QLTC-DEV-BACKUP-PC-AVATAR-PATCH.zip .)
+          rm -rf output/patch
+          cat > output/HNL-QLTC-DEV-BACKUP-PC-AVATAR-REPORT.md <<EOF
+          # HNL QLTC DEV Backup – PC avatar account menu – 2026-10-29
+          Repo: lengochieu1211-sudo/hnl-qltc
+          Branch: safety/dev-backup-pc-account-avatar-20261029
+          Exact packaging HEAD: $GITHUB_SHA
+          App tested source at CI: $CI_SHA (only subsequent workflows; no business code changes)
+          QA baseline: $BASE_SHA
+          DEV main: d6effaf03a08a9879fa172a345992922916036d2 (unchanged)
+          PROD main: b2557860fbb3b128b5f2c9863e99d0f8b1f78686 (unchanged)
+          Backend: Firebase hnl-qltc-dev-backup, R2 dev-backup (unchanged)
+          Before Hosting: sites/hnl-qltc-dev-backup/versions/9742c0a348837456
+          After Hosting: sites/hnl-qltc-dev-backup/versions/1c246a6089ba36b4
+          Rollback channel: hnl-pc-account-avatar-rollback-20261029
+          CI: $CI_RUN SUCCESS (TypeScript, lint, Firebase Rules, RBAC, offline, Chromium PC/mobile, build).
+          PREVIEW: $PREVIEW_RUN SUCCESS (55 web assets exact byte parity).
+          LIVE: $LIVE_RUN SUCCESS (rollback snapshot, gated promotion, 55 web assets parity).
+          Root cause: PC left rail had no account avatar/menu though Firebase Auth already provided picture/name/email and Security Center had login/logout/PIN.
+          Changed app: src/App.tsx; src/components/BottomNav.tsx; src/components/DesktopAccountMenu.tsx.
+          Behavior: top-left PC avatar, flyout email/name/resolved role/security/lock/login switch, sign-out confirmation, block unsafe signout with pending Firestore/R2 sync.
+          Mobile: unchanged navigation surface; PC 1366px and phone 393px Chromium fixtures PASS.
+          No changes: Firestore schema, IDs, Rules, data, R2, permissions, PROD, main DEV, PDF/Excel, floor highlights.
+          Floor highlight note (audit only, not patched): SVG viewBox 0 0 100 100 + preserveAspectRatio none non-uniformly stretches displayed strokes; future isolated CSS/SVG rendering fix needed if approved.
+          Outstanding: signed-in real Windows Chrome/EXE avatar, logout with queued writes, multi-user auth and PIN device runtime Golden NOT independently verified; NOT CERTIFIED.
+          EOF
+          mv output/CHANGED-FILES.txt output/HNL-QLTC-DEV-BACKUP-PC-AVATAR-CHANGED-FILES.txt
+          (cd output && sha256sum *.zip *.md *.txt > HNL-QLTC-DEV-BACKUP-PC-AVATAR-SHA256SUMS.txt)
+          unzip -tq output/HNL-QLTC-DEV-BACKUP-PC-AVATAR-FULL-SOURCE.zip
+          unzip -tq output/HNL-QLTC-DEV-BACKUP-PC-AVATAR-PATCH.zip
+          test -s output/HNL-QLTC-DEV-BACKUP-PC-AVATAR-REPORT.md
+          test -s output/HNL-QLTC-DEV-BACKUP-PC-AVATAR-SHA256SUMS.txt
+          echo 'PASS source full patch report hashes and CRC'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-DEV-BACKUP-PC-AVATAR-FULL-PATCH-REPORT-SHA256
+          path: output/
+          if-no-files-found: error
+          retention-days: 30
