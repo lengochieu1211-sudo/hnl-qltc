@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          fetch-depth: 2
+          fetch-depth: 0
       - name: Exact GitHub authority and safe live target
         shell: pwsh
         run: |
@@ -27,7 +27,8 @@ jobs:
           if ($dev -ne 'ad69668ec02202811203ad36a3c70798d8874ec8') { throw 'DEV_HEAD_CHANGED_STOP' }
           if ($main -ne 'b2557860fbb3b128b5f2c9863e99d0f8b1f78686') { throw 'MAIN_HEAD_CHANGED_STOP' }
           if ($qa -ne '04a7ab041f631e6fd5e764d12da1c878f4b82afc') { throw 'QA_HEAD_CHANGED_STOP' }
-          if ((git rev-parse HEAD^) -ne $dev) { throw 'WRONG_BASE_COMMIT' }
+          $delta = @(git diff --name-only $dev HEAD)
+          if ($delta.Count -ne 1 -or $delta[0] -ne '.github/workflows/p2169-dev-backup-windows-runtime.yml') { throw 'SOURCE_DIFF_NOT_ISOLATED' }
       - name: Public DEV Backup Hosting HTTP GET and API target guard
         shell: pwsh
         run: |
