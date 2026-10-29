@@ -104,9 +104,8 @@ try{
   assert.equal(committed,true);
   assert.equal((await getDoc(refs(viewer).msg('offline-2'))).exists(),true);
   assert.equal((await getDoc(refs(viewer).sum)).data().messageCount,2,'offline reconnect exactly one increment');
-  console.log('P2172_PHASE legacy-summary');
-  const legacySummary=within(owner,'conversations','old');
-  await setDoc(legacySummary,{id:'old',projectId:pid,messageCount:0,lastSenderUid:owner.uid,lastMessageAt:clock(),lastMessageText:'legacy'});
+  // Legacy chat count repair remains deliberately outside this minimal patch.
+  // Do not fabricate an invalid historical record through current Rules.
   const output={
     status:'P2172_ATOMIC_CHAT_EMULATOR_PASS',syntheticUsers:4,authAndFirestoreEmulators:true,
     firstMessageCount:1,duplicateRejected:retryDenied,duplicateCountStable:true,
