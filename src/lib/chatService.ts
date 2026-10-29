@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   getDoc,
+  getDocFromServer,
   getDocs,
   increment,
   limit,
@@ -12,6 +13,7 @@ import {
   setDoc,
   startAfter,
   updateDoc,
+  writeBatch,
   where,
   type DocumentSnapshot,
   type QueryDocumentSnapshot,
@@ -50,10 +52,11 @@ async function commitProjectMessage(input: SendMessageInput, persistOutbox: bool
     });
   }
 
-  // IMPORTANT: the message itself is committed independently from the conversation
-  // summary. A stale/strict summary rule must never make an otherwise valid message
-  // disappear. The deterministic message ID keeps retries idempotent.
-  await setDoc(msgRef, {
+  // Atomic message + summary: never acknowledge a persisted message whose unread
+  // counter failed. Firestore writeBatch supports offline queuing; the durable
+  // IndexedDB outbox remains until server acknowledgment.
+  const batch = writeBatch(db);
+  batch.set(msgRef, {
     id: messageId,
     conversationId,
     projectId: input.projectId,
@@ -69,15 +72,9 @@ async function commitProjectMessage(input: SendMessageInput, persistOutbox: bool
     attachments,
     editedAt: null,
     deletedAt: null,
-  }, { merge: false });
+  });
 
-  // Once the message exists on Firestore it is safe to remove the outbox item.
-  await removeChatOutbox(messageId).catch(() => {});
-
-  // Conversation summary drives unread badges only. Keep it best-effort so a
-  // summary permission/index issue cannot block chat delivery.
-  try {
-    await setDoc(conversationRef(input.projectId, conversationId), {
+  batch.set(conversationRef(input.projectId, conversationId), {
       id: conversationId,
       projectId: input.projectId,
       lastMessageAt: serverTimestamp(),
@@ -87,10 +84,13 @@ async function commitProjectMessage(input: SendMessageInput, persistOutbox: bool
       lastMentions: Array.from(new Set((input.mentions || []).filter(Boolean))),
       messageCount: increment(1),
       updatedAt: serverTimestamp(),
-    }, { merge: true });
-  } catch (summaryErr) {
-    console.warn('[Chat] Message sent but conversation summary update failed:', summaryErr);
-  }
+  }, { merge: true });
+
+  // The server applies both writes or neither. The message ID is deterministic,
+  // and the message's immutable createdAt rule rejects an old ID replay, so a
+  // repeated batch cannot increment messageCount a second time.
+  await batch.commit();
+  await removeChatOutbox(messageId).catch(() => {});
 
   return messageId;
 }
@@ -119,7 +119,9 @@ export async function flushChatOutbox(): Promise<void> {
       try {
         const conversationId = input.conversationId || GENERAL_CONVERSATION_ID;
         const msgRef = doc(messageCollection(input.projectId, conversationId), row.id);
-        const existing = await getDoc(msgRef);
+        // A local pending write is not server acknowledgment. Only a server
+        // read may remove the durable outbox after an earlier commit/reconnect.
+        const existing = await getDocFromServer(msgRef);
         if (existing.exists()) {
           await removeChatOutbox(row.id);
           continue;
