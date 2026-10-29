@@ -91,6 +91,9 @@ interface SecurityModalProps {
   isOpen: boolean;
   onClose: () => void;
   onLockNow: () => void;
+  entryPoint?: 'account' | 'switch' | 'rbac' | 'pin';
+  onSafeAccountSignOut?: () => Promise<void>;
+  signOutBlocked?: boolean;
   activeProjectId?: string;
   projects?: { id: string; name: string }[];
 }
@@ -158,10 +161,13 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   isOpen,
   onClose,
   onLockNow,
+  entryPoint = 'pin',
+  onSafeAccountSignOut,
+  signOutBlocked = false,
   activeProjectId = 'default',
   projects = []
 }) => {
-  const [activeTab, setActiveTab] = useState<'pin' | 'rbac' | 'audit'>('pin');
+  const [activeTab, setActiveTab] = useState<'account' | 'pin' | 'rbac' | 'audit'>('pin');
 
   // PIN state
   const [pinConfig, setPinConfig] = useState(getStoredPinLockConfig());
@@ -291,6 +297,8 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
+      // This modal stays mounted while closed: never reuse the last manually chosen tab.
+      setActiveTab(entryPoint === 'account' || entryPoint === 'switch' ? 'account' : entryPoint);
       setPinConfig(getStoredPinLockConfig());
       const openingUser = getCurrentFirebaseUser();
       const openingRole = isSuperAdminEmail(openingUser?.email) ? 'ADMIN' : getCurrentUserRole();
@@ -316,7 +324,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       setMemberMsg(null);
       refreshCloudStatus(pid);
     }
-  }, [isOpen, activeProjectId, firstProjectId]);
+  }, [isOpen, entryPoint, activeProjectId, firstProjectId]);
 
   useEffect(() => {
     if (!isOpen || !selectedPid) {
@@ -656,12 +664,24 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
     setIsAccountBusy(true);
     setAccountMsg(null);
     try {
-      await signOutFirebaseAccount();
-      setCloudUser(null);
-      setCloudRoleInfo(null);
-      setRoleState('VIEWER');
-      setCurrentUserRole('VIEWER');
-      setAccountMsg({ type: 'success', text: 'Đã đăng xuất tài khoản Google/Firebase.' });
+      if (signOutBlocked) {
+        setAccountMsg({ type: 'error', text: 'Vui lòng đợi đồng bộ hoàn tất và kết nối mạng trước khi đổi tài khoản.' });
+        return;
+      }
+      if (onSafeAccountSignOut) await onSafeAccountSignOut();
+      else await signOutFirebaseAccount();
+      // A canceled sign-out confirmation must never clear the still-authenticated user.
+      const remaining = getCurrentFirebaseUser();
+      if (remaining) {
+        setCloudUser(remaining);
+        setAccountMsg(null);
+      } else {
+        setCloudUser(null);
+        setCloudRoleInfo(null);
+        setRoleState('VIEWER');
+        setCurrentUserRole('VIEWER');
+        setAccountMsg({ type: 'success', text: 'Đã đăng xuất tài khoản Google/Firebase.' });
+      }
     } catch (err: any) {
       setAccountMsg({ type: 'error', text: `Không đăng xuất được: ${err?.message || err}` });
     } finally {
@@ -1445,7 +1465,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
             {cloudUser ? (
               <button
                 type="button"
-                disabled={isAccountBusy}
+                disabled={isAccountBusy || signOutBlocked}
                 onClick={() => void handleAccountSignOut()}
                 className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl border border-rose-200 bg-white px-3 py-2 text-[10px] font-bold text-rose-700 disabled:opacity-50"
               >
@@ -1471,7 +1491,13 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
         </div>
 
         {/* Tabs */}
-        <div data-hnl-security-primary-tabs="true" className={`grid ${canReadAudit ? 'grid-cols-3' : 'grid-cols-2'} gap-1 p-1 bg-slate-100 rounded-xl mt-2.5 shrink-0`}>
+        <div data-hnl-security-primary-tabs="true" className={`grid ${entryPoint === 'account' || entryPoint === 'switch' ? (canReadAudit ? 'grid-cols-4' : 'grid-cols-3') : (canReadAudit ? 'grid-cols-3' : 'grid-cols-2')} gap-1 p-1 bg-slate-100 rounded-xl mt-2.5 shrink-0`}>
+          {(entryPoint === 'account' || entryPoint === 'switch') && (
+            <button type="button" data-hnl-security-tab="account" onClick={() => setActiveTab('account')}
+              className={`py-2 px-1 rounded-lg font-bold text-[11px] flex items-center justify-center gap-1 transition-all ${activeTab === 'account' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}>
+              <UserCheck className="w-3.5 h-3.5 shrink-0" /> Tài khoản
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setActiveTab('pin')}
@@ -1516,6 +1542,42 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
 
         {/* Tab Content */}
         <div className="flex-1 overflow-y-auto pr-1 space-y-4 pt-3 text-xs">
+
+          {/* Account entry is scoped to desktop avatar navigation; mobile layout is unchanged. */}
+          {activeTab === 'account' && (
+            <div data-hnl-security-account-section={entryPoint === 'switch' ? 'switch' : 'info'} className="space-y-3">
+              <div className="rounded-xl border border-blue-200 bg-blue-50/80 p-3 space-y-2">
+                <h3 className="font-extrabold text-blue-900 text-sm">{entryPoint === 'switch' ? 'Đăng nhập / Đổi tài khoản' : 'Thông tin tài khoản'}</h3>
+                {cloudUser ? (
+                  <>
+                    <p><span className="font-semibold">Tên:</span> {cloudUser.displayName || 'Chưa thiết lập tên Google'}</p>
+                    <p className="break-all"><span className="font-semibold">Email:</span> {cloudUser.email || 'Chưa có email'}</p>
+                    <p><span className="font-semibold">Vai trò trong dự án:</span> {auditRoleLabel(currentRole)}</p>
+                  </>
+                ) : <p>Chưa đăng nhập Google/Firebase.</p>}
+              </div>
+              {entryPoint === 'switch' && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
+                  {cloudUser ? (
+                    <>
+                      <p className="font-semibold text-amber-900">Để đổi tài khoản, hãy đăng xuất tài khoản hiện tại, sau đó chọn Đăng nhập Google bằng tài khoản mới.</p>
+                      <button type="button" data-hnl-security-account-switch="true"
+                        disabled={isAccountBusy || signOutBlocked}
+                        onClick={() => void handleAccountSignOut()}
+                        className="rounded-lg bg-rose-600 px-3 py-2 font-bold text-white disabled:opacity-50">
+                        Đăng xuất để đổi tài khoản
+                      </button>
+                      {signOutBlocked && <p className="text-amber-900">Đang ngoại tuyến hoặc còn dữ liệu chờ đồng bộ; chưa thể đổi tài khoản.</p>}
+                    </>
+                  ) : (
+                    <button type="button" data-hnl-security-account-sign-in="true"
+                      disabled={isAccountBusy} onClick={() => void handleAccountSignIn()}
+                      className="rounded-lg bg-blue-600 px-3 py-2 font-bold text-white disabled:opacity-50">Đăng nhập Google</button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* TAB 1: PIN LOCK */}
           {activeTab === 'pin' && (
