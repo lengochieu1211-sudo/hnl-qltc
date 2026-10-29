@@ -51,6 +51,56 @@ jobs:
             rm -f "evidence/$env.body"
           done
           echo 'P21.67 read-only Hosting diagnostic complete; no deploy performed.'
+      - name: Verify LIVE DEV Backup Firebase and R2 target from public deployed assets (read-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const origin='https://hnl-qltc-dev-backup.web.app';
+          const init=await fetch(origin+'/__/firebase/init.json');
+          if(!init.ok)throw Error('DEV_BACKUP_SDK_HTTP_'+init.status);
+          const cfg=await init.json();
+          if(cfg.projectId!=='hnl-qltc-dev-backup'||cfg.authDomain!=='hnl-qltc-dev-backup.web.app')throw Error('DEV_BACKUP_FIREBASE_IDENTITY_MISMATCH');
+          const index=await fetch(origin+'/?qaScope='+Date.now());
+          const html=await index.text();
+          if(!index.ok||!html.includes('id="root"'))throw Error('DEV_BACKUP_HTML_MISSING_APP_ROOT');
+          const manifestResponse=await fetch(origin+'/sw-assets.json');
+          if(!manifestResponse.ok)throw Error('DEV_BACKUP_ASSET_MANIFEST_HTTP_'+manifestResponse.status);
+          const manifest=await manifestResponse.json();
+          const assets=(manifest.assets||[]).filter(x=>/^\/assets\/[a-zA-Z0-9_.-]+\.js$/.test(x));
+          if(assets.length<10)throw Error('DEV_BACKUP_ASSETS_INCOMPLETE');
+          let qaFirebase=false,qaR2=false,allOk=true,bytes=0;
+          for(const path of assets){
+            const response=await fetch(origin+path);
+            if(!response.ok){allOk=false;break}
+            const code=await response.text();
+            bytes+=Buffer.byteLength(code);
+            if(code.includes('hnl-qltc-dev-backup.web.app'))qaFirebase=true;
+            if(code.includes('hnl-qltc-r2-gateway-dev-backup'))qaR2=true;
+          }
+          if(!allOk||!qaFirebase||!qaR2)throw Error('DEV_BACKUP_LIVE_ASSET_ENV_MISMATCH');
+          const report={
+            status:'P2168_DEV_BACKUP_PUBLIC_RUNTIME_TARGETS_PASS',
+            verifiedAt:new Date().toISOString(),
+            backupSite:origin,
+            firebaseProjectId:cfg.projectId,
+            authDomain:cfg.authDomain,
+            r2Gateway:'hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev',
+            htmlStatus:index.status,
+            sdkStatus:init.status,
+            jsAssetCount:assets.length,
+            jsBytesScanned:bytes,
+            qaFirebaseBundlePresent:qaFirebase,
+            qaR2BundlePresent:qaR2,
+            signedInTwoUserGolden:false,
+            prodOrMainModified:false,
+            readOnly:true
+          };
+          fs.writeFileSync('evidence/dev-backup-public-identity.json',JSON.stringify(report,null,2)+'\n');
+          console.log(JSON.stringify(report));
+          NODE
       - name: Preserve observed HTTP metadata (not site contents)
         if: always()
         uses: actions/upload-artifact@v4
@@ -60,5 +110,6 @@ jobs:
             evidence/http-status.tsv
             evidence/*.headers
             evidence/*.httpcode
+            evidence/dev-backup-public-identity.json
           if-no-files-found: error
           retention-days: 30
