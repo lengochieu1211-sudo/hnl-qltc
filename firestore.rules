@@ -679,6 +679,29 @@ service cloud.firestore {
           && getAfter(/databases/$(database)/documents/projects/$(projectId)/conversations/$(conversationId)/messages/$(request.resource.data.lastMessageId)).data.createdAt == request.time;
       }
 
+      // P21.98: reverse half of the atomic invariant. A new message must be
+      // the exact message referenced by a newly created/updated summary in
+      // the SAME batch. This rejects orphan message-only writes and 2:1
+      // message:summary batches, preserving legacy missing messageCount.
+      function chatMessageHasAtomicSummary(projectId, conversationId, messageId) {
+        let summaryPath = /databases/$(database)/documents/projects/$(projectId)/conversations/$(conversationId);
+        return existsAfter(summaryPath)
+          && getAfter(summaryPath).data.projectId == projectId
+          && getAfter(summaryPath).data.id == conversationId
+          && getAfter(summaryPath).data.lastMessageId == messageId
+          && getAfter(summaryPath).data.lastSenderUid == request.auth.uid
+          && getAfter(summaryPath).data.lastMessageAt == request.time
+          && (
+            (!exists(summaryPath) && getAfter(summaryPath).data.messageCount == 1)
+            || (exists(summaryPath) && (
+              (('messageCount' in get(summaryPath).data)
+                && getAfter(summaryPath).data.messageCount == get(summaryPath).data.messageCount + 1)
+              || (!('messageCount' in get(summaryPath).data)
+                && getAfter(summaryPath).data.messageCount == 1)
+            ))
+          );
+      }
+
       // Project chat is deliberately separated from construction records. VIEWER may chat,
       // but every message is identity-bound and hard delete is disabled.
       match /conversations/{conversationId} {
@@ -715,6 +738,7 @@ service cloud.firestore {
             && request.resource.data.senderEmail.lower() == signedInEmail()
             && request.resource.data.clientMessageId is string
             && request.resource.data.createdAt == request.time
+            && chatMessageHasAtomicSummary(projectId, conversationId, messageId)
             && (!(request.resource.data.mentions is list) || !('everyone' in request.resource.data.mentions) || isAdmin(projectId));
           allow update: if isMember(projectId)
             && resource.data.senderUid == request.auth.uid
