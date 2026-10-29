@@ -1,3 +1,4 @@
+import { listBlockedChatOutbox } from '../../utils/chatOutbox';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, CheckCheck, ImagePlus, Loader2, MessageCircle, MoreVertical, Reply, Send, Trash2, Pencil, X } from 'lucide-react';
 import type { QueryDocumentSnapshot } from 'firebase/firestore';
@@ -158,15 +159,28 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
   }, [activeProjectId]);
 
   useEffect(() => {
+    const uid = getCurrentRealFirebaseUser()?.uid || '';
+    let disposed = false;
+    // Never carry a previous account/project's private failed draft into this view.
+    setFailedSend(null);
+    setSendError('');
+    if (uid && activeProjectId) {
+      void listBlockedChatOutbox(uid, activeProjectId).then((entries) => {
+        if (disposed || getCurrentRealFirebaseUser()?.uid !== uid || !entries.length) return;
+        setFailedSend(entries[0].input);
+        setSendError(entries[0].failedMessage || 'Tin nhắn bị từ chối trước đó, nội dung vẫn được lưu trên thiết bị.');
+      }).catch(() => {});
+    }
     const handleAsyncSendError = (event: Event) => {
       const detail = (event as CustomEvent<any>).detail || {};
-      if (String(detail.projectId || '') !== activeProjectId) return;
+      if (String(detail.projectId || '') !== activeProjectId || String(detail.senderUid || '') !== uid
+        || getCurrentRealFirebaseUser()?.uid !== uid) return;
       setSendError(detail.message || 'Tin nhắn đã xếp hàng nhưng không gửi được.');
       if (detail.input) setFailedSend(detail.input as SendMessageInput);
     };
     window.addEventListener(CHAT_SEND_ERROR_EVENT, handleAsyncSendError as EventListener);
-    return () => window.removeEventListener(CHAT_SEND_ERROR_EVENT, handleAsyncSendError as EventListener);
-  }, [activeProjectId]);
+    return () => { disposed = true; window.removeEventListener(CHAT_SEND_ERROR_EVENT, handleAsyncSendError as EventListener); };
+  }, [activeProjectId, user?.uid]);
 
   useEffect(() => {
     if (view !== 'room' || !activeProjectId) return;

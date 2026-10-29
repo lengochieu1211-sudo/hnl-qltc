@@ -1,0 +1,49 @@
+name: P21.78 Chat rejected draft retention scoped gate (NO DEPLOY)
+on:
+  push:
+    branches: [fix/p2178-chat-durable-rejected-drafts-20261029]
+    paths:
+      - src/lib/chatService.ts
+      - src/features/chat/ChatTab.tsx
+      - src/utils/chatOutbox.ts
+      - src/utils/chatOutboxRecovery.ts
+      - scripts/p2178-chat-rejected-outbox-golden.mjs
+      - .github/workflows/p2178-chat-rejected-outbox.yml
+permissions:
+  contents: read
+jobs:
+  chat_retention:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact official DEV source and allowed files only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/fix/p2178-chat-durable-rejected-drafts-20261029'
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = 'b1038dccc623728e06480c43a0290b575d171fa6'
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = 'b2557860fbb3b128b5f2c9863e99d0f8b1f78686'
+          diff="$(git diff --name-only b1038dccc623728e06480c43a0290b575d171fa6 HEAD | sort)"
+          expected="$(printf '%s\n' .github/workflows/p2178-chat-rejected-outbox.yml scripts/p2178-chat-rejected-outbox-golden.mjs src/features/chat/ChatTab.tsx src/lib/chatService.ts src/utils/chatOutbox.ts src/utils/chatOutboxRecovery.ts | sort)"
+          test "$diff" = "$expected" || { echo "UNEXPECTED SOURCE DIFF"; exit 1; }
+          echo 'Scoped source guard PASS: no Firebase/R2/Rules/PROD changes.'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install from unchanged lockfile
+        run: npm ci
+      - name: Chat failed-outbox and existing offline durability regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/p2178-chat-rejected-outbox-golden.mjs
+          node --experimental-strip-types scripts/chat-outbox-durability-golden.mjs
+          npm run typecheck
+          npm run lint
+      - name: Build Web source without deploying
+        run: npm run build
