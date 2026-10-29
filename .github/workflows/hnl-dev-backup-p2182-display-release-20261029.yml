@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 75
     env:
       QA_BASE_SHA: af625f427e454a49791d5fd8ca2cfced168c73f4
-      SCOPE_PARENT_SHA: c5a44133420c0c245c54cb22451e3ab99de0d3b7
+      SCOPE_PARENT_SHA: a2299ea3eafe8a2ba34e95976aaa367b17399bcf
       BACKUP_PROJECT: hnl-qltc-dev-backup
       PREVIEW_CHANNEL: p2182-display-preview-20261029
       ROLLBACK_CHANNEL: p2182-display-rollback-20261029
@@ -160,8 +160,8 @@ jobs:
           }catch{
             message=raw.split('\n').filter(x=>/error|quota|hosting|config|site|permission|failed/i.test(x)).slice(-4).join(' ').slice(0,800);
           }
-          message=message.replace(/AIza[\w-]+/g,'[public-sdk-redacted]').replace(/-----BEGIN PRIVATE KEY-----[\s\S]*?-----END PRIVATE KEY-----/g,'[private-key-redacted]');
-          console.error('SAFE_PREVIEW_DIAGNOSTIC:',message);
+          const category=message.match(/quota|permission|hosting|config|project|not found|authentication|expired|timeout|billing|deploy|unknown/i)?.[0]||'unclassified';
+          console.error('SAFE_PREVIEW_ERROR_CLASS:',category);
           NODE
             exit 1
           fi
