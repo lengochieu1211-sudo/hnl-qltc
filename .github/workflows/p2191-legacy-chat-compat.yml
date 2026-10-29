@@ -1,0 +1,59 @@
+name: P21.91 Legacy Chat compatibility security gate (EMULATOR ONLY)
+on:
+  push:
+    branches: [audit/p2191-legacy-chat-compat-20261029]
+    paths:
+      - scripts/p2191-legacy-chat-compat-emulator.mjs
+      - .github/workflows/p2191-legacy-chat-compat.yml
+permissions:
+  contents: read
+jobs:
+  legacy_chat_compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GCLOUD_PROJECT: demo-hnl-qltc-p2191
+      FIREBASE_PROJECT_ID: demo-hnl-qltc-p2191
+      FIRESTORE_EMULATOR_HOST: 127.0.0.1:8080
+      FIREBASE_AUTH_EMULATOR_HOST: 127.0.0.1:9099
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fail closed on unexpected branch/base or file scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/audit/p2191-legacy-chat-compat-20261029'
+          test "$(git ls-remote origin refs/heads/release/prod-9-groups-no-auth-20261029 | cut -f1)" = 'ce6f4e586b70f76a6c94ab8ae4a966b8e841e2e0'
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = 'b2557860fbb3b128b5f2c9863e99d0f8b1f78686'
+          test "$(git merge-base HEAD ce6f4e586b70f76a6c94ab8ae4a966b8e841e2e0)" = 'ce6f4e586b70f76a6c94ab8ae4a966b8e841e2e0'
+          observed="$(git diff --name-only ce6f4e586b70f76a6c94ab8ae4a966b8e841e2e0 HEAD | sort)"
+          expected="$(printf '%s\n' .github/workflows/p2191-legacy-chat-compat.yml scripts/p2191-legacy-chat-compat-emulator.mjs | sort)"
+          test "$observed" = "$expected"
+          test "$GCLOUD_PROJECT" = demo-hnl-qltc-p2191
+          echo 'Audit-only exact source, localhost demo emulators, no deployment.'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install pinned dependencies
+        run: npm ci
+      - name: Reproduce legacy first-message/summary mismatch (red = release HOLD)
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes firebase-tools@13.35.1 emulators:exec --config firebase.rules-ci.json --only auth,firestore --project demo-hnl-qltc-p2191 "node scripts/p2191-legacy-chat-compat-emulator.mjs"
+      - name: Preserve non-sensitive negative evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-P2191-LEGACY-CHAT-COMPAT-NEGATIVE
+          path: evidence/P2191-LEGACY-CHAT-COMPAT.json
+          if-no-files-found: warn
+          retention-days: 30
