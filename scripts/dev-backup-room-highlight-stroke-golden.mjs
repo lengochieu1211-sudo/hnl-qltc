@@ -36,8 +36,8 @@ try {
    await new Promise((res,rej)=>{img.onload=res;img.onerror=rej;img.src=data;});
    const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
    const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,0,0,width,height);
-   const {data}=ctx.getImageData(0,0,width,height);
-   const alpha=(x,y)=>data[(Math.floor(y)*width+Math.floor(x))*4+3];
+   const {data:pixels}=ctx.getImageData(0,0,width,height);
+   const alpha=(x,y)=>pixels[(Math.floor(y)*width+Math.floor(x))*4+3];
    const midX=Math.round(width/2),midY=Math.round(height/2);
    const leftX=Math.round(width*.2),topY=Math.round(height*.2);
    let vertical=0,horizontal=0;
