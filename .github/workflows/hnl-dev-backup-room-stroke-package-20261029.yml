@@ -64,7 +64,7 @@ jobs:
           (cd output/patch && zip -qr ../HNL-QLTC-DEV-BACKUP-ROOM-HIGHLIGHT-STROKE-PATCH.zip .)
           rm -rf output/patch
           cat > output/HNL-QLTC-DEV-BACKUP-ROOM-HIGHLIGHT-STROKE-REPORT.md <<EOF
-          # HNL QLTC DEV Backup – Fix account menu tab routing – 2026-10-29
+          # HNL QLTC DEV Backup – Uniform Căn/Phòng highlight stroke – 2026-10-29
           Repo: lengochieu1211-sudo/hnl-qltc
           Branch: safety/dev-backup-room-highlight-uniform-stroke-20261029
           Exact packaging HEAD: $GITHUB_SHA
