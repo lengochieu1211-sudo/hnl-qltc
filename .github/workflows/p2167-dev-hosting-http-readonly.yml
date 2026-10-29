@@ -1,0 +1,61 @@
+name: P21.67 DEV Hosting read-only HTTP status (NO DEPLOY)
+on:
+  push:
+    branches: [audit/p2167-dev-hosting-http-20261029]
+    paths: [.github/workflows/p2167-dev-hosting-http-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  hosting_status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Guard exact DEV source, no credentials, and read-only public HTTP GET
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/audit/p2167-dev-hosting-http-20261029'
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = 'ad69668ec02202811203ad36a3c70798d8874ec8'
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = 'b2557860fbb3b128b5f2c9863e99d0f8b1f78686'
+      - name: Check public DEV and PROD HTML status without login or mutations
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p evidence
+          printf "env\turl\tcurl_exit\thttp_status\tbytes\tsha256\tcontent_type\tclassification\n" > evidence/http-status.tsv
+          for env in dev dev_desktop prod; do
+            case "$env" in
+              dev) url='https://hnl-qltc-dev.web.app/' ;;
+              dev_desktop) url='https://hnl-qltc-dev.web.app/?app=desktop&env=dev' ;;
+              prod) url='https://hnlqltc.web.app/' ;;
+            esac
+            curl -sSL --connect-timeout 10 --max-time 35 --retry 1 -D "evidence/$env.headers" -o "evidence/$env.body" -w '%{http_code}' "$url" > "evidence/$env.httpcode"
+            rc=$?
+            http="$(cat "evidence/$env.httpcode")"
+            test -n "$http" || http=none
+            size="$(wc -c < "evidence/$env.body" 2>/dev/null || printf '0')"
+            sha="$(sha256sum "evidence/$env.body" 2>/dev/null | cut -d' ' -f1)"
+            typ="$(grep -i '^content-type:' "evidence/$env.headers" | tail -1 | cut -d: -f2- | tr '\r\n\t' '   ' | sed 's/^ *//')"
+            classification='unclassified'
+            if [ "$rc" -ne 0 ]; then classification='transport-error'
+            elif [ "$http" = 509 ]; then classification='HTTP-509'
+            elif [ "$http" != 200 ]; then classification="HTTP-$http"
+            elif grep -Eqi '(quota exceeded|usage limit|billing account|resource exhausted|quota limit)' "evidence/$env.body"; then classification='quota-text-HTTP-200'
+            elif grep -Eq '(<!doctype html|<html)' "evidence/$env.body"; then classification='HTML-HTTP-200'
+            else classification='nonhtml-HTTP-200'; fi
+            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$env" "$url" "$rc" "$http" "$size" "$sha" "$typ" "$classification" | tee -a evidence/http-status.tsv
+            rm -f "evidence/$env.body"
+          done
+          echo 'P21.67 read-only Hosting diagnostic complete; no deploy performed.'
+      - name: Preserve observed HTTP metadata (not site contents)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P2167-DEV-HOSTING-HTTP-READONLY
+          path: |
+            evidence/http-status.tsv
+            evidence/*.headers
+            evidence/*.httpcode
+          if-no-files-found: error
+          retention-days: 30
