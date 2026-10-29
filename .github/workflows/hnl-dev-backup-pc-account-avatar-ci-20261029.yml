@@ -38,7 +38,8 @@ jobs:
             'src/App.tsx','src/components/BottomNav.tsx','src/components/DesktopAccountMenu.tsx',
             'scripts/fixtures/desktop-account/index.html','scripts/fixtures/desktop-account/main.tsx',
             'scripts/dev-backup-pc-account-menu-golden.mjs',
-            '.github/workflows/hnl-dev-backup-pc-account-avatar-ci-20261029.yml'
+            '.github/workflows/hnl-dev-backup-pc-account-avatar-ci-20261029.yml',
+            '.github/workflows/hnl-dev-backup-pc-account-avatar-preview-20261029.yml'
           ]);
           const actual=cp.execFileSync('git',['diff','--name-only',process.env.BASE_SHA,'HEAD'],{encoding:'utf8'}).trim().split('\n');
           if(actual.length!==expected.size||actual.some(file=>!expected.has(file)))throw Error('UNEXPECTED_DIFF '+actual.join(','));
