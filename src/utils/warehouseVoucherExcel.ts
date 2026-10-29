@@ -4,6 +4,8 @@ import { formatDecimal } from './numberUtils';
 import {unzipSync,zipSync,strFromU8,strToU8} from 'fflate';
 import {resolveVoucherPaper,DEFAULT_VOUCHER_PAGE_OPTIONS} from './warehouseVoucherPrint';
 import type { WarehousePageOptions } from './warehouseCatalogReport';
+import { styleWarehouseVoucherXlsx } from './warehouseVoucherXlsxStyle';
+import type { WarehouseVoucherSheetLayout } from './warehouseVoucherXlsxStyle';
 
 export const WAREHOUSE_EXCEL_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
@@ -25,6 +27,7 @@ export async function buildWarehouseVoucherExcel(pages: WarehouseVoucherPrintPag
   if (!pages.length) throw new Error('Chưa có phiếu kho để xuất Excel.');
   const XLSX = await import('xlsx');
   const wb = XLSX.utils.book_new();
+  const styledLayouts: WarehouseVoucherSheetLayout[] = [];
 
   for (const [index, page] of pages.entries()) {
     const table: Array<Array<string | number | null>> = [];
@@ -42,6 +45,7 @@ export async function buildWarehouseVoucherExcel(pages: WarehouseVoucherPrintPag
     if (clean(project.contractorName)) {
       row(['Đơn vị thi công:', clean(project.contractorName)], 29); merge(table.length-1,1,4);
     }
+    const titleRow = table.length;
     row([page.direction === 'in' ? 'PHIẾU NHẬP KHO' : 'PHIẾU XUẤT KHO'], 38);
     merge(table.length-1,0,4);
     row(['Ngày ' + formatDateDDMMYYYY(page.date) + '  •  Trang ' + page.pageIndex + '/' + page.pageCount], 29);
@@ -58,8 +62,14 @@ export async function buildWarehouseVoucherExcel(pages: WarehouseVoucherPrintPag
       row([page.rowOffset + itemIndex + 1, material, textCell(item.unit), Number(item.quantity || 0), textCell(item.id)], Math.max(35, 20 + Math.ceil(material.length/48)*16, 20 + Math.ceil(clean(item.id).length/28)*16));
     });
     const lastDataRow = table.length - 1;
-    row(['Số dòng trên trang: ' + page.rows.length, 'Số liệu theo đơn vị từng dòng, không cộng khác ĐVT'], 31);
-    merge(table.length-1,1,4);
+    const summaryRow = table.length;
+    // On mobile Excel, the 9-character STT column truncated the summary label
+    // while its fixed 31pt row could not fit wrapped text.  Merge display-only
+    // printable cells, never the hidden technical-ID column E.
+    row(['Số dòng trên trang: ' + page.rows.length, null,
+      'Số liệu theo đơn vị từng dòng, không cộng khác ĐVT'], 64);
+    merge(table.length-1,0,1);
+    merge(table.length-1,2,3);
     row([], 32);
     row(['Người lập phiếu',null,page.direction === 'in' ? 'Người giao hàng' : 'Người nhận hàng','Thủ kho',null], 30);
     row(['(Ký, ghi rõ họ tên)',null,'(Ký, ghi rõ họ tên)','(Ký, ghi rõ họ tên)',null], 24);
@@ -70,7 +80,9 @@ export async function buildWarehouseVoucherExcel(pages: WarehouseVoucherPrintPag
     const ws = XLSX.utils.aoa_to_sheet(table);
     ws['!merges'] = merges;
     // Hide technical source IDs on print/display while retaining exact values in E.
-    ws['!cols'] = [{wch:9},{wch:62},{wch:16},{wch:17},{wch:38,hidden:true}];
+    // A also contains long project/handler labels; 16 characters plus existing
+    // wrapped rows prevent clipping without shrinking the material-name column.
+    ws['!cols'] = [{wch:16},{wch:62},{wch:16},{wch:17},{wch:38,hidden:true}];
     ws['!rows'] = rowHeights.map(hpt=>({hpt}));
     // Mirror the A4 cell alignment rules in the worksheet model:
     // headings centered; STT/ĐVT/quantity centered; multiline name left;
@@ -97,8 +109,9 @@ export async function buildWarehouseVoucherExcel(pages: WarehouseVoucherPrintPag
       }
     }
 
+    styledLayouts.push({titleRow,headerRow,firstDataRow,lastDataRow,summaryRow,signatureRow:signTitle,footerRow:table.length-1});
     ws['!margins'] = {left:0.3,right:0.3,top:0.4,bottom:0.4,header:0.15,footer:0.15};
-    ws['!autofilter'] = {ref:'A'+(headerRow+1)+':E'+Math.max(firstDataRow+1,lastDataRow+1)};
+    ws['!autofilter'] = {ref:'A'+(headerRow+1)+':D'+Math.max(firstDataRow+1,lastDataRow+1)};
     // Preserve each user-supplied value strictly as text; do not run formula-looking
     // names, notes or IDs from imported historical transactions as Excel formulas.
     for (const cell of Object.values(ws)) {
@@ -129,7 +142,7 @@ export async function buildWarehouseVoucherExcel(pages: WarehouseVoucherPrintPag
     }
     zip[path]=strToU8(xml);
   }
-  const formattedBytes=zipSync(zip,{level:6});
+  const formattedBytes = styleWarehouseVoucherXlsx(zipSync(zip,{level:6}),styledLayouts);
   const blob = new Blob([formattedBytes],{type:WAREHOUSE_EXCEL_MIME});
   if (!blob.size) throw new Error('Excel phiếu kho rỗng (0 byte).');
   const fileName = 'PHIEU_NHAP_XUAT_KHO_' + pages.length + '_TRANG.xlsx';

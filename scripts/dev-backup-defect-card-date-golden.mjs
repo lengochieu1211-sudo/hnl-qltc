@@ -1,0 +1,10 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const source = fs.readFileSync('src/components/FloorPlanDefectTab.tsx','utf8');
+assert(source.includes('data-hnl-defect-list-created-at="true"'),'Missing visible date in list card');
+assert(source.includes("Ngày tạo: {defect.createdAt ? formatDateDDMMYYYY(defect.createdAt) : 'Chưa ghi nhận'}"),'Date must come from original createdAt, preserve legacy fallback');
+assert.equal((source.match(/data-hnl-defect-list-created-at="true"/g)||[]).length,1,'Expected exactly one list date');
+assert(source.includes('data-hnl-defect-created-at="true"'),'Existing detail date preserved');
+assert.equal((source.match(/· Tạo: \$\{defect.createdAt \? formatDateDDMMYYYY\(defect.createdAt\)/g)||[]).length,2,'Both map marker tooltips must use the creation date');
+assert(source.includes("{ key: 'createdAt', label: 'Ngày ghi nhận'"),'CreatedAt sort remains supported');
+console.log('DEFECT OUTSIDE CARD + MAP TOOLTIP DATE PASS');

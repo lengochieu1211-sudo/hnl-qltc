@@ -176,6 +176,8 @@ export interface DefectItem {
   severity: DefectSeverity;
   assignedTo: string; // Người / Đội chịu trách nhiệm
   createdBy?: string; // Người tạo (QC, Giám sát,...)
+  /** Đồng bộ khóa vị trí ghim giữa các thiết bị. Legacy records omit this flag. */
+  positionLocked?: boolean;
   dueDate?: string; // Deadline sửa (YYYY-MM-DD)
   completedAt?: string; // Ngày hoàn thành sửa (YYYY-MM-DD)
   imageUrl?: string; // Ảnh trước khi sửa
@@ -299,6 +301,8 @@ export interface RoomProgressItem {
   height: number; // Chiều cao vùng highlight (0-100%)
   points?: Point2D[]; // Các điểm tọa độ vẽ tự do (polygon freehand)
   isPolyline?: boolean; // Nếu true: Vẽ đường thẳng / đường gấp khúc hở, ngược lại vẽ Đa giác khép kín
+  /** Khóa tọa độ / hình dạng Căn/Phòng trên Cloud. Chỉ ADMIN sửa hình học. */
+  positionLocked?: boolean;
   /** Optional immutable CAD source geometry used to re-align highlights when a drawing background changes. */
   cadSource?: { format: 'DXF'; rawPoints: Point2D[]; extents?: { minX: number; minY: number; maxX: number; maxY: number }; layer?: string; source?: 'HATCH' | 'LWPOLYLINE' };
   frameStatus: AcceptanceStatus; // Thi công Khung trần
