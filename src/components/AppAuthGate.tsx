@@ -72,17 +72,6 @@ export const AppAuthGate: React.FC<AppAuthGateProps> = ({ children }) => {
     };
   }, []);
 
-  // Installed iOS Web Apps use WebKit in a separate process. Some iOS versions
-  // fail to show the system keyboard on a Google sign-in input in standalone mode.
-  // Detect only this display mode; do not change Firebase redirect/auth semantics.
-  const isIosHomeScreenApp = useMemo(() => {
-    if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
-    const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const standalone = window.matchMedia?.('(display-mode: standalone)').matches
-      || (navigator as Navigator & { standalone?: boolean }).standalone === true;
-    return ios && standalone;
-  }, []);
-
   const appEnv = useMemo(() => BUILD_METADATA.environment, []);
 
   if (state === 'authenticated' || state === 'offline-remembered') {
@@ -190,15 +179,6 @@ export const AppAuthGate: React.FC<AppAuthGateProps> = ({ children }) => {
               <LockKeyhole className={`mt-0.5 h-4 w-4 shrink-0 ${dark ? 'text-blue-300' : 'text-blue-600'}`} />
               <span>Mã PIN chỉ dùng để mở khóa nhanh sau khi tài khoản Google đã được xác minh.</span>
             </div>
-
-            {isIosHomeScreenApp && (
-              <details className={`mt-3 rounded-2xl border px-3.5 py-3 text-[11px] leading-relaxed ${dark ? 'border-slate-700 bg-slate-800/70 text-slate-300' : 'border-blue-100 bg-blue-50/60 text-slate-600'}`}>
-                <summary className="cursor-pointer font-bold">iPhone: đăng nhập Google không hiện bàn phím?</summary>
-                <p className="mt-2">Hãy chạm trực tiếp vào ô email hoặc mật khẩu trên trang Google; nút Đăng nhập không tự mở bàn phím.</p>
-                <p className="mt-1.5">Nếu đã chạm ô nhập nhưng bàn phím vẫn không hiện: đóng hẳn ứng dụng ghim rồi mở lại; nếu cần, khởi động lại iPhone. Thử mở cùng địa chỉ bằng Safari để phân biệt lỗi iOS Web App.</p>
-                <p className="mt-1.5 font-semibold">Không xóa dữ liệu trình duyệt hay gỡ biểu tượng ghim trước khi chắc chắn dữ liệu/ảnh ngoại tuyến đã đồng bộ. Đăng nhập Safari có thể không tự đăng nhập lại ứng dụng ghim.</p>
-              </details>
-            )}
 
             {typeof navigator !== 'undefined' && !navigator.onLine && (
               <div className={`mt-3 flex items-start gap-2 rounded-2xl px-3.5 py-3 text-[11px] ${dark ? 'bg-amber-950/40 text-amber-200' : 'bg-amber-50 text-amber-700'}`}>
