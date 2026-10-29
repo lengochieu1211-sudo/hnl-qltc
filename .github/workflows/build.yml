@@ -79,6 +79,14 @@ jobs:
       - name: Firebase Rules compile + Auth/Firestore/Storage Emulator behavior
         run: npm run test:rules
 
+      - name: P21.86 Chat negative Rules test in disposable Emulator (NO CLOUD)
+        env:
+          GCLOUD_PROJECT: demo-hnl-qltc-p2186
+          FIREBASE_PROJECT_ID: demo-hnl-qltc-p2186
+          FIRESTORE_EMULATOR_HOST: 127.0.0.1:8080
+          FIREBASE_AUTH_EMULATOR_HOST: 127.0.0.1:9099
+        run: npx --yes firebase-tools@13.35.1 emulators:exec --config firebase.rules-ci.json --only auth,firestore --project demo-hnl-qltc-p2186 "node scripts/p2172-chat-atomic-summary-emulator.mjs"
+
       - name: Security audit (production, critical)
         run: npm run security:audit
 

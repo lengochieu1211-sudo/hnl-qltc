@@ -663,6 +663,22 @@ service cloud.firestore {
         allow delete: if isMember(projectId) && uid == request.auth.uid;
       }
 
+      // The referenced message must be NEW in the very same atomic batch.
+      // No summary-only increment, no reuse of an existing message, no ghost unread.
+      function chatSummaryNewMessageIsAtomic(projectId, conversationId) {
+        return 'lastMessageId' in request.resource.data
+          && request.resource.data.lastMessageId is string
+          && request.resource.data.lastMessageId.size() > 0
+          && request.resource.data.lastMessageId.size() <= 190
+          && !exists(/databases/$(database)/documents/projects/$(projectId)/conversations/$(conversationId)/messages/$(request.resource.data.lastMessageId))
+          && existsAfter(/databases/$(database)/documents/projects/$(projectId)/conversations/$(conversationId)/messages/$(request.resource.data.lastMessageId))
+          && getAfter(/databases/$(database)/documents/projects/$(projectId)/conversations/$(conversationId)/messages/$(request.resource.data.lastMessageId)).data.id == request.resource.data.lastMessageId
+          && getAfter(/databases/$(database)/documents/projects/$(projectId)/conversations/$(conversationId)/messages/$(request.resource.data.lastMessageId)).data.projectId == projectId
+          && getAfter(/databases/$(database)/documents/projects/$(projectId)/conversations/$(conversationId)/messages/$(request.resource.data.lastMessageId)).data.conversationId == conversationId
+          && getAfter(/databases/$(database)/documents/projects/$(projectId)/conversations/$(conversationId)/messages/$(request.resource.data.lastMessageId)).data.senderUid == request.auth.uid
+          && getAfter(/databases/$(database)/documents/projects/$(projectId)/conversations/$(conversationId)/messages/$(request.resource.data.lastMessageId)).data.createdAt == request.time;
+      }
+
       // Project chat is deliberately separated from construction records. VIEWER may chat,
       // but every message is identity-bound and hard delete is disabled.
       match /conversations/{conversationId} {
@@ -675,7 +691,8 @@ service cloud.firestore {
           && request.resource.data.id == conversationId
           && request.resource.data.lastSenderUid == request.auth.uid
           && request.resource.data.lastMessageAt == request.time
-          && request.resource.data.messageCount == 1;
+          && request.resource.data.messageCount == 1
+          && chatSummaryNewMessageIsAtomic(projectId, conversationId);
         allow update: if isMember(projectId)
           && request.resource.data.projectId == resource.data.projectId
           && request.resource.data.id == resource.data.id
@@ -684,7 +701,8 @@ service cloud.firestore {
           && (
             (!('messageCount' in resource.data) && request.resource.data.messageCount == 1)
             || (('messageCount' in resource.data) && request.resource.data.messageCount == resource.data.messageCount + 1)
-          );
+          )
+          && chatSummaryNewMessageIsAtomic(projectId, conversationId);
         allow delete: if false;
 
         match /messages/{messageId} {

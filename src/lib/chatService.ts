@@ -89,6 +89,7 @@ async function commitProjectMessage(input: SendMessageInput, persistOutbox: bool
       projectId: input.projectId,
       lastMessageAt: serverTimestamp(),
       lastMessageText: cleanText.slice(0, 180),
+      lastMessageId: messageId,
       lastSenderUid: user.uid,
       lastSenderName: user.displayName || user.email,
       lastMentions: Array.from(new Set((input.mentions || []).filter(Boolean))),

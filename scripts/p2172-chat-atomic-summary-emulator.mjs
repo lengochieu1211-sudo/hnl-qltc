@@ -46,15 +46,16 @@ function message(a,id){return {
   clientMessageId:id,createdAt:clock(),text:'Emulator only: '+id,
   attachments:[],mentions:[]
 };}
-function summary(a,count){return {
+function summary(a,count,messageId){return {
   id:'general',projectId:pid,lastSenderUid:a.uid,lastMessageAt:clock(),
+  ...(messageId ? {lastMessageId:messageId} : {}),
   lastMessageText:'Emulator only',messageCount:count,updatedAt:clock()
 };}
 const refs=a=>({msg:id=>within(a,'conversations','general','messages',id),sum:within(a,'conversations','general')});
 function commitBatch(a,id,count=increment(1)){
   const b=writeBatch(a.db),r=refs(a);
   b.set(r.msg(id),message(a,id));
-  b.set(r.sum,summary(a,count),{merge:true});
+  b.set(r.sum,summary(a,count,id),{merge:true});
   return b.commit();
 }
 async function deny(fn){try{await fn();return false;}catch(e){
@@ -73,6 +74,20 @@ try{
   let count=(await getDoc(refs(viewer).sum)).data().messageCount;
   assert.equal(count,1);
   assert.equal((await getDoc(refs(viewer).msg('stable-1'))).exists(),true);
+  // P21.86 negative test: a member must not inflate unread count without a new message.
+  // Writes use ONLY localhost emulator, never actual Firebase PROD/DEV.
+  console.log('P2186_PHASE reject-summary-only');
+  const summaryOnlyDenied=await deny(()=>setDoc(refs(sender).sum,summary(sender,increment(1)),{merge:true}));
+  assert.equal(summaryOnlyDenied,true,
+    'SECURITY_GATE: Firestore must reject messageCount increment without creating message in same batch');
+  assert.equal((await getDoc(refs(viewer).sum)).data().messageCount,1,
+    'A rejected counter-only update must not modify conversation state');
+  // Even a fabricated new ID cannot be referenced without the corresponding
+  // message create in this same batch.
+  const fakeNewIdDenied=await deny(()=>setDoc(refs(sender).sum,summary(sender,increment(1),'fabricated-new-id'),{merge:true}));
+  assert.equal(fakeNewIdDenied,true,'Forged lastMessageId without message must be denied');
+  assert.equal((await getDoc(refs(viewer).sum)).data().messageCount,1);
+
   // Same deterministic document ID cannot be replayed and increment twice.
   console.log('P2172_PHASE duplicate-id');
   const retryDenied=await deny(()=>commitBatch(sender,'stable-1'));
