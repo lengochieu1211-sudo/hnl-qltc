@@ -1,0 +1,76 @@
+name: P21.69 DEV Backup Windows WebView2 hosted Golden (NO DEPLOY)
+on:
+  push:
+    branches: [audit/p2169-dev-backup-windows-runtime-20261029]
+    paths: [.github/workflows/p2169-dev-backup-windows-runtime.yml]
+permissions:
+  contents: read
+jobs:
+  dev_backup_hosted_win:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      QLCT_RELEASE_TAG: 6.3.0-dev
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exact GitHub authority and safe live target
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REF -ne 'refs/heads/audit/p2169-dev-backup-windows-runtime-20261029') { throw 'WRONG_AUDIT_BRANCH' }
+          $dev = ((git ls-remote origin refs/heads/dev) -split '\s+')[0]
+          $main = ((git ls-remote origin refs/heads/main) -split '\s+')[0]
+          $qa = ((git ls-remote origin refs/heads/safety/dev-backup-room-highlight-uniform-stroke-20261029) -split '\s+')[0]
+          if ($dev -ne 'ad69668ec02202811203ad36a3c70798d8874ec8') { throw 'DEV_HEAD_CHANGED_STOP' }
+          if ($main -ne 'b2557860fbb3b128b5f2c9863e99d0f8b1f78686') { throw 'MAIN_HEAD_CHANGED_STOP' }
+          if ($qa -ne '04a7ab041f631e6fd5e764d12da1c878f4b82afc') { throw 'QA_HEAD_CHANGED_STOP' }
+          if ((git rev-parse HEAD^) -ne $dev) { throw 'WRONG_BASE_COMMIT' }
+      - name: Public DEV Backup Hosting HTTP GET and API target guard
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url='https://hnl-qltc-dev-backup.web.app/?app=desktop&env=dev'
+          $result=Invoke-WebRequest -Uri $url -TimeoutSec 25
+          if ($result.StatusCode -ne 200 -or $result.Content -notmatch 'id="root"') { throw 'BACKUP_WEB_NOT_READY' }
+          $config=Invoke-RestMethod -Uri 'https://hnl-qltc-dev-backup.web.app/__/firebase/init.json' -TimeoutSec 25
+          if ($config.projectId -ne 'hnl-qltc-dev-backup') { throw 'BACKUP_WRONG_PROJECT' }
+          Write-Host 'QA WEB HOSTING HTTP 200; BACKUP_FIREBASE_PROJECT_ID PASS'
+      - name: Guard unchanged C# shell and create isolated test executable targeting DEV Backup only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path='desktop-wrapper/QLTCAnPhuLauncher.cs'
+          $source=Get-Content -Raw -LiteralPath $path
+          $mappings=@(
+            @('private const string AppBaseUrl = "https://hnlqltc.web.app/?app=desktop";','private const string AppBaseUrl = "https://hnl-qltc-dev-backup.web.app/?app=desktop&env=dev";'),
+            @('private const string HostingHealthUrl = "https://hnlqltc.web.app/";','private const string HostingHealthUrl = "https://hnl-qltc-dev-backup.web.app/";'),
+            @('private const string R2HealthUrl = "https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev/health";','private const string R2HealthUrl = "https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev/health";'),
+            @('private const string ProductName = "HNL QLTC Desktop";','private const string ProductName = "HNL QLTC DEV Backup CI";')
+          )
+          foreach($pair in $mappings) {
+            if (-not $source.Contains($pair[0])) { throw ('LAUNCHER_REWRITE_ANCHOR_MISSING: '+$pair[0]) }
+            $source=$source.Replace($pair[0],$pair[1])
+          }
+          if ($source.Contains('private const string AppBaseUrl = "https://hnlqltc.web.app/')) { throw 'PROD_APP_BASEURL_IN_TEST' }
+          [System.IO.File]::WriteAllText((Join-Path (Get-Location) $path),$source,[System.Text.UTF8Encoding]::new($true))
+          Write-Host 'EPHEMERAL_RUNNER_ONLY backup URL compiled; Git branch source unchanged.'
+      - name: Build real portable Windows EXE
+        shell: pwsh
+        run: |
+          ./desktop-wrapper/build-launcher.ps1
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path './HNL-QLTC-Windows.exe')) { throw 'REAL_EXE_BUILD_FAILED' }
+      - name: Hosted DEV Backup WebView2 popup and download strict Runtime Golden
+        shell: pwsh
+        run: |
+          ./scripts/windows-webview2-runtime-golden.ps1 -LauncherPath './HNL-QLTC-Windows.exe' -Channel DEV
+          if ($LASTEXITCODE -ne 0) { throw 'HOSTED_QA_WEBVIEW2_FAIL' }
+      - name: Store evidence on both PASS and FAIL
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P2169-DEV-BACKUP-WIN-HOSTED-WEBVIEW2-PROBE
+          path: webview2-runtime-evidence/**
+          if-no-files-found: warn
+          retention-days: 30
