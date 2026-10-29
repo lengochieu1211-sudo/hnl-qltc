@@ -11,14 +11,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 18
     env:
-      BASE_SHA: b349ff3f4feff1c8a52e5322d4c0e29e538fa37e
-      SOURCE_SHA: 9968dee6a71d67a1214e4aef1408927e6d842c6f
-      CI_RUN: '40807389437'
-      CI_SHA: 950fb4091171281df435773b132483f292769dc9
-      PREVIEW_RUN: '40807623352'
-      PREVIEW_SHA: d4b1b6ca45f1a65491947ac4292e09d249f2925f
-      LIVE_RUN: '40807769324'
-      LIVE_SHA: 9968dee6a71d67a1214e4aef1408927e6d842c6f
+      BASE_SHA: 4ca8d52dbcf3cc13bba46e6a34861012a72e24db
+      SOURCE_SHA: 8b3ca43d66eaa1023f560699d10f49898a96eed6
+      CI_RUN: '40882949722'
+      CI_SHA: 162da7879653dbc63e9eed698fc2361521f23a21
+      PREVIEW_RUN: '40888469373'
+      PREVIEW_SHA: 527895d0109bd16fb96ebcff0b0ea9ce96811448
+      LIVE_RUN: '40888850831'
+      LIVE_SHA: 8b3ca43d66eaa1023f560699d10f49898a96eed6
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,12 +48,13 @@ jobs:
           test -n "$DEV_CURRENT_SHA"
           echo "Observed DEV main HEAD (read-only): $DEV_CURRENT_SHA"
           node scripts/source-lint.mjs
+          test "$(git rev-parse "$BASE_SHA^{tree}")" = "$(git rev-parse "$CI_SHA^{tree}")" || { echo 'P2180_CI_TREE_MISMATCH'; exit 1; }
       - name: Package complete current QA source and minimal patch
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p output/patch
-          git archive --format=zip HEAD -o output/HNL-QLTC-DEV-BACKUP-ROOM-HIGHLIGHT-STROKE-FULL-SOURCE.zip
+          git archive --format=zip HEAD -o output/HNL-QLTC-DEV-BACKUP-P2180-HOSTING-CHECKPOINT-FULL-SOURCE.zip
           git diff --name-only "$BASE_SHA" HEAD > output/CHANGED-FILES.txt
           while IFS= read -r path; do
             test -n "$path"
@@ -61,44 +62,41 @@ jobs:
             mkdir -p "output/patch/$(dirname "$path")"
             cp "$path" "output/patch/$path"
           done < output/CHANGED-FILES.txt
-          (cd output/patch && zip -qr ../HNL-QLTC-DEV-BACKUP-ROOM-HIGHLIGHT-STROKE-PATCH.zip .)
+          (cd output/patch && zip -qr ../HNL-QLTC-DEV-BACKUP-P2180-HOSTING-CHECKPOINT-PATCH.zip .)
           rm -rf output/patch
-          cat > output/HNL-QLTC-DEV-BACKUP-ROOM-HIGHLIGHT-STROKE-REPORT.md <<EOF
-          # HNL QLTC DEV Backup – Uniform Căn/Phòng highlight stroke – 2026-10-29
+          cat > output/HNL-QLTC-DEV-BACKUP-P2180-HOSTING-CHECKPOINT-REPORT.md <<EOF
+          # HNL QLTC P21.80 – DEV Backup Live Hosting Release and Source Checkpoint – 29/10/2026
           Repo: lengochieu1211-sudo/hnl-qltc
           Branch: safety/dev-backup-room-highlight-uniform-stroke-20261029
-          Exact packaging HEAD: $GITHUB_SHA
-          App tested source at CI: $CI_SHA (only subsequent workflows; no business code changes)
-          QA baseline: $BASE_SHA
-          DEV main observed at packaging: $(git ls-remote origin refs/heads/dev | cut -f1) (read-only; changed independently during QA; NOT touched by this branch)
-          PROD main: b2557860fbb3b128b5f2c9863e99d0f8b1f78686 (unchanged)
-          Backend: Firebase hnl-qltc-dev-backup, R2 dev-backup (unchanged)
-          Before Hosting: sites/hnl-qltc-dev-backup/versions/dcb606ceb3b3104b
-          After Hosting: sites/hnl-qltc-dev-backup/versions/ef82f84f9c6f901b
-          Rollback channel: hnl-room-stroke-rollback-20261029
-          CI: $CI_RUN SUCCESS (TypeScript, lint, Firebase Rules, RBAC, offline, Chromium PC/mobile, build).
-          PREVIEW: $PREVIEW_RUN SUCCESS (55 web assets exact byte parity).
-          LIVE: $LIVE_RUN SUCCESS (rollback snapshot, gated promotion, 55 web assets parity).
-          Root cause: saved room outlines used SVG coordinate stroke widths inside a viewBox 0 0 100 100 with preserveAspectRatio none. Stretching the SVG anisotropically caused vertical/horizontal strokes to differ visually on wide/tall plans.
-          Changed app: src/components/FloorPlanDefectTab.tsx ONLY, within the saved-room highlight subtree.
-          Fix: add vectorEffect=non-scaling-stroke to each of 4 saved-room SVG edges; use foreground 2px (selected 2.6px) and polyline glow 4px independent of SVG aspect ratio and zoom.
-          No change: viewBox, coordinate mapping, image transforms, zoom/pan, saved room points, ID/schema, drag/resize/click/touch handlers, polygon fill, Defect markers, snap/draft preview, Firebase/R2, auth, permissions, Excel or account menu.
-          Golden: scripts/dev-backup-room-highlight-stroke-golden.mjs verifies production JSX wiring (4 stroke shapes), all handlers unchanged, and Chromium SVG raster across 880x360, 360x880, 640x640, 1280x440, 440x1280; horizontal/vertical thickness within 1 pixel.
-          Regression: CI $CI_RUN PASS npm ci, TypeScript, lint, Firebase Rules, RBAC, offline, room geometry/floor identity/sideguard, room transform and orthogonal snap, Chromium visual, build.
-          Preview: $PREVIEW_RUN SUCCESS, isolated DEV Backup, 55 Web assets byte-identical with build; previous LIVE untouched.
-          LIVE: $LIVE_RUN SUCCESS, rollback channel hnl-room-stroke-rollback-20261029; 55 assets byte-identical with Preview, no data changes.
-          Remaining: signed-in real PC/mobile zoom/resize/pick/drag Runtime Golden requires owner confirmation; not CERTIFIED. Affected app module is presentation-only, no Firestore/R2 writes.
+          Packaging exact HEAD: $GITHUB_SHA
+          P21.80 app source merge HEAD: $BASE_SHA
+          CI-approved source tree: $CI_SHA, identical Git tree to $BASE_SHA
+          DEV main: $(git ls-remote origin refs/heads/dev | cut -f1) (read-only; not touched)
+          PROD main: b2557860fbb3b128b5f2c9863e99d0f8b1f78686 (not touched)
+          Firebase Hosting project/site: hnl-qltc-dev-backup, R2 dev-backup unchanged.
+          Before LIVE version: sites/hnl-qltc-dev-backup/versions/ef82f84f9c6f901b
+          After LIVE version: sites/hnl-qltc-dev-backup/versions/f5cd1dc6972e508a
+          Rollback channel: hnl-p2180-rollback-20261029 (original LIVE verified before promotion).
+          Preview channel: hnl-p2180-qa-20261029
+          CI $CI_RUN SUCCESS (TypeScript, lint, Firebase Rules/security audit, Web build, Windows EXE, Android APK and room sidecar on candidate).
+          Preview $PREVIEW_RUN SUCCESS (P21.80 targeted 13/13, TypeScript, lint, Rules, security audit, Web build; 55 JS/CSS byte parity).
+          LIVE $LIVE_RUN SUCCESS (read-only preflight, rollback snapshot, controlled promote, 55 JS/CSS byte parity).
+          Public readback /sw-assets.json buildId=40888469373, upgraded from 40807623352.
+          P21.80 application fix: Full PC room edit controls in flex flow without overlapping top toolbar; drawing overlay blocks accidental room/Defect selection and drag while freehand/polygon/rect tools active; highlight slider 50–250% per project/device, vectorEffect non-scaling-stroke retained.
+          Changed application paths since PR #349: none. Subsequent QA-only changes are preview, live and packaging GitHub Actions workflow files.
+          No changes to application business data, room geometry/IDs, Firestore Rules/Firestore data, Firebase settings, R2, permissions or PROD/main/dev.
+          Remaining: signed-in physical PC/Android/Windows runtime golden and multi-account/offline/chat unread8 tests pending; NOT CERTIFIED.
           EOF
-          mv output/CHANGED-FILES.txt output/HNL-QLTC-DEV-BACKUP-ROOM-HIGHLIGHT-STROKE-CHANGED-FILES.txt
-          (cd output && sha256sum *.zip *.md *.txt > HNL-QLTC-DEV-BACKUP-ROOM-HIGHLIGHT-STROKE-SHA256SUMS.txt)
-          unzip -tq output/HNL-QLTC-DEV-BACKUP-ROOM-HIGHLIGHT-STROKE-FULL-SOURCE.zip
-          unzip -tq output/HNL-QLTC-DEV-BACKUP-ROOM-HIGHLIGHT-STROKE-PATCH.zip
-          test -s output/HNL-QLTC-DEV-BACKUP-ROOM-HIGHLIGHT-STROKE-REPORT.md
-          test -s output/HNL-QLTC-DEV-BACKUP-ROOM-HIGHLIGHT-STROKE-SHA256SUMS.txt
+          mv output/CHANGED-FILES.txt output/HNL-QLTC-DEV-BACKUP-P2180-HOSTING-CHECKPOINT-CHANGED-FILES.txt
+          (cd output && sha256sum *.zip *.md *.txt > HNL-QLTC-DEV-BACKUP-P2180-HOSTING-CHECKPOINT-SHA256SUMS.txt)
+          unzip -tq output/HNL-QLTC-DEV-BACKUP-P2180-HOSTING-CHECKPOINT-FULL-SOURCE.zip
+          unzip -tq output/HNL-QLTC-DEV-BACKUP-P2180-HOSTING-CHECKPOINT-PATCH.zip
+          test -s output/HNL-QLTC-DEV-BACKUP-P2180-HOSTING-CHECKPOINT-REPORT.md
+          test -s output/HNL-QLTC-DEV-BACKUP-P2180-HOSTING-CHECKPOINT-SHA256SUMS.txt
           echo 'PASS source full patch report hashes and CRC'
       - uses: actions/upload-artifact@v4
         with:
-          name: HNL-QLTC-DEV-BACKUP-ROOM-HIGHLIGHT-STROKE-FULL-PATCH-REPORT-SHA256
+          name: HNL-QLTC-DEV-BACKUP-P2180-HOSTING-CHECKPOINT-FULL-PATCH-REPORT-SHA256
           path: output/
           if-no-files-found: error
           retention-days: 30
