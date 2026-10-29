@@ -297,8 +297,14 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      // This modal stays mounted while closed: never reuse the last manually chosen tab.
+      // This modal remains mounted while closed. Reset only for a new entry-point
+      // request; project metadata arriving during a session must NOT switch tabs.
       setActiveTab(entryPoint === 'account' || entryPoint === 'switch' ? 'account' : entryPoint);
+    }
+  }, [isOpen, entryPoint]);
+
+  useEffect(() => {
+    if (isOpen) {
       setPinConfig(getStoredPinLockConfig());
       const openingUser = getCurrentFirebaseUser();
       const openingRole = isSuperAdminEmail(openingUser?.email) ? 'ADMIN' : getCurrentUserRole();
@@ -324,7 +330,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       setMemberMsg(null);
       refreshCloudStatus(pid);
     }
-  }, [isOpen, entryPoint, activeProjectId, firstProjectId]);
+  }, [isOpen, activeProjectId, firstProjectId]);
 
   useEffect(() => {
     if (!isOpen || !selectedPid) {
