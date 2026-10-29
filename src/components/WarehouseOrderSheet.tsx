@@ -8,13 +8,14 @@ import {
   type WarehouseOrderItem, type WarehouseOrderKind, type WarehouseOrderValues,
 } from '../utils/warehouseCatalogOrder';
 import { compareWarehouseOrderDisplayItems } from '../utils/catalogDisplayOrder';
+import { formatAdaptiveDecimal, getNumberFormatPreset, useFormatSettings } from '../utils/numberUtils';
 import type {WarehouseOrderSync} from '../hooks/useWarehouseOrderSync';
 
 type Props={
   open:boolean;onClose:()=>void;projectId:string;projectName:string;projectLocation:string;contractorName:string;
   items:WarehouseOrderItem[];canEdit:boolean;initialKind:WarehouseOrderKind;sync:WarehouseOrderSync;
 };
-const vi=(n:number)=>new Intl.NumberFormat('vi-VN',{maximumFractionDigits:3}).format(n);
+const vi=(n:number)=>formatAdaptiveDecimal(n);
 const empty:WarehouseOrderValues={quantity:0,kgPerUnit:null};
 /** Blurred = evaluated number; focused = original editable expression. */
 const NumberField:React.FC<{
@@ -22,12 +23,14 @@ const NumberField:React.FC<{
   emptyAsBlank?:boolean;positive?:boolean;label:string;editable:boolean;
   parseValue:(text:string)=>number|null;field:'quantity'|'kgPerUnit';
 }>=({value,expression,onCommit,emptyAsBlank,positive,label,editable,parseValue,field})=>{
-  const format=(n:number|null)=>n===null||(emptyAsBlank&&n===0)?'':new Intl.NumberFormat('vi-VN',{maximumFractionDigits:10}).format(n);
+  useFormatSettings();
+  const formatPreset=getNumberFormatPreset();
+  const format=(n:number|null)=>n===null||(emptyAsBlank&&n===0)?'':formatAdaptiveDecimal(n);
   const [text,setText]=useState(format(value));
   const [error,setError]=useState(false);
   const focused=useRef(false);
   const inputRef=useRef<HTMLInputElement>(null);
-  useEffect(()=>{if(!focused.current)setText(format(value));},[value,expression,emptyAsBlank]);
+  useEffect(()=>{if(!focused.current)setText(format(value));},[value,expression,emptyAsBlank,formatPreset]);
   const commit=()=>{
     if(!editable){setText(format(value));return;}
     const raw=text.trim();
@@ -55,6 +58,7 @@ const NumberField:React.FC<{
   </div>;
 };
 export const WarehouseOrderSheet:React.FC<Props>=({open,onClose,projectId,projectName,projectLocation,contractorName,items,canEdit,initialKind,sync})=>{
+  useFormatSettings();
   const [kind,setKind]=useState<WarehouseOrderKind>(initialKind);
   const [search,setSearch]=useState('');
   useEffect(()=>{setKind(initialKind);setSearch('');},[projectId,initialKind]);
@@ -94,10 +98,10 @@ export const WarehouseOrderSheet:React.FC<Props>=({open,onClose,projectId,projec
           className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-xs" />
       </div>
       <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs" data-hnl-warehouse-order-sync="centralized">
-        <label className="flex flex-col gap-1 font-semibold text-slate-700">Ngày dự kiến hàng về
+        <label className="flex min-w-0 flex-row items-center gap-2 font-semibold text-slate-700"><span className="shrink-0">Ngày dự kiến hàng về</span>
           <input aria-label="Ngày dự kiến hàng về" type="date" value={expectedDate} disabled={!canEdit}
             onChange={e=>updateExpectedDate(e.target.value)}
-            className="h-10 rounded-lg border border-slate-300 bg-white px-2 text-xs" />
+            className="h-10 min-w-0 w-[142px] sm:w-[166px] rounded-lg border border-slate-300 bg-white px-2 text-xs" />
         </label>
         {(conflicts.length>0 || cloudError || pendingCount>0) && <span role="status" aria-live="polite" className="text-amber-700 font-semibold">
           {conflicts.length>0?`${conflicts.length} dòng xung đột`:cloudError?'Lỗi đồng bộ':`Còn ${pendingCount} thay đổi chờ`} · Xử lý tại Kiểm tra dữ liệu → Trạng thái hệ thống & đồng bộ

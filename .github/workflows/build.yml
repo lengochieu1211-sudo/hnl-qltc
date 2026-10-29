@@ -48,6 +48,19 @@ jobs:
       - name: Floor-plan room-creation safety regression
         run: node scripts/floorplan-room-creation-guard-golden.mjs
 
+      - name: 10-group targeted QA regression (source-only, no deploy)
+        run: |
+          node scripts/dev-backup-defect-card-date-golden.mjs
+          node scripts/dev-backup-four-issues-geometry-golden.mjs
+          node scripts/dev-backup-four-issues-golden.mjs
+          node scripts/dev-backup-json-export-progress-golden.mjs
+          node scripts/dev-backup-ortho-snap-chat-unread-golden.mjs
+
+      - name: Mobile XLSX receipt issue OOXML and A3 A4 matrix (no deploy)
+        run: |
+          npx tsx scripts/warehouse-voucher-xlsx-style-golden.ts
+          npx tsx scripts/dev-backup-voucher-a3-a4-matrix-golden.ts
+
       - name: Stability Gate
         run: npm run test:stability
 

@@ -101,7 +101,8 @@ import { ContactMenu } from './ContactMenu';
 import { ShareEntityMenu } from './ShareEntityMenu';
 import { buildDefectShareText, resolveDefectTeam } from '../utils/defectContactUtils';
 import { isPointInsideRoom, reconcileDefectLinkage, resolveDefectLinkageFromSelection } from '../utils/defectLinkageUtils';
-import { getRoomHighlightBounds, mirrorRoomHighlight, resizeRoomHighlightToBounds, rotateRoomHighlight, snapRotationDelta } from '../utils/roomHighlightGeometry';
+import { getRoomHighlightBounds, mirrorRoomHighlight, resizeRoomHighlightSide, resizeRoomHighlightToBounds, rotateRoomHighlight, snapRotationDelta } from '../utils/roomHighlightGeometry';
+import { snapRoomPointOrthogonal } from '../utils/roomHighlightSnap';
 import { DEFAULT_CAD_ALIGNMENT, normalizeCadAlignment, rebuildCadRoomForAlignment, remapPointBetweenCadAlignments, type CadAlignment } from '../utils/cadAlignment';
 
 const getMappedCoordinates = (e: React.PointerEvent | React.MouseEvent | Touch, element: HTMLElement, currentRotation: number) => {
@@ -848,6 +849,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     } catch {
       setMapLayers({ roomRegions: true, roomLabels: true, defects: true, resolvedDefects: true });
     }
+    // Legacy local-only locks stay as an offline fallback until a Cloud lock value exists.
     setLockedRoomIds(readIdSet(getDraftKey('construction_floorplan_locked_rooms')));
     setLockedDefectIds(readIdSet(getDraftKey('construction_floorplan_locked_defects')));
     requestAnimationFrame(() => { projectUiSettingsHydratingRef.current = false; });
@@ -867,6 +869,25 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (projectUiSettingsHydratingRef.current) return;
     localStorage.setItem(getDraftKey('construction_floorplan_locked_defects'), JSON.stringify(Array.from(lockedDefectIds)));
   }, [lockedDefectIds, currentProjectId]);
+
+  // Cloud is the authority when positionLocked is explicitly present. Older rooms/defects
+  // with no Cloud lock flag retain the previous device-local value until toggled on this device.
+  // No bulk migration or silent overwrite of shared data happens during hydration.
+  React.useEffect(() => {
+    const legacy = readIdSet(getDraftKey('construction_floorplan_locked_rooms'));
+    const cloudAware = new Set(roomProgressList.filter((room) =>
+      room.positionLocked === true || (room.positionLocked === undefined && legacy.has(room.id))
+    ).map((room) => room.id));
+    setLockedRoomIds((prev) => prev.size === cloudAware.size && Array.from(prev).every((id) => cloudAware.has(id)) ? prev : cloudAware);
+  }, [roomProgressList, currentProjectId]);
+
+  React.useEffect(() => {
+    const legacy = readIdSet(getDraftKey('construction_floorplan_locked_defects'));
+    const cloudAware = new Set(defects.filter((defect) =>
+      defect.positionLocked === true || (defect.positionLocked === undefined && legacy.has(defect.id))
+    ).map((defect) => defect.id));
+    setLockedDefectIds((prev) => prev.size === cloudAware.size && Array.from(prev).every((id) => cloudAware.has(id)) ? prev : cloudAware);
+  }, [defects, currentProjectId]);
 
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [defectSortBy, setDefectSortBy] = useState<DefectSortBy>('createdAt');
@@ -3797,20 +3818,33 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   const toggleSelectedRoomLock = () => {
-    if (selectedRoomIdsForAction.length === 0) return;
+    if (!canManageStructure || selectedRoomIdsForAction.length === 0) return;
+    const unlock = selectedRoomIdsForAction.every((id) => lockedRoomIds.has(id));
+    const selectedSet = new Set(selectedRoomIdsForAction);
+    const changes = roomProgressList.filter((room) => selectedSet.has(room.id))
+      .map((room) => ({ ...room, positionLocked: !unlock }));
+    if (changes.length === 0) return;
+    // Persist on canonical room records; their existing Cloud subscriptions supply multiuser updates.
+    if (onBatchSaveRooms && changes.length > 1) onBatchSaveRooms(changes);
+    else changes.forEach((room) => onSaveRoomProgress(room));
     setLockedRoomIds((prev) => {
       const next = new Set(prev);
-      const shouldUnlock = selectedRoomIdsForAction.every((id) => next.has(id));
-      selectedRoomIdsForAction.forEach((id) => shouldUnlock ? next.delete(id) : next.add(id));
+      changes.forEach((room) => unlock ? next.delete(room.id) : next.add(room.id));
       return next;
     });
   };
 
   const toggleDefectLock = (defectId: string) => {
-    if (!canEditDefects) return;
+    if (!canEditDefects || !onUpdateDefect) return;
+    const source = defects.find((item) => item.id === defectId);
+    if (!source) return;
+    const positionLocked = !lockedDefectIds.has(defectId);
+    // The existing Defect Cloud update path preserves createdAt, ID, photo and status.
+    onUpdateDefect({ ...source, positionLocked });
+    setActiveDefectDetail((prev) => prev?.id === defectId ? { ...prev, positionLocked } : prev);
     setLockedDefectIds((prev) => {
       const next = new Set(prev);
-      if (next.has(defectId)) next.delete(defectId); else next.add(defectId);
+      if (positionLocked) next.add(defectId); else next.delete(defectId);
       return next;
     });
   };
@@ -5038,7 +5072,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const y = Math.min(100, Math.max(0, Math.round(rawY * 10) / 10));
 
     lastPointerMapPosRef.current = { x, y };
-    setDrawHoverPos({ x, y });
+    // During polygon drawing, preview the exact point that will be committed on click.
+    // Pull beyond the pixel capture radius to draw a diagonal; no modifier key needed.
+    const currentDrawHover = drawTool === 'polygon' && polygonPoints.length > 0
+      ? snapRoomPointOrthogonal({ x, y }, [polygonPoints[polygonPoints.length - 1]],
+          { width: rect.width, height: rect.height }, {})
+      : { x, y };
+    setDrawHoverPos(currentDrawHover);
 
     // Handle Active Drag-and-Resize on Highlight Region
     if (activeDragHandle !== null && dragStartInfo) {
@@ -5097,7 +5137,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         return;
       } else if (typeof activeDragHandle === 'number' && newPoints) {
         // Drag individual polygon point
-        newPoints[activeDragHandle] = { x, y };
+        const neighbours = [
+          newPoints[(activeDragHandle + newPoints.length - 1) % newPoints.length],
+          newPoints[(activeDragHandle + 1) % newPoints.length],
+        ].filter(Boolean);
+        newPoints[activeDragHandle] = snapRoomPointOrthogonal(
+          { x, y }, neighbours, { width: rect.width, height: rect.height }, {},
+        );
 
         // Recalculate bounding box
         let minX = 100, minY = 100, maxX = 0, maxY = 0;
@@ -5151,7 +5197,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         // the actual vertices together with the bounding box instead of moving an
         // invisible box while leaving the visible highlight behind.
         if (newPoints && initRoom.points && initRoom.points.length >= 2) {
-          const resized = resizeRoomHighlightToBounds(initRoom, { x: newX, y: newY, width: newW, height: newH });
+          const desiredBounds = { x: newX, y: newY, width: newW, height: newH };
+          const resized = typeof activeDragHandle === 'string' && ['n', 's', 'e', 'w'].includes(activeDragHandle)
+            ? resizeRoomHighlightSide(initRoom, activeDragHandle as 'n' | 's' | 'e' | 'w', desiredBounds)
+            : resizeRoomHighlightToBounds(initRoom, desiredBounds);
           newX = resized.x;
           newY = resized.y;
           newW = resized.width;
@@ -5452,8 +5501,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     // Polygon Point-by-Point Mode (2 or more points)
     if (drawTool === 'polygon') {
-      setPolygonPoints((prev) => [...prev, { x, y }]);
-      setDrawHoverPos({ x, y });
+      // Use the same snap as hover so the saved corner matches the visual preview.
+      const snapped = snapRoomPointOrthogonal(
+        { x, y }, polygonPoints.length ? [polygonPoints[polygonPoints.length - 1]] : [],
+        { width: rect.width, height: rect.height }, {},
+      );
+      setPolygonPoints((prev) => [...prev, snapped]);
+      setDrawHoverPos(snapped);
       return;
     }
 
@@ -7558,7 +7612,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         <span>
                           <strong>Đang vẽ lại vùng cho căn "{redrawingRoomTarget.roomName}":</strong>{' '}
                           {drawTool === 'freehand' && 'Nhấn giữ & rê ngón tay/chuột để vẽ tự do. Nhả tay để lưu!'}
-                          {drawTool === 'polygon' && `Chấm từng điểm góc đa giác mới (Đã chấm ${polygonPoints.length} góc). Bấm nút Chốt để lưu!`}
+                          {drawTool === 'polygon' && `Chấm từng điểm góc đa giác mới (Đã chấm ${polygonPoints.length} góc). Rà gần cạnh ngang/dọc để bắt điểm; kéo xa tự nhả. Bấm nút Chốt để lưu!`}
                           {drawTool === '2point' && 'Bấm 2 điểm đối góc trên mặt bằng để vẽ khung hình chữ nhật!'}
                         </span>
                       </div>
@@ -8040,6 +8094,20 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 {/* Live Polygon Point-by-Point Drawing Preview */}
                 {polygonPoints.length > 0 && (
                   <g>
+                    {drawHoverPos && (() => {
+                      const previous = polygonPoints[polygonPoints.length - 1];
+                      const raw = lastPointerMapPosRef.current;
+                      const vertical = drawHoverPos.x === previous.x && raw.x !== previous.x;
+                      const horizontal = drawHoverPos.y === previous.y && raw.y !== previous.y;
+                      if (!vertical && !horizontal) return null;
+                      return (
+                        <g data-hnl-orthogonal-snap-guide="polygon" pointerEvents="none">
+                          {vertical && <line x1={previous.x} y1={previous.y} x2={drawHoverPos.x} y2={drawHoverPos.y} stroke="#22d3ee" strokeWidth={0.65 * strokeScale} strokeDasharray="1.3,0.9" />}
+                          {horizontal && <line x1={previous.x} y1={previous.y} x2={drawHoverPos.x} y2={drawHoverPos.y} stroke="#22d3ee" strokeWidth={0.65 * strokeScale} strokeDasharray="1.3,0.9" />}
+                          <circle cx={drawHoverPos.x} cy={drawHoverPos.y} r={1.25 * strokeScale} fill="none" stroke="#22d3ee" strokeWidth={0.7 * strokeScale} />
+                        </g>
+                      );
+                    })()}
                     <polyline
                       points={
                         drawHoverPos && (drawHoverPos.x !== polygonPoints[polygonPoints.length - 1].x || drawHoverPos.y !== polygonPoints[polygonPoints.length - 1].y)
@@ -8645,7 +8713,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         style={{ left: `${x}%`, top: `${y}%`, touchAction: 'manipulation' }}
                         className="absolute -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-auto w-7 h-7 sm:w-6 sm:h-6 rounded-full bg-transparent cursor-pointer"
                         aria-label={`Mở Defect ${shortDefectCode}`}
-                        title={`${shortDefectCode} · ${defect.category}${defect.description ? ` · ${defect.description}` : ''}`}
+                        title={`${shortDefectCode} · ${defect.category} · Tạo: ${defect.createdAt ? formatDateDDMMYYYY(defect.createdAt) : 'Chưa ghi nhận'}${defect.description ? ` · ${defect.description}` : ''}`}
                       />
                       <div
                         onPointerDown={(e) => e.stopPropagation()}
@@ -8656,7 +8724,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         }}
                         style={{ left: `${markerX}%`, top: `${markerY}%` }}
                         className="absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer z-50 pointer-events-auto transition-transform hover:scale-110 active:scale-105"
-                        title={`${shortDefectCode} · ${defect.category}${defect.description ? ` · ${defect.description}` : ''}`}
+                        title={`${shortDefectCode} · ${defect.category} · Tạo: ${defect.createdAt ? formatDateDDMMYYYY(defect.createdAt) : 'Chưa ghi nhận'}${defect.description ? ` · ${defect.description}` : ''}`}
                       >
                         <div
                           style={{
@@ -9470,6 +9538,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           <div>
                             <span className="text-[10px] font-black text-slate-400 mr-1.5">[{getDefectShortCode(defect.id)}]</span>
                             <span className="text-xs font-extrabold text-slate-900 leading-snug">{defect.category}</span>
+                            <p className="mt-0.5 text-[10px] font-semibold text-slate-500" data-hnl-defect-list-created-at="true">
+                              Ngày tạo: {defect.createdAt ? formatDateDDMMYYYY(defect.createdAt) : 'Chưa ghi nhận'}
+                            </p>
                           </div>
                         </div>
 
@@ -10499,6 +10570,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <div>
                   <span className="text-[10px] font-black text-slate-400">[{getDefectShortCode(activeDefectDetail.id)}]</span>
                   <h3 className="text-base font-extrabold text-slate-900">{activeDefectDetail.category}</h3>
+                  <p className="mt-1 text-xs font-semibold text-slate-500" data-hnl-defect-created-at="true">
+                    Ngày tạo Defect: {activeDefectDetail.createdAt ? formatDateDDMMYYYY(activeDefectDetail.createdAt) : 'Chưa ghi nhận'}
+                  </p>
                 </div>
                 <div className="flex items-center gap-1.5">
                   {canEditDefects && <button
