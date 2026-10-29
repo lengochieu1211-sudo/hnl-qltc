@@ -43,7 +43,7 @@ try {
     await trigger.click();await menu.getByRole('menuitem',{name:'Khóa ứng dụng'}).click();
     assert.equal(await page.evaluate(()=>window.__testNav.lock),1,'Lock action must call parent');
     await trigger.click();await page.keyboard.press('Escape');assert(!(await menu.isVisible()),'Escape closes account flyout');
-    await trigger.click();await page.locator('[data-hnl-fixture-content]').click({position:{x:220,y:40}});assert(!(await menu.isVisible()),'Outside click closes flyout');
+    await trigger.click();await page.locator('[data-hnl-fixture-content]').click({position:{x:600,y:200}});assert(!(await menu.isVisible()),'Outside click closes flyout');
   } else {
     assert(await page.locator('[data-hnl-nav-surface="mobile"]').isVisible(),'Mobile bottom navigation must remain visible');
     assert(!(await page.locator('[data-hnl-nav-surface="desktop"]').isVisible()),'Desktop rail must not cover phone');
