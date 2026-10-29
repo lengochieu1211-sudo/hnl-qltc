@@ -13,6 +13,7 @@ import {
   Users,
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
+import { DesktopAccountMenu } from './DesktopAccountMenu';
 
 export type TabType = 'home' | 'warehouse' | 'volume' | 'floorplan' | 'checklist' | 'crew' | 'chat' | 'ai' | 'config' | 'superadmin';
 
@@ -26,6 +27,13 @@ interface BottomNavProps {
   showChecklist?: boolean;
   showAi?: boolean;
   showSuperAdmin?: boolean;
+  userRole?: string;
+  roleResolved?: boolean;
+  online?: boolean;
+  hasPendingSync?: boolean;
+  onOpenAccount?: () => void;
+  onLockNow?: () => void;
+  onSignOut?: () => Promise<void>;
 }
 
 export const BottomNav: React.FC<BottomNavProps> = ({
@@ -38,6 +46,13 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   showChecklist = true,
   showAi = false,
   showSuperAdmin = false,
+  userRole = 'VIEWER',
+  roleResolved = false,
+  online = true,
+  hasPendingSync = false,
+  onOpenAccount,
+  onLockNow,
+  onSignOut,
 }) => {
   const { t } = useLanguage();
   const [showMore, setShowMore] = useState(false);
@@ -102,6 +117,17 @@ export const BottomNav: React.FC<BottomNavProps> = ({
     <>
       {/* PC/Laptop: same light navigation language as the mobile bottom bar, moved to the left rail. */}
       <aside data-hnl-nav-surface="desktop" className={`fixed inset-y-0 left-0 z-50 w-[84px] flex-col border-r border-slate-200 bg-white text-slate-700 shadow-sm ${forceDesktopRail ? 'flex' : 'hidden lg:flex'}`}>
+        {onOpenAccount && onLockNow && onSignOut && (
+          <DesktopAccountMenu
+            userRole={userRole}
+            roleResolved={roleResolved}
+            online={online}
+            hasPendingSync={hasPendingSync}
+            onOpenSecurity={onOpenAccount}
+            onLockNow={onLockNow}
+            onSignOut={onSignOut}
+          />
+        )}
         <nav className="flex flex-1 flex-col items-center gap-1 overflow-y-auto px-1.5 py-2 no-scrollbar" aria-label="Điều hướng chính HNL QLTC">
           {desktopTabs.map((tab) => {
             const Icon = tab.icon;
