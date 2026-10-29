@@ -1,0 +1,102 @@
+name: HNL DEV BACKUP targeted Google account Rules allowlist (NO PROD)
+on:
+  push:
+    branches: [safety/dev-backup-room-highlight-uniform-stroke-20261029]
+    paths: ['.github/workflows/hnl-dev-backup-account-allowlist-rules-20261029.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: hnl-dev-backup-allowlist-rules-20261029
+  cancel-in-progress: false
+jobs:
+  allowlist:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SOURCE_BASE: 68e636367e26f4f970eb5d9efe675642d44e1d6c
+      APP_SOURCE_HEAD: 1fc1686722871f02663ecf4ec0ed4565ee77655d
+      BACKUP_PROJECT: hnl-qltc-dev-backup
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify isolated QA branch and only the three reviewed source paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-room-highlight-uniform-stroke-20261029'
+          test "$BACKUP_PROJECT" = 'hnl-qltc-dev-backup'
+          node - <<'NODE'
+          const cp=require('node:child_process');
+          const expected=['.github/workflows/hnl-dev-backup-account-allowlist-rules-20261029.yml','scripts/dev-backup-firestore-allowlist-gate.mjs','scripts/dev-backup-rules-candidate-test.mjs'].sort();
+          const actual=cp.execFileSync('git',['diff','--name-only',process.env.SOURCE_BASE,'HEAD'],{encoding:'utf8'}).trim().split('\n').filter(Boolean).sort();
+          if(JSON.stringify(expected)!==JSON.stringify(actual))throw Error('SOURCE_SCOPE_CHANGED '+JSON.stringify(actual));
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Locked install and isolated Firebase Rules test library
+        run: |
+          npm ci
+          npm install --no-save --package-lock=false --ignore-scripts @firebase/rules-unit-testing@5.0.2
+      - name: TypeScript lint Rules security audit and Web build
+        run: |
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run security:audit
+          npm run build
+      - name: Read exact LIVE Rules, verify invited canonical EDITOR and prepare minimal allowlist change
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        run: node scripts/dev-backup-firestore-allowlist-gate.mjs prepare
+      - name: Isolated Firestore Emulator security golden with zero production credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          env -u FIREBASE_BACKUP_SERVICE_ACCOUNT -u GOOGLE_APPLICATION_CREDENTIALS npx --yes firebase-tools@13.35.1 emulators:exec --only firestore --project demo-hnl-dev-backup-allowlist --config "$GITHUB_WORKSPACE/qa-firebase-rules/firebase.json" --non-interactive 'node scripts/dev-backup-rules-candidate-test.mjs'
+      - name: Revalidate exact LIVE immutable Ruleset before any change
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        run: node scripts/dev-backup-firestore-allowlist-gate.mjs predeploy
+      - name: Deploy Firestore Rules ONLY to DEV Backup after all gates
+        shell: bash
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$FIREBASE_BACKUP_SERVICE_ACCOUNT" > "$RUNNER_TEMP/backup-qa-sa.json"
+          chmod 600 "$RUNNER_TEMP/backup-qa-sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/backup-qa-sa.json"
+          trap 'rm -f "$RUNNER_TEMP/backup-qa-sa.json"' EXIT
+          echo 'DEPLOY_ATTEMPTED=true' >> "$GITHUB_ENV"
+          npx --yes firebase-tools@13.35.1 deploy --only firestore:rules --project "$BACKUP_PROJECT" --config "$GITHUB_WORKSPACE/qa-firebase-rules/firebase.json" --non-interactive
+      - name: Verify LIVE exact deployed Rules SHA256
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        run: node scripts/dev-backup-firestore-allowlist-gate.mjs verify
+      - name: Automatic guarded rollback to original immutable Ruleset on deployment verification failure
+        if: failure() && env.DEPLOY_ATTEMPTED == 'true'
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        run: node scripts/dev-backup-firestore-allowlist-gate.mjs rollback
+      - name: Preserve audit and rollback source
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-DEV-BACKUP-ACCOUNT-RULES-CHECKPOINT
+          path: |
+            qa-firebase-rules/manifest.json
+            qa-firebase-rules/VERIFIED.json
+            qa-firebase-rules/original.rules
+          if-no-files-found: warn
+          retention-days: 30
