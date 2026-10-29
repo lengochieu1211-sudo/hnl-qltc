@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      EXPECTED_BASE: a697499371d7dacb6d0a37709227f4300aee4004
+      EXPECTED_BASE: e74660f839d08b7fc81ee3f8726a7db4a3eca5ac
       BACKUP_PROJECT: hnl-qltc-dev-backup
     steps:
       - uses: actions/checkout@v4
@@ -134,6 +134,23 @@ jobs:
                 const localSource=fs.readFileSync('firestore.rules','utf8').replace(/\r\n/g,'\n').trim();
                 rulesResult.available=Boolean(candidates.length);
                 rulesResult.sourceHashMatchesDeployed=candidates.some(file=>file.content.replace(/\r\n/g,'\n').trim()===localSource);
+                const deployedRules=candidates.map(x=>String(x.content||'')).join('\n');
+                rulesResult.capabilities={
+                  hasProjectAccessRules:deployedRules.includes('match /projectAccess/{accessId}'),
+                  hasProjectInvitationsRules:deployedRules.includes('match /projectInvitations/{invitationId}'),
+                  hasUsersSelfIndexRules:deployedRules.includes('match /users/{userId}'),
+                  hasCanonicalEmailMemberRules:deployedRules.includes('hasEmailMember(projectId)'),
+                  hasOwnerReadRecoveryRules:deployedRules.includes('isOwner(projectId)'),
+                  invitationQueryMayRequireMember:deployedRules.includes('isMember(resource.data.projectId)'),
+                };
+                // Only reveal rules for invitation/user-index/projectAccess paths, with email strings masked.
+                const excerpts=[];
+                const lines=deployedRules.split('\n');
+                for(const marker of ['match /projectInvitations/{','match /projectAccess/{','match /users/{']){
+                  const idx=lines.findIndex(x=>x.includes(marker));
+                  excerpts.push({marker,found:idx>=0,excerpt:idx>=0?lines.slice(idx,idx+14).join('\n').replace(/[\w.+-]+@[\w.-]+/g,'[redacted]'):''});
+                }
+                rulesResult.relevantExcerpts=excerpts;
               }
             }
           } catch(err) {
