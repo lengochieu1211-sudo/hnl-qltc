@@ -67,7 +67,11 @@ jobs:
         shell: pwsh
         run: |
           ./scripts/windows-webview2-runtime-golden.ps1 -LauncherPath './HNL-QLTC-Windows.exe' -Channel DEV
-          if ($LASTEXITCODE -ne 0) { throw 'HOSTED_QA_WEBVIEW2_FAIL' }
+          # windows-webview2-runtime-golden.ps1 throws on failure; $LASTEXITCODE is stale
+          # from the previous external build command, not this PowerShell script.
+          if (-not (Test-Path './webview2-runtime-evidence/probe.txt')) { throw 'HOSTED_QA_PROBE_MISSING' }
+          $proof = Get-Content -Raw './webview2-runtime-evidence/probe.txt'
+          if ($proof -notmatch 'POPUP_READY\|about:blank' -or $proof -notmatch 'DOWNLOAD\|.*HNL-WebView2-Runtime-Probe') { throw 'HOSTED_QA_EVIDENCE_INCOMPLETE' }
       - name: Store evidence on both PASS and FAIL
         if: always()
         uses: actions/upload-artifact@v4
