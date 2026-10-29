@@ -8127,6 +8127,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   </g>
                 )}
 
+                {/* Saved room strokes use screen-pixel widths: the 0-100 viewBox is stretched
+                    independently by the plan aspect ratio. non-scaling-stroke keeps vertical
+                    and horizontal outlines equally thick while preserving stored coordinates,
+                    hit targets, drag/resize mapping, zoom and the Defect overlay. */}
                 {/* Render All Saved Room Highlights */}
                 {displayedFloorRooms.map((room, roomIdx) => {
                   const { fill: fillColor, stroke: strokeColor } = getRoomColorStyle(room, roomIdx, roomColorMode);
@@ -8140,7 +8144,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           points={room.points.map((p) => `${p.x},${p.y}`).join(' ')}
                           fill="none"
                           stroke={strokeColor}
-                          strokeWidth={3.0 * strokeScale}
+                          strokeWidth={4}
+                          vectorEffect="non-scaling-stroke"
                           strokeLinecap="round"
                           strokeLinejoin="round"
                           opacity="0.28"
@@ -8150,7 +8155,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           points={room.points.map((p) => `${p.x},${p.y}`).join(' ')}
                           fill="none"
                           stroke={isSelectedForDrag ? '#f59e0b' : strokeColor}
-                          strokeWidth={(isSelectedForDrag ? 1.6 : 1.2) * strokeScale}
+                          strokeWidth={isSelectedForDrag ? 2.6 : 2}
+                          vectorEffect="non-scaling-stroke"
                           strokeDasharray={isSelectedForDrag ? '2,1' : undefined}
                           strokeLinecap="round"
                           strokeLinejoin="round"
@@ -8185,7 +8191,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       points={room.points!.map((p) => `${p.x},${p.y}`).join(' ')}
                       fill={fillColor}
                       stroke={isSelectedForDrag ? '#f59e0b' : strokeColor}
-                      strokeWidth={(isSelectedForDrag ? 1.2 : 0.6) * strokeScale}
+                      strokeWidth={isSelectedForDrag ? 2.6 : 2}
+                      vectorEffect="non-scaling-stroke"
                       strokeDasharray={isSelectedForDrag ? '2,1' : undefined}
                       className="pointer-events-auto cursor-pointer transition-all hover:fill-opacity-75"
                       onMouseEnter={() => setHoveredRoomId(room.id)}
@@ -8216,7 +8223,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       height={room.height}
                       fill={fillColor}
                       stroke={isSelectedForDrag ? '#f59e0b' : strokeColor}
-                      strokeWidth={(isSelectedForDrag ? 1.2 : 0.6) * strokeScale}
+                      strokeWidth={isSelectedForDrag ? 2.6 : 2}
+                      vectorEffect="non-scaling-stroke"
                       strokeDasharray={isSelectedForDrag ? '2,1' : undefined}
                       className="pointer-events-auto cursor-pointer transition-all hover:fill-opacity-75"
                       onMouseEnter={() => setHoveredRoomId(room.id)}
