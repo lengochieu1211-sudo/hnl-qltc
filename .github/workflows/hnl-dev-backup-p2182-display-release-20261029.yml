@@ -16,6 +16,7 @@ jobs:
     timeout-minutes: 75
     env:
       QA_BASE_SHA: af625f427e454a49791d5fd8ca2cfced168c73f4
+      SCOPE_PARENT_SHA: c5a44133420c0c245c54cb22451e3ab99de0d3b7
       BACKUP_PROJECT: hnl-qltc-dev-backup
       PREVIEW_CHANNEL: p2182-display-preview-20261029
       ROLLBACK_CHANNEL: p2182-display-rollback-20261029
@@ -41,7 +42,7 @@ jobs:
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = 'lengochieu1211-sudo/hnl-qltc'
           test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-room-highlight-uniform-stroke-20261029'
-          test "$(git rev-parse HEAD^)" = "$QA_BASE_SHA"
+          test "$(git rev-parse HEAD^)" = "$SCOPE_PARENT_SHA"
           test "$BACKUP_PROJECT" = 'hnl-qltc-dev-backup'
           node --input-type=module <<'NODE'
           import cp from 'node:child_process';
@@ -73,7 +74,7 @@ jobs:
           const cfg=JSON.parse(fs.readFileSync('firebase.json','utf8'));
           if(cfg.hosting?.public!=='dist')throw Error('HOSTING_OUTPUT_CHANGED');
           const hosting={...cfg.hosting,site:'hnl-qltc-dev-backup'};
-          fs.writeFileSync(process.env.RUNNER_TEMP+'/firebase-qa-hosting.json',JSON.stringify({hosting}));
+          fs.writeFileSync(process.env.GITHUB_WORKSPACE+'/.firebase-qa-hosting.json',JSON.stringify({hosting}));
           console.log('SDK and explicit hosting site PASS');
           NODE
       - name: Locked install, P21.80/P21.82 regression, TS/lint, Rules, security, build
@@ -148,7 +149,22 @@ jobs:
           chmod 600 "$RUNNER_TEMP/dev-backup-sa.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/dev-backup-sa.json"
           trap 'rm -f "$RUNNER_TEMP/dev-backup-sa.json"' EXIT
-          npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$PREVIEW_CHANNEL" --project "$BACKUP_PROJECT" --config "$RUNNER_TEMP/firebase-qa-hosting.json" --non-interactive --json > "$RUNNER_TEMP/preview-deploy.json"
+          if ! npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$PREVIEW_CHANNEL" --project "$BACKUP_PROJECT" --config "$GITHUB_WORKSPACE/.firebase-qa-hosting.json" --non-interactive --json > "$RUNNER_TEMP/preview-deploy.json" 2>&1; then
+            node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const raw=fs.readFileSync(process.env.RUNNER_TEMP+'/preview-deploy.json','utf8');
+          let message='Preview CLI error (non-JSON)';
+          try {
+            const j=JSON.parse(raw);
+            message=String(j.error?.message||j.error||j.message||j.status||message).slice(0,800);
+          }catch{
+            message=raw.split('\n').filter(x=>/error|quota|hosting|config|site|permission|failed/i.test(x)).slice(-4).join(' ').slice(0,800);
+          }
+          message=message.replace(/AIza[\w-]+/g,'[public-sdk-redacted]').replace(/-----BEGIN PRIVATE KEY-----[\s\S]*?-----END PRIVATE KEY-----/g,'[private-key-redacted]');
+          console.error('SAFE_PREVIEW_DIAGNOSTIC:',message);
+          NODE
+            exit 1
+          fi
           test -s "$RUNNER_TEMP/preview-deploy.json"
       - name: Preview/source validation and LIVE lease before clone
         shell: bash
