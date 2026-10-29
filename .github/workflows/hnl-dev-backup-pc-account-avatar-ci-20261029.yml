@@ -81,6 +81,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          npm install --no-save --package-lock=false playwright@1.55.0
           npx playwright install --with-deps chromium
           node scripts/dev-backup-pc-account-menu-golden.mjs
       - name: Build and guard DEV Backup public bundle
