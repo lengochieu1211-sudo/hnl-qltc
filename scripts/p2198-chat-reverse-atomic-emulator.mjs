@@ -86,7 +86,7 @@ try {
   evidence.finalSummaryCount = (await getDoc(r.sum)).data().messageCount;
 
   fs.mkdirSync('evidence', { recursive: true });
-  fs.writeFileSync('evidence/P2198-MESSAGE-ONLY-SECURITY.json', JSON.stringify(evidence, null, 2) + '\n');
+  fs.writeFileSync('evidence/P2198-REVERSE-ATOMIC-SECURITY.json', JSON.stringify(evidence, null, 2) + '\n');
   console.log('P2198_EVIDENCE ' + JSON.stringify(evidence));
   assert.equal(evidence.messageOnlyDenied, true, 'SECURITY_GATE: standalone message must be denied');
   assert.equal(evidence.orphanExists, false, 'SECURITY_GATE: no orphan message');
