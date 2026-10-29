@@ -1,0 +1,67 @@
+name: HNL QLTC WebView2 CI gesture diagnostic (NO DEPLOY)
+on:
+  push:
+    branches:
+      - fix/dev-webview2-ci-usergesture-20261029
+    paths:
+      - desktop-wrapper/DesktopWebShellForm.cs
+      - scripts/windows-webview2-runtime-golden.ps1
+      - .github/workflows/webview2-ci-usergesture-diagnostic.yml
+permissions:
+  contents: read
+jobs:
+  webview2_trusted_gesture:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      QLCT_RELEASE_TAG: 6.3.0-dev
+    steps:
+      - uses: actions/checkout@v4
+      - name: Guard isolated branch and upstream DEV exact baseline
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -ne 'refs/heads/fix/dev-webview2-ci-usergesture-20261029') { throw 'REFUSING: wrong branch' }
+          $devSha = (git ls-remote origin refs/heads/dev).Split()[0]
+          if ($devSha -ne '7a0163420581985dc66caac588b094b76a7ccd8f') { throw 'REFUSING: DEV changed; re-audit needed' }
+          if (-not (Test-Path './desktop-wrapper/DesktopWebShellForm.cs')) { throw 'Missing desktop shell' }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Static desktop safety regression
+        run: node scripts/desktop-launcher-golden.mjs
+      - name: Real EXE, same-environment WebView2 popup and download under trusted CI gesture
+        shell: pwsh
+        run: |
+          $site = Join-Path (Get-Location) 'webview2-runtime-fixture'
+          New-Item -ItemType Directory -Force -Path $site | Out-Null
+          '<!DOCTYPE html><html><head><title>HNL QLTC CI-ONLY WEBVIEW2</title></head><body><h1>CI-only WebView2 isolated fixture</h1></body></html>' | Set-Content -LiteralPath (Join-Path $site 'index.html') -Encoding utf8
+          $server = Start-Process -FilePath 'python' -ArgumentList @('-m','http.server','8765','--bind','127.0.0.1') -WorkingDirectory $site -PassThru -WindowStyle Hidden
+          try {
+            $healthy = $false
+            for ($i = 0; $i -lt 30; $i++) {
+              try { $null = Invoke-WebRequest 'http://127.0.0.1:8765/' -TimeoutSec 2; $healthy = $true; break } catch { Start-Sleep -Milliseconds 500 }
+            }
+            if (-not $healthy) { throw 'Localhost fixture unavailable' }
+            $path = './desktop-wrapper/QLTCAnPhuLauncher.cs'
+            $source = Get-Content -Raw -LiteralPath $path
+            $from = 'private const string AppBaseUrl = "https://hnlqltc.web.app/?app=desktop";'
+            $to = 'private const string AppBaseUrl = "http://127.0.0.1:8765/?app=desktop&env=dev";'
+            if (-not $source.Contains($from)) { throw 'Launcher source unexpectedly changed' }
+            $source = $source.Replace($from, $to)
+            [System.IO.File]::WriteAllText((Resolve-Path $path), $source, [System.Text.UTF8Encoding]::new($true))
+            ./desktop-wrapper/build-launcher.ps1
+            if ($LASTEXITCODE -ne 0) { throw 'EXE build failed' }
+            ./scripts/windows-webview2-runtime-golden.ps1 -LauncherPath './HNL-QLTC-Windows.exe' -Channel DEV
+            if ($LASTEXITCODE -ne 0) { throw 'WebView2 runtime golden failed' }
+          }
+          finally {
+            if ($server -and -not $server.HasExited) { Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue }
+          }
+      - name: Upload diagnostic evidence (including failures)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-DEV-WEBVIEW2-USERGESTURE-DIAGNOSTIC
+          path: webview2-runtime-evidence/**
+          if-no-files-found: warn
+          retention-days: 30
