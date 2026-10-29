@@ -18,16 +18,19 @@ jobs:
           test "$GITHUB_REF" = 'refs/heads/audit/p2167-dev-hosting-http-20261029'
           test "$(git ls-remote origin refs/heads/dev | cut -f1)" = 'ad69668ec02202811203ad36a3c70798d8874ec8'
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = 'b2557860fbb3b128b5f2c9863e99d0f8b1f78686'
+          test "$(git ls-remote origin refs/heads/safety/dev-backup-room-highlight-uniform-stroke-20261029 | cut -f1)" = '04a7ab041f631e6fd5e764d12da1c878f4b82afc'
       - name: Check public DEV and PROD HTML status without login or mutations
         shell: bash
         run: |
           set -uo pipefail
           mkdir -p evidence
           printf "env\turl\tcurl_exit\thttp_status\tbytes\tsha256\tcontent_type\tclassification\n" > evidence/http-status.tsv
-          for env in dev dev_desktop prod; do
+          for env in dev dev_desktop backup backup_desktop prod; do
             case "$env" in
               dev) url='https://hnl-qltc-dev.web.app/' ;;
               dev_desktop) url='https://hnl-qltc-dev.web.app/?app=desktop&env=dev' ;;
+              backup) url='https://hnl-qltc-dev-backup.web.app/' ;;
+              backup_desktop) url='https://hnl-qltc-dev-backup.web.app/?app=desktop&env=dev' ;;
               prod) url='https://hnlqltc.web.app/' ;;
             esac
             curl -sSL --connect-timeout 10 --max-time 35 --retry 1 -D "evidence/$env.headers" -o "evidence/$env.body" -w '%{http_code}' "$url" > "evidence/$env.httpcode"
