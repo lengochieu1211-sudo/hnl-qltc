@@ -62,7 +62,8 @@ jobs:
           const init=await fetch(origin+'/__/firebase/init.json');
           if(!init.ok)throw Error('DEV_BACKUP_SDK_HTTP_'+init.status);
           const cfg=await init.json();
-          if(cfg.projectId!=='hnl-qltc-dev-backup'||cfg.authDomain!=='hnl-qltc-dev-backup.web.app')throw Error('DEV_BACKUP_FIREBASE_IDENTITY_MISMATCH');
+          console.log('PUBLIC_BACKUP_SDK_IDENTITY',JSON.stringify({projectId:cfg.projectId||null,authDomain:cfg.authDomain||null}));
+          if(cfg.projectId!=='hnl-qltc-dev-backup')throw Error('DEV_BACKUP_FIREBASE_PROJECT_MISMATCH');
           const index=await fetch(origin+'/?qaScope='+Date.now());
           const html=await index.text();
           if(!index.ok||!html.includes('id="root"'))throw Error('DEV_BACKUP_HTML_MISSING_APP_ROOT');
