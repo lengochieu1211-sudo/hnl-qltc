@@ -1,0 +1,64 @@
+name: HNL QLTC DEV exact source backup (NO DEPLOY)
+on:
+  push:
+    branches: [audit/dev-b1038dc-package-20261029]
+    paths: ['.github/workflows/hnl-qltc-dev-b1038dc-package.yml']
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify exact source and build source-only ZIP packages
+        shell: bash
+        env:
+          SOURCE_SHA: b1038dccc623728e06480c43a0290b575d171fa6
+          BASE_SHA: 4e9cd3a3ae6b87ce6e5d04d62ff7519e2eb757e5
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/audit/dev-b1038dc-package-20261029'
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$SOURCE_SHA"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = 'b2557860fbb3b128b5f2c9863e99d0f8b1f78686'
+          git merge-base --is-ancestor "$BASE_SHA" "$SOURCE_SHA"
+          python3 - <<'PY'
+          import os,subprocess,zipfile,pathlib,hashlib,json
+          src=os.environ['SOURCE_SHA']; base=os.environ['BASE_SHA']
+          def git(*a):return subprocess.check_output(['git',*a],text=True).strip()
+          changed=git('diff','--name-only','--diff-filter=ACMR',base,src).splitlines()
+          deleted=git('diff','--name-only','--diff-filter=D',base,src).splitlines()
+          forbidden={'.github/dev-release-approval.json','.firebaserc','firebase.json','firebase.prod.json' ,'storage.rules'}
+          expected={'.github/workflows/p2172-chat-atomic-summary.yml','scripts/p2172-chat-atomic-summary-emulator.mjs','src/lib/chatService.ts'}
+          assert set(changed)==expected and not deleted, 'unexpected exact DEV diff or deleted file'
+          assert not any(x in forbidden or x.startswith('cloudflare/') or x.endswith('.env') for x in changed)
+          package=json.loads(pathlib.Path('package.json').read_text())
+          lock=json.loads(pathlib.Path('package-lock.json').read_text())
+          assert package['version']==lock['version']
+          base_name='HNL-QLTC-DEV-b1038dc-20261029'
+          full=base_name+'-FULL-SOURCE.zip'; patch=base_name+'-PATCH.zip'
+          subprocess.run(['git','archive','--format=zip','-o',full,src],check=True)
+          subprocess.run(['git','archive','--format=zip','-o',patch,src,*changed],check=True)
+          with zipfile.ZipFile(full) as z:
+            assert z.testzip() is None
+            total=sum(not entry.is_dir() for entry in z.infolist())
+            assert set(changed).issubset(z.namelist())
+          with zipfile.ZipFile(patch) as z:
+            assert z.testzip() is None and {x.filename for x in z.infolist() if not x.is_dir()}==set(changed)
+          report=base_name+'-REPORT.md'
+          pathlib.Path(report).write_text('# HNL QLTC - DEV exact HEAD backup\n\nRepo: lengochieu1211-sudo/hnl-qltc\nDEV HEAD: '+src+'\nPROD main unchanged: b2557860fbb3b128b5f2c9863e99d0f8b1f78686\nPrevious DEV base: '+base+'\nSource-only, NO Firebase/R2/Hosting deploy.\nFull archive files: '+str(total)+'\nChanged files: '+str(len(changed))+'\nGit diff and ZIP CRC: PASS. package.json and lock version parity: PASS.\nPR #346: atomic chat message+summary batch, server-only outbox acknowledgment + targeted emulator script/workflow. P21.72 four synthetic users: no duplicate, rejected summary no ghost, offline/reconnect exactly once PASS. Web/Rules/TypeScript/Lint/Windows EXE/Android APK PR CI PASS, no Hosting/R2/Firestore LIVE deploy. Historical missing-count records, real signed-in Google 2-user Golden, and PROD encrypted actual restore remain NOT PASS.\nAuthenticated 2-user Runtime Golden, PROD encrypted restore and Excel real-device: NOT CERTIFIED.\n\nFiles changed:\n'+'\n'.join(changed)+'\n')
+          changed_file=base_name+'-CHANGED-FILES.txt'
+          pathlib.Path(changed_file).write_text('\n'.join(changed)+'\n')
+          others=[full,patch,report,changed_file]
+          sums=base_name+'-SHA256SUMS.txt'
+          pathlib.Path(sums).write_text(''.join(hashlib.sha256(pathlib.Path(x).read_bytes()).hexdigest()+'  '+x+'\n' for x in others))
+          print('ZIP_PASS',src,total,len(changed))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-DEV-b1038dc-SOURCE-PATCH-REPORT-SHA256
+          path: HNL-QLTC-DEV-b1038dc-20261029-*
+          if-no-files-found: error
+          retention-days: 30
