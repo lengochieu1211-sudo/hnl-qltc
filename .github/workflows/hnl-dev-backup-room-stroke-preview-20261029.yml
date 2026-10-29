@@ -11,11 +11,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      SOURCE_SHA: 950fb4091171281df435773b132483f292769dc9
-      CI_RUN: '40807389437'
+      SOURCE_SHA: 4ca8d52dbcf3cc13bba46e6a34861012a72e24db
+      CI_RUN: '40882949722'
       BACKUP_PROJECT: hnl-qltc-dev-backup
-      PREVIEW_CHANNEL: hnl-room-stroke-qa-20261029
-      EXPECTED_LIVE: sites/hnl-qltc-dev-backup/versions/dcb606ceb3b3104b
+      PREVIEW_CHANNEL: hnl-p2180-qa-20261029
+      EXPECTED_LIVE: sites/hnl-qltc-dev-backup/versions/ef82f84f9c6f901b
       VITE_APP_ENV: DEV
       VITE_DEV_FIREBASE_TARGET: backup
       VITE_RUNTIME_BACKEND: firebase-only
@@ -26,7 +26,7 @@ jobs:
       VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
       VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
       VITE_HNL_AI_ENABLED: 'false'
-      VITE_GIT_COMMIT: 950fb4091171281df435773b132483f292769dc9
+      VITE_GIT_COMMIT: 4ca8d52dbcf3cc13bba46e6a34861012a72e24db
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,7 +48,7 @@ jobs:
           curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$CI_RUN" -o "$RUNNER_TEMP/ci.json"
           node - <<'NODE'
           const fs=require('fs'),c=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/ci.json'));
-          if(c.status!=='completed'||c.conclusion!=='success'||c.head_sha!==process.env.SOURCE_SHA)throw Error('EXACT_SOURCE_CI_NOT_PASS');
+          if(c.status!=='completed'||c.conclusion!=='success'||c.head_sha!=='162da7879653dbc63e9eed698fc2361521f23a21')throw Error('EXACT_SOURCE_CI_NOT_PASS');
           NODE
       - uses: actions/setup-node@v4
         with:
@@ -71,6 +71,12 @@ jobs:
           }).map(([k,v])=>k+'='+v).join('\n')+'\n');
           NODE
           npm ci
+          test "$(git rev-parse "$SOURCE_SHA^{tree}")" = "$(git rev-parse 162da7879653dbc63e9eed698fc2361521f23a21^{tree})" || { echo 'CI_SOURCE_TREE_MISMATCH'; exit 1; }
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run security:audit
+          node scripts/p2180-dev-backup-floorplan-golden.mjs
       - name: Verify LIVE version has not changed, build app
         shell: bash
         env:
