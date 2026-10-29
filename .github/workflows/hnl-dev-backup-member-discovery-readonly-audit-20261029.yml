@@ -1,0 +1,107 @@
+name: HNL DEV BACKUP Member Discovery Aggregate Audit (READ ONLY)
+on:
+  push:
+    branches: [safety/dev-backup-room-highlight-uniform-stroke-20261029]
+    paths: ['.github/workflows/hnl-dev-backup-member-discovery-readonly-audit-20261029.yml']
+permissions:
+  contents: read
+jobs:
+  member-discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      EXPECTED_BASE: 1fc1686722871f02663ecf4ec0ed4565ee77655d
+      BACKUP_PROJECT: hnl-qltc-dev-backup
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact QA source, no application changes and no PROD access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-room-highlight-uniform-stroke-20261029'
+          test "$(git diff --name-only "$EXPECTED_BASE" HEAD)" = '.github/workflows/hnl-dev-backup-member-discovery-readonly-audit-20261029.yml'
+          test "$BACKUP_PROJECT" = 'hnl-qltc-dev-backup'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install locked Google auth dependencies
+        run: npm ci --ignore-scripts
+      - name: Read ONLY aggregate Firestore membership/index integrity (no PII)
+        shell: bash
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { google } from 'googleapis';
+          import fs from 'node:fs';
+          const sa = JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT || '{}');
+          if (sa.type !== 'service_account' || sa.project_id !== process.env.BACKUP_PROJECT || !sa.private_key) throw Error('WRONG_OR_MISSING_BACKUP_SA');
+          const auth = new google.auth.GoogleAuth({credentials:sa, scopes:['https://www.googleapis.com/auth/datastore']});
+          const token = (await (await auth.getClient()).getAccessToken()).token;
+          if (!token) throw Error('NO_FIRESTORE_READ_TOKEN');
+          const root = 'https://firestore.googleapis.com/v1/projects/' + process.env.BACKUP_PROJECT + '/databases/(default)/documents/';
+          const field=(x,k)=>x?.fields?.[k];
+          const str=(x,k)=>String(field(x,k)?.stringValue || '').trim();
+          const bool=(x,k)=>field(x,k)?.booleanValue === true;
+          const norm=x=>String(x||'').trim().toLowerCase();
+          async function read(path){
+            let out=[], next='';
+            do {
+              if(out.length>=1000)throw Error('AUDIT_LIMIT_REACHED');
+              const url=new URL(root+path);
+              url.searchParams.set('pageSize','100');
+              if(next)url.searchParams.set('pageToken',next);
+              const response=await fetch(url,{method:'GET',headers:{Authorization:'Bearer '+token,Accept:'application/json'}});
+              if(response.status===404) return out;
+              if(!response.ok)throw Error('FIRESTORE_READ_ONLY_UNAVAILABLE_'+response.status+'_'+path.split('/')[0]);
+              const body=await response.json();out.push(...(body.documents||[]));next=body.nextPageToken||'';
+            }while(next);
+            return out;
+          }
+          const [projects, invitations, accesses]=await Promise.all([
+            read('projects'),read('projectInvitations'),read('projectAccess')
+          ]);
+          if (projects.length>100)throw Error('MAX_PROJECTS_AUDIT_STOP');
+          const inviteSet=new Set(invitations.map(x=>str(x,'projectId')+'|'+norm(str(x,'invitedEmail')||str(x,'email'))));
+          const accessSet=new Set(accesses.filter(x=>!field(x,'active')||bool(x,'active')).map(x=>str(x,'projectId')+'|'+norm(str(x,'email'))));
+          const summary={environment:process.env.BACKUP_PROJECT,readOnly:true,projectRoots:projects.length,activeProjectRoots:0,activeMemberships:0,activeMembershipMissingInvitation:0,activeMembershipMissingAccessIndex:0,recentMembershipsMissingInvitation:0,missingCanonicalEmailIdentity:0,archivedProjects:0,invitationRows:invitations.length,accessRows:accesses.length,complete:true,changedFirestoreData:false,changedRules:false,prodTouched:false};
+          const now=Date.now();
+          for(const p of projects){
+            if(bool(p,'deleted'))continue;
+            summary.activeProjectRoots++;
+            const pid=p.name.split('/').pop();
+            if(field(p,'archivedAt')?.integerValue && Number(field(p,'archivedAt').integerValue)>0)summary.archivedProjects++;
+            const members=await read('projects/'+encodeURIComponent(pid)+'/members');
+            for(const member of members){
+              if(field(member,'active') && !bool(member,'active'))continue;
+              const id=member.name.split('/').pop();
+              const email=norm(str(member,'email') || (id.includes('@')?id:''));
+              if(!email){summary.missingCanonicalEmailIdentity++;continue;}
+              if(id.toLowerCase()!==email)continue; // exclude legacy UID aliases, canonical email identity only
+              summary.activeMemberships++;
+              const key=pid+'|'+email;
+              if(!inviteSet.has(key)){
+                summary.activeMembershipMissingInvitation++;
+                const updated=Number(field(member,'updatedAt')?.integerValue||0);
+                if(updated>now-86400000)summary.recentMembershipsMissingInvitation++;
+              }
+              if(!accessSet.has(key))summary.activeMembershipMissingAccessIndex++;
+            }
+          }
+          fs.mkdirSync('evidence',{recursive:true});
+          fs.writeFileSync('evidence/member-discovery-aggregate-readonly.json',JSON.stringify(summary,null,2)+'\n');
+          console.log('READ_ONLY_AUDIT_PASS '+JSON.stringify(summary));
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-DEV-BACKUP-MEMBER-DISCOVERY-READ-ONLY-EVIDENCE
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: warn
