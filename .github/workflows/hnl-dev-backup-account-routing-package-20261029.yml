@@ -1,0 +1,100 @@
+name: HNL DEV BACKUP Account Routing – FULL PATCH REPORT SHA256 (NO DEPLOY)
+on:
+  push:
+    branches: [safety/dev-backup-account-menu-routing-20261029]
+    paths: ['.github/workflows/hnl-dev-backup-account-routing-package-20261029.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      BASE_SHA: ed828ff449852b1eff81e46a62a4bb2651589bd9
+      SOURCE_SHA: 2fdf290e6379db4e10bdb3c1e08b1165b2ccacbc
+      CI_RUN: '40804259780'
+      CI_SHA: a7e043b7d09305ca821a7d5629b070b4d4f52364
+      PREVIEW_RUN: '40804542432'
+      PREVIEW_SHA: 3304d9c858ef4d20a58d7f38dba65cb6e611b9f1
+      LIVE_RUN: '40804710024'
+      LIVE_SHA: 2fdf290e6379db4e10bdb3c1e08b1165b2ccacbc
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact SHA, previous CI and live, and forbidden PROD changes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/safety/dev-backup-account-menu-routing-20261029'
+          test "$(git diff --name-only "$SOURCE_SHA" HEAD)" = '.github/workflows/hnl-dev-backup-account-routing-package-20261029.yml'
+          for record in "$CI_RUN:$CI_SHA" "$PREVIEW_RUN:$PREVIEW_SHA" "$LIVE_RUN:$LIVE_SHA"; do
+            id="${record%%:*}"; sha="${record#*:}"
+            curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$id" -o "$RUNNER_TEMP/$id.json"
+            ID="$id" WANT_SHA="$sha" node - <<'NODE'
+          const fs=require('fs'),r=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/'+process.env.ID+'.json'));
+          if(r.status!=='completed'||r.conclusion!=='success'||r.head_sha!==process.env.WANT_SHA)throw Error('NOT_PASS '+process.env.ID);
+          console.log('PASS',r.name,r.id);
+          NODE
+          done
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = 'b2557860fbb3b128b5f2c9863e99d0f8b1f78686'
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = 'd6effaf03a08a9879fa172a345992922916036d2'
+          node scripts/source-lint.mjs
+      - name: Package complete current QA source and minimal patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p output/patch
+          git archive --format=zip HEAD -o output/HNL-QLTC-DEV-BACKUP-ACCOUNT-ROUTING-FULL-SOURCE.zip
+          git diff --name-only "$BASE_SHA" HEAD > output/CHANGED-FILES.txt
+          while IFS= read -r path; do
+            test -n "$path"
+            test -f "$path"
+            mkdir -p "output/patch/$(dirname "$path")"
+            cp "$path" "output/patch/$path"
+          done < output/CHANGED-FILES.txt
+          (cd output/patch && zip -qr ../HNL-QLTC-DEV-BACKUP-ACCOUNT-ROUTING-PATCH.zip .)
+          rm -rf output/patch
+          cat > output/HNL-QLTC-DEV-BACKUP-ACCOUNT-ROUTING-REPORT.md <<EOF
+          # HNL QLTC DEV Backup – Fix account menu tab routing – 2026-10-29
+          Repo: lengochieu1211-sudo/hnl-qltc
+          Branch: safety/dev-backup-account-menu-routing-20261029
+          Exact packaging HEAD: $GITHUB_SHA
+          App tested source at CI: $CI_SHA (only subsequent workflows; no business code changes)
+          QA baseline: $BASE_SHA
+          DEV main: d6effaf03a08a9879fa172a345992922916036d2 (unchanged)
+          PROD main: b2557860fbb3b128b5f2c9863e99d0f8b1f78686 (unchanged)
+          Backend: Firebase hnl-qltc-dev-backup, R2 dev-backup (unchanged)
+          Before Hosting: sites/hnl-qltc-dev-backup/versions/1c246a6089ba36b4
+          After Hosting: sites/hnl-qltc-dev-backup/versions/dcb606ceb3b3104b
+          Rollback channel: hnl-account-routing-rollback-20261029
+          CI: $CI_RUN SUCCESS (TypeScript, lint, Firebase Rules, RBAC, offline, Chromium PC/mobile, build).
+          PREVIEW: $PREVIEW_RUN SUCCESS (55 web assets exact byte parity).
+          LIVE: $LIVE_RUN SUCCESS (rollback snapshot, gated promotion, 55 web assets parity).
+          Root cause: Account Info / Sign-in & Switch / Security & Roles all called the SAME SecurityModal open callback. SecurityModal remained mounted with activeTab from previous visit, leading to the wrong page on repeated opens.
+          Changed app: src/App.tsx; src/components/BottomNav.tsx; src/components/DesktopAccountMenu.tsx; src/components/SecurityModal.tsx.
+          Changed tests: scripts/fixtures/desktop-account/main.tsx, scripts/dev-backup-pc-account-menu-golden.mjs; isolated QA-only workflows.
+          Behavior: each menu item selects distinct destination ('account','switch','rbac'); Lock targets PIN or existing lock overlay. SecurityModal resets activeTab only on a new open, NOT on project metadata changes. Switch account shows explicit guarded logout and login. Cancelling Firebase signout no longer clears account state.
+          Safety: signout blocked when offline, when Firestore/data/photo writes pending; preserves original Firebase confirmation. No schema/auth provider/role/R2 changes.
+          Regression: CI Chromium PC 1366px and phone 393px; account->switch->roles->account->PIN, ESC/outside-click, TypeScript/lint/Rules/offline/RBAC/build PASS.
+          No changes: original login/auth project, Firebase Rules, Firestore/IDs, R2, PROD, DEV main, PDF/Excel, floor-plan geometry or highlights.
+          Before LIVE rollback: hnl-account-routing-rollback-20261029.
+          Outstanding: real PC signed-in account navigation verification and queued-writes multiuser runtime Golden pending. NOT CERTIFIED. Floor highlight unequal vertical/horizontal strokes remains separate and NOT patched.
+          EOF
+          mv output/CHANGED-FILES.txt output/HNL-QLTC-DEV-BACKUP-ACCOUNT-ROUTING-CHANGED-FILES.txt
+          (cd output && sha256sum *.zip *.md *.txt > HNL-QLTC-DEV-BACKUP-ACCOUNT-ROUTING-SHA256SUMS.txt)
+          unzip -tq output/HNL-QLTC-DEV-BACKUP-ACCOUNT-ROUTING-FULL-SOURCE.zip
+          unzip -tq output/HNL-QLTC-DEV-BACKUP-ACCOUNT-ROUTING-PATCH.zip
+          test -s output/HNL-QLTC-DEV-BACKUP-ACCOUNT-ROUTING-REPORT.md
+          test -s output/HNL-QLTC-DEV-BACKUP-ACCOUNT-ROUTING-SHA256SUMS.txt
+          echo 'PASS source full patch report hashes and CRC'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-DEV-BACKUP-ACCOUNT-ROUTING-FULL-PATCH-REPORT-SHA256
+          path: output/
+          if-no-files-found: error
+          retention-days: 30
