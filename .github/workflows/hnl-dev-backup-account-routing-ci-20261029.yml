@@ -1,4 +1,5 @@
 name: HNL DEV BACKUP account menu routing – isolated CI (NO DEPLOY / NO PROD)
+# Regression v2: tab selection stays stable while project metadata changes.
 on:
   push:
     branches: [safety/dev-backup-account-menu-routing-20261029]
