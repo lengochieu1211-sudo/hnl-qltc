@@ -13,19 +13,19 @@ import {
 
 const projectId = process.env.GCLOUD_PROJECT || process.env.FIREBASE_PROJECT_ID;
 if (!/^demo-[a-z0-9-]+$/.test(projectId || '') ||
-    !/^(127\\.0\\.0\\.1|localhost):8080$/.test(process.env.FIRESTORE_EMULATOR_HOST || '') ||
-    !/^(127\\.0\\.0\\.1|localhost):9099$/.test(process.env.FIREBASE_AUTH_EMULATOR_HOST || '')) {
+    !/^(127\.0\.0\.1|localhost):8080$/.test(process.env.FIRESTORE_EMULATOR_HOST || '') ||
+    !/^(127\.0\.0\.1|localhost):9099$/.test(process.env.FIREBASE_AUTH_EMULATOR_HOST || '')) {
   throw new Error('P2191_LOOPBACK_DEMO_EMULATORS_ONLY');
 }
 const oldHead = 'b2557860fbb3b128b5f2c9863e99d0f8b1f78686';
 const oldSource = execFileSync('git', ['show', oldHead + ':src/lib/chatService.ts'], { encoding: 'utf8' });
-assert.match(oldSource, /await setDoc\\(msgRef,/, 'legacy message is written separately');
-assert.match(oldSource, /await removeChatOutbox\\(messageId\\)/, 'legacy outbox removed after message');
-assert.match(oldSource, /await setDoc\\(conversationRef\\(/, 'legacy summary is a second write');
-assert.doesNotMatch(oldSource, /lastMessageId:\\s*messageId/, 'legacy summary has no lastMessageId');
+assert.match(oldSource, /await setDoc\(msgRef,/, 'legacy message is written separately');
+assert.match(oldSource, /await removeChatOutbox\(messageId\)/, 'legacy outbox removed after message');
+assert.match(oldSource, /await setDoc\(conversationRef\(/, 'legacy summary is a second write');
+assert.doesNotMatch(oldSource, /lastMessageId:\s*messageId/, 'legacy summary has no lastMessageId');
 const candidateRules = fs.readFileSync('firestore.rules', 'utf8');
 assert.match(candidateRules, /function chatSummaryNewMessageIsAtomic/, 'candidate atomic guard required');
-assert.match(candidateRules, /existsAfter\\(/, 'candidate same-batch guard required');
+assert.match(candidateRules, /existsAfter\(/, 'candidate same-batch guard required');
 
 const nonce = Date.now().toString(36);
 const pid = 'p2191-legacy-' + nonce;
