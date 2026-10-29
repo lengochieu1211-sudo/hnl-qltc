@@ -2121,25 +2121,36 @@ namespace QLTCAnPhu
             runtimeProbeStarted = true;
             try
             {
-                MethodInfo execute = core.GetType().GetMethod("ExecuteScriptAsync", new[] { typeof(string) });
-                if (execute == null) throw new InvalidOperationException("ExecuteScriptAsync is unavailable.");
+                // CI-only: simulate a trusted user gesture. ExecuteScriptAsync has
+                // no user activation, so Chromium can suppress window.open before
+                // NewWindowRequested fires. This path is inactive for normal users.
+                MethodInfo evaluate = core.GetType().GetMethod("CallDevToolsProtocolMethodAsync", new[] { typeof(string), typeof(string) });
+                if (evaluate == null) throw new InvalidOperationException("WebView2 DevTools Protocol is unavailable for the CI-only user-gesture probe.");
                 const string script = @"(function(){
-                    try {
-                        var popup = window.open('about:blank', '_blank');
-                        if (popup) setTimeout(function(){ try { popup.close(); } catch(e) {} }, 800);
-                        var blob = new Blob(['HNL QLTC WebView2 runtime probe'], {type:'text/plain'});
-                        var url = URL.createObjectURL(blob);
-                        var link = document.createElement('a');
-                        link.href = url;
-                        link.download = 'HNL-WebView2-Runtime-Probe.txt';
-                        document.body.appendChild(link);
-                        link.click();
-                        link.remove();
-                        setTimeout(function(){ URL.revokeObjectURL(url); }, 1500);
-                    } catch(e) {}
+                    var popup = window.open('about:blank', '_blank');
+                    if (!popup) throw new Error('popup blocked despite userGesture');
+                    setTimeout(function(){ try { popup.close(); } catch(e) {} }, 5000);
+                    var blob = new Blob(['HNL QLTC WebView2 runtime probe'], {type:'text/plain'});
+                    var url = URL.createObjectURL(blob);
+                    var link = document.createElement('a');
+                    link.href = url;
+                    link.download = 'HNL-WebView2-Runtime-Probe.txt';
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    setTimeout(function(){ URL.revokeObjectURL(url); }, 5000);
                 })();";
-                execute.Invoke(core, new object[] { script });
-                WriteRuntimeProbeMarker("SCRIPT_TRIGGERED");
+                string base64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(script));
+                string json = "{\"expression\":\"eval(atob('" + base64 + "'))\",\"userGesture\":true,\"allowUnsafeEvalBlockedByCSP\":true,\"returnByValue\":true}";
+                object evaluation = evaluate.Invoke(core, new object[] { "Runtime.evaluate", json });
+                System.Threading.Tasks.Task pending = evaluation as System.Threading.Tasks.Task;
+                if (pending == null) throw new InvalidOperationException("WebView2 DevTools Protocol task was not started.");
+                pending.ContinueWith(delegate(System.Threading.Tasks.Task task)
+                {
+                    if (task.IsFaulted)
+                        WriteRuntimeProbeMarker("SCRIPT_FAIL|CDP|" + (task.Exception == null ? "unknown" : task.Exception.GetBaseException().Message));
+                });
+                WriteRuntimeProbeMarker("SCRIPT_TRIGGERED|CDP_USER_GESTURE");
             }
             catch (Exception ex)
             {

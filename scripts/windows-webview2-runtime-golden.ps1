@@ -51,7 +51,11 @@ try {
     }
     Start-Sleep -Milliseconds 400
   }
-  if (-not $popupReady) { throw 'Timed out waiting for same-environment embedded NewWindowRequested popup probe.' }
+  if (-not $popupReady) {
+    if (Test-Path -LiteralPath $probe) { Write-Host ('WebView2 popup probe evidence: ' + (Get-Content -Raw -LiteralPath $probe)) }
+    else { Write-Host 'WebView2 popup probe evidence: NO MARKER FILE' }
+    throw 'Timed out waiting for same-environment embedded NewWindowRequested popup probe.'
+  }
   if (-not $downloadReady) { throw 'Timed out waiting for DownloadStarting workspace-routing probe.' }
 
   $bridgeRoot = Join-Path $env:LOCALAPPDATA 'QLTCAnPhu\WebView2Bridge'
@@ -73,6 +77,8 @@ try {
   Write-Host 'WINDOWS EMBEDDED WEBVIEW2 RUNTIME GOLDEN PASS'
 }
 finally {
+  if (Test-Path -LiteralPath $marker) { Copy-Item -LiteralPath $marker -Destination (Join-Path $evidence 'status.txt') -Force }
+  if (Test-Path -LiteralPath $probe) { Copy-Item -LiteralPath $probe -Destination (Join-Path $evidence 'probe.txt') -Force }
   Remove-Item Env:HNL_QLTC_WEBVIEW2_SMOKE_FILE -ErrorAction SilentlyContinue
   Remove-Item Env:HNL_QLTC_WEBVIEW2_PROBE_FILE -ErrorAction SilentlyContinue
   if ($process -and -not $process.HasExited) {
