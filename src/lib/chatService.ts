@@ -21,7 +21,7 @@ import {
 } from 'firebase/firestore';
 import { db, getCurrentRealFirebaseUser } from './firebase';
 import { blockChatOutbox, listChatOutbox, putChatOutbox, removeChatOutbox } from '../utils/chatOutbox';
-import { shouldAutoFlushChatEntry } from '../utils/chatOutboxRecovery';
+import { isCurrentChatSender, shouldAutoFlushChatEntry } from '../utils/chatOutboxRecovery';
 import type { ProjectChatMessage, ProjectConversationSummary, ChatReplyTo, ChatAttachment } from '../features/chat/types';
 
 export const GENERAL_CONVERSATION_ID = 'general';
@@ -35,7 +35,16 @@ function deterministicMessageId(uid: string, clientMessageId: string): string {
   return `${uid}_${clientMessageId}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 190);
 }
 
-async function commitProjectMessage(input: SendMessageInput, persistOutbox: boolean): Promise<string> {
+function assertChatSenderStillCurrent(expectedUid: string): void {
+  if (!isCurrentChatSender(expectedUid, getCurrentRealFirebaseUser()?.uid)) {
+    // Reconnect or IndexedDB writes may finish after logout/account switching.
+    // Keep the original owner's outbox and never send it under a new UID.
+    throw new Error('Tài khoản đã thay đổi; tin vẫn được giữ trên thiết bị của tài khoản gửi ban đầu.');
+  }
+}
+
+async function commitProjectMessage(input: SendMessageInput, persistOutbox: boolean, expectedSenderUid: string): Promise<string> {
+  assertChatSenderStillCurrent(expectedSenderUid);
   const user = getCurrentRealFirebaseUser();
   if (!user || !user.email) throw new Error('Bạn cần đăng nhập Google để gửi tin nhắn.');
   const conversationId = input.conversationId || GENERAL_CONVERSATION_ID;
@@ -90,6 +99,8 @@ async function commitProjectMessage(input: SendMessageInput, persistOutbox: bool
   // The server applies both writes or neither. The message ID is deterministic,
   // and the message's immutable createdAt rule rejects an old ID replay, so a
   // repeated batch cannot increment messageCount a second time.
+  // Last synchronous guard before the Firestore batch is handed to the SDK.
+  assertChatSenderStillCurrent(expectedSenderUid);
   await batch.commit();
   await removeChatOutbox(messageId).catch(() => {});
 
@@ -114,6 +125,8 @@ export async function flushChatOutbox(): Promise<void> {
     if (!user || !user.email || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
     const rows = await listChatOutbox().catch(() => []);
     for (const row of rows) {
+      // A different Google account may have signed in during an earlier await.
+      if (!isCurrentChatSender(user.uid, getCurrentRealFirebaseUser()?.uid)) break;
       const input = row.input;
       // Outbox entries belong to the account that created their deterministic ID.
       if (!row.id.startsWith(`${user.uid}_`)) continue;
@@ -125,12 +138,16 @@ export async function flushChatOutbox(): Promise<void> {
         // A local pending write is not server acknowledgment. Only a server
         // read may remove the durable outbox after an earlier commit/reconnect.
         const existing = await getDocFromServer(msgRef);
+        // Do not acknowledge/delete A's outbox or send A's message while B is signed in.
+        if (!isCurrentChatSender(user.uid, getCurrentRealFirebaseUser()?.uid)) break;
         if (existing.exists()) {
           await removeChatOutbox(row.id);
           continue;
         }
-        await commitProjectMessage(input, false);
+        await commitProjectMessage(input, false, user.uid);
       } catch (err: any) {
+        // Auth switched while the request was pending: preserve A's row as-is.
+        if (!isCurrentChatSender(user.uid, getCurrentRealFirebaseUser()?.uid)) break;
         if (isPermanentChatSendError(err)) {
           await blockChatOutbox(row.id, 'Firebase từ chối gửi; tin vẫn lưu trên thiết bị để gửi lại.').catch((storageError) => {
             console.warn('[Chat outbox] Cannot mark rejected draft; original entry retained:', storageError);
@@ -264,7 +281,7 @@ export async function sendProjectMessage(input: SendMessageInput): Promise<strin
   await putChatOutbox({ id: messageId, input: normalizedInput, createdAt: Date.now() });
 
   let returnedAsQueued = false;
-  const commitPromise = commitProjectMessage(normalizedInput, false);
+  const commitPromise = commitProjectMessage(normalizedInput, false, user.uid);
   commitPromise.catch((err: any) => {
     if (isPermanentChatSendError(err)) {
       void blockChatOutbox(messageId, 'Firebase từ chối gửi; tin vẫn lưu trên thiết bị để gửi lại.').catch(() => {});
