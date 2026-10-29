@@ -21,7 +21,7 @@ import {
 } from 'firebase/firestore';
 import { db, getCurrentRealFirebaseUser } from './firebase';
 import { blockChatOutbox, listChatOutbox, putChatOutbox, removeChatOutbox } from '../utils/chatOutbox';
-import { isCurrentChatSender, shouldAutoFlushChatEntry } from '../utils/chatOutboxRecovery';
+import { chatOutboxEntryBelongsToUser, isCurrentChatSender, shouldAutoFlushChatEntry } from '../utils/chatOutboxRecovery';
 import type { ProjectChatMessage, ProjectConversationSummary, ChatReplyTo, ChatAttachment } from '../features/chat/types';
 
 export const GENERAL_CONVERSATION_ID = 'general';
@@ -130,7 +130,7 @@ export async function flushChatOutbox(): Promise<void> {
       if (!isCurrentChatSender(user.uid, getCurrentRealFirebaseUser()?.uid)) break;
       const input = row.input;
       // Outbox entries belong to the account that created their deterministic ID.
-      if (!row.id.startsWith(`${user.uid}_`)) continue;
+      if (!chatOutboxEntryBelongsToUser(row, user.uid)) continue;
       // Rejected drafts require an explicit user retry; avoid unauthorized retry loops.
       if (!shouldAutoFlushChatEntry(row)) continue;
       try {
