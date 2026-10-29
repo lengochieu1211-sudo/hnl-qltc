@@ -20,7 +20,8 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db, getCurrentRealFirebaseUser } from './firebase';
-import { listChatOutbox, putChatOutbox, removeChatOutbox } from '../utils/chatOutbox';
+import { blockChatOutbox, listChatOutbox, putChatOutbox, removeChatOutbox } from '../utils/chatOutbox';
+import { shouldAutoFlushChatEntry } from '../utils/chatOutboxRecovery';
 import type { ProjectChatMessage, ProjectConversationSummary, ChatReplyTo, ChatAttachment } from '../features/chat/types';
 
 export const GENERAL_CONVERSATION_ID = 'general';
@@ -116,6 +117,8 @@ export async function flushChatOutbox(): Promise<void> {
       const input = row.input;
       // Outbox entries belong to the account that created their deterministic ID.
       if (!row.id.startsWith(`${user.uid}_`)) continue;
+      // Rejected drafts require an explicit user retry; avoid unauthorized retry loops.
+      if (!shouldAutoFlushChatEntry(row)) continue;
       try {
         const conversationId = input.conversationId || GENERAL_CONVERSATION_ID;
         const msgRef = doc(messageCollection(input.projectId, conversationId), row.id);
@@ -129,12 +132,15 @@ export async function flushChatOutbox(): Promise<void> {
         await commitProjectMessage(input, false);
       } catch (err: any) {
         if (isPermanentChatSendError(err)) {
-          await removeChatOutbox(row.id).catch(() => {});
-          console.warn('[Chat outbox] Permanent send failure; removed from retry queue:', err);
+          await blockChatOutbox(row.id, 'Firebase từ chối gửi; tin vẫn lưu trên thiết bị để gửi lại.').catch((storageError) => {
+            console.warn('[Chat outbox] Cannot mark rejected draft; original entry retained:', storageError);
+          });
+          console.warn('[Chat outbox] Permission-rejected message retained for manual retry:', err);
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent(CHAT_SEND_ERROR_EVENT, {
               detail: {
                 projectId: input.projectId,
+                senderUid: user.uid,
                 conversationId: input.conversationId || GENERAL_CONVERSATION_ID,
                 input,
                 message: err?.message || 'Tin nhắn bị Firebase từ chối. Hãy kiểm tra quyền rồi bấm Gửi lại.',
@@ -261,12 +267,13 @@ export async function sendProjectMessage(input: SendMessageInput): Promise<strin
   const commitPromise = commitProjectMessage(normalizedInput, false);
   commitPromise.catch((err: any) => {
     if (isPermanentChatSendError(err)) {
-      void removeChatOutbox(messageId).catch(() => {});
+      void blockChatOutbox(messageId, 'Firebase từ chối gửi; tin vẫn lưu trên thiết bị để gửi lại.').catch(() => {});
     }
     if (!returnedAsQueued || typeof window === 'undefined') return;
     window.dispatchEvent(new CustomEvent(CHAT_SEND_ERROR_EVENT, {
       detail: {
         projectId: input.projectId,
+        senderUid: user.uid,
         conversationId,
         input: normalizedInput,
         message: err?.message || 'Không gửi được tin nhắn.',
