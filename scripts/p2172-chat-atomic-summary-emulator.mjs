@@ -73,6 +73,15 @@ try{
   let count=(await getDoc(refs(viewer).sum)).data().messageCount;
   assert.equal(count,1);
   assert.equal((await getDoc(refs(viewer).msg('stable-1'))).exists(),true);
+  // P21.86 negative test: a member must not inflate unread count without a new message.
+  // Writes use ONLY localhost emulator, never actual Firebase PROD/DEV.
+  console.log('P2186_PHASE reject-summary-only');
+  const summaryOnlyDenied=await deny(()=>setDoc(refs(sender).sum,summary(sender,increment(1)),{merge:true}));
+  assert.equal(summaryOnlyDenied,true,
+    'SECURITY_GATE: Firestore must reject messageCount increment without creating message in same batch');
+  assert.equal((await getDoc(refs(viewer).sum)).data().messageCount,1,
+    'A rejected counter-only update must not modify conversation state');
+
   // Same deterministic document ID cannot be replayed and increment twice.
   console.log('P2172_PHASE duplicate-id');
   const retryDenied=await deny(()=>commitBatch(sender,'stable-1'));
