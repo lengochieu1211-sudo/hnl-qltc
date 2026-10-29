@@ -1,0 +1,58 @@
+name: P21.98 Chat bidirectional atomic security (ISOLATED, NO DEPLOY)
+on:
+  push:
+    branches: [fix/p2198-chat-message-summary-atomic-20261030]
+    paths:
+      - firestore.rules
+      - scripts/p2198-chat-reverse-atomic-emulator.mjs
+      - .github/workflows/p2198-chat-reverse-atomic-gate.yml
+permissions:
+  contents: read
+jobs:
+  reverse_atomic_gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GCLOUD_PROJECT: demo-hnl-qltc-p2198
+      FIREBASE_PROJECT_ID: demo-hnl-qltc-p2198
+      FIRESTORE_EMULATOR_HOST: 127.0.0.1:8080
+      FIREBASE_AUTH_EMULATOR_HOST: 127.0.0.1:9099
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Assert candidate ancestry and exactly three scoped files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/fix/p2198-chat-message-summary-atomic-20261030'
+          test "$GCLOUD_PROJECT" = 'demo-hnl-qltc-p2198'
+          test "$(git merge-base HEAD ce6f4e586b70f76a6c94ab8ae4a966b8e841e2e0)" = 'ce6f4e586b70f76a6c94ab8ae4a966b8e841e2e0'
+          expected="$(printf '%s\n' .github/workflows/p2198-chat-reverse-atomic-gate.yml firestore.rules scripts/p2198-chat-reverse-atomic-emulator.mjs | sort)"
+          observed="$(git diff --name-only ce6f4e586b70f76a6c94ab8ae4a966b8e841e2e0 HEAD | sort)"
+          test "$observed" = "$expected"
+          echo 'P21.98 exact scoped three-file change, no production credentials.'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install pinned dependencies
+        run: npm ci
+      - name: Auth+Firestore demo emulator reverse atomic and prior P21.86 regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes firebase-tools@13.35.1 emulators:exec --config firebase.rules-ci.json --only auth,firestore --project demo-hnl-qltc-p2198 "node scripts/p2198-chat-reverse-atomic-emulator.mjs && node scripts/p2172-chat-atomic-summary-emulator.mjs"
+      - name: Preserve synthetic proof even if security gate fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-P2198-CHAT-REVERSE-ATOMIC-EMULATOR
+          path: evidence/P2198-REVERSE-ATOMIC-SECURITY.json
+          if-no-files-found: warn
+          retention-days: 30
