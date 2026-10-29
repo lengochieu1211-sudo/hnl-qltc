@@ -7710,6 +7710,27 @@ function AuthenticatedApp() {
   };
 
   const hasExcelExport = ['warehouse', 'volume', 'floorplan', 'checklist', 'crew'].includes(activeTab);
+  // Presentation-only logout gate: do not abandon uncommitted Firestore or R2 work.
+  // Gate is re-evaluated on click as well as when drawing the desktop account menu.
+  const desktopAccountHasPendingSync = !cloudInitialReady
+    || firestorePendingWriteCount > 0
+    || syncDiagnosticPendingData > 0
+    || syncDiagnosticPendingMetadata > 0
+    || Number(photoCloudStatus.pending || 0) > 0
+    || floorPlanImageSyncPendingRef.current.size > 0
+    || floorPlanImageSyncInFlightRef.current.size > 0;
+  const handleDesktopAccountSignOut = async () => {
+    if (!isOnline || desktopAccountHasPendingSync) {
+      alert('Không thể đăng xuất khi đang ngoại tuyến hoặc còn dữ liệu chờ đồng bộ. Hãy kết nối mạng và đợi đồng bộ hoàn tất.');
+      return;
+    }
+    // Existing confirmation / role reset / AuthGate lifecycle remain authoritative.
+    await signOutGoogle();
+  };
+  const handleDesktopLockNow = () => {
+    if (getStoredPinLockConfig().enabled) setIsAppLocked(true);
+    else setIsSecurityModalOpen(true); // Allow the owner to configure PIN first.
+  };
 
   return (
     <div data-hnl-desktop-design={visibleTab !== 'home' ? desktopWorkspaceMode : 'classic'} data-hnl-pc-home-modern={visibleTab === 'home' && desktopWorkspaceMode === 'modern' ? 'true' : 'false'} data-hnl-desktop-native={isDesktopRuntime ? 'true' : 'false'} className={`min-h-screen bg-slate-100 text-slate-900 font-sans selection:bg-blue-200 ${isDesktopRuntime || chromeDesktopSite ? 'pl-[84px]' : 'lg:pl-[84px]'}`}>
@@ -8591,6 +8612,13 @@ function AuthenticatedApp() {
             showChecklist={showChecklistModule}
             showAi={HNL_AI_ENABLED}
             showSuperAdmin={isCurrentSuperAdmin}
+            userRole={currentUserRole}
+            roleResolved={isProjectRoleResolved && projectRoleAllowed}
+            online={isOnline}
+            hasPendingSync={desktopAccountHasPendingSync}
+            onOpenAccount={() => setIsSecurityModalOpen(true)}
+            onLockNow={handleDesktopLockNow}
+            onSignOut={handleDesktopAccountSignOut}
           />
         )}
 
