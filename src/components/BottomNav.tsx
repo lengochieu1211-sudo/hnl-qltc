@@ -31,7 +31,7 @@ interface BottomNavProps {
   roleResolved?: boolean;
   online?: boolean;
   hasPendingSync?: boolean;
-  onOpenAccount?: () => void;
+  onOpenAccount?: (section: 'account' | 'switch' | 'rbac') => void;
   onLockNow?: () => void;
   onSignOut?: () => Promise<void>;
 }
