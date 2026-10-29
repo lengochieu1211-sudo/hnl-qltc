@@ -1319,6 +1319,26 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setRoomHighlightStrokePercent(next);
     try { localStorage.setItem(getDraftKey('construction_room_highlight_stroke_percent'), String(next)); } catch { /* local-only preference */ }
   };
+  // Display-only, per-project/per-device label preferences; no Firestore or room schema writes.
+  const readMapLabelPercent = (key: string) => {
+    try {
+      const stored = localStorage.getItem(getDraftKey(key));
+      if (stored === null) return 100;
+      const value = Number(stored);
+      return Number.isFinite(value) && value >= 75 && value <= 175 ? value : 100;
+    } catch { return 100; }
+  };
+  const [roomLabelScalePercent, setRoomLabelScalePercent] = useState(() => readMapLabelPercent('construction_room_label_scale_percent'));
+  const [defectLabelScalePercent, setDefectLabelScalePercent] = useState(() => readMapLabelPercent('construction_defect_label_scale_percent'));
+  useEffect(() => {
+    setRoomLabelScalePercent(readMapLabelPercent('construction_room_label_scale_percent'));
+    setDefectLabelScalePercent(readMapLabelPercent('construction_defect_label_scale_percent'));
+  }, [currentProjectId]);
+  const changeMapLabelPercent = (key: string, setValue: (value: number) => void, percent: number) => {
+    const value = Math.min(175, Math.max(75, percent));
+    setValue(value);
+    try { localStorage.setItem(getDraftKey(key), String(value)); } catch { /* device-only setting */ }
+  };
   // Drawing is mutually exclusive with selecting/editing existing rooms and Defects.
   const isRoomCreationDrawing = canManageStructure && (viewMode === 'all' || viewMode === 'highlight')
     && (drawTool === 'freehand' || drawTool === 'polygon' || drawTool === '2point');
@@ -6161,6 +6181,55 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
      transformStr = `translate(0, ${containerH}px) rotate(270deg)`;
   }
 
+  // One compact control surface shared by normal, fullscreen and read-only map toolbars.
+  // Collapsed by default: do not add three permanent sliders to the drawing toolbar.
+  const renderMapDisplaySettings = (dark = false) => (
+    <details className={`group shrink-0 rounded-xl border ${dark ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-200 bg-white text-slate-700'}`}>
+      <summary className="min-h-9 cursor-pointer select-none list-none px-3 py-2 flex items-center gap-1.5 text-[11px] font-bold whitespace-nowrap" aria-label="Mở tùy chỉnh hiển thị mặt bằng">
+        <span aria-hidden="true">⚙️</span> Hiển thị <span className="text-[9px] group-open:rotate-180">▾</span>
+      </summary>
+      <div className={`flex flex-col gap-2 border-t p-2.5 min-w-[210px] max-w-[290px] ${dark ? 'border-slate-600' : 'border-slate-200'}`}>
+        <div className="flex flex-wrap gap-1">
+          <button type="button" onClick={() => setRoomColorMode(roomColorMode === 'palette' ? 'status' : 'palette')}
+            className={`rounded-lg px-2 py-1.5 text-[11px] font-semibold ${dark ? 'bg-slate-700' : 'bg-slate-100'}`}
+            title="Chọn màu vùng highlight theo căn/phòng hoặc trạng thái">
+            {roomColorMode === 'palette' ? '🎨 Mỗi phòng một màu' : '🎨 Màu theo trạng thái'}
+          </button>
+          <button type="button" onClick={() => setShowTextOverlay(!showTextOverlay)}
+            className={`rounded-lg px-2 py-1.5 text-[11px] font-semibold ${dark ? 'bg-slate-700' : 'bg-slate-100'}`}>
+            {showTextOverlay ? 'Tên phòng gọn' : 'Tên phòng đầy đủ'}
+          </button>
+        </div>
+        <label className="flex items-center gap-2 text-[11px] font-semibold">
+          <span className="w-24 shrink-0">Nét highlight</span>
+          <input aria-label="Độ dày nét highlight" type="range" min={50} max={250} step={25}
+            value={roomHighlightStrokePercent} onChange={(event) => updateRoomHighlightStrokePercent(Number(event.target.value))}
+            className="min-w-0 flex-1 accent-indigo-500" />
+          <span className="w-9 text-right tabular-nums">{roomHighlightStrokePercent}%</span>
+        </label>
+        <label className="flex items-center gap-2 text-[11px] font-semibold">
+          <span className="w-24 shrink-0">Chữ căn/phòng</span>
+          <input aria-label="Cỡ chữ Căn Phòng" type="range" min={75} max={175} step={25}
+            value={roomLabelScalePercent} onChange={(event) => changeMapLabelPercent('construction_room_label_scale_percent', setRoomLabelScalePercent, Number(event.target.value))}
+            className="min-w-0 flex-1 accent-indigo-500" />
+          <span className="w-9 text-right tabular-nums">{roomLabelScalePercent}%</span>
+        </label>
+        <label className="flex items-center gap-2 text-[11px] font-semibold">
+          <span className="w-24 shrink-0">Chữ Defect</span>
+          <input aria-label="Cỡ chữ Defect" type="range" min={75} max={175} step={25}
+            value={defectLabelScalePercent} onChange={(event) => changeMapLabelPercent('construction_defect_label_scale_percent', setDefectLabelScalePercent, Number(event.target.value))}
+            className="min-w-0 flex-1 accent-indigo-500" />
+          <span className="w-9 text-right tabular-nums">{defectLabelScalePercent}%</span>
+        </label>
+        <button type="button" onClick={() => {
+          updateRoomHighlightStrokePercent(100);
+          changeMapLabelPercent('construction_room_label_scale_percent', setRoomLabelScalePercent, 100);
+          changeMapLabelPercent('construction_defect_label_scale_percent', setDefectLabelScalePercent, 100);
+        }} className={`self-end rounded-lg px-2 py-1 text-[10px] font-bold ${dark ? 'bg-slate-700' : 'bg-slate-100'}`}>Mặc định 100%</button>
+      </div>
+    </details>
+  );
+
   return (
     <div data-hnl-workspace-module="floorplan" className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
       <DesktopWorkspaceMetrics eyebrow="THI CÔNG · MẶT BẰNG"
@@ -6911,74 +6980,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 </button>
               </div>
 
-              {/* Group 2: Display Overlay Toggle & Color Mode */}
-              <div className="flex flex-wrap items-center gap-1.5">
-                {/* Room Highlight Color Mode Toggle */}
-                <button
-                  type="button"
-                  onClick={() => setRoomColorMode(roomColorMode === 'palette' ? 'status' : 'palette')}
-                  className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap ${
-                    roomColorMode === 'palette'
-                      ? 'bg-indigo-600 text-white shadow-xs hover:bg-indigo-700'
-                      : 'bg-slate-200 text-slate-800 border border-slate-300 shadow-xs hover:bg-slate-300'
-                  }`}
-                  title="Đổi giữa Chế độ Mỗi căn 1 màu đa sắc phân biệt (Mặc định) và Màu theo Trạng thái Nghiệm thu"
-                >
-                  <Palette className="w-3.5 h-3.5 shrink-0" />
-                  <span>{roomColorMode === 'palette' ? 'Mỗi căn/phòng một màu' : 'Theo trạng thái'}</span>
-                </button>
-
-<label className="flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-2 py-1 text-[11px] font-bold text-slate-700 shrink-0" title="Độ dày nét viền highlight căn/phòng; chỉ lưu trên thiết bị">
-                  <span>Nét</span>
-                  <input aria-label="Độ dày nét highlight" type="range" min={50} max={250} step={25}
-                    value={roomHighlightStrokePercent} onChange={(e) => updateRoomHighlightStrokePercent(Number(e.target.value))}
-                    className="w-20 accent-indigo-600" />
-                  <span className="tabular-nums min-w-10 text-right">{roomHighlightStrokePercent}%</span>
-                </label>
-
-                {/* Show/Hide Text Label Toggle */}
-                <button
-                  type="button"
-                  onClick={() => setShowTextOverlay(!showTextOverlay)}
-                  className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap ${
-                    !showTextOverlay
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/90 shadow-2xs'
-                  }`}
-                  title="Bật/Tắt chế độ chỉ hiện màu Highlight (không hiện chữ rối)"
-                >
-                  {!showTextOverlay ? <EyeOff className="w-3.5 h-3.5 shrink-0" /> : <Eye className="w-3.5 h-3.5 shrink-0" />}
-                  <span>{!showTextOverlay ? 'Chỉ hiện màu' : 'Hiện tên Căn / Phòng'}</span>
-                </button>
-              </div>
+              {renderMapDisplaySettings(false)}
               </div>
             </details>
           )}
 
-          {!canManageStructure && (viewMode === 'highlight' || viewMode === 'all') && (
-            <div className="flex flex-wrap items-center gap-1.5 bg-slate-50/90 rounded-xl border border-slate-200/80 px-2.5 py-2">
-              <button
-                type="button"
-                onClick={() => setRoomColorMode(roomColorMode === 'palette' ? 'status' : 'palette')}
-                className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all ${
-                  roomColorMode === 'palette' ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-800 border border-slate-300'
-                }`}
-                title="Đổi cách hiển thị màu Căn / Phòng"
-              >
-                <Palette className="w-3.5 h-3.5" />
-                <span>{roomColorMode === 'palette' ? 'Mỗi căn/phòng một màu' : 'Theo trạng thái'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowTextOverlay(!showTextOverlay)}
-                className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all ${
-                  !showTextOverlay ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-200'
-                }`}
-                title="Bật/Tắt nhãn tên Căn / Phòng"
-              >
-                {!showTextOverlay ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                <span>{!showTextOverlay ? 'Chỉ hiện màu' : 'Hiện tên Căn / Phòng'}</span>
-              </button>
+          {!canManageStructure && (viewMode === 'highlight' || viewMode === 'all' || viewMode === 'defect') && (
+            <div className="flex flex-wrap items-center gap-1.5 px-2 py-1">
+              {renderMapDisplaySettings(false)}
             </div>
           )}
 
@@ -7368,43 +7377,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           <span>Vẽ chữ nhật</span>
                         </button>
 
-                        {/* Color Mode Toggle */}
-                        <button
-                          type="button"
-                          onClick={() => setRoomColorMode(roomColorMode === 'palette' ? 'status' : 'palette')}
-                          className={`min-h-9 text-[11px] font-extrabold px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all shrink-0 cursor-pointer ${
-                            roomColorMode === 'palette'
-                              ? 'bg-indigo-600 text-white shadow-xs hover:bg-indigo-700'
-                              : 'bg-slate-800 text-slate-200 border border-slate-700 shadow-xs hover:bg-slate-700'
-                          }`}
-                          title="Đổi giữa Chế độ Mỗi căn 1 màu đa sắc phân biệt và Theo Trạng thái Nghiệm thu"
-                        >
-                          <Palette className="w-3.5 h-3.5" />
-                          <span>{roomColorMode === 'palette' ? 'Mỗi căn/phòng một màu' : 'Theo trạng thái'}</span>
-                        </button>
-
-<label className="min-h-9 flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-2 text-[11px] font-bold text-slate-100 shrink-0" title="Độ dày nét highlight, lưu riêng trên thiết bị">
-                          <span>Nét</span>
-                          <input aria-label="Độ dày nét highlight" type="range" min={50} max={250} step={25}
-                            value={roomHighlightStrokePercent} onChange={(e) => updateRoomHighlightStrokePercent(Number(e.target.value))}
-                            className="w-20 accent-indigo-400" />
-                          <span className="tabular-nums min-w-10 text-right">{roomHighlightStrokePercent}%</span>
-                        </label>
-
-                        {/* Toggle Highlight Display */}
-                        <button
-                          type="button"
-                          onClick={() => setShowTextOverlay(!showTextOverlay)}
-                          className={`min-h-9 text-[11px] font-extrabold px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all shrink-0 cursor-pointer ${
-                            !showTextOverlay
-                              ? 'bg-indigo-600 text-white shadow-xs'
-                              : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
-                          }`}
-                          title="Hiện màu sạch / Hiện đầy đủ tên Căn / Phòng"
-                        >
-                          {!showTextOverlay ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                          <span>{!showTextOverlay ? 'Chỉ hiện màu' : 'Hiện tên Căn / Phòng'}</span>
-                        </button>
+                        {renderMapDisplaySettings(true)}
 
                         {/* Add Room */}
                         <button
@@ -8072,6 +8045,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 {/* SVG OVERLAY FOR HIGHLIGHT SHAPES & LIVE DRAWINGS */}
                 {mapLayers.roomRegions && (viewMode === 'all' || viewMode === 'highlight') && (() => {
                   const strokeScale = (roomHighlightStrokePercent / 100) / Math.max(1, zoomScale);
+                  // Screen-pixel strokes for persisted rooms must scale too (no zoom divisor).
+                  const savedRoomStrokeScale = roomHighlightStrokePercent / 100;
                   return (
                   <svg className="absolute inset-0 w-full h-full pointer-events-none z-10" viewBox="0 0 100 100" preserveAspectRatio="none">
                     {/* Live Draft Highlight Pending Pulsing Shape */}
@@ -8193,7 +8168,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           points={room.points.map((p) => `${p.x},${p.y}`).join(' ')}
                           fill="none"
                           stroke={strokeColor}
-                          strokeWidth={4}
+                          strokeWidth={4 * savedRoomStrokeScale}
                           vectorEffect="non-scaling-stroke"
                           strokeLinecap="round"
                           strokeLinejoin="round"
@@ -8204,7 +8179,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           points={room.points.map((p) => `${p.x},${p.y}`).join(' ')}
                           fill="none"
                           stroke={isSelectedForDrag ? '#f59e0b' : strokeColor}
-                          strokeWidth={isSelectedForDrag ? 2.6 : 2}
+                          strokeWidth={(isSelectedForDrag ? 2.6 : 2) * savedRoomStrokeScale}
                           vectorEffect="non-scaling-stroke"
                           strokeDasharray={isSelectedForDrag ? '2,1' : undefined}
                           strokeLinecap="round"
@@ -8241,7 +8216,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       points={room.points!.map((p) => `${p.x},${p.y}`).join(' ')}
                       fill={fillColor}
                       stroke={isSelectedForDrag ? '#f59e0b' : strokeColor}
-                      strokeWidth={isSelectedForDrag ? 2.6 : 2}
+                      strokeWidth={(isSelectedForDrag ? 2.6 : 2) * savedRoomStrokeScale}
                       vectorEffect="non-scaling-stroke"
                       strokeDasharray={isSelectedForDrag ? '2,1' : undefined}
                       className="pointer-events-auto cursor-pointer transition-all hover:fill-opacity-75"
@@ -8274,7 +8249,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       height={room.height}
                       fill={fillColor}
                       stroke={isSelectedForDrag ? '#f59e0b' : strokeColor}
-                      strokeWidth={isSelectedForDrag ? 2.6 : 2}
+                      strokeWidth={(isSelectedForDrag ? 2.6 : 2) * savedRoomStrokeScale}
                       vectorEffect="non-scaling-stroke"
                       strokeDasharray={isSelectedForDrag ? '2,1' : undefined}
                       className="pointer-events-auto cursor-pointer transition-all hover:fill-opacity-75"
@@ -8565,7 +8540,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             isHovered ? 'scale-110 z-30' : ''
                           }`}
                         >
-                          <span className={`max-w-[128px] sm:max-w-[180px] whitespace-normal break-words text-center leading-tight text-[9px] sm:text-[10px] font-extrabold px-2 py-0.5 rounded-xl shadow-md backdrop-blur-xs border inline-flex flex-wrap items-center justify-center gap-1 ${
+                          <span style={{ transform: `scale(${roomLabelScalePercent / 100})`, transformOrigin: 'center' }} className={`max-w-[128px] sm:max-w-[180px] whitespace-normal break-words text-center leading-tight text-[9px] sm:text-[10px] font-extrabold px-2 py-0.5 rounded-xl shadow-md backdrop-blur-xs border inline-flex flex-wrap items-center justify-center gap-1 ${
                             isFailed
                               ? 'bg-rose-950/90 text-rose-200 border-rose-500'
                               : isPassed
@@ -8654,7 +8629,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       className="absolute -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-auto cursor-pointer p-1 flex flex-col items-center gap-0.5 transition-all"
                     >
                       <div className="flex items-center gap-1">
-                        <span className="max-w-[128px] sm:max-w-[180px] whitespace-normal break-words text-center leading-tight font-extrabold text-[9px] sm:text-[10px] bg-black/85 text-white px-2 py-0.5 rounded-md shadow border border-white/20">
+                        <span style={{ transform: `scale(${roomLabelScalePercent / 100})`, transformOrigin: 'center' }} className="max-w-[128px] sm:max-w-[180px] whitespace-normal break-words text-center leading-tight font-extrabold text-[9px] sm:text-[10px] bg-black/85 text-white px-2 py-0.5 rounded-md shadow border border-white/20">
                           {room.roomName}{lockedRoomIds.has(room.id) ? ' 🔒' : ''}
                         </span>
                         {isPassed && (
@@ -8790,7 +8765,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       >
                         <div
                           style={{
-                            transform: `scale(${defectLabelScale})`,
+                            transform: `scale(${defectLabelScale * defectLabelScalePercent / 100})`,
                             transformOrigin: 'center',
                           }}
                           className={`h-5 min-w-6 px-1.5 rounded-lg flex items-center justify-center text-white font-extrabold text-[8px] sm:text-[9px] leading-none shadow border border-white/90 whitespace-nowrap ${
