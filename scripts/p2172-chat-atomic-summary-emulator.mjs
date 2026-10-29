@@ -68,16 +68,19 @@ try{
   await setDoc(within(owner,'members',sender.email),{email:sender.email,role:'EDITOR',active:true,assignedAt:Date.now()});
   await setDoc(within(owner,'members',viewer.email),{email:viewer.email,role:'VIEWER',active:true,assignedAt:Date.now()});
   assert.equal(await deny(()=>getDoc(refs(outsider).sum)),true,'nonmember cannot read');
+  console.log('P2172_PHASE first-batch');
   await commitBatch(sender,'stable-1');
   let count=(await getDoc(refs(viewer).sum)).data().messageCount;
   assert.equal(count,1);
   assert.equal((await getDoc(refs(viewer).msg('stable-1'))).exists(),true);
   // Same deterministic document ID cannot be replayed and increment twice.
+  console.log('P2172_PHASE duplicate-id');
   const retryDenied=await deny(()=>commitBatch(sender,'stable-1'));
   assert.equal(retryDenied,true,'duplicate batch must be rejected by existing-message immutable createdAt rule');
   count=(await getDoc(refs(viewer).sum)).data().messageCount;
   assert.equal(count,1,'retry must never double count');
   // Deliberately reject summary (increment by 2); entire batch, incl. message, must fail.
+  console.log('P2172_PHASE reject-invalid-summary');
   const invalidSummaryDenied=await deny(()=>commitBatch(sender,'bad-summary',increment(2)));
   assert.equal(invalidSummaryDenied,true);
   assert.equal((await getDoc(refs(viewer).msg('bad-summary'))).exists(),false,'failed summary cannot leave ghost message');
@@ -85,6 +88,7 @@ try{
   assert.equal(count,1);
   // Offline batch remains queued and locally pending, while local read never
   // authorizes deletion of the durable outbox (must use getDocFromServer).
+  console.log('P2172_PHASE disconnect');
   await disableNetwork(sender.db);
   let committed=false;
   const queued=commitBatch(sender,'offline-2').then(()=>{committed=true;});
@@ -94,11 +98,13 @@ try{
   assert.equal(local.exists(),true,'offline message should be locally queued');
   assert.equal(local.metadata.hasPendingWrites,true,'offline message must be pending');
   await assert.rejects(()=>getDocFromServer(refs(sender).msg('offline-2')),'no server acknowledgment offline');
+  console.log('P2172_PHASE reconnect');
   await enableNetwork(sender.db);
   await Promise.race([queued,new Promise((_,reject)=>setTimeout(()=>reject(Error('RECONNECT_TIMEOUT')),15000))]);
   assert.equal(committed,true);
   assert.equal((await getDoc(refs(viewer).msg('offline-2'))).exists(),true);
   assert.equal((await getDoc(refs(viewer).sum)).data().messageCount,2,'offline reconnect exactly one increment');
+  console.log('P2172_PHASE legacy-summary');
   const legacySummary=within(owner,'conversations','old');
   await setDoc(legacySummary,{id:'old',projectId:pid,messageCount:0,lastSenderUid:owner.uid,lastMessageAt:clock(),lastMessageText:'legacy'});
   const output={
