@@ -11,8 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      SOURCE_SHA: 141d48b7b27cac12087c27c6f65ff1f3b588e16a
-      CI_RUN: '40799658617'
+      SOURCE_SHA: 607193f78caae1302971297f4c68c3543aef27ca
+      CI_RUN: '40800074210'
       BACKUP_PROJECT: hnl-qltc-dev-backup
       PREVIEW_CHANNEL: hnl-pc-account-avatar-qa-20261029
       EXPECTED_LIVE: sites/hnl-qltc-dev-backup/versions/9742c0a348837456
@@ -26,7 +26,7 @@ jobs:
       VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
       VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
       VITE_HNL_AI_ENABLED: 'false'
-      VITE_GIT_COMMIT: 141d48b7b27cac12087c27c6f65ff1f3b588e16a
+      VITE_GIT_COMMIT: 607193f78caae1302971297f4c68c3543aef27ca
     steps:
       - uses: actions/checkout@v4
         with:
