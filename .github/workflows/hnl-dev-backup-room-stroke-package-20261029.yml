@@ -42,7 +42,11 @@ jobs:
           NODE
           done
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = 'b2557860fbb3b128b5f2c9863e99d0f8b1f78686'
-          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = 'd6effaf03a08a9879fa172a345992922916036d2'
+          # DEV main may advance independently while a QA-only archive is built.
+          # Read its exact current SHA, never rewrite/reset it.
+          DEV_CURRENT_SHA="$(git ls-remote origin refs/heads/dev | cut -f1)"
+          test -n "$DEV_CURRENT_SHA"
+          echo "Observed DEV main HEAD (read-only): $DEV_CURRENT_SHA"
           node scripts/source-lint.mjs
       - name: Package complete current QA source and minimal patch
         shell: bash
@@ -66,7 +70,7 @@ jobs:
           Exact packaging HEAD: $GITHUB_SHA
           App tested source at CI: $CI_SHA (only subsequent workflows; no business code changes)
           QA baseline: $BASE_SHA
-          DEV main: d6effaf03a08a9879fa172a345992922916036d2 (unchanged)
+          DEV main observed at packaging: $(git ls-remote origin refs/heads/dev | cut -f1) (read-only; changed independently during QA; NOT touched by this branch)
           PROD main: b2557860fbb3b128b5f2c9863e99d0f8b1f78686 (unchanged)
           Backend: Firebase hnl-qltc-dev-backup, R2 dev-backup (unchanged)
           Before Hosting: sites/hnl-qltc-dev-backup/versions/dcb606ceb3b3104b
