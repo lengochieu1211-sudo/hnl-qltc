@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      EXPECTED_BASE: e74660f839d08b7fc81ee3f8726a7db4a3eca5ac
+      EXPECTED_BASE: 0b584c6be41eb7712254c3cd373950d4da347151
       BACKUP_PROJECT: hnl-qltc-dev-backup
     steps:
       - uses: actions/checkout@v4
@@ -151,6 +151,24 @@ jobs:
                   excerpts.push({marker,found:idx>=0,excerpt:idx>=0?lines.slice(idx,idx+14).join('\n').replace(/[\w.+-]+@[\w.-]+/g,'[redacted]'):''});
                 }
                 rulesResult.relevantExcerpts=excerpts;
+                const guardStart=deployedRules.indexOf('function backupAccountAllowed()');
+                if(guardStart>=0){
+                  const braceStart=deployedRules.indexOf('{',guardStart);
+                  let depth=0,end=braceStart;
+                  for(;end<deployedRules.length;end++){
+                    if(deployedRules[end]==='{')depth++;
+                    if(deployedRules[end]==='}'){depth--;if(depth===0){end++;break;}}
+                  }
+                  const guard=deployedRules.slice(guardStart,end);
+                  const emails=[...guard.matchAll(/[\\w.+-]+@[\\w.-]+/g)].map(x=>x[0]);
+                  rulesResult.backupAccountGuard={
+                    present:true,explicitEmailCount:emails.length,explicitlyAllowsTarget:emails.some(isTarget),
+                    mentionsCurrentEmail:guard.includes('signedInEmail()'),
+                    mentionsMember:guard.includes('isMember('),
+                    mentionsProject:guard.includes('projectId'),
+                    sanitizedExpression:guard.replace(/[\\w.+-]+@[\\w.-]+/g,'[email-redacted]').slice(0,1100)
+                  };
+                }else rulesResult.backupAccountGuard={present:false};
               }
             }
           } catch(err) {
