@@ -45,7 +45,7 @@ jobs:
             total=len(z.namelist())
             assert set(changed).issubset(z.namelist())
           with zipfile.ZipFile(patch) as z:
-            assert z.testzip() is None and set(z.namelist())==set(changed)
+            assert z.testzip() is None and {x.filename for x in z.infolist() if not x.is_dir()}==set(changed)
           report=base_name+'-REPORT.md'
           pathlib.Path(report).write_text('# HNL QLTC - DEV exact HEAD backup\n\nRepo: lengochieu1211-sudo/hnl-qltc\nDEV HEAD: '+src+'\nPROD main unchanged: '+base+'\nSource-only, NO Firebase/R2/Hosting deploy.\nFull archive files: '+str(total)+'\nChanged files: '+str(len(changed))+'\nGit diff and ZIP CRC: PASS. package.json and lock version parity: PASS.\nPR #343 CI typecheck/lint/Rules/security/build PASS; after-merge CI tracked separately.\nAuthenticated 2-user Runtime Golden, PROD encrypted restore and Excel real-device: NOT CERTIFIED.\n\nFiles changed:\n'+'\n'.join(changed)+'\n')
           changed_file=base_name+'-CHANGED-FILES.txt'
