@@ -1,0 +1,56 @@
+name: P21.97 Chat message-only security negative (AUDIT ONLY, NO DEPLOY)
+on:
+  push:
+    branches: [audit/p2197-chat-message-only-20261030]
+    paths:
+      - scripts/p2197-chat-message-only-security-emulator.mjs
+      - .github/workflows/p2197-chat-message-only-audit.yml
+permissions:
+  contents: read
+jobs:
+  negative_message_only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GCLOUD_PROJECT: demo-hnl-qltc-p2197
+      FIREBASE_PROJECT_ID: demo-hnl-qltc-p2197
+      FIRESTORE_EMULATOR_HOST: 127.0.0.1:8080
+      FIREBASE_AUTH_EMULATOR_HOST: 127.0.0.1:9099
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Assert source authority and no production credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/audit/p2197-chat-message-only-20261030'
+          test "$GCLOUD_PROJECT" = 'demo-hnl-qltc-p2197'
+          test "$(git merge-base HEAD ce6f4e586b70f76a6c94ab8ae4a966b8e841e2e0)" = 'ce6f4e586b70f76a6c94ab8ae4a966b8e841e2e0'
+          expected="$(printf '%s\n' .github/workflows/p2197-chat-message-only-audit.yml scripts/p2197-chat-message-only-security-emulator.mjs | sort)"
+          observed="$(git diff --name-only ce6f4e586b70f76a6c94ab8ae4a966b8e841e2e0 HEAD | sort)"
+          test "$observed" = "$expected"
+          echo 'Audit-only 2 files, source exact, no deploy.'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install pinned dependencies
+        run: npm ci
+      - name: Auth + Firestore emulator negative security probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes firebase-tools@13.35.1 emulators:exec --config firebase.rules-ci.json --only auth,firestore --project demo-hnl-qltc-p2197 "node scripts/p2197-chat-message-only-security-emulator.mjs"
+      - name: Preserve synthetic proof even on security-gate failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-P2197-CHAT-MESSAGE-ONLY-AUDIT
+          path: evidence/P2197-MESSAGE-ONLY-SECURITY.json
+          if-no-files-found: warn
+          retention-days: 30
