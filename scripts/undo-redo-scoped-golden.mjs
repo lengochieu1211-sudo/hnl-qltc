@@ -78,6 +78,14 @@ assert(app.includes('restoreDeletedUndoOnCloud(pid, step, deletedTimes, receipt?
   app.includes('restoreWarehouseTransactionAtomic(pid, change.id)') &&
   app.includes('if (undoCloudBusyRef.current) return;'),
   'Undo routes warehouse to stock transactions and blocks concurrent history');
+assert(cloudRestore.includes('redoDeletedHistoryOnCloud') &&
+  cloudRestore.includes('REDO_SERVER_REVISION_CONFLICT') &&
+  cloudRestore.includes('UNDO_DELETION_CONFLICT') &&
+  cloudRestore.includes('tx.set(receiptRef, sanitizePayloadForCloud(receipt))'),
+  'Redo delete requires a new revision, a live server conflict check and atomic Trash receipt');
+assert(app.includes('redoDeletedHistoryOnCloud(pid, step, versions, redoAt, receipt)') &&
+  app.includes('softDeleteWarehouseTransactionAtomic(pid, change.id, trashSettingsRef.current)'),
+  'Redo routes all core and warehouse deletes through their safe cloud writers');
 assert(app.includes('Firestore đã xác nhận khôi phục dữ liệu.') &&
   app.includes('Chưa hoàn tác được trên Cloud:'),
   'Delete Undo must not claim success before Cloud acknowledgement');
