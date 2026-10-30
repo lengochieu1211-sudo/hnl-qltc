@@ -1,0 +1,66 @@
+name: HNL QLTC DEV source handoff (read only)
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - '.github/workflows/hnl-dev-source-handoff.yml'
+permissions:
+  contents: read
+jobs:
+  source-handoff:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact source and secret-name guard
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          python3 - <<'PY'
+          import subprocess, re
+          names=subprocess.check_output(['git','ls-files','-z']).decode().split('\0')
+          forbidden=[p for p in names if p and (re.search(r'(^|/)\.env($|\.(?!example$|sample$))',p,re.I) or re.search(r'(^|/)(?:serviceAccountKey|credentials\.json|id_rsa|id_ed25519|.*\.pem)$',p,re.I))]
+          if forbidden: raise SystemExit('Sensitive tracked filenames block source handoff: '+repr(forbidden))
+          PY
+      - name: Build verified Full Source, Patch and SHA256
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          mkdir -p handoff
+          git archive --format=zip --output=handoff/FULL_SOURCE.zip "$HEAD_SHA"
+          python3 - <<'PY'
+          import hashlib,os,subprocess,zipfile
+          head=os.environ['HEAD_SHA'];base=os.environ['BASE_SHA']
+          raw=subprocess.check_output(['git','diff','--name-only','--diff-filter=ACMR','-z',base,head])
+          paths=[x.decode() for x in raw.split(b'\0') if x]
+          with zipfile.ZipFile('handoff/PATCH.zip','w',compression=zipfile.ZIP_DEFLATED) as z:
+            for p in paths: z.writestr(p,subprocess.check_output(['git','show',f'{head}:{p}']))
+          deleted=subprocess.check_output(['git','diff','--name-only','--diff-filter=D',base,head],text=True)
+          open('handoff/deleted-files.txt','w').write(deleted)
+          open('handoff/changed-files.txt','w').write('\n'.join(paths)+'\n')
+          report=f'HNL QLTC DEV SOURCE HANDOFF\nHEAD={head}\nBASE={base}\nStatus=source-only (no deploy, no runtime certification)\nChanged files={len(paths)}\n'
+          open('handoff/REPORT.txt','w').write(report)
+          with open('handoff/SHA256SUMS.txt','w') as out:
+            for f in ['FULL_SOURCE.zip','PATCH.zip','REPORT.txt','changed-files.txt']:
+              data=open('handoff/'+f,'rb').read()
+              out.write(hashlib.sha256(data).hexdigest()+'  '+f+'\n')
+          for f in ['FULL_SOURCE.zip','PATCH.zip']:
+            with zipfile.ZipFile('handoff/'+f) as z:
+              if z.testzip() is not None: raise SystemExit('Corrupt source ZIP')
+          print(report)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-PR${{ github.event.pull_request.number }}-SOURCE-${{ github.event.pull_request.head.sha }}
+          path: handoff/
+          if-no-files-found: error
+          retention-days: 7
