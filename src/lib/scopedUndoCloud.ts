@@ -1,5 +1,5 @@
 import { deleteField, doc, runTransaction } from 'firebase/firestore';
-import { db, fetchProjectUserRoleFromCloud, getCurrentRealFirebaseUser } from './firebase';
+import { db, fetchProjectUserRoleFromCloud, getCurrentRealFirebaseUser, sanitizePayloadForCloud } from './firebase';
 import { STATE_KEY_TO_CLOUD_NAME } from '../config/realtimeCollections';
 import type { ScopedUndoStep } from '../utils/undoRedoScoped';
 
@@ -106,5 +106,94 @@ export async function restoreDeletedUndoOnCloud(
       tx.delete(trashRef);
     }
     return results;
+  });
+}
+
+
+/** Redo the same deletion with a new Cloud tombstone and optional atomic Trash receipt.
+ * A changed server revision invalidates the step. Inventory is never handled here.
+ */
+export async function redoDeletedHistoryOnCloud(
+  projectId: string,
+  step: ScopedUndoStep,
+  expectedActiveVersions: Record<string, number>,
+  deletedAt: number,
+  receipt?: import('./trash').TrashOperation,
+): Promise<Array<{ collection: string; id: string; row: Record<string, any> }>> {
+  if (!projectId || step.projectId !== projectId || !Number.isFinite(deletedAt)) throw new Error('REDO_PROJECT_OR_TIME_INVALID');
+  if (typeof navigator !== 'undefined' && !navigator.onLine) throw new Error('REDO_REQUIRES_ONLINE');
+  if (step.changes.length === 0 || step.changes.length > 100
+    || !step.changes.some((c) => c.before && !c.after)
+    || step.changes.some((c) => !c.before || c.collection === 'inventory')) {
+    throw new Error('REDO_UNSAFE_HISTORY_SCOPE');
+  }
+  const actor = getCurrentRealFirebaseUser();
+  if (!actor?.uid) throw new Error('REDO_SIGN_IN_REQUIRED');
+  const role = await fetchProjectUserRoleFromCloud(projectId, actor);
+  if (role.verification !== 'verified' || !role.allowed || role.role !== 'ADMIN') throw new Error('REDO_ADMIN_ROLE_NOT_VERIFIED');
+  const changes = step.changes.map((c) => {
+    const name = STATE_KEY_TO_CLOUD_NAME[c.collection];
+    if (!name || !c.id || c.id.includes('/')) throw new Error('REDO_INVALID_TARGET');
+    return { ...c, ref: doc(db, 'projects', projectId, name, c.id) };
+  });
+  const receiptRef = receipt ? doc(db, 'projects', projectId, 'trash', receipt.id) : null;
+  const skip = new Set(['id', 'revision', 'updatedAt', 'updatedByUid', 'updatedByEmail',
+    'updatedByDeviceId', 'updatedByDeviceName', 'deleted', 'deletedAt', 'deletedByUid', 'deletedBy']);
+  const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  return runTransaction(db, async (tx) => {
+    const snaps = [];
+    for (const c of changes) snaps.push(await tx.get(c.ref));
+    const existingReceipt = receiptRef ? await tx.get(receiptRef) : null;
+    if (existingReceipt?.exists()) throw new Error('REDO_TRASH_RECEIPT_ALREADY_EXISTS');
+    const result: Array<{ collection: string; id: string; row: Record<string, any> }> = [];
+    for (let i = 0; i < changes.length; i++) {
+      const c = changes[i];
+      const snap = snaps[i];
+      if (!snap.exists()) throw new Error('REDO_TARGET_MISSING:' + c.id);
+      const current = snap.data() as Record<string, any>;
+      const key = c.collection + '_' + c.id;
+      if ((current.id && current.id !== c.id) || current.deleted === true
+        || Number(current.revision || 0) !== Number(expectedActiveVersions[key] || 0)) {
+        throw new Error('REDO_SERVER_REVISION_CONFLICT:' + c.id);
+      }
+      const revision = Math.max(Number(current.revision || 0) + 1, 1);
+      const updatedAt = Math.max(Date.now(), Number(current.updatedAt || 0) + 1);
+      if (!c.after) {
+        const deleted = { deleted: true, deletedAt, deletedByUid: actor.uid,
+          deletedBy: actor.uid, revision, updatedAt, updatedByUid: actor.uid };
+        tx.update(c.ref, deleted);
+        result.push({ collection: c.collection, id: c.id, row: { ...current, ...deleted } });
+        continue;
+      }
+      const original = c.before as Record<string, any>;
+      const desired = c.after as Record<string, any>;
+      const patch: Record<string, any> = {};
+      const removed: string[] = [];
+      for (const field of new Set([...Object.keys(original), ...Object.keys(desired)])) {
+        if (skip.has(field) || same(original[field], desired[field])) continue;
+        if (!same(current[field], original[field])) throw new Error('REDO_LINKED_CONFLICT:' + c.id + '/' + field);
+        if (!Object.prototype.hasOwnProperty.call(desired, field) || desired[field] === undefined) {
+          patch[field] = deleteField(); removed.push(field);
+        } else patch[field] = desired[field];
+      }
+      if (Object.keys(patch).length > 0) tx.update(c.ref, {
+        ...patch, revision, updatedAt, updatedByUid: actor.uid,
+      });
+      const next = { ...current, ...(Object.keys(patch).length > 0 ? { revision, updatedAt, updatedByUid: actor.uid } : {}) };
+      for (const [field, value] of Object.entries(patch)) {
+        if (removed.includes(field)) delete next[field]; else next[field] = value;
+      }
+      result.push({ collection: c.collection, id: c.id, row: next });
+    }
+    if (receiptRef && receipt) {
+      const receiptIds = new Set((receipt.deletedItems || []).map((x) => x.collection + ':' + x.entityId));
+      const ids = new Set(changes.filter((c) => !c.after).map((c) => c.collection + ':' + c.id));
+      if (receipt.projectId !== projectId || receipt.deletedByUid !== actor.uid
+        || receipt.deletedAt !== deletedAt || receiptIds.size !== ids.size
+        || [...ids].some((id) => !receiptIds.has(id))) throw new Error('REDO_RECEIPT_MISMATCH');
+      // Sanitizer skips undefined optional fields; no schema or ID changes.
+      tx.set(receiptRef, sanitizePayloadForCloud(receipt));
+    }
+    return result;
   });
 }
