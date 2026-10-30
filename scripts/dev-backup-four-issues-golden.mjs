@@ -20,7 +20,8 @@ assert(floor.includes("await onCommitPositionLocks('defect', [{ id: defectId") &
   floor.includes("await onCommitPositionLocks('room', entries, locked)"),
   'Defect and Room lock must await the server-confirmed write');
 assert(floor.includes('room.positionLocked === true') && floor.includes('defect.positionLocked === true'), 'Cloud lock subscription not reflected in UI');
-assert(!floor.includes('positionLocked === undefined && legacy.has') &&
+assert(floor.includes('positionLocked === undefined && legacy.has') &&
+  floor.includes("legacyOnlyLock && !window.confirm(") &&
   !floor.includes("localStorage.setItem(getDraftKey('construction_floorplan_locked_rooms')"),
-  'Legacy local-only lock cache must never be promoted to shared authority');
+  'Legacy-only locks protect old data without silent Cloud migration or new local writes');
 console.log('DEV BACKUP FOUR ISSUES UI SOURCE REGRESSION PASS (cloud lock reconciliation included; runtime multiuser gate pending)');
