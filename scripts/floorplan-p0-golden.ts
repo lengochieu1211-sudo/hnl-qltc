@@ -233,7 +233,14 @@ check(
    ui.includes("roomColorMode === 'palette' ? '🎨 Mỗi phòng một màu' : '🎨 Màu theo trạng thái'")),
   'Viewer floor-plan display selection must retain accessible mode choice and primary/neutral styling.'
 );
-check((ui.match(/!showTextOverlay[\s\S]{0,180}bg-indigo-600 text-white/g) || []).length >= 3, 'Floor-plan text-overlay selection must use HNL primary instead of success green.');
+check(
+  (ui.match(/!showTextOverlay[\\s\\S]{0,180}bg-indigo-600 text-white/g) || []).length >= 3 ||
+  (ui.includes('const renderMapDisplayControls = (dark = false) =>') &&
+   ui.includes('onClick={() => setShowTextOverlay(!showTextOverlay)}') &&
+   ui.includes("showTextOverlay ? 'Tên phòng gọn' : 'Tên phòng đầy đủ'") &&
+   ui.includes("dark ? 'bg-slate-700' : 'bg-slate-100'")),
+  'Floor-plan text-overlay must retain a neutral/primary accessible toggle in inline or backup settings UI.'
+);
 check(ui.includes('loading="lazy"') && ui.includes('decoding="async"'), 'Floor management thumbnails must avoid eager decoding every plan image.');
 check(app.includes('onInspectFloorPlanBulkTargets={handleInspectFloorPlanBulkTargets}'), 'App must expose bulk preflight to the floor-plan UI.');
 check(ui.includes('Defect, Căn / Phòng, vùng tô sáng (highlight), tiến độ, checklist'), 'Bulk floor UI must warn that business data remains per-floor.');
