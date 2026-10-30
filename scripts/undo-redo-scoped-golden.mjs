@@ -51,4 +51,34 @@ assert(app.includes('result.changedCollections.forEach((key) => {') && !app.incl
 assert(security.includes("return role === 'ADMIN';") && app.includes('canUseGlobalUndoRedo(currentUserRole)'), 'Global Undo remains ADMIN-only');
 assert(floor.includes("if (onBatchSaveRooms && modifiedRooms.length > 1)") && floor.includes('onBatchSaveRooms(modifiedRooms)'), 'Drag/resize commits multiroom changes as one history step');
 assert(floor.includes("applySelectedRoomTransform('rotate90')") && floor.includes('resizeRoomHighlightToBounds'), 'Rotate/resize routes preserve room geometry');
+
+// All nine business lists participate in entity-scoped history. The warehouse
+// list is deliberately restored by a different Firestore stock transaction.
+const nineCollections = ['roomProgressList','inventory','workVolumes','floorPlans',
+  'defects','checklist','crewRecords','teams','materialNorms'];
+for (const collection of nineCollections) {
+  const item = { id: 'CHECK-1', updatedAt: 1, revision: 3, label: collection };
+  const baseline = Object.fromEntries(nineCollections.map((key) => [key, key === collection ? [item] : []]));
+  const deleted = { ...baseline, [collection]: [] };
+  const removeStep = captureScopedUndoStep(baseline, deleted, 'p1');
+  assert.equal(removeStep?.changes.length, 1, collection + ': exactly one deleted ID is captured');
+  assert.equal(removeStep?.changes[0].before?.id, 'CHECK-1', collection + ': snapshot for restore remains available');
+  assert.equal(removeStep?.changes[0].after, null, collection + ': delete is represented as null');
+}
+const cloudRestore = fs.readFileSync('src/lib/scopedUndoCloud.ts', 'utf8');
+assert(cloudRestore.includes("runTransaction(db, async (tx) =>") &&
+  cloudRestore.includes("Number(server.revision || 0) + 1") &&
+  cloudRestore.includes("Number(server.deletedAt || 0) !== localDeletion"),
+  'Delete Undo must verify server tombstone and advance its revision transactionally');
+assert(cloudRestore.includes("server.deletedByUid !== actor.uid") &&
+  cloudRestore.includes('UNDO_CONCURRENT_EDIT') &&
+  cloudRestore.includes("tx.delete(trashRef)"),
+  'Delete Undo blocks another actor, concurrent linked edits and mismatched receipts');
+assert(app.includes('restoreDeletedUndoOnCloud(pid, step, deletedTimes, receipt?.id)') &&
+  app.includes('restoreWarehouseTransactionAtomic(pid, change.id)') &&
+  app.includes('if (undoCloudBusyRef.current) return;'),
+  'Undo routes warehouse to stock transactions and blocks concurrent history');
+assert(app.includes('Firestore đã xác nhận khôi phục dữ liệu.') &&
+  app.includes('Chưa hoàn tác được trên Cloud:'),
+  'Delete Undo must not claim success before Cloud acknowledgement');
 console.log('SCOPED UNDO/REDO GOLDEN PASS: remote Defects preserved, modified-room conflict blocked, batch transforms and project guard');
