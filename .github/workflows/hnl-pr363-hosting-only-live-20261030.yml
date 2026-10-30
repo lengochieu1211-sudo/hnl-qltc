@@ -1,0 +1,158 @@
+name: HNL PR363 Hosting-only LIVE promotion with exact version guard
+on:
+  push:
+    branches: [release/pr363-6bb7-hosting-live-20261030]
+    paths: [.github/workflows/hnl-pr363-hosting-only-live-20261030.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: hnl-qltc-prod-hosting-only-pr363-20261030
+  cancel-in-progress: false
+jobs:
+  hosting_only:
+    name: Verify Main + Preview + LIVE then clone Hosting only
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    env:
+      APPROVED_MAIN_SHA: 1c2b7d663d51d51aa45010e533d8e035e22adf59
+      APPROVED_SOURCE_SHA: 6bb7ab88fe2c22ec8ac281cbc916f89803358e47
+      PREVIOUS_MAIN_SHA: 7addf40f6f904ecd5a16837fe75b9b67f1f72112
+      EXPECTED_PREVIEW_VERSION: sites/hnlqltc/versions/e67b477fff476e49
+      EXPECTED_LIVE_BEFORE: sites/hnlqltc/versions/3292969bc0aa03ff
+      PREVIEW_CHANNEL: pr363-6bb7ab88-20261030
+      FIREBASE_PROJECT_ID: com-example-qlct-61329
+      FIREBASE_SITE_ID: hnlqltc
+      GH_TOKEN: ${{ github.token }}
+      PROD_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+    steps:
+      - name: Verify exact GitHub Main HEAD and all three post-merge CI workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/release/pr363-6bb7-hosting-live-20261030"
+          CURRENT="$(git ls-remote https://github.com/$GITHUB_REPOSITORY.git refs/heads/main | cut -f1)"
+          test "$CURRENT" = "$APPROVED_MAIN_SHA" || { echo "::error::Main HEAD moved; refusing promotion"; exit 1; }
+          RUNS="$(curl -fsSL --retry 3 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$APPROVED_MAIN_SHA&per_page=100")"
+          printf '%s' "$RUNS" | node -e '
+            let s="";process.stdin.on("data",x=>s+=x).on("end",()=>{
+              const j=JSON.parse(s);
+              for(const name of ["Build","Build HNL QLTC Windows EXE","Build HNL QLTC Android APK"]){
+                const ok=(j.workflow_runs||[]).some(x=>x.head_sha===process.env.APPROVED_MAIN_SHA&&x.name===name&&x.status==="completed"&&x.conclusion==="success");
+                if(!ok){console.error("Main exact HEAD missing CI PASS: "+name);process.exitCode=1;}
+                else console.log("PASS main: "+name);
+              }
+            })'
+      - uses: actions/checkout@v4
+        with:
+          ref: 1c2b7d663d51d51aa45010e533d8e035e22adf59
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact source/tree and non-hosting scope gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$APPROVED_MAIN_SHA"
+          test "$(git rev-parse "$APPROVED_SOURCE_SHA^{tree}")" = "$(git rev-parse "$APPROVED_MAIN_SHA^{tree}")" || { echo 'Preview source tree differs from Main'; exit 1; }
+          git diff --quiet "$PREVIOUS_MAIN_SHA" "$APPROVED_MAIN_SHA" -- firestore.rules storage.rules firebase.json firebase.prod.json cloudflare .github/workflows || { echo "::error::Rules/R2/Hosting configuration changed"; exit 1; }
+          test "$(node -p "require('./package.json').version")" = "$(node -p "require('./package-lock.json').version")"
+          node - <<'NODE'
+          const f=require('fs'),x=JSON.parse(f.readFileSync('firebase.prod.json','utf8'));
+          if(x.hosting?.site!=='hnlqltc'||x.hosting?.public!=='dist'||'firestore' in x||'storage' in x)process.exit(2);
+          NODE
+      - name: Pack exact Main full source, patch, manifest and SHA256 before promotion
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git archive --format=zip --output=evidence/FULL_SOURCE.zip "$APPROVED_MAIN_SHA"
+          python3 - <<'PY'
+          import hashlib,os,subprocess,zipfile
+          main=os.environ['APPROVED_MAIN_SHA'];old=os.environ['PREVIOUS_MAIN_SHA']
+          paths=[p.decode() for p in subprocess.check_output(['git','diff','--name-only','--diff-filter=ACMR','-z',old,main]).split(bytes([0])) if p]
+          allowed={'src/App.tsx','src/lib/scopedUndoCloud.ts','scripts/undo-redo-scoped-golden.mjs','scripts/firebase-rules-behavior.mjs'}
+          if set(paths)!=allowed: raise SystemExit('UNEXPECTED_CHANGED_FILES:'+repr(paths))
+          with zipfile.ZipFile('evidence/PATCH.zip','w',compression=zipfile.ZIP_DEFLATED) as z:
+            for path in paths: z.writestr(path,subprocess.check_output(['git','show',main+':'+path]))
+          with open('evidence/changed-files.txt','w') as f:f.write(chr(10).join(paths)+chr(10))
+          report='HNL QLTC Hosting-only candidate'+chr(10)+'Main='+main+chr(10)+'Preview tree='+os.environ['APPROVED_SOURCE_SHA']+chr(10)+'Firebase project unchanged='+os.environ['FIREBASE_PROJECT_ID']+chr(10)+'No Firestore/R2/Rules changes'+chr(10)+'Runtime Golden not certified'+chr(10)
+          with open('evidence/REPORT.txt','w') as f:f.write(report)
+          for name in ('FULL_SOURCE.zip','PATCH.zip'):
+            with zipfile.ZipFile('evidence/'+name) as z:
+              if z.testzip():raise SystemExit('CORRUPT_ZIP')
+          with open('evidence/SHA256SUMS.txt','w') as f:
+            for name in ('FULL_SOURCE.zip','PATCH.zip','REPORT.txt','changed-files.txt'):
+              f.write(hashlib.sha256(open('evidence/'+name,'rb').read()).hexdigest()+'  '+name+chr(10))
+          print(report)
+          PY
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Validate PROD credential and expected LIVE/PREVIEW version before clone
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PROD_SA"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import {google} from 'googleapis';
+          const sa=JSON.parse(process.env.PROD_SA);
+          if(sa.type!=='service_account'||sa.project_id!==process.env.FIREBASE_PROJECT_ID||!sa.private_key)throw Error('PROD_CREDENTIAL_MISMATCH');
+          const auth=new google.auth.GoogleAuth({credentials:sa,scopes:['https://www.googleapis.com/auth/firebase.hosting.readonly']});
+          const token=(await(await auth.getClient()).getAccessToken()).token;
+          const base='https://firebasehosting.googleapis.com/v1beta1/sites/hnlqltc/channels/';
+          async function releases(channel){
+            const r=await fetch(base+channel+'/releases?pageSize=1',{headers:{Authorization:'Bearer '+token}});
+            if(!r.ok)throw Error('HOSTING_READ_FAILED '+channel+' '+r.status);
+            return (await r.json()).releases?.[0]?.version?.name;
+          }
+          const live=await releases('live');
+          const preview=await releases(process.env.PREVIEW_CHANNEL);
+          if(live!==process.env.EXPECTED_LIVE_BEFORE)throw Error('LIVE_VERSION_CHANGED_NO_PROMOTION '+live);
+          if(preview!==process.env.EXPECTED_PREVIEW_VERSION)throw Error('PREVIEW_VERSION_CHANGED_NO_PROMOTION '+preview);
+          fs.writeFileSync('evidence/preflight.json',JSON.stringify({main:process.env.APPROVED_MAIN_SHA,source:process.env.APPROVED_SOURCE_SHA,liveBefore:live,preview,site:'hnlqltc',action:'HOSTING_ONLY',certified:false},null,2));
+          console.log('PASS preflight: current LIVE and preview versions match pinned proofs');
+          NODE
+      - name: Promote verified immutable Hosting version to LIVE — ONLY mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          SA_FILE="$RUNNER_TEMP/hnl-prod-hosting-only-sa.json"
+          trap 'rm -f "$SA_FILE"' EXIT
+          printf '%s' "$PROD_SA" > "$SA_FILE"
+          chmod 600 "$SA_FILE"
+          export GOOGLE_APPLICATION_CREDENTIALS="$SA_FILE"
+          npx --yes firebase-tools@13.35.1 hosting:clone "hnlqltc:$PREVIEW_CHANNEL" "hnlqltc:live" --project "$FIREBASE_PROJECT_ID"
+      - name: Verify LIVE equals pinned preview version and smoke Web
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import {google} from 'googleapis';
+          const sa=JSON.parse(process.env.PROD_SA);
+          const auth=new google.auth.GoogleAuth({credentials:sa,scopes:['https://www.googleapis.com/auth/firebase.hosting.readonly']});
+          const token=(await(await auth.getClient()).getAccessToken()).token;
+          const url='https://firebasehosting.googleapis.com/v1beta1/sites/hnlqltc/channels/live/releases?pageSize=1';
+          const r=await fetch(url,{headers:{Authorization:'Bearer '+token}});
+          if(!r.ok)throw Error('LIVE_POSTREAD_FAILED:'+r.status);
+          const release=(await r.json()).releases?.[0];
+          const name=release?.version?.name;
+          if(name!==process.env.EXPECTED_PREVIEW_VERSION)throw Error('LIVE_POST_VERSION_MISMATCH:'+name);
+          fs.writeFileSync('evidence/live-promotion.json',JSON.stringify({main:process.env.APPROVED_MAIN_SHA,preview:process.env.EXPECTED_PREVIEW_VERSION,liveAfter:name,oldLive:process.env.EXPECTED_LIVE_BEFORE,status:'HOSTING_LIVE_PROMOTED',prodDataUntouched:true,certified:false},null,2));
+          console.log('PASS Hosting LIVE version',name);
+          NODE
+          curl -fsSL --retry 5 --retry-delay 2 "https://hnlqltc.web.app/?hnl_release=$GITHUB_RUN_ID" | grep -q '<div id="root"'
+          echo 'PROD HTML smoke PASS; authenticated/runtime multi-device Golden pending'
+      - name: Upload version proof + exact HEAD ZIP + patch + SHA256
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-PR363-HOSTING-ONLY-EXACT-SOURCE
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
