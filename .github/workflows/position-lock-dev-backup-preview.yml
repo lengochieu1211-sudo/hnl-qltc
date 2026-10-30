@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          fetch-depth: 2
+          fetch-depth: 8
       - name: DEV Backup exact-project credential gate (NO deploy on failure)
         env:
           FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
@@ -55,8 +55,8 @@ jobs:
           test "$GITHUB_REF" = refs/heads/qa/position-lock-cloud-preview-20261030
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           APPROVED_SOURCE_SHA=5cb282b76c0e74898ff8c86ed22fc26e4c0c58ae
-          test "$(git rev-parse HEAD^)" = "$APPROVED_SOURCE_SHA" || { echo "::error::Unapproved candidate baseline"; exit 1; }
-          test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/position-lock-dev-backup-preview.yml" || { echo "::error::Preview-only commit changed app source"; exit 1; }
+          git merge-base --is-ancestor "$APPROVED_SOURCE_SHA" HEAD || { echo "::error::Unapproved candidate ancestry"; exit 1; }
+          test "$(git diff --name-only "$APPROVED_SOURCE_SHA" HEAD)" = ".github/workflows/position-lock-dev-backup-preview.yml" || { echo "::error::Preview-only branch changed app source"; exit 1; }
           test "$BACKUP_PROJECT" = hnl-qltc-dev-backup
           test "$BACKUP_CHANNEL" = lock-5cb282-20261030
           test "$VITE_R2_GATEWAY_URL" = https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
