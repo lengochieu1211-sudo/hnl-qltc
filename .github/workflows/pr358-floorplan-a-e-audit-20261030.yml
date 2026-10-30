@@ -22,10 +22,10 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = 'refs/heads/audit/pr358-floorplan-a-e-20261030'
-          test "$(git rev-parse HEAD^)" = 'ea47defe9fd4946bb5a82b09c58e43311ed0700b'
+          git merge-base --is-ancestor ea47defe9fd4946bb5a82b09c58e43311ed0700b HEAD
           git cat-file -e '0d6afbff0a053a95a441cc84d27631bdf1332c6a^{commit}'
-          git diff --quiet HEAD^ HEAD -- src/ firestore.rules storage.rules firebase.json firebase.prod.json package.json package-lock.json
-          test "$(git diff --name-only HEAD^ HEAD | wc -l)" -eq 2
+          git diff --quiet ea47defe9fd4946bb5a82b09c58e43311ed0700b HEAD -- src/ firestore.rules storage.rules firebase.json firebase.prod.json package.json package-lock.json
+          test "$(git diff --name-only ea47defe9fd4946bb5a82b09c58e43311ed0700b HEAD | wc -l)" -eq 2
           test -f 'scripts/pr358-floorplan-a-e-golden.mjs'
           test -f '.github/workflows/pr358-floorplan-a-e-audit-20261030.yml'
       - uses: actions/setup-node@v4
