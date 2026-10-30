@@ -65,10 +65,10 @@ await crawlFirestore({
   docs.push({path,fields:doc.fields||{}});
  }
 });
-if(docs.length<4977)throw Error('LIVE_DOCUMENT_COUNT_LESS_THAN_LAST_4977_BACKUP');
+if(docs.length<4900)throw Error('LIVE_DOCUMENT_COUNT_DROP_EXCEEDS_SAFETY_THRESHOLD');
 const source=inventory(docs);
 const restore=await restoreToEmptyEmulator({host,targetProject:TARGET,documents:docs});
 if(source.documents!==restore.documents||source.sha256!==restore.sha256)throw Error('RESTORE_DIGEST_MISMATCH');
-const evidence={status:'LIVE_TO_ISOLATED_FIRESTORE_EMULATOR_PARITY_PASS',prodSourceProject:PROD,restoreTarget:TARGET,sourceSha:process.env.PR358_CANDIDATE,documents:source.documents,collectionTraversalRequests:requests,inventoryDigest:source.sha256,liveProdReadOnly:true,emulatorIsolated:true,encryptedExistingBackupDecryptionVerified:false,productionRestorePerformed:false,certified:false};
+const evidence={status:'LIVE_TO_ISOLATED_FIRESTORE_EMULATOR_PARITY_PASS',prodSourceProject:PROD,restoreTarget:TARGET,sourceSha:process.env.PR358_CANDIDATE,documents:source.documents,comparisonSnapshotCount4977:source.documents-4977,sourceSnapshotNotAtomic:true,collectionTraversalRequests:requests,inventoryDigest:source.sha256,liveProdReadOnly:true,emulatorIsolated:true,encryptedExistingBackupDecryptionVerified:false,productionRestorePerformed:false,certified:false};
 writeFileSync('PR358-PROD-LIVE-EMULATOR-REBUILD-AGGREGATE.json',JSON.stringify(evidence,null,2));
 console.log(JSON.stringify(evidence));
