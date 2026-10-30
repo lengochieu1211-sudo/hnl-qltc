@@ -1,0 +1,97 @@
+name: PR358 PROD LIVE immutable rollback anchor to PREVIEW channel only (NO LIVE CHANGE)
+on:
+  push:
+    branches: [release/pr358-prod-rollback-anchor-20261030]
+    paths: [.github/workflows/pr358-prod-rollback-anchor-20261030.yml]
+permissions:
+  contents: read
+jobs:
+  clone_baseline_to_rollback_preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    env:
+      SOURCE_CANDIDATE: 1d69495c939911a5b20c1046f356777adcdeb44c
+      PROD_MAIN_BASE: b2557860fbb3b128b5f2c9863e99d0f8b1f78686
+      EXPECTED_LIVE_VERSION: sites/hnlqltc/versions/6175a3aad728d7d9
+      FIREBASE_PROJECT: com-example-qlct-61329
+      FIREBASE_SITE: hnlqltc
+      PREVIEW_ROLLBACK_CHANNEL: pr358-rollback-1d694-20261030
+      PROD_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 1d69495c939911a5b20c1046f356777adcdeb44c
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fail closed on stale source, different Firebase site or wrong credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/release/pr358-prod-rollback-anchor-20261030'
+          test "$(git rev-parse HEAD)" = "$SOURCE_CANDIDATE"
+          test "$(git rev-parse origin/main)" = "$PROD_MAIN_BASE"
+          test "$FIREBASE_PROJECT" = 'com-example-qlct-61329'
+          test "$FIREBASE_SITE" = 'hnlqltc'
+          test "$EXPECTED_LIVE_VERSION" = 'sites/hnlqltc/versions/6175a3aad728d7d9'
+          test "$PREVIEW_ROLLBACK_CHANNEL" != 'live'
+          test -n "$PROD_SA"
+          node -e "let c=JSON.parse(process.env.PROD_SA);if(c.type!=='service_account'||c.project_id!==process.env.FIREBASE_PROJECT||!c.private_key)process.exit(2)"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Verify existing PROD LIVE exact immutable version BEFORE cloning
+        run: |
+          node --input-type=module <<'NODE'
+          import {google} from 'googleapis';
+          const sa=JSON.parse(process.env.PROD_SA);
+          const auth=new google.auth.GoogleAuth({credentials:sa,scopes:['https://www.googleapis.com/auth/firebase.hosting.readonly']});
+          const token=(await (await auth.getClient()).getAccessToken()).token;
+          const r=await fetch('https://firebasehosting.googleapis.com/v1beta1/sites/hnlqltc/channels/live/releases?pageSize=1',{headers:{Authorization:'Bearer '+token}});
+          if(!r.ok)throw Error('Cannot verify LIVE version '+r.status);
+          const v=(await r.json()).releases?.[0]?.version?.name;
+          if(v!==process.env.EXPECTED_LIVE_VERSION)throw Error('LIVE version has advanced; abort rollback channel clone');
+          console.log('LIVE PRECLONE EXACT VERSION VERIFIED',v);
+          NODE
+      - name: Clone existing PROD LIVE immutable version to new rollback PREVIEW channel (NEVER TO LIVE)
+        shell: bash
+        run: |
+          set -euo pipefail
+          SA="$RUNNER_TEMP/pr358-rollback-sa.json"
+          trap 'rm -f "$SA"' EXIT
+          printf '%s' "$PROD_SA" > "$SA"
+          chmod 600 "$SA"
+          export GOOGLE_APPLICATION_CREDENTIALS="$SA"
+          npx --yes firebase-tools@13.35.1 hosting:clone "$FIREBASE_SITE:live" "$FIREBASE_SITE:$PREVIEW_ROLLBACK_CHANNEL" --project "$FIREBASE_PROJECT" --non-interactive
+      - name: Verify rollback PREVIEW and assert PROD LIVE unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import {google} from 'googleapis';
+          const sa=JSON.parse(process.env.PROD_SA);
+          const auth=new google.auth.GoogleAuth({credentials:sa,scopes:['https://www.googleapis.com/auth/firebase.hosting.readonly']});
+          const token=(await(await auth.getClient()).getAccessToken()).token;
+          async function get(path){
+            const response=await fetch('https://firebasehosting.googleapis.com/v1beta1/sites/hnlqltc/channels/'+path,{headers:{Authorization:'Bearer '+token}});
+            if(!response.ok)throw Error('Hosting read '+path+' '+response.status);
+            return response.json();
+          }
+          const [live,rollback,ch]=await Promise.all([get('live/releases?pageSize=1'),get(process.env.PREVIEW_ROLLBACK_CHANNEL+'/releases?pageSize=1'),get(process.env.PREVIEW_ROLLBACK_CHANNEL)]);
+          const lv=live.releases?.[0]?.version?.name,rv=rollback.releases?.[0]?.version?.name;
+          if(lv!==process.env.EXPECTED_LIVE_VERSION||rv!==lv)throw Error('Immutable version mismatch; DO NOT PROMOTE');
+          if(!ch.url?.includes('hnlqltc--')||!ch.url?.endsWith('.web.app'))throw Error('Not a preview channel');
+          const evidence={status:'ROLLBACK_PREVIEW_ANCHOR_PASS',baseline:lv,rollbackChannelVersion:rv,rollbackPreviewUrl:ch.url,prodLiveUnchanged:true,prodMainUnchanged:true,sourceCandidate:process.env.SOURCE_CANDIDATE,neverPromotedLive:true,certified:false};
+          fs.writeFileSync('evidence/PR358-ROLLBACK-ANCHOR.json',JSON.stringify(evidence,null,2));
+          console.log('ROLLBACK CHANNEL ANCHOR VERIFIED; PROD LIVE UNCHANGED',JSON.stringify(evidence));
+          NODE
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-PR358-ROLLBACK-PREVIEW-ANCHOR
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
