@@ -95,7 +95,10 @@ export async function restoreDeletedUndoOnCloud(
       }
       results.push({ collection: c.collection, id: c.id, row: next });
     }
-    if (trashRef && trashSnap?.exists()) {
+    if (trashRef) {
+      // A pending local Trash receipt must not appear later after Undo succeeded.
+      // Delete/Undo of the receipt is part of the same server transaction.
+      if (!trashSnap?.exists()) throw new Error('UNDO_TRASH_RECEIPT_NOT_SYNCED');
       const receipt = trashSnap.data();
       const ids = new Set(changes.filter((c) => !c.after).map((c) => c.collection + ':' + c.id));
       const receiptIds = new Set<string>((receipt.deletedItems || []).map((x: any) => x.collection + ':' + x.entityId));
