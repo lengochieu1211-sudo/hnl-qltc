@@ -367,6 +367,7 @@ interface FloorPlanDefectTabProps {
   onDeleteMultipleDefects?: (ids: string[]) => void;
   onSaveRoomProgress: (room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }) => void;
   onBatchSaveRooms?: (rooms: RoomProgressItem[]) => void;
+  onCommitPositionLocks?: (kind: 'room' | 'defect', entries: Array<{ id: string; expectedLocked: boolean }>, locked: boolean) => Promise<void>;
   onApplyRoomExcelImport?: (rooms: RoomProgressItem[], deleteIds: string[]) => void;
   onCreateMultipleRoomProgress?: (rooms: RoomProgressItem[]) => void;
   onDeleteRoomProgress: (id: string) => void;
@@ -677,6 +678,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   onDeleteMultipleDefects,
   onSaveRoomProgress,
   onBatchSaveRooms,
+  onCommitPositionLocks,
   onApplyRoomExcelImport,
   onCreateMultipleRoomProgress,
   onDeleteRoomProgress,
@@ -725,16 +727,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   }, [normalizedStructureConfig]);
 
   const getDraftKey = (base: string) => (currentProjectId === 'default' ? base : `${base}_${currentProjectId}`);
-  const readIdSet = (storageKey: string): Set<string> => {
+  const readLegacyLockedIds = (key: string): Set<string> => {
     try {
-      const raw = localStorage.getItem(storageKey);
+      const raw = localStorage.getItem(getDraftKey(key));
       const parsed = raw ? JSON.parse(raw) : [];
       return new Set(Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string') : []);
-    } catch {
-      return new Set<string>();
-    }
+    } catch { return new Set(); }
   };
-
   const [selectedFloorId, setSelectedFloorId] = useState<string>(() => {
     const saved = localStorage.getItem(getDraftKey('construction_selected_floor_id'));
     if (saved && floorPlans.some((fp) => fp.id === saved)) {
@@ -773,8 +772,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       return { roomRegions: true, roomLabels: true, defects: true, resolvedDefects: true };
     }
   });
-  const [lockedRoomIds, setLockedRoomIds] = useState<Set<string>>(() => readIdSet(getDraftKey('construction_floorplan_locked_rooms')));
-  const [lockedDefectIds, setLockedDefectIds] = useState<Set<string>>(() => readIdSet(getDraftKey('construction_floorplan_locked_defects')));
+  // Legacy device-only locks still protect old geometry; explicit Cloud flags override them.
+  const [lockedRoomIds, setLockedRoomIds] = useState<Set<string>>(() => readLegacyLockedIds('construction_floorplan_locked_rooms'));
+  const [lockedDefectIds, setLockedDefectIds] = useState<Set<string>>(() => readLegacyLockedIds('construction_floorplan_locked_defects'));
+  const [positionLockBusy, setPositionLockBusy] = useState(false);
   const [viewportInfo, setViewportInfo] = useState({ scrollLeft: 0, scrollTop: 0, clientWidth: 1, clientHeight: 1, scrollWidth: 1, scrollHeight: 1 });
   const floorViewRestoringRef = useRef(false);
   const projectUiSettingsHydratingRef = useRef(false);
@@ -849,9 +850,6 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     } catch {
       setMapLayers({ roomRegions: true, roomLabels: true, defects: true, resolvedDefects: true });
     }
-    // Legacy local-only locks stay as an offline fallback until a Cloud lock value exists.
-    setLockedRoomIds(readIdSet(getDraftKey('construction_floorplan_locked_rooms')));
-    setLockedDefectIds(readIdSet(getDraftKey('construction_floorplan_locked_defects')));
     requestAnimationFrame(() => { projectUiSettingsHydratingRef.current = false; });
   }, [currentProjectId]);
 
@@ -860,21 +858,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     localStorage.setItem(getDraftKey('construction_floorplan_layers'), JSON.stringify(mapLayers));
   }, [mapLayers, currentProjectId]);
 
+  // Explicit Cloud true/false wins. Old undefined rows may retain the local lock
+  // as a conservative protection until the user chooses to migrate it.
   React.useEffect(() => {
-    if (projectUiSettingsHydratingRef.current) return;
-    localStorage.setItem(getDraftKey('construction_floorplan_locked_rooms'), JSON.stringify(Array.from(lockedRoomIds)));
-  }, [lockedRoomIds, currentProjectId]);
-
-  React.useEffect(() => {
-    if (projectUiSettingsHydratingRef.current) return;
-    localStorage.setItem(getDraftKey('construction_floorplan_locked_defects'), JSON.stringify(Array.from(lockedDefectIds)));
-  }, [lockedDefectIds, currentProjectId]);
-
-  // Cloud is the authority when positionLocked is explicitly present. Older rooms/defects
-  // with no Cloud lock flag retain the previous device-local value until toggled on this device.
-  // No bulk migration or silent overwrite of shared data happens during hydration.
-  React.useEffect(() => {
-    const legacy = readIdSet(getDraftKey('construction_floorplan_locked_rooms'));
+    const legacy = readLegacyLockedIds('construction_floorplan_locked_rooms');
     const cloudAware = new Set(roomProgressList.filter((room) =>
       room.positionLocked === true || (room.positionLocked === undefined && legacy.has(room.id))
     ).map((room) => room.id));
@@ -882,7 +869,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   }, [roomProgressList, currentProjectId]);
 
   React.useEffect(() => {
-    const legacy = readIdSet(getDraftKey('construction_floorplan_locked_defects'));
+    const legacy = readLegacyLockedIds('construction_floorplan_locked_defects');
     const cloudAware = new Set(defects.filter((defect) =>
       defect.positionLocked === true || (defect.positionLocked === undefined && legacy.has(defect.id))
     ).map((defect) => defect.id));
@@ -3849,36 +3836,65 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     notifyDefectsOutsideTransformedRooms(transformed);
   };
 
-  const toggleSelectedRoomLock = () => {
-    if (!canManageStructure || selectedRoomIdsForAction.length === 0) return;
-    const unlock = selectedRoomIdsForAction.every((id) => lockedRoomIds.has(id));
-    const selectedSet = new Set(selectedRoomIdsForAction);
-    const changes = roomProgressList.filter((room) => selectedSet.has(room.id))
-      .map((room) => ({ ...room, positionLocked: !unlock }));
-    if (changes.length === 0) return;
-    // Persist on canonical room records; their existing Cloud subscriptions supply multiuser updates.
-    if (onBatchSaveRooms && changes.length > 1) onBatchSaveRooms(changes);
-    else changes.forEach((room) => onSaveRoomProgress(room));
-    setLockedRoomIds((prev) => {
-      const next = new Set(prev);
-      changes.forEach((room) => unlock ? next.delete(room.id) : next.add(room.id));
-      return next;
-    });
+  const toggleSelectedRoomLock = async () => {
+    if (!canManageStructure || positionLockBusy || selectedRoomIdsForAction.length === 0) return;
+    const entries = roomProgressList.filter((room) => selectedRoomIdsForAction.includes(room.id))
+      .map((room) => ({ id: room.id, expectedLocked: room.positionLocked === true }));
+    if (entries.length !== selectedRoomIdsForAction.length) return;
+    const hasLegacyOnlyLock = entries.some((entry) =>
+      lockedRoomIds.has(entry.id)
+      && roomProgressList.find((room) => room.id === entry.id)?.positionLocked === undefined
+    );
+    // An explicit user confirmation migrates a legacy per-device lock.
+    // Cancel preserves the original local lock; no silent Cloud writes.
+    if (hasLegacyOnlyLock && !window.confirm('Phòng đang có khóa cũ chỉ lưu trên thiết bị này. Nhấn OK để đồng bộ trạng thái ĐANG KHÓA lên Cloud; Hủy để giữ nguyên khóa cũ.')) return;
+    const locked = hasLegacyOnlyLock || !entries.every((entry) => lockedRoomIds.has(entry.id));
+    if (!onCommitPositionLocks) {
+      setCopyNotification('Chưa kết nối được chức năng khóa vị trí Cloud.');
+      return;
+    }
+    setPositionLockBusy(true);
+    try {
+      await onCommitPositionLocks('room', entries, locked);
+      setLockedRoomIds((prev) => {
+        const next = new Set(prev);
+        entries.forEach((entry) => locked ? next.add(entry.id) : next.delete(entry.id));
+        return next;
+      });
+      setCopyNotification('Đã lưu khóa vị trí phòng lên Firestore.');
+    } catch (error) {
+      setCopyNotification('Chưa lưu được khóa phòng: ' + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      setPositionLockBusy(false);
+    }
   };
 
-  const toggleDefectLock = (defectId: string) => {
-    if (!canEditDefects || !onUpdateDefect) return;
+  const toggleDefectLock = async (defectId: string) => {
+    if (!canEditDefects || positionLockBusy) return;
     const source = defects.find((item) => item.id === defectId);
     if (!source) return;
-    const positionLocked = !lockedDefectIds.has(defectId);
-    // The existing Defect Cloud update path preserves createdAt, ID, photo and status.
-    onUpdateDefect({ ...source, positionLocked });
-    setActiveDefectDetail((prev) => prev?.id === defectId ? { ...prev, positionLocked } : prev);
-    setLockedDefectIds((prev) => {
-      const next = new Set(prev);
-      if (positionLocked) next.add(defectId); else next.delete(defectId);
-      return next;
-    });
+    const legacyOnlyLock = lockedDefectIds.has(defectId) && source.positionLocked === undefined;
+    if (legacyOnlyLock && !window.confirm('Defect đang có khóa cũ chỉ lưu trên thiết bị này. Nhấn OK để đồng bộ trạng thái ĐANG KHÓA lên Cloud; Hủy để giữ nguyên khóa cũ.')) return;
+    const locked = legacyOnlyLock || !lockedDefectIds.has(defectId);
+    if (!onCommitPositionLocks) {
+      setCopyNotification('Chưa kết nối được chức năng khóa Defect Cloud.');
+      return;
+    }
+    setPositionLockBusy(true);
+    try {
+      await onCommitPositionLocks('defect', [{ id: defectId, expectedLocked: source.positionLocked === true }], locked);
+      setActiveDefectDetail((prev) => prev?.id === defectId ? { ...prev, positionLocked: locked } : prev);
+      setLockedDefectIds((prev) => {
+        const next = new Set(prev);
+        if (locked) next.add(defectId); else next.delete(defectId);
+        return next;
+      });
+      setCopyNotification('Đã lưu khóa vị trí Defect lên Firestore.');
+    } catch (error) {
+      setCopyNotification('Chưa lưu được khóa Defect: ' + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      setPositionLockBusy(false);
+    }
   };
 
   const focusCurrentSelection = () => {
