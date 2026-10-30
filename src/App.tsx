@@ -201,11 +201,12 @@ import { getChatUnreadCount } from './utils/chatUnread';
 import { applyFloorPlanImageToMultipleFloors, inspectFloorPlanBulkTargets, cacheFloorPlansForOffline, floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, isFloorPlanAutoCacheNetworkSuitable, isFloorPlanCloudBinaryReady, loadFloorPlanImageFromCloud, resolveFloorPlanImageForDisplay, stageFloorPlanImageOutbox, syncFloorPlanImageToCloud } from './lib/floorPlanImageSync';
 import { shouldAutoMirrorProjectBinaries } from './lib/offlineMirrorSettings';
 import { DEFAULT_TRASH_SETTINGS, TrashOperation, TrashSettings, TrashCollectionKey, deleteTrashOperationFromCloud, estimateTrashBytes, getTrashCollectionLabel, normalizeTrashSettings, sanitizeTrashSnapshot, saveTrashOperationToCloud, subscribeProjectTrash } from './lib/trash';
-import { commitWarehouseTransactionAtomic, updateWarehouseTransactionAtomic, softDeleteWarehouseTransactionAtomic } from './lib/warehouseTransactions';
+import { commitWarehouseTransactionAtomic, updateWarehouseTransactionAtomic, softDeleteWarehouseTransactionAtomic, restoreWarehouseTransactionAtomic } from './lib/warehouseTransactions';
 import { TRUSTED_WAREHOUSE_DEMO_MODE, trustedImportDemo } from './lib/warehouseTrustedDemoGateway';
 import { renameWarehouseUnitAtomic, type WarehouseUnitRenameInput } from './lib/warehouseUnitMigration';
 import { drainBinaryPurgeRetryQueues, purgeTrashOperationBinaries } from './lib/cloudBinaryPurge';
 import { restoreProjectTrashAtomic } from './lib/trashRestore';
+import { restoreDeletedUndoOnCloud } from './lib/scopedUndoCloud';
 import { deleteEmptyStructureGroupToTrash } from './lib/structureGroupTrash';
 
 // Heavy screens are code-split so Android does not parse XLSX/PDF-heavy modules at startup.
@@ -3416,6 +3417,8 @@ function AuthenticatedApp() {
 
   // Sync Lock Ref to avoid circular loops
   const syncLockRef = React.useRef(false);
+  // A deletion Undo cannot be shown as restored until its Firestore transaction succeeds.
+  const undoCloudBusyRef = React.useRef(false);
 
   // P21 demo only. Prevent repeated notices if React evaluates the updater twice.
   const p21BlockedNoticeRef = React.useRef(false);
@@ -3707,6 +3710,7 @@ function AuthenticatedApp() {
   // Firestore update to those entities blocks the step instead of reverting it.
   const runScopedHistoryStep = (direction: 'undo' | 'redo') => {
     if (!isProjectRoleResolved || !canUseGlobalUndoRedo(currentUserRole)) return;
+    if (undoCloudBusyRef.current) return;
     const step = direction === 'undo' ? past[past.length - 1] : future[0];
     if (!step) return;
     const blocked = p21DemoHistoryMutationError(step, p21LocalGates);
@@ -3719,6 +3723,96 @@ function AuthenticatedApp() {
       setPast([]);
       setFuture([]);
       alert('Lịch sử không còn phù hợp: dữ liệu đã thay đổi hoặc dự án đã chuyển. Đã dừng Hoàn tác/Làm lại để không ghi đè dữ liệu thiết bị khác.');
+      return;
+    }
+    // Undo that *recreates* a deleted entity must not use local-first stamping.
+    // Its previous revision can equal the already-committed Cloud tombstone revision.
+    // This path is intentionally online/ADMIN-only; keep the original history step
+    // untouched on network/rule/conflict failure so the user can recover from Trash.
+    const deletedChanges = direction === 'undo'
+      ? step.changes.filter((change) => change.before && !change.after)
+      : [];
+    if (deletedChanges.length > 0) {
+      const warehouseOnly = step.changes.every((change) =>
+        change.collection === 'inventory' && change.before && !change.after);
+      const anyInventory = step.changes.some((change) => change.collection === 'inventory');
+      if (!FIREBASE_ONLY_RUNTIME || !isOnline || projectRoleSource !== 'cloud' || !cloudInitialReady) {
+        alert('Hoàn tác dữ liệu đã xóa cần kết nối Firestore và hoàn tất tải dữ liệu Cloud. Chưa khôi phục trên máy hay Cloud.');
+        return;
+      }
+      if (anyInventory && !warehouseOnly) {
+        alert('Không thể Hoàn tác cùng lúc phiếu kho và dữ liệu khác vì tồn kho phải dùng giao dịch riêng. Dữ liệu chưa thay đổi.');
+        return;
+      }
+      const pid = activeProjectIdRef.current;
+      const deletedTimes = { ...localTombstonesRef.current };
+      const ids = new Set(deletedChanges.map((change) => change.collection + ':' + change.id));
+      const receipt = warehouseOnly ? undefined : trashOperationsRef.current.find((op) =>
+        op.projectId === pid && op.deletedItems.length === ids.size
+        && op.deletedItems.every((item) => ids.has(item.collection + ':' + item.entityId)));
+      undoCloudBusyRef.current = true;
+      setDataCloudStatus({ phase: 'syncing', message: 'Đang xác minh và khôi phục bản ghi trên Firestore...' });
+      let serverRows: Awaited<ReturnType<typeof restoreDeletedUndoOnCloud>> = [];
+      void queueCloudSave(async () => {
+        if (warehouseOnly) {
+          for (const change of deletedChanges) await restoreWarehouseTransactionAtomic(pid, change.id);
+        } else {
+          serverRows = await restoreDeletedUndoOnCloud(pid, step, deletedTimes, receipt?.id);
+        }
+      }).then(() => {
+        if (activeProjectIdRef.current !== pid) return;
+        if (warehouseOnly) {
+          // The inventory realtime listener owns the restored voucher and stock balance.
+          // Never inject a historical warehouse snapshot into local inventory.
+          deletedChanges.forEach((change) => clearLocalTombstone(change.collection, change.id, pid));
+        } else {
+          const byCollection = new Map<string, typeof serverRows>();
+          serverRows.forEach((row) => byCollection.set(row.collection, [...(byCollection.get(row.collection) || []), row]));
+          // Both UI state and the sync baseline advance to the server-confirmed revision.
+          // This avoids issuing an immediate stale upsert after the transaction completes.
+          const updateRows = (source: AppData): AppData => {
+            const next = { ...source };
+            for (const [key, rows] of byCollection) {
+              const collection = key as keyof AppData;
+              const index = new Map<string, any>(((next[collection] || []) as any[]).map((row) => [String(row.id), row]));
+              rows.forEach(({ id, row }) => {
+                const before = step.changes.find((change) => change.collection === key && change.id === id)?.before;
+                index.set(id, before ? restoreLocalOmittedImages(row, before) : row);
+              });
+              (next as any)[collection] = Array.from(index.values());
+            }
+            return next;
+          };
+          setPresent((prev) => updateRows(prev));
+          if (lastSyncedPresentRef.current) lastSyncedPresentRef.current = updateRows(lastSyncedPresentRef.current);
+          deletedChanges.forEach((change) => clearLocalTombstone(change.collection, change.id, pid));
+          if (receipt) {
+            const remaining = trashOperationsRef.current.filter((op) => op.id !== receipt.id);
+            persistTrashOperations(remaining, pid);
+            void queueTrashReceiptWork(async () => {
+              const key = getKey('construction_trash_pending_receipts', pid);
+              const pending = await getAsyncItem<TrashOperation[]>(key, []);
+              await setAsyncItem(key, (Array.isArray(pending) ? pending : []).filter((op) => op.id !== receipt.id));
+              await deleteTrashOperationFromCloud(pid, receipt.id);
+            }).catch((err) => console.warn('[Undo Cloud Trash cleanup] Deferred:', err));
+          }
+        }
+        setPast((previous) => previous[previous.length - 1] === step ? previous.slice(0, -1) : previous);
+        // Redo of a server-confirmed delete requires a new Trash receipt and is
+        // deliberately not offered through the old local-only history path.
+        setFuture([]);
+        setDataCloudStatus({ phase: 'synced', lastSyncAt: Date.now(), message: 'Firestore đã xác nhận khôi phục dữ liệu.' });
+      }).catch((error) => {
+        console.warn('[Undo Cloud] Recovery rejected; local state unchanged:', error);
+        if (activeProjectIdRef.current === pid) {
+          setDataCloudStatus({ phase: 'error', message: 'Hoàn tác chưa được Firestore xác nhận; dữ liệu chưa khôi phục.' });
+          alert('Chưa hoàn tác được trên Cloud: ' + (error instanceof Error ? error.message : String(error))
+            + '. Dữ liệu gốc vẫn có thể khôi phục bằng Thùng rác nếu thao tác xóa đã được đồng bộ.');
+        }
+      }).finally(() => {
+        undoCloudBusyRef.current = false;
+        setCloudDataRetryTick((tick) => tick + 1);
+      });
       return;
     }
     const now = Date.now();
@@ -5154,7 +5248,7 @@ function AuthenticatedApp() {
     if (!projectRoleAllowed) return;
     if (projectRoleSource !== 'cloud' && projectRoleSource !== 'offline-cache') return;
     if (!canEditProjectData(currentUserRole)) return;
-    if (syncLockRef.current || switchingProjectRef.current) return;
+    if (syncLockRef.current || switchingProjectRef.current || undoCloudBusyRef.current) return;
     if (!cloudUserKey) return;
 
     // Online writes wait for the full 9-dataset bootstrap. Offline writes are different:
@@ -5179,7 +5273,7 @@ function AuthenticatedApp() {
     }
 
     const timer = setTimeout(() => {
-      if (!syncLockRef.current && !switchingProjectRef.current && activeProjectIdRef.current === projectIdForThisSave) {
+      if (!syncLockRef.current && !switchingProjectRef.current && !undoCloudBusyRef.current && activeProjectIdRef.current === projectIdForThisSave) {
         if (!FIREBASE_ONLY_RUNTIME && autoSyncEnabled && googleServerBackendAvailable) {
           handleDriveSyncUp().catch(err => console.warn('Auto drive sync warning:', err));
         }
