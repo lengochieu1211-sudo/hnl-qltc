@@ -45,11 +45,11 @@ jobs:
           changed=['desktop-wrapper/DesktopWebShellForm.cs']
           with zipfile.ZipFile(dest/'PATCH.zip','w',compression=zipfile.ZIP_DEFLATED) as z:
               for p in changed: z.writestr(p,subprocess.check_output(['git','show',head+':'+p]))
-          (dest/'changed-files.txt').write_text('\\n'.join(changed)+'\\n')
-          (dest/'REPORT.txt').write_text('EXACT_DEV_HEAD='+head+'\\nPREVIOUS_DEV='+base+'\\nCHANGED=desktop-wrapper/DesktopWebShellForm.cs\\nCI_ONLY=true\\nPROD_UNTOUCHED=true\\nCERTIFIED=false\\n')
+          (dest/'changed-files.txt').write_text('\n'.join(changed)+'\n')
+          (dest/'REPORT.txt').write_text('EXACT_DEV_HEAD='+head+'\nPREVIOUS_DEV='+base+'\nCHANGED=desktop-wrapper/DesktopWebShellForm.cs\nCI_ONLY=true\nPROD_UNTOUCHED=true\nCERTIFIED=false\n')
           with open(dest/'SHA256SUMS.txt','w') as sums:
               for name in ('FULL_SOURCE.zip','PATCH.zip','REPORT.txt','changed-files.txt'):
-                  sums.write(hashlib.sha256((dest/name).read_bytes()).hexdigest()+'  '+name+'\\n')
+                  sums.write(hashlib.sha256((dest/name).read_bytes()).hexdigest()+'  '+name+'\n')
           for name in ('FULL_SOURCE.zip','PATCH.zip'):
               with zipfile.ZipFile(dest/name) as z:
                   if z.testzip(): raise SystemExit('CORRUPT_ZIP '+name)
