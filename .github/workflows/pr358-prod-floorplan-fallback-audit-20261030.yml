@@ -1,0 +1,42 @@
+name: PR358 PROD legacy 11 FloorPlan Firestore fallback chunks audit (READ ONLY; NO DEPLOY)
+on:
+  push:
+    branches: [audit/pr358-prod-11-floorplan-fallback-20261030]
+    paths: [.github/workflows/pr358-prod-floorplan-fallback-audit-20261030.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      PR358_CANDIDATE: 1d69495c939911a5b20c1046f356777adcdeb44c
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with: {node-version: 22}
+      - name: Verify script and scope are strictly read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/audit/pr358-prod-11-floorplan-fallback-20261030'
+          git merge-base --is-ancestor "$PR358_CANDIDATE" HEAD
+          git diff --quiet "$PR358_CANDIDATE" HEAD -- src/ firebase.json firestore.rules storage.rules firebase.prod.json cloudflare
+          test "$(git diff --name-only "$PR358_CANDIDATE" HEAD | wc -l)" -eq 2
+          node --check scripts/pr358-prod-11-floorplan-fallback-readonly.mjs
+          test -n "$FIREBASE_SERVICE_ACCOUNT"
+          node -e "const s=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);if(s.type!=='service_account'||s.project_id!=='com-example-qlct-61329')process.exit(2)"
+      - name: Read 11 legacy FloorPlan image chunks (no Firestore writes or media exports)
+        run: node scripts/pr358-prod-11-floorplan-fallback-readonly.mjs
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PR358-PROD-FLOORPLAN-LEGACY-READONLY-AGGREGATE
+          path: PR358-PROD-FLOORPLAN-FALLBACK-AGGREGATE.json
+          if-no-files-found: warn
+          retention-days: 30
