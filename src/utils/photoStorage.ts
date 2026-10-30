@@ -715,7 +715,11 @@ export async function getPhotoBase64(photoId: string): Promise<string> {
   return '';
 }
 
-export async function getProjectPhotosWithBinary(projectId: string, requireBinary = false): Promise<PhotoAttachment[]> {
+export async function getProjectPhotosWithBinary(
+  projectId: string,
+  requireBinary = false,
+  onProgress?: (done: number, total: number) => void,
+): Promise<PhotoAttachment[]> {
   const photos = await getProjectPhotos(projectId, false);
 
   // A backup must be self-contained. On a second phone/PC the photo metadata may
@@ -752,6 +756,9 @@ export async function getProjectPhotosWithBinary(projectId: string, requireBinar
       localUri: base64 || '',
       base64: base64 || undefined,
     });
+    // Report only photos whose binary was actually processed; never claim progress
+    // for a missing image (requireBinary throws before reaching this callback).
+    onProgress?.(results.length, photos.length);
   }
   return results;
 }
