@@ -197,6 +197,7 @@ import { refreshProjectPhotoMetadataFromCloud, subscribeProjectPhotosRealtime, s
 import { appendRuntimeDiagnostic } from './lib/runtimeDiagnostics';
 import { isPrimaryDriveReady, PRIMARY_DRIVE_OWNER_EMAIL, uploadProjectBackupToPrimaryDrive } from './lib/primaryDriveBridge';
 import { subscribeConversationReadState, subscribeConversationSummary } from './lib/chatService';
+import { getChatUnreadCount } from './utils/chatUnread';
 import { applyFloorPlanImageToMultipleFloors, inspectFloorPlanBulkTargets, cacheFloorPlansForOffline, floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, isFloorPlanAutoCacheNetworkSuitable, isFloorPlanCloudBinaryReady, loadFloorPlanImageFromCloud, resolveFloorPlanImageForDisplay, stageFloorPlanImageOutbox, syncFloorPlanImageToCloud } from './lib/floorPlanImageSync';
 import { shouldAutoMirrorProjectBinaries } from './lib/offlineMirrorSettings';
 import { DEFAULT_TRASH_SETTINGS, TrashOperation, TrashSettings, TrashCollectionKey, deleteTrashOperationFromCloud, estimateTrashBytes, getTrashCollectionLabel, normalizeTrashSettings, sanitizeTrashSnapshot, saveTrashOperationToCloud, subscribeProjectTrash } from './lib/trash';
@@ -656,6 +657,7 @@ function AuthenticatedApp() {
   const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
   const [projectManagerInitialTab, setProjectManagerInitialTab] = useState<'projects' | 'sync'>('projects');
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
+  const [securityModalEntryPoint, setSecurityModalEntryPoint] = useState<'account' | 'switch' | 'rbac' | 'pin'>('pin');
   const [currentUserRole, setCurrentUserRoleState] = useState<UserRole>(() => getCurrentUserRole());
   const [isProjectRoleResolved, setIsProjectRoleResolved] = useState(false);
   const [projectRoleSource, setProjectRoleSource] = useState<'cloud' | 'offline-cache' | 'unresolved'>('unresolved');
@@ -7536,13 +7538,13 @@ function AuthenticatedApp() {
 
   const [chatLastMessageAt, setChatLastMessageAt] = useState(0);
   const [chatLastReadAt, setChatLastReadAt] = useState(0);
-  const [chatMessageCount, setChatMessageCount] = useState(0);
-  const [chatLastReadMessageCount, setChatLastReadMessageCount] = useState(0);
+  const [chatMessageCount, setChatMessageCount] = useState<number | null>(null);
+  const [chatLastReadMessageCount, setChatLastReadMessageCount] = useState<number | null>(null);
   const [chatLastMentions, setChatLastMentions] = useState<string[]>([]);
   const [chatLastSenderUid, setChatLastSenderUid] = useState('');
   const [chatToast, setChatToast] = useState<{ sender: string; text: string } | null>(null);
   const lastChatToastTimestampRef = useRef(0);
-  const chatUnreadCount = Math.max(0, chatMessageCount - chatLastReadMessageCount) || (chatLastMessageAt > chatLastReadAt ? 1 : 0);
+  const chatUnreadCount = getChatUnreadCount(chatMessageCount, chatLastReadMessageCount, chatLastMessageAt, chatLastReadAt);
   const currentChatUid = getCurrentRealFirebaseUser()?.uid || '';
   const chatMentioned = chatUnreadCount > 0 && chatLastSenderUid !== currentChatUid && (chatLastMentions.includes(currentChatUid) || chatLastMentions.includes('everyone'));
 
@@ -7550,8 +7552,8 @@ function AuthenticatedApp() {
     if (!activeProjectId || !getCurrentRealFirebaseUser()) {
       setChatLastMessageAt(0);
       setChatLastReadAt(0);
-      setChatMessageCount(0);
-      setChatLastReadMessageCount(0);
+      setChatMessageCount(null);
+      setChatLastReadMessageCount(null);
       setChatLastMentions([]);
       setChatLastSenderUid('');
       return;
@@ -7563,7 +7565,7 @@ function AuthenticatedApp() {
     let debounceTimer: number | null = null;
     let initialSummary = true;
     let pendingSummary: any = null;
-    let pendingRead: { millis: number; count: number } | null = null;
+    let pendingRead: { millis: number; count: number | null } | null = null;
 
     const flushBadgeState = () => {
       debounceTimer = null;
@@ -7573,7 +7575,7 @@ function AuthenticatedApp() {
         pendingSummary = null;
         const timestamp = summary?.lastMessageAtMillis || 0;
         setChatLastMessageAt(timestamp);
-        setChatMessageCount(Number(summary?.messageCount || 0));
+        setChatMessageCount(typeof summary?.messageCount === 'number' ? summary.messageCount : null);
         setChatLastMentions(summary?.lastMentions || []);
         setChatLastSenderUid(summary?.lastSenderUid || '');
         const me = getCurrentRealFirebaseUser();
@@ -7588,7 +7590,7 @@ function AuthenticatedApp() {
       }
       if (pendingRead) {
         setChatLastReadAt(pendingRead.millis);
-        setChatLastReadMessageCount(Number(pendingRead.count || 0));
+        setChatLastReadMessageCount(pendingRead.count);
         pendingRead = null;
       }
     };
@@ -7622,7 +7624,7 @@ function AuthenticatedApp() {
         scheduleFlush();
       });
       unsubRead = subscribeConversationReadState(activeProjectId, (millis, count) => {
-        pendingRead = { millis, count: Number(count || 0) };
+        pendingRead = { millis, count: typeof count === 'number' ? count : null };
         scheduleFlush();
       });
     };
@@ -7709,6 +7711,30 @@ function AuthenticatedApp() {
   };
 
   const hasExcelExport = ['warehouse', 'volume', 'floorplan', 'checklist', 'crew'].includes(activeTab);
+  // Presentation-only logout gate: do not abandon uncommitted Firestore or R2 work.
+  // Gate is re-evaluated on click as well as when drawing the desktop account menu.
+  const desktopAccountHasPendingSync = !cloudInitialReady
+    || firestorePendingWriteCount > 0
+    || syncDiagnosticPendingData > 0
+    || syncDiagnosticPendingMetadata > 0
+    || Number(photoCloudStatus.pending || 0) > 0
+    || floorPlanImageSyncPendingRef.current.size > 0
+    || floorPlanImageSyncInFlightRef.current.size > 0;
+  const handleDesktopAccountSignOut = async () => {
+    if (!isOnline || desktopAccountHasPendingSync) {
+      alert('Không thể đăng xuất khi đang ngoại tuyến hoặc còn dữ liệu chờ đồng bộ. Hãy kết nối mạng và đợi đồng bộ hoàn tất.');
+      return;
+    }
+    // Existing confirmation / role reset / AuthGate lifecycle remain authoritative.
+    await signOutGoogle();
+  };
+  const handleDesktopLockNow = () => {
+    if (getStoredPinLockConfig().enabled) setIsAppLocked(true);
+    else {
+      setSecurityModalEntryPoint('pin');
+      setIsSecurityModalOpen(true); // Allow the owner to configure PIN first.
+    }
+  };
 
   return (
     <div data-hnl-desktop-design={visibleTab !== 'home' ? desktopWorkspaceMode : 'classic'} data-hnl-pc-home-modern={visibleTab === 'home' && desktopWorkspaceMode === 'modern' ? 'true' : 'false'} data-hnl-desktop-native={isDesktopRuntime ? 'true' : 'false'} className={`min-h-screen bg-slate-100 text-slate-900 font-sans selection:bg-blue-200 ${isDesktopRuntime || chromeDesktopSite ? 'pl-[84px]' : 'lg:pl-[84px]'}`}>
@@ -8590,13 +8616,29 @@ function AuthenticatedApp() {
             showChecklist={showChecklistModule}
             showAi={HNL_AI_ENABLED}
             showSuperAdmin={isCurrentSuperAdmin}
+            userRole={currentUserRole}
+            roleResolved={isProjectRoleResolved && projectRoleAllowed}
+            online={isOnline}
+            hasPendingSync={desktopAccountHasPendingSync}
+            onOpenAccount={(section) => {
+              setSecurityModalEntryPoint(section);
+              setIsSecurityModalOpen(true);
+            }}
+            onLockNow={handleDesktopLockNow}
+            onSignOut={handleDesktopAccountSignOut}
           />
         )}
 
         {/* Security & Access Control Modal */}
         <SecurityModal
           isOpen={isSecurityModalOpen}
-          onClose={() => setIsSecurityModalOpen(false)}
+          onClose={() => {
+            setIsSecurityModalOpen(false);
+            setSecurityModalEntryPoint('pin');
+          }}
+          entryPoint={securityModalEntryPoint}
+          onSafeAccountSignOut={handleDesktopAccountSignOut}
+          signOutBlocked={!isOnline || desktopAccountHasPendingSync}
           onLockNow={() => setIsAppLocked(true)}
           activeProjectId={activeProjectId}
           projects={securityModalProjects}

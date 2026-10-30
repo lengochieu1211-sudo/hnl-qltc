@@ -129,6 +129,9 @@ export async function sharePreparedContent(params: {
   text: string;
   url?: string;
   attachments?: ShareAttachmentPayload[];
+  // Already-constructed browser Files keep user activation on the Share click.
+  // Used only for the selected attachments; Android native bridge still uses data URLs.
+  browserFiles?: File[];
   allowTextFallback?: boolean;
 }): Promise<ShareContentResult> {
   const title = String(params.title || 'HNL QLTC').trim() || 'HNL QLTC';
@@ -177,7 +180,9 @@ export async function sharePreparedContent(params: {
       }
     }
 
-    const files = requested.map(dataUrlToFile).filter((file): file is File => Boolean(file));
+    const files = params.browserFiles?.length === requested.length && params.browserFiles.every((file) => file instanceof File)
+      ? params.browserFiles
+      : requested.map(dataUrlToFile).filter((file): file is File => Boolean(file));
     const webShare = await tryWebFileShare(title, text, url, files);
     if (webShare.status === 'shared') {
       // Never claim all photos were sent if the browser only accepted one.
