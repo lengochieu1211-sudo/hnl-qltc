@@ -1,0 +1,59 @@
+name: HNL PR366 exact PROD candidate source handoff NO DEPLOY
+on:
+  push:
+    branches: [release/position-lock-prod-source-handoff-20261030]
+    paths: [.github/workflows/hnl-pr366-source-handoff-20261030.yml]
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CANDIDATE_SHA: 5cb282b76c0e74898ff8c86ed22fc26e4c0c58ae
+      MAIN_BASE_SHA: 1c2b7d663d51d51aa45010e533d8e035e22adf59
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 5cb282b76c0e74898ff8c86ed22fc26e4c0c58ae
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify immutable candidate, base ancestry and source scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse origin/main)" = "$MAIN_BASE_SHA"
+          git merge-base --is-ancestor "$MAIN_BASE_SHA" "$CANDIDATE_SHA"
+          git diff --quiet "$MAIN_BASE_SHA" HEAD -- firestore.rules storage.rules firebase.json firebase.prod.json .github/workflows cloudflare
+          node -e "const p=require('./package.json'),l=require('./package-lock.json');if(p.version!==l.version||p.name!==l.name||l.packages[''].version!==p.version)process.exit(2)"
+      - name: Create exact candidate full source, scoped patch and SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git archive --format=zip --output=evidence/FULL_SOURCE.zip "$CANDIDATE_SHA"
+          python3 - <<'PY'
+          import hashlib,os,subprocess,zipfile
+          sha=os.environ['CANDIDATE_SHA'];base=os.environ['MAIN_BASE_SHA']
+          files=[p.decode() for p in subprocess.check_output(['git','diff','--name-only','--diff-filter=ACMR','-z',base,sha]).split(bytes([0])) if p]
+          allowed=['package.json','scripts/dev-backup-four-issues-golden.mjs','scripts/firebase-rules-behavior.mjs','scripts/position-lock-cloud-golden.mjs','src/App.tsx','src/components/FloorPlanDefectTab.tsx','src/lib/positionLockCloud.ts']
+          if files!=allowed: raise SystemExit('SOURCE_DIFF_OUTSIDE_SCOPED_PATCH:'+repr(files))
+          with zipfile.ZipFile('evidence/PATCH.zip','w',compression=zipfile.ZIP_DEFLATED) as z:
+            for path in files: z.writestr(path,subprocess.check_output(['git','show',sha+':'+path]))
+          with open('evidence/changed-files.txt','w') as f:f.write(chr(10).join(files)+chr(10))
+          report='HNL QLTC PR366 PROD position-lock source candidate\nBase='+base+'\nHEAD='+sha+'\nPatch=7 source/test/package files\nNo Firebase/Rules/Workers/R2/PROD data changes\nNo deploy\nRuntime Golden not certified\n'
+          with open('evidence/REPORT.txt','w') as f:f.write(report)
+          for name in ('FULL_SOURCE.zip','PATCH.zip'):
+            with zipfile.ZipFile('evidence/'+name) as z:
+              if z.testzip():raise SystemExit('CORRUPT_ZIP')
+          with open('evidence/SHA256SUMS.txt','w') as f:
+            for name in ('FULL_SOURCE.zip','PATCH.zip','REPORT.txt','changed-files.txt'):
+              f.write(hashlib.sha256(open('evidence/'+name,'rb').read()).hexdigest()+'  '+name+chr(10))
+          print(report)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-PR366-PROD-CANDIDATE-EXACT-SOURCE
+          path: evidence/
+          retention-days: 30
