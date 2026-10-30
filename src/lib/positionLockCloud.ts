@@ -30,7 +30,7 @@ export async function commitPositionLocksOnCloud(
   if (!actor?.uid) throw new Error('POSITION_LOCK_SIGN_IN_REQUIRED');
   const role = await fetchProjectUserRoleFromCloud(projectId, actor);
   const allowedRole = role.role === 'ADMIN'
-    || (kind === 'defect' && (role.role === 'EDITOR' || role.role === 'ENGINEER'));
+    || (kind === 'defect' && role.role === 'EDITOR');
   if (role.verification !== 'verified' || !role.allowed || !allowedRole) {
     throw new Error('POSITION_LOCK_ROLE_NOT_VERIFIED');
   }
