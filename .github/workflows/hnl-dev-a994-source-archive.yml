@@ -1,0 +1,67 @@
+name: HNL QLTC DEV a994 Exact Source Archive (NO DEPLOY)
+on:
+  push:
+    branches:
+      - backup/dev-a994-exact-source-20261030
+permissions:
+  contents: read
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a994ec4166fc8d37286852cd9f100ba4705c211e
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify pinned DEV exact HEAD and protected source scope
+        run: |
+          test "$(git rev-parse HEAD)" = "a994ec4166fc8d37286852cd9f100ba4705c211e"
+          test "$(git rev-parse HEAD^{tree})" = "f2a5586334626a1d335bd6a3be64d139179b0b0a"
+          test "$(git diff --name-only ce158da34f391da05d035f3e8d57e23b6f0d6a0f a994ec4166fc8d37286852cd9f100ba4705c211e)" = "desktop-wrapper/DesktopWebShellForm.cs"
+          python3 - <<'PY'
+          import subprocess
+          names=subprocess.check_output(['git','ls-files','-z']).decode().split(chr(0))
+          def unsafe(path):
+              name=path.rsplit('/',1)[-1].lower()
+              return ((name.startswith('.env') and not name.endswith(('.example','.sample')))
+                or name in ('id_rsa','id_ed25519','credentials.json','serviceaccountkey.json')
+                or name.endswith(('.p12','.pfx','.key'))
+                or (name.endswith('.pem') and path!='scripts/p2115-firestore-backup-public.pem'))
+          bad=[p for p in names if p and unsafe(p)]
+          if bad: raise SystemExit('TRACKED_SECRET_FILE_BLOCKED: '+repr(bad))
+          PY
+      - name: Pack exact pinned Git tree with PATCH and report
+        run: |
+          set -euo pipefail
+          mkdir -p handoff
+          git archive --format=zip --output=handoff/FULL_SOURCE.zip a994ec4166fc8d37286852cd9f100ba4705c211e
+          python3 - <<'PY'
+          import hashlib,subprocess,zipfile
+          from pathlib import Path
+          dest=Path('handoff'); head='a994ec4166fc8d37286852cd9f100ba4705c211e'
+          base='ce158da34f391da05d035f3e8d57e23b6f0d6a0f'
+          changed=['desktop-wrapper/DesktopWebShellForm.cs']
+          with zipfile.ZipFile(dest/'PATCH.zip','w',compression=zipfile.ZIP_DEFLATED) as z:
+              for p in changed: z.writestr(p,subprocess.check_output(['git','show',head+':'+p]))
+          (dest/'changed-files.txt').write_text('\\n'.join(changed)+'\\n')
+          (dest/'REPORT.txt').write_text('EXACT_DEV_HEAD='+head+'\\nPREVIOUS_DEV='+base+'\\nCHANGED=desktop-wrapper/DesktopWebShellForm.cs\\nCI_ONLY=true\\nPROD_UNTOUCHED=true\\nCERTIFIED=false\\n')
+          with open(dest/'SHA256SUMS.txt','w') as sums:
+              for name in ('FULL_SOURCE.zip','PATCH.zip','REPORT.txt','changed-files.txt'):
+                  sums.write(hashlib.sha256((dest/name).read_bytes()).hexdigest()+'  '+name+'\\n')
+          for name in ('FULL_SOURCE.zip','PATCH.zip'):
+              with zipfile.ZipFile(dest/name) as z:
+                  if z.testzip(): raise SystemExit('CORRUPT_ZIP '+name)
+          with zipfile.ZipFile(dest/'FULL_SOURCE.zip') as z:
+              for name in changed:
+                  expected=subprocess.check_output(['git','show',head+':'+name])
+                  if z.read(name)!=expected:raise SystemExit('SOURCE_MISMATCH:'+name)
+          print('PASS exact DEV source archive, one-file patch, CRC and SHA256')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-DEV-a994ec4-EXACT-SOURCE-HANDOFF
+          path: handoff/
+          retention-days: 30
+          if-no-files-found: error
