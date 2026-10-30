@@ -208,6 +208,7 @@ import { renameWarehouseUnitAtomic, type WarehouseUnitRenameInput } from './lib/
 import { drainBinaryPurgeRetryQueues, purgeTrashOperationBinaries } from './lib/cloudBinaryPurge';
 import { restoreProjectTrashAtomic } from './lib/trashRestore';
 import { restoreDeletedUndoOnCloud, redoDeletedHistoryOnCloud } from './lib/scopedUndoCloud';
+import { commitPositionLocksOnCloud, type PositionLockKind, type PositionLockEntry } from './lib/positionLockCloud';
 import { deleteEmptyStructureGroupToTrash } from './lib/structureGroupTrash';
 
 // Heavy screens are code-split so Android does not parse XLSX/PDF-heavy modules at startup.
@@ -7337,6 +7338,30 @@ function AuthenticatedApp() {
     }));
   };
 
+  const handleCommitPositionLocks = async (kind: PositionLockKind, entries: PositionLockEntry[], locked: boolean): Promise<void> => {
+    if (!FIREBASE_ONLY_RUNTIME || !isOnline || !cloudInitialReady || projectRoleSource !== 'cloud' || businessDataSource !== 'cloud') {
+      throw new Error('POSITION_LOCK_CLOUD_NOT_READY');
+    }
+    if (!isProjectRoleResolved || (kind === 'room'
+      ? !canManageFloorPlanStructure(currentUserRole) : !canEditDefectData(currentUserRole))) {
+      throw new Error('POSITION_LOCK_NO_PERMISSION');
+    }
+    const pid = activeProjectIdRef.current;
+    const key = kind === 'room' ? 'roomProgressList' : 'defects';
+    const local = present[key], baseline = lastSyncedPresentRef.current?.[key] || [];
+    for (const e of entries) {
+      const current = local.find((v) => v.id === e.id);
+      const saved = baseline.find((v) => v.id === e.id);
+      if (!current || !saved || current.updatedAt !== saved.updatedAt
+        || Number(current.revision || 0) !== Number(saved.revision || 0)) {
+        throw new Error('POSITION_LOCK_PENDING_LOCAL_EDIT:' + e.id);
+      }
+    }
+    await queueCloudSave(() => commitPositionLocksOnCloud(pid, kind, entries, locked));
+    if (activeProjectIdRef.current !== pid) throw new Error('POSITION_LOCK_PROJECT_SWITCHED');
+    // Realtime supplies the canonical row; never autosave a local lock snapshot.
+  };
+
   const handleUpdateDefect = (updatedDefect: DefectItem) => {
     if (!isProjectRoleResolved || !canEditDefectData(currentUserRole)) { console.warn('[RBAC] Tài khoản không có quyền cập nhật Defect.'); return; }
     updateAppData((prev) => ({
@@ -8306,6 +8331,7 @@ function AuthenticatedApp() {
               onDeleteMultipleDefects={handleDeleteMultipleDefects}
               onSaveRoomProgress={handleSaveRoomProgress}
               onBatchSaveRooms={handleBatchSaveRooms}
+              onCommitPositionLocks={handleCommitPositionLocks}
               onApplyRoomExcelImport={handleApplyRoomExcelImport}
               onCreateMultipleRoomProgress={handleCreateMultipleRoomProgress}
               onDeleteRoomProgress={handleDeleteRoomProgress}
