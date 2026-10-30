@@ -15,7 +15,7 @@ export async function commitPositionLocksOnCloud(
   entries: PositionLockEntry[],
   locked: boolean,
 ): Promise<void> {
-  if (!projectId || projectId === 'default') throw new Error('POSITION_LOCK_PROJECT_REQUIRED');
+  if (!projectId) throw new Error('POSITION_LOCK_PROJECT_REQUIRED');
   if (kind !== 'room' && kind !== 'defect') throw new Error('POSITION_LOCK_KIND_INVALID');
   if (typeof locked !== 'boolean' || !Array.isArray(entries) || entries.length < 1 || entries.length > 40) {
     throw new Error('POSITION_LOCK_UNSAFE_SCOPE');
