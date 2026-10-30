@@ -1,0 +1,180 @@
+name: HNL PROD PR358 guarded Hosting PREVIEW only (NEVER LIVE)
+on:
+  push:
+    branches: [release/prod-preview-only-qa-backup-20261030]
+    paths: [.github/workflows/hnl-prod-qa-backup-preview-only-20261030.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: hnl-qltc-prod-preview-pr358-20261030
+  cancel-in-progress: false
+jobs:
+  preflight_preview:
+    name: Confirm exact candidate, CI and PROD LIVE baseline; stage PREVIEW only
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    env:
+      APPROVED_SOURCE_SHA: ea47defe9fd4946bb5a82b09c58e43311ed0700b
+      PROD_MAIN_BASE_SHA: b2557860fbb3b128b5f2c9863e99d0f8b1f78686
+      PREVIEW_CHANNEL: pr358-ea47defe-20261030
+      FIREBASE_PROJECT_ID: com-example-qlct-61329
+      FIREBASE_SITE_ID: hnlqltc
+      VITE_APP_ENV: PROD
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_FIREBASE_API_KEY: AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY
+      VITE_FIREBASE_AUTH_DOMAIN: hnlqltc.web.app
+      VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
+      VITE_FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
+      VITE_FIREBASE_MESSAGING_SENDER_ID: '119152410850'
+      VITE_FIREBASE_APP_ID: 1:119152410850:web:c2aee2135428af34ef5ebb
+      VITE_FIRESTORE_DATABASE_ID: (default)
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: (default)
+      VITE_HNL_AI_ENABLED: 'true'
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
+      PROD_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Verify branch event and exact candidate CI without using approval bypass
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/release/prod-preview-only-qa-backup-20261030"
+          test -n "$GH_TOKEN"
+          RUNS="$(curl -fsSL --retry 3 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$APPROVED_SOURCE_SHA&per_page=100")"
+          printf '%s' "$RUNS" | node -e '
+            let s="";process.stdin.on("data",x=>s+=x).on("end",()=>{
+              let j=JSON.parse(s);
+              let names=["Build","Build HNL QLTC Windows EXE","Build HNL QLTC Android APK","HNL AI External Context Gate","P21.4 DEV Trusted Client Bridge Golden (NO DEPLOY)","P21.6 Room Sidecar UI Emulator-only Golden (NO DEPLOY)"];
+              for(let name of names){
+                let r=(j.workflow_runs||[]).find(x=>x.head_sha===process.env.APPROVED_SOURCE_SHA&&x.name===name&&x.conclusion==="success"&&x.status==="completed");
+                if(!r){console.error("Missing CI SUCCESS for "+name);process.exitCode=1;} else console.log("CI PASS "+name+" #"+r.id);
+              }
+            })'
+      - uses: actions/checkout@v4
+        with:
+          ref: ea47defe9fd4946bb5a82b09c58e43311ed0700b
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pin PROD source and ensure no Rules, Worker or Hosting config change
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$APPROVED_SOURCE_SHA"
+          test "$(git rev-parse origin/main)" = "$PROD_MAIN_BASE_SHA" || {
+            echo "::error::main advanced; abort staging against stale base"; exit 1;
+          }
+          git diff --quiet "$PROD_MAIN_BASE_SHA" HEAD -- firestore.rules storage.rules firebase.json firebase.prod.json cloudflare .github/workflows/firebase-hosting-merge.yml
+          node - <<'NODE'
+          const f=require("fs");
+          const c=JSON.parse(f.readFileSync("firebase.prod.json","utf8"));
+          if(c.hosting?.site!=="hnlqltc"||c.hosting?.public!=="dist"||"firestore" in c||"storage" in c) process.exit(1);
+          const p=require("./package.json"),l=require("./package-lock.json");
+          if(p.version!==l.version||p.name!==l.name)process.exit(2);
+          NODE
+          test "$VITE_FIREBASE_PROJECT_ID" = "$FIREBASE_PROJECT_ID"
+          test "$VITE_FIREBASE_AUTH_DOMAIN" = 'hnlqltc.web.app'
+          test "$VITE_R2_GATEWAY_URL" = 'https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: PROD source regression and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/p2184-dev-backup-display-popover-golden.mjs
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run build
+          test -s dist/index.html
+          test -s dist/sw-assets.json
+          grep -R -q 'hnl-fullscreen-display-popover' dist/assets
+          grep -R -q 'hnl-qltc-r2-gateway.lengochieu1211.workers.dev' dist/assets
+          if grep -R -q 'hnl-qltc-r2-gateway-dev-backup' dist/assets; then echo "::error::DEV Backup media URL in PROD app"; exit 1; fi
+      - name: Verify production-only credentials; read PROD LIVE Hosting release before staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PROD_SA" || { echo "::error::Missing existing PROD Firebase service account"; exit 1; }
+          mkdir -p evidence
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import {google} from 'googleapis';
+          const sa=JSON.parse(process.env.PROD_SA);
+          if(sa.type!=='service_account'||sa.project_id!=='com-example-qlct-61329'||!sa.private_key)throw Error('Wrong PROD credential');
+          const ga=new google.auth.GoogleAuth({credentials:sa,scopes:['https://www.googleapis.com/auth/firebase.hosting.readonly']});
+          const token=(await(await ga.getClient()).getAccessToken()).token;
+          const r=await fetch('https://firebasehosting.googleapis.com/v1beta1/sites/hnlqltc/channels/live/releases?pageSize=1',{headers:{Authorization:'Bearer '+token}});
+          if(!r.ok)throw Error('Cannot read PROD LIVE release '+r.status);
+          const release=(await r.json()).releases?.[0];
+          if(!release?.version?.name)throw Error('No PROD LIVE rollback anchor');
+          const out={prodProject:'com-example-qlct-61329',site:'hnlqltc',sourceSha:process.env.APPROVED_SOURCE_SHA,mainBase:process.env.PROD_MAIN_BASE_SHA,originalLiveVersion:release.version.name,originalLiveRelease:release.name,status:'PREVIEW_ONLY',certified:false};
+          fs.writeFileSync('evidence/prod-preview-baseline.json',JSON.stringify(out,null,2));
+          fs.appendFileSync(process.env.GITHUB_ENV,'ORIGINAL_LIVE_VERSION='+release.version.name+'\n');
+          console.log('PROD LIVE read-only baseline OK; no live mutation',release.version.name);
+          NODE
+      - name: Deploy Firebase Hosting PREVIEW channel only (never live)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PREVIEW_CHANNEL" != "live"
+          SA_FILE="$RUNNER_TEMP/hnl-prod-preview-sa.json"
+          trap 'rm -f "$SA_FILE"' EXIT
+          printf '%s' "$PROD_SA" > "$SA_FILE"
+          chmod 600 "$SA_FILE"
+          export GOOGLE_APPLICATION_CREDENTIALS="$SA_FILE"
+          npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$PREVIEW_CHANNEL" --project "$FIREBASE_PROJECT_ID" --config firebase.prod.json --non-interactive
+      - name: Verify PREVIEW artifacts and assert PROD LIVE unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import {google} from 'googleapis';
+          const sa=JSON.parse(process.env.PROD_SA);
+          const ga=new google.auth.GoogleAuth({credentials:sa,scopes:['https://www.googleapis.com/auth/firebase.hosting.readonly']});
+          const token=(await(await ga.getClient()).getAccessToken()).token;
+          const base='https://firebasehosting.googleapis.com/v1beta1/sites/hnlqltc/channels/';
+          async function fetchJson(path){
+            const r=await fetch(base+path,{headers:{Authorization:'Bearer '+token}});
+            if(!r.ok)throw Error('Hosting API '+path+' status '+r.status);
+            return r.json();
+          }
+          const [live,stage,ch]=await Promise.all([fetchJson('live/releases?pageSize=1'),fetchJson(process.env.PREVIEW_CHANNEL+'/releases?pageSize=1'),fetchJson(process.env.PREVIEW_CHANNEL)]);
+          const lv=live.releases?.[0]?.version?.name,pv=stage.releases?.[0]?.version?.name;
+          const url=ch.url;
+          if(lv!==process.env.ORIGINAL_LIVE_VERSION)throw Error('PROD LIVE unexpectedly changed. Stop.');
+          if(!pv||pv===lv||!url?.includes('hnlqltc--')||!url.endsWith('.web.app'))throw Error('Preview identification failed');
+          const mr=await fetch(url+'/sw-assets.json');
+          if(!mr.ok)throw Error('Preview asset manifest status '+mr.status);
+          const m=await mr.json();
+          if(String(m.buildId)!==process.env.GITHUB_RUN_ID||!Array.isArray(m.assets)||m.assets.length<25)throw Error('Preview build identity/assets failed');
+          let found=false;
+          for(const asset of m.assets.filter(x=>x.endsWith('.js')).slice(0,100)){
+            const r=await fetch(url+asset);
+            if(!r.ok)throw Error('Missing immutable asset '+asset);
+            if(Buffer.from(await r.arrayBuffer()).includes(Buffer.from('hnl-fullscreen-display-popover')))found=true;
+          }
+          if(!found)throw Error('Missing P21.84 in publicly served preview code');
+          const report={sourceSha:process.env.APPROVED_SOURCE_SHA,mainBase:process.env.PROD_MAIN_BASE_SHA,project:'com-example-qlct-61329',site:'hnlqltc',previewUrl:url,previewVersion:pv,originalLiveVersion:lv,assets:m.assets.length,previewGate:'PASS',prodLiveUnchanged:true,prodDataUntouched:true,certified:false};
+          fs.writeFileSync('evidence/prod-preview-checkpoint.json',JSON.stringify(report,null,2));
+          console.log('PREVIEW VERIFIED; PROD LIVE UNCHANGED',JSON.stringify(report));
+          NODE
+      - name: Upload pre-release PROD preview proofs; NEVER promote PROD LIVE in this workflow
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-PR358-PROD-PREVIEW-ONLY
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
