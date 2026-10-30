@@ -141,6 +141,7 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
 }
 import { subscribeToProjectRealtime, saveProjectDiffsToCloud, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, subscribeCurrentUserPinResetRealtime, signOutGoogle, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, subscribeProjectSharedSettings, fetchProjectSharedSettingsSnapshot, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud, updateProjectPresence } from './lib/firebase';
 import { REALTIME_STATE_KEYS, STATE_KEY_TO_CLOUD_NAME } from './config/realtimeCollections';
+import { hasPendingChatOutboxForCurrentUser } from './lib/chatService';
 import { FIREBASE_ONLY_RUNTIME, LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED, LEGACY_LOCAL_IMPORT_ENABLED } from './config/runtimeArchitecture';
 import { CURRENT_DATA_SCHEMA_VERSION } from './config/dataSchema';
 import { 
@@ -7721,8 +7722,8 @@ function AuthenticatedApp() {
     || floorPlanImageSyncPendingRef.current.size > 0
     || floorPlanImageSyncInFlightRef.current.size > 0;
   const handleDesktopAccountSignOut = async () => {
-    if (!isOnline || desktopAccountHasPendingSync) {
-      alert('Không thể đăng xuất khi đang ngoại tuyến hoặc còn dữ liệu chờ đồng bộ. Hãy kết nối mạng và đợi đồng bộ hoàn tất.');
+    if (!isOnline || desktopAccountHasPendingSync || await hasPendingChatOutboxForCurrentUser()) {
+      alert('Không thể đăng xuất khi đang ngoại tuyến hoặc còn dữ liệu (kể cả tin nhắn Chat) chờ đồng bộ. Hãy kết nối mạng và đợi đồng bộ hoàn tất.');
       return;
     }
     // Existing confirmation / role reset / AuthGate lifecycle remain authoritative.
