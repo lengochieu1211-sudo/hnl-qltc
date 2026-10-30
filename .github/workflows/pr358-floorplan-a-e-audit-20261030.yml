@@ -1,0 +1,57 @@
+name: PR358 Floorplan A-E DEV Backup to PROD scoped audit (NO DEPLOY)
+on:
+  push:
+    branches: [audit/pr358-floorplan-a-e-20261030]
+    paths: [.github/workflows/pr358-floorplan-a-e-audit-20261030.yml]
+permissions:
+  contents: read
+jobs:
+  floorplan_ae:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pinned exact source scope and PROD firewall
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/audit/pr358-floorplan-a-e-20261030'
+          test "$(git rev-parse HEAD^)" = 'ea47defe9fd4946bb5a82b09c58e43311ed0700b'
+          git cat-file -e '0d6afbff0a053a95a441cc84d27631bdf1332c6a^{commit}'
+          git diff --quiet HEAD^ HEAD -- src/ firestore.rules storage.rules firebase.json firebase.prod.json package.json package-lock.json
+          test "$(git diff --name-only HEAD^ HEAD | wc -l)" -eq 2
+          test -f 'scripts/pr358-floorplan-a-e-golden.mjs'
+          test -f '.github/workflows/pr358-floorplan-a-e-audit-20261030.yml'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Locked install
+        run: npm ci
+      - name: Core 5-part source parity and no saved geometry mutation
+        run: node scripts/pr358-floorplan-a-e-golden.mjs
+      - name: P21.80 drawing exclusive hit surface and no existing room edits
+        run: node scripts/p2180-dev-backup-floorplan-golden.mjs
+      - name: P21.82 Highlight stroke+label scale
+        run: node scripts/p2182-dev-backup-map-display-golden.mjs
+      - name: P21.83 touch/OSNAP pure geometry
+        run: node --experimental-strip-types scripts/dev-backup-osnap-touch-golden.mjs
+      - name: P21.83 F3-F10 CAD keyboard pure geometry
+        run: node --experimental-strip-types scripts/dev-backup-cad-keys-golden.mjs
+      - name: P21.84 responsive fullscreen popover test
+        run: node scripts/p2184-dev-backup-display-popover-golden.mjs
+      - name: Cross-feature room creation safety
+        run: node scripts/floorplan-room-creation-guard-golden.mjs
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Build, not deploy
+        run: npm run build
