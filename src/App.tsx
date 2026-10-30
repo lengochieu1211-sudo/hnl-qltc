@@ -3791,6 +3791,8 @@ function AuthenticatedApp() {
             for (const row of rows) {
               const key = row.collection as keyof AppData;
               const byId = new Map<string, any>(((next[key] || []) as any[]).map((item) => [String(item.id), item]));
+              const newest = byId.get(row.id);
+              if (Number(newest?.revision || 0) > Number(row.row.revision || 0)) continue;
               if (row.row.deleted === true) byId.delete(row.id);
               else byId.set(row.id, row.row);
               (next as any)[key] = Array.from(byId.values());
@@ -3869,6 +3871,8 @@ function AuthenticatedApp() {
               const collection = key as keyof AppData;
               const index = new Map<string, any>(((next[collection] || []) as any[]).map((row) => [String(row.id), row]));
               rows.forEach(({ id, row }) => {
+                const newest = index.get(id);
+                if (Number(newest?.revision || 0) > Number(row.revision || 0)) return;
                 const before = step.changes.find((change) => change.collection === key && change.id === id)?.before;
                 index.set(id, before ? restoreLocalOmittedImages(row, before) : row);
               });
