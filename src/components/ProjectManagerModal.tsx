@@ -433,6 +433,25 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const [cloudStatusMsg, setCloudStatusMsg] = useState<{ type: 'success' | 'error'; text: string; stats?: any } | null>(null);
   const [driveStatusMsg, setDriveStatusMsg] = useState<{ type: 'success' | 'error'; text: string; stats?: any } | null>(null);
   const [isAutoBackupConfigExpanded, setIsAutoBackupConfigExpanded] = useState(false);
+  // Reflect actual export steps; no fabricated time/percentage estimate for Cloud/R2 downloads.
+  const [jsonExportProgress, setJsonExportProgress] = useState<{
+    phase: 'reading' | 'photos' | 'packing' | 'saving' | 'error';
+    title: string;
+    detail: string;
+    completed?: number;
+    total?: number;
+  } | null>(null);
+  const jsonExportRunningRef = React.useRef(false);
+  const [jsonExportElapsedSeconds, setJsonExportElapsedSeconds] = useState(0);
+  useEffect(() => {
+    if (!jsonExportProgress || jsonExportProgress.phase === 'error') return;
+    const startedAt = Date.now() - jsonExportElapsedSeconds * 1000;
+    const timer = window.setInterval(() => {
+      setJsonExportElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [Boolean(jsonExportProgress) && jsonExportProgress.phase !== 'error']);
+
   const [exportedFileInfo, setExportedFileInfo] = useState<{
     fileName: string;
     fileSizeStr: string;
@@ -714,9 +733,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     reader.readAsDataURL(blob);
   });
 
-  const hydrateFloorPlansForBackup = async (projectId: string, plans: any[]): Promise<any[]> => {
+  const hydrateFloorPlansForBackup = async (
+    projectId: string,
+    plans: any[],
+    onPlanProgress?: (done: number, total: number, floorName: string) => void,
+  ): Promise<any[]> => {
     const result: any[] = [];
-    for (const rawPlan of Array.isArray(plans) ? plans : []) {
+    const sourcePlans = Array.isArray(plans) ? plans : [];
+    for (const rawPlan of sourcePlans) {
       const plan = { ...rawPlan };
       const currentUrl = String(plan.imageUrl || '').trim();
       const hasCloudPointer = Boolean(
@@ -756,11 +780,15 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         throw new Error(`Không thể đóng gói ảnh mặt bằng ${plan.floorName || plan.id || ''} của dự án ${projectId}. Từ chối tạo bản sao lưu thiếu ảnh.`);
       }
       result.push({ ...plan, imageUrl: resolved || '' });
+      onPlanProgress?.(result.length, sourcePlans.length, String(plan.floorName || plan.id || ''));
     }
     return result;
   };
 
-  const toFirebaseOnlyBackupDump = async (scope: ScopeType): Promise<Record<string, string>> => {
+  const toFirebaseOnlyBackupDump = async (
+    scope: ScopeType,
+    onProgress?: (kind: 'project' | 'floorPlan', done: number, total: number, name: string) => void,
+  ): Promise<Record<string, string>> => {
     const data: Record<string, string> = {};
     const targetIds = scope === 'all'
       ? projects.map((project) => project.id)
@@ -774,7 +802,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     data.construction_projects_list = JSON.stringify(selectedProjects.length > 0 ? selectedProjects : uniqueIds.map((id) => ({ id, name: id })));
     if (scope === 'active' || uniqueIds.length === 1) data.active_project_id = uniqueIds[0] || activeId || getActiveProjectId();
 
-    for (const projectId of uniqueIds) {
+    for (const [projectIndex, projectId] of uniqueIds.entries()) {
       let payload: any = null;
       const projectInfo = projects.find((project) => project.id === projectId);
       if (projectId === activeId && fullAppData) {
@@ -790,8 +818,11 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         throw new Error(`Không đọc được dữ liệu Firestore của dự án ${projectInfo?.name || projectId}; từ chối tạo bản sao lưu không đầy đủ.`);
       }
 
-      const floorPlansForBackup = await hydrateFloorPlansForBackup(projectId, payload.floorPlans || []);
       const projectName = payload.projectName || projectInfo?.name || projectId;
+      const floorPlansForBackup = await hydrateFloorPlansForBackup(
+        projectId, payload.floorPlans || [],
+        (done, total, floorName) => onProgress?.('floorPlan', done, total, floorName || projectName),
+      );
       data[getKey('construction_project_name', projectId)] = projectName;
       data[getKey('construction_contractor', projectId)] = payload.contractorName || '';
       data[getKey('construction_inspector', projectId)] = payload.inspectorName || '';
@@ -805,16 +836,20 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       data[getKey('construction_crew_records', projectId)] = JSON.stringify(payload.crewRecords || []);
       data[getKey('construction_teams', projectId)] = JSON.stringify(payload.teams || []);
       data[getKey('construction_updated_at', projectId)] = String(payload.updatedAt || projectInfo?.updatedAt || Date.now());
+      onProgress?.('project', projectIndex + 1, uniqueIds.length, projectName);
     }
     return data;
   };
 
   // Helper: collect backup data. Firebase-only reads Firestore/live state; legacy mode
   // keeps the old storage-dump compatibility path. Backup is not a runtime source.
-  const getStorageDataForScope = async (scope: ScopeType): Promise<Record<string, string>> => {
+  const getStorageDataForScope = async (
+    scope: ScopeType,
+    onProgress?: (kind: 'project' | 'floorPlan', done: number, total: number, name: string) => void,
+  ): Promise<Record<string, string>> => {
     if (FIREBASE_ONLY_RUNTIME) {
       // FIREBASE_ONLY_BACKUP_CLOUD_SOURCE
-      return toFirebaseOnlyBackupDump(scope);
+      return toFirebaseOnlyBackupDump(scope, onProgress);
     }
 
     const data: Record<string, string> = {};
@@ -1440,13 +1475,29 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   // 1. Export JSON based on chosen scope
   const handleExportJsonForScope = async () => {
     if (!canBackup) { alert('Chỉ ADMIN (Quản trị) được xuất bản sao dữ liệu dự án.'); return; }
-    try {
-      if (exportEncrypt && (!exportPassword || exportPassword.length < 4)) {
-        alert('Vui lòng nhập mật khẩu mã hóa từ 4 ký tự trở lên để bảo vệ tệp sao lưu.');
-        return;
-      }
+    if (jsonExportRunningRef.current) return;
+    if (exportEncrypt && (!exportPassword || exportPassword.length < 4)) {
+      alert('Vui lòng nhập mật khẩu mã hóa từ 4 ký tự trở lên để bảo vệ tệp sao lưu.');
+      return;
+    }
 
-      const data = await getStorageDataForScope(saveScope);
+    jsonExportRunningRef.current = true;
+    setJsonExportElapsedSeconds(0);
+    const reportExport = (
+      phase: 'reading' | 'photos' | 'packing' | 'saving' | 'error',
+      title: string, detail: string, completed?: number, total?: number,
+    ) => setJsonExportProgress({ phase, title, detail, completed, total });
+    reportExport('reading', 'Đang đọc dữ liệu dự án', 'Đang thu thập dữ liệu nguồn để tạo bản sao đầy đủ…');
+    try {
+      // Allow the progress overlay to paint before large synchronous JSON work.
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      const data = await getStorageDataForScope(saveScope, (kind, done, total, name) => {
+        if (kind === 'floorPlan') {
+          reportExport('reading', 'Đang đọc ảnh mặt bằng', `${name} · ${done}/${total} mặt bằng`, done, total);
+        } else {
+          reportExport('reading', 'Đang đọc dữ liệu dự án', `${name} · Đã xử lý ${done}/${total} dự án`, done, total);
+        }
+      });
       let filename = `Backup_TatCa_${Date.now()}.json`;
       let finalDataToExport: any = data;
       
@@ -1456,14 +1507,22 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         filename = `Backup_${safeName}_${Date.now()}.json`;
 
         const normalized = normalizeImportedData(data, activeId);
+        reportExport('photos', 'Đang kiểm tra ảnh dự án', `Đang xác minh ảnh của ${curName} trên Firestore/R2…`);
         if (FIREBASE_ONLY_RUNTIME) {
           const verifiedPhotoMeta = await refreshProjectPhotoMetadataFromCloud(activeId);
           if (!verifiedPhotoMeta.verified) {
             throw new Error('Không xác minh được thông tin ảnh từ Firestore; từ chối xuất bản sao lưu có nguy cơ thiếu ảnh.');
           }
         }
-        normalized.floorPlans = await hydrateFloorPlansForBackup(activeId, normalized.floorPlans || []);
-        const photosWithBinary = await getProjectPhotosWithBinary(activeId, true);
+        normalized.floorPlans = await hydrateFloorPlansForBackup(
+          activeId, normalized.floorPlans || [],
+          (done, total, floorName) => reportExport('photos', 'Đang đóng gói ảnh mặt bằng', `${floorName} · ${done}/${total} mặt bằng`, done, total),
+        );
+        reportExport('photos', 'Đang tải ảnh đính kèm', `Đang tải ảnh đầy đủ của ${curName} (không bỏ qua ảnh thiếu)…`);
+        const photosWithBinary = await getProjectPhotosWithBinary(activeId, true, (done, total) => {
+          reportExport('photos', 'Đang tải ảnh đính kèm', `${curName} · Đã xử lý ${done}/${total} ảnh`, done, total);
+        });
+        reportExport('photos', 'Đã kiểm tra ảnh đính kèm', `${curName}: ${photosWithBinary.length} ảnh đã xử lý`, photosWithBinary.length, photosWithBinary.length);
         const photoDataMap: Record<string, string> = {};
         photosWithBinary.forEach(p => {
           if (p.id && (p.base64 || p.localUri)) {
@@ -1512,14 +1571,19 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         const allProjectPhotos: Record<string, any[]> = {};
         const allProjectPhotoData: Record<string, Record<string, string>> = {};
 
-        for (const pId of targetPids) {
+        for (const [projectIndex, pId] of targetPids.entries()) {
+          const projectName = projects.find((project) => project.id === pId)?.name || pId;
+          reportExport('photos', 'Đang lấy ảnh các dự án', `${projectName} · Dự án ${projectIndex + 1}/${targetPids.length}`, projectIndex, targetPids.length);
           if (FIREBASE_ONLY_RUNTIME) {
             const verifiedPhotoMeta = await refreshProjectPhotoMetadataFromCloud(pId);
             if (!verifiedPhotoMeta.verified) {
               throw new Error(`Không xác minh được thông tin ảnh Firestore của dự án ${pId}; từ chối xuất bản sao lưu thiếu ảnh.`);
             }
           }
-          const pPhotos = await getProjectPhotosWithBinary(pId, true);
+          const pPhotos = await getProjectPhotosWithBinary(pId, true, (done, total) => {
+            reportExport('photos', 'Đang tải ảnh dự án', `${projectName} · Đã xử lý ${done}/${total} ảnh · Dự án ${projectIndex + 1}/${targetPids.length}`, done, total);
+          });
+          reportExport('photos', 'Đang lấy ảnh các dự án', `${projectName}: ${pPhotos.length} ảnh · Đã xử lý ${projectIndex + 1}/${targetPids.length} dự án`, projectIndex + 1, targetPids.length);
           if (pPhotos.length > 0) {
             allProjectPhotos[pId] = pPhotos.map((photo) => {
               const { base64, localUri, dataUrl, ...metadataOnly } = photo as any;
@@ -1541,16 +1605,24 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         }
       }
       
-      // Analyze export stats before encryption
+      // Analyze export stats before encryption, without changing the backup payload.
+      reportExport('packing', 'Đang đóng gói dữ liệu JSON', 'Đang thống kê danh mục và kiểm tra nội dung bản sao…');
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
       const stats = analyzeExportData(saveScope, finalDataToExport, JSON.stringify(finalDataToExport));
 
       // Apply AES-GCM encryption if user toggled encryption
       if (exportEncrypt && exportPassword) {
+        reportExport('packing', 'Đang mã hóa bản sao AES-256', 'Đang mã hóa dữ liệu; cần giữ nguyên cửa sổ cho đến khi hoàn tất…');
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
         finalDataToExport = await encryptBackupData(finalDataToExport, exportPassword, exportHint.trim() || undefined);
         filename = filename.replace('.json', '_Encrypted.json');
       }
 
+      reportExport('packing', 'Đang tạo tệp JSON', 'Đang chuyển dữ liệu đã kiểm tra thành nội dung tệp…');
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
       const jsonString = JSON.stringify(finalDataToExport, null, 2);
+      reportExport('saving', 'Đang lưu bản sao vào thiết bị', `Tên tệp: ${filename} · Đang ghi dữ liệu, không đóng ứng dụng…`);
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
       // JSON is text: use the streaming Android text bridge instead of converting the
       // whole file to Base64. Large photo backups previously exhausted WebView memory
       // and could create a visible 0 KB file on Android.
@@ -1567,6 +1639,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
       logAuditAction('BACKUP_EXPORT', `Xuất file sao lưu (${saveScope}) ${exportEncrypt ? '[AES-GCM Encrypted]' : ''}`);
 
+      setJsonExportProgress(null);
       setExportedFileInfo({
         fileName: filename,
         fileSizeStr,
@@ -1574,7 +1647,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       });
 
     } catch (e) {
-      alert('Lỗi xuất tệp JSON: ' + (e instanceof Error ? e.message : String(e)));
+      reportExport('error', 'Xuất JSON chưa hoàn tất',
+        e instanceof Error ? e.message : String(e));
+    } finally {
+      jsonExportRunningRef.current = false;
     }
   };
 
@@ -3226,6 +3302,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
+        if (jsonExportRunningRef.current) {
+          e.preventDefault();
+          return;
+        }
         if (showJsonScopePicker) {
           setShowJsonScopePicker(false);
         } else if (!inline) {
@@ -5019,6 +5099,52 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         </ViewportModalPortal>
       )}
 
+      {jsonExportProgress && (
+        <ViewportModalPortal>
+          <div className="fixed inset-0 z-[345] flex items-center justify-center bg-slate-900/65 p-3 backdrop-blur-sm" data-hnl-json-export-progress="true">
+            <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl sm:p-5" role={jsonExportProgress.phase === 'error' ? 'alertdialog' : 'dialog'} aria-modal="true" aria-labelledby="json-export-progress-title" aria-describedby="json-export-progress-detail">
+              <div className="flex items-center gap-3">
+                <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${jsonExportProgress.phase === 'error' ? 'bg-rose-50 text-rose-600' : 'bg-indigo-50 text-indigo-600'}`}>
+                  {jsonExportProgress.phase === 'error' ? <AlertTriangle className="h-5 w-5" /> : <RefreshCw className="h-5 w-5 animate-spin" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 id="json-export-progress-title" className="text-sm font-extrabold text-slate-900">{jsonExportProgress.title}</h3>
+                  <p className="mt-0.5 text-[11px] text-slate-500">{jsonExportProgress.phase === 'error' ? 'Không có tệp hoàn tất được xác nhận.' : `Xuất bản sao JSON · ${jsonExportElapsedSeconds} giây`}</p>
+                </div>
+              </div>
+              <p id="json-export-progress-detail" role="status" aria-live="polite" className={`mt-3 break-words rounded-lg border px-3 py-2 text-xs leading-relaxed ${jsonExportProgress.phase === 'error' ? 'border-rose-200 bg-rose-50 text-rose-800' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
+                {jsonExportProgress.detail}
+              </p>
+              {jsonExportProgress.phase === 'error' ? (
+                <button type="button" onClick={() => setJsonExportProgress(null)} className="mt-4 w-full rounded-xl bg-slate-800 px-4 py-2.5 text-xs font-bold text-white hover:bg-slate-700">Đóng thông báo</button>
+              ) : (
+                <>
+                  <div className="mt-3 grid grid-cols-4 gap-1.5" aria-label="Các bước xuất bản sao">
+                    {([
+                      ['reading', 'Dữ liệu'], ['photos', 'Ảnh'], ['packing', 'Đóng gói'], ['saving', 'Lưu tệp'],
+                    ] as const).map(([phase, label], index) => {
+                      const currentIndex = ['reading', 'photos', 'packing', 'saving'].indexOf(jsonExportProgress.phase);
+                      return (
+                        <div key={phase} className="min-w-0 space-y-1 text-center">
+                          <div className={`h-1.5 rounded-full ${index <= currentIndex ? 'bg-indigo-500' : 'bg-slate-200'}`} />
+                          <span className={`block text-[10px] font-semibold ${index <= currentIndex ? 'text-indigo-700' : 'text-slate-400'}`}>{label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {typeof jsonExportProgress.total === 'number' && jsonExportProgress.total > 0 && typeof jsonExportProgress.completed === 'number' && (
+                    <p className="mt-2 text-center text-xs font-bold text-indigo-700">
+                      Đã xử lý {jsonExportProgress.completed}/{jsonExportProgress.total}
+                    </p>
+                  )}
+                  <p className="mt-3 text-center text-[11px] text-slate-500">Vui lòng giữ ứng dụng mở. Tệp lớn và nhiều ảnh có thể cần thời gian.</p>
+                </>
+              )}
+            </div>
+          </div>
+        </ViewportModalPortal>
+      )}
+
       {exportedFileInfo && (
         <ViewportModalPortal>
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[330] flex items-center justify-center p-4 animate-in fade-in duration-200">
@@ -5037,7 +5163,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               </div>
               <h3 className="text-sm font-extrabold text-slate-950">Xuất tệp JSON thành công!</h3>
               <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">
-                Tệp sao lưu cục bộ đã được nén hoàn tất và tải về thiết bị của bạn.
+                Ứng dụng đã hoàn tất việc tạo và gửi tệp JSON đến bộ lưu trên thiết bị. Hãy kiểm tra thư mục Tải xuống.
               </p>
             </div>
 

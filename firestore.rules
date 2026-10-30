@@ -663,6 +663,43 @@ service cloud.firestore {
         allow delete: if isMember(projectId) && uid == request.auth.uid;
       }
 
+      // The referenced message must be NEW in the very same atomic batch.
+      // No summary-only increment, no reuse of an existing message, no ghost unread.
+      function chatSummaryNewMessageIsAtomic(projectId, conversationId) {
+        return 'lastMessageId' in request.resource.data
+          && request.resource.data.lastMessageId is string
+          && request.resource.data.lastMessageId.size() > 0
+          && request.resource.data.lastMessageId.size() <= 190
+          && !exists(/databases/$(database)/documents/projects/$(projectId)/conversations/$(conversationId)/messages/$(request.resource.data.lastMessageId))
+          && existsAfter(/databases/$(database)/documents/projects/$(projectId)/conversations/$(conversationId)/messages/$(request.resource.data.lastMessageId))
+          && getAfter(/databases/$(database)/documents/projects/$(projectId)/conversations/$(conversationId)/messages/$(request.resource.data.lastMessageId)).data.id == request.resource.data.lastMessageId
+          && getAfter(/databases/$(database)/documents/projects/$(projectId)/conversations/$(conversationId)/messages/$(request.resource.data.lastMessageId)).data.projectId == projectId
+          && getAfter(/databases/$(database)/documents/projects/$(projectId)/conversations/$(conversationId)/messages/$(request.resource.data.lastMessageId)).data.conversationId == conversationId
+          && getAfter(/databases/$(database)/documents/projects/$(projectId)/conversations/$(conversationId)/messages/$(request.resource.data.lastMessageId)).data.senderUid == request.auth.uid
+          && getAfter(/databases/$(database)/documents/projects/$(projectId)/conversations/$(conversationId)/messages/$(request.resource.data.lastMessageId)).data.createdAt == request.time;
+      }
+
+      // P21.97: new message and its counted conversation summary must commit together.
+      // Existing Chat history and message updates remain readable/editable unchanged.
+      function chatMessageHasAtomicSummary(projectId, conversationId, messageId) {
+        let summaryPath = /databases/$(database)/documents/projects/$(projectId)/conversations/$(conversationId);
+        let summaryAfter = getAfter(summaryPath).data;
+        return existsAfter(summaryPath)
+          && summaryAfter.id == conversationId
+          && summaryAfter.projectId == projectId
+          && summaryAfter.lastMessageId == messageId
+          && summaryAfter.lastSenderUid == request.auth.uid
+          && summaryAfter.lastMessageAt == request.time
+          && (
+            (!exists(summaryPath) && summaryAfter.messageCount == 1)
+            || (exists(summaryPath) && (
+              (!('messageCount' in get(summaryPath).data) && summaryAfter.messageCount == 1)
+              || (('messageCount' in get(summaryPath).data)
+                && summaryAfter.messageCount == get(summaryPath).data.messageCount + 1)
+            ))
+          );
+      }
+
       // Project chat is deliberately separated from construction records. VIEWER may chat,
       // but every message is identity-bound and hard delete is disabled.
       match /conversations/{conversationId} {
@@ -675,7 +712,8 @@ service cloud.firestore {
           && request.resource.data.id == conversationId
           && request.resource.data.lastSenderUid == request.auth.uid
           && request.resource.data.lastMessageAt == request.time
-          && request.resource.data.messageCount == 1;
+          && request.resource.data.messageCount == 1
+          && chatSummaryNewMessageIsAtomic(projectId, conversationId);
         allow update: if isMember(projectId)
           && request.resource.data.projectId == resource.data.projectId
           && request.resource.data.id == resource.data.id
@@ -684,7 +722,8 @@ service cloud.firestore {
           && (
             (!('messageCount' in resource.data) && request.resource.data.messageCount == 1)
             || (('messageCount' in resource.data) && request.resource.data.messageCount == resource.data.messageCount + 1)
-          );
+          )
+          && chatSummaryNewMessageIsAtomic(projectId, conversationId);
         allow delete: if false;
 
         match /messages/{messageId} {
@@ -693,6 +732,8 @@ service cloud.firestore {
             && request.resource.data.projectId == projectId
             && request.resource.data.conversationId == conversationId
             && request.resource.data.senderUid == request.auth.uid
+            && request.resource.data.id == messageId
+            && chatMessageHasAtomicSummary(projectId, conversationId, messageId)
             && request.resource.data.senderEmail is string
             && request.resource.data.senderEmail.lower() == signedInEmail()
             && request.resource.data.clientMessageId is string
@@ -712,11 +753,28 @@ service cloud.firestore {
 
         match /members/{uid} {
           allow read: if isMember(projectId);
-          allow create, update: if isMember(projectId)
+          allow create: if isMember(projectId)
             && uid == request.auth.uid
             && request.resource.data.uid == request.auth.uid
             && request.resource.data.projectId == projectId
             && request.resource.data.conversationId == conversationId;
+          allow update: if isMember(projectId)
+            && uid == request.auth.uid
+            && request.resource.data.uid == request.auth.uid
+            && request.resource.data.projectId == projectId
+            && request.resource.data.conversationId == conversationId
+            // A delayed reconnect from a second device must never roll back
+            // a previously acknowledged unread watermark. Legacy records
+            // without a valid counter retain the pre-existing write behavior.
+            && (
+              !('lastReadMessageCount' in resource.data)
+              || !(resource.data.lastReadMessageCount is int)
+              || (
+                'lastReadMessageCount' in request.resource.data
+                && request.resource.data.lastReadMessageCount is int
+                && request.resource.data.lastReadMessageCount >= resource.data.lastReadMessageCount
+              )
+            );
           allow delete: if uid == request.auth.uid;
         }
       }

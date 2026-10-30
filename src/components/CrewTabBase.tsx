@@ -2751,7 +2751,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           setSelectedTeamForDetail(team);
                           setDetailModalTab('rooms');
                         }}
-                        className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-3 rounded-xl transition text-xs shadow-xs active:scale-98"
+                        className="inline-flex w-full sm:w-auto sm:max-w-full items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-3 rounded-xl transition text-xs shadow-xs active:scale-98"
                       >
                         <BarChart3 className="w-4 h-4 text-indigo-400" />
                         <span>Xem thống kê Căn / Phòng & Defect</span>
@@ -3268,13 +3268,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Buttons */}
-              <div className={`grid gap-2.5 pt-2 sm:col-span-2 ${editingTeam ? 'grid-cols-1' : 'grid-cols-2'}`}>
+              <div className={`grid gap-2.5 pt-2 sm:col-span-2 sm:flex sm:flex-wrap sm:justify-end ${editingTeam ? 'grid-cols-1' : 'grid-cols-2'}`}>
                 {!editingTeam && (
                   <button
                     type="submit"
                     name="submitMode"
                     value="continue"
-                    className="border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold py-2.5 px-4 rounded-lg text-xs transition active:scale-95"
+                    className="min-w-0 sm:min-w-[130px] sm:w-auto border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold py-2.5 px-4 rounded-lg text-xs transition active:scale-95"
                   >
                     Lưu & thêm tiếp
                   </button>
@@ -3283,7 +3283,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   type="submit"
                   name="submitMode"
                   value="close"
-                  className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 px-4 rounded-lg text-xs transition"
+                  className="min-w-0 sm:min-w-[130px] sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 px-4 rounded-lg text-xs transition"
                 >
                   {editingTeam ? 'Lưu thay đổi' : 'Lưu & đóng'}
                 </button>

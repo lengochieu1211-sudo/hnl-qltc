@@ -197,6 +197,7 @@ import { refreshProjectPhotoMetadataFromCloud, subscribeProjectPhotosRealtime, s
 import { appendRuntimeDiagnostic } from './lib/runtimeDiagnostics';
 import { isPrimaryDriveReady, PRIMARY_DRIVE_OWNER_EMAIL, uploadProjectBackupToPrimaryDrive } from './lib/primaryDriveBridge';
 import { subscribeConversationReadState, subscribeConversationSummary } from './lib/chatService';
+import { getChatUnreadCount } from './utils/chatUnread';
 import { applyFloorPlanImageToMultipleFloors, inspectFloorPlanBulkTargets, cacheFloorPlansForOffline, floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, isFloorPlanAutoCacheNetworkSuitable, isFloorPlanCloudBinaryReady, loadFloorPlanImageFromCloud, resolveFloorPlanImageForDisplay, stageFloorPlanImageOutbox, syncFloorPlanImageToCloud } from './lib/floorPlanImageSync';
 import { shouldAutoMirrorProjectBinaries } from './lib/offlineMirrorSettings';
 import { DEFAULT_TRASH_SETTINGS, TrashOperation, TrashSettings, TrashCollectionKey, deleteTrashOperationFromCloud, estimateTrashBytes, getTrashCollectionLabel, normalizeTrashSettings, sanitizeTrashSnapshot, saveTrashOperationToCloud, subscribeProjectTrash } from './lib/trash';
@@ -7536,13 +7537,13 @@ function AuthenticatedApp() {
 
   const [chatLastMessageAt, setChatLastMessageAt] = useState(0);
   const [chatLastReadAt, setChatLastReadAt] = useState(0);
-  const [chatMessageCount, setChatMessageCount] = useState(0);
-  const [chatLastReadMessageCount, setChatLastReadMessageCount] = useState(0);
+  const [chatMessageCount, setChatMessageCount] = useState<number | null>(null);
+  const [chatLastReadMessageCount, setChatLastReadMessageCount] = useState<number | null>(null);
   const [chatLastMentions, setChatLastMentions] = useState<string[]>([]);
   const [chatLastSenderUid, setChatLastSenderUid] = useState('');
   const [chatToast, setChatToast] = useState<{ sender: string; text: string } | null>(null);
   const lastChatToastTimestampRef = useRef(0);
-  const chatUnreadCount = Math.max(0, chatMessageCount - chatLastReadMessageCount) || (chatLastMessageAt > chatLastReadAt ? 1 : 0);
+  const chatUnreadCount = getChatUnreadCount(chatMessageCount, chatLastReadMessageCount, chatLastMessageAt, chatLastReadAt);
   const currentChatUid = getCurrentRealFirebaseUser()?.uid || '';
   const chatMentioned = chatUnreadCount > 0 && chatLastSenderUid !== currentChatUid && (chatLastMentions.includes(currentChatUid) || chatLastMentions.includes('everyone'));
 
@@ -7550,8 +7551,8 @@ function AuthenticatedApp() {
     if (!activeProjectId || !getCurrentRealFirebaseUser()) {
       setChatLastMessageAt(0);
       setChatLastReadAt(0);
-      setChatMessageCount(0);
-      setChatLastReadMessageCount(0);
+      setChatMessageCount(null);
+      setChatLastReadMessageCount(null);
       setChatLastMentions([]);
       setChatLastSenderUid('');
       return;
@@ -7563,7 +7564,7 @@ function AuthenticatedApp() {
     let debounceTimer: number | null = null;
     let initialSummary = true;
     let pendingSummary: any = null;
-    let pendingRead: { millis: number; count: number } | null = null;
+    let pendingRead: { millis: number; count: number | null } | null = null;
 
     const flushBadgeState = () => {
       debounceTimer = null;
@@ -7573,7 +7574,7 @@ function AuthenticatedApp() {
         pendingSummary = null;
         const timestamp = summary?.lastMessageAtMillis || 0;
         setChatLastMessageAt(timestamp);
-        setChatMessageCount(Number(summary?.messageCount || 0));
+        setChatMessageCount(typeof summary?.messageCount === 'number' ? summary.messageCount : null);
         setChatLastMentions(summary?.lastMentions || []);
         setChatLastSenderUid(summary?.lastSenderUid || '');
         const me = getCurrentRealFirebaseUser();
@@ -7588,7 +7589,7 @@ function AuthenticatedApp() {
       }
       if (pendingRead) {
         setChatLastReadAt(pendingRead.millis);
-        setChatLastReadMessageCount(Number(pendingRead.count || 0));
+        setChatLastReadMessageCount(pendingRead.count);
         pendingRead = null;
       }
     };
@@ -7622,7 +7623,7 @@ function AuthenticatedApp() {
         scheduleFlush();
       });
       unsubRead = subscribeConversationReadState(activeProjectId, (millis, count) => {
-        pendingRead = { millis, count: Number(count || 0) };
+        pendingRead = { millis, count: typeof count === 'number' ? count : null };
         scheduleFlush();
       });
     };

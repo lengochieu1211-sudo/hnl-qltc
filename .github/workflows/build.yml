@@ -48,6 +48,25 @@ jobs:
       - name: Floor-plan room-creation safety regression
         run: node scripts/floorplan-room-creation-guard-golden.mjs
 
+      - name: P21.79 chat account-switch ownership regression (no deploy)
+        run: node --experimental-strip-types scripts/p2179-chat-account-switch-golden.mjs
+
+      - name: P21.80 floorplan exclusive drawing and highlight regression (no deploy)
+        run: node scripts/p2180-floorplan-exclusive-draw-golden.mjs
+
+      - name: 10-group targeted QA regression (source-only, no deploy)
+        run: |
+          node scripts/dev-backup-defect-card-date-golden.mjs
+          node scripts/dev-backup-four-issues-geometry-golden.mjs
+          node scripts/dev-backup-four-issues-golden.mjs
+          node scripts/dev-backup-json-export-progress-golden.mjs
+          node scripts/dev-backup-ortho-snap-chat-unread-golden.mjs
+
+      - name: Mobile XLSX receipt issue OOXML and A3 A4 matrix (no deploy)
+        run: |
+          npx tsx scripts/warehouse-voucher-xlsx-style-golden.ts
+          npx tsx scripts/dev-backup-voucher-a3-a4-matrix-golden.ts
+
       - name: Stability Gate
         run: npm run test:stability
 
@@ -59,6 +78,14 @@ jobs:
 
       - name: Firebase Rules compile + Auth/Firestore/Storage Emulator behavior
         run: npm run test:rules
+
+      - name: P21.86 + P21.97 Chat bidirectional Rules in disposable Emulator (NO CLOUD)
+        env:
+          GCLOUD_PROJECT: demo-hnl-qltc-p2186
+          FIREBASE_PROJECT_ID: demo-hnl-qltc-p2186
+          FIRESTORE_EMULATOR_HOST: 127.0.0.1:8080
+          FIREBASE_AUTH_EMULATOR_HOST: 127.0.0.1:9099
+        run: npx --yes firebase-tools@13.35.1 emulators:exec --config firebase.rules-ci.json --only auth,firestore --project demo-hnl-qltc-p2186 "node scripts/p2172-chat-atomic-summary-emulator.mjs && node scripts/p2197-chat-message-only-security-emulator.mjs"
 
       - name: Security audit (production, critical)
         run: npm run security:audit
