@@ -19,18 +19,25 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Exact source and secret-name guard
+      - name: Verify exact commit and disallow tracked secrets
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           python3 - <<'PY'
-          import subprocess, re
-          names=subprocess.check_output(['git','ls-files','-z']).decode().split('\0')
-          forbidden=[p for p in names if p and not re.search(r'(^|/)\.env[^/]*\.(example|sample)
-          if forbidden: raise SystemExit('Sensitive tracked filenames block source handoff: '+repr(forbidden))
+          import subprocess
+          names=subprocess.check_output(['git','ls-files','-z']).decode().split(chr(0))
+          def sensitive(name):
+              n=name.rsplit('/',1)[-1].lower()
+              if n.startswith('.env') and not n.endswith(('.example','.sample')): return True
+              if n in ('id_rsa','id_ed25519','credentials.json','serviceaccountkey.json'): return True
+              if n.endswith(('.p12','.pfx','.key')): return True
+              if n.endswith('.pem') and name != 'scripts/p2115-firestore-backup-public.pem': return True
+              return False
+          unsafe=[name for name in names if name and sensitive(name)]
+          if unsafe: raise SystemExit('TRACKED_SECRETS_BLOCKED: '+repr(unsafe))
           PY
-      - name: Build verified Full Source, Patch and SHA256
+      - name: Pack exact HEAD full source and changed files
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -39,97 +46,23 @@ jobs:
           git archive --format=zip --output=handoff/FULL_SOURCE.zip "$HEAD_SHA"
           python3 - <<'PY'
           import hashlib,os,subprocess,zipfile
-          head=os.environ['HEAD_SHA'];base=os.environ['BASE_SHA']
+          head=os.environ['HEAD_SHA']; base=os.environ['BASE_SHA']
           raw=subprocess.check_output(['git','diff','--name-only','--diff-filter=ACMR','-z',base,head])
-          paths=[x.decode() for x in raw.split(b'\0') if x]
+          paths=[part.decode() for part in raw.split(bytes([0])) if part]
           with zipfile.ZipFile('handoff/PATCH.zip','w',compression=zipfile.ZIP_DEFLATED) as z:
-            for p in paths: z.writestr(p,subprocess.check_output(['git','show',f'{head}:{p}']))
+              for path in paths: z.writestr(path,subprocess.check_output(['git','show',head+':'+path]))
           deleted=subprocess.check_output(['git','diff','--name-only','--diff-filter=D',base,head],text=True)
+          open('handoff/changed-files.txt','w').write(chr(10).join(paths)+chr(10))
           open('handoff/deleted-files.txt','w').write(deleted)
-          open('handoff/changed-files.txt','w').write('\n'.join(paths)+'\n')
-          report=f'HNL QLTC DEV SOURCE HANDOFF\nHEAD={head}\nBASE={base}\nStatus=source-only (no deploy, no runtime certification)\nChanged files={len(paths)}\n'
+          report='HEAD='+head+chr(10)+'BASE='+base+chr(10)+'SOURCE_ONLY=TRUE'+chr(10)+'CHANGED='+str(len(paths))+chr(10)
           open('handoff/REPORT.txt','w').write(report)
-          with open('handoff/SHA256SUMS.txt','w') as out:
-            for f in ['FULL_SOURCE.zip','PATCH.zip','REPORT.txt','changed-files.txt']:
-              data=open('handoff/'+f,'rb').read()
-              out.write(hashlib.sha256(data).hexdigest()+'  '+f+'\n')
-          for f in ['FULL_SOURCE.zip','PATCH.zip']:
-            with zipfile.ZipFile('handoff/'+f) as z:
-              if z.testzip() is not None: raise SystemExit('Corrupt source ZIP')
-          print(report)
-          PY
-      - uses: actions/upload-artifact@v4
-        with:
-          name: HNL-QLTC-PR${{ github.event.pull_request.number }}-SOURCE-${{ github.event.pull_request.head.sha }}
-          path: handoff/
-          if-no-files-found: error
-          retention-days: 7
-,p,re.I) and p != 'scripts/p2115-firestore-backup-public.pem' and (re.search(r'(^|/)\.env($|\.)',p,re.I) or re.search(r'(^|/)(?:serviceAccountKey|credentials\.json|id_rsa|id_ed25519|.*\.pem)
-          if forbidden: raise SystemExit('Sensitive tracked filenames block source handoff: '+repr(forbidden))
-          PY
-      - name: Build verified Full Source, Patch and SHA256
-        env:
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          mkdir -p handoff
-          git archive --format=zip --output=handoff/FULL_SOURCE.zip "$HEAD_SHA"
-          python3 - <<'PY'
-          import hashlib,os,subprocess,zipfile
-          head=os.environ['HEAD_SHA'];base=os.environ['BASE_SHA']
-          raw=subprocess.check_output(['git','diff','--name-only','--diff-filter=ACMR','-z',base,head])
-          paths=[x.decode() for x in raw.split(b'\0') if x]
-          with zipfile.ZipFile('handoff/PATCH.zip','w',compression=zipfile.ZIP_DEFLATED) as z:
-            for p in paths: z.writestr(p,subprocess.check_output(['git','show',f'{head}:{p}']))
-          deleted=subprocess.check_output(['git','diff','--name-only','--diff-filter=D',base,head],text=True)
-          open('handoff/deleted-files.txt','w').write(deleted)
-          open('handoff/changed-files.txt','w').write('\n'.join(paths)+'\n')
-          report=f'HNL QLTC DEV SOURCE HANDOFF\nHEAD={head}\nBASE={base}\nStatus=source-only (no deploy, no runtime certification)\nChanged files={len(paths)}\n'
-          open('handoff/REPORT.txt','w').write(report)
-          with open('handoff/SHA256SUMS.txt','w') as out:
-            for f in ['FULL_SOURCE.zip','PATCH.zip','REPORT.txt','changed-files.txt']:
-              data=open('handoff/'+f,'rb').read()
-              out.write(hashlib.sha256(data).hexdigest()+'  '+f+'\n')
-          for f in ['FULL_SOURCE.zip','PATCH.zip']:
-            with zipfile.ZipFile('handoff/'+f) as z:
-              if z.testzip() is not None: raise SystemExit('Corrupt source ZIP')
-          print(report)
-          PY
-      - uses: actions/upload-artifact@v4
-        with:
-          name: HNL-QLTC-PR${{ github.event.pull_request.number }}-SOURCE-${{ github.event.pull_request.head.sha }}
-          path: handoff/
-          if-no-files-found: error
-          retention-days: 7
-,p,re.I))]
-          if forbidden: raise SystemExit('Sensitive tracked filenames block source handoff: '+repr(forbidden))
-          PY
-      - name: Build verified Full Source, Patch and SHA256
-        env:
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          mkdir -p handoff
-          git archive --format=zip --output=handoff/FULL_SOURCE.zip "$HEAD_SHA"
-          python3 - <<'PY'
-          import hashlib,os,subprocess,zipfile
-          head=os.environ['HEAD_SHA'];base=os.environ['BASE_SHA']
-          raw=subprocess.check_output(['git','diff','--name-only','--diff-filter=ACMR','-z',base,head])
-          paths=[x.decode() for x in raw.split(b'\0') if x]
-          with zipfile.ZipFile('handoff/PATCH.zip','w',compression=zipfile.ZIP_DEFLATED) as z:
-            for p in paths: z.writestr(p,subprocess.check_output(['git','show',f'{head}:{p}']))
-          deleted=subprocess.check_output(['git','diff','--name-only','--diff-filter=D',base,head],text=True)
-          open('handoff/deleted-files.txt','w').write(deleted)
-          open('handoff/changed-files.txt','w').write('\n'.join(paths)+'\n')
-          report=f'HNL QLTC DEV SOURCE HANDOFF\nHEAD={head}\nBASE={base}\nStatus=source-only (no deploy, no runtime certification)\nChanged files={len(paths)}\n'
-          open('handoff/REPORT.txt','w').write(report)
-          with open('handoff/SHA256SUMS.txt','w') as out:
-            for f in ['FULL_SOURCE.zip','PATCH.zip','REPORT.txt','changed-files.txt']:
-              data=open('handoff/'+f,'rb').read()
-              out.write(hashlib.sha256(data).hexdigest()+'  '+f+'\n')
-          for f in ['FULL_SOURCE.zip','PATCH.zip']:
-            with zipfile.ZipFile('handoff/'+f) as z:
-              if z.testzip() is not None: raise SystemExit('Corrupt source ZIP')
+          with open('handoff/SHA256SUMS.txt','w') as output:
+              for name in ['FULL_SOURCE.zip','PATCH.zip','REPORT.txt','changed-files.txt']:
+                  data=open('handoff/'+name,'rb').read()
+                  output.write(hashlib.sha256(data).hexdigest()+'  '+name+chr(10))
+          for name in ('FULL_SOURCE.zip','PATCH.zip'):
+              with zipfile.ZipFile('handoff/'+name) as z:
+                  if z.testzip(): raise SystemExit('ARCHIVE_CORRUPT')
           print(report)
           PY
       - uses: actions/upload-artifact@v4
