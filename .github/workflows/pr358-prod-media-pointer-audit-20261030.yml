@@ -1,0 +1,54 @@
+name: PR358 fresh PROD media pointers vs R2 metadata (READ ONLY; NO DEPLOY)
+on:
+  push:
+    branches:
+      - audit/pr358-prod-media-pointers-20261030
+    paths:
+      - '.github/workflows/pr358-prod-media-pointer-audit-20261030.yml'
+      - 'scripts/p2136-prod-media-pointer-audit.mjs'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  prod-readonly-media-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    env:
+      P2136_PROJECT: com-example-qlct-61329
+      P2136_R2_BUCKET: hnl-qltc-media
+      P2136_CANDIDATE_SHA: 1d69495c939911a5b20c1046f356777adcdeb44c
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify exact parent release candidate, project and safe audit branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/audit/pr358-prod-media-pointers-20261030"
+          git merge-base --is-ancestor "$P2136_CANDIDATE_SHA" HEAD
+          test "$P2136_PROJECT" = 'com-example-qlct-61329'
+          test "$P2136_R2_BUCKET" = 'hnl-qltc-media'
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}"
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          node -e "const x=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);if(x.type!=='service_account'||x.project_id!=='com-example-qlct-61329')process.exit(2)"
+          node --check scripts/p2136-prod-media-pointer-audit.mjs
+          node scripts/p2136-prod-media-pointer-audit.mjs --self-test
+          echo 'Synthetic test PASS; read-only job, no PROD deployment.'
+      - name: Firestore PROD references vs R2 object metadata (read only; aggregate output)
+        shell: bash
+        run: node scripts/p2136-prod-media-pointer-audit.mjs
+      - name: Upload aggregate-only audit manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P2136-PROD-READONLY-MEDIA-AUDIT-${{ github.sha }}
+          path: P2136-PROD-POINTER-SUMMARY.json
+          if-no-files-found: warn
+          retention-days: 30
