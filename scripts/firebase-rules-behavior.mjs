@@ -790,6 +790,100 @@ try {
     contentType: 'image/jpeg', customMetadata: { projectId: pid, entityType: 'defect', entityId: 'DF-RULE-1', assetId: 'PHOTO-RULE-1', createdByUid: ownerUid },
   }));
 
+  // Deletion Undo must advance the *server* revision rather than reuse the delete revision.
+  // Exercise all 8 generic Cloud business collections on disposable Auth/Firestore emulators.
+  const undoCoreCollections = ['rooms', 'floor_plans', 'defects', 'crew_records',
+    'work_volumes', 'material_norms', 'checklist', 'teams'];
+  for (const cloudCollection of undoCoreCollections) {
+    const recordId = 'UNDO-' + cloudCollection.replace(/_/g, '-');
+    const undoRef = doc(db, 'projects', pid, cloudCollection, recordId);
+    const base = Date.now() + 5000;
+    await expectAllowed('undo ' + cloudCollection + ': create source record', () => setDoc(undoRef, {
+      id: recordId, description: 'Synthetic Undo fixture', revision: 1,
+      createdAt: base, updatedAt: base, deleted: false, deletedAt: null,
+    }));
+    await expectAllowed('undo ' + cloudCollection + ': write server tombstone', () => updateDoc(undoRef, {
+      deleted: true, deletedAt: base + 1, deletedByUid: ownerUid,
+      revision: 2, updatedAt: base + 1, updatedByUid: ownerUid,
+    }));
+    await expectDenied('undo ' + cloudCollection + ': stale revision cannot resurrect', () => updateDoc(undoRef, {
+      deleted: false, deletedAt: null, revision: 2, updatedAt: base + 2,
+    }));
+    await expectAllowed('undo ' + cloudCollection + ': verified transaction restores at revision 3', () =>
+      runTransaction(db, async (tx) => {
+        const current = await tx.get(undoRef);
+        if (!current.exists() || current.data().deleted !== true
+          || current.data().deletedByUid !== ownerUid || current.data().deletedAt !== base + 1) {
+          throw new Error('UNDO_EMULATOR_TOMBSTONE_CONFLICT');
+        }
+        tx.update(undoRef, {
+          deleted: false, deletedAt: null, deletedByUid: null,
+          revision: current.data().revision + 1,
+          updatedAt: Math.max(Date.now(), current.data().updatedAt + 1),
+          updatedByUid: ownerUid,
+        });
+      }));
+    const restored = await getDoc(undoRef);
+    if (restored.data().deleted !== false || restored.data().revision !== 3) {
+      throw new Error('UNDO_EMULATOR_RESTORE_NOT_DURABLE:' + cloudCollection);
+    }
+  }
+  await signIn(viewerEmail);
+  for (const cloudCollection of undoCoreCollections) {
+    const recordId = 'UNDO-' + cloudCollection.replace(/_/g, '-');
+    const row = await getDoc(doc(db, 'projects', pid, cloudCollection, recordId));
+    if (!row.exists() || row.data().deleted !== false || row.data().revision !== 3) {
+      throw new Error('UNDO_EMULATOR_OTHER_ACCOUNT_CANNOT_SEE_RESTORE:' + cloudCollection);
+    }
+  }
+  await signIn(ownerEmail);
+  // Redo must also advance revision; then a second Undo may restore again.
+  // Two authenticated client sessions read the final Cloud state, never localStorage.
+  for (const cloudCollection of undoCoreCollections) {
+    const recordId = 'UNDO-' + cloudCollection.replace(/_/g, '-');
+    const undoRef = doc(db, 'projects', pid, cloudCollection, recordId);
+    const deletedAt = Date.now() + 300;
+    await expectAllowed('redo ' + cloudCollection + ': transaction deletes at next revision', () =>
+      runTransaction(db, async (tx) => {
+        const current = await tx.get(undoRef);
+        if (!current.exists() || current.data().revision !== 3 || current.data().deleted !== false) {
+          throw new Error('REDO_EMULATOR_ACTIVE_REVISION_CONFLICT');
+        }
+        tx.update(undoRef, {
+          deleted: true, deletedAt, deletedByUid: ownerUid,
+          revision: current.data().revision + 1,
+          updatedAt: Math.max(Date.now(), current.data().updatedAt + 1),
+          updatedByUid: ownerUid,
+        });
+      }));
+    await expectDenied('redo ' + cloudCollection + ': stale second Undo rejected', () => updateDoc(undoRef, {
+      deleted: false, deletedAt: null, revision: 4, updatedAt: Date.now() + 500,
+    }));
+    await expectAllowed('redo ' + cloudCollection + ': next Undo revision 5', () =>
+      runTransaction(db, async (tx) => {
+        const current = await tx.get(undoRef);
+        if (!current.exists() || current.data().revision !== 4 || current.data().deletedAt !== deletedAt) {
+          throw new Error('UNDO_AFTER_REDO_TOMBSTONE_CONFLICT');
+        }
+        tx.update(undoRef, {
+          deleted: false, deletedAt: null, deletedByUid: null,
+          revision: current.data().revision + 1,
+          updatedAt: Math.max(Date.now(), current.data().updatedAt + 1),
+          updatedByUid: ownerUid,
+        });
+      }));
+  }
+  await signIn(viewerEmail);
+  for (const cloudCollection of undoCoreCollections) {
+    const recordId = 'UNDO-' + cloudCollection.replace(/_/g, '-');
+    const row = await getDoc(doc(db, 'projects', pid, cloudCollection, recordId));
+    if (!row.exists() || row.data().deleted !== false || row.data().revision !== 5) {
+      throw new Error('UNDO_REDO_UNDO_SECOND_ACCOUNT_CANNOT_SEE_RESTORE:' + cloudCollection);
+    }
+  }
+  await signIn(ownerEmail);
+  console.log('UNDO_8_CORE_COLLECTIONS_2_ACCOUNTS_EMULATOR_PASS');
+
   // Revocation must remain fail-closed even when a stale UID alias still grants ADMIN.
   await expectAllowed('ADMIN creates stale EDITOR UID alias before canonical revocation regression', () => setDoc(doc(db, 'projects', pid, 'members', editorUid), {
     uid: editorUid, email: editorEmail, role: 'ADMIN', active: true, assignedAt: Date.now(), updatedAt: Date.now(),

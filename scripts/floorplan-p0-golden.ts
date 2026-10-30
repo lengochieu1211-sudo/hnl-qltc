@@ -222,8 +222,25 @@ check((ui.match(/bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indig
 check(!ui.includes('bg-amber-500 text-slate-950 font-black shadow-sm ring-2 ring-amber-300') && !ui.includes('bg-amber-500 text-slate-950 font-black scale-105 shadow-sm'), 'Generic room drawing tools must not reuse warning amber as selection color.');
 check((ui.match(/min-h-9/g) || []).length >= 9 && ui.includes('className="h-9 w-9 inline-flex') && ui.includes('className="h-9 max-w-[150px]'), 'Fullscreen floor-plan toolbar must retain >=36px touch targets.');
 check(ui.includes('min-h-9 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700') && !ui.includes('bg-rose-600/90 hover:bg-rose-600'), 'Fullscreen minimize must remain neutral rather than destructive rose.');
-check(ui.includes("roomColorMode === 'palette' ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-800 border border-slate-300'"), 'Viewer floor-plan display selection must use primary/neutral colors.');
-check((ui.match(/!showTextOverlay[\s\S]{0,180}bg-indigo-600 text-white/g) || []).length >= 3, 'Floor-plan text-overlay selection must use HNL primary instead of success green.');
+// DEV Backup P21.84 intentionally puts the same display choice inside a bounded
+// settings popover. Preserve either canonical inline primary/neutral styling OR
+// the backup-specific light/dark neutral control, with the actual mode-toggle handler.
+check(
+  ui.includes("roomColorMode === 'palette' ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-800 border border-slate-300'") ||
+  (ui.includes('const renderMapDisplayControls = (dark = false) =>') &&
+   ui.includes("setRoomColorMode(roomColorMode === 'palette' ? 'status' : 'palette')") &&
+   ui.includes("dark ? 'bg-slate-700' : 'bg-slate-100'") &&
+   ui.includes("roomColorMode === 'palette' ? '🎨 Mỗi phòng một màu' : '🎨 Màu theo trạng thái'")),
+  'Viewer floor-plan display selection must retain accessible mode choice and primary/neutral styling.'
+);
+check(
+  (ui.match(/!showTextOverlay[\\s\\S]{0,180}bg-indigo-600 text-white/g) || []).length >= 3 ||
+  (ui.includes('const renderMapDisplayControls = (dark = false) =>') &&
+   ui.includes('onClick={() => setShowTextOverlay(!showTextOverlay)}') &&
+   ui.includes("showTextOverlay ? 'Tên phòng gọn' : 'Tên phòng đầy đủ'") &&
+   ui.includes("dark ? 'bg-slate-700' : 'bg-slate-100'")),
+  'Floor-plan text-overlay must retain a neutral/primary accessible toggle in inline or backup settings UI.'
+);
 check(ui.includes('loading="lazy"') && ui.includes('decoding="async"'), 'Floor management thumbnails must avoid eager decoding every plan image.');
 check(app.includes('onInspectFloorPlanBulkTargets={handleInspectFloorPlanBulkTargets}'), 'App must expose bulk preflight to the floor-plan UI.');
 check(ui.includes('Defect, Căn / Phòng, vùng tô sáng (highlight), tiến độ, checklist'), 'Bulk floor UI must warn that business data remains per-floor.');
