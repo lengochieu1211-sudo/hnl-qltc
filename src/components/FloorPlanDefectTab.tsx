@@ -104,6 +104,7 @@ import { isPointInsideRoom, reconcileDefectLinkage, resolveDefectLinkageFromSele
 import { getRoomHighlightBounds, mirrorRoomHighlight, resizeRoomHighlightSide, resizeRoomHighlightToBounds, rotateRoomHighlight, snapRotationDelta } from '../utils/roomHighlightGeometry';
 import { snapRoomPointOrthogonal } from '../utils/roomHighlightSnap';
 import { CAD_GRID_STEP, applyCadDrawingGuide, getCadDrawingHotkey } from '../utils/roomHighlightCadShortcuts';
+import { placeFloorPlanDisplayPopover } from '../utils/floorPlanDisplayPopover';
 import { findRoomObjectSnap, type RoomSnapCandidate } from '../utils/roomHighlightObjectSnap';
 import { DEFAULT_CAD_ALIGNMENT, normalizeCadAlignment, rebuildCadRoomForAlignment, remapPointBetweenCadAlignments, type CadAlignment } from '../utils/cadAlignment';
 
@@ -1319,6 +1320,20 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [cadOrtho, setCadOrtho] = useState(() => readSnapPref('room_cad_ortho'));
   const [cadPolar, setCadPolar] = useState(() => readSnapPref('room_cad_polar'));
   const [showFullscreenDisplaySettings, setShowFullscreenDisplaySettings] = useState(false);
+  const fullscreenDisplayTriggerRef = useRef<HTMLButtonElement>(null);
+  const fullscreenDisplayPopoverRef = useRef<HTMLDivElement>(null);
+  const fullscreenDisplayViewportRef = useRef<HTMLDivElement>(null);
+  const [fullscreenDisplayPosition, setFullscreenDisplayPosition] = useState<ReturnType<typeof placeFloorPlanDisplayPopover> | null>(null);
+  const toggleFullscreenDisplaySettings = () => {
+    if (showFullscreenDisplaySettings) { setShowFullscreenDisplaySettings(false); return; }
+    const trigger = fullscreenDisplayTriggerRef.current;
+    const viewport = fullscreenDisplayViewportRef.current;
+    if (!trigger || !viewport) return;
+    setFullscreenDisplayPosition(placeFloorPlanDisplayPopover(
+      trigger.getBoundingClientRect(), viewport.getBoundingClientRect(),
+    ));
+    setShowFullscreenDisplaySettings(true);
+  };
   useEffect(() => {
     setObjectSnapEnabled(readSnapPref('room_object_snap_enabled'));
     setObjectSnapMidpoints(readSnapPref('room_object_snap_midpoints'));
@@ -3041,6 +3056,24 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [hoveredRoomId, setHoveredRoomId] = useState<string | null>(null);
   
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // A settings popover must not block drawing, floor switching or room action controls.
+  useEffect(() => {
+    if (!isFullscreen || !showFullscreenDisplaySettings) return;
+    const dismissOutside = (e: PointerEvent) => {
+      if (!(e.target instanceof Node)) return;
+      if (fullscreenDisplayTriggerRef.current?.contains(e.target) || fullscreenDisplayPopoverRef.current?.contains(e.target)) return;
+      setShowFullscreenDisplaySettings(false);
+    };
+    const dismissOnResize = () => setShowFullscreenDisplaySettings(false);
+    document.addEventListener('pointerdown', dismissOutside, true);
+    window.addEventListener('resize', dismissOnResize);
+    window.addEventListener('orientationchange', dismissOnResize);
+    return () => {
+      document.removeEventListener('pointerdown', dismissOutside, true);
+      window.removeEventListener('resize', dismissOnResize);
+      window.removeEventListener('orientationchange', dismissOnResize);
+    };
+  }, [isFullscreen, showFullscreenDisplaySettings]);
   useEffect(() => { if (!isFullscreen || drawTool !== 'none') setShowFullscreenDisplaySettings(false); }, [isFullscreen, drawTool]);
   const [imgAspect, setImgAspect] = useState<number>(1.414);
   const [rotation, setRotation] = useState<number>(0);
@@ -4338,6 +4371,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       return;
     }
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isFullscreen && showFullscreenDisplaySettings) {
+        e.preventDefault();
+        e.stopPropagation();
+        setShowFullscreenDisplaySettings(false);
+        return;
+      }
       const target = e.target as HTMLElement;
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable ||
           target.closest('[role="dialog"], [aria-modal="true"]')) return;
@@ -4484,7 +4523,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     window.addEventListener('keydown', handleKeyDown, true);
     window.addEventListener('keyup', handleKeyUp, true);
     return () => { window.removeEventListener('keydown', handleKeyDown, true); window.removeEventListener('keyup', handleKeyUp, true); };
-  }, [isActive, isFullscreen, fullscreenFloorIndex, switchFullscreenFloor, selectedRoomForDragId, selectedRoomIds, floorRooms, copiedRoomsState, activeFloor, onSaveRoomProgress, onDeleteRoomProgress, lockedRoomIds, canManageStructure, viewMode, currentProjectId, objectSnapEnabled, cadGridVisible, cadGridSnap, cadOrtho, cadPolar]);
+  }, [isActive, isFullscreen, fullscreenFloorIndex, switchFullscreenFloor, selectedRoomForDragId, selectedRoomIds, floorRooms, copiedRoomsState, activeFloor, onSaveRoomProgress, onDeleteRoomProgress, lockedRoomIds, canManageStructure, viewMode, currentProjectId, objectSnapEnabled, cadGridVisible, cadGridSnap, cadOrtho, cadPolar, showFullscreenDisplaySettings]);
 
   // Repair legacy/stale links once source data is available. Durable roomId stays
   // authoritative while its room still exists: editing/rotating a highlight must never
@@ -7404,7 +7443,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               above the global mobile navigation (z-40). Fullscreen retains z-100.
               Do NOT lift navigation globally: unrelated dialogs still use z-50. */}
           {/* Blueprint Image Outer Container with Controls */}
-          <div data-hnl-pc-plan-viewport="true" className={`${isFullscreen ? 'fixed inset-0 z-[100] bg-slate-950 rounded-none h-[100dvh] w-[100dvw] flex flex-col' : 'relative w-full h-[52dvh] min-h-[320px] max-h-[520px] sm:h-[400px] bg-slate-900 rounded-2xl'} overflow-hidden isolate border border-slate-300 select-none group shadow-inner`}>
+          <div ref={fullscreenDisplayViewportRef} data-hnl-pc-plan-viewport="true" className={`${isFullscreen ? 'fixed inset-0 z-[100] bg-slate-950 rounded-none h-[100dvh] w-[100dvw] flex flex-col' : 'relative w-full h-[52dvh] min-h-[320px] max-h-[520px] sm:h-[400px] bg-slate-900 rounded-2xl'} overflow-hidden isolate border border-slate-300 select-none group shadow-inner`}>
             {/* Fullscreen Pinned Drawing Toolbar & Active Banners */}
             {isFullscreen && (
               <div className="shrink-0 z-[70] pointer-events-auto flex flex-col gap-1.5 p-2 bg-slate-950/95 border-b border-slate-800 shadow-lg">
@@ -7507,9 +7546,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           <span>Vẽ chữ nhật</span>
                         </button>
 
-                        <button type="button" aria-expanded={showFullscreenDisplaySettings}
+                        <button type="button" ref={fullscreenDisplayTriggerRef} aria-expanded={showFullscreenDisplaySettings}
+                          aria-controls="hnl-fullscreen-display-popover"
                           aria-label="Mở tùy chỉnh hiển thị mặt bằng"
-                          onClick={() => setShowFullscreenDisplaySettings((open) => !open)}
+                          onClick={toggleFullscreenDisplaySettings}
                           className={`min-h-9 rounded-xl border border-slate-600 px-3 text-[11px] font-bold shrink-0 ${showFullscreenDisplaySettings ? 'bg-indigo-700 text-white' : 'bg-slate-800 text-slate-100'}`}>
                           ⚙️ Hiển thị {showFullscreenDisplaySettings ? '▴' : '▾'}
                         </button>
@@ -7590,8 +7630,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
                 {/* Floating settings never increase the mobile fullscreen toolbar height. */}
                 {showFullscreenDisplaySettings && (
-                  <div data-hnl-fullscreen-display-popover="true"
-                    className="absolute top-[58px] left-2 right-2 sm:right-auto z-[90] w-auto sm:w-[320px] max-h-[42dvh] overflow-y-auto overscroll-contain rounded-xl border border-slate-600 bg-slate-800 text-slate-100 shadow-2xl"
+                  <div id="hnl-fullscreen-display-popover" ref={fullscreenDisplayPopoverRef}
+                    data-hnl-fullscreen-display-popover="true"
+                    style={fullscreenDisplayPosition || undefined}
+                    className="absolute z-[90] overflow-y-auto overscroll-contain rounded-xl border border-slate-600 bg-slate-800 text-slate-100 shadow-2xl"
                   >
                     <div className="flex items-center justify-between px-2.5 pt-2 text-xs font-bold">
                       <span>⚙️ Hiển thị</span>
@@ -7861,7 +7903,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             )}
 
             {/* Quick Floating Room Operations Bar (Top Left) */}
-            {canManageStructure && !isRoomCreationDrawing && (selectedRoomObject || copiedRoomsState.length > 0) && (
+            {canManageStructure && !isRoomCreationDrawing && !(isFullscreen && showFullscreenDisplaySettings) && (selectedRoomObject || copiedRoomsState.length > 0) && (
               <div className={`${isFullscreen ? 'relative mx-2 mb-1 max-w-[calc(100%-16px)] self-start' : 'absolute top-2 left-2 max-w-[calc(100%-16px)]'} z-40 pointer-events-auto flex items-center gap-1.5 bg-slate-900/95 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-slate-700 shadow-2xl text-white animate-in fade-in slide-in-from-top-2 overflow-x-auto max-w-[calc(100%-16px)] sm:max-w-none no-scrollbar shrink`}>
                 {selectedRoomObject ? (
                   <>
