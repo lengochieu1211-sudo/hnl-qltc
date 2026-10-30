@@ -37,7 +37,7 @@ assert(!candidate.includes('top-[58px] left-2 right-2'),'D: old overlapping pane
 console.log('PASS D: popover anchored/clamped/outside/Escape without room selection loss source');
 for(const key of ['Math.min(250, Math.max(50, value))','Math.min(175, Math.max(75, percent))','const savedRoomStrokeScale = roomHighlightStrokePercent / 100;','strokeWidth={4 * savedRoomStrokeScale}','vectorEffect="non-scaling-stroke"','defectLabelScale * defectLabelScalePercent / 100'])assert(candidate.includes(key),'Missing E: '+key);
 assert.equal((candidate.match(/strokeWidth=\{\(isSelectedForDrag \? 2\.6 : 2\) \* savedRoomStrokeScale\}/g)||[]).length,3,'E: all visible room outline styles use same slider percentage');
-for(const key of ['Zoom','Fit','Focus','Mini','Lớp','Full Screen'])assert(candidate.includes(key),'E: original nav control missing '+key);
+for(const key of ['Zoom','Fit','Focus','Mini','Lớp','Toàn màn hình'])assert(candidate.includes(key),'E: original nav control missing '+key);
 console.log('PASS E: P21.82 stroke/label ranges and uniform rendered saved outlines, nav controls present (source)');
 assert(!/updateDoc\(room/.test(candidate),'Must not write existing room fields from display preference');
 console.log('PASS A–E focused static parity and source guard; NOT physical signed-in mobile Runtime Golden');
