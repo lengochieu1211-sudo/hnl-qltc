@@ -679,6 +679,27 @@ service cloud.firestore {
           && getAfter(/databases/$(database)/documents/projects/$(projectId)/conversations/$(conversationId)/messages/$(request.resource.data.lastMessageId)).data.createdAt == request.time;
       }
 
+      // P21.97: new message and its counted conversation summary must commit together.
+      // Existing Chat history and message updates remain readable/editable unchanged.
+      function chatMessageHasAtomicSummary(projectId, conversationId, messageId) {
+        let summaryPath = /databases/$(database)/documents/projects/$(projectId)/conversations/$(conversationId);
+        let summaryAfter = getAfter(summaryPath).data;
+        return existsAfter(summaryPath)
+          && summaryAfter.id == conversationId
+          && summaryAfter.projectId == projectId
+          && summaryAfter.lastMessageId == messageId
+          && summaryAfter.lastSenderUid == request.auth.uid
+          && summaryAfter.lastMessageAt == request.time
+          && (
+            (!exists(summaryPath) && summaryAfter.messageCount == 1)
+            || (exists(summaryPath) && (
+              (!('messageCount' in get(summaryPath).data) && summaryAfter.messageCount == 1)
+              || (('messageCount' in get(summaryPath).data)
+                && summaryAfter.messageCount == get(summaryPath).data.messageCount + 1)
+            ))
+          );
+      }
+
       // Project chat is deliberately separated from construction records. VIEWER may chat,
       // but every message is identity-bound and hard delete is disabled.
       match /conversations/{conversationId} {
@@ -711,6 +732,8 @@ service cloud.firestore {
             && request.resource.data.projectId == projectId
             && request.resource.data.conversationId == conversationId
             && request.resource.data.senderUid == request.auth.uid
+            && request.resource.data.id == messageId
+            && chatMessageHasAtomicSummary(projectId, conversationId, messageId)
             && request.resource.data.senderEmail is string
             && request.resource.data.senderEmail.lower() == signedInEmail()
             && request.resource.data.clientMessageId is string
