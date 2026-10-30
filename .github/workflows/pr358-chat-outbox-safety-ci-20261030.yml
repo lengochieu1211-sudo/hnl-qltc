@@ -1,0 +1,57 @@
+name: PR358 Chat outbox account-switch safety (EMULATOR ONLY; NO DEPLOY)
+on:
+  push:
+    branches: [fix/pr358-chat-outbox-safety-20261030]
+    paths: [.github/workflows/pr358-chat-outbox-safety-ci-20261030.yml]
+permissions:
+  contents: read
+jobs:
+  chat_account_regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Scope exact P21.84 candidate parent and no Cloud config/Rules/lockfile changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/fix/pr358-chat-outbox-safety-20261030"
+          git merge-base --is-ancestor ea47defe9fd4946bb5a82b09c58e43311ed0700b HEAD
+          git diff --quiet ea47defe9fd4946bb5a82b09c58e43311ed0700b HEAD -- firestore.rules storage.rules firebase.json firebase.prod.json package.json package-lock.json
+          node --input-type=module <<'NODE'
+          import {execFileSync} from 'node:child_process';
+          const changed=execFileSync('git',['diff','--name-only','ea47defe9fd4946bb5a82b09c58e43311ed0700b','HEAD'],{encoding:'utf8'}).trim().split('\n').sort();
+          const allowed=['src/lib/chatService.ts','src/App.tsx','src/features/chat/ChatTab.tsx','src/utils/chatOutboxOwnership.ts','scripts/pr358-chat-owner-outbox-golden.ts','.github/workflows/pr358-chat-outbox-safety-ci-20261030.yml'].sort();
+          if(JSON.stringify(changed)!==JSON.stringify(allowed))throw Error('UNEXPECTED CHANGED FILES '+JSON.stringify(changed));
+          console.log('Scoped no-deploy source delta PASS',changed.length);
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install exactly locked dependencies
+        run: npm ci
+      - name: Targeted identity + durable draft negative regression
+        run: npx tsx scripts/pr358-chat-owner-outbox-golden.ts
+      - name: Existing Chat IndexedDB durability regression
+        run: npm run test:chat-outbox-durability
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Full stability regression
+        run: npm run test:stability
+      - name: Firestore Rules emulator behavior
+        run: npm run test:rules
+      - name: Security audit
+        run: npm run security:audit
+      - name: Production bundle build (no deployment)
+        run: npm run build
