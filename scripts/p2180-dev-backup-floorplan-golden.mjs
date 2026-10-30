@@ -15,7 +15,7 @@ for(const name of ['handleRoomSelectClick','handleStartDrag','handleRoomTouchSta
 check(source.includes('setSelectedDefectIds([]);') && source.includes('setIsDefectPinPlacementMode(false);') && source.includes('setRelocatingDefectId(null);'), 'entering drawing clears conflicting defect state');
 check(source.includes("isFullscreen ? 'relative mx-2 mb-1") && !source.includes('top-20 sm:top-16'), 'room edit toolbar flows under primary toolbar in fullscreen');
 check(source.includes('construction_room_highlight_stroke_percent') && source.includes('Math.min(250, Math.max(50, value))'), 'stroke width is device-only, project-scoped, constrained 50–250%');
-check(source.match(/aria-label="Độ dày nét highlight"/g)?.length===1 && source.match(/renderMapDisplaySettings\(/g)?.length===3, 'one shared collapsed display control renders in all three toolbar variants');
+check(source.match(/aria-label="Độ dày nét highlight"/g)?.length===1 && source.match(/renderMapDisplaySettings\(/g)?.length===2 && source.includes('data-hnl-fullscreen-display-popover'), 'shared display controls persist across normal, floating fullscreen and read-only views');
 check(source.includes('const strokeScale = (roomHighlightStrokePercent / 100) / Math.max(1, zoomScale)'), 'user stroke scale respects zoom');
 check(source.match(/vectorEffect="non-scaling-stroke"/g)?.length>=4, 'previous DEV Backup uniform-horizontal/vertical stroke fix retained');
 

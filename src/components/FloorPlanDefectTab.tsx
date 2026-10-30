@@ -103,6 +103,8 @@ import { buildDefectShareText, resolveDefectTeam } from '../utils/defectContactU
 import { isPointInsideRoom, reconcileDefectLinkage, resolveDefectLinkageFromSelection } from '../utils/defectLinkageUtils';
 import { getRoomHighlightBounds, mirrorRoomHighlight, resizeRoomHighlightSide, resizeRoomHighlightToBounds, rotateRoomHighlight, snapRotationDelta } from '../utils/roomHighlightGeometry';
 import { snapRoomPointOrthogonal } from '../utils/roomHighlightSnap';
+import { CAD_GRID_STEP, applyCadDrawingGuide, getCadDrawingHotkey } from '../utils/roomHighlightCadShortcuts';
+import { findRoomObjectSnap, type RoomSnapCandidate } from '../utils/roomHighlightObjectSnap';
 import { DEFAULT_CAD_ALIGNMENT, normalizeCadAlignment, rebuildCadRoomForAlignment, remapPointBetweenCadAlignments, type CadAlignment } from '../utils/cadAlignment';
 
 const getMappedCoordinates = (e: React.PointerEvent | React.MouseEvent | Touch, element: HTMLElement, currentRotation: number) => {
@@ -1305,6 +1307,30 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   // Drawing Tools State ('freehand' | 'polygon' | '2point' | 'drag' | 'none')
   const [drawTool, setDrawTool] = useState<'freehand' | 'polygon' | '2point' | 'drag' | 'none'>('none');
   const [roomColorMode, setRoomColorMode] = useState<'palette' | 'status'>('palette');
+  // Object Snap is optional and OFF by default. Preference is local to the project/device.
+  const readSnapPref = (key: string) => {
+    try { return localStorage.getItem(getDraftKey(key)) === 'true'; } catch { return false; }
+  };
+  const [objectSnapEnabled, setObjectSnapEnabled] = useState(() => readSnapPref('room_object_snap_enabled'));
+  const [objectSnapMidpoints, setObjectSnapMidpoints] = useState(() => readSnapPref('room_object_snap_midpoints'));
+  // Keyboard-only CAD modes. No new toolbar or status strip; OFF by default.
+  const [cadGridVisible, setCadGridVisible] = useState(() => readSnapPref('room_cad_grid_visible'));
+  const [cadGridSnap, setCadGridSnap] = useState(() => readSnapPref('room_cad_grid_snap'));
+  const [cadOrtho, setCadOrtho] = useState(() => readSnapPref('room_cad_ortho'));
+  const [cadPolar, setCadPolar] = useState(() => readSnapPref('room_cad_polar'));
+  const [showFullscreenDisplaySettings, setShowFullscreenDisplaySettings] = useState(false);
+  useEffect(() => {
+    setObjectSnapEnabled(readSnapPref('room_object_snap_enabled'));
+    setObjectSnapMidpoints(readSnapPref('room_object_snap_midpoints'));
+    setCadGridVisible(readSnapPref('room_cad_grid_visible'));
+    setCadGridSnap(readSnapPref('room_cad_grid_snap'));
+    setCadOrtho(readSnapPref('room_cad_ortho'));
+    setCadPolar(readSnapPref('room_cad_polar'));
+  }, [currentProjectId]);
+  const updateSnapPref = (key: string, enabled: boolean, setter: (value: boolean) => void) => {
+    setter(enabled);
+    try { localStorage.setItem(getDraftKey(key), String(enabled)); } catch { /* display preference only */ }
+  };
   // Project-scoped, device-local display preference; never changes persisted room geometry.
   const readRoomHighlightStrokePercent = () => {
     try {
@@ -2217,6 +2243,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   // Freehand Drawing Live State
   const [isFreehandDrawing, setIsFreehandDrawing] = useState(false);
   const [freehandPoints, setFreehandPoints] = useState<Point2D[]>([]);
+  const [objectSnapPreview, setObjectSnapPreview] = useState<RoomSnapCandidate | null>(null);
+  const lastDrawingPointerTypeRef = useRef('mouse');
 
   // Polygon Point-by-Point Drawing State
   const [polygonPoints, setPolygonPoints] = useState<Point2D[]>([]);
@@ -3013,6 +3041,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [hoveredRoomId, setHoveredRoomId] = useState<string | null>(null);
   
   const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => { if (!isFullscreen || drawTool !== 'none') setShowFullscreenDisplaySettings(false); }, [isFullscreen, drawTool]);
   const [imgAspect, setImgAspect] = useState<number>(1.414);
   const [rotation, setRotation] = useState<number>(0);
   const parentRef = useRef<HTMLDivElement>(null);
@@ -3744,6 +3773,22 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     return floorRooms.map((r) => draggingRoomsPreview[r.id] || r);
   }, [floorRooms, draggingRoomsPreview]);
 
+  const getSavedRoomSnap = (point: Point2D, rect: DOMRect, pointerType?: string): RoomSnapCandidate | null => {
+    if (!objectSnapEnabled || !isRoomCreationDrawing) return null;
+    // 90/270deg map rotations exchange the physical screen axes of map coordinates.
+    const rotated = rotation === 90 || rotation === 270;
+    return findRoomObjectSnap(point, displayedFloorRooms,
+      { width: rotated ? rect.height : rect.width, height: rotated ? rect.width : rect.height },
+      { tolerancePx: pointerType === 'touch' ? 20 : 12, midpoints: objectSnapMidpoints });
+  };
+
+  const getCadDrawPoint = (point: Point2D, anchor: Point2D | null, rect: DOMRect, mode: 'polygon' | 'endpoint') =>
+    applyCadDrawingGuide(point, mode === 'polygon' ? anchor : null,
+      { width: rotation === 90 || rotation === 270 ? rect.height : rect.width,
+        height: rotation === 90 || rotation === 270 ? rect.width : rect.height },
+      { gridSnap: cadGridSnap, ortho: mode === 'polygon' && cadOrtho,
+        polar: mode === 'polygon' && cadPolar });
+
   const [roomSortBy, setRoomSortBy] = useState<'name' | 'createdAt' | 'updatedAt' | 'manual'>('manual');
   const [roomSortOrder, setRoomSortOrder] = useState<'asc' | 'desc'>('asc');
 
@@ -4294,7 +4339,32 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable) return;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable ||
+          target.closest('[role="dialog"], [aria-modal="true"]')) return;
+
+      // CAD function keys are scoped to the active plan only, not forms/modals.
+      // F3: OSNAP, F7: GRID, F8: ORTHO, F9: grid SNAP, F10: POLAR.
+      const cadKey = getCadDrawingHotkey(e);
+      if (cadKey && (viewMode === 'all' || viewMode === 'highlight')) {
+        if (cadKey === 'F7' || canManageStructure) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.repeat) return; // A long key press must toggle only once.
+          if (cadKey === 'F3') {
+            updateSnapPref('room_object_snap_enabled', !objectSnapEnabled, setObjectSnapEnabled);
+            setObjectSnapPreview(null);
+          } else if (cadKey === 'F7') updateSnapPref('room_cad_grid_visible', !cadGridVisible, setCadGridVisible);
+          else if (cadKey === 'F9') updateSnapPref('room_cad_grid_snap', !cadGridSnap, setCadGridSnap);
+          else if (cadKey === 'F8') {
+            updateSnapPref('room_cad_ortho', !cadOrtho, setCadOrtho);
+            updateSnapPref('room_cad_polar', false, setCadPolar);
+          } else if (cadKey === 'F10') {
+            updateSnapPref('room_cad_polar', !cadPolar, setCadPolar);
+            updateSnapPref('room_cad_ortho', false, setCadOrtho);
+          }
+        }
+        return;
+      }
 
       if (isFullscreen && e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
         e.preventDefault();
@@ -4414,7 +4484,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     window.addEventListener('keydown', handleKeyDown, true);
     window.addEventListener('keyup', handleKeyUp, true);
     return () => { window.removeEventListener('keydown', handleKeyDown, true); window.removeEventListener('keyup', handleKeyUp, true); };
-  }, [isActive, isFullscreen, fullscreenFloorIndex, switchFullscreenFloor, selectedRoomForDragId, selectedRoomIds, floorRooms, copiedRoomsState, activeFloor, onSaveRoomProgress, onDeleteRoomProgress, lockedRoomIds, canManageStructure]);
+  }, [isActive, isFullscreen, fullscreenFloorIndex, switchFullscreenFloor, selectedRoomForDragId, selectedRoomIds, floorRooms, copiedRoomsState, activeFloor, onSaveRoomProgress, onDeleteRoomProgress, lockedRoomIds, canManageStructure, viewMode, currentProjectId, objectSnapEnabled, cadGridVisible, cadGridSnap, cadOrtho, cadPolar]);
 
   // Repair legacy/stale links once source data is available. Durable roomId stays
   // authoritative while its room still exists: editing/rotating a highlight must never
@@ -5037,6 +5107,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   // Pointer Down on Floor Plan (Freehand start or Polygon or 2-Point)
   const handlePointerDownImage = (e: React.PointerEvent<HTMLDivElement>) => {
     activePointersRef.current.add(e.pointerId);
+    lastDrawingPointerTypeRef.current = e.pointerType;
     if (!canManageStructure && drawTool !== 'none') setDrawTool('none');
 
     // Navigation wins over creation. Mobile: one-finger background drag pans.
@@ -5072,20 +5143,23 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const x = Math.min(100, Math.max(0, Math.round(rawX * 10) / 10));
     const y = Math.min(100, Math.max(0, Math.round(rawY * 10) / 10));
 
+    const snapStart = getSavedRoomSnap({ x, y }, rect, e.pointerType);
+    const startPoint = snapStart?.point ?? getCadDrawPoint({ x, y }, null, rect, 'endpoint');
+    setObjectSnapPreview(snapStart);
     if (drawTool === 'freehand') {
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
       } catch {}
       setIsFreehandDrawing(true);
-      setFreehandPoints([{ x, y }]);
+      setFreehandPoints([startPoint]);
     } else if (drawTool === '2point') {
       if (drawStartPos === null) {
         try {
           e.currentTarget.setPointerCapture(e.pointerId);
         } catch {}
         setIs2PointDragging(true);
-        setDrawStartPos({ x, y });
-        setDrawHoverPos({ x, y });
+        setDrawStartPos(startPoint);
+        setDrawHoverPos(startPoint);
         justSetStartPosRef.current = true;
       }
     }
@@ -5124,12 +5198,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const y = Math.min(100, Math.max(0, Math.round(rawY * 10) / 10));
 
     lastPointerMapPosRef.current = { x, y };
+    const savedSnap = getSavedRoomSnap({ x, y }, rect, e.pointerType);
+    setObjectSnapPreview(savedSnap);
     // During polygon drawing, preview the exact point that will be committed on click.
     // Pull beyond the pixel capture radius to draw a diagonal; no modifier key needed.
-    const currentDrawHover = drawTool === 'polygon' && polygonPoints.length > 0
-      ? snapRoomPointOrthogonal({ x, y }, [polygonPoints[polygonPoints.length - 1]],
-          { width: rect.width, height: rect.height }, {})
-      : { x, y };
+    const currentDrawHover = savedSnap?.point ?? (drawTool === 'polygon' && polygonPoints.length > 0
+      ? ((cadOrtho || cadPolar || cadGridSnap)
+          ? getCadDrawPoint({ x, y }, polygonPoints[polygonPoints.length - 1], rect, 'polygon')
+          : snapRoomPointOrthogonal({ x, y }, [polygonPoints[polygonPoints.length - 1]],
+              { width: rect.width, height: rect.height }, {}))
+      : drawTool === '2point' && cadGridSnap
+        ? getCadDrawPoint({ x, y }, null, rect, 'endpoint')
+        : { x, y });
     setDrawHoverPos(currentDrawHover);
 
     // Handle Active Drag-and-Resize on Highlight Region
@@ -5381,9 +5461,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         e.currentTarget.releasePointerCapture(e.pointerId);
       } catch {}
       setIsFreehandDrawing(false);
-      if (freehandPoints.length >= 3) {
+      const releaseRect = imageContainerRef.current?.getBoundingClientRect();
+      const releaseCoords = imageContainerRef.current
+        ? getMappedCoordinates(e, imageContainerRef.current, rotation) : null;
+      const releaseSnap = releaseCoords && releaseRect
+        ? getSavedRoomSnap(releaseCoords, releaseRect, e.pointerType) : null;
+      setObjectSnapPreview(null);
+      const finishedPoints = [...freehandPoints];
+      if (releaseCoords && releaseRect && finishedPoints.length >= 2)
+        finishedPoints[finishedPoints.length - 1] = releaseSnap?.point ?? getCadDrawPoint(releaseCoords, null, releaseRect, 'endpoint');
+      if (finishedPoints.length >= 3) {
         let minX = 100, minY = 100, maxX = 0, maxY = 0;
-        freehandPoints.forEach((p) => {
+        finishedPoints.forEach((p) => {
           if (p.x < minX) minX = p.x;
           if (p.x > maxX) maxX = p.x;
           if (p.y < minY) minY = p.y;
@@ -5399,7 +5488,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             y: minY,
             width: w,
             height: h,
-            points: [...freehandPoints],
+            points: finishedPoints,
             isPolyline: false,
           });
           setRedrawingRoomTarget(null);
@@ -5408,12 +5497,31 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           // Preview highlight on map FIRST before opening modal
           setPendingDraftHighlight({
             rect: { x: minX, y: minY, width: w, height: h },
-            points: [...freehandPoints],
+            points: finishedPoints,
           });
         }
       }
       setFreehandPoints([]);
     }
+  };
+
+  // A browser pointercancel (scroll, app switch, pinch) must NOT save a partial room.
+  const handleCancelledDrawPointer = (e: React.PointerEvent<HTMLDivElement>) => {
+    activePointersRef.current.delete(e.pointerId);
+    if (canvasPressRef.current.pointerId === e.pointerId) canvasPressRef.current.pointerId = null;
+    if (panStateRef.current.pointerId === e.pointerId) {
+      panStateRef.current.active = false;
+      panStateRef.current.pointerId = null;
+    }
+    setIsFreehandDrawing(false);
+    setFreehandPoints([]);
+    if (is2PointDragging) {
+      setDrawStartPos(null);
+      setDrawHoverPos(null);
+    }
+    setIs2PointDragging(false);
+    setObjectSnapPreview(null);
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
   };
 
   // Finish Polygon / Line Drawing (2 or more points) and show preview highlight BEFORE modal
@@ -5554,10 +5662,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     // Polygon Point-by-Point Mode (2 or more points)
     if (drawTool === 'polygon') {
       // Use the same snap as hover so the saved corner matches the visual preview.
-      const snapped = snapRoomPointOrthogonal(
-        { x, y }, polygonPoints.length ? [polygonPoints[polygonPoints.length - 1]] : [],
-        { width: rect.width, height: rect.height }, {},
-      );
+      const saved = getSavedRoomSnap({ x, y }, rect, lastDrawingPointerTypeRef.current)?.point;
+      const snapped = saved ?? ((cadOrtho || cadPolar || cadGridSnap)
+        ? getCadDrawPoint({ x, y }, polygonPoints[polygonPoints.length - 1] || null, rect, 'polygon')
+        : snapRoomPointOrthogonal({ x, y }, polygonPoints.length ? [polygonPoints[polygonPoints.length - 1]] : [],
+            { width: rect.width, height: rect.height }, {}));
       setPolygonPoints((prev) => [...prev, snapped]);
       setDrawHoverPos(snapped);
       return;
@@ -5572,8 +5681,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
       const x1 = drawStartPos.x;
       const y1 = drawStartPos.y;
-      const x2 = x;
-      const y2 = y;
+      const objectSnapPoint = getSavedRoomSnap({ x, y }, rect, lastDrawingPointerTypeRef.current)?.point
+        ?? getCadDrawPoint({ x, y }, null, rect, 'endpoint');
+      const x2 = objectSnapPoint.x;
+      const y2 = objectSnapPoint.y;
 
       const finalX = Math.min(x1, x2);
       const finalY = Math.min(y1, y2);
@@ -5607,8 +5718,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }
 
     if (drawTool === '2point') {
-      setDrawStartPos({ x, y });
-      setDrawHoverPos({ x, y });
+      const snap = getSavedRoomSnap({ x, y }, rect, lastDrawingPointerTypeRef.current)?.point
+        ?? getCadDrawPoint({ x, y }, null, rect, 'endpoint');
+      setDrawStartPos(snap);
+      setDrawHoverPos(snap);
       return;
     }
 
@@ -6183,11 +6296,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   // One compact control surface shared by normal, fullscreen and read-only map toolbars.
   // Collapsed by default: do not add three permanent sliders to the drawing toolbar.
-  const renderMapDisplaySettings = (dark = false) => (
-    <details className={`group shrink-0 rounded-xl border ${dark ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-200 bg-white text-slate-700'}`}>
-      <summary className="min-h-9 cursor-pointer select-none list-none px-3 py-2 flex items-center gap-1.5 text-[11px] font-bold whitespace-nowrap" aria-label="Mở tùy chỉnh hiển thị mặt bằng">
-        <span aria-hidden="true">⚙️</span> Hiển thị <span className="text-[9px] group-open:rotate-180">▾</span>
-      </summary>
+  const renderMapDisplayControls = (dark = false) => (
       <div className={`flex flex-col gap-2 border-t p-2.5 min-w-[210px] max-w-[290px] ${dark ? 'border-slate-600' : 'border-slate-200'}`}>
         <div className="flex flex-wrap gap-1">
           <button type="button" onClick={() => setRoomColorMode(roomColorMode === 'palette' ? 'status' : 'palette')}
@@ -6221,12 +6330,33 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             className="min-w-0 flex-1 accent-indigo-500" />
           <span className="w-9 text-right tabular-nums">{defectLabelScalePercent}%</span>
         </label>
+        <div className="flex flex-col gap-1 border-t border-current/15 pt-2">
+          <label className="flex items-center justify-between gap-2 text-[11px] font-semibold">
+            <span>Bắt điểm phòng (OSNAP)</span>
+            <input type="checkbox" aria-label="Bật bắt điểm vùng Highlight" checked={objectSnapEnabled}
+              onChange={(e) => updateSnapPref('room_object_snap_enabled', e.target.checked, setObjectSnapEnabled)} className="accent-indigo-500" />
+          </label>
+          {objectSnapEnabled && (
+            <label className="flex items-center justify-between gap-2 text-[11px] font-semibold">
+              <span>Bắt điểm giữa cạnh</span>
+              <input type="checkbox" aria-label="Bắt điểm giữa cạnh" checked={objectSnapMidpoints}
+                onChange={(e) => updateSnapPref('room_object_snap_midpoints', e.target.checked, setObjectSnapMidpoints)} className="accent-indigo-500" />
+            </label>
+          )}
+        </div>
         <button type="button" onClick={() => {
           updateRoomHighlightStrokePercent(100);
           changeMapLabelPercent('construction_room_label_scale_percent', setRoomLabelScalePercent, 100);
           changeMapLabelPercent('construction_defect_label_scale_percent', setDefectLabelScalePercent, 100);
         }} className={`self-end rounded-lg px-2 py-1 text-[10px] font-bold ${dark ? 'bg-slate-700' : 'bg-slate-100'}`}>Mặc định 100%</button>
       </div>
+  );
+  const renderMapDisplaySettings = (dark = false) => (
+    <details className={`group shrink-0 rounded-xl border ${dark ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-200 bg-white text-slate-700'}`}>
+      <summary className="min-h-9 cursor-pointer select-none list-none px-3 py-2 flex items-center gap-1.5 text-[11px] font-bold whitespace-nowrap" aria-label="Mở tùy chỉnh hiển thị mặt bằng">
+        <span aria-hidden="true">⚙️</span> Hiển thị <span className="text-[9px] group-open:rotate-180">▾</span>
+      </summary>
+      {renderMapDisplayControls(dark)}
     </details>
   );
 
@@ -7377,7 +7507,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           <span>Vẽ chữ nhật</span>
                         </button>
 
-                        {renderMapDisplaySettings(true)}
+                        <button type="button" aria-expanded={showFullscreenDisplaySettings}
+                          aria-label="Mở tùy chỉnh hiển thị mặt bằng"
+                          onClick={() => setShowFullscreenDisplaySettings((open) => !open)}
+                          className={`min-h-9 rounded-xl border border-slate-600 px-3 text-[11px] font-bold shrink-0 ${showFullscreenDisplaySettings ? 'bg-indigo-700 text-white' : 'bg-slate-800 text-slate-100'}`}>
+                          ⚙️ Hiển thị {showFullscreenDisplaySettings ? '▴' : '▾'}
+                        </button>
 
                         {/* Add Room */}
                         <button
@@ -7452,6 +7587,19 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     </button>
                   </div>
                 </div>
+
+                {/* Floating settings never increase the mobile fullscreen toolbar height. */}
+                {showFullscreenDisplaySettings && (
+                  <div data-hnl-fullscreen-display-popover="true"
+                    className="absolute top-[58px] left-2 right-2 sm:right-auto z-[90] w-auto sm:w-[320px] max-h-[42dvh] overflow-y-auto overscroll-contain rounded-xl border border-slate-600 bg-slate-800 text-slate-100 shadow-2xl"
+                  >
+                    <div className="flex items-center justify-between px-2.5 pt-2 text-xs font-bold">
+                      <span>⚙️ Hiển thị</span>
+                      <button type="button" onClick={() => setShowFullscreenDisplaySettings(false)} aria-label="Đóng tùy chỉnh hiển thị" className="px-2 py-1 rounded-lg bg-slate-700">✕</button>
+                    </div>
+                    {renderMapDisplayControls(true)}
+                  </div>
+                )}
 
                 {/* Floating Active Drawing Action Banner in Fullscreen */}
                 {canManageStructure && drawTool === 'polygon' && !redrawingRoomTarget && (
@@ -8002,10 +8150,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     onPointerDown={handlePointerDownImage}
                     onPointerMove={handlePointerMoveImage}
                     onPointerUp={handlePointerUpImage}
-                    onPointerCancel={(e) => {
-                      activePointersRef.current.delete(e.pointerId);
-                      handlePointerUpImage(e);
-                    }}
+                    onPointerCancel={handleCancelledDrawPointer}
                     onClick={handleImageClick}
                     onTouchStart={handleBgTouchStart}
                     onTouchMove={handleBgTouchMove}
@@ -8019,7 +8164,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       height: targetH,
                       transform: transformStr,
                       transformOrigin: '0 0',
-                      touchAction: (viewMode === 'highlight' && drawTool === 'freehand') || selectedRoomForDragId !== null || activeDragHandle !== null || drawTool === 'drag' ? 'none' : 'pan-x pan-y',
+                      touchAction: (isRoomCreationDrawing && (drawTool === 'freehand' || drawTool === '2point')) || selectedRoomForDragId !== null || activeDragHandle !== null || drawTool === 'drag' ? 'none' : 'pan-x pan-y',
                     }}
                     className="relative cursor-crosshair select-none"
                   >
@@ -8041,6 +8186,19 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         Chưa có ảnh bản vẽ mặt bằng
                       </div>
                     )}
+
+                {/* F7 CAD GRID: visual-only backdrop, never intercepts clicks, never writes room data. */}
+                {cadGridVisible && (viewMode === 'all' || viewMode === 'highlight') && (
+                  <svg data-hnl-cad-grid="true" className="absolute inset-0 h-full w-full pointer-events-none z-[5]"
+                    viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                    {Array.from({ length: 100 / CAD_GRID_STEP - 1 }, (_, index) => (index + 1) * CAD_GRID_STEP).map((point) => (
+                      <g key={point} stroke="rgba(34,211,238,0.42)" strokeWidth={0.12} vectorEffect="non-scaling-stroke">
+                        <line x1={point} y1={0} x2={point} y2={100} />
+                        <line x1={0} y1={point} x2={100} y2={point} />
+                      </g>
+                    ))}
+                  </svg>
+                )}
 
                 {/* SVG OVERLAY FOR HIGHLIGHT SHAPES & LIVE DRAWINGS */}
                 {mapLayers.roomRegions && (viewMode === 'all' || viewMode === 'highlight') && (() => {
@@ -8872,6 +9030,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 )}
               </>
             )}
+                    {isRoomCreationDrawing && objectSnapEnabled && objectSnapPreview && (
+                      <div data-hnl-osnap-marker={objectSnapPreview.kind}
+                        style={{ left: `${objectSnapPreview.point.x}%`, top: `${objectSnapPreview.point.y}%` }}
+                        className="absolute z-[61] pointer-events-none -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 border-2 border-emerald-400 bg-slate-950/70 shadow-[0_0_0_2px_rgba(0,0,0,0.65)]"
+                        aria-hidden="true"
+                      />
+                    )}
                     {/* Drawing hit surface stays above existing room and Defect interaction layers.
                         Events bubble to the original canvas handlers so drawing still works. */}
                     {isRoomCreationDrawing && (

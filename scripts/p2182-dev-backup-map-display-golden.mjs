@@ -9,7 +9,7 @@ ok((s.match(/vectorEffect="non-scaling-stroke"/g)||[]).length>=4, 'screen-pixel 
 ok(s.includes("construction_room_label_scale_percent") && s.includes("construction_defect_label_scale_percent"), 'room and defect settings use project-local keys');
 ok(s.includes('Math.min(175, Math.max(75, percent))'), 'label range guarded');
 ok(s.includes('stored === null) return 100'), 'default 100 retained');
-ok((s.match(/renderMapDisplaySettings\(/g)||[]).length===3, 'single compact menu rendered in normal, Full and read-only views');
+ok((s.match(/renderMapDisplaySettings\(/g)||[]).length===2 && s.includes('data-hnl-fullscreen-display-popover'), 'one shared settings panel in normal, floating fullscreen, and read-only views');
 ok(s.includes('<details className=') && s.includes('⚙️</span> Hiển thị'), 'sliders are collapsed by default');
 ok((s.match(/aria-label="Độ dày nét highlight"/g)||[]).length===1, 'no duplicated stroke sliders');
 ok((s.match(/aria-label="Cỡ chữ Căn Phòng"/g)||[]).length===1 && (s.match(/aria-label="Cỡ chữ Defect"/g)||[]).length===1, 'two unique label sliders');
