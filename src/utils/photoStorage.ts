@@ -434,18 +434,23 @@ export async function savePhotoAttachment(
     binaryUploadState: 'pending'
   };
 
-  // Save binary blobs to localforage (IndexedDB)
+  // Binary is the write authority: never publish pending metadata unless the
+  // primary IndexedDB Blob exists and can be read back (F-11).
   try {
     await localforage.setItem(getPhotoBlobKey(photoId), mainBlob);
-    if (thumbBlob) {
-      await localforage.setItem(getPhotoThumbKey(photoId), thumbBlob);
+    const stored = await localforage.getItem<Blob>(getPhotoBlobKey(photoId));
+    if (!stored || stored.size !== mainBlob.size || stored.size <= 0) {
+      throw new Error('PHOTO_LOCAL_BINARY_VERIFY_FAILED');
     }
   } catch (err) {
-    console.warn('Could not store photo blob in localforage:', err);
-    // Fallback to data URL if Blob storage fails
-    try {
-      await localforage.setItem(getPhotoBlobKey(photoId), mainBlob);
-    } catch (_) {}
+    console.error('[Photo] Cannot persist local binary; refusing metadata publish:', err);
+    throw new Error('PHOTO_LOCAL_BINARY_PERSIST_FAILED');
+  }
+  if (thumbBlob) {
+    // Thumbnails are optional; failure must not invalidate a durable full binary.
+    await localforage.setItem(getPhotoThumbKey(photoId), thumbBlob).catch((err) => {
+      console.warn('[Photo] Optional thumbnail cache failed:', err);
+    });
   }
   await setPhotoBinaryCacheVersion(newPhotoMetadata, 'local');
 
