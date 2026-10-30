@@ -178,10 +178,19 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
         return [...older, ...next].sort((a, b) => (a.createdAtMillis || 0) - (b.createdAtMillis || 0));
       });
       setCursor(nextCursor);
-      markConversationRead(activeProjectId).catch(() => {});
+      if (document.visibilityState === 'visible') markConversationRead(activeProjectId).catch(() => {});
       window.setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 30);
     }, (err) => setSendError(err.message || 'Không thể tải trao đổi.'));
     return () => unsub();
+  }, [activeProjectId, view]);
+
+  useEffect(() => {
+    if (view !== 'room' || !activeProjectId) return;
+    const markWhenVisible = () => {
+      if (document.visibilityState === 'visible') void markConversationRead(activeProjectId).catch(() => {});
+    };
+    document.addEventListener('visibilitychange', markWhenVisible);
+    return () => document.removeEventListener('visibilitychange', markWhenVisible);
   }, [activeProjectId, view]);
 
   useEffect(() => () => {

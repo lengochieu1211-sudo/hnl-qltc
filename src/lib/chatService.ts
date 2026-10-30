@@ -19,6 +19,7 @@ import {
 } from 'firebase/firestore';
 import { db, getCurrentRealFirebaseUser } from './firebase';
 import { listChatOutbox, putChatOutbox, removeChatOutbox } from '../utils/chatOutbox';
+import { deterministicMessageId, isChatOutboxEntryOwnedByUid } from '../utils/chatOutboxOwnership';
 import type { ProjectChatMessage, ProjectConversationSummary, ChatReplyTo, ChatAttachment } from '../features/chat/types';
 
 export const GENERAL_CONVERSATION_ID = 'general';
@@ -28,13 +29,22 @@ const CHAT_LOCAL_QUEUE_ACK_MS = 1200;
 
 let chatOutboxFlushPromise: Promise<void> | null = null;
 
-function deterministicMessageId(uid: string, clientMessageId: string): string {
-  return `${uid}_${clientMessageId}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 190);
+/** Fail closed on IndexedDB errors: never abandon this account's pending Chat on sign-out. */
+export async function hasPendingChatOutboxForCurrentUser(): Promise<boolean> {
+  const uid = getCurrentRealFirebaseUser()?.uid;
+  if (!uid || chatOutboxFlushPromise) return true;
+  try {
+    const rows = await listChatOutbox();
+    if (getCurrentRealFirebaseUser()?.uid !== uid) return true;
+    return rows.some((row) => isChatOutboxEntryOwnedByUid(row.id, uid, row.input.clientMessageId));
+  } catch {
+    return true;
+  }
 }
 
-async function commitProjectMessage(input: SendMessageInput, persistOutbox: boolean): Promise<string> {
+async function commitProjectMessage(input: SendMessageInput, persistOutbox: boolean, expectedUid?: string): Promise<string> {
   const user = getCurrentRealFirebaseUser();
-  if (!user || !user.email) throw new Error('Bạn cần đăng nhập Google để gửi tin nhắn.');
+  if (!user || !user.email || (expectedUid && user.uid !== expectedUid)) throw new Error('Tài khoản đã thay đổi; tin nhắn vẫn được giữ trong hàng chờ.');
   const conversationId = input.conversationId || GENERAL_CONVERSATION_ID;
   const cleanText = input.text.trim();
   const attachments = input.attachments || [];
@@ -49,6 +59,9 @@ async function commitProjectMessage(input: SendMessageInput, persistOutbox: bool
       createdAt: Date.now(),
     });
   }
+
+  // Recheck after local async persistence: never relabel an A draft as B.
+  if (getCurrentRealFirebaseUser()?.uid !== user.uid) throw new Error('Tài khoản đã thay đổi; tin nhắn vẫn được giữ trong hàng chờ.');
 
   // IMPORTANT: the message itself is committed independently from the conversation
   // summary. A stale/strict summary rule must never make an otherwise valid message
@@ -113,22 +126,25 @@ export async function flushChatOutbox(): Promise<void> {
     if (!user || !user.email || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
     const rows = await listChatOutbox().catch(() => []);
     for (const row of rows) {
+      // Auth can change after IndexedDB/Firestore awaits; never flush user A under B.
+      if (getCurrentRealFirebaseUser()?.uid !== user.uid) return;
       const input = row.input;
-      // Outbox entries belong to the account that created their deterministic ID.
-      if (!row.id.startsWith(`${user.uid}_`)) continue;
+      if (!isChatOutboxEntryOwnedByUid(row.id, user.uid, input.clientMessageId)) continue;
       try {
         const conversationId = input.conversationId || GENERAL_CONVERSATION_ID;
         const msgRef = doc(messageCollection(input.projectId, conversationId), row.id);
         const existing = await getDoc(msgRef);
+        if (getCurrentRealFirebaseUser()?.uid !== user.uid) return;
         if (existing.exists()) {
           await removeChatOutbox(row.id);
           continue;
         }
-        await commitProjectMessage(input, false);
+        await commitProjectMessage(input, false, user.uid);
       } catch (err: any) {
+        if (getCurrentRealFirebaseUser()?.uid !== user.uid) return;
         if (isPermanentChatSendError(err)) {
-          await removeChatOutbox(row.id).catch(() => {});
-          console.warn('[Chat outbox] Permanent send failure; removed from retry queue:', err);
+          // Keep durable drafts even if ChatTab is unmounted during a permission failure.
+          console.warn('[Chat outbox] Permanent send failure; retained for explicit recovery:', err);
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent(CHAT_SEND_ERROR_EVENT, {
               detail: {
@@ -256,11 +272,9 @@ export async function sendProjectMessage(input: SendMessageInput): Promise<strin
   await putChatOutbox({ id: messageId, input: normalizedInput, createdAt: Date.now() });
 
   let returnedAsQueued = false;
-  const commitPromise = commitProjectMessage(normalizedInput, false);
+  const commitPromise = commitProjectMessage(normalizedInput, false, user.uid);
   commitPromise.catch((err: any) => {
-    if (isPermanentChatSendError(err)) {
-      void removeChatOutbox(messageId).catch(() => {});
-    }
+    // Keep the durable queued draft on Firebase permission errors, no silent deletion.
     if (!returnedAsQueued || typeof window === 'undefined') return;
     window.dispatchEvent(new CustomEvent(CHAT_SEND_ERROR_EVENT, {
       detail: {
