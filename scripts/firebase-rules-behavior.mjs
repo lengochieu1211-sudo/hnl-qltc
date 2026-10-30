@@ -837,6 +837,51 @@ try {
     }
   }
   await signIn(ownerEmail);
+  // Redo must also advance revision; then a second Undo may restore again.
+  // Two authenticated client sessions read the final Cloud state, never localStorage.
+  for (const cloudCollection of undoCoreCollections) {
+    const recordId = 'UNDO-' + cloudCollection.replace(/_/g, '-');
+    const undoRef = doc(db, 'projects', pid, cloudCollection, recordId);
+    const deletedAt = Date.now() + 300;
+    await expectAllowed('redo ' + cloudCollection + ': transaction deletes at next revision', () =>
+      runTransaction(db, async (tx) => {
+        const current = await tx.get(undoRef);
+        if (!current.exists() || current.data().revision !== 3 || current.data().deleted !== false) {
+          throw new Error('REDO_EMULATOR_ACTIVE_REVISION_CONFLICT');
+        }
+        tx.update(undoRef, {
+          deleted: true, deletedAt, deletedByUid: ownerUid,
+          revision: current.data().revision + 1,
+          updatedAt: Math.max(Date.now(), current.data().updatedAt + 1),
+          updatedByUid: ownerUid,
+        });
+      }));
+    await expectDenied('redo ' + cloudCollection + ': stale second Undo rejected', () => updateDoc(undoRef, {
+      deleted: false, deletedAt: null, revision: 4, updatedAt: Date.now() + 500,
+    }));
+    await expectAllowed('redo ' + cloudCollection + ': next Undo revision 5', () =>
+      runTransaction(db, async (tx) => {
+        const current = await tx.get(undoRef);
+        if (!current.exists() || current.data().revision !== 4 || current.data().deletedAt !== deletedAt) {
+          throw new Error('UNDO_AFTER_REDO_TOMBSTONE_CONFLICT');
+        }
+        tx.update(undoRef, {
+          deleted: false, deletedAt: null, deletedByUid: null,
+          revision: current.data().revision + 1,
+          updatedAt: Math.max(Date.now(), current.data().updatedAt + 1),
+          updatedByUid: ownerUid,
+        });
+      }));
+  }
+  await signIn(viewerEmail);
+  for (const cloudCollection of undoCoreCollections) {
+    const recordId = 'UNDO-' + cloudCollection.replace(/_/g, '-');
+    const row = await getDoc(doc(db, 'projects', pid, cloudCollection, recordId));
+    if (!row.exists() || row.data().deleted !== false || row.data().revision !== 5) {
+      throw new Error('UNDO_REDO_UNDO_SECOND_ACCOUNT_CANNOT_SEE_RESTORE:' + cloudCollection);
+    }
+  }
+  await signIn(ownerEmail);
   console.log('UNDO_8_CORE_COLLECTIONS_2_ACCOUNTS_EMULATOR_PASS');
 
   // Revocation must remain fail-closed even when a stale UID alias still grants ADMIN.
