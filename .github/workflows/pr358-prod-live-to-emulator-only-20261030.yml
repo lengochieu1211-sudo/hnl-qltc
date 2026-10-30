@@ -2,7 +2,9 @@ name: PR358 PROD Firestore LIVE read to isolated emulator rebuild ONLY (NO DEPLO
 on:
   push:
     branches: [audit/pr358-prod-to-local-emulator-20261030]
-    paths: [.github/workflows/pr358-prod-live-to-emulator-only-20261030.yml]
+    paths:
+      - .github/workflows/pr358-prod-live-to-emulator-only-20261030.yml
+      - scripts/pr358-prod-live-emulator-rebuild-audit.mjs
 permissions:
   contents: read
 jobs:
