@@ -1,0 +1,57 @@
+name: PR358 PROD Firestore LIVE read to isolated emulator rebuild ONLY (NO DEPLOY)
+on:
+  push:
+    branches: [audit/pr358-prod-to-local-emulator-20261030]
+    paths: [.github/workflows/pr358-prod-live-to-emulator-only-20261030.yml]
+permissions:
+  contents: read
+jobs:
+  readonly_rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    environment: production
+    env:
+      PR358_CANDIDATE: 1d69495c939911a5b20c1046f356777adcdeb44c
+      P2115_RESTORE_TARGET: hnl-qltc-restore-isolated
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify immutable candidate, no PROD mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/audit/pr358-prod-to-local-emulator-20261030"
+          git merge-base --is-ancestor "$PR358_CANDIDATE" HEAD
+          git diff --quiet "$PR358_CANDIDATE" HEAD -- src firestore.rules storage.rules firebase.json firebase.prod.json
+          test "$(git diff --name-only "$PR358_CANDIDATE" HEAD | wc -l)" -eq 2
+          node --check scripts/pr358-prod-live-emulator-rebuild-audit.mjs
+          test -n "$FIREBASE_SERVICE_ACCOUNT"
+          node -e "const s=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);if(s.type!=='service_account'||s.project_id!=='com-example-qlct-61329'||!s.private_key)process.exit(2)"
+          node - <<'NODE'
+          const fs=require('fs');
+          const src=fs.readFileSync('scripts/pr358-prod-live-emulator-rebuild-audit.mjs','utf8');
+          if(src.includes('firestore.googleapis.com/v1/projects/hnl-qltc-restore-isolated'))process.exit(2);
+          if(!src.includes("method!=='GET'&&!(method==='POST'&&relative.endsWith(':listCollectionIds'))"))process.exit(2);
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: LIVE Firestore READ ONLY to LOCAL isolated emulator restore + SHA256 inventory parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes firebase-tools@13.35.1 emulators:exec --only firestore --project hnl-qltc-restore-isolated --config firebase.json --non-interactive 'node scripts/pr358-prod-live-emulator-rebuild-audit.mjs'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: PR358-PROD-LIVE-LOCAL-EMULATOR-REBUILD-AGGREGATE
+          path: PR358-PROD-LIVE-EMULATOR-REBUILD-AGGREGATE.json
+          if-no-files-found: warn
+          retention-days: 30
