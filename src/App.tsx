@@ -3852,6 +3852,8 @@ function AuthenticatedApp() {
         if (warehouseOnly) {
           for (const change of deletedChanges) await restoreWarehouseTransactionAtomic(pid, change.id);
         } else {
+          // Complete prior Trash receipt writes before server-confirmed restoration.
+          if (receipt) await queueTrashReceiptWork(() => flushPendingTrashReceipts(pid));
           serverRows = await restoreDeletedUndoOnCloud(pid, step, deletedTimes, receipt?.id);
         }
       }).then(() => {
@@ -3890,7 +3892,7 @@ function AuthenticatedApp() {
               const key = getKey('construction_trash_pending_receipts', pid);
               const pending = await getAsyncItem<TrashOperation[]>(key, []);
               await setAsyncItem(key, (Array.isArray(pending) ? pending : []).filter((op) => op.id !== receipt.id));
-              await deleteTrashOperationFromCloud(pid, receipt.id);
+              // Cloud receipt was already removed in the restore transaction.
             }).catch((err) => console.warn('[Undo Cloud Trash cleanup] Deferred:', err));
           }
         }
