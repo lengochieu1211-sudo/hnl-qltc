@@ -206,7 +206,7 @@ import { TRUSTED_WAREHOUSE_DEMO_MODE, trustedImportDemo } from './lib/warehouseT
 import { renameWarehouseUnitAtomic, type WarehouseUnitRenameInput } from './lib/warehouseUnitMigration';
 import { drainBinaryPurgeRetryQueues, purgeTrashOperationBinaries } from './lib/cloudBinaryPurge';
 import { restoreProjectTrashAtomic } from './lib/trashRestore';
-import { restoreDeletedUndoOnCloud } from './lib/scopedUndoCloud';
+import { restoreDeletedUndoOnCloud, redoDeletedHistoryOnCloud } from './lib/scopedUndoCloud';
 import { deleteEmptyStructureGroupToTrash } from './lib/structureGroupTrash';
 
 // Heavy screens are code-split so Android does not parse XLSX/PDF-heavy modules at startup.
@@ -3725,6 +3725,99 @@ function AuthenticatedApp() {
       alert('Lịch sử không còn phù hợp: dữ liệu đã thay đổi hoặc dự án đã chuyển. Đã dừng Hoàn tác/Làm lại để không ghi đè dữ liệu thiết bị khác.');
       return;
     }
+    // The matching Redo must also be server-acknowledged; never replay a
+    // historical inventory voucher through generic autosave without its stock delta.
+    const redoingDelete = direction === 'redo'
+      && step.changes.some((change) => change.before && !change.after);
+    if (redoingDelete) {
+      const warehouseOnly = step.changes.every((change) =>
+        change.collection === 'inventory' && change.before && !change.after);
+      if (!FIREBASE_ONLY_RUNTIME || !isOnline || projectRoleSource !== 'cloud' || !cloudInitialReady) {
+        alert('Làm lại thao tác xóa cần kết nối Firestore. Chưa thay đổi dữ liệu.');
+        return;
+      }
+      if (step.changes.some((change) => !change.before || (change.collection === 'inventory' && !warehouseOnly))) {
+        alert('Không thể Làm lại nhóm xóa hỗn hợp không an toàn. Dữ liệu chưa thay đổi.');
+        return;
+      }
+      const pid = activeProjectIdRef.current;
+      const redoAt = Date.now();
+      const versions: Record<string, number> = {};
+      for (const change of step.changes) {
+        const current = ((present[change.collection] || []) as any[]).find((item) => item.id === change.id);
+        if (!current?.revision) {
+          alert('Chưa có phiên bản Cloud xác minh để Làm lại. Hãy tải lại dự án trước.');
+          return;
+        }
+        versions[change.collection + '_' + change.id] = Number(current.revision);
+      }
+      const deletedRows = step.changes.filter((change) => !change.after);
+      const relatedBefore: Record<string, any[]> = {};
+      step.changes.filter((change) => change.after).forEach((change) => {
+        (relatedBefore[change.collection] ||= []).push(sanitizeTrashSnapshot(change.before));
+      });
+      const actor = getCurrentRealFirebaseUser();
+      const retentionDays = trashSettingsRef.current.retentionDays || 7;
+      const receipt: TrashOperation | undefined = !warehouseOnly && trashSettingsRef.current.enabled && actor?.uid
+        ? {
+          id: createEntityId('TRASH'), projectId: pid,
+          deletedAt: redoAt, expiresAt: redoAt + retentionDays * 86400000, retentionDays,
+          deletedByUid: actor.uid,
+          ...(actor.email ? { deletedByEmail: actor.email } : {}),
+          ...(actor.displayName ? { deletedByName: actor.displayName } : {}),
+          deletedItems: deletedRows.map((change) => ({
+            collection: change.collection as TrashCollectionKey,
+            entityId: change.id,
+            label: getTrashCollectionLabel(change.collection as TrashCollectionKey) + ': ' + change.id,
+            snapshot: sanitizeTrashSnapshot(change.before),
+          })),
+          relatedBefore,
+        } : undefined;
+      if (receipt) receipt.approxBytes = estimateTrashBytes(receipt);
+      undoCloudBusyRef.current = true;
+      setDataCloudStatus({ phase: 'syncing', message: 'Đang xác nhận Làm lại trên Firestore...' });
+      let rows: Awaited<ReturnType<typeof redoDeletedHistoryOnCloud>> = [];
+      void queueCloudSave(async () => {
+        if (warehouseOnly) {
+          for (const change of deletedRows) await softDeleteWarehouseTransactionAtomic(pid, change.id, trashSettingsRef.current);
+        } else {
+          rows = await redoDeletedHistoryOnCloud(pid, step, versions, redoAt, receipt);
+        }
+      }).then(() => {
+        if (activeProjectIdRef.current !== pid) return;
+        if (!warehouseOnly) {
+          const updateRows = (source: AppData): AppData => {
+            const next = { ...source };
+            for (const row of rows) {
+              const key = row.collection as keyof AppData;
+              const byId = new Map<string, any>(((next[key] || []) as any[]).map((item) => [String(item.id), item]));
+              if (row.row.deleted === true) byId.delete(row.id);
+              else byId.set(row.id, row.row);
+              (next as any)[key] = Array.from(byId.values());
+            }
+            return next;
+          };
+          setPresent((prev) => updateRows(prev));
+          if (lastSyncedPresentRef.current) lastSyncedPresentRef.current = updateRows(lastSyncedPresentRef.current);
+          rows.filter((row) => row.row.deleted === true)
+            .forEach((row) => recordLocalTombstone(row.collection, row.id, Number(row.row.deletedAt || redoAt), pid));
+          if (receipt) persistTrashOperations([receipt, ...trashOperationsRef.current], pid);
+        }
+        setFuture((previous) => previous[0] === step ? previous.slice(1) : previous);
+        setPast((previous) => [...previous.slice(-14), step]);
+        setDataCloudStatus({ phase: 'synced', lastSyncAt: Date.now(), message: 'Firestore đã xác nhận Làm lại thao tác xóa.' });
+      }).catch((error) => {
+        console.warn('[Redo Cloud] Transaction rejected:', error);
+        if (activeProjectIdRef.current === pid) {
+          setDataCloudStatus({ phase: 'error', message: 'Làm lại chưa được Cloud xác nhận.' });
+          alert('Làm lại thất bại; dữ liệu Cloud giữ nguyên: ' + (error instanceof Error ? error.message : String(error)));
+        }
+      }).finally(() => {
+        undoCloudBusyRef.current = false;
+        setCloudDataRetryTick((tick) => tick + 1);
+      });
+      return;
+    }
     // Undo that *recreates* a deleted entity must not use local-first stamping.
     // Its previous revision can equal the already-committed Cloud tombstone revision.
     // This path is intentionally online/ADMIN-only; keep the original history step
@@ -3798,9 +3891,8 @@ function AuthenticatedApp() {
           }
         }
         setPast((previous) => previous[previous.length - 1] === step ? previous.slice(0, -1) : previous);
-        // Redo of a server-confirmed delete requires a new Trash receipt and is
-        // deliberately not offered through the old local-only history path.
-        setFuture([]);
+        // Preserve Redo; it uses a separate server transaction and a new Trash receipt.
+        setFuture((previous) => [step, ...previous]);
         setDataCloudStatus({ phase: 'synced', lastSyncAt: Date.now(), message: 'Firestore đã xác nhận khôi phục dữ liệu.' });
       }).catch((error) => {
         console.warn('[Undo Cloud] Recovery rejected; local state unchanged:', error);
