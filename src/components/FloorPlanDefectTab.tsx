@@ -727,6 +727,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   }, [normalizedStructureConfig]);
 
   const getDraftKey = (base: string) => (currentProjectId === 'default' ? base : `${base}_${currentProjectId}`);
+  const readLegacyLockedIds = (key: string): Set<string> => {
+    try {
+      const raw = localStorage.getItem(getDraftKey(key));
+      const parsed = raw ? JSON.parse(raw) : [];
+      return new Set(Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string') : []);
+    } catch { return new Set(); }
+  };
   const [selectedFloorId, setSelectedFloorId] = useState<string>(() => {
     const saved = localStorage.getItem(getDraftKey('construction_selected_floor_id'));
     if (saved && floorPlans.some((fp) => fp.id === saved)) {
@@ -765,9 +772,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       return { roomRegions: true, roomLabels: true, defects: true, resolvedDefects: true };
     }
   });
-  // Retain legacy per-device lock data without treating it as shared authority.
-  const [lockedRoomIds, setLockedRoomIds] = useState<Set<string>>(new Set());
-  const [lockedDefectIds, setLockedDefectIds] = useState<Set<string>>(new Set());
+  // Legacy device-only locks still protect old geometry; explicit Cloud flags override them.
+  const [lockedRoomIds, setLockedRoomIds] = useState<Set<string>>(() => readLegacyLockedIds('construction_floorplan_locked_rooms'));
+  const [lockedDefectIds, setLockedDefectIds] = useState<Set<string>>(() => readLegacyLockedIds('construction_floorplan_locked_defects'));
   const [positionLockBusy, setPositionLockBusy] = useState(false);
   const [viewportInfo, setViewportInfo] = useState({ scrollLeft: 0, scrollTop: 0, clientWidth: 1, clientHeight: 1, scrollWidth: 1, scrollHeight: 1 });
   const floorViewRestoringRef = useRef(false);
@@ -851,16 +858,21 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     localStorage.setItem(getDraftKey('construction_floorplan_layers'), JSON.stringify(mapLayers));
   }, [mapLayers, currentProjectId]);
 
-  // Cloud rows are the only shared lock authority. Legacy rows without a flag
-  // remain unlocked until a user explicitly locks them with Firestore acknowledgement.
-  // Old device-local keys are preserved (not silently migrated or deleted).
+  // Explicit Cloud true/false wins. Old undefined rows may retain the local lock
+  // as a conservative protection until the user chooses to migrate it.
   React.useEffect(() => {
-    const cloudAware = new Set(roomProgressList.filter((room) => room.positionLocked === true).map((room) => room.id));
+    const legacy = readLegacyLockedIds('construction_floorplan_locked_rooms');
+    const cloudAware = new Set(roomProgressList.filter((room) =>
+      room.positionLocked === true || (room.positionLocked === undefined && legacy.has(room.id))
+    ).map((room) => room.id));
     setLockedRoomIds((prev) => prev.size === cloudAware.size && Array.from(prev).every((id) => cloudAware.has(id)) ? prev : cloudAware);
   }, [roomProgressList, currentProjectId]);
 
   React.useEffect(() => {
-    const cloudAware = new Set(defects.filter((defect) => defect.positionLocked === true).map((defect) => defect.id));
+    const legacy = readLegacyLockedIds('construction_floorplan_locked_defects');
+    const cloudAware = new Set(defects.filter((defect) =>
+      defect.positionLocked === true || (defect.positionLocked === undefined && legacy.has(defect.id))
+    ).map((defect) => defect.id));
     setLockedDefectIds((prev) => prev.size === cloudAware.size && Array.from(prev).every((id) => cloudAware.has(id)) ? prev : cloudAware);
   }, [defects, currentProjectId]);
 
@@ -3829,7 +3841,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const entries = roomProgressList.filter((room) => selectedRoomIdsForAction.includes(room.id))
       .map((room) => ({ id: room.id, expectedLocked: room.positionLocked === true }));
     if (entries.length !== selectedRoomIdsForAction.length) return;
-    const locked = !entries.every((entry) => entry.expectedLocked);
+    const hasLegacyOnlyLock = entries.some((entry) =>
+      lockedRoomIds.has(entry.id)
+      && roomProgressList.find((room) => room.id === entry.id)?.positionLocked === undefined
+    );
+    // An explicit user confirmation migrates a legacy per-device lock.
+    // Cancel preserves the original local lock; no silent Cloud writes.
+    if (hasLegacyOnlyLock && !window.confirm('Phòng đang có khóa cũ chỉ lưu trên thiết bị này. Nhấn OK để đồng bộ trạng thái ĐANG KHÓA lên Cloud; Hủy để giữ nguyên khóa cũ.')) return;
+    const locked = hasLegacyOnlyLock || !entries.every((entry) => lockedRoomIds.has(entry.id));
     if (!onCommitPositionLocks) {
       setCopyNotification('Chưa kết nối được chức năng khóa vị trí Cloud.');
       return;
@@ -3854,7 +3873,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (!canEditDefects || positionLockBusy) return;
     const source = defects.find((item) => item.id === defectId);
     if (!source) return;
-    const locked = source.positionLocked !== true;
+    const legacyOnlyLock = lockedDefectIds.has(defectId) && source.positionLocked === undefined;
+    if (legacyOnlyLock && !window.confirm('Defect đang có khóa cũ chỉ lưu trên thiết bị này. Nhấn OK để đồng bộ trạng thái ĐANG KHÓA lên Cloud; Hủy để giữ nguyên khóa cũ.')) return;
+    const locked = legacyOnlyLock || !lockedDefectIds.has(defectId);
     if (!onCommitPositionLocks) {
       setCopyNotification('Chưa kết nối được chức năng khóa Defect Cloud.');
       return;
