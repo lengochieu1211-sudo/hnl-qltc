@@ -6300,12 +6300,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       <div className={`flex flex-col gap-2 border-t p-2.5 min-w-[210px] max-w-[290px] ${dark ? 'border-slate-600' : 'border-slate-200'}`}>
         <div className="flex flex-wrap gap-1">
           <button type="button" onClick={() => setRoomColorMode(roomColorMode === 'palette' ? 'status' : 'palette')}
-            className={`rounded-lg px-2 py-1.5 text-[11px] font-semibold ${dark ? 'bg-slate-700' : 'bg-slate-100'}`}
+            className={`rounded-lg px-2 py-1.5 text-[11px] font-semibold ${roomColorMode === 'palette' ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-800 border border-slate-300'} ${dark && roomColorMode !== 'palette' ? 'ring-1 ring-slate-500' : ''}`}
             title="Chọn màu vùng highlight theo căn/phòng hoặc trạng thái">
             {roomColorMode === 'palette' ? '🎨 Mỗi phòng một màu' : '🎨 Màu theo trạng thái'}
           </button>
           <button type="button" onClick={() => setShowTextOverlay(!showTextOverlay)}
-            className={`rounded-lg px-2 py-1.5 text-[11px] font-semibold ${dark ? 'bg-slate-700' : 'bg-slate-100'}`}>
+            className={`rounded-lg px-2 py-1.5 text-[11px] font-semibold ${showTextOverlay ? 'bg-indigo-600 text-white' : dark ? 'bg-slate-700 text-slate-100 border border-slate-600' : 'bg-slate-200 text-slate-800 border border-slate-300'}`}>
             {showTextOverlay ? 'Tên phòng gọn' : 'Tên phòng đầy đủ'}
           </button>
         </div>
