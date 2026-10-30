@@ -21,8 +21,11 @@ assert(lock.includes("if (row.updatedAt !== undefined && typeof row.updatedAt !=
 assert(lock.includes('tx.update(refs[change.index], {') &&
   !lock.includes('inventory_balances') && !lock.includes('warehouseTransactions'),
   'Lock must never modify warehouse balances or other collections');
-assert(!floor.includes("room.positionLocked === undefined && legacy.has(room.id)") &&
-  !floor.includes("defect.positionLocked === undefined && legacy.has(defect.id)"), 'Legacy device-only lock must not override Cloud');
+assert(floor.includes("room.positionLocked === undefined && legacy.has(room.id)") &&
+  floor.includes("defect.positionLocked === undefined && legacy.has(defect.id)") &&
+  floor.includes("hasLegacyOnlyLock && !window.confirm(") &&
+  floor.includes("legacyOnlyLock && !window.confirm("),
+  'Old locks remain protective until explicitly migrated; Cloud false must override legacy local cache');
 assert(!floor.includes("localStorage.setItem(getDraftKey('construction_floorplan_locked_rooms')") &&
   !floor.includes("localStorage.setItem(getDraftKey('construction_floorplan_locked_defects')"), 'Shared locks must not be written as per-device authority');
 assert(floor.includes("await onCommitPositionLocks('room', entries, locked)") &&
