@@ -46,7 +46,8 @@ function message(a,id){return {
   clientMessageId:id,createdAt:clock(),text:'Emulator only: '+id,
   attachments:[],mentions:[]
 };}
-function summary(a,count){return {
+function summary(a,count,id){return {
+  lastMessageId:id,
   id:'general',projectId:pid,lastSenderUid:a.uid,lastMessageAt:clock(),
   lastMessageText:'Emulator only',messageCount:count,updatedAt:clock()
 };}
@@ -54,7 +55,7 @@ const refs=a=>({msg:id=>within(a,'conversations','general','messages',id),sum:wi
 function commitBatch(a,id,count=increment(1)){
   const b=writeBatch(a.db),r=refs(a);
   b.set(r.msg(id),message(a,id));
-  b.set(r.sum,summary(a,count),{merge:true});
+  b.set(r.sum,summary(a,count,id),{merge:true});
   return b.commit();
 }
 async function deny(fn){try{await fn();return false;}catch(e){
@@ -73,6 +74,13 @@ try{
   let count=(await getDoc(refs(viewer).sum)).data().messageCount;
   assert.equal(count,1);
   assert.equal((await getDoc(refs(viewer).msg('stable-1'))).exists(),true);
+  // P21.86: counter-only or a forged message pointer must never raise unread.
+  console.log('P2186_PHASE reject-summary-only');
+  const summaryOnlyDenied=await deny(()=>setDoc(refs(sender).sum,summary(sender,increment(1),'stable-1'),{merge:true}));
+  assert.equal(summaryOnlyDenied,true,'summary-only increment must fail');
+  const fakePointerDenied=await deny(()=>setDoc(refs(sender).sum,summary(sender,increment(1),'fabricated-id'),{merge:true}));
+  assert.equal(fakePointerDenied,true,'fabricated message pointer must fail');
+  assert.equal((await getDoc(refs(viewer).sum)).data().messageCount,1);
   // Same deterministic document ID cannot be replayed and increment twice.
   console.log('P2172_PHASE duplicate-id');
   const retryDenied=await deny(()=>commitBatch(sender,'stable-1'));
