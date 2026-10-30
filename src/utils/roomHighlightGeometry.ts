@@ -151,3 +151,39 @@ export function snapRotationDelta(degrees: number, threshold = 5): number {
   const nearest = Math.round(normalized / 90) * 90;
   return Math.abs(normalized - nearest) <= threshold ? nearest : normalized;
 }
+
+/** Fit a newly drawn rectangle inside the 0..100 canvas without clipping its points. */
+export function fitRoomRectToCanvas(x: number, y: number, width: number, height: number) {
+  // Round the dimensions BEFORE constraining the origin. Otherwise a 0.15%
+  // width rounds up to 0.2%, while an origin clamped against 0.15% can
+  // separately round up to 99.9%, producing x + width = 100.1%.
+  const w = round1(Math.max(0.1, Math.min(100, width)));
+  const h = round1(Math.max(0.1, Math.min(100, height)));
+  return { x: round1(clamp(x, 0, 100 - w)), y: round1(clamp(y, 0, 100 - h)),
+    width: w, height: h };
+}
+
+/** One shared translation for all rooms: preserve vertices, angles and spacing. */
+export function translateRoomGroupToCanvas(
+  rooms: readonly RoomProgressItem[], requestedDx: number, requestedDy: number,
+): RoomProgressItem[] | null {
+  if (!rooms.length) return [];
+  const bounds = rooms.map((room) => getRoomHighlightBounds(room));
+  const minX = Math.min(...bounds.map((b) => b.x));
+  const minY = Math.min(...bounds.map((b) => b.y));
+  const maxX = Math.max(...bounds.map((b) => b.x + b.width));
+  const maxY = Math.max(...bounds.map((b) => b.y + b.height));
+  if (maxX - minX > 100 || maxY - minY > 100) return null;
+  const dx = round1(clamp(requestedDx, -minX, 100 - maxX));
+  const dy = round1(clamp(requestedDy, -minY, 100 - maxY));
+  return rooms.map((room) => {
+    const points = room.points?.length ? room.points.map((point) => ({
+      x: round1(point.x + dx), y: round1(point.y + dy),
+    })) : undefined;
+    const b = points ? getRoomHighlightBounds(points) : {
+      x: room.x + dx, y: room.y + dy, width: room.width, height: room.height,
+    };
+    return { ...room, x: round1(b.x), y: round1(b.y), width: round1(b.width),
+      height: round1(b.height), points };
+  });
+}

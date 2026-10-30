@@ -38,7 +38,7 @@ const checks = [
   ['Auto Issue preflights whole batch', room.includes('Preflight the ENTIRE auto-issue set') && room.includes('plannedIssues.length !== needsIssue.length')],
   ['Auto Issue does not first-pick norm/category', !room.includes('sourceNormIds?.[0]') && !room.includes('sourceWorkCategoryId: roomItem.workCategoryId')],
   ['new Room form persists floorId + floorName', room.includes('floorId,\n      floorName,\n      roomName: roomName.trim()')],
-  ['quick-save Room persists floorId + floorName', floorPlanDefect.includes('floorId: activeFloor.id,\n                            floorName: activeFloor.floorName,\n                            roomName: getNextAvailableQuickRoomName()')],
+  ['quick-save Room persists floorId + floorName', /onSaveRoomProgress\(\{\s*id:\s*quickSaveDraftIdRef\.current\s*\|\|\s*undefined,\s*floorId:\s*activeFloor\.id,\s*floorName:\s*activeFloor\.floorName,\s*roomName:\s*getNextAvailableQuickRoomName\(\)/.test(floorPlanDefect)],
   ['Material Need has safe missing-floor-name title fallback', materialNeed.includes("resolution.state === 'floor-mismatch' && !String(floorName || '').trim()") && materialNeed.includes('const unscoped = resolveWorkVolumeRef({ workVolumes, workCategoryName: raw })')],
   ['Material Need canonicalizes legacy missing-floor-name rooms before contribution filtering', materialNeed.includes('function getMaterialRoomCategoryEntries') && materialNeed.includes('return getMaterialRoomCategoryEntries(room, workVolumes).map')],
   ['Material Need exposes raw calculation quantities', materialNeed.includes('rawRemainingQty') && materialNeed.includes('rawStockQty')],

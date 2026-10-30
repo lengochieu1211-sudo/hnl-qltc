@@ -101,7 +101,7 @@ import { ContactMenu } from './ContactMenu';
 import { ShareEntityMenu } from './ShareEntityMenu';
 import { buildDefectShareText, resolveDefectTeam } from '../utils/defectContactUtils';
 import { isPointInsideRoom, reconcileDefectLinkage, resolveDefectLinkageFromSelection } from '../utils/defectLinkageUtils';
-import { getRoomHighlightBounds, mirrorRoomHighlight, resizeRoomHighlightSide, resizeRoomHighlightToBounds, rotateRoomHighlight, snapRotationDelta } from '../utils/roomHighlightGeometry';
+import { fitRoomRectToCanvas, translateRoomGroupToCanvas, getRoomHighlightBounds, mirrorRoomHighlight, resizeRoomHighlightSide, resizeRoomHighlightToBounds, rotateRoomHighlight, snapRotationDelta } from '../utils/roomHighlightGeometry';
 import { snapRoomPointOrthogonal } from '../utils/roomHighlightSnap';
 import { CAD_GRID_STEP, applyCadDrawingGuide, getCadDrawingHotkey } from '../utils/roomHighlightCadShortcuts';
 import { placeFloorPlanDisplayPopover } from '../utils/floorPlanDisplayPopover';
@@ -366,6 +366,7 @@ interface FloorPlanDefectTabProps {
   onAddDefect: (defect: Omit<DefectItem, 'id' | 'createdAt'> & { id?: string }) => void;
   onUpdateDefectStatus: (id: string, status: DefectStatus) => void;
   onUpdateDefect?: (defect: DefectItem) => void;
+  onPatchDefect?: (id: string, fields: Partial<DefectItem>) => void;
   onDeleteDefect: (id: string) => void;
   onDeleteMultipleDefects?: (ids: string[]) => void;
   onSaveRoomProgress: (room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }) => void;
@@ -676,6 +677,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   onAddDefect,
   onUpdateDefectStatus,
   onUpdateDefect,
+  onPatchDefect,
   onDeleteDefect,
   onDeleteMultipleDefects,
   onSaveRoomProgress,
@@ -1139,64 +1141,33 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     safeSetLocalStorageItem(getDraftKey('construction_defect_draft_dueDate'), dueDate);
   }, [dueDate, currentProjectId]);
 
-  // Legacy photo auto-migration effect for activeDefectDetail
+  // F-11: Legacy URLs are recovery evidence. Staging a binary to the local
+  // outbox does NOT prove it is durable in R2. Never remove legacy links as a
+  // side-effect of opening a Defect, including when offline or storage is full.
   React.useEffect(() => {
-    if (!activeDefectDetail) return;
-    const pid = currentProjectId;
-    const defectId = activeDefectDetail.id;
-
-    let hasLegacy = false;
-    const updated = { ...activeDefectDetail };
-
+    if (!activeDefectDetail || !currentProjectId) return;
+    const defect = activeDefectDetail;
+    let disposed = false;
     const migrate = async () => {
-      if (activeDefectDetail.imageUrl) {
-        hasLegacy = true;
+      for (const [category, url, fileName] of [
+        ['defect_before', defect.imageUrl, 'ảnh_trước_sửa.jpg'],
+        ['defect_after', defect.afterImageUrl, 'ảnh_sau_sửa.jpg'],
+      ] as const) {
+        if (!url || disposed) continue;
         try {
-          await savePhotoAttachment(
-            {
-              projectId: pid,
-              entityType: 'defect',
-              entityId: defectId,
-              category: 'defect_before',
-              fileName: 'ảnh_trước_sửa.jpg',
-              mimeType: 'image/jpeg',
-              fileSize: 0,
-            },
-            activeDefectDetail.imageUrl
-          );
-        } catch (_) {}
-        updated.imageUrl = undefined;
-      }
-
-      if (activeDefectDetail.afterImageUrl) {
-        hasLegacy = true;
-        try {
-          await savePhotoAttachment(
-            {
-              projectId: pid,
-              entityType: 'defect',
-              entityId: defectId,
-              category: 'defect_after',
-              fileName: 'ảnh_sau_sửa.jpg',
-              mimeType: 'image/jpeg',
-              fileSize: 0,
-            },
-            activeDefectDetail.afterImageUrl
-          );
-        } catch (_) {}
-        updated.afterImageUrl = undefined;
-      }
-
-      if (hasLegacy) {
-        setActiveDefectDetail(updated);
-        if (onUpdateDefect) {
-          onUpdateDefect(updated);
+          // Reopening a Defect must not queue repeated copies of the same binary.
+          const existing = await getEntityPhotos(currentProjectId, 'defect', defect.id, category);
+          if (existing.some((photo) => !photo.deleted && !photo.deletedAt)) continue;
+          await savePhotoAttachment({ projectId: currentProjectId, entityType: 'defect',
+            entityId: defect.id, category, fileName, mimeType: 'image/jpeg', fileSize: 0 }, url);
+        } catch (err) {
+          console.warn('[Defect] Legacy image retained after failed media migration:', err);
         }
       }
     };
-
-    migrate();
-  }, [activeDefectDetail?.id]);
+    void migrate();
+    return () => { disposed = true; };
+  }, [activeDefectDetail?.id, currentProjectId]);
 
   // V6.2.9: old releases stored the full Base64 camera image in localStorage.
   // That can consume the entire Web Storage quota and make Firestore crash while it tries
@@ -1908,29 +1879,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const dx = targetX - centerX;
     const dy = targetY - centerY;
 
+    const movedRooms = translateRoomGroupToCanvas(copiedRoomsState, dx, dy);
+    if (!movedRooms) {
+      alert('Nhóm Căn / Phòng vượt quá kích thước mặt bằng, không thể dán mà vẫn giữ nguyên hình học.');
+      return;
+    }
     const newPastedIds: string[] = [];
-
-    copiedRoomsState.forEach((room) => {
-      let newX = Math.min(100 - (room.width || 20), Math.max(0, room.x + dx));
-      let newY = Math.min(100 - (room.height || 15), Math.max(0, room.y + dy));
-      let newPoints = undefined;
-
-      if (room.points && room.points.length > 0) {
-        newPoints = room.points.map((p) => ({
-          x: Math.min(100, Math.max(0, Math.round((p.x + dx) * 10) / 10)),
-          y: Math.min(100, Math.max(0, Math.round((p.y + dy) * 10) / 10)),
-        }));
-        let newMinX = 100, newMinY = 100;
-        newPoints.forEach((p) => {
-          if (p.x < newMinX) newMinX = p.x;
-          if (p.y < newMinY) newMinY = p.y;
-        });
-        newX = Math.round(newMinX * 10) / 10;
-        newY = Math.round(newMinY * 10) / 10;
-      } else {
-        newX = Math.round(newX * 10) / 10;
-        newY = Math.round(newY * 10) / 10;
-      }
+    movedRooms.forEach((room) => {
+      const newX = room.x;
+      const newY = room.y;
+      const newPoints = room.points;
 
       // Format clean duplicate name or keep exact name if overwriting
       let newName = room.roomName;
@@ -1977,12 +1935,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         points: newPoints,
         workCategory: room.workCategory,
         categoryVolumes: room.categoryVolumes ? { ...room.categoryVolumes } : undefined,
-        subItems: room.subItems
-          ? room.subItems.map((subItem) => ({
-              ...subItem,
-              id: createEntityId('sub-custom'),
-            }))
-          : undefined,
+        subItems: existingRoom?.subItems?.length
+          ? existingRoom.subItems.map((original) => {
+              const matches = room.subItems?.filter((item) => item.name.trim() === original.name.trim()) || [];
+              return matches.length === 1 ? { ...matches[0], id: original.id } : original;
+            })
+          : room.subItems?.map((item) => ({ ...item, id: createEntityId('sub-custom') })),
         workVolume: room.workVolume,
         volumeUnit: room.volumeUnit,
         isPolyline: room.isPolyline,
@@ -2175,7 +2133,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         y,
         ...linkage,
       };
-      onUpdateDefect(updated);
+      if (onPatchDefect) {
+        onPatchDefect(defect.id, { floorId: updated.floorId, floorName: updated.floorName,
+          x: updated.x, y: updated.y, roomId: updated.roomId, teamId: updated.teamId,
+          assignedTo: updated.assignedTo });
+      } else onUpdateDefect(updated);
       setSelectedDefectIds([defect.id]);
       setRelocatingDefectId(null);
       setCopyNotification(`📍 Đã di chuyển ${getDefectShortCode(defect.id)}${roomAtPoint ? ` vào ${roomAtPoint.roomName}` : ''}.`);
@@ -3229,7 +3191,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (onUpdateDefect) {
       floorDefects.forEach((defect) => {
         const mapped = remapPointBetweenCadAlignments({ x: defect.x, y: defect.y }, previous, next);
-        onUpdateDefect({ ...defect, x: mapped.x, y: mapped.y, updatedAt: Date.now() });
+        if (onPatchDefect) onPatchDefect(defect.id, { x: mapped.x, y: mapped.y, updatedAt: Date.now() });
+        else onUpdateDefect({ ...defect, x: mapped.x, y: mapped.y, updatedAt: Date.now() });
       });
     }
     onUpdateFloorPlan?.(activeFloor.id, { cadAlignment: { ...next, updatedAt: Date.now() } });
@@ -3577,6 +3540,34 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   const mapFloorDefects = floorDefects.filter((d) => mapLayers.resolvedDefects || !(d.status === 'Đã nghiệm thu' || d.status === 'Đã khắc phục'));
+  // F-06: spatial neighborhood index, avoiding O(n²) filter+sort during render.
+  const defectNeighbors = React.useMemo(() => {
+    const cellSize = 2.2;
+    const key = (x: number, y: number) => `${Math.floor(x / cellSize)}:${Math.floor(y / cellSize)}`;
+    const buckets = new Map<string, DefectItem[]>();
+    mapFloorDefects.forEach((item) => {
+      const k = key(Number(item.x) || 0, Number(item.y) || 0);
+      const list = buckets.get(k) || [];
+      list.push(item);
+      buckets.set(k, list);
+    });
+    const result = new Map<string, DefectItem[]>();
+    mapFloorDefects.forEach((item) => {
+      const x = Number(item.x) || 0;
+      const y = Number(item.y) || 0;
+      const cx = Math.floor(x / cellSize), cy = Math.floor(y / cellSize);
+      const near: DefectItem[] = [];
+      for (let ix = cx - 1; ix <= cx + 1; ix++) {
+        for (let iy = cy - 1; iy <= cy + 1; iy++) {
+          for (const other of buckets.get(`${ix}:${iy}`) || []) {
+            if (Math.hypot(Number(other.x) - x, Number(other.y) - y) <= cellSize) near.push(other);
+          }
+        }
+      }
+      result.set(item.id, near.sort((a, b) => String(a.id).localeCompare(String(b.id))));
+    });
+    return result;
+  }, [floorDefects, mapLayers.resolvedDefects]);
 
   // Generate a collision-safe default name for quick room creation.
   const getNextAvailableQuickRoomName = () => {
@@ -3800,6 +3791,29 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   const [draggingRoomsPreview, setDraggingRoomsPreview] = useState<Record<string, RoomProgressItem> | null>(null);
   const draggingRoomsPreviewRef = useRef<Record<string, RoomProgressItem> | null>(null);
+  // F-01/F-02: A draft or uncommitted pointer preview belongs to ONE floor.
+  // Switching via toolbar, structure tabs, imports or Defect navigation all
+  // converge here; no cross-floor redraw can survive this boundary.
+  const draftFloorRef = useRef(selectedFloorId);
+  React.useEffect(() => {
+    if (draftFloorRef.current === selectedFloorId) return;
+    draftFloorRef.current = selectedFloorId;
+    setPolygonPoints([]);
+    setDrawStartPos(null);
+    setDrawHoverPos(null);
+    setFreehandPoints([]);
+    setIsFreehandDrawing(false);
+    setIs2PointDragging(false);
+    setPendingDraftHighlight(null);
+    setRedrawingRoomTarget(null);
+    setDrawTool('none');
+    setActiveDragHandle(null);
+    setDragStartInfo(null);
+    setRotationPreview(null);
+    setDraggingRoomsPreview(null);
+    draggingRoomsPreviewRef.current = null;
+    setObjectSnapPreview(null);
+  }, [selectedFloorId]);
 
   const displayedFloorRooms = React.useMemo(() => {
     if (!draggingRoomsPreview) return floorRooms;
@@ -3969,7 +3983,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (!source) return;
     const positionLocked = !lockedDefectIds.has(defectId);
     // The existing Defect Cloud update path preserves createdAt, ID, photo and status.
-    onUpdateDefect({ ...source, positionLocked });
+    if (onPatchDefect) onPatchDefect(defectId, { positionLocked });
+    else onUpdateDefect({ ...source, positionLocked });
     setActiveDefectDetail((prev) => prev?.id === defectId ? { ...prev, positionLocked } : prev);
     setLockedDefectIds((prev) => {
       const next = new Set(prev);
@@ -4469,14 +4484,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           const step = e.shiftKey ? 1 : 0.2;
           const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
           const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
-          const moved = roomsToNudge.map(room => {
-            const width = room.width || 0;
-            const height = room.height || 0;
-            const nx = Math.min(100 - width, Math.max(0, Math.round((room.x + dx) * 10) / 10));
-            const ny = Math.min(100 - height, Math.max(0, Math.round((room.y + dy) * 10) / 10));
-            const pdx = nx - room.x, pdy = ny - room.y;
-            return { ...room, x: nx, y: ny, points: room.points?.map(pt => ({ x: Math.min(100, Math.max(0, Math.round((pt.x + pdx) * 10) / 10)), y: Math.min(100, Math.max(0, Math.round((pt.y + pdy) * 10) / 10)) })) };
-          });
+          const moved = translateRoomGroupToCanvas(roomsToNudge, dx, dy);
+          if (!moved) {
+            setCopyNotification('Nhóm phòng vượt biên mặt bằng, không thể dịch mà vẫn giữ đúng hình học.');
+            return;
+          }
           if (onBatchSaveRooms && moved.length > 1) onBatchSaveRooms(moved); else moved.forEach(onSaveRoomProgress);
         }
       }
@@ -4533,7 +4545,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (!isActive || !canEditDefects || !onUpdateDefect || floorDefects.length === 0) return;
     floorDefects.forEach((defect) => {
       const repaired = reconcileDefectLinkage(defect, floorRooms, teams, { preserveValidRoomId: true });
-      if (repaired !== defect) onUpdateDefect(repaired);
+      if (repaired !== defect) {
+        if (onPatchDefect) onPatchDefect(defect.id, { roomId: repaired.roomId,
+          teamId: repaired.teamId, assignedTo: repaired.assignedTo });
+        else onUpdateDefect(repaired);
+      }
     });
   }, [isActive, canEditDefects, floorDefects, floorRooms, teams, onUpdateDefect]);
 
@@ -5277,32 +5293,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         draggingRoomsPreviewRef.current = previewMap;
         return;
       } else if (activeDragHandle === 'move' && dragStartInfo.rooms && dragStartInfo.rooms.length > 0) {
+        const translated = translateRoomGroupToCanvas(dragStartInfo.rooms, dx, dy);
+        if (!translated) return;
         const previewMap: Record<string, RoomProgressItem> = {};
-        dragStartInfo.rooms.forEach(roomToMove => {
-          const roomW = roomToMove.width || 20;
-          const roomH = roomToMove.height || 15;
-          let newX = Math.min(100 - roomW, Math.max(0, Math.round((roomToMove.x + dx) * 10) / 10));
-          let newY = Math.min(100 - roomH, Math.max(0, Math.round((roomToMove.y + dy) * 10) / 10));
-          let newPoints = roomToMove.points ? [...roomToMove.points] : undefined;
-
-          if (newPoints && roomToMove.points) {
-            const pdx = newX - roomToMove.x;
-            const pdy = newY - roomToMove.y;
-            newPoints = roomToMove.points.map((p) => ({
-              x: Math.min(100, Math.max(0, Math.round((p.x + pdx) * 10) / 10)),
-              y: Math.min(100, Math.max(0, Math.round((p.y + pdy) * 10) / 10)),
-            }));
-          }
-
-          previewMap[roomToMove.id] = {
-            ...roomToMove,
-            x: newX,
-            y: newY,
-            width: roomW,
-            height: roomH,
-            points: newPoints,
-          };
-        });
+        translated.forEach((room) => { previewMap[room.id] = room; });
         setDraggingRoomsPreview(previewMap);
         draggingRoomsPreviewRef.current = previewMap;
         return;
@@ -5402,7 +5396,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         const dx = x - last.x;
         const dy = y - last.y;
         if (dx * dx + dy * dy >= 0.12) {
-          return [...prev, { x, y }];
+          // F-05: bound freehand vertex count without dropping the live endpoint.
+          const bounded = prev.length >= 1200 ? prev.filter((_, index) => index % 2 === 0) : prev;
+          return [...bounded, { x, y }];
         }
         return prev;
       });
@@ -5467,12 +5463,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
       const dist = Math.hypot(x2 - x1, y2 - y1);
       if (dist >= 2) {
-        const finalX = Math.min(x1, x2);
-        const finalY = Math.min(y1, y2);
-        const finalW = Math.max(3, Math.abs(x2 - x1));
-        const finalH = Math.max(3, Math.abs(y2 - y1));
+        const { x: finalX, y: finalY, width: finalW, height: finalH } = fitRoomRectToCanvas(
+          Math.min(x1, x2), Math.min(y1, y2),
+          Math.max(3, Math.abs(x2 - x1)), Math.max(3, Math.abs(y2 - y1)));
 
         if (redrawingRoomTarget) {
+          if (redrawingRoomTarget.floorId !== activeFloor?.id) {
+            setRedrawingRoomTarget(null);
+            setCopyNotification('Đã hủy bản vẽ lại vì tầng đã thay đổi; không ghi dữ liệu.');
+            return;
+          }
           onSaveRoomProgress({
             ...redrawingRoomTarget,
             x: finalX,
@@ -5517,10 +5517,21 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           if (p.y < minY) minY = p.y;
           if (p.y > maxY) maxY = p.y;
         });
-        const w = Math.max(4, maxX - minX);
-        const h = Math.max(4, maxY - minY);
+        const w = maxX - minX;
+        const h = maxY - minY;
+        // Tiny or effectively straight scribbles must never create fake 4% rectangles.
+        if (w < 0.4 || h < 0.4) {
+          setFreehandPoints([]);
+          setCopyNotification('Nét vẽ quá nhỏ để tạo vùng. Hãy khoanh một diện tích lớn hơn.');
+          return;
+        }
 
         if (redrawingRoomTarget) {
+          if (redrawingRoomTarget.floorId !== activeFloor?.id) {
+            setRedrawingRoomTarget(null);
+            setCopyNotification('Đã hủy bản vẽ lại vì tầng đã thay đổi; không ghi dữ liệu.');
+            return;
+          }
           onSaveRoomProgress({
             ...redrawingRoomTarget,
             x: minX,
@@ -5560,6 +5571,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }
     setIs2PointDragging(false);
     setObjectSnapPreview(null);
+    // A canceled pointer may also be a room move/resize/rotation.
+    // Never commit its preview: only a true pointerup may write it.
+    setActiveDragHandle(null);
+    setDragStartInfo(null);
+    setDraggingRoomsPreview(null);
+    draggingRoomsPreviewRef.current = null;
+    setRotationPreview(null);
+    suppressNextCanvasClickRef.current = false;
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
   };
 
@@ -5572,15 +5591,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (polygonPoints.length === 2 && !asPolylineMode) {
       const p1 = polygonPoints[0];
       const p2 = polygonPoints[1];
-      const minX = Math.min(p1.x, p2.x);
-      const minY = Math.min(p1.y, p2.y);
-      const w = Math.max(3, Math.abs(p2.x - p1.x));
-      const h = Math.max(3, Math.abs(p2.y - p1.y));
+      const box = fitRoomRectToCanvas(Math.min(p1.x, p2.x), Math.min(p1.y, p2.y),
+        Math.max(3, Math.abs(p2.x - p1.x)), Math.max(3, Math.abs(p2.y - p1.y)));
       finalPoints = [
-        { x: minX, y: minY },
-        { x: minX + w, y: minY },
-        { x: minX + w, y: minY + h },
-        { x: minX, y: minY + h },
+        { x: box.x, y: box.y },
+        { x: box.x + box.width, y: box.y },
+        { x: box.x + box.width, y: box.y + box.height },
+        { x: box.x, y: box.y + box.height },
       ];
       isPolyline = false;
     }
@@ -5592,10 +5609,19 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       if (p.y < minY) minY = p.y;
       if (p.y > maxY) maxY = p.y;
     });
-    const w = Math.max(3, maxX - minX);
-    const h = Math.max(3, maxY - minY);
+    const w = maxX - minX;
+    const h = maxY - minY;
+    if (!isPolyline && (w < 0.1 || h < 0.1)) {
+      setCopyNotification('Đa giác chưa đủ diện tích hợp lệ; chưa ghi dữ liệu.');
+      return;
+    }
 
     if (redrawingRoomTarget) {
+      if (redrawingRoomTarget.floorId !== activeFloor?.id) {
+        setRedrawingRoomTarget(null);
+        setCopyNotification('Đã hủy bản vẽ lại vì tầng đã thay đổi; không ghi dữ liệu.');
+        return;
+      }
       onSaveRoomProgress({
         ...redrawingRoomTarget,
         x: minX,
@@ -5680,7 +5706,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       setIsDefectPinPlacementMode(false);
       setSelectedRoomForEdit(null);
       setNewRoomClickPos({ x, y });
-      setNewRoomRect({ x: Math.max(0, x - 8), y: Math.max(0, y - 6), width: 16, height: 12 });
+      setNewRoomRect(fitRoomRectToCanvas(x - 8, y - 6, 16, 12));
       setNewRoomPoints(undefined);
       setIsRoomModalOpen(true);
       return;
@@ -5725,15 +5751,17 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       const x2 = objectSnapPoint.x;
       const y2 = objectSnapPoint.y;
 
-      const finalX = Math.min(x1, x2);
-      const finalY = Math.min(y1, y2);
-      let finalW = Math.abs(x2 - x1);
-      let finalH = Math.abs(y2 - y1);
-
-      if (finalW < 2) finalW = 20;
-      if (finalH < 2) finalH = 15;
+      const { x: finalX, y: finalY, width: finalW, height: finalH } = fitRoomRectToCanvas(
+        Math.min(x1, x2), Math.min(y1, y2),
+        Math.abs(x2 - x1) < 2 ? 20 : Math.abs(x2 - x1),
+        Math.abs(y2 - y1) < 2 ? 15 : Math.abs(y2 - y1));
 
       if (redrawingRoomTarget) {
+        if (redrawingRoomTarget.floorId !== activeFloor?.id) {
+          setRedrawingRoomTarget(null);
+          setCopyNotification('Đã hủy bản vẽ lại vì tầng đã thay đổi; không ghi dữ liệu.');
+          return;
+        }
         onSaveRoomProgress({
           ...redrawingRoomTarget,
           x: finalX,
@@ -6158,7 +6186,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         const updated = { ...activeDefectDetail, afterImageUrl: photoResultUrl };
         setActiveDefectDetail(updated);
         if (onUpdateDefect) {
-          onUpdateDefect(updated);
+          if (onPatchDefect) onPatchDefect(updated.id, { afterImageUrl: updated.afterImageUrl });
+          else onUpdateDefect(updated);
         } else {
           onUpdateDefectStatus(updated.id, updated.status);
         }
@@ -6204,7 +6233,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       const updated = { ...activeDefectDetail, imageUrl: photoResultUrl };
       setActiveDefectDetail(updated);
       if (onUpdateDefect) {
-        onUpdateDefect(updated);
+        if (onPatchDefect) onPatchDefect(updated.id, { imageUrl: updated.imageUrl });
+      else onUpdateDefect(updated);
       }
     } catch (err) {
       console.error('Failed to handle before photo:', err);
@@ -6220,7 +6250,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const updated = { ...activeDefectDetail, imageUrl: undefined };
     setActiveDefectDetail(updated);
     if (onUpdateDefect) {
-      onUpdateDefect(updated);
+      if (onPatchDefect) onPatchDefect(updated.id, { imageUrl: updated.imageUrl });
+      else onUpdateDefect(updated);
     }
   };
 
@@ -6230,11 +6261,66 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const updated = { ...activeDefectDetail, afterImageUrl: undefined };
     setActiveDefectDetail(updated);
     if (onUpdateDefect) {
-      onUpdateDefect(updated);
+      if (onPatchDefect) onPatchDefect(updated.id, { afterImageUrl: updated.afterImageUrl });
+      else onUpdateDefect(updated);
     } else {
       onUpdateDefectStatus(updated.id, updated.status);
     }
   };
+
+  const quickSaveDraftIdRef = useRef<string | null>(null);
+  const quickSaveOriginRef = useRef<typeof pendingDraftHighlight>(null);
+  const handleQuickSavePendingRoom = () => {
+    if (!pendingDraftHighlight || !activeFloor || !canManageStructure) return;
+    if (quickSaveOriginRef.current !== pendingDraftHighlight) {
+      quickSaveOriginRef.current = pendingDraftHighlight;
+      quickSaveDraftIdRef.current = createEntityId('ROOM');
+    }
+    onSaveRoomProgress({
+      id: quickSaveDraftIdRef.current || undefined,
+      floorId: activeFloor.id,
+      floorName: activeFloor.floorName,
+      roomName: getNextAvailableQuickRoomName(),
+      frameStatus: 'Chưa làm', boardStatus: 'Chưa làm',
+      inspectionStatus: 'Chưa nghiệm thu',
+      x: pendingDraftHighlight.rect?.x ?? 20,
+      y: pendingDraftHighlight.rect?.y ?? 20,
+      width: pendingDraftHighlight.rect?.width ?? 20,
+      height: pendingDraftHighlight.rect?.height ?? 15,
+      points: pendingDraftHighlight.points,
+      isPolyline: pendingDraftHighlight.isPolyline,
+    });
+  };
+  React.useEffect(() => {
+    const id = quickSaveDraftIdRef.current;
+    if (!id || !roomProgressList.some((room) => room.id === id)) return;
+    if (quickSaveOriginRef.current === pendingDraftHighlight) setPendingDraftHighlight(null);
+    quickSaveOriginRef.current = null;
+    quickSaveDraftIdRef.current = null;
+    setCopyNotification('Đã tiếp nhận phòng trên thiết bị; đang kiểm tra đồng bộ Cloud.');
+  }, [roomProgressList, pendingDraftHighlight]);
+
+  // F-07: do not erase a defect draft until the accepted item is observed in
+  // App state. Cloud confirmation remains a separate sync status.
+  const [pendingDefectSubmissionId, setPendingDefectSubmissionId] = useState<string | null>(null);
+  React.useEffect(() => {
+    if (!pendingDefectSubmissionId || !defects.some((item) => item.id === pendingDefectSubmissionId)) return;
+    setPendingDefectSubmissionId(null);
+    const nextId = `defect_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    safeSetLocalStorageItem(getDraftKey('construction_defect_draft_id'), nextId);
+    setDraftDefectId(nextId);
+    setShowDefectModal(false);
+    setPinPos(null);
+    setDescription('');
+    setPhotoUrl('');
+    setAfterPhotoUrl('');
+    setDueDate(getDefaultDefectDueDate());
+    for (const suffix of ['pinPos', 'category', 'description', 'severity', 'assignedTo', 'dueDate', 'photoUrl']) {
+      localStorage.removeItem(getDraftKey('construction_defect_draft_' + suffix));
+    }
+    safeSetLocalStorageItem(getDraftKey('construction_defect_draft_showDefectModal'), 'false');
+    setCopyNotification('Đã tiếp nhận Defect trên thiết bị; trạng thái đồng bộ Cloud được kiểm tra riêng.');
+  }, [defects, pendingDefectSubmissionId, currentProjectId]);
 
   const handleCreateDefect = (e: React.FormEvent) => {
     e.preventDefault();
@@ -6267,28 +6353,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       status: 'Mới phát hiện',
     });
 
-    const nextDraftId = `defect_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    safeSetLocalStorageItem(getDraftKey('construction_defect_draft_id'), nextDraftId);
-    setDraftDefectId(nextDraftId);
-
-    setShowDefectModal(false);
-    setPinPos(null);
-    setDescription('');
-    setPhotoUrl('');
-    setAfterPhotoUrl('');
-    setDueDate(getDefaultDefectDueDate());
-
-    // Clear draft storage
-    localStorage.removeItem(getDraftKey('construction_defect_draft_pinPos'));
-    safeSetLocalStorageItem(getDraftKey('construction_defect_draft_showDefectModal'), 'false');
-    localStorage.removeItem(getDraftKey('construction_defect_draft_category'));
-    localStorage.removeItem(getDraftKey('construction_defect_draft_description'));
-    localStorage.removeItem(getDraftKey('construction_defect_draft_severity'));
-    localStorage.removeItem(getDraftKey('construction_defect_draft_assignedTo'));
-    localStorage.removeItem(getDraftKey('construction_defect_draft_dueDate'));
-    localStorage.removeItem(getDraftKey('construction_defect_draft_photoUrl'));
-
-    alert('Đã định vị và lưu Defect thành công!');
+    // Do not show a false success or delete draft photos if the updater refuses
+    // the action (VIEWER, missing verified creator, P21 read-only, etc.).
+    setPendingDefectSubmissionId(draftDefectId);
   };
 
   const isRotated = rotation === 90 || rotation === 270;
@@ -7407,23 +7474,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={async () => {
-                    const roomCount = floorRooms.length + 1;
-                    onSaveRoomProgress({
-                      floorId: activeFloor.id,
-                      roomName: getNextAvailableQuickRoomName(),
-                      frameStatus: 'Chưa làm',
-                      boardStatus: 'Chưa làm',
-                      inspectionStatus: 'Chưa nghiệm thu',
-                      x: pendingDraftHighlight.rect?.x ?? 20,
-                      y: pendingDraftHighlight.rect?.y ?? 20,
-                      width: pendingDraftHighlight.rect?.width ?? 20,
-                      height: pendingDraftHighlight.rect?.height ?? 15,
-                      points: pendingDraftHighlight.points,
-                      isPolyline: pendingDraftHighlight.isPolyline,
-                    });
-                    setPendingDraftHighlight(null);
-                  }}
+                  onClick={handleQuickSavePendingRoom}
                   className="bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-bold px-2.5 py-1.5 rounded-xl shadow transition-all active:scale-95 cursor-pointer flex-1 min-w-[105px] sm:flex-none"
                 >
                   ⚡ Lưu Nhanh
@@ -7748,24 +7799,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       </button>
                       <button
                         type="button"
-                        onClick={async () => {
-                          const roomCount = floorRooms.length + 1;
-                          onSaveRoomProgress({
-                            floorId: activeFloor.id,
-                            floorName: activeFloor.floorName,
-                            roomName: getNextAvailableQuickRoomName(),
-                            frameStatus: 'Chưa làm',
-                            boardStatus: 'Chưa làm',
-                            inspectionStatus: 'Chưa nghiệm thu',
-                            x: pendingDraftHighlight.rect?.x ?? 20,
-                            y: pendingDraftHighlight.rect?.y ?? 20,
-                            width: pendingDraftHighlight.rect?.width ?? 20,
-                            height: pendingDraftHighlight.rect?.height ?? 15,
-                            points: pendingDraftHighlight.points,
-                            isPolyline: pendingDraftHighlight.isPolyline,
-                          });
-                          setPendingDraftHighlight(null);
-                        }}
+                        onClick={handleQuickSavePendingRoom}
                         className="bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-bold px-2.5 py-1.5 rounded-xl shadow transition-all active:scale-95 cursor-pointer flex-1 min-w-[105px] sm:flex-none"
                       >
                         ⚡ Lưu Nhanh
@@ -8877,9 +8911,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   const isSevere = defect.severity === 'Nghiêm trọng';
                   const shortDefectCode = getDefectShortCode(defect.id);
                   // Spread markers that are almost on top of each other on mobile.
-                  const nearby = mapFloorDefects
-                    .filter((other) => Math.hypot(Number(other.x) - Number(defect.x), Number(other.y) - Number(defect.y)) <= 2.2)
-                    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+                  const nearby = defectNeighbors.get(defect.id) || [defect];
                   const clusterIndex = Math.max(0, nearby.findIndex((item) => item.id === defect.id));
                   const x = Number(defect.x) || 0;
                   const y = Number(defect.y) || 0;
@@ -9058,7 +9090,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         onClick={async () => {
                           setSelectedRoomForEdit(null);
                           setNewRoomClickPos(clickChoicePos);
-                          setNewRoomRect({ x: clickChoicePos.x, y: clickChoicePos.y, width: 30, height: 20 });
+                          setNewRoomRect(fitRoomRectToCanvas(clickChoicePos.x, clickChoicePos.y, 30, 20));
                           setClickChoicePos(null);
                           setIsRoomModalOpen(true);
                         }}
@@ -10760,7 +10792,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           }
           setActiveDefectDetail(updated);
           if (onUpdateDefect) {
-            onUpdateDefect(updated);
+            if (onPatchDefect) {
+              if (field === 'assignedTo') onPatchDefect(updated.id, {
+                assignedTo: updated.assignedTo, teamId: updated.teamId, roomId: updated.roomId,
+              });
+              else onPatchDefect(updated.id, { [field]: value } as Partial<DefectItem>);
+            } else onUpdateDefect(updated);
           }
         };
 
@@ -10789,7 +10826,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           };
           setActiveDefectDetail(updated);
           if (onUpdateDefect) {
-            onUpdateDefect(updated);
+            if (onPatchDefect) onPatchDefect(updated.id, { status: updated.status, completedAt: updated.completedAt });
+            else onUpdateDefect(updated);
           } else {
             onUpdateDefectStatus(updated.id, newStatus);
           }

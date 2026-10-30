@@ -1,3 +1,4 @@
+import { reorderExistingByIds } from './utils/auditDataSafety';
 import { mergeMaterialNormUpserts } from './utils/materialNormImportDelta';
 import {useWarehouseOrderSync} from './hooks/useWarehouseOrderSync';
 import { getHnlPrimaryThemeColors } from './utils/hnlPrimaryTheme';
@@ -7294,6 +7295,8 @@ function AuthenticatedApp() {
 
       const uniqueDefectSuffix = createShortToken(6);
       const newId = defect.id || `DEF-${nextNum}-${uniqueDefectSuffix}`;
+      // Repeated create with a stable draft ID must not duplicate the Defect.
+      if (prev.defects.some((item) => item.id === newId)) return prev;
       
       const actor = getCurrentRealFirebaseUser();
       const rememberedActor = getRememberedVerifiedAuthIdentity();
@@ -7334,6 +7337,18 @@ function AuthenticatedApp() {
             }
           : d
       ),
+    }));
+  };
+
+  // F-15: field-scoped updates merge against the most recent App state;
+  // moving a pin must never replay an old status, photo or description.
+  const handlePatchDefect = (id: string, fields: Partial<DefectItem>) => {
+    if (!isProjectRoleResolved || !canEditDefectData(currentUserRole)) return;
+    const { id: _discardId, createdAt: _discardCreatedAt, createdBy: _discardCreatedBy,
+      ...safeFields } = fields;
+    updateAppData((prev) => ({
+      ...prev,
+      defects: prev.defects.map((item) => item.id === id ? { ...item, ...safeFields } : item),
     }));
   };
 
@@ -7533,11 +7548,11 @@ function AuthenticatedApp() {
     if (reorderedList.length === 0) return;
     const activeFloorId = reorderedList[0].floorId;
     updateAppData((prev) => {
-      const otherFloorRooms = prev.roomProgressList.filter(r => r.floorId !== activeFloorId);
-      return {
-        ...prev,
-        roomProgressList: [...reorderedList, ...otherFloorRooms],
-      };
+      const latestFloorRooms = prev.roomProgressList.filter((room) => room.floorId === activeFloorId);
+      const requestedIds = reorderedList.filter((room) => room.floorId === activeFloorId);
+      const reordered = reorderExistingByIds(latestFloorRooms, requestedIds);
+      const otherFloorRooms = prev.roomProgressList.filter((room) => room.floorId !== activeFloorId);
+      return { ...prev, roomProgressList: [...reordered, ...otherFloorRooms] };
     });
   };
 
@@ -7545,7 +7560,7 @@ function AuthenticatedApp() {
     if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     updateAppData((prev) => ({
       ...prev,
-      floorPlans: reorderedList.map((fp, idx) => ({ ...fp, order: idx })),
+      floorPlans: reorderExistingByIds(prev.floorPlans, reorderedList).map((fp, idx) => ({ ...fp, order: idx })),
     }));
   };
 
@@ -8302,6 +8317,7 @@ function AuthenticatedApp() {
               onAddDefect={handleAddDefect}
               onUpdateDefectStatus={handleUpdateDefectStatus}
               onUpdateDefect={handleUpdateDefect}
+              onPatchDefect={handlePatchDefect}
               onDeleteDefect={handleDeleteDefect}
               onDeleteMultipleDefects={handleDeleteMultipleDefects}
               onSaveRoomProgress={handleSaveRoomProgress}
