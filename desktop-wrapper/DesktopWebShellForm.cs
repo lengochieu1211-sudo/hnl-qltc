@@ -1741,7 +1741,15 @@ namespace QLTCAnPhu
 
             host.Controls.Add(webView);
             webView.BringToFront();
-            webViewType.GetProperty("Source").SetValue(webView, new Uri(initialUrl), null);
+            // The WebView2 plumbing probe is CI-only. Navigation to the DEV Hosting URL
+            // can fail or hang in a headless Windows runner before NavigationCompleted
+            // fires, so test the trusted popup/download gestures on a deterministic
+            // embedded document instead. Normal users still navigate to initialUrl.
+            string ciProbe = Environment.GetEnvironmentVariable("HNL_QLTC_WEBVIEW2_PROBE_FILE");
+            string startupUrl = string.IsNullOrWhiteSpace(ciProbe) ? initialUrl : "about:blank";
+            webViewType.GetProperty("Source").SetValue(webView, new Uri(startupUrl), null);
+            if (!string.IsNullOrWhiteSpace(ciProbe))
+                WriteRuntimeProbeMarker("CI_ISOLATED_DOCUMENT|about:blank");
             coreTimer.Start();
             statusCallback("Đang mở HNL QLTC bên trong EXE...");
         }
