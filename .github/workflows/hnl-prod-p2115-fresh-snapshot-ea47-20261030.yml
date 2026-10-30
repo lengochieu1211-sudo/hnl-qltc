@@ -1,0 +1,86 @@
+name: HNL QLTC PROD fresh P21.15 encrypted Firestore snapshot (READ ONLY; NO DEPLOY)
+on:
+  push:
+    branches: [release/prod-fresh-encrypted-backup-ea47-20261030]
+    paths: [.github/workflows/hnl-prod-p2115-fresh-snapshot-ea47-20261030.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: production
+    env:
+      CANDIDATE_SHA: ea47defe9fd4946bb5a82b09c58e43311ed0700b
+      BASE_PROD_MAIN: b2557860fbb3b128b5f2c9863e99d0f8b1f78686
+      P2115_FIRESTORE_PROJECT: com-example-qlct-61329
+      P2115_EXPECTED_PROJECT: com-example-qlct-61329
+      P2115_MAX_DOCS: '15000'
+      P2115_MAX_BYTES: '300000000'
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+    steps:
+      - name: Refuse stale source or wrong branch; this workflow is read only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/release/prod-fresh-encrypted-backup-ea47-20261030'
+          test "$P2115_FIRESTORE_PROJECT" = 'com-example-qlct-61329'
+          test -n "$FIREBASE_SERVICE_ACCOUNT"
+          node -e 'let s=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);if(s.type!=="service_account"||s.project_id!=="com-example-qlct-61329"||!s.private_key)process.exit(2)'
+          test "$CANDIDATE_SHA" = 'ea47defe9fd4946bb5a82b09c58e43311ed0700b'
+          test "$BASE_PROD_MAIN" = 'b2557860fbb3b128b5f2c9863e99d0f8b1f78686'
+      - uses: actions/checkout@v4
+        with:
+          ref: ea47defe9fd4946bb5a82b09c58e43311ed0700b
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify exact source and public key; never load private decrypt key
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          git merge-base --is-ancestor "$BASE_PROD_MAIN" HEAD
+          git diff --quiet "$BASE_PROD_MAIN" HEAD -- firestore.rules storage.rules firebase.json firebase.prod.json scripts/p2115-firestore-encrypted-snapshot.mjs scripts/p2115-firestore-backup-public.pem
+          node - <<'NODE'
+          const fs=require("fs"),crypto=require("crypto");
+          const p="scripts/p2115-firestore-backup-public.pem";
+          const fp=crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex");
+          if(fp!=="5b5c1d1b9f689fecc4be21d7a01400748e49a4a90834fe5fa29f7e9418520e28")throw Error("Public key drift");
+          const s=fs.readFileSync("scripts/p2115-firestore-encrypted-snapshot.mjs","utf8");
+          if(!s.includes("Read-only Firestore collection-group snapshot")||!s.includes("AES-256-GCM"))throw Error("Unexpected backup script");
+          NODE
+      - name: Create NEW encrypted Firestore snapshot (REST reads; never modify Cloud documents)
+        shell: bash
+        run: |
+          set -euo pipefail
+          GITHUB_SHA="$CANDIDATE_SHA" node scripts/p2115-firestore-encrypted-snapshot.mjs
+      - name: Confirm encrypted payload CRC/hash and minimum document inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import crypto from 'node:crypto';
+          import path from 'node:path';
+          const files=fs.readdirSync('.').filter(x=>x.startsWith('P2115-FIRESTORE-com-example-qlct-61329-')&&x.endsWith('.jsonl.gz.aes256'));
+          if(files.length!==1)throw Error('Expected exactly one encrypted payload');
+          const encrypted=files[0],m=JSON.parse(fs.readFileSync(encrypted+'.manifest.json'));
+          const sha=crypto.createHash('sha256').update(fs.readFileSync(encrypted)).digest('hex');
+          if(m.project!=='com-example-qlct-61329'||m.format!=='HNL-QLTC-P2115-FIRESTORE-V1'||m.sourceHead!==process.env.CANDIDATE_SHA||m.documents<4731||m.documents>15000||m.encryptedSha256!==sha||m.encryptedBytes!==fs.statSync(encrypted).size)throw Error('Snapshot completeness/identity/hash failed');
+          fs.writeFileSync('PROD-FIRESTORE-BACKUP-CHECKPOINT-20261030.json',JSON.stringify({sourceHead:m.sourceHead,createdAt:m.createdAt,documents:m.documents,collections:m.collections,encryptedBytes:m.encryptedBytes,encryptedSha256:m.encryptedSha256,sourceReadOnly:true,oldRestoreDocuments:4731,sourceNoProdMutation:true,notCertified:true},null,2));
+          console.log('FRESH PROD ENCRYPTED FIRESTORE SNAPSHOT PASS',JSON.stringify({documents:m.documents,collections:m.collections,encryptedBytes:m.encryptedBytes,sha:m.encryptedSha256}));
+          NODE
+      - name: Upload ONLY encrypted data and public manifest, never credentials or private key
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-ea47defe-PROD-FIRESTORE-FRESH-ENCRYPTED-20261030
+          path: |
+            P2115-FIRESTORE-com-example-qlct-61329-*.aes256
+            P2115-FIRESTORE-com-example-qlct-61329-*.manifest.json
+            PROD-FIRESTORE-BACKUP-CHECKPOINT-20261030.json
+          if-no-files-found: error
+          retention-days: 30
