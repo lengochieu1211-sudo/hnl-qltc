@@ -86,6 +86,7 @@ assert(cloudRestore.includes('redoDeletedHistoryOnCloud') &&
 assert(app.includes('redoDeletedHistoryOnCloud(pid, step, versions, redoAt, receipt)') &&
   app.includes('softDeleteWarehouseTransactionAtomic(pid, change.id, trashSettingsRef.current)'),
   'Redo routes all core and warehouse deletes through their safe cloud writers');
+assert(cloudRestore.includes('UNDO_TRASH_RECEIPT_NOT_SYNCED') && app.includes('queueTrashReceiptWork(() => flushPendingTrashReceipts(pid))') && !app.includes('await deleteTrashOperationFromCloud(pid, receipt.id);'), 'Delete Undo must serialize Trash receipt writer and remove receipt in the same Cloud transaction');
 assert(app.includes('Firestore đã xác nhận khôi phục dữ liệu.') &&
   app.includes('Chưa hoàn tác được trên Cloud:'),
   'Delete Undo must not claim success before Cloud acknowledgement');
