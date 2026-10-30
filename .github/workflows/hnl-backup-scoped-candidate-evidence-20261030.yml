@@ -1,0 +1,79 @@
+name: DEV Backup-derived scoped PROD candidate evidence ZIP (NO DEPLOY)
+on:
+  push:
+    branches: [release/package-backup-prod-review-20261030]
+    paths: [.github/workflows/hnl-backup-scoped-candidate-evidence-20261030.yml]
+permissions:
+  contents: read
+jobs:
+  package_exact_candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CANDIDATE_SHA: 1acecdc80cb9b354c69ffd0f2fe53dde65b92adb
+      BASE_MAIN_SHA: b2557860fbb3b128b5f2c9863e99d0f8b1f78686
+    steps:
+      - name: Exact HEAD source checkout, no credentials persisted
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Package FULL SOURCE/PATCH/REPORT/SHA256 without deploying
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -f package.json && test -f package-lock.json && test -f firebase.json
+          test -d .github/workflows
+          git cat-file -e "${BASE_MAIN_SHA}^{commit}"
+          mkdir -p evidence-out/patch
+          git diff --name-status "$BASE_MAIN_SHA" "$CANDIDATE_SHA" > evidence-out/changed-files.txt
+          git diff --name-only --diff-filter=ACMRT "$BASE_MAIN_SHA" "$CANDIDATE_SHA" > evidence-out/patch-files.txt
+          git diff --name-only --diff-filter=D "$BASE_MAIN_SHA" "$CANDIDATE_SHA" > evidence-out/deleted-files.txt
+          while IFS= read -r path; do
+            test -n "$path" || continue
+            test -f "$path" || continue
+            mkdir -p "evidence-out/patch/$(dirname "$path")"
+            cp -p "$path" "evidence-out/patch/$path"
+          done < evidence-out/patch-files.txt
+          {
+            echo "HNL QLTC DEV BACKUP-DERIVED SCOPED PROD CANDIDATE PATCH"
+            echo "Base: $BASE_MAIN_SHA"
+            echo "Head: $CANDIDATE_SHA"
+            echo "[changed-files]"
+            cat evidence-out/changed-files.txt
+            echo "[deleted-files]"
+            cat evidence-out/deleted-files.txt
+            echo "NOT CERTIFIED / NO PROD DEPLOY"
+          } > evidence-out/patch/PATCH-MANIFEST.txt
+          (cd evidence-out/patch && zip -qr "../HNL-QLTC-1acecdc-SCOPED-PATCH-20261030.zip" .)
+          git archive --format=zip --output=evidence-out/HNL-QLTC-1acecdc-FULL-SOURCE-20261030.zip "$CANDIDATE_SHA"
+          {
+            echo "# HNL QLTC DEV Backup-derived scoped PROD candidate package (UNVERIFIED RELEASE)"
+            echo "- Repo: $GITHUB_REPOSITORY"
+            echo "- Exact candidate HEAD: $CANDIDATE_SHA"
+            echo "- PROD main BASE: $BASE_MAIN_SHA"
+            echo "- 41 DEV Backup-derived app/test/lockfile files plus review fixes; no DEV Backup-only workflows or backup Firebase config"
+            echo "- STATUS: HOLD / NOT CERTIFIED"
+            echo "- This packaging action deploys NO rules, hosting, workers, R2 or business data"
+            echo "- Original DEV Backup two-account Chat manual PASS; signed-in full Golden/PC/Android, offline/reconnect, R2 legacy refs and current PROD backup evidence are still pending"
+            echo "- Source candidate PR #358; independent CI records must be verified at this exact SHA"
+          } > evidence-out/REPORT.md
+          (cd evidence-out && sha256sum HNL-QLTC-*.zip REPORT.md changed-files.txt deleted-files.txt > SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
+          unzip -t evidence-out/HNL-QLTC-1acecdc-FULL-SOURCE-20261030.zip >/dev/null
+          unzip -t evidence-out/HNL-QLTC-1acecdc-SCOPED-PATCH-20261030.zip >/dev/null
+          echo 'Exact candidate source/PATCH integrity and SHA256: PASS (release status remains HOLD)'
+      - name: Upload candidate evidence archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-1acecdc-SCOPED-REVIEW-SOURCE
+          path: |
+            evidence-out/HNL-QLTC-1acecdc-FULL-SOURCE-20261030.zip
+            evidence-out/HNL-QLTC-1acecdc-SCOPED-PATCH-20261030.zip
+            evidence-out/REPORT.md
+            evidence-out/SHA256SUMS.txt
+            evidence-out/changed-files.txt
+            evidence-out/deleted-files.txt
+          if-no-files-found: error
+          retention-days: 30
