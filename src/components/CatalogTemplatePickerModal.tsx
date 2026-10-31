@@ -148,7 +148,7 @@ export const CatalogTemplatePickerModal: React.FC<CatalogTemplatePickerModalProp
   };
 
   return (
-    <div data-hnl-pc-v32-window="source-picker" className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/55 p-3">
+    <div data-hnl-pc-v32-window="source-picker" className="hnl-ios-safe-modal fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/55 p-3">
       <div className="flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
         <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
           <div>

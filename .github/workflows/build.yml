@@ -52,7 +52,10 @@ jobs:
         run: node --experimental-strip-types scripts/p2179-chat-account-switch-golden.mjs
 
       - name: P21.80 floorplan exclusive drawing and highlight regression (no deploy)
-        run: node scripts/p2180-floorplan-exclusive-draw-golden.mjs
+        run: |
+          node scripts/p2180-floorplan-exclusive-draw-golden.mjs
+          node --experimental-strip-types scripts/map-display-parity-dev-golden.mjs
+          node scripts/iphone-fullscreen-and-modal-safearea-golden.mjs
 
       - name: 10-group targeted QA regression (source-only, no deploy)
         run: |
