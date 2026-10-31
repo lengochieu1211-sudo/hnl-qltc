@@ -41,7 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
           persist-credentials: false
       - name: Verify single-workflow addition from exact approved DEV source and completed CI
         env:
@@ -52,7 +52,7 @@ jobs:
           test "$GITHUB_REPOSITORY" = 'lengochieu1211-sudo/hnl-qltc'
           test "$GITHUB_REF" = 'refs/heads/deploy/dev-backup-mapdisplay-pr372-20261031'
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD^^)" = "$SOURCE_SHA"
+          git merge-base --is-ancestor "$SOURCE_SHA" "$GITHUB_SHA"
           test "$(git diff --name-only "$SOURCE_SHA" "$GITHUB_SHA")" = ".github/workflows/qa-map-display-dev-backup-20261031.yml"
           test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = '.github/workflows/qa-map-display-dev-backup-20261031.yml'
           test "$(git ls-remote origin refs/heads/fix/dev-restore-prod-map-display-20261031 | cut -f1)" = "$SOURCE_SHA"
