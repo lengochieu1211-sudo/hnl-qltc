@@ -825,7 +825,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
 
       {/* Add Checklist Modal */}
       {canManageStructure && showAddForm && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+        <div className="hnl-ios-safe-modal fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
           <div className="bg-white w-full sm:max-w-2xl lg:max-w-3xl rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-1.5">
@@ -963,7 +963,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
 
       {/* Edit Checklist Modal (Cho phép chỉnh sửa checklist đã tạo) */}
       {canManageStructure && editingChecklistItem && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+        <div className="hnl-ios-safe-modal fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
           <div className="bg-white w-full sm:max-w-2xl lg:max-w-3xl rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-1.5">

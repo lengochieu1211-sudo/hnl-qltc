@@ -641,7 +641,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
   };
 
   return (
-    <div data-hnl-pc-v32-window="crew-share" className="fixed inset-0 z-[95] overflow-y-auto bg-slate-950/55 p-2 backdrop-blur-[1px] sm:p-4" role="dialog" aria-modal="true" aria-label="Chia sẻ báo cáo quân số">
+    <div data-hnl-pc-v32-window="crew-share" className="hnl-ios-safe-modal fixed inset-0 z-[95] overflow-y-auto bg-slate-950/55 p-2 backdrop-blur-[1px] sm:p-4" role="dialog" aria-modal="true" aria-label="Chia sẻ báo cáo quân số">
       <div className="mx-auto w-full max-w-6xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
         <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-5">
           <div>
