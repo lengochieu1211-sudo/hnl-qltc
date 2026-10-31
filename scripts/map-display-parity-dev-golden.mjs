@@ -10,7 +10,7 @@ for (const label of ['⚙️', 'Hiển thị', 'Mỗi phòng một màu', 'Tên 
 check(src.includes('renderMapDisplaySettings(false)') && src.includes('renderMapDisplayControls(true)'), 'shared ordinary + fullscreen controls');
 check(src.includes('fullscreenDisplayViewportRef') && src.includes('placeFloorPlanDisplayPopover'), 'anchored fullscreen settings panel');
 check(src.includes('data-hnl-ios-fullscreen-toolbar="true"') && src.includes('env(safe-area-inset-top)'), 'iOS fullscreen Safe Area preserved');
-check(src.includes('data-hnl-ios-fullscreen-exit="true"') && src.includes('order-first'), 'iOS fullscreen always-visible exit preserved');
+check(src.includes('data-hnl-ios-fullscreen-exit="true" className="flex shrink-0') && src.includes('data-hnl-ios-fullscreen-scrolltools="true" className="flex min-w-0 flex-1'), 'iOS fullscreen exit pinned at right while old one-row tools scroll');
 check(src.includes('roomLabelScalePercent / 100') && src.includes('defectLabelScale * defectLabelScalePercent / 100'), 'label scale is visual only');
 check(src.includes("getDraftKey(key)") && src.includes("readMapLabelPercent('construction_room_label_scale_percent')") && src.includes("readMapLabelPercent('construction_defect_label_scale_percent')"), 'saved preferences isolated by project/device');
 check(src.includes('isRoomCreationDrawing && drawTool !== \'polygon\'') && src.includes('getSavedRoomSnap') && src.includes('data-hnl-exclusive-room-draw="true"'), 'OSNAP only for explicit drawing');

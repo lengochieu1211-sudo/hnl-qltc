@@ -55,6 +55,7 @@ jobs:
         run: |
           node scripts/p2180-floorplan-exclusive-draw-golden.mjs
           node --experimental-strip-types scripts/map-display-parity-dev-golden.mjs
+          node scripts/iphone-fullscreen-and-modal-safearea-golden.mjs
 
       - name: 10-group targeted QA regression (source-only, no deploy)
         run: |

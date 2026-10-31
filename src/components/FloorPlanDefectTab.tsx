@@ -6319,11 +6319,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       </div>
   );
   const renderMapDisplaySettings = (dark = false) => (
-    <details className={`group shrink-0 rounded-xl border ${dark ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-200 bg-white text-slate-700'}`}>
+    <details data-hnl-map-display-inline="anchored-popover" className={`group relative shrink-0 rounded-xl border ${dark ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-200 bg-white text-slate-700'}`}>
       <summary className="min-h-9 cursor-pointer select-none list-none px-3 py-2 flex items-center gap-1.5 text-[11px] font-bold whitespace-nowrap" aria-label="Mở tùy chỉnh hiển thị mặt bằng">
         <span aria-hidden="true">⚙️</span> Hiển thị <span className="text-[9px] group-open:rotate-180">▾</span>
       </summary>
-      {renderMapDisplayControls(dark)}
+      <div data-hnl-map-display-popover="true" className={`absolute right-0 top-full z-[95] mt-1 w-[min(18rem,calc(100vw-2rem))] max-h-[min(70dvh,36rem)] overflow-y-auto overscroll-contain rounded-xl border shadow-xl ${dark ? 'border-slate-600 bg-slate-800' : 'border-slate-200 bg-white'}`}>
+        {renderMapDisplayControls(dark)}
+      </div>
     </details>
   );
 
@@ -7008,7 +7010,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <span className="text-slate-400 group-open:hidden">Mở</span>
                 <span className="text-slate-400 hidden group-open:inline">Thu gọn</span>
               </summary>
-              <div className="p-2 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-2">
+              <div className="p-2 border-t border-slate-200/80 flex flex-wrap items-center justify-start gap-2">
               {/* Group 1: 3 Drawing Tools */}
               <div className="flex flex-wrap items-center gap-1.5">
 
@@ -7375,7 +7377,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             {isFullscreen && (
               <div
                 data-hnl-ios-fullscreen-toolbar="true"
-                className="shrink-0 z-[70] pointer-events-auto flex flex-col gap-1.5 p-2 bg-slate-950/95 border-b border-slate-800 shadow-lg"
+                className="hnl-ios-safe-fullscreen-toolbar shrink-0 z-[70] pointer-events-auto flex flex-col gap-1.5 p-2 bg-slate-950/95 border-b border-slate-800 shadow-lg"
                 style={{
                   paddingTop: 'max(0.5rem, env(safe-area-inset-top))',
                   paddingLeft: 'max(0.5rem, env(safe-area-inset-left))',
@@ -7383,8 +7385,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 }}
               >
                 {/* Fullscreen Top Control Bar */}
-                <div className="flex min-w-0 flex-col gap-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-slate-700 shadow-2xl text-white sm:flex-row sm:items-center sm:justify-between">
-                  <div data-hnl-ios-fullscreen-scrolltools="true" className="flex min-w-0 w-full items-center gap-2 overflow-x-auto no-scrollbar sm:w-auto sm:flex-1">
+                <div className="flex min-w-0 items-center justify-between gap-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-slate-700 shadow-2xl text-white">
+                  <div data-hnl-ios-fullscreen-scrolltools="true" className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto no-scrollbar touch-pan-x">
                     <div className="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
@@ -7538,7 +7540,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     )}
                   </div>
 
-                  <div data-hnl-ios-fullscreen-exit="true" className="order-first flex w-full shrink-0 items-center justify-end gap-2 sm:order-last sm:w-auto">
+                  <div data-hnl-ios-fullscreen-exit="true" className="flex shrink-0 items-center justify-end gap-1.5">
                     <UndoRedoControls
                       onUndo={onUndo}
                       onRedo={onRedo}
