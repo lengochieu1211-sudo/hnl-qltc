@@ -1,0 +1,192 @@
+# One-shot source-pinned, preview-only QA. Never publishes Firebase live, Rules, R2, or PROD.
+name: QA iPhone PR371 — DEV + DEV Backup Preview (NO LIVE)
+on:
+  push:
+    branches: [fix/ios-safearea-catalog-dark-20261031]
+    paths:
+      - .github/workflows/qa-iphone-pr371-dev-preview-only.yml
+permissions:
+  contents: read
+concurrency:
+  group: qa-ios-pr371-preview-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  preview:
+    name: Preview ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: DEV
+            project: hnl-qltc-dev
+            channel: ios371dev
+            r2: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
+            ai_enabled: 'true'
+            ai_gateway: https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev
+            secret_name: FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV
+          - name: DEV_BACKUP
+            project: hnl-qltc-dev-backup
+            channel: ios371backup
+            r2: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+            ai_enabled: 'false'
+            ai_gateway: ''
+            secret_name: FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP
+    env:
+      FIREBASE_SA: ${{ secrets[matrix.secret_name] }}
+      QA_PROJECT: ${{ matrix.project }}
+      QA_CHANNEL: ${{ matrix.channel }}
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: ${{ matrix.r2 }}
+      VITE_HNL_AI_ENABLED: ${{ matrix.ai_enabled }}
+      VITE_HNL_AI_GATEWAY_URL: ${{ matrix.ai_gateway }}
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_USE_FIREBASE_EMULATORS: 'false'
+      VITE_GIT_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify immutable reviewed source and exact QA-only workflow addition
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "lengochieu1211-sudo/hnl-qltc"
+          test "$GITHUB_REF" = "refs/heads/fix/ios-safearea-catalog-dark-20261031"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = "9e6d4fe404ae8e9f42a1ce3105dfd620369fdb2b"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = ".github/workflows/qa-iphone-pr371-dev-preview-only.yml"
+          test "$(git ls-remote origin refs/heads/fix/ios-safearea-catalog-dark-20261031 | cut -f1)" = "$GITHUB_SHA"
+          case "$QA_PROJECT" in hnl-qltc-dev|hnl-qltc-dev-backup) ;; *) echo "::error::Unexpected QA Firebase target"; exit 1 ;; esac
+          test "$QA_PROJECT" != "com-example-qlct-61329"
+          test "$QA_CHANNEL" != "live"
+          test "$VITE_APP_ENV" = "DEV"
+          test "$VITE_ENABLE_LEGACY_DRIVE_WRITE" = "false"
+          case "$QA_PROJECT:$VITE_R2_GATEWAY_URL" in
+            hnl-qltc-dev:https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev) ;;
+            hnl-qltc-dev-backup:https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev) ;;
+            *) echo "::error::Wrong isolated R2 endpoint"; exit 1 ;;
+          esac
+          test -n "${FIREBASE_SA:-}" || { echo "::error::Missing isolated Firebase DEV service account; no deploy"; exit 1; }
+          node - <<'NODE'
+          const v=JSON.parse(process.env.FIREBASE_SA);
+          if(v.type!=='service_account'||v.project_id!==process.env.QA_PROJECT||!v.private_key)throw Error('Wrong DEV credentials; refusing deploy');
+          console.log('QA credential identity PASS (secret never printed)');
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Resolve existing Firebase Web App only (no app create)
+        shell: bash
+        run: |
+          set -euo pipefail
+          CRED="$RUNNER_TEMP/hnl-qa-preview-sa.json"
+          printf '%s' "$FIREBASE_SA" > "$CRED"
+          chmod 600 "$CRED"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$CRED" >> "$GITHUB_ENV"
+          export GOOGLE_APPLICATION_CREDENTIALS="$CRED"
+          APPS="$RUNNER_TEMP/hnl-qa-apps.json"
+          SDK="$RUNNER_TEMP/hnl-qa-sdk.json"
+          npx --yes firebase-tools@13.35.1 apps:list WEB --project "$QA_PROJECT" --json > "$APPS"
+          APP_ID="$(node - "$APPS" <<'NODE'
+          const j=require(process.argv[2]);
+          const a=Array.isArray(j.result)?j.result:[];
+          const app=a.find(x=>x.platform==='WEB'||String(x.appId||'').includes(':web:'));
+          if(!app?.appId)throw Error('Existing QA web app not found; refusing to create');
+          process.stdout.write(app.appId);
+          NODE
+          )"
+          npx --yes firebase-tools@13.35.1 apps:sdkconfig WEB "$APP_ID" --project "$QA_PROJECT" --json > "$SDK"
+          node - "$SDK" "$RUNNER_TEMP/hnl-qa-sdk.env" <<'NODE'
+          const fs=require('fs');
+          const j=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          const keys=['apiKey','appId','messagingSenderId','projectId','authDomain','storageBucket'];
+          const out={};
+          function walk(v){
+            if(!v)return;
+            if(typeof v==='string'){
+              try{walk(JSON.parse(v))}catch{}
+              for(const k of keys){const m=v.match(new RegExp(k+'\\s*:\\s*["\\x27]([^"\\x27]+)["\\x27]'));if(m&&!out[k])out[k]=m[1]}
+            }else if(Array.isArray(v)){v.forEach(walk)}
+            else if(typeof v==='object'){for(const [k,x] of Object.entries(v)){if(keys.includes(k)&&typeof x==='string'&&!out[k])out[k]=x;walk(x)}}
+          }
+          walk(j);
+          if(out.projectId!==process.env.QA_PROJECT||!out.apiKey||!out.appId||!out.messagingSenderId)throw Error('QA SDK identity invalid');
+          out.authDomain=process.env.QA_PROJECT+'.web.app';
+          out.storageBucket||=process.env.QA_PROJECT+'.firebasestorage.app';
+          const mapping={apiKey:'VITE_FIREBASE_API_KEY',appId:'VITE_FIREBASE_APP_ID',messagingSenderId:'VITE_FIREBASE_MESSAGING_SENDER_ID',projectId:'VITE_FIREBASE_PROJECT_ID',authDomain:'VITE_FIREBASE_AUTH_DOMAIN',storageBucket:'VITE_FIREBASE_STORAGE_BUCKET'};
+          fs.writeFileSync(process.argv[3],Object.entries(mapping).map(([k,v])=>v+'='+out[k]).join('\n')+'\n',{mode:0o600});
+          console.log('Existing QA Web SDK identity verified; no app created');
+          NODE
+      - name: Source golden, dependency gate, TypeScript, Lint, Rules, Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          . "$RUNNER_TEMP/hnl-qa-sdk.env"
+          set +a
+          node -e "const p=require('./package.json'),l=require('./package-lock.json');if(p.name!==l.name||p.version!==l.version)process.exit(1)"
+          npm ci
+          node scripts/iphone-safearea-dark-catalog-golden.mjs
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run build
+          test -s dist/index.html
+          grep -R -F -q "$VITE_R2_GATEWAY_URL" dist/assets
+          if grep -R -F -q 'https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev' dist/assets; then
+            echo "::error::PROD R2 endpoint detected in QA bundle"; exit 1
+          fi
+          rm -f dist/server.cjs dist/server.cjs.map
+          node - <<'NODE'
+          const fs=require('fs');
+          fs.writeFileSync('dist/hnl-qa-pr371.json',JSON.stringify({sha:process.env.GITHUB_SHA,projectId:process.env.QA_PROJECT,environment:'DEV',previewOnly:true,prodModified:false},null,2));
+          const cfg=JSON.parse(fs.readFileSync('firebase.json','utf8'));
+          if(!cfg.hosting||Array.isArray(cfg.hosting)||cfg.hosting.public!=='dist'||cfg.hosting.site||cfg.hosting.target)throw Error('Unexpected Firebase hosting config');
+          fs.writeFileSync('hnl-qa-371-hosting-only.json',JSON.stringify({hosting:cfg.hosting}));
+          NODE
+      - name: Deploy ONLY existing DEV preview channel, never live or PROD
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$QA_CHANNEL" != "live"
+          test "$QA_PROJECT" != "com-example-qlct-61329"
+          test -f hnl-qa-371-hosting-only.json
+          CRED="$RUNNER_TEMP/hnl-qa-preview-sa.json"
+          test -s "$CRED"
+          export GOOGLE_APPLICATION_CREDENTIALS="$CRED"
+          OUT="$RUNNER_TEMP/hnl-qa-channel-result.json"
+          npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$QA_CHANNEL" --project "$QA_PROJECT" --config "$GITHUB_WORKSPACE/hnl-qa-371-hosting-only.json" --expires 7d --non-interactive --json > "$OUT"
+          node - "$OUT" <<'NODE'
+          const fs=require('fs');
+          const j=fs.readFileSync(process.argv[2],'utf8');
+          const p=process.env.QA_PROJECT;
+          const u=j.match(new RegExp('https://'+p+'--[a-z0-9-]+\\.web\\.app'));
+          if(!u)throw Error('Missing isolated QA preview URL');
+          fs.writeFileSync('hnl-qa-pr371-'+p+'.json',JSON.stringify({url:u[0],sha:process.env.GITHUB_SHA,projectId:p,channel:process.env.QA_CHANNEL,liveModified:false,prodModified:false,rulesModified:false},null,2));
+          console.log('EXACT_SHA_QA_PREVIEW_URL='+u[0]);
+          NODE
+          URL="$(node -p "require('./hnl-qa-pr371-'+process.env.QA_PROJECT+'.json').url")"
+          curl -fsSL --retry 4 "$URL/hnl-qa-pr371.json" -o "$RUNNER_TEMP/hnl-qa-hosted-identity.json"
+          node - "$RUNNER_TEMP/hnl-qa-hosted-identity.json" <<'NODE'
+          const j=require(process.argv[2]);
+          if(j.sha!==process.env.GITHUB_SHA||j.projectId!==process.env.QA_PROJECT||!j.previewOnly)throw Error('Hosted QA SHA/project mismatch');
+          console.log('QA HTTP / exact SHA / isolated project PASS');
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-PR371-QA-${{ matrix.name }}-${{ github.sha }}
+          path: hnl-qa-pr371-*.json
+          if-no-files-found: warn
+          retention-days: 14
