@@ -308,6 +308,14 @@ html[data-hnl-theme="dark"] [class*="bg-red-50/"] { background-color: rgb(127 29
 html[data-hnl-theme="dark"] .hover\:bg-slate-50:hover,
 html[data-hnl-theme="dark"] .hover\:bg-white:hover { background-color: var(--hnl-dark-surface-raised) !important; }
 
+/* Warehouse Catalog material/equipment name buttons: the base brand hover utility
+ * mixes its background with WHITE using !important. Scope the dark override to
+ * this table, preserving light-mode, navigation and inventory calculations. */
+html[data-hnl-theme="dark"] [data-hnl-warehouse-catalog-table="auto-width"] [data-hnl-catalog-open-master]:is(:hover, :focus-visible) {
+  background-color: var(--hnl-dark-surface-raised) !important;
+  color: var(--hnl-primary-on-dark) !important;
+}
+
 /* Warehouse receipt photos: sky-50/40 remains a pale light-mode tint and sky-800
  * is too dark on the standard dark canvas. Scope the fix to the voucher photo
  * panel (new/edit) so light mode, semantic colors and photo handling are untouched. */
