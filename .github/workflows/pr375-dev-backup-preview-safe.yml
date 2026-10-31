@@ -1,8 +1,8 @@
 # One-shot PR375 WIP validation and PREVIEW ONLY. Never deploy Hosting LIVE, rules, DEV primary, PROD or R2.
-name: PR375 isolated DEV Backup preflight + preview (NO LIVE)
+name: PR375 iPhone freehand isolated preview gate (NO LIVE)
 on:
   push:
-    branches: [fix/dev-pr375-preview-auth-20261101]
+    branches: [fix/dev-pr375-freehand-preview-20261101]
     paths: [.github/workflows/pr375-dev-backup-preview-safe.yml]
 permissions:
   contents: read
@@ -41,14 +41,19 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = "lengochieu1211-sudo/hnl-qltc"
-          test "$GITHUB_REF" = "refs/heads/fix/dev-pr375-preview-auth-20261101"
+          test "$GITHUB_REF" = "refs/heads/fix/dev-pr375-freehand-preview-20261101"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD^)" = "9a99ac08f940504014bd7c06364a7ee40b645356"
-          test "$(git rev-parse HEAD^^)" = "0cc9d73f4044a25fda72ae7a1bbc65931a7ce45a"
-          test "$(git rev-parse HEAD^^^)" = "56c10b7f724d643d85ef2ed7bdf2ee345bb8189b"
-          test "$(git rev-parse HEAD^^^^)" = "0a4f9882ebfc0245e85819c6486c7ecbe3402be7"
+          test "$(git rev-parse HEAD^)" = "c08748f5c4723a5c684bff61670c4cc77159eb55"
+          test "$(git rev-parse HEAD^^)" = "87033bc3c35c499fcbf7c635ff1ccfa36c8bcf11"
+          test "$(git rev-parse HEAD^^^)" = "19b706cc30e61ac346b2c23ec40f5ef9a860a9dc"
+          test "$(git rev-parse HEAD^^^^)" = "9a99ac08f940504014bd7c06364a7ee40b645356"
+          test "$(git rev-parse HEAD^^^^^)" = "0cc9d73f4044a25fda72ae7a1bbc65931a7ce45a"
+          test "$(git rev-parse HEAD^^^^^^)" = "56c10b7f724d643d85ef2ed7bdf2ee345bb8189b"
+          test "$(git rev-parse HEAD^^^^^^^)" = "0a4f9882ebfc0245e85819c6486c7ecbe3402be7"
+          test "$(git diff --name-only 19b706cc30e61ac346b2c23ec40f5ef9a860a9dc HEAD | sort)" = "$(printf '%s\n' '.github/workflows/pr375-dev-backup-preview-safe.yml' 'scripts/pr375-iphone-freehand-golden.mjs' 'src/components/FloorPlanDefectTab.tsx' | sort)"
           test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = ".github/workflows/pr375-dev-backup-preview-safe.yml"
-          test "$(git rev-parse HEAD:src/components/FloorPlanDefectTab.tsx)" = "a084eccaa9fc927b47727b69a084bc36195eb7d2"
+          test "$(git rev-parse HEAD:src/components/FloorPlanDefectTab.tsx)" = "12bf711a78050ce471ca66f9c759858f1ffc2bc9"
+          test "$(git rev-parse HEAD:scripts/pr375-iphone-freehand-golden.mjs)" = "2c31f9daa44c745a98adb89fc1cba259f335ecf4"
           test "$(git rev-parse HEAD:src/index.css)" = "b1f1ae157c375d411b6aaa3599690153d076a5e7"
           test "$(git rev-parse HEAD:src/lib/firebaseBase.ts)" = "c3e58c60ee58db6f3875ad3bce87637f3d5e1f00"
           test "$(git rev-parse HEAD:scripts/iphone-fullscreen-and-modal-safearea-golden.mjs)" = "d41a59fbebcefcaf48b7ecaf71e4637352af84ba"
@@ -114,6 +119,7 @@ jobs:
           set -euo pipefail
           node -e "const a=require('./package.json'),b=require('./package-lock.json');if(a.name!==b.name||a.version!==b.version)process.exit(1)"
           npm ci
+          node scripts/pr375-iphone-freehand-golden.mjs
           node scripts/iphone-fullscreen-and-modal-safearea-golden.mjs
           node --experimental-strip-types scripts/map-display-parity-dev-golden.mjs
           node scripts/iphone-safearea-dark-catalog-golden.mjs
