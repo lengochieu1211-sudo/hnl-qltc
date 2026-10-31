@@ -1,0 +1,131 @@
+# Dedicated, one-shot DEV QA Hosting-only promotion. Never touches PROD/Rules/R2.
+name: HNL PR371 — Promote DEV Backup only, probe DEV 509
+on:
+  push:
+    branches: [ops/ios371-dev-hosting-only-20261031]
+    paths: [.github/workflows/ops-ios371-dev-hosting-only.yml]
+permissions:
+  contents: read
+concurrency:
+  group: hnl-qltc-ops-ios371-backup-hosting-only
+  cancel-in-progress: false
+jobs:
+  promote_dev_backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      QA_PROJECT: hnl-qltc-dev-backup
+      QA_SITE: hnl-qltc-dev-backup
+      QA_SOURCE: ios371backup
+      QA_ROLLBACK: beforeios371
+      APPROVED_SHA: 5168e4ce10cb6b3b9af37a0a80acb90dcc2a9f17
+      FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Exact isolated workflow and Firebase service-account preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "lengochieu1211-sudo/hnl-qltc"
+          test "$GITHUB_REF" = "refs/heads/ops/ios371-dev-hosting-only-20261031"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = "deee69ee097f978d99de427f76e63da665eddf11"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = ".github/workflows/ops-ios371-dev-hosting-only.yml"
+          test "$QA_PROJECT" = "hnl-qltc-dev-backup"
+          test "$QA_SITE" = "hnl-qltc-dev-backup"
+          test "$QA_SOURCE" = "ios371backup"
+          test "$QA_ROLLBACK" = "beforeios371"
+          test "$APPROVED_SHA" = "5168e4ce10cb6b3b9af37a0a80acb90dcc2a9f17"
+          test "$QA_PROJECT" != "com-example-qlct-61329"
+          test -n "${FIREBASE_SA:-}" || { echo "::error::Missing isolated DEV Backup credential"; exit 1; }
+          node - <<'NODE'
+          const a=JSON.parse(process.env.FIREBASE_SA);
+          if(a.type!=='service_account'||a.project_id!=='hnl-qltc-dev-backup'||!a.private_key)throw Error('wrong project credentials');
+          console.log('EXACT BACKUP SERVICE ACCOUNT PASS (sensitive content hidden)');
+          NODE
+          CRED="$RUNNER_TEMP/ios371-backup-service-account.json"
+          printf '%s' "$FIREBASE_SA" > "$CRED"
+          chmod 600 "$CRED"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$CRED" >> "$GITHUB_ENV"
+      - name: Validate existing Hosting site, old live, and exact immutable preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GOOGLE_APPLICATION_CREDENTIALS:-}"
+          CLI='npx --yes firebase-tools@13.35.1'
+          $CLI hosting:sites:get "$QA_SITE" --project "$QA_PROJECT" --json > "$RUNNER_TEMP/ios371-site.json"
+          $CLI hosting:channel:list --project "$QA_PROJECT" --json > "$RUNNER_TEMP/ios371-channels-before.json"
+          # App may only change after the old live and approved QA preview both answer.
+          curl --fail --silent --show-error --location --retry 2 --max-time 20 "https://hnl-qltc-dev-backup.web.app/" -o "$RUNNER_TEMP/ios371-before-index.html"
+          grep -q 'id="root"' "$RUNNER_TEMP/ios371-before-index.html"
+          URL='https://hnl-qltc-dev-backup--ios371backup-hx9ry61u.web.app'
+          curl --fail --silent --show-error --location --retry 3 --max-time 20 "$URL/hnl-qa-pr371.json" -o "$RUNNER_TEMP/ios371-source.json"
+          node - "$RUNNER_TEMP/ios371-source.json" <<'NODE'
+          const j=require(process.argv[2]);
+          if(j.sha!==process.env.APPROVED_SHA||j.projectId!==process.env.QA_PROJECT||j.environment!=='DEV'||j.previewOnly!==true||j.prodModified!==false)throw Error('Preview exact SHA/Firebase identity mismatch');
+          console.log('LIVE preflight / PREVIEW exact source PASS');
+          NODE
+      - name: Capture pre-release Hosting live into distinct rollback preview (no data)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This is the ONLY backup write: same-site old live version -> rollback preview.
+          npx --yes firebase-tools@13.35.1 hosting:clone "$QA_SITE:live" "$QA_SITE:$QA_ROLLBACK" --project "$QA_PROJECT" --non-interactive > "$RUNNER_TEMP/ios371-rollback-clone.log"
+          npx --yes firebase-tools@13.35.1 hosting:channel:list --project "$QA_PROJECT" --json > "$RUNNER_TEMP/ios371-channels-rollback.json"
+          test -s "$RUNNER_TEMP/ios371-channels-rollback.json"
+          echo 'Old DEV BACKUP live version captured to rollback channel.'
+      - name: Promote EXACT DEV Backup QA preview to same-site live (Hosting-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes firebase-tools@13.35.1 hosting:clone "$QA_SITE:$QA_SOURCE" "$QA_SITE:live" --project "$QA_PROJECT" --non-interactive > "$RUNNER_TEMP/ios371-promote-clone.log"
+          URL="https://hnl-qltc-dev-backup.web.app/hnl-qa-pr371.json"
+          ok=0
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if curl --fail --silent --show-error --location --max-time 20 "$URL?verify=$GITHUB_RUN_ID-$attempt" -o "$RUNNER_TEMP/ios371-live-identity.json"; then
+              if node - "$RUNNER_TEMP/ios371-live-identity.json" <<'NODE'
+          const j=require(process.argv[2]);
+          if(j.sha!==process.env.APPROVED_SHA||j.projectId!=='hnl-qltc-dev-backup'||j.previewOnly!==true)process.exit(1);
+          NODE
+              then ok=1; break; fi
+            fi
+            sleep 3
+          done
+          if [ "$ok" != 1 ]; then
+            echo "::error::Post-release SHA mismatch; reverting ONLY DEV BACKUP Hosting live to pre-release version"
+            npx --yes firebase-tools@13.35.1 hosting:clone "$QA_SITE:$QA_ROLLBACK" "$QA_SITE:live" --project "$QA_PROJECT" --non-interactive
+            exit 1
+          fi
+          echo 'DEV BACKUP LIVE exact immutable SHA/identity: PASS'
+          npx --yes firebase-tools@13.35.1 hosting:channel:list --project "$QA_PROJECT" --json > "$RUNNER_TEMP/ios371-channels-after.json"
+          node - <<'NODE'
+          const fs=require('fs');
+          const r={project:'hnl-qltc-dev-backup',site:'hnl-qltc-dev-backup',url:'https://hnl-qltc-dev-backup.web.app',candidateSha:process.env.APPROVED_SHA,oldLiveAnchor:'beforeios371',releaseMethod:'hosting:clone preview -> live only',firestoreRulesTouched:false,storageRulesTouched:false,r2Touched:false,prodTouched:false,signedInRuntimeGolden:false,workflow:process.env.GITHUB_RUN_ID};
+          fs.writeFileSync('IOS371-DEV-BACKUP-LIVE-REPORT.json',JSON.stringify(r,null,2));
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: IOS371-DEV-BACKUP-LIVE-${{ github.sha }}
+          path: IOS371-DEV-BACKUP-LIVE-REPORT.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  verify_dev_509_only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Check DEV main and preview; no writes and NO bypass for HTTP 509
+        shell: bash
+        run: |
+          set -euo pipefail
+          for url in https://hnl-qltc-dev.web.app/ https://hnl-qltc-dev--ios371dev-x8x8vy2t.web.app/hnl-qa-pr371.json; do
+            status="$(curl --location --silent --show-error --max-time 15 --output "$RUNNER_TEMP/dev-probe.html" --write-out '%{http_code}' "$url" || true)"
+            echo "DEV web response code: $status ($url)"
+            if [ "$status" = "509" ]; then
+              echo "::warning::Firebase DEV Hosting HTTP 509. Live DEV deployment BLOCKED; no state changed."
+            fi
+          done
