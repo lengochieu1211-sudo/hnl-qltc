@@ -5500,6 +5500,26 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }
   };
 
+  // A browser pointercancel (scroll, app switch, pinch) must NOT save a partial room.
+  // Match the working PROD touch lifecycle without changing PR375 OSNAP or geometry.
+  const handleCancelledDrawPointer = (e: React.PointerEvent<HTMLDivElement>) => {
+    activePointersRef.current.delete(e.pointerId);
+    if (canvasPressRef.current.pointerId === e.pointerId) canvasPressRef.current.pointerId = null;
+    if (panStateRef.current.pointerId === e.pointerId) {
+      panStateRef.current.active = false;
+      panStateRef.current.pointerId = null;
+    }
+    setIsFreehandDrawing(false);
+    setFreehandPoints([]);
+    if (is2PointDragging) {
+      setDrawStartPos(null);
+      setDrawHoverPos(null);
+    }
+    setIs2PointDragging(false);
+    setObjectSnapPreview(null);
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+  };
+
   // Finish Polygon / Line Drawing (2 or more points) and show preview highlight BEFORE modal
   const handleCompletePolygon = (asPolylineMode?: boolean) => {
     if (!canManageStructure || polygonPoints.length < 2) return;
@@ -8141,10 +8161,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     onPointerDown={handlePointerDownImage}
                     onPointerMove={handlePointerMoveImage}
                     onPointerUp={handlePointerUpImage}
-                    onPointerCancel={(e) => {
-                      activePointersRef.current.delete(e.pointerId);
-                      handlePointerUpImage(e);
-                    }}
+                    onPointerCancel={handleCancelledDrawPointer}
                     onClick={handleImageClick}
                     onTouchStart={handleBgTouchStart}
                     onTouchMove={handleBgTouchMove}
@@ -8158,7 +8175,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       height: targetH,
                       transform: transformStr,
                       transformOrigin: '0 0',
-                      touchAction: (viewMode === 'highlight' && drawTool === 'freehand') || selectedRoomForDragId !== null || activeDragHandle !== null || drawTool === 'drag' ? 'none' : 'pan-x pan-y',
+                      touchAction: (isRoomCreationDrawing && (drawTool === 'freehand' || drawTool === '2point')) || selectedRoomForDragId !== null || activeDragHandle !== null || drawTool === 'drag' ? 'none' : 'pan-x pan-y',
                     }}
                     className="relative cursor-crosshair select-none"
                   >
