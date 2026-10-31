@@ -6332,11 +6332,6 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         <span aria-hidden="true">⚙️</span> Hiển thị <span className="text-[9px] group-open:rotate-180">▾</span>
       </summary>
       <div data-hnl-map-display-popover="true" className={`hnl-mobile-map-display-panel absolute right-0 top-full z-[95] mt-1 w-[min(18rem,calc(100vw-2rem))] max-h-[min(70dvh,36rem)] overflow-y-auto overscroll-contain rounded-xl border shadow-xl ${dark ? 'border-slate-600 bg-slate-800' : 'border-slate-200 bg-white'}`}>
-        <div className="flex items-center justify-between px-3 py-2 border-b border-current/15 sm:hidden">
-          <strong className="text-sm">⚙️ Hiển thị mặt bằng</strong>
-          <button type="button" aria-label="Đóng tùy chỉnh hiển thị" onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}
-            className="rounded-lg border border-current/20 px-3 py-1.5 text-xs font-bold">✕ Đóng</button>
-        </div>
         {renderMapDisplayControls(dark)}
       </div>
     </details>
@@ -7398,8 +7393,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 }}
               >
                 {/* Fullscreen Top Control Bar */}
-                <div className="flex min-w-0 flex-col gap-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-slate-700 shadow-2xl text-white sm:flex-row sm:items-center sm:justify-between">
-                  <div ref={fullscreenToolbarToolsRef} data-hnl-ios-fullscreen-scrolltools="true" className="flex min-w-0 w-full items-center gap-2 overflow-x-auto no-scrollbar touch-pan-x sm:w-auto sm:flex-1">
+                <div ref={fullscreenToolbarToolsRef} data-hnl-ios-fullscreen-scrolltools="true" className="flex min-w-0 items-center justify-between gap-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-slate-700 shadow-2xl text-white overflow-x-auto no-scrollbar touch-pan-x overscroll-x-contain">
+                  <div className="flex items-center gap-2 shrink-0">
                     <div className="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
@@ -7435,7 +7430,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     </div>
 
                     {canManageStructure && (viewMode === 'highlight' || viewMode === 'all') && (
-                      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                      <div className="flex items-center gap-1.5 shrink-0 py-0.5">
                         {/* Tool 1: Freehand Drawing */}
                         <button
                           type="button"
@@ -7553,7 +7548,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     )}
                   </div>
 
-                  <div data-hnl-ios-fullscreen-exit="true" className="order-first flex w-full shrink-0 items-center justify-end gap-2 sm:order-last sm:w-auto">
+                  <div data-hnl-ios-fullscreen-exit="true" className="flex items-center gap-2 shrink-0">
                     <UndoRedoControls
                       onUndo={onUndo}
                       onRedo={onRedo}

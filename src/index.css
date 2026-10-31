@@ -532,20 +532,25 @@ html[data-hnl-theme="dark"] .hnl-crew-report-table tfoot td {
  * Desktop keeps the existing anchored popover. No changes to canvas transforms.
  */
 @media (max-width: 639px) {
+  /* Same inline details expansion as PROD: no fixed sheet, no viewport offset. */
+  [data-hnl-map-display-inline="anchored-popover"][open] {
+    width: 100%;
+    min-width: 0;
+  }
   [data-hnl-map-display-popover="true"].hnl-mobile-map-display-panel {
-    position: fixed !important;
+    position: static !important;
     box-sizing: border-box;
-    left: max(12px, env(safe-area-inset-left, 0px)) !important;
-    right: max(12px, env(safe-area-inset-right, 0px)) !important;
-    top: max(72px, env(safe-area-inset-top, 0px)) !important;
+    left: auto !important;
+    right: auto !important;
+    top: auto !important;
     bottom: auto !important;
-    width: auto !important;
+    width: 100% !important;
     min-width: 0;
     max-width: none;
-    max-height: min(72dvh, calc(100dvh - 100px)) !important;
-    margin: 0;
+    max-height: min(70dvh, 36rem) !important;
+    margin: 0.5rem 0 0;
+    overflow-y: auto;
     overscroll-behavior: contain;
-    z-index: 300 !important;
   }
   .hnl-cross-device-safe-overlay {
     padding-top: max(8px, env(safe-area-inset-top, 0px)) !important;
@@ -565,9 +570,6 @@ html[data-hnl-theme="dark"] .hnl-crew-report-table tfoot td {
     .hnl-cross-device-safe-overlay > .hnl-cross-device-safe-dialog {
       max-height: calc(100dvh - max(3.75rem, env(safe-area-inset-top, 0px)) - max(8px, env(safe-area-inset-bottom, 0px)));
     }
-    [data-hnl-map-display-popover="true"].hnl-mobile-map-display-panel {
-      top: max(5rem, env(safe-area-inset-top, 0px)) !important;
-      max-height: min(72dvh, calc(100dvh - 6.5rem)) !important;
-    }
+
   }
 }
