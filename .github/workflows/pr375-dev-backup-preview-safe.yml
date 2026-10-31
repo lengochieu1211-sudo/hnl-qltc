@@ -1,0 +1,180 @@
+# One-shot PR375 WIP validation and PREVIEW ONLY. Never deploy Hosting LIVE, rules, DEV primary, PROD or R2.
+name: PR375 isolated DEV Backup preflight + preview (NO LIVE)
+on:
+  push:
+    branches: [fix/dev-pr375-wip-backup-preview-20261031]
+    paths: [.github/workflows/pr375-dev-backup-preview-safe.yml]
+permissions:
+  contents: read
+concurrency:
+  group: hnl-pr375-backup-preview-only
+  cancel-in-progress: false
+jobs:
+  gate-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      BACKUP_PROJECT: hnl-qltc-dev-backup
+      BACKUP_CHANNEL: pr375check
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+      VITE_HNL_AI_ENABLED: 'false'
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_USE_FIREBASE_EMULATORS: 'false'
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev-backup.web.app
+      VITE_GIT_COMMIT: ${{ github.sha }}
+      FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+    steps:
+      - name: Checkout source at immutable SHA
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+          persist-credentials: false
+      - name: Verify scope, exact PR374 parent, source blobs and isolated Firebase target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "lengochieu1211-sudo/hnl-qltc"
+          test "$GITHUB_REF" = "refs/heads/fix/dev-pr375-wip-backup-preview-20261031"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = "56c10b7f724d643d85ef2ed7bdf2ee345bb8189b"
+          test "$(git rev-parse HEAD^^)" = "0a4f9882ebfc0245e85819c6486c7ecbe3402be7"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = ".github/workflows/pr375-dev-backup-preview-safe.yml"
+          test "$(git rev-parse HEAD:src/components/FloorPlanDefectTab.tsx)" = "a084eccaa9fc927b47727b69a084bc36195eb7d2"
+          test "$(git rev-parse HEAD:src/index.css)" = "b1f1ae157c375d411b6aaa3599690153d076a5e7"
+          test "$(git rev-parse HEAD:scripts/iphone-fullscreen-and-modal-safearea-golden.mjs)" = "d41a59fbebcefcaf48b7ecaf71e4637352af84ba"
+          test "$(git rev-parse HEAD:scripts/map-display-parity-dev-golden.mjs)" = "5ba4ed51155927fbabd6c8a060f81fb35f32167d"
+          test "$(git rev-parse HEAD:scripts/iphone-safearea-dark-catalog-golden.mjs)" = "6a61358fcace9197763fda69feeecf43775b2a4f"
+          test "$BACKUP_PROJECT" = "hnl-qltc-dev-backup"
+          test "$BACKUP_CHANNEL" = "pr375check"
+          test "$VITE_APP_ENV" = "DEV"
+          test "$VITE_ENABLE_LEGACY_DRIVE_WRITE" = "false"
+          test "$VITE_R2_GATEWAY_URL" = "https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev"
+          test -n "$FIREBASE_BACKUP_SERVICE_ACCOUNT" || { echo "::error::DEV Backup secret missing, no deploy"; exit 1; }
+          node - <<'NODE'
+          const k=JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT);
+          if(k.type!=='service_account'||k.project_id!=='hnl-qltc-dev-backup'||!k.private_key)throw Error('Wrong DEV Backup credentials; refusing deploy');
+          console.log('Isolated DEV Backup credentials verified without printing secrets');
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Read existing DEV Backup Firebase Web SDK (never create app)
+        shell: bash
+        run: |
+          set -euo pipefail
+          CRED="$RUNNER_TEMP/hnl-pr375-backup-sa.json"
+          printf '%s' "$FIREBASE_BACKUP_SERVICE_ACCOUNT" > "$CRED"
+          chmod 600 "$CRED"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$CRED" >> "$GITHUB_ENV"
+          export GOOGLE_APPLICATION_CREDENTIALS="$CRED"
+          npx --yes firebase-tools@13.35.1 apps:list WEB --project "$BACKUP_PROJECT" --json > "$RUNNER_TEMP/apps.json"
+          APP_ID="$(node - "$RUNNER_TEMP/apps.json" <<'NODE'
+          const j=require(process.argv[2]);
+          const a=Array.isArray(j.result)?j.result:[];
+          const app=a.find(x=>x.platform==='WEB'||String(x.appId||'').includes(':web:'));
+          if(!app?.appId)throw Error('No existing DEV Backup Firebase Web app');
+          process.stdout.write(app.appId);
+          NODE
+          )"
+          npx --yes firebase-tools@13.35.1 apps:sdkconfig WEB "$APP_ID" --project "$BACKUP_PROJECT" --json > "$RUNNER_TEMP/sdk.json"
+          node - "$RUNNER_TEMP/sdk.json" <<'NODE'
+          const fs=require('fs'),j=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          const keys=['apiKey','appId','messagingSenderId','projectId','authDomain','storageBucket'],cfg={};
+          function walk(v){
+            if(!v)return;
+            if(typeof v==='string'){
+              try{walk(JSON.parse(v))}catch{}
+              for(const k of keys){const m=v.match(new RegExp(k+'\\s*:\\s*["\\x27]([^"\\x27]+)["\\x27]'));if(m&&!cfg[k])cfg[k]=m[1]}
+            }else if(Array.isArray(v)){v.forEach(walk)}
+            else if(typeof v==='object'){for(const [k,x] of Object.entries(v)){if(keys.includes(k)&&typeof x==='string'&&!cfg[k])cfg[k]=x;walk(x)}}
+          }
+          walk(j);
+          if(cfg.projectId!=='hnl-qltc-dev-backup'||!cfg.apiKey||!cfg.appId||!cfg.messagingSenderId)throw Error('Invalid DEV Backup SDK identity');
+          cfg.authDomain='hnl-qltc-dev-backup.web.app';
+          cfg.storageBucket||='hnl-qltc-dev-backup.firebasestorage.app';
+          const names={apiKey:'API_KEY',appId:'APP_ID',messagingSenderId:'MESSAGING_SENDER_ID',projectId:'PROJECT_ID',authDomain:'AUTH_DOMAIN',storageBucket:'STORAGE_BUCKET'};
+          fs.appendFileSync(process.env.GITHUB_ENV,Object.entries(names).map(([k,n])=>'VITE_FIREBASE_'+n+'='+cfg[k]).join('\n')+'\n');
+          console.log('Existing DEV Backup SDK identity verified');
+          NODE
+      - name: Full source gates, Rules Emulator and bundle (fail closed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const a=require('./package.json'),b=require('./package-lock.json');if(a.name!==b.name||a.version!==b.version)process.exit(1)"
+          npm ci
+          node scripts/iphone-fullscreen-and-modal-safearea-golden.mjs
+          node --experimental-strip-types scripts/map-display-parity-dev-golden.mjs
+          node scripts/iphone-safearea-dark-catalog-golden.mjs
+          npm run test:stability
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run security:audit
+          npm run build
+          test -s dist/index.html
+          grep -R -F -q "$VITE_R2_GATEWAY_URL" dist/assets
+          if grep -R -F -q 'https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev' dist/assets; then
+            echo "::error::PROD R2 endpoint detected in DEV Backup bundle"; exit 1
+          fi
+          rm -f dist/server.cjs dist/server.cjs.map
+          node - <<'NODE'
+          const fs=require('fs');
+          fs.writeFileSync('dist/hnl-mobile-pr375-qa.json',JSON.stringify({
+            sha:process.env.GITHUB_SHA,
+            sourceCommit:'56c10b7f724d643d85ef2ed7bdf2ee345bb8189b',
+            sourceWipZipSha256:'a59b86f292a20bdbf8ecdf7827636dfdd9a0080fb9f14baf06b0918d4a72bc2e',
+            environment:'DEV_BACKUP',projectId:'hnl-qltc-dev-backup',
+            previewOnly:true,liveModified:false,prodModified:false,firestoreRulesModified:false
+          },null,2));
+          const cfg=JSON.parse(fs.readFileSync('firebase.json','utf8'));
+          if(!cfg.hosting||Array.isArray(cfg.hosting)||cfg.hosting.public!=='dist'||cfg.hosting.site||cfg.hosting.target)throw Error('Unexpected Hosting config');
+          fs.writeFileSync('hnl-pr375-hosting-preview-only.json',JSON.stringify({hosting:cfg.hosting}));
+          NODE
+      - name: Deploy ONLY existing DEV Backup Hosting preview channel (never LIVE)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$BACKUP_PROJECT" = "hnl-qltc-dev-backup"
+          test "$BACKUP_CHANNEL" = "pr375check"
+          test -s dist/hnl-mobile-pr375-qa.json
+          npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$BACKUP_CHANNEL" --project "$BACKUP_PROJECT" --config "$GITHUB_WORKSPACE/hnl-pr375-hosting-preview-only.json" --expires 1d --non-interactive --json > "$RUNNER_TEMP/pr375-preview.json"
+          node - <<'NODE'
+          const fs=require('fs'),s=fs.readFileSync(process.env.RUNNER_TEMP+'/pr375-preview.json','utf8');
+          const found=s.match(/https:\/\/hnl-qltc-dev-backup--pr375check-[a-z0-9-]+\.web\.app/);
+          if(!found)throw Error('No exact isolated DEV Backup preview URL returned');
+          fs.appendFileSync(process.env.GITHUB_ENV,'PR375_PREVIEW_URL='+found[0]+'\n');
+          fs.writeFileSync('PR375-PREVIEW-REPORT.json',JSON.stringify({preview:found[0],sha:process.env.GITHUB_SHA,sourceCommit:'56c10b7f724d643d85ef2ed7bdf2ee345bb8189b',projectId:'hnl-qltc-dev-backup',liveModified:false,runtimeGolden:false},null,2));
+          console.log('DEV BACKUP PREVIEW ONLY: '+found[0]);
+          NODE
+      - name: Verify published exact SHA marker (preview only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PR375_PREVIEW_URL"
+          curl -fLsS --retry 3 "$PR375_PREVIEW_URL/hnl-mobile-pr375-qa.json" > "$RUNNER_TEMP/marker.json"
+          node - "$RUNNER_TEMP/marker.json" <<'NODE'
+          const j=require(process.argv[2]);
+          if(j.sha!==process.env.GITHUB_SHA||j.projectId!=='hnl-qltc-dev-backup'||j.previewOnly!==true||j.liveModified!==false||j.sourceCommit!=='56c10b7f724d643d85ef2ed7bdf2ee345bb8189b')throw Error('Preview marker mismatch');
+          console.log('PR375 DEV Backup exact SHA marker PASS (LIVE untouched)');
+          NODE
+          curl -fLsS --retry 3 "$PR375_PREVIEW_URL/" | grep -q 'id="root"'
+      - name: Remove ephemeral credential
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/hnl-pr375-backup-sa.json" "$RUNNER_TEMP/apps.json" "$RUNNER_TEMP/sdk.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: PR375-DEV-BACKUP-PREVIEW-${{ github.sha }}
+          path: PR375-PREVIEW-REPORT.json
+          if-no-files-found: warn
+          retention-days: 14
