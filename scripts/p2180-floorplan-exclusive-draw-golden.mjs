@@ -13,5 +13,5 @@ check(/const handleContextMenuOnBg[^]*?if \(isRoomCreationDrawing\) return;/.tes
 check(src.includes('setIsDefectPinPlacementMode(false);') && src.includes('setRelocatingDefectId(null);') && src.includes('setSelectedDefectIds([]);'), 'existing Defect selection/placement state is cleared when drawing starts');
 check(src.includes("isFullscreen ? 'relative mx-2 mb-1") && !src.includes('top-20 sm:top-16'), 'fullscreen room toolbar occupies its own line, not overlaid by a fixed top offset');
 check(src.includes('construction_room_highlight_stroke_percent') && src.includes('const strokeScale = (roomHighlightStrokePercent / 100) / Math.max(1, zoomScale)'), 'stroke width is project-scoped local preference, preserving zoom compensation');
-check((src.match(/aria-label="Độ dày nét highlight"/g) || []).length === 2, 'stroke slider available in PC fullscreen and ordinary controls');
+check((src.match(/aria-label="Độ dày nét highlight"/g) || []).length === 1 && src.includes('renderMapDisplaySettings(false)') && src.includes('renderMapDisplayControls(true)'), 'one shared stroke slider powers ordinary and fullscreen display settings');
 console.log('P21.80 FLOORPLAN EXCLUSIVE DRAW SOURCE GATE PASS');
