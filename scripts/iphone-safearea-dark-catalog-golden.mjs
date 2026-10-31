@@ -22,6 +22,7 @@ const expected = [
   ['Quick edit bottom safe', quick, /data-hnl-ios-quick-grid-safe="true"[\s\S]{0,370}env\(safe-area-inset-bottom\)/],
   ['Catalog row scope', inventory, /data-hnl-warehouse-catalog-table="auto-width"[\s\S]{0,2200}data-hnl-catalog-open-master/],
   ['Dark catalog hover override', css, /html\[data-hnl-theme="dark"\] \[data-hnl-warehouse-catalog-table="auto-width"\] \[data-hnl-catalog-open-master\]:is\(:hover, :focus-visible\)/],
+  ['Mobile catalog name text selection disabled', css, /@media \(hover: none\) and \(pointer: coarse\)[\s\S]{0,180}\[data-hnl-catalog-open-master\][\s\S]{0,160}-webkit-user-select: none/],
 ];
 for (const [name, content, matcher] of expected) {
   assert.match(content, matcher, name);

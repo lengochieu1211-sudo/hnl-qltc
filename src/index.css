@@ -316,6 +316,16 @@ html[data-hnl-theme="dark"] [data-hnl-warehouse-catalog-table="auto-width"] [dat
   color: var(--hnl-primary-on-dark) !important;
 }
 
+/* Mobile long-press on an action label should not select its text and open the
+ * iOS Copy/Lookup menu. Keep desktop text selection and keyboard focus intact. */
+@media (hover: none) and (pointer: coarse) {
+  [data-hnl-warehouse-catalog-table="auto-width"] [data-hnl-catalog-open-master] {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
+
 /* Warehouse receipt photos: sky-50/40 remains a pale light-mode tint and sky-800
  * is too dark on the standard dark canvas. Scope the fix to the voucher photo
  * panel (new/edit) so light mode, semantic colors and photo handling are untouched. */
