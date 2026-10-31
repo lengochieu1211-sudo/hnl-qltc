@@ -3788,7 +3788,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       { tolerancePx: pointerType === 'touch' ? 20 : 12, midpoints: objectSnapMidpoints });
   };
 
-  const [roomSortBy, setRoomSortBy]  const [roomSortBy, setRoomSortBy] = useState<'name' | 'createdAt' | 'updatedAt' | 'manual'>('manual');
+  const [roomSortBy, setRoomSortBy] = useState<'name' | 'createdAt' | 'updatedAt' | 'manual'>('manual');
   const [roomSortOrder, setRoomSortOrder] = useState<'asc' | 'desc'>('asc');
 
   // Căn / Phòng collapse state is UI-only. With many rooms, default to collapsed
