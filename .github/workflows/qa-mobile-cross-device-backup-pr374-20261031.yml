@@ -1,0 +1,240 @@
+# Isolated DEV Backup Hosting-only candidate. Never deploys DEV main/PROD, Rules, R2 or Workers.
+name: QA Android & iPhone PR374 - DEV Backup Hosting Only (Rollback)
+on:
+  push:
+    branches:
+      - deploy/dev-backup-mobile-cross-device-pr374-20261031
+    paths:
+      - .github/workflows/qa-mobile-cross-device-backup-pr374-20261031.yml
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: hnl-qltc-mob374-backup-hosting-only
+  cancel-in-progress: false
+
+jobs:
+  verified-backup-hosting-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      SOURCE_SHA: '0a4f9882ebfc0245e85819c6486c7ecbe3402be7'
+      CI_RUN_ID: '41202434535'
+      QA_PROJECT: hnl-qltc-dev-backup
+      QA_SITE: hnl-qltc-dev-backup
+      QA_PREVIEW: mob374qa
+      QA_ROLLBACK: beforemob374
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+      VITE_HNL_AI_ENABLED: 'false'
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_USE_FIREBASE_EMULATORS: 'false'
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev-backup.web.app
+      VITE_GIT_COMMIT: '0a4f9882ebfc0245e85819c6486c7ecbe3402be7'
+      FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify single-workflow addition from exact approved DEV source and completed CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'lengochieu1211-sudo/hnl-qltc'
+          test "$GITHUB_REF" = 'refs/heads/deploy/dev-backup-mobile-cross-device-pr374-20261031'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$SOURCE_SHA" "$GITHUB_SHA"
+          test "$(git diff --name-only "$SOURCE_SHA" "$GITHUB_SHA")" = ".github/workflows/qa-mobile-cross-device-backup-pr374-20261031.yml"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = '.github/workflows/qa-mobile-cross-device-backup-pr374-20261031.yml'
+          test "$(git ls-remote origin refs/heads/fix/dev-pr374-cross-device-map-restore-20261031 | cut -f1)" = "$SOURCE_SHA"
+          test "$QA_PROJECT" = 'hnl-qltc-dev-backup'
+          test "$QA_SITE" = "$QA_PROJECT"
+          test "$QA_PREVIEW" != live
+          test "$QA_ROLLBACK" != live
+          test "$VITE_APP_ENV" = DEV
+          test "$VITE_ENABLE_LEGACY_DRIVE_WRITE" = false
+          test "$VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE" = false
+          test "$VITE_R2_GATEWAY_URL" = 'https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev'
+          test -n "${FIREBASE_SA:-}" || { echo '::error::DEV Backup credential missing, no deployment'; exit 1; }
+          node - <<'NODE'
+          const s=JSON.parse(process.env.FIREBASE_SA);
+          if(s.type!=='service_account'||s.project_id!=='hnl-qltc-dev-backup'||!s.private_key)
+            throw Error('Wrong DEV Backup service account; REFUSING deployment');
+          console.log('Exact-project isolated DEV Backup credential PASS');
+          NODE
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$CI_RUN_ID" > "$RUNNER_TEMP/pr374-ci.json"
+          node - "$RUNNER_TEMP/pr374-ci.json" <<'NODE'
+          const r=require(process.argv[2]);
+          if(r.head_sha!==process.env.SOURCE_SHA||r.status!=='completed'||r.conclusion!=='success'||r.name!=='Build')
+            throw Error('Exact source Build CI not PASS; refuse release');
+          console.log('Exact-source GitHub Build CI PASS: '+r.id);
+          NODE
+          git checkout --detach "$SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Get Web SDK for EXISTING DEV Backup app (no create/modify)
+        shell: bash
+        run: |
+          set -euo pipefail
+          CRED="$RUNNER_TEMP/mob374-backup-credential.json"
+          printf '%s' "$FIREBASE_SA" > "$CRED"
+          chmod 600 "$CRED"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$CRED" >> "$GITHUB_ENV"
+          export GOOGLE_APPLICATION_CREDENTIALS="$CRED"
+          npx --yes firebase-tools@13.35.1 apps:list WEB --project "$QA_PROJECT" --json > "$RUNNER_TEMP/mob374-apps.json"
+          APP_ID="$(node - "$RUNNER_TEMP/mob374-apps.json" <<'NODE'
+          const j=require(process.argv[2]);
+          const a=Array.isArray(j.result)?j.result:[];
+          const x=a.find(v=>v.platform==='WEB'||String(v.appId||'').includes(':web:'));
+          if(!x?.appId)throw Error('Existing DEV Backup WEB app not found');
+          process.stdout.write(x.appId);
+          NODE
+          )"
+          npx --yes firebase-tools@13.35.1 apps:sdkconfig WEB "$APP_ID" --project "$QA_PROJECT" --json > "$RUNNER_TEMP/mob374-sdk.json"
+          node - "$RUNNER_TEMP/mob374-sdk.json" <<'NODE'
+          const fs=require('fs'),raw=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          const keys=['apiKey','appId','messagingSenderId','projectId','authDomain','storageBucket'],v={};
+          function scan(x){
+            if(x==null)return;
+            if(Array.isArray(x)){x.forEach(scan);return}
+            if(typeof x==='object'){for(const [k,y] of Object.entries(x)){if(keys.includes(k)&&typeof y==='string'&&!v[k])v[k]=y;scan(y)}return}
+            if(typeof x==='string'){
+              try{scan(JSON.parse(x))}catch{}
+              for(const k of keys){const m=x.match(new RegExp(k+'\\s*:\\s*["\\x27]([^"\\x27]+)["\\x27]'));if(m&&!v[k])v[k]=m[1]}
+            }
+          }
+          scan(raw);
+          if(v.projectId!==process.env.QA_PROJECT||!v.apiKey||!v.appId||!v.messagingSenderId)throw Error('Existing DEV Backup SDK config invalid');
+          v.authDomain=process.env.QA_PROJECT+'.web.app';
+          v.storageBucket ||=process.env.QA_PROJECT+'.firebasestorage.app';
+          const map={apiKey:'VITE_FIREBASE_API_KEY',appId:'VITE_FIREBASE_APP_ID',messagingSenderId:'VITE_FIREBASE_MESSAGING_SENDER_ID',projectId:'VITE_FIREBASE_PROJECT_ID',authDomain:'VITE_FIREBASE_AUTH_DOMAIN',storageBucket:'VITE_FIREBASE_STORAGE_BUCKET'};
+          fs.appendFileSync(process.env.GITHUB_ENV,Object.entries(map).map(([k,n])=>n+'='+v[k]).join('\n')+'\n');
+          console.log('Existing DEV Backup SDK identity PASS (no secrets shown)');
+          NODE
+      - name: Exact locked build and safety gates (no live changes)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const p=require('./package.json'),l=require('./package-lock.json');if(p.name!==l.name||p.version!==l.version)process.exit(1)"
+          npm ci
+          node scripts/p2180-floorplan-exclusive-draw-golden.mjs
+          node scripts/iphone-safearea-dark-catalog-golden.mjs
+          node --experimental-strip-types scripts/map-display-parity-dev-golden.mjs
+          node scripts/iphone-fullscreen-and-modal-safearea-golden.mjs
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run security:audit
+          npm run build
+          test -s dist/index.html
+          grep -R -F -q "$VITE_R2_GATEWAY_URL" dist/assets
+          if grep -R -F -q 'https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev' dist/assets; then
+            echo '::error::PROD R2 gateway in DEV Backup build'; exit 1
+          fi
+          rm -f dist/server.cjs dist/server.cjs.map
+          node - <<'NODE'
+          const fs=require('fs'),cfg=JSON.parse(fs.readFileSync('firebase.json','utf8'));
+          if(!cfg.hosting||Array.isArray(cfg.hosting)||cfg.hosting.public!=='dist'||cfg.hosting.site||cfg.hosting.target)
+            throw Error('Unexpected Firebase Hosting config, refuse deployment');
+          fs.writeFileSync('mob374-hosting-only.json',JSON.stringify({hosting:cfg.hosting}));
+          fs.writeFileSync('dist/hnl-mobile-pr374-qa.json',JSON.stringify({
+            sha:process.env.SOURCE_SHA,projectId:'hnl-qltc-dev-backup',environment:'DEV',
+            feature:'iphone-safearea-pc-display-pr374',hostingOnly:true,previewOnly:true,
+            rulesModified:false,r2Modified:false,prodModified:false
+          },null,2));
+          console.log('Isolated Hosting-only config PASS');
+          NODE
+      - name: Preview-only deploy + readback exact SHA and project
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/mob374-backup-credential.json"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$QA_PREVIEW" = mob374qa
+          npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$QA_PREVIEW" --project "$QA_PROJECT" --config "$GITHUB_WORKSPACE/mob374-hosting-only.json" --expires 7d --non-interactive --json > "$RUNNER_TEMP/mob374-preview-result.json"
+          node - "$RUNNER_TEMP/mob374-preview-result.json" <<'NODE'
+          const fs=require('fs'),raw=fs.readFileSync(process.argv[2],'utf8');
+          const found=raw.match(/https:\/\/hnl-qltc-dev-backup--mob374qa-[a-z0-9-]+\.web\.app/);
+          if(!found)throw Error('DEV Backup Preview URL missing');
+          fs.appendFileSync(process.env.GITHUB_ENV,'HNL_MOB374_PREVIEW_URL='+found[0]+'\n');
+          console.log('DEV Backup preview deployed: '+found[0]);
+          NODE
+          HNL_MOB374_PREVIEW_URL="$(sed -n 's/^HNL_MOB374_PREVIEW_URL=//p' "$GITHUB_ENV" | tail -n 1)"
+          test -n "$HNL_MOB374_PREVIEW_URL"
+          curl -fsSL --retry 4 --max-time 25 "$HNL_MOB374_PREVIEW_URL/hnl-mobile-pr374-qa.json?run=$GITHUB_RUN_ID" -o "$RUNNER_TEMP/mob374-preview-marker.json"
+          node - "$RUNNER_TEMP/mob374-preview-marker.json" <<'NODE'
+          const v=require(process.argv[2]);
+          if(v.sha!==process.env.SOURCE_SHA||v.projectId!=='hnl-qltc-dev-backup'||v.feature!=='iphone-safearea-pc-display-pr374'||!v.hostingOnly)
+            throw Error('Wrong source/project in published DEV Backup preview: no live update');
+          console.log('PREVIEW HTTP 200 and immutable SHA/project: PASS');
+          NODE
+          curl -fsSL --retry 4 --max-time 25 "$HNL_MOB374_PREVIEW_URL/?run=$GITHUB_RUN_ID" -o "$RUNNER_TEMP/mob374-preview-index.html"
+          grep -q 'id="root"' "$RUNNER_TEMP/mob374-preview-index.html"
+      - name: Safe LIVE promotion (only DEV Backup) with rollback channel and exact hosted verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/mob374-backup-credential.json"
+          test "$QA_PROJECT:$QA_SITE:$QA_PREVIEW:$QA_ROLLBACK" = 'hnl-qltc-dev-backup:hnl-qltc-dev-backup:mob374qa:beforemob374'
+          test "$QA_SITE" != 'hnl-qltc-dev'
+          test "$QA_SITE" != 'com-example-qlct-61329'
+          # Preserve existing DEV Backup LIVE version before any change; rollback remains available.
+          npx --yes firebase-tools@13.35.1 hosting:clone "$QA_SITE:live" "$QA_SITE:$QA_ROLLBACK" --project "$QA_PROJECT" --non-interactive
+          if ! npx --yes firebase-tools@13.35.1 hosting:clone "$QA_SITE:$QA_PREVIEW" "$QA_SITE:live" --project "$QA_PROJECT" --non-interactive; then
+            echo '::error::DEV Backup LIVE clone failed; restoring previous DEV Backup LIVE'
+            npx --yes firebase-tools@13.35.1 hosting:clone "$QA_SITE:$QA_ROLLBACK" "$QA_SITE:live" --project "$QA_PROJECT" --non-interactive || true
+            exit 1
+          fi
+          ok=0
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fsSL --max-time 20 "https://hnl-qltc-dev-backup.web.app/hnl-mobile-pr374-qa.json?run=$GITHUB_RUN_ID-$attempt" -o "$RUNNER_TEMP/mob374-live-marker.json"; then
+              if node - "$RUNNER_TEMP/mob374-live-marker.json" <<'NODE'
+          const v=require(process.argv[2]);
+          if(v.sha!==process.env.SOURCE_SHA||v.projectId!=='hnl-qltc-dev-backup'||v.feature!=='iphone-safearea-pc-display-pr374'||!v.hostingOnly||v.prodModified!==false)process.exit(1);
+          NODE
+              then ok=1; break; fi
+            fi
+            sleep 3
+          done
+          if [ "$ok" != 1 ]; then
+            echo '::error::DEV Backup LIVE exact SHA/project failed. ROLLBACK ONLY DEV BACKUP LIVE.'
+            npx --yes firebase-tools@13.35.1 hosting:clone "$QA_SITE:$QA_ROLLBACK" "$QA_SITE:live" --project "$QA_PROJECT" --non-interactive
+            exit 1
+          fi
+          cat > MOB374-DEV-BACKUP-REPORT.json <<EOF
+          {
+            "status": "PASS_HOSTING_ONLY_NOT_RUNTIME_CERTIFIED",
+            "project": "hnl-qltc-dev-backup",
+            "liveUrl": "https://hnl-qltc-dev-backup.web.app",
+            "sourceSha": "$SOURCE_SHA",
+            "qaWorkflowSha": "$GITHUB_SHA",
+            "previewChannel": "$QA_PREVIEW",
+            "rollbackChannel": "$QA_ROLLBACK",
+            "ciRun": "$CI_RUN_ID",
+            "rulesModified": false,
+            "r2Modified": false,
+            "prodModified": false,
+            "signedInDeviceRuntimeGolden": false
+          }
+          EOF
+          echo 'DEV BACKUP LIVE source SHA/project verification PASS (no device Golden)'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: MOB374-DEV-BACKUP-HOSTING-REPORT-${{ github.sha }}
+          path: MOB374-DEV-BACKUP-REPORT.json
+          if-no-files-found: warn
+          retention-days: 30
