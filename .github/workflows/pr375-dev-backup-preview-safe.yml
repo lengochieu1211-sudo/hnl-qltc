@@ -2,7 +2,7 @@
 name: PR375 isolated DEV Backup preflight + preview (NO LIVE)
 on:
   push:
-    branches: [fix/dev-pr375-wip-backup-preview-20261031]
+    branches: [fix/dev-pr375-preview-auth-20261101]
     paths: [.github/workflows/pr375-dev-backup-preview-safe.yml]
 permissions:
   contents: read
@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 75
     env:
       BACKUP_PROJECT: hnl-qltc-dev-backup
-      BACKUP_CHANNEL: pr375check
+      BACKUP_CHANNEL: pr375auth
       VITE_APP_ENV: DEV
       VITE_RUNTIME_BACKEND: firebase-only
       VITE_BINARY_STORAGE_PROVIDER: r2
@@ -34,25 +34,28 @@ jobs:
       - name: Checkout source at immutable SHA
         uses: actions/checkout@v4
         with:
-          fetch-depth: 3
+          fetch-depth: 5
           persist-credentials: false
       - name: Verify scope, exact PR374 parent, source blobs and isolated Firebase target
         shell: bash
         run: |
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = "lengochieu1211-sudo/hnl-qltc"
-          test "$GITHUB_REF" = "refs/heads/fix/dev-pr375-wip-backup-preview-20261031"
+          test "$GITHUB_REF" = "refs/heads/fix/dev-pr375-preview-auth-20261101"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD^)" = "56c10b7f724d643d85ef2ed7bdf2ee345bb8189b"
-          test "$(git rev-parse HEAD^^)" = "0a4f9882ebfc0245e85819c6486c7ecbe3402be7"
+          test "$(git rev-parse HEAD^)" = "9a99ac08f940504014bd7c06364a7ee40b645356"
+          test "$(git rev-parse HEAD^^)" = "0cc9d73f4044a25fda72ae7a1bbc65931a7ce45a"
+          test "$(git rev-parse HEAD^^^)" = "56c10b7f724d643d85ef2ed7bdf2ee345bb8189b"
+          test "$(git rev-parse HEAD^^^^)" = "0a4f9882ebfc0245e85819c6486c7ecbe3402be7"
           test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = ".github/workflows/pr375-dev-backup-preview-safe.yml"
           test "$(git rev-parse HEAD:src/components/FloorPlanDefectTab.tsx)" = "a084eccaa9fc927b47727b69a084bc36195eb7d2"
           test "$(git rev-parse HEAD:src/index.css)" = "b1f1ae157c375d411b6aaa3599690153d076a5e7"
+          test "$(git rev-parse HEAD:src/lib/firebaseBase.ts)" = "c3e58c60ee58db6f3875ad3bce87637f3d5e1f00"
           test "$(git rev-parse HEAD:scripts/iphone-fullscreen-and-modal-safearea-golden.mjs)" = "d41a59fbebcefcaf48b7ecaf71e4637352af84ba"
           test "$(git rev-parse HEAD:scripts/map-display-parity-dev-golden.mjs)" = "5ba4ed51155927fbabd6c8a060f81fb35f32167d"
           test "$(git rev-parse HEAD:scripts/iphone-safearea-dark-catalog-golden.mjs)" = "6a61358fcace9197763fda69feeecf43775b2a4f"
           test "$BACKUP_PROJECT" = "hnl-qltc-dev-backup"
-          test "$BACKUP_CHANNEL" = "pr375check"
+          test "$BACKUP_CHANNEL" = "pr375auth"
           test "$VITE_APP_ENV" = "DEV"
           test "$VITE_ENABLE_LEGACY_DRIVE_WRITE" = "false"
           test "$VITE_R2_GATEWAY_URL" = "https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev"
@@ -144,12 +147,12 @@ jobs:
         run: |
           set -euo pipefail
           test "$BACKUP_PROJECT" = "hnl-qltc-dev-backup"
-          test "$BACKUP_CHANNEL" = "pr375check"
+          test "$BACKUP_CHANNEL" = "pr375auth"
           test -s dist/hnl-mobile-pr375-qa.json
           npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$BACKUP_CHANNEL" --project "$BACKUP_PROJECT" --config "$GITHUB_WORKSPACE/hnl-pr375-hosting-preview-only.json" --expires 1d --non-interactive --json > "$RUNNER_TEMP/pr375-preview.json"
           node - <<'NODE'
           const fs=require('fs'),s=fs.readFileSync(process.env.RUNNER_TEMP+'/pr375-preview.json','utf8');
-          const found=s.match(/https:\/\/hnl-qltc-dev-backup--pr375check-[a-z0-9-]+\.web\.app/);
+          const found=s.match(/https:\/\/hnl-qltc-dev-backup--pr375auth-[a-z0-9-]+\.web\.app/);
           if(!found)throw Error('No exact isolated DEV Backup preview URL returned');
           fs.appendFileSync(process.env.GITHUB_ENV,'PR375_PREVIEW_URL='+found[0]+'\n');
           fs.writeFileSync('PR375-PREVIEW-REPORT.json',JSON.stringify({preview:found[0],sha:process.env.GITHUB_SHA,sourceCommit:'56c10b7f724d643d85ef2ed7bdf2ee345bb8189b',projectId:'hnl-qltc-dev-backup',liveModified:false,runtimeGolden:false},null,2));
