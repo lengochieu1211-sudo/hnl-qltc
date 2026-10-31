@@ -52,7 +52,8 @@ jobs:
           test "$GITHUB_REPOSITORY" = 'lengochieu1211-sudo/hnl-qltc'
           test "$GITHUB_REF" = 'refs/heads/deploy/dev-backup-mapdisplay-pr372-20261031'
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+          test "$(git rev-parse HEAD^^)" = "$SOURCE_SHA"
+          test "$(git diff --name-only "$SOURCE_SHA" "$GITHUB_SHA")" = ".github/workflows/qa-map-display-dev-backup-20261031.yml"
           test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = '.github/workflows/qa-map-display-dev-backup-20261031.yml'
           test "$(git ls-remote origin refs/heads/fix/dev-restore-prod-map-display-20261031 | cut -f1)" = "$SOURCE_SHA"
           test "$QA_PROJECT" = 'hnl-qltc-dev-backup'
@@ -170,6 +171,8 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_ENV,'HNL_MAP372_PREVIEW_URL='+found[0]+'\n');
           console.log('DEV Backup preview deployed: '+found[0]);
           NODE
+          HNL_MAP372_PREVIEW_URL="$(sed -n 's/^HNL_MAP372_PREVIEW_URL=//p' "$GITHUB_ENV" | tail -n 1)"
+          test -n "$HNL_MAP372_PREVIEW_URL"
           curl -fsSL --retry 4 --max-time 25 "$HNL_MAP372_PREVIEW_URL/hnl-map-display-qa.json?run=$GITHUB_RUN_ID" -o "$RUNNER_TEMP/map372-preview-marker.json"
           node - "$RUNNER_TEMP/map372-preview-marker.json" <<'NODE'
           const v=require(process.argv[2]);
