@@ -287,7 +287,11 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-slate-950/95 z-[200] flex flex-col animate-in fade-in">
-      <div className="flex items-center justify-between p-4 text-white z-10 bg-gradient-to-b from-slate-950 to-transparent">
+      <div data-hnl-ios-photo-viewer-header="true" className="flex items-center justify-between px-4 pb-4 pt-4 text-white z-10 bg-gradient-to-b from-slate-950 to-transparent" style={{
+        paddingTop: 'max(1rem, env(safe-area-inset-top))',
+        paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+        paddingRight: 'max(1rem, env(safe-area-inset-right))',
+      }}>
         <h3 className="font-bold text-sm">
           Xem chi tiết ảnh {allImages.length > 1 ? `(${currentIndex + 1}/${allImages.length})` : ''}
         </h3>

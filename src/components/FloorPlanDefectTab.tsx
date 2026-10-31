@@ -7284,10 +7284,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           <div data-hnl-pc-plan-viewport="true" className={`${isFullscreen ? 'fixed inset-0 z-[100] bg-slate-950 rounded-none h-[100dvh] w-[100dvw] flex flex-col' : 'relative w-full h-[52dvh] min-h-[320px] max-h-[520px] sm:h-[400px] bg-slate-900 rounded-2xl'} overflow-hidden isolate border border-slate-300 select-none group shadow-inner`}>
             {/* Fullscreen Pinned Drawing Toolbar & Active Banners */}
             {isFullscreen && (
-              <div className="shrink-0 z-[70] pointer-events-auto flex flex-col gap-1.5 p-2 bg-slate-950/95 border-b border-slate-800 shadow-lg">
+              <div
+                data-hnl-ios-fullscreen-toolbar="true"
+                className="shrink-0 z-[70] pointer-events-auto flex flex-col gap-1.5 p-2 bg-slate-950/95 border-b border-slate-800 shadow-lg"
+                style={{
+                  paddingTop: 'max(0.5rem, env(safe-area-inset-top))',
+                  paddingLeft: 'max(0.5rem, env(safe-area-inset-left))',
+                  paddingRight: 'max(0.5rem, env(safe-area-inset-right))',
+                }}
+              >
                 {/* Fullscreen Top Control Bar */}
-                <div className="flex items-center justify-between gap-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-slate-700 shadow-2xl text-white overflow-x-auto no-scrollbar">
-                  <div className="flex items-center gap-2 shrink-0">
+                <div className="flex min-w-0 flex-col gap-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-slate-700 shadow-2xl text-white sm:flex-row sm:items-center sm:justify-between">
+                  <div data-hnl-ios-fullscreen-scrolltools="true" className="flex min-w-0 w-full items-center gap-2 overflow-x-auto no-scrollbar sm:w-auto sm:flex-1">
                     <div className="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
@@ -7471,7 +7479,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     )}
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div data-hnl-ios-fullscreen-exit="true" className="order-first flex w-full shrink-0 items-center justify-end gap-2 sm:order-last sm:w-auto">
                     <UndoRedoControls
                       onUndo={onUndo}
                       onRedo={onRedo}
@@ -7884,7 +7892,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             )}
 
             {/* Compact Navigation Bar: zoom + fit + focus + minimap + layers */}
-            <div className="absolute bottom-3 right-3 z-50 pointer-events-auto flex items-center gap-1 bg-slate-950/92 backdrop-blur-md px-2 py-1.5 rounded-xl border border-slate-700 shadow-2xl text-white text-[11px] max-w-[calc(100%-24px)] overflow-x-auto no-scrollbar">
+            <div style={isFullscreen ? {
+              bottom: 'max(0.75rem, env(safe-area-inset-bottom))',
+              right: 'max(0.75rem, env(safe-area-inset-right))',
+              maxWidth: 'calc(100% - 1.5rem - env(safe-area-inset-left) - env(safe-area-inset-right))',
+            } : undefined} data-hnl-ios-fullscreen-bottom="true" className="absolute bottom-3 right-3 z-50 pointer-events-auto flex items-center gap-1 bg-slate-950/92 backdrop-blur-md px-2 py-1.5 rounded-xl border border-slate-700 shadow-2xl text-white text-[11px] max-w-[calc(100%-24px)] overflow-x-auto no-scrollbar">
               <button
                 type="button"
                 onClick={() => setZoomScale((prev) => Math.max(1, +(prev - 0.25).toFixed(2)))}

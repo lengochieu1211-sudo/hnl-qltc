@@ -775,7 +775,12 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
   };
 
   return (
-    <div data-hnl-pc-v32-window="quick-grid" onKeyDown={handleGridHistoryKeyDown} className="fixed inset-0 z-[180] bg-slate-950/55 backdrop-blur-[1px] flex items-stretch sm:p-3">
+    <div data-hnl-pc-v32-window="quick-grid" data-hnl-ios-quick-grid-safe="true" onKeyDown={handleGridHistoryKeyDown} className="fixed inset-0 z-[180] bg-slate-950/55 backdrop-blur-[1px] flex items-stretch sm:p-3" style={{
+      paddingTop: 'max(0.75rem, env(safe-area-inset-top))',
+      paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))',
+      paddingLeft: 'max(0.75rem, env(safe-area-inset-left))',
+      paddingRight: 'max(0.75rem, env(safe-area-inset-right))',
+    }}>
       <div className="bg-white w-full h-full sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-slate-200">
         <div className="px-3 sm:px-4 py-3 border-b border-slate-200 bg-white flex items-start justify-between gap-3">
           <div className="min-w-0">
