@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { initializeApp, deleteApp } from 'firebase/app';
 import {
   getAuth,
@@ -17,6 +18,7 @@ import {
   deleteField,
   runTransaction,
   getDocsFromServer,
+  onSnapshot,
   collection,
 } from 'firebase/firestore';
 import {
@@ -622,6 +624,93 @@ try {
     positionLocked: false, revision: 4, updatedAt: Date.now() + 1000, updatedByUid: viewerUid,
   }));
   await signIn(ownerEmail);
+
+  // DEV only: two independent signed-in SDK clients remain active simultaneously.
+  // This verifies the realtime lock propagation that sequential signIn() checks
+  // cannot prove. No production project, warehouse transaction, or R2 access.
+  const lockObserverApp = initializeApp({
+    apiKey: 'demo-key', authDomain: `${projectId}.firebaseapp.com`, projectId,
+  }, `rules-position-watch-${nonce}`);
+  try {
+    const observerAuth = getAuth(lockObserverApp);
+    const observerDb = getFirestore(lockObserverApp);
+    connectAuthEmulator(observerAuth, 'http://127.0.0.1:9099', { disableWarnings: true });
+    connectFirestoreEmulator(observerDb, '127.0.0.1', 8080);
+    await signInWithEmailAndPassword(observerAuth, viewerEmail, password);
+    const observerRoomRef = doc(observerDb, 'projects', pid, 'rooms', 'ROOM-RULE-1');
+    const observerDefectRef = doc(observerDb, 'projects', pid, 'defects', 'DF-RULE-1');
+
+    function waitForOtherAccountLock(refToWatch, locked, label) {
+      let unsubscribe = () => {};
+      let ended = false;
+      let timer;
+      const settle = (error, value, resolve, reject) => {
+        if (ended) return;
+        ended = true;
+        clearTimeout(timer);
+        unsubscribe();
+        if (error) reject(error); else resolve(value);
+      };
+      return new Promise((resolve, reject) => {
+        timer = setTimeout(() => settle(new Error('OTHER_ACCOUNT_REALTIME_TIMEOUT:' + label), null, resolve, reject), 15000);
+        unsubscribe = onSnapshot(refToWatch, (snapshot) => {
+          if (!snapshot.exists() || snapshot.metadata.fromCache) return;
+          if (snapshot.data().positionLocked === locked) settle(null, snapshot.data(), resolve, reject);
+        }, (error) => settle(error, null, resolve, reject));
+      });
+    }
+
+    const stockBefore = (await getDoc(balanceRef)).data();
+    const roomBefore = (await getDoc(roomRef)).data();
+    const defectBefore = (await getDoc(recordRef)).data();
+    assert.equal(roomBefore.positionLocked, true, 'Room must be locked before two-client test');
+    assert.equal(defectBefore.positionLocked, true, 'Defect must be locked before two-client test');
+    async function writeBothLocksAtomically(value) {
+      await runTransaction(db, async (tx) => {
+        // Read all rows before writing to satisfy Firestore transaction requirements.
+        const roomSnapshot = await tx.get(roomRef);
+        const defectSnapshot = await tx.get(recordRef);
+        if (!roomSnapshot.exists() || !defectSnapshot.exists()
+            || roomSnapshot.data().positionLocked === value
+            || defectSnapshot.data().positionLocked === value) {
+          throw new Error('POSITION_LOCK_REALTIME_PRECONDITION_FAILED');
+        }
+        const now = Date.now();
+        for (const snapshot of [roomSnapshot, defectSnapshot]) {
+          tx.update(snapshot.ref, {
+            positionLocked: value,
+            revision: Number(snapshot.data().revision || 0) + 1,
+            updatedAt: Math.max(now, Number(snapshot.data().updatedAt || 0) + 1),
+            updatedByUid: ownerUid,
+          });
+        }
+      });
+    }
+
+    await expectAllowed('two authenticated clients: VIEWER realtime observes ADMIN unlock Room+Defect', async () => {
+      const roomObserved = waitForOtherAccountLock(observerRoomRef, false, 'room-unlock');
+      const defectObserved = waitForOtherAccountLock(observerDefectRef, false, 'defect-unlock');
+      await writeBothLocksAtomically(false);
+      const [room, defect] = await Promise.all([roomObserved, defectObserved]);
+      assert.equal(room.x, roomBefore.x);
+      assert.equal(room.width, roomBefore.width);
+      assert.equal(defect.description, defectBefore.description);
+    });
+    await expectAllowed('two authenticated clients: VIEWER realtime observes ADMIN relock Room+Defect', async () => {
+      const roomObserved = waitForOtherAccountLock(observerRoomRef, true, 'room-relock');
+      const defectObserved = waitForOtherAccountLock(observerDefectRef, true, 'defect-relock');
+      await writeBothLocksAtomically(true);
+      await Promise.all([roomObserved, defectObserved]);
+    });
+    const stockAfter = (await getDoc(balanceRef)).data();
+    assert.deepEqual(stockAfter, stockBefore, 'Position locking must not alter the warehouse balance document');
+    assert.equal((await getDoc(roomRef)).data().x, roomBefore.x, 'Position lock must not move Room');
+    assert.equal((await getDoc(recordRef)).data().description, defectBefore.description, 'Position lock must not alter Defect');
+    console.log('PASS position-lock REALTIME two independent signed-in SDK sessions; inventory balance unchanged');
+  } finally {
+    await deleteApp(lockObserverApp);
+  }
+
   await expectAllowed('ADMIN retains atomic unit migration metadata permission', () => updateDoc(balanceRef, {
     unit: 'thùng', renamedTo: 'renamed-balance', renamedToUnit: 'thùng',
     revision: 3, updatedAt: balanceNow + 2, updatedByUid: ownerUid,
