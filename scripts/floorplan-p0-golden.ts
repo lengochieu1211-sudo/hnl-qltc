@@ -223,7 +223,7 @@ check(!ui.includes('bg-amber-500 text-slate-950 font-black shadow-sm ring-2 ring
 check((ui.match(/min-h-9/g) || []).length >= 9 && ui.includes('className="h-9 w-9 inline-flex') && ui.includes('className="h-9 max-w-[150px]'), 'Fullscreen floor-plan toolbar must retain >=36px touch targets.');
 check(ui.includes('min-h-9 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700') && !ui.includes('bg-rose-600/90 hover:bg-rose-600'), 'Fullscreen minimize must remain neutral rather than destructive rose.');
 check(ui.includes("roomColorMode === 'palette' ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-800 border border-slate-300'"), 'Viewer floor-plan display selection must use primary/neutral colors.');
-check((ui.match(/!showTextOverlay[\s\S]{0,180}bg-indigo-600 text-white/g) || []).length >= 3, 'Floor-plan text-overlay selection must use HNL primary instead of success green.');
+check(ui.includes("showTextOverlay ? 'bg-indigo-600 text-white'") && ui.includes('renderMapDisplaySettings(false)') && ui.includes('renderMapDisplayControls(true)') && !/showTextOverlay[\\s\\S]{0,120}bg-emerald-600/.test(ui), 'Shared floor-plan text-overlay selection must use HNL primary instead of success green in ordinary + fullscreen menus.');
 check(ui.includes('loading="lazy"') && ui.includes('decoding="async"'), 'Floor management thumbnails must avoid eager decoding every plan image.');
 check(app.includes('onInspectFloorPlanBulkTargets={handleInspectFloorPlanBulkTargets}'), 'App must expose bulk preflight to the floor-plan UI.');
 check(ui.includes('Defect, Căn / Phòng, vùng tô sáng (highlight), tiến độ, checklist'), 'Bulk floor UI must warn that business data remains per-floor.');
