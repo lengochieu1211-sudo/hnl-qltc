@@ -527,6 +527,29 @@ try {
   }));
   await expectDenied('core hard delete rejected', () => deleteDoc(recordRef));
 
+  // Two authenticated accounts read the same canonical Cloud lock; localStorage is
+  // intentionally absent from this test. Transaction only writes lock + lifecycle.
+  await expectAllowed('EDITOR locks Defect with monotonic Cloud revision', () => runTransaction(db, async (tx) => {
+    const snap = await tx.get(recordRef);
+    const row = snap.data();
+    if (row.positionLocked === true) throw new Error('DEFECT_LOCK_ALREADY_TRUE');
+    tx.update(recordRef, {
+      positionLocked: true, revision: Number(row.revision || 0) + 1,
+      updatedAt: Math.max(Date.now(), Number(row.updatedAt || 0) + 1),
+      updatedByUid: editorUid,
+    });
+  }));
+  await signIn(viewerEmail);
+  await expectAllowed('VIEWER sees EDITOR Defect lock on another account', async () => {
+    const snap = await getDoc(recordRef);
+    if (snap.data()?.positionLocked !== true) throw new Error('VIEWER_DEFECT_LOCK_NOT_SHARED');
+  });
+  await expectDenied('VIEWER cannot unlock Defect Cloud flag', () => updateDoc(recordRef, {
+    positionLocked: false, revision: 4, updatedAt: Date.now() + 1000, updatedByUid: viewerUid,
+  }));
+  await signIn(editorEmail);
+
+
   const inventoryRef = doc(db, 'projects', pid, 'inventory', 'INV-RULE-1');
   await expectAllowed('EDITOR creates warehouse operational record', () => setDoc(inventoryRef, {
     id: 'INV-RULE-1', materialName: 'Tấm TC', type: 'IN', quantity: 10, unit: 'tấm',
@@ -577,6 +600,28 @@ try {
   }));
   await expectDenied('EDITOR cannot write migration tombstone on an existing balance', () => updateDoc(balanceRef, {
     renamedTo: 'another-key', revision: 3, updatedAt: balanceNow + 2, updatedByUid: editorUid,
+  }));
+  await signIn(ownerEmail);
+  await signIn(ownerEmail);
+  const beforeRoomLock = await getDoc(roomRef);
+  await expectAllowed('ADMIN atomically locks Room without changing geometry', () => runTransaction(db, async (tx) => {
+    const snap = await tx.get(roomRef);
+    const row = snap.data();
+    if (row.positionLocked === true) throw new Error('ROOM_LOCK_ALREADY_TRUE');
+    tx.update(roomRef, {
+      positionLocked: true, revision: Number(row.revision || 0) + 1,
+      updatedAt: Math.max(Date.now(), Number(row.updatedAt || 0) + 1),
+      updatedByUid: ownerUid,
+    });
+  }));
+  await signIn(viewerEmail);
+  await expectAllowed('VIEWER sees Room lock and unchanged room geometry on other account', async () => {
+    const snap = await getDoc(roomRef);
+    if (snap.data()?.positionLocked !== true || snap.data()?.x !== beforeRoomLock.data()?.x
+      || snap.data()?.width !== beforeRoomLock.data()?.width) throw new Error('ROOM_LOCK_PARITY_OR_GEOMETRY');
+  });
+  await expectDenied('VIEWER cannot unlock Room Cloud flag', () => updateDoc(roomRef, {
+    positionLocked: false, revision: 4, updatedAt: Date.now() + 1000, updatedByUid: viewerUid,
   }));
   await signIn(ownerEmail);
   await expectAllowed('ADMIN retains atomic unit migration metadata permission', () => updateDoc(balanceRef, {
