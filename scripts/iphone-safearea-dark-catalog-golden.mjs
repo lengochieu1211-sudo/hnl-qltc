@@ -12,7 +12,7 @@ const inventory = read('src/components/WarehouseTab.tsx');
 const expected = [
   ['Full floor plan toolbar safe top', plan, /data-hnl-ios-fullscreen-toolbar="true"[\s\S]{0,550}env\(safe-area-inset-top\)/],
   ['Full floor plan left/right safe', plan, /data-hnl-ios-fullscreen-toolbar="true"[\s\S]{0,850}env\(safe-area-inset-left\)[\s\S]{0,140}env\(safe-area-inset-right\)/],
-  ['Full floor plan exit pinned on mobile', plan, /data-hnl-ios-fullscreen-exit="true"[^>]*className="flex shrink-0[^>]*justify-end/],
+  ['Full floor plan exit pinned on mobile', plan, /data-hnl-ios-fullscreen-exit="true"[^>]*className="order-first flex w-full shrink-0[^>]*sm:order-last/],
   ['Full floor plan horizontal tools', plan, /data-hnl-ios-fullscreen-scrolltools="true"[^>]*overflow-x-auto/],
   ['Full floor plan bottom safe', plan, /data-hnl-ios-fullscreen-bottom="true"|bottom: 'max\(0\.75rem, env\(safe-area-inset-bottom\)\)'/],
   ['Photo viewer safe top', viewer, /data-hnl-ios-photo-viewer-header="true"[\s\S]{0,320}env\(safe-area-inset-top\)/],

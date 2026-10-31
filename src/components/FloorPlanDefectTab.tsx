@@ -1304,6 +1304,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const fullscreenDisplayTriggerRef = useRef<HTMLButtonElement>(null);
   const fullscreenDisplayPopoverRef = useRef<HTMLDivElement>(null);
   const fullscreenDisplayViewportRef = useRef<HTMLDivElement>(null);
+  const fullscreenToolbarToolsRef = useRef<HTMLDivElement>(null);
   const [fullscreenDisplayPosition, setFullscreenDisplayPosition] = useState<ReturnType<typeof placeFloorPlanDisplayPopover> | null>(null);
   const toggleFullscreenDisplaySettings = () => {
     if (showFullscreenDisplaySettings) { setShowFullscreenDisplaySettings(false); return; }
@@ -3029,6 +3030,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [hoveredRoomId, setHoveredRoomId] = useState<string | null>(null);
   
   const [isFullscreen, setIsFullscreen] = useState(false);
+  useLayoutEffect(() => {
+    if (!isFullscreen) return;
+    const frame = requestAnimationFrame(() => {
+      if (fullscreenToolbarToolsRef.current) fullscreenToolbarToolsRef.current.scrollLeft = 0;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [isFullscreen, viewMode, selectedFloorId]);
   // A settings popover must not block drawing, floor switching or room action controls.
   useEffect(() => {
     if (!isFullscreen || !showFullscreenDisplaySettings) return;
@@ -6323,7 +6331,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       <summary className="min-h-9 cursor-pointer select-none list-none px-3 py-2 flex items-center gap-1.5 text-[11px] font-bold whitespace-nowrap" aria-label="Mở tùy chỉnh hiển thị mặt bằng">
         <span aria-hidden="true">⚙️</span> Hiển thị <span className="text-[9px] group-open:rotate-180">▾</span>
       </summary>
-      <div data-hnl-map-display-popover="true" className={`absolute right-0 top-full z-[95] mt-1 w-[min(18rem,calc(100vw-2rem))] max-h-[min(70dvh,36rem)] overflow-y-auto overscroll-contain rounded-xl border shadow-xl ${dark ? 'border-slate-600 bg-slate-800' : 'border-slate-200 bg-white'}`}>
+      <div data-hnl-map-display-popover="true" className={`hnl-mobile-map-display-panel absolute right-0 top-full z-[95] mt-1 w-[min(18rem,calc(100vw-2rem))] max-h-[min(70dvh,36rem)] overflow-y-auto overscroll-contain rounded-xl border shadow-xl ${dark ? 'border-slate-600 bg-slate-800' : 'border-slate-200 bg-white'}`}>
+        <div className="flex items-center justify-between px-3 py-2 border-b border-current/15 sm:hidden">
+          <strong className="text-sm">⚙️ Hiển thị mặt bằng</strong>
+          <button type="button" aria-label="Đóng tùy chỉnh hiển thị" onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}
+            className="rounded-lg border border-current/20 px-3 py-1.5 text-xs font-bold">✕ Đóng</button>
+        </div>
         {renderMapDisplayControls(dark)}
       </div>
     </details>
@@ -7385,8 +7398,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 }}
               >
                 {/* Fullscreen Top Control Bar */}
-                <div className="flex min-w-0 items-center justify-between gap-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-slate-700 shadow-2xl text-white">
-                  <div data-hnl-ios-fullscreen-scrolltools="true" className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto no-scrollbar touch-pan-x">
+                <div className="flex min-w-0 flex-col gap-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-slate-700 shadow-2xl text-white sm:flex-row sm:items-center sm:justify-between">
+                  <div ref={fullscreenToolbarToolsRef} data-hnl-ios-fullscreen-scrolltools="true" className="flex min-w-0 w-full items-center gap-2 overflow-x-auto no-scrollbar touch-pan-x sm:w-auto sm:flex-1">
                     <div className="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
@@ -7540,7 +7553,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     )}
                   </div>
 
-                  <div data-hnl-ios-fullscreen-exit="true" className="flex shrink-0 items-center justify-end gap-1.5">
+                  <div data-hnl-ios-fullscreen-exit="true" className="order-first flex w-full shrink-0 items-center justify-end gap-2 sm:order-last sm:w-auto">
                     <UndoRedoControls
                       onUndo={onUndo}
                       onRedo={onRedo}
@@ -11208,8 +11221,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
       {/* MANAGE FLOORS MODAL (Tùy Chỉnh, Đổi Tên, Nhân bản, Xóa tầng) */}
       {canManageStructure && showManageFloorsModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-white w-full sm:w-[92vw] lg:w-[90vw] max-w-[1360px] rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 space-y-4 max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col shadow-2xl">
+        <div className="hnl-cross-device-safe-overlay fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+          <div className="hnl-cross-device-safe-dialog bg-white w-full sm:w-[92vw] lg:w-[90vw] max-w-[1360px] rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 space-y-4 max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">

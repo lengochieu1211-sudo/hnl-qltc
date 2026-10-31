@@ -2614,13 +2614,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     )}
 
                     {/* Quick Stat Pill Widgets */}
-                    <div className="grid grid-cols-3 gap-2 my-2.5 pt-2 border-t border-slate-100 text-xs">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 my-2.5 pt-2 border-t border-slate-100 text-xs">
                       <div 
                         onClick={async () => {
                           setSelectedTeamForDetail(team);
                           setDetailModalTab('rooms');
                         }}
-                        className="bg-indigo-50/70 border border-indigo-100 p-2 rounded-lg cursor-pointer hover:bg-indigo-100/70 transition text-center"
+                        className="col-span-2 sm:col-span-1 min-w-0 bg-indigo-50/70 border border-indigo-100 p-2 rounded-lg cursor-pointer hover:bg-indigo-100/70 transition text-center"
                         title="Xem các Căn / Phòng & khối lượng đội đang phụ trách"
                       >
                         <div className="text-[10px] text-indigo-500 font-bold uppercase tracking-wider">Căn / Phòng & khối lượng</div>
@@ -2630,9 +2630,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                             {assignedRooms.length} căn
                           </span>
                           {categoryBreakdown && categoryBreakdown.length > 0 ? (
-                            <div className="text-[9px] text-indigo-950 bg-indigo-100/50 px-1 py-0.5 rounded font-extrabold flex flex-col gap-0.5 mt-0.5 max-w-[120px] text-left truncate">
+                            <div className="w-full min-w-0 text-[10px] text-indigo-950 bg-indigo-100/50 px-2 py-1 rounded font-extrabold flex flex-col gap-1 mt-1 text-left">
                               {categoryBreakdown.map(cb => (
-                                <div key={cb.categoryName} className="truncate">
+                                <div key={cb.categoryName} className="break-words">
                                   {cb.categoryName}: {formatDecimal(cb.assignedVol)} {cb.unit}
                                 </div>
                               ))}
