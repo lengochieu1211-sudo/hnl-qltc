@@ -3,7 +3,7 @@ on:
   push:
     branches: [qa/dev-prod-safe-integration-20261101]
 permissions:
-  contents: read
+  contents: write
 jobs:
   reconcile:
     runs-on: ubuntu-latest
@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: false
+          persist-credentials: true
       - name: Exact DEV / PROD HEAD and QA-only scope
         shell: bash
         run: |
@@ -100,7 +100,24 @@ jobs:
           pathlib.Path('output/REPORT.json').write_text(json.dumps(obj,indent=2))
           print(sums)
           PY
-      - name: Upload evidence; never push or deploy
+      - name: Push ONLY verified integrated source to new dedicated integration branch (NO DEV MAIN PUSH)
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEV=6073580c0d5ebcce1b6669f531d7140c384a78d3
+          PROD=1c2b7d663d51d51aa45010e533d8e035e22adf59
+          DEST=refs/heads/integration/dev-prod-safe-20261101
+          test "$(git rev-list --parents -n 1 HEAD | awk '{print $2}')" = "$DEV"
+          test "$(git rev-list --parents -n 1 HEAD | awk '{print $3}')" = "$PROD"
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$DEV"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$PROD"
+          test -s output/TEST-RESULT.txt
+          test -s output/SHA256SUMS.txt
+          test -z "$(git ls-remote origin "$DEST")" || { echo 'Integration branch already exists; refusing overwrite'; exit 1; }
+          git push origin "HEAD:$DEST"
+          echo "Integration candidate HEAD: $(git rev-parse HEAD) (branch $DEST, DEV/main untouched)"
+      - name: Upload evidence; source archived and no DEV/PROD deploy
         if: always()
         uses: actions/upload-artifact@v4
         with:
