@@ -1,0 +1,119 @@
+name: HNL current DEV + PR375 scoped feature integration QA (NO PROD/DEPLOY)
+on:
+  push:
+    branches: [qa/dev-pr375-safe-integration-20261101]
+permissions:
+  contents: write
+concurrency:
+  group: hnl-dev-pr375-qa-integration-20261101
+  cancel-in-progress: false
+jobs:
+  pr375-into-dev:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pin exact DEV, PR375 and stable PROD; do not touch data
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEV=7994251ca9fa9e09437ee0440ef09905463d7a39
+          PR=33a24cc3e97bdce61058fd2c2219c37da4f40642
+          MAIN=1c2b7d663d51d51aa45010e533d8e035e22adf59
+          test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
+          test "$GITHUB_REF" = refs/heads/qa/dev-pr375-safe-integration-20261101
+          test "$(git rev-parse HEAD^)" = "$DEV"
+          test "$(git diff --name-only "$DEV" HEAD)" = '.github/workflows/hnl-dev-pr375-integration-gate-20261101.yml'
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$DEV"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$MAIN"
+          git cat-file -e "$PR^{commit}"
+          git config user.name HNL-QA-Integration
+          git config user.email qa-integration@users.noreply.github.com
+      - name: Three-way merge exact PR375 into DEV safely, reject all unapproved scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEV=7994251ca9fa9e09437ee0440ef09905463d7a39
+          PR=33a24cc3e97bdce61058fd2c2219c37da4f40642
+          MAIN=1c2b7d663d51d51aa45010e533d8e035e22adf59
+          mkdir -p evidence
+          git diff --name-only "$MAIN" "$PR" | sort > evidence/APPROVED-PR375-PATHS.txt
+          test "$(wc -l < evidence/APPROVED-PR375-PATHS.txt | tr -d ' ')" = 20
+          git merge --no-commit --no-ff "$PR"
+          test -z "$(git diff --name-only --diff-filter=U)"
+          git rm -f .github/workflows/hnl-dev-pr375-integration-gate-20261101.yml
+          git add -A
+          git diff --cached --name-only > evidence/INTEGRATED-INDEX-PATHS.txt
+          git diff --name-only "$DEV" > evidence/INTEGRATED-TREE-PATHS.txt
+          git diff --cached --check
+          test -z "$(git grep -l -e '^<<<<<<< ' -e '^>>>>>>> ' -- src scripts || true)"
+          # The final integration tree may only include files in exact 20-file PR scope.
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const DEV='7994251ca9fa9e09437ee0440ef09905463d7a39';
+          const allowed=new Set(fs.readFileSync('evidence/APPROVED-PR375-PATHS.txt','utf8').trim().split('\n'));
+          const changed=execFileSync('git',['diff','--cached','--name-only',DEV],{encoding:'utf8'}).trim().split('\n').filter(Boolean);
+          const bad=changed.filter(p=>!allowed.has(p));
+          const forbidden=changed.filter(p=>/^(firestore\.rules|firebase\.json|firebase\.prod\.json|\.firebaserc|package(?:-lock)?\.json|src\/lib\/firebaseBase\.ts|src\/lib\/chatService\.ts)$/.test(p));
+          if(bad.length||forbidden.length||changed.length>20||changed.length<5)throw Error('Refuse scope drift: '+JSON.stringify({bad,forbidden,changed}));
+          fs.writeFileSync('evidence/INTEGRATION-SCOPE.json',JSON.stringify({devBase:DEV,prHead:'33a24cc3e97bdce61058fd2c2219c37da4f40642',includedFileCount:changed.length,changed,prodUnchanged:true,dataUnchanged:true,noFirebaseConfigChanges:true},null,2));
+          console.log('PR375 integration exact 20-file whitelist checked: '+changed.length+' files');
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Locked npm, TypeScript, lint, Rules, restore, stability, auth and build checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const a=require('./package.json'),b=require('./package-lock.json');if(a.name!==b.name||a.version!==b.version)process.exit(1)"
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run test:firestore-restore-gate
+          npm run test:stability
+          npm run test:rbac
+          npm run test:offline
+          node scripts/auth-popup-golden.mjs
+          npm run build
+          test -s dist/index.html
+      - name: Commit gated source to NEW isolated integration branch only
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          DEV=7994251ca9fa9e09437ee0440ef09905463d7a39
+          PR=33a24cc3e97bdce61058fd2c2219c37da4f40642
+          MAIN=1c2b7d663d51d51aa45010e533d8e035e22adf59
+          TARGET=integration/dev-pr375-scope-20261101
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$DEV"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$MAIN"
+          test -z "$(git ls-remote origin refs/heads/$TARGET)"
+          test ! -e .github/workflows/hnl-dev-pr375-integration-gate-20261101.yml
+          git commit -m 'integration(dev): include PR375 mobile and Excel scope without altering Firebase or data'
+          test "$(git rev-parse HEAD^2)" = "$PR"
+          test "$(git rev-parse HEAD^1)" = "$GITHUB_SHA"
+          git diff --name-only "$DEV" HEAD > evidence/FINAL-CHANGED-FILES.txt
+          git archive --format=zip --output=evidence/HNL-DEV-PR375-FULL.zip HEAD
+          git archive --format=zip --output=evidence/HNL-DEV-PR375-PATCH.zip HEAD $(cat evidence/FINAL-CHANGED-FILES.txt)
+          unzip -t evidence/HNL-DEV-PR375-FULL.zip > "$RUNNER_TEMP/full-crc.txt"
+          unzip -t evidence/HNL-DEV-PR375-PATCH.zip > "$RUNNER_TEMP/patch-crc.txt"
+          sha256sum evidence/*.zip > evidence/SHA256SUMS.txt
+          printf 'DEV_HEAD=%s\nPR375_HEAD=%s\nINTEGRATION_SHA=%s\nNO_PROD_DEPLOY=true\nNO_FIREBASE_DEPLOY=true\n' "$DEV" "$PR" "$(git rev-parse HEAD)" > evidence/SOURCE-PINS.txt
+          git push --no-verify "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$TARGET"
+          echo "PASS: branch $TARGET deployed to GITHUB ONLY, NO Firebase or PROD writes"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-DEV-PR375-INTEGRATION-${{ github.sha }}
+          path: evidence/**
+          retention-days: 30
+          if-no-files-found: warn
