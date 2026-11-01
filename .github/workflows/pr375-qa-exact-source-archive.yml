@@ -1,0 +1,57 @@
+name: HNL PR375 exact QA binaries source + patch archive (NO BUILD NO DEPLOY)
+on:
+  push:
+    branches: [qa/pr375-exact-qa-binaries-source-archive-20261101]
+permissions:
+  contents: read
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact QA binaries source HEAD, branch and source whitelist
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC=30c54bd61c341dd7dd8955da255b4f4187742671
+          BASE=33a24cc3e97bdce61058fd2c2219c37da4f40642
+          test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
+          test "$GITHUB_REF" = refs/heads/qa/pr375-exact-qa-binaries-source-archive-20261101
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = "$SRC"
+          test "$(git ls-remote origin refs/heads/qa/pr375-devbackup-safe-apk-exe-20261101 | cut -f1)" = "$SRC"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = 1c2b7d663d51d51aa45010e533d8e035e22adf59
+          git merge-base --is-ancestor "$BASE" "$SRC"
+          test "$(git diff --name-only "$SRC" HEAD)" = '.github/workflows/pr375-qa-exact-source-archive.yml'
+          test "$(git diff --name-only "$BASE" "$SRC" | wc -l | tr -d ' ')" = 2
+          git diff --name-only "$BASE" "$SRC" | while IFS= read -r file; do
+            case "$file" in
+              .github/workflows/pr375-devbackup-qa-binaries.yml|scripts/pr375-devbackup-qa-sdk-config.mjs) ;;
+              *) echo "REFUSE out-of-scope change $file"; exit 1 ;;
+            esac
+          done
+          test "$(git hash-object scripts/p2115-firestore-backup-public.pem)" = b27d18fda5d05bbfc257725cc463772389af236d
+          SENSITIVE="$(git ls-files "$SRC" | grep -E '(^|/)([.]env$|[.]env[.]production$|[^/]*service.account[^/]*[.]json$|[^/]*[.]pem$|[^/]*[.]p12$|[^/]*[.]key$)' | grep -v -x 'scripts/p2115-firestore-backup-public.pem' || true)"
+          test -z "$SENSITIVE" || { echo 'Secret-like tracked path, refuse';exit 1; }
+      - name: Package FULL SOURCE and PATCH only from exact QA binary source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC=30c54bd61c341dd7dd8955da255b4f4187742671
+          mkdir -p source-handoff
+          git archive --format=zip --output="source-handoff/HNL-QLTC-PR375-QA-APK-EXE-FULL-SOURCE-${SRC}.zip" "$SRC"
+          git archive --format=zip --output="source-handoff/HNL-QLTC-PR375-QA-APK-EXE-PATCH-${SRC}.zip" "$SRC" .github/workflows/pr375-devbackup-qa-binaries.yml scripts/pr375-devbackup-qa-sdk-config.mjs
+          unzip -t "source-handoff/HNL-QLTC-PR375-QA-APK-EXE-FULL-SOURCE-${SRC}.zip" >/dev/null
+          unzip -t "source-handoff/HNL-QLTC-PR375-QA-APK-EXE-PATCH-${SRC}.zip" >/dev/null
+          sha256sum source-handoff/*.zip > source-handoff/SHA256SUMS.txt
+          printf 'QA_BINARY_SOURCE_HEAD=%s\nQA_BINARY_TREE=%s\nPARENT_PR375_HEAD=%s\nPATCH_FILES=2\nNO_PROD_DEPLOY=TRUE\n' "$SRC" "$(git rev-parse "$SRC^{tree}")" "33a24cc3e97bdce61058fd2c2219c37da4f40642" > source-handoff/SOURCE-IDENTITY.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-PR375-QA-APK-EXE-EXACT-SOURCE-30c54bd6
+          path: source-handoff/**
+          retention-days: 30
+          if-no-files-found: error
