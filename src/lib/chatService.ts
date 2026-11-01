@@ -102,6 +102,10 @@ async function commitProjectMessage(input: SendMessageInput, persistOutbox: bool
       id: conversationId,
       projectId: input.projectId,
       lastMessageAt: serverTimestamp(),
+      // Required by the Cloud getAfter() atomic summary guard. Older PROD
+      // Rules ignore this extra field, so new clients can deploy before the
+      // eventual strict Rules cutover without breaking cached old clients.
+      lastMessageId: messageId,
       lastMessageText: cleanText.slice(0, 180),
       lastSenderUid: user.uid,
       lastSenderName: user.displayName || user.email,
