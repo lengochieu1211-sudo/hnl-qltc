@@ -80,6 +80,51 @@ jobs:
           npm run build
           test -s dist/index.html
           echo 'COMBINED CANDIDATE STATIC GOLDEN PASS; NO DATA WRITES OR PROD DEPLOY.'
+      - name: Archive approved ten-group candidate, unchanged main, no push
+        if: env.HNL_COMPAT_NO_CONFLICT == '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          MAIN=1c2b7d663d51d51aa45010e533d8e035e22adf59
+          PR375=33a24cc3e97bdce61058fd2c2219c37da4f40642
+          PR366=5cb282b76c0e74898ff8c86ed22fc26e4c0c58ae
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$MAIN"
+          test "$(git rev-parse HEAD^1)" = "$PR375" || git merge-base --is-ancestor "$PR375" "$GITHUB_SHA"
+          git rm -f .github/workflows/hnl-prod10-pr375-366-compat-audit.yml
+          git commit -m "qa(snapshot): mobile Excel and Cloud position lock preview from exact PROD base"
+          test "$(git rev-parse HEAD^2)" = "$PR366"
+          git diff --name-only "$MAIN" "$PR375" > evidence/PR375-SCOPE.txt
+          git diff --name-only "$MAIN" "$PR366" > evidence/PR366-SCOPE.txt
+          sort -u evidence/PR375-SCOPE.txt evidence/PR366-SCOPE.txt > evidence/ALLOWED-SCOPE.txt
+          git diff --name-only "$MAIN" HEAD > evidence/COMBINED-CHANGED-FILES.txt
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const list=f=>fs.readFileSync('evidence/'+f,'utf8').trim().split('\n').filter(Boolean);
+          const allowed=new Set(list('ALLOWED-SCOPE.txt'));const changed=list('COMBINED-CHANGED-FILES.txt');
+          const extra=changed.filter(x=>!allowed.has(x));
+          if(extra.length||changed.length>27||!changed.length)throw Error('OUT_OF_SCOPE '+JSON.stringify({extra,count:changed.length}));
+          fs.writeFileSync('evidence/RELEASE-SCOPE.txt',[
+            'HNL QLTC PROD 10 GROUPS – QA CANDIDATE ONLY – NOT DEPLOYED',
+            'PROD_BASE=1c2b7d663d51d51aa45010e533d8e035e22adf59',
+            'MOBILE_EXCEL_HEAD=33a24cc3e97bdce61058fd2c2219c37da4f40642',
+            'CLOUD_LOCK_HEAD=5cb282b76c0e74898ff8c86ed22fc26e4c0c58ae',
+            'RUNNER_MERGE_HEAD='+process.env.GITHUB_SHA,
+            'CHANGED_FILES='+changed.length,
+            'NO_PROD_DEPLOY=true',
+            'NO_GITHUB_MAIN_MERGE=true',
+            'NO_FIREBASE_RULES_CHANGE=true',
+            'NO_R2_CHANGE=true',
+            'PHYSICAL_RUNTIME_GOLDEN_PENDING=true',
+            'LEGACY_MEDIA_LINK_AUDIT_PENDING=true'
+          ].join('\n')+'\n');
+          NODE
+          git archive --format=zip --output=evidence/HNL-QLTC-PROD10-CANDIDATE-FULL-SOURCE.zip HEAD
+          git archive --format=zip --output=evidence/HNL-QLTC-PROD10-CANDIDATE-PATCH.zip HEAD $(cat evidence/COMBINED-CHANGED-FILES.txt)
+          unzip -t evidence/HNL-QLTC-PROD10-CANDIDATE-FULL-SOURCE.zip > /tmp/qa-full-test.txt
+          unzip -t evidence/HNL-QLTC-PROD10-CANDIDATE-PATCH.zip > /tmp/qa-patch-test.txt
+          sha256sum evidence/HNL-QLTC-PROD10-CANDIDATE-*.zip > evidence/SHA256SUMS.txt
+          cat evidence/RELEASE-SCOPE.txt
+          cat evidence/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
