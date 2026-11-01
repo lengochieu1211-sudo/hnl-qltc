@@ -49,5 +49,31 @@ anchor = "import { isCurrentChatSender, shouldAutoFlushChatEntry } from '../util
 if source.count(anchor) != 1:
     raise SystemExit('Chat outbox guard import anchor changed')
 source = source.replace(anchor, anchor + "\nimport { deterministicMessageId, isChatOutboxEntryOwnedByUid } from '../utils/chatOutboxOwnership';")
+# Reconciliation of two independently introduced effects (outside Git conflict hunks).
+# DEV already hydrates Cloud-aware legacy locks through readLegacyLockedIds;
+# remove the redundant later PROD effect that references a missing readIdSet helper.
+floor = Path('src/components/FloorPlanDefectTab.tsx')
+floorSource = floor.read_text()
+start = floorSource.find('  // Cloud is the authority when positionLocked is explicitly present.')
+endMarker = '  const [statusFilter, setStatusFilter] = useState<string>(\'all\');'
+end = floorSource.find(endMarker, start)
+if start < 0 or end < 0 or floorSource[start:end].count('React.useEffect(() => {') != 2:
+    raise SystemExit('Cloud-lock duplicate effect structure changed; stop')
+floorSource = floorSource[:start] + floorSource[end:]
+declaration = '  const [objectSnapPreview, setObjectSnapPreview] = useState<RoomSnapCandidate | null>(null);\n'
+if floorSource.count(declaration) != 2:
+    raise SystemExit('OSNAP duplicate declaration structure changed; stop')
+first = floorSource.find(declaration)
+second = floorSource.find(declaration, first + len(declaration))
+floorSource = floorSource[:second] + floorSource[second+len(declaration):]
+floor.write_text(floorSource)
+print('QA SAFE MERGE: removed duplicated Cloud-lock hydration and OSNAP state, DEV authority remains')
+# The newer DEV sender boundary renamed expectedUid -> expectedSenderUid;
+# PROD's shared account-switch check must use the same argument, never an undefined variable.
+old = "if (!user || !user.email || (expectedUid && user.uid !== expectedUid))"
+new = "if (!user || !user.email || user.uid !== expectedSenderUid)"
+if source.count(old) != 1:
+    raise SystemExit('Chat sender UID guard unexpected: stop')
+source = source.replace(old, new)
 chat.write_text(source)
-print('QA SAFE MERGE: preserve DEV chat atomic/offline safety and PROD deterministic message identity')
+print('QA SAFE MERGE: preserve DEV atomic Chat/outbox owner guard and PROD deterministic identity')
