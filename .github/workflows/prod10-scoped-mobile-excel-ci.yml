@@ -1,0 +1,48 @@
+name: HNL PROD 10-groups safe-area and Excel candidate (NO DEPLOY)
+on:
+  push:
+    branches: [release/prod10-scoped-mobile-excel-candidate-20261101]
+permissions:
+  contents: read
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 4
+          persist-credentials: false
+      - name: Exact PROD parent and change whitelist
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "lengochieu1211-sudo/hnl-qltc"
+          test "$GITHUB_REF" = "refs/heads/release/prod10-scoped-mobile-excel-candidate-20261101"
+          test "$(git rev-parse HEAD~2)" = "1c2b7d663d51d51aa45010e533d8e035e22adf59"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "1c2b7d663d51d51aa45010e533d8e035e22adf59"
+          git diff --name-only HEAD~2 HEAD > /tmp/changed.txt
+          if grep -E '^(.github/workflows/firebase|firestore.rules|storage.rules|firebase.json|src/App.tsx|src/lib/chatService.ts|src/lib/firebaseBase.ts|src/components/BottomNav.tsx|src/utils/roomHighlightCadShortcuts.ts|cloudflare/)' /tmp/changed.txt; then echo 'Forbidden source change';exit 1;fi
+          for f in $(cat /tmp/changed.txt); do
+            case "$f" in
+              .github/workflows/prod10-scoped-mobile-excel-ci.yml|scripts/prod-scoped-mobile-layout-golden.mjs|scripts/ui-return-and-palette-golden.mjs|src/index.css|src/components/FloorPlanDefectTab.tsx|src/components/CatalogTemplatePickerModal.tsx|src/components/ChecklistTab.tsx|src/components/ConflictMergeModal.tsx|src/components/CrewReportShareModal.tsx|src/components/CrewTabBase.tsx|src/components/ExportPdfModal.tsx|src/components/ImageEditorModal.tsx|src/components/ImageViewerModal.tsx|src/components/MaterialNormModal.tsx|src/components/NotificationCenterModal.tsx|src/components/QuickEditGridModal.tsx|src/components/RoomHighlightModal.tsx|src/components/WarehouseTab.tsx|src/components/WorkVolumeTab.tsx|src/utils/warehouseVoucherExcel.ts) ;;
+              *) echo "Forbidden file $f"; exit 1;;
+            esac
+          done
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Scoped regression and source gates
+        run: |
+          set -euo pipefail
+          npm ci
+          node scripts/prod-scoped-mobile-layout-golden.mjs
+          node -e "let a=require('./package.json'),b=require('./package-lock.json');if(a.version!==b.version||a.name!==b.name)process.exit(1)"
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run security:audit
+          npm run test:stability
+          npm run build
+          test -s dist/index.html
+          echo 'Candidate source gates PASS. Absolutely NO Firebase deploy.'

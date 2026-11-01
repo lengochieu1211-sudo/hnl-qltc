@@ -487,3 +487,71 @@ html[data-hnl-theme="dark"] .hnl-crew-report-table tfoot tr,
 html[data-hnl-theme="dark"] .hnl-crew-report-table tfoot td {
   background-color: #19354c !important; color: #e0f2fe !important; border-color: #3b82a8 !important;
 }
+
+/* HNL iOS PWA: a translucent status bar can overlap fixed, top-aligned dialogs.
+ * Scope to opted-in modal overlays only (never every fixed element). A small
+ * fallback protects standalone iPhones where the CSS env inset reports 0.
+ * Android/Windows and desktop layouts keep their existing geometry.
+ */
+@supports (-webkit-touch-callout: none) {
+  @media (max-width: 639px) {
+    .hnl-ios-safe-modal {
+      box-sizing: border-box;
+      padding-top: max(3.75rem, env(safe-area-inset-top, 0px)) !important;
+      padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px)) !important;
+    }
+    .hnl-ios-safe-modal > .hnl-ios-safe-dialog {
+      min-height: 0;
+      max-height: calc(100dvh - max(3.75rem, env(safe-area-inset-top, 0px)) - max(1rem, env(safe-area-inset-bottom, 0px)));
+    }
+    .hnl-ios-safe-fullscreen-toolbar {
+      padding-top: max(3.75rem, env(safe-area-inset-top, 0px)) !important;
+    }
+  }
+}
+
+/* PR374: mobile map display panel is viewport-contained on Android and iOS.
+ * Desktop keeps the existing anchored popover. No changes to canvas transforms.
+ */
+@media (max-width: 639px) {
+  /* Same inline details expansion as PROD: no fixed sheet, no viewport offset. */
+  [data-hnl-map-display-inline="anchored-popover"][open] {
+    width: 100%;
+    min-width: 0;
+  }
+  [data-hnl-map-display-popover="true"].hnl-mobile-map-display-panel {
+    position: static !important;
+    box-sizing: border-box;
+    left: auto !important;
+    right: auto !important;
+    top: auto !important;
+    bottom: auto !important;
+    width: 100% !important;
+    min-width: 0;
+    max-width: none;
+    max-height: min(70dvh, 36rem) !important;
+    margin: 0.5rem 0 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .hnl-cross-device-safe-overlay {
+    padding-top: max(8px, env(safe-area-inset-top, 0px)) !important;
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 0px)) !important;
+  }
+  .hnl-cross-device-safe-overlay > .hnl-cross-device-safe-dialog {
+    min-height: 0;
+    max-height: calc(100dvh - max(8px, env(safe-area-inset-top, 0px)) - max(8px, env(safe-area-inset-bottom, 0px)));
+  }
+}
+@supports (-webkit-touch-callout: none) {
+  @media (max-width: 639px) {
+    /* Old iPhone/PWA status-bar insets can report 0 in black-translucent mode. */
+    .hnl-cross-device-safe-overlay {
+      padding-top: max(3.75rem, env(safe-area-inset-top, 0px)) !important;
+    }
+    .hnl-cross-device-safe-overlay > .hnl-cross-device-safe-dialog {
+      max-height: calc(100dvh - max(3.75rem, env(safe-area-inset-top, 0px)) - max(8px, env(safe-area-inset-bottom, 0px)));
+    }
+
+  }
+}
