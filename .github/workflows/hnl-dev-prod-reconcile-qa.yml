@@ -4,7 +4,7 @@ on:
     branches:
       - qa/dev-prod-safe-reconcile-20261101
 permissions:
-  contents: read
+  contents: write
 concurrency:
   group: hnl-dev-prod-reconcile-qa
   cancel-in-progress: false
@@ -112,3 +112,25 @@ jobs:
           path: output/**
           retention-days: 30
           if-no-files-found: warn
+      - name: Publish verified merge to NEW integration branch ONLY, never dev/main/Hosting
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TARGET=integration/dev-prod-parity-20261101
+          DEV=6073580c0d5ebcce1b6669f531d7140c384a78d3
+          MAIN=1c2b7d663d51d51aa45010e533d8e035e22adf59
+          test "$GITHUB_REF" = refs/heads/qa/dev-prod-safe-reconcile-20261101
+          test "$(git rev-parse HEAD^1)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^2)" = "$MAIN"
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$DEV"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$MAIN"
+          test -z "$(git ls-remote origin "refs/heads/$TARGET")"
+          test "$(git diff --name-only "$DEV" HEAD | wc -l | tr -d ' ')" = 27
+          test ! -e scripts/qa-dev-prod-conflict-resolve.py
+          test ! -e .github/workflows/hnl-dev-prod-reconcile-qa.yml
+          git push --no-verify "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$TARGET"
+          echo "QA integration branch published: $TARGET commit $(git rev-parse HEAD)."
+          echo 'DEV main / PROD main / Firebase / R2 not changed.'
