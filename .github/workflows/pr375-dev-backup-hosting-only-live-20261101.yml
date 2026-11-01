@@ -1,0 +1,129 @@
+name: DEV Backup PR375 Hosting-only LIVE
+on:
+  push:
+    branches: [release/pr375-dev-backup-hosting-only-20261101]
+    paths: [.github/workflows/pr375-dev-backup-hosting-only-live-20261101.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: hnl-pr375-dev-backup-hosting-live
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SOURCE_SHA: 6073580c0d5ebcce1b6669f531d7140c384a78d3
+      MAIN_SHA: 1c2b7d663d51d51aa45010e533d8e035e22adf59
+      SITE: hnl-qltc-dev-backup
+      PREVIEW: pr375auth
+      ROLLBACK: prepr375nov01
+      FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Exact DEV source and isolated backup identity gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
+          test "$GITHUB_REF" = refs/heads/release/pr375-dev-backup-hosting-only-20261101
+          test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = '.github/workflows/pr375-dev-backup-hosting-only-live-20261101.yml'
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$SOURCE_SHA"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$MAIN_SHA"
+          test "$SITE" = hnl-qltc-dev-backup
+          test "$PREVIEW" = pr375auth
+          test -n "$FIREBASE_BACKUP_SERVICE_ACCOUNT"
+          node -e "const a=JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT);if(a.type!=='service_account'||a.project_id!=='hnl-qltc-dev-backup'||!a.private_key)throw Error('wrong project credentials');console.log('Isolated backup identity PASS')"
+      - name: Verify exact source passed all five DEV CI workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fLsS -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$SOURCE_SHA&branch=dev&event=push&per_page=40" > "$RUNNER_TEMP/runs.json"
+          node - "$RUNNER_TEMP/runs.json" <<'NODE'
+          const j=require(process.argv[2]);
+          const names=['Build','Package HNL QLTC DEV Deliverables','Build HNL QLTC Windows EXE','Build HNL QLTC Windows DEV EXE','Build HNL QLTC Android DEV APK'];
+          for(const name of names){
+            const r=(j.workflow_runs||[]).find(x=>x.name===name&&x.head_sha===process.env.SOURCE_SHA&&x.head_branch==='dev'&&x.event==='push');
+            if(r?.conclusion!=='success')throw Error('Required CI gate not PASS: '+name);
+            console.log('PASS '+name);
+          }
+          NODE
+      - name: Validate current preview, live site and isolated R2 (read only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          PREVIEW_URL='https://hnl-qltc-dev-backup--pr375auth-xngfsh9l.web.app'
+          curl -fLsS --retry 3 "$PREVIEW_URL/hnl-mobile-pr375-qa.json" > "$RUNNER_TEMP/pr375-marker.json"
+          node - "$RUNNER_TEMP/pr375-marker.json" <<'NODE'
+          const j=require(process.argv[2]);
+          if(j.sha!==process.env.SOURCE_SHA||j.environment!=='DEV_BACKUP'||j.projectId!=='hnl-qltc-dev-backup'||j.previewOnly!==true||j.firestoreRulesModified!==false)throw Error('PREVIEW identity mismatch');
+          console.log('Exact PR375 preview identity PASS');
+          NODE
+          curl -fLsS --retry 3 "$PREVIEW_URL/" | grep -q 'id="root"'
+          curl -fLsS --retry 3 'https://hnl-qltc-dev-backup.web.app/' | grep -q 'id="root"'
+          curl -fLsS --retry 3 'https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev/health' > "$RUNNER_TEMP/r2-health.json"
+          node - "$RUNNER_TEMP/r2-health.json" <<'NODE'
+          const j=require(process.argv[2]);if(!j.ok||j.firebaseProjectId!=='hnl-qltc-dev-backup')throw Error('R2 project mismatch');
+          console.log('DEV Backup LIVE and R2 health PASS');
+          NODE
+      - name: Authenticate isolated Firebase CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          CRED="$RUNNER_TEMP/backup-firebase-credentials.json"
+          printf '%s' "$FIREBASE_BACKUP_SERVICE_ACCOUNT" > "$CRED"
+          chmod 600 "$CRED"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$CRED" >> "$GITHUB_ENV"
+      - name: Snapshot original DEV Backup LIVE Hosting version for rollback
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$SOURCE_SHA"
+          npx --yes firebase-tools@13.35.1 hosting:clone "$SITE:live" "$SITE:$ROLLBACK" --project "$SITE" --non-interactive
+          echo "Original LIVE preserved in rollback channel: $ROLLBACK"
+      - name: Promote exact tested Preview to DEV Backup LIVE only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$SOURCE_SHA"
+          npx --yes firebase-tools@13.35.1 hosting:clone "$SITE:$PREVIEW" "$SITE:live" --project "$SITE" --non-interactive
+          echo 'Hosting-only clone completed; no Firebase Rules, R2 or data changes'
+      - name: Verify deployed LIVE exact SHA and rollback automatically if mismatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          ok=0
+          for n in $(seq 1 8); do
+            if curl -fLsS --max-time 20 'https://hnl-qltc-dev-backup.web.app/hnl-mobile-pr375-qa.json' > "$RUNNER_TEMP/live-marker.json" 2>/dev/null; then
+              if node - "$RUNNER_TEMP/live-marker.json" <<'NODE'
+          const j=require(process.argv[2]);if(j.sha!==process.env.SOURCE_SHA||j.projectId!=='hnl-qltc-dev-backup'||j.environment!=='DEV_BACKUP')process.exit(1);
+          NODE
+              then ok=1; break; fi
+            fi
+            sleep 3
+          done
+          if [ "$ok" != 1 ] || ! curl -fLsS --retry 3 'https://hnl-qltc-dev-backup.web.app/' | grep -q 'id="root"'; then
+            echo '::error::LIVE smoke failure: attempt rollback to previous LIVE'
+            npx --yes firebase-tools@13.35.1 hosting:clone "$SITE:$ROLLBACK" "$SITE:live" --project "$SITE" --non-interactive || true
+            exit 1
+          fi
+          echo '{"sourceSha":"6073580c0d5ebcce1b6669f531d7140c384a78d3","projectId":"hnl-qltc-dev-backup","hostingOnly":true,"previousLiveRollbackChannel":"prepr375nov01","prodModified":false,"firestoreRulesModified":false,"r2Modified":false,"runtimeGolden":false}' > PR375-DEV-BACKUP-LIVE-EVIDENCE.json
+          echo 'DEV BACKUP LIVE PASS: Hosting-only exact source. Runtime Golden not claimed.'
+      - name: Cleanup credentials
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/backup-firebase-credentials.json" "$RUNNER_TEMP/pr375-marker.json" "$RUNNER_TEMP/live-marker.json" "$RUNNER_TEMP/runs.json" "$RUNNER_TEMP/r2-health.json"
+      - name: Store scoped release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PR375-DEV-BACKUP-LIVE-RELEASE
+          path: PR375-DEV-BACKUP-LIVE-EVIDENCE.json
+          if-no-files-found: warn
+          retention-days: 30
