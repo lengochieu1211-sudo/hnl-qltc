@@ -1,0 +1,77 @@
+name: HNL PR375 PROD LIVE Hosting read-only version preflight (NO DEPLOY)
+on:
+  push:
+    branches:
+      - qa/pr375-prod-hosting-live-preflight-20261101
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Exact HEAD and PROD account guard (read-only)
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/qa/pr375-prod-hosting-live-preflight-20261101
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = 1c2b7d663d51d51aa45010e533d8e035e22adf59
+          git merge-base --is-ancestor 33a24cc3e97bdce61058fd2c2219c37da4f40642 "$GITHUB_SHA"
+          test "$(git diff --name-only 33a24cc3e97bdce61058fd2c2219c37da4f40642 HEAD)" = '.github/workflows/pr375-prod-hosting-live-readonly.yml'
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}"
+          node -e "const c=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);if(c.type!=='service_account'||c.project_id!=='com-example-qlct-61329')throw Error('wrong firebase account');"
+      - name: Query current Firebase Hosting LIVE release and public HTTP (GET only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import {createSign} from 'node:crypto';
+          import fs from 'node:fs';
+          const sa=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+          const enc=v=>Buffer.from(JSON.stringify(v)).toString('base64url');
+          const now=Math.floor(Date.now()/1000);
+          const h=enc({alg:'RS256',typ:'JWT'});
+          const p=enc({iss:sa.client_email,scope:'https://www.googleapis.com/auth/cloud-platform.read-only',aud:'https://oauth2.googleapis.com/token',iat:now,exp:now+1800});
+          const sign=createSign('RSA-SHA256');sign.update(h+'.'+p);sign.end();
+          const jwt=h+'.'+p+'.'+sign.sign(sa.private_key).toString('base64url');
+          const tokenResponse=await fetch('https://oauth2.googleapis.com/token',{method:'POST',body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion:jwt}),signal:AbortSignal.timeout(30000)});
+          if(!tokenResponse.ok)throw Error('OAuth token denied HTTP '+tokenResponse.status);
+          const tok=(await tokenResponse.json()).access_token;
+          if(!tok)throw Error('missing token');
+          const api=await fetch('https://firebasehosting.googleapis.com/v1beta1/sites/hnlqltc/releases?pageSize=5',{headers:{Authorization:'Bearer '+tok},signal:AbortSignal.timeout(30000)});
+          if(!api.ok)throw Error('Hosting LIVE releases GET denied HTTP '+api.status);
+          const obj=await api.json();const releases=(obj.releases||[]).filter(x=>x.name?.includes('sites/hnlqltc/releases/'));
+          if(!releases.length)throw Error('Hosting LIVE release missing; no cert');
+          const latest=releases[0];
+          if(!latest.version?.name?.startsWith('sites/hnlqltc/versions/'))throw Error('Unexpected Hosting version');
+          const url='https://hnlqltc.web.app/?pr375-readonly-preflight='+Date.now();
+          const htmlResp=await fetch(url,{signal:AbortSignal.timeout(30000),redirect:'follow'});
+          if(htmlResp.status!==200)throw Error('PROD LIVE HTML '+htmlResp.status);
+          const html=await htmlResp.text();
+          if(!html.includes('id="root"'))throw Error('Missing app root on LIVE');
+          const js=html.match(/src="(\/assets\/[^"]+\.js)"/);
+          if(!js)throw Error('No hashed JS in HTML');
+          const jsResp=await fetch(new URL(js[1],'https://hnlqltc.web.app'),{signal:AbortSignal.timeout(30000)});
+          if(jsResp.status!==200||!(jsResp.headers.get('content-type')||'').includes('javascript'))throw Error('LIVE JS bad');
+          const summary={status:'READ_ONLY_HOSTING_LIVE_VERSION_OBSERVED',checkedAt:new Date().toISOString(),expectedFirebaseProjectId:'com-example-qlct-61329',site:'hnlqltc',version:latest.version.name,releaseName:latest.name,releaseTime:latest.releaseTime||null,liveHttpStatus:htmlResp.status,hashedJsHttpStatus:jsResp.status,hashedJsPath:js[1],noDeploy:true};
+          fs.writeFileSync('HNL-PR375-LIVE-HOSTING-READONLY.json',JSON.stringify(summary,null,2));
+          console.log(JSON.stringify(summary));
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-PR375-PROD-LIVE-READONLY-${{ github.sha }}
+          path: HNL-PR375-LIVE-HOSTING-READONLY.json
+          retention-days: 30
+          if-no-files-found: warn
+      - name: Deployment boundary
+        if: always()
+        run: echo 'READ-ONLY Hosting release metadata and public HTTP only. No deploy/clone/version change.'
