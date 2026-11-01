@@ -1,0 +1,90 @@
+name: HNL QA375 Chrome Android public popup auth smoke (NO LOGIN NO DEPLOY)
+on:
+  push:
+    branches: [qa/pr375-preview-popup-browser-evidence-20261101]
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact fixed DEV preview source
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=eca6861d5215068603731e3d358360e802fd00c3
+          test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
+          test "$GITHUB_REF" = refs/heads/qa/pr375-preview-popup-browser-evidence-20261101
+          test "$(git rev-parse HEAD^)" = "$BASE"
+          test "$(git diff --name-only "$BASE" HEAD)" = '.github/workflows/pr375-preview-popup-browser-evidence.yml'
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = 1c2b7d663d51d51aa45010e533d8e035e22adf59
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install isolated public browser runner, no Firebase credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Observe Google popup on real DEV preview from Android Chrome viewport without authenticating
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import {chromium} from 'playwright';
+          import fs from 'node:fs';
+          const url='https://hnl-qltc-dev-backup--qa375nov01-qotpcppd.web.app/?auth-fix=eca6861d';
+          const b=await chromium.launch({headless:true});
+          const report={status:'PENDING',sourceHead:'eca6861d5215068603731e3d358360e802fd00c3',qaProject:'hnl-qltc-dev-backup',urlHostname:new URL(url).hostname,emulated:'Android Chrome',fullySignedIn:false,prodUsed:false,checkedAt:new Date().toISOString()};
+          try{
+            const c=await b.newContext({viewport:{width:393,height:852},isMobile:true,hasTouch:true,userAgent:'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36'});
+            await c.route('**/*',async route=>{
+              const u=route.request().url();
+              if(u.includes('com-example-qlct-61329')||u.includes('hnlqltc.web.app')||u.includes('hnl-qltc-r2-gateway.lengochieu1211.workers.dev')){
+                report.prodUsed=true;await route.abort();return;
+              }
+              return route.continue();
+            });
+            const p=await c.newPage();
+            const errors=[];
+            p.on('pageerror',e=>errors.push(String(e.message).slice(0,160)));
+            const pageResponse=await p.goto(url,{waitUntil:'domcontentloaded',timeout:45000});
+            if(pageResponse?.status()!==200)throw Error('Preview did not return HTTP200');
+            await p.getByRole('button',{name:/Đăng nhập với Google/}).waitFor({state:'visible',timeout:25000});
+            await p.screenshot({path:'QA375-ANDROID-LOGIN-BEFORE.png'});
+            const popupEvent=p.waitForEvent('popup',{timeout:25000}).catch(()=>null);
+            await p.getByRole('button',{name:/Đăng nhập với Google/}).click();
+            const popup=await popupEvent;
+            if(!popup)throw Error('Expected a popup on Android preview but none opened');
+            await popup.waitForLoadState('domcontentloaded',{timeout:20000}).catch(()=>{});
+            const host=new URL(popup.url()).hostname;
+            report.popupHost=host;
+            if(!host || host==='hnlqltc.web.app')throw Error('Popup reached PROD or blank');
+            if(p.url().startsWith('https://hnl-qltc-dev-backup--qa375nov01-')===false)throw Error('Main page navigated away; still using redirect');
+            if(errors.length)throw Error('Uncaught JS: '+errors.join(' | '));
+            if(report.prodUsed)throw Error('Any PROD domain request detected');
+            report.status='ANDROID_PREVIEW_GOOGLE_POPUP_OPENED_NO_ACCOUNT_SELECTED';
+            await p.screenshot({path:'QA375-ANDROID-POPUP-BACKGROUND.png'});
+            console.log(JSON.stringify(report));
+            await c.close();
+          }catch(err){report.status='FAIL';report.error=String(err);throw err;}
+          finally{fs.writeFileSync('QA375-ANDROID-POPUP-SMOKE.json',JSON.stringify(report,null,2));await b.close();}
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-PR375-WEB-ANDROID-POPUP-SMOKE-${{ github.sha }}
+          path: |
+            QA375-ANDROID-POPUP-SMOKE.json
+            QA375-ANDROID-LOGIN-BEFORE.png
+            QA375-ANDROID-POPUP-BACKGROUND.png
+          retention-days: 7
+          if-no-files-found: warn
