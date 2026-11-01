@@ -1,0 +1,108 @@
+name: HNL DEV PROD safe integration candidate (NO PUSH NO DEPLOY)
+on:
+  push:
+    branches: [qa/dev-prod-safe-integration-20261101]
+permissions:
+  contents: read
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact DEV / PROD HEAD and QA-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEV=6073580c0d5ebcce1b6669f531d7140c384a78d3
+          PROD=1c2b7d663d51d51aa45010e533d8e035e22adf59
+          test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
+          test "$GITHUB_REF" = refs/heads/qa/dev-prod-safe-integration-20261101
+          test "$(git rev-parse HEAD^^)" = "$DEV"
+          git diff --name-only "$DEV" HEAD | sort > "$RUNNER_TEMP/changed.txt"
+          printf '%s\n' '.github/workflows/hnl-dev-prod-safe-integration.yml' 'scripts/hnl-dev-prod-safe-reconcile.py' > "$RUNNER_TEMP/allowed.txt"
+          diff -u "$RUNNER_TEMP/allowed.txt" "$RUNNER_TEMP/changed.txt"
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$DEV"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$PROD"
+          cp scripts/hnl-dev-prod-safe-reconcile.py "$RUNNER_TEMP/reconcile.py"
+      - name: Create unpushed local DEV+PROD candidate and guard DEV functionality
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEV=6073580c0d5ebcce1b6669f531d7140c384a78d3
+          PROD=1c2b7d663d51d51aa45010e533d8e035e22adf59
+          mkdir -p output
+          git config user.name HNL-Integration-QA
+          git config user.email hnl-integration-qa@users.noreply.github.com
+          git fetch --no-tags origin main
+          git checkout --detach "$DEV"
+          git merge --no-ff --no-commit -X ours "$PROD"
+          test -z "$(git ls-files -u)"
+          python3 "$RUNNER_TEMP/reconcile.py" | tee output/SAFE-MODULE-PORTS.json
+          git add -A
+          git -c commit.gpgsign=false commit -m 'candidate: integrate PROD into DEV, preserve atomic Chat and Cloud position locks'
+          test "$(git rev-list --parents -n 1 HEAD | awk '{print $2}')" = "$DEV"
+          test "$(git rev-list --parents -n 1 HEAD | awk '{print $3}')" = "$PROD"
+          echo "RECONCILED_SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          git diff --name-only "$DEV" HEAD | sort > output/CHANGED-FILES.txt
+          git diff --name-only "$PROD" HEAD | sort > output/DIFFERENT-FROM-PROD.txt
+          git rev-list --parents -n 1 HEAD > output/IDENTITY.txt
+          python3 - <<'PY'
+          import pathlib,json,subprocess,datetime
+          changed=pathlib.Path('output/CHANGED-FILES.txt').read_text().splitlines()
+          report={'sourceDev':'6073580c0d5ebcce1b6669f531d7140c384a78d3','sourceProd':'1c2b7d663d51d51aa45010e533d8e035e22adf59','candidateUnpushedHead':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'status':'STATIC_TEST_PENDING','changedFileCount':len(changed),'changedFiles':changed,'risk':'-X ours for conflict hunks; no runtime Golden yet.','devBranchTouched':False,'prodBranchTouched':False,'firebaseTouched':False,'noPushNoDeploy':True,'time':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          pathlib.Path('output/REPORT.json').write_text(json.dumps(report,indent=2))
+          print(json.dumps({'localCandidate':report['candidateUnpushedHead'],'changedFileCount':len(changed)}))
+          PY
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: TypeScript, Lint, Rules, regression, build on candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const a=require('./package.json'),b=require('./package-lock.json');if(a.name!==b.name||a.version!==b.version)process.exit(1)"
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run test:firestore-restore-gate
+          npm run test:stability
+          npm run build
+          test -s dist/index.html
+          echo 'STATIC_AND_REGRESSION_PASS' > output/TEST-RESULT.txt
+      - name: Package FULL/PATCH SHA256 only on PASS
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git archive --format=zip --output=output/HNL-DEV-PROD-INTEGRATED-FULL-SOURCE.zip HEAD
+          python3 - <<'PY'
+          import zipfile,subprocess,pathlib,hashlib,json
+          paths=pathlib.Path('output/CHANGED-FILES.txt').read_text().splitlines()
+          with zipfile.ZipFile('output/HNL-DEV-PROD-INTEGRATED-PATCH.zip','w',zipfile.ZIP_DEFLATED) as out:
+            for path in paths:
+              file=pathlib.Path(path)
+              if file.is_file():out.write(path,path)
+          for fn in ['HNL-DEV-PROD-INTEGRATED-FULL-SOURCE.zip','HNL-DEV-PROD-INTEGRATED-PATCH.zip']:
+            with zipfile.ZipFile('output/'+fn) as z:
+              if z.testzip() is not None:raise RuntimeError('ZIP CRC failed '+fn)
+          sums='\n'.join(hashlib.sha256(pathlib.Path('output/'+fn).read_bytes()).hexdigest()+'  '+fn for fn in ['HNL-DEV-PROD-INTEGRATED-FULL-SOURCE.zip','HNL-DEV-PROD-INTEGRATED-PATCH.zip'])+'\n'
+          pathlib.Path('output/SHA256SUMS.txt').write_text(sums)
+          obj=json.loads(pathlib.Path('output/REPORT.json').read_text())
+          obj['status']='STATIC_AND_REGRESSION_PASS__RUNTIME_GOLDEN_PENDING'
+          pathlib.Path('output/REPORT.json').write_text(json.dumps(obj,indent=2))
+          print(sums)
+          PY
+      - name: Upload evidence; never push or deploy
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-DEV-PROD-INTEGRATION-STATIC-\${{ github.sha }}
+          path: output/**
+          retention-days: 25
+          if-no-files-found: warn
