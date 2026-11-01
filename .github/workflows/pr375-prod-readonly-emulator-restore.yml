@@ -1,0 +1,85 @@
+name: HNL PR375 PROD read-only -> isolated Firestore Emulator Golden (NO PROD WRITES)
+on:
+  push:
+    branches:
+      - qa/pr375-real-prod-restore-emulator-20261101
+permissions:
+  contents: read
+concurrency:
+  group: hnl-pr375-prod-firestore-local-restore
+  cancel-in-progress: false
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+      FIRESTORE_EMULATOR_HOST: 127.0.0.1:8080
+      PR375_REAL_PROD_READ_TO_EMULATOR: ALLOW_READONLY_LIVE_TO_EMULATOR
+      P2115_RESTORE_TARGET: hnl-qltc-restore-isolated
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact candidate, allowlist and no PROD writes gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=33a24cc3e97bdce61058fd2c2219c37da4f40642
+          test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
+          test "$GITHUB_REF" = refs/heads/qa/pr375-real-prod-restore-emulator-20261101
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = 1c2b7d663d51d51aa45010e533d8e035e22adf59
+          git merge-base --is-ancestor "$BASE" "$GITHUB_SHA"
+          test "$(git diff --name-only "$BASE" HEAD | wc -l | tr -d ' ')" = 2
+          git diff --name-only "$BASE" HEAD | while read -r f; do
+            case "$f" in
+              .github/workflows/pr375-prod-readonly-emulator-restore.yml|scripts/pr375-prod-readonly-to-emulator.mjs) ;;
+              *) echo "REFUSING unexpected file $f";exit 1 ;;
+            esac
+          done
+          test "$FIRESTORE_EMULATOR_HOST" = 127.0.0.1:8080
+          test "$P2115_RESTORE_TARGET" = hnl-qltc-restore-isolated
+          test "$PR375_REAL_PROD_READ_TO_EMULATOR" = ALLOW_READONLY_LIVE_TO_EMULATOR
+          test "$(git hash-object scripts/p2115-firestore-traversal.mjs)" = a1d7b939a445847580f23d2965fedd677eea088b
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}"
+          node -e "const a=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);if(a.project_id!=='com-example-qlct-61329'||a.type!=='service_account')throw Error('wrong data source account');"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Boot brand-new empty emulator on loopback (never PROD Firebase)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f firebase.p2120-restore-emulator.json
+          node -e "const c=require('./firebase.p2120-restore-emulator.json');if(c.emulators.firestore.host!=='127.0.0.1'||c.emulators.firestore.port!==8080||c.emulators.singleProjectMode!==false)process.exit(1)"
+          nohup npx --yes firebase-tools@13.35.1 emulators:start --only firestore --project hnl-qltc-restore-isolated --config firebase.p2120-restore-emulator.json > "$RUNNER_TEMP/restoration-emulator.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/restore-emulator.pid"
+          ok=0
+          for i in $(seq 1 120); do
+            if curl -fsS -m 2 -o /dev/null http://127.0.0.1:8080/; then ok=1;break;fi
+            sleep 2
+          done
+          test "$ok" = 1 || { tail -90 "$RUNNER_TEMP/restoration-emulator.log";exit 1; }
+          echo 'Only local hnl-qltc-restore-isolated emulator is running'
+      - name: Stream real PROD documents READ ONLY into empty emulator and verify exact read-back
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/pr375-prod-readonly-to-emulator.mjs
+      - name: Upload summary only (no private Firestore documents or credentials)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-PR375-PROD-FIRESTORE-EMULATOR-RESTORE-${{ github.sha }}
+          path: PR375-PROD-READONLY-EMULATOR-RESTORE-SUMMARY.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Safety boundary
+        if: always()
+        run: echo 'Source PROD REST is read-only. All restore writes are http://127.0.0.1:8080 emulator for hnl-qltc-restore-isolated. No plaintext data is uploaded, no deploy.'
