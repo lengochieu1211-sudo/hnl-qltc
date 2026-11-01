@@ -1,0 +1,210 @@
+name: HNL DEV c831 exact-source Hosting-only rollout (NEVER PROD/RULES/R2)
+on:
+  push:
+    branches: [qa/dev-c831-hosting-only-20261101]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: hnl-dev-c831-hosting-only
+  cancel-in-progress: false
+jobs:
+  dev_hosting_only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      TARGET_DEV: c83188d5f68b9230bf999671d8289923607ce512
+      EXPECTED_PROD: 1c2b7d663d51d51aa45010e533d8e035e22adf59
+      DEV_PROJECT: hnl-qltc-dev
+      DEV_SITE: hnl-qltc-dev
+      DEV_CHANNEL: reconcile-c831
+      SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
+      VITE_HNL_AI_ENABLED: 'true'
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_USE_FIREBASE_EMULATORS: 'false'
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev.web.app
+      VITE_GIT_COMMIT: c83188d5f68b9230bf999671d8289923607ce512
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Gate QA-only workflow, pinned DEV/PROD, and service account
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
+          test "$GITHUB_REF" = refs/heads/qa/dev-c831-hosting-only-20261101
+          test "$(git rev-parse HEAD^)" = "$TARGET_DEV"
+          test "$(git diff --name-only "$TARGET_DEV" HEAD)" = '.github/workflows/hnl-dev-c831-hosting-only.yml'
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$TARGET_DEV"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$EXPECTED_PROD"
+          test "$DEV_PROJECT" = hnl-qltc-dev
+          test "$DEV_SITE" = hnl-qltc-dev
+          test "$VITE_APP_ENV" = DEV
+          test "$VITE_R2_GATEWAY_URL" = https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
+          test "$VITE_ENABLE_LEGACY_DRIVE_WRITE" = false
+          test -n "$SERVICE_ACCOUNT_JSON"
+          node - <<'NODE'
+          const a=JSON.parse(process.env.SERVICE_ACCOUNT_JSON);
+          if(a.type!=='service_account'||a.project_id!=='hnl-qltc-dev'||!a.private_key||!a.client_email)throw Error('Refuse wrong credentials');
+          console.log('DEV service account exact project PASS');
+          NODE
+          git checkout --detach "$TARGET_DEV"
+          test "$(git rev-parse HEAD)" = "$TARGET_DEV"
+      - name: Block DEV deploy until exact HEAD Web/EXE/APK CI passes
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 36); do
+            if node --input-type=module - <<'NODE'
+          const ids=[41287349602,41287349631,41287349629,41287349580,41287349625];
+          let pending=false;
+          for(const id of ids){
+            const r=await fetch('https://api.github.com/repos/lengochieu1211-sudo/hnl-qltc/actions/runs/'+id,{
+              headers:{Accept:'application/vnd.github+json','User-Agent':'HNL-CI-Gate'},signal:AbortSignal.timeout(12000)});
+            if(!r.ok)throw Error('Cannot audit CI run '+id+': '+r.status);
+            const j=await r.json();
+            if(j.head_sha!==process.env.TARGET_DEV)throw Error('CI wrong HEAD '+id);
+            if(j.status!=='completed')pending=true;
+            else if(j.conclusion!=='success')throw Error('CI failed '+id+': '+j.conclusion);
+          }
+          if(pending){console.error('Exact DEV CI still running');process.exit(1)}
+          console.log('Exact DEV Web/EXE/APK CI 5/5 SUCCESS');
+          NODE
+            then break; fi
+            if [ "$attempt" = 36 ]; then echo 'Exact DEV CI not all PASS; NO HOSTING DEPLOY'; exit 1; fi
+            sleep 10
+          done
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Read existing Firebase DEV Web SDK config (no app/project creation)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/hnl-dev-sa.json"
+          printf '%s' "$SERVICE_ACCOUNT_JSON" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          chmod 600 "$GOOGLE_APPLICATION_CREDENTIALS"
+          npx --yes firebase-tools@13.35.1 apps:list WEB --project "$DEV_PROJECT" --json > "$RUNNER_TEMP/apps.json"
+          APP_ID="$(node - "$RUNNER_TEMP/apps.json" <<'NODE'
+          const j=require(process.argv[2]),a=Array.isArray(j.result)?j.result:[];
+          const x=a.find(z=>z.platform==='WEB'||String(z.appId||'').includes(':web:'));
+          if(!x?.appId)throw Error('No existing DEV Web app');
+          process.stdout.write(x.appId)
+          NODE
+          )"
+          npx --yes firebase-tools@13.35.1 apps:sdkconfig WEB "$APP_ID" --project "$DEV_PROJECT" --json > "$RUNNER_TEMP/sdk.json"
+          node - "$RUNNER_TEMP/sdk.json" <<'NODE'
+          const fs=require('fs'),raw=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          const keys=['apiKey','appId','messagingSenderId','projectId','authDomain','storageBucket'],out={};
+          function visit(x){
+            if(!x)return;
+            if(typeof x==='string'){try{visit(JSON.parse(x))}catch{};for(const k of keys){const m=x.match(new RegExp(k+'\\s*:\\s*["\\x27]([^"\\x27]+)["\\x27]'));if(m&&!out[k])out[k]=m[1]}}
+            else if(Array.isArray(x))x.forEach(visit);
+            else if(typeof x==='object'){for(const [k,v] of Object.entries(x)){if(keys.includes(k)&&typeof v==='string'&&!out[k])out[k]=v;visit(v)}}
+          }
+          visit(raw);
+          if(out.projectId!=='hnl-qltc-dev'||!out.apiKey||!out.appId||!out.messagingSenderId)throw Error('Wrong DEV SDK');
+          out.authDomain='hnl-qltc-dev.web.app';
+          out.storageBucket ||= 'hnl-qltc-dev.firebasestorage.app';
+          const names={apiKey:'API_KEY',appId:'APP_ID',messagingSenderId:'MESSAGING_SENDER_ID',projectId:'PROJECT_ID',authDomain:'AUTH_DOMAIN',storageBucket:'STORAGE_BUCKET'};
+          fs.appendFileSync(process.env.GITHUB_ENV,Object.entries(names).map(([k,n])=>'VITE_FIREBASE_'+n+'='+out[k]).join('\n')+'\n');
+          console.log('Existing DEV SDK identity PASS')
+          NODE
+      - name: Rebuild exact DEV HEAD and test without PROD resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const a=require('./package.json'),b=require('./package-lock.json');if(a.name!==b.name||a.version!==b.version)process.exit(1)"
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run build
+          test -s dist/index.html
+          grep -R -q 'hnl-qltc-dev' dist/assets
+          ! grep -R -q 'hnl-qltc-r2-gateway\.lengochieu1211\.workers\.dev' dist/assets
+          rm -f dist/server.cjs dist/server.cjs.map
+          node - <<'NODE'
+          const fs=require('fs'),crypto=require('crypto');
+          const html=fs.readFileSync('dist/index.html','utf8');
+          const entry=html.match(/src="(\/assets\/[^"]+\.js)"/)?.[1];
+          if(!entry||!fs.existsSync('dist'+entry))throw Error('Missing real Vite entry JS');
+          const digest=v=>crypto.createHash('sha256').update(v).digest('hex');
+          const o={schema:1,environment:'DEV',firebaseProjectId:'hnl-qltc-dev',gitCommit:process.env.TARGET_DEV,buildId:'scoped-dev-hosting-only',indexSha256:digest(html),entryPath:entry,entrySha256:digest(fs.readFileSync('dist'+entry))};
+          fs.writeFileSync('dist/hnl-dev-release.json',JSON.stringify(o,null,2));
+          const config=JSON.parse(fs.readFileSync('firebase.json','utf8'));
+          if(config.hosting?.public!=='dist')throw Error('Hosting root differs');
+          fs.writeFileSync('hnl-dev-hosting-only.json',JSON.stringify({hosting:{...config.hosting,site:'hnl-qltc-dev'}}));
+          console.log('Exact-source DEV manifest and HOSTING-only config PASS');
+          NODE
+      - name: Publish isolated DEV preview channel first (no DEV LIVE, no PROD)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/hnl-dev-sa.json"
+          npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$DEV_CHANNEL" --project "$DEV_PROJECT" --config hnl-dev-hosting-only.json --expires 7d --non-interactive --json > "$RUNNER_TEMP/preview.json"
+          node - <<'NODE'
+          const fs=require('fs');const t=fs.readFileSync(process.env.RUNNER_TEMP+'/preview.json','utf8');
+          const m=t.match(/https:\/\/hnl-qltc-dev--[a-z0-9-]+\.web\.app/);
+          if(!m)throw Error('No proven DEV preview URL');
+          fs.appendFileSync(process.env.GITHUB_ENV,'DEV_PREVIEW_URL='+m[0]+'\n');
+          console.log('DEV_PREVIEW='+m[0])
+          NODE
+          node --input-type=module - <<'NODE'
+          const url=process.env.DEV_PREVIEW_URL || 'https://hnl-qltc-dev--reconcile-c831.web.app';
+          for(const path of ['/','/hnl-dev-release.json']){
+            const r=await fetch(url+path,{signal:AbortSignal.timeout(20000)});
+            if(r.status!==200)throw Error('PREVIEW HTTP '+r.status+' '+path);
+            if(path.endsWith('.json')){
+              const x=await r.json();
+              if(x.gitCommit!==process.env.TARGET_DEV||x.firebaseProjectId!=='hnl-qltc-dev')throw Error('DEV preview identity mismatch');
+            }
+          }
+          console.log('Isolated DEV preview HTML and exact HEAD identity PASS')
+          NODE
+      - name: FINAL gate then publish DEV LIVE HOSTING ONLY (no Rules/R2/Workers)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$TARGET_DEV"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$EXPECTED_PROD"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/hnl-dev-sa.json"
+          npx --yes firebase-tools@13.35.1 deploy --only hosting --project "$DEV_PROJECT" --config hnl-dev-hosting-only.json --non-interactive
+          node --input-type=module - <<'NODE'
+          for(let i=0;i<12;i++){
+            const base='https://hnl-qltc-dev.web.app';
+            const r=await fetch(base+'/hnl-dev-release.json?stamp='+Date.now(),{headers:{'Cache-Control':'no-cache'},signal:AbortSignal.timeout(16000)});
+            if(r.status===200){
+              const x=await r.json().catch(()=>null);
+              if(x?.gitCommit===process.env.TARGET_DEV&&x?.firebaseProjectId==='hnl-qltc-dev'){
+                const html=await fetch(base+'/?stamp='+Date.now(),{signal:AbortSignal.timeout(16000)});
+                if(html.status!==200)throw Error('DEV index non-200');
+                const entry=await fetch(base+x.entryPath,{signal:AbortSignal.timeout(16000)});
+                if(entry.status!==200)throw Error('DEV entry JS non-200');
+                console.log('DEV LIVE EXACT HEAD VERIFIED '+x.gitCommit);
+                process.exit(0);
+              }
+            }
+            console.error('DEV live release manifest still stale/limited attempt '+(i+1)+' HTTP '+r.status);
+            await new Promise(resolve=>setTimeout(resolve,5000));
+          }
+          throw Error('DEV Live exact HEAD verification failed; report partial deployment. NEVER retry deploy or touch PROD automatically');
+          NODE
+      - name: Remove DEV service-account file and HOSTING-only config
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/hnl-dev-sa.json" hnl-dev-hosting-only.json
