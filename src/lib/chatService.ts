@@ -31,6 +31,20 @@ const CHAT_LOCAL_QUEUE_ACK_MS = 1200;
 
 let chatOutboxFlushPromise: Promise<void> | null = null;
 
+// PROD account safety: fail closed for pending Chat writes or unreadable outbox.
+export async function hasPendingChatOutboxForCurrentUser(): Promise<boolean> {
+  const uid = getCurrentRealFirebaseUser()?.uid;
+  if (!uid || chatOutboxFlushPromise) return true;
+  try {
+    const rows = await listChatOutbox();
+    if (getCurrentRealFirebaseUser()?.uid !== uid) return true;
+    return rows.some((row) => row.id.startsWith(uid + '_'));
+  } catch {
+    return true;
+  }
+}
+
+
 function deterministicMessageId(uid: string, clientMessageId: string): string {
   return `${uid}_${clientMessageId}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 190);
 }
