@@ -50,9 +50,36 @@ jobs:
           NODE
           if [ "$status" -eq 0 ]; then
             echo 'No textual merge conflicts; functional tests and signed-in physical runtime still required.'
+            echo "HNL_COMPAT_NO_CONFLICT=1" >> "$GITHUB_ENV"
           else
             echo 'NO GO to combined PROD merge without audited manual resolution.'
+            echo "HNL_COMPAT_NO_CONFLICT=0" >> "$GITHUB_ENV"
           fi
+      - uses: actions/setup-node@v4
+        if: env.HNL_COMPAT_NO_CONFLICT == '1'
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Combined PR375+PR366 pinned main rules and regression gate (NO DEPLOY)
+        if: env.HNL_COMPAT_NO_CONFLICT == '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "let a=require('./package.json'),b=require('./package-lock.json');if(a.name!==b.name||a.version!==b.version)process.exit(2)"
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          node scripts/position-lock-cloud-golden.mjs
+          node scripts/prod-scoped-mobile-layout-golden.mjs
+          npm run test:firestore-restore-gate
+          npm run test:stability
+          npm run test:rbac
+          npm run test:offline
+          npm run security:audit
+          npm run build
+          test -s dist/index.html
+          echo 'COMBINED CANDIDATE STATIC GOLDEN PASS; NO DATA WRITES OR PROD DEPLOY.'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
