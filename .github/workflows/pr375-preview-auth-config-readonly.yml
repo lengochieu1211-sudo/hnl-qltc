@@ -1,0 +1,59 @@
+name: HNL QA375 DEV Backup Firebase Auth domain READ ONLY (NO DEPLOY)
+on:
+  push:
+    branches: [qa/pr375-preview-auth-config-readonly-20261101]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify DEV Backup only and exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/qa/pr375-preview-auth-config-readonly-20261101
+          test "$(git rev-parse HEAD^)" = 04070369b4844965a52f458330e911384dec36f4
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/pr375-preview-auth-config-readonly.yml'
+          node -e "const a=JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT);if(a.type!=='service_account'||a.project_id!=='hnl-qltc-dev-backup')process.exit(1)"
+      - name: READ Firebase Auth allowed domains for exact preview host (no secrets printed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import {createSign} from 'node:crypto';
+          const sa=JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT);
+          const enc=x=>Buffer.from(JSON.stringify(x)).toString('base64url');
+          const now=Math.floor(Date.now()/1000),a=enc({alg:'RS256',typ:'JWT'}),b=enc({iss:sa.client_email,scope:'https://www.googleapis.com/auth/cloud-platform',aud:'https://oauth2.googleapis.com/token',iat:now,exp:now+1800});
+          const s=createSign('RSA-SHA256');s.update(a+'.'+b);s.end();
+          const jwt=a+'.'+b+'.'+s.sign(sa.private_key).toString('base64url');
+          const r=await fetch('https://oauth2.googleapis.com/token',{method:'POST',body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion:jwt}),signal:AbortSignal.timeout(30000)});
+          if(!r.ok)throw Error('Could not fetch read-only DEV Backup OAuth token HTTP '+r.status);
+          const access=(await r.json()).access_token;
+          const out=await fetch('https://identitytoolkit.googleapis.com/admin/v2/projects/hnl-qltc-dev-backup/config',{headers:{Authorization:'Bearer '+access},signal:AbortSignal.timeout(30000)});
+          const result={project:'hnl-qltc-dev-backup',previewHost:'hnl-qltc-dev-backup--qa375nov01-qotpcppd.web.app',authDomain:'hnl-qltc-dev-backup.web.app',readStatus:out.status,readable:out.ok,previewAuthorized:false,authDomainAuthorized:false,authorizedDomainCount:null};
+          if(out.ok){
+            const config=await out.json(),domains=config.authorizedDomains||[];
+            result.previewAuthorized=domains.includes(result.previewHost);
+            result.authDomainAuthorized=domains.includes(result.authDomain);
+            result.authorizedDomainCount=domains.length;
+          }
+          fs.writeFileSync('QA375-DEV-BACKUP-AUTH-READONLY.json',JSON.stringify(result,null,2));
+          console.log(JSON.stringify(result));
+          if(!out.ok)throw Error('DEV Backup Auth authorizedDomains read denied (read-only): HTTP '+out.status);
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: QA375-DEVBACKUP-AUTH-READONLY-${{ github.sha }}
+          path: QA375-DEV-BACKUP-AUTH-READONLY.json
+          if-no-files-found: warn
+          retention-days: 7
