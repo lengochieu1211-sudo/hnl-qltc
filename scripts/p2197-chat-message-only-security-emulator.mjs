@@ -14,6 +14,9 @@ if (!/^demo-[a-z0-9-]+$/.test(projectId || '') ||
     !/^(127\.0\.0\.1|localhost):9099$/.test(process.env.FIREBASE_AUTH_EMULATOR_HOST || '')) {
   throw Error('P2197_REQUIRE_LOOPBACK_EMULATORS_ONLY');
 }
+const service = fs.readFileSync('src/lib/chatService.ts', 'utf8');
+const sendBody = service.slice(service.indexOf('async function commitProjectMessage('), service.indexOf('function isPermanentChatSendError('));
+assert.match(sendBody, /lastMessageId:\s*messageId/, 'live client must send lastMessageId with atomic message+summary');
 const nonce = Date.now().toString(36);
 const pid = 'p2197-message-only-' + nonce;
 const apps = [];
