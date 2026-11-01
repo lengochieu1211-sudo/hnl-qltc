@@ -42,7 +42,9 @@ jobs:
           git merge --no-ff --no-commit -X ours "$PROD"
           test -z "$(git ls-files -u)"
           python3 "$RUNNER_TEMP/reconcile.py" | tee output/SAFE-MODULE-PORTS.json
-          git add -A
+          # Only explicitly reviewed source edits are staged; output evidence stays untracked.
+          git add -- src/App.tsx src/lib/chatService.ts src/components/FloorPlanDefectTab.tsx
+          test -z "$(git ls-files --cached output)"
           git -c commit.gpgsign=false commit -m 'candidate: integrate PROD into DEV, preserve atomic Chat and Cloud position locks'
           test "$(git rev-list --parents -n 1 HEAD | awk '{print $2}')" = "$DEV"
           test "$(git rev-list --parents -n 1 HEAD | awk '{print $3}')" = "$PROD"
