@@ -1,0 +1,114 @@
+name: HNL PR375 isolated browser preflight (EMULATOR ONLY - NO DEPLOY)
+on:
+  push:
+    branches:
+      - qa/pr375-isolated-browser-golden-20261101
+permissions:
+  contents: read
+concurrency:
+  group: hnl-pr375-qa-isolated
+  cancel-in-progress: false
+jobs:
+  browser-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_USE_FIREBASE_EMULATORS: 'true'
+      VITE_FIREBASE_EMULATOR_PROJECT_ID: demo-hnl-pr375
+      VITE_FIREBASE_EMULATOR_HOST: '127.0.0.1'
+      VITE_FIREBASE_AUTH_EMULATOR_PORT: '9099'
+      VITE_FIRESTORE_EMULATOR_PORT: '8080'
+      VITE_FIREBASE_STORAGE_EMULATOR_PORT: '9199'
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
+      VITE_HNL_AI_ENABLED: 'false'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact candidate ancestry, current main, and source whitelist
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANDIDATE=33a24cc3e97bdce61058fd2c2219c37da4f40642
+          BASE=1c2b7d663d51d51aa45010e533d8e035e22adf59
+          test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
+          test "$GITHUB_REF" = refs/heads/qa/pr375-isolated-browser-golden-20261101
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$BASE"
+          git merge-base --is-ancestor "$CANDIDATE" "$GITHUB_SHA"
+          test "$(git merge-base "$BASE" "$CANDIDATE")" = "$BASE"
+          git diff --name-only "$CANDIDATE" HEAD | tee /tmp/qa-files.txt
+          test "$(wc -l </tmp/qa-files.txt | tr -d ' ')" = 2
+          while IFS= read -r f; do
+            case "$f" in
+              scripts/pr375-isolated-browser-smoke.mjs|.github/workflows/pr375-isolated-browser-qa.yml) ;;
+              *) echo "REFUSING out-of-scope QA file: $f";exit 1;;
+            esac
+          done < /tmp/qa-files.txt
+          test "$VITE_APP_ENV" = DEV
+          test "$VITE_USE_FIREBASE_EMULATORS" = true
+          test "$VITE_FIREBASE_EMULATOR_PROJECT_ID" = demo-hnl-pr375
+          test "$VITE_ENABLE_LEGACY_DRIVE_WRITE" = false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install locked dependencies and browser
+        run: |
+          npm ci
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Build DEV Emulator-only candidate (not a PROD bundle)
+        run: |
+          npm run build
+          test -s dist/index.html
+          grep -R -q 'demo-hnl-pr375' dist/assets
+      - name: Start isolated Firestore/Auth emulators
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup npx --yes firebase-tools@13.35.1 emulators:start --only firestore,auth --project demo-hnl-pr375 --config firebase.json > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/emulator.pid"
+          ok=0
+          for i in $(seq 1 150); do
+            if curl -sS -m 2 -o /dev/null http://127.0.0.1:8080/ && curl -sS -m 2 -o /dev/null http://127.0.0.1:9099/; then ok=1;break;fi
+            sleep 2
+          done
+          test "$ok" = 1 || { tail -120 "$RUNNER_TEMP/emulator.log";exit 1; }
+      - name: Start local-only browser preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup npx vite preview --host 127.0.0.1 --port 4173 --strictPort > "$RUNNER_TEMP/preview.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/preview.pid"
+          ok=0
+          for i in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:4173/; then ok=1;break;fi
+            sleep 2
+          done
+          test "$ok" = 1 || { tail -100 "$RUNNER_TEMP/preview.log";exit 1; }
+      - name: Chromium desktop/mobile emulator preflight with PROD-network deny
+        run: node scripts/pr375-isolated-browser-smoke.mjs
+      - name: Upload browser screenshot, audit and logs (evidence only)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PR375-ISOLATED-BROWSER-PREFLIGHT-${{ github.sha }}
+          path: |
+            runtime-evidence/pr375-isolated-qa/**
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Explicit status boundary
+        if: always()
+        run: echo 'This job NEVER deploys and does NOT certify signed-in/physical Runtime Golden or PROD data parity.'
