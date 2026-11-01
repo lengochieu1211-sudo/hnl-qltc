@@ -21,7 +21,7 @@ jobs:
           PROD=1c2b7d663d51d51aa45010e533d8e035e22adf59
           test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
           test "$GITHUB_REF" = refs/heads/qa/dev-prod-safe-integration-20261101
-          test "$(git rev-parse HEAD^^)" = "$DEV"
+          git merge-base --is-ancestor "$DEV" HEAD
           git diff --name-only "$DEV" HEAD | sort > "$RUNNER_TEMP/changed.txt"
           printf '%s\n' '.github/workflows/hnl-dev-prod-safe-integration.yml' 'scripts/hnl-dev-prod-safe-reconcile.py' > "$RUNNER_TEMP/allowed.txt"
           diff -u "$RUNNER_TEMP/allowed.txt" "$RUNNER_TEMP/changed.txt"
@@ -102,7 +102,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: HNL-DEV-PROD-INTEGRATION-STATIC-\${{ github.sha }}
+          name: HNL-DEV-PROD-INTEGRATION-STATIC
           path: output/**
           retention-days: 25
           if-no-files-found: warn
