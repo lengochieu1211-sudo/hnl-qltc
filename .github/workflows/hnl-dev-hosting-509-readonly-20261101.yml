@@ -1,0 +1,78 @@
+name: HNL DEV Hosting 509 diagnostic READ ONLY
+on:
+  push:
+    branches: [audit/dev-hosting-509-readonly-20261101]
+    paths: [.github/workflows/hnl-dev-hosting-509-readonly-20261101.yml]
+permissions:
+  contents: read
+jobs:
+  audit-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify isolated audit branch and original DEV source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "lengochieu1211-sudo/hnl-qltc"
+          test "$GITHUB_REF" = "refs/heads/audit/dev-hosting-509-readonly-20261101"
+          test "$(git rev-parse HEAD^)" = "6073580c0d5ebcce1b6669f531d7140c384a78d3"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = ".github/workflows/hnl-dev-hosting-509-readonly-20261101.yml"
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "6073580c0d5ebcce1b6669f531d7140c384a78d3"
+          test -n "$FIREBASE_SERVICE_ACCOUNT"
+          node -e "const s=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);if(s.type!=='service_account'||s.project_id!=='hnl-qltc-dev'||!s.private_key)throw Error('Unexpected DEV credential identity');console.log('DEV service account identity verified')"
+      - name: Read-only HTTP status and Hosting/Cloud APIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          HTTP="$(curl -L -s -o /dev/null -w '%{http_code}' --max-time 20 'https://hnl-qltc-dev.web.app/?readOnlyHosting509Probe=20261101' || true)"
+          echo "DEV Hosting HTTP status: $HTTP"
+          node <<'NODE'
+          const crypto = require('node:crypto');
+          const service = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+          if (service.project_id !== 'hnl-qltc-dev') throw Error('Project mismatch');
+          const now = Math.floor(Date.now() / 1000);
+          const encode = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url');
+          const part = encode({alg:'RS256',typ:'JWT'}) + '.' + encode({
+            iss: service.client_email,
+            scope:'https://www.googleapis.com/auth/cloud-platform.read-only',
+            aud:'https://oauth2.googleapis.com/token',
+            iat:now,exp:now+900
+          });
+          const signature = crypto.sign('RSA-SHA256', Buffer.from(part),service.private_key).toString('base64url');
+          (async () => {
+            const tokenRes = await fetch('https://oauth2.googleapis.com/token',{
+              method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},
+              body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion:part+'.'+signature})
+            });
+            if (!tokenRes.ok) {console.log('Google OAuth token request status: '+tokenRes.status+' (identity audit inconclusive)');return;}
+            const {access_token} = await tokenRes.json();
+            if (!access_token) throw Error('Missing OAuth access token');
+            const checks=[
+              ['Firebase Hosting API enabled','https://serviceusage.googleapis.com/v1/projects/hnl-qltc-dev/services/firebasehosting.googleapis.com'],
+              ['Firebase Hosting sites','https://firebasehosting.googleapis.com/v1beta1/projects/hnl-qltc-dev/sites?pageSize=20'],
+              ['Cloud Billing information','https://cloudbilling.googleapis.com/v1/projects/hnl-qltc-dev/billingInfo']
+            ];
+            for(const [label,url] of checks){
+              try{
+                const r=await fetch(url,{headers:{authorization:'Bearer '+access_token}});
+                const body=await r.json().catch(()=>({}));
+                const output={check:label,httpStatus:r.status};
+                if(label==='Firebase Hosting API enabled')output.state=body.state||null;
+                if(label==='Firebase Hosting sites')output.siteIds=Array.isArray(body.sites)?body.sites.map(x=>x.name?.split('/').pop()).filter(Boolean):[];
+                if(label==='Cloud Billing information')output.billingEnabled=typeof body.billingEnabled==='boolean'?body.billingEnabled:null;
+                if(body.error)output.errorStatus=body.error.status||'unavailable';
+                console.log(JSON.stringify(output));
+              }catch(e){console.log(JSON.stringify({check:label,status:'inconclusive',error:String(e.message||e).slice(0,120)}));}
+            }
+          })().catch(e=>{console.error('Read-only audit failed: '+String(e.message||e));process.exitCode=1});
+          NODE
+      - name: Confirm no Hosting LIVE deployment performed
+        if: always()
+        run: echo 'READ ONLY DIAGNOSTIC — no deploy, no clone, no Rules, no R2, no database writes'
