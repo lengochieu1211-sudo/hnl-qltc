@@ -44,10 +44,10 @@ jobs:
           git merge-base --is-ancestor "$CANDIDATE" "$GITHUB_SHA"
           test "$(git merge-base "$BASE" "$CANDIDATE")" = "$BASE"
           git diff --name-only "$CANDIDATE" HEAD | tee /tmp/qa-files.txt
-          test "$(wc -l </tmp/qa-files.txt | tr -d ' ')" = 2
+          test "$(wc -l </tmp/qa-files.txt | tr -d ' ')" = 3
           while IFS= read -r f; do
             case "$f" in
-              scripts/pr375-isolated-browser-smoke.mjs|.github/workflows/pr375-isolated-browser-qa.yml) ;;
+              scripts/pr375-isolated-browser-smoke.mjs|scripts/pr375-emulator-auth-runtime-smoke.mjs|.github/workflows/pr375-isolated-browser-qa.yml) ;;
               *) echo "REFUSING out-of-scope QA file: $f";exit 1;;
             esac
           done < /tmp/qa-files.txt
@@ -100,6 +100,23 @@ jobs:
           test "$ok" = 1 || { tail -100 "$RUNNER_TEMP/preview.log";exit 1; }
       - name: Chromium desktop/mobile emulator preflight with PROD-network deny
         run: node scripts/pr375-isolated-browser-smoke.mjs
+      - name: Start local-only Vite development server for direct emulator auth module test
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$VITE_APP_ENV" = DEV
+          test "$VITE_USE_FIREBASE_EMULATORS" = true
+          test "$VITE_FIREBASE_EMULATOR_PROJECT_ID" = demo-hnl-pr375
+          nohup npx vite --host 127.0.0.1 --port 4174 --strictPort > "$RUNNER_TEMP/vite-dev.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/vite-dev.pid"
+          ok=0
+          for i in $(seq 1 40); do
+            if curl -fsS -o /dev/null http://127.0.0.1:4174/src/lib/firebase.ts; then ok=1;break;fi
+            sleep 2
+          done
+          test "$ok" = 1 || { tail -100 "$RUNNER_TEMP/vite-dev.log"; exit 1; }
+      - name: Signed-in emulator browser smoke for ADMIN, EDITOR, VIEWER on PC/phone (NO PROD)
+        run: node scripts/pr375-emulator-auth-runtime-smoke.mjs
       - name: Upload browser screenshot, audit and logs (evidence only)
         if: always()
         uses: actions/upload-artifact@v4
@@ -107,6 +124,7 @@ jobs:
           name: PR375-ISOLATED-BROWSER-PREFLIGHT-${{ github.sha }}
           path: |
             runtime-evidence/pr375-isolated-qa/**
+            runtime-evidence/pr375-emulator-auth/**
           if-no-files-found: warn
           retention-days: 30
       - name: Package exact QA FULL SOURCE and PATCH with SHA256 (NO DEPLOY)
@@ -115,13 +133,13 @@ jobs:
           set -euo pipefail
           CANDIDATE=33a24cc3e97bdce61058fd2c2219c37da4f40642
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git diff --name-only "$CANDIDATE" HEAD | wc -l | tr -d ' ')" = 2
+          test "$(git diff --name-only "$CANDIDATE" HEAD | wc -l | tr -d ' ')" = 3
           test "$(git hash-object scripts/p2115-firestore-backup-public.pem)" = b27d18fda5d05bbfc257725cc463772389af236d
           SENSITIVE="$(git ls-files | grep -E '(^|/)([.]env$|[.]env[.]production$|[^/]*service.account[^/]*[.]json$|[^/]*[.]pem$|[^/]*[.]p12$|[^/]*[.]key$)' | grep -v -x 'scripts/p2115-firestore-backup-public.pem' || true)"
           test -z "$SENSITIVE" || { echo "Refuse to package sensitive tracked files";exit 1; }
           mkdir -p qa-handoff
           git archive --format=zip --output="qa-handoff/HNL-QLTC-PR375-QA-FULL-SOURCE-${GITHUB_SHA}.zip" HEAD
-          git archive --format=zip --output="qa-handoff/HNL-QLTC-PR375-QA-PATCH-${GITHUB_SHA}.zip" HEAD .github/workflows/pr375-isolated-browser-qa.yml scripts/pr375-isolated-browser-smoke.mjs
+          git archive --format=zip --output="qa-handoff/HNL-QLTC-PR375-QA-PATCH-${GITHUB_SHA}.zip" HEAD .github/workflows/pr375-isolated-browser-qa.yml scripts/pr375-isolated-browser-smoke.mjs scripts/pr375-emulator-auth-runtime-smoke.mjs
           unzip -t "qa-handoff/HNL-QLTC-PR375-QA-FULL-SOURCE-${GITHUB_SHA}.zip" >/dev/null
           unzip -t "qa-handoff/HNL-QLTC-PR375-QA-PATCH-${GITHUB_SHA}.zip" >/dev/null
           sha256sum qa-handoff/*.zip > qa-handoff/SHA256SUMS.txt
