@@ -43,6 +43,11 @@ jobs:
     timeout-minutes: 75
     env:
       EXPECTED_MAIN_SHA: ${{ inputs.expected_main_sha }}
+      APPROVED_RUNTIME: ${{ inputs.runtime_golden_approval }}
+      APPROVED_RESTORE: ${{ inputs.restore_approval }}
+      APPROVED_R2: ${{ inputs.r2_media_approval }}
+      APPROVED_HOSTING: ${{ inputs.hosting_only_approval }}
+      GOLDEN_REPORT_URL: ${{ inputs.golden_report_url }}
       EXPECTED_LIVE_VERSION: ${{ inputs.expected_live_version }}
       VITE_APP_ENV: PROD
       VITE_RUNTIME_BACKEND: firebase-only
@@ -70,13 +75,13 @@ jobs:
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
           test "$GITHUB_REF" = refs/heads/qa/pr375-prod-hosting-only-release-gated-20261101
-          test "${{ inputs.runtime_golden_approval }}" = GO-REAL-DEVICE-RUNTIME-GOLDEN
-          test "${{ inputs.restore_approval }}" = GO-FIRESTORE-RESTORE-PARITY
-          test "${{ inputs.r2_media_approval }}" = GO-R2-LEGACY-MEDIA-PARITY
-          test "${{ inputs.hosting_only_approval }}" = DEPLOY-HOSTING-ONLY
+          test "$APPROVED_RUNTIME" = GO-REAL-DEVICE-RUNTIME-GOLDEN
+          test "$APPROVED_RESTORE" = GO-FIRESTORE-RESTORE-PARITY
+          test "$APPROVED_R2" = GO-R2-LEGACY-MEDIA-PARITY
+          test "$APPROVED_HOSTING" = DEPLOY-HOSTING-ONLY
           printf '%s' "$EXPECTED_MAIN_SHA" | grep -Eq '^[0-9a-f]{40}$'
           printf '%s' "$EXPECTED_LIVE_VERSION" | grep -Eq '^sites/hnlqltc/versions/[a-z0-9]+$'
-          printf '%s' "${{ inputs.golden_report_url }}" | grep -Eq '^https://(drive|docs)\.google\.com/'
+          printf '%s' "$GOLDEN_REPORT_URL" | grep -Eq '^https://(drive|docs)\.google\.com/'
           test "$VITE_FIREBASE_PROJECT_ID" = com-example-qlct-61329
           test "$VITE_APP_ENV" = PROD
           test "$VITE_ENABLE_LEGACY_DRIVE_WRITE" = false
@@ -203,11 +208,13 @@ jobs:
           URL="https://hnlqltc.web.app/?release=$GITHUB_RUN_ID"
           curl --fail --silent --show-error --retry 10 --retry-delay 3 "$URL" > "$RUNNER_TEMP/hnl-prod-landing.html"
           grep -qi '<div id="root"' "$RUNNER_TEMP/hnl-prod-landing.html"
-          node - <<'NODE'
+          HNLP_JS_PATH="$(node - <<'NODE'
           const fs=require('fs');const html=fs.readFileSync(process.env.RUNNER_TEMP+'/hnl-prod-landing.html','utf8');
           const s=html.match(/src="(\/assets\/[^"]+\.js)"/);
-          if(!s)throw Error('No PROD hashed JS path');fs.appendFileSync(process.env.GITHUB_ENV,'HNLP_JS_PATH='+s[1]+'\n');
+          if(!s)throw Error('No PROD hashed JS path');process.stdout.write(s[1]);
           NODE
+          )"
+          test -n "$HNLP_JS_PATH"
           curl --fail --silent --show-error --retry 10 --retry-delay 3 "https://hnlqltc.web.app$HNLP_JS_PATH" -o "$RUNNER_TEMP/hnl-prod-entry.js"
           test -s "$RUNNER_TEMP/hnl-prod-entry.js"
           echo 'Hosting-only HTTP smoke PASS. User-based runtime certification is independent.'
