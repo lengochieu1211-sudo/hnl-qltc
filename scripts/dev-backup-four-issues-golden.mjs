@@ -24,4 +24,5 @@ assert(floor.includes('positionLocked === undefined && legacy.has') &&
   floor.includes("legacyOnlyLock && !window.confirm(") &&
   !floor.includes("localStorage.setItem(getDraftKey('construction_floorplan_locked_rooms')"),
   'Legacy-only locks protect old data without silent Cloud migration or new local writes');
+
 console.log('DEV BACKUP FOUR ISSUES UI SOURCE REGRESSION PASS (cloud lock reconciliation included; runtime multiuser gate pending)');

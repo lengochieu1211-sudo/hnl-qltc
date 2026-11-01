@@ -24,6 +24,7 @@ const qsPatchedMatch = /^6\.16\.(\d+)$/.exec(lock.packages?.['node_modules/qs']?
 assert(Boolean(qsPatchedMatch) && Number(qsPatchedMatch[1]) >= 1, 'lockfile pins patched qs >=6.16.1');
 const re2PatchedMatch = /^2\.8\.(\d+)$/.exec(lock.packages?.['node_modules/re2js']?.version || '');
 assert(Boolean(re2PatchedMatch) && Number(re2PatchedMatch[1]) >= 7, 'lockfile pins patched re2js >=2.8.7');
+
 assert(lock.packages?.['node_modules/xlsx']?.version === '0.20.3', 'lockfile pins SheetJS 0.20.3');
 assert(lock.packages?.['node_modules/xlsx']?.resolved === 'https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz', 'lockfile resolves SheetJS from authoritative CDN');
 

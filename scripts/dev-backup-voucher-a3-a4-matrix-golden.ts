@@ -68,6 +68,7 @@ for (const opts of matrix) {
       'Mobile summary explanation should span C:D');
     assert(!sheet['!merges']?.some(m=>m.s.r===summaryZeroIndex&&m.e.c>=4),
       'Mobile summary must not merge into hidden E');
+
     for (let j = 0; j < pages[i].rows.length; j++) {
       assert.equal(sheet['E' + (j + 10)]?.v, pages[i].rows[j].id);
       assert.equal(sheet['E' + (j + 10)]?.f, undefined, 'IDs must not execute as formulas');

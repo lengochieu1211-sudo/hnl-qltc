@@ -74,6 +74,7 @@ assert(first['!merges']?.some(m=>m.s.r===mobileSummaryRow&&m.s.c===2&&m.e.c===3)
   'summary note must span C:D without depending on hidden E');
 assert(!first['!merges']?.some(m=>m.s.r===mobileSummaryRow&&m.e.c>=4),
   'summary must not merge into hidden technical ID column');
+
 assert.equal(second['E10']?.v,'OUT-2026-001','issue transaction must keep its ID');
 assert(decoded.SheetNames.some(n=>n.startsWith('NHAP'))&&decoded.SheetNames.some(n=>n.startsWith('XUAT')));
 

@@ -141,6 +141,7 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
 }
 import { subscribeToProjectRealtime, saveProjectDiffsToCloud, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, subscribeCurrentUserPinResetRealtime, signOutGoogle, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, subscribeProjectSharedSettings, fetchProjectSharedSettingsSnapshot, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud, updateProjectPresence } from './lib/firebase';
 import { REALTIME_STATE_KEYS, STATE_KEY_TO_CLOUD_NAME } from './config/realtimeCollections';
+import { hasPendingChatOutboxForCurrentUser } from './lib/chatService';
 import { FIREBASE_ONLY_RUNTIME, LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED, LEGACY_LOCAL_IMPORT_ENABLED } from './config/runtimeArchitecture';
 import { CURRENT_DATA_SCHEMA_VERSION } from './config/dataSchema';
 import { 
@@ -208,6 +209,7 @@ import { drainBinaryPurgeRetryQueues, purgeTrashOperationBinaries } from './lib/
 import { restoreProjectTrashAtomic } from './lib/trashRestore';
 import { restoreDeletedUndoOnCloud, redoDeletedHistoryOnCloud } from './lib/scopedUndoCloud';
 import { commitPositionLocksOnCloud, type PositionLockKind, type PositionLockEntry } from './lib/positionLockCloud';
+
 import { deleteEmptyStructureGroupToTrash } from './lib/structureGroupTrash';
 
 // Heavy screens are code-split so Android does not parse XLSX/PDF-heavy modules at startup.
@@ -659,6 +661,7 @@ function AuthenticatedApp() {
   const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
   const [projectManagerInitialTab, setProjectManagerInitialTab] = useState<'projects' | 'sync'>('projects');
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
+  const [securityModalEntryPoint, setSecurityModalEntryPoint] = useState<'account' | 'switch' | 'rbac' | 'pin'>('pin');
   const [currentUserRole, setCurrentUserRoleState] = useState<UserRole>(() => getCurrentUserRole());
   const [isProjectRoleResolved, setIsProjectRoleResolved] = useState(false);
   const [projectRoleSource, setProjectRoleSource] = useState<'cloud' | 'offline-cache' | 'unresolved'>('unresolved');
@@ -7927,6 +7930,30 @@ function AuthenticatedApp() {
   };
 
   const hasExcelExport = ['warehouse', 'volume', 'floorplan', 'checklist', 'crew'].includes(activeTab);
+  // Presentation-only logout gate: do not abandon uncommitted Firestore or R2 work.
+  // Gate is re-evaluated on click as well as when drawing the desktop account menu.
+  const desktopAccountHasPendingSync = !cloudInitialReady
+    || firestorePendingWriteCount > 0
+    || syncDiagnosticPendingData > 0
+    || syncDiagnosticPendingMetadata > 0
+    || Number(photoCloudStatus.pending || 0) > 0
+    || floorPlanImageSyncPendingRef.current.size > 0
+    || floorPlanImageSyncInFlightRef.current.size > 0;
+  const handleDesktopAccountSignOut = async () => {
+    if (!isOnline || desktopAccountHasPendingSync || await hasPendingChatOutboxForCurrentUser()) {
+      alert('Không thể đăng xuất khi đang ngoại tuyến hoặc còn dữ liệu (kể cả tin nhắn Chat) chờ đồng bộ. Hãy kết nối mạng và đợi đồng bộ hoàn tất.');
+      return;
+    }
+    // Existing confirmation / role reset / AuthGate lifecycle remain authoritative.
+    await signOutGoogle();
+  };
+  const handleDesktopLockNow = () => {
+    if (getStoredPinLockConfig().enabled) setIsAppLocked(true);
+    else {
+      setSecurityModalEntryPoint('pin');
+      setIsSecurityModalOpen(true); // Allow the owner to configure PIN first.
+    }
+  };
 
   return (
     <div data-hnl-desktop-design={visibleTab !== 'home' ? desktopWorkspaceMode : 'classic'} data-hnl-pc-home-modern={visibleTab === 'home' && desktopWorkspaceMode === 'modern' ? 'true' : 'false'} data-hnl-desktop-native={isDesktopRuntime ? 'true' : 'false'} className={`min-h-screen bg-slate-100 text-slate-900 font-sans selection:bg-blue-200 ${isDesktopRuntime || chromeDesktopSite ? 'pl-[84px]' : 'lg:pl-[84px]'}`}>
@@ -8809,13 +8836,29 @@ function AuthenticatedApp() {
             showChecklist={showChecklistModule}
             showAi={HNL_AI_ENABLED}
             showSuperAdmin={isCurrentSuperAdmin}
+            userRole={currentUserRole}
+            roleResolved={isProjectRoleResolved && projectRoleAllowed}
+            online={isOnline}
+            hasPendingSync={desktopAccountHasPendingSync}
+            onOpenAccount={(section) => {
+              setSecurityModalEntryPoint(section);
+              setIsSecurityModalOpen(true);
+            }}
+            onLockNow={handleDesktopLockNow}
+            onSignOut={handleDesktopAccountSignOut}
           />
         )}
 
         {/* Security & Access Control Modal */}
         <SecurityModal
           isOpen={isSecurityModalOpen}
-          onClose={() => setIsSecurityModalOpen(false)}
+          onClose={() => {
+            setIsSecurityModalOpen(false);
+            setSecurityModalEntryPoint('pin');
+          }}
+          entryPoint={securityModalEntryPoint}
+          onSafeAccountSignOut={handleDesktopAccountSignOut}
+          signOutBlocked={!isOnline || desktopAccountHasPendingSync}
           onLockNow={() => setIsAppLocked(true)}
           activeProjectId={activeProjectId}
           projects={securityModalProjects}

@@ -677,6 +677,7 @@ requireAll(photoStorage, ['requireBinary &&', 'từ chối tạo backup không �
 if (!/getProjectPhotosWithBinary\(\s*projectId,\s*true\s*\)/.test(app)
   || !/getProjectPhotosWithBinary\(\s*activeId,\s*true\s*[,)]/.test(projectManager)
   || !/getProjectPhotosWithBinary\(\s*pId,\s*true\s*[,)]/.test(projectManager)) fail('self-contained backup callers do not require every photo binary');
+
 if (app.includes("FIREBASE_ONLY_ALL_BACKUP_CLOUD_SOURCE") && app.includes("const allStorageData = await getAllStorageData();")) {
   const markerIndex = app.indexOf('FIREBASE_ONLY_ALL_BACKUP_CLOUD_SOURCE');
   const legacyIndex = app.indexOf('const allStorageData = await getAllStorageData();', markerIndex);

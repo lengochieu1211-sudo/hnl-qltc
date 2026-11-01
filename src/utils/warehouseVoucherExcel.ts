@@ -70,6 +70,7 @@ export async function buildWarehouseVoucherExcel(pages: WarehouseVoucherPrintPag
       'Số liệu theo đơn vị từng dòng, không cộng khác ĐVT'], 64);
     merge(table.length-1,0,1);
     merge(table.length-1,2,3);
+
     row([], 32);
     row(['Người lập phiếu',null,page.direction === 'in' ? 'Người giao hàng' : 'Người nhận hàng','Thủ kho',null], 30);
     row(['(Ký, ghi rõ họ tên)',null,'(Ký, ghi rõ họ tên)','(Ký, ghi rõ họ tên)',null], 24);
