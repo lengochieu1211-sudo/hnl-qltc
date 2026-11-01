@@ -1,0 +1,62 @@
+name: HNL PHOTO TEN GROUPS - PR375 + PR366 cross-compatibility audit (NO DEPLOY)
+on:
+  push:
+    branches: [qa/prod10-pr375-lock366-compat-readonly-20261101]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact source pins and isolated audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          PR375=33a24cc3e97bdce61058fd2c2219c37da4f40642
+          PROD=1c2b7d663d51d51aa45010e533d8e035e22adf59
+          PR366=5cb282b76c0e74898ff8c86ed22fc26e4c0c58ae
+          test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
+          test "$GITHUB_REF" = refs/heads/qa/prod10-pr375-lock366-compat-readonly-20261101
+          test "$(git rev-parse HEAD^)" = "$PR375"
+          test "$(git diff --name-only "$PR375" HEAD)" = '.github/workflows/hnl-prod10-pr375-366-compat-audit.yml'
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$PROD"
+          git cat-file -e "$PR366^{commit}"
+          git config user.name 'HNL ReadOnly QA'
+          git config user.email 'qa-audit@users.noreply.github.com'
+      - name: Stage merge PR366 over PR375 only in runner and report conflict paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git merge-base 33a24cc3e97bdce61058fd2c2219c37da4f40642 5cb282b76c0e74898ff8c86ed22fc26e4c0c58ae > evidence/common-parent.txt
+          set +e
+          git merge --no-commit --no-ff 5cb282b76c0e74898ff8c86ed22fc26e4c0c58ae > evidence/merge-output.txt 2>&1
+          status=$?
+          set -e
+          git diff --name-only --diff-filter=U > evidence/conflict-paths.txt
+          cat evidence/merge-output.txt | tail -60
+          cat evidence/conflict-paths.txt
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const conflicts=fs.readFileSync('evidence/conflict-paths.txt','utf8').trim().split('\n').filter(Boolean);
+          const report={at:new Date().toISOString(),prodHead:'1c2b7d663d51d51aa45010e533d8e035e22adf59',mobileExcelHead:'33a24cc3e97bdce61058fd2c2219c37da4f40642',lockHead:'5cb282b76c0e74898ff8c86ed22fc26e4c0c58ae',conflictCount:conflicts.length,conflictPaths:conflicts,onlyTemporaryRunner:true,mainUnchanged:true,devUnchanged:true,firestoreUnchanged:true};
+          fs.writeFileSync('evidence/COMPATIBILITY.json',JSON.stringify(report,null,2));
+          console.log(JSON.stringify(report));
+          NODE
+          if [ "$status" -eq 0 ]; then
+            echo 'No textual merge conflicts; functional tests and signed-in physical runtime still required.'
+          else
+            echo 'NO GO to combined PROD merge without audited manual resolution.'
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-PROD10-PR375-PR366-READONLY-${{ github.sha }}
+          path: evidence/**
+          retention-days: 20
+          if-no-files-found: warn
