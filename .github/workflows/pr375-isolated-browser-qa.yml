@@ -116,7 +116,8 @@ jobs:
           CANDIDATE=33a24cc3e97bdce61058fd2c2219c37da4f40642
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(git diff --name-only "$CANDIDATE" HEAD | wc -l | tr -d ' ')" = 2
-          SENSITIVE="$(git ls-files | grep -E '(^|/)([.]env$|[.]env[.]production$|[^/]*service.account[^/]*[.]json$|[^/]*[.]pem$|[^/]*[.]p12$|[^/]*[.]key$)' || true)"
+          test "$(git hash-object scripts/p2115-firestore-backup-public.pem)" = b27d18fda5d05bbfc257725cc463772389af236d
+          SENSITIVE="$(git ls-files | grep -E '(^|/)([.]env$|[.]env[.]production$|[^/]*service.account[^/]*[.]json$|[^/]*[.]pem$|[^/]*[.]p12$|[^/]*[.]key$)' | grep -v -x 'scripts/p2115-firestore-backup-public.pem' || true)"
           test -z "$SENSITIVE" || { echo "Refuse to package sensitive tracked files";exit 1; }
           mkdir -p qa-handoff
           git archive --format=zip --output="qa-handoff/HNL-QLTC-PR375-QA-FULL-SOURCE-${GITHUB_SHA}.zip" HEAD
