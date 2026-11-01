@@ -131,7 +131,7 @@ jobs:
           if(config.hosting?.public!=='dist')throw Error('Unexpected Hosting public root');
           fs.writeFileSync('qa375-devbackup-hosting-only.json',JSON.stringify({hosting:{...config.hosting,site:'hnl-qltc-dev-backup'}}));
           NODE
-          npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$BACKUP_CHANNEL" --project "$BACKUP_PROJECT" --config "$GITHUB_WORKSPACE/qa375-devbackup-hosting-only.json" --expires 1d --non-interactive --json > "$RUNNER_TEMP/preview.json"
+          npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$BACKUP_CHANNEL" --project "$BACKUP_PROJECT" --config "$GITHUB_WORKSPACE/qa375-devbackup-hosting-only.json" --expires 7d --non-interactive --json > "$RUNNER_TEMP/preview.json"
           node - <<'NODE'
           const fs=require('fs');
           const t=fs.readFileSync(process.env.RUNNER_TEMP+'/preview.json','utf8');
