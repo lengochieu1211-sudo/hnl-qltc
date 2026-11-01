@@ -1,0 +1,77 @@
+name: HNL PR375 PROD Firestore read-only encrypted backup (NO DEPLOY / NO WRITES)
+on:
+  push:
+    branches:
+      - qa/pr375-prod-readonly-firestore-backup-20261101
+permissions:
+  contents: read
+concurrency:
+  group: hnl-pr375-prod-encrypted-readonly-backup
+  cancel-in-progress: false
+jobs:
+  encrypted-prod-snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+      P2115_FIRESTORE_PROJECT: com-example-qlct-61329
+      P2115_EXPECTED_PROJECT: com-example-qlct-61329
+      P2115_MAX_DOCS: '15000'
+      P2115_MAX_BYTES: '300000000'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Refuse unapproved source or credential scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANDIDATE=33a24cc3e97bdce61058fd2c2219c37da4f40642
+          BASE=1c2b7d663d51d51aa45010e533d8e035e22adf59
+          test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
+          test "$GITHUB_REF" = refs/heads/qa/pr375-prod-readonly-firestore-backup-20261101
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$BASE"
+          git merge-base --is-ancestor "$CANDIDATE" "$GITHUB_SHA"
+          test "$(git diff --name-only "$CANDIDATE" HEAD)" = '.github/workflows/pr375-prod-readonly-firestore-backup.yml'
+          test "$(git hash-object scripts/p2115-firestore-encrypted-snapshot.mjs)" = f71918188f26f328cab96f888589323ea9037336
+          test "$(git hash-object scripts/p2115-firestore-traversal.mjs)" = a1d7b939a445847580f23d2965fedd677eea088b
+          test "$(git hash-object scripts/p2115-firestore-backup-public.pem)" = b27d18fda5d05bbfc257725cc463772389af236d
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}"
+          node -e "const p=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);if(p.project_id!=='com-example-qlct-61329'||p.type!=='service_account')throw Error('PROD service account mismatch');"
+          echo 'Approved read-only backup source exact SHA and projectId'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Collect and encrypt PROD documents (READ API only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/p2115-firestore-encrypted-snapshot.mjs
+      - name: Verify only encrypted artifact and non-sensitive count manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          ENC=(P2115-FIRESTORE-com-example-qlct-61329-*.jsonl.gz.aes256)
+          MAN=(P2115-FIRESTORE-com-example-qlct-61329-*.jsonl.gz.aes256.manifest.json)
+          test "${#ENC[@]}" -eq 1
+          test "${#MAN[@]}" -eq 1
+          node -e "const m=require('./'+process.argv[1]);if(m.project!=='com-example-qlct-61329'||m.documents<1||m.algorithm!=='AES-256-GCM'||m.consistency!=='non-atomic document-by-document REST snapshot')process.exit(1);" "${MAN[0]}"
+          sha256sum "${ENC[0]}" > HNL-PR375-PROD-FIRESTORE-ENCRYPTED-SHA256SUMS.txt
+          echo 'ENCRYPTED_ONLY backup evidence, not an atomic PROD backup, not a restored snapshot.'
+      - name: Upload encrypted snapshot and manifest only (no plaintext or credentials)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-PR375-PROD-FIRESTORE-ENCRYPTED-READONLY-${{ github.sha }}
+          path: |
+            P2115-FIRESTORE-com-example-qlct-61329-*.jsonl.gz.aes256
+            P2115-FIRESTORE-com-example-qlct-61329-*.jsonl.gz.aes256.manifest.json
+            HNL-PR375-PROD-FIRESTORE-ENCRYPTED-SHA256SUMS.txt
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Audit boundary
+        if: always()
+        run: echo 'NO FIRESTORE WRITES / NO PRODUCTION DEPLOY / NO UNENCRYPTED ARTIFACTS. Restore into emulator still a separate gate.'
