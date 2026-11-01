@@ -10,8 +10,6 @@ def once(text,needle,replacement,label):
     if text.count(needle)!=1: raise RuntimeError(label+": expected one anchor, found "+str(text.count(needle)))
     return text.replace(needle,replacement,1)
 # DEV atomic Chat and Cloud position locks are newer than PROD; never replace.
-if "hasPendingChatOutboxForCurrentUser" in c:
-    raise RuntimeError("Unexpected duplicate Chat guard")
 anchor="async function commitProjectMessage("
 if anchor not in c or "let chatOutboxFlushPromise: Promise<void> | null = null;" not in c:
     raise RuntimeError("Unexpected Chat core")
@@ -29,12 +27,21 @@ export async function hasPendingChatOutboxForCurrentUser(): Promise<boolean> {
 }
 
 """
-c=once(c,anchor,guard+anchor,"Chat guard insertion")
-s=once(s,
+# Merge may have independently imported the older PROD helper. Replace only
+# that small helper with the DEV-compatible fail-closed version, not Chat core.
+if "export async function hasPendingChatOutboxForCurrentUser" in c:
+    a=c.index("export async function hasPendingChatOutboxForCurrentUser")
+    b=c.index(anchor,a)
+    c=c[:a]+guard+c[b:]
+else:
+    c=once(c,anchor,guard+anchor,"Chat guard insertion")
+if "import { hasPendingChatOutboxForCurrentUser }" not in s:
+    s=once(s,
 "import { REALTIME_STATE_KEYS, STATE_KEY_TO_CLOUD_NAME } from './config/realtimeCollections';",
 "import { REALTIME_STATE_KEYS, STATE_KEY_TO_CLOUD_NAME } from './config/realtimeCollections';\nimport { hasPendingChatOutboxForCurrentUser } from './lib/chatService';",
 "Chat guard import")
-s=once(s,
+if "const [securityModalEntryPoint, setSecurityModalEntryPoint]" not in s:
+    s=once(s,
 "  const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);",
 "  const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);\n  const [securityModalEntryPoint, setSecurityModalEntryPoint] = useState<'account' | 'switch' | 'rbac' | 'pin'>('pin');",
 "securityModalEntryPoint")
@@ -62,10 +69,12 @@ insert="""  // Safeguard signout against uncommitted Firestore, media or Chat wo
   };
 
 """
-s=once(s,"  const hasExcelExport = ['warehouse', 'volume', 'floorplan', 'checklist', 'crew'].includes(activeTab);\n",
+if "const handleDesktopAccountSignOut" not in s:
+    s=once(s,"  const hasExcelExport = ['warehouse', 'volume', 'floorplan', 'checklist', 'crew'].includes(activeTab);\n",
 "  const hasExcelExport = ['warehouse', 'volume', 'floorplan', 'checklist', 'crew'].includes(activeTab);\n"+insert,
 "safe account helpers")
-s=once(s,
+if "onSignOut={handleDesktopAccountSignOut}" not in s:
+    s=once(s,
 """            showChecklist={showChecklistModule}
             showAi={HNL_AI_ENABLED}
             showSuperAdmin={isCurrentSuperAdmin}
@@ -85,7 +94,8 @@ s=once(s,
             onSignOut={handleDesktopAccountSignOut}
           />""",
 "desktop account props")
-s=once(s,
+if "onSafeAccountSignOut={handleDesktopAccountSignOut}" not in s:
+    s=once(s,
 """        <SecurityModal
           isOpen={isSecurityModalOpen}
           onClose={() => setIsSecurityModalOpen(false)}
