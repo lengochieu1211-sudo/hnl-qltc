@@ -1,0 +1,94 @@
+name: HNL PR375 PROD R2 verified backup (PROD SOURCE READ-ONLY / NO DEPLOY)
+on:
+  push:
+    branches:
+      - qa/pr375-prod-r2-backup-20261101
+permissions:
+  contents: read
+concurrency:
+  group: hnl-pr375-prod-r2-backup
+  cancel-in-progress: false
+jobs:
+  r2-backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: '4078cafe74946b0d5a67b35143b60071'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Pin exact production source and immutable backup worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANDIDATE=33a24cc3e97bdce61058fd2c2219c37da4f40642
+          BASE=1c2b7d663d51d51aa45010e533d8e035e22adf59
+          test "$GITHUB_REF" = refs/heads/qa/pr375-prod-r2-backup-20261101
+          test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$BASE"
+          git merge-base --is-ancestor "$CANDIDATE" "$GITHUB_SHA"
+          test "$(git diff --name-only "$CANDIDATE" HEAD)" = '.github/workflows/pr375-prod-r2-backup.yml'
+          test "$(git hash-object scripts/p2114-prod-r2-backup-worker.mjs)" = 207d878d0ee955946d83efd2599f34dd24ce2d76
+          test "$(git hash-object scripts/p2114-prod-r2-backup-runner.mjs)" = 6edb2985b5a5b4ebcb31d9020ae034b5471d71c9
+          test "$(git hash-object scripts/p2114-prod-r2-backup.toml)" = 059481d1f1da3fe69ce1485b19298756a4c5b0fd
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          grep -q '^binding = "PROD_SOURCE"$' scripts/p2114-prod-r2-backup.toml
+          grep -q '^bucket_name = "hnl-qltc-media"$' scripts/p2114-prod-r2-backup.toml
+          grep -q '^binding = "PROD_BACKUP"$' scripts/p2114-prod-r2-backup.toml
+          grep -q '^bucket_name = "hnl-qltc-media-prod-backup"$' scripts/p2114-prod-r2-backup.toml
+          test "$(grep -c '^bucket_name = ' scripts/p2114-prod-r2-backup.toml)" -eq 2
+          ! grep -Eq 'PROD_SOURCE[.](put|delete)' scripts/p2114-prod-r2-backup-worker.mjs
+          echo 'PROD SOURCE read-only; existing isolated backup R2 bucket is the only write target.'
+      - name: Run existing local-only Cloudflare worker (NO DEPLOY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup npx --yes wrangler@4.153.0 dev --config scripts/p2114-prod-r2-backup.toml --ip 127.0.0.1 --port 8789 > "$RUNNER_TEMP/pr375-r2-wrangler.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/pr375-r2-worker.pid"
+          ok=0
+          for i in $(seq 1 75); do
+            if curl -fsS -H 'x-hnl-dev-backup: PROD-SNAPSHOT-P2114' http://127.0.0.1:8789/health | grep -q '"environment":"PROD"'; then ok=1;break;fi
+            sleep 2
+          done
+          test "$ok" = 1 || { tail -60 "$RUNNER_TEMP/pr375-r2-wrangler.log";exit 1; }
+      - name: Verify and copy all PROD R2 objects to snapshot namespace only
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/p2114-prod-r2-backup-runner.mjs
+      - name: Preserve only aggregate summary (never publicly upload object keys)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('node:fs'),crypto=require('node:crypto');
+          const file='P2114-PROD-R2-BACKUP-VERIFIED-MANIFEST.json';
+          const raw=fs.readFileSync(file);const j=JSON.parse(raw);
+          if(j.status!=='PROD_R2_BACKUP_SHA256_AND_METADATA_PASS'||j.sourceBucket!=='hnl-qltc-media'||j.backupBucket!=='hnl-qltc-media-prod-backup'||j.snapshotSha!==process.env.GITHUB_SHA||!Array.isArray(j.results)||j.results.length!==j.objects)throw Error('Invalid R2 verification proof');
+          const summary={status:j.status,sourceHead:process.env.GITHUB_SHA,candidateHead:'33a24cc3e97bdce61058fd2c2219c37da4f40642',sourceBucket:j.sourceBucket,backupBucket:j.backupBucket,objects:j.objects,totalBytes:j.totalBytes,verifiedObjects:j.results.length,fullManifestSha256:crypto.createHash('sha256').update(raw).digest('hex'),fullManifestStoredOnlyInEphemeralRunner:true};
+          fs.writeFileSync('HNL-PR375-R2-VERIFIED-SUMMARY.json',JSON.stringify(summary,null,2));
+          fs.rmSync(file);
+          console.log(JSON.stringify(summary));
+          NODE
+      - name: Upload non-sensitive R2 summary only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-PR375-R2-VERIFIED-SUMMARY-${{ github.sha }}
+          path: HNL-PR375-R2-VERIFIED-SUMMARY.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: End local backup worker
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/pr375-r2-worker.pid" ]; then kill "$(cat "$RUNNER_TEMP/pr375-r2-worker.pid")" || true; fi
+          tail -15 "$RUNNER_TEMP/pr375-r2-wrangler.log" || true
+          echo 'NO PROD source writes / NO bucket changes / NO deploy. The only R2 writes are snapshot-prefixed objects in existing backup bucket.'
