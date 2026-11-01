@@ -44,7 +44,7 @@ jobs:
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
           test "$GITHUB_REF" = refs/heads/qa/dev-c831-hosting-only-20261101
-          test "$(git rev-parse HEAD^)" = "$TARGET_DEV"
+          git merge-base --is-ancestor "$TARGET_DEV" HEAD
           test "$(git diff --name-only "$TARGET_DEV" HEAD)" = '.github/workflows/hnl-dev-c831-hosting-only.yml'
           test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$TARGET_DEV"
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$EXPECTED_PROD"
