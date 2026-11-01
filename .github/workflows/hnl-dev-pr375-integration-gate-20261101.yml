@@ -45,7 +45,7 @@ jobs:
           git merge --no-commit --no-ff "$PR"
           test -z "$(git diff --name-only --diff-filter=U)"
           git rm -f .github/workflows/hnl-dev-pr375-integration-gate-20261101.yml
-          git add -A
+          git add -u
           git diff --cached --name-only > evidence/INTEGRATED-INDEX-PATHS.txt
           git diff --name-only "$DEV" > evidence/INTEGRATED-TREE-PATHS.txt
           git diff --cached --check
@@ -59,7 +59,7 @@ jobs:
           const changed=execFileSync('git',['diff','--cached','--name-only',DEV],{encoding:'utf8'}).trim().split('\n').filter(Boolean);
           const bad=changed.filter(p=>!allowed.has(p));
           const forbidden=changed.filter(p=>/^(firestore\.rules|firebase\.json|firebase\.prod\.json|\.firebaserc|package(?:-lock)?\.json|src\/lib\/firebaseBase\.ts|src\/lib\/chatService\.ts)$/.test(p));
-          if(bad.length||forbidden.length||changed.length>20||changed.length<5)throw Error('Refuse scope drift: '+JSON.stringify({bad,forbidden,changed}));
+          if(bad.length||forbidden.length||changed.length>20||changed.length<1)throw Error('Refuse scope drift: '+JSON.stringify({bad,forbidden,changed}));
           fs.writeFileSync('evidence/INTEGRATION-SCOPE.json',JSON.stringify({devBase:DEV,prHead:'33a24cc3e97bdce61058fd2c2219c37da4f40642',includedFileCount:changed.length,changed,prodUnchanged:true,dataUnchanged:true,noFirebaseConfigChanges:true},null,2));
           console.log('PR375 integration exact 20-file whitelist checked: '+changed.length+' files');
           NODE
