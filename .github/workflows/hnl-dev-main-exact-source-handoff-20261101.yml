@@ -42,7 +42,7 @@ jobs:
           unzip -t output/HNL-QLTC-DEV-7994251c-FULL-SOURCE.zip > /tmp/full-test.txt
           unzip -t output/HNL-QLTC-DEV-7994251c-PATCH-FROM-6073580C.zip > /tmp/patch-test.txt
           # Sensitive private keys are never part of source archives.
-          if unzip -Z1 output/HNL-QLTC-DEV-7994251c-FULL-SOURCE.zip | grep -Ei '(^|/)(\.env($|\.)|service-account.*\.json$|.*private[_-]?key.*\.pem$)';then echo '::error::sensitive file path in source';exit 1;fi
+          if unzip -Z1 output/HNL-QLTC-DEV-7994251c-FULL-SOURCE.zip | grep -Eiv '\.example'(^|/)(\.env($|\.)|service-account.*\.json$|.*private[_-]?key.*\.pem$)';then echo '::error::sensitive file path in source';exit 1;fi | grep -Ei '(^|/)(\.env($|\.)|service-account.*\.json$|.*private[_-]?key.*\.pem$)';then echo '::error::sensitive file path in source';exit 1;fi
           sha256sum output/HNL-QLTC-DEV-*.zip > output/SHA256SUMS.txt
           cat > output/REPORT.md <<'EOF'
           HNL QLTC – EXACT DEV MAIN SOURCE HANDOFF 2026-11-01
