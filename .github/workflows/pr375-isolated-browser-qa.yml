@@ -109,6 +109,30 @@ jobs:
             runtime-evidence/pr375-isolated-qa/**
           if-no-files-found: warn
           retention-days: 30
+      - name: Package exact QA FULL SOURCE and PATCH with SHA256 (NO DEPLOY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANDIDATE=33a24cc3e97bdce61058fd2c2219c37da4f40642
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git diff --name-only "$CANDIDATE" HEAD | wc -l | tr -d ' ')" = 2
+          SENSITIVE="$(git ls-files | grep -E '(^|/)([.]env$|[.]env[.]production$|[^/]*service.account[^/]*[.]json$|[^/]*[.]pem$|[^/]*[.]p12$|[^/]*[.]key$)' || true)"
+          test -z "$SENSITIVE" || { echo "Refuse to package sensitive tracked files";exit 1; }
+          mkdir -p qa-handoff
+          git archive --format=zip --output="qa-handoff/HNL-QLTC-PR375-QA-FULL-SOURCE-${GITHUB_SHA}.zip" HEAD
+          git archive --format=zip --output="qa-handoff/HNL-QLTC-PR375-QA-PATCH-${GITHUB_SHA}.zip" HEAD .github/workflows/pr375-isolated-browser-qa.yml scripts/pr375-isolated-browser-smoke.mjs
+          unzip -t "qa-handoff/HNL-QLTC-PR375-QA-FULL-SOURCE-${GITHUB_SHA}.zip" >/dev/null
+          unzip -t "qa-handoff/HNL-QLTC-PR375-QA-PATCH-${GITHUB_SHA}.zip" >/dev/null
+          sha256sum qa-handoff/*.zip > qa-handoff/SHA256SUMS.txt
+          printf 'QA_HEAD=%s\\nQA_TREE=%s\\nCANDIDATE_BASE=%s\\n' "$GITHUB_SHA" "$(git rev-parse HEAD^{tree})" "$CANDIDATE" > qa-handoff/SOURCE-IDENTITY.txt
+      - name: Upload complete QA source handoff (NO DEPLOY)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PR375-QA-SOURCE-HANDOFF-${{ github.sha }}
+          path: qa-handoff/**
+          if-no-files-found: warn
+          retention-days: 30
       - name: Explicit status boundary
         if: always()
         run: echo 'This job NEVER deploys and does NOT certify signed-in/physical Runtime Golden or PROD data parity.'
