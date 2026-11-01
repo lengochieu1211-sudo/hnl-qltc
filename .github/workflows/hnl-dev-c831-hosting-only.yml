@@ -160,11 +160,13 @@ jobs:
           const fs=require('fs');const t=fs.readFileSync(process.env.RUNNER_TEMP+'/preview.json','utf8');
           const m=t.match(/https:\/\/hnl-qltc-dev--[a-z0-9-]+\.web\.app/);
           if(!m)throw Error('No proven DEV preview URL');
+          fs.writeFileSync(process.env.RUNNER_TEMP+'/dev-preview-url.txt',m[0]);
           fs.appendFileSync(process.env.GITHUB_ENV,'DEV_PREVIEW_URL='+m[0]+'\n');
           console.log('DEV_PREVIEW='+m[0])
           NODE
           node --input-type=module - <<'NODE'
-          const url=process.env.DEV_PREVIEW_URL || 'https://hnl-qltc-dev--reconcile-c831.web.app';
+          import fs from 'node:fs';
+          const url=fs.readFileSync(process.env.RUNNER_TEMP+'/dev-preview-url.txt','utf8').trim();
           for(const path of ['/','/hnl-dev-release.json']){
             const r=await fetch(url+path,{signal:AbortSignal.timeout(20000)});
             if(r.status!==200)throw Error('PREVIEW HTTP '+r.status+' '+path);
