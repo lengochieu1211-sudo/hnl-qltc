@@ -192,4 +192,4 @@ jobs:
         if: always()
         shell: bash
         run: |
-          rm -f "$RUNNER_TEMP/hnl-reconcile-dev-credentials.json" hn l-dev-hosting-only-20261101.generated.json
+          rm -f "$RUNNER_TEMP/hnl-reconcile-dev-credentials.json" hnl-dev-hosting-only-20261101.generated.json
