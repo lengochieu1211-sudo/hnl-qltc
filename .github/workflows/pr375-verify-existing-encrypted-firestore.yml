@@ -1,0 +1,72 @@
+name: HNL PR375 verify existing encrypted Firestore PROD snapshot (NO READ/WRITE PROD)
+on:
+  push:
+    branches:
+      - qa/pr375-encrypted-backup-verify-only-20261101
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact source, archive and scope guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=33a24cc3e97bdce61058fd2c2219c37da4f40642
+          test "$GITHUB_REF" = refs/heads/qa/pr375-encrypted-backup-verify-only-20261101
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = 1c2b7d663d51d51aa45010e533d8e035e22adf59
+          git merge-base --is-ancestor "$BASE" "$GITHUB_SHA"
+          test "$(git diff --name-only "$BASE" HEAD)" = '.github/workflows/pr375-verify-existing-encrypted-firestore.yml'
+      - name: Download only specific encrypted artifact from previous read-only run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/hnl-encrypted-archive"
+          gh run download 41276114163 -R lengochieu1211-sudo/hnl-qltc --name 'HNL-PR375-PROD-FIRESTORE-ENCRYPTED-READONLY-ac322afba4ba50d47758edefdf1d736a15b1029f' -D "$RUNNER_TEMP/hnl-encrypted-archive"
+          test "$(find "$RUNNER_TEMP/hnl-encrypted-archive" -type f | wc -l | tr -d ' ')" = 2
+      - name: Validate existing encryption, total documents, SHA256 and source immutability
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('node:fs'),crypto=require('node:crypto'),path=require('node:path');
+          const dir=process.env.RUNNER_TEMP+'/hnl-encrypted-archive';
+          const files=fs.readdirSync(dir);
+          const enc=files.find(f=>f.endsWith('.aes256'));
+          const name=files.find(f=>f.endsWith('.aes256.manifest.json'));
+          if(!enc||!name||files.length!==2)throw Error('Encrypted snapshot + manifest only');
+          const raw=fs.readFileSync(path.join(dir,enc)),m=JSON.parse(fs.readFileSync(path.join(dir,name),'utf8'));
+          const digest=crypto.createHash('sha256').update(raw).digest('hex');
+          const expected='5f1c52ed069300dc714f4110ad77c6763fe2f3d4cd0e20c2bb4a4b2844229c60';
+          if(digest!==expected||m.encryptedSha256!==expected||m.encryptedBytes!==raw.length)throw Error('Encrypted checksum/size mismatch');
+          if(m.sourceHead!=='ac322afba4ba50d47758edefdf1d736a15b1029f'||m.project!=='com-example-qlct-61329')throw Error('Snapshot identity mismatch');
+          if(m.documents!==5014||m.collections!==45)throw Error('Source document/collection count mismatch');
+          if(m.algorithm!=='AES-256-GCM'||m.wrappedKeyAlgorithm!=='RSA-OAEP-SHA256')throw Error('Encryption contract mismatch');
+          if(m.publicKeySha256!=='5b5c1d1b9f689fecc4be21d7a01400748e49a4a90834fe5fa29f7e9418520e28')throw Error('Backup public key fingerprint drift');
+          if(!m.consistency.startsWith('non-atomic document-by-document REST snapshot'))throw Error('Snapshot consistency description changed');
+          const total=Object.values(m.collectionCounts||{}).reduce((sum,n)=>sum+Number(n),0);
+          if(total!==5014)throw Error('Collection count sum mismatch');
+          const result={status:'EXISTING_ENCRYPTED_ARTIFACT_SHA256_VERIFIED',encryptedSha256:digest,encryptedBytes:raw.length,documents:m.documents,collections:m.collections,sourceSnapshotHead:m.sourceHead,qaValidationHead:process.env.GITHUB_SHA,createdAt:m.createdAt,consistency:m.consistency,nonAtomic:true,restoredToEmulator:false,productionTouched:false};
+          fs.writeFileSync('HNL-PR375-FIRESTORE-ENCRYPTED-VERIFICATION.json',JSON.stringify(result,null,2));
+          console.log(JSON.stringify(result));
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-PR375-FIRESTORE-ENCRYPTED-VERIFICATION-${{ github.sha }}
+          path: HNL-PR375-FIRESTORE-ENCRYPTED-VERIFICATION.json
+          retention-days: 30
+          if-no-files-found: warn
+      - name: Safety disclaimer
+        if: always()
+        run: echo 'Only encrypted artifact integrity verified. No plaintext decrypted, no Firestore PROD read/write, no emulator restore, no PROD release.'
