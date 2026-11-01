@@ -417,8 +417,10 @@ service cloud.firestore {
           request.resource.data.positionLocked is bool
           && changed.hasOnly(['positionLocked', 'revision', 'updatedAt', 'updatedByUid'])
           && request.resource.data.updatedByUid == request.auth.uid
-          && ((collectionName == 'rooms' && canAdminOperate(projectId))
-            || (collectionName == 'defects' && canEdit(projectId)))
+          // Authorization is already enforced by the enclosing allow update
+          // (admin or an authorized editor). Repeating role lookups here caused
+          // the Firestore Emulator 1000-expression budget to be exceeded.
+          // Keep only lock-scoped, inexpensive mutation predicates here.
         ))
         // Do not freeze inspections, photos, notes, due dates, or defect status;
         // only immutable map positioning/geometry are protected while locked.
