@@ -1,0 +1,137 @@
+name: HNL PR375 QA DEV Backup APK and EXE (NO PROD)
+on:
+  push:
+    branches: [qa/pr375-devbackup-safe-apk-exe-20261101]
+permissions:
+  contents: read
+jobs:
+  qa-binaries:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_HNL_AI_ENABLED: 'false'
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_USE_FIREBASE_EMULATORS: 'false'
+      VITE_GIT_COMMIT: 33a24cc3e97bdce61058fd2c2219c37da4f40642
+      QLCT_WEB_URL: https://hnl-qltc-dev-backup--qa375nov01-qotpcppd.web.app/?env=dev
+      QLCT_RELEASE_TAG: 6.3.0-qa-pr375
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact source whitelist and PROD isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=33a24cc3e97bdce61058fd2c2219c37da4f40642
+          test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
+          test "$GITHUB_REF" = refs/heads/qa/pr375-devbackup-safe-apk-exe-20261101
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = 1c2b7d663d51d51aa45010e533d8e035e22adf59
+          git merge-base --is-ancestor "$BASE" "$GITHUB_SHA"
+          test "$(git diff --name-only "$BASE" HEAD | wc -l | tr -d ' ')" = 2
+          git diff --name-only "$BASE" HEAD | while read -r f; do
+            case "$f" in
+              .github/workflows/pr375-devbackup-qa-binaries.yml|scripts/pr375-devbackup-qa-sdk-config.mjs) ;;
+              *) echo "REFUSING unapproved QA change $f";exit 1;;
+            esac
+          done
+          test "$VITE_APP_ENV" = DEV
+          test "$VITE_R2_GATEWAY_URL" = https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+          test "$QLCT_WEB_URL" = 'https://hnl-qltc-dev-backup--qa375nov01-qotpcppd.web.app/?env=dev'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Resolve only existing DEV Backup Firebase SDK
+        shell: bash
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        run: |
+          set -euo pipefail
+          test -n "$FIREBASE_BACKUP_SERVICE_ACCOUNT"
+          node -e "const x=JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT);if(x.type!=='service_account'||x.project_id!=='hnl-qltc-dev-backup')process.exit(1)"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/qa375-sa.json"
+          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
+          printf '%s' "$FIREBASE_BACKUP_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          npx --yes firebase-tools@13.35.1 apps:list WEB --project hnl-qltc-dev-backup --json > "$RUNNER_TEMP/apps.json"
+          APP_ID="$(node -e "const j=require(process.argv[1]),a=Array.isArray(j.result)?j.result:[],x=a.find(x=>x.platform==='WEB'||String(x.appId||'').includes(':web:'));if(!x?.appId)process.exit(1);process.stdout.write(x.appId)" "$RUNNER_TEMP/apps.json")"
+          npx --yes firebase-tools@13.35.1 apps:sdkconfig WEB "$APP_ID" --project hnl-qltc-dev-backup --json > "$RUNNER_TEMP/sdk.json"
+          node scripts/pr375-devbackup-qa-sdk-config.mjs "$RUNNER_TEMP/sdk.json"
+      - name: Build and verify DEV Backup app
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$VITE_FIREBASE_PROJECT_ID" = hnl-qltc-dev-backup
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run build
+          test -s dist/index.html
+          grep -Rq 'hnl-qltc-dev-backup' dist/assets
+          ! grep -Rq 'https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev' dist/assets
+      - name: Build QA APK under separate application ID (runner-only change)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $files=@('android-wrapper/AndroidManifest.xml','android-wrapper/src/com/qlct/app/MainActivity.java','android-wrapper/src/com/qlct/app/PickerCacheProvider.java')
+          foreach($p in $files){
+            $s=[System.IO.File]::ReadAllText((Resolve-Path $p).Path)
+            if(-not $s.Contains('com.qlct.app')){throw 'Missing source Android package'}
+            [System.IO.File]::WriteAllText((Resolve-Path $p).Path,$s.Replace('com.qlct.app','com.qlct.app.qa'),[System.Text.UTF8Encoding]::new($false))
+          }
+          if(([System.IO.File]::ReadAllText((Resolve-Path $files[0]).Path)) -notmatch 'package="com[.]qlct[.]app[.]qa"'){throw 'Unsafe QA manifest'}
+          $env:QLCT_ANDROID_KEYSTORE_BASE64=''
+          $env:QLCT_ANDROID_KEYSTORE_PASSWORD=''
+          $env:QLCT_ANDROID_KEY_PASSWORD=''
+          ./android-wrapper/build-apk.ps1
+          if(-not(Test-Path 'HNL-QLTC-Android.apk')){throw 'No Android QA APK'}
+          $tools=Get-ChildItem (Join-Path $env:ANDROID_HOME 'build-tools') -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          $aapt=Join-Path $tools.FullName 'aapt.exe'
+          $info=& $aapt dump badging HNL-QLTC-Android.apk
+          if($LASTEXITCODE -ne 0 -or ($info -join ' ') -notmatch "package: name='com[.]qlct[.]app[.]qa'"){throw 'QA APK appId was not isolated'}
+          Move-Item HNL-QLTC-Android.apk HNL-QLTC-QA-DEVBACKUP-Android.apk
+      - name: Build QA Windows portable EXE with separate workspace and local profile
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=(Resolve-Path 'desktop-wrapper/QLTCAnPhuLauncher.cs').Path
+          $s=[System.IO.File]::ReadAllText($p)
+          $s=$s.Replace('https://hnlqltc.web.app/?app=desktop','https://hnl-qltc-dev-backup--qa375nov01-qotpcppd.web.app/?app=desktop&env=dev')
+          $s=$s.Replace('https://hnlqltc.web.app/','https://hnl-qltc-dev-backup--qa375nov01-qotpcppd.web.app/')
+          $s=$s.Replace('"HNL QLTC"','"HNL QLTC QA"').Replace('"QLTCAnPhu"','"QLTCAnPhuQA"')
+          if($s.Contains('https://hnlqltc.web.app/') -or -not $s.Contains('"HNL QLTC QA"') -or -not $s.Contains('"QLTCAnPhuQA"')){throw 'Windows QA source profile isolation failed'}
+          [System.IO.File]::WriteAllText($p,$s,[System.Text.UTF8Encoding]::new($false))
+          ./desktop-wrapper/build-launcher.ps1
+          if(-not(Test-Path 'HNL-QLTC-Windows.exe')){throw 'No QA EXE'}
+          Move-Item HNL-QLTC-Windows.exe HNL-QLTC-QA-DEVBACKUP-Windows.exe
+      - name: QA artifact SHA256 and identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $files=@('HNL-QLTC-QA-DEVBACKUP-Android.apk','HNL-QLTC-QA-DEVBACKUP-Windows.exe')
+          $data=@{candidate='33a24cc3e97bdce61058fd2c2219c37da4f40642';qaHead=$env:GITHUB_SHA;backend='hnl-qltc-dev-backup';androidId='com.qlct.app.qa';windowsProfile='QLTCAnPhuQA';windowsWorkspace='HNL QLTC QA';prodWrites=$false;physicalRuntimeGolden=$false;files=@()}
+          foreach($p in $files){$i=Get-Item $p;$data.files+=@{name=$p;bytes=$i.Length;sha256=(Get-FileHash $p -Algorithm SHA256).Hash.ToLowerInvariant()}}
+          $data | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 QA-BINARIES-REPORT.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-PR375-DEVBACKUP-QA-BINARIES-${{ github.sha }}
+          path: |
+            HNL-QLTC-QA-DEVBACKUP-Android.apk
+            HNL-QLTC-QA-DEVBACKUP-Windows.exe
+            QA-BINARIES-REPORT.json
+          retention-days: 30
+          if-no-files-found: warn
