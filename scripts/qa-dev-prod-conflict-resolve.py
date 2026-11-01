@@ -16,7 +16,7 @@ choices = {
     'scripts/ui-entry-ux-golden.ts': 'ot',
     'scripts/warehouse-voucher-xlsx-style-golden.ts': 'o',
     'src/App.tsx': 'o',
-    'src/components/FloorPlanDefectTab.tsx': 'iotototoototootooooo',
+    'src/components/FloorPlanDefectTab.tsx': 'iotototototootoooo',
     'src/lib/chatService.ts': 'oooooo',
     'src/utils/warehouseVoucherExcel.ts': 'o',
 }
