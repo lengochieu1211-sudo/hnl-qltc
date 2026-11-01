@@ -2,6 +2,7 @@
 """Minimal PROD account-safety port onto DEV after guarded three-way merge."""
 from pathlib import Path
 import json
+import subprocess
 app=Path("src/App.tsx")
 chat=Path("src/lib/chatService.ts")
 s=app.read_text("utf8")
@@ -27,14 +28,12 @@ export async function hasPendingChatOutboxForCurrentUser(): Promise<boolean> {
 }
 
 """
-# Merge may have independently imported the older PROD helper. Replace only
-# that small helper with the DEV-compatible fail-closed version, not Chat core.
-if "export async function hasPendingChatOutboxForCurrentUser" in c:
-    a=c.index("export async function hasPendingChatOutboxForCurrentUser")
-    b=c.index(anchor,a)
-    c=c[:a]+guard+c[b:]
-else:
-    c=once(c,anchor,guard+anchor,"Chat guard insertion")
+# Chat is highly transactional: restore exact already-certified DEV Chat core and
+# port only the read-only PROD account logout guard. Avoid auto-merged split writes.
+c=subprocess.check_output(["git","show","6073580c0d5ebcce1b6669f531d7140c384a78d3:src/lib/chatService.ts"],text=True)
+c=once(c,"let chatOutboxFlushPromise: Promise<void> | null = null;\n",
+"let chatOutboxFlushPromise: Promise<void> | null = null;\n\n"+guard,
+"DEV Chat plus read-only logout guard")
 if "import { hasPendingChatOutboxForCurrentUser }" not in s:
     s=once(s,
 "import { REALTIME_STATE_KEYS, STATE_KEY_TO_CLOUD_NAME } from './config/realtimeCollections';",
@@ -115,5 +114,46 @@ for token in ["commitPositionLocksOnCloud","handleCommitPositionLocks","onCommit
     if token not in s:raise RuntimeError("Lost DEV Cloud position-lock core: "+token)
 for token in ["writeBatch","batch.commit()","blockChatOutbox","getDocFromServer"]:
     if token not in c:raise RuntimeError("Lost DEV atomic Chat/outbox guarantee: "+token)
+# Reconcile PROD CAD/grid and stroke additions with DEV Cloud position locks.
+floor=Path("src/components/FloorPlanDefectTab.tsx")
+u=floor.read_text("utf8")
+import re
+u=re.sub(r"readIdSet\(getDraftKey\((['\"])(construction_floorplan_locked_(?:rooms|defects))\1\)\)",
+         lambda m:"readLegacyLockedIds('"+m.group(2)+"')",u)
+# The DEV snap preview is already declared above; remove only second declaration.
+duplicate="  const [objectSnapPreview, setObjectSnapPreview] = useState<RoomSnapCandidate | null>(null);"
+if u.count(duplicate)==2:
+    pos=u.rfind(duplicate)
+    u=u[:pos]+u[pos:].replace(duplicate+"\n","",1)
+if "getCadDrawingHotkey" in u and "import { CAD_GRID_STEP, applyCadDrawingGuide, getCadDrawingHotkey }" not in u:
+    u=once(u,"import { snapRoomPointOrthogonal } from '../utils/roomHighlightSnap';",
+           "import { snapRoomPointOrthogonal } from '../utils/roomHighlightSnap';\nimport { CAD_GRID_STEP, applyCadDrawingGuide, getCadDrawingHotkey } from '../utils/roomHighlightCadShortcuts';",
+           "PROD CAD shortcuts import")
+if "cadGridVisible" in u and "const [cadGridVisible, setCadGridVisible]" not in u:
+    state="""  // PROD CAD function keys; isolated per-project drawing preferences, OFF by default.
+  const [cadGridVisible, setCadGridVisible] = useState(() => readSnapPref('room_cad_grid_visible'));
+  const [cadGridSnap, setCadGridSnap] = useState(() => readSnapPref('room_cad_grid_snap'));
+  const [cadOrtho, setCadOrtho] = useState(() => readSnapPref('room_cad_ortho'));
+  const [cadPolar, setCadPolar] = useState(() => readSnapPref('room_cad_polar'));
+"""
+    u=once(u,"  const [objectSnapMidpoints, setObjectSnapMidpoints] = useState(() => readSnapPref('room_object_snap_midpoints'));\n",
+           "  const [objectSnapMidpoints, setObjectSnapMidpoints] = useState(() => readSnapPref('room_object_snap_midpoints'));\n"+state,
+           "CAD function-key states")
+if "getCadDrawPoint(" in u and "const getCadDrawPoint =" not in u:
+    prod=subprocess.check_output(["git","show","1c2b7d663d51d51aa45010e533d8e035e22adf59:src/components/FloorPlanDefectTab.tsx"],text=True)
+    i=prod.index("  const getCadDrawPoint =")
+    j=prod.index("  const [roomSortBy,",i)
+    cad=prod[i:j]
+    u=once(u,"  const [roomSortBy,",
+           cad+"  const [roomSortBy,","CAD drawing guide function")
+if "savedRoomStrokeScale" in u and "const savedRoomStrokeScale =" not in u:
+    p="                  const strokeScale = (roomHighlightStrokePercent / 100) / Math.max(1, zoomScale);"
+    u=once(u,p,p+"\n                  const savedRoomStrokeScale = roomHighlightStrokePercent / 100;", "saved room stroke pixel width")
+for token in ["onCommitPositionLocks", "positionLockBusy", "legacyOnlyLock"]:
+    if token not in u:raise RuntimeError("DEV Cloud lock behavior lost: "+token)
+for token in ["getCadDrawingHotkey","const getCadDrawPoint =","const savedRoomStrokeScale ="]:
+    if token not in u:raise RuntimeError("PROD CAD/stroke feature missing: "+token)
+floor.write_text(u,"utf8")
+
 chat.write_text(c,"utf8");app.write_text(s,"utf8")
 print(json.dumps({"safeProdOnlyPorts":["desktop account guard","SecurityModal safe account"],"devCloudPositionLocksPreserved":True,"devAtomicChatPreserved":True,"schemaChanged":False}))
