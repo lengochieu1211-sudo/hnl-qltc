@@ -1,0 +1,220 @@
+name: HNL PR375 PROD HOSTING ONLY - manual strict release (NO RULES / NO WORKERS)
+on:
+  workflow_dispatch:
+    inputs:
+      expected_main_sha:
+        description: Exact 40-char merged main SHA after PR375; must be current main
+        required: true
+        type: string
+      expected_live_version:
+        description: Exact sites/hnlqltc/versions/... observed immediately before release
+        required: true
+        type: string
+      runtime_golden_approval:
+        description: Type GO-REAL-DEVICE-RUNTIME-GOLDEN only with real physical Web/EXE/APK/iPhone evidence
+        required: true
+        type: string
+      restore_approval:
+        description: Type GO-FIRESTORE-RESTORE-PARITY only after actual isolated Emulator restore and relationship checks
+        required: true
+        type: string
+      r2_media_approval:
+        description: Type GO-R2-LEGACY-MEDIA-PARITY only after R2 429/429 and legacy references checks
+        required: true
+        type: string
+      hosting_only_approval:
+        description: Type DEPLOY-HOSTING-ONLY after confirming no Rules/Worker/data migration
+        required: true
+        type: string
+      golden_report_url:
+        description: Google Drive link to signed-in physical Runtime Golden evidence
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: hnl-qltc-prod-pr375-hosting-only
+  cancel-in-progress: false
+jobs:
+  approved-hosting:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 75
+    env:
+      EXPECTED_MAIN_SHA: ${{ inputs.expected_main_sha }}
+      EXPECTED_LIVE_VERSION: ${{ inputs.expected_live_version }}
+      VITE_APP_ENV: PROD
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+      VITE_HNL_AI_ENABLED: 'true'
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_FIREBASE_API_KEY: AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY
+      VITE_FIREBASE_AUTH_DOMAIN: hnlqltc.web.app
+      VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
+      VITE_FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
+      VITE_FIREBASE_MESSAGING_SENDER_ID: '119152410850'
+      VITE_FIREBASE_APP_ID: '1:119152410850:web:c2aee2135428af34ef5ebb'
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_GIT_COMMIT: ${{ inputs.expected_main_sha }}
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Strict manual GO gate - never use ACCEPT-UNVERIFIED-RUNTIME
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
+          test "$GITHUB_REF" = refs/heads/qa/pr375-prod-hosting-only-release-gated-20261101
+          test "${{ inputs.runtime_golden_approval }}" = GO-REAL-DEVICE-RUNTIME-GOLDEN
+          test "${{ inputs.restore_approval }}" = GO-FIRESTORE-RESTORE-PARITY
+          test "${{ inputs.r2_media_approval }}" = GO-R2-LEGACY-MEDIA-PARITY
+          test "${{ inputs.hosting_only_approval }}" = DEPLOY-HOSTING-ONLY
+          printf '%s' "$EXPECTED_MAIN_SHA" | grep -Eq '^[0-9a-f]{40}$'
+          printf '%s' "$EXPECTED_LIVE_VERSION" | grep -Eq '^sites/hnlqltc/versions/[a-z0-9]+$'
+          printf '%s' "${{ inputs.golden_report_url }}" | grep -Eq '^https://(drive|docs)\.google\.com/'
+          test "$VITE_FIREBASE_PROJECT_ID" = com-example-qlct-61329
+          test "$VITE_APP_ENV" = PROD
+          test "$VITE_ENABLE_LEGACY_DRIVE_WRITE" = false
+          test "$VITE_R2_GATEWAY_URL" = https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+          test "$VITE_HNL_AI_GATEWAY_URL" = https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
+          echo 'Manual release approval gate accepted; actual physical evidence must be reviewed by production environment approver.'
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pin current main and exact PR375-only source scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=1c2b7d663d51d51aa45010e533d8e035e22adf59
+          CANDIDATE=33a24cc3e97bdce61058fd2c2219c37da4f40642
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          git merge-base --is-ancestor "$CANDIDATE" "$EXPECTED_MAIN_SHA"
+          git merge-base --is-ancestor "$BASE" "$EXPECTED_MAIN_SHA"
+          git checkout --detach "$EXPECTED_MAIN_SHA"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          git diff --name-only "$BASE" HEAD | sort > "$RUNNER_TEMP/actual-files.txt"
+          cat > "$RUNNER_TEMP/allowed-files.txt" <<'EOF'
+          .github/workflows/prod10-scoped-mobile-excel-ci.yml
+          scripts/prod-scoped-mobile-layout-golden.mjs
+          scripts/ui-return-and-palette-golden.mjs
+          src/components/CatalogTemplatePickerModal.tsx
+          src/components/ChecklistTab.tsx
+          src/components/ConflictMergeModal.tsx
+          src/components/CrewReportShareModal.tsx
+          src/components/CrewTabBase.tsx
+          src/components/ExportPdfModal.tsx
+          src/components/FloorPlanDefectTab.tsx
+          src/components/ImageEditorModal.tsx
+          src/components/ImageViewerModal.tsx
+          src/components/MaterialNormModal.tsx
+          src/components/NotificationCenterModal.tsx
+          src/components/QuickEditGridModal.tsx
+          src/components/RoomHighlightModal.tsx
+          src/components/WarehouseTab.tsx
+          src/components/WorkVolumeTab.tsx
+          src/index.css
+          src/utils/warehouseVoucherExcel.ts
+          EOF
+          sort "$RUNNER_TEMP/allowed-files.txt" -o "$RUNNER_TEMP/allowed-files.txt"
+          diff -u "$RUNNER_TEMP/allowed-files.txt" "$RUNNER_TEMP/actual-files.txt"
+          test "$(wc -l < "$RUNNER_TEMP/actual-files.txt" | tr -d ' ')" = 20
+          test "$(node -p "require('./package.json').version")" = "$(node -p "require('./package-lock.json').version")"
+          grep -q '"site": "hnlqltc"' firebase.prod.json
+          grep -q '"default": "com-example-qlct-61329"' .firebaserc
+          echo 'Exact main SHA, ancestor and 20-file whitelist PASS.'
+      - name: Check trusted earlier QA runs have actually passed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for RUN in 41273536334 41273626324 41273626367 41273626386 41276265175 41277303025 41277417842 41277518606; do
+            CONCLUSION="$(gh api "repos/lengochieu1211-sudo/hnl-qltc/actions/runs/$RUN" --jq '.conclusion')"
+            test "$CONCLUSION" = success || { echo "::error::Required QA run $RUN is not PASS";exit 1; }
+          done
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Release build gates on actual merged main
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run test:stability
+          npm run security:audit
+          npm run build
+          test -s dist/index.html
+          test "$VITE_GIT_COMMIT" = "$(git rev-parse HEAD)"
+      - name: Verify current LIVE Hosting version has not drifted, keep old version evidence
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';import {createSign} from 'node:crypto';
+          const sa=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT||'{}');
+          if(sa.type!=='service_account'||sa.project_id!=='com-example-qlct-61329'||!sa.private_key)throw Error('Wrong PROD Firebase credentials');
+          const enc=x=>Buffer.from(JSON.stringify(x)).toString('base64url');
+          const now=Math.floor(Date.now()/1000),head=enc({alg:'RS256',typ:'JWT'});
+          const body=enc({iss:sa.client_email,scope:'https://www.googleapis.com/auth/cloud-platform',aud:'https://oauth2.googleapis.com/token',iat:now,exp:now+1800});
+          const s=createSign('RSA-SHA256');s.update(head+'.'+body);s.end();
+          const jwt=head+'.'+body+'.'+s.sign(sa.private_key).toString('base64url');
+          const o=await fetch('https://oauth2.googleapis.com/token',{method:'POST',body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion:jwt}),signal:AbortSignal.timeout(30000)});
+          if(!o.ok)throw Error('PROD OAuth denied '+o.status);
+          const token=(await o.json()).access_token;
+          const r=await fetch('https://firebasehosting.googleapis.com/v1beta1/sites/hnlqltc/releases?pageSize=1',{headers:{authorization:'Bearer '+token},signal:AbortSignal.timeout(30000)});
+          if(!r.ok)throw Error('PROD Hosting read denied '+r.status);
+          const j=await r.json(),live=j.releases?.[0];
+          if(!live?.version?.name||live.version.name!==process.env.EXPECTED_LIVE_VERSION)throw Error('STALE LIVE RELEASE - REFUSE DEPLOY');
+          fs.writeFileSync('HNL-PR375-PROD-PREDEPLOY-LIVE-VERSION.json',JSON.stringify({beforeVersion:live.version.name,beforeRelease:live.name,approvedMainSha:process.env.EXPECTED_MAIN_SHA,checkedAt:new Date().toISOString(),hostingOnly:true},null,2));
+          console.log('PROD LIVE predeploy version exact match; rollback version preserved');
+          NODE
+      - name: Deploy Firebase Hosting ONLY (NO RULES, NO R2/AI Workers)
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s HNL-PR375-PROD-PREDEPLOY-LIVE-VERSION.json
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          test "$VITE_APP_ENV" = PROD
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/hnl-pr375-firebase-prod-sa.json"
+          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          chmod 600 "$GOOGLE_APPLICATION_CREDENTIALS"
+          npx --yes firebase-tools@13.35.1 deploy --only hosting --config firebase.prod.json --project com-example-qlct-61329 --non-interactive
+      - name: Live HTML + JS smoke; physical multi-user regression remains required
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://hnlqltc.web.app/?release=$GITHUB_RUN_ID"
+          curl --fail --silent --show-error --retry 10 --retry-delay 3 "$URL" > "$RUNNER_TEMP/hnl-prod-landing.html"
+          grep -qi '<div id="root"' "$RUNNER_TEMP/hnl-prod-landing.html"
+          node - <<'NODE'
+          const fs=require('fs');const html=fs.readFileSync(process.env.RUNNER_TEMP+'/hnl-prod-landing.html','utf8');
+          const s=html.match(/src="(\/assets\/[^"]+\.js)"/);
+          if(!s)throw Error('No PROD hashed JS path');fs.appendFileSync(process.env.GITHUB_ENV,'HNLP_JS_PATH='+s[1]+'\n');
+          NODE
+          curl --fail --silent --show-error --retry 10 --retry-delay 3 "https://hnlqltc.web.app$HNLP_JS_PATH" -o "$RUNNER_TEMP/hnl-prod-entry.js"
+          test -s "$RUNNER_TEMP/hnl-prod-entry.js"
+          echo 'Hosting-only HTTP smoke PASS. User-based runtime certification is independent.'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-PR375-PROD-HOSTING-ONLY-RELEASE-${{ github.run_id }}
+          path: HNL-PR375-PROD-PREDEPLOY-LIVE-VERSION.json
+          if-no-files-found: warn
+          retention-days: 30
