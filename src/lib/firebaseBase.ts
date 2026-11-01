@@ -1285,7 +1285,19 @@ export async function signInWithGoogle(): Promise<User | null> {
         Boolean((navigator as any).userAgentData?.mobile) ||
         /Android|iPhone|iPad|iPod|Mobile/i.test(ua)
       );
-      if (mobileLike) {
+      // QA preview only: the preview URL and Firebase authDomain are different
+      // web.app origins. Redirect sign-in can return to the login gate when
+      // cross-origin Auth helper storage is partitioned (Chrome/Safari).
+      // Use Firebase's documented popup transport only for this single DEV
+      // Backup preview, never for PROD, Emulator, APK or other DEV sites.
+      const qaPreviewPopup = APP_ENVIRONMENT === 'DEV'
+        && !FIREBASE_EMULATOR_ENABLED
+        && String(env.VITE_QA_PREVIEW_GOOGLE_POPUP || '') === 'true'
+        && firebaseConfig.projectId === 'hnl-qltc-dev-backup'
+        && firebaseConfig.authDomain === 'hnl-qltc-dev-backup.web.app'
+        && typeof window !== 'undefined'
+        && /^hnl-qltc-dev-backup--qa375nov01-[a-z0-9-]+\.web\.app$/i.test(window.location.hostname);
+      if (mobileLike && !qaPreviewPopup) {
         await signInWithRedirect(auth, provider);
         return null;
       }
