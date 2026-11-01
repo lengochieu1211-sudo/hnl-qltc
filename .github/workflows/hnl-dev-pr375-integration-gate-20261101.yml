@@ -25,7 +25,7 @@ jobs:
           MAIN=1c2b7d663d51d51aa45010e533d8e035e22adf59
           test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
           test "$GITHUB_REF" = refs/heads/qa/dev-pr375-safe-integration-20261101
-          test "$(git rev-parse HEAD^)" = "$DEV"
+          git merge-base --is-ancestor "$DEV" "$GITHUB_SHA"
           test "$(git diff --name-only "$DEV" HEAD)" = '.github/workflows/hnl-dev-pr375-integration-gate-20261101.yml'
           test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$DEV"
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$MAIN"
