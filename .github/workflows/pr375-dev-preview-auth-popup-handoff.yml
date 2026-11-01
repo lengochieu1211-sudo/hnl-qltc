@@ -1,0 +1,54 @@
+name: HNL PR375 DEV preview popup-auth QA source handoff ZIP (NO DEPLOY)
+on:
+  push:
+    branches: [qa/pr375-dev-preview-auth-popup-handoff-20261101]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Guard original PR candidate and exact popup-auth QA source
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC=eca6861d5215068603731e3d358360e802fd00c3
+          BASE=33a24cc3e97bdce61058fd2c2219c37da4f40642
+          test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
+          test "$GITHUB_REF" = refs/heads/qa/pr375-dev-preview-auth-popup-handoff-20261101
+          test "$(git rev-parse HEAD^)" = "$SRC"
+          test "$(git ls-remote origin refs/heads/qa/pr375-devbackup-candidate-preview-20261101 | cut -f1)" = "$SRC"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = 1c2b7d663d51d51aa45010e533d8e035e22adf59
+          git merge-base --is-ancestor "$BASE" "$SRC"
+          test "$(git diff --name-only "$SRC" HEAD)" = '.github/workflows/pr375-dev-preview-auth-popup-handoff.yml'
+          test "$(git diff --name-only "$BASE" "$SRC" | wc -l | tr -d ' ')" = 2
+          git diff --name-only "$BASE" "$SRC" > /tmp/source-changes.txt
+          printf '%s\n' '.github/workflows/pr375-devbackup-candidate-preview.yml' 'src/lib/firebaseBase.ts' > /tmp/approved-changes.txt
+          diff -u /tmp/approved-changes.txt /tmp/source-changes.txt
+          test "$(git hash-object scripts/p2115-firestore-backup-public.pem)" = b27d18fda5d05bbfc257725cc463772389af236d
+      - name: Archive full source and exact 2-file QA patch from pinned HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC=eca6861d5215068603731e3d358360e802fd00c3
+          mkdir -p output
+          git archive --format=zip --output="output/HNL-QLTC-PR375-QA-WEBLOGIN-FULL-SOURCE-$SRC.zip" "$SRC"
+          git archive --format=zip --output="output/HNL-QLTC-PR375-QA-WEBLOGIN-PATCH-$SRC.zip" "$SRC" src/lib/firebaseBase.ts .github/workflows/pr375-devbackup-candidate-preview.yml
+          unzip -t "output/HNL-QLTC-PR375-QA-WEBLOGIN-FULL-SOURCE-$SRC.zip" > /tmp/full-test.log
+          unzip -t "output/HNL-QLTC-PR375-QA-WEBLOGIN-PATCH-$SRC.zip" > /tmp/patch-test.log
+          sha256sum output/*.zip > output/SHA256SUMS.txt
+          printf 'SOURCE_HEAD=%s\nBASE_PR375=%s\nQA_CHANGED_FILES=2\nPROJECT=hnl-qltc-dev-backup\nNO_PROD_DEPLOY=TRUE\n' "$SRC" '33a24cc3e97bdce61058fd2c2219c37da4f40642' > output/SOURCE-IDENTITY.txt
+          tail -1 /tmp/full-test.log
+          tail -1 /tmp/patch-test.log
+          cat output/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PR375-QA-WEBLOGIN-FULLSOURCE-PATCH-eca6861d
+          path: output/**
+          if-no-files-found: error
+          retention-days: 30
