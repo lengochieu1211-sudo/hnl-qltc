@@ -1,0 +1,64 @@
+name: HNL current DEV vs PR375 safe scope audit (NO PUSH OR DEPLOY)
+on:
+  push:
+    branches: [qa/dev-main-pr375-scope-audit-20261101]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Pin both exact GitHub sources and existing PROD
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEV=7994251ca9fa9e09437ee0440ef09905463d7a39
+          PR375=33a24cc3e97bdce61058fd2c2219c37da4f40642
+          PROD=1c2b7d663d51d51aa45010e533d8e035e22adf59
+          test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
+          test "$GITHUB_REF" = refs/heads/qa/dev-main-pr375-scope-audit-20261101
+          test "$(git rev-parse HEAD^)" = "$DEV"
+          test "$(git diff --name-only "$DEV" HEAD)" = '.github/workflows/hnl-dev-pr375-scope-audit-20261101.yml'
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$DEV"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$PROD"
+          git cat-file -e "$PR375^{commit}"
+          git config user.name HNL-QA-Audit
+          git config user.email hnl-qa-audit@users.noreply.github.com
+      - name: Merge preview in disposable runner; inventory conflicts and exact candidate scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEV=7994251ca9fa9e09437ee0440ef09905463d7a39
+          PR375=33a24cc3e97bdce61058fd2c2219c37da4f40642
+          mkdir -p evidence
+          git merge-base "$DEV" "$PR375" > evidence/COMMON-ANCESTOR.txt
+          git diff --name-only 1c2b7d663d51d51aa45010e533d8e035e22adf59 "$PR375" > evidence/PR375-CHANGED-PATHS.txt
+          test "$(wc -l < evidence/PR375-CHANGED-PATHS.txt | tr -d ' ')" = 20
+          set +e
+          git merge --no-commit --no-ff "$PR375" > evidence/MERGE-OUTPUT.txt 2>&1
+          CODE=$?
+          set -e
+          git diff --name-only --diff-filter=U > evidence/UNMERGED-PATHS.txt
+          printf 'MERGE_EXIT=%s\nDEV_HEAD=%s\nPR375_HEAD=%s\nNO_PUSH=true\nNO_DEPLOY=true\n' "$CODE" "$DEV" "$PR375" > evidence/SOURCE-PINS.txt
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const read=x=>fs.readFileSync(x,'utf8').trim().split('\n').filter(Boolean);
+          const conflicts=read('evidence/UNMERGED-PATHS.txt');
+          const pr=read('evidence/PR375-CHANGED-PATHS.txt');
+          const result={devHead:'7994251ca9fa9e09437ee0440ef09905463d7a39',pr375Head:'33a24cc3e97bdce61058fd2c2219c37da4f40642',prChangedCount:pr.length,conflicts,conflictCount:conflicts.length,prodChanged:false,devChanged:false,dataChanged:false};
+          fs.writeFileSync('evidence/SCOPE-AUDIT.json',JSON.stringify(result,null,2));
+          console.log(JSON.stringify(result));
+          NODE
+          # No merge commit, no remote changes, no Firebase credentials.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-DEV-PR375-SCOPE-AUDIT-${{ github.sha }}
+          path: evidence/**
+          retention-days: 15
+          if-no-files-found: warn
