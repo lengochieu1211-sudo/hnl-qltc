@@ -1,0 +1,196 @@
+name: HNL one-shot DEV main Hosting-only release after verified reconciliation (NO PROD/Rules/R2)
+on:
+  push:
+    branches:
+      - dev
+    paths:
+      - .github/workflows/hnl-dev-main-hosting-only-reconcile-20261101.yml
+permissions:
+  contents: read
+concurrency:
+  group: hnl-main-dev-one-shot-hosting-reconcile-20261101
+  cancel-in-progress: false
+jobs:
+  deploy-dev-hosting-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      DEV_PROJECT: hnl-qltc-dev
+      DEV_HOST: https://hnl-qltc-dev.web.app
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
+      VITE_HNL_AI_ENABLED: 'true'
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_USE_FIREBASE_EMULATORS: 'false'
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev.web.app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify DEV HEAD, controlled reconciliation, correct target, unchanged PROD
+        shell: bash
+        env:
+          FIREBASE_DEV_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
+        run: |
+          set -euo pipefail
+          BASE=c83188d5f68b9230bf999671d8289923607ce512
+          PROD=1c2b7d663d51d51aa45010e533d8e035e22adf59
+          test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
+          test "$GITHUB_REF" = refs/heads/dev
+          test "$GITHUB_EVENT_NAME" = push
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$GITHUB_SHA"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$PROD"
+          git merge-base --is-ancestor "$BASE" "$GITHUB_SHA"
+          git merge-base --is-ancestor "$PROD" "$GITHUB_SHA"
+          git diff --name-only "$BASE" "$GITHUB_SHA" > "$RUNNER_TEMP/changed.txt"
+          # Only the new one-shot Hosting-only workflow is allowed on top of
+          # the already merged and CI-PASS current DEV HEAD c83188d.
+          test "$(cat "$RUNNER_TEMP/changed.txt")" = '.github/workflows/hnl-dev-main-hosting-only-reconcile-20261101.yml'
+          ! grep -E '(^\.firebaserc$|^firestore\.rules$|^storage\.rules$|^firebase\.json$|^firebase\.prod\.json$|^package(-lock)?\.json$|^cloudflare|worker\.js$|^\.env|^\.github/dev-release-approval\.json$)' "$RUNNER_TEMP/changed.txt"
+          test "$DEV_PROJECT" = hnl-qltc-dev
+          test "$VITE_APP_ENV" = DEV
+          test "$VITE_USE_FIREBASE_EMULATORS" = false
+          test "$VITE_FIREBASE_AUTH_DOMAIN" = hnl-qltc-dev.web.app
+          test "$VITE_ENABLE_LEGACY_DRIVE_WRITE" = false
+          test -n "${FIREBASE_DEV_SA:-}"
+          node - <<'NODE'
+          const a=JSON.parse(process.env.FIREBASE_DEV_SA);
+          if(a.type!=='service_account'||a.project_id!=='hnl-qltc-dev'||!a.private_key||!a.client_email)throw Error('Refuse wrong Firebase DEV credentials');
+          console.log('DEV-only project identity verified');
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Extract existing DEV SDK config (never create new Firebase apps)
+        shell: bash
+        env:
+          FIREBASE_DEV_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
+        run: |
+          set -euo pipefail
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/hnl-reconcile-dev-credentials.json"
+          printf '%s' "$FIREBASE_DEV_SA" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          chmod 600 "$GOOGLE_APPLICATION_CREDENTIALS"
+          npx --yes firebase-tools@13.35.1 apps:list WEB --project "$DEV_PROJECT" --json > "$RUNNER_TEMP/apps.json"
+          APP_ID="$(node - "$RUNNER_TEMP/apps.json" <<'NODE'
+          const d=require(process.argv[2]);const a=Array.isArray(d.result)?d.result:[];const item=a.find(x=>x.platform==='WEB'||String(x.appId||'').includes(':web:'));if(!item?.appId)throw Error('Missing existing DEV web app');process.stdout.write(item.appId)
+          NODE
+          )"
+          npx --yes firebase-tools@13.35.1 apps:sdkconfig WEB "$APP_ID" --project "$DEV_PROJECT" --json > "$RUNNER_TEMP/sdk.json"
+          node - "$RUNNER_TEMP/sdk.json" <<'NODE'
+          const fs=require('fs'),d=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          const keys=['apiKey','appId','messagingSenderId','projectId','authDomain','storageBucket'],out={};
+          function extract(v){if(!v)return;if(typeof v==='string'){try{extract(JSON.parse(v))}catch{}
+            for(const k of keys){const m=v.match(new RegExp(k+'\\s*:\\s*["\\x27]([^"\\x27]+)["\\x27]'));if(m&&!out[k])out[k]=m[1]}}
+            else if(Array.isArray(v)){v.forEach(extract)}else if(typeof v==='object'){for(const [k,x] of Object.entries(v)){if(keys.includes(k)&&typeof x==='string'&&!out[k])out[k]=x;extract(x)}}}
+          extract(d);
+          if(out.projectId!=='hnl-qltc-dev'||!out.apiKey||!out.appId||!out.messagingSenderId)throw Error('DEV SDK identity incomplete');
+          out.authDomain='hnl-qltc-dev.web.app';out.storageBucket ||= 'hnl-qltc-dev.firebasestorage.app';
+          const names={apiKey:'API_KEY',appId:'APP_ID',messagingSenderId:'MESSAGING_SENDER_ID',projectId:'PROJECT_ID',authDomain:'AUTH_DOMAIN',storageBucket:'STORAGE_BUCKET'};
+          fs.appendFileSync(process.env.GITHUB_ENV,Object.entries(names).map(([k,n])=>'VITE_FIREBASE_'+n+'='+out[k]).join('\n')+'\n');
+          console.log('DEV existing SDK loaded, PROD Firebase not used');
+          NODE
+      - name: Full npm lock, TS, lint, Rules, stability and Web build gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const a=require('./package.json'),b=require('./package-lock.json');if(a.name!==b.name||a.version!==b.version)process.exit(2)"
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run test:firestore-restore-gate
+          npm run test:stability
+          npm run test:rbac
+          npm run test:offline
+          export VITE_GIT_COMMIT="$GITHUB_SHA"
+          export VITE_BUILD_ID="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          npm run build
+          test -s dist/index.html
+          grep -R -q hnl-qltc-dev dist/assets
+          ! grep -R -q 'hnl-qltc-r2-gateway\.lengochieu1211\.workers\.dev' dist/assets
+          rm -f dist/server.cjs dist/server.cjs.map
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import {createHash} from 'node:crypto';
+          const sha=x=>createHash('sha256').update(x).digest('hex');
+          const html=fs.readFileSync('dist/index.html');
+          const s=html.toString();
+          const m=s.match(/src="(\/assets\/[^"]+\.js)"/);
+          if(!m)throw Error('No hashed Web JS entry');
+          const p='dist'+m[1];
+          if(!fs.existsSync(p))throw Error('Missing built asset');
+          fs.writeFileSync('dist/hnl-dev-release.json',JSON.stringify({
+            schema:1,environment:'DEV',firebaseProjectId:'hnl-qltc-dev',
+            gitCommit:process.env.GITHUB_SHA,buildId:process.env.GITHUB_RUN_ID+'-'+process.env.GITHUB_RUN_ATTEMPT,
+            indexSha256:sha(html),entryPath:m[1],entrySha256:sha(fs.readFileSync(p))
+          },null,2));
+          NODE
+      - name: Preflight unchanged current DEV HEAD and generate Hosting-only config (no rules/storage/workers)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$GITHUB_SHA"
+          node - <<'NODE'
+          const fs=require('fs');
+          const base=JSON.parse(fs.readFileSync('firebase.json','utf8'));
+          if(base.hosting?.public!=='dist')throw Error('Hosting public root unexpected');
+          const hosting={...base.hosting,site:'hnl-qltc-dev'};
+          fs.writeFileSync('hnl-dev-hosting-only-20261101.generated.json',JSON.stringify({hosting}));
+          const keys=Object.keys(JSON.parse(fs.readFileSync('hnl-dev-hosting-only-20261101.generated.json')));
+          if(keys.join(',')!=='hosting')throw Error('Forbidden resources in deploy config');
+          NODE
+          test "$DEV_PROJECT" != com-example-qlct-61329
+      - name: DEPLOY HOSTING ONLY to existing DEV site (NEVER PROD, Rules, R2 or Workers)
+        env:
+          FIREBASE_DEV_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$GITHUB_SHA"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/hnl-reconcile-dev-credentials.json"
+          test -s "$GOOGLE_APPLICATION_CREDENTIALS"
+          npx --yes firebase-tools@13.35.1 deploy --only hosting --config "$GITHUB_WORKSPACE/hnl-dev-hosting-only-20261101.generated.json" --project hnl-qltc-dev --non-interactive
+      - name: Confirm DEV LIVE exact deployed source and real assets, read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          ok=0
+          for i in $(seq 1 24); do
+            status=$(curl -L -sS -o "$RUNNER_TEMP/hnl-dev-release-live.json" -w '%{http_code}' "$DEV_HOST/hnl-dev-release.json?head=$GITHUB_SHA")
+            if [ "$status" = 200 ] && node - "$RUNNER_TEMP/hnl-dev-release-live.json" <<'NODE'
+          const fs=require('fs');const j=JSON.parse(fs.readFileSync(process.argv[2]));if(j.gitCommit!==process.env.GITHUB_SHA||j.firebaseProjectId!=='hnl-qltc-dev'||j.environment!=='DEV')process.exit(1);
+          NODE
+            then ok=1;break;fi
+            echo "DEV Hosting source propagation: HTTP $status, try $i/24"
+            sleep 5
+          done
+          test "$ok" = 1 || { echo '::error::DEV Hosting release manifest does not match exact HEAD';exit 1;}
+          curl -L -fsS "$DEV_HOST/" -o "$RUNNER_TEMP/hnl-dev-index-live.html"
+          grep -q 'id="root"' "$RUNNER_TEMP/hnl-dev-index-live.html"
+          node - "$RUNNER_TEMP/hnl-dev-release-live.json" <<'NODE' > "$RUNNER_TEMP/entry-path.txt"
+          const j=require(process.argv[2]);process.stdout.write(j.entryPath)
+          NODE
+          ASSET="$(cat "$RUNNER_TEMP/entry-path.txt")"
+          test "${ASSET#/assets/}" != "$ASSET"
+          curl -L -fsS "$DEV_HOST$ASSET" -o "$RUNNER_TEMP/hnl-dev-entry.js"
+          node - "$RUNNER_TEMP/hnl-dev-release-live.json" "$RUNNER_TEMP/hnl-dev-entry.js" <<'NODE'
+          const fs=require('fs'),crypto=require('crypto'),j=require(process.argv[2]);
+          const hash=crypto.createHash('sha256').update(fs.readFileSync(process.argv[3])).digest('hex');
+          if(hash!==j.entrySha256)throw Error('DEV LIVE JS bytes do not match certified build');
+          console.log('HNL DEV LIVE exact Git HEAD + JS SHA256 PASS; PROD untouched');
+          NODE
+      - name: Scrub temporary service account and generated config
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/hnl-reconcile-dev-credentials.json" hnl-dev-hosting-only-20261101.generated.json
