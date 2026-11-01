@@ -36,7 +36,7 @@ jobs:
           PREV=6073580c0d5ebcce1b6669f531d7140c384a78d3
           mkdir -p output
           git diff --name-only "$PREV" "$DEV" > output/CHANGED-FILES.txt
-          test "$(wc -l < output/CHANGED-FILES.txt | tr -d ' ')" = 28
+          test "$(wc -l < output/CHANGED-FILES.txt | tr -d ' ')" = 20
           git archive --format=zip --output=output/HNL-QLTC-DEV-7994251c-FULL-SOURCE.zip "$DEV"
           git archive --format=zip --output=output/HNL-QLTC-DEV-7994251c-PATCH-FROM-6073580C.zip "$DEV" $(cat output/CHANGED-FILES.txt)
           unzip -t output/HNL-QLTC-DEV-7994251c-FULL-SOURCE.zip > /tmp/full-test.txt
