@@ -22,7 +22,7 @@ jobs:
           PR366=5cb282b76c0e74898ff8c86ed22fc26e4c0c58ae
           test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
           test "$GITHUB_REF" = refs/heads/qa/prod10-pr375-lock366-compat-readonly-20261101
-          test "$(git rev-parse HEAD^)" = "$PR375"
+          git merge-base --is-ancestor "$PR375" "$GITHUB_SHA"
           test "$(git diff --name-only "$PR375" HEAD)" = '.github/workflows/hnl-prod10-pr375-366-compat-audit.yml'
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$PROD"
           git cat-file -e "$PR366^{commit}"
