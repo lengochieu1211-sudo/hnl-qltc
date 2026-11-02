@@ -405,6 +405,38 @@ service cloud.firestore {
         && (!('deleted' in request.resource.data) || request.resource.data.deleted != true || (('deletedAt' in request.resource.data) && request.resource.data.deletedAt != null));
     }
 
+    // P21 PROD migration safety: Cloud position lock is authoritative on the server.
+    // Old Web/EXE/APK clients cannot move a locked Room or Defect even if they
+    // never read positionLocked. Operational fields remain editable normally.
+    function positionLockUpdateIsSafe(projectId, collectionName) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return (collectionName != 'rooms' && collectionName != 'defects') || (
+        // No client can strip/forge a lock during a geometry edit. The Cloud
+        // lock toggle transaction must change only lock and lifecycle metadata.
+        (!changed.hasAny(['positionLocked']) || (
+          request.resource.data.positionLocked is bool
+          && changed.hasOnly(['positionLocked', 'revision', 'updatedAt', 'updatedByUid'])
+          && request.resource.data.updatedByUid == request.auth.uid
+          // Authorization is already enforced by the enclosing allow update
+          // (admin or an authorized editor). Repeating role lookups here caused
+          // the Firestore Emulator 1000-expression budget to be exceeded.
+          // Keep only lock-scoped, inexpensive mutation predicates here.
+        ))
+        // Do not freeze inspections, photos, notes, due dates, or defect status;
+        // only immutable map positioning/geometry are protected while locked.
+        && (resource.data.get('positionLocked', false) != true || (
+          (collectionName != 'rooms' || !changed.hasAny([
+            'floorId', 'floorName', 'roomName', 'x', 'y', 'width', 'height',
+            'points', 'isPolyline', 'cadSource'
+          ]))
+          && (collectionName != 'defects' || !changed.hasAny([
+            'floorId', 'floorName', 'archivedFloorId', 'archivedFloorName',
+            'roomId', 'axisGrid', 'positionDetail', 'x', 'y'
+          ]))
+        ))
+      );
+    }
+
     function canRecoverOwnerUid(projectId) {
       return isGoogleAuthed()
         && projectExists(projectId)
@@ -861,6 +893,7 @@ service cloud.firestore {
               || (collectionName != 'crew_records' && isEditorOperationalCollection(collectionName) && editorKeepsActiveLifecycle())
             ))
           )
+          && positionLockUpdateIsSafe(projectId, collectionName)
           && (!isCoreBusinessCollection(collectionName) || (coreIdentityUpdateIsValid(recordId) && lifecycleUpdateIsMonotonic()));
         allow delete: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts'
           && canAdminOperate(projectId)
