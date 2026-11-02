@@ -46,7 +46,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = 1c2b7d663d51d51aa45010e533d8e035e22adf59
           git merge-base --is-ancestor "$BASE" "$GITHUB_SHA"
-          printf '%s\n' '.github/workflows/pr381-devbackup-candidate-preview.yml' 'src/lib/firebaseBase.ts' > "$RUNNER_TEMP/approved-files.txt"
+          printf '%s\n' '.github/workflows/prod10-pr381-devbackup-preview.yml' 'src/lib/firebaseBase.ts' > "$RUNNER_TEMP/approved-files.txt"
           git diff --name-only "$BASE" HEAD > "$RUNNER_TEMP/actual-files.txt"
           diff -u "$RUNNER_TEMP/approved-files.txt" "$RUNNER_TEMP/actual-files.txt"
           test "$BACKUP_PROJECT" = hnl-qltc-dev-backup
