@@ -18,5 +18,7 @@ assert.match(excel,/wch:38,hidden:true/);
 const src=read('src/components/BottomNav.tsx');
 assert.match(src,/DesktopAccountMenu/);
 const chat=read('src/lib/chatService.ts');
-assert.doesNotMatch(chat,/writeBatch\(db\)/);
+// Chat is part of the 10-group release. Atomic new-client sends must coexist
+// with legacy split-write clients until their installed versions are retired.
+assert.match(chat,/writeBatch\(db\)/);
 console.log('PROD SCOPED MOBILE LAYOUT + EXCEL GATES PASS');
