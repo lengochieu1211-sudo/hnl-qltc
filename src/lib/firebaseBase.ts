@@ -1294,7 +1294,7 @@ export async function signInWithGoogle(): Promise<User | null> {
         && firebaseConfig.projectId === 'hnl-qltc-dev-backup'
         && firebaseConfig.authDomain === 'hnl-qltc-dev-backup.web.app'
         && typeof window !== 'undefined'
-        && /^hnl-qltc-dev-backup--qa381nov02-[a-z0-9-]+\.web\.app$/i.test(window.location.hostname);
+        && /^hnl-qltc-dev-backup--qa375nov01-[a-z0-9-]+\.web\.app$/i.test(window.location.hostname);
       if (mobileLike && !qaPreviewPopup) {
         await signInWithRedirect(auth, provider);
         return null;
