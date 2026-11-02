@@ -16,6 +16,9 @@ import {
   deleteDoc,
   deleteField,
   runTransaction,
+  writeBatch,
+  increment,
+  serverTimestamp,
   getDocsFromServer,
   collection,
 } from 'firebase/firestore';
@@ -113,6 +116,36 @@ try {
   await expectDenied('admin cannot write arbitrary member role', () => setDoc(doc(db, 'projects', pid, 'members', `bad-${nonce}@example.test`), {
     email: `bad-${nonce}@example.test`, role: 'SUPERROOT', active: true,
   }));
+
+  // PROD phase 1 compatibility: EXISTING legacy client split-writes must still
+  // be accepted while a NEW client can atomically commit message + summary.
+  // All traffic is confined to disposable emulators, never PROD.
+  const chatRef = doc(db, 'projects', pid, 'conversations', 'compat-rules');
+  const oldMsgRef = doc(db, 'projects', pid, 'conversations', 'compat-rules', 'messages', 'legacy-1');
+  await expectAllowed('PROD old client: message setDoc remains allowed during staged Chat migration', () => setDoc(oldMsgRef, {
+    id: 'legacy-1', projectId: pid, conversationId: 'compat-rules',
+    senderUid: ownerUid, senderEmail: ownerEmail, clientMessageId: 'legacy-1',
+    text: 'legacy write', mentions: [], createdAt: serverTimestamp(),
+  }));
+  await expectAllowed('PROD old client: separate summary setDoc remains allowed', () => setDoc(chatRef, {
+    id: 'compat-rules', projectId: pid, lastSenderUid: ownerUid,
+    lastMessageAt: serverTimestamp(), messageCount: 1,
+  }));
+  await expectAllowed('PROD new client: atomic message+summary with lastMessageId accepted', async () => {
+    const nextMsg = doc(db, 'projects', pid, 'conversations', 'compat-rules', 'messages', 'atomic-2');
+    const batch = writeBatch(db);
+    batch.set(nextMsg, {
+      id: 'atomic-2', projectId: pid, conversationId: 'compat-rules',
+      senderUid: ownerUid, senderEmail: ownerEmail, clientMessageId: 'atomic-2',
+      text: 'atomic write', mentions: [], createdAt: serverTimestamp(),
+    });
+    batch.set(chatRef, {id: 'compat-rules',projectId: pid,lastSenderUid: ownerUid,
+      lastMessageAt: serverTimestamp(),lastMessageId: 'atomic-2',messageCount: increment(1)}, {merge:true});
+    await batch.commit();
+    const summary = await getDoc(chatRef);
+    if (summary.data()?.messageCount !== 2 || summary.data()?.lastMessageId !== 'atomic-2')
+      throw new Error('PROD_CHAT_ATOMIC_OR_LEGACY_SUMMARY_PARITY_FAILED');
+  });
 
   const memberContactRef = doc(db, 'projects', pid, 'memberContacts', editorEmail);
   await expectAllowed('ADMIN writes private member contact', () => setDoc(memberContactRef, {
@@ -526,6 +559,30 @@ try {
     id: 'DF-TOMBSTONE', revision: 1, updatedAt: Date.now(), deleted: true, deletedAt: Date.now(), deletedByUid: editorUid,
   }));
   await expectDenied('core hard delete rejected', () => deleteDoc(recordRef));
+  // Two authenticated accounts read the same canonical Cloud lock; localStorage is
+  // intentionally absent from this test. Transaction only writes lock + lifecycle.
+  await expectAllowed('EDITOR locks Defect with monotonic Cloud revision', () => runTransaction(db, async (tx) => {
+    const snap = await tx.get(recordRef);
+    const row = snap.data();
+    if (row.positionLocked === true) throw new Error('DEFECT_LOCK_ALREADY_TRUE');
+    tx.update(recordRef, {
+      positionLocked: true, revision: Number(row.revision || 0) + 1,
+      updatedAt: Math.max(Date.now(), Number(row.updatedAt || 0) + 1),
+      updatedByUid: editorUid,
+    });
+  }));
+  await signIn(viewerEmail);
+  await expectAllowed('VIEWER sees EDITOR Defect lock on another account', async () => {
+    const snap = await getDoc(recordRef);
+    if (snap.data()?.positionLocked !== true) throw new Error('VIEWER_DEFECT_LOCK_NOT_SHARED');
+  });
+  await expectDenied('VIEWER cannot unlock Defect Cloud flag', () => updateDoc(recordRef, {
+    positionLocked: false, revision: 4, updatedAt: Date.now() + 1000, updatedByUid: viewerUid,
+  }));
+  await signIn(editorEmail);
+  await expectDenied('old EDITOR client cannot move locked Defect geometry', () => updateDoc(recordRef, {
+    x: 123, revision: 4, updatedAt: Date.now() + 1000, updatedByUid: editorUid,
+  }));
 
   const inventoryRef = doc(db, 'projects', pid, 'inventory', 'INV-RULE-1');
   await expectAllowed('EDITOR creates warehouse operational record', () => setDoc(inventoryRef, {
@@ -579,6 +636,30 @@ try {
     renamedTo: 'another-key', revision: 3, updatedAt: balanceNow + 2, updatedByUid: editorUid,
   }));
   await signIn(ownerEmail);
+  const beforeRoomLock = await getDoc(roomRef);
+  await expectAllowed('ADMIN atomically locks Room without changing geometry', () => runTransaction(db, async (tx) => {
+    const snap = await tx.get(roomRef);
+    const row = snap.data();
+    if (row.positionLocked === true) throw new Error('ROOM_LOCK_ALREADY_TRUE');
+    tx.update(roomRef, {
+      positionLocked: true, revision: Number(row.revision || 0) + 1,
+      updatedAt: Math.max(Date.now(), Number(row.updatedAt || 0) + 1),
+      updatedByUid: ownerUid,
+    });
+  }));
+  await signIn(viewerEmail);
+  await expectAllowed('VIEWER sees Room lock and unchanged room geometry on other account', async () => {
+    const snap = await getDoc(roomRef);
+    if (snap.data()?.positionLocked !== true || snap.data()?.x !== beforeRoomLock.data()?.x
+      || snap.data()?.width !== beforeRoomLock.data()?.width) throw new Error('ROOM_LOCK_PARITY_OR_GEOMETRY');
+  });
+  await expectDenied('VIEWER cannot unlock Room Cloud flag', () => updateDoc(roomRef, {
+    positionLocked: false, revision: 4, updatedAt: Date.now() + 1000, updatedByUid: viewerUid,
+  }));
+  await signIn(ownerEmail);
+  await expectDenied('old ADMIN client cannot move locked Room geometry', () => updateDoc(roomRef, {
+    x: 98765, revision: 4, updatedAt: Date.now() + 1000, updatedByUid: ownerUid,
+  }));
   await expectAllowed('ADMIN retains atomic unit migration metadata permission', () => updateDoc(balanceRef, {
     unit: 'thùng', renamedTo: 'renamed-balance', renamedToUnit: 'thùng',
     revision: 3, updatedAt: balanceNow + 2, updatedByUid: ownerUid,

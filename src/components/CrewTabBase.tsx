@@ -2614,13 +2614,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     )}
 
                     {/* Quick Stat Pill Widgets */}
-                    <div className="grid grid-cols-3 gap-2 my-2.5 pt-2 border-t border-slate-100 text-xs">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 my-2.5 pt-2 border-t border-slate-100 text-xs">
                       <div 
                         onClick={async () => {
                           setSelectedTeamForDetail(team);
                           setDetailModalTab('rooms');
                         }}
-                        className="bg-indigo-50/70 border border-indigo-100 p-2 rounded-lg cursor-pointer hover:bg-indigo-100/70 transition text-center"
+                        className="col-span-2 sm:col-span-1 min-w-0 bg-indigo-50/70 border border-indigo-100 p-2 rounded-lg cursor-pointer hover:bg-indigo-100/70 transition text-center"
                         title="Xem các Căn / Phòng & khối lượng đội đang phụ trách"
                       >
                         <div className="text-[10px] text-indigo-500 font-bold uppercase tracking-wider">Căn / Phòng & khối lượng</div>
@@ -2630,9 +2630,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                             {assignedRooms.length} căn
                           </span>
                           {categoryBreakdown && categoryBreakdown.length > 0 ? (
-                            <div className="text-[9px] text-indigo-950 bg-indigo-100/50 px-1 py-0.5 rounded font-extrabold flex flex-col gap-0.5 mt-0.5 max-w-[120px] text-left truncate">
+                            <div className="w-full min-w-0 text-[10px] text-indigo-950 bg-indigo-100/50 px-2 py-1 rounded font-extrabold flex flex-col gap-1 mt-1 text-left">
                               {categoryBreakdown.map(cb => (
-                                <div key={cb.categoryName} className="truncate">
+                                <div key={cb.categoryName} className="break-words">
                                   {cb.categoryName}: {formatDecimal(cb.assignedVol)} {cb.unit}
                                 </div>
                               ))}
@@ -2793,9 +2793,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
       {/* Ghi nhận quân số Modal */}
       {canOperate && showAddLogModal && (
-        <div className={`fixed inset-y-0 right-0 ${crewModalRailInsetClass} z-50 flex items-center justify-center px-2 py-2 sm:p-4 bg-slate-900/60 backdrop-blur-sm`}>
+        <div className={`hnl-ios-safe-modal fixed inset-y-0 right-0 ${crewModalRailInsetClass} z-50 flex items-center justify-center px-2 py-2 sm:p-4 bg-slate-900/60 backdrop-blur-sm`}>
           <div 
-            className="bg-white rounded-xl shadow-xl w-full max-w-sm sm:max-w-2xl lg:max-w-[1180px] xl:max-w-[1240px] max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
+            className="hnl-ios-safe-dialog bg-white rounded-xl shadow-xl w-full max-w-sm sm:max-w-2xl lg:max-w-[1180px] xl:max-w-[1240px] max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
@@ -3149,9 +3149,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
       {/* Thêm / Sửa thông tin Đội thi công Modal */}
       {canManageTeamDirectory && showTeamModal && (
-        <div className={`fixed inset-y-0 right-0 ${crewModalRailInsetClass} z-50 flex items-center justify-center px-2 py-2 sm:p-4 bg-slate-900/60 backdrop-blur-sm`}>
+        <div className={`hnl-ios-safe-modal fixed inset-y-0 right-0 ${crewModalRailInsetClass} z-50 flex items-center justify-center px-2 py-2 sm:p-4 bg-slate-900/60 backdrop-blur-sm`}>
           <div 
-            className="bg-white rounded-xl shadow-xl w-full max-w-sm sm:max-w-2xl max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
+            className="hnl-ios-safe-dialog bg-white rounded-xl shadow-xl w-full max-w-sm sm:max-w-2xl max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
@@ -3498,11 +3498,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
         return (
           <div
-            className={`fixed inset-y-0 right-0 ${crewModalRailInsetClass} z-50 flex items-center justify-center px-2 py-2 sm:p-4 bg-slate-900/70 backdrop-blur-md`}
+            className={`fixed inset-y-0 right-0 ${crewModalRailInsetClass} z-50 hnl-ios-safe-modal flex items-center justify-center px-2 py-2 sm:p-4 bg-slate-900/70 backdrop-blur-md`}
             style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))', paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
           >
             <div 
-              className="bg-slate-50 rounded-2xl shadow-2xl w-full sm:max-w-3xl lg:max-w-[1180px] xl:max-w-[1280px] overflow-hidden flex flex-col max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] border border-slate-200 animate-in fade-in zoom-in-95 duration-200"
+              className="hnl-ios-safe-dialog bg-slate-50 rounded-2xl shadow-2xl w-full sm:max-w-3xl lg:max-w-[1180px] xl:max-w-[1280px] overflow-hidden flex flex-col max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] border border-slate-200 animate-in fade-in zoom-in-95 duration-200"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Header */}

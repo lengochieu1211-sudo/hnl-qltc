@@ -169,7 +169,7 @@ assert.ok(dateGridStart > 0 && dateGridUi.includes('grid-cols-1 gap-2.5 lg:grid-
   dateGridUi.includes('role="group" aria-label="Ngày hoàn thành"') &&
   (dateGridUi.match(/<input type="date"/g) || []).length === 4 &&
   (dateGridUi.match(/min-w-0 w-full rounded-xl/g) || []).length === 4 &&
-  (dateGridUi.match(/className="grid grid-cols-2 gap-2"/g) || []).length === 2 &&
+  (dateGridUi.match(/className="grid grid-cols-1 gap-2 sm:grid-cols-2"/g) || []).length === 2 &&
   !dateGridUi.includes('min-h-9'),
   'Two compact date groups preserve four inputs without forced caption height');
 assert.ok(reportFilterUi.includes('mb-2 text-xs font-extrabold text-slate-600">Defect trong phạm vi trên') &&

@@ -16,8 +16,12 @@ assert(floor.includes("resizeRoomHighlightSide(initRoom, activeDragHandle as 'n'
 assert(floor.includes('data-hnl-defect-created-at="true"'), 'Defect creation date not visible in detail');
 assert(floor.includes('formatDateDDMMYYYY(activeDefectDetail.createdAt)'), 'Defect creation date not formatted');
 assert(types.includes('positionLocked?: boolean;'), 'Cloud lock optional field missing');
-assert(floor.includes('onUpdateDefect({ ...source, positionLocked })'), 'Defect locks do not use Cloud update path');
-assert(floor.includes('map((room) => ({ ...room, positionLocked: !unlock }))'), 'Room locks do not use Cloud update path');
+assert(floor.includes("await onCommitPositionLocks('defect', [{ id: defectId") &&
+  floor.includes("await onCommitPositionLocks('room', entries, locked)"),
+  'Defect and Room lock must await the server-confirmed write');
 assert(floor.includes('room.positionLocked === true') && floor.includes('defect.positionLocked === true'), 'Cloud lock subscription not reflected in UI');
-assert(floor.includes('positionLocked === undefined && legacy.has'), 'Existing local-only lock migration fallback missing');
+assert(floor.includes('positionLocked === undefined && legacy.has') &&
+  floor.includes("legacyOnlyLock && !window.confirm(") &&
+  !floor.includes("localStorage.setItem(getDraftKey('construction_floorplan_locked_rooms')"),
+  'Legacy-only locks protect old data without silent Cloud migration or new local writes');
 console.log('DEV BACKUP FOUR ISSUES UI SOURCE REGRESSION PASS (cloud lock reconciliation included; runtime multiuser gate pending)');
