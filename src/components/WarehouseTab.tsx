@@ -2512,9 +2512,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           {incomingTransfers.filter(row => row.status === 'pending').map(row => {
             const sourceUnit = normalizeUnit(row.unit) || row.unit;
             const materialOptions = row.itemKind === 'material'
-              ? Array.from(new Map(materialNorms.filter(norm => areSameUnit(norm.unit, sourceUnit))
-                .map(norm => [resolveNormMaterialId(norm) || norm.id, { name: norm.materialName, unit: norm.unit, materialId: resolveNormMaterialId(norm) }])).entries())
-                .map(([id, value]) => ({ key: `material:${id}`, ...value }))
+              ? Array.from(new Map<string, { name: string; unit: string; materialId: string | undefined }>(
+                materialNorms.filter(norm => areSameUnit(norm.unit, sourceUnit))
+                  .map(norm => [resolveNormMaterialId(norm) || norm.id, {
+                    name: norm.materialName, unit: norm.unit, materialId: resolveNormMaterialId(norm),
+                  }] as const)
+              ).entries()).map(([id, value]) => ({ key: `material:${id}`, ...value }))
               : equipmentCatalog.filter(eq => areSameUnit(eq.unit, sourceUnit))
                 .map(eq => ({ key: `equipment:${eq.name}`, name: eq.name, unit: eq.unit, materialId: undefined }));
             const exact = materialOptions.filter(opt => normalizeLinkText(opt.name) === normalizeLinkText(row.materialName));
