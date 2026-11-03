@@ -17,6 +17,9 @@ const r2 = read('src/lib/r2Storage.ts');
 const rules = read('firestore.rules');
 const app = read('src/App.tsx');
 
+// Warehouse inventory receipts own photo attachments: never report false 0 pending when on Kho.
+assert(app.includes("activeTab === 'warehouse';"), 'Warehouse tab keeps the photo cloud/realtime outbox active');
+
 const darkThemeCss = read('src/index.css');
 // Both unsaved photo drafts and existing-voucher photo editing use this same
 // panel; check the scoped dark contrast without altering photo/cloud semantics.
