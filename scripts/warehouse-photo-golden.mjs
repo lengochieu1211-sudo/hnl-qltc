@@ -16,6 +16,15 @@ const cloudSync = read('src/lib/photoCloudSync.ts');
 const r2 = read('src/lib/r2Storage.ts');
 const rules = read('firestore.rules');
 const app = read('src/App.tsx');
+// Regression for the 2026-11-03 PROD Android receipt-photo pending report:
+// opening Kho must not reset realtime photo-outbox status to idle/0.
+assert(app.includes("activeTab === 'warehouse';"), 'Warehouse tab must keep photo realtime/outbox tracking active');
+assert(photoPicker.includes('data-hnl-warehouse-photo-pending-upload={entityId}'), 'Pending warehouse receipt photo must offer a manual Cloud retry');
+assert(photoPicker.includes('syncProjectPhotosToCloud(projectId, { photoIds: pendingIds })'), 'Manual retry must use existing durable uploader and exact photo IDs');
+assert(photoPicker.includes('verifyPhotoBinaryReadyInCloud(projectId, id)'), 'Manual retry must verify server ready before claiming success');
+assert(photoPicker.includes("String(photo.createdByUid || '') === uid"), "Manual retry must not replay another user's pending binary");
+assert(photoPicker.includes('!readOnly && pendingOwnWarehousePhotos > 0'), 'Viewer-only roles must not expose Cloud upload retry');
+assert(photoPicker.includes('Không xóa dữ liệu ứng dụng hoặc ảnh gốc.'), 'Failed retry must warn about local-only binary preservation');
 
 const darkThemeCss = read('src/index.css');
 // Both unsaved photo drafts and existing-voucher photo editing use this same
