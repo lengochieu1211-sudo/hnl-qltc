@@ -641,6 +641,20 @@ try {
   };
   await expectDenied('transfer inbox without source voucher is forbidden', () => setDoc(transferInboxRef, incoming));
   await expectDenied('transfer source voucher without inbox is forbidden', () => setDoc(transferOutRef, sourceOut));
+  await expectDenied('transfer source OUT cannot deduct the wrong stock quantity', async () => {
+    const batch = writeBatch(db);
+    batch.set(transferOutRef, sourceOut);
+    batch.update(transferSourceBalanceRef, { onHand: 7, revision: 2, updatedAt: transferNow + 1, updatedByUid: ownerUid });
+    batch.set(transferInboxRef, incoming);
+    await batch.commit();
+  });
+  await expectDenied('transfer pending inbox quantity must match source voucher', async () => {
+    const batch = writeBatch(db);
+    batch.set(transferOutRef, sourceOut);
+    batch.update(transferSourceBalanceRef, { onHand: 6, revision: 2, updatedAt: transferNow + 1, updatedByUid: ownerUid });
+    batch.set(transferInboxRef, { ...incoming, quantity: 3 });
+    await batch.commit();
+  });
   await expectAllowed('ADMIN commits source OUT+balance and destination PENDING atomically', async () => {
     const batch = writeBatch(db);
     batch.set(transferOutRef, sourceOut);
@@ -664,6 +678,20 @@ try {
     revision: 1, createdAt: transferNow + 3, createdByUid: ownerUid,
     updatedAt: transferNow + 3, updatedByUid: ownerUid, deleted: false, deletedAt: null,
   };
+  await expectDenied('transfer target receipt cannot credit a different quantity', async () => {
+    const batch = writeBatch(db);
+    batch.set(transferReceiptRef, { ...destReceipt, quantity: 3 });
+    batch.set(transferDestBalanceRef, {
+      id: 'legacy-tam-tc--tam', projectId: destPid, itemKind: 'material', materialId: null,
+      materialName: 'Tấm TC', unit: 'tấm', onHand: 3, revision: 1,
+      updatedAt: transferNow + 3, updatedByUid: ownerUid,
+    });
+    batch.update(transferInboxRef, {
+      status: 'received', receiptId: transferReceiptId,
+      receivedAt: transferNow + 3, receivedByUid: ownerUid,
+    });
+    await batch.commit();
+  });
   await expectAllowed('ADMIN posts target IN+balance and received acknowledgement atomically', async () => {
     const batch = writeBatch(db);
     batch.set(transferReceiptRef, destReceipt);

@@ -294,12 +294,25 @@ service cloud.firestore {
         && request.resource.data.updatedByUid == request.auth.uid;
     }
 
+    // A transfer must change the derived balance by exactly the voucher amount
+    // in the same atomic commit. Legacy unrelated warehouse writes retain the
+    // compatibility rules above; this restricts the new transfer pathway only.
+    function linkedWarehouseBalanceDeltaSafe(projectId, row) {
+      let balancePath = /databases/$(database)/documents/projects/$(projectId)/inventory_balances/$(row.materialKey);
+      return row.materialKey is string && row.materialKey.size() > 0
+        && row.quantity is number && row.quantity > 0
+        && getAfter(balancePath).data.onHand ==
+          (exists(balancePath) ? get(balancePath).data.onHand : 0)
+            + (row.type == 'in' ? row.quantity : -row.quantity);
+    }
+
     // Transfer voucher writes must be linked to the other project's inbox in
     // the same atomic commit. Prevent orphan OUT/IN vouchers from stale clients.
     function linkedWarehouseInventoryCreateSafe(projectId, recordId) {
       let row = request.resource.data;
       let transferId = row.warehouseTransferId;
       return transferId is string && transferId.size() > 0
+        && linkedWarehouseBalanceDeltaSafe(projectId, row)
         && (
           (row.type == 'out'
             && row.sourceType == 'project-transfer-out'
@@ -307,12 +320,17 @@ service cloud.firestore {
             && row.transferToProjectId != projectId
             && canEdit(row.transferToProjectId)
             && getAfter(/databases/$(database)/documents/projects/$(row.transferToProjectId)/warehouse_incoming/$(transferId)).data.fromProjectId == projectId
-            && getAfter(/databases/$(database)/documents/projects/$(row.transferToProjectId)/warehouse_incoming/$(transferId)).data.sourceTransactionId == recordId)
+            && getAfter(/databases/$(database)/documents/projects/$(row.transferToProjectId)/warehouse_incoming/$(transferId)).data.sourceTransactionId == recordId
+            && getAfter(/databases/$(database)/documents/projects/$(row.transferToProjectId)/warehouse_incoming/$(transferId)).data.quantity == row.quantity
+            && getAfter(/databases/$(database)/documents/projects/$(row.transferToProjectId)/warehouse_incoming/$(transferId)).data.itemKind == row.itemKind
+            && getAfter(/databases/$(database)/documents/projects/$(row.transferToProjectId)/warehouse_incoming/$(transferId)).data.unit == row.unit)
           ||
           (row.type == 'in'
             && row.sourceType == 'project-transfer-in'
             && getAfter(/databases/$(database)/documents/projects/$(projectId)/warehouse_incoming/$(transferId)).data.status == 'received'
-            && getAfter(/databases/$(database)/documents/projects/$(projectId)/warehouse_incoming/$(transferId)).data.receiptId == recordId)
+            && getAfter(/databases/$(database)/documents/projects/$(projectId)/warehouse_incoming/$(transferId)).data.receiptId == recordId
+            && getAfter(/databases/$(database)/documents/projects/$(projectId)/warehouse_incoming/$(transferId)).data.quantity == row.quantity
+            && getAfter(/databases/$(database)/documents/projects/$(projectId)/warehouse_incoming/$(transferId)).data.itemKind == row.itemKind)
         );
     }
 
