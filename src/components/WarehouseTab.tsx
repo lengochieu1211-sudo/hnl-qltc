@@ -47,6 +47,7 @@ import { QuickSortBar } from './QuickSortBar';
 import { compareMaterialGroupPriority, compareWarehouseOrderDisplayItems } from '../utils/catalogDisplayOrder';
 import { equipmentIdentityKey, EquipmentUnitMigrationRequiredError, saveEquipmentCatalogBatch, subscribeEquipmentCatalog, type EquipmentCatalogRecord, type EquipmentCatalogInput } from '../lib/equipmentCatalog';
 import type { WarehouseUnitRenameInput } from '../lib/warehouseUnitMigration';
+import { createWarehouseProjectTransferAtomic, receiveWarehouseProjectTransferAtomic, subscribeIncomingWarehouseTransfers, type WarehouseIncomingTransfer } from '../lib/warehouseProjectTransfer';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import { WarehouseVoucherShareSheet } from './WarehouseVoucherShareSheet';
 import { WarehouseReportActions } from './WarehouseReportActions';
@@ -74,6 +75,7 @@ interface WarehouseTabProps {
   isActive?: boolean;
   quickEditEnabled?: boolean;
   currentProjectId?: string;
+  availableProjects?: Array<{ id: string; name: string; role?: string }>;
   orderSync:WarehouseOrderSync;
   projectName?: string;
   projectLocation?: string;
@@ -164,6 +166,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   isActive = true,
   quickEditEnabled = true,
   currentProjectId = '',
+  availableProjects = [],
   orderSync,
   projectName = '',
   projectLocation = '',
@@ -211,6 +214,18 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [inventorySortBy, setInventorySortBy] = useState<'date' | 'material' | 'location' | 'handler'>('date');
   const [inventorySortOrder, setInventorySortOrder] = useState<'asc' | 'desc'>('desc');
   const [showAddForm, setShowAddForm] = useState(false);
+  const [destinationProjectId, setDestinationProjectId] = useState('');
+  const [incomingTransfers, setIncomingTransfers] = useState<WarehouseIncomingTransfer[]>([]);
+  const [incomingError, setIncomingError] = useState('');
+  const [incomingMapping, setIncomingMapping] = useState<Record<string, string>>({});
+  const [receivingTransferId, setReceivingTransferId] = useState<string | null>(null);
+  const transferableProjects = availableProjects.filter(p => p.id !== currentProjectId && (p.role === 'ADMIN' || p.role === 'EDITOR'));
+  useEffect(() => {
+    setIncomingTransfers([]);
+    setIncomingError('');
+    if (!currentProjectId || !roleResolved || !isActive) return;
+    return subscribeIncomingWarehouseTransfers(currentProjectId, setIncomingTransfers, error => setIncomingError(error.message));
+  }, [currentProjectId, roleResolved, isActive]);
   const [editingInventory, setEditingInventory] = useState<InventoryItem | null>(null);
   const [itemKind, setItemKind] = useState<InventoryItemKind>('material');
   const [isNewEquipment, setIsNewEquipment] = useState(false);
@@ -1565,6 +1580,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setHandler(String(defaultHandler || '').trim());
     setNotes('');
     setIssuePurpose('project-work');
+    setDestinationProjectId('');
     setIssueStructureGroupId('');
     setIssueFloorId('');
     setIssueRoomId('');
@@ -1601,6 +1617,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setHandler(item.handler || '');
     setDate(item.date || new Date().toISOString().split('T')[0]);
     setNotes(item.notes || '');
+    if (item.warehouseTransferId) { alert('Phiếu điều chuyển đã liên kết hai dự án, không thể sửa riêng.'); return; }
     setIssuePurpose(item.issuePurpose || (item.sourceRoomId || item.sourceFloorId || item.sourceTeamId || item.sourceWorkCategoryId || item.sourceStructureGroupId ? 'project-work' : 'other'));
     const linkedRoom = item.sourceRoomId
       ? roomProgressList.find((room) => room.id === item.sourceRoomId && (room.deletedAt === undefined || room.deletedAt === null))
@@ -1621,6 +1638,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!hasEditAccess || inventorySaveInFlightRef.current) return;
+    if (type === 'out' && issuePurpose === 'project-transfer') {
+      if (!currentProjectId || !destinationProjectId || !transferableProjects.some(p => p.id === destinationProjectId)) {
+        alert('Chọn dự án đích đang có quyền ghi, khác dự án hiện tại.');
+        return;
+      }
+      if (editingInventory) { alert('Không chỉnh sửa phiếu điều chuyển đã lập.'); return; }
+    }
     const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
     const keepOpen = !editingInventory && submitter?.value === 'continue';
     const finalMaterialName = itemKind === 'equipment'
@@ -1787,7 +1811,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     const savedVoucherId = editingInventory?.id || createEntityId(type === 'in' ? 'NK' : 'XK');
     inventorySaveInFlightRef.current = true;
     try {
-      if (editingInventory && onUpdateInventory) {
+      if (type === 'out' && issuePurpose === 'project-transfer') {
+        await createWarehouseProjectTransferAtomic(currentProjectId, destinationProjectId, { ...payload, id: savedVoucherId });
+      } else if (editingInventory && onUpdateInventory) {
         await onUpdateInventory(editingInventory.id, payload);
       } else {
         await onAddInventory({ ...payload, id: savedVoucherId });
@@ -2479,6 +2505,71 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           { label: 'Danh mục có phát sinh', value: stockSummaries.length, detail: 'Vật tư & thiết bị' },
           { label: 'Mức tồn cần chú ý', value: lowStockItems.length, detail: 'Theo cảnh báo hiện hành', tone: lowStockItems.length ? 'warning' : 'success' },
         ]} />
+      {(incomingTransfers.some(row => row.status === 'pending') || incomingError) && (
+        <section data-hnl-transfer-inbox="true" className="rounded-2xl border border-indigo-200 bg-indigo-50/60 p-3 space-y-3">
+          <h3 className="text-sm font-extrabold text-indigo-900">Phiếu nhập điều chuyển từ dự án khác</h3>
+          {incomingError && <p className="text-xs text-red-700">Lỗi tải phiếu điều chuyển: {incomingError}</p>}
+          {incomingTransfers.filter(row => row.status === 'pending').map(row => {
+            const sourceUnit = normalizeUnit(row.unit) || row.unit;
+            const materialOptions = row.itemKind === 'material'
+              ? Array.from(new Map<string, { name: string; unit: string; materialId: string | undefined }>(
+                materialNorms.filter(norm => areSameUnit(norm.unit, sourceUnit))
+                  .map(norm => [resolveNormMaterialId(norm) || norm.id, {
+                    name: norm.materialName, unit: norm.unit, materialId: resolveNormMaterialId(norm),
+                  }] as const)
+              ).entries()).map(([id, value]) => ({ key: `material:${id}`, ...value }))
+              : equipmentCatalog.filter(eq => areSameUnit(eq.unit, sourceUnit))
+                .map(eq => ({ key: `equipment:${eq.name}`, name: eq.name, unit: eq.unit, materialId: undefined }));
+            const exact = materialOptions.filter(opt => normalizeLinkText(opt.name) === normalizeLinkText(row.materialName));
+            const selection = incomingMapping[row.id] || (exact.length === 1 ? exact[0].key : '__new__');
+            const selected = materialOptions.find(opt => opt.key === selection);
+            return <div key={row.id} className="rounded-xl bg-white border border-indigo-100 p-3 space-y-2">
+              <div className="text-xs font-semibold text-slate-800">{row.materialName} · {formatDecimal(row.quantity)} {row.unit}</div>
+              <div className="text-[11px] text-slate-500">Từ dự án {row.fromProjectId} · Phiếu {row.sourceTransactionId}</div>
+              <label className="block space-y-1">
+                <span className="text-[11px] font-bold text-slate-700">Liên kết danh mục tại dự án nhận</span>
+                <select value={selection} onChange={e => setIncomingMapping(prev => ({ ...prev, [row.id]: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-lg p-2 text-xs">
+                  <option value="__new__">Chưa có · Tạo mới theo tên dự án xuất</option>
+                  {materialOptions.map(opt => <option key={opt.key} value={opt.key}>{opt.name} ({opt.unit})</option>)}
+                </select>
+              </label>
+              {selection === '__new__' && !hasNormManageAccess && <p className="text-[11px] text-amber-800">Chỉ ADMIN được tạo danh mục mới. Phiếu tiếp tục chờ, không cộng tồn.</p>}
+              <button type="button" disabled={!hasEditAccess || receivingTransferId !== null || (selection === '__new__' && !hasNormManageAccess)}
+                className="min-h-10 rounded-lg bg-indigo-600 text-white px-4 text-xs font-bold disabled:opacity-40"
+                onClick={async () => {
+                  if (!currentProjectId || receivingTransferId) return;
+                  setReceivingTransferId(row.id);
+                  try {
+                    let chosen = selected;
+                    if (!chosen) {
+                      if (!hasNormManageAccess) throw new Error('Cần ADMIN tạo danh mục nhận.');
+                      if (row.itemKind === 'material') {
+                        if (!onCreateMaterialCatalog) throw new Error('Không có quyền tạo vật tư mới.');
+                        const materialId = await onCreateMaterialCatalog({ materialName: row.materialName, unit: row.unit, category: 'Điều chuyển nội bộ' });
+                        if (!materialId) throw new Error('Tạo danh mục vật tư thất bại.');
+                        chosen = { key: '__created__', name: row.materialName, unit: row.unit, materialId };
+                      } else {
+                        await saveEquipmentCatalogBatch(currentProjectId, [{ name: row.materialName, displayName: row.materialName, unit: row.unit,
+                          category: 'Thiết bị', brand: '', model: '', specifications: '', notes: 'Tạo từ điều chuyển nội bộ.' }]);
+                        chosen = { key: '__created__', name: row.materialName, unit: row.unit, materialId: undefined };
+                      }
+                    }
+                    await receiveWarehouseProjectTransferAtomic(currentProjectId, row.id, {
+                      materialName: chosen.name, unit: chosen.unit, materialId: chosen.materialId,
+                    }, String(defaultHandler || ''));
+                    setIncomingMapping(prev => { const next = { ...prev }; delete next[row.id]; return next; });
+                  } catch (error) {
+                    alert('Không thể nhận điều chuyển: ' + (error instanceof Error ? error.message : String(error)));
+                  } finally { setReceivingTransferId(null); }
+                }}>
+                {receivingTransferId === row.id ? 'Đang xác nhận...' : 'Xác nhận nhập kho'}
+              </button>
+            </div>;
+          })}
+        </section>
+      )}
+
       {/* Title & horizontal PC actions */}
       <div data-hnl-pc-region="commands" className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0">
@@ -3958,9 +4049,23 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     >
                       <option value="project-work">Thi công trong dự án</option>
                       <option value="external-project">Xuất ngoài dự án</option>
+                      <option value="project-transfer">Chuyển sang dự án khác (tự tạo phiếu nhập chờ)</option>
                       <option value="other">Mục đích khác</option>
                     </select>
                   </div>
+
+                  {issuePurpose === 'project-transfer' && (
+                    <label className="block space-y-1">
+                      <span className="block text-xs font-bold text-slate-700">Dự án nhận hàng *</span>
+                      <select value={destinationProjectId} onChange={e => setDestinationProjectId(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white p-2.5 font-semibold" required>
+                        <option value="">— Chọn dự án có quyền ghi —</option>
+                        {transferableProjects.map(project => <option value={project.id} key={project.id}>{project.name}</option>)}
+                      </select>
+                      <span className="block text-[11px] text-amber-800">Trừ tồn kho dự án này và tạo phiếu Chờ nhận tại dự án đích trong cùng một giao dịch Cloud. Dự án nhận chưa cộng tồn cho đến khi xác nhận.</span>
+                      {transferableProjects.length === 0 && <span className="block text-[11px] text-rose-700">Không có dự án khác mà tài khoản này được phép ghi. Hãy nhờ ADMIN cấp quyền tại dự án nhận.</span>}
+                    </label>
+                  )}
 
                   {issuePurpose === 'project-work' && (
                     <>
