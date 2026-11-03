@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Image as ImageIcon, Images, Eye, Loader2, X, Pencil, AlertTriangle } from 'lucide-react';
 import { PhotoAttachment, getEntityPhotos, getProjectPhotos, savePhotoAttachment, deletePhotoAttachment, getPhotoDataUrl, updatePhotoAttachmentBlob, resetPhotoRuntimeMemoryCache, isPhotoSharedCloudReady } from '../utils/photoStorage';
-import { refreshProjectPhotoMetadataFromCloud, uploadPhotoToCloud, verifyPhotoBinaryReadyInCloud } from '../lib/photoCloudSync';
+import { refreshProjectPhotoMetadataFromCloud, uploadPhotoToCloud, verifyPhotoBinaryReadyInCloud, syncProjectPhotosToCloud } from '../lib/photoCloudSync';
 import { getCurrentRealFirebaseUser, onAuthUserChanged } from '../lib/firebase';
 import { ImageViewerModal } from './ImageViewerModal';
 import { ImageEditorModal } from './ImageEditorModal';
@@ -79,6 +79,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [syncNotice, setSyncNotice] = useState('');
+  const [retryingPendingCloud, setRetryingPendingCloud] = useState(false);
   const [viewingIndex, setViewingIndex] = useState<number | null>(null);
   const [viewerCurrentIndex, setViewerCurrentIndex] = useState(0);
   const [viewerFullUrls, setViewerFullUrls] = useState<Record<string, string>>({});
@@ -402,6 +403,45 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     await processSelectedFiles(e.target.files);
   };
 
+  // Warehouse-specific manual recovery for an image that still has its original Blob
+  // on this uploader's device. Unlike 'Tải lại' (Cloud download), this retries PUT,
+  // then verifies the server's ready metadata before claiming synchronization.
+  const handleRetryPendingCloud = async () => {
+    if (readOnly || entityType !== 'inventory' || retryingPendingCloud || !projectId) return;
+    const uid = getCurrentRealFirebaseUser()?.uid || '';
+    if (!uid) {
+      setSyncNotice('Cần đăng nhập tài khoản đã tải ảnh lên để thử đồng bộ lại.');
+      return;
+    }
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setSyncNotice('Điện thoại đang offline. Ảnh gốc vẫn được giữ trong bộ nhớ thiết bị.');
+      return;
+    }
+    const pendingIds = photos.filter((photo) =>
+      !photo.deleted && !photo.deletedAt
+      && String(photo.binaryUploadState || '') === 'pending'
+      && String(photo.createdByUid || '') === uid
+    ).map((photo) => photo.id);
+    if (pendingIds.length === 0) return;
+    setRetryingPendingCloud(true);
+    try {
+      const result = await syncProjectPhotosToCloud(projectId, { photoIds: pendingIds });
+      const checks = await Promise.all(pendingIds.map((id) => verifyPhotoBinaryReadyInCloud(projectId, id)));
+      const stillPending = checks.filter((ready) => !ready).length;
+      await refreshProjectPhotoMetadataFromCloud(projectId).catch(() => ({ verified: false, count: 0 }));
+      await loadPhotos();
+      if (stillPending > 0) {
+        setSyncNotice(`${stillPending} ảnh vẫn chưa được Cloud xác nhận. Ảnh gốc còn trên thiết bị; giữ ứng dụng và thử lại khi mạng ổn định.`);
+      } else {
+        setSyncNotice('Đã xác nhận ảnh được lưu lên Cloud/R2. Có thể mở trên thiết bị khác.');
+      }
+    } catch (err: any) {
+      setSyncNotice(`Chưa thể đồng bộ ảnh lên Cloud/R2: ${err?.message || String(err)}. Không xóa dữ liệu ứng dụng hoặc ảnh gốc.`);
+    } finally {
+      setRetryingPendingCloud(false);
+    }
+  };
+
   const handleRetryCloudPhoto = async (photo: PhotoAttachment, e?: React.MouseEvent) => {
     e?.preventDefault();
     e?.stopPropagation();
@@ -663,6 +703,13 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     );
   }
 
+  const currentUploaderUid = getCurrentRealFirebaseUser()?.uid || '';
+  const pendingOwnWarehousePhotos = entityType === 'inventory' && currentUploaderUid
+    ? photos.filter((photo) => !photo.deleted && !photo.deletedAt
+      && String(photo.binaryUploadState || '') === 'pending'
+      && String(photo.createdByUid || '') === currentUploaderUid).length
+    : 0;
+
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -708,6 +755,16 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       {syncNotice && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] font-semibold text-amber-800">
           {syncNotice}
+        </div>
+      )}
+      {!readOnly && pendingOwnWarehousePhotos > 0 && (
+        <div data-hnl-warehouse-photo-pending-upload={entityId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-900">
+          <span>{pendingOwnWarehousePhotos} ảnh phiếu kho chưa lên Cloud. Ảnh gốc vẫn nằm trên thiết bị này.</span>
+          <button type="button" disabled={retryingPendingCloud || uploading}
+            onClick={() => void handleRetryPendingCloud()}
+            className="rounded-md bg-amber-700 px-3 py-2 font-bold text-white disabled:opacity-50">
+            {retryingPendingCloud ? 'Đang đồng bộ…' : 'Thử đồng bộ ảnh lên Cloud'}
+          </button>
         </div>
       )}
 
