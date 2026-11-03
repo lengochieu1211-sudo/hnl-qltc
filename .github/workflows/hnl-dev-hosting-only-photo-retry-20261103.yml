@@ -41,7 +41,7 @@ jobs:
           FIREBASE_DEV_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
         run: |
           set -euo pipefail
-          BASE=a39d22dbfdf1ccd9dce516ca087023fed5e7a2e0
+          BASE=710baa0d8630f3e261a6b0d82b5920113c81df9e
           PROD=1c2b7d663d51d51aa45010e533d8e035e22adf59
           test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
           test "$GITHUB_REF" = refs/heads/dev
@@ -52,7 +52,7 @@ jobs:
           git merge-base --is-ancestor "$BASE" "$GITHUB_SHA"
           git merge-base --is-ancestor "$PROD" "$GITHUB_SHA"
           git diff --name-only "$BASE" "$GITHUB_SHA" > "$RUNNER_TEMP/changed.txt"
-          # Only this one-shot workflow added atop the QA-verified photo-retry DEV HEAD.
+          # Only this workflow update is allowed atop the QA-verified warehouse photo observer DEV HEAD.
           test "$(cat "$RUNNER_TEMP/changed.txt")" = '.github/workflows/hnl-dev-hosting-only-photo-retry-20261103.yml'
           ! grep -E '(^\.firebaserc$|^firestore\.rules$|^storage\.rules$|^firebase\.json$|^firebase\.prod\.json$|^package(-lock)?\.json$|^cloudflare|worker\.js$|^\.env|^\.github/dev-release-approval\.json$)' "$RUNNER_TEMP/changed.txt"
           test "$DEV_PROJECT" = hnl-qltc-dev
