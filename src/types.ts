@@ -1,6 +1,6 @@
 export type TransactionType = 'in' | 'out';
 export type InventoryItemKind = 'material' | 'equipment';
-export type InventoryIssuePurpose = 'project-work' | 'external-project' | 'other';
+export type InventoryIssuePurpose = 'project-work' | 'external-project' | 'project-transfer' | 'other';
 export type NumericInputExpressions = Record<string, string>;
 
 /** Canonical Firestore lifecycle fields for Firebase-only records.
@@ -35,6 +35,10 @@ export interface InventoryItem {
   sourceType?: 'room-auto' | 'manual' | string;
   /** OUT purpose. Legacy rows may omit it; scoped legacy OUT is treated as project work. */
   issuePurpose?: InventoryIssuePurpose;
+  /** Immutable metadata for atomic cross-project transfer vouchers. */
+  warehouseTransferId?: string;
+  transferToProjectId?: string;
+  transferFromProjectId?: string;
   /** Optional project hierarchy scope. All fields are independently optional. */
   sourceStructureGroupId?: string;
   sourceRoomId?: string;

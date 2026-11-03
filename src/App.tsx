@@ -8190,6 +8190,7 @@ function AuthenticatedApp() {
               isActive={visibleTab === 'warehouse'}
               quickEditEnabled={allowPcQuickEdit}
               currentProjectId={activeProjectId}
+              availableProjects={authorizedChatProjects}
               orderSync={warehouseOrderSync}
               projectName={projectName}
               projectLocation={projectLocation}

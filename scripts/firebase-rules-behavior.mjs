@@ -17,6 +17,7 @@ import {
   deleteDoc,
   deleteField,
   runTransaction,
+  writeBatch,
   getDocsFromServer,
   onSnapshot,
   collection,
@@ -602,6 +603,87 @@ try {
   await expectDenied('EDITOR cannot write migration tombstone on an existing balance', () => updateDoc(balanceRef, {
     renamedTo: 'another-key', revision: 3, updatedAt: balanceNow + 2, updatedByUid: editorUid,
   }));
+  // Cross-project material transfer: source OUT and target PENDING must be a
+  // single committed unit; target IN and acknowledgement also commit together.
+  await signIn(ownerEmail);
+  const destPid = `${pid}-transfer-dest`;
+  const transferSourceId = 'XK-TRANSFER-RULE-1';
+  const transferId = `TR-${pid}-${transferSourceId}`;
+  const transferReceiptId = `NK-${transferId}`;
+  const transferOutRef = doc(db, 'projects', pid, 'inventory', transferSourceId);
+  const transferInboxRef = doc(db, 'projects', destPid, 'warehouse_incoming', transferId);
+  const transferReceiptRef = doc(db, 'projects', destPid, 'inventory', transferReceiptId);
+  const transferSourceBalanceRef = doc(db, 'projects', pid, 'inventory_balances', 'legacy-tam-tc--tam');
+  const transferDestBalanceRef = doc(db, 'projects', destPid, 'inventory_balances', 'legacy-tam-tc--tam');
+  const transferNow = Date.now();
+  await expectAllowed('ADMIN creates second independent project for transfer test', () => setDoc(doc(db, 'projects', destPid), {
+    id: destPid, name: 'Warehouse Destination', ownerUid, ownerEmail,
+    createdAt: transferNow, updatedAt: transferNow,
+  }));
+  await expectAllowed('ADMIN seeds source stock for transfer test', () => setDoc(transferSourceBalanceRef, {
+    id: 'legacy-tam-tc--tam', projectId: pid, itemKind: 'material', materialId: null,
+    materialName: 'Tấm TC', unit: 'tấm', onHand: 8, revision: 1,
+    updatedAt: transferNow, updatedByUid: ownerUid,
+  }));
+  const sourceOut = {
+    id: transferSourceId, type: 'out', itemKind: 'material', materialName: 'Tấm TC',
+    materialId: null, unit: 'tấm', quantity: 2, date: '2026-11-03', handler: '', notes: '',
+    sourceType: 'project-transfer-out', issuePurpose: 'external-project',
+    materialKey: 'legacy-tam-tc--tam', warehouseTransferId: transferId, transferToProjectId: destPid,
+    revision: 1, createdAt: transferNow, createdByUid: ownerUid,
+    updatedAt: transferNow, updatedByUid: ownerUid, deleted: false, deletedAt: null,
+  };
+  const incoming = {
+    id: transferId, fromProjectId: pid, toProjectId: destPid,
+    sourceTransactionId: transferSourceId, itemKind: 'material', materialName: 'Tấm TC',
+    originalMaterialId: null, unit: 'tấm', quantity: 2, date: '2026-11-03',
+    handler: '', notes: '', status: 'pending', createdAt: transferNow, createdByUid: ownerUid,
+  };
+  await expectDenied('transfer inbox without source voucher is forbidden', () => setDoc(transferInboxRef, incoming));
+  await expectDenied('transfer source voucher without inbox is forbidden', () => setDoc(transferOutRef, sourceOut));
+  await expectAllowed('ADMIN commits source OUT+balance and destination PENDING atomically', async () => {
+    const batch = writeBatch(db);
+    batch.set(transferOutRef, sourceOut);
+    batch.update(transferSourceBalanceRef, { onHand: 6, revision: 2, updatedAt: transferNow + 1, updatedByUid: ownerUid });
+    batch.set(transferInboxRef, incoming);
+    await batch.commit();
+  });
+  await expectDenied('ADMIN cannot modify linked source transfer voucher', () => updateDoc(transferOutRef, {
+    quantity: 1, revision: 2, updatedAt: transferNow + 5,
+  }));
+  await expectDenied('destination receive voucher without paired inbox confirmation is forbidden', () => setDoc(transferReceiptRef, {
+    id: transferReceiptId, type: 'in', sourceType: 'project-transfer-in', warehouseTransferId: transferId,
+    materialName: 'Tấm TC', itemKind: 'material', unit: 'tấm', quantity: 2,
+    revision: 1, createdAt: transferNow, updatedAt: transferNow, deleted: false, deletedAt: null,
+  }));
+  const destReceipt = {
+    id: transferReceiptId, type: 'in', itemKind: 'material', materialName: 'Tấm TC', materialId: null,
+    unit: 'tấm', quantity: 2, date: '2026-11-03', handler: '', notes: '',
+    materialKey: 'legacy-tam-tc--tam', sourceType: 'project-transfer-in',
+    warehouseTransferId: transferId, transferFromProjectId: pid,
+    revision: 1, createdAt: transferNow + 3, createdByUid: ownerUid,
+    updatedAt: transferNow + 3, updatedByUid: ownerUid, deleted: false, deletedAt: null,
+  };
+  await expectAllowed('ADMIN posts target IN+balance and received acknowledgement atomically', async () => {
+    const batch = writeBatch(db);
+    batch.set(transferReceiptRef, destReceipt);
+    batch.set(transferDestBalanceRef, {
+      id: 'legacy-tam-tc--tam', projectId: destPid, itemKind: 'material', materialId: null,
+      materialName: 'Tấm TC', unit: 'tấm', onHand: 2, revision: 1,
+      updatedAt: transferNow + 3, updatedByUid: ownerUid,
+    });
+    batch.update(transferInboxRef, {
+      status: 'received', receiptId: transferReceiptId,
+      receivedAt: transferNow + 3, receivedByUid: ownerUid,
+    });
+    await batch.commit();
+  });
+  const finalTransferSource = await getDoc(transferSourceBalanceRef);
+  const finalTransferTarget = await getDoc(transferDestBalanceRef);
+  assert.equal(finalTransferSource.data()?.onHand, 6, 'source balance must be 6 after source OUT');
+  assert.equal(finalTransferTarget.data()?.onHand, 2, 'target balance must be 2 after receipt');
+  await signIn(viewerEmail);
+  await expectDenied('VIEWER cannot read unrelated target transfer inbox', () => getDoc(transferInboxRef));
   await signIn(ownerEmail);
   const beforeRoomLock = await getDoc(roomRef);
   await expectAllowed('ADMIN atomically locks Room without changing geometry', () => runTransaction(db, async (tx) => {
