@@ -3005,6 +3005,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                             }
                             setCrewPicker(null);
                           };
+                          const confirmCustomName = () => {
+                            const name = crewPickerQuery.trim();
+                            if (!name) return;
+                            selectName(uniqueOptions.find(item => normalizeLinkText(item) === normalizeLinkText(name)) || name);
+                          };
                           return (
                             <div className="fixed inset-0 z-[110] flex items-end sm:items-center sm:justify-center bg-black/50" onClick={() => setCrewPicker(null)}>
                               <div role="dialog" aria-modal="true" aria-label={crewPicker.kind === 'category' ? 'Chọn hạng mục thi công' : 'Chọn công đoạn'} onClick={e => e.stopPropagation()} className="w-full sm:max-w-lg bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[70dvh] min-h-0 overflow-hidden">
@@ -3014,10 +3019,24 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                 </div>
                                 <div className="p-3 border-b border-slate-100 space-y-2">
                                   {crewCustomEntry ? (
-                                    <form onSubmit={e => { e.preventDefault(); const name = crewPickerQuery.trim(); if (name) selectName(uniqueOptions.find(item => normalizeLinkText(item) === normalizeLinkText(name)) || name); }} className="flex gap-2">
-                                      <input autoFocus value={crewPickerQuery} onChange={e => setCrewPickerQuery(e.target.value)} placeholder="Nhập tên mới..." className="min-w-0 flex-1 border rounded-lg px-3 py-2 text-sm" />
-                                      <button type="submit" disabled={!crewPickerQuery.trim()} className="bg-indigo-600 disabled:opacity-50 text-white px-3 rounded-lg text-sm">Xác nhận</button>
-                                    </form>
+                                    <div className="flex gap-2">
+                                      <input
+                                        autoFocus
+                                        value={crewPickerQuery}
+                                        onChange={e => setCrewPickerQuery(e.target.value)}
+                                        onKeyDown={e => {
+                                          if (e.key === 'Enter') {
+                                            // The picker is inside the crew-log form; Enter must not save the whole log.
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            confirmCustomName();
+                                          }
+                                        }}
+                                        placeholder="Nhập tên mới..."
+                                        className="min-w-0 flex-1 border rounded-lg px-3 py-2 text-sm"
+                                      />
+                                      <button type="button" onClick={confirmCustomName} disabled={!crewPickerQuery.trim()} className="bg-indigo-600 disabled:opacity-50 text-white px-3 rounded-lg text-sm">Xác nhận</button>
+                                    </div>
                                   ) : (
                                     <input value={crewPickerQuery} onChange={e => setCrewPickerQuery(e.target.value)} placeholder="Tìm trong danh sách..." className="w-full border rounded-lg px-3 py-2 text-sm" />
                                   )}
