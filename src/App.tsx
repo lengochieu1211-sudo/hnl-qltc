@@ -4396,7 +4396,7 @@ function AuthenticatedApp() {
   // on each exact activeTab used to tear down/recreate the same Firestore subscription
   // for Floor Plan -> Crew -> Chat navigation even though the project and identity did
   // not change. Non-photo tabs still release the listener exactly as before.
-  const photoRealtimeActive = activeTab === 'floorplan' || activeTab === 'crew' || activeTab === 'chat';
+  const photoRealtimeActive = activeTab === 'floorplan' || activeTab === 'crew' || activeTab === 'chat' || activeTab === 'warehouse';
   useEffect(() => {
     if (!photoRealtimeActive || !isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed) {
       setPhotoCloudStatus({ phase: 'idle', pending: 0 });
