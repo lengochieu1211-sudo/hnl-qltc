@@ -185,3 +185,19 @@ assert(warehouse.includes('if (!hasNormManageAccess)'), 'Only norm-managing ADMI
 assert(warehouse.includes('if (existingMaterial || exactNormMaterialIds.length > 0)'), 'Existing name + unit prevents duplicate material IDs');
 assert(warehouse.includes('customMaterial.trim() && !editingKeepsLegacyMaterialIdentity'), 'Legacy voucher edit must not be forced to create a category');
 console.log('WAREHOUSE MATERIAL CATEGORY GOLDEN PASS – existing/new selection, canonical names, RBAC, non-duplication');
+
+// P0 pending voucher photo recovery: a "download again" control must not be
+// presented as an upload retry when the binary only exists on this phone.
+const photoRecovery = photoPicker.slice(photoPicker.indexOf('const handleRetryPendingUpload'), photoPicker.indexOf('const handleRetryCloudPhoto'));
+assert(photoRecovery.includes('getPhotoBlob(photo.id, false)'), 'Retry first confirms the original local binary exists');
+assert(photoRecovery.includes('photo.createdByUid !== uid'), 'Retry blocks a different account from uploading a foreign pending binary');
+assert(photoRecovery.includes('cacheOwner && cacheOwner !== uid'), 'Retry checks local binary owner marker to prevent cross-account upload');
+assert(photoRecovery.includes('uploadPhotoToCloud(projectId, latest)'), 'Retry uses original photo/ID rather than creating a duplicate');
+assert(photoRecovery.includes('verifyPhotoBinaryReadyInCloud(projectId, photo.id)'), 'Retry needs durable Cloud confirmation');
+assert(photoRecovery.includes('pendingUploadInFlightRef.current.has(photo.id)'), 'Retry is guarded against duplicate clicks');
+assert(photoPicker.includes('data-hnl-photo-retry-pending="true"'), 'Voucher edit displays a visible pending upload retry');
+assert(photoPicker.includes("'Đồng bộ lên' : 'Tải lại'"), 'Pending upload and Cloud download actions are distinguished');
+const diagnosticsUi = read('src/components/GoogleConfigTab.tsx');
+assert(diagnosticsUi.includes("photoDiagnostics.pending : 0"), 'Diagnostic export cannot incorrectly report zero while its snapshot has pending photos');
+assert(diagnosticsUi.includes('photoDiagnosticSnapshot?.pending || 0'), 'Sync status counts pending photo diagnostics even when status event is idle');
+console.log('WAREHOUSE PENDING PHOTO RETRY GOLDEN PASS: preserve local binary/IDs, access, accurate pending counts');
