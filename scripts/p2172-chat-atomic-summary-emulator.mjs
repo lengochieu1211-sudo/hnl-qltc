@@ -22,6 +22,7 @@ assert.ok(start>=0&&end>start,'commit source present');
 assert.match(body,/const batch = writeBatch\(db\)/,'message + summary atomic Firestore batch required');
 assert.match(body,/batch\.set\(msgRef,/,'message must be in batch');
 assert.match(body,/batch\.set\(conversationRef\(/,'summary must be in same batch');
+assert.match(body,/lastMessageId:\s*messageId/,'client summary must carry exact message ID for getAfter authorization');
 assert.match(body,/await batch\.commit\(\);\s*await removeChatOutbox/,'outbox cannot be discarded until whole batch confirmed');
 assert.match(source,/await getDocFromServer\(msgRef\)/,'pending local snapshot must never delete outbox');
 assert.doesNotMatch(body,/await setDoc\(msgRef,/,'separate message write forbidden');
