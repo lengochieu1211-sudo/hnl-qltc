@@ -758,3 +758,21 @@ assert.ok(hnlDarkCss.includes('.text-purple-900 { color: #c4b5fd !important; }')
 assert.ok(read('src/components/HomeDashboard.tsx').includes('Mở nhanh dự án đang làm'),
   'Home quick-open function untouched by theme patch');
 console.log('HNL DARK MODE NESTED BRAND BLUE GOLDEN: PASS');
+
+// PC Home modern intentionally retains the classic DOM; its extra toolbar must
+// still obey dark mode even though modern-workspace selectors skip the Home tab.
+const pcHomeCss = read('src/styles/desktopWorkspace.css');
+const pcHomeHeader = read('src/components/DesktopWorkspaceHeader.tsx');
+assert.ok(app.includes("data-hnl-pc-home-modern={visibleTab === 'home' && desktopWorkspaceMode === 'modern'"),
+  'Home modern-mode scope marker must remain on the app shell');
+assert.ok(pcHomeHeader.includes('data-hnl-pc-home-actions="true"') && pcHomeHeader.includes('onOpenSecurity') && pcHomeHeader.includes('onOpenNotifications'),
+  'Home toolbar actions and callback wiring remain mounted');
+for (const suffix of ['.hnl-pc-home-actions {', '.hnl-pc-home-actions > button {', '.hnl-pc-home-actions > button:hover {']) {
+  assert.ok(pcHomeCss.includes('html[data-hnl-theme="dark"] [data-hnl-pc-home-modern="true"] ' + suffix),
+    'Missing Home-only dark style: ' + suffix);
+}
+assert.match(pcHomeCss, /html\[data-hnl-theme="dark"\] \[data-hnl-pc-home-modern="true"\] \.hnl-pc-home-actions \{[^}]*background: var\(--hnl-dark-surface\)/,
+  'Home PC toolbar must not retain the light-mode white background');
+assert.match(pcHomeCss, /html\[data-hnl-theme="dark"\] \[data-hnl-pc-home-modern="true"\] \.hnl-pc-home-actions > button \{[^}]*background: var\(--hnl-dark-surface-raised\)/,
+  'Home PC toolbar buttons must not retain the light-mode background');
+console.log('HNL HOME PC DARK TOOLBAR GOLDEN: PASS');
