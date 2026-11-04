@@ -671,3 +671,21 @@ html[data-hnl-theme="dark"] [data-hnl-pc-home-modern="true"] .hnl-pc-home-action
   outline: 2px solid var(--hnl-primary-on-dark);
   outline-offset: 2px;
 }
+
+/* 2026-11-04 PC dark audit: remove hard-coded white gradient/hover surfaces
+ * from modern non-Home modules without touching classic/mobile rendering. */
+@media (min-width: 960px) {
+  html[data-hnl-theme="dark"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-actions button:hover,
+  html[data-hnl-theme="dark"] [data-hnl-desktop-design="modern"] .hnl-pc-quick-nav button:is(:hover, .is-current) {
+    background: color-mix(in srgb, var(--hnl-primary) 18%, var(--pc-soft));
+    color: var(--pc-text);
+  }
+  html[data-hnl-theme="dark"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-actions .hnl-pc-mode-switch {
+    background: color-mix(in srgb, var(--hnl-primary) 16%, var(--pc-card));
+    border-color: var(--pc-border);
+    color: var(--hnl-primary-on-dark);
+  }
+  html[data-hnl-theme="dark"] [data-hnl-desktop-design="modern"] [data-hnl-pc-module="ai-workspace"] > .hnl-ai-hero {
+    background: linear-gradient(115deg, color-mix(in srgb, var(--hnl-primary) 16%, var(--pc-card)), var(--pc-card) 74%);
+  }
+}

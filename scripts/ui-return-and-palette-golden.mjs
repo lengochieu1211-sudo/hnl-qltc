@@ -776,3 +776,16 @@ assert.match(pcHomeCss, /html\[data-hnl-theme="dark"\] \[data-hnl-pc-home-modern
 assert.match(pcHomeCss, /html\[data-hnl-theme="dark"\] \[data-hnl-pc-home-modern="true"\] \.hnl-pc-home-actions > button \{[^}]*background: var\(--hnl-dark-surface-raised\)/,
   'Home PC toolbar buttons must not retain the light-mode background');
 console.log('HNL HOME PC DARK TOOLBAR GOLDEN: PASS');
+
+// PC dark palette covers additional hard-coded light surfaces (warehouse/AI).
+const compactPcCss = read('src/styles/desktopWorkspaceCompact.css');
+assert.ok(pcHomeCss.includes('PC dark audit: remove hard-coded white gradient/hover surfaces') &&
+  pcHomeCss.includes('html[data-hnl-theme="dark"] [data-hnl-desktop-design="modern"] [data-hnl-pc-module="ai-workspace"] > .hnl-ai-hero') &&
+  pcHomeCss.includes('var(--pc-card) 74%'),
+  'PC dark AI hero cannot end in white');
+assert.ok(compactPcCss.includes('PC dark audit: warehouse voucher group') &&
+  compactPcCss.includes('html[data-hnl-theme="dark"][data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form="warehouse"] [data-hnl-v35-voucher-group]') &&
+  compactPcCss.includes('background: var(--hnl-deep-subtle);') &&
+  compactPcCss.includes('var(--hnl-deep-surface)'),
+  'PC dark warehouse voucher controls cannot be forced to light gray/blue');
+console.log('HNL PC MODERN DARK SURFACES GOLDEN: PASS');
