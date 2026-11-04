@@ -294,6 +294,46 @@ service cloud.firestore {
         && request.resource.data.updatedByUid == request.auth.uid;
     }
 
+    // A transfer must change the derived balance by exactly the voucher amount
+    // in the same atomic commit. Legacy unrelated warehouse writes retain the
+    // compatibility rules above; this restricts the new transfer pathway only.
+    function linkedWarehouseBalanceDeltaSafe(projectId, row) {
+      let balancePath = /databases/$(database)/documents/projects/$(projectId)/inventory_balances/$(row.materialKey);
+      return row.materialKey is string && row.materialKey.size() > 0
+        && row.quantity is number && row.quantity > 0
+        && getAfter(balancePath).data.onHand ==
+          (exists(balancePath) ? get(balancePath).data.onHand : 0)
+            + (row.type == 'in' ? row.quantity : -row.quantity);
+    }
+
+    // Transfer voucher writes must be linked to the other project's inbox in
+    // the same atomic commit. Prevent orphan OUT/IN vouchers from stale clients.
+    function linkedWarehouseInventoryCreateSafe(projectId, recordId) {
+      let row = request.resource.data;
+      let transferId = row.warehouseTransferId;
+      return transferId is string && transferId.size() > 0
+        && linkedWarehouseBalanceDeltaSafe(projectId, row)
+        && (
+          (row.type == 'out'
+            && row.sourceType == 'project-transfer-out'
+            && row.transferToProjectId is string
+            && row.transferToProjectId != projectId
+            && canEdit(row.transferToProjectId)
+            && getAfter(/databases/$(database)/documents/projects/$(row.transferToProjectId)/warehouse_incoming/$(transferId)).data.fromProjectId == projectId
+            && getAfter(/databases/$(database)/documents/projects/$(row.transferToProjectId)/warehouse_incoming/$(transferId)).data.sourceTransactionId == recordId
+            && getAfter(/databases/$(database)/documents/projects/$(row.transferToProjectId)/warehouse_incoming/$(transferId)).data.quantity == row.quantity
+            && getAfter(/databases/$(database)/documents/projects/$(row.transferToProjectId)/warehouse_incoming/$(transferId)).data.itemKind == row.itemKind
+            && getAfter(/databases/$(database)/documents/projects/$(row.transferToProjectId)/warehouse_incoming/$(transferId)).data.unit == row.unit)
+          ||
+          (row.type == 'in'
+            && row.sourceType == 'project-transfer-in'
+            && getAfter(/databases/$(database)/documents/projects/$(projectId)/warehouse_incoming/$(transferId)).data.status == 'received'
+            && getAfter(/databases/$(database)/documents/projects/$(projectId)/warehouse_incoming/$(transferId)).data.receiptId == recordId
+            && getAfter(/databases/$(database)/documents/projects/$(projectId)/warehouse_incoming/$(transferId)).data.quantity == row.quantity
+            && getAfter(/databases/$(database)/documents/projects/$(projectId)/warehouse_incoming/$(transferId)).data.itemKind == row.itemKind)
+        );
+    }
+
     // Checklist definition (floor/category/title/due-date/room binding) belongs to
     // ADMIN. EDITOR can record only inspection outcome, note and inspector.
     function editorChecklistOperationalUpdateOnly() {
@@ -883,18 +923,64 @@ service cloud.firestore {
           && coreIdentityUpdateIsValid(photoId) && lifecycleUpdateIsMonotonic();
       }
 
+      // Cross-project transfer inbox. A source OUT and target pending document must
+      // coexist in one atomic transaction. Only editable projects can participate.
+      // This collection is excluded from all generic business-write branches.
+      match /warehouse_incoming/{transferId} {
+        allow read: if isMember(projectId);
+        allow create: if canEdit(projectId)
+          && request.resource.data.keys().hasOnly([
+            'id','fromProjectId','toProjectId','sourceTransactionId','itemKind',
+            'materialName','originalMaterialId','unit','quantity','date','handler',
+            'notes','status','createdAt','createdByUid'
+          ])
+          && request.resource.data.id == transferId
+          && request.resource.data.toProjectId == projectId
+          && request.resource.data.fromProjectId is string
+          && request.resource.data.fromProjectId != projectId
+          && canEdit(request.resource.data.fromProjectId)
+          && request.resource.data.sourceTransactionId is string
+          && request.resource.data.sourceTransactionId.size() > 0
+          && request.resource.data.itemKind in ['material','equipment']
+          && request.resource.data.materialName is string
+          && request.resource.data.materialName.size() > 0
+          && request.resource.data.unit is string
+          && request.resource.data.unit.size() > 0
+          && request.resource.data.quantity is number
+          && request.resource.data.quantity > 0
+          && request.resource.data.status == 'pending'
+          && request.resource.data.createdAt is number
+          && request.resource.data.createdByUid == request.auth.uid
+          && getAfter(/databases/$(database)/documents/projects/$(request.resource.data.fromProjectId)/inventory/$(request.resource.data.sourceTransactionId)).data.warehouseTransferId == transferId
+          && getAfter(/databases/$(database)/documents/projects/$(request.resource.data.fromProjectId)/inventory/$(request.resource.data.sourceTransactionId)).data.transferToProjectId == projectId;
+        allow update: if canEdit(projectId)
+          && resource.data.toProjectId == projectId
+          && resource.data.status == 'pending'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status','receiptId','receivedAt','receivedByUid'
+          ])
+          && request.resource.data.status == 'received'
+          && request.resource.data.receiptId == 'NK-' + transferId
+          && request.resource.data.receivedAt is number
+          && request.resource.data.receivedByUid == request.auth.uid
+          && getAfter(/databases/$(database)/documents/projects/$(projectId)/inventory/$(request.resource.data.receiptId)).data.warehouseTransferId == transferId
+          && getAfter(/databases/$(database)/documents/projects/$(projectId)/inventory/$(request.resource.data.receiptId)).data.type == 'in';
+        allow delete: if false;
+      }
+
       match /{collectionName}/{recordId} {
-        allow read: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts'
+        allow read: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts' && collectionName != 'warehouse_incoming'
           && isMember(projectId)
           && (collectionName != 'trash' || canAdminOperate(projectId))
           && (collectionName != 'work_volumes' || !('unitPrice' in resource.data) || isAdmin(projectId));
         // Master project structure is ADMIN-only. EDITOR may create operational records
         // (defect, warehouse transaction, crew log, photo metadata) and may update only
         // explicitly allowed operational fields on rooms/checklist. VIEWER remains read-only.
-        allow create: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts'
+        allow create: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts' && collectionName != 'warehouse_incoming'
           && !isLegacyReadOnlyCollection(collectionName)
           && (collectionName != 'floor_plans' || floorGroupIsNotDeleting(projectId))
           && (collectionName != 'work_volumes' || !('unitPrice' in request.resource.data))
+          && (collectionName != 'inventory' || !('warehouseTransferId' in request.resource.data) || linkedWarehouseInventoryCreateSafe(projectId, recordId))
           && (
             canAdminOperate(projectId)
             || (collectionName == 'trash' && editorOwnCrewTrashReceipt(projectId, recordId))
@@ -905,8 +991,9 @@ service cloud.firestore {
             ))
           )
           && (!isCoreBusinessCollection(collectionName) || coreCreateLifecycleIsValid(recordId));
-        allow update: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts'
+        allow update: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts' && collectionName != 'warehouse_incoming'
           && !isLegacyReadOnlyCollection(collectionName)
+          && (collectionName != 'inventory' || !('warehouseTransferId' in resource.data))
           && (collectionName != 'floor_plans' || floorGroupIsNotDeleting(projectId))
           && (collectionName != 'work_volumes' || !('unitPrice' in request.resource.data))
           && (
@@ -920,8 +1007,9 @@ service cloud.firestore {
             ))
           )
           && (!isCoreBusinessCollection(collectionName) || (coreIdentityUpdateIsValid(recordId) && lifecycleUpdateIsMonotonic()));
-        allow delete: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts'
+        allow delete: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts' && collectionName != 'warehouse_incoming'
           && canAdminOperate(projectId)
+          && (collectionName != 'inventory' || !('warehouseTransferId' in resource.data))
           && !isCoreBusinessCollection(collectionName);
 
         // Legacy Firestore binary chunks are read-only during Storage migration. Physical
