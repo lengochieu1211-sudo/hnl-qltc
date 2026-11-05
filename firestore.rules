@@ -923,6 +923,20 @@ service cloud.firestore {
           && coreIdentityUpdateIsValid(photoId) && lifecycleUpdateIsMonotonic();
       }
 
+      // P0 warehouse transfer hardening (EDITOR receipt only): avoid evaluating
+      // the broad generic project-create allow expression for a verified IN voucher.
+      // Keep exact atomic getAfter balance+inbox proof and active lifecycle checks.
+      // This grants no OUT, update, delete or unrelated inventory writes.
+      match /inventory/{receiptId} {
+        allow create: if isEditor(projectId)
+          && projectIsActive(projectId)
+          && request.resource.data.sourceType == 'project-transfer-in'
+          && ('warehouseTransferId' in request.resource.data)
+          && editorCreatesActiveOnly()
+          && coreCreateLifecycleIsValid(receiptId)
+          && linkedWarehouseInventoryCreateSafe(projectId, receiptId);
+      }
+
       // Cross-project transfer inbox. A source OUT and target pending document must
       // coexist in one atomic transaction. Only editable projects can participate.
       // This collection is excluded from all generic business-write branches.
