@@ -57,6 +57,12 @@ export async function execute(op:string, data:{
           email:'viewer@hnl.test',role:'VIEWER',active:true,assignedAt:Date.now(),
         });
       }
+      // Diagnostic: B has an existing zero balance for the same material.
+      // This distinguishes receipt-voucher permissions from new balance creation.
+      await setDoc(ref(b,'inventory_balances',key('tấm')),{
+        id:key('tấm'),projectId:b,itemKind:'material',materialId:null,materialName:'Tấm TC',
+        unit:'tấm',onHand:0,revision:1,updatedAt:Date.now(),updatedByUid:uid,
+      });
       for(const [u,onHand] of [['tấm',10],['m2',3]] as const) {
         await setDoc(ref(a,'inventory_balances',key(u)),{
           id:key(u),projectId:a,itemKind:'material',materialId:null,materialName:'Tấm TC',
