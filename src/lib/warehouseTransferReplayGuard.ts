@@ -48,20 +48,21 @@ export function isExactWarehouseTransferReplay(
 
 export function isExactWarehouseReceiptReplay(
   receipt: Snapshot,
-  incoming: Snapshot,
+  incoming: object,
   mapping: { materialName: string; unit: string; materialId?: string },
   transferId: string,
   receiptId: string,
   sameUnit: (a: string, b: string) => boolean,
 ): boolean {
-  return incoming.status === 'received' && incoming.receiptId === receiptId &&
+  const row = incoming as Snapshot;
+  return row.status === 'received' && row.receiptId === receiptId &&
     receipt.deleted !== true && receipt.deletedAt == null &&
     receipt.id === receiptId && receipt.type === 'in' &&
     receipt.sourceType === 'project-transfer-in' &&
     receipt.warehouseTransferId === transferId &&
-    receipt.transferFromProjectId === incoming.fromProjectId &&
-    receipt.quantity === incoming.quantity &&
-    receipt.itemKind === incoming.itemKind &&
+    receipt.transferFromProjectId === row.fromProjectId &&
+    receipt.quantity === row.quantity &&
+    receipt.itemKind === row.itemKind &&
     receipt.materialName === mapping.materialName.trim() &&
     (receipt.materialId || null) === (mapping.materialId || null) &&
     typeof receipt.unit === 'string' && sameUnit(receipt.unit, mapping.unit);
