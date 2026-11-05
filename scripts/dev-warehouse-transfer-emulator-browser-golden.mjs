@@ -53,7 +53,12 @@ try{
  await pages.EDITOR.context.setOffline(true);await no('Offline IN blocked','EDITOR','in',{},'TRANSFER_OFFLINE_BLOCKED');
  await pages.EDITOR.context.setOffline(false);
  pass('Pending remains',(await state()).incoming?.status,'pending');
- pass('Receive FULL',(await yes('EDITOR','in')).duplicate,false);
+ const editorReceive=await exec('EDITOR','in');
+ if(!editorReceive.ok){
+   const adminReceive=await exec('ADMIN','in');
+   throw new Error('RECEIVE_DIAG: EDITOR='+editorReceive.error+'; ADMIN='+JSON.stringify(adminReceive));
+ }
+ pass('Receive FULL',editorReceive.data.duplicate,false);
  pass('B stock +10 once',[(await state()).targetOnHand,(await state()).incoming?.status,(await state()).receipt?.quantity],[10,'received',10]);
  pass('Duplicate IN ignored',(await yes('EDITOR','in')).duplicate,true);
  pass('No double credit',(await state()).targetOnHand,10);
