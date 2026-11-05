@@ -32,8 +32,10 @@ const evidence = 'runtime-evidence/dev-emulator-auto-login';
 const report = { project, environment: 'ISOLATED_DEV_EMULATOR', results: [], forbiddenRequests: [] };
 let server, browser, logs = '';
 try {
-  const probe = await fetch(authApi, { signal: AbortSignal.timeout(3000) });
-  assert.equal(probe.status, 200, 'Auth Emulator is required');
+  // Verify that the emulator listener exists; its accounts admin endpoint does
+  // not support GET (HTTP 405), so verify actual identities via SDK responses.
+  const probe = await fetch('http://127.0.0.1:9099/', { signal: AbortSignal.timeout(3000) });
+  assert(probe.status < 500, 'Auth Emulator is required');
   server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', '4178', '--strictPort'],
     { env, stdio: ['ignore', 'pipe', 'pipe'] });
   for (const stream of [server.stdout, server.stderr]) stream.on('data', chunk => { logs += String(chunk); });
@@ -45,6 +47,7 @@ try {
   }
   assert(ready, `Vite startup failed: ${logs.slice(-1600)}`);
   browser = await chromium.launch({ headless: true });
+  const authenticatedUids = [];
   for (const [role, viewport] of [
     ['ADMIN', { width: 1440, height: 900 }],
     ['EDITOR', { width: 1280, height: 800 }],
@@ -63,7 +66,14 @@ try {
       await page.locator('[data-hnl-auth-gate="signed-out"]').waitFor({ state: 'visible', timeout: 20000 });
       await page.locator('[data-hnl-dev-emulator-auth="true"]').waitFor({ state: 'visible' });
       assert.equal(await page.locator('button[data-hnl-dev-test-role]').count(), 3);
+      const authReply = page.waitForResponse(response =>
+        response.status() === 200 &&
+        /accounts:(signUp|signInWithPassword)/.test(response.url()), { timeout: 25000 });
       await page.locator(`button[data-hnl-dev-test-role="${role}"]`).click();
+      const identity = await (await authReply).json();
+      assert.equal(identity.email, `${role.toLowerCase()}@hnl.test`, 'Unexpected emulator identity');
+      assert(identity.localId, 'Firebase Auth Emulator must issue a real UID');
+      authenticatedUids.push(identity.localId);
       await page.locator('[data-hnl-auth-gate="signed-out"]').waitFor({ state: 'hidden', timeout: 25000 });
       assert.equal(report.forbiddenRequests.length, 0, 'Live DEV or PROD network access blocked');
       await page.screenshot({ path: `${evidence}/${role.toLowerCase()}.png`, fullPage: true });
@@ -71,14 +81,7 @@ try {
       console.log(`PASS AUTOLOGIN: ${role}`);
     } finally { await context.close(); }
   }
-  const users = (await (await fetch(authApi)).json()).users || [];
-  const ids = [];
-  for (const role of ['admin', 'editor', 'viewer']) {
-    const account = users.find(user => user.email === `${role}@hnl.test`);
-    assert(account?.localId, `No ${role} Auth Emulator account`);
-    ids.push(account.localId);
-  }
-  assert.equal(new Set(ids).size, 3, 'Separate UID per test account');
+  assert.equal(new Set(authenticatedUids).size, 3, 'Separate UID per test account');
   assert.equal(report.forbiddenRequests.length, 0, 'Forbidden live traffic');
   report.status = 'PASS';
   console.log('PASS: 3 accounts without manual login, DEV emulator only');
