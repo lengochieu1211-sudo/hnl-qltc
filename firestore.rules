@@ -353,6 +353,8 @@ service cloud.firestore {
         && inboxAfter.receiptId == recordId
         && inboxAfter.quantity == row.quantity
         && inboxAfter.itemKind == row.itemKind
+        // Source identity is immutable: a received voucher may not claim another project.
+        && inboxAfter.fromProjectId == row.transferFromProjectId
         && balanceAfter.onHand ==
           (exists(balancePath) ? get(balancePath).data.onHand : 0) + row.quantity;
     }
