@@ -720,7 +720,10 @@ assert(
   && crewUi.includes("openCrewPicker(fIdx, cIdx, 'subitem')")
   && crewUi.includes('crewCustomEntry')
   && crewUi.includes('uniqueOptions')
-  && crewUi.includes('normalizeLinkText(existing) === normalizeLinkText(name)')
+  && crewUi.includes('selected.subItems.some(existing => normalizeLinkText(existing) === normalizeLinkText(normalizedName))')
+  && crewUi.includes('const duplicate = fw.categories.some(')
+  && crewUi.includes('<button type="button" onClick={confirmCustomName}')
+  && !crewUi.includes('<form onSubmit={e => { e.preventDefault(); const name = crewPickerQuery.trim();')
   && crewUi.includes('role="dialog" aria-modal="true"')
   && !crewUi.includes('crew-category-options-')
   && !crewUi.includes('crew-subitem-options-'),
