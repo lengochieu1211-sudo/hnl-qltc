@@ -334,6 +334,29 @@ service cloud.firestore {
         );
     }
 
+    // Tight EDITOR receipt path: cache the two linked post-transaction snapshots.
+    // A receipt without both the matching inbox and exact balance delta is denied.
+    // This is deliberately narrower than generic warehouse operations.
+    function editorWarehouseInboundReceiptSafe(projectId, recordId) {
+      let row = request.resource.data;
+      let transferId = row.warehouseTransferId;
+      let balancePath = /databases/$(database)/documents/projects/$(projectId)/inventory_balances/$(row.materialKey);
+      let inboxPath = /databases/$(database)/documents/projects/$(projectId)/warehouse_incoming/$(transferId);
+      let inboxAfter = getAfter(inboxPath).data;
+      let balanceAfter = getAfter(balancePath).data;
+      return row.type == 'in'
+        && row.sourceType == 'project-transfer-in'
+        && transferId is string && transferId.size() > 0
+        && row.materialKey is string && row.materialKey.size() > 0
+        && row.quantity is number && row.quantity > 0
+        && inboxAfter.status == 'received'
+        && inboxAfter.receiptId == recordId
+        && inboxAfter.quantity == row.quantity
+        && inboxAfter.itemKind == row.itemKind
+        && balanceAfter.onHand ==
+          (exists(balancePath) ? get(balancePath).data.onHand : 0) + row.quantity;
+    }
+
     // Checklist definition (floor/category/title/due-date/room binding) belongs to
     // ADMIN. EDITOR can record only inspection outcome, note and inspector.
     function editorChecklistOperationalUpdateOnly() {
@@ -934,7 +957,7 @@ service cloud.firestore {
           && ('warehouseTransferId' in request.resource.data)
           && editorCreatesActiveOnly()
           && coreCreateLifecycleIsValid(receiptId)
-          && linkedWarehouseInventoryCreateSafe(projectId, receiptId);
+          && editorWarehouseInboundReceiptSafe(projectId, receiptId);
       }
 
       // Cross-project transfer inbox. A source OUT and target pending document must
