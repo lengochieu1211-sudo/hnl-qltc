@@ -180,6 +180,14 @@ export async function receiveWarehouseProjectTransferAtomic(
       (incoming.itemKind !== 'equipment' && balanceSnap.data()?.unit && !areSameUnit(String(balanceSnap.data()?.unit), mapped.unit))) {
       throw new Error('TRANSFER_DESTINATION_UNIT_STALE');
     }
+    // Preserve an existing destination balance's exact unit spelling. Changing
+    // 'tấm' to 'Tấm' (or m2 to m²) during an operational receipt would rewrite
+    // catalog identity and correctly be rejected by EDITOR Firestore Rules.
+    // A unit migration remains ADMIN-owned; no conversion is performed here.
+    const existingUnit = balanceSnap.data()?.unit;
+    if (typeof existingUnit === 'string' && existingUnit.length > 0) {
+      received.unit = existingUnit;
+    }
     const now = Date.now();
     const nextOnHand = Number(balanceSnap.data()?.onHand || 0) + incoming.quantity;
     if (!Number.isFinite(nextOnHand)) throw new Error('TRANSFER_BALANCE_INVALID');
