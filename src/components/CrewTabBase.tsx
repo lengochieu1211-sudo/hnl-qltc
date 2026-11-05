@@ -2999,11 +2999,24 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           const uniqueOptions = Array.from(new Set(options.filter(Boolean)));
                           const matches = uniqueOptions.filter(name => normalizeLinkText(name).includes(normalizeLinkText(crewPickerQuery)));
                           const selectName = (name: string) => {
-                            if (crewPicker.kind === 'category') updateCategoryName(fIdx, crewPicker.categoryIndex, name);
-                            else if (!selected.subItems.some(existing => normalizeLinkText(existing) === normalizeLinkText(name))) {
-                              addSubItemToCategory(fIdx, crewPicker.categoryIndex, name);
+                            const normalizedName = name.trim();
+                            if (!normalizedName) return;
+                            if (crewPicker.kind === 'category') {
+                              const duplicate = fw.categories.some((category, index) =>
+                                index !== crewPicker.categoryIndex && normalizeLinkText(category.categoryName) === normalizeLinkText(normalizedName));
+                              if (duplicate) {
+                                alert('Hạng mục thi công này đã có trong tầng đang chọn.');
+                                return;
+                              }
+                              updateCategoryName(fIdx, crewPicker.categoryIndex, normalizedName);
+                            } else if (!selected.subItems.some(existing => normalizeLinkText(existing) === normalizeLinkText(normalizedName))) {
+                              addSubItemToCategory(fIdx, crewPicker.categoryIndex, normalizedName);
                             }
                             setCrewPicker(null);
+                          };
+                          const confirmCustomName = () => {
+                            const name = crewPickerQuery.trim();
+                            if (name) selectName(uniqueOptions.find(item => normalizeLinkText(item) === normalizeLinkText(name)) || name);
                           };
                           return (
                             <div className="fixed inset-0 z-[110] flex items-end sm:items-center sm:justify-center bg-black/50" onClick={() => setCrewPicker(null)}>
@@ -3013,11 +3026,24 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                   <button type="button" onClick={() => setCrewPicker(null)} aria-label="Đóng danh sách" className="p-2 rounded hover:bg-slate-100"><X className="w-5 h-5" /></button>
                                 </div>
                                 <div className="p-3 border-b border-slate-100 space-y-2">
+                                  {/* Confirming a category/sub-item must never submit the surrounding crew record form. */}
                                   {crewCustomEntry ? (
-                                    <form onSubmit={e => { e.preventDefault(); const name = crewPickerQuery.trim(); if (name) selectName(uniqueOptions.find(item => normalizeLinkText(item) === normalizeLinkText(name)) || name); }} className="flex gap-2">
-                                      <input autoFocus value={crewPickerQuery} onChange={e => setCrewPickerQuery(e.target.value)} placeholder="Nhập tên mới..." className="min-w-0 flex-1 border rounded-lg px-3 py-2 text-sm" />
-                                      <button type="submit" disabled={!crewPickerQuery.trim()} className="bg-indigo-600 disabled:opacity-50 text-white px-3 rounded-lg text-sm">Xác nhận</button>
-                                    </form>
+                                    <div className="flex gap-2">
+                                      <input
+                                        autoFocus
+                                        value={crewPickerQuery}
+                                        onChange={e => setCrewPickerQuery(e.target.value)}
+                                        onKeyDown={e => {
+                                          if (e.key !== 'Enter') return;
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          if (!e.nativeEvent.isComposing) confirmCustomName();
+                                        }}
+                                        placeholder="Nhập tên mới..."
+                                        className="min-w-0 flex-1 border rounded-lg px-3 py-2 text-sm"
+                                      />
+                                      <button type="button" onClick={confirmCustomName} disabled={!crewPickerQuery.trim()} className="bg-indigo-600 disabled:opacity-50 text-white px-3 rounded-lg text-sm">Xác nhận</button>
+                                    </div>
                                   ) : (
                                     <input value={crewPickerQuery} onChange={e => setCrewPickerQuery(e.target.value)} placeholder="Tìm trong danh sách..." className="w-full border rounded-lg px-3 py-2 text-sm" />
                                   )}
