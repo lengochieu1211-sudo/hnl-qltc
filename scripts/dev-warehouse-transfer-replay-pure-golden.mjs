@@ -20,6 +20,7 @@ for(const [label,o,i,req] of [
   ['different material ID',outgoing,incoming,{...item,materialId:'VL-2'}],
   ['different itemKind',outgoing,incoming,{...item,itemKind:'equipment'}],
   ['different notes',outgoing,incoming,{...item,notes:'changed'}],
+  ['different source location',outgoing,incoming,{...item,location:'Other warehouse'}],
   ['different date',outgoing,incoming,{...item,date:'2026-11-06'}],
   ['different handler',outgoing,incoming,{...item,handler:'EDITOR'}],
   ['tampered incoming',outgoing,{...incoming,quantity:4},item],
