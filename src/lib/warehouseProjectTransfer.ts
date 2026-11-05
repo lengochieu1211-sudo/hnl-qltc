@@ -188,16 +188,22 @@ export async function receiveWarehouseProjectTransferAtomic(
     if (typeof existingUnit === 'string' && existingUnit.length > 0) {
       received.unit = existingUnit;
     }
+    // Existing destination balance owns its unit label. A spelling-only
+    // normalization (e.g. "tấm" -> "Tấm") must not rewrite EDITOR-locked
+    // identity fields and must not cause a permission-denied on receipt.
+    const storedUnit = balanceSnap.data()?.unit;
+    const destinationUnit = typeof storedUnit === 'string' && storedUnit.trim()
+      ? storedUnit : received.unit;
     const now = Date.now();
     const nextOnHand = Number(balanceSnap.data()?.onHand || 0) + incoming.quantity;
     if (!Number.isFinite(nextOnHand)) throw new Error('TRANSFER_BALANCE_INVALID');
-    tx.set(receiptRef, safe({ ...received, materialKey: balanceKey, revision: 1,
+    tx.set(receiptRef, safe({ ...received, unit: destinationUnit, materialKey: balanceKey, revision: 1,
       createdAt: now, createdByUid: user.uid, updatedAt: now, updatedByUid: user.uid,
       deleted: false, deletedAt: null, deletedByUid: null, deletedBy: null,
     }));
     tx.set(balanceRef, safe({
       id: balanceKey, projectId: toProjectId, itemKind: incoming.itemKind,
-      materialId: received.materialId || null, materialName: received.materialName, unit: received.unit,
+      materialId: received.materialId || null, materialName: received.materialName, unit: destinationUnit,
       onHand: nextOnHand, revision: Math.max(Number(balanceSnap.data()?.revision || 0) + 1, 1),
       updatedAt: now, updatedByUid: user.uid,
     }), { merge: true });
