@@ -3,9 +3,12 @@ import { ArrowRight, Loader2, LockKeyhole, WifiOff } from 'lucide-react';
 import { APP_VERSION } from '../config/appVersion';
 import { BUILD_METADATA } from '../config/buildMetadata';
 import {
+  FIREBASE_EMULATOR_ENABLED,
   getCurrentRealFirebaseUser,
+  signInWithEmulatorTestAccount,
   signInWithGoogle,
   subscribeToFirebaseAuthSettled,
+  type EmulatorTestAccountKind,
 } from '../lib/firebase';
 import { getRememberedVerifiedAuthIdentity } from '../utils/offlineAccess';
 
@@ -102,6 +105,21 @@ export const AppAuthGate: React.FC<AppAuthGateProps> = ({ children }) => {
     }
   };
 
+  const handleEmulatorLogin = async (role: EmulatorTestAccountKind) => {
+    // Firebase Auth Emulator authentication only, never a real hosted DEV/PROD bypass.
+    if (!FIREBASE_EMULATOR_ENABLED) return;
+    try {
+      setLoginBusy(true);
+      setLoginError('');
+      await signInWithEmulatorTestAccount(role);
+      evaluateAuth();
+    } catch (err) {
+      setLoginError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoginBusy(false);
+    }
+  };
+
   const dark = prefersDark;
   const isDev = appEnv === 'DEV';
 
@@ -185,6 +203,29 @@ export const AppAuthGate: React.FC<AppAuthGateProps> = ({ children }) => {
               </span>
               <ArrowRight className="h-5 w-5 shrink-0" />
             </button>
+
+            {FIREBASE_EMULATOR_ENABLED && (
+              <section data-hnl-dev-emulator-auth="true" aria-label="Tài khoản kiểm thử DEV Emulator"
+                className={dark ? 'mt-4 rounded-2xl border border-amber-800 bg-amber-950/40 p-3' : 'mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3'}>
+                <p className={dark ? 'text-xs font-bold text-amber-200' : 'text-xs font-bold text-amber-900'}>
+                  DEV Emulator – đăng nhập thử tự động
+                </p>
+                <p className={dark ? 'my-2 text-[11px] text-amber-200/80' : 'my-2 text-[11px] text-amber-800'}>
+                  Chỉ dữ liệu giả lập. Quyền dự án do Firestore Rules quyết định.
+                </p>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['ADMIN', 'EDITOR', 'VIEWER'] as EmulatorTestAccountKind[]).map((role) => (
+                    <button key={role} type="button" data-hnl-dev-test-role={role}
+                      disabled={loginBusy} onClick={() => void handleEmulatorLogin(role)}
+                      className={dark
+                        ? 'min-h-11 rounded-xl border border-amber-800 bg-slate-900 px-2 py-2 text-xs font-bold text-amber-100 disabled:opacity-50'
+                        : 'min-h-11 rounded-xl border border-amber-300 bg-white px-2 py-2 text-xs font-bold text-amber-900 disabled:opacity-50'}>
+                      {role}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
 
             <div className={`mt-5 flex items-start gap-2.5 rounded-2xl px-3.5 py-3 text-[11px] leading-relaxed ${dark ? 'bg-slate-800/80 text-slate-400' : 'bg-blue-50/70 text-slate-500'}`}>
               <LockKeyhole className={`mt-0.5 h-4 w-4 shrink-0 ${dark ? 'text-blue-300' : 'text-blue-600'}`} />
