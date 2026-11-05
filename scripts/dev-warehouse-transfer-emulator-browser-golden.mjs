@@ -72,6 +72,15 @@ try{
  await yes('VIEWER','stopWatch');await no('Insufficient stock','ADMIN','out',{id:'XK-NO-STOCK',quantity:1},'INSUFFICIENT_STOCK');
  pass('Unit m2 source transfer',(await yes('ADMIN','out',{id:'XK-M2',unit:'m2',quantity:2})).duplicate,false);
  const u=await state('XK-M2','m2');pass('m2 parity',[u.sourceOnHand,u.outgoing?.unit,u.incoming?.unit],[1,'m2','m2']);
+ pass('No existing target balance for m2',u.targetOnHand,0);
+ pass('EDITOR creates first target m2 balance via receipt',
+   (await yes('EDITOR','in',{id:'XK-M2',unit:'m2',mappedUnit:'m²'})).duplicate,false);
+ const m2=await state('XK-M2','m2');
+ pass('New B m2 balance +2 only once',
+   [m2.targetOnHand,m2.incoming?.status,m2.receipt?.quantity],[2,'received',2]);
+ pass('m2 first receipt replay idempotent',
+   (await yes('EDITOR','in',{id:'XK-M2',unit:'m2',mappedUnit:'m²'})).duplicate,true);
+ pass('m2 no double stock credit',(await state('XK-M2','m2')).targetOnHand,2);
  rpt.status='PASS';
 }catch(e){rpt.status='FAIL';rpt.error=String(e?.stack||e);process.exitCode=1;console.error(e)}
 finally{fs.writeFileSync(dir+'/report.json',JSON.stringify(rpt,null,2));for(const {context} of Object.values(pages))await context.close().catch(()=>{});if(browser)await browser.close().catch(()=>{});if(server&&server.exitCode===null)server.kill('SIGTERM')}
