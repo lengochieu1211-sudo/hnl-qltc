@@ -9,6 +9,7 @@ import type { InventoryItem, InventoryItemKind } from '../types';
 import { db, getCurrentRealFirebaseUser, sanitizePayloadForCloud } from './firebase';
 import { getWarehouseMaterialKey } from '../utils/warehouseLedgerMath';
 import { areSameUnit, normalizeUnit } from '../utils/unitUtils';
+import { isExactWarehouseTransferReplay, isExactWarehouseReceiptReplay } from './warehouseTransferReplayGuard';
 
 export type WarehouseTransferStatus = 'pending' | 'received';
 export interface WarehouseIncomingTransfer {
@@ -86,14 +87,14 @@ export async function createWarehouseProjectTransferAtomic(
       throw new Error('TRANSFER_TARGET_INACTIVE: Dự án nhận không tồn tại hoặc đã đóng.');
     }
     if (existingOut.exists() || existingInbox.exists()) {
-      if (existingOut.exists() && existingInbox.exists() &&
-        existingOut.data()?.warehouseTransferId === transferId &&
-        existingInbox.data()?.sourceTransactionId === item.id &&
-        existingInbox.data()?.fromProjectId === fromProjectId &&
-        existingInbox.data()?.toProjectId === toProjectId) {
-        return { transferId, duplicate: true };
+      if (existingOut.exists() && existingInbox.exists()) {
+        if (isExactWarehouseTransferReplay(existingOut.data(), existingInbox.data(), item,
+          { fromProjectId, toProjectId, transferId }, areSameUnit)) {
+          return { transferId, duplicate: true };
+        }
+        throw new Error('TRANSFER_RETRY_CONFLICT: Trùng mã phiếu nhưng dữ liệu khác; cần đối soát, không được ghi thêm.');
       }
-      throw new Error('TRANSFER_ID_COLLISION: Mã phiếu đã tồn tại; không được ghi đè.');
+      throw new Error('TRANSFER_ID_COLLISION: Thiếu chứng từ ở một đầu điều chuyển; cần đối soát.');
     }
     const current = Number(balanceSnap.data()?.onHand || 0);
     if (!Number.isFinite(current) || current < item.quantity - 1e-9) {
@@ -105,7 +106,8 @@ export async function createWarehouseProjectTransferAtomic(
     }
     const now = Date.now();
     tx.set(outRef, safe({
-      ...item, id: item.id, type: 'out', issuePurpose: 'external-project', sourceType: 'project-transfer-out',
+      ...item, id: item.id, type: 'out', itemKind: item.itemKind === 'equipment' ? 'equipment' : 'material',
+      issuePurpose: 'external-project', sourceType: 'project-transfer-out',
       warehouseTransferId: transferId, transferToProjectId: toProjectId,
       materialKey: balanceKey, revision: 1, createdAt: now, createdByUid: user.uid,
       updatedAt: now, updatedByUid: user.uid, deleted: false, deletedAt: null,
@@ -123,7 +125,7 @@ export async function createWarehouseProjectTransferAtomic(
       id: transferId, fromProjectId, toProjectId, sourceTransactionId: item.id,
       itemKind: item.itemKind === 'equipment' ? 'equipment' : 'material',
       materialName: item.materialName, originalMaterialId: item.materialId || null,
-      unit: normalizeUnit(item.unit) || item.unit, quantity: item.quantity,
+      unit: item.unit, quantity: item.quantity,
       date: item.date, handler: item.handler || '', notes: item.notes || '',
       status: 'pending', createdAt: now, createdByUid: user.uid,
     }));
@@ -153,7 +155,9 @@ export async function receiveWarehouseProjectTransferAtomic(
     }
     const existingReceipt = await tx.get(receiptRef);
     if (incoming.status === 'received') {
-      if (incoming.receiptId === receiptId && existingReceipt.exists() && existingReceipt.data()?.warehouseTransferId === transferId) {
+      if (incoming.receiptId === receiptId && existingReceipt.exists() &&
+        isExactWarehouseReceiptReplay(existingReceipt.data(), incoming, mapped,
+          transferId, receiptId, areSameUnit)) {
         return { receiptId, duplicate: true };
       }
       throw new Error('TRANSFER_ALREADY_RECEIVED_CONFLICT');
