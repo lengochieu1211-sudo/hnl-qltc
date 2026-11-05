@@ -25,6 +25,8 @@ export function isExactWarehouseTransferReplay(
     outgoing.warehouseTransferId === context.transferId &&
     outgoing.transferToProjectId === context.toProjectId &&
     outgoing.quantity === requested.quantity &&
+    // Source storage location is part of voucher identity, not an optional replay hint.
+    outgoing.location === requested.location &&
     outgoing.date === requested.date && incoming.date === requested.date &&
     (outgoing.handler || '') === (requested.handler || '') &&
     (incoming.handler || '') === (requested.handler || '') &&
