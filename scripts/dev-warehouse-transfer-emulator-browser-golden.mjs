@@ -55,6 +55,11 @@ try{
  pass('Pending remains',(await state()).incoming?.status,'pending');
  const editorReceive=await exec('EDITOR','in');
  if(!editorReceive.ok){
+   try {
+     const url='http://127.0.0.1:8080/emulator/v1/projects/demo-hnl-qltc-dev:ruleCoverage';
+     const response=await fetch(url,{signal:AbortSignal.timeout(4000)});
+     if(response.ok)fs.writeFileSync(dir+'/firestore-rule-coverage.json',await response.text());
+   } catch(e){console.log('RULE_COVERAGE_UNAVAILABLE',String(e));}
    const adminReceive=await exec('ADMIN','in');
    throw new Error('RECEIVE_DIAG: EDITOR='+editorReceive.error+'; ADMIN='+JSON.stringify(adminReceive));
  }
