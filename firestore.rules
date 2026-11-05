@@ -951,10 +951,12 @@ service cloud.firestore {
       // Keep exact atomic getAfter balance+inbox proof and active lifecycle checks.
       // This grants no OUT, update, delete or unrelated inventory writes.
       match /inventory/{receiptId} {
-        allow create: if projectIsActive(projectId)
+        // Fast-fail non-transfer rows before costly cross-project auth checks.
+        // Both this match and the generic project match are evaluated for inventory.
+        allow create: if ('warehouseTransferId' in request.resource.data)
+          && request.resource.data.get('sourceType', '') == 'project-transfer-in'
+          && projectIsActive(projectId)
           && (isEditor(projectId) || isAdmin(projectId))
-          && request.resource.data.sourceType == 'project-transfer-in'
-          && ('warehouseTransferId' in request.resource.data)
           && editorCreatesActiveOnly()
           && coreCreateLifecycleIsValid(receiptId)
           && editorWarehouseInboundReceiptSafe(projectId, receiptId);
@@ -1013,13 +1015,12 @@ service cloud.firestore {
         // Master project structure is ADMIN-only. EDITOR may create operational records
         // (defect, warehouse transaction, crew log, photo metadata) and may update only
         // explicitly allowed operational fields on rooms/checklist. VIEWER remains read-only.
-        allow create: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts' && collectionName != 'warehouse_incoming'
-          // Transfer IN vouchers use the narrow dedicated match above.
-          // Avoid evaluating the broad generic branch as well: Firestore has a
-          // strict 1,000-expression budget per rule evaluation.
-          && (collectionName != 'inventory'
+        // Exclude transfer-IN vouchers before expensive generic permission checks.
+        // This is evaluated on every inventory create, including dedicated matches.
+        allow create: if (collectionName != 'inventory'
             || !('warehouseTransferId' in request.resource.data)
-            || request.resource.data.sourceType != 'project-transfer-in')
+            || request.resource.data.get('sourceType', '') != 'project-transfer-in')
+          && collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials' && collectionName != 'equipment_catalog' && collectionName != 'warehouse_order_drafts' && collectionName != 'warehouse_incoming'
           && !isLegacyReadOnlyCollection(collectionName)
           && (collectionName != 'floor_plans' || floorGroupIsNotDeleting(projectId))
           && (collectionName != 'work_volumes' || !('unitPrice' in request.resource.data))
