@@ -353,6 +353,8 @@ service cloud.firestore {
         && inboxAfter.receiptId == recordId
         && inboxAfter.quantity == row.quantity
         && inboxAfter.itemKind == row.itemKind
+        // An IN voucher cannot misstate the originating project of its inbox.
+        && inboxAfter.fromProjectId == row.transferFromProjectId
         && balanceAfter.onHand ==
           (exists(balancePath) ? get(balancePath).data.onHand : 0) + row.quantity;
     }
