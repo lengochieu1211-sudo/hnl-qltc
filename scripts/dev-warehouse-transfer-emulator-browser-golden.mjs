@@ -65,6 +65,7 @@ try{
  }
  pass('Receive FULL',editorReceive.data.duplicate,false);
  pass('B stock +10 once',[(await state()).targetOnHand,(await state()).incoming?.status,(await state()).receipt?.quantity],[10,'received',10]);
+ pass('EDITOR preserves existing target unit label',[(await state()).targetUnit,(await state()).receipt?.unit],['tấm','tấm']);
  pass('Duplicate IN ignored',(await yes('EDITOR','in')).duplicate,true);
  pass('No double credit',(await state()).targetOnHand,10);
  const events=await yes('VIEWER','updates');pass('Realtime pending and received',events.includes('pending')&&events.includes('received'),true);
