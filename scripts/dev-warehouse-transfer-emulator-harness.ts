@@ -88,7 +88,8 @@ export async function execute(op:string, data:{
         targetOnHand:targetBalance?.onHand??0,
         outgoing:outgoing?{id:outgoing.id,quantity:outgoing.quantity,unit:outgoing.unit}:null,
         incoming:incoming?{status:incoming.status,quantity:incoming.quantity,unit:incoming.unit}:null,
-        receipt:receipt?{id:receipt.id,quantity:receipt.quantity}:null,
+        receipt:receipt?{id:receipt.id,quantity:receipt.quantity,unit:receipt.unit}:null,
+        targetUnit:targetBalance?.unit??null,
       };
     }
     case 'watch': {
