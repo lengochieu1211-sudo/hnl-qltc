@@ -29,6 +29,7 @@ const nativeSplashAttachIndex = mainActivity.indexOf('setContentView(startupRoot
 const coldWebViewCreateIndex = mainActivity.indexOf('webView = new WebView(this);');
 assert(nativeSplashAttachIndex >= 0 && coldWebViewCreateIndex > nativeSplashAttachIndex, 'native HNL splash is attached before cold WebView construction');
 assert(mainActivity.includes('initializeWebRuntime(startupRoot, savedInstanceState)') && mainActivity.includes('32L'), 'cold WebView initialization is deferred until after the first native splash frame');
+
 // Android 15 (targetSdk 35) forces edge-to-edge. Only the native Activity can
 // reliably reserve the OS gesture/three-button nav area on older WebViews.
 assert(androidBuild.includes("'--target-sdk-version', '35'"), 'Android build retains targetSdk 35; no API-level rollback to hide navigation overlap');
