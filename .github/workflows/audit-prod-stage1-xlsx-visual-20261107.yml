@@ -1,0 +1,70 @@
+name: HNL PROD stage1 Excel visual XLSX artifact (NO DEPLOY)
+on:
+  push:
+    branches:
+      - audit/prod-stage1-xlsx-visual-20261107
+    paths:
+      - .github/workflows/audit-prod-stage1-xlsx-visual-20261107.yml
+permissions:
+  contents: read
+jobs:
+  xlsx-visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PINNED_MAIN: 1c2b7d663d51d51aa45010e533d8e035e22adf59
+      PINNED_SOURCE: c8bf6f9acdf631cc0de26117c833841fd03666eb
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fail-closed source and QA isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/audit/prod-stage1-xlsx-visual-20261107"
+          test "$(git rev-parse HEAD^)" = "$PINNED_SOURCE"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$PINNED_MAIN"
+          test "$(git ls-remote origin refs/heads/release/prod-stage1-warehouse-xlsx-20261107 | cut -f1)" = "$PINNED_SOURCE"
+          test "$(git diff --name-only "$PINNED_SOURCE" HEAD)" = ".github/workflows/audit-prod-stage1-xlsx-visual-20261107.yml"
+          test "$(node -p "require('./package.json').version")" = "$(node -p "require('./package-lock.json').version")"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build genuine A4 XLSX sample using unchanged staged app code
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          cat >> scripts/warehouse-voucher-xlsx-style-golden.ts <<'NODE'
+          fs.writeFileSync('evidence/HNL-KHO-PR403-EXCEL-A4-REAL-SOURCE.xlsx',new Uint8Array(await sheetResult.blob.arrayBuffer()));
+          console.log('AUDIT: generated real XLSX from staged source');
+          NODE
+          npx tsx scripts/warehouse-voucher-xlsx-style-golden.ts
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import {createHash} from 'node:crypto';
+          import * as XLSX from 'xlsx';
+          const path='evidence/HNL-KHO-PR403-EXCEL-A4-REAL-SOURCE.xlsx';
+          const buffer=fs.readFileSync(path);
+          const wb=XLSX.read(buffer,{type:'buffer',cellStyles:true});
+          if(wb.SheetNames.length!==2)throw Error('Unexpected sheet count');
+          const sheet=wb.Sheets[wb.SheetNames[0]];
+          const ref=Array.from({length:40},(_,i)=>i+1).find(i=>String(sheet['A'+i]?.v||'').includes('Số dòng trên trang'));
+          if(!ref||!sheet['A'+ref]?.v||!String(sheet['C'+ref]?.v).includes('Số liệu theo đơn vị'))throw Error('Summary not visible');
+          if(sheet['!cols']?.[0]?.wch<16||!sheet['!cols']?.[4]?.hidden)throw Error('Widths/hidden E changed');
+          if(sheet['E10']?.v!=='IN-2026-001'||sheet['D10']?.v!==1234.5||sheet['D11']?.v!==2.125)throw Error('Data IDs/quantities changed');
+          const result={scope:'READ_ONLY_VOUCHER_XLSX_RENDER_QA',sourceSha:process.env.PINNED_SOURCE,mainSha:process.env.PINNED_MAIN,sheets:wb.SheetNames,summaryRow:ref,columnAWidth:sheet['!cols']?.[0]?.wch,columnEHidden:true,hiddenIdIntact:true,quantityValues:[sheet.D10.v,sheet.D11.v],bytes:buffer.length,sha256:createHash('sha256').update(buffer).digest('hex'),prodDeployed:false};
+          fs.writeFileSync('evidence/EVIDENCE.json',JSON.stringify(result,null,2)+'\n');
+          console.log('REAL_XLSX_QA_PASS '+JSON.stringify(result));
+          NODE
+      - name: Archive real workbook and QA proof (no PROD data)
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-PROD-STAGE1-REAL-EXCEL-A4-PR403
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 30
