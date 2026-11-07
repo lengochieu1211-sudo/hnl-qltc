@@ -218,7 +218,7 @@ requireAll(photoPicker, [
   'onAuthUserChanged',
   'if (nextUid === lastUid) return',
   'items.length === 0',
-  'photoPickerServerRefreshKeys.has(refreshKey)',
+  'photoServerRefreshIsDue(refreshKey)',
   'refreshProjectPhotoMetadataFromCloud(projectId)',
   'binaryRecoveryKey',
   'handleRetryCloudPhoto',
