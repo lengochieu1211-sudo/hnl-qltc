@@ -455,7 +455,10 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       // Reconcile from the Firestore SERVER first. Do not re-upload an old local
       // pending Blob when a verified R2-ready copy already exists. The merge keeps
       // any genuinely newer pending edit intact (updatedAt/revision owner guards).
-      await refreshProjectPhotoMetadataFromCloud(projectId);
+      const serverRefresh = await refreshProjectPhotoMetadataFromCloud(projectId);
+      if (!serverRefresh.verified) {
+        throw new Error('Chưa xác minh được trạng thái Cloud; giữ nguyên ảnh trên máy, không tải lặp.');
+      }
       const latest = (await getEntityPhotos(projectId, entityType, entityId, category)).find(p => p.id === photo.id) || photo;
       if (isPhotoSharedCloudReady(latest)) {
         await loadPhotos();
