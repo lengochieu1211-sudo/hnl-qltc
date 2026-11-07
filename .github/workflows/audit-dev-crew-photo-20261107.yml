@@ -92,14 +92,22 @@ jobs:
               photoDeleted:field(m,'deleted')===true,
               r2PathMatches:photoPointer.startsWith(expectedPrefix) && photoPointer.endsWith('/original.jpg'),
               storageProvider:field(m,'storageProvider'),
-              photoFileSize:field(m,'fileSize')
+              photoFileSize:field(m,'fileSize'),
+              photoCategory:field(m,'category'),
+              uiExpectedCategory:'crew_progress',
+              photoMatchesUiCategory:field(m,'category')==='crew_progress',
+              cloudFileIdIsR2:String(field(m,'cloudFileId')||'').startsWith('r2:'),
+              cloudUrlIsR2:String(field(m,'cloudUrl')||'').startsWith('r2:'),
+              isPhotoProjectMatch:field(m,'projectId')===t.projectId,
+              crewStructureGroupId:field(c,'structureGroupId')||null,
+              crewFloorId:field(c,'floorId')||null
             };
             summary.verdict=(!p||!c||!m)?'MISSING_FIRESTORE_DOC':(
               summary.crewRecordDate==='2026-11-07' && !summary.crewRecordDeleted
               && summary.crewRecordIdMatches && summary.photoEntityType==='crewRecord'
               && summary.photoEntityIdMatches && summary.photoState==='ready'
               && !summary.photoDeleted && summary.storageProvider==='r2'
-              && summary.r2PathMatches) ? 'FIRESTORE_POINTER_READY':'METADATA_OR_CREW_MISMATCH';
+              && summary.r2PathMatches && summary.photoMatchesUiCategory && summary.cloudFileIdIsR2 && summary.isPhotoProjectMatch) ? 'FIRESTORE_POINTER_READY':'METADATA_OR_CREW_MISMATCH';
             rows.push(summary);
           }
           const report={schema:1,environment:'DEV',firebaseProjectId:'hnl-qltc-dev',
