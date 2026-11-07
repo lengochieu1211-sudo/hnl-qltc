@@ -308,6 +308,24 @@ html[data-hnl-theme="dark"] [class*="bg-red-50/"] { background-color: rgb(127 29
 html[data-hnl-theme="dark"] .hover\:bg-slate-50:hover,
 html[data-hnl-theme="dark"] .hover\:bg-white:hover { background-color: var(--hnl-dark-surface-raised) !important; }
 
+/* Warehouse Catalog material/equipment name buttons: the base brand hover utility
+ * mixes its background with WHITE using !important. Scope the dark override to
+ * this table, preserving light-mode, navigation and inventory calculations. */
+html[data-hnl-theme="dark"] [data-hnl-warehouse-catalog-table="auto-width"] [data-hnl-catalog-open-master]:is(:hover, :focus-visible) {
+  background-color: var(--hnl-dark-surface-raised) !important;
+  color: var(--hnl-primary-on-dark) !important;
+}
+
+/* Mobile long-press on an action label should not select its text and open the
+ * iOS Copy/Lookup menu. Keep desktop text selection and keyboard focus intact. */
+@media (hover: none) and (pointer: coarse) {
+  [data-hnl-warehouse-catalog-table="auto-width"] [data-hnl-catalog-open-master] {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
+
 /* Warehouse receipt photos: sky-50/40 remains a pale light-mode tint and sky-800
  * is too dark on the standard dark canvas. Scope the fix to the voucher photo
  * panel (new/edit) so light mode, semantic colors and photo handling are untouched. */
@@ -486,4 +504,72 @@ html[data-hnl-theme="dark"] .hnl-crew-report-table tbody td.bg-blue-50\/60 {
 html[data-hnl-theme="dark"] .hnl-crew-report-table tfoot tr,
 html[data-hnl-theme="dark"] .hnl-crew-report-table tfoot td {
   background-color: #19354c !important; color: #e0f2fe !important; border-color: #3b82a8 !important;
+}
+
+/* HNL iOS PWA: a translucent status bar can overlap fixed, top-aligned dialogs.
+ * Scope to opted-in modal overlays only (never every fixed element). A small
+ * fallback protects standalone iPhones where the CSS env inset reports 0.
+ * Android/Windows and desktop layouts keep their existing geometry.
+ */
+@supports (-webkit-touch-callout: none) {
+  @media (max-width: 639px) {
+    .hnl-ios-safe-modal {
+      box-sizing: border-box;
+      padding-top: max(3.75rem, env(safe-area-inset-top, 0px)) !important;
+      padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px)) !important;
+    }
+    .hnl-ios-safe-modal > .hnl-ios-safe-dialog {
+      min-height: 0;
+      max-height: calc(100dvh - max(3.75rem, env(safe-area-inset-top, 0px)) - max(1rem, env(safe-area-inset-bottom, 0px)));
+    }
+    .hnl-ios-safe-fullscreen-toolbar {
+      padding-top: max(3.75rem, env(safe-area-inset-top, 0px)) !important;
+    }
+  }
+}
+
+/* PR374: mobile map display panel is viewport-contained on Android and iOS.
+ * Desktop keeps the existing anchored popover. No changes to canvas transforms.
+ */
+@media (max-width: 639px) {
+  /* Same inline details expansion as PROD: no fixed sheet, no viewport offset. */
+  [data-hnl-map-display-inline="anchored-popover"][open] {
+    width: 100%;
+    min-width: 0;
+  }
+  [data-hnl-map-display-popover="true"].hnl-mobile-map-display-panel {
+    position: static !important;
+    box-sizing: border-box;
+    left: auto !important;
+    right: auto !important;
+    top: auto !important;
+    bottom: auto !important;
+    width: 100% !important;
+    min-width: 0;
+    max-width: none;
+    max-height: min(70dvh, 36rem) !important;
+    margin: 0.5rem 0 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .hnl-cross-device-safe-overlay {
+    padding-top: max(8px, env(safe-area-inset-top, 0px)) !important;
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 0px)) !important;
+  }
+  .hnl-cross-device-safe-overlay > .hnl-cross-device-safe-dialog {
+    min-height: 0;
+    max-height: calc(100dvh - max(8px, env(safe-area-inset-top, 0px)) - max(8px, env(safe-area-inset-bottom, 0px)));
+  }
+}
+@supports (-webkit-touch-callout: none) {
+  @media (max-width: 639px) {
+    /* Old iPhone/PWA status-bar insets can report 0 in black-translucent mode. */
+    .hnl-cross-device-safe-overlay {
+      padding-top: max(3.75rem, env(safe-area-inset-top, 0px)) !important;
+    }
+    .hnl-cross-device-safe-overlay > .hnl-cross-device-safe-dialog {
+      max-height: calc(100dvh - max(3.75rem, env(safe-area-inset-top, 0px)) - max(8px, env(safe-area-inset-bottom, 0px)));
+    }
+
+  }
 }

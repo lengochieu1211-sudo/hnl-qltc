@@ -670,14 +670,13 @@ requireAll(app, [
 requireAll(photoSync, ['refreshProjectPhotoMetadataFromCloud', 'getDocsFromServer(', 'mergeCloudPhotoMetadata'], 'photo metadata backup server verification');
 requireAll(firebase, ['fetchProjectFromCloud(projectId: string, options?: { serverOnly?: boolean })', 'options?.serverOnly', 'getDocsFromServer('], 'server-only project backup read support');
 if (!app.includes('fetchProjectFromCloud(projectId, { serverOnly: true })') || !projectManager.includes('fetchProjectFromCloud(projectId, { serverOnly: true })')) fail('non-active Firebase-only backup projects are not server-verified');
-// Match the TypeScript signature across harmless formatting changes; never relax
-// the mandatory binary-presence guard on self-contained photo backups.
-if (!/export\s+async\s+function\s+getProjectPhotosWithBinary\s*\(\s*projectId\s*:\s*string\s*,\s*requireBinary\s*=\s*false\s*,/.test(photoStorage)) fail('photo backup binary completeness guard: missing project-scoped requireBinary signature');
+// Preserve fail-closed photo completeness while permitting a progress callback.
+// A callback must not turn requireBinary=true into optional best-effort export.
+if (!/getProjectPhotosWithBinary\(\s*projectId:\s*string,\s*requireBinary\s*=\s*false(?:\s*,|\s*\))/.test(photoStorage)) fail('photo backup binary completeness guard: required projectId/requireBinary signature missing');
 requireAll(photoStorage, ['requireBinary &&', 'từ chối tạo backup không đầy đủ'], 'photo backup binary completeness guard');
-// Optional progress callbacks are allowed after `true`; the backup must still
-// explicitly demand complete binaries for every project and both export modes.
-const requiresPhotoBinary = (text, projectVariable) => new RegExp(`getProjectPhotosWithBinary\\s*\\(\\s*${projectVariable}\\s*,\\s*true\\s*(?:,|\\))`).test(text);
-if (!requiresPhotoBinary(app, 'projectId') || !requiresPhotoBinary(projectManager, 'activeId') || !requiresPhotoBinary(projectManager, 'pId')) fail('self-contained backup callers do not require every photo binary');
+if (!/getProjectPhotosWithBinary\(\s*projectId,\s*true\s*\)/.test(app)
+  || !/getProjectPhotosWithBinary\(\s*activeId,\s*true\s*[,)]/.test(projectManager)
+  || !/getProjectPhotosWithBinary\(\s*pId,\s*true\s*[,)]/.test(projectManager)) fail('self-contained backup callers do not require every photo binary');
 if (app.includes("FIREBASE_ONLY_ALL_BACKUP_CLOUD_SOURCE") && app.includes("const allStorageData = await getAllStorageData();")) {
   const markerIndex = app.indexOf('FIREBASE_ONLY_ALL_BACKUP_CLOUD_SOURCE');
   const legacyIndex = app.indexOf('const allStorageData = await getAllStorageData();', markerIndex);

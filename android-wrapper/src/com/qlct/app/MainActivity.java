@@ -29,9 +29,11 @@ import android.provider.MediaStore;
 import android.provider.ContactsContract;
 import android.util.Base64;
 import android.graphics.Color;
+import android.graphics.Insets;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowInsets;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
@@ -118,15 +120,36 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
 
+        // Android 15+ forces targetSdk 35 content beneath the status/navigation bars.
+        // Reserve the real system-bar/cutout bounds at the native WebView container;
+        // CSS safe-area-inset-bottom can be zero on older WebView releases.
+        installAndroid15SystemBarInsets(startupRoot);
+
         // Draw the lightweight native HNL splash before constructing WebView.
         // Cold WebView initialization can block the UI thread for hundreds of
         // milliseconds on OEM Android builds; doing it first leaves a gray
         // launcher/startup frame visible before our branded content appears.
         setContentView(startupRoot);
+        if (Build.VERSION.SDK_INT >= 35) startupRoot.requestApplyInsets();
         requestLegacyStoragePermissionIfNeeded();
         startupRoot.postDelayed(
                 () -> initializeWebRuntime(startupRoot, savedInstanceState),
                 32L);
+    }
+
+    private void installAndroid15SystemBarInsets(FrameLayout root) {
+        // Older Android windows already keep their content inside the system bars.
+        // Applying these insets twice would shrink the UI and its bottom navigation.
+        if (Build.VERSION.SDK_INT < 35) return;
+        root.setOnApplyWindowInsetsListener((view, insets) -> {
+            Insets systemBars = insets.getInsets(
+                    WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+            // Handle gesture navigation, three-button navigation, rotations and cutouts.
+            // The WebView lives inside these bounds, so fixed-bottom web controls remain tappable.
+            view.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
+            // Preserve IME/keyboard inset delivery to the WebView; never consume all insets.
+            return insets;
+        });
     }
 
     private void initializeWebRuntime(FrameLayout startupRoot, Bundle savedInstanceState) {

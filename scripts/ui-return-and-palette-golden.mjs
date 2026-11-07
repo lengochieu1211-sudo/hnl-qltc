@@ -169,7 +169,7 @@ assert.ok(dateGridStart > 0 && dateGridUi.includes('grid-cols-1 gap-2.5 lg:grid-
   dateGridUi.includes('role="group" aria-label="Ngày hoàn thành"') &&
   (dateGridUi.match(/<input type="date"/g) || []).length === 4 &&
   (dateGridUi.match(/min-w-0 w-full rounded-xl/g) || []).length === 4 &&
-  (dateGridUi.match(/className="grid grid-cols-2 gap-2"/g) || []).length === 2 &&
+  (dateGridUi.match(/className="grid grid-cols-1 gap-2 sm:grid-cols-2"/g) || []).length === 2 &&
   !dateGridUi.includes('min-h-9'),
   'Two compact date groups preserve four inputs without forced caption height');
 assert.ok(reportFilterUi.includes('mb-2 text-xs font-extrabold text-slate-600">Defect trong phạm vi trên') &&
@@ -758,3 +758,34 @@ assert.ok(hnlDarkCss.includes('.text-purple-900 { color: #c4b5fd !important; }')
 assert.ok(read('src/components/HomeDashboard.tsx').includes('Mở nhanh dự án đang làm'),
   'Home quick-open function untouched by theme patch');
 console.log('HNL DARK MODE NESTED BRAND BLUE GOLDEN: PASS');
+
+// PC Home modern intentionally retains the classic DOM; its extra toolbar must
+// still obey dark mode even though modern-workspace selectors skip the Home tab.
+const pcHomeCss = read('src/styles/desktopWorkspace.css');
+const pcHomeHeader = read('src/components/DesktopWorkspaceHeader.tsx');
+assert.ok(app.includes("data-hnl-pc-home-modern={visibleTab === 'home' && desktopWorkspaceMode === 'modern'"),
+  'Home modern-mode scope marker must remain on the app shell');
+assert.ok(pcHomeHeader.includes('data-hnl-pc-home-actions="true"') && pcHomeHeader.includes('onOpenSecurity') && pcHomeHeader.includes('onOpenNotifications'),
+  'Home toolbar actions and callback wiring remain mounted');
+for (const suffix of ['.hnl-pc-home-actions {', '.hnl-pc-home-actions > button {', '.hnl-pc-home-actions > button:hover {']) {
+  assert.ok(pcHomeCss.includes('html[data-hnl-theme="dark"] [data-hnl-pc-home-modern="true"] ' + suffix),
+    'Missing Home-only dark style: ' + suffix);
+}
+assert.match(pcHomeCss, /html\[data-hnl-theme="dark"\] \[data-hnl-pc-home-modern="true"\] \.hnl-pc-home-actions \{[^}]*background: var\(--hnl-dark-surface\)/,
+  'Home PC toolbar must not retain the light-mode white background');
+assert.match(pcHomeCss, /html\[data-hnl-theme="dark"\] \[data-hnl-pc-home-modern="true"\] \.hnl-pc-home-actions > button \{[^}]*background: var\(--hnl-dark-surface-raised\)/,
+  'Home PC toolbar buttons must not retain the light-mode background');
+console.log('HNL HOME PC DARK TOOLBAR GOLDEN: PASS');
+
+// PC dark palette covers additional hard-coded light surfaces (warehouse/AI).
+const compactPcCss = read('src/styles/desktopWorkspaceCompact.css');
+assert.ok(pcHomeCss.includes('PC dark audit: remove hard-coded white gradient/hover surfaces') &&
+  pcHomeCss.includes('html[data-hnl-theme="dark"] [data-hnl-desktop-design="modern"] [data-hnl-pc-module="ai-workspace"] > .hnl-ai-hero') &&
+  pcHomeCss.includes('var(--pc-card) 74%'),
+  'PC dark AI hero cannot end in white');
+assert.ok(compactPcCss.includes('PC dark audit: warehouse voucher group') &&
+  compactPcCss.includes('html[data-hnl-theme="dark"][data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form="warehouse"] [data-hnl-v35-voucher-group]') &&
+  compactPcCss.includes('background: var(--hnl-deep-subtle);') &&
+  compactPcCss.includes('var(--hnl-deep-surface)'),
+  'PC dark warehouse voucher controls cannot be forced to light gray/blue');
+console.log('HNL PC MODERN DARK SURFACES GOLDEN: PASS');

@@ -1270,6 +1270,14 @@ export async function signInWithEmulatorTestAccount(kind: EmulatorTestAccountKin
 }
 
 export async function signInWithGoogle(): Promise<User | null> {
+  // On isolated DEV Backup preview only: mobile redirect crosses a web.app
+  // origin boundary and can fail with third-party storage restrictions.
+  // Desktop uses popup already; enable that existing SDK path on this preview
+  // host only. Keep PROD/DEV main/DEV Backup LIVE/APK/EXE auth unchanged.
+  const isPr375DevBackupPreview = APP_ENVIRONMENT === 'DEV' &&
+    firebaseConfig.projectId === 'hnl-qltc-dev-backup' &&
+    typeof window !== 'undefined' &&
+    /^hnl-qltc-dev-backup--pr375auth-[a-z0-9-]+\.web\.app$/i.test(window.location.hostname);
   // Mobile browsers are less reliable with Firebase popup auth: the popup can open
   // and return focus without settling the original promise. Redirect is the stable
   // mobile path; desktop keeps popup for faster sign-in without page navigation.
@@ -1285,7 +1293,7 @@ export async function signInWithGoogle(): Promise<User | null> {
         Boolean((navigator as any).userAgentData?.mobile) ||
         /Android|iPhone|iPad|iPod|Mobile/i.test(ua)
       );
-      if (mobileLike) {
+      if (mobileLike && !isPr375DevBackupPreview) {
         await signInWithRedirect(auth, provider);
         return null;
       }
@@ -1303,6 +1311,9 @@ export async function signInWithGoogle(): Promise<User | null> {
         console.warn('Firebase API Key is not valid or project is not configured in Google Cloud. Falling back to local offline user authentication:', err);
       } else {
         console.error('Google Sign-In Error:', err);
+        if (isPr375DevBackupPreview && (code === 'auth/popup-blocked' || code === 'auth/operation-not-supported-in-this-environment')) {
+          throw new Error('Trình duyệt chặn cửa sổ Google. Mở link Preview bằng Chrome/Safari bên ngoài ứng dụng.');
+        }
         throw err;
       }
     }
