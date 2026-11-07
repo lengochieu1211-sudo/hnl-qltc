@@ -1,0 +1,68 @@
+name: HNL PROD encrypted Firestore snapshot 20261107 (READ ONLY)
+on:
+  push:
+    branches:
+      - audit/prod-firestore-readonly-snapshot-20261107
+    paths:
+      - .github/workflows/audit-prod-firestore-readonly-snapshot-20261107.yml
+permissions:
+  contents: read
+jobs:
+  readonly-backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+      P2115_FIRESTORE_PROJECT: com-example-qlct-61329
+      P2115_EXPECTED_PROJECT: com-example-qlct-61329
+      P2115_MAX_DOCS: '15000'
+      P2115_MAX_BYTES: '300000000'
+      PINNED_MAIN: 1c2b7d663d51d51aa45010e533d8e035e22adf59
+    steps:
+      - name: Checkout pinned main source + audit workflow only
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fail closed exact production source and no secret leak
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "lengochieu1211-sudo/hnl-qltc"
+          test "$GITHUB_REF" = "refs/heads/audit/prod-firestore-readonly-snapshot-20261107"
+          test "$(git rev-parse HEAD^)" = "$PINNED_MAIN"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$PINNED_MAIN"
+          test "$(git diff --name-only "$PINNED_MAIN" HEAD)" = ".github/workflows/audit-prod-firestore-readonly-snapshot-20261107.yml"
+          test -n "$FIREBASE_SERVICE_ACCOUNT"
+          node -e "const p=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT); if(p.project_id!=='com-example-qlct-61329'||p.type!=='service_account'||!p.private_key) process.exit(1)"
+          test -f scripts/p2115-firestore-encrypted-snapshot.mjs
+          test -f scripts/p2115-firestore-backup-public.pem
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Snapshot READ ONLY and encrypt before any artifact upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/p2115-firestore-encrypted-snapshot.mjs
+          test "$(find . -maxdepth 1 -name 'P2115-FIRESTORE-com-example-qlct-61329-*.aes256' | wc -l)" -eq 1
+          test "$(find . -maxdepth 1 -name 'P2115-FIRESTORE-com-example-qlct-61329-*.manifest.json' | wc -l)" -eq 1
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import {createHash} from 'node:crypto';
+          const mf=fs.readdirSync('.').find(x=>x.startsWith('P2115-FIRESTORE-com-example-qlct-61329-')&&x.endsWith('.manifest.json'));
+          const x=JSON.parse(fs.readFileSync(mf,'utf8'));
+          if (x.project!=='com-example-qlct-61329'||x.documents<4500||x.documents>15000||x.algorithm!=='AES-256-GCM') throw Error('Snapshot manifest safety / count mismatch');
+          const b=fs.readFileSync(x.encryptedFile);
+          if (b.length!==x.encryptedBytes||createHash('sha256').update(b).digest('hex')!==x.encryptedSha256)throw Error('Encrypted payload integrity failure');
+          console.log(JSON.stringify({status:'PROD_READ_ONLY_ENCRYPTED_BACKUP_PASS',sourceHead:x.sourceHead,project:x.project,documents:x.documents,collections:x.collections,encryptedBytes:x.encryptedBytes,encryptedSha256:x.encryptedSha256,consistency:x.consistency}));
+          NODE
+      - name: Upload ONLY encrypted payload and public manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-PROD-FIRESTORE-READONLY-ENCRYPTED-20261107
+          path: |
+            P2115-FIRESTORE-com-example-qlct-61329-*.aes256
+            P2115-FIRESTORE-com-example-qlct-61329-*.manifest.json
+          if-no-files-found: error
+          retention-days: 30
