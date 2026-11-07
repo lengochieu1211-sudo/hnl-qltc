@@ -43,6 +43,10 @@ for (const [i,page] of pages.entries()){
   assert.match(xml,/<c r="B10" s="6"/,'material description left-aligned, bordered');
   assert.match(xml,/<c r="D10" s="7"/,'numeric quantity centered and bordered');
   if (i===0){
+    // LibreOffice previously dropped linebreaks inside t="str" <v>; canonical
+    // inlineStr must survive both Office readers and printed voucher rendering.
+    assert.match(xml, /<c r="B10"[^>]*t="inlineStr"[^>]*><is><t xml:space="preserve">Tấm thạch cao chịu ẩm 1220×2440\nGhi chú: Sắp xếp trong kho A<\/t><\/is><\/c>/,
+      'material note must retain actual print line break in standard OOXML inline text');
     assert.match(xml,/<c r="B11" s="8"/,'second material row gets zebra stripe');
     assert.match(xml,/<c r="D11" s="9"/,'second quantity gets zebra stripe');
   }
