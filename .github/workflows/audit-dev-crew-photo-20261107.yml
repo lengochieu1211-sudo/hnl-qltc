@@ -1,0 +1,119 @@
+name: HNL DEV crew photo read-only audit 2026-11-07
+on:
+  push:
+    branches:
+      - audit/dev-crew-photo-20261107
+    paths:
+      - .github/workflows/audit-dev-crew-photo-20261107.yml
+permissions:
+  contents: read
+jobs:
+  readonly_audit:
+    name: DEV Firestore crew & photo metadata read-only
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FIREBASE_DEV_SA: ${ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
+      EXPECTED_DEV_SOURCE: ac5067cf30b0e91c6f7e4933617ab440954442f9
+      EXPECTED_MAIN: 1c2b7d663d51d51aa45010e533d8e035e22adf59
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fail-closed DEV isolation and source check
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
+          test "$GITHUB_REF" = refs/heads/audit/dev-crew-photo-20261107
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_DEV_SOURCE"
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$EXPECTED_DEV_SOURCE"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$EXPECTED_MAIN"
+          test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/audit-dev-crew-photo-20261107.yml"
+          test -n "${FIREBASE_DEV_SA:-}"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Read exact two DEV records + R2 photo pointers (NO WRITES)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p runtime-evidence
+          node --input-type=module <<'NODE'
+          import { google } from 'googleapis';
+          import { writeFileSync } from 'node:fs';
+          const sa = JSON.parse(process.env.FIREBASE_DEV_SA || '{}');
+          if (sa.project_id !== 'hnl-qltc-dev' || sa.type !== 'service_account' || !sa.private_key) throw Error('Missing/wrong DEV service account; refuse');
+          const auth = new google.auth.GoogleAuth({ credentials: sa, scopes: ['https://www.googleapis.com/auth/datastore'] });
+          const token = await auth.getAccessToken();
+          if (!token) throw Error('No DEV access token');
+          const target = [
+            { label:'PROJECT_A', projectId:'proj_1786411472502', recordId:'crew_1794033400895', photoId:'6151f87d-2ec8-4430-bb44-193cdb381d1a' },
+            { label:'PROJECT_B', projectId:'proj_35344895-9c5a-440c-ae2d-55f7e3db6957', recordId:'crew_1794033420100', photoId:'0b8c4245-528b-4ad7-ab70-d58de08dea79' }
+          ];
+          const root = 'https://firestore.googleapis.com/v1/projects/hnl-qltc-dev/databases/(default)/documents/';
+          const field = (obj, key) => {
+            const f = obj?.fields?.[key];
+            if (!f) return null;
+            if ('stringValue' in f) return f.stringValue;
+            if ('booleanValue' in f) return f.booleanValue;
+            if ('integerValue' in f) return Number(f.integerValue);
+            return null;
+          };
+          async function getDoc(path) {
+            if (!/^projects\/[A-Za-z0-9_-]+(?:\/(?:crew_records|photos)\/[A-Za-z0-9_-]+)?$/.test(path)) throw Error('Unapproved read path');
+            const result = await fetch(root + path, { method:'GET', headers: { Authorization:'Bearer ' + token, Accept:'application/json' } });
+            if (result.status === 404) return null;
+            if (!result.ok) throw Error('DEV Firestore read failed with HTTP ' + result.status);
+            return result.json();
+          }
+          const rows=[];
+          for (const t of target) {
+            const [p,c,m] = await Promise.all([
+              getDoc('projects/'+t.projectId),
+              getDoc('projects/'+t.projectId+'/crew_records/'+t.recordId),
+              getDoc('projects/'+t.projectId+'/photos/'+t.photoId)
+            ]);
+            const photoPointer=String(field(m,'storagePath')||'');
+            const expectedPrefix='projects/'+t.projectId+'/media/crewRecord/'+t.recordId+'/'+t.photoId+'--';
+            const summary={
+              label:t.label,projectId:t.projectId,
+              projectName:field(p,'name')||field(p,'projectName')||field(p,'displayName')||field(p,'title')||'UNKNOWN',
+              projectExists:!!p,
+              crewRecordExists:!!c,crewRecordDate:field(c,'date'),
+              crewRecordDeleted:field(c,'deleted')===true,
+              crewRecordIdMatches:field(c,'id')===t.recordId,
+              photoMetadataExists:!!m,photoEntityType:field(m,'entityType'),
+              photoEntityIdMatches:field(m,'entityId')===t.recordId,
+              photoState:field(m,'binaryUploadState'),
+              photoDeleted:field(m,'deleted')===true,
+              r2PathMatches:photoPointer.startsWith(expectedPrefix) && photoPointer.endsWith('/original.jpg'),
+              storageProvider:field(m,'storageProvider'),
+              photoFileSize:field(m,'fileSize')
+            };
+            summary.verdict=(!p||!c||!m)?'MISSING_FIRESTORE_DOC':(
+              summary.crewRecordDate==='2026-11-07' && !summary.crewRecordDeleted
+              && summary.crewRecordIdMatches && summary.photoEntityType==='crewRecord'
+              && summary.photoEntityIdMatches && summary.photoState==='ready'
+              && !summary.photoDeleted && summary.storageProvider==='r2'
+              && summary.r2PathMatches) ? 'FIRESTORE_POINTER_READY':'METADATA_OR_CREW_MISMATCH';
+            rows.push(summary);
+          }
+          const report={schema:1,environment:'DEV',firebaseProjectId:'hnl-qltc-dev',
+            sourceSha:process.env.EXPECTED_DEV_SOURCE,date:'2026-11-07',
+            scope:'READ_ONLY_TWO_EXACT_CREW_RECORDS_AND_PHOTO_DOCS',
+            rows,physicalUserVisibility:'NOT_TESTED',dataMutations:0};
+          writeFileSync('runtime-evidence/crew-photo-audit.json',JSON.stringify(report,null,2)+'\n');
+          console.log(JSON.stringify(report,null,2));
+          NODE
+      - name: Save read-only audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-DEV-CREW-PHOTO-READONLY-20261107
+          path: runtime-evidence/crew-photo-audit.json
+          if-no-files-found: warn
+          retention-days: 30
