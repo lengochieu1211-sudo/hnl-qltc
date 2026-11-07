@@ -140,6 +140,19 @@ export async function buildWarehouseVoucherExcel(pages: WarehouseVoucherPrintPag
       else if(/<sheetPr\b[^>]*>/.test(xml))xml=xml.replace(/(<sheetPr\b[^>]*>)/,'$1<pageSetUpPr fitToPage="1"/>');
       else xml=xml.replace(/(<worksheet\b[^>]*>)/,'$1<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>');
     }
+    // Some spreadsheet renderers concatenate literal LF inside a t="str" <v>
+    // cell even though SheetJS reads it back as a newline. Export only multiline
+    // printable material descriptions as canonical OOXML inline strings. This
+    // preserves the text, escaping, row height, styles, IDs and hidden column E.
+    xml = xml.replace(
+      /<c\b([^>]*\br="B(\d+)"[^>]*)><v(?:\s+[^>]*)?>([\s\S]*?)<\/v><\/c>/g,
+      (original, attrs: string, _row: string, value: string) => {
+        if (!value.includes('\n') || !/\bt="str"/.test(attrs)) return original;
+        const safeAttrs = attrs.replace(/\s+t="str"/, ' t="inlineStr"')
+          .replace(/\s+xml:space="preserve"/g, '');
+        return '<c' + safeAttrs + '><is><t xml:space="preserve">' + value + '</t></is></c>';
+      }
+    );
     zip[path]=strToU8(xml);
   }
   const formattedBytes = styleWarehouseVoucherXlsx(zipSync(zip,{level:6}),styledLayouts);
