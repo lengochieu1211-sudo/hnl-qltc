@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      FIREBASE_DEV_SA: ${ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
+      FIREBASE_DEV_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
       EXPECTED_DEV_SOURCE: ac5067cf30b0e91c6f7e4933617ab440954442f9
       EXPECTED_MAIN: 1c2b7d663d51d51aa45010e533d8e035e22adf59
     steps:
@@ -27,10 +27,10 @@ jobs:
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
           test "$GITHUB_REF" = refs/heads/audit/dev-crew-photo-20261107
-          test "$(git rev-parse HEAD^)" = "$EXPECTED_DEV_SOURCE"
+          git merge-base --is-ancestor "$EXPECTED_DEV_SOURCE" HEAD
           test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$EXPECTED_DEV_SOURCE"
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$EXPECTED_MAIN"
-          test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/audit-dev-crew-photo-20261107.yml"
+          test "$(git diff --name-only "$EXPECTED_DEV_SOURCE" HEAD)" = ".github/workflows/audit-dev-crew-photo-20261107.yml"
           test -n "${FIREBASE_DEV_SA:-}"
       - uses: actions/setup-node@v4
         with:
