@@ -235,6 +235,14 @@ requireAll(imageCompressor, [
   'maxDimension >= 1024',
   'preserving original supported Blob for durable upload',
 ], 'Android WebView image decode/encode fallback');
+requireAll(photoPicker, [
+  'hasPendingOwnedPhoto',
+  'photoServerRefreshIsDue(refreshKey)',
+  'markPhotoServerRefreshed(refreshKey)',
+  'await refreshProjectPhotoMetadataFromCloud(projectId);',
+  'if (isPhotoSharedCloudReady(latest))',
+  'savedNow[savedNow.length - 1] = { ...committed, localUri: saved.localUri }',
+], 'Crew/Defect photo Cloud-ready vs stale local pending reconciliation and upload dedup');
 requireAll(photoSync, ['lastErrorPhotoId', 'photoSyncErrorCode', "area: 'photo-sync'", 'ảnh đang chờ Cloud/R2', 'isPhotoSharedCloudReady(photo)'], 'photo outbox exposes exact R2 failure and preserves pending status through realtime hydration');
 requireAll(photoStorage, ['getProjectPhotoDiagnosticSnapshot', 'localBinaryCount', 'checksumPrefix', 'belongsToCurrentUploader'], 'photo diagnostics export contains metadata/outbox evidence without binary payload');
 requireAll(app, ['qlct-defect-navigation-request', "area: 'defect-navigation'", "code: 'REQUEST'"], 'Defect notification navigation dispatches same-tab event plus storage fallback');
