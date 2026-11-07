@@ -1,0 +1,66 @@
+name: HNL PROD stage1 source handoff (read only)
+on:
+  push:
+    branches:
+      - audit/prod-stage1-handoff-v2-20261107
+permissions:
+  contents: read
+jobs:
+  pack:
+    if: github.repository == 'lengochieu1211-sudo/hnl-qltc'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      EXPECTED_TARGET: 0e26dfaf0b275bf830da9357badc68e87a60b713
+      EXPECTED_BASE: 1c2b7d663d51d51aa45010e533d8e035e22adf59
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fail closed on exact candidate / one workflow-only audit commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/audit/prod-stage1-handoff-v2-20261107"
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_TARGET"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$EXPECTED_BASE"
+          test "$(git ls-remote origin refs/heads/release/prod-stage1-warehouse-xlsx-20261107 | cut -f1)" = "$EXPECTED_TARGET"
+          test "$(git diff --name-only "$EXPECTED_TARGET" HEAD)" = ".github/workflows/audit-prod-stage1-handoff-v2-20261107.yml"
+      - name: Package exact candidate FULL/PATCH/REPORT/SHA256 (no deploy)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p deliverables
+          git archive --format=zip --output=deliverables/FULL_SOURCE.zip "$EXPECTED_TARGET"
+          python3 - <<'PY'
+          import os, subprocess, zipfile, hashlib, json
+          b=os.environ['EXPECTED_BASE']; h=os.environ['EXPECTED_TARGET']
+          paths=[x.decode() for x in subprocess.check_output(['git','diff','--name-only','--diff-filter=ACMR','-z',b,h]).split(b'\0') if x]
+          expected=['scripts/warehouse-voucher-xlsx-style-golden.ts','src/utils/warehouseVoucherExcel.ts']
+          if sorted(paths)!=expected: raise SystemExit('PATCH_SCOPE_NOT_WHITELISTED '+repr(paths))
+          removed=subprocess.check_output(['git','diff','--name-only','--diff-filter=D',b,h],text=True)
+          if removed.strip(): raise SystemExit('UNEXPECTED_DELETION')
+          with zipfile.ZipFile('deliverables/PATCH.zip','w',zipfile.ZIP_DEFLATED) as zipout:
+              for path in paths:
+                  zipout.writestr(path,subprocess.check_output(['git','show',h+':'+path]))
+          with zipfile.ZipFile('deliverables/FULL_SOURCE.zip') as z:
+              full=z.namelist()
+              if z.testzip(): raise SystemExit('FULL_ZIP_CORRUPT')
+          with zipfile.ZipFile('deliverables/PATCH.zip') as z:
+              if z.testzip(): raise SystemExit('PATCH_ZIP_CORRUPT')
+          (open('deliverables/CHANGED_FILES.txt','w')).write('\n'.join(paths)+'\n')
+          report=dict(repo='lengochieu1211-sudo/hnl-qltc',baseMain=b,sourceCommit=h,sourceFiles=len(full),patchFiles=paths,scope='Warehouse voucher mobile XLSX summary layout only',firebaseProjectChanged=False,rulesChanged=False,r2Changed=False,prodDeployed=False,runtimeGolden='PENDING',backup='R2 snapshot+incremental key/size parity verified; Firestore latest restore pending')
+          (open('deliverables/REPORT.json','w')).write(json.dumps(report,indent=2,ensure_ascii=False)+'\n')
+          with open('deliverables/SHA256SUMS.txt','w') as out:
+              for name in ['FULL_SOURCE.zip','PATCH.zip','CHANGED_FILES.txt','REPORT.json']:
+                  data=open('deliverables/'+name,'rb').read()
+                  out.write(hashlib.sha256(data).hexdigest()+'  '+name+'\n')
+          print('SOURCE HANDOFF PASS',json.dumps(report))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-PROD-STAGE1-EXCEL-SOURCE-V2-20261107
+          path: deliverables/
+          if-no-files-found: error
+          retention-days: 30
