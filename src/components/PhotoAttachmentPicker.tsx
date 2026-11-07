@@ -47,6 +47,16 @@ const isLegacyFirestorePhoto = (photo: PhotoAttachment) => {
 };
 
 const photoPickerServerRefreshKeys = new Set<string>();
+const photoPickerServerRefreshAt = new Map<string, number>();
+const PHOTO_SERVER_REFRESH_COOLDOWN_MS = 15_000;
+const photoServerRefreshIsDue = (key: string) => (
+  !photoPickerServerRefreshKeys.has(key) ||
+  Date.now() - (photoPickerServerRefreshAt.get(key) || 0) >= PHOTO_SERVER_REFRESH_COOLDOWN_MS
+);
+const markPhotoServerRefreshed = (key: string) => {
+  photoPickerServerRefreshKeys.add(key);
+  photoPickerServerRefreshAt.set(key, Date.now());
+};
 // All warehouse voucher badges read the same project photo index. Share a single
 // in-flight server refresh instead of rereading every photo document per voucher.
 const warehousePhotoMetadataRefreshes = new Map<string, Promise<{ verified: boolean; count: number }>>();
@@ -135,14 +145,22 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       const refreshKey = isWarehousePhoto
         ? `${authUid}:${projectId}:inventory:${category}`
         : `${authUid}:${projectId}:${entityType}:${entityId}:${category}`;
-      if (items.length === 0 && typeof navigator !== 'undefined' && navigator.onLine && !photoPickerServerRefreshKeys.has(refreshKey)) {
+      // A pending local photo can already be server-ready on another device. The
+      // thumbnail being available locally does not prove its Cloud upload is pending.
+      // Refresh authenticated server metadata before displaying the stale-pending banner.
+      // The metadata merge preserves newer local edits until Cloud acknowledges them.
+      const hasPendingOwnedPhoto = items.some((photo) =>
+        !photo.deleted && !photo.deletedAt && !isPhotoSharedCloudReady(photo)
+        && (!photo.createdByUid || photo.createdByUid === authUid)
+      );
+      if ((items.length === 0 || hasPendingOwnedPhoto) && typeof navigator !== 'undefined' && navigator.onLine && photoServerRefreshIsDue(refreshKey)) {
         const refreshed = await (isWarehousePhoto
           ? refreshWarehousePhotoMetadataOnce(projectId, refreshKey)
           : refreshProjectPhotoMetadataFromCloud(projectId)).catch(() => ({ verified: false, count: 0 }));
         // Cache a refresh decision only after a real server read succeeds. A transient
         // auth/network failure must never permanently turn an existing gallery into 0/10
         // for the rest of this app session.
-        if (refreshed.verified) photoPickerServerRefreshKeys.add(refreshKey);
+        if (refreshed.verified) markPhotoServerRefreshed(refreshKey);
         items = await getEntityPhotos(projectId, entityType, entityId, category);
       }
 
@@ -161,11 +179,11 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       let urlMap = await resolveUrls(items);
       let unresolved = items.filter((p) => !urlMap[p.id]);
       const binaryRecoveryKey = `${refreshKey}:binary`;
-      if (unresolved.length > 0 && typeof navigator !== 'undefined' && navigator.onLine && !photoPickerServerRefreshKeys.has(binaryRecoveryKey)) {
+      if (unresolved.length > 0 && typeof navigator !== 'undefined' && navigator.onLine && photoServerRefreshIsDue(binaryRecoveryKey)) {
         const refreshed = await (isWarehousePhoto
           ? refreshWarehousePhotoMetadataOnce(projectId, binaryRecoveryKey)
           : refreshProjectPhotoMetadataFromCloud(projectId)).catch(() => ({ verified: false, count: 0 }));
-        if (refreshed.verified) photoPickerServerRefreshKeys.add(binaryRecoveryKey);
+        if (refreshed.verified) markPhotoServerRefreshed(binaryRecoveryKey);
         items = await getEntityPhotos(projectId, entityType, entityId, category);
         urlMap = await resolveUrls(items);
         unresolved = items.filter((p) => !urlMap[p.id]);
@@ -343,7 +361,15 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
             setSyncNotice('Ảnh đang nằm trong hàng đợi riêng trên thiết bị; tài khoản khác sẽ chỉ thấy ảnh sau khi Cloud xác nhận. Ứng dụng đang tự retry.');
           } else {
             setSyncNotice('');
-            await refreshProjectPhotoMetadataFromCloud(projectId).catch(() => {});
+            const rechecked = await refreshProjectPhotoMetadataFromCloud(projectId).catch(() => ({ verified: false, count: 0 }));
+            if (rechecked.verified) {
+              const committed = (await getEntityPhotos(projectId, entityType, entityId, category)).find((item) => item.id === saved.id);
+              if (committed && isPhotoSharedCloudReady(committed)) {
+                // The optimistic thumbnail is kept, but the banner must reflect the
+                // same confirmed Cloud-ready metadata instead of a stale pending copy.
+                savedNow[savedNow.length - 1] = { ...committed, localUri: saved.localUri };
+              }
+            }
           }
         } else {
           setSyncNotice('Đang offline: ảnh đã lưu trên thiết bị và sẽ tự đồng bộ Cloud khi có mạng.');
@@ -423,18 +449,22 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       if (cacheOwner && cacheOwner !== uid) {
         throw new Error('Ảnh này thuộc bộ nhớ cục bộ của tài khoản khác; không được tải thay.');
       }
-      const blob = await getPhotoBlob(photo.id, false);
-      if (!blob || blob.size <= 0) {
-        throw new Error('Không còn tệp ảnh cục bộ trên thiết bị này. Không tạo ảnh mới hoặc xóa chứng từ.');
-      }
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         throw new Error('Thiết bị đang offline. Giữ nguyên ảnh và thử lại khi có mạng.');
       }
+      // Reconcile from the Firestore SERVER first. Do not re-upload an old local
+      // pending Blob when a verified R2-ready copy already exists. The merge keeps
+      // any genuinely newer pending edit intact (updatedAt/revision owner guards).
+      await refreshProjectPhotoMetadataFromCloud(projectId);
       const latest = (await getEntityPhotos(projectId, entityType, entityId, category)).find(p => p.id === photo.id) || photo;
       if (isPhotoSharedCloudReady(latest)) {
         await loadPhotos();
         setSyncNotice('Ảnh đã có trên Cloud, không cần tải lên lại.');
         return;
+      }
+      const blob = await getPhotoBlob(photo.id, false);
+      if (!blob || blob.size <= 0) {
+        throw new Error('Không còn tệp ảnh cục bộ trên thiết bị này. Không tạo ảnh mới hoặc xóa chứng từ.');
       }
       await uploadPhotoToCloud(projectId, latest);
       if (!await verifyPhotoBinaryReadyInCloud(projectId, photo.id)) {
