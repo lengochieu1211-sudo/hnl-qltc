@@ -1,4 +1,4 @@
-name: HNL one-shot DEV transfer + PC dark Rules/Hosting (NO PROD/R2/AI/Storage)
+name: HNL one-shot DEV Rules and Hosting release 2026-11-07 (NO PROD/R2/AI/Storage)
 on:
   push:
     branches:
@@ -41,7 +41,7 @@ jobs:
           FIREBASE_DEV_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
         run: |
           set -euo pipefail
-          BASE=a9dfb9400d2b1c6bfd67acb2b8d718b39ab86b73
+          BASE=f6013f23256d88bb307099f47899eb0e16fc70d8
           PROD=1c2b7d663d51d51aa45010e533d8e035e22adf59
           test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
           test "$GITHUB_REF" = refs/heads/dev
@@ -52,7 +52,7 @@ jobs:
           git merge-base --is-ancestor "$BASE" "$GITHUB_SHA"
           git merge-base --is-ancestor "$PROD" "$GITHUB_SHA"
           git diff --name-only "$BASE" "$GITHUB_SHA" > "$RUNNER_TEMP/changed.txt"
-          # Only this workflow update is allowed atop the merged and CI-tested transfer + dark mode DEV HEAD.
+          # Only this workflow update is allowed atop the verified f6013f2 DEV HEAD.
           test "$(cat "$RUNNER_TEMP/changed.txt")" = '.github/workflows/hnl-dev-transfer-dark-rules-hosting-20261104.yml'
           ! grep -E '(^\.firebaserc$|^firestore\.rules$|^storage\.rules$|^firebase\.json$|^firebase\.prod\.json$|^package(-lock)?\.json$|^cloudflare|worker\.js$|^\.env|^\.github/dev-release-approval\.json$)' "$RUNNER_TEMP/changed.txt"
           test "$DEV_PROJECT" = hnl-qltc-dev
