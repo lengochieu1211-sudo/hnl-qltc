@@ -541,6 +541,22 @@ try {
       updatedByUid: editorUid,
     });
   }));
+  const lockedDefect = (await getDoc(recordRef)).data();
+  await expectDenied('legacy EDITOR cannot move locked Defect x while preserving status', () => updateDoc(recordRef, {
+    x: 80, revision: lockedDefect.revision + 1, updatedAt: lockedDefect.updatedAt + 1,
+  }));
+  await expectDenied('EDITOR cannot simultaneously unlock and move Defect', () => updateDoc(recordRef, {
+    positionLocked: false, y: 30, revision: lockedDefect.revision + 1,
+    updatedAt: lockedDefect.updatedAt + 2, updatedByUid: editorUid,
+  }));
+  await expectDenied('EDITOR cannot move locked Defect between Rooms', () => updateDoc(recordRef, {
+    roomId: 'ROOM-OTHER', revision: lockedDefect.revision + 1,
+    updatedAt: lockedDefect.updatedAt + 3,
+  }));
+  await expectAllowed('EDITOR can update Defect status while location stays locked', () => updateDoc(recordRef, {
+    status: 'Đang sửa', revision: lockedDefect.revision + 1,
+    updatedAt: lockedDefect.updatedAt + 4,
+  }));
   await signIn(viewerEmail);
   await expectAllowed('VIEWER sees EDITOR Defect lock on another account', async () => {
     const snap = await getDoc(recordRef);
@@ -723,6 +739,22 @@ try {
       updatedAt: Math.max(Date.now(), Number(row.updatedAt || 0) + 1),
       updatedByUid: ownerUid,
     });
+  }));
+  const lockedRoom = (await getDoc(roomRef)).data();
+  await expectDenied('legacy ADMIN cannot move locked Room without reading positionLocked', () => updateDoc(roomRef, {
+    x: 45, revision: lockedRoom.revision + 1, updatedAt: lockedRoom.updatedAt + 1,
+  }));
+  await expectDenied('ADMIN cannot resize and unlock Room in one update', () => updateDoc(roomRef, {
+    positionLocked: false, width: 42, revision: lockedRoom.revision + 1,
+    updatedAt: lockedRoom.updatedAt + 2, updatedByUid: ownerUid,
+  }));
+  await expectDenied('ADMIN cannot replace locked Room CAD/source geometry', () => updateDoc(roomRef, {
+    points: [{ x: 42, y: 3 }], revision: lockedRoom.revision + 1,
+    updatedAt: lockedRoom.updatedAt + 3,
+  }));
+  await expectAllowed('ADMIN can update Room progress while geometry stays locked', () => updateDoc(roomRef, {
+    notes: 'Kiểm tra hiện trường', revision: lockedRoom.revision + 1,
+    updatedAt: lockedRoom.updatedAt + 4,
   }));
   await signIn(viewerEmail);
   await expectAllowed('VIEWER sees Room lock and unchanged room geometry on other account', async () => {
