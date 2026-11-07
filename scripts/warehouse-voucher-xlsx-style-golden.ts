@@ -59,6 +59,21 @@ assert.equal(first['D11']?.v,2.125,'noninteger quantity must not be rounded');
 assert.equal(first['E10']?.v,'IN-2026-001','retain source transaction IDs');
 assert.equal(first['E11']?.v,'=SUM(A1:A2)','formula-looking ID must remain inert text');
 assert.equal(first['E11']?.f,undefined,'never execute untrusted worksheet ID as formula');
+const mobileSummaryRow = 9 + pages[0].rows.length; // zero-based
+const mobileSummaryRef = mobileSummaryRow + 1;
+assert.equal(first['A'+mobileSummaryRef]?.v,'Số dòng trên trang: ' + pages[0].rows.length,
+  'mobile summary count must keep the exact value');
+assert.equal(first['C'+mobileSummaryRef]?.v,'Số liệu theo đơn vị từng dòng, không cộng khác ĐVT',
+  'mobile summary explanation must remain visible');
+assert(first['!cols']?.[0]?.wch >= 16,'mobile A labels must not be trapped in 9-character STT column');
+assert(first['!rows']?.[mobileSummaryRow]?.hpt >= 60,
+  'mobile summary line wrapping needs enough row height');
+assert(first['!merges']?.some(m=>m.s.r===mobileSummaryRow&&m.s.c===0&&m.e.c===1),
+  'summary count must span A:B, leaving value and ID intact');
+assert(first['!merges']?.some(m=>m.s.r===mobileSummaryRow&&m.s.c===2&&m.e.c===3),
+  'summary note must span C:D without depending on hidden E');
+assert(!first['!merges']?.some(m=>m.s.r===mobileSummaryRow&&m.e.c>=4),
+  'summary must not merge into hidden technical ID column');
 assert.equal(second['E10']?.v,'OUT-2026-001','issue transaction must keep its ID');
 assert(decoded.SheetNames.some(n=>n.startsWith('NHAP'))&&decoded.SheetNames.some(n=>n.startsWith('XUAT')));
 

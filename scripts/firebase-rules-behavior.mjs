@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { initializeApp, deleteApp } from 'firebase/app';
 import {
   getAuth,
@@ -16,7 +17,9 @@ import {
   deleteDoc,
   deleteField,
   runTransaction,
+  writeBatch,
   getDocsFromServer,
+  onSnapshot,
   collection,
 } from 'firebase/firestore';
 import {
@@ -526,6 +529,28 @@ try {
     id: 'DF-TOMBSTONE', revision: 1, updatedAt: Date.now(), deleted: true, deletedAt: Date.now(), deletedByUid: editorUid,
   }));
   await expectDenied('core hard delete rejected', () => deleteDoc(recordRef));
+  // Two authenticated accounts read the same canonical Cloud lock; localStorage is
+  // intentionally absent from this test. Transaction only writes lock + lifecycle.
+  await expectAllowed('EDITOR locks Defect with monotonic Cloud revision', () => runTransaction(db, async (tx) => {
+    const snap = await tx.get(recordRef);
+    const row = snap.data();
+    if (row.positionLocked === true) throw new Error('DEFECT_LOCK_ALREADY_TRUE');
+    tx.update(recordRef, {
+      positionLocked: true, revision: Number(row.revision || 0) + 1,
+      updatedAt: Math.max(Date.now(), Number(row.updatedAt || 0) + 1),
+      updatedByUid: editorUid,
+    });
+  }));
+  await signIn(viewerEmail);
+  await expectAllowed('VIEWER sees EDITOR Defect lock on another account', async () => {
+    const snap = await getDoc(recordRef);
+    if (snap.data()?.positionLocked !== true) throw new Error('VIEWER_DEFECT_LOCK_NOT_SHARED');
+  });
+  await expectDenied('VIEWER cannot unlock Defect Cloud flag', () => updateDoc(recordRef, {
+    positionLocked: false, revision: 4, updatedAt: Date.now() + 1000, updatedByUid: viewerUid,
+  }));
+  await signIn(editorEmail);
+
 
   const inventoryRef = doc(db, 'projects', pid, 'inventory', 'INV-RULE-1');
   await expectAllowed('EDITOR creates warehouse operational record', () => setDoc(inventoryRef, {
@@ -578,7 +603,224 @@ try {
   await expectDenied('EDITOR cannot write migration tombstone on an existing balance', () => updateDoc(balanceRef, {
     renamedTo: 'another-key', revision: 3, updatedAt: balanceNow + 2, updatedByUid: editorUid,
   }));
+  // Cross-project material transfer: source OUT and target PENDING must be a
+  // single committed unit; target IN and acknowledgement also commit together.
   await signIn(ownerEmail);
+  const destPid = `${pid}-transfer-dest`;
+  const transferSourceId = 'XK-TRANSFER-RULE-1';
+  const transferId = `TR-${pid}-${transferSourceId}`;
+  const transferReceiptId = `NK-${transferId}`;
+  const transferOutRef = doc(db, 'projects', pid, 'inventory', transferSourceId);
+  const transferInboxRef = doc(db, 'projects', destPid, 'warehouse_incoming', transferId);
+  const transferReceiptRef = doc(db, 'projects', destPid, 'inventory', transferReceiptId);
+  const transferSourceBalanceRef = doc(db, 'projects', pid, 'inventory_balances', 'legacy-tam-tc--tam');
+  const transferDestBalanceRef = doc(db, 'projects', destPid, 'inventory_balances', 'legacy-tam-tc--tam');
+  const transferNow = Date.now();
+  await expectAllowed('ADMIN creates second independent project for transfer test', () => setDoc(doc(db, 'projects', destPid), {
+    id: destPid, name: 'Warehouse Destination', ownerUid, ownerEmail,
+    createdAt: transferNow, updatedAt: transferNow,
+  }));
+  await expectAllowed('ADMIN seeds source stock for transfer test', () => setDoc(transferSourceBalanceRef, {
+    id: 'legacy-tam-tc--tam', projectId: pid, itemKind: 'material', materialId: null,
+    materialName: 'Tấm TC', unit: 'tấm', onHand: 8, revision: 1,
+    updatedAt: transferNow, updatedByUid: ownerUid,
+  }));
+  const sourceOut = {
+    id: transferSourceId, type: 'out', itemKind: 'material', materialName: 'Tấm TC',
+    materialId: null, unit: 'tấm', quantity: 2, date: '2026-11-03', handler: '', notes: '',
+    sourceType: 'project-transfer-out', issuePurpose: 'external-project',
+    materialKey: 'legacy-tam-tc--tam', warehouseTransferId: transferId, transferToProjectId: destPid,
+    revision: 1, createdAt: transferNow, createdByUid: ownerUid,
+    updatedAt: transferNow, updatedByUid: ownerUid, deleted: false, deletedAt: null,
+  };
+  const incoming = {
+    id: transferId, fromProjectId: pid, toProjectId: destPid,
+    sourceTransactionId: transferSourceId, itemKind: 'material', materialName: 'Tấm TC',
+    originalMaterialId: null, unit: 'tấm', quantity: 2, date: '2026-11-03',
+    handler: '', notes: '', status: 'pending', createdAt: transferNow, createdByUid: ownerUid,
+  };
+  await expectDenied('transfer inbox without source voucher is forbidden', () => setDoc(transferInboxRef, incoming));
+  await expectDenied('transfer source voucher without inbox is forbidden', () => setDoc(transferOutRef, sourceOut));
+  await expectDenied('transfer source OUT cannot deduct the wrong stock quantity', async () => {
+    const batch = writeBatch(db);
+    batch.set(transferOutRef, sourceOut);
+    batch.update(transferSourceBalanceRef, { onHand: 7, revision: 2, updatedAt: transferNow + 1, updatedByUid: ownerUid });
+    batch.set(transferInboxRef, incoming);
+    await batch.commit();
+  });
+  await expectDenied('transfer pending inbox quantity must match source voucher', async () => {
+    const batch = writeBatch(db);
+    batch.set(transferOutRef, sourceOut);
+    batch.update(transferSourceBalanceRef, { onHand: 6, revision: 2, updatedAt: transferNow + 1, updatedByUid: ownerUid });
+    batch.set(transferInboxRef, { ...incoming, quantity: 3 });
+    await batch.commit();
+  });
+  await expectAllowed('ADMIN commits source OUT+balance and destination PENDING atomically', async () => {
+    const batch = writeBatch(db);
+    batch.set(transferOutRef, sourceOut);
+    batch.update(transferSourceBalanceRef, { onHand: 6, revision: 2, updatedAt: transferNow + 1, updatedByUid: ownerUid });
+    batch.set(transferInboxRef, incoming);
+    await batch.commit();
+  });
+  await expectDenied('ADMIN cannot modify linked source transfer voucher', () => updateDoc(transferOutRef, {
+    quantity: 1, revision: 2, updatedAt: transferNow + 5,
+  }));
+  await expectDenied('destination receive voucher without paired inbox confirmation is forbidden', () => setDoc(transferReceiptRef, {
+    id: transferReceiptId, type: 'in', sourceType: 'project-transfer-in', warehouseTransferId: transferId,
+    materialName: 'Tấm TC', itemKind: 'material', unit: 'tấm', quantity: 2,
+    revision: 1, createdAt: transferNow, updatedAt: transferNow, deleted: false, deletedAt: null,
+  }));
+  const destReceipt = {
+    id: transferReceiptId, type: 'in', itemKind: 'material', materialName: 'Tấm TC', materialId: null,
+    unit: 'tấm', quantity: 2, date: '2026-11-03', handler: '', notes: '',
+    materialKey: 'legacy-tam-tc--tam', sourceType: 'project-transfer-in',
+    warehouseTransferId: transferId, transferFromProjectId: pid,
+    revision: 1, createdAt: transferNow + 3, createdByUid: ownerUid,
+    updatedAt: transferNow + 3, updatedByUid: ownerUid, deleted: false, deletedAt: null,
+  };
+  await expectDenied('transfer target receipt cannot credit a different quantity', async () => {
+    const batch = writeBatch(db);
+    batch.set(transferReceiptRef, { ...destReceipt, quantity: 3 });
+    batch.set(transferDestBalanceRef, {
+      id: 'legacy-tam-tc--tam', projectId: destPid, itemKind: 'material', materialId: null,
+      materialName: 'Tấm TC', unit: 'tấm', onHand: 3, revision: 1,
+      updatedAt: transferNow + 3, updatedByUid: ownerUid,
+    });
+    batch.update(transferInboxRef, {
+      status: 'received', receiptId: transferReceiptId,
+      receivedAt: transferNow + 3, receivedByUid: ownerUid,
+    });
+    await batch.commit();
+  });
+  await expectAllowed('ADMIN posts target IN+balance and received acknowledgement atomically', async () => {
+    const batch = writeBatch(db);
+    batch.set(transferReceiptRef, destReceipt);
+    batch.set(transferDestBalanceRef, {
+      id: 'legacy-tam-tc--tam', projectId: destPid, itemKind: 'material', materialId: null,
+      materialName: 'Tấm TC', unit: 'tấm', onHand: 2, revision: 1,
+      updatedAt: transferNow + 3, updatedByUid: ownerUid,
+    });
+    batch.update(transferInboxRef, {
+      status: 'received', receiptId: transferReceiptId,
+      receivedAt: transferNow + 3, receivedByUid: ownerUid,
+    });
+    await batch.commit();
+  });
+  const finalTransferSource = await getDoc(transferSourceBalanceRef);
+  const finalTransferTarget = await getDoc(transferDestBalanceRef);
+  assert.equal(finalTransferSource.data()?.onHand, 6, 'source balance must be 6 after source OUT');
+  assert.equal(finalTransferTarget.data()?.onHand, 2, 'target balance must be 2 after receipt');
+  await signIn(viewerEmail);
+  await expectDenied('VIEWER cannot read unrelated target transfer inbox', () => getDoc(transferInboxRef));
+  await signIn(ownerEmail);
+  const beforeRoomLock = await getDoc(roomRef);
+  await expectAllowed('ADMIN atomically locks Room without changing geometry', () => runTransaction(db, async (tx) => {
+    const snap = await tx.get(roomRef);
+    const row = snap.data();
+    if (row.positionLocked === true) throw new Error('ROOM_LOCK_ALREADY_TRUE');
+    tx.update(roomRef, {
+      positionLocked: true, revision: Number(row.revision || 0) + 1,
+      updatedAt: Math.max(Date.now(), Number(row.updatedAt || 0) + 1),
+      updatedByUid: ownerUid,
+    });
+  }));
+  await signIn(viewerEmail);
+  await expectAllowed('VIEWER sees Room lock and unchanged room geometry on other account', async () => {
+    const snap = await getDoc(roomRef);
+    if (snap.data()?.positionLocked !== true || snap.data()?.x !== beforeRoomLock.data()?.x
+      || snap.data()?.width !== beforeRoomLock.data()?.width) throw new Error('ROOM_LOCK_PARITY_OR_GEOMETRY');
+  });
+  await expectDenied('VIEWER cannot unlock Room Cloud flag', () => updateDoc(roomRef, {
+    positionLocked: false, revision: 4, updatedAt: Date.now() + 1000, updatedByUid: viewerUid,
+  }));
+  await signIn(ownerEmail);
+
+  // DEV only: two independent signed-in SDK clients remain active simultaneously.
+  // This verifies the realtime lock propagation that sequential signIn() checks
+  // cannot prove. No production project, warehouse transaction, or R2 access.
+  const lockObserverApp = initializeApp({
+    apiKey: 'demo-key', authDomain: `${projectId}.firebaseapp.com`, projectId,
+  }, `rules-position-watch-${nonce}`);
+  try {
+    const observerAuth = getAuth(lockObserverApp);
+    const observerDb = getFirestore(lockObserverApp);
+    connectAuthEmulator(observerAuth, 'http://127.0.0.1:9099', { disableWarnings: true });
+    connectFirestoreEmulator(observerDb, '127.0.0.1', 8080);
+    await signInWithEmailAndPassword(observerAuth, viewerEmail, password);
+    const observerRoomRef = doc(observerDb, 'projects', pid, 'rooms', 'ROOM-RULE-1');
+    const observerDefectRef = doc(observerDb, 'projects', pid, 'defects', 'DF-RULE-1');
+
+    function waitForOtherAccountLock(refToWatch, locked, label) {
+      let unsubscribe = () => {};
+      let ended = false;
+      let timer;
+      const settle = (error, value, resolve, reject) => {
+        if (ended) return;
+        ended = true;
+        clearTimeout(timer);
+        unsubscribe();
+        if (error) reject(error); else resolve(value);
+      };
+      return new Promise((resolve, reject) => {
+        timer = setTimeout(() => settle(new Error('OTHER_ACCOUNT_REALTIME_TIMEOUT:' + label), null, resolve, reject), 15000);
+        unsubscribe = onSnapshot(refToWatch, (snapshot) => {
+          if (!snapshot.exists() || snapshot.metadata.fromCache) return;
+          if (snapshot.data().positionLocked === locked) settle(null, snapshot.data(), resolve, reject);
+        }, (error) => settle(error, null, resolve, reject));
+      });
+    }
+
+    const stockBefore = (await getDoc(balanceRef)).data();
+    const roomBefore = (await getDoc(roomRef)).data();
+    const defectBefore = (await getDoc(recordRef)).data();
+    assert.equal(roomBefore.positionLocked, true, 'Room must be locked before two-client test');
+    assert.equal(defectBefore.positionLocked, true, 'Defect must be locked before two-client test');
+    async function writeBothLocksAtomically(value) {
+      await runTransaction(db, async (tx) => {
+        // Read all rows before writing to satisfy Firestore transaction requirements.
+        const roomSnapshot = await tx.get(roomRef);
+        const defectSnapshot = await tx.get(recordRef);
+        if (!roomSnapshot.exists() || !defectSnapshot.exists()
+            || roomSnapshot.data().positionLocked === value
+            || defectSnapshot.data().positionLocked === value) {
+          throw new Error('POSITION_LOCK_REALTIME_PRECONDITION_FAILED');
+        }
+        const now = Date.now();
+        for (const snapshot of [roomSnapshot, defectSnapshot]) {
+          tx.update(snapshot.ref, {
+            positionLocked: value,
+            revision: Number(snapshot.data().revision || 0) + 1,
+            updatedAt: Math.max(now, Number(snapshot.data().updatedAt || 0) + 1),
+            updatedByUid: ownerUid,
+          });
+        }
+      });
+    }
+
+    await expectAllowed('two authenticated clients: VIEWER realtime observes ADMIN unlock Room+Defect', async () => {
+      const roomObserved = waitForOtherAccountLock(observerRoomRef, false, 'room-unlock');
+      const defectObserved = waitForOtherAccountLock(observerDefectRef, false, 'defect-unlock');
+      await writeBothLocksAtomically(false);
+      const [room, defect] = await Promise.all([roomObserved, defectObserved]);
+      assert.equal(room.x, roomBefore.x);
+      assert.equal(room.width, roomBefore.width);
+      assert.equal(defect.description, defectBefore.description);
+    });
+    await expectAllowed('two authenticated clients: VIEWER realtime observes ADMIN relock Room+Defect', async () => {
+      const roomObserved = waitForOtherAccountLock(observerRoomRef, true, 'room-relock');
+      const defectObserved = waitForOtherAccountLock(observerDefectRef, true, 'defect-relock');
+      await writeBothLocksAtomically(true);
+      await Promise.all([roomObserved, defectObserved]);
+    });
+    const stockAfter = (await getDoc(balanceRef)).data();
+    assert.deepEqual(stockAfter, stockBefore, 'Position locking must not alter the warehouse balance document');
+    assert.equal((await getDoc(roomRef)).data().x, roomBefore.x, 'Position lock must not move Room');
+    assert.equal((await getDoc(recordRef)).data().description, defectBefore.description, 'Position lock must not alter Defect');
+    console.log('PASS position-lock REALTIME two independent signed-in SDK sessions; inventory balance unchanged');
+  } finally {
+    await deleteApp(lockObserverApp);
+  }
+
   await expectAllowed('ADMIN retains atomic unit migration metadata permission', () => updateDoc(balanceRef, {
     unit: 'thùng', renamedTo: 'renamed-balance', renamedToUnit: 'thùng',
     revision: 3, updatedAt: balanceNow + 2, updatedByUid: ownerUid,

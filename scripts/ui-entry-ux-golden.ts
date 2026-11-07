@@ -266,8 +266,8 @@ assert((defectUi.match(/label="Ảnh Báo Lỗi Ban Đầu \(Trước Sửa\)"/g
 assert((defectUi.match(/label="Ảnh Bằng Chứng Sau Khi Sửa \(Tùy Chọn\)"/g) || []).length >= 2, 'Defect after-photo label must remain available in create/detail flows');
 assert((defectUi.match(/bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300/g) || []).length >= 6, 'Floor-plan generic drawing selection must use tokenized HNL primary in normal + fullscreen toolbars');
 assert(!defectUi.includes("bg-amber-500 text-slate-950 font-black shadow-sm ring-2 ring-amber-300") && !defectUi.includes("bg-amber-500 text-slate-950 font-black scale-105 shadow-sm"), 'Floor-plan generic draw selection must not use warning amber');
-assert(defectUi.includes("roomColorMode === 'palette' ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-800 border border-slate-300'") && defectUi.includes('{renderMapDisplayControls(dark)}'), 'Shared floor-plan display-mode selection must use primary/neutral colors instead of warning amber');
-assert(defectUi.includes("showTextOverlay ? 'bg-indigo-600 text-white' :") && defectUi.includes('{renderMapDisplayControls(dark)}'), 'Shared floor-plan text-overlay active selection must use HNL primary instead of success green');
+assert(defectUi.includes("roomColorMode === 'palette' ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-800 border border-slate-300'") && defectUi.includes('renderMapDisplaySettings(false)') && defectUi.includes('renderMapDisplayControls(true)'), 'Shared floor-plan display mode must use HNL primary/neutral colors in ordinary and fullscreen menus');
+assert(defectUi.includes("showTextOverlay ? 'bg-indigo-600 text-white'") && !defectUi.includes("showTextOverlay ? 'bg-emerald-600'"), 'Shared floor-plan text mode must use HNL primary instead of success green');
 assert((defectUi.match(/min-h-9/g) || []).length >= 9 && defectUi.includes('className="h-9 w-9 inline-flex') && defectUi.includes('className="h-9 max-w-[150px]'), 'Fullscreen floor-plan controls must keep >=36px touch targets');
 assert(defectUi.includes('min-h-9 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700') && !defectUi.includes('bg-rose-600/90 hover:bg-rose-600'), 'Fullscreen Thu Nhỏ action must be neutral, not destructive rose');
 assert(defectUi.includes("isRoomPinPlacementMode") && defectUi.includes("? 'bg-indigo-600 hover:bg-indigo-700 text-white ring-2 ring-indigo-200'") && defectUi.includes("? 'bg-indigo-600 hover:bg-indigo-700 text-white ring-2 ring-indigo-300'"), 'Add Room must be neutral while idle and HNL primary only while armed');
@@ -330,7 +330,7 @@ assert(defectUi.includes('Tầng chưa gán nhóm hiển thị tại') && !defec
 assert((defectUi.match(/grid grid-cols-1 lg:grid-cols-2 gap-3 items-start/g) || []).length >= 2, 'PC/laptop floor-plan room and defect lists must use two columns while mobile stays one column');
 assert((crewUiForPc.match(/grid grid-cols-1 lg:grid-cols-2 gap-3 items-start/g) || []).length >= 2, 'PC/laptop crew daily logs and team room cards must use two columns while mobile stays one column');
 assert(crewUiForPc.includes('grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch'), 'Team directory paired cards must stretch to equal height on PC/laptop/EXE');
-assert(crewUiForPc.includes('h-full flex flex-col bg-white border border-slate-200') && crewUiForPc.includes('className="mt-auto pt-3" data-hnl-team-statistics-action="true"') && (crewUiForPc.includes('className="w-full flex items-center justify-center gap-2 bg-slate-900') || crewUiForPc.includes('className="inline-flex w-full sm:w-auto sm:max-w-full items-center justify-center gap-2 bg-slate-900')), 'Team directory statistics button must stay at the card bottom with at least 12px above the contact row on desktop and mobile');
+assert(crewUiForPc.includes('h-full flex flex-col bg-white border border-slate-200') && crewUiForPc.includes('className="mt-auto pt-3" data-hnl-team-statistics-action="true"') && crewUiForPc.includes('className="inline-flex w-full sm:w-auto sm:max-w-full items-center justify-center gap-2 bg-slate-900'), 'Team directory statistics button must stay at the card bottom with at least 12px above the contact row on desktop and mobile');
 assert(crewUiForPc.split('grid grid-cols-1 lg:grid-cols-2 gap-2.5 items-start').length - 1 >= 2, 'PC/laptop Team Info defect and work-log lists must use two columns while mobile/APK stays one column');
 assert(crewUiForPc.includes('hidden 2xl:grid 2xl:grid-cols-2 gap-2 border-b'), 'Team Info overview widgets must stay hidden on ordinary laptop/EXE widths so tabs are not pushed below the fold');
 assert(!crewUiForPc.includes('Lọc đội theo ${normalizedStructureConfig.label}'), 'Team directory must not show the redundant Khu/Khối selector on web/mobile/APK');
@@ -720,7 +720,10 @@ assert(
   && crewUi.includes("openCrewPicker(fIdx, cIdx, 'subitem')")
   && crewUi.includes('crewCustomEntry')
   && crewUi.includes('uniqueOptions')
-  && crewUi.includes('normalizeLinkText(existing) === normalizeLinkText(name)')
+  && crewUi.includes('selected.subItems.some(existing => normalizeLinkText(existing) === normalizeLinkText(normalizedName))')
+  && crewUi.includes('const duplicate = fw.categories.some(')
+  && crewUi.includes('<button type="button" onClick={confirmCustomName}')
+  && !crewUi.includes('<form onSubmit={e => { e.preventDefault(); const name = crewPickerQuery.trim();')
   && crewUi.includes('role="dialog" aria-modal="true"')
   && !crewUi.includes('crew-category-options-')
   && !crewUi.includes('crew-subitem-options-'),

@@ -1126,3 +1126,18 @@
     white-space: nowrap;
   }
 }
+
+/* 2026-11-04 PC dark audit: warehouse voucher group and selection header
+ * previously forced light gray/blue backgrounds over the dark workspace. */
+@media (min-width: 1024px) {
+  html[data-hnl-theme="dark"][data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form="warehouse"] [data-hnl-v35-voucher-group] {
+    background: var(--hnl-deep-subtle);
+    border-color: var(--hnl-deep-stroke);
+    color: var(--hnl-deep-ink);
+  }
+  html[data-hnl-theme="dark"][data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form="warehouse"] [data-hnl-v35-voucher-product-header="true"] > button {
+    background: color-mix(in srgb, var(--hnl-primary) 19%, var(--hnl-deep-surface));
+    border-color: var(--hnl-deep-stroke);
+    color: var(--hnl-deep-ink);
+  }
+}
