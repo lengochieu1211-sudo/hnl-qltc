@@ -63,8 +63,13 @@ export async function buildWarehouseVoucherExcel(pages: WarehouseVoucherPrintPag
     });
     const lastDataRow = table.length - 1;
     const summaryRow = table.length;
-    row(['Số dòng trên trang: ' + page.rows.length, 'Số liệu theo đơn vị từng dòng, không cộng khác ĐVT'], 31);
-    merge(table.length-1,1,4);
+    // On mobile Excel, the 9-character STT column truncated the summary label
+    // while its fixed 31pt row could not fit wrapped text.  Merge display-only
+    // printable cells, never the hidden technical-ID column E.
+    row(['Số dòng trên trang: ' + page.rows.length, null,
+      'Số liệu theo đơn vị từng dòng, không cộng khác ĐVT'], 64);
+    merge(table.length-1,0,1);
+    merge(table.length-1,2,3);
     row([], 32);
     row(['Người lập phiếu',null,page.direction === 'in' ? 'Người giao hàng' : 'Người nhận hàng','Thủ kho',null], 30);
     row(['(Ký, ghi rõ họ tên)',null,'(Ký, ghi rõ họ tên)','(Ký, ghi rõ họ tên)',null], 24);
@@ -75,7 +80,9 @@ export async function buildWarehouseVoucherExcel(pages: WarehouseVoucherPrintPag
     const ws = XLSX.utils.aoa_to_sheet(table);
     ws['!merges'] = merges;
     // Hide technical source IDs on print/display while retaining exact values in E.
-    ws['!cols'] = [{wch:9},{wch:62},{wch:16},{wch:17},{wch:38,hidden:true}];
+    // A also contains long project/handler labels; 16 characters plus existing
+    // wrapped rows prevent clipping without shrinking the material-name column.
+    ws['!cols'] = [{wch:16},{wch:62},{wch:16},{wch:17},{wch:38,hidden:true}];
     ws['!rows'] = rowHeights.map(hpt=>({hpt}));
     // Mirror the A4 cell alignment rules in the worksheet model:
     // headings centered; STT/ĐVT/quantity centered; multiline name left;
@@ -133,6 +140,19 @@ export async function buildWarehouseVoucherExcel(pages: WarehouseVoucherPrintPag
       else if(/<sheetPr\b[^>]*>/.test(xml))xml=xml.replace(/(<sheetPr\b[^>]*>)/,'$1<pageSetUpPr fitToPage="1"/>');
       else xml=xml.replace(/(<worksheet\b[^>]*>)/,'$1<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>');
     }
+    // Some spreadsheet renderers concatenate literal LF inside a t="str" <v>
+    // cell even though SheetJS reads it back as a newline. Export only multiline
+    // printable material descriptions as canonical OOXML inline strings. This
+    // preserves the text, escaping, row height, styles, IDs and hidden column E.
+    xml = xml.replace(
+      /<c\b([^>]*\br="B(\d+)"[^>]*)><v(?:\s+[^>]*)?>([\s\S]*?)<\/v><\/c>/g,
+      (original, attrs: string, _row: string, value: string) => {
+        if (!value.includes('\n') || !/\bt="str"/.test(attrs)) return original;
+        const safeAttrs = attrs.replace(/\s+t="str"/, ' t="inlineStr"')
+          .replace(/\s+xml:space="preserve"/g, '');
+        return '<c' + safeAttrs + '><is><t xml:space="preserve">' + value + '</t></is></c>';
+      }
+    );
     zip[path]=strToU8(xml);
   }
   const formattedBytes = styleWarehouseVoucherXlsx(zipSync(zip,{level:6}),styledLayouts);
