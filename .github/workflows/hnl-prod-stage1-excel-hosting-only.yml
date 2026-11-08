@@ -14,8 +14,8 @@ on:
         description: 'Type RUNTIME-GOLDEN-VERIFIED only with physical-device evidence'
         required: true
         type: string
-      media_parity:
-        description: 'Type MEDIA-PARITY-VERIFIED only with R2/legacy evidence'
+      r2_backup_parity:
+        description: 'Type R2-BACKUP-463-VERIFIED only with 463/463 snapshot evidence; legacy references are out of scope for Excel-only release'
         required: true
         type: string
       fresh_backup:
@@ -62,7 +62,7 @@ jobs:
       INPUT_APPROVED_SHA: ${{ inputs.expected_main_sha }}
       INPUT_RELEASE_APPROVAL: ${{ inputs.release_approval }}
       INPUT_RUNTIME_GOLDEN: ${{ inputs.runtime_golden }}
-      INPUT_MEDIA_PARITY: ${{ inputs.media_parity }}
+      INPUT_R2_BACKUP_PARITY: ${{ inputs.r2_backup_parity }}
       INPUT_FRESH_BACKUP: ${{ inputs.fresh_backup }}
       INPUT_RESTORE_WAIVER: ${{ inputs.restore_waiver }}
     steps:
@@ -72,12 +72,13 @@ jobs:
           set -euo pipefail
           test "$INPUT_RELEASE_APPROVAL" = 'DEPLOY-PROD-STAGE1'
           test "$INPUT_RUNTIME_GOLDEN" = 'RUNTIME-GOLDEN-VERIFIED'
-          test "$INPUT_MEDIA_PARITY" = 'MEDIA-PARITY-VERIFIED'
+          test "$INPUT_R2_BACKUP_PARITY" = 'R2-BACKUP-463-VERIFIED'
           test "$INPUT_FRESH_BACKUP" = 'BACKUP-FRESH-VERIFIED'
           test "$INPUT_RESTORE_WAIVER" = 'RESTORE-SKIPPED-BY-OWNER'
           [[ "$INPUT_APPROVED_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$VITE_FIREBASE_PROJECT_ID" = 'com-example-qlct-61329'
           echo 'Restore test waived by owner; this is NOT a restore certification.'
+          echo 'R2 463/463 backup key/size parity from 2026-11-07 accepted for Excel-only release; Firestore and 11 legacy photo business references are NOT certified.'
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
