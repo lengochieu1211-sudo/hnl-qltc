@@ -199,7 +199,8 @@ const materialNeedSortBlock = warehouse.slice(materialNeedSortStart, materialNee
 assert(materialNeedSortBlock.includes("{ key: 'material', label: 'Vật tư', kind: 'alpha', defaultOrder: 'asc' }") && materialNeedSortBlock.includes("{ key: 'category', label: 'Chủng loại vật tư', kind: 'alpha', defaultOrder: 'asc' }") && materialNeedSortBlock.includes("{ key: 'remaining', label: 'Còn cần theo phạm vi', kind: 'number', defaultOrder: 'desc' }") && materialNeedSortBlock.includes("{ key: 'deficit', label: 'Thiếu', kind: 'number', defaultOrder: 'desc' }") && materialNeedSortBlock.includes("{ key: 'stock', label: 'Tồn kho', kind: 'number', defaultOrder: 'desc' }") && materialNeedSortBlock.includes("setMaterialNeedSortBy('default'); setMaterialNeedSortOrder('asc')"), 'Material Need QuickSortBar must use intrinsic need-line semantics: Vật tư · Chủng loại vật tư · Còn cần theo phạm vi · Thiếu · Tồn kho · Mặc định');
 assert(!materialNeedSortBlock.includes("key: 'date'") && !materialNeedSortBlock.includes("label: 'Ngày'") && !materialNeedSortBlock.includes("key: 'location'") && !materialNeedSortBlock.includes("label: 'Vị trí / Tầng'") && !materialNeedSortBlock.includes("key: 'handler'") && !materialNeedSortBlock.includes("label: 'Người thực hiện'") && !materialNeedSortBlock.includes("label: 'Mới nhất'"), 'Material Need must not sort aggregate need rows by unrelated warehouse transaction date/location/handler/latest metadata');
 assert(!warehouse.includes('<ExpandCollapseButton'), 'Material Need must not activate the legacy custom floating-sheet implementation');
-assert(warehouse.includes('defaultHandler?: string;') && warehouse.includes("defaultHandler = ''"), 'Warehouse must accept project engineer as its default handler.');
+assert(warehouse.includes('defaultHandler?: string;') && warehouse.includes("defaultHandler = ''"), 'Warehouse still accepts project engineer only for legacy spreadsheet defaults.');
+assert(warehouse.includes('accountHandlerName?: string;') && warehouse.includes("accountHandlerName = ''"), 'Warehouse must accept the active signed-in account as editable voucher handler default.');
 assert(warehouse.includes('materialPickerSearch') && warehouse.includes('filteredMaterialNorms'), 'Warehouse create flow must provide searchable material selection.');
 assert(warehouse.includes('Tìm vật tư theo tên, chủng loại hoặc đơn vị...') && warehouse.includes('Tìm thiết bị...'), 'Warehouse material/equipment search placeholders must use the current category terminology.');
 assert(warehouse.includes('normalizeMaterialSearch') && warehouse.includes(".normalize('NFD')"), 'Warehouse material search must ignore Vietnamese accents/case.');
@@ -212,7 +213,10 @@ assert(warehouse.includes('const keepOpen = !editingInventory'), 'Warehouse save
 assert(!warehouse.includes("useState('Kho Tầng 1')"), 'Warehouse must not hard-code Kho Tầng 1 as a fake location default.');
 assert(!warehouse.includes("useState('Nguyễn Văn Hùng (Thủ kho)')"), 'Warehouse must not hard-code a fake warehouse handler.');
 assert(warehouse.includes("row['handler'] || defaultHandler || ''"), 'Warehouse Excel import must fall back to the configured project engineer, not a fake keeper.');
-assert(appSource.includes('defaultHandler={inspectorName}'), 'App must bind Cài đặt → Kỹ sư phụ trách to Warehouse Người Giao / Nhận.');
+assert(appSource.includes('defaultHandler={inspectorName}'), 'App retains Kỹ sư phụ trách only as the legacy import fallback.');
+assert(appSource.includes('accountHandlerName={resolveVerifiedIdentityLabel(') && appSource.includes('getCurrentRealFirebaseUser(),'), 'New warehouse voucher names must derive from active Firebase identity, not project metadata.');
+assert(warehouse.includes("setHandler(String(accountHandlerName || '').trim())"), 'Create form must prefill an editable account handler name.');
+assert(warehouse.includes("setHandler(item.handler || '');"), 'Edit form must preserve the historical handler without overwriting it from login.');
 
 
 const config = read('src/components/GoogleConfigTab.tsx');
