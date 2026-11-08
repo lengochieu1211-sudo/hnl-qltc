@@ -2,6 +2,7 @@ import React from 'react';
 import { collection, getDocsFromServer } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { X, Search, Download, FolderOpen } from 'lucide-react';
+import { buildEquipmentTemplateSourceItems } from '../utils/equipmentTemplateSource';
 import { fetchCurrentUserProjectsFromCloud, fetchProjectFromCloud, getCloudPayload, fetchUserCatalogTemplates, saveUserCatalogTemplate, deleteUserCatalogTemplate, type UserCatalogTemplate } from '../lib/firebaseBase';
 
 export type CatalogTemplateKind = 'workVolumes' | 'teams' | 'materialNorms' | 'equipment';
@@ -26,13 +27,18 @@ interface CatalogTemplatePickerModalProps {
 const itemLabel = (kind: CatalogTemplateKind, item: any) => {
   if (kind === 'workVolumes') return String(item?.title || item?.name || item?.id || '');
   if (kind === 'teams') return String(item?.name || item?.leader || item?.id || '');
+  if (kind === 'equipment') return String(item?.displayName || item?.name || item?.id || '');
   return String(item?.materialName || item?.name || item?.id || '');
 };
 
 const itemMeta = (kind: CatalogTemplateKind, item: any) => {
   if (kind === 'workVolumes') return [item?.category, item?.unit].filter(Boolean).join(' · ');
   if (kind === 'teams') return [item?.leader, item?.phone].filter(Boolean).join(' · ');
-  if (kind === 'equipment') return [item?.unit, item?.category, item?.brand, item?.model].filter(Boolean).join(' · ');
+  if (kind === 'equipment') return [
+    item?.unit, item?.category, item?.brand, item?.model,
+    item?.sourceOrigin === 'voucher' ? 'Từ phiếu kho cũ' : (item?.sourceOrigin === 'catalog' ? 'Danh mục Cloud' : ''),
+    item?.unitConflict ? '⚠ Cùng tên có nhiều ĐVT: chọn đúng một ĐVT khi nhập' : '',
+  ].filter(Boolean).join(' · ');
   const categories = Array.isArray(item?.workCategories) ? item.workCategories : (item?.workCategory ? [item.workCategory] : []);
   return [item?.unit, ...categories.slice(0, 2)].filter(Boolean).join(' · ');
 };
@@ -92,9 +98,13 @@ export const CatalogTemplatePickerModal: React.FC<CatalogTemplatePickerModalProp
       : kind === 'equipment'
         // Equipment metadata lives in a separate Firestore subcollection, not
         // in the project snapshot payload used by material norms and teams.
-        ? getDocsFromServer(collection(db, 'projects', sourceProjectId, 'equipment_catalog'))
-          .then((snapshot) => snapshot.docs.map(docSnap => ({ ...docSnap.data(), id: docSnap.id }))
-            .filter((item: any) => item && item.name && item.unit && item.deletedAt == null))
+        ? Promise.all([
+          getDocsFromServer(collection(db, 'projects', sourceProjectId, 'equipment_catalog')),
+          getDocsFromServer(collection(db, 'projects', sourceProjectId, 'inventory')),
+        ]).then(([master, ledger]) => buildEquipmentTemplateSourceItems(
+          master.docs.map(docSnap => ({ ...docSnap.data(), id: docSnap.id })),
+          ledger.docs.map(docSnap => ({ ...docSnap.data(), id: docSnap.id })),
+        ))
         : fetchProjectFromCloud(sourceProjectId, { serverOnly: true }).then((record) => {
             if (!record) throw new Error('Không đọc được công trình nguồn hoặc bạn không còn quyền.');
             const payload: any = getCloudPayload(record);
@@ -175,6 +185,13 @@ export const CatalogTemplatePickerModal: React.FC<CatalogTemplatePickerModalProp
             {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-semibold text-rose-700">{error}</div>}
 
             <div data-hnl-pc-v32-region="source-results" className="min-h-0 flex-1 overflow-auto rounded-xl border border-slate-200">
+              {kind === 'equipment' && !loading && !activeTemplate && (
+                <p className="border-b border-slate-200 bg-sky-50 px-3 py-1.5 text-[10px] text-sky-900">
+                  Danh mục Cloud: {sourceItems.filter(item => item.sourceOrigin === 'catalog').length} ·
+                  Bổ sung từ phiếu kho cũ: {sourceItems.filter(item => item.sourceOrigin === 'voucher').length}
+                  {sourceItems.some(item => item.unitConflict) ? ' · ⚠ Có thiết bị trùng tên khác ĐVT' : ''}
+                </p>
+              )}
               <label className="sticky top-0 z-10 flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-extrabold text-slate-700">
                 <input type="checkbox" checked={allVisibleSelected} onChange={(e) => {
                   const next = new Set(selectedIds);

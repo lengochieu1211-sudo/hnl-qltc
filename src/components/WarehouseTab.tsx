@@ -4006,7 +4006,24 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                         placeholder="Tìm thiết bị..."
                         className="w-full bg-white border border-slate-200 rounded-xl py-2.5 pl-9 pr-3 text-slate-800"
                         autoComplete="off"
+                        aria-label="Tìm thiết bị trong danh mục kho"
                       />
+                      {normalizedMaterialPickerSearch && filteredEquipmentCatalog.length > 0 && (
+                        <div data-hnl-equipment-voucher-search-results="true" aria-label="Gợi ý thiết bị" className="absolute left-0 right-0 top-full mt-1 z-30 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                          {filteredEquipmentCatalog.slice(0, 20).map((item) => (
+                            <button
+                              type="button"
+                              key={`${item.name}|${item.unit}`}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => { setMaterialName(item.name); setUnit(item.unit); setCustomMaterial(''); setMaterialPickerSearch(''); }}
+                              className="w-full border-b border-slate-100 px-3 py-2 text-left hover:bg-indigo-50 focus-visible:bg-indigo-50 last:border-b-0"
+                            >
+                              <div className="text-xs font-bold text-slate-800">{item.displayName || item.name}</div>
+                              <div className="text-[10px] text-slate-500">Thiết bị · {item.unit}{item.displayName !== item.name ? ` · ${item.name}` : ''}</div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <select
                       value={`${materialName}|||${unit}`}
