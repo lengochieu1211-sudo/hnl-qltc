@@ -61,7 +61,7 @@ jobs:
               members=set(x.filename for x in f.infolist() if not x.is_dir())
           with zipfile.ZipFile(root/'PATCH.zip') as f:
               assert f.testzip() is None
-              patch=set(x.filename.lstrip('./') for x in f.infolist() if not x.is_dir())
+              patch=set(x.filename.removeprefix('./') for x in f.infolist() if not x.is_dir())
           src=set(subprocess.check_output(['git','ls-tree','-r','--name-only','4a33030614cd57dddcf3343eb96003262c71802b'],text=True).splitlines())
           changes=set((root/'CHANGED_FILES.txt').read_text().splitlines())
           assert members==src,(len(members),len(src),list(src-members)[:5])
