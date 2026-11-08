@@ -399,8 +399,8 @@ assert(
   && !warehouse.includes('Tên vật tư khác'),
   'Explicit ADMIN-only material-create flow must replace legacy free-name input without breaking historical vouchers'
 );
-assert(warehouse.includes("itemKind === 'material' && issuePurpose === 'project-work' && finalIssueWorkCategoryId"), 'Equipment must never persist material work-category linkage');
-assert(warehouse.includes('Thiết bị được dùng lại ở các phiếu nhập/xuất nhưng không tham gia Định mức vật tư hoặc Gợi ý vật tư.'), 'Warehouse catalog must state the equipment/material-norm separation');
+assert(warehouse.includes('...buildWarehouseIssueScope(itemKind, issuePurpose, {') && read('src/utils/warehouseIssueScope.ts').includes("if (itemKind === 'equipment') return team;") && read('src/utils/warehouseIssueScope.ts').includes('sourceWorkCategoryId: links.sourceWorkCategoryId'), 'Equipment must never persist material work-category or room linkage while material allocation remains intact');
+assert(warehouse.includes('Thiết bị quản lý toàn công trình/dự án, không tính theo Căn/Phòng và không tham gia định mức vật tư.'), 'Warehouse catalog must state the project-wide equipment/material-norm separation');
 
 const equipmentCatalogUi = read('src/components/EquipmentCatalogPanel.tsx');
 const normEditorTextSize = materialNormModal.match(/<form onSubmit=\{handleSubmit\}[^>]*className="[^"]*\b(text-(?:xs|sm|base))\b/);
