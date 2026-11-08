@@ -55,6 +55,7 @@ import { WarehouseOrderSheet } from './WarehouseOrderSheet';
 import type {WarehouseOrderSync} from '../hooks/useWarehouseOrderSync';
 import { warehouseOrderKey, evaluateWarehouseOrderInput, isWarehouseOrderExpression, type WarehouseOrderItem } from '../utils/warehouseCatalogOrder';
 import type { WarehouseReport } from '../utils/warehouseCatalogReport';
+import { buildWarehouseIssueScope } from '../utils/warehouseIssueScope';
 import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
 import { DataManagementMenu } from './DataManagementMenu';
 import type { QuickGridColumn, QuickGridRow } from './QuickEditGridModal';
@@ -1285,23 +1286,28 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const warehouseCatalogReport = useMemo<WarehouseReport>(() => ({
     title:'DANH MỤC KHO – VẬT TƯ / THIẾT BỊ',
     projectName, projectLocation, contractorName,
-    subtitle:`${warehouseCatalogTab === 'material' ? 'Vật tư' : 'Thiết bị'} · ${warehouseCatalogStockRows.length} dòng theo bộ lọc đang chọn`,
+    subtitle:`${warehouseCatalogTab === 'material' ? 'Vật tư' : 'Thiết bị toàn dự án'} · ${warehouseCatalogStockRows.length} dòng theo bộ lọc đang chọn`,
     filePrefix:`HNL-QLTC-DANH-MUC-KHO-${warehouseCatalogTab.toUpperCase()}`,
-    columns:[
+    columns:warehouseCatalogTab === 'material' ? [
       {label:'STT',width:32},{label:'Tên vật tư / thiết bị',width:210},
       {label:'Chủng loại',width:120},{label:'ĐVT',width:50},
       {label:'Tổng nhập',width:66,numeric:true},{label:'Tổng xuất',width:66,numeric:true},
       {label:'Nhu cầu ĐM',width:76,numeric:true},{label:'Tồn kho',width:70,numeric:true},
       {label:'Nhập / ĐM (%)',width:79,numeric:true},
+    ] : [
+      {label:'STT',width:32},{label:'Tên thiết bị',width:210},
+      {label:'Nhóm thiết bị',width:120},{label:'ĐVT',width:50},
+      {label:'Tổng nhập',width:66,numeric:true},{label:'Tổng xuất',width:66,numeric:true},
+      {label:'Tồn kho',width:70,numeric:true},
     ],
-    rows:warehouseCatalogStockRows.map((item,index)=>[
+    rows:warehouseCatalogStockRows.map((item,index)=>warehouseCatalogTab === 'material' ? [
       index+1,item.name,item.category,item.unit,item.totalIn,item.totalOut,
-      warehouseCatalogTab==='material'?Number(item.normQuantity||0):'—',item.currentStock,
-      warehouseCatalogTab==='material' && Number(item.normQuantity)>0
+      Number(item.normQuantity||0),item.currentStock,
+      Number(item.normQuantity)>0
         ?Math.round(item.totalIn/Number(item.normQuantity)*10000)/100:'—',
-    ]),
-    // XLSX-only: H = E - F; I = E / G x 100, preserving UI totals as cached values.
-    catalogStockFormulas:true,
+    ] : [index+1,item.name,item.category,item.unit,item.totalIn,item.totalOut,item.currentStock]),
+    // Material-only formulas: H = E - F; I = E / G x 100. Equipment has no norms.
+    catalogStockFormulas:warehouseCatalogTab === 'material',
     footer:`${warehouseCatalogStockRows.length} dòng. Số liệu đọc từ danh mục và phiếu kho hiện có; không điều chỉnh tồn.`,
   }),[projectName, projectLocation, contractorName, warehouseCatalogTab, warehouseCatalogStockRows]);
 
@@ -1800,11 +1806,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       ...(type === 'out' ? {
         issuePurpose,
         sourceType: 'manual',
-        ...(issuePurpose === 'project-work' && finalIssueStructureGroupId ? { sourceStructureGroupId: finalIssueStructureGroupId } : {}),
-        ...(issuePurpose === 'project-work' && finalIssueFloor ? { sourceFloorId: finalIssueFloor.id } : {}),
-        ...(issuePurpose === 'project-work' && linkedIssueRoom ? { sourceRoomId: linkedIssueRoom.id } : {}),
-        ...(issuePurpose === 'project-work' && finalIssueTeamId ? { sourceTeamId: finalIssueTeamId } : {}),
-        ...(itemKind === 'material' && issuePurpose === 'project-work' && finalIssueWorkCategoryId ? { sourceWorkCategoryId: finalIssueWorkCategoryId } : {}),
+        ...buildWarehouseIssueScope(itemKind, issuePurpose, {
+          sourceStructureGroupId: finalIssueStructureGroupId,
+          sourceFloorId: finalIssueFloor?.id,
+          sourceRoomId: linkedIssueRoom?.id,
+          sourceTeamId: finalIssueTeamId,
+          sourceWorkCategoryId: finalIssueWorkCategoryId,
+        }),
       } : {}),
     };
 
@@ -2769,14 +2777,14 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   <th scope="col" className="px-2 py-0 text-left">ĐVT</th>
                   <th scope="col" className="px-2 py-0 text-right">Nhập</th>
                   <th scope="col" className="px-2 py-0 text-right">Xuất</th>
-                  <th scope="col" className="px-2 py-0 text-right">Nhu cầu định mức</th>
+                  {warehouseCatalogTab === 'material' && <th scope="col" className="px-2 py-0 text-right">Nhu cầu định mức</th>}
                   <th scope="col" className="px-2 py-0 text-right">Tồn kho</th>
-                  <th scope="col" className="px-2 py-0 text-right" title="Tổng nhập / Nhu cầu định mức toàn dự án">% Nhập/ĐM</th>
+                  {warehouseCatalogTab === 'material' && <th scope="col" className="px-2 py-0 text-right" title="Tổng nhập / Nhu cầu định mức toàn dự án">% Nhập/ĐM</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {warehouseCatalogStockRows.length === 0 ? (
-                  <tr><td colSpan={8} className="px-3 py-8 text-center text-xs text-slate-500">
+                  <tr><td colSpan={warehouseCatalogTab === 'material' ? 8 : 6} className="px-3 py-8 text-center text-xs text-slate-500">
                     {warehouseCatalogTab === 'equipment' ? 'Chưa có thiết bị. Bạn có thể thêm trước trong Vật tư & Thiết bị.' : 'Không có vật tư phù hợp.'}
                   </td></tr>
                 ) : warehouseCatalogStockRows.map((item) => (
@@ -2820,16 +2828,14 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                         aria-label={`Xem chi tiết xuất kho ${item.name}: ${formatDecimal(item.totalOut)} ${item.unit}`}>
                         {formatDecimal(item.totalOut)}</button>
                     </td>
-                    <td className="px-2 py-0 text-right font-semibold text-indigo-700">
-                      {warehouseCatalogTab === 'material' ? formatDecimal(item.normQuantity || 0) : '—'}
-                    </td>
+                    {warehouseCatalogTab === 'material' && <td className="px-2 py-0 text-right font-semibold text-indigo-700">{formatDecimal(item.normQuantity || 0)}</td>}
                     <td className="px-2 py-0 text-right font-extrabold text-blue-700">{formatDecimal(item.currentStock)}</td>
-                    <td className={`px-2 py-0 text-right font-bold tabular-nums ${warehouseCatalogTab !== 'material' || !Number.isFinite(Number(item.normQuantity)) || Number(item.normQuantity) <= 0 ? 'text-slate-400' : item.totalIn > Number(item.normQuantity) ? 'text-rose-700' : item.totalIn >= Number(item.normQuantity) * 0.9 ? 'text-amber-700' : 'text-emerald-700'}`}
-                      title={warehouseCatalogTab === 'material' && Number(item.normQuantity) > 0 ? `Tổng nhập ${formatDecimal(item.totalIn)} / Nhu cầu định mức ${formatDecimal(item.normQuantity)} toàn dự án` : 'Không áp dụng / chưa có nhu cầu định mức'}>
-                      {warehouseCatalogTab === 'material' && Number.isFinite(Number(item.normQuantity)) && Number(item.normQuantity) > 0
+                    {warehouseCatalogTab === 'material' && <td className={`px-2 py-0 text-right font-bold tabular-nums ${!Number.isFinite(Number(item.normQuantity)) || Number(item.normQuantity) <= 0 ? 'text-slate-400' : item.totalIn > Number(item.normQuantity) ? 'text-rose-700' : item.totalIn >= Number(item.normQuantity) * 0.9 ? 'text-amber-700' : 'text-emerald-700'}`}
+                      title={Number(item.normQuantity) > 0 ? `Tổng nhập ${formatDecimal(item.totalIn)} / Nhu cầu định mức ${formatDecimal(item.normQuantity)} toàn dự án` : 'Không áp dụng / chưa có nhu cầu định mức'}>
+                      {Number.isFinite(Number(item.normQuantity)) && Number(item.normQuantity) > 0
                         ? `${formatDecimal(Math.round((item.totalIn / Number(item.normQuantity)) * 10_000) / 100)}%`
                         : '—'}
-                    </td>
+                    </td>}
                   </tr>
                 ))}
               </tbody>
@@ -2849,8 +2855,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <p className="text-[10px] leading-relaxed text-slate-500">Danh mục chỉ đọc. Đặt hàng là bản nháp độc lập, không tạo phiếu nhập/xuất hoặc thay đổi tồn kho.</p>
           </div>
           {warehouseCatalogTab === 'equipment' && (
-            <p className="text-[10px] leading-relaxed text-slate-500">
-              Thiết bị được dùng lại ở các phiếu nhập/xuất nhưng không tham gia Định mức vật tư hoặc Gợi ý vật tư.
+            <p data-hnl-equipment-project-wide="true" className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs leading-relaxed text-blue-900">
+              Thiết bị quản lý toàn công trình/dự án, không tính theo Căn/Phòng và không tham gia định mức vật tư.
+              Số Nhập, Xuất, Tồn kho lấy từ phiếu kho toàn dự án. Có thể xem phiếu và đội nhận để tra cứu.
+              Số đã xuất không được tự coi là “đang sử dụng”, vì phiếu cũ có thể chưa đủ chứng từ thu hồi/bàn giao.
             </p>
           )}
             </>
@@ -4087,10 +4095,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   {issuePurpose === 'project-work' && (
                     <>
                       <p className="text-[10px] text-slate-500">
-                        Phạm vi dưới đây không bắt buộc nhập đủ. {itemKind === 'equipment' ? 'Thiết bị có thể ghi nhận Khu/Khối, Tầng, Căn / Phòng và Đội nhận; thiết bị không tham gia định mức.' : 'Chọn càng chi tiết thì thống kê vật tư theo Khu/Khối, Tầng, Căn / Phòng, Đội và Hạng mục càng chính xác.'}
+                        {itemKind === 'equipment'
+                          ? 'Thiết bị quản lý chung toàn dự án. Có thể chọn Đội nhận để truy vết bàn giao; không phân bổ thiết bị theo Khu/Khối, Tầng hoặc Căn/Phòng.'
+                          : 'Phạm vi dưới đây không bắt buộc nhập đủ. Chọn càng chi tiết thì thống kê vật tư theo Khu/Khối, Tầng, Căn / Phòng, Đội và Hạng mục càng chính xác.'}
                       </p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                        {normalizedStructureConfig.enabled && (
+                        {itemKind === 'material' && normalizedStructureConfig.enabled && (
                           <label className="space-y-1">
                             <span className="block text-[10px] font-bold text-slate-600">{normalizedStructureConfig.label} <span className="font-medium text-slate-400">(không bắt buộc)</span></span>
                             <select
@@ -4109,7 +4119,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                           </label>
                         )}
 
-                        <label className="space-y-1">
+                        {itemKind === 'material' && (<label className="space-y-1">
                           <span className="block text-[10px] font-bold text-slate-600">Tầng <span className="font-medium text-slate-400">(không bắt buộc)</span></span>
                           <select
                             value={issueFloorId}
@@ -4126,9 +4136,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                             <option value="">— Chưa phân bổ —</option>
                             {issueFloorOptions.map((floor) => <option key={floor.id} value={floor.id}>{floor.floorName}</option>)}
                           </select>
-                        </label>
+                        </label>)}
 
-                        <label className="space-y-1">
+                        {itemKind === 'material' && (<label className="space-y-1">
                           <span className="block text-[10px] font-bold text-slate-600">Căn / Phòng <span className="font-medium text-slate-400">(không bắt buộc)</span></span>
                           <select
                             value={issueRoomId}
@@ -4148,10 +4158,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                             <option value="">— Chưa phân bổ —</option>
                             {issueRoomOptions.map((room) => <option key={room.id} value={room.id}>{room.roomName}</option>)}
                           </select>
-                        </label>
+                        </label>)}
 
                         <label className="space-y-1">
-                          <span className="block text-[10px] font-bold text-slate-600">Đội thi công <span className="font-medium text-slate-400">(không bắt buộc)</span></span>
+                          <span className="block text-[10px] font-bold text-slate-600">{itemKind === 'equipment' ? 'Đội nhận thiết bị' : 'Đội thi công'} <span className="font-medium text-slate-400">(không bắt buộc)</span></span>
                           <select value={issueTeamId} onChange={(e) => setIssueTeamId(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold">
                             <option value="">— Chưa phân bổ —</option>
                             {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
