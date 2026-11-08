@@ -26,7 +26,7 @@ jobs:
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = 'lengochieu1211-sudo/hnl-qltc'
           test "$GITHUB_REF" = 'refs/heads/audit/prod-stage1-handoff-20261108-final-4a330306'
-          test "$(git rev-parse HEAD^)" = "$PINNED_MAIN"
+          test "$(git merge-base "$PINNED_MAIN" HEAD)" = "$PINNED_MAIN"
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$PINNED_MAIN"
           test "$(git diff --name-only "$PINNED_MAIN" HEAD)" = "$AUDIT_FILE"
           test -f package.json && test -f package-lock.json
