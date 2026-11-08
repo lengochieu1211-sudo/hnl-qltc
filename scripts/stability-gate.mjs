@@ -6,6 +6,8 @@ import { execFileSync } from 'node:child_process';
 execFileSync(process.execPath, ['scripts/equipment-project-scope-golden.mjs'], { stdio: 'inherit' });
 // Warehouse actor prefill must never silently reuse the project inspector or a prior account.
 execFileSync(process.execPath, ['--experimental-strip-types', 'scripts/warehouse-handler-account-golden.mjs'], { stdio: 'inherit' });
+// Team Statistics and its Excel exports must show project-wide equipment by exact receiving-team ID.
+execFileSync(process.execPath, ['--experimental-strip-types', 'scripts/team-equipment-statistics-golden.mjs'], { stdio: 'inherit' });
 
 const root = process.cwd();
 const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
