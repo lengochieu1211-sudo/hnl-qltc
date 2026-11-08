@@ -1,0 +1,97 @@
+name: HNL PROD Stage1 FINAL MAIN source handoff (NO DEPLOY)
+on:
+  push:
+    branches:
+      - audit/prod-stage1-final-source-20261108
+    paths:
+      - '.github/workflows/audit-prod-stage1-final-source-20261108.yml'
+permissions:
+  contents: read
+jobs:
+  source-handoff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Strict exact-main source + 3-file whitelist
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=4a33030614cd57dddcf3343eb96003262c71802b
+          OLD=1c2b7d663d51d51aa45010e533d8e035e22adf59
+          test "$GITHUB_REF" = "refs/heads/audit/prod-stage1-final-source-20261108"
+          test "$(git rev-parse HEAD^)" = "$BASE"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$BASE"
+          test "$(git diff --name-only "$BASE" HEAD)" = ".github/workflows/audit-prod-stage1-final-source-20261108.yml"
+          test "$(git merge-base "$OLD" "$BASE")" = "$OLD"
+          diff -u <(printf '%s\n' \
+            .github/workflows/hnl-prod-stage1-excel-hosting-only.yml \
+            scripts/warehouse-voucher-xlsx-style-golden.ts \
+            src/utils/warehouseVoucherExcel.ts | sort) \
+            <(git diff --name-only "$OLD" "$BASE" | sort)
+          test "$(git rev-parse "$BASE":src/utils/warehouseVoucherExcel.ts)" = 4956f273e141b999a9f7d747b47654912d8510fd
+          test "$(git rev-parse "$BASE":scripts/warehouse-voucher-xlsx-style-golden.ts)" = 98ceaac9c3b446882b9eed23250dbc2b219c9c1b
+          git ls-tree -r --name-only "$BASE" > /tmp/hnl-tracked-source-list.txt
+          ! grep -Ei '(^|/)\.env($|\.prod$|\.local$)|(^|/)(service-account|service_account|private-key|private_key)\.(json|pem|p12)$' /tmp/hnl-tracked-source-list.txt
+          echo 'Exact final MAIN tree + source whitelist + basic sensitive filename gate PASS'
+      - name: Package FULL SOURCE and PATCH exactly as MAIN
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=4a33030614cd57dddcf3343eb96003262c71802b
+          OLD=1c2b7d663d51d51aa45010e533d8e035e22adf59
+          mkdir -p deliverables/patch/.github/workflows deliverables/patch/scripts deliverables/patch/src/utils
+          FULL=HNL-QLTC-PROD-STAGE1-MAIN-4a330306-FULL-SOURCE.zip
+          PATCH=HNL-QLTC-PROD-STAGE1-MAIN-4a330306-PATCH-3FILES.zip
+          git archive --format=zip --output="deliverables/$FULL" "$BASE"
+          for file in \
+            .github/workflows/hnl-prod-stage1-excel-hosting-only.yml \
+            scripts/warehouse-voucher-xlsx-style-golden.ts \
+            src/utils/warehouseVoucherExcel.ts; do
+            git show "$BASE:$file" > "deliverables/patch/$file"
+          done
+          (cd deliverables/patch && zip -q -r "../$PATCH" .github scripts src)
+          unzip -t "deliverables/$FULL" | tail -n 1 | grep -q 'No errors detected'
+          unzip -t "deliverables/$PATCH" | tail -n 1 | grep -q 'No errors detected'
+          test "$(unzip -Z1 "deliverables/$PATCH" | grep -Ev '/$' | wc -l)" -eq 3
+          unzip -Z1 "deliverables/$FULL" | grep -Fqx 'package.json'
+          unzip -Z1 "deliverables/$FULL" | grep -Fqx 'package-lock.json'
+          unzip -Z1 "deliverables/$FULL" | grep -Fqx 'firebase.prod.json'
+          unzip -Z1 "deliverables/$FULL" | grep -Fqx '.github/workflows/hnl-prod-stage1-excel-hosting-only.yml'
+          {
+            echo '# HNL QLTC PROD STAGE1 – HANDOFF FROM FINAL MAIN 2026-11-08'
+            echo "Repository: $GITHUB_REPOSITORY"
+            echo "Previous main: $OLD"
+            echo "Current main EXACT: $BASE"
+            echo 'Merged PR403 original head: 0e26dfaf0b275bf830da9357badc68e87a60b713'
+            echo 'Merged PR404 original head: d461cb25f0befeb8c3e91f2abfd455cbe4407e6b'
+            echo
+            echo 'CHANGED 3 FILES:'
+            git diff --name-only "$OLD" "$BASE"
+            echo
+            echo 'Owner DEV Excel Runtime Golden: 6/6 owner-attested PASS.'
+            echo 'PR403 exact CI Web/Android/Windows PASS; PR404 exact PR CI PASS.'
+            echo 'R2 backup 463/463 objects PASS at 2026-11-07 inventory.'
+            echo 'Firestore 5328 encrypted backup integrity PASS at 2026-11-07; new 2026-11-08 read-only snapshot run #42454409151 must be verified separately.'
+            echo 'Firestore Emulator restore rehearsal SKIPPED BY OWNER, NOT A PASS.'
+            echo 'PROD Hosting deploy success NOT certified by this read-only handoff. Rules, R2 and Workers unchanged.'
+            echo 'Verify GitHub Actions Hosting-only Run #42455140949 or its retries before claiming PROD deployed.'
+            echo
+            echo 'Full source git tree files:'
+            git ls-tree -r --name-only "$BASE" | wc -l
+          } > deliverables/HNL-QLTC-PROD-STAGE1-MAIN-4a330306-REPORT.md
+          (
+            cd deliverables
+            sha256sum "$FULL" "$PATCH" HNL-QLTC-PROD-STAGE1-MAIN-4a330306-REPORT.md > HNL-QLTC-PROD-STAGE1-MAIN-4a330306-SHA256SUMS.txt
+          )
+          rm -rf deliverables/patch
+          ls -lh deliverables
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-PROD-STAGE1-MAIN-4a330306-FULL-PATCH-REPORT
+          path: deliverables/*
+          if-no-files-found: error
+          retention-days: 30
