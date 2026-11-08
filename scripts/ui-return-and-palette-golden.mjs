@@ -789,3 +789,31 @@ assert.ok(compactPcCss.includes('PC dark audit: warehouse voucher group') &&
   compactPcCss.includes('var(--hnl-deep-surface)'),
   'PC dark warehouse voucher controls cannot be forced to light gray/blue');
 console.log('HNL PC MODERN DARK SURFACES GOLDEN: PASS');
+
+// 2026-11-08: Team detail -> original daily crew record -> context Back.
+// Only view state may change; a team with explicit foreign teamId must not leak.
+assert.ok(crew.includes('data-hnl-open-team-crew-history="true"') &&
+  crew.includes('data-hnl-team-log-open={log.id}') &&
+  crew.includes('onClick={() => openTeamCrewLog(team, log)}'),
+  'Team log history must expose click-through actions to source crew records');
+assert.ok(crew.includes('existing.teamId && existing.teamId !== team.id') &&
+  crew.includes('isTeamMatch(existing.teamName, team, existing.teamId)') &&
+  crew.includes('item.dataset.crewRecordId === crewLogDrilldown.recordId'),
+  'Team log navigation must guard record identity and prevent wrong-team/source navigation');
+assert.ok(crew.includes('setSelectedDate(existing.date)') &&
+  crew.includes("setActiveSubTab('logs')") &&
+  crew.includes('setSelectedTeamForDetail(null)'),
+  'Opening a team log must select its real day and reveal the daily diary');
+assert.ok(crew.includes('data-hnl-crew-log-return="true"') &&
+  crew.includes('onClick={returnFromTeamCrewLog}') &&
+  crew.includes('setSelectedDate(crewLogDrilldown.previousDate)') &&
+  crew.includes('setActiveSubTab(crewLogDrilldown.previousSubTab)') &&
+  crew.includes("setDetailModalTab('logs')") &&
+  crew.includes('setSelectedTeamForDetail(team)'),
+  'Back must restore the previous date, subtab and same-team log detail');
+assert.ok(crew.includes('visibleDayRecords') &&
+  crew.includes('record.teamId === drilledTeam.id') &&
+  crew.includes('canDelete && !crewLogDrilldown') &&
+  crew.includes('useEffect(() => { setCrewLogDrilldown(null); }, [projectId]);'),
+  'Drilldown must be project-scoped, team-filtered and hide bulk delete actions');
+console.log('TEAM CREW ORIGINAL-LOG NAVIGATION AND RETURN GOLDEN PASS');

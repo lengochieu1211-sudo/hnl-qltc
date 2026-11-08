@@ -478,7 +478,54 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   };
 
   const [selectedDate, setSelectedDate] = useState<string>(getTodayString());
-  
+  // View one team's original daily log, without changing the saved project records.
+  // Restore the previous day, team list and detail modal on Back.
+  const [crewLogDrilldown, setCrewLogDrilldown] = useState<{
+    projectId: string;
+    teamId: string;
+    recordId: string;
+    previousDate: string;
+    previousSubTab: 'logs' | 'teams';
+  } | null>(null);
+
+  const openTeamCrewLog = (team: TeamInfo, record: CrewRecord) => {
+    if (!projectId || !selectedTeamForDetail || selectedTeamForDetail.id !== team.id) return;
+    // Reject stale/deleted or foreign-team rows; never navigate by name only.
+    const existing = crewRecords.find((item) => item.id === record.id);
+    if (!existing || (existing.teamId && existing.teamId !== team.id)
+      || !isTeamMatch(existing.teamName, team, existing.teamId)) return;
+    setCrewLogDrilldown({
+      projectId, teamId: team.id, recordId: record.id,
+      previousDate: selectedDate, previousSubTab: activeSubTab,
+    });
+    setSelectedTeamForDetail(null);
+    setSelectedDate(existing.date);
+    setActiveSubTab('logs');
+  };
+
+  const returnFromTeamCrewLog = () => {
+    if (!crewLogDrilldown || crewLogDrilldown.projectId !== projectId) return;
+    const team = teams.find((item) => item.id === crewLogDrilldown.teamId);
+    setCrewLogDrilldown(null);
+    setSelectedDate(crewLogDrilldown.previousDate);
+    setActiveSubTab(crewLogDrilldown.previousSubTab);
+    if (team) {
+      setDetailModalTab('logs');
+      setSelectedTeamForDetail(team);
+    }
+  };
+
+  useEffect(() => { setCrewLogDrilldown(null); }, [projectId]);
+  useEffect(() => {
+    if (!isActive || !crewLogDrilldown || crewLogDrilldown.projectId !== projectId || activeSubTab !== 'logs') return;
+    // Only scroll the original record into view when it is on the selected date.
+    const target = crewRecords.find((item) => item.id === crewLogDrilldown.recordId);
+    if (!target || target.date !== selectedDate) return;
+    const element = Array.from(document.querySelectorAll<HTMLElement>('[data-crew-record-id]'))
+      .find((item) => item.dataset.crewRecordId === crewLogDrilldown.recordId);
+    element?.scrollIntoView({ block: 'center' });
+  }, [isActive, projectId, activeSubTab, selectedDate, crewLogDrilldown, crewRecords]);
+
   // Modals visibility states
   const [showAddLogModal, setShowAddLogModal] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
@@ -1006,8 +1053,20 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     return structureScopedCrewRecords.filter((record) => record.date === selectedDate);
   }, [structureScopedCrewRecords, selectedDate]);
 
+  // The daily statistics still describe the whole site; the drilldown list is
+  // scoped to one authorized team. Other teams and dates remain untouched.
+  const drilledTeam = crewLogDrilldown?.projectId === projectId
+    ? teams.find((item) => item.id === crewLogDrilldown.teamId)
+    : undefined;
+  const visibleDayRecords = useMemo(() => !crewLogDrilldown
+    ? filteredRecords
+    : drilledTeam
+      ? filteredRecords.filter((record) => (!record.teamId || record.teamId === drilledTeam.id)
+        && isTeamMatch(record.teamName, drilledTeam, record.teamId))
+      : [], [filteredRecords, crewLogDrilldown, drilledTeam]);
+
   const sortedFilteredRecords = useMemo(() => {
-    const list = [...filteredRecords];
+    const list = [...visibleDayRecords];
     list.sort((a, b) => {
       let comparison = 0;
       if (dailyRecordSortBy === 'team') {
@@ -1020,7 +1079,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       return dailyRecordSortOrder === 'asc' ? comparison : -comparison;
     });
     return list;
-  }, [filteredRecords, dailyRecordSortBy, dailyRecordSortOrder]);
+  }, [visibleDayRecords, dailyRecordSortBy, dailyRecordSortOrder]);
 
   const getTeamStructureGroupNames = (team: TeamInfo): string[] => {
     if (!normalizedStructureConfig.enabled) return [];
@@ -1991,11 +2050,25 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       <DesktopWorkspaceMetrics eyebrow="HIỆN TRƯỜNG · NHÂN SỰ"
         title="Điều phối quân số & nhật ký" description="Tra cứu nhật ký theo ngày, quản lý đội và báo cáo từ dữ liệu dự án."
         metrics={[
-          { label: 'Nhật ký đang lọc', value: filteredRecords.length, detail: 'Theo bộ lọc hiện hành' },
+          { label: 'Nhật ký trong ngày', value: filteredRecords.length, detail: 'Toàn công trình' },
           { label: 'Đội thi công', value: teams.length, detail: 'Danh sách đội dự án' },
           { label: 'Tầng', value: floorPlans.length, detail: 'Theo cấu trúc dự án' },
         ]} />
-      
+
+      {crewLogDrilldown?.projectId === projectId && (
+        <div data-hnl-crew-log-return="true" className="sticky top-1 z-40 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-indigo-200 bg-indigo-50 p-3 shadow-sm">
+          <div className="min-w-0 text-xs text-indigo-900">
+            <strong>Nhật ký quân số · {drilledTeam?.name || 'Đội đã chọn'}</strong>
+            <p className="mt-0.5 text-[11px] text-indigo-700">Đang xem nhật ký gốc ngày {formatDateDDMMYYYY(selectedDate)}. Chỉ hiển thị bản ghi của đội này.</p>
+          </div>
+          <button type="button" onClick={returnFromTeamCrewLog}
+            className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-indigo-700"
+            aria-label="Quay lại thống kê đội thi công">
+            <ChevronLeft className="h-4 w-4" /> Quay lại thống kê đội
+          </button>
+        </div>
+      )}
+
       {/* Sub-tab Navigation Selector */}
       <div className="hnl-pc-v3-section-band" data-hnl-v3-section="01" aria-label="Nhật ký & đội thi công">
         <span className="hnl-pc-v3-section-index">01</span>
@@ -2214,10 +2287,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           <div data-hnl-pc-v3-inner="crew-records" className="space-y-3">
             <h2 className="text-xs font-bold text-slate-400 tracking-wider uppercase flex items-center gap-1.5 px-1">
               <Clipboard className="w-3.5 h-3.5 text-indigo-500" /> Nhật ký làm việc ({formatDateDDMMYYYY(selectedDate)})
+              {drilledTeam && <span className="font-semibold normal-case text-indigo-700">· {drilledTeam.name}</span>}
             </h2>
 
             <QuickSortBar
-              itemCount={filteredRecords.length}
+              itemCount={visibleDayRecords.length}
               options={[
                 { key: 'team', label: 'Đội thi công', kind: 'alpha' },
                 { key: 'floor', label: 'Tầng', kind: 'floor' },
@@ -2227,10 +2301,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               order={dailyRecordSortOrder}
               onChange={(key, order) => { setDailyRecordSortBy(key); setDailyRecordSortOrder(order); }}
               onReset={() => { setDailyRecordSortBy('team'); setDailyRecordSortOrder('asc'); }}
-              summary={`${filteredRecords.length} ghi nhận`}
+              summary={`${visibleDayRecords.length} ghi nhận`}
             />
 
-            {canDelete && filteredRecords.length > 0 && (
+            {canDelete && !crewLogDrilldown && filteredRecords.length > 0 && (
               <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2">
                 <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
                   <input
@@ -2290,11 +2364,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
             )}
 
-            {filteredRecords.length === 0 ? (
+            {visibleDayRecords.length === 0 ? (
               <div className="bg-white border border-dashed border-slate-300 rounded-xl p-8 text-center flex flex-col items-center justify-center shadow-sm">
                 <Users className="w-8 h-8 text-slate-300 mb-2" />
-                <p className="text-xs text-slate-400 font-medium">Chưa có ghi nhận quân số cho ngày này.</p>
-                <p className="text-[10px] text-slate-400 mt-1">Ấn nút "Ghi nhận quân số" hoặc "Sao chép quân số" để điền nhanh.</p>
+                <p className="text-xs text-slate-400 font-medium">{crewLogDrilldown ? 'Đội này chưa có nhật ký vào ngày đang chọn.' : 'Chưa có ghi nhận quân số cho ngày này.'}</p>
+                <p className="text-[10px] text-slate-400 mt-1">{crewLogDrilldown ? 'Chọn ngày khác hoặc bấm Quay lại thống kê đội.' : 'Ấn nút "Ghi nhận quân số" hoặc "Sao chép quân số" để điền nhanh.'}</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
@@ -2303,9 +2377,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   key={record.id}
                   data-crew-record-id={record.id}
                   className={`bg-white border rounded-xl p-4 transition-all duration-150 relative hover:border-slate-300 ${
-                    selectedRecordIds.includes(record.id)
-                      ? 'border-indigo-300 bg-indigo-50/10 shadow-xs'
-                      : 'border-slate-200 shadow-sm'
+                    crewLogDrilldown?.recordId === record.id
+                      ? 'border-indigo-500 bg-indigo-50/40 shadow-md ring-2 ring-indigo-200'
+                      : selectedRecordIds.includes(record.id)
+                        ? 'border-indigo-300 bg-indigo-50/10 shadow-xs'
+                        : 'border-slate-200 shadow-sm'
                   }`}
                 >
                   <div className="flex items-start gap-2.5">
@@ -4227,8 +4303,15 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        <div className="text-xs text-slate-500 font-medium px-1 mb-1">
-                          Lịch sử công nhật đã ghi nhận ({teamLogs.length} ngày / {formatDecimal(totalWorkdays)} công thợ):
+                        <div className="flex flex-wrap items-center justify-between gap-2 px-1 mb-1">
+                          <div className="text-xs text-slate-500 font-medium">
+                            Lịch sử công nhật đã ghi nhận ({teamLogs.length} lượt / {formatDecimal(totalWorkdays)} công thợ):
+                          </div>
+                          <button type="button" data-hnl-open-team-crew-history="true"
+                            onClick={() => openTeamCrewLog(team, displayedTeamLogs[0])}
+                            className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-[11px] font-extrabold text-indigo-700 hover:bg-indigo-100">
+                            <Clipboard className="h-3.5 w-3.5" /> Mở nhật ký quân số gốc
+                          </button>
                         </div>
                         <div className="flex justify-end px-1">
                           <QuickSortBar
@@ -4257,9 +4340,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         </div>
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5 items-start">
                         {displayedTeamLogs.map((log) => (
-                          <div 
+                          <button type="button"
                             key={log.id}
-                            className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs text-xs space-y-1"
+                            data-hnl-team-log-open={log.id}
+                            onClick={() => openTeamCrewLog(team, log)}
+                            className="w-full bg-white border border-slate-200 rounded-xl p-3 shadow-2xs text-left text-xs space-y-1 hover:border-indigo-400 hover:bg-indigo-50/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600"
+                            title={`Mở nhật ký quân số gốc ngày ${formatDateDDMMYYYY(log.date)} của ${team.name}`}
                           >
                             <div className="flex justify-between items-start">
                               <div className="flex items-center gap-1.5 font-bold text-slate-800">
@@ -4281,7 +4367,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                 Ghi chú: {log.notes}
                               </div>
                             )}
-                          </div>
+                            <div className="pt-1 text-right text-[10px] font-extrabold text-indigo-700">Xem nhật ký quân số gốc →</div>
+                          </button>
                         ))}
                         </div>
                       </div>
