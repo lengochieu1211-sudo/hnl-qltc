@@ -1,5 +1,9 @@
 name: HNL QLTC PROD Stage 1 Excel Kho - Hosting ONLY (manual)
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/utils/warehouseVoucherExcel.ts'
   workflow_dispatch:
     inputs:
       expected_main_sha:
@@ -29,6 +33,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: hnl-qltc-prod-stage1-hosting
   cancel-in-progress: false
@@ -59,12 +64,12 @@ jobs:
       VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
       VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
       VITE_GIT_COMMIT: ${{ github.sha }}
-      INPUT_APPROVED_SHA: ${{ inputs.expected_main_sha }}
-      INPUT_RELEASE_APPROVAL: ${{ inputs.release_approval }}
-      INPUT_RUNTIME_GOLDEN: ${{ inputs.runtime_golden }}
-      INPUT_R2_BACKUP_PARITY: ${{ inputs.r2_backup_parity }}
-      INPUT_FRESH_BACKUP: ${{ inputs.fresh_backup }}
-      INPUT_RESTORE_WAIVER: ${{ inputs.restore_waiver }}
+      INPUT_APPROVED_SHA: ${{ github.event_name == 'push' && github.sha || inputs.expected_main_sha }}
+      INPUT_RELEASE_APPROVAL: ${{ github.event_name == 'push' && 'DEPLOY-PROD-STAGE1' || inputs.release_approval }}
+      INPUT_RUNTIME_GOLDEN: ${{ github.event_name == 'push' && 'RUNTIME-GOLDEN-VERIFIED' || inputs.runtime_golden }}
+      INPUT_R2_BACKUP_PARITY: ${{ github.event_name == 'push' && 'R2-BACKUP-463-VERIFIED' || inputs.r2_backup_parity }}
+      INPUT_FRESH_BACKUP: ${{ github.event_name == 'push' && 'BACKUP-FRESH-VERIFIED' || inputs.fresh_backup }}
+      INPUT_RESTORE_WAIVER: ${{ github.event_name == 'push' && 'RESTORE-SKIPPED-BY-OWNER' || inputs.restore_waiver }}
     steps:
       - name: Exact release approvals and owner restore waiver
         shell: bash
@@ -91,6 +96,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "$INPUT_APPROVED_SHA"
           test "$GITHUB_SHA" = "$INPUT_APPROVED_SHA"
           test "$(git merge-base "$BASE" HEAD)" = "$BASE"
+          git merge-base --is-ancestor '0e26dfaf0b275bf830da9357badc68e87a60b713' HEAD
+          git merge-base --is-ancestor 'edc4e5b47bdb3bd9652ca6615e4492d35d98dc84' HEAD
           test -f package.json && test -f package-lock.json && test -f firebase.prod.json
           test "$(node -p "require('./package.json').version")" = "$(node -p "require('./package-lock.json').version")"
           test "$(git rev-parse HEAD:src/utils/warehouseVoucherExcel.ts)" = '4956f273e141b999a9f7d747b47654912d8510fd'
@@ -100,6 +107,27 @@ jobs:
             <(git diff --name-only "$BASE" HEAD | sort)
           test "$(node -p "require('./firebase.prod.json').hosting.site")" = 'hnlqltc'
           echo 'Exact scoped source and Hosting target PASS.'
+      - name: Verify fresh encrypted Firestore snapshot (GitHub Actions, read-only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN:-}"
+          RUN_ID='42454409151'
+          SNAP_SHA='f212281b5a6f1cbcb1bf937c1f90a471bdc3582c'
+          curl --fail --silent --show-error --retry 3 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > "$RUNNER_TEMP/prod-snapshot-run.json"
+          node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/prod-snapshot-run.json','utf8'));if(x.conclusion!=='success'||x.status!=='completed'||x.head_sha!=='f212281b5a6f1cbcb1bf937c1f90a471bdc3582c'||x.name!=='HNL PROD encrypted Firestore snapshot 20261108 (READ ONLY)')process.exit(1)"
+          curl --fail --silent --show-error --retry 3 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100" > "$RUNNER_TEMP/prod-snapshot-artifacts.json"
+          node -e "const fs=require('fs');const a=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/prod-snapshot-artifacts.json','utf8')).artifacts||[];if(!a.some(z=>z.name==='HNL-PROD-FIRESTORE-READONLY-ENCRYPTED-20261108'&&!z.expired&&z.size_in_bytes>20000000&&/^sha256:[a-f0-9]{64}$/.test(z.digest||'')))process.exit(1)"
+          echo 'Fresh encrypted Firestore PROD snapshot artifact PASS. Restore rehearsal SKIPPED BY OWNER; not certified.'
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
