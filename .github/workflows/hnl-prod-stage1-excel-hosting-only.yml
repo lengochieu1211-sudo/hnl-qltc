@@ -1,0 +1,163 @@
+name: HNL QLTC PROD Stage 1 Excel Kho - Hosting ONLY (manual)
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/hnl-prod-stage1-excel-hosting-only.yml'
+  workflow_dispatch:
+    inputs:
+      expected_main_sha:
+        description: 'Exact approved main HEAD (40 hex)'
+        required: true
+        type: string
+      release_approval:
+        description: 'Type DEPLOY-PROD-STAGE1 after release approval'
+        required: true
+        type: string
+      runtime_golden:
+        description: 'Type RUNTIME-GOLDEN-VERIFIED only with physical-device evidence'
+        required: true
+        type: string
+      r2_backup_parity:
+        description: 'Type R2-BACKUP-463-VERIFIED only with 463/463 snapshot evidence; legacy references are out of scope for Excel-only release'
+        required: true
+        type: string
+      fresh_backup:
+        description: 'Type BACKUP-FRESH-VERIFIED after current Firestore/R2 backup review'
+        required: true
+        type: string
+      restore_waiver:
+        description: 'Type RESTORE-SKIPPED-BY-OWNER (not certification)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: hnl-qltc-prod-stage1-hosting
+  cancel-in-progress: false
+
+jobs:
+  stage1_hosting:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 50
+    env:
+      VITE_APP_ENV: PROD
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_FIREBASE_API_KEY: AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY
+      VITE_FIREBASE_AUTH_DOMAIN: hnlqltc.web.app
+      VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
+      VITE_FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
+      VITE_FIREBASE_MESSAGING_SENDER_ID: '119152410850'
+      VITE_FIREBASE_APP_ID: '1:119152410850:web:c2aee2135428af34ef5ebb'
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_HNL_AI_ENABLED: 'true'
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: ${{ github.sha }}
+      INPUT_APPROVED_SHA: ${{ github.event_name == 'push' && github.sha || inputs.expected_main_sha }}
+      INPUT_RELEASE_APPROVAL: ${{ github.event_name == 'push' && 'DEPLOY-PROD-STAGE1' || inputs.release_approval }}
+      INPUT_RUNTIME_GOLDEN: ${{ github.event_name == 'push' && 'RUNTIME-GOLDEN-VERIFIED' || inputs.runtime_golden }}
+      INPUT_R2_BACKUP_PARITY: ${{ github.event_name == 'push' && 'R2-BACKUP-463-VERIFIED' || inputs.r2_backup_parity }}
+      INPUT_FRESH_BACKUP: ${{ github.event_name == 'push' && 'BACKUP-FRESH-VERIFIED' || inputs.fresh_backup }}
+      INPUT_RESTORE_WAIVER: ${{ github.event_name == 'push' && 'RESTORE-SKIPPED-BY-OWNER' || inputs.restore_waiver }}
+    steps:
+      - name: Exact release approvals and owner restore waiver
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$INPUT_RELEASE_APPROVAL" = 'DEPLOY-PROD-STAGE1'
+          test "$INPUT_RUNTIME_GOLDEN" = 'RUNTIME-GOLDEN-VERIFIED'
+          test "$INPUT_R2_BACKUP_PARITY" = 'R2-BACKUP-463-VERIFIED'
+          test "$INPUT_FRESH_BACKUP" = 'BACKUP-FRESH-VERIFIED'
+          test "$INPUT_RESTORE_WAIVER" = 'RESTORE-SKIPPED-BY-OWNER'
+          [[ "$INPUT_APPROVED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$VITE_FIREBASE_PROJECT_ID" = 'com-example-qlct-61329'
+          echo 'Restore test waived by owner; this is NOT a restore certification.'
+          echo 'R2 463/463 backup key/size parity from 2026-11-07 accepted for Excel-only release; Firestore and 11 legacy photo business references are NOT certified.'
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact main HEAD and approved 2-file code delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='1c2b7d663d51d51aa45010e533d8e035e22adf59'
+          test "$(git rev-parse HEAD)" = "$INPUT_APPROVED_SHA"
+          test "$GITHUB_SHA" = "$INPUT_APPROVED_SHA"
+          test "$(git merge-base "$BASE" HEAD)" = "$BASE"
+          git merge-base --is-ancestor '0e26dfaf0b275bf830da9357badc68e87a60b713' HEAD
+          git merge-base --is-ancestor 'edc4e5b47bdb3bd9652ca6615e4492d35d98dc84' HEAD
+          test -f package.json && test -f package-lock.json && test -f firebase.prod.json
+          test "$(node -p "require('./package.json').version")" = "$(node -p "require('./package-lock.json').version")"
+          test "$(git rev-parse HEAD:src/utils/warehouseVoucherExcel.ts)" = '4956f273e141b999a9f7d747b47654912d8510fd'
+          test "$(git rev-parse HEAD:scripts/warehouse-voucher-xlsx-style-golden.ts)" = '98ceaac9c3b446882b9eed23250dbc2b219c9c1b'
+          diff -u \
+            <(printf '%s\n' '.github/workflows/hnl-prod-stage1-excel-hosting-only.yml' 'scripts/warehouse-voucher-xlsx-style-golden.ts' 'src/utils/warehouseVoucherExcel.ts' | sort) \
+            <(git diff --name-only "$BASE" HEAD | sort)
+          test "$(node -p "require('./firebase.prod.json').hosting.site")" = 'hnlqltc'
+          echo 'Exact scoped source and Hosting target PASS.'
+      - name: Verify fresh encrypted Firestore snapshot (GitHub Actions, read-only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN:-}"
+          RUN_ID='42454409151'
+          SNAP_SHA='f212281b5a6f1cbcb1bf937c1f90a471bdc3582c'
+          curl --fail --silent --show-error --retry 3 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > "$RUNNER_TEMP/prod-snapshot-run.json"
+          node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/prod-snapshot-run.json','utf8'));if(x.conclusion!=='success'||x.status!=='completed'||x.head_sha!=='f212281b5a6f1cbcb1bf937c1f90a471bdc3582c'||x.name!=='HNL PROD encrypted Firestore snapshot 20261108 (READ ONLY)')process.exit(1)"
+          curl --fail --silent --show-error --retry 3 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100" > "$RUNNER_TEMP/prod-snapshot-artifacts.json"
+          node -e "const fs=require('fs');const a=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/prod-snapshot-artifacts.json','utf8')).artifacts||[];if(!a.some(z=>z.name==='HNL-PROD-FIRESTORE-READONLY-ENCRYPTED-20261108'&&!z.expired&&z.size_in_bytes>20000000&&/^sha256:[a-f0-9]{64}$/.test(z.digest||'')))process.exit(1)"
+          echo 'Fresh encrypted Firestore PROD snapshot artifact PASS. Restore rehearsal SKIPPED BY OWNER; not certified.'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Real XLSX / OOXML Golden
+        run: npx tsx scripts/warehouse-voucher-xlsx-style-golden.ts
+      - run: npm run test:excel-security
+      - run: npm run test:stability
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test:rules
+      - run: npm run security:audit
+      - run: npm run build
+      - name: Firebase Hosting ONLY (NO Rules or Workers)
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}"
+          umask 077
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/hnl-prod-hosting-account.json"
+          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          node -e "const fs=require('fs');const a=JSON.parse(fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS,'utf8'));if(a.project_id!=='com-example-qlct-61329')process.exit(1)"
+          npx --yes firebase-tools@13.35.1 deploy --only hosting --config firebase.prod.json --project com-example-qlct-61329 --non-interactive
+      - name: PROD HTML smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 5 --retry-delay 3 "https://hnlqltc.web.app/?release=${GITHUB_RUN_ID}" | grep -qi '<div id="root"'
