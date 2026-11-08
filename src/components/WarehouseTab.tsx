@@ -109,6 +109,8 @@ interface WarehouseTabProps {
   floorPlans?: FloorPlan[];
   structureConfig: ProjectStructureConfig;
   defaultHandler?: string;
+  /** Verified login name, used only as an editable default for new voucher forms. */
+  accountHandlerName?: string;
 }
 
 /** Select photos before creating a voucher, but never publish orphan photo metadata. */
@@ -200,6 +202,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   floorPlans = [],
   structureConfig,
   defaultHandler = '',
+  accountHandlerName = '',
 }) => {
   const { t } = useLanguage();
   const hasEditAccess = roleResolved && canEditWarehouseData(userRole);
@@ -1583,7 +1586,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setQuantity('');
     setQuantityStr('');
     setLocation('');
-    setHandler(String(defaultHandler || '').trim());
+    setHandler(String(accountHandlerName || '').trim());
     setNotes('');
     setIssuePurpose('project-work');
     setDestinationProjectId('');
@@ -2955,7 +2958,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           teamName: '',
           workCategory: '',
           location: quickEditMode === 'in' ? 'Kho chính' : '',
-          handler: defaultHandler,
+          handler: accountHandlerName,
           notes: '',
         })}
         onClose={() => setShowQuickEdit(false)}
@@ -4318,7 +4321,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     type="text"
                     value={handler}
                     onChange={(e) => setHandler(e.target.value)}
-                    placeholder={defaultHandler ? 'Lấy từ Kỹ sư phụ trách · có thể sửa' : 'Nhập người giao / nhận'}
+                    placeholder={accountHandlerName ? 'Lấy từ tài khoản đăng nhập · có thể sửa' : 'Nhập người giao / nhận'}
                     className="w-full border border-slate-200 rounded-xl p-2.5"
                   />
                 </div>
