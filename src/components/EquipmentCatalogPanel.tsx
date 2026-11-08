@@ -9,6 +9,7 @@ import type { InventoryItem } from '../types';
 import type { WarehouseUnitRenameInput } from '../lib/warehouseUnitMigration';
 import { confirmAsync } from '../utils/confirmAsync';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
+import { buildEquipmentTemplateSourceItems } from '../utils/equipmentTemplateSource';
 import {
   equipmentIdentityKey, EquipmentUnitMigrationRequiredError, saveEquipmentCatalogBatch, softDeleteEquipmentCatalogBatch,
   restoreEquipmentCatalog, reorderEquipmentCatalog, subscribeEquipmentCatalog,
@@ -622,27 +623,35 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
       open={showEquipmentSourcePicker && canManage}
       onClose={() => setShowEquipmentSourcePicker(false)}
       currentProjectId={projectId}
-      currentItems={activeRecords.map(item => ({
-        id: item.id, name: item.name, displayName: item.displayName || item.name, unit: item.unit, category: item.category,
-        brand: item.brand, model: item.model, specifications: item.specifications, notes: item.notes,
-      }))}
+      currentItems={buildEquipmentTemplateSourceItems(records, inventory)}
       kind="equipment"
       title="Lấy thiết bị từ công trình/mẫu"
       onImport={async (rows) => {
         if (!canManage || status !== 'ready' || busy) throw new Error('Chỉ ADMIN có thể thêm thiết bị khi dữ liệu Cloud sẵn sàng.');
         if (!rows.length) return;
         const seen = new Set<string>();
-        const existing = new Set(records.map(item => equipmentIdentityKey(item.name)));
+        const existing = new Set([
+          ...records.map(item => equipmentIdentityKey(item.name)),
+          ...inventory.filter(item => item.itemKind === 'equipment').map(item => equipmentIdentityKey(item.materialName)),
+        ]);
+        const selectedUnitByName = new Map<string, string>();
         const unique: EquipmentCatalogInput[] = [];
         let skipped = 0;
         rows.forEach(row => {
           const source = row.item as Partial<EquipmentCatalogInput>;
           const name = String(source.name || '').trim();
           const identity = equipmentIdentityKey(name);
-          if (!name || !String(source.unit || '').trim() || !identity || seen.has(identity) || existing.has(identity)) {
+          const sourceUnit = normalizeUnit(source.unit) || String(source.unit || '').trim();
+          if (!name || !sourceUnit || !identity || existing.has(identity)) {
             skipped += 1;
             return;
           }
+          const priorUnit = selectedUnitByName.get(identity);
+          if (priorUnit && !areSameUnit(priorUnit, sourceUnit)) {
+            throw new Error(`Thiết bị “${name}” được chọn với nhiều ĐVT (${priorUnit}, ${sourceUnit}). Chỉ chọn một ĐVT cho mỗi tên; không tự quy đổi phiếu kho.`);
+          }
+          if (seen.has(identity)) { skipped += 1; return; }
+          selectedUnitByName.set(identity, sourceUnit);
           seen.add(identity);
           unique.push({
             name, displayName: String(source.displayName || name).trim(), unit: String(source.unit).trim(), category: String(source.category || 'Thiết bị').trim(),
