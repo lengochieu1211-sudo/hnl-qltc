@@ -3,7 +3,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'src/utils/warehouseVoucherExcel.ts'
+      - '.github/workflows/hnl-prod-stage1-excel-hosting-only.yml'
   workflow_dispatch:
     inputs:
       expected_main_sha:
