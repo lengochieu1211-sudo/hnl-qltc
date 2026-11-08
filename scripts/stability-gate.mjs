@@ -1,5 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+
+// Lock in project-wide equipment allocation semantics across future updates.
+execFileSync(process.execPath, ['scripts/equipment-project-scope-golden.mjs'], { stdio: 'inherit' });
 
 const root = process.cwd();
 const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
