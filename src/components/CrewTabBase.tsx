@@ -29,7 +29,8 @@ import {
   Home,
   CheckCircle,
   ArrowUpDown,
-  PackageSearch
+  PackageSearch,
+  Wrench
 } from 'lucide-react';
 import { CrewRecord, FloorPlan, TeamInfo, RoomProgressItem, DefectItem, CrewFloorWork, CrewFloorCategoryWork, AcceptanceStatus, RoomInspectionResult, WorkVolume, InventoryItem, MaterialNorm } from '../types';
 import { formatDateDDMMYYYY, formatExcelDate } from '../utils/dateFormatter';
@@ -56,6 +57,7 @@ import { ContactMenu } from './ContactMenu';
 import { ShareEntityMenu } from './ShareEntityMenu';
 import { CrewReportShareModal } from './CrewReportShareModal';
 import { computeTeamMaterialReconciliation } from '../utils/teamMaterialReconciliation';
+import { computeTeamEquipmentIssues } from '../utils/teamEquipmentIssues';
 import {
   getStructureGroupName,
   normalizeStructureGroupConfig,
@@ -354,7 +356,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
   // Team detail & statistics modal state
   const [selectedTeamForDetail, setSelectedTeamForDetail] = useState<TeamInfo | null>(null);
-  const [detailModalTab, setDetailModalTab] = useState<'rooms' | 'materials' | 'defects' | 'logs'>('rooms');
+  const [detailModalTab, setDetailModalTab] = useState<'rooms' | 'materials' | 'equipment' | 'defects' | 'logs'>('rooms');
   const [defectFilter, setDefectFilter] = useState<'all' | 'open' | 'resolved'>('all');
   const [teamFloorSortOrder, setTeamFloorSortOrder] = useState<TeamSortOrder>('asc');
   const [teamDefectSortBy, setTeamDefectSortBy] = useState<'floor' | 'room' | 'status' | 'due'>('floor');
@@ -396,7 +398,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       const team = teams.find((item) => item.id === saved.teamId);
       if (!team) return; // Wait for authorized team data; never synthesize a team.
       setSelectedTeamForDetail(team);
-      setDetailModalTab(['rooms', 'materials', 'defects', 'logs'].includes(saved.tab) ? saved.tab : 'rooms');
+      setDetailModalTab(['rooms', 'materials', 'equipment', 'defects', 'logs'].includes(saved.tab) ? saved.tab : 'rooms');
       setDefectFilter(['all', 'open', 'resolved'].includes(saved.defectFilter) ? saved.defectFilter : 'all');
       if (['floor', 'room', 'status', 'due'].includes(saved.teamDefectSortBy)) setTeamDefectSortBy(saved.teamDefectSortBy);
       if (['asc', 'desc'].includes(saved.teamDefectSortOrder)) setTeamDefectSortOrder(saved.teamDefectSortOrder);
@@ -1194,6 +1196,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     });
   }, [selectedTeamForDetail, allTeamStatsMap, structureScopedInventory, materialNorms, workVolumes]);
 
+  const selectedTeamEquipmentIssues = useMemo(() => {
+    if (!selectedTeamForDetail) return [];
+    // Equipment is project-wide; never use the selected Khu/Khối as an equipment filter.
+    return computeTeamEquipmentIssues(selectedTeamForDetail.id, inventory);
+  }, [selectedTeamForDetail, inventory]);
+
   // Handle Daily Log Submission
   const handleLogSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1506,6 +1514,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       selectedTeamName: teamName,
       workVolumes,
       inventory: structureScopedInventory,
+      equipmentInventory: inventory,
       materialNorms,
     });
   };
@@ -3591,6 +3600,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         const latestTeamHeadcount = latestTeamLog
           ? Math.max(Number(latestTeamLog.workerCount) || 0, latestTeamShifts.morning, latestTeamShifts.afternoon, latestTeamShifts.evening)
           : 0;
+        const issuedEquipmentVoucherCount = selectedTeamEquipmentIssues.reduce((sum, line) => sum + line.voucherCount, 0);
         const issuedMaterialCount = selectedTeamMaterialReconciliation.filter((line) => line.issuedQty > 0).length;
         const materialVarianceCount = selectedTeamMaterialReconciliation.filter((line) => Math.abs(line.varianceQty) > 0.01).length;
 
@@ -3757,6 +3767,14 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     <div className={`rounded-lg p-2 ${materialVarianceCount > 0 ? 'bg-amber-50' : 'bg-emerald-50'}`}><div className={`font-black ${materialVarianceCount > 0 ? 'text-amber-800' : 'text-emerald-800'}`}>{materialVarianceCount}</div><div className={`mt-0.5 ${materialVarianceCount > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>Có chênh lệch</div></div>
                   </div>
                 </button>
+                <button type="button" onClick={() => setDetailModalTab('equipment')} className="rounded-xl border border-blue-200 bg-white p-3 text-left transition hover:bg-blue-50/60" data-hnl-crew-equipment-summary="true">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-blue-700"><Wrench className="h-4 w-4" /> Thiết bị đã cấp</span>
+                    <span className="text-[10px] font-bold text-slate-500">{selectedTeamEquipmentIssues.length} loại</span>
+                  </div>
+                  <div className="mt-2 text-[11px] font-semibold text-slate-700">{issuedEquipmentVoucherCount} phiếu xuất theo mã đội · Toàn dự án</div>
+                  <div className="mt-1 text-[10px] text-slate-500">Không suy đoán số đang giữ khi chưa có nghiệp vụ thu hồi.</div>
+                </button>
               </div>
 
               {/* Modal Tabs */}
@@ -3803,6 +3821,20 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 >
                   <PackageSearch className="w-3.5 h-3.5" />
                   <span>Vật tư đối chiếu ({selectedTeamMaterialReconciliation.length})</span>
+                </button>
+
+                <button
+                  onClick={() => setDetailModalTab('equipment')}
+                  aria-pressed={detailModalTab === 'equipment'}
+                  data-hnl-crew-equipment-tab="true"
+                  className={`flex items-center gap-1.5 py-2 px-3 text-xs font-bold border-b-2 transition whitespace-nowrap ${
+                    detailModalTab === 'equipment'
+                      ? 'border-blue-600 text-blue-700'
+                      : 'border-transparent text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <Wrench className="w-3.5 h-3.5" />
+                  <span>Thiết bị đã cấp ({selectedTeamEquipmentIssues.length})</span>
                 </button>
 
                 <button
@@ -4136,6 +4168,55 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     <p className="text-[10px] text-slate-500">
                       “Nhu cầu theo KL giao” là lượng vật tư lý thuyết nếu đội thi công hết toàn bộ khối lượng được giao; dùng để tham khảo kế hoạch cấp vật tư. Cột đối chiếu chính là “Nhu cầu theo KL thực hiện”.
                     </p>
+                  </div>
+                )}
+
+                {/* Read-only team equipment report, full-project scope and exact team ID. */}
+                {detailModalTab === 'equipment' && (
+                  <div className="space-y-3" data-hnl-team-equipment-report="project-wide">
+                    <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs text-blue-900">
+                      <div className="font-extrabold">Thiết bị đã cấp cho {team.name} · Toàn dự án</div>
+                      <p className="mt-1 text-[11px]">{selectedTeamEquipmentIssues.length} loại thiết bị · {issuedEquipmentVoucherCount} phiếu xuất có mã đội nhận. Không lọc theo Khu/Khối, Tầng hoặc Căn/Phòng.</p>
+                      <p className="mt-1 text-[11px]">Đây là tổng số đã xuất theo chứng từ, <strong>không phải số thiết bị đội đang giữ</strong>. Phiếu chưa gán đội được thống kê riêng trong Excel tất cả đội.</p>
+                    </div>
+                    {selectedTeamEquipmentIssues.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-xs text-slate-600">
+                        Chưa có phiếu xuất thiết bị được liên kết chính xác với đội này. Vào Kho → Xuất thiết bị và chọn Đội nhận để thống kê.
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white" data-hnl-team-equipment-table="true">
+                        <table className="w-full min-w-[540px] text-xs text-left">
+                          <thead className="bg-slate-100 text-slate-700">
+                            <tr><th className="p-2">Thiết bị</th><th className="p-2">Đơn vị</th><th className="p-2 text-right">Tổng đã cấp</th><th className="p-2 text-right">Số phiếu</th><th className="p-2">Lịch sử phiếu xuất</th></tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {selectedTeamEquipmentIssues.map((line) => (
+                              <tr key={line.equipmentKey} className="align-top hover:bg-slate-50">
+                                <td className="p-2 font-extrabold text-slate-900">{line.equipmentName}</td>
+                                <td className="p-2 text-slate-600">{line.unit}</td>
+                                <td className="p-2 text-right font-extrabold text-blue-700">{formatDecimal(line.issuedQty)}</td>
+                                <td className="p-2 text-right text-slate-700">{line.voucherCount}</td>
+                                <td className="p-2">
+                                  <details className="text-[11px] text-slate-600">
+                                    <summary className="cursor-pointer font-bold text-blue-700">Xem {line.voucherCount} phiếu</summary>
+                                    <div className="mt-2 space-y-1">
+                                      {line.vouchers.map((voucher) => (
+                                        <div key={voucher.id} className="rounded-lg border border-slate-100 bg-slate-50 p-2 break-words">
+                                          <strong>{formatDateDDMMYYYY(voucher.date)}</strong> · {formatDecimal(voucher.quantity)} {line.unit}
+                                          {voucher.handler && <span> · {voucher.handler}</span>}
+                                          {voucher.notes && <div className="mt-0.5 text-slate-500">{voucher.notes}</div>}
+                                          <div className="mt-0.5 text-[10px] text-slate-500 select-text" title={voucher.id}>Mã phiếu: {voucher.id}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </details>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 )}
 
