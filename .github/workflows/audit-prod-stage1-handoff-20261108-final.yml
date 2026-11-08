@@ -1,0 +1,106 @@
+name: HNL PROD Stage1 exact main source handoff 20261108 (NO DEPLOY)
+on:
+  push:
+    branches:
+      - audit/prod-stage1-handoff-20261108-final-4a330306
+    paths:
+      - .github/workflows/audit-prod-stage1-handoff-20261108-final.yml
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BASE: 1c2b7d663d51d51aa45010e533d8e035e22adf59
+      PINNED_MAIN: 4a33030614cd57dddcf3343eb96003262c71802b
+      AUDIT_FILE: .github/workflows/audit-prod-stage1-handoff-20261108-final.yml
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify audit is only a one-file read-only fork of exact live main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'lengochieu1211-sudo/hnl-qltc'
+          test "$GITHUB_REF" = 'refs/heads/audit/prod-stage1-handoff-20261108-final-4a330306'
+          test "$(git rev-parse HEAD^)" = "$PINNED_MAIN"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$PINNED_MAIN"
+          test "$(git diff --name-only "$PINNED_MAIN" HEAD)" = "$AUDIT_FILE"
+          test -f package.json && test -f package-lock.json
+          test "$(git rev-parse "$PINNED_MAIN:src/utils/warehouseVoucherExcel.ts")" = '4956f273e141b999a9f7d747b47654912d8510fd'
+          test "$(git rev-parse "$PINNED_MAIN:scripts/warehouse-voucher-xlsx-style-golden.ts")" = '98ceaac9c3b446882b9eed23250dbc2b219c9c1b'
+          test "$(git rev-parse "$PINNED_MAIN:.github/workflows/hnl-prod-stage1-excel-hosting-only.yml")" = '71cfb8e3814634a07b231c135ec3348c92db45f6'
+          diff -u \
+            <(printf '%s\n' '.github/workflows/hnl-prod-stage1-excel-hosting-only.yml' 'scripts/warehouse-voucher-xlsx-style-golden.ts' 'src/utils/warehouseVoucherExcel.ts' | sort) \
+            <(git diff --name-only "$BASE" "$PINNED_MAIN" | sort)
+          echo 'Exact HEAD and 3-file whitelist PASS.'
+      - name: Package FULL SOURCE and 3-file PATCH from actual merged main
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          git archive --format=zip --output=out/FULL_SOURCE.zip "$PINNED_MAIN"
+          git diff --name-only "$BASE" "$PINNED_MAIN" | sort > out/CHANGED_FILES.txt
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          while IFS= read -r file; do
+            mkdir -p "$tmp/$(dirname "$file")"
+            git show "$PINNED_MAIN:$file" > "$tmp/$file"
+          done < out/CHANGED_FILES.txt
+          (cd "$tmp" && zip -qr "$GITHUB_WORKSPACE/out/PATCH.zip" .)
+          (cd out && sha256sum FULL_SOURCE.zip PATCH.zip > SHA256SUMS.txt)
+          python3 - <<'PY'
+          import json,zipfile,hashlib,subprocess
+          from pathlib import Path
+          root=Path('out')
+          with zipfile.ZipFile(root/'FULL_SOURCE.zip') as f:
+              assert f.testzip() is None
+              members=set(x.filename for x in f.infolist() if not x.is_dir())
+          with zipfile.ZipFile(root/'PATCH.zip') as f:
+              assert f.testzip() is None
+              patch=set(x.filename.lstrip('./') for x in f.infolist() if not x.is_dir())
+          src=set(subprocess.check_output(['git','ls-tree','-r','--name-only','4a33030614cd57dddcf3343eb96003262c71802b'],text=True).splitlines())
+          changes=set((root/'CHANGED_FILES.txt').read_text().splitlines())
+          assert members==src,(len(members),len(src),list(src-members)[:5])
+          assert patch==changes,(patch,changes)
+          assert len(changes)==3
+          blocked=[x for x in src if x.endswith(('.env.local','.p12','.pfx')) or '/service-account' in x or 'private-key' in x]
+          assert not blocked,blocked
+          report={
+             'project':'HNL QLTC',
+             'releaseDate':'2026-11-08',
+             'repository':'lengochieu1211-sudo/hnl-qltc',
+             'mainHead':'4a33030614cd57dddcf3343eb96003262c71802b',
+             'previousMain':'1c2b7d663d51d51aa45010e533d8e035e22adf59',
+             'changedFiles':sorted(changes),
+             'sourceFiles':len(src),
+             'patchFiles':len(patch),
+             'fullSha256':hashlib.sha256((root/'FULL_SOURCE.zip').read_bytes()).hexdigest(),
+             'patchSha256':hashlib.sha256((root/'PATCH.zip').read_bytes()).hexdigest(),
+             'ciWeb':'42455140939 SUCCESS',
+             'releaseHostingOnly':'42455140949 ATTEMPT 2 SUCCESS',
+             'firebaseProject':'com-example-qlct-61329',
+             'firebaseHostingSite':'hnlqltc',
+             'firestoreRestore':'SKIPPED BY OWNER (not certified)',
+             'encryptedFirestoreBackup':'42454409151 SUCCESS, 5361 docs / 46 collections',
+             'r2Backup':'463/463 keys+size+ETag live parity',
+             'noProdDataWrites':'Release workflow deploys Hosting only'
+          }
+          (root/'REPORT.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
+          print('SOURCE ZIP CRC PASS; PATCH ZIP CRC PASS; SHA256 PASS',json.dumps({'sourceFiles':len(src),'changedFiles':len(changes)}))
+          PY
+      - name: Upload complete source handoff (NO DEPLOY)
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-PROD-STAGE1-20261108-MAIN-4a330306-FULL-PATCH-REPORT
+          path: |
+            out/FULL_SOURCE.zip
+            out/PATCH.zip
+            out/CHANGED_FILES.txt
+            out/SHA256SUMS.txt
+            out/REPORT.json
+          if-no-files-found: error
+          retention-days: 30
