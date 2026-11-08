@@ -1,0 +1,78 @@
+name: HNL QLTC DEV Warehouse Transfer Emulator Golden
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'firestore.rules'
+      - 'src/lib/warehouseProjectTransfer.ts'
+      - 'src/lib/warehouseTransferReplayGuard.ts'
+      - 'scripts/dev-warehouse-transfer-*.mjs'
+      - 'scripts/dev-warehouse-transfer-*.ts'
+      - '.github/workflows/dev-warehouse-transfer-emulator-golden.yml'
+  push:
+    branches: [dev]
+    paths:
+      - 'firestore.rules'
+      - 'src/lib/warehouseProjectTransfer.ts'
+      - 'src/lib/warehouseTransferReplayGuard.ts'
+      - 'scripts/dev-warehouse-transfer-*.mjs'
+      - 'scripts/dev-warehouse-transfer-*.ts'
+      - '.github/workflows/dev-warehouse-transfer-emulator-golden.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dev_warehouse_transfer_emulator:
+    if: github.ref != 'refs/heads/main' && (github.event_name != 'push' || github.ref == 'refs/heads/dev')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      DEV_AUTO_TEST_ENV: isolated-emulator
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_USE_FIREBASE_EMULATORS: 'true'
+      VITE_FIREBASE_EMULATOR_PROJECT_ID: demo-hnl-qltc-dev
+      VITE_BINARY_STORAGE_PROVIDER: firebase-storage
+      VITE_HNL_AI_ENABLED: 'false'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install source dependencies
+        run: npm ci
+      - name: Check service logic, TypeScript, lint and build
+        run: |
+          node --experimental-strip-types scripts/dev-warehouse-transfer-replay-pure-golden.mjs
+          npm run typecheck
+          npm run lint
+          npm run build
+      - name: Install headless Chromium
+        run: |
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Test real transfer service under Auth and Firestore Emulator
+        run: >-
+          npx --yes firebase-tools@13.35.1 emulators:exec
+          --only auth,firestore,storage
+          --project demo-hnl-qltc-dev
+          "node scripts/dev-warehouse-transfer-emulator-browser-golden.mjs"
+      - name: Save evidence (no credentials or Firebase exports)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-DEV-WAREHOUSE-TRANSFER-GOLDEN-${{ github.run_number }}
+          path: runtime-evidence/dev-warehouse-transfer/**
+          if-no-files-found: warn
+          retention-days: 14

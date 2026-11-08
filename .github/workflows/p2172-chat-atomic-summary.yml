@@ -1,0 +1,60 @@
+name: P21.72 Chat atomic summary + offline emulator (NO DEPLOY)
+on:
+  push:
+    branches: [fix/chat-summary-atomic-batch-20261029]
+    paths:
+      - src/lib/chatService.ts
+      - scripts/p2172-chat-atomic-summary-emulator.mjs
+      - .github/workflows/p2172-chat-atomic-summary.yml
+permissions:
+  contents: read
+jobs:
+  chat_atomic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GCLOUD_PROJECT: demo-hnl-qltc-p2172
+      FIREBASE_PROJECT_ID: demo-hnl-qltc-p2172
+      FIRESTORE_EMULATOR_HOST: 127.0.0.1:8080
+      FIREBASE_AUTH_EMULATOR_HOST: 127.0.0.1:9099
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify immutable authority and only 3 scoped files differ
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/fix/chat-summary-atomic-batch-20261029'
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = '4e9cd3a3ae6b87ce6e5d04d62ff7519e2eb757e5'
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = 'b2557860fbb3b128b5f2c9863e99d0f8b1f78686'
+          expected="$(printf '%s\n' .github/workflows/p2172-chat-atomic-summary.yml scripts/p2172-chat-atomic-summary-emulator.mjs src/lib/chatService.ts | sort)"
+          observed="$(git diff --name-only 4e9cd3a3ae6b87ce6e5d04d62ff7519e2eb757e5 HEAD | sort)"
+          test "$observed" = "$expected"
+          test "$GCLOUD_PROJECT" = demo-hnl-qltc-p2172
+          echo 'Source base and isolation verified. No cloud credentials/no deploy.'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install exactly pinned dependencies
+        run: npm ci
+      - name: Targeted outbox durability / SDK offline and Firebase Rules emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/chat-outbox-durability-golden.mjs
+          npx --yes firebase-tools@13.35.1 emulators:exec --config firebase.rules-ci.json --only auth,firestore --project demo-hnl-qltc-p2172 "node scripts/p2172-chat-atomic-summary-emulator.mjs"
+      - name: Upload non-sensitive proof even if gated
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-P2172-CHAT-ATOMIC-EMULATOR-EVIDENCE
+          path: evidence/*.json
+          if-no-files-found: warn
+          retention-days: 30

@@ -487,7 +487,11 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
 
   const editorModal = (
     <div data-hnl-photo-editor="modal" className="fixed inset-0 h-[100dvh] max-h-[100dvh] min-h-0 overflow-hidden bg-slate-900/90 z-[200] flex flex-col animate-in fade-in" role="dialog" aria-modal="true">
-      <div className="shrink-0 flex items-center justify-between px-3 py-2 sm:px-4 sm:py-2.5 bg-slate-950 text-white">
+      <div data-hnl-ios-photo-editor-header="true" className="shrink-0 flex items-center justify-between px-3 py-2 sm:px-4 sm:py-2.5 bg-slate-950 text-white" style={{
+        paddingTop: 'max(0.5rem, env(safe-area-inset-top))',
+        paddingLeft: 'max(0.75rem, env(safe-area-inset-left))',
+        paddingRight: 'max(0.75rem, env(safe-area-inset-right))',
+      }}>
         <h3 className="font-bold text-sm">Chỉnh sửa ảnh</h3>
         <button type="button" onClick={onClose} className="p-1 hover:bg-slate-800 rounded-full transition-colors" aria-label="Đóng">
           <X className="w-6 h-6" />
@@ -582,7 +586,11 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
         </div>
       </div>
 
-      <div className="shrink-0 bg-slate-950 p-2 pb-safe border-t border-slate-800" onPointerDown={(e) => e.stopPropagation()}>
+      <div data-hnl-ios-photo-editor-footer="true" className="shrink-0 bg-slate-950 p-2 pb-safe border-t border-slate-800" style={{
+        paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))',
+        paddingLeft: 'max(0.5rem, env(safe-area-inset-left))',
+        paddingRight: 'max(0.5rem, env(safe-area-inset-right))',
+      }} onPointerDown={(e) => e.stopPropagation()}>
         <div className="flex min-w-0 flex-col gap-2 md:flex-row md:items-center">
           <div className="min-w-0 flex-1 flex items-center justify-between overflow-x-auto no-scrollbar gap-2">
             <div className="flex gap-1 shrink-0">

@@ -1925,8 +1925,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
   return (
     <ViewportModalPortal>
-    <div data-hnl-pc-v32-window="report-export" className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[210] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-      <div className="bg-white w-full sm:max-w-2xl md:max-w-3xl lg:max-w-5xl rounded-t-3xl sm:rounded-2xl flex flex-col max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden border border-slate-100 shadow-2xl">
+    <div data-hnl-pc-v32-window="report-export" className="hnl-ios-safe-modal fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[210] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+      <div className="hnl-ios-safe-dialog bg-white w-full sm:max-w-2xl md:max-w-3xl lg:max-w-5xl rounded-t-3xl sm:rounded-2xl flex flex-col max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden border border-slate-100 shadow-2xl">
         {/* Header stays outside the scrolling content to prevent an exposed padding gap. */}
         <div data-hnl-report-fixed-header="true" className="shrink-0 z-20 flex items-center justify-between border-b border-slate-100 bg-white px-5 lg:px-6 pt-5 lg:pt-6 pb-3">
           <div className="flex items-center gap-2">
@@ -2125,7 +2125,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 <div data-hnl-report-defect-dates="compact-groups" className="mt-2 grid grid-cols-1 gap-2.5 lg:grid-cols-2">
                   <div role="group" aria-label="Ngày tạo Defect" className="min-w-0">
                     <p className="mb-1 text-xs font-semibold leading-4 text-slate-600">Ngày tạo Defect</p>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <label className="min-w-0">
                         <span className="mb-1 block text-xs font-medium leading-4 text-slate-600">Từ ngày</span>
                         <input type="date" aria-label="Defect tạo từ ngày" value={defectCreatedFrom} onChange={(e) => setDefectCreatedFrom(e.target.value)} className="block min-w-0 w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" />
@@ -2138,7 +2138,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   </div>
                   <div role="group" aria-label="Ngày hoàn thành" className="min-w-0">
                     <p className="mb-1 text-xs font-semibold leading-4 text-slate-600">Ngày hoàn thành</p>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <label className="min-w-0">
                         <span className="mb-1 block text-xs font-medium leading-4 text-slate-600">Từ ngày</span>
                         <input type="date" aria-label="Hoàn thành từ ngày" value={defectCompletedFrom} onChange={(e) => setDefectCompletedFrom(e.target.value)} className="block min-w-0 w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" />

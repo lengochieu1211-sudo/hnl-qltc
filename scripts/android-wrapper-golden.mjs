@@ -29,6 +29,23 @@ const nativeSplashAttachIndex = mainActivity.indexOf('setContentView(startupRoot
 const coldWebViewCreateIndex = mainActivity.indexOf('webView = new WebView(this);');
 assert(nativeSplashAttachIndex >= 0 && coldWebViewCreateIndex > nativeSplashAttachIndex, 'native HNL splash is attached before cold WebView construction');
 assert(mainActivity.includes('initializeWebRuntime(startupRoot, savedInstanceState)') && mainActivity.includes('32L'), 'cold WebView initialization is deferred until after the first native splash frame');
+
+// Android 15 (targetSdk 35) forces edge-to-edge. Only the native Activity can
+// reliably reserve the OS gesture/three-button nav area on older WebViews.
+assert(androidBuild.includes("'--target-sdk-version', '35'"), 'Android build retains targetSdk 35; no API-level rollback to hide navigation overlap');
+assert(mainActivity.includes('installAndroid15SystemBarInsets(startupRoot);'), 'Android 15 root must install system-bar inset handling before its WebView is attached');
+assert(mainActivity.includes('if (Build.VERSION.SDK_INT < 35) return;'), 'Pre-Android 15 already-inset windows must not receive double padding');
+assert(mainActivity.includes('root.setOnApplyWindowInsetsListener((view, insets) -> {'), 'Root must track live Android window insets');
+assert(mainActivity.includes('WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout()'), 'Inset calculation must cover navigation gestures, three-button nav and display cutouts');
+assert(mainActivity.includes('view.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)'), 'Native root must protect all edges and keep WebView controls above navigation bar');
+assert(mainActivity.includes('return insets;'), 'WebView must still receive IME and other inset notifications');
+assert(mainActivity.includes('startupRoot.requestApplyInsets();'), 'Root must request insets immediately after attaching its native content view');
+assert(!mainActivity.includes('windowOptOutEdgeToEdgeEnforcement'), 'Never bypass targetSdk 35 edge-to-edge requirements');
+const mobileNav = read('src/components/BottomNav.tsx');
+assert(mobileNav.includes('fixed bottom-0 left-0 right-0') && mobileNav.includes("paddingBottom: 'env(safe-area-inset-bottom, 0px)'"), 'Web/PWA bottom navigation must retain its existing safe-area behavior');
+const app = read('src/App.tsx');
+assert(app.includes("const obscured = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);") && app.includes('setIsSoftKeyboardOpen(obscured > 140)'), 'Android keyboard visibility must remain managed by VisualViewport');
+
 assert(!mainActivity.includes('if (allowFallback) showStartupContent();'), 'page commit/finished callbacks cannot reveal WebView before React paints');
 assert(mainTsx.includes('notifyAndroidStartupReadyAfterPaint') && mainTsx.includes('AndroidStartup?.markReady?.()'), 'web bootstrap signals native Android only after React paint');
 assert(mainTsx.includes('requestAnimationFrame(() =>') && mainTsx.includes('window.requestAnimationFrame(notify)'), 'startup handoff waits two animation frames before splash removal');

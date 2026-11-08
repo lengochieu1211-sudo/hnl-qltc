@@ -54,6 +54,20 @@ for (const opts of matrix) {
     assert.match(xml, /<pane ySplit="9"/, 'Header must remain frozen');
     const sheet = wb.Sheets[wb.SheetNames[i]];
     assert.equal(sheet['!cols']?.[4]?.hidden, true);
+    const summaryZeroIndex = 9 + pages[i].rows.length;
+    const summaryRef = String(summaryZeroIndex + 1);
+    assert.equal(sheet['A'+summaryRef]?.v, 'Số dòng trên trang: ' + pages[i].rows.length,
+      'Must preserve correct sheet-specific count on mobile');
+    assert.equal(sheet['C'+summaryRef]?.v, 'Số liệu theo đơn vị từng dòng, không cộng khác ĐVT',
+      'Must preserve readable note on mobile');
+    assert(sheet['!cols']?.[0]?.wch >= 16, 'Mobile STT/metadata column is too narrow');
+    assert(sheet['!rows']?.[summaryZeroIndex]?.hpt >= 60, 'Mobile summary height is too small');
+    assert(sheet['!merges']?.some(m=>m.s.r===summaryZeroIndex&&m.s.c===0&&m.e.c===1),
+      'Mobile summary count should span A:B');
+    assert(sheet['!merges']?.some(m=>m.s.r===summaryZeroIndex&&m.s.c===2&&m.e.c===3),
+      'Mobile summary explanation should span C:D');
+    assert(!sheet['!merges']?.some(m=>m.s.r===summaryZeroIndex&&m.e.c>=4),
+      'Mobile summary must not merge into hidden E');
     for (let j = 0; j < pages[i].rows.length; j++) {
       assert.equal(sheet['E' + (j + 10)]?.v, pages[i].rows[j].id);
       assert.equal(sheet['E' + (j + 10)]?.f, undefined, 'IDs must not execute as formulas');
