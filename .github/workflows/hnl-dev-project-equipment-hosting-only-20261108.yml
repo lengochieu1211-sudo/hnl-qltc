@@ -56,6 +56,7 @@ jobs:
           .github/workflows/hnl-dev-project-equipment-hosting-only-20261108.yml
           scripts/equipment-project-scope-golden.mjs
           scripts/stability-gate.mjs
+          scripts/ui-entry-ux-golden.ts
           src/components/WarehouseTab.tsx
           src/utils/warehouseIssueScope.ts
           APPROVED_FILES
