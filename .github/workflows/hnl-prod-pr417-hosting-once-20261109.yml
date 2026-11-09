@@ -1,0 +1,200 @@
+name: HNL QLTC PROD PR417 one-shot Hosting-only
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/equipment-project-scope-golden.mjs'
+      - 'scripts/stability-gate.mjs'
+      - 'scripts/team-equipment-statistics-golden.mjs'
+      - 'scripts/ui-entry-ux-golden.ts'
+      - 'scripts/warehouse-handler-account-golden.mjs'
+      - 'src/App.tsx'
+      - 'src/components/CrewTabBase.tsx'
+      - 'src/components/WarehouseTab.tsx'
+      - 'src/utils/excelExport.ts'
+      - 'src/utils/teamEquipmentIssues.ts'
+      - 'src/utils/warehouseIssueScope.ts'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: hnl-qltc-prod-stage2-pr417-hosting
+  cancel-in-progress: false
+jobs:
+  deploy_prod_stage2:
+    if: ${{ github.repository == 'lengochieu1211-sudo/hnl-qltc' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release-prod-PR417 equipment warehouse trio') }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 75
+    env:
+      VITE_APP_ENV: PROD
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_FIREBASE_API_KEY: AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY
+      VITE_FIREBASE_AUTH_DOMAIN: hnlqltc.web.app
+      VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
+      VITE_FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
+      VITE_FIREBASE_MESSAGING_SENDER_ID: '119152410850'
+      VITE_FIREBASE_APP_ID: '1:119152410850:web:c2aee2135428af34ef5ebb'
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_HNL_AI_ENABLED: 'true'
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: 'c04e396ae98e7ac16cf9dcf83a63a243e45cd777'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Strict one-shot exact PR417 SHA and immutable PROD scope gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'lengochieu1211-sudo/hnl-qltc'
+          test "$GITHUB_REF" = refs/heads/main
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^2)" = 'c04e396ae98e7ac16cf9dcf83a63a243e45cd777' || { echo '::error::Expected exact PR417 merge'; exit 1; }
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
+          test "$(git merge-base 'b709f56fbba247d0e6a36a53b587ce61667e1bc1' HEAD)" = 'b709f56fbba247d0e6a36a53b587ce61667e1bc1'
+          diff -u <(printf '%s\n' \
+            '.github/workflows/hnl-prod-pr417-hosting-once-20261109.yml' \
+            'scripts/equipment-project-scope-golden.mjs' \
+            'scripts/stability-gate.mjs' \
+            'scripts/team-equipment-statistics-golden.mjs' \
+            'scripts/ui-entry-ux-golden.ts' \
+            'scripts/warehouse-handler-account-golden.mjs' \
+            'src/App.tsx' \
+            'src/components/CrewTabBase.tsx' \
+            'src/components/WarehouseTab.tsx' \
+            'src/utils/excelExport.ts' \
+            'src/utils/teamEquipmentIssues.ts' \
+            'src/utils/warehouseIssueScope.ts' | sort) <(git diff --name-only 'b709f56fbba247d0e6a36a53b587ce61667e1bc1' "$GITHUB_SHA" | sort)
+          test "$(git rev-parse HEAD:scripts/equipment-project-scope-golden.mjs)" = '053f335b0d01ac4a94fa6dd5159822db5663b292'
+          test "$(git rev-parse HEAD:scripts/stability-gate.mjs)" = 'ac67829921e1435f89a7dd892172a245e2851056'
+          test "$(git rev-parse HEAD:scripts/team-equipment-statistics-golden.mjs)" = 'a18e84c82cabcb90ca7a2ccd74d4c941c154f3fb'
+          test "$(git rev-parse HEAD:scripts/ui-entry-ux-golden.ts)" = '08706e64662ab68e4041a0984863b1fa6a0b3477'
+          test "$(git rev-parse HEAD:scripts/warehouse-handler-account-golden.mjs)" = '0bc50ade54c147cb6fb0fc345dcf51c5f1a5e473'
+          test "$(git rev-parse HEAD:src/App.tsx)" = '13f0bb3c4e84bbc0d2e7be4d78957aed92a7034c'
+          test "$(git rev-parse HEAD:src/components/CrewTabBase.tsx)" = '8b431b45f50f9e893f422e4aae08b55e403a2263'
+          test "$(git rev-parse HEAD:src/components/WarehouseTab.tsx)" = '30028dce781a4243dda7431d41d5052ce12bc156'
+          test "$(git rev-parse HEAD:src/utils/excelExport.ts)" = 'c7a31770db25c02de65ac7c2643575a57e19e572'
+          test "$(git rev-parse HEAD:src/utils/teamEquipmentIssues.ts)" = 'e956bc87481b3e975dcc276b4aadaf4fa879d607'
+          test "$(git rev-parse HEAD:src/utils/warehouseIssueScope.ts)" = '3d47ee75b9bc146d354b930b5221a5fb80c05b84'
+          test "$(git rev-parse HEAD:.firebaserc)" = '74d90dc97f07bba6e9c9c18b9d78a3fc51418128'
+          test "$(git rev-parse HEAD:firebase.prod.json)" = 'f1fd643bae6e7232300affe15c945ba4d579a962'
+          test "$(git rev-parse HEAD:firebase.json)" = '35328a4b8481d4825ebb7aab62fd9a6bda84ec2f'
+          test "$(git rev-parse HEAD:firestore.rules)" = '7cc080aa1b1ca87dea186c5037c7ab858d706689'
+          test "$(git rev-parse HEAD:storage.rules)" = '4d0b6daa44cd1b79ba4c98e164b52fbd122d5fa1'
+          test "$(git rev-parse HEAD:package.json)" = '66f34256215274d347c623350465e5a9a40ded93'
+          test "$(git rev-parse HEAD:package-lock.json)" = '39849efdb4fed79fbff3e1303c6dcf785dbf2fdc'
+          test "$(git rev-parse HEAD:src/components/CatalogTemplatePickerModal.tsx)" = '950151a7131e1fae04dd00579284c600d588baf0'
+          test "$(git rev-parse HEAD:src/components/EquipmentCatalogPanel.tsx)" = 'c66fef4d6f6659976fe7c6c95bc61f318d0432cc'
+          test "$(git rev-parse HEAD:src/utils/equipmentTemplateSource.ts)" = 'b557b57a9580e8fb7f613496815a41494d91f2c6'
+          test "$(git rev-parse HEAD:scripts/equipment-picker-golden.mjs)" = '86f8756c11f2eaa61f4f04731cab03d91084fe4c'
+          node - <<'NODE'
+          const f=require('./firebase.prod.json'),r=require('./.firebaserc');
+          const p=require('./package.json'),q=require('./package-lock.json');
+          if(Object.keys(f).join(',')!=='hosting'||f.hosting.site!=='hnlqltc'||f.hosting.public!=='dist')throw Error('Non-Hosting config');
+          if(r.projects.default!=='com-example-qlct-61329'||p.version!==q.version)throw Error('Project or lock drift');
+          console.log('Exact PR417 merge source and immutable PROD config PASS');
+          NODE
+          echo 'Hosting-only; CI previously PASS, physical runtime unverified (not CERTIFIED).'
+      - name: Verify existing encrypted PROD Firestore backup artifact (read-only, no restore)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 3 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/42454409151/artifacts?per_page=100" > "$RUNNER_TEMP/prod-backup-artifacts.json"
+          node - "$RUNNER_TEMP/prod-backup-artifacts.json" <<'NODE'
+          const f=require('fs'),x=JSON.parse(f.readFileSync(process.argv[2],'utf8'));
+          const a=(x.artifacts||[]).find(v=>v.id===13607746413);
+          if(!a||a.expired||a.name!=='HNL-PROD-FIRESTORE-READONLY-ENCRYPTED-20261108'||a.size_in_bytes!==22791712||a.digest!=='sha256:a9e7bfe342845639ba37950e43d203d266110137cd012d6c00d3e773bfcc48c4')throw Error('Missing/invalid current encrypted backup artifact');
+          console.log('Existing encrypted PROD snapshot integrity metadata PASS; RESTORE REHEARSAL SKIPPED BY OWNER');
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Targeted equipment and cross-feature regression, TypeScript and security gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/equipment-picker-golden.mjs
+          npm run test:excel-security
+          npm run test:stability
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run security:audit
+          npm run build
+          test -s dist/index.html
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA" || { echo '::error::Concurrent main move after build'; exit 1; }
+      - name: Back up existing PROD Hosting live as rollback preview, then deploy candidate preview
+        shell: bash
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+        run: |
+          set -euo pipefail
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}" || { echo '::error::Missing existing PROD Hosting service account'; exit 1; }
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/hnl-prod-stage2-sa.json"
+          umask 077
+          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          node - <<'NODE'
+          const a=require(process.env.GOOGLE_APPLICATION_CREDENTIALS);
+          if(a.type!=='service_account'||a.project_id!=='com-example-qlct-61329'||!a.client_email||!a.private_key)throw Error('Wrong Firebase credentials');
+          NODE
+          ROLLBACK_CHANNEL="pr417-rollback-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          PREVIEW_CHANNEL="pr417-stage2-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "ROLLBACK_CHANNEL=$ROLLBACK_CHANNEL" >> "$GITHUB_ENV"
+          echo "PREVIEW_CHANNEL=$PREVIEW_CHANNEL" >> "$GITHUB_ENV"
+          npx --yes firebase-tools@13.35.1 hosting:clone "hnlqltc:live" "hnlqltc:$ROLLBACK_CHANNEL" --project com-example-qlct-61329 --non-interactive
+          npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$PREVIEW_CHANNEL" --config firebase.prod.json --project com-example-qlct-61329 --expires 1d --non-interactive > "$RUNNER_TEMP/preview.txt"
+          cat "$RUNNER_TEMP/preview.txt"
+          PREVIEW_URL="$(grep -Eo 'https://hnlqltc--[A-Za-z0-9-]+\.web\.app' "$RUNNER_TEMP/preview.txt" | head -1 || true)"
+          test -n "$PREVIEW_URL" || { echo '::error::Unable to verify preview URL; PROD live untouched'; exit 1; }
+          PREVIEW_OK=0
+          for attempt in $(seq 1 18); do
+            if curl --fail --silent --show-error --max-time 15 "$PREVIEW_URL/?pr417=${GITHUB_RUN_ID}&attempt=$attempt" -o "$RUNNER_TEMP/pr417-preview-smoke.html" && grep -qi '<div id="root"' "$RUNNER_TEMP/pr417-preview-smoke.html"; then
+              PREVIEW_OK=1
+              break
+            fi
+            echo "Preview not ready yet ($attempt/18)"
+            sleep 5
+          done
+          test "$PREVIEW_OK" = 1 || { echo '::error::Preview unavailable after 18 checks; PROD live untouched'; exit 1; }
+          echo "Verified preview on existing PROD Hosting site: $PREVIEW_URL"
+      - name: Promote verified Hosting preview to existing PROD live, smoke and rollback on failure
+        shell: bash
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA" || { echo '::error::Main HEAD changed before live promotion'; exit 1; }
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/hnl-prod-stage2-sa.json"
+          umask 077
+          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          node -e "const a=require(process.env.GOOGLE_APPLICATION_CREDENTIALS);if(a.project_id!=='com-example-qlct-61329')process.exit(1)"
+          npx --yes firebase-tools@13.35.1 hosting:clone "hnlqltc:$PREVIEW_CHANNEL" hnlqltc:live --project com-example-qlct-61329 --non-interactive
+          set +e
+          curl --fail --silent --show-error --retry 4 --retry-delay 3 "https://hnlqltc.web.app/?pr417=${GITHUB_RUN_ID}" > "$RUNNER_TEMP/live.html"
+          HTTP_STATUS=$?
+          grep -qi '<div id="root"' "$RUNNER_TEMP/live.html"; HTML_STATUS=$?
+          set -e
+          if [ "$HTTP_STATUS" != 0 ] || [ "$HTML_STATUS" != 0 ]; then
+            echo '::error::Public PROD HTML smoke failed; automatic Hosting-only rollback starting'
+            npx --yes firebase-tools@13.35.1 hosting:clone "hnlqltc:$ROLLBACK_CHANNEL" hnlqltc:live --project com-example-qlct-61329 --non-interactive
+            exit 1
+          fi
+          echo 'PROD HOSTING STAGE2 PR417 LIVE PUBLIC SMOKE PASS; authenticated multi-user Runtime Golden remains PENDING (not CERTIFIED)'
