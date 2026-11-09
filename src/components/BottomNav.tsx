@@ -144,7 +144,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 style={navButtonStyle}
                 title={tab.badge !== undefined && tab.badge > 0 ? `${tab.label}: ${tab.badge} ${tab.badgeLabel || ''}` : tab.label}
                 aria-label={tab.label}
-                className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-2xl px-1 transition active:scale-[0.97] active:opacity-80 ${active ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}
+                className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-lg px-1 transition active:scale-[0.97] active:opacity-80 ${active ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}
               >
                 <span className="relative">
                   <Icon className={`h-5 w-5 ${active ? 'scale-110' : 'group-hover:scale-105'} transition-transform`} />
@@ -158,17 +158,17 @@ export const BottomNav: React.FC<BottomNavProps> = ({
           })}
 
           {showChecklist && (
-            <button type="button" data-hnl-nav-tab="checklist" onPointerEnter={() => onPreloadTab?.('checklist')} onPointerDown={() => previewTab('checklist')} onClick={() => activate('checklist')} style={navButtonStyle} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-2xl px-1 transition active:scale-[0.97] active:opacity-80 ${activeTab === 'checklist' || pressedTab === 'checklist' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title="Checklist">
+            <button type="button" data-hnl-nav-tab="checklist" onPointerEnter={() => onPreloadTab?.('checklist')} onPointerDown={() => previewTab('checklist')} onClick={() => activate('checklist')} style={navButtonStyle} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-lg px-1 transition active:scale-[0.97] active:opacity-80 ${activeTab === 'checklist' || pressedTab === 'checklist' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title="Checklist">
               <ClipboardCheck className="h-5 w-5" /><span className="text-[9px] font-bold">Checklist</span>
             </button>
           )}
 
-          <button type="button" data-hnl-nav-tab="chat" onPointerEnter={() => onPreloadTab?.('chat')} onPointerDown={() => previewTab('chat')} onClick={() => activate('chat')} style={navButtonStyle} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-2xl px-1 transition active:scale-[0.97] active:opacity-80 ${activeTab === 'chat' || pressedTab === 'chat' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title="Trao đổi">
+          <button type="button" data-hnl-nav-tab="chat" onPointerEnter={() => onPreloadTab?.('chat')} onPointerDown={() => previewTab('chat')} onClick={() => activate('chat')} style={navButtonStyle} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-lg px-1 transition active:scale-[0.97] active:opacity-80 ${activeTab === 'chat' || pressedTab === 'chat' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title="Trao đổi">
             <span className="relative"><MessageCircle className="h-5 w-5" />{renderBadge(chatBadgeCount, 'tin chưa đọc')}</span><span className="text-[9px] font-bold">Trao đổi</span>
           </button>
 
           {showAi && (
-            <button type="button" data-hnl-nav-tab="ai" onPointerEnter={() => onPreloadTab?.('ai')} onPointerDown={() => previewTab('ai')} onClick={() => activate('ai')} style={navButtonStyle} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-2xl px-1 transition active:scale-[0.97] active:opacity-80 ${activeTab === 'ai' || pressedTab === 'ai' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title="Trợ lý HNL AI">
+            <button type="button" data-hnl-nav-tab="ai" onPointerEnter={() => onPreloadTab?.('ai')} onPointerDown={() => previewTab('ai')} onClick={() => activate('ai')} style={navButtonStyle} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-lg px-1 transition active:scale-[0.97] active:opacity-80 ${activeTab === 'ai' || pressedTab === 'ai' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title="Trợ lý HNL AI">
               <Sparkles className="h-5 w-5" /><span className="text-[9px] font-bold">HNL AI</span>
             </button>
           )}
@@ -176,11 +176,11 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 
         <div data-hnl-desktop-footer="true" className="space-y-1 border-t border-slate-200 px-1.5 py-2">
           {showSuperAdmin && (
-            <button type="button" data-hnl-nav-tab="superadmin" onPointerEnter={() => onPreloadTab?.('superadmin')} onPointerDown={() => previewTab('superadmin')} onClick={() => activate('superadmin')} style={navButtonStyle} className={`flex min-h-[58px] w-full flex-col items-center justify-center gap-1 rounded-2xl transition active:scale-[0.97] active:opacity-80 ${activeTab === 'superadmin' || pressedTab === 'superadmin' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-200' : 'text-amber-700 hover:bg-amber-50'}`} title="Quản trị hệ thống">
+            <button type="button" data-hnl-nav-tab="superadmin" onPointerEnter={() => onPreloadTab?.('superadmin')} onPointerDown={() => previewTab('superadmin')} onClick={() => activate('superadmin')} style={navButtonStyle} className={`flex min-h-[58px] w-full flex-col items-center justify-center gap-1 rounded-lg transition active:scale-[0.97] active:opacity-80 ${activeTab === 'superadmin' || pressedTab === 'superadmin' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-200' : 'text-amber-700 hover:bg-amber-50'}`} title="Quản trị hệ thống">
               <ShieldCheck className="h-5 w-5" /><span className="text-[8.5px] font-bold">Hệ thống</span>
             </button>
           )}
-          <button type="button" data-hnl-nav-tab="config" onPointerEnter={() => onPreloadTab?.('config')} onPointerDown={() => previewTab('config')} onClick={() => activate('config')} style={navButtonStyle} className={`flex min-h-[58px] w-full flex-col items-center justify-center gap-1 rounded-2xl transition active:scale-[0.97] active:opacity-80 ${activeTab === 'config' || pressedTab === 'config' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title={t('config')}>
+          <button type="button" data-hnl-nav-tab="config" onPointerEnter={() => onPreloadTab?.('config')} onPointerDown={() => previewTab('config')} onClick={() => activate('config')} style={navButtonStyle} className={`flex min-h-[58px] w-full flex-col items-center justify-center gap-1 rounded-lg transition active:scale-[0.97] active:opacity-80 ${activeTab === 'config' || pressedTab === 'config' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title={t('config')}>
             <Settings className="h-5 w-5" /><span className="text-[9px] font-bold">{t('config')}</span>
           </button>
         </div>

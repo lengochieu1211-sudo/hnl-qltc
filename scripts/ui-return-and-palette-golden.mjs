@@ -842,3 +842,22 @@ assert.ok(desktopHeightCss.includes('min-height: 44px') && desktopHeightCss.incl
   'At extremely short heights, retain scrollable fallback');
 assert.ok(!desktopHeightCss.includes('[data-hnl-nav-surface="mobile"]'), 'Mobile layout must not be modified');
 console.log('HNL DESKTOP NAV HEIGHT-AWARE COMPACT GOLDEN: PASS');
+
+
+// DEV 2026-11-09: Only the PC left rail active/hover highlight becomes a soft rectangle.
+// Keep spacing, heights, colors, icons, tab order and the mobile navigation unchanged.
+const railStart = desktopNav.indexOf('<aside data-hnl-nav-surface="desktop"');
+const mobileStart = desktopNav.indexOf('data-hnl-nav-surface="mobile"');
+assert.ok(railStart >= 0 && mobileStart > railStart, 'PC and mobile navigation must remain separate');
+const pcRailButtons = desktopNav.slice(railStart, mobileStart);
+const mobileRailButtons = desktopNav.slice(mobileStart);
+assert.equal((pcRailButtons.match(/\brounded-lg\b/g) || []).length, 6,
+  'All six desktop navigation buttons (main, optional and footer) use a mildly rounded rectangular highlight');
+assert.doesNotMatch(pcRailButtons, /\brounded-2xl\b/, 'No pill-like selected backgrounds remain on the PC left rail');
+assert.match(pcRailButtons, /bg-blue-50 text-blue-700/, 'Retain PC selected color');
+assert.match(pcRailButtons, /bg-amber-100 text-amber-800/, 'Retain Super Admin selected color');
+assert.match(pcRailButtons, /ring-1 ring-blue-100/, 'Retain selected outline');
+assert.match(mobileRailButtons, /rounded-2xl/, 'Mobile menu styles stay unchanged');
+assert.match(pcRailButtons, /min-h-\[62px\]/, 'PC main navigation height stays unchanged');
+assert.match(pcRailButtons, /min-h-\[58px\]/, 'PC footer navigation height stays unchanged');
+console.log('HNL PC SIDEBAR ACTIVE RECT GOLDEN: PASS');
