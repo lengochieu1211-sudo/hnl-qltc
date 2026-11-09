@@ -3,6 +3,7 @@ import { InventoryItem, WorkVolume, DefectItem, ChecklistItem, FloorPlan, RoomPr
 import { getDefectOverdueInfo } from './defectUtils';
 import { isTeamMatch, calculateTeamStatistics } from './teamUtils';
 import { computeTeamMaterialReconciliation } from './teamMaterialReconciliation';
+import { computeTeamEquipmentIssues, computeUnassignedTeamEquipmentIssues } from './teamEquipmentIssues';
 import { calculateStockSummary, resolveNormMaterialId } from './inventoryUtils';
 import { formatDateDDMMYYYY, formatDateTime } from './dateFormatter';
 import { saveWorkbookFile } from './fileExport';
@@ -1053,6 +1054,72 @@ export function exportWorkVolumesTemplate(workVolumes?: WorkVolume[], projectNam
   return saveWorkbookFile(wb, `Khoi_Luong_Thi_Cong_${safeName}.xlsx`);
 }
 
+/** Reuse exactly the same project-wide equipment calculation as Team Statistics UI.
+ * Never label total OUT as "currently held": no complete return/transfer ledger exists. */
+function appendTeamEquipmentExcelSheets(
+  wb: XLSX.WorkBook,
+  teams: TeamInfo[],
+  inventory: InventoryItem[],
+  includeUnassigned: boolean,
+): void {
+  const buckets = teams.map((team) => ({
+    id: team.id, teamName: team.name, assigned: true,
+    lines: computeTeamEquipmentIssues(team.id, inventory),
+  }));
+  if (includeUnassigned) {
+    buckets.push({
+      id: '', teamName: 'Chưa gán đội / Mã đội không hợp lệ', assigned: false,
+      lines: computeUnassignedTeamEquipmentIssues(inventory, teams.map((team) => team.id)),
+    });
+  }
+
+  const summaries: Record<string, string | number>[] = [];
+  const vouchers: Record<string, string | number>[] = [];
+  buckets.forEach((bucket) => bucket.lines.forEach((line) => {
+    summaries.push({
+      'STT': summaries.length + 1, '__teamId': bucket.id,
+      'Đội Thi Công': bucket.teamName,
+      'Tên Thiết Bị': line.equipmentName,
+      'ĐVT': line.unit,
+      'Tổng Đã Cấp (Không Phải Đang Giữ)': line.issuedQty,
+      'Số Phiếu Xuất': line.voucherCount,
+      'Liên Kết Đội': bucket.assigned ? 'Đã gán theo mã đội' : 'Chưa xác định đội nhận',
+    });
+    line.vouchers.forEach((voucher) => {
+      vouchers.push({
+        'STT': vouchers.length + 1, '__teamId': bucket.id,
+        'Đội Thi Công': bucket.teamName,
+        'Tên Thiết Bị': line.equipmentName,
+        'ĐVT': line.unit,
+        'Số Lượng Đã Xuất': voucher.quantity,
+        'Ngày Xuất': voucher.date ? formatDateDDMMYYYY(voucher.date) : '',
+        'Mã Phiếu': voucher.id,
+        'Người Giao / Nhận': voucher.handler,
+        'Vị Trí Kho': voucher.location,
+        'Ghi Chú': voucher.notes,
+        'Liên Kết Đội': bucket.assigned ? 'Đã gán theo mã đội' : 'Chưa xác định đội nhận',
+      });
+    });
+  }));
+  if (!summaries.length) summaries.push({
+    'STT': 1, '__teamId': '', 'Đội Thi Công': '-',
+    'Tên Thiết Bị': 'Chưa có phiếu xuất thiết bị được gán cho đội',
+    'ĐVT': '', 'Tổng Đã Cấp (Không Phải Đang Giữ)': 0,
+    'Số Phiếu Xuất': 0, 'Liên Kết Đội': '-',
+  });
+  if (!vouchers.length) vouchers.push({
+    'STT': 1, '__teamId': '', 'Đội Thi Công': '-', 'Tên Thiết Bị': 'Chưa có phiếu',
+    'ĐVT': '', 'Số Lượng Đã Xuất': 0, 'Ngày Xuất': '', 'Mã Phiếu': '',
+    'Người Giao / Nhận': '', 'Vị Trí Kho': '', 'Ghi Chú': '', 'Liên Kết Đội': '-',
+  });
+  const wsSummary = XLSX.utils.json_to_sheet(summaries);
+  autoFitColumns(wsSummary);
+  XLSX.utils.book_append_sheet(wb, wsSummary, '07-Thiết bị đã cấp');
+  const wsVouchers = XLSX.utils.json_to_sheet(vouchers);
+  autoFitColumns(wsVouchers);
+  XLSX.utils.book_append_sheet(wb, wsVouchers, '08-Lịch sử cấp thiết bị');
+}
+
 export function exportTeamStatisticsToExcel(params: {
   teams: TeamInfo[];
   roomProgressList: RoomProgressItem[];
@@ -1063,6 +1130,8 @@ export function exportTeamStatisticsToExcel(params: {
   selectedTeamName?: string;
   workVolumes?: WorkVolume[];
   inventory?: InventoryItem[];
+  /** Full-project inventory (equipment is never filtered by floor/room/Khu). */
+  equipmentInventory?: InventoryItem[];
   materialNorms?: MaterialNorm[];
 }) {
   const wb = XLSX.utils.book_new();
@@ -1268,6 +1337,7 @@ export function exportTeamStatisticsToExcel(params: {
     const ws6 = XLSX.utils.json_to_sheet(materialRows);
     autoFitColumns(ws6);
     XLSX.utils.book_append_sheet(wb, ws6, '06-Vật tư đối chiếu');
+    appendTeamEquipmentExcelSheets(wb, [team], params.equipmentInventory || params.inventory || [], false);
 
     const safeProj = projectNameStr.replace(/[^a-zA-Z0-9_ -]/g, '');
     const safeTeam = team.name.replace(/[^a-zA-Z0-9_ -]/g, '');
@@ -1275,7 +1345,7 @@ export function exportTeamStatisticsToExcel(params: {
     return;
   }
 
-  // Multi-team report: keep the same six operational views as "Xuất Excel Đội Này",
+  // Multi-team report: preserve six existing views and add two equipment read-only sheets,
   // but aggregate every team into shared sheets and add a Team column for filtering.
   const summaryData = activeTeams.map((team, idx) => {
     const stat = teamStatsMap[team.id];
@@ -1506,6 +1576,7 @@ export function exportTeamStatisticsToExcel(params: {
   const wsMaterials = XLSX.utils.json_to_sheet(materialRows);
   autoFitColumns(wsMaterials);
   XLSX.utils.book_append_sheet(wb, wsMaterials, '06-Vật tư đối chiếu');
+  appendTeamEquipmentExcelSheets(wb, activeTeams, params.equipmentInventory || params.inventory || [], true);
 
   const safeName = projectNameStr.replace(/[^a-zA-Z0-9_ -]/g, '');
   return saveWorkbookFile(wb, `Thong_Ke_Doi_Thi_Cong_${safeName}_${Date.now()}.xlsx`);
