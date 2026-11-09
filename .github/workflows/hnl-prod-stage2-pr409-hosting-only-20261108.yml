@@ -70,7 +70,7 @@ jobs:
           test "$GITHUB_REPOSITORY" = 'lengochieu1211-sudo/hnl-qltc'
           test "$GITHUB_REF" = 'refs/heads/main'
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD^)" = "$APP" || { echo '::error::Release main parent must be exact PR409 merge SHA'; exit 1; }
+          test "$(git rev-parse HEAD^)" = 'ef69585d3e3a6ae4798b4ce499200193af405134' || { echo '::error::Release parent differs from approved workflow HEAD'; exit 1; }
           test "$(git diff --name-only "$APP" HEAD)" = "$WORKFLOW" || { echo '::error::Release workflow commit must change only itself'; exit 1; }
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA" || { echo '::error::Main HEAD moved'; exit 1; }
           diff -u <(printf '%s\n' \
@@ -160,7 +160,16 @@ jobs:
           cat "$RUNNER_TEMP/preview.txt"
           PREVIEW_URL="$(grep -Eo 'https://hnlqltc--[A-Za-z0-9-]+\.web\.app' "$RUNNER_TEMP/preview.txt" | head -1 || true)"
           test -n "$PREVIEW_URL" || { echo '::error::Unable to verify preview URL; PROD live untouched'; exit 1; }
-          curl --fail --silent --show-error --retry 3 "$PREVIEW_URL/?pr409=${GITHUB_RUN_ID}" | grep -qi '<div id="root"' || { echo '::error::Candidate preview failed; PROD live untouched'; exit 1; }
+          PREVIEW_OK=0
+          for attempt in $(seq 1 18); do
+            if curl --fail --silent --show-error --max-time 15 "$PREVIEW_URL/?pr409=${GITHUB_RUN_ID}&attempt=$attempt" -o "$RUNNER_TEMP/pr409-preview-smoke.html" && grep -qi '<div id="root"' "$RUNNER_TEMP/pr409-preview-smoke.html"; then
+              PREVIEW_OK=1
+              break
+            fi
+            echo "Preview not ready yet ($attempt/18)"
+            sleep 5
+          done
+          test "$PREVIEW_OK" = 1 || { echo '::error::Preview unavailable after 18 checks; PROD live untouched'; exit 1; }
           echo "Verified preview on existing PROD Hosting site: $PREVIEW_URL"
       - name: Promote verified Hosting preview to existing PROD live, smoke and rollback on failure
         shell: bash
