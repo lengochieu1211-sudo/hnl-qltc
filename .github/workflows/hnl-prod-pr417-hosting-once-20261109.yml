@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   deploy_prod_stage2:
-    if: ${{ github.repository == 'lengochieu1211-sudo/hnl-qltc' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release(prod): PR417 equipment warehouse trio') }}
+    if: ${{ github.repository == 'lengochieu1211-sudo/hnl-qltc' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release-prod-PR417 equipment warehouse trio') }}
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 75
