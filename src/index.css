@@ -575,6 +575,14 @@ html[data-hnl-theme="dark"] .hnl-crew-report-table tfoot td {
 }
 
 
+/* DEV 2026-11-09: distribute unused vertical rail space between visible tabs.
+ * Footer stays fixed; when menu overflows, flex spacing safely collapses to start.
+ * Only the desktop primary nav is affected, never phone/tablet navigation.
+ */
+[data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] {
+  justify-content: space-evenly;
+}
+
 /* DEV 2026-11-09: balanced, height-aware desktop navigation density.
  * On ~720-820px windows keep enough air between icons to prevent crowding.
  * Only compress further on genuinely short windows; retain scroll fallback.
@@ -624,6 +632,7 @@ html[data-hnl-theme="dark"] .hnl-crew-report-table tfoot td {
 }
 @media (max-height: 560px) {
   [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] {
+    justify-content: flex-start;
     gap: 2px;
   }
   [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button {
