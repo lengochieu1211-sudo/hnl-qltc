@@ -18,6 +18,7 @@ import {
 } from '../../lib/chatService';
 import { isPresenceConfigured, setTyping, startPresence } from '../../lib/presenceService';
 import { createEntityId } from '../../utils/idUtils';
+import { calculatePcChatRoomHeight } from '../../utils/pcChatRoomHeight';
 import { getChatUnreadCount } from '../../utils/chatUnread';
 import type { ChatAttachment, ProjectChatMessage } from './types';
 import { UnreadBadge } from './UnreadBadge';
@@ -120,6 +121,8 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
   const [lastMessageAt, setLastMessageAt] = useState(0);
   const [messageCount, setMessageCount] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const chatRoomRef = useRef<HTMLDivElement | null>(null);
+  const [pcChatRoomHeight, setPcChatRoomHeight] = useState<number | null>(null);
   const typingTimer = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const draftClientIdRef = useRef<string>(createEntityId('msg'));
@@ -133,6 +136,49 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
   );
   const user = getCurrentRealFirebaseUser();
   const unread = getChatUnreadCount(messageCount, lastReadMessageCount, lastMessageAt, lastReadAt);
+
+  // PC only: fit the Chat composer inside the ACTUAL visible space after the
+  // workspace header / sync banners. The old fixed -112px remains unchanged on phones.
+  useEffect(() => {
+    if (view !== 'room') { setPcChatRoomHeight(null); return; }
+    let frame = 0;
+    const measure = () => {
+      const rail = document.querySelector<HTMLElement>('[data-hnl-nav-surface="desktop"]');
+      const room = chatRoomRef.current;
+      if (!room || !rail || window.getComputedStyle(rail).display === 'none') {
+        setPcChatRoomHeight(null);
+        return;
+      }
+      const viewport = window.visualViewport;
+      const visibleBottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight;
+      setPcChatRoomHeight(calculatePcChatRoomHeight(visibleBottom, room.getBoundingClientRect().top));
+    };
+    const schedule = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(measure);
+    };
+    schedule();
+    window.addEventListener('resize', schedule);
+    window.visualViewport?.addEventListener('resize', schedule);
+    const shell = document.querySelector('[data-hnl-app-shell="true"]');
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null;
+    for (const element of [
+      shell?.firstElementChild,
+      document.querySelector('[data-hnl-pc-workspace-title]'),
+      document.querySelector('[data-hnl-offline-banner]'),
+      document.querySelector('[data-hnl-cross-module-return]'),
+    ]) if (element) observer?.observe(element);
+    // A sync banner or contextual return can be mounted after Chat is opened.
+    const shellChanges = typeof MutationObserver !== 'undefined' ? new MutationObserver(schedule) : null;
+    if (shell) shellChanges?.observe(shell, { childList: true });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener('resize', schedule);
+      window.visualViewport?.removeEventListener('resize', schedule);
+      observer?.disconnect();
+      shellChanges?.disconnect();
+    };
+  }, [view, activeProjectId]);
 
   useEffect(() => startPresence(), []);
 
@@ -417,8 +463,9 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
 
   return (
     <div
+      ref={chatRoomRef}
       data-hnl-pc-v3-center="chat-room" data-hnl-pc-module="chat-room" className="max-w-3xl mx-auto flex flex-col bg-white sm:rounded-2xl sm:border sm:border-slate-200 sm:shadow-sm overflow-hidden"
-      style={{ height: `${Math.max(320, visualViewportHeight - 112)}px` }}
+      style={{ height: `${pcChatRoomHeight ?? Math.max(320, visualViewportHeight - 112)}px` }}
     >
       <div className="shrink-0 px-3 py-2.5 border-b border-slate-200 flex items-center justify-between gap-2 bg-white">
         <div className="flex items-center gap-2 min-w-0">

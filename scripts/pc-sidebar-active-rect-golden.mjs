@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+const nav = readFileSync('src/components/BottomNav.tsx', 'utf8');
+const railStart = nav.indexOf('<aside data-hnl-nav-surface="desktop"');
+const mobileStart = nav.indexOf('data-hnl-nav-surface="mobile"');
+assert.ok(railStart >= 0 && mobileStart > railStart, 'desktop/mobile rail boundaries must exist');
+const pc = nav.slice(railStart, mobileStart), mobile = nav.slice(mobileStart);
+assert.equal((pc.match(/\brounded-lg\b/g) || []).length, 6, 'desktop buttons must be rectangular');
+assert.doesNotMatch(pc, /\brounded-2xl\b/, 'desktop must not use pill-like active background');
+assert.match(mobile, /rounded-2xl/, 'mobile menu retains original styles');
+assert.match(pc, /min-h-\[62px\]/);
+assert.match(pc, /min-h-\[58px\]/);
+assert.match(pc, /bg-blue-50 text-blue-700/);
+assert.match(pc, /bg-amber-100 text-amber-800/);
+console.log('HNL PC SIDEBAR RECTANGULAR GOLDEN PASS');

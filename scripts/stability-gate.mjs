@@ -67,10 +67,19 @@ const offlineAccess = read('src/utils/offlineAccess.ts');
 const diagnostics = read('src/lib/runtimeDiagnostics.ts');
 const authHeader = read('src/components/GoogleAuthHeader.tsx');
 const contextBackButton = read('src/components/ContextBackButton.tsx');
+execFileSync(process.execPath, ['--experimental-strip-types', 'scripts/pc-chat-room-height-golden.mjs'], { stdio: 'inherit' });
+execFileSync(process.execPath, ['scripts/pc-sidebar-active-rect-golden.mjs'], { stdio: 'inherit' });
 const floorPlanDefect = read('src/components/FloorPlanDefectTab.tsx');
 const defectContactUtils = read('src/utils/defectContactUtils.ts');
 const crewTabBase = read('src/components/CrewTabBase.tsx');
 const chatTab = read('src/features/chat/ChatTab.tsx');
+const pcChatViewport = read('src/utils/pcChatRoomHeight.ts');
+if (!chatTab.includes('pcChatRoomHeight ?? Math.max(320, visualViewportHeight - 112)')
+  || !chatTab.includes("getComputedStyle(rail).display === 'none'")
+  || !chatTab.includes('calculatePcChatRoomHeight(visibleBottom, room.getBoundingClientRect().top)')
+  || !pcChatViewport.includes('Math.max(240, Math.floor(visibleViewportBottom - roomTop - 12))')) {
+  throw new Error('PC Chat must fit the visible viewport while leaving mobile and data unchanged');
+}
 const imageViewer = read('src/components/ImageViewerModal.tsx');
 const shareUtils = read('src/utils/shareUtils.ts');
 const fileExport = read('src/utils/fileExport.ts');
