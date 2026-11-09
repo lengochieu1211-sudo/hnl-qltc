@@ -826,10 +826,15 @@ assert.ok(desktopNav.includes('data-hnl-nav-surface="desktop"') && desktopNav.in
   'Desktop rail sections must remain independently targetable');
 assert.ok(desktopNav.includes('data-hnl-nav-surface="mobile"') && desktopNav.includes("forceDesktopRail ? 'hidden' : 'lg:hidden'"),
   'Mobile bottom bar and desktop force-rail behavior must remain intact');
-const desktopHeightCss = desktopCss.slice(desktopCss.indexOf('/* DEV 2026-11-09: height-aware desktop navigation density.'));
+const desktopHeightCss = desktopCss.slice(desktopCss.indexOf('/* DEV 2026-11-09: balanced, height-aware desktop navigation density.'));
 assert.match(desktopHeightCss, /@media \(max-height: 820px\)/, 'Compact rail must activate only for short viewports');
 assert.match(desktopHeightCss, /@media \(max-height: 680px\)/, 'Shorter desktop rail needs an extra compact tier');
-assert.ok(desktopHeightCss.includes('min-height: 50px') && desktopHeightCss.includes('min-height: 44px') && desktopHeightCss.includes('gap: 2px'),
-  'Preserve readable and pointer-accessible item targets while reducing rail spacing');
+assert.match(desktopHeightCss, /@media \(max-height: 560px\)/, 'Very short windows need a controlled fallback tier');
+assert.ok(desktopHeightCss.includes('min-height: 58px') && desktopHeightCss.includes('min-height: 54px') && desktopHeightCss.includes('gap: 4px'),
+  'At 681-820px, menu must remain roomy rather than over-compressed');
+assert.ok(desktopHeightCss.includes('min-height: 52px') && desktopHeightCss.includes('gap: 3px'),
+  'At 561-680px, keep touch targets readable with moderate compression');
+assert.ok(desktopHeightCss.includes('min-height: 44px') && desktopHeightCss.includes('gap: 2px'),
+  'At extremely short heights, retain scrollable fallback');
 assert.ok(!desktopHeightCss.includes('[data-hnl-nav-surface="mobile"]'), 'Mobile layout must not be modified');
 console.log('HNL DESKTOP NAV HEIGHT-AWARE COMPACT GOLDEN: PASS');

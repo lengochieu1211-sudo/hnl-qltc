@@ -575,18 +575,19 @@ html[data-hnl-theme="dark"] .hnl-crew-report-table tfoot td {
 }
 
 
-/* DEV 2026-11-09: height-aware desktop navigation density.
- * Do not change mobile navigation, desktop width, labels, icons or tab order.
- * Primary items remain in the scrollable middle area for exceptionally short windows.
+/* DEV 2026-11-09: balanced, height-aware desktop navigation density.
+ * On ~720-820px windows keep enough air between icons to prevent crowding.
+ * Only compress further on genuinely short windows; retain scroll fallback.
+ * Mobile rail, iconography, order and desktop width are unchanged.
  */
 @media (max-height: 820px) {
   [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] {
-    gap: 2px;
+    gap: 4px;
     padding-top: 6px;
     padding-bottom: 6px;
   }
   [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button {
-    min-height: 50px;
+    min-height: 58px;
     flex-shrink: 0;
   }
   [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] {
@@ -594,7 +595,7 @@ html[data-hnl-theme="dark"] .hnl-crew-report-table tfoot td {
     padding-bottom: 6px;
   }
   [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button {
-    min-height: 50px;
+    min-height: 54px;
   }
   [data-hnl-desktop-account-menu="true"] {
     padding-top: 6px;
@@ -607,14 +608,28 @@ html[data-hnl-theme="dark"] .hnl-crew-report-table tfoot td {
   }
 }
 @media (max-height: 680px) {
+  [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] {
+    gap: 3px;
+  }
+  [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button {
+    min-height: 52px;
+  }
+  [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button {
+    min-height: 50px;
+  }
+  [data-hnl-desktop-account-menu="true"] > button > span:first-child {
+    width: 36px;
+    height: 36px;
+  }
+}
+@media (max-height: 560px) {
+  [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] {
+    gap: 2px;
+  }
   [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button {
     min-height: 44px;
   }
   [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button {
     min-height: 44px;
-  }
-  [data-hnl-desktop-account-menu="true"] > button > span:first-child {
-    width: 36px;
-    height: 36px;
   }
 }
