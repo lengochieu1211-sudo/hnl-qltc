@@ -73,8 +73,7 @@ jobs:
             'src/components/WarehouseTab.tsx' \
             'src/utils/excelExport.ts' \
             'src/utils/teamEquipmentIssues.ts' \
-            'src/utils/warehouseIssueScope.ts' | sort)
-            <(git diff --name-only 'b709f56fbba247d0e6a36a53b587ce61667e1bc1' "$GITHUB_SHA" | sort)
+            'src/utils/warehouseIssueScope.ts' | sort) <(git diff --name-only 'b709f56fbba247d0e6a36a53b587ce61667e1bc1' "$GITHUB_SHA" | sort)
           test "$(git rev-parse HEAD:scripts/equipment-project-scope-golden.mjs)" = '053f335b0d01ac4a94fa6dd5159822db5663b292'
           test "$(git rev-parse HEAD:scripts/stability-gate.mjs)" = 'ac67829921e1435f89a7dd892172a245e2851056'
           test "$(git rev-parse HEAD:scripts/team-equipment-statistics-golden.mjs)" = 'a18e84c82cabcb90ca7a2ccd74d4c941c154f3fb'
