@@ -14,6 +14,7 @@ on:
       - 'src/utils/excelExport.ts'
       - 'src/utils/teamEquipmentIssues.ts'
       - 'src/utils/warehouseIssueScope.ts'
+      - '.github/workflows/hnl-prod-pr417-hosting-once-20261109.yml'
 permissions:
   contents: read
   actions: read
@@ -22,7 +23,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   deploy_prod_stage2:
-    if: ${{ github.repository == 'lengochieu1211-sudo/hnl-qltc' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release-prod-PR417 equipment warehouse trio') }}
+    if: ${{ github.repository == 'lengochieu1211-sudo/hnl-qltc' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release-prod-PR417 retry Hosting-only') }}
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 75
@@ -58,7 +59,7 @@ jobs:
           test "$GITHUB_REPOSITORY" = 'lengochieu1211-sudo/hnl-qltc'
           test "$GITHUB_REF" = refs/heads/main
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD^2)" = 'c04e396ae98e7ac16cf9dcf83a63a243e45cd777' || { echo '::error::Expected exact PR417 merge'; exit 1; }
+          test "$(git rev-parse HEAD^)" = '9c87548bac8726ba01950337e588f2f20159edf9' || { echo '::error::Expected exact pre-retry PR417 main'; exit 1; }
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
           test "$(git merge-base 'b709f56fbba247d0e6a36a53b587ce61667e1bc1' HEAD)" = 'b709f56fbba247d0e6a36a53b587ce61667e1bc1'
           diff -u <(printf '%s\n' \
@@ -97,7 +98,7 @@ jobs:
           test "$(git rev-parse HEAD:src/utils/equipmentTemplateSource.ts)" = 'b557b57a9580e8fb7f613496815a41494d91f2c6'
           test "$(git rev-parse HEAD:scripts/equipment-picker-golden.mjs)" = '86f8756c11f2eaa61f4f04731cab03d91084fe4c'
           node - <<'NODE'
-          const f=require('./firebase.prod.json'),r=require('./.firebaserc');
+          const fs=require('fs'),f=require('./firebase.prod.json'),r=JSON.parse(fs.readFileSync('.firebaserc','utf8'));
           const p=require('./package.json'),q=require('./package-lock.json');
           if(Object.keys(f).join(',')!=='hosting'||f.hosting.site!=='hnlqltc'||f.hosting.public!=='dist')throw Error('Non-Hosting config');
           if(r.projects.default!=='com-example-qlct-61329'||p.version!==q.version)throw Error('Project or lock drift');
