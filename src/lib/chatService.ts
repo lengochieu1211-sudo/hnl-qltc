@@ -102,6 +102,8 @@ async function commitProjectMessage(input: SendMessageInput, persistOutbox: bool
       id: conversationId,
       projectId: input.projectId,
       lastMessageAt: serverTimestamp(),
+      // Firestore Rules P21.72/P21.97 bind the summary to this exact message in the same batch.
+      lastMessageId: messageId,
       lastMessageText: cleanText.slice(0, 180),
       lastSenderUid: user.uid,
       lastSenderName: user.displayName || user.email,
