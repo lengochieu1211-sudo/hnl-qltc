@@ -19,8 +19,15 @@ for (const scope of ['floorplan', 'crew', 'warehouse', 'checklist', 'settings-ce
 }
 assert.match(css, /\[data-hnl-workspace-module="floorplan"\] \[data-hnl-pc-region="commands"\] \{\s*display: block;/,
   'Floor plan commands must preserve nested toolbar layout');
-assert.doesNotMatch(css, /(?:canvas|transform|zoom|z-index|pointer-events)\s*:/,
-  'Compact layer must not mutate plan/media geometry or modal input semantics');
+// A known V3.5 settings-sheet centering rule uses transform safely. Verify its
+// exact selectors and value, then exclude ONLY that single declaration from
+// the broad geometry/mouse safety guard. All other transforms remain forbidden.
+assert.match(css,
+  /html\[data-hnl-pc-workspace="modern"\] :is\(\s*\[data-hnl-settings-sheet="formatting-settings-card"\],\s*\[data-hnl-settings-sheet="image-quality-card"\]\s*\)\s*\{[^}]*transform:\s*translate\(-50%,\s*-50%\);/,
+  'Only the two short settings sheets may use this centered modal transform');
+const geometrySafeCss = css.replace(/^\s*transform:\s*translate\(-50%,\s*-50%\);\s*$/m, '');
+assert.doesNotMatch(geometrySafeCss, /(?:canvas|transform|zoom|z-index|pointer-events)\s*:/,
+  'Compact layer must not mutate plan/media geometry or modal input semantics beyond the verified settings-sheet centering');
 assert.match(previous, /\.hnl-pc-breadcrumb \{\s*display: none !important;/);
 assert.match(read('src/styles/desktopWorkspace.css'), /--pc-nav:84px/);
 // PC V3.5 scrollbar/layout regression: scroll affordances stay visible, not

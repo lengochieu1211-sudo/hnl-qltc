@@ -71,6 +71,14 @@ const floorPlanDefect = read('src/components/FloorPlanDefectTab.tsx');
 const defectContactUtils = read('src/utils/defectContactUtils.ts');
 const crewTabBase = read('src/components/CrewTabBase.tsx');
 const chatTab = read('src/features/chat/ChatTab.tsx');
+const pcChatViewport = read('src/utils/pcChatRoomHeight.ts');
+if (!chatTab.includes('pcChatRoomHeight ?? Math.max(320, visualViewportHeight - 112)')
+  || !chatTab.includes("getComputedStyle(rail).display === 'none'")
+  || !chatTab.includes('calculatePcChatRoomHeight(visibleBottom, room.getBoundingClientRect().top)')
+  || !pcChatViewport.includes('Math.max(240, Math.floor(visibleViewportBottom - roomTop - 12))')) {
+  throw new Error('PC Chat must fit actual viewport while leaving mobile and Firestore unchanged');
+}
+
 const chatService = read('src/lib/chatService.ts');
 const imageViewer = read('src/components/ImageViewerModal.tsx');
 const shareUtils = read('src/utils/shareUtils.ts');
