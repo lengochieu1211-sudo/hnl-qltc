@@ -861,3 +861,33 @@ assert.match(mobileRailButtons, /rounded-2xl/, 'Mobile menu styles stay unchange
 assert.match(pcRailButtons, /min-h-\[62px\]/, 'PC main navigation height stays unchanged');
 assert.match(pcRailButtons, /min-h-\[58px\]/, 'PC footer navigation height stays unchanged');
 console.log('HNL PC SIDEBAR ACTIVE RECT GOLDEN: PASS');
+
+
+// DEV 2026-11-09: Verify actual PC highlighted area is SQUARE (not merely less rounded).
+const squareAnchor = '/* DEV 2026-11-09: exact-square desktop left-rail targets.';
+assert.ok(desktopCss.includes(squareAnchor), 'PC square shape styles must be present');
+const squareRule = desktopCss.slice(desktopCss.indexOf(squareAnchor));
+const primarySelector = '[data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button';
+const footerSelector = '[data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button';
+const parts = squareRule.split(/(?=@media \(max-height: (?:820|680|560)px\))/);
+assert.equal(parts.length, 4, 'Exactly three existing responsive height breakpoints must be preserved');
+const expectedSquareSizes = [
+  { primary: 62, footer: 58 },
+  { primary: 58, footer: 54 },
+  { primary: 52, footer: 50 },
+  { primary: 44, footer: 44 },
+];
+for (const [index, part] of parts.entries()) {
+  for (const [kind, selector] of [['primary', primarySelector], ['footer', footerSelector]]) {
+    const rule = part.slice(part.indexOf(selector));
+    assert.ok(part.includes(selector), `Missing desktop ${kind} selector in responsive tier ${index}`);
+    const width = /width:\s*(\d+)px/.exec(rule)?.[1];
+    const height = /height:\s*(\d+)px/.exec(rule)?.[1];
+    assert.equal(Number(width), expectedSquareSizes[index][kind], `Wrong ${kind} width in tier ${index}`);
+    assert.equal(Number(height), expectedSquareSizes[index][kind], `Wrong ${kind} height in tier ${index}`);
+    assert.equal(width, height, `PC ${kind} button must have a 1:1 aspect ratio in tier ${index}`);
+  }
+}
+assert.ok(squareRule.includes('margin-inline: auto;'), 'Footer square must remain horizontally centered');
+assert.ok(!squareRule.includes('data-hnl-nav-surface="mobile"'), 'Mobile must not inherit PC sizing');
+console.log('HNL DESKTOP NAV TRUE SQUARE GEOMETRY GOLDEN: PASS');
