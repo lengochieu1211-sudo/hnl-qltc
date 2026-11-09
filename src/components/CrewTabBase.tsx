@@ -4176,8 +4176,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   <div className="space-y-3" data-hnl-team-equipment-report="project-wide">
                     <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs text-blue-900">
                       <div className="font-extrabold">Thiết bị đã cấp cho {team.name} · Toàn dự án</div>
-                      <p className="mt-1 text-[11px]">{selectedTeamEquipmentIssues.length} loại thiết bị · {issuedEquipmentVoucherCount} phiếu xuất có mã đội nhận. Không lọc theo Khu/Khối, Tầng hoặc Căn/Phòng.</p>
-                      <p className="mt-1 text-[11px]">Đây là tổng số đã xuất theo chứng từ, <strong>không phải số thiết bị đội đang giữ</strong>. Phiếu chưa gán đội được thống kê riêng trong Excel tất cả đội.</p>
+                      <p className="mt-1 text-[11px]">{selectedTeamEquipmentIssues.length} loại thiết bị · {issuedEquipmentVoucherCount} phiếu xuất</p>
+                      <p className="mt-1 text-[11px]">Số liệu theo phiếu xuất, chưa trừ thiết bị thu hồi.</p>
                     </div>
                     {selectedTeamEquipmentIssues.length === 0 ? (
                       <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-xs text-slate-600">

@@ -128,7 +128,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
             onSignOut={onSignOut}
           />
         )}
-        <nav className="flex flex-1 flex-col items-center gap-1 overflow-y-auto px-1.5 py-2 no-scrollbar" aria-label="Điều hướng chính HNL QLTC">
+        <nav data-hnl-desktop-primary-nav="true" className="flex flex-1 flex-col items-center gap-1 overflow-y-auto px-1.5 py-2 no-scrollbar" aria-label="Điều hướng chính HNL QLTC">
           {desktopTabs.map((tab) => {
             const Icon = tab.icon;
             const active = activeTab === tab.id || pressedTab === tab.id;
@@ -174,7 +174,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
           )}
         </nav>
 
-        <div className="space-y-1 border-t border-slate-200 px-1.5 py-2">
+        <div data-hnl-desktop-footer="true" className="space-y-1 border-t border-slate-200 px-1.5 py-2">
           {showSuperAdmin && (
             <button type="button" data-hnl-nav-tab="superadmin" onPointerEnter={() => onPreloadTab?.('superadmin')} onPointerDown={() => previewTab('superadmin')} onClick={() => activate('superadmin')} style={navButtonStyle} className={`flex min-h-[58px] w-full flex-col items-center justify-center gap-1 rounded-2xl transition active:scale-[0.97] active:opacity-80 ${activeTab === 'superadmin' || pressedTab === 'superadmin' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-200' : 'text-amber-700 hover:bg-amber-50'}`} title="Quản trị hệ thống">
               <ShieldCheck className="h-5 w-5" /><span className="text-[8.5px] font-bold">Hệ thống</span>

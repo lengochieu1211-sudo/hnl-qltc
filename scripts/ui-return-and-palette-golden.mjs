@@ -817,3 +817,19 @@ assert.ok(crew.includes('visibleDayRecords') &&
   crew.includes('useEffect(() => { setCrewLogDrilldown(null); }, [projectId]);'),
   'Drilldown must be project-scoped, team-filtered and hide bulk delete actions');
 console.log('TEAM CREW ORIGINAL-LOG NAVIGATION AND RETURN GOLDEN PASS');
+
+
+// DEV 2026-11-09: Desktop rail compacts only by viewport height, leaving the mobile bar intact.
+const desktopNav = read('src/components/BottomNav.tsx');
+const desktopCss = read('src/index.css');
+assert.ok(desktopNav.includes('data-hnl-nav-surface="desktop"') && desktopNav.includes('data-hnl-desktop-primary-nav="true"') && desktopNav.includes('data-hnl-desktop-footer="true"'),
+  'Desktop rail sections must remain independently targetable');
+assert.ok(desktopNav.includes('data-hnl-nav-surface="mobile"') && desktopNav.includes("forceDesktopRail ? 'hidden' : 'lg:hidden'"),
+  'Mobile bottom bar and desktop force-rail behavior must remain intact');
+const desktopHeightCss = desktopCss.slice(desktopCss.indexOf('/* DEV 2026-11-09: height-aware desktop navigation density.'));
+assert.match(desktopHeightCss, /@media \(max-height: 820px\)/, 'Compact rail must activate only for short viewports');
+assert.match(desktopHeightCss, /@media \(max-height: 680px\)/, 'Shorter desktop rail needs an extra compact tier');
+assert.ok(desktopHeightCss.includes('min-height: 50px') && desktopHeightCss.includes('min-height: 44px') && desktopHeightCss.includes('gap: 2px'),
+  'Preserve readable and pointer-accessible item targets while reducing rail spacing');
+assert.ok(!desktopHeightCss.includes('[data-hnl-nav-surface="mobile"]'), 'Mobile layout must not be modified');
+console.log('HNL DESKTOP NAV HEIGHT-AWARE COMPACT GOLDEN: PASS');

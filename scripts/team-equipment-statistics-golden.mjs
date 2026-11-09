@@ -56,7 +56,8 @@ for(const marker of [
   'computeTeamEquipmentIssues(selectedTeamForDetail.id, inventory)',
   'equipmentInventory: inventory,',
   'inventory: structureScopedInventory,',
-  'không phải số thiết bị đội đang giữ',
+  'Số liệu theo phiếu xuất, chưa trừ thiết bị thu hồi.',
+  '{issuedEquipmentVoucherCount} phiếu xuất',
 ]) assert.ok(ui.includes(marker), `Team Statistics UI lost safety/route marker: ${marker}`);
 for(const marker of [
   'computeTeamEquipmentIssues(team.id, inventory)',
@@ -66,5 +67,6 @@ for(const marker of [
   "'07-Thiết bị đã cấp'", "'08-Lịch sử cấp thiết bị'",
   "'Mã Phiếu': voucher.id", "'Người Giao / Nhận': voucher.handler",
 ]) assert.ok(excel.includes(marker),`Team statistics Excel marker lost: ${marker}`);
+assert.ok(!ui.includes('Không lọc theo Khu/Khối, Tầng hoặc Căn/Phòng.'), 'redundant technical text must stay hidden');
 assert.equal(excel.match(/appendTeamEquipmentExcelSheets\(wb,/g)?.length,2, 'both single and all team exports require equipment sheets');
 console.log('TEAM EQUIPMENT STATISTICS GOLDEN PASS: exact team ID, full-project scope, 2 Excel views, legacy/duplicate/unit/safety cases');
