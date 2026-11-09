@@ -826,6 +826,10 @@ assert.ok(desktopNav.includes('data-hnl-nav-surface="desktop"') && desktopNav.in
   'Desktop rail sections must remain independently targetable');
 assert.ok(desktopNav.includes('data-hnl-nav-surface="mobile"') && desktopNav.includes("forceDesktopRail ? 'hidden' : 'lg:hidden'"),
   'Mobile bottom bar and desktop force-rail behavior must remain intact');
+const desktopSpaceRule = desktopCss.slice(desktopCss.indexOf('/* DEV 2026-11-09: distribute unused vertical rail space between visible tabs.'));
+assert.ok(desktopSpaceRule.includes('[data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"]'), 'only desktop primary rail is justified');
+assert.ok(desktopSpaceRule.includes('justify-content: space-evenly;'), 'free vertical space must be shared across tabs instead of leaving a large blank area above fixed footer');
+assert.ok(desktopSpaceRule.includes('justify-content: flex-start;'), 'tiny window must keep start alignment for overflow scrolling');
 const desktopHeightCss = desktopCss.slice(desktopCss.indexOf('/* DEV 2026-11-09: balanced, height-aware desktop navigation density.'));
 assert.match(desktopHeightCss, /@media \(max-height: 820px\)/, 'Compact rail must activate only for short viewports');
 assert.match(desktopHeightCss, /@media \(max-height: 680px\)/, 'Shorter desktop rail needs an extra compact tier');
