@@ -24,13 +24,13 @@ const normalize = (value: unknown): string => String(value ?? '').trim().replace
 
 /** Do not count reversed/deleted, IN, cross-project, external or ambiguous legacy transactions as issued to a team. */
 export function eligibleTeamEquipmentVoucher(item: InventoryItem): boolean {
-  const legacy = item as InventoryItem & { deleted?: boolean };
+  const legacy = item as InventoryItem & { deleted?: boolean; warehouseTransferId?: string };
   const qty = Number(item.quantity);
   return item.itemKind === 'equipment'
     && item.type === 'out'
     && (item.deletedAt === undefined || item.deletedAt === null)
     && legacy.deleted !== true
-    && !item.warehouseTransferId
+    && !legacy.warehouseTransferId
     && (item.issuePurpose === undefined || item.issuePurpose === 'project-work')
     && Number.isFinite(qty) && qty > 0
     && Boolean(normalize(item.materialName)) && Boolean(normalize(item.unit));
