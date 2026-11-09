@@ -1,0 +1,188 @@
+name: HNL QLTC PROD Stage2 PR409 Equipment - Hosting ONLY manual
+on:
+  workflow_dispatch:
+    inputs:
+      expected_main_sha:
+        description: 'Current exact main commit SHA after adding this workflow (40 hex)'
+        required: true
+        type: string
+      release_approval:
+        description: 'Type DEPLOY-PROD-PR409 to approve Hosting-only release'
+        required: true
+        type: string
+      runtime_risk_ack:
+        description: 'Type ACCEPT-UNVERIFIED-RUNTIME; CI PASS is NOT authenticated Runtime Golden'
+        required: true
+        type: string
+      restore_waiver:
+        description: 'Type RESTORE-SKIPPED-BY-OWNER (not PASS)'
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: hnl-qltc-prod-stage2-pr409-hosting
+  cancel-in-progress: false
+jobs:
+  deploy_prod_stage2:
+    if: github.repository == 'lengochieu1211-sudo/hnl-qltc' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 75
+    env:
+      VITE_APP_ENV: PROD
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_FIREBASE_API_KEY: AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY
+      VITE_FIREBASE_AUTH_DOMAIN: hnlqltc.web.app
+      VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
+      VITE_FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
+      VITE_FIREBASE_MESSAGING_SENDER_ID: '119152410850'
+      VITE_FIREBASE_APP_ID: '1:119152410850:web:c2aee2135428af34ef5ebb'
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_HNL_AI_ENABLED: 'true'
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: '774d701a7c59e8dcaf83526a7f9b664e03ee18e9'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify manual approval, exact merge parent, five app files and immutable config
+        shell: bash
+        run: |
+          set -euo pipefail
+          test '${{ inputs.release_approval }}' = 'DEPLOY-PROD-PR409'
+          test '${{ inputs.runtime_risk_ack }}' = 'ACCEPT-UNVERIFIED-RUNTIME'
+          test '${{ inputs.restore_waiver }}' = 'RESTORE-SKIPPED-BY-OWNER'
+          [[ '${{ inputs.expected_main_sha }}' =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_SHA" = '${{ inputs.expected_main_sha }}'
+          APP='774d701a7c59e8dcaf83526a7f9b664e03ee18e9'
+          BASE='4a33030614cd57dddcf3343eb96003262c71802b'
+          WORKFLOW='.github/workflows/hnl-prod-stage2-pr409-hosting-only-20261108.yml'
+          test "$GITHUB_REPOSITORY" = 'lengochieu1211-sudo/hnl-qltc'
+          test "$GITHUB_REF" = 'refs/heads/main'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = "$APP" || { echo '::error::Release main parent must be exact PR409 merge SHA'; exit 1; }
+          test "$(git diff --name-only "$APP" HEAD)" = "$WORKFLOW" || { echo '::error::Release workflow commit must change only itself'; exit 1; }
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA" || { echo '::error::Main HEAD moved'; exit 1; }
+          diff -u <(printf '%s\n' \
+            'scripts/equipment-picker-golden.mjs' \
+            'src/components/CatalogTemplatePickerModal.tsx' \
+            'src/components/EquipmentCatalogPanel.tsx' \
+            'src/components/WarehouseTab.tsx' \
+            'src/utils/equipmentTemplateSource.ts' | sort) \
+            <(git diff --name-only "$BASE" "$APP" | sort)
+          test "$(git rev-parse HEAD:src/components/WarehouseTab.tsx)" = '748dee8c7361ef13c27b87aa4dcfbd7a55b22d95'
+          test "$(git rev-parse HEAD:src/components/CatalogTemplatePickerModal.tsx)" = '950151a7131e1fae04dd00579284c600d588baf0'
+          test "$(git rev-parse HEAD:src/components/EquipmentCatalogPanel.tsx)" = 'c66fef4d6f6659976fe7c6c95bc61f318d0432cc'
+          test "$(git rev-parse HEAD:src/utils/equipmentTemplateSource.ts)" = 'b557b57a9580e8fb7f613496815a41494d91f2c6'
+          test "$(git rev-parse HEAD:scripts/equipment-picker-golden.mjs)" = '86f8756c11f2eaa61f4f04731cab03d91084fe4c'
+          test "$(git rev-parse HEAD:firebase.prod.json)" = 'f1fd643bae6e7232300affe15c945ba4d579a962'
+          test "$(git rev-parse HEAD:firebase.json)" = '35328a4b8481d4825ebb7aab62fd9a6bda84ec2f'
+          test "$(git rev-parse HEAD:.firebaserc)" = '74d90dc97f07bba6e9c9c18b9d78a3fc51418128'
+          test "$(git rev-parse HEAD:firestore.rules)" = '7cc080aa1b1ca87dea186c5037c7ab858d706689'
+          test "$(git rev-parse HEAD:storage.rules)" = '4d0b6daa44cd1b79ba4c98e164b52fbd122d5fa1'
+          test "$(git rev-parse HEAD:package.json)" = '66f34256215274d347c623350465e5a9a40ded93'
+          test "$(git rev-parse HEAD:package-lock.json)" = '39849efdb4fed79fbff3e1303c6dcf785dbf2fdc'
+          node - <<'NODE'
+          const f=require('./firebase.prod.json');
+          const fs=require('fs'),r=JSON.parse(fs.readFileSync('.firebaserc','utf8'));
+          const p=require('./package.json'),q=require('./package-lock.json');
+          if(Object.keys(f).join(',')!=='hosting'||f.hosting.site!=='hnlqltc'||f.hosting.public!=='dist')throw Error('Refuse non-Hosting config');
+          if(r.projects.default!=='com-example-qlct-61329'||p.version!==q.version)throw Error('Refuse project or lock drift');
+          console.log('Hosting-only target, immutable Rules and exact source PASS');
+          NODE
+          echo 'Firestore restore rehearsal WAIVED BY OWNER, NOT PASS. No Firestore/Storage/R2 deployment permitted.'
+      - name: Verify existing encrypted PROD Firestore backup artifact (read-only, no restore)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 3 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/42454409151/artifacts?per_page=100" > "$RUNNER_TEMP/prod-backup-artifacts.json"
+          node - "$RUNNER_TEMP/prod-backup-artifacts.json" <<'NODE'
+          const f=require('fs'),x=JSON.parse(f.readFileSync(process.argv[2],'utf8'));
+          const a=(x.artifacts||[]).find(v=>v.id===13607746413);
+          if(!a||a.expired||a.name!=='HNL-PROD-FIRESTORE-READONLY-ENCRYPTED-20261108'||a.size_in_bytes!==22791712||a.digest!=='sha256:a9e7bfe342845639ba37950e43d203d266110137cd012d6c00d3e773bfcc48c4')throw Error('Missing/invalid current encrypted backup artifact');
+          console.log('Existing encrypted PROD snapshot integrity metadata PASS; RESTORE REHEARSAL SKIPPED BY OWNER');
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Targeted equipment and cross-feature regression, TypeScript and security gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/equipment-picker-golden.mjs
+          npm run test:excel-security
+          npm run test:stability
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run security:audit
+          npm run build
+          test -s dist/index.html
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA" || { echo '::error::Concurrent main move after build'; exit 1; }
+      - name: Back up existing PROD Hosting live as rollback preview, then deploy candidate preview
+        shell: bash
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+        run: |
+          set -euo pipefail
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}" || { echo '::error::Missing existing PROD Hosting service account'; exit 1; }
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/hnl-prod-stage2-sa.json"
+          umask 077
+          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          node - <<'NODE'
+          const a=require(process.env.GOOGLE_APPLICATION_CREDENTIALS);
+          if(a.type!=='service_account'||a.project_id!=='com-example-qlct-61329'||!a.client_email||!a.private_key)throw Error('Wrong Firebase credentials');
+          NODE
+          ROLLBACK_CHANNEL="pr409-rollback-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          PREVIEW_CHANNEL="pr409-stage2-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "ROLLBACK_CHANNEL=$ROLLBACK_CHANNEL" >> "$GITHUB_ENV"
+          echo "PREVIEW_CHANNEL=$PREVIEW_CHANNEL" >> "$GITHUB_ENV"
+          npx --yes firebase-tools@13.35.1 hosting:clone "hnlqltc:live" "hnlqltc:$ROLLBACK_CHANNEL" --project com-example-qlct-61329 --non-interactive
+          npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$PREVIEW_CHANNEL" --config firebase.prod.json --project com-example-qlct-61329 --expires 1d --non-interactive > "$RUNNER_TEMP/preview.txt"
+          cat "$RUNNER_TEMP/preview.txt"
+          PREVIEW_URL="$(grep -Eo 'https://hnlqltc--[A-Za-z0-9-]+\.web\.app' "$RUNNER_TEMP/preview.txt" | head -1 || true)"
+          test -n "$PREVIEW_URL" || { echo '::error::Unable to verify preview URL; PROD live untouched'; exit 1; }
+          curl --fail --silent --show-error --retry 3 "$PREVIEW_URL/?pr409=${GITHUB_RUN_ID}" | grep -qi '<div id="root"' || { echo '::error::Candidate preview failed; PROD live untouched'; exit 1; }
+          echo "Verified preview on existing PROD Hosting site: $PREVIEW_URL"
+      - name: Promote verified Hosting preview to existing PROD live, smoke and rollback on failure
+        shell: bash
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA" || { echo '::error::Main HEAD changed before live promotion'; exit 1; }
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/hnl-prod-stage2-sa.json"
+          umask 077
+          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          node -e "const a=require(process.env.GOOGLE_APPLICATION_CREDENTIALS);if(a.project_id!=='com-example-qlct-61329')process.exit(1)"
+          npx --yes firebase-tools@13.35.1 hosting:clone "hnlqltc:$PREVIEW_CHANNEL" hnlqltc:live --project com-example-qlct-61329 --non-interactive
+          set +e
+          curl --fail --silent --show-error --retry 4 --retry-delay 3 "https://hnlqltc.web.app/?pr409=${GITHUB_RUN_ID}" > "$RUNNER_TEMP/live.html"
+          HTTP_STATUS=$?
+          grep -qi '<div id="root"' "$RUNNER_TEMP/live.html"; HTML_STATUS=$?
+          set -e
+          if [ "$HTTP_STATUS" != 0 ] || [ "$HTML_STATUS" != 0 ]; then
+            echo '::error::Public PROD HTML smoke failed; automatic Hosting-only rollback starting'
+            npx --yes firebase-tools@13.35.1 hosting:clone "hnlqltc:$ROLLBACK_CHANNEL" hnlqltc:live --project com-example-qlct-61329 --non-interactive
+            exit 1
+          fi
+          echo 'PROD HOSTING STAGE2 PR409 LIVE PUBLIC SMOKE PASS; authenticated multi-user Runtime Golden remains PENDING (not CERTIFIED)'
