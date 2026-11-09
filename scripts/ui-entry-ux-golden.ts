@@ -199,7 +199,8 @@ const materialNeedSortBlock = warehouse.slice(materialNeedSortStart, materialNee
 assert(materialNeedSortBlock.includes("{ key: 'material', label: 'Vật tư', kind: 'alpha', defaultOrder: 'asc' }") && materialNeedSortBlock.includes("{ key: 'category', label: 'Chủng loại vật tư', kind: 'alpha', defaultOrder: 'asc' }") && materialNeedSortBlock.includes("{ key: 'remaining', label: 'Còn cần theo phạm vi', kind: 'number', defaultOrder: 'desc' }") && materialNeedSortBlock.includes("{ key: 'deficit', label: 'Thiếu', kind: 'number', defaultOrder: 'desc' }") && materialNeedSortBlock.includes("{ key: 'stock', label: 'Tồn kho', kind: 'number', defaultOrder: 'desc' }") && materialNeedSortBlock.includes("setMaterialNeedSortBy('default'); setMaterialNeedSortOrder('asc')"), 'Material Need QuickSortBar must use intrinsic need-line semantics: Vật tư · Chủng loại vật tư · Còn cần theo phạm vi · Thiếu · Tồn kho · Mặc định');
 assert(!materialNeedSortBlock.includes("key: 'date'") && !materialNeedSortBlock.includes("label: 'Ngày'") && !materialNeedSortBlock.includes("key: 'location'") && !materialNeedSortBlock.includes("label: 'Vị trí / Tầng'") && !materialNeedSortBlock.includes("key: 'handler'") && !materialNeedSortBlock.includes("label: 'Người thực hiện'") && !materialNeedSortBlock.includes("label: 'Mới nhất'"), 'Material Need must not sort aggregate need rows by unrelated warehouse transaction date/location/handler/latest metadata');
 assert(!warehouse.includes('<ExpandCollapseButton'), 'Material Need must not activate the legacy custom floating-sheet implementation');
-assert(warehouse.includes('defaultHandler?: string;') && warehouse.includes("defaultHandler = ''"), 'Warehouse must accept project engineer as its default handler.');
+assert(warehouse.includes('defaultHandler?: string;') && warehouse.includes("defaultHandler = ''"), 'Warehouse still accepts project engineer only for legacy spreadsheet defaults.');
+assert(warehouse.includes('accountHandlerName?: string;') && warehouse.includes("accountHandlerName = ''"), 'Warehouse must accept the active signed-in account as editable voucher handler default.');
 assert(warehouse.includes('materialPickerSearch') && warehouse.includes('filteredMaterialNorms'), 'Warehouse create flow must provide searchable material selection.');
 assert(warehouse.includes('Tìm vật tư theo tên, chủng loại hoặc đơn vị...') && warehouse.includes('Tìm thiết bị...'), 'Warehouse material/equipment search placeholders must use the current category terminology.');
 assert(warehouse.includes('normalizeMaterialSearch') && warehouse.includes(".normalize('NFD')"), 'Warehouse material search must ignore Vietnamese accents/case.');
@@ -212,7 +213,10 @@ assert(warehouse.includes('const keepOpen = !editingInventory'), 'Warehouse save
 assert(!warehouse.includes("useState('Kho Tầng 1')"), 'Warehouse must not hard-code Kho Tầng 1 as a fake location default.');
 assert(!warehouse.includes("useState('Nguyễn Văn Hùng (Thủ kho)')"), 'Warehouse must not hard-code a fake warehouse handler.');
 assert(warehouse.includes("row['handler'] || defaultHandler || ''"), 'Warehouse Excel import must fall back to the configured project engineer, not a fake keeper.');
-assert(appSource.includes('defaultHandler={inspectorName}'), 'App must bind Cài đặt → Kỹ sư phụ trách to Warehouse Người Giao / Nhận.');
+assert(appSource.includes('defaultHandler={inspectorName}'), 'App retains Kỹ sư phụ trách only as the legacy import fallback.');
+assert(appSource.includes('accountHandlerName={resolveVerifiedIdentityLabel(') && appSource.includes('getCurrentRealFirebaseUser(),'), 'New warehouse voucher names must derive from active Firebase identity, not project metadata.');
+assert(warehouse.includes("setHandler(String(accountHandlerName || '').trim())"), 'Create form must prefill an editable account handler name.');
+assert(warehouse.includes("setHandler(item.handler || '');"), 'Edit form must preserve the historical handler without overwriting it from login.');
 
 
 const config = read('src/components/GoogleConfigTab.tsx');
@@ -349,9 +353,9 @@ assert(
 );
 assert((warehouse.includes('title="Danh mục kho"') || warehouse.includes("'Chi tiết nhập kho' : 'Chi tiết xuất kho') : 'Danh mục kho'")) && warehouse.includes("(['material', 'equipment'] as InventoryItemKind[]).map"), 'Warehouse must expose the combined Danh mục kho view with separate Vật tư/Thiết bị tabs without renaming material norms');
 assert(warehouse.includes('warehouseCatalogStockRows') && warehouse.includes('totalIn: Number(summary?.totalIn || 0)') && warehouse.includes("normQuantity: expectedKind === 'material' ? Number(summary?.normQuantity || 0) : null") && warehouse.includes('currentStock: Number(summary?.currentStock || 0)'), 'Danh mục kho must derive Nhập/Xuất/Định mức/Tồn read-only from the existing warehouse ledger/norm summaries');
-assert(warehouse.includes('Nhu cầu vật tư theo định mức') && warehouse.includes("warehouseCatalogTab === 'material' ? formatDecimal(item.normQuantity || 0) : '—'"), 'Danh mục kho must show total planned material norm while equipment stays outside norm logic');
+assert(warehouse.includes('Nhu cầu vật tư theo định mức') && warehouse.includes("warehouseCatalogTab === 'material' && <td className=\"px-2 py-0 text-right font-semibold text-indigo-700\">{formatDecimal(item.normQuantity || 0)}</td>") && warehouse.includes("catalogStockFormulas:warehouseCatalogTab === 'material'"), 'Danh mục kho must show planned norm for materials only; equipment report must not have material-norm formulas');
 assert(warehouse.includes('<th scope="col" className="px-2 py-0 text-right">Tồn kho</th>') && warehouse.includes('formatDecimal(item.currentStock)'), 'Danh mục kho must show current stock on both desktop and mobile layouts');
-assert(warehouse.includes('data-hnl-warehouse-catalog-table="auto-width"') && warehouse.includes('w-max min-w-full table-auto whitespace-nowrap'), 'Danh mục kho must keep all eight columns including % Nhập/ĐM available on mobile with enough width for Chủng loại vật tư and Nhu cầu định mức.');
+assert(warehouse.includes('data-hnl-warehouse-catalog-table="auto-width"') && warehouse.includes('w-max min-w-full table-auto whitespace-nowrap') && warehouse.includes("warehouseCatalogTab === 'material' ? 8 : 6"), 'Danh mục kho must retain all 8 material columns and use 6 equipment-only columns with mobile scrolling.');
 assert(warehouse.includes('onClick={() => openEditInventory(item)}') && warehouse.includes('title={`Sửa phiếu ${item.type'), 'Voucher edit action must keep its behavior and object-aware tooltip');
 assert(warehouse.includes('onClick={() => setDeletingInventoryTarget(item)}') && warehouse.includes('title={`Xóa phiếu ${item.type'), 'Voucher delete action must keep its behavior and object-aware tooltip');
 
@@ -399,8 +403,8 @@ assert(
   && !warehouse.includes('Tên vật tư khác'),
   'Explicit ADMIN-only material-create flow must replace legacy free-name input without breaking historical vouchers'
 );
-assert(warehouse.includes("itemKind === 'material' && issuePurpose === 'project-work' && finalIssueWorkCategoryId"), 'Equipment must never persist material work-category linkage');
-assert(warehouse.includes('Thiết bị được dùng lại ở các phiếu nhập/xuất nhưng không tham gia Định mức vật tư hoặc Gợi ý vật tư.'), 'Warehouse catalog must state the equipment/material-norm separation');
+assert(warehouse.includes('...buildWarehouseIssueScope(itemKind, issuePurpose, {') && read('src/utils/warehouseIssueScope.ts').includes("if (itemKind === 'equipment') return team;") && read('src/utils/warehouseIssueScope.ts').includes('sourceWorkCategoryId: links.sourceWorkCategoryId'), 'Equipment must never persist material work-category or room linkage while material allocation remains intact');
+assert(warehouse.includes('Thiết bị quản lý toàn công trình/dự án, không tính theo Căn/Phòng và không tham gia định mức vật tư.'), 'Warehouse catalog must state the project-wide equipment/material-norm separation');
 
 const equipmentCatalogUi = read('src/components/EquipmentCatalogPanel.tsx');
 const normEditorTextSize = materialNormModal.match(/<form onSubmit=\{handleSubmit\}[^>]*className="[^"]*\b(text-(?:xs|sm|base))\b/);

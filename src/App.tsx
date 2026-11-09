@@ -8197,6 +8197,10 @@ function AuthenticatedApp() {
               floorPlans={floorPlans}
               structureConfig={structureConfig}
               defaultHandler={inspectorName}
+              accountHandlerName={resolveVerifiedIdentityLabel(
+                getCurrentRealFirebaseUser(),
+                !isOnline ? getRememberedVerifiedAuthIdentity() : null,
+              )}
               onImportInventory={handleImportInventory}
               onImportNorms={handleImportNorms}
               onRenameWarehouseUnit={handleRenameWarehouseUnit}
