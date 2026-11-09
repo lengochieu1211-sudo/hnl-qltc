@@ -71,6 +71,7 @@ const floorPlanDefect = read('src/components/FloorPlanDefectTab.tsx');
 const defectContactUtils = read('src/utils/defectContactUtils.ts');
 const crewTabBase = read('src/components/CrewTabBase.tsx');
 const chatTab = read('src/features/chat/ChatTab.tsx');
+const chatService = read('src/lib/chatService.ts');
 const imageViewer = read('src/components/ImageViewerModal.tsx');
 const shareUtils = read('src/utils/shareUtils.ts');
 const fileExport = read('src/utils/fileExport.ts');
@@ -270,6 +271,24 @@ requireAll(crewTabBase, [
 requireAll(floorPlanDefect, ['tryHandleDefectPlacementEvent', 'relocatingDefectId', '<span>Di chuyển ghim</span>', 'const placement = getCandidateTeamsForDefect(', 'const roomAtPoint = placement.roomAtPos;', 'placement.roomAtPosTeam || defect.assignedTo', '...linkage'], 'Defect pin placement wins over room highlight hit-testing and explicit relocation recomputes durable linkage');
 requireAll(imageViewer, ['swipeStartRef', 'Math.abs(dx) < 48', 'handleNext()', 'handlePrev()'], 'image viewer supports one-finger horizontal gallery swipe while preserving pinch zoom');
 requireAll(chatTab, ['ensureDraftAttachmentsCloudReady', 'verifyPhotoBinaryReadyInCloud', 'Ảnh đang chờ đồng bộ Cloud/R2', 'ImageViewerModal', 'openMessageImageGallery'], 'chat shows Cloud state, blocks message publication until photo is durable, and opens multi-image gallery');
+// Real Chat send must match the stricter atomic Firestore Rules used by P21.72/P21.97.
+// Earlier emulator tests built a synthetic correct summary while the actual UI omitted lastMessageId.
+const chatCommitStart = chatService.indexOf('async function commitProjectMessage(');
+const chatCommitEnd = chatService.indexOf('function isPermanentChatSendError(', chatCommitStart);
+const chatCommitBody = chatService.slice(chatCommitStart, chatCommitEnd);
+const chatSummaryStart = chatCommitBody.indexOf('batch.set(conversationRef(');
+const chatSummaryEnd = chatCommitBody.indexOf('}, { merge: true });', chatSummaryStart);
+if (chatCommitStart < 0 || chatCommitEnd <= chatCommitStart || chatSummaryStart < 0 || chatSummaryEnd <= chatSummaryStart) {
+  fail('Chat atomic message + summary batch not found in actual send path');
+}
+const chatSummaryWrite = chatCommitBody.slice(chatSummaryStart, chatSummaryEnd);
+requireAll(chatSummaryWrite, ['lastMessageId: messageId', 'messageCount: increment(1)', 'lastMessageAt: serverTimestamp()', 'lastSenderUid: user.uid'], 'Chat send summary matches Firestore Rules');
+requireAll(firestoreRules, ["'lastMessageId' in request.resource.data", 'summaryAfter.lastMessageId == messageId', 'chatSummaryNewMessageIsAtomic(projectId, conversationId)'], 'Chat Rules atomic message pointer');
+if (!chatCommitBody.includes('batch.set(msgRef,') || !chatCommitBody.includes('await batch.commit();')) {
+  fail('Chat message must commit atomically with summary before releasing outbox');
+}
+pass('Chat real send includes lastMessageId; atomic Rule pointer and durable outbox preserved');
+
 requireAll(imageViewer, ['Tải xuống', 'Chia sẻ', 'handleDownload', 'handleShare', 'saveBlobToDownloads', 'sharePreparedContent', 'allowTextFallback: false'], 'opened image viewer exposes download/share actions without cluttering thumbnails');
 requireAll(fileExport, ['saveBlobToDownloads', 'finishBase64File(sessionId)', 'Download/QLTC'], 'viewer image download uses direct Android Download/QLTC path and browser download fallback');
 requireAll(shareUtils, ['allowTextFallback?: boolean', 'params.allowTextFallback === false'], 'image-only share can fail closed instead of silently sharing text without the photo');
