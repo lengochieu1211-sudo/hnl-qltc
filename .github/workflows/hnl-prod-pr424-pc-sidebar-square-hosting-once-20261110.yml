@@ -187,7 +187,8 @@ jobs:
           process.stdout.write(m[1]);
           NODE
           )"
-          curl --fail --silent --show-error "$PREVIEW_URL$CSS_PATH" | grep -q 'data-hnl-desktop-primary-nav' || { echo '::error::Square CSS missing in preview; PROD live untouched'; exit 1; }
+          curl --fail --silent --show-error "$PREVIEW_URL$CSS_PATH" -o "$RUNNER_TEMP/pr424-preview.css"
+          grep -q 'data-hnl-desktop-primary-nav' "$RUNNER_TEMP/pr424-preview.css" || { echo '::error::Square CSS missing in preview; PROD live untouched'; exit 1; }
           echo "Verified preview on existing PROD Hosting site: $PREVIEW_URL"
       - name: Promote verified Hosting preview to existing PROD live, smoke and rollback on failure
         shell: bash
