@@ -182,7 +182,7 @@ jobs:
           done
           test "$PREVIEW_OK" = 1 || { echo '::error::Preview unavailable after 18 checks; PROD live untouched'; exit 1; }
           CSS_PATH="$(node - "$RUNNER_TEMP/pr424-preview-smoke.html" <<'NODE'
-          const fs=require('fs'),s=fs.readFileSync(process.argv[2],'utf8'),m=s.match(/href="(\\/assets\\/[^"]+\\.css)"/);
+          const fs=require('fs'),s=fs.readFileSync(process.argv[2],'utf8'),m=s.match(/href="(\/assets\/[^"]+\.css)"/);
           if(!m)throw Error('Preview stylesheet missing');
           process.stdout.write(m[1]);
           NODE
