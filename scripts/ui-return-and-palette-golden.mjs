@@ -891,3 +891,16 @@ for (const [index, part] of parts.entries()) {
 assert.ok(squareRule.includes('margin-inline: auto;'), 'Footer square must remain horizontally centered');
 assert.ok(!squareRule.includes('data-hnl-nav-surface="mobile"'), 'Mobile must not inherit PC sizing');
 console.log('HNL DESKTOP NAV TRUE SQUARE GEOMETRY GOLDEN: PASS');
+
+
+// DEV 2026-11-10: A true-square PC highlight must NOT clip text inside its square.
+// Labels may use the full 84px sidebar, independently of the button width (44-62px).
+const pcLabelMarkup = pcRailButtons.match(/<span className="([^"]+)">\{tab\.label\}<\/span>/)?.[1] || '';
+assert.ok(pcLabelMarkup, 'Desktop primary navigation must render explicit tab labels');
+assert.ok(pcLabelMarkup.includes('w-[68px]') && pcLabelMarkup.includes('shrink-0') && pcLabelMarkup.includes('whitespace-nowrap') && pcLabelMarkup.includes('text-center'),
+  'Desktop tab captions must remain centered and wide enough for Kho vật tư / Khối lượng in square buttons');
+assert.doesNotMatch(pcLabelMarkup, /\btruncate\b|\bmax-w-full\b/, 'Desktop square nav must not truncate visible labels');
+assert.match(desktopNav.slice(mobileStart), /\btruncate\b/, 'Mobile navigation layout remains unchanged');
+assert.ok(!squareRule.includes('overflow: hidden') && !squareRule.includes('text-overflow: ellipsis'),
+  'Square geometry CSS must not clip labels');
+console.log('HNL PC SIDEBAR SQUARE LABEL VISIBILITY GOLDEN: PASS');
