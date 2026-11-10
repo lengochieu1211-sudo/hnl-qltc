@@ -487,3 +487,119 @@ html[data-hnl-theme="dark"] .hnl-crew-report-table tfoot tr,
 html[data-hnl-theme="dark"] .hnl-crew-report-table tfoot td {
   background-color: #19354c !important; color: #e0f2fe !important; border-color: #3b82a8 !important;
 }
+
+/* DEV 2026-11-09: distribute unused vertical rail space between visible tabs.
+ * Footer stays fixed; when menu overflows, flex spacing safely collapses to start.
+ * Only the desktop primary nav is affected, never phone/tablet navigation.
+ */
+[data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] {
+  justify-content: space-evenly;
+}
+
+/* DEV 2026-11-09: balanced, height-aware desktop navigation density.
+ * On ~720-820px windows keep enough air between icons to prevent crowding.
+ * Only compress further on genuinely short windows; retain scroll fallback.
+ * Mobile rail, iconography, order and desktop width are unchanged.
+ */
+@media (max-height: 820px) {
+  [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] {
+    gap: 4px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button {
+    min-height: 58px;
+    flex-shrink: 0;
+  }
+  [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] {
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button {
+    min-height: 54px;
+  }
+  [data-hnl-desktop-account-menu="true"] {
+    padding-top: 6px;
+    padding-bottom: 4px;
+  }
+  [data-hnl-desktop-account-menu="true"] > button {
+    padding-top: 4px;
+    padding-bottom: 4px;
+    gap: 2px;
+  }
+}
+@media (max-height: 680px) {
+  [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] {
+    gap: 3px;
+  }
+  [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button {
+    min-height: 52px;
+  }
+  [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button {
+    min-height: 50px;
+  }
+  [data-hnl-desktop-account-menu="true"] > button > span:first-child {
+    width: 36px;
+    height: 36px;
+  }
+}
+@media (max-height: 560px) {
+  [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] {
+    justify-content: flex-start;
+    gap: 2px;
+  }
+  [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button {
+    min-height: 44px;
+  }
+  [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button {
+    min-height: 44px;
+  }
+}
+
+/* DEV 2026-11-09: exact-square desktop left-rail targets.
+ * Previous patch only changed border-radius, leaving wide rectangular selected
+ * backgrounds. Match button width to its existing responsive minimum height.
+ * Preserve desktop height, labels, spacing, color and mobile navigation.
+ */
+[data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button {
+  width: 62px;
+  height: 62px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+[data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button {
+  width: 58px;
+  height: 58px;
+  margin-inline: auto;
+  box-sizing: border-box;
+}
+@media (max-height: 820px) {
+  [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button {
+    width: 58px;
+    height: 58px;
+  }
+  [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button {
+    width: 54px;
+    height: 54px;
+  }
+}
+@media (max-height: 680px) {
+  [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button {
+    width: 52px;
+    height: 52px;
+  }
+  [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button {
+    width: 50px;
+    height: 50px;
+  }
+}
+@media (max-height: 560px) {
+  [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button {
+    width: 44px;
+    height: 44px;
+  }
+  [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button {
+    width: 44px;
+    height: 44px;
+  }
+}
