@@ -596,14 +596,20 @@ for (const [flag, label] of shareVisibilityDefaults) {
 }
 requireAll(crewReportShare, [
   'Khôi phục mặc định',
-  'chưa báo khác với đã báo 0',
-  'Excel vẫn giữ đủ cột ca',
+  'Hiện ca quân số = 0 (xem trước/ảnh)',
   'stat.reported === 0',
   'stat.reported > 0 && stat.headcount === 0',
   'hideUnreportedDates && stat.reported === 0',
   'hideZeroDates && stat.reported > 0 && stat.headcount === 0',
 ], 'crew report filters keep data separate from shared presentation');
 pass('Crew share: five defaults hidden, reveal-only checkboxes, differentiated missing vs zero, original data preserved');
+if (crewReportShare.includes('Mặc định ẩn đội/ngày chưa báo') || crewReportShare.includes('vượt quá 93 ngày')) fail('Crew share must remove verbose explanation and old date limit');
+if (!crewReportShare.includes('const rangeValid = spanDays > 0 && effectiveEndDate <= resolvedMaxDate;')) fail('Crew share must not cap selected date ranges');
+if (crewReportUtils.includes('dates.length < 93')) fail('Crew date generator cannot truncate at 93 days');
+if (!crewReportShare.includes('const previewDates = matrix.dates.slice(')) fail('Unbounded preview must paginate rows for browser responsiveness');
+if (!crewReportShare.includes('const IMAGE_DATES_PER_PAGE = 40;') || !crewReportShare.includes('pageGrandDailyHeadcount')) fail('Long PNG export must page by date with page totals');
+pass('Crew share: unrestricted date selection, safe PNG pagination, concise filter UI');
+
 
 requireAll(crewReportUtils, [
   'buildCrewReportRows',

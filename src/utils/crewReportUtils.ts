@@ -105,7 +105,9 @@ export const listCrewReportDates = (startDate: string, endDate: string): string[
   const end = new Date(`${endDate}T12:00:00`);
   if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start > end) return [];
   const dates: string[] = [];
-  for (const cursor = new Date(start); cursor <= end && dates.length < 93; cursor.setDate(cursor.getDate() + 1)) {
+  // The selected report period has no artificial 93-day cap. Calendar validity
+  // remains governed by the selected start/end dates, not by report length.
+  for (const cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
     dates.push(toCrewReportDateKey(cursor));
   }
   return dates;
@@ -476,7 +478,11 @@ export function buildCrewReportMatrices(rows: CrewReportRow[]): CrewReportProjec
     const first = projectRows[0];
     const teamMap = new Map<string, CrewReportMatrixTeam>();
     const dateSet = new Set<string>();
+    const rowsByDate = new Map<string, CrewReportRow[]>();
     projectRows.forEach((row) => {
+      const dateRows = rowsByDate.get(row.date) || [];
+      dateRows.push(row);
+      rowsByDate.set(row.date, dateRows);
       teamMap.set(row.teamKey, {
         teamKey: row.teamKey,
         teamName: row.teamName,
@@ -525,7 +531,7 @@ export function buildCrewReportMatrices(rows: CrewReportRow[]): CrewReportProjec
     }
     const dates = Array.from(dateSet).sort().map((date) => {
       const cells: Record<string, CrewReportRow> = {};
-      projectRows.filter((row) => row.date === date).forEach((row) => { cells[row.teamKey] = row; });
+      (rowsByDate.get(date) || []).forEach((row) => { cells[row.teamKey] = row; });
       const totalDailyHeadcount = Object.values(cells).reduce(
         (sum, row) => sum + (row.reported ? (row.dailyHeadcount || 0) : 0),
         0,

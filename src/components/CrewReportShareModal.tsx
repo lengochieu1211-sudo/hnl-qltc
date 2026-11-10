@@ -88,21 +88,51 @@ async function renderCrewReportImages(params: {
 }): Promise<ShareAttachmentPayload[]> {
   if (typeof document === 'undefined') return [];
   const matrices = buildCrewReportMatrices(params.rows);
-  // Share one compact image per project matrix. Do not split a project's teams into multiple images;
-  // this keeps the report continuous and easier to read/share on phones.
-  const pageSpecs: Array<{
-    matrix: ReturnType<typeof buildCrewReportMatrices>[number];
-    teams: ReturnType<typeof buildCrewReportMatrices>[number]['teams'];
-    dates: ReturnType<typeof buildCrewReportMatrices>[number]['dates'];
-  }> = matrices.map((matrix) => ({
-    matrix,
-    teams: matrix.teams,
-    dates: matrix.dates.length > 0 ? matrix.dates : [],
-  }));
+  // Split long periods into a safe number of date rows per image, retaining
+  // every team column on every page. This avoids oversized canvas exports in
+  // WebView/desktop browsers without limiting the selected calendar period.
+  const IMAGE_DATES_PER_PAGE = 40;
+  const pageSpecs = matrices.flatMap((matrix) => {
+    const parts: Array<{
+      matrix: typeof matrix;
+      teams: typeof matrix.teams;
+      dates: typeof matrix.dates;
+      part: number;
+      partCount: number;
+    }> = [];
+    const partCount = Math.ceil(matrix.dates.length / IMAGE_DATES_PER_PAGE);
+    for (let offset = 0; offset < matrix.dates.length; offset += IMAGE_DATES_PER_PAGE) {
+      parts.push({
+        matrix,
+        teams: matrix.teams,
+        dates: matrix.dates.slice(offset, offset + IMAGE_DATES_PER_PAGE),
+        part: parts.length + 1,
+        partCount,
+      });
+    }
+    return parts;
+  });
 
   const attachments: ShareAttachmentPayload[] = [];
   for (let pageIndex = 0; pageIndex < pageSpecs.length; pageIndex += 1) {
-    const { matrix, teams, dates } = pageSpecs[pageIndex];
+    const { matrix, teams, dates, part, partCount } = pageSpecs[pageIndex];
+    // Do not repeat the whole-period total as though it were a page subtotal.
+    const pageTeamTotals: typeof matrix.teamTotals = {};
+    teams.forEach((team) => {
+      pageTeamTotals[team.teamKey] = { morning: 0, afternoon: 0, evening: 0, dailyHeadcount: 0 };
+    });
+    dates.forEach((dateRow) => {
+      teams.forEach((team) => {
+        const row = dateRow.cells[team.teamKey];
+        if (!row?.reported) return;
+        const totals = pageTeamTotals[team.teamKey];
+        totals.morning += row.morning || 0;
+        totals.afternoon += row.afternoon || 0;
+        totals.evening += row.evening || 0;
+        totals.dailyHeadcount += row.dailyHeadcount || 0;
+      });
+    });
+    const pageGrandDailyHeadcount = dates.reduce((sum, row) => sum + row.totalDailyHeadcount, 0);
     const teamKeySet = new Set(teams.map((team) => team.teamKey));
     const visibleMetrics = visibleCrewMetrics(matrix,Boolean(params.hideZeroShifts));
     const metricCount = teams.reduce((sum,team)=>sum+visibleMetrics[team.teamKey].length,0);
@@ -135,6 +165,10 @@ async function renderCrewReportImages(params: {
       `Địa điểm: ${matrix.projectLocation || '—'}`,
       `Đơn vị thi công: ${matrix.contractorName || '—'}`,
       rangeText,
+      ...(partCount > 1 ? [
+        `Phần ${part}/${partCount}: ${formatDateDDMMYYYY(dates[0].date)} – ${formatDateDDMMYYYY(dates[dates.length - 1].date)}`,
+        `Tổng toàn kỳ: ${matrix.grandDailyHeadcount} lượt người-ngày`,
+      ] : []),
     ].flatMap(value => wrapProjectTitle(value,Math.max(44,Math.floor((width-left-right)/12))));
     const headerHeight = 78 + headerLines.length * 26 + 12;
     const groupHeaderHeight = 36;
@@ -314,10 +348,10 @@ async function renderCrewReportImages(params: {
     ctx.strokeRect(dateX, totalRowY, dateWidth, rowHeight);
     ctx.fillStyle = '#1e3a8a';
     ctx.font = '700 14px Arial, sans-serif';
-    const totalLabel = 'TỔNG';
+    const totalLabel = partCount > 1 ? 'TỔNG TRANG' : 'TỔNG';
     ctx.fillText(totalLabel, dateX + (dateWidth - ctx.measureText(totalLabel).width) / 2, totalRowY + 28);
     teams.forEach((team, teamIndex) => {
-      const total = matrix.teamTotals[team.teamKey] || { morning: 0, afternoon: 0, evening: 0, dailyHeadcount: 0 };
+      const total = pageTeamTotals[team.teamKey];
       visibleMetrics[team.teamKey].forEach((metric, metricIndex) => {
         const value=total[metric];
         const x = teamStartX + ((teamMetricOffsets.get(team.teamKey)||0)+metricIndex) * metricWidth;
@@ -331,7 +365,7 @@ async function renderCrewReportImages(params: {
     ctx.fillRect(totalX, totalRowY, totalWidth, rowHeight);
     ctx.strokeRect(totalX, totalRowY, totalWidth, rowHeight);
     ctx.fillStyle = '#1e3a8a';
-    const grandText = String(matrix.grandDailyHeadcount);
+    const grandText = String(pageGrandDailyHeadcount);
     ctx.fillText(grandText, totalX + (totalWidth - ctx.measureText(grandText).width) / 2, totalRowY + 28);
     if (params.showWorkDetails) {
       ctx.fillStyle = '#dbeafe';
@@ -409,6 +443,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
   const [actionMenu, setActionMenu] = useState<'text' | 'image' | 'excel' | null>(null);
   const [preparedImages, setPreparedImages] = useState<{signature:string; attachments:ShareAttachmentPayload[]}|null>(null);
   const [preparedExcel, setPreparedExcel] = useState<{signature:string; fileName:string; mimeType:string; blob:Blob; dataUrl:string}|null>(null);
+  const [previewPages, setPreviewPages] = useState<Record<string,number>>({});
   const [message, setMessage] = useState('');
 
   useEffect(() => {
@@ -434,11 +469,13 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
     setActionMenu(null);
     setPreparedImages(null);
     setPreparedExcel(null);
+    setPreviewPages({});
   }, [isOpen, initialStartDate, initialEndDate]);
 
   const effectiveEndDate = mode === 'single' ? startDate : endDate;
   const spanDays = dateSpanDays(startDate, effectiveEndDate);
-  const rangeValid = spanDays > 0 && spanDays <= 93 && effectiveEndDate <= resolvedMaxDate;
+  // Unrestricted history selection; only the calendar order and latest allowed date apply.
+  const rangeValid = spanDays > 0 && effectiveEndDate <= resolvedMaxDate;
   const chooseDatePreset = (preset: CrewReportDatePreset) => {
     if (rangeLocked) return;
     const range = getCrewReportPresetRange(preset);
@@ -519,6 +556,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
     setActionMenu(null);
     setPreparedImages(null);
     setPreparedExcel(null);
+    setPreviewPages({});
   }, [preparationSignature]);
 
   if (!isOpen) return null;
@@ -712,12 +750,9 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
               <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={!hideZeroShifts} onChange={(event) => setHideZeroShifts(!event.target.checked)} /> Hiện ca quân số = 0 (xem trước/ảnh)</label>
               <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={showWorkDetails} onChange={(event) => setShowWorkDetails(event.target.checked)} /> Chi tiết Tầng / Hạng mục / HM con / Ghi chú</label>
             </div>
-            <div className="mt-2 text-[9.5px] font-semibold text-slate-500">
-              Mặc định ẩn đội/ngày chưa báo và đội/ngày/ca có quân số = 0. Chỉ tích “Hiện...” khi cần; chưa báo khác với đã báo 0. Các tổng trong bản chia sẻ tính theo dữ liệu đang hiển thị, không phải xác nhận tất cả đội đã báo. Ca bằng 0 chỉ ẩn cột Sáng/Chiều/Tối khi cả khoảng ngày đã báo đều bằng 0 trong xem trước/ảnh; Excel vẫn giữ đủ cột ca để bảo toàn công thức. Không sửa dữ liệu gốc.
-            </div>
           </div>
 
-          {!rangeValid && <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">Khoảng ngày không hợp lệ hoặc vượt quá 93 ngày.</div>}
+          {!rangeValid && <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">{spanDays <= 0 ? 'Ngày bắt đầu và ngày kết thúc không hợp lệ.' : 'Ngày kết thúc vượt quá ngày được phép chọn.'}</div>}
 
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="text-[9.5px] font-bold text-slate-500">Ngày</div><div className="mt-1 text-xl font-black text-slate-900">{dailySummary.length}</div></div>
@@ -729,12 +764,25 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
           <div className="space-y-3">
             {reportMatrices.map((matrix) => {
               const metricColumns=visibleCrewMetrics(matrix,hideZeroShifts);
+              const previewPageSize = 40;
+              const previewPageCount = Math.max(1, Math.ceil(matrix.dates.length / previewPageSize));
+              const previewPage = Math.min(previewPageCount - 1, Math.max(0, previewPages[matrix.projectId] || 0));
+              const previewDates = matrix.dates.slice(previewPage * previewPageSize, (previewPage + 1) * previewPageSize);
               return (
               <section key={matrix.projectId} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
                 <div className="border-b border-slate-200 bg-slate-50 px-3 py-2.5">
                   <div className="text-xs font-black text-slate-900">{matrix.projectName}</div>
                   {matrix.projectLocation && <div className="mt-0.5 text-[10px] font-semibold text-slate-500">Địa điểm: {matrix.projectLocation}</div>}
                 </div>
+                {previewPageCount > 1 && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-600">
+                    <span>Xem trước trang {previewPage + 1}/{previewPageCount} · {formatDateDDMMYYYY(previewDates[0].date)} – {formatDateDDMMYYYY(previewDates[previewDates.length - 1].date)}</span>
+                    <div className="flex items-center gap-2">
+                      <button type="button" disabled={previewPage === 0} onClick={() => setPreviewPages(current => ({...current,[matrix.projectId]:previewPage - 1}))} className="rounded-lg border border-slate-200 px-3 py-1.5 disabled:opacity-40">Trước</button>
+                      <button type="button" disabled={previewPage + 1 >= previewPageCount} onClick={() => setPreviewPages(current => ({...current,[matrix.projectId]:previewPage + 1}))} className="rounded-lg border border-slate-200 px-3 py-1.5 disabled:opacity-40">Sau</button>
+                    </div>
+                  </div>
+                )}
                 <div className="relative isolate max-h-[42vh] overflow-auto overscroll-contain">
                   <table className="hnl-crew-report-table w-full text-left text-xs" style={{ minWidth: `${Math.max(570, 230 + matrix.teams.reduce((sum,team)=>sum+metricColumns[team.teamKey].length,0)*62 + (showSerialNumber ? 52 : 0) + (showWorkDetails ? 300 : 0))}px` }}>
                     <thead className="bg-slate-100 text-[9.5px] font-black text-slate-500">
@@ -755,9 +803,9 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {matrix.dates.map((dateRow, dateIndex) => (
+                      {previewDates.map((dateRow, dateIndex) => (
                         <tr key={`${matrix.projectId}-${dateRow.date}`} className={dateIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                          {showSerialNumber && <td className={`sticky left-0 z-[2] border-r border-slate-100 px-2 py-2 text-center font-bold text-slate-500 ${dateIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}>{dateIndex + 1}</td>}
+                          {showSerialNumber && <td className={`sticky left-0 z-[2] border-r border-slate-100 px-2 py-2 text-center font-bold text-slate-500 ${dateIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}>{previewPage * previewPageSize + dateIndex + 1}</td>}
                           <td style={{ left: showSerialNumber ? 52 : 0 }} className={`sticky z-[1] border-r border-slate-100 px-3 py-2 text-center font-bold tabular-nums ${isCrewReportSunday(dateRow.date) ? 'text-red-700' : 'text-slate-700'} ${dateIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}>{formatDateDDMMYYYY(dateRow.date)}</td>
                           {matrix.teams.flatMap((team) => {
                             const row = dateRow.cells[team.teamKey];
@@ -780,7 +828,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
                     <tfoot>
                       <tr className="border-t-2 border-blue-200 bg-blue-100 font-black text-blue-950">
                         {showSerialNumber && <td className="sticky left-0 z-[2] border-r border-blue-200 bg-blue-100 px-2 py-2"></td>}
-                        <td style={{ left: showSerialNumber ? 52 : 0 }} className="sticky z-[1] border-r border-blue-200 bg-blue-100 px-3 py-2 text-center">TỔNG</td>
+                        <td style={{ left: showSerialNumber ? 52 : 0 }} className="sticky z-[1] border-r border-blue-200 bg-blue-100 px-3 py-2 text-center">{previewPageCount > 1 ? 'TỔNG KỲ' : 'TỔNG'}</td>
                         {matrix.teams.flatMap((team) => {
                           const total = matrix.teamTotals[team.teamKey] || { morning: 0, afternoon: 0, evening: 0, dailyHeadcount: 0 };
                           return metricColumns[team.teamKey].map((metric) => (
