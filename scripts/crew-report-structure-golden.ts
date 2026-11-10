@@ -98,20 +98,26 @@ assert.doesNotMatch(shareModalSource, /Thêm cột STT|setShowSerialNumber/, 'Cr
 assert.match(shareModalSource, /includeSerial:showSerialNumber/, 'Crew Excel export must include STT');
 assert.match(shareModalSource, /includeSerial: showSerialNumber/, 'Crew text export must include STT');
 assert.match(shareModalSource, /showSerialNumber, showWorkDetails, hideZeroShifts/, 'Crew image export must include STT');
-assert.ok(
-  shareModalSource.includes('const [hideUnreportedTeams, setHideUnreportedTeams] = useState(false);')
-  && shareModalSource.includes('const [hideZeroTeams, setHideZeroTeams] = useState(false);')
-  && shareModalSource.includes('const [hideUnreportedDates, setHideUnreportedDates] = useState(false);')
-  && shareModalSource.includes('const [hideZeroDates, setHideZeroDates] = useState(false);'),
-  'crew report hide filters must default to OFF so opening a report never hides data implicitly',
-);
-assert.ok(
-  shareModalSource.includes('Ẩn đội chưa báo')
-  && shareModalSource.includes('Ẩn đội quân số = 0')
-  && shareModalSource.includes('Ẩn ngày chưa báo')
-  && shareModalSource.includes('Ẩn ngày quân số = 0'),
-  'crew report must expose explicit hide-team and hide-date options',
-);
+// Share-only report presentation now hides five empty/unreported groups by default.
+// This does not modify the underlying roster, totals/formulas or project data.
+const defaultHidden = [
+  ['hideUnreportedTeams', 'Hiện đội chưa báo'],
+  ['hideZeroTeams', 'Hiện đội quân số = 0'],
+  ['hideUnreportedDates', 'Hiện ngày chưa báo'],
+  ['hideZeroDates', 'Hiện ngày quân số = 0'],
+  ['hideZeroShifts', 'Hiện ca quân số = 0 (xem trước/ảnh)'],
+] as const;
+for (const [flag,label] of defaultHidden) {
+  const setter = 'set' + flag[0].toUpperCase() + flag.slice(1);
+  const statePattern = new RegExp('\\[' + flag + ',\\s*' + setter + '\\]\\s*=\\s*useState\\(true\\)');
+  assert.match(shareModalSource,statePattern,'crew share must default to hiding ' + flag);
+  assert.ok(shareModalSource.includes('checked={!' + flag + '}'), 'share visible checkbox starts unchecked: ' + flag);
+  assert.ok(shareModalSource.includes(setter + '(!event.target.checked)'), 'must reveal only when checked: ' + flag);
+  assert.ok(shareModalSource.includes(setter + '(true);'), 'opening modal must restore hidden state: ' + flag);
+  assert.ok(shareModalSource.includes(label), 'explicit visible opt-in label missing: ' + flag);
+}
+assert.ok(shareModalSource.includes('Khôi phục mặc định'), 'reset-to-hide control is retained');
+assert.ok(shareModalSource.includes('Excel vẫn giữ đủ cột ca'), 'preserve Excel formula transparency');
 assert.ok(
   shareModalSource.includes('if (hideUnreportedTeams && stat.reported === 0) return false;')
   && shareModalSource.includes('if (hideZeroTeams && stat.reported > 0 && stat.headcount === 0) return false;'),

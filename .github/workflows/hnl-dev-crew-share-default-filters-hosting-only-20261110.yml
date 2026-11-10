@@ -51,9 +51,11 @@ jobs:
           # One-shot crew report sharing UI default filters only; no changes to original crew records, Excel formulas, Firestore Rules or other UI.
           test "$(git rev-parse HEAD^)" = "$BASE" || { echo "::error::Approval parent/HEAD moved"; exit 1; }
           git diff --name-only "$BASE" "$GITHUB_SHA" > "$RUNNER_TEMP/changed.txt"
-          # Reviewed exact crew share modal + stability regression patch on DEV ec9078f; no data writes or backend changes.
+          # Reviewed share modal + two regression gates + browser runner compatibility on DEV ec9078f; no data writes or backend changes.
           cat > "$RUNNER_TEMP/allowed.txt" <<'APPROVED_FILES'
+          .github/workflows/crew-report-export-click-golden.yml
           .github/workflows/hnl-dev-crew-share-default-filters-hosting-only-20261110.yml
+          scripts/crew-report-structure-golden.ts
           scripts/stability-gate.mjs
           src/components/CrewReportShareModal.tsx
           APPROVED_FILES
