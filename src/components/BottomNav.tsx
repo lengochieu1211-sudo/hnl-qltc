@@ -128,7 +128,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
             onSignOut={onSignOut}
           />
         )}
-        <nav className="flex flex-1 flex-col items-center gap-1 overflow-y-auto px-1.5 py-2 no-scrollbar" aria-label="Điều hướng chính HNL QLTC">
+        <nav data-hnl-desktop-primary-nav="true" className="flex flex-1 flex-col items-center gap-1 overflow-y-auto px-1.5 py-2 no-scrollbar" aria-label="Điều hướng chính HNL QLTC">
           {desktopTabs.map((tab) => {
             const Icon = tab.icon;
             const active = activeTab === tab.id || pressedTab === tab.id;
@@ -152,7 +152,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                     <span className="absolute -top-1.5 -right-2 min-w-4 rounded-full border border-slate-900 bg-rose-600 px-1 text-center text-[8px] font-black leading-4 text-white" title={`${tab.badge} ${tab.badgeLabel || 'Defect chưa nghiệm thu'}`}>D{tab.badge}</span>
                   ) : null}
                 </span>
-                <span className="max-w-full truncate text-[9px] font-bold leading-3">{tab.label}</span>
+                <span className="block w-[68px] shrink-0 whitespace-nowrap text-center text-[9px] font-bold leading-3">{tab.label}</span>
               </button>
             );
           })}
@@ -174,7 +174,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
           )}
         </nav>
 
-        <div className="space-y-1 border-t border-slate-200 px-1.5 py-2">
+        <div data-hnl-desktop-footer="true" className="space-y-1 border-t border-slate-200 px-1.5 py-2">
           {showSuperAdmin && (
             <button type="button" data-hnl-nav-tab="superadmin" onPointerEnter={() => onPreloadTab?.('superadmin')} onPointerDown={() => previewTab('superadmin')} onClick={() => activate('superadmin')} style={navButtonStyle} className={`flex min-h-[58px] w-full flex-col items-center justify-center gap-1 rounded-lg transition active:scale-[0.97] active:opacity-80 ${activeTab === 'superadmin' || pressedTab === 'superadmin' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-200' : 'text-amber-700 hover:bg-amber-50'}`} title="Quản trị hệ thống">
               <ShieldCheck className="h-5 w-5" /><span className="text-[8.5px] font-bold">Hệ thống</span>
