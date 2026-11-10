@@ -152,7 +152,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                     <span className="absolute -top-1.5 -right-2 min-w-4 rounded-full border border-slate-900 bg-rose-600 px-1 text-center text-[8px] font-black leading-4 text-white" title={`${tab.badge} ${tab.badgeLabel || 'Defect chưa nghiệm thu'}`}>D{tab.badge}</span>
                   ) : null}
                 </span>
-                <span className="max-w-full truncate text-[9px] font-bold leading-3">{tab.label}</span>
+                <span className="block w-[68px] shrink-0 whitespace-nowrap text-center text-[9px] font-bold leading-3">{tab.label}</span>
               </button>
             );
           })}
