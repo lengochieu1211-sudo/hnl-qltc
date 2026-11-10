@@ -575,6 +575,36 @@ requireAll(crewReportShare, [
   'TỔNG',
 ], 'crew report share center');
 if (crewReportShare.includes('>1 ngày</button>') || crewReportShare.includes('>Nhiều ngày</button>')) fail('Crew report must not duplicate quick date presets with 1 ngày / Nhiều ngày buttons');
+// Share report defaults are presentation-only. Missing reports and reported-zero entries
+// have distinct semantics; all five 'Hiện...' switches must default to unchecked.
+const shareVisibilityDefaults = [
+  ['hideUnreportedTeams', 'Hiện đội chưa báo'],
+  ['hideZeroTeams', 'Hiện đội quân số = 0'],
+  ['hideUnreportedDates', 'Hiện ngày chưa báo'],
+  ['hideZeroDates', 'Hiện ngày quân số = 0'],
+  ['hideZeroShifts', 'Hiện ca quân số = 0 (xem trước/ảnh)'],
+];
+for (const [flag, label] of shareVisibilityDefaults) {
+  const setter = 'set' + flag[0].toUpperCase() + flag.slice(1);
+  // Flags are fixed ASCII identifiers; no regex escaping is needed.
+  const statePattern = new RegExp('\\[' + flag + ',\\s*' + setter + '\\]\\s*=\\s*useState\\(true\\)');
+  if (!statePattern.test(crewReportShare)) fail('Share default should hide: ' + flag);
+  if (!crewReportShare.includes(setter + '(true);')) fail('Share open/reset should hide: ' + flag);
+  if (!crewReportShare.includes('checked={!' + flag + '}')) fail('Share checkbox should start unchecked: ' + flag);
+  if (!crewReportShare.includes(setter + '(!event.target.checked)')) fail('Share checkbox must reveal only on opt-in: ' + flag);
+  if (!crewReportShare.includes(label)) fail('Share label missing: ' + label);
+}
+requireAll(crewReportShare, [
+  'Khôi phục mặc định',
+  'chưa báo khác với đã báo 0',
+  'Excel vẫn giữ đủ cột ca',
+  'stat.reported === 0',
+  'stat.reported > 0 && stat.headcount === 0',
+  'hideUnreportedDates && stat.reported === 0',
+  'hideZeroDates && stat.reported > 0 && stat.headcount === 0',
+], 'crew report filters keep data separate from shared presentation');
+pass('Crew share: five defaults hidden, reveal-only checkboxes, differentiated missing vs zero, original data preserved');
+
 requireAll(crewReportUtils, [
   'buildCrewReportRows',
   'buildCrewReportText',

@@ -397,11 +397,11 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
   const [endDate, setEndDate] = useState(initialEndDate || initialStartDate);
   const [projectFilter, setProjectFilter] = useState('all');
   const [teamFilter, setTeamFilter] = useState('all');
-  const [hideUnreportedTeams, setHideUnreportedTeams] = useState(false);
-  const [hideZeroTeams, setHideZeroTeams] = useState(false);
-  const [hideUnreportedDates, setHideUnreportedDates] = useState(false);
-  const [hideZeroDates, setHideZeroDates] = useState(false);
-  const [hideZeroShifts,setHideZeroShifts]=useState(false);
+  const [hideUnreportedTeams, setHideUnreportedTeams] = useState(true);
+  const [hideZeroTeams, setHideZeroTeams] = useState(true);
+  const [hideUnreportedDates, setHideUnreportedDates] = useState(true);
+  const [hideZeroDates, setHideZeroDates] = useState(true);
+  const [hideZeroShifts,setHideZeroShifts]=useState(true);
   // STT is mandatory in every preview and export; no toggle can hide it.
   const showSerialNumber = true;
   const [showWorkDetails, setShowWorkDetails] = useState(false);
@@ -424,11 +424,11 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
     setDatePreset(matches || 'custom');
     setProjectFilter('all');
     setTeamFilter('all');
-    setHideUnreportedTeams(false);
-    setHideZeroTeams(false);
-    setHideUnreportedDates(false);
-    setHideZeroDates(false);
-    setHideZeroShifts(false);
+    setHideUnreportedTeams(true);
+    setHideZeroTeams(true);
+    setHideUnreportedDates(true);
+    setHideZeroDates(true);
+    setHideZeroShifts(true);
     setShowWorkDetails(false);
     setMessage('');
     setActionMenu(null);
@@ -703,17 +703,17 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
-            <div className="mb-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Tùy chọn hiển thị báo cáo</div>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Tùy chọn hiển thị báo cáo</div><button type="button" onClick={() => { setHideUnreportedTeams(true); setHideZeroTeams(true); setHideUnreportedDates(true); setHideZeroDates(true); setHideZeroShifts(true); }} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-600 hover:bg-slate-100">Khôi phục mặc định</button></div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={hideUnreportedTeams} onChange={(event) => setHideUnreportedTeams(event.target.checked)} /> Ẩn đội chưa báo</label>
-              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={hideZeroTeams} onChange={(event) => setHideZeroTeams(event.target.checked)} /> Ẩn đội quân số = 0</label>
-              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={hideUnreportedDates} onChange={(event) => setHideUnreportedDates(event.target.checked)} /> Ẩn ngày chưa báo</label>
-              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={hideZeroDates} onChange={(event) => setHideZeroDates(event.target.checked)} /> Ẩn ngày quân số = 0</label>
-              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={hideZeroShifts} onChange={(event) => setHideZeroShifts(event.target.checked)} /> Ẩn ca có quân số = 0 (ảnh)</label>
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={!hideUnreportedTeams} onChange={(event) => setHideUnreportedTeams(!event.target.checked)} /> Hiện đội chưa báo</label>
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={!hideZeroTeams} onChange={(event) => setHideZeroTeams(!event.target.checked)} /> Hiện đội quân số = 0</label>
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={!hideUnreportedDates} onChange={(event) => setHideUnreportedDates(!event.target.checked)} /> Hiện ngày chưa báo</label>
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={!hideZeroDates} onChange={(event) => setHideZeroDates(!event.target.checked)} /> Hiện ngày quân số = 0</label>
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={!hideZeroShifts} onChange={(event) => setHideZeroShifts(!event.target.checked)} /> Hiện ca quân số = 0 (xem trước/ảnh)</label>
               <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={showWorkDetails} onChange={(event) => setShowWorkDetails(event.target.checked)} /> Chi tiết Tầng / Hạng mục / HM con / Ghi chú</label>
             </div>
             <div className="mt-2 text-[9.5px] font-semibold text-slate-500">
-              Mặc định không ẩn dữ liệu. “Ẩn ca có quân số = 0” chỉ ẩn cột Sáng/Chiều/Tối khi ca đó đã được báo và bằng 0 trong toàn khoảng ngày; áp dụng cho xem trước và ảnh, không thay đổi dữ liệu Excel.
+              Mặc định ẩn đội/ngày chưa báo và đội/ngày/ca có quân số = 0. Chỉ tích “Hiện...” khi cần; chưa báo khác với đã báo 0. Các tổng trong bản chia sẻ tính theo dữ liệu đang hiển thị, không phải xác nhận tất cả đội đã báo. Ca bằng 0 chỉ ẩn cột Sáng/Chiều/Tối khi cả khoảng ngày đã báo đều bằng 0 trong xem trước/ảnh; Excel vẫn giữ đủ cột ca để bảo toàn công thức. Không sửa dữ liệu gốc.
             </div>
           </div>
 
