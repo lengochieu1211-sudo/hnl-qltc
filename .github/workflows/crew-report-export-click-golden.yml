@@ -14,7 +14,7 @@ permissions:
   contents: read
 jobs:
   crew_export_browser:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +24,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx tsx scripts/crew-report-excel-golden.ts
+      # Playwright 1.55 Chromium is not supported on ubuntu26.04 (ubuntu-latest).
       - run: |
           npm install --no-save --package-lock=false playwright@1.55.0
           npx playwright install --with-deps chromium
