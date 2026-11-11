@@ -82,3 +82,37 @@ jobs:
           npm run security:audit
       - name: Build only - never deploy
         run: npm run build
+
+      - name: Archive exact PR source and patch (no dependencies or secrets)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reviewed
+          git archive --format=zip --output="reviewed/HNL-QLTC-PROD-IOS-SAFEAREA-PR430-FULL-SOURCE.zip" "$HEAD_SHA"
+          mapfile -t scoped < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          test "${#scoped[@]}" -eq 18
+          git archive --format=zip --output="reviewed/HNL-QLTC-PROD-IOS-SAFEAREA-PR430-PATCH-18-FILES.zip" "$HEAD_SHA" "${scoped[@]}"
+          (cd reviewed && unzip -tq HNL-QLTC-PROD-IOS-SAFEAREA-PR430-FULL-SOURCE.zip && unzip -tq HNL-QLTC-PROD-IOS-SAFEAREA-PR430-PATCH-18-FILES.zip)
+          (cd reviewed && sha256sum *.zip > SHA256SUMS.txt)
+          {
+            echo '# HNL QLTC - PR430 iOS Safe Area candidate'
+            echo "PROD baseline: $BASE_SHA"
+            echo "Candidate commit: $HEAD_SHA"
+            echo "Candidate tree: $(git rev-parse "$HEAD_SHA^{tree}")"
+            echo 'Changed: 16 source UI files plus 2 scoped CI/golden files'
+            echo 'CI passed on this exact commit; no deploy or data writes.'
+            echo 'Physical signed-in iPhone Safari/PWA Golden: PENDING - NOT CERTIFIED.'
+            echo 'Main/PROD unchanged by candidate PR.'
+            printf 'Changed files:\n'
+            printf '%s\n' "${scoped[@]}"
+          } > reviewed/REPORT.md
+      - name: Upload full source, patch, report and SHA256
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-PROD-IOS-SAFEAREA-PR430-SOURCE-PATCH-REPORT
+          path: reviewed/*
+          retention-days: 14
+          if-no-files-found: error
