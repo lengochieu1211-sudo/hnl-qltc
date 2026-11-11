@@ -58,6 +58,6 @@ containsAll(tab, [
   'min-h-11 min-w-0 rounded-xl border border-slate-300 px-2 py-2 text-xs',
   'min-h-11 min-w-0 rounded-xl bg-blue-600 px-2 py-2 text-xs',
   'leading-4 whitespace-normal text-white',
-  'sm:text-sm',
 ], 'transfer correction mobile typography/viewport');
+assert.ok(!tab.slice(tab.indexOf('aria-label="Điều chỉnh phiếu điều chuyển liên dự án"'), tab.indexOf('{/* Delete Inventory Confirmation Modal */}')).includes('sm:text-sm'), 'transfer modal buttons follow the Warehouse 12px button standard at every breakpoint');
 console.log('warehouse-transfer-amend-golden: PASS (source/static; emulator remains mandatory)');
