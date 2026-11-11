@@ -47,7 +47,7 @@ import { QuickSortBar } from './QuickSortBar';
 import { compareMaterialGroupPriority, compareWarehouseOrderDisplayItems } from '../utils/catalogDisplayOrder';
 import { equipmentIdentityKey, EquipmentUnitMigrationRequiredError, saveEquipmentCatalogBatch, subscribeEquipmentCatalog, type EquipmentCatalogRecord, type EquipmentCatalogInput } from '../lib/equipmentCatalog';
 import type { WarehouseUnitRenameInput } from '../lib/warehouseUnitMigration';
-import { createWarehouseProjectTransferAtomic, receiveWarehouseProjectTransferAtomic, subscribeIncomingWarehouseTransfers, type WarehouseIncomingTransfer } from '../lib/warehouseProjectTransfer';
+import { createWarehouseProjectTransferAtomic, receiveWarehouseProjectTransferAtomic, amendWarehouseProjectTransferAtomic, subscribeIncomingWarehouseTransfers, type WarehouseIncomingTransfer } from '../lib/warehouseProjectTransfer';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import { WarehouseVoucherShareSheet } from './WarehouseVoucherShareSheet';
 import { WarehouseReportActions } from './WarehouseReportActions';
@@ -224,6 +224,25 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [incomingMapping, setIncomingMapping] = useState<Record<string, string>>({});
   const [receivingTransferId, setReceivingTransferId] = useState<string | null>(null);
   const transferableProjects = availableProjects.filter(p => p.id !== currentProjectId && (p.role === 'ADMIN' || p.role === 'EDITOR'));
+  const transferProjectName = (id?: string) => {
+    if (!id) return 'Dự án chưa xác định';
+    if (id === currentProjectId) return projectName || availableProjects.find(p => p.id === id)?.name || 'Dự án hiện tại';
+    return availableProjects.find(p => p.id === id)?.name || 'Dự án chưa tải được tên';
+  };
+  // Corrections are ADMIN-only at BOTH projects; Firestore Rules independently
+  // enforce this. Never allow the normal single-project voucher editor/deleter.
+  const readableWarehouseTransferNotes = (value?: string): string => {
+    let readable = String(value || '');
+    // Legacy receipts contain raw source UUIDs inside their saved notes.
+    // Resolve for display only; never rewrite original provenance in Firestore.
+    readable = readable.replace(/Nhập điều chuyển từ dự án ([^,\n]+),/g,
+      (_matched, projectId: string) => `Nhập điều chuyển từ ${transferProjectName(projectId)},`);
+    return readable;
+  };
+  const canAmendTransfer = (item: InventoryItem) => {
+    const otherProjectId = item.type === 'out' ? item.transferToProjectId : item.transferFromProjectId;
+    return Boolean(hasDeleteAccess && otherProjectId && availableProjects.some(p => p.id === otherProjectId && p.role === 'ADMIN'));
+  };
   useEffect(() => {
     setIncomingTransfers([]);
     setIncomingError('');
@@ -231,6 +250,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     return subscribeIncomingWarehouseTransfers(currentProjectId, setIncomingTransfers, error => setIncomingError(error.message));
   }, [currentProjectId, roleResolved, isActive]);
   const [editingInventory, setEditingInventory] = useState<InventoryItem | null>(null);
+  const [transferEditItem, setTransferEditItem] = useState<InventoryItem | null>(null);
+  const [transferEditQuantity, setTransferEditQuantity] = useState('');
+  const [transferEditDate, setTransferEditDate] = useState('');
+  const [transferEditHandler, setTransferEditHandler] = useState('');
+  const [transferEditNotes, setTransferEditNotes] = useState('');
+  const [transferEditReason, setTransferEditReason] = useState('');
+  const [transferEditBusy, setTransferEditBusy] = useState(false);
   const [itemKind, setItemKind] = useState<InventoryItemKind>('material');
   const [isNewEquipment, setIsNewEquipment] = useState(false);
   const [isAddingMaterial, setIsAddingMaterial] = useState(false);
@@ -1602,6 +1628,23 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
   const openEditInventory = (item: InventoryItem) => {
     if (!hasEditAccess) return;
+    if (item.warehouseTransferId) {
+      if (!canAmendTransfer(item)) {
+        alert('Chỉ ADMIN có quyền trên cả dự án gửi và nhận mới được điều chỉnh phiếu liên kết.');
+        return;
+      }
+      setTransferEditItem(item);
+      setTransferEditQuantity(String(item.quantity));
+      setTransferEditDate(item.type === 'in'
+        ? (incomingTransfers.find(t => t.id === item.warehouseTransferId)?.date || item.date)
+        : item.date);
+      setTransferEditHandler(item.type === 'in'
+        ? (incomingTransfers.find(t => t.id === item.warehouseTransferId)?.handler || item.handler || '')
+        : item.handler || '');
+      setTransferEditNotes(''); // Add-only comment; never overwrite previous voucher notes.
+      setTransferEditReason('');
+      return;
+    }
     setPendingVoucherPhotos([]);
     setEditingInventory(item);
     const editingKind: InventoryItemKind = item.itemKind === 'equipment' ? 'equipment' : 'material';
@@ -1626,7 +1669,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setHandler(item.handler || '');
     setDate(item.date || new Date().toISOString().split('T')[0]);
     setNotes(item.notes || '');
-    if (item.warehouseTransferId) { alert('Phiếu điều chuyển đã liên kết hai dự án, không thể sửa riêng.'); return; }
+
     setIssuePurpose(item.issuePurpose || (item.sourceRoomId || item.sourceFloorId || item.sourceTeamId || item.sourceWorkCategoryId || item.sourceStructureGroupId ? 'project-work' : 'other'));
     const linkedRoom = item.sourceRoomId
       ? roomProgressList.find((room) => room.id === item.sourceRoomId && (room.deletedAt === undefined || room.deletedAt === null))
@@ -2536,7 +2579,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             const selected = materialOptions.find(opt => opt.key === selection);
             return <div key={row.id} className="rounded-xl bg-white border border-indigo-100 p-3 space-y-2">
               <div className="text-xs font-semibold text-slate-800">{row.materialName} · {formatDecimal(row.quantity)} {row.unit}</div>
-              <div className="text-[11px] text-slate-500">Từ dự án {row.fromProjectId} · Phiếu {row.sourceTransactionId}</div>
+              <div className="text-[11px] text-slate-500">Từ dự án <strong title={row.fromProjectId}>{transferProjectName(row.fromProjectId)}</strong> · Phiếu {row.sourceTransactionId}</div>
               <label className="block space-y-1">
                 <span className="text-[11px] font-bold text-slate-700">Liên kết danh mục tại dự án nhận</span>
                 <select value={selection} onChange={e => setIncomingMapping(prev => ({ ...prev, [row.id]: e.target.value }))}
@@ -2576,6 +2619,19 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 }}>
                 {receivingTransferId === row.id ? 'Đang xác nhận...' : 'Xác nhận nhập kho'}
               </button>
+              {hasDeleteAccess && availableProjects.some(p => p.id === row.fromProjectId && p.role === 'ADMIN') && (
+                <button type="button" disabled={receivingTransferId !== null}
+                  className="min-h-10 rounded-lg border border-blue-200 bg-white px-4 text-xs font-bold text-blue-700 disabled:opacity-40"
+                  onClick={() => openEditInventory({
+                    id: row.sourceTransactionId,
+                    type: 'in', itemKind: row.itemKind,
+                    materialName: row.materialName, unit: row.unit, quantity: row.quantity,
+                    date: row.date, handler: row.handler || '', notes: row.notes || '',
+                    location: 'Kho dự án nhận', warehouseTransferId: row.id,
+                    transferFromProjectId: row.fromProjectId,
+                  })}
+                >Điều chỉnh phiếu chờ nhận</button>
+              )}
             </div>;
           })}
         </section>
@@ -3506,7 +3562,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 checked={filteredInventory.length > 0 && filteredInventory.every(item => selectedItemIds.includes(item.id))}
                 onChange={(e) => {
                   if (e.target.checked) {
-                    setSelectedItemIds(prev => Array.from(new Set([...prev, ...filteredInventory.map(item => item.id)])));
+                    setSelectedItemIds(prev => Array.from(new Set([...prev, ...filteredInventory.filter(item => !item.warehouseTransferId).map(item => item.id)])));
                   } else {
                     setSelectedItemIds(prev => prev.filter(id => !filteredInventory.some(item => item.id === id)));
                   }
@@ -3521,7 +3577,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 <button
                   type="button"
                   onClick={async () => {
-                    const idsToDelete = selectedItemIds.filter(id => filteredInventory.some(item => item.id === id));
+                    const idsToDelete = selectedItemIds.filter(id => filteredInventory.some(item => item.id === id && !item.warehouseTransferId));
                     if (await confirmAsync(`Bạn có chắc muốn xóa ${idsToDelete.length} phiếu kho đã chọn?`)) {
                       try {
                         if (onDeleteMultipleInventory) {
@@ -3665,10 +3721,18 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     <div className="flex items-center gap-1 truncate col-span-2 text-slate-500">
                       <User className="w-3 h-3 text-slate-400 shrink-0" />
                       <span>{item.handler}</span>
-                      {item.notes && <span className="italic ml-1">({item.notes})</span>}
+                      {item.notes && <span className="italic ml-1">({readableWarehouseTransferNotes(item.notes)})</span>}
                     </div>
                   </div>
 
+                  {item.warehouseTransferId && (
+                    <div className="text-[11px] font-semibold text-blue-800 rounded-lg bg-blue-50 px-2 py-1.5"
+                      title={`Mã liên kết: ${item.warehouseTransferId}`}>
+                      Điều chuyển: {transferProjectName(item.type === 'out' ? currentProjectId : item.transferFromProjectId)}
+                      {' → '}{transferProjectName(item.type === 'out' ? item.transferToProjectId : currentProjectId)}
+                      <span className="ml-1 font-normal text-slate-600">· Chỉ sửa đồng bộ cả hai dự án</span>
+                    </div>
+                  )}
                   <div className="flex flex-wrap justify-end gap-3 pt-1">
                     {currentProjectId && roleResolved && (
                       <div data-hnl-warehouse-photo-voucher={item.id} data-hnl-warehouse-photo-status={item.id} className="mr-auto min-w-0 max-w-full">
@@ -3681,18 +3745,18 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                         />
                       </div>
                     )}
-                    {hasEditAccess && onUpdateInventory && (
+                    {hasEditAccess && onUpdateInventory && (!item.warehouseTransferId || canAmendTransfer(item)) && (
                       <button
                         type="button"
                         onClick={() => openEditInventory(item)}
                         className="text-[11px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-semibold"
                         title={`Sửa phiếu ${item.type === 'in' ? 'nhập kho' : 'xuất kho'}`}
-                        aria-label={`Sửa phiếu ${item.type === 'in' ? 'nhập kho' : 'xuất kho'}: ${item.materialName}`}
+                        aria-label={`${item.warehouseTransferId ? 'Điều chỉnh' : 'Sửa'} phiếu ${item.type === 'in' ? 'nhập kho' : 'xuất kho'}: ${item.materialName}`}
                       >
-                        <Edit2 className="w-3 h-3" /> Sửa
+                        <Edit2 className="w-3 h-3" /> {item.warehouseTransferId ? 'Điều chỉnh' : 'Sửa'}
                       </button>
                     )}
-                    {hasDeleteAccess && (
+                    {hasDeleteAccess && !item.warehouseTransferId && (
                       <button
                         type="button"
                         onClick={() => setDeletingInventoryTarget(item)}
@@ -3754,6 +3818,80 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           </div>
         </div>
       )}
+      {hasDeleteAccess && transferEditItem && (
+        <div className="fixed inset-0 z-[96] flex items-center justify-center bg-slate-950/60 p-3" role="dialog"
+          aria-modal="true" aria-label="Điều chỉnh phiếu điều chuyển liên dự án">
+          <form className="max-h-[90dvh] w-full max-w-md space-y-3 overflow-y-auto overscroll-contain rounded-2xl bg-white p-4 shadow-xl"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              if (transferEditBusy || !currentProjectId || !transferEditItem.warehouseTransferId || !canAmendTransfer(transferEditItem)) return;
+              const newQuantity = parseVietnameseNumber(transferEditQuantity);
+              if (!Number.isFinite(newQuantity) || newQuantity <= 0) {
+                alert('Số lượng phải lớn hơn 0.'); return;
+              }
+              const toProjectId = transferEditItem.type === 'out'
+                ? transferEditItem.transferToProjectId : currentProjectId;
+              if (!toProjectId) return;
+              setTransferEditBusy(true);
+              try {
+                await amendWarehouseProjectTransferAtomic(toProjectId, transferEditItem.warehouseTransferId, {
+                  expectedQuantity: Number(transferEditItem.quantity),
+                  quantity: newQuantity,
+                  date: transferEditDate,
+                  handler: transferEditHandler,
+                  notes: transferEditNotes,
+                  reason: transferEditReason,
+                });
+                setTransferEditItem(null);
+                alert('Đã điều chỉnh đồng bộ phiếu xuất/nhập và tồn kho cả hai dự án.');
+              } catch (error) {
+                alert('Không thể điều chỉnh: ' + (error instanceof Error ? error.message : String(error)));
+              } finally {
+                setTransferEditBusy(false);
+              }
+            }}>
+            <h3 className="text-base font-black text-slate-900">Điều chỉnh phiếu điều chuyển</h3>
+            <div className="text-xs font-semibold text-blue-800">
+              {transferProjectName(transferEditItem.type === 'out' ? currentProjectId : transferEditItem.transferFromProjectId)}
+              {' → '}{transferProjectName(transferEditItem.type === 'out' ? transferEditItem.transferToProjectId : currentProjectId)}
+            </div>
+            <p className="text-xs text-slate-700">{transferEditItem.materialName} ({transferEditItem.unit})</p>
+            <p className="text-[11px] text-amber-800">Giữ nguyên vật tư, đơn vị, mã chứng từ. Việc đổi loại vật tư cần chứng từ hủy/điều chỉnh riêng để không sai tồn kho.</p>
+            <label className="block text-xs font-semibold text-slate-700">Số lượng
+              <input required inputMode="decimal" value={transferEditQuantity} onChange={e => setTransferEditQuantity(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-slate-300 p-2.5 text-sm" />
+            </label>
+            <label className="block text-xs font-semibold text-slate-700">Ngày phiếu xuất điều chuyển
+              <input required type="date" value={transferEditDate} onChange={e => setTransferEditDate(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-slate-300 p-2.5 text-sm" />
+            </label>
+            <label className="block text-xs font-semibold text-slate-700">Người giao
+              <input value={transferEditHandler} onChange={e => setTransferEditHandler(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-slate-300 p-2.5 text-sm" />
+            </label>
+            <label className="block text-xs font-semibold text-slate-700">Ghi chú bổ sung (không xóa nội dung cũ)
+              <textarea value={transferEditNotes} onChange={e => setTransferEditNotes(e.target.value)} rows={2} maxLength={400}
+                className="mt-1 w-full rounded-xl border border-slate-300 p-2.5 text-sm" />
+            </label>
+            <label className="block text-xs font-semibold text-slate-700">Lý do điều chỉnh (bắt buộc)
+              <textarea required minLength={5} maxLength={240} value={transferEditReason}
+                onChange={e => setTransferEditReason(e.target.value)} rows={2}
+                placeholder="Ví dụ: Ghi nhầm 5 cái, thực nhận 8 cái"
+                className="mt-1 w-full rounded-xl border border-amber-300 p-2.5 text-sm" />
+            </label>
+            <p className="text-[11px] text-slate-600">Nếu đã nhập, số lượng chỉ giảm khi kho nhận còn đủ tồn. Giao dịch sẽ thất bại an toàn nếu dữ liệu thay đổi trên thiết bị khác hoặc thiếu quyền ADMIN ở một trong hai dự án.</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" disabled={transferEditBusy} onClick={() => setTransferEditItem(null)}
+                className="min-h-11 rounded-xl border border-slate-300 font-bold text-slate-700">Đóng</button>
+              <button type="submit" disabled={transferEditBusy}
+                className="min-h-11 rounded-xl bg-blue-600 font-bold text-white disabled:opacity-50">
+                {transferEditBusy ? 'Đang đối chiếu…' : 'Lưu đồng bộ hai dự án'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {/* Delete Inventory Confirmation Modal */}
       {hasDeleteAccess && deletingInventoryTarget && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">

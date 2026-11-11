@@ -166,6 +166,9 @@ export async function updateWarehouseTransactionAtomic(
     const currentSnap = await tx.get(transactionRef);
     if (!currentSnap.exists() || currentSnap.data()?.deleted) throw new Error('Giao dịch kho không còn tồn tại trên Cloud.');
     const current = currentSnap.data() as InventoryItem & { materialKey?: string };
+    if (current.warehouseTransferId) {
+      throw new Error('TRANSFER_LINKED_EDIT_BLOCKED: Phiếu liên dự án chỉ được sửa qua Điều chỉnh đồng bộ hai kho.');
+    }
     const oldKey = current.materialKey || getWarehouseMaterialKey(current);
     const newKey = getWarehouseMaterialKey(nextItem);
     const oldBalanceRef = doc(db, 'projects', projectId, 'inventory_balances', oldKey);
@@ -315,6 +318,9 @@ async function softDeleteWarehouseTransactionAtomicOnce(projectId: string, trans
     const currentSnap = await tx.get(transactionRef);
     if (!currentSnap.exists() || currentSnap.data()?.deleted) return;
     const current = currentSnap.data() as InventoryItem & { materialKey?: string };
+    if (current.warehouseTransferId) {
+      throw new Error('TRANSFER_LINKED_DELETE_BLOCKED: Không xóa riêng phiếu điều chuyển liên dự án.');
+    }
     const materialKey = current.materialKey || getWarehouseMaterialKey(current);
     const balanceRef = doc(db, 'projects', projectId, 'inventory_balances', materialKey);
     const balanceSnap = await tx.get(balanceRef);
