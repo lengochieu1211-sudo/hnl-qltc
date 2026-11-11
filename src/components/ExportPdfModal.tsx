@@ -1925,8 +1925,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
   return (
     <ViewportModalPortal>
-    <div data-hnl-pc-v32-window="report-export" className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[210] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-      <div className="bg-white w-full sm:max-w-2xl md:max-w-3xl lg:max-w-5xl rounded-t-3xl sm:rounded-2xl flex flex-col max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden border border-slate-100 shadow-2xl">
+    <div data-hnl-pc-v32-window="report-export" className="hnl-ios-safe-modal fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[210] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+      <div className="hnl-ios-safe-dialog bg-white w-full sm:max-w-2xl md:max-w-3xl lg:max-w-5xl rounded-t-3xl sm:rounded-2xl flex flex-col max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden border border-slate-100 shadow-2xl">
         {/* Header stays outside the scrolling content to prevent an exposed padding gap. */}
         <div data-hnl-report-fixed-header="true" className="shrink-0 z-20 flex items-center justify-between border-b border-slate-100 bg-white px-5 lg:px-6 pt-5 lg:pt-6 pb-3">
           <div className="flex items-center gap-2">

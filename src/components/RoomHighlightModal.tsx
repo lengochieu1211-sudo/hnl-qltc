@@ -1125,8 +1125,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div data-hnl-pc-v32-window="room-editor" className="fixed inset-y-0 right-0 left-0 lg:left-[84px] bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-      <div className="bg-white w-full sm:max-w-3xl lg:max-w-[1200px] xl:max-w-[1280px] rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 lg:p-6 space-y-4 max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] flex flex-col border border-slate-100 shadow-2xl overflow-hidden">
+    <div data-hnl-pc-v32-window="room-editor" className="hnl-ios-safe-modal fixed inset-y-0 right-0 left-0 lg:left-[84px] bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+      <div className="hnl-ios-safe-dialog bg-white w-full sm:max-w-3xl lg:max-w-[1200px] xl:max-w-[1280px] rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 lg:p-6 space-y-4 max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] flex flex-col border border-slate-100 shadow-2xl overflow-hidden">
         
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 pb-3 shrink-0">

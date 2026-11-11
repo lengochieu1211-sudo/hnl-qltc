@@ -1,0 +1,118 @@
+name: PROD iOS Safe Area candidate CI (NO DEPLOY)
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "src/components/**"
+      - "src/index.css"
+      - "scripts/prod-ios-safearea-scoped-golden.mjs"
+      - ".github/workflows/hnl-prod-ios-safearea-pr-ci-20261111.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  scoped-golden:
+    if: ${{ github.event.pull_request.head.ref == 'release/prod-ios-safearea-scoped-20261111' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact main base and whitelist (no Firebase, Rules, R2 or business code)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$BASE_SHA" = "17c86d0a269c7fed77680cf043685b02fc858871" || { echo "STOP: main changed; re-audit before release"; exit 1; }
+          git cat-file -e "$BASE_SHA^{commit}"
+          git cat-file -e "$HEAD_SHA^{commit}"
+          mapfile -t changed < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          test "${#changed[@]}" -eq 18 || { printf 'Unexpected files: %s\n' "${changed[*]}"; exit 1; }
+          for file in "${changed[@]}"; do
+            case "$file" in
+              src/index.css|\
+              src/components/CatalogTemplatePickerModal.tsx|\
+              src/components/ChecklistTab.tsx|\
+              src/components/ConflictMergeModal.tsx|\
+              src/components/CrewReportShareModal.tsx|\
+              src/components/CrewTabBase.tsx|\
+              src/components/ExportPdfModal.tsx|\
+              src/components/FloorPlanDefectTab.tsx|\
+              src/components/ImageEditorModal.tsx|\
+              src/components/ImageViewerModal.tsx|\
+              src/components/MaterialNormModal.tsx|\
+              src/components/NotificationCenterModal.tsx|\
+              src/components/QuickEditGridModal.tsx|\
+              src/components/RoomHighlightModal.tsx|\
+              src/components/WarehouseTab.tsx|\
+              src/components/WorkVolumeTab.tsx|\
+              scripts/prod-ios-safearea-scoped-golden.mjs|\
+              .github/workflows/hnl-prod-ios-safearea-pr-ci-20261111.yml) ;;
+              *) echo "STOP: unexpected changed file $file"; exit 1 ;;
+            esac
+          done
+          echo "Scoped file whitelist PASS"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Golden iPhone notch and retained PROD PC sidebar
+        run: |
+          node scripts/prod-ios-safearea-scoped-golden.mjs
+          node scripts/prod-pc-sidebar-square-golden.mjs
+      - name: Source lint and typecheck
+        run: |
+          npm run lint
+          npm run typecheck
+      - name: Firebase Rules emulator behavior (read-only/test)
+        run: npm run test:rules
+      - name: Regression and security gate
+        run: |
+          npm run test:stability
+          npm run security:audit
+      - name: Build only - never deploy
+        run: npm run build
+
+      - name: Archive exact PR source and patch (no dependencies or secrets)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reviewed
+          git archive --format=zip --output="reviewed/HNL-QLTC-PROD-IOS-SAFEAREA-PR430-FULL-SOURCE.zip" "$HEAD_SHA"
+          mapfile -t scoped < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          test "${#scoped[@]}" -eq 18
+          git archive --format=zip --output="reviewed/HNL-QLTC-PROD-IOS-SAFEAREA-PR430-PATCH-18-FILES.zip" "$HEAD_SHA" "${scoped[@]}"
+          (cd reviewed && unzip -tq HNL-QLTC-PROD-IOS-SAFEAREA-PR430-FULL-SOURCE.zip && unzip -tq HNL-QLTC-PROD-IOS-SAFEAREA-PR430-PATCH-18-FILES.zip)
+          (cd reviewed && sha256sum *.zip > SHA256SUMS.txt)
+          {
+            echo '# HNL QLTC - PR430 iOS Safe Area candidate'
+            echo "PROD baseline: $BASE_SHA"
+            echo "Candidate commit: $HEAD_SHA"
+            echo "Candidate tree: $(git rev-parse "$HEAD_SHA^{tree}")"
+            echo 'Changed: 16 source UI files plus 2 scoped CI/golden files'
+            echo 'CI passed on this exact commit; no deploy or data writes.'
+            echo 'Physical signed-in iPhone Safari/PWA Golden: PENDING - NOT CERTIFIED.'
+            echo 'Main/PROD unchanged by candidate PR.'
+            printf 'Changed files:\n'
+            printf '%s\n' "${scoped[@]}"
+          } > reviewed/REPORT.md
+      - name: Upload full source, patch, report and SHA256
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-PROD-IOS-SAFEAREA-PR430-SOURCE-PATCH-REPORT
+          path: reviewed/*
+          retention-days: 14
+          if-no-files-found: error
