@@ -31,6 +31,8 @@ export interface WarehouseIncomingTransfer {
   receivedAt?: number;
   receivedByUid?: string;
   receiptId?: string;
+  revision?: number;
+  updatedAt?: number;
 }
 
 export interface WarehouseDestinationItem {
@@ -260,7 +262,7 @@ export async function amendWarehouseProjectTransferAtomic(
     const receiptRef = doc(db, 'projects', destinationProjectId, 'inventory', warehouseTransferReceiptId(transferId));
     const sourceSnap = await tx.get(sourceRef);
     if (!sourceSnap.exists()) throw new Error('TRANSFER_SOURCE_MISSING: Phiếu xuất gốc không tồn tại.');
-    const source = sourceSnap.data() as InventoryItem & {materialKey?:string};
+    const source = sourceSnap.data() as InventoryItem & {materialKey?:string; deleted?: boolean};
     if (source.deleted || source.type !== 'out' || source.sourceType !== 'project-transfer-out' ||
         source.warehouseTransferId !== transferId || source.transferToProjectId !== destinationProjectId ||
         Math.abs(Number(source.quantity) - incoming.quantity) > 1e-9 ||
@@ -274,7 +276,7 @@ export async function amendWarehouseProjectTransferAtomic(
     if (!sourceBalanceSnap.exists() || sourceBalanceSnap.data()?.renamedTo) {
       throw new Error('TRANSFER_SOURCE_BALANCE_STALE: Tồn kho nguồn cần đối soát trước khi điều chỉnh.');
     }
-    let receipt: (InventoryItem & {materialKey?:string}) | null = null;
+    let receipt: (InventoryItem & {materialKey?:string; deleted?: boolean}) | null = null;
     let receiptBalanceRef: ReturnType<typeof doc> | null = null;
     let receiptBalanceSnap: typeof sourceBalanceSnap | null = null;
     if (incoming.status === 'received') {
@@ -282,7 +284,7 @@ export async function amendWarehouseProjectTransferAtomic(
       if (!receiptSnap.exists() || incoming.receiptId !== receiptRef.id) {
         throw new Error('TRANSFER_RECEIPT_MISSING: Phiếu nhập dự án nhận không khớp.');
       }
-      receipt = receiptSnap.data() as InventoryItem & {materialKey?:string};
+      receipt = receiptSnap.data() as InventoryItem & {materialKey?:string; deleted?: boolean};
       if (receipt.deleted || receipt.type !== 'in' || receipt.sourceType !== 'project-transfer-in' ||
           receipt.warehouseTransferId !== transferId || receipt.transferFromProjectId !== incoming.fromProjectId ||
           Math.abs(Number(receipt.quantity) - incoming.quantity) > 1e-9 ||
