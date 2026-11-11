@@ -1,0 +1,121 @@
+name: HNL PROD PR430 iPhone Safe Area Hosting-only
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/index.css'
+      - 'src/components/FloorPlanDefectTab.tsx'
+permissions:
+  contents: read
+concurrency:
+  group: hnl-prod-pr430-hosting
+  cancel-in-progress: false
+jobs:
+  hosting:
+    if: ${{ github.repository == 'lengochieu1211-sudo/hnl-qltc' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release-prod-PR430 iPhone Safe Area from DEV') }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 75
+    env:
+      VITE_APP_ENV: PROD
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_FIREBASE_API_KEY: AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY
+      VITE_FIREBASE_AUTH_DOMAIN: hnlqltc.web.app
+      VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
+      VITE_FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
+      VITE_FIREBASE_MESSAGING_SENDER_ID: '119152410850'
+      VITE_FIREBASE_APP_ID: '1:119152410850:web:c2aee2135428af34ef5ebb'
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_HNL_AI_ENABLED: 'true'
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact source and protected files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = '17c86d0a269c7fed77680cf043685b02fc858871'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
+          diff -u <(cat <<'FILES' | sort
+.github/workflows/hnl-prod-ios-safearea-pr-ci-20261111.yml
+.github/workflows/hnl-prod-pr430-hosting-only-20261111.yml
+scripts/prod-ios-safearea-scoped-golden.mjs
+src/index.css
+src/components/CatalogTemplatePickerModal.tsx
+src/components/ChecklistTab.tsx
+src/components/ConflictMergeModal.tsx
+src/components/CrewReportShareModal.tsx
+src/components/CrewTabBase.tsx
+src/components/ExportPdfModal.tsx
+src/components/FloorPlanDefectTab.tsx
+src/components/ImageEditorModal.tsx
+src/components/ImageViewerModal.tsx
+src/components/MaterialNormModal.tsx
+src/components/NotificationCenterModal.tsx
+src/components/QuickEditGridModal.tsx
+src/components/RoomHighlightModal.tsx
+src/components/WarehouseTab.tsx
+src/components/WorkVolumeTab.tsx
+FILES
+          ) <(git diff --name-only '17c86d0a269c7fed77680cf043685b02fc858871' "$GITHUB_SHA" | sort)
+          for file in .firebaserc firebase.json firebase.prod.json firestore.rules storage.rules package.json package-lock.json src/components/BottomNav.tsx src/lib/firebaseBase.ts src/lib/chatService.ts; do
+            test "$(git rev-parse "$GITHUB_SHA:$file")" = "$(git rev-parse '17c86d0a269c7fed77680cf043685b02fc858871':"$file")"
+          done
+          node -e "const c=require('./firebase.prod.json'),f=require('./.firebaserc');if(c.hosting.site!=='hnlqltc'||f.projects.default!=='com-example-qlct-61329')process.exit(1)"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Verify production code without modifying data
+        run: |
+          node scripts/prod-ios-safearea-scoped-golden.mjs
+          node scripts/prod-pc-sidebar-square-golden.mjs
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run test:stability
+          npm run build
+      - name: Backup live Hosting, preview, verify, promote, rollback if smoke fails
+        shell: bash
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+        run: |
+          set -euo pipefail
+          test -n "$FIREBASE_SERVICE_ACCOUNT"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/prod-hosting-sa.json"
+          umask 077
+          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          node -e "const a=require(process.env.GOOGLE_APPLICATION_CREDENTIALS);if(a.project_id!=='com-example-qlct-61329')process.exit(1)"
+          BACKUP="pr430-rollback-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          PREVIEW="pr430-stage-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          npx --yes firebase-tools@13.35.1 hosting:clone "hnlqltc:live" "hnlqltc:$BACKUP" --project com-example-qlct-61329 --non-interactive
+          npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$PREVIEW" --config firebase.prod.json --project com-example-qlct-61329 --expires 1d --non-interactive > "$RUNNER_TEMP/preview.txt"
+          URL=$(grep -Eo 'https://hnlqltc--[A-Za-z0-9-]+\.web\.app' "$RUNNER_TEMP/preview.txt" | head -1)
+          test -n "$URL"
+          curl -fsS --retry 5 "$URL/?build=$GITHUB_SHA" -o "$RUNNER_TEMP/preview.html"
+          grep -qi '<div id="root"' "$RUNNER_TEMP/preview.html"
+          CSS=$(grep -Eo '/assets/[^"]+\.css' "$RUNNER_TEMP/preview.html" | head -1)
+          curl -fsS "$URL$CSS" | grep -q 'hnl-ios-safe-modal'
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
+          npx --yes firebase-tools@13.35.1 hosting:clone "hnlqltc:$PREVIEW" hnlqltc:live --project com-example-qlct-61329 --non-interactive
+          if ! curl -fsS --retry 5 "https://hnlqltc.web.app/?build=$GITHUB_SHA" | grep -qi '<div id="root"'; then
+            npx --yes firebase-tools@13.35.1 hosting:clone "hnlqltc:$BACKUP" hnlqltc:live --project com-example-qlct-61329 --non-interactive
+            echo 'PROD live smoke failed; Hosting rollback completed'
+            exit 1
+          fi
+          echo "PROD PR430 HOSTING-ONLY LIVE PASS; rollback channel $BACKUP"
