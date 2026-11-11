@@ -6391,11 +6391,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       </div>
   );
   const renderMapDisplaySettings = (dark = false) => (
-    <details className={`group shrink-0 rounded-xl border ${dark ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-200 bg-white text-slate-700'}`}>
+    <details data-hnl-map-display-inline="anchored-popover" className={`group relative shrink-0 rounded-xl border ${dark ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-200 bg-white text-slate-700'}`}>
       <summary className="min-h-9 cursor-pointer select-none list-none px-3 py-2 flex items-center gap-1.5 text-[11px] font-bold whitespace-nowrap" aria-label="Mở tùy chỉnh hiển thị mặt bằng">
         <span aria-hidden="true">⚙️</span> Hiển thị <span className="text-[9px] group-open:rotate-180">▾</span>
       </summary>
-      {renderMapDisplayControls(dark)}
+      <div data-hnl-map-display-popover="true" className={`hnl-mobile-map-display-panel absolute right-0 top-full z-[95] mt-1 w-[min(18rem,calc(100vw-2rem))] max-h-[min(70dvh,36rem)] overflow-y-auto overscroll-contain rounded-xl border shadow-xl ${dark ? 'border-slate-600 bg-slate-800' : 'border-slate-200 bg-white'}`}>
+        {renderMapDisplayControls(dark)}
+      </div>
     </details>
   );
 
@@ -7446,7 +7448,15 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           <div ref={fullscreenDisplayViewportRef} data-hnl-pc-plan-viewport="true" className={`${isFullscreen ? 'fixed inset-0 z-[100] bg-slate-950 rounded-none h-[100dvh] w-[100dvw] flex flex-col' : 'relative w-full h-[52dvh] min-h-[320px] max-h-[520px] sm:h-[400px] bg-slate-900 rounded-2xl'} overflow-hidden isolate border border-slate-300 select-none group shadow-inner`}>
             {/* Fullscreen Pinned Drawing Toolbar & Active Banners */}
             {isFullscreen && (
-              <div className="shrink-0 z-[70] pointer-events-auto flex flex-col gap-1.5 p-2 bg-slate-950/95 border-b border-slate-800 shadow-lg">
+              <div
+                data-hnl-ios-fullscreen-toolbar="true"
+                className="hnl-ios-safe-fullscreen-toolbar shrink-0 z-[70] pointer-events-auto flex flex-col gap-1.5 p-2 bg-slate-950/95 border-b border-slate-800 shadow-lg"
+                style={{
+                  paddingTop: 'max(0.5rem, env(safe-area-inset-top))',
+                  paddingLeft: 'max(0.5rem, env(safe-area-inset-left))',
+                  paddingRight: 'max(0.5rem, env(safe-area-inset-right))',
+                }}
+              >
                 {/* Fullscreen Top Control Bar */}
                 <div className="flex items-center justify-between gap-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-slate-700 shadow-2xl text-white overflow-x-auto no-scrollbar">
                   <div className="flex items-center gap-2 shrink-0">
@@ -11287,8 +11297,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
       {/* MANAGE FLOORS MODAL (Tùy Chỉnh, Đổi Tên, Nhân bản, Xóa tầng) */}
       {canManageStructure && showManageFloorsModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-white w-full sm:w-[92vw] lg:w-[90vw] max-w-[1360px] rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 space-y-4 max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col shadow-2xl">
+        <div className="hnl-cross-device-safe-overlay fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+          <div className="hnl-cross-device-safe-dialog bg-white w-full sm:w-[92vw] lg:w-[90vw] max-w-[1360px] rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 space-y-4 max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
