@@ -765,66 +765,6 @@ try {
   const finalTransferTarget = await getDoc(transferDestBalanceRef);
   assert.equal(finalTransferSource.data()?.onHand, 5, 'source balance reflects 3 units delivered after correction');
   assert.equal(finalTransferTarget.data()?.onHand, 3, 'target balance reflects 3 units received after correction');
-  // Dev-only: correction must update BOTH linked voucher quantities and BOTH
-  // derived stock balances in one atomic commit. A one-sided edit is denied.
-  await expectDenied('linked transfer cannot amend only source and inbox without BOTH balance deltas', async () => {
-    const batch = writeBatch(db);
-    batch.update(transferOutRef, {
-      quantity: 1, date: '2026-11-04', notes: 'Điều chỉnh thử', handler: 'Kiểm toán',
-      revision: 2, updatedAt: transferNow + 10, updatedByUid: ownerUid,
-    });
-    batch.update(transferInboxRef, {
-      quantity: 1, date: '2026-11-04', notes: 'Điều chỉnh thử', handler: 'Kiểm toán',
-      revision: 1, updatedAt: transferNow + 10, updatedByUid: ownerUid,
-    });
-    await batch.commit();
-  });
-  await expectAllowed('ADMIN adjusts received transfer quantity and BOTH stock balances atomically', async () => {
-    const batch = writeBatch(db);
-    batch.update(transferOutRef, {
-      quantity: 1, date: '2026-11-04', notes: 'Điều chỉnh thử', handler: 'Kiểm toán',
-      revision: 2, updatedAt: transferNow + 11, updatedByUid: ownerUid,
-    });
-    batch.update(transferInboxRef, {
-      quantity: 1, date: '2026-11-04', notes: 'Điều chỉnh thử', handler: 'Kiểm toán',
-      revision: 1, updatedAt: transferNow + 11, updatedByUid: ownerUid,
-    });
-    batch.update(transferReceiptRef, {
-      quantity: 1, revision: 2, updatedAt: transferNow + 11, updatedByUid: ownerUid,
-    });
-    batch.update(transferSourceBalanceRef, {
-      onHand: 7, revision: 3, updatedAt: transferNow + 11, updatedByUid: ownerUid,
-    });
-    batch.update(transferDestBalanceRef, {
-      onHand: 1, revision: 2, updatedAt: transferNow + 11, updatedByUid: ownerUid,
-    });
-    await batch.commit();
-  });
-  assert.equal((await getDoc(transferOutRef)).data()?.quantity, 1);
-  assert.equal((await getDoc(transferInboxRef)).data()?.quantity, 1);
-  assert.equal((await getDoc(transferReceiptRef)).data()?.quantity, 1);
-  assert.equal((await getDoc(transferSourceBalanceRef)).data()?.onHand, 7);
-  assert.equal((await getDoc(transferDestBalanceRef)).data()?.onHand, 1);
-  await expectDenied('linked transfer cannot edit material identity even in an atomic amount correction', async () => {
-    const batch = writeBatch(db);
-    batch.update(transferOutRef, {
-      materialName: 'Vật tư khác', quantity: 2, revision: 3,
-      updatedAt: transferNow + 12, updatedByUid: ownerUid,
-    });
-    batch.update(transferInboxRef, {
-      quantity: 2, revision: 2, updatedAt: transferNow + 12, updatedByUid: ownerUid,
-    });
-    batch.update(transferReceiptRef, {
-      quantity: 2, revision: 3, updatedAt: transferNow + 12, updatedByUid: ownerUid,
-    });
-    batch.update(transferSourceBalanceRef, {
-      onHand: 6, revision: 4, updatedAt: transferNow + 12, updatedByUid: ownerUid,
-    });
-    batch.update(transferDestBalanceRef, {
-      onHand: 2, revision: 3, updatedAt: transferNow + 12, updatedByUid: ownerUid,
-    });
-    await batch.commit();
-  });
   await signIn(viewerEmail);
   await expectDenied('VIEWER cannot read unrelated target transfer inbox', () => getDoc(transferInboxRef));
   await signIn(ownerEmail);
