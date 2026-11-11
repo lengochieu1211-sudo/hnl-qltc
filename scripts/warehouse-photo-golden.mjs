@@ -109,7 +109,7 @@ assert(warehouse.includes('photoVoucher.projectId === currentProjectId && hasEdi
 assert(photoPicker.includes("isWarehouseVoucher ? 'Chưa có ảnh' : 'Chưa có ảnh hiện trường'"), 'Show a specific no-photo indicator for inventory vouchers');
 assert(photoPicker.includes('`${photos.length} ảnh${pendingCount > 0'), 'Show a clickable count-only warehouse photo label with pending Cloud status preserved');
 assert(photoPicker.includes('refreshWarehousePhotoMetadataOnce'), 'Many warehouse cards share a single metadata refresh instead of hammering Firestore');
-assert(warehouse.includes('onClick={() => openEditInventory(item)}') && warehouse.includes('<Edit2 className="w-3 h-3" /> Sửa'), 'Voucher edit is a separate, clearly labeled action');
+assert(warehouse.includes('onClick={() => openEditInventory(item)}') && (warehouse.includes('<Edit2 className="w-3 h-3" /> Sửa') || warehouse.includes("<Edit2 className=\"w-3 h-3\" /> {item.warehouseTransferId ? 'Điều chỉnh' : 'Sửa'}")), 'Voucher edit is a separate, clearly labeled action');
 assert(warehouse.includes('onClick={() => setDeletingInventoryTarget(item)}') && warehouse.includes('<Trash2 className="w-3 h-3" /> Xóa'), 'Voucher delete retains explicit action and consistent label');
 assert(warehouse.includes('entityType="inventory" entityId={photoVoucher.id} category="warehouse_receipt"'), 'Gallery photos must bind to stable voucher ID');
 assert(warehouse.includes('entityType="inventory" entityId={editingInventory.id} category="warehouse_receipt"'), 'Edit form must show existing voucher photos');

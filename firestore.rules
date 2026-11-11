@@ -359,6 +359,120 @@ service cloud.firestore {
           (exists(balancePath) ? get(balancePath).data.onHand : 0) + row.quantity;
     }
 
+    // Cross-project corrections are additive audit updates to the same linked
+    // documents. Quantity, note and revision may change, but immutable identities,
+    // project linkage, lifecycle, source type and unit remain unchanged. Old and
+    // new stock balances must match the quantity delta in the SAME transaction.
+    // Both sides must grant project edit permission. Never permit standalone edits.
+    function warehouseTransferSourceCorrectionSafe(projectId, recordId) {
+      let old = resource.data;
+      let row = request.resource.data;
+      let toPid = old.transferToProjectId;
+      let transferId = old.warehouseTransferId;
+      let inboxPath = /databases/$(database)/documents/projects/$(toPid)/warehouse_incoming/$(transferId);
+      let inboxBefore = get(inboxPath).data;
+      let inboxAfter = getAfter(inboxPath).data;
+      let balancePath = /databases/$(database)/documents/projects/$(projectId)/inventory_balances/$(old.materialKey);
+      let balanceBefore = get(balancePath).data;
+      let balanceAfter = getAfter(balancePath).data;
+      return canAdminOperate(projectId) && canAdminOperate(toPid)
+        && old.sourceType == 'project-transfer-out' && old.type == 'out'
+        && transferId is string && toPid is string && toPid != projectId
+        && old.deleted == false && row.deleted == false
+        && old.materialKey is string && old.materialKey.size() > 0
+        && row.diff(old).affectedKeys().hasOnly(['quantity','date','handler','notes','revision','updatedAt','updatedByUid'])
+        && row.quantity is number && row.quantity > 0
+        && row.revision == old.revision + 1
+        && row.updatedAt is number && row.updatedAt > old.updatedAt
+        && row.updatedByUid == request.auth.uid
+        && inboxBefore.fromProjectId == projectId
+        && inboxBefore.toProjectId == toPid
+        && inboxBefore.sourceTransactionId == recordId
+        && inboxBefore.status in ['pending','received']
+        && inboxAfter.status == inboxBefore.status
+        && inboxBefore.quantity == old.quantity
+        && inboxAfter.quantity == row.quantity
+        && inboxAfter.notes == row.notes
+        && inboxAfter.date == row.date
+        && inboxAfter.handler == row.handler
+        && inboxAfter.updatedAt == row.updatedAt
+        && inboxAfter.updatedByUid == row.updatedByUid
+        && balanceAfter.onHand == balanceBefore.onHand + old.quantity - row.quantity
+        && balanceAfter.onHand >= 0
+        && (inboxBefore.status == 'pending'
+          || (getAfter(/databases/$(database)/documents/projects/$(toPid)/inventory/$(inboxBefore.receiptId)).data.quantity == row.quantity
+            && getAfter(/databases/$(database)/documents/projects/$(toPid)/inventory/$(inboxBefore.receiptId)).data.updatedAt == row.updatedAt));
+    }
+
+    function warehouseTransferReceiptCorrectionSafe(projectId, recordId) {
+      let old = resource.data;
+      let row = request.resource.data;
+      let inboxPath = /databases/$(database)/documents/projects/$(projectId)/warehouse_incoming/$(old.warehouseTransferId);
+      let inboxBefore = get(inboxPath).data;
+      let inboxAfter = getAfter(inboxPath).data;
+      let sourcePath = /databases/$(database)/documents/projects/$(inboxBefore.fromProjectId)/inventory/$(inboxBefore.sourceTransactionId);
+      let sourceAfter = getAfter(sourcePath).data;
+      let balancePath = /databases/$(database)/documents/projects/$(projectId)/inventory_balances/$(old.materialKey);
+      let balanceBefore = get(balancePath).data;
+      let balanceAfter = getAfter(balancePath).data;
+      return canAdminOperate(projectId) && canAdminOperate(old.transferFromProjectId)
+        && old.sourceType == 'project-transfer-in' && old.type == 'in'
+        && old.warehouseTransferId is string && old.materialKey is string
+        && old.materialKey.size() > 0
+        && old.deleted == false && row.deleted == false
+        && row.diff(old).affectedKeys().hasOnly(['quantity','date','handler','notes','revision','updatedAt','updatedByUid'])
+        && row.quantity is number && row.quantity > 0
+        && row.revision == old.revision + 1
+        && row.updatedAt is number && row.updatedAt > old.updatedAt
+        && row.updatedByUid == request.auth.uid
+        && inboxBefore.status == 'received' && inboxAfter.status == 'received'
+        && inboxBefore.toProjectId == projectId
+        && inboxBefore.fromProjectId == old.transferFromProjectId
+        && inboxBefore.receiptId == recordId
+        && inboxBefore.quantity == old.quantity
+        && inboxAfter.quantity == row.quantity
+        && inboxAfter.updatedAt == row.updatedAt
+        && inboxAfter.updatedByUid == row.updatedByUid
+        && sourceAfter.warehouseTransferId == old.warehouseTransferId
+        && sourceAfter.quantity == row.quantity
+        && sourceAfter.updatedAt == row.updatedAt
+        && balanceAfter.onHand == balanceBefore.onHand + row.quantity - old.quantity
+        && balanceAfter.onHand >= 0;
+    }
+
+    function warehouseTransferInboxCorrectionSafe(projectId, transferId) {
+      let old = resource.data;
+      let row = request.resource.data;
+      let sourcePath = /databases/$(database)/documents/projects/$(old.fromProjectId)/inventory/$(old.sourceTransactionId);
+      let sourceBefore = get(sourcePath).data;
+      let sourceAfter = getAfter(sourcePath).data;
+      let sourceBalancePath = /databases/$(database)/documents/projects/$(old.fromProjectId)/inventory_balances/$(sourceBefore.materialKey);
+      let sourceBalanceBefore = get(sourceBalancePath).data;
+      let sourceBalanceAfter = getAfter(sourceBalancePath).data;
+      return canAdminOperate(projectId) && canAdminOperate(old.fromProjectId)
+        && old.id == transferId && old.toProjectId == projectId
+        && old.status in ['pending','received'] && row.status == old.status
+        && row.diff(old).affectedKeys().hasOnly(['quantity','date','handler','notes','revision','updatedAt','updatedByUid'])
+        && row.quantity is number && row.quantity > 0
+        && row.revision == old.get('revision',0) + 1
+        && row.updatedAt is number && row.updatedAt > old.get('updatedAt',old.createdAt)
+        && row.updatedByUid == request.auth.uid
+        && sourceBefore.warehouseTransferId == transferId
+        && sourceBefore.transferToProjectId == projectId
+        && sourceBefore.quantity == old.quantity
+        && sourceAfter.quantity == row.quantity
+        && sourceAfter.notes == row.notes
+        && sourceAfter.date == row.date
+        && sourceAfter.handler == row.handler
+        && sourceAfter.updatedAt == row.updatedAt
+        && sourceAfter.updatedByUid == row.updatedByUid
+        && sourceBalanceAfter.onHand == sourceBalanceBefore.onHand + old.quantity - row.quantity
+        && sourceBalanceAfter.onHand >= 0
+        && (old.status == 'pending'
+          || (getAfter(/databases/$(database)/documents/projects/$(projectId)/inventory/$(old.receiptId)).data.quantity == row.quantity
+            && getAfter(/databases/$(database)/documents/projects/$(projectId)/inventory/$(old.receiptId)).data.updatedAt == row.updatedAt));
+    }
+
     // Checklist definition (floor/category/title/due-date/room binding) belongs to
     // ADMIN. EDITOR can record only inspection outcome, note and inspector.
     function editorChecklistOperationalUpdateOnly() {
@@ -955,6 +1069,14 @@ service cloud.firestore {
       match /inventory/{receiptId} {
         // Fast-fail non-transfer rows before costly cross-project auth checks.
         // Both this match and the generic project match are evaluated for inventory.
+        allow update: if ('warehouseTransferId' in resource.data)
+          // Only ADMIN may enter the expensive cross-project correction path;
+          // EDITOR receipt acceptance must keep using the separate existing create gate.
+          && canAdminOperate(projectId)
+          && ((resource.data.get('sourceType', '') == 'project-transfer-out'
+            && warehouseTransferSourceCorrectionSafe(projectId, receiptId))
+            || (resource.data.get('sourceType', '') == 'project-transfer-in'
+            && warehouseTransferReceiptCorrectionSafe(projectId, receiptId)));
         allow create: if ('warehouseTransferId' in request.resource.data)
           && request.resource.data.get('sourceType', '') == 'project-transfer-in'
           && projectIsActive(projectId)
@@ -994,6 +1116,12 @@ service cloud.firestore {
           && request.resource.data.createdByUid == request.auth.uid
           && getAfter(/databases/$(database)/documents/projects/$(request.resource.data.fromProjectId)/inventory/$(request.resource.data.sourceTransactionId)).data.warehouseTransferId == transferId
           && getAfter(/databases/$(database)/documents/projects/$(request.resource.data.fromProjectId)/inventory/$(request.resource.data.sourceTransactionId)).data.transferToProjectId == projectId;
+        // Ordinary pending → received confirmation is an EDITOR operation.
+        // Fast-fail corrections when status changes, BEFORE cross-project get/getAfter
+        // to avoid exhausting the Rules expression budget during receipt acceptance.
+        allow update: if resource.data.status == request.resource.data.status
+          && canAdminOperate(projectId)
+          && warehouseTransferInboxCorrectionSafe(projectId, transferId);
         allow update: if canEdit(projectId)
           && resource.data.toProjectId == projectId
           && resource.data.status == 'pending'
