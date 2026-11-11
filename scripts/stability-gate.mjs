@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
+// Cross-project amendments must use atomic two-project corrections and never delete a linked voucher.
+execFileSync(process.execPath, ['scripts/warehouse-transfer-amend-golden.mjs'], { stdio: 'inherit' });
 // Lock in project-wide equipment allocation semantics across future updates.
 execFileSync(process.execPath, ['scripts/equipment-project-scope-golden.mjs'], { stdio: 'inherit' });
 // Warehouse actor prefill must never silently reuse the project inspector or a prior account.
