@@ -51,4 +51,13 @@ containsAll(rules,[
   "(collectionName != 'inventory' || !('warehouseTransferId' in resource.data))",
 ], 'Firestore fail-closed guards');
 assert.equal(tab.includes('Từ dự án {row.fromProjectId}'), false,'raw project ID must not be primary UI label');
+// PR: Android transfer correction should match compact Warehouse controls, without clipped button text.
+containsAll(tab, [
+  'max-h-[calc(100dvh-1.5rem)] w-full max-w-md',
+  'space-y-3 overflow-y-auto overscroll-contain',
+  'min-h-11 min-w-0 rounded-xl border border-slate-300 px-2 py-2 text-xs',
+  'min-h-11 min-w-0 rounded-xl bg-blue-600 px-2 py-2 text-xs',
+  'leading-4 whitespace-normal text-white',
+  'sm:text-sm',
+], 'transfer correction mobile typography/viewport');
 console.log('warehouse-transfer-amend-golden: PASS (source/static; emulator remains mandatory)');

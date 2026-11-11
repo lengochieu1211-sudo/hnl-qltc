@@ -3821,7 +3821,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       {hasDeleteAccess && transferEditItem && (
         <div className="fixed inset-0 z-[96] flex items-center justify-center bg-slate-950/60 p-3" role="dialog"
           aria-modal="true" aria-label="Điều chỉnh phiếu điều chuyển liên dự án">
-          <form className="w-full max-w-md space-y-3 rounded-2xl bg-white p-4 shadow-xl"
+          <form className="max-h-[calc(100dvh-1.5rem)] w-full max-w-md space-y-3 overflow-y-auto overscroll-contain rounded-2xl bg-white p-4 shadow-xl"
             onSubmit={async (event) => {
               event.preventDefault();
               if (transferEditBusy || !currentProjectId || !transferEditItem.warehouseTransferId || !canAmendTransfer(transferEditItem)) return;
@@ -3882,9 +3882,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <p className="text-[11px] text-slate-600">Nếu đã nhập, số lượng chỉ giảm khi kho nhận còn đủ tồn. Giao dịch sẽ thất bại an toàn nếu dữ liệu thay đổi trên thiết bị khác hoặc thiếu quyền ADMIN ở một trong hai dự án.</p>
             <div className="grid grid-cols-2 gap-2">
               <button type="button" disabled={transferEditBusy} onClick={() => setTransferEditItem(null)}
-                className="min-h-11 rounded-xl border border-slate-300 font-bold text-slate-700">Hủy</button>
+                className="min-h-11 min-w-0 rounded-xl border border-slate-300 px-2 py-2 text-xs font-bold leading-4 text-slate-700 sm:text-sm">Hủy</button>
               <button type="submit" disabled={transferEditBusy}
-                className="min-h-11 rounded-xl bg-blue-600 font-bold text-white disabled:opacity-50">
+                className="min-h-11 min-w-0 rounded-xl bg-blue-600 px-2 py-2 text-xs font-bold leading-4 whitespace-normal text-white disabled:opacity-50 sm:text-sm">
                 {transferEditBusy ? 'Đang đối chiếu…' : 'Lưu đồng bộ hai dự án'}
               </button>
             </div>
