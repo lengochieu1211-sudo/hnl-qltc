@@ -3819,10 +3819,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         </div>
       )}
       {hasDeleteAccess && transferEditItem && (
-        <div className="fixed inset-0 z-[96] flex items-center justify-center bg-slate-950/60 p-3" role="dialog"
+        <div className="fixed inset-0 z-[96] flex items-center justify-center bg-slate-950/60 p-3 lg:left-[84px] lg:p-4" role="dialog"
           aria-modal="true" aria-label="Điều chỉnh phiếu điều chuyển liên dự án">
           <form data-hnl-warehouse-transfer-amend-form="true"
-            className="max-h-[calc(100dvh-1.5rem)] w-full max-w-md space-y-3 overflow-y-auto overscroll-contain rounded-2xl bg-white p-4 text-xs shadow-xl"
+            className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white text-xs shadow-xl lg:max-h-[calc(100dvh-2rem)] lg:max-w-[1100px]"
             onSubmit={async (event) => {
               event.preventDefault();
               if (transferEditBusy || !currentProjectId || !transferEditItem.warehouseTransferId || !canAmendTransfer(transferEditItem)) return;
@@ -3851,41 +3851,52 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 setTransferEditBusy(false);
               }
             }}>
-            <h3 className="text-base font-bold text-slate-900">Điều chỉnh phiếu điều chuyển</h3>
-            <div className="text-xs font-semibold text-blue-800">
-              {transferProjectName(transferEditItem.type === 'out' ? currentProjectId : transferEditItem.transferFromProjectId)}
-              {' → '}{transferProjectName(transferEditItem.type === 'out' ? transferEditItem.transferToProjectId : currentProjectId)}
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5 lg:px-6 lg:py-4">
+              <h3 className="min-w-0 text-base font-bold text-slate-900">Điều chỉnh phiếu điều chuyển</h3>
+              <button type="button" aria-label="Đóng form điều chỉnh phiếu điều chuyển" title="Đóng"
+                disabled={transferEditBusy} onClick={() => setTransferEditItem(null)}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 font-bold text-slate-500 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50">✕</button>
             </div>
-            <p className="text-xs text-slate-700">{transferEditItem.materialName} ({transferEditItem.unit})</p>
-            <p className="text-[11px] text-amber-800">Giữ nguyên vật tư, đơn vị, mã chứng từ. Việc đổi loại vật tư cần chứng từ hủy/điều chỉnh riêng để không sai tồn kho.</p>
-            <label className="block text-xs font-bold text-slate-700">Số lượng
-              <input required inputMode="decimal" value={transferEditQuantity} onChange={e => setTransferEditQuantity(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-normal leading-5 text-slate-800" />
-            </label>
-            <label className="block text-xs font-bold text-slate-700">Ngày phiếu xuất điều chuyển
-              <input required type="date" value={transferEditDate} onChange={e => setTransferEditDate(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-normal leading-5 text-slate-800" />
-            </label>
-            <label className="block text-xs font-bold text-slate-700">Người giao
-              <input value={transferEditHandler} onChange={e => setTransferEditHandler(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-normal leading-5 text-slate-800" />
-            </label>
-            <label className="block text-xs font-bold text-slate-700">Ghi chú bổ sung (không xóa nội dung cũ)
-              <textarea value={transferEditNotes} onChange={e => setTransferEditNotes(e.target.value)} rows={2} maxLength={400}
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-normal leading-5 text-slate-800" />
-            </label>
-            <label className="block text-xs font-bold text-slate-700">Lý do điều chỉnh (bắt buộc)
-              <textarea required minLength={5} maxLength={240} value={transferEditReason}
-                onChange={e => setTransferEditReason(e.target.value)} rows={2}
-                placeholder="Ví dụ: Ghi nhầm 5 cái, thực nhận 8 cái"
-                className="mt-1 w-full rounded-xl border border-amber-300 bg-white p-2.5 text-xs font-normal leading-5 text-slate-800 placeholder:text-slate-400" />
-            </label>
-            <p className="text-[11px] text-slate-600">Nếu đã nhập, số lượng chỉ giảm khi kho nhận còn đủ tồn. Giao dịch sẽ thất bại an toàn nếu dữ liệu thay đổi trên thiết bị khác hoặc thiếu quyền ADMIN ở một trong hai dự án.</p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5 lg:px-6 lg:py-5">
+              <div className="space-y-1.5 rounded-xl border border-slate-100 bg-slate-50 p-3 lg:p-4">
+                <div className="text-xs font-semibold text-blue-800">
+                  {transferProjectName(transferEditItem.type === 'out' ? currentProjectId : transferEditItem.transferFromProjectId)}
+                  {' → '}{transferProjectName(transferEditItem.type === 'out' ? transferEditItem.transferToProjectId : currentProjectId)}
+                </div>
+                <p className="text-xs text-slate-700">{transferEditItem.materialName} ({transferEditItem.unit})</p>
+              </div>
+              <p className="text-[11px] text-amber-800">Giữ nguyên vật tư, đơn vị, mã chứng từ. Việc đổi loại vật tư cần chứng từ hủy/điều chỉnh riêng để không sai tồn kho.</p>
+              <div data-hnl-warehouse-transfer-amend-fields="true" className="grid grid-cols-1 gap-3 lg:grid-cols-6 lg:gap-4">
+                <label className="min-w-0 lg:col-span-2 text-xs font-bold text-slate-700">Số lượng
+                  <input required inputMode="decimal" value={transferEditQuantity} onChange={e => setTransferEditQuantity(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-normal leading-5 text-slate-800" />
+                </label>
+                <label className="min-w-0 lg:col-span-2 text-xs font-bold text-slate-700">Ngày phiếu xuất điều chuyển
+                  <input required type="date" value={transferEditDate} onChange={e => setTransferEditDate(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-normal leading-5 text-slate-800" />
+                </label>
+                <label className="min-w-0 lg:col-span-2 text-xs font-bold text-slate-700">Người giao
+                  <input value={transferEditHandler} onChange={e => setTransferEditHandler(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-normal leading-5 text-slate-800" />
+                </label>
+                <label className="min-w-0 lg:col-span-3 text-xs font-bold text-slate-700">Ghi chú bổ sung (không xóa nội dung cũ)
+                  <textarea value={transferEditNotes} onChange={e => setTransferEditNotes(e.target.value)} rows={2} maxLength={400}
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-normal leading-5 text-slate-800" />
+                </label>
+                <label className="min-w-0 lg:col-span-3 text-xs font-bold text-slate-700">Lý do điều chỉnh (bắt buộc)
+                  <textarea required minLength={5} maxLength={240} value={transferEditReason}
+                    onChange={e => setTransferEditReason(e.target.value)} rows={2}
+                    placeholder="Ví dụ: Ghi nhầm 5 cái, thực nhận 8 cái"
+                    className="mt-1 w-full rounded-xl border border-amber-300 bg-white p-2.5 text-xs font-normal leading-5 text-slate-800 placeholder:text-slate-400" />
+                </label>
+              </div>
+              <p className="text-[11px] text-slate-600">Nếu đã nhập, số lượng chỉ giảm khi kho nhận còn đủ tồn. Giao dịch sẽ thất bại an toàn nếu dữ liệu thay đổi trên thiết bị khác hoặc thiếu quyền ADMIN ở một trong hai dự án.</p>
+            </div>
+            <div className="grid shrink-0 grid-cols-2 gap-2 border-t border-slate-100 px-4 py-3 sm:px-5 lg:flex lg:justify-end lg:gap-3 lg:px-6 lg:py-4">
               <button type="button" disabled={transferEditBusy} onClick={() => setTransferEditItem(null)}
-                className="min-h-11 min-w-0 rounded-xl border border-slate-300 px-2 py-2 text-xs font-bold leading-4 text-slate-700">Hủy</button>
+                className="min-h-11 min-w-0 rounded-xl border border-slate-300 px-2 py-2 text-xs font-bold leading-4 text-slate-700 lg:min-w-[128px]">Hủy</button>
               <button type="submit" disabled={transferEditBusy}
-                className="min-h-11 min-w-0 rounded-xl bg-blue-600 px-2 py-2 text-xs font-bold leading-4 whitespace-normal text-white disabled:opacity-50">
+                className="min-h-11 min-w-0 rounded-xl bg-blue-600 px-2 py-2 text-xs font-bold leading-4 whitespace-normal text-white disabled:opacity-50 lg:min-w-[240px]">
                 {transferEditBusy ? 'Đang đối chiếu…' : 'Lưu đồng bộ hai dự án'}
               </button>
             </div>
