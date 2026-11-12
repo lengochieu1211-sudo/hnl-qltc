@@ -60,4 +60,21 @@ containsAll(tab, [
   'leading-4 whitespace-normal text-white',
 ], 'transfer correction mobile typography/viewport');
 assert.ok(!tab.slice(tab.indexOf('aria-label="Điều chỉnh phiếu điều chuyển liên dự án"'), tab.indexOf('{/* Delete Inventory Confirmation Modal */}')).includes('sm:text-sm'), 'transfer modal buttons follow the Warehouse 12px button standard at every breakpoint');
+// Transfer correction uses the same compact controls as the Create Warehouse Voucher form.
+// Scope assertions to this modal; do not alter global CSS or other forms.
+assert.ok(tab.includes('data-hnl-pc-v3-form="warehouse"'), 'missing Create Warehouse Voucher reference form');
+assert.ok(tab.includes('lg:grid-cols-6 gap-3 text-xs'), 'create voucher 12px control baseline changed');
+const amend = tab.slice(tab.indexOf('data-hnl-warehouse-transfer-amend-form="true"'), tab.indexOf('{/* Delete Inventory Confirmation Modal */}'));
+assert.ok(amend.includes('space-y-3 overflow-y-auto overscroll-contain'), 'amend modal must remain mobile scrollable');
+const amendControls = [...amend.matchAll(/className="(mt-1 w-full rounded-xl border [^"]+)"/g)];
+assert.equal(amendControls.length, 5, 'all five amendment fields must share Warehouse Create Voucher typography');
+for (const [, classes] of amendControls) {
+  for (const token of ['p-2.5', 'rounded-xl', 'text-xs', 'font-normal', 'leading-5']) {
+    assert.ok(classes.split(/\s+/).includes(token), `amend field missing ${token}`);
+  }
+  assert.ok(!classes.includes('text-sm'), 'amend fields must not override the Create Voucher 12px font with 14px');
+}
+assert.ok(amend.includes('required type="date"'), 'native date input must remain intact');
+assert.ok(amend.includes('rows={2} maxLength={400}'), 'additional notes limit must remain intact');
+assert.ok(amend.includes('minLength={5} maxLength={240}'), 'adjustment reason validation must remain intact');
 console.log('warehouse-transfer-amend-golden: PASS (source/static; emulator remains mandatory)');
