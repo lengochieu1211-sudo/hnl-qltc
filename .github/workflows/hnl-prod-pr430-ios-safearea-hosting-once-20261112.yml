@@ -1,0 +1,181 @@
+name: HNL QLTC PROD PR430 one-shot iPhone Safe Area Hosting-only
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/hnl-prod-pr430-ios-safearea-hosting-once-20261112.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: hnl-qltc-prod-pr430-safearea-hosting
+  cancel-in-progress: false
+jobs:
+  deploy_prod_stage2:
+    if: ${{ github.repository == 'lengochieu1211-sudo/hnl-qltc' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release-prod-PR430 Hosting-only pinned 16394262') }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 75
+    env:
+      VITE_APP_ENV: PROD
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_FIREBASE_API_KEY: AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY
+      VITE_FIREBASE_AUTH_DOMAIN: hnlqltc.web.app
+      VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
+      VITE_FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
+      VITE_FIREBASE_MESSAGING_SENDER_ID: '119152410850'
+      VITE_FIREBASE_APP_ID: '1:119152410850:web:c2aee2135428af34ef5ebb'
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_HNL_AI_ENABLED: 'true'
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: 1639426243441a5a3aaf3c51c713ea78fa3b829d
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Strict exact PR430 source and Hosting-only release gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "lengochieu1211-sudo/hnl-qltc"
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = "1639426243441a5a3aaf3c51c713ea78fa3b829d"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
+          test "$(git diff --name-only 1639426243441a5a3aaf3c51c713ea78fa3b829d "$GITHUB_SHA")" = ".github/workflows/hnl-prod-pr430-ios-safearea-hosting-once-20261112.yml"
+          test "$(git rev-parse 1639426243441a5a3aaf3c51c713ea78fa3b829d^{tree})" = "f0013310ee98cca957bfcb9ce7ab4cbaf647daa8"
+          test "$(git rev-parse HEAD:.firebaserc)" = "74d90dc97f07bba6e9c9c18b9d78a3fc51418128"
+          test "$(git rev-parse HEAD:firebase.prod.json)" = "f1fd643bae6e7232300affe15c945ba4d579a962"
+          test "$(git rev-parse HEAD:firebase.json)" = "35328a4b8481d4825ebb7aab62fd9a6bda84ec2f"
+          test "$(git rev-parse HEAD:firestore.rules)" = "7cc080aa1b1ca87dea186c5037c7ab858d706689"
+          test "$(git rev-parse HEAD:storage.rules)" = "4d0b6daa44cd1b79ba4c98e164b52fbd122d5fa1"
+          test "$(git rev-parse HEAD:package.json)" = "66f34256215274d347c623350465e5a9a40ded93"
+          test "$(git rev-parse HEAD:package-lock.json)" = "39849efdb4fed79fbff3e1303c6dcf785dbf2fdc"
+          node - <<'NODE'
+          const fs=require('fs'),f=require('./firebase.prod.json'),r=JSON.parse(fs.readFileSync('.firebaserc','utf8')),p=require('./package.json'),q=require('./package-lock.json');
+          if(Object.keys(f).join(',')!=='hosting'||f.hosting.site!=='hnlqltc'||f.hosting.public!=='dist')throw Error('Non-Hosting config');
+          if(r.projects.default!=='com-example-qlct-61329'||p.version!==q.version||p.version!=='6.3.0')throw Error('Project or lock drift');
+          NODE
+          echo "PR430 application source unchanged; only release workflow added"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Reuse Web/EXE/APK CI PASS; targeted PR430 golden and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/prod-ios-safearea-scoped-golden.mjs
+          node scripts/prod-pc-sidebar-square-golden.mjs
+          npm run build
+          test -s dist/index.html
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
+      - name: Report exact PR430 release scope and SHA256
+        shell: bash
+        run: |
+          mkdir -p release
+          printf '%s\n' "PR430 source=1639426243441a5a3aaf3c51c713ea78fa3b829d" "PR430 source tree=f0013310ee98cca957bfcb9ce7ab4cbaf647daa8" "release workflow HEAD=$GITHUB_SHA" "hosting=hnlqltc project=com-example-qlct-61329" "Signed-in Runtime Golden=PENDING" > release/REPORT.txt
+          sha256sum release/REPORT.txt > release/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-PR430-HOSTING-RELEASE-GATE
+          path: release/*
+          retention-days: 30
+          if-no-files-found: error
+      - name: Back up existing PROD Hosting live as rollback preview, then deploy candidate preview
+        shell: bash
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+        run: |
+          set -euo pipefail
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}" || { echo '::error::Missing existing PROD Hosting service account'; exit 1; }
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/hnl-prod-stage2-sa.json"
+          umask 077
+          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          node - <<'NODE'
+          const a=require(process.env.GOOGLE_APPLICATION_CREDENTIALS);
+          if(a.type!=='service_account'||a.project_id!=='com-example-qlct-61329'||!a.client_email||!a.private_key)throw Error('Wrong Firebase credentials');
+          NODE
+          ROLLBACK_CHANNEL="pr430-rollback-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          PREVIEW_CHANNEL="pr430-stage2-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "ROLLBACK_CHANNEL=$ROLLBACK_CHANNEL" >> "$GITHUB_ENV"
+          echo "PREVIEW_CHANNEL=$PREVIEW_CHANNEL" >> "$GITHUB_ENV"
+          curl --fail --silent --show-error --retry 4 --retry-delay 3 "https://hnlqltc.web.app/?pr430_before=$GITHUB_RUN_ID" > "$RUNNER_TEMP/pr430-live-before.html"
+          grep -qi '<div id="root"' "$RUNNER_TEMP/pr430-live-before.html"
+          LIVE_BEFORE_SHA="$(sha256sum "$RUNNER_TEMP/pr430-live-before.html" | cut -d' ' -f1)"
+          echo "LIVE_BEFORE_SHA=$LIVE_BEFORE_SHA" >> "$GITHUB_ENV"
+          npx --yes firebase-tools@13.35.1 hosting:clone "hnlqltc:live" "hnlqltc:$ROLLBACK_CHANNEL" --project com-example-qlct-61329 --non-interactive | tee "$RUNNER_TEMP/pr430-rollback-channel.txt"
+          ROLLBACK_URL="$(grep -Eo 'https://hnlqltc--[A-Za-z0-9-]+\.web\.app' "$RUNNER_TEMP/pr430-rollback-channel.txt" | head -1 || true)"
+          test -n "$ROLLBACK_URL" || { echo "::error::Cannot resolve rollback channel URL; LIVE untouched"; exit 1; }
+          curl --fail --silent --show-error --retry 4 --retry-delay 3 "$ROLLBACK_URL/?pr430_backup=$GITHUB_RUN_ID" > "$RUNNER_TEMP/pr430-backup.html"
+          test "$(sha256sum "$RUNNER_TEMP/pr430-backup.html" | cut -d' ' -f1)" = "$LIVE_BEFORE_SHA" || { echo "::error::Rollback bytes differ from old LIVE"; exit 1; }
+          npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$PREVIEW_CHANNEL" --config firebase.prod.json --project com-example-qlct-61329 --expires 1d --non-interactive > "$RUNNER_TEMP/preview.txt"
+          cat "$RUNNER_TEMP/preview.txt"
+          PREVIEW_URL="$(grep -Eo 'https://hnlqltc--[A-Za-z0-9-]+\.web\.app' "$RUNNER_TEMP/preview.txt" | head -1 || true)"
+          test -n "$PREVIEW_URL" || { echo '::error::Unable to verify preview URL; PROD live untouched'; exit 1; }
+          PREVIEW_OK=0
+          for attempt in $(seq 1 18); do
+            if curl --fail --silent --show-error --max-time 15 "$PREVIEW_URL/?pr430=${GITHUB_RUN_ID}&attempt=$attempt" -o "$RUNNER_TEMP/pr430-preview-smoke.html" && grep -qi '<div id="root"' "$RUNNER_TEMP/pr430-preview-smoke.html"; then
+              PREVIEW_OK=1
+              break
+            fi
+            echo "Preview not ready yet ($attempt/18)"
+            sleep 5
+          done
+          test "$PREVIEW_OK" = 1 || { echo '::error::Preview unavailable after 18 checks; PROD live untouched'; exit 1; }
+          CSS_PATH="$(node - "$RUNNER_TEMP/pr430-preview-smoke.html" <<'NODE'
+          const fs=require('fs'),s=fs.readFileSync(process.argv[2],'utf8'),m=s.match(/href="(\/assets\/[^"]+\.css)"/);
+          if(!m)throw Error('Preview stylesheet missing');
+          process.stdout.write(m[1]);
+          NODE
+          )"
+          curl --fail --silent --show-error "$PREVIEW_URL$CSS_PATH" -o "$RUNNER_TEMP/pr430-preview.css"
+          grep -q 'hnl-ios-safe-modal' "$RUNNER_TEMP/pr430-preview.css" || { echo '::error::Safe modal CSS missing in preview'; exit 1; }
+          grep -q 'safe-area-inset-top' "$RUNNER_TEMP/pr430-preview.css" || { echo '::error::Notch CSS missing in preview'; exit 1; }
+          grep -q 'data-hnl-desktop-primary-nav' "$RUNNER_TEMP/pr430-preview.css" || { echo '::error::Square CSS missing in preview; PROD live untouched'; exit 1; }
+          PREVIEW_SHA="$(sha256sum "$RUNNER_TEMP/pr430-preview-smoke.html" | cut -d' ' -f1)"
+          echo "PREVIEW_SHA=$PREVIEW_SHA" >> "$GITHUB_ENV"
+          echo "ROLLBACK_URL=$ROLLBACK_URL" >> "$GITHUB_ENV"
+          echo "PREVIEW_URL=$PREVIEW_URL" >> "$GITHUB_ENV"
+          echo "Verified preview on existing PROD Hosting site: $PREVIEW_URL"
+      - name: Promote verified Hosting preview to existing PROD live, smoke and rollback on failure
+        shell: bash
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA" || { echo '::error::Main HEAD changed before live promotion'; exit 1; }
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/hnl-prod-stage2-sa.json"
+          umask 077
+          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          node -e "const a=require(process.env.GOOGLE_APPLICATION_CREDENTIALS);if(a.project_id!=='com-example-qlct-61329')process.exit(1)"
+          curl --fail --silent --show-error --retry 3 "https://hnlqltc.web.app/?pr430_pre_promotion=$GITHUB_RUN_ID" > "$RUNNER_TEMP/pr430-live-recheck.html"
+          test "$(sha256sum "$RUNNER_TEMP/pr430-live-recheck.html" | cut -d' ' -f1)" = "$LIVE_BEFORE_SHA" || { echo "::error::LIVE drift since backup; no promotion"; exit 1; }
+          npx --yes firebase-tools@13.35.1 hosting:clone "hnlqltc:$PREVIEW_CHANNEL" hnlqltc:live --project com-example-qlct-61329 --non-interactive
+          set +e
+          curl --fail --silent --show-error --retry 4 --retry-delay 3 "https://hnlqltc.web.app/?pr430=${GITHUB_RUN_ID}" > "$RUNNER_TEMP/live.html"
+          HTTP_STATUS=$?
+          grep -qi '<div id="root"' "$RUNNER_TEMP/live.html"; HTML_STATUS=$?
+          test "$(sha256sum "$RUNNER_TEMP/live.html" | cut -d' ' -f1)" = "$PREVIEW_SHA"; HASH_STATUS=$?
+
+          set -e
+          if [ "$HTTP_STATUS" != 0 ] || [ "$HTML_STATUS" != 0 ] || [ "$HASH_STATUS" != 0 ]; then
+            echo '::error::Public PROD HTML smoke failed; automatic Hosting-only rollback starting'
+            npx --yes firebase-tools@13.35.1 hosting:clone "hnlqltc:$ROLLBACK_CHANNEL" hnlqltc:live --project com-example-qlct-61329 --non-interactive
+            exit 1
+          fi
+          echo 'PROD HOSTING PR430 SQUARE SIDEBAR LIVE PUBLIC SMOKE PASS; authenticated runtime remains PENDING (not CERTIFIED)'
