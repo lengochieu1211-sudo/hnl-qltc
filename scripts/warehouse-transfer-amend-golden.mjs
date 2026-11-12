@@ -53,7 +53,7 @@ containsAll(rules,[
 assert.equal(tab.includes('Từ dự án {row.fromProjectId}'), false,'raw project ID must not be primary UI label');
 // PR: Android transfer correction should match compact Warehouse controls, without clipped button text.
 containsAll(tab, [
-  'max-h-[calc(100dvh-1.5rem)] w-full max-w-md',
+  'max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col',
   'space-y-3 overflow-y-auto overscroll-contain',
   'min-h-11 min-w-0 rounded-xl border border-slate-300 px-2 py-2 text-xs',
   'min-h-11 min-w-0 rounded-xl bg-blue-600 px-2 py-2 text-xs',
@@ -77,4 +77,19 @@ for (const [, classes] of amendControls) {
 assert.ok(amend.includes('required type="date"'), 'native date input must remain intact');
 assert.ok(amend.includes('rows={2} maxLength={400}'), 'additional notes limit must remain intact');
 assert.ok(amend.includes('minLength={5} maxLength={240}'), 'adjustment reason validation must remain intact');
+
+// Desktop: mirror Create Voucher wide modal with X in the top-right and fixed footer.
+assert.ok(amend.includes('lg:max-w-[1100px]'), 'PC modal should match Create Voucher 1100px width');
+assert.ok(amend.includes('flex-col overflow-hidden'), 'modal must have independent header/body/footer');
+assert.ok(amend.includes('data-hnl-warehouse-transfer-amend-fields="true"'), 'missing independent form fields area');
+assert.ok(amend.includes('grid grid-cols-1 gap-3 lg:grid-cols-6 lg:gap-4'), 'PC fields need 6-column grid');
+assert.equal((amend.match(/lg:col-span-2/g) || []).length, 3, 'quantity/date/handler must form three PC columns');
+assert.equal((amend.match(/lg:col-span-3/g) || []).length, 2, 'note/reason must form two PC columns');
+assert.ok(amend.includes('aria-label="Đóng form điều chỉnh phiếu điều chuyển"'), 'missing top-right accessible X button');
+assert.equal((amend.match(/disabled=\{transferEditBusy\} onClick=\{\(\) => setTransferEditItem\(null\)\}/g) || []).length, 2,
+  'both X and Cancel must be blocked while saving');
+assert.ok(amend.includes('lg:flex lg:justify-end lg:gap-3'), 'PC footer buttons should align to the right');
+assert.ok(amend.includes('min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain'), 'body should scroll while header/footer remain visible');
+assert.equal((amend.match(/onSubmit=\{async \(event\) => \{/g) || []).length, 1, 'keep exactly one existing form submit handler');
+
 console.log('warehouse-transfer-amend-golden: PASS (source/static; emulator remains mandatory)');
