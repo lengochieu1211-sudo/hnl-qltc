@@ -101,7 +101,7 @@ import { ContactMenu } from './ContactMenu';
 import { ShareEntityMenu } from './ShareEntityMenu';
 import { buildDefectShareText, resolveDefectTeam } from '../utils/defectContactUtils';
 import { isPointInsideRoom, reconcileDefectLinkage, resolveDefectLinkageFromSelection } from '../utils/defectLinkageUtils';
-import { getRoomHighlightBounds, mirrorRoomHighlight, resizeRoomHighlightSide, resizeRoomHighlightToBounds, rotateRoomHighlight, snapRotationDelta } from '../utils/roomHighlightGeometry';
+import { MIN_ROOM_HIGHLIGHT_PERCENT, getPreciseRoomHighlightRect, getRoomHighlightBounds, mirrorRoomHighlight, resizeRoomHighlightSide, resizeRoomHighlightToBounds, rotateRoomHighlight, snapRotationDelta } from '../utils/roomHighlightGeometry';
 import { snapRoomPointOrthogonal } from '../utils/roomHighlightSnap';
 import { CAD_GRID_STEP, applyCadDrawingGuide, getCadDrawingHotkey } from '../utils/roomHighlightCadShortcuts';
 import { placeFloorPlanDisplayPopover } from '../utils/floorPlanDisplayPopover';
@@ -5326,42 +5326,42 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         });
         newX = Math.round(minX * 10) / 10;
         newY = Math.round(minY * 10) / 10;
-        newW = Math.max(2, Math.round((maxX - minX) * 10) / 10);
-        newH = Math.max(2, Math.round((maxY - minY) * 10) / 10);
+        newW = Math.max(MIN_ROOM_HIGHLIGHT_PERCENT, Math.round((maxX - minX) * 10) / 10);
+        newH = Math.max(MIN_ROOM_HIGHLIGHT_PERCENT, Math.round((maxY - minY) * 10) / 10);
       } else {
         // Handle corner and side resize
         if (activeDragHandle === 'nw') {
-          const calcX = Math.min(initRoom.x + initRoom.width - 2, Math.max(0, initRoom.x + dx));
-          const calcY = Math.min(initRoom.y + initRoom.height - 2, Math.max(0, initRoom.y + dy));
+          const calcX = Math.min(initRoom.x + initRoom.width - MIN_ROOM_HIGHLIGHT_PERCENT, Math.max(0, initRoom.x + dx));
+          const calcY = Math.min(initRoom.y + initRoom.height - MIN_ROOM_HIGHLIGHT_PERCENT, Math.max(0, initRoom.y + dy));
           newW = Math.round((initRoom.x + initRoom.width - calcX) * 10) / 10;
           newH = Math.round((initRoom.y + initRoom.height - calcY) * 10) / 10;
           newX = Math.round(calcX * 10) / 10;
           newY = Math.round(calcY * 10) / 10;
         } else if (activeDragHandle === 'ne') {
-          const calcY = Math.min(initRoom.y + initRoom.height - 2, Math.max(0, initRoom.y + dy));
-          newW = Math.max(2, Math.min(100 - initRoom.x, Math.round((initRoom.width + dx) * 10) / 10));
+          const calcY = Math.min(initRoom.y + initRoom.height - MIN_ROOM_HIGHLIGHT_PERCENT, Math.max(0, initRoom.y + dy));
+          newW = Math.max(MIN_ROOM_HIGHLIGHT_PERCENT, Math.min(100 - initRoom.x, Math.round((initRoom.width + dx) * 10) / 10));
           newH = Math.round((initRoom.y + initRoom.height - calcY) * 10) / 10;
           newY = Math.round(calcY * 10) / 10;
         } else if (activeDragHandle === 'sw') {
-          const calcX = Math.min(initRoom.x + initRoom.width - 2, Math.max(0, initRoom.x + dx));
+          const calcX = Math.min(initRoom.x + initRoom.width - MIN_ROOM_HIGHLIGHT_PERCENT, Math.max(0, initRoom.x + dx));
           newW = Math.round((initRoom.x + initRoom.width - calcX) * 10) / 10;
-          newH = Math.max(2, Math.min(100 - initRoom.y, Math.round((initRoom.height + dy) * 10) / 10));
+          newH = Math.max(MIN_ROOM_HIGHLIGHT_PERCENT, Math.min(100 - initRoom.y, Math.round((initRoom.height + dy) * 10) / 10));
           newX = Math.round(calcX * 10) / 10;
         } else if (activeDragHandle === 'se') {
-          newW = Math.max(2, Math.min(100 - initRoom.x, Math.round((initRoom.width + dx) * 10) / 10));
-          newH = Math.max(2, Math.min(100 - initRoom.y, Math.round((initRoom.height + dy) * 10) / 10));
+          newW = Math.max(MIN_ROOM_HIGHLIGHT_PERCENT, Math.min(100 - initRoom.x, Math.round((initRoom.width + dx) * 10) / 10));
+          newH = Math.max(MIN_ROOM_HIGHLIGHT_PERCENT, Math.min(100 - initRoom.y, Math.round((initRoom.height + dy) * 10) / 10));
         } else if (activeDragHandle === 'n') {
-          const calcY = Math.min(initRoom.y + initRoom.height - 2, Math.max(0, initRoom.y + dy));
+          const calcY = Math.min(initRoom.y + initRoom.height - MIN_ROOM_HIGHLIGHT_PERCENT, Math.max(0, initRoom.y + dy));
           newH = Math.round((initRoom.y + initRoom.height - calcY) * 10) / 10;
           newY = Math.round(calcY * 10) / 10;
         } else if (activeDragHandle === 's') {
-          newH = Math.max(2, Math.min(100 - initRoom.y, Math.round((initRoom.height + dy) * 10) / 10));
+          newH = Math.max(MIN_ROOM_HIGHLIGHT_PERCENT, Math.min(100 - initRoom.y, Math.round((initRoom.height + dy) * 10) / 10));
         } else if (activeDragHandle === 'w') {
-          const calcX = Math.min(initRoom.x + initRoom.width - 2, Math.max(0, initRoom.x + dx));
+          const calcX = Math.min(initRoom.x + initRoom.width - MIN_ROOM_HIGHLIGHT_PERCENT, Math.max(0, initRoom.x + dx));
           newW = Math.round((initRoom.x + initRoom.width - calcX) * 10) / 10;
           newX = Math.round(calcX * 10) / 10;
         } else if (activeDragHandle === 'e') {
-          newW = Math.max(2, Math.min(100 - initRoom.x, Math.round((initRoom.width + dx) * 10) / 10));
+          newW = Math.max(MIN_ROOM_HIGHLIGHT_PERCENT, Math.min(100 - initRoom.x, Math.round((initRoom.width + dx) * 10) / 10));
         }
 
         // For polygons (including rectangles converted by arbitrary rotation), resize
@@ -5401,7 +5401,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         const last = prev[prev.length - 1];
         const dx = x - last.x;
         const dy = y - last.y;
-        if (dx * dx + dy * dy >= 0.12) {
+        // Preserve points of a tiny freehand region at high zoom.
+        if (dx * dx + dy * dy >= MIN_ROOM_HIGHLIGHT_PERCENT * MIN_ROOM_HIGHLIGHT_PERCENT) {
           return [...prev, { x, y }];
         }
         return prev;
@@ -5465,12 +5466,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       const x2 = drawHoverPos ? drawHoverPos.x : x1;
       const y2 = drawHoverPos ? drawHoverPos.y : y1;
 
-      const dist = Math.hypot(x2 - x1, y2 - y1);
-      if (dist >= 2) {
-        const finalX = Math.min(x1, x2);
-        const finalY = Math.min(y1, y2);
-        const finalW = Math.max(3, Math.abs(x2 - x1));
-        const finalH = Math.max(3, Math.abs(y2 - y1));
+      const smallRect = getPreciseRoomHighlightRect({ x: x1, y: y1 }, { x: x2, y: y2 });
+      // An untouched tap starts the click-two-points interaction. A genuine
+      // pointer drag may create even a 0.1%-sized region at high zoom.
+      const pointerPixels = Math.hypot(e.clientX - canvasPressRef.current.startX, e.clientY - canvasPressRef.current.startY);
+      if (smallRect && pointerPixels >= 5) {
+        const { x: finalX, y: finalY, width: finalW, height: finalH } = smallRect;
 
         if (redrawingRoomTarget) {
           onSaveRoomProgress({
@@ -5517,8 +5518,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           if (p.y < minY) minY = p.y;
           if (p.y > maxY) maxY = p.y;
         });
-        const w = Math.max(4, maxX - minX);
-        const h = Math.max(4, maxY - minY);
+        const w = Math.round((maxX - minX) * 10) / 10;
+        const h = Math.round((maxY - minY) * 10) / 10;
+        // A line/tap has no drawable area; never create a ghost rectangle.
+        if (w < MIN_ROOM_HIGHLIGHT_PERCENT || h < MIN_ROOM_HIGHLIGHT_PERCENT) {
+          setCopyNotification('Vùng vẽ chưa có đủ chiều rộng và chiều cao. Hãy vẽ lại sau khi phóng to.');
+          setFreehandPoints([]);
+          return;
+        }
 
         if (redrawingRoomTarget) {
           onSaveRoomProgress({
@@ -5572,10 +5579,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (polygonPoints.length === 2 && !asPolylineMode) {
       const p1 = polygonPoints[0];
       const p2 = polygonPoints[1];
-      const minX = Math.min(p1.x, p2.x);
-      const minY = Math.min(p1.y, p2.y);
-      const w = Math.max(3, Math.abs(p2.x - p1.x));
-      const h = Math.max(3, Math.abs(p2.y - p1.y));
+      const rect = getPreciseRoomHighlightRect(p1, p2);
+      if (!rect) {
+        setCopyNotification('Chọn 2 điểm khác nhau theo cả chiều ngang và chiều dọc để tạo vùng.');
+        return;
+      }
+      const { x: minX, y: minY, width: w, height: h } = rect;
       finalPoints = [
         { x: minX, y: minY },
         { x: minX + w, y: minY },
@@ -5592,8 +5601,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       if (p.y < minY) minY = p.y;
       if (p.y > maxY) maxY = p.y;
     });
-    const w = Math.max(3, maxX - minX);
-    const h = Math.max(3, maxY - minY);
+    const actualW = Math.round((maxX - minX) * 10) / 10;
+    const actualH = Math.round((maxY - minY) * 10) / 10;
+    if (!isPolyline && (actualW < MIN_ROOM_HIGHLIGHT_PERCENT || actualH < MIN_ROOM_HIGHLIGHT_PERCENT)) {
+      setCopyNotification('Vùng đa giác cần có đủ chiều rộng và chiều cao, hãy chọn thêm điểm.');
+      return;
+    }
+    const w = Math.max(MIN_ROOM_HIGHLIGHT_PERCENT, actualW);
+    const h = Math.max(MIN_ROOM_HIGHLIGHT_PERCENT, actualH);
 
     if (redrawingRoomTarget) {
       onSaveRoomProgress({
@@ -5725,13 +5740,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       const x2 = objectSnapPoint.x;
       const y2 = objectSnapPoint.y;
 
-      const finalX = Math.min(x1, x2);
-      const finalY = Math.min(y1, y2);
-      let finalW = Math.abs(x2 - x1);
-      let finalH = Math.abs(y2 - y1);
-
-      if (finalW < 2) finalW = 20;
-      if (finalH < 2) finalH = 15;
+      const smallRect = getPreciseRoomHighlightRect({ x: x1, y: y1 }, { x: x2, y: y2 });
+      if (!smallRect) {
+        setCopyNotification('Hai điểm cần khác nhau theo cả chiều ngang và chiều dọc.');
+        return;
+      }
+      const { x: finalX, y: finalY, width: finalW, height: finalH } = smallRect;
 
       if (redrawingRoomTarget) {
         onSaveRoomProgress({

@@ -1,6 +1,22 @@
 import type { Point2D, RoomProgressItem } from '../types';
 
 const round1 = (value: number) => Math.round(value * 10) / 10;
+// Room highlights use 0.1%-precision map coordinates. Do not impose a larger
+// invisible minimum when users edit a small room at high zoom (Web/EXE/APK).
+export const MIN_ROOM_HIGHLIGHT_PERCENT = 0.1;
+
+/** Exact two-point rectangle, without padding or silently replacing a small size
+ * with a 20% x 15% default. Returns null for a zero-width/height tap. */
+export function getPreciseRoomHighlightRect(
+  a: Point2D,
+  b: Point2D,
+): { x: number; y: number; width: number; height: number } | null {
+  const width = round1(Math.abs(b.x - a.x));
+  const height = round1(Math.abs(b.y - a.y));
+  if (width < MIN_ROOM_HIGHLIGHT_PERCENT || height < MIN_ROOM_HIGHLIGHT_PERCENT) return null;
+  return { x: round1(Math.min(a.x, b.x)), y: round1(Math.min(a.y, b.y)), width, height };
+}
+
 const clamp = (value: number, min = 0, max = 100) => Math.min(max, Math.max(min, value));
 
 export interface RoomHighlightBounds {
