@@ -62,7 +62,7 @@ jobs:
           test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
           test "$GITHUB_REF" = refs/heads/main
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD^)" = "$SOURCE"
+          test "$(git rev-parse HEAD^)" = "82552f69cb12b08d59e9d998a7ca8a0286f68efe"
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
           test "$(git diff --name-only "$SOURCE" "$GITHUB_SHA")" = "$WORKFLOW"
           test "$(git rev-parse "$SOURCE^")" = "$PREVIOUS"
@@ -79,7 +79,7 @@ jobs:
           test "$(git rev-parse HEAD:package-lock.json)" = 39849efdb4fed79fbff3e1303c6dcf785dbf2fdc
           node - <<'NODE'
           const f=require('./firebase.prod.json');
-          const r=require('./.firebaserc');
+          const r=JSON.parse(require('fs').readFileSync('.firebaserc','utf8'));
           const p=require('./package.json'), q=require('./package-lock.json');
           if(Object.keys(f).join(',')!=='hosting'||f.hosting.site!=='hnlqltc'||f.hosting.public!=='dist')throw Error('Wrong Hosting scope');
           if(r.projects.default!=='com-example-qlct-61329'||p.version!=='6.3.0'||p.version!==q.version)throw Error('Project/lock mismatch');
