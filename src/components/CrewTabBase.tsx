@@ -4384,15 +4384,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        <div className="flex flex-wrap items-center justify-between gap-2 px-1 mb-1">
+                        <div className="px-1 mb-1">
                           <div className="text-xs text-slate-500 font-medium">
                             Lịch sử công nhật đã ghi nhận ({teamLogs.length} lượt / {formatDecimal(totalWorkdays)} công thợ):
                           </div>
-                          <button type="button" data-hnl-open-team-crew-history="true"
-                            onClick={() => openTeamCrewLog(team, displayedTeamLogs[0])}
-                            className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-[11px] font-extrabold text-indigo-700 hover:bg-indigo-100">
-                            <Clipboard className="h-3.5 w-3.5" /> Mở nhật ký quân số gốc
-                          </button>
                         </div>
                         <div className="flex justify-end px-1">
                           <QuickSortBar
@@ -4448,7 +4443,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                 Ghi chú: {log.notes}
                               </div>
                             )}
-                            <div className="pt-1 text-right text-[10px] font-extrabold text-indigo-700">Xem nhật ký quân số gốc →</div>
+                            <div className="pt-1 text-right text-[10px] font-extrabold text-indigo-700">Xem nhật ký →</div>
                           </button>
                         ))}
                         </div>
