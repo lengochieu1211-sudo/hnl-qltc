@@ -66,19 +66,21 @@ jobs:
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
           test "$(git diff --name-only "$SOURCE" "$GITHUB_SHA")" = "$WORKFLOW"
           test "$(git rev-parse "$SOURCE^")" = "$PREVIOUS"
+          echo "SOURCE=$SOURCE" >> "$GITHUB_ENV"
+          echo "PREVIOUS=$PREVIOUS" >> "$GITHUB_ENV"
           EXPECTED_FILES="$(printf '%s\n' .github/workflows/crew-report-export-click-golden.yml scripts/crew-report-structure-golden.ts scripts/crew-task-description-golden.ts scripts/stability-gate.mjs scripts/ui-entry-ux-golden.ts scripts/ui-return-and-palette-golden.mjs src/components/CrewReportShareModal.tsx src/components/CrewTabBase.tsx src/styles/desktopWorkspace.css src/styles/desktopWorkspaceCompact.css src/utils/crewReportUtils.ts)"
-          test "$(git diff --name-only \"$PREVIOUS\" \"$SOURCE\")" = "$EXPECTED_FILES"
-          test "$(git rev-parse \"$SOURCE:.github/workflows/crew-report-export-click-golden.yml\")" = 1966a9aea03ca49b962fb07281845b329abc763d
-          test "$(git rev-parse \"$SOURCE:scripts/crew-report-structure-golden.ts\")" = bd16393485f76e7bc6d779af6413f4b37deab9f4
-          test "$(git rev-parse \"$SOURCE:scripts/crew-task-description-golden.ts\")" = 25e08e69c6aa62aee7d9091d166f5e3386eeb97a
-          test "$(git rev-parse \"$SOURCE:scripts/stability-gate.mjs\")" = 64cf77cdb58c4c9f3b3a66c977ca6b2b5d6580b1
-          test "$(git rev-parse \"$SOURCE:scripts/ui-entry-ux-golden.ts\")" = 5a4874835b59ca783ef81b8e86ba2b9e1000f8df
-          test "$(git rev-parse \"$SOURCE:scripts/ui-return-and-palette-golden.mjs\")" = f69a0ceba0a413a3757fa3bf05d319b267f11578
-          test "$(git rev-parse \"$SOURCE:src/components/CrewReportShareModal.tsx\")" = f85c6e735558cb6c02359d6f07e9c63ad8d4fcbc
-          test "$(git rev-parse \"$SOURCE:src/components/CrewTabBase.tsx\")" = bd30a66a47112b025a6493c492fb1b4f21f45433
-          test "$(git rev-parse \"$SOURCE:src/styles/desktopWorkspace.css\")" = 57af73f124c58cf3f13e00c673ebceef26a537c1
-          test "$(git rev-parse \"$SOURCE:src/styles/desktopWorkspaceCompact.css\")" = 1fbb5a4c9bb2907d2ef3dd74c2184914534d46b6
-          test "$(git rev-parse \"$SOURCE:src/utils/crewReportUtils.ts\")" = 364331837287673da3d6be50c9494f4972705c49
+          test "$(git diff --name-only "$PREVIOUS" "$SOURCE")" = "$EXPECTED_FILES"
+          test "$(git rev-parse "$SOURCE:.github/workflows/crew-report-export-click-golden.yml")" = 1966a9aea03ca49b962fb07281845b329abc763d
+          test "$(git rev-parse "$SOURCE:scripts/crew-report-structure-golden.ts")" = bd16393485f76e7bc6d779af6413f4b37deab9f4
+          test "$(git rev-parse "$SOURCE:scripts/crew-task-description-golden.ts")" = 25e08e69c6aa62aee7d9091d166f5e3386eeb97a
+          test "$(git rev-parse "$SOURCE:scripts/stability-gate.mjs")" = 64cf77cdb58c4c9f3b3a66c977ca6b2b5d6580b1
+          test "$(git rev-parse "$SOURCE:scripts/ui-entry-ux-golden.ts")" = 5a4874835b59ca783ef81b8e86ba2b9e1000f8df
+          test "$(git rev-parse "$SOURCE:scripts/ui-return-and-palette-golden.mjs")" = f69a0ceba0a413a3757fa3bf05d319b267f11578
+          test "$(git rev-parse "$SOURCE:src/components/CrewReportShareModal.tsx")" = f85c6e735558cb6c02359d6f07e9c63ad8d4fcbc
+          test "$(git rev-parse "$SOURCE:src/components/CrewTabBase.tsx")" = bd30a66a47112b025a6493c492fb1b4f21f45433
+          test "$(git rev-parse "$SOURCE:src/styles/desktopWorkspace.css")" = 57af73f124c58cf3f13e00c673ebceef26a537c1
+          test "$(git rev-parse "$SOURCE:src/styles/desktopWorkspaceCompact.css")" = 1fbb5a4c9bb2907d2ef3dd74c2184914534d46b6
+          test "$(git rev-parse "$SOURCE:src/utils/crewReportUtils.ts")" = 364331837287673da3d6be50c9494f4972705c49
           test "$(git rev-parse HEAD:.firebaserc)" = 74d90dc97f07bba6e9c9c18b9d78a3fc51418128
           test "$(git rev-parse HEAD:firebase.prod.json)" = f1fd643bae6e7232300affe15c945ba4d579a962
           test "$(git rev-parse HEAD:firestore.rules)" = 7cc080aa1b1ca87dea186c5037c7ab858d706689
@@ -198,7 +200,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/pr442-artifacts"
           git archive --format=zip -o "$RUNNER_TEMP/pr442-artifacts/HNL-QLTC-PR442-PROD-FULL-SOURCE.zip" HEAD
-          git archive --format=zip -o "$RUNNER_TEMP/pr442-artifacts/HNL-QLTC-PR442-PROD-PATCH.zip" "$SOURCE" $EXPECTED_FILES
+          git archive --format=zip -o "$RUNNER_TEMP/pr442-artifacts/HNL-QLTC-PR442-PROD-PATCH.zip" "$SOURCE" $(git diff --name-only "$PREVIOUS" "$SOURCE")
           printf '%s\n' "HNL QLTC PR442 Hosting-only" "SOURCE=$SOURCE" "WORKFLOW_HEAD=$GITHUB_SHA" "PREVIOUS_MAIN=$PREVIOUS" "PROD_HOSTING=https://hnlqltc.web.app" "BACKUP_URL=$BACKUP_URL" "PREVIEW_URL=$PREVIEW_URL" "TEST=BUILD,TS,LINT,RULES,STABILITY,SECURITY,CREW_GOLDEN,HOSTING_SMOKE_PASS" > "$RUNNER_TEMP/pr442-artifacts/REPORT.txt"
           (cd "$RUNNER_TEMP/pr442-artifacts"; sha256sum * > SHA256SUMS.txt)
           unzip -tq "$RUNNER_TEMP/pr442-artifacts/HNL-QLTC-PR442-PROD-PATCH.zip"
