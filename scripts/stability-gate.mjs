@@ -549,6 +549,42 @@ requireAll(crewReportShare, [
   'TỔNG',
 ], 'crew report share center');
 if (crewReportShare.includes('>1 ngày</button>') || crewReportShare.includes('>Nhiều ngày</button>')) fail('Crew report must not duplicate quick date presets with 1 ngày / Nhiều ngày buttons');
+// Share report defaults are presentation-only. Missing reports and reported-zero entries
+// have distinct semantics; all five 'Hiện...' switches must default to unchecked.
+const shareVisibilityDefaults = [
+  ['hideUnreportedTeams', 'Hiện đội chưa báo'],
+  ['hideZeroTeams', 'Hiện đội quân số = 0'],
+  ['hideUnreportedDates', 'Hiện ngày chưa báo'],
+  ['hideZeroDates', 'Hiện ngày quân số = 0'],
+  ['hideZeroShifts', 'Hiện ca quân số = 0 (xem trước/ảnh)'],
+];
+for (const [flag, label] of shareVisibilityDefaults) {
+  const setter = 'set' + flag[0].toUpperCase() + flag.slice(1);
+  // Flags are fixed ASCII identifiers; no regex escaping is needed.
+  const statePattern = new RegExp('\\[' + flag + ',\\s*' + setter + '\\]\\s*=\\s*useState\\(true\\)');
+  if (!statePattern.test(crewReportShare)) fail('Share default should hide: ' + flag);
+  if (!crewReportShare.includes(setter + '(true);')) fail('Share open/reset should hide: ' + flag);
+  if (!crewReportShare.includes('checked={!' + flag + '}')) fail('Share checkbox should start unchecked: ' + flag);
+  if (!crewReportShare.includes(setter + '(!event.target.checked)')) fail('Share checkbox must reveal only on opt-in: ' + flag);
+  if (!crewReportShare.includes(label)) fail('Share label missing: ' + label);
+}
+requireAll(crewReportShare, [
+  'Khôi phục mặc định',
+  'Hiện ca quân số = 0 (xem trước/ảnh)',
+  'stat.reported === 0',
+  'stat.reported > 0 && stat.headcount === 0',
+  'hideUnreportedDates && stat.reported === 0',
+  'hideZeroDates && stat.reported > 0 && stat.headcount === 0',
+], 'crew report filters keep data separate from shared presentation');
+pass('Crew share: five defaults hidden, reveal-only checkboxes, differentiated missing vs zero, original data preserved');
+if (crewReportShare.includes('Mặc định ẩn đội/ngày chưa báo') || crewReportShare.includes('vượt quá 93 ngày')) fail('Crew share must remove verbose explanation and old date limit');
+if (!crewReportShare.includes('const rangeValid = spanDays > 0 && effectiveEndDate <= resolvedMaxDate;')) fail('Crew share must not cap selected date ranges');
+if (crewReportUtils.includes('dates.length < 93')) fail('Crew date generator cannot truncate at 93 days');
+if (!crewReportShare.includes('const previewDates = matrix.dates.slice(')) fail('Unbounded preview must paginate rows for browser responsiveness');
+if (!crewReportShare.includes('const IMAGE_DATES_PER_PAGE = 40;') || !crewReportShare.includes('pageGrandDailyHeadcount')) fail('Long PNG export must page by date with page totals');
+pass('Crew share: unrestricted date selection, safe PNG pagination, concise filter UI');
+
+
 requireAll(crewReportUtils, [
   'buildCrewReportRows',
   'buildCrewReportText',

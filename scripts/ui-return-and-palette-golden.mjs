@@ -758,3 +758,62 @@ assert.ok(hnlDarkCss.includes('.text-purple-900 { color: #c4b5fd !important; }')
 assert.ok(read('src/components/HomeDashboard.tsx').includes('Mở nhanh dự án đang làm'),
   'Home quick-open function untouched by theme patch');
 console.log('HNL DARK MODE NESTED BRAND BLUE GOLDEN: PASS');
+
+// PC Home modern intentionally retains the classic DOM; its extra toolbar must
+// still obey dark mode even though modern-workspace selectors skip the Home tab.
+const pcHomeCss = read('src/styles/desktopWorkspace.css');
+const pcHomeHeader = read('src/components/DesktopWorkspaceHeader.tsx');
+assert.ok(app.includes("data-hnl-pc-home-modern={visibleTab === 'home' && desktopWorkspaceMode === 'modern'"),
+  'Home modern-mode scope marker must remain on the app shell');
+assert.ok(pcHomeHeader.includes('data-hnl-pc-home-actions="true"') && pcHomeHeader.includes('onOpenSecurity') && pcHomeHeader.includes('onOpenNotifications'),
+  'Home toolbar actions and callback wiring remain mounted');
+for (const suffix of ['.hnl-pc-home-actions {', '.hnl-pc-home-actions > button {', '.hnl-pc-home-actions > button:hover {']) {
+  assert.ok(pcHomeCss.includes('html[data-hnl-theme="dark"] [data-hnl-pc-home-modern="true"] ' + suffix),
+    'Missing Home-only dark style: ' + suffix);
+}
+assert.match(pcHomeCss, /html\[data-hnl-theme="dark"\] \[data-hnl-pc-home-modern="true"\] \.hnl-pc-home-actions \{[^}]*background: var\(--hnl-dark-surface\)/,
+  'Home PC toolbar must not retain the light-mode white background');
+assert.match(pcHomeCss, /html\[data-hnl-theme="dark"\] \[data-hnl-pc-home-modern="true"\] \.hnl-pc-home-actions > button \{[^}]*background: var\(--hnl-dark-surface-raised\)/,
+  'Home PC toolbar buttons must not retain the light-mode background');
+console.log('HNL HOME PC DARK TOOLBAR GOLDEN: PASS');
+
+// PC dark palette covers additional hard-coded light surfaces (warehouse/AI).
+const compactPcCss = read('src/styles/desktopWorkspaceCompact.css');
+assert.ok(pcHomeCss.includes('PC dark audit: remove hard-coded white gradient/hover surfaces') &&
+  pcHomeCss.includes('html[data-hnl-theme="dark"] [data-hnl-desktop-design="modern"] [data-hnl-pc-module="ai-workspace"] > .hnl-ai-hero') &&
+  pcHomeCss.includes('var(--pc-card) 74%'),
+  'PC dark AI hero cannot end in white');
+assert.ok(compactPcCss.includes('PC dark audit: warehouse voucher group') &&
+  compactPcCss.includes('html[data-hnl-theme="dark"][data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form="warehouse"] [data-hnl-v35-voucher-group]') &&
+  compactPcCss.includes('background: var(--hnl-deep-subtle);') &&
+  compactPcCss.includes('var(--hnl-deep-surface)'),
+  'PC dark warehouse voucher controls cannot be forced to light gray/blue');
+console.log('HNL PC MODERN DARK SURFACES GOLDEN: PASS');
+
+// 2026-11-08: Team detail -> original daily crew record -> context Back.
+// Only view state may change; a team with explicit foreign teamId must not leak.
+assert.ok(crew.includes('data-hnl-open-team-crew-history="true"') &&
+  crew.includes('data-hnl-team-log-open={log.id}') &&
+  crew.includes('onClick={() => openTeamCrewLog(team, log)}'),
+  'Team log history must expose click-through actions to source crew records');
+assert.ok(crew.includes('existing.teamId && existing.teamId !== team.id') &&
+  crew.includes('isTeamMatch(existing.teamName, team, existing.teamId)') &&
+  crew.includes('item.dataset.crewRecordId === crewLogDrilldown.recordId'),
+  'Team log navigation must guard record identity and prevent wrong-team/source navigation');
+assert.ok(crew.includes('setSelectedDate(existing.date)') &&
+  crew.includes("setActiveSubTab('logs')") &&
+  crew.includes('setSelectedTeamForDetail(null)'),
+  'Opening a team log must select its real day and reveal the daily diary');
+assert.ok(crew.includes('data-hnl-crew-log-return="true"') &&
+  crew.includes('onClick={returnFromTeamCrewLog}') &&
+  crew.includes('setSelectedDate(crewLogDrilldown.previousDate)') &&
+  crew.includes('setActiveSubTab(crewLogDrilldown.previousSubTab)') &&
+  crew.includes("setDetailModalTab('logs')") &&
+  crew.includes('setSelectedTeamForDetail(team)'),
+  'Back must restore the previous date, subtab and same-team log detail');
+assert.ok(crew.includes('visibleDayRecords') &&
+  crew.includes('record.teamId === drilledTeam.id') &&
+  crew.includes('canDelete && !crewLogDrilldown') &&
+  crew.includes('useEffect(() => { setCrewLogDrilldown(null); }, [projectId]);'),
+  'Drilldown must be project-scoped, team-filtered and hide bulk delete actions');
+console.log('TEAM CREW ORIGINAL-LOG NAVIGATION AND RETURN GOLDEN PASS');
