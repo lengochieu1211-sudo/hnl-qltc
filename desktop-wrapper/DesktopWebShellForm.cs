@@ -162,7 +162,7 @@ namespace QLTCAnPhu
             syncButton.Tag = "toolbar-icon-success";
             SetToolbarGlyph(syncButton, ToolbarGlyph.SyncOk);
             ((RoundedToolbarButton)syncButton).FallbackText = "ĐB";
-            syncButton.AccessibleName = "Trạng thái đồng bộ";
+            syncButton.AccessibleName = "Trạng thái hàng đợi tệp trên máy, không phải trạng thái Cloud";
             syncButton.Click += delegate { ShowSyncMenu(); };
             navPanel.Controls.Add(syncButton);
 
@@ -173,12 +173,8 @@ namespace QLTCAnPhu
             reloadButton.Tag = "toolbar-icon";
             SetToolbarGlyph(reloadButton, ToolbarGlyph.Reload);
             ((RoundedToolbarButton)reloadButton).FallbackText = "Tải";
-            reloadButton.AccessibleName = "Tải lại HNL QLTC";
-            reloadButton.Click += delegate
-            {
-                ShowWebApp();
-                if (embeddedRuntime != null) embeddedRuntime.Reload();
-            };
+            reloadButton.AccessibleName = "Tải lại HNL QLTC (có xác nhận để bảo vệ dữ liệu chưa lưu)";
+            reloadButton.Click += delegate { ConfirmNativeReload(); };
             navPanel.Controls.Add(reloadButton);
 
             moreButton = MakeToolbarButton(string.Empty, 30);
@@ -209,8 +205,8 @@ namespace QLTCAnPhu
                 ReshowDelay = 150,
                 ShowAlways = true
             };
-            chromeToolTip.SetToolTip(syncButton, "Xem trạng thái đồng bộ");
-            chromeToolTip.SetToolTip(reloadButton, "Tải lại HNL QLTC");
+            chromeToolTip.SetToolTip(syncButton, "Hàng đợi tệp trên máy; trạng thái Firebase/R2 xem trong ứng dụng");
+            chromeToolTip.SetToolTip(reloadButton, "Tải lại WebView2 (sẽ hỏi xác nhận trước khi mất nội dung chưa lưu)");
             chromeToolTip.SetToolTip(moreButton, "Công cụ và tùy chọn khác");
             chromeToolTip.SetToolTip(compactButton, "Thu gọn thanh trên và ẩn thanh trạng thái dưới");
 
@@ -553,7 +549,7 @@ namespace QLTCAnPhu
             grid.Controls.Add(BuildHomeCard("Đồng bộ", "Theo dõi dữ liệu local chờ xử lý. Khi mọi thứ bình thường, bạn không cần mở phần chi tiết.", new[]
             {
                 new HomeAction("Trung tâm đồng bộ", delegate { OpenSyncCenter(); }),
-                new HomeAction("Đồng bộ ngay", delegate { ShowWebApp(); RefreshLocalIndex(false); })
+                new HomeAction("Quét tệp local & mở ứng dụng", delegate { ShowWebApp(); RefreshLocalIndex(false); })
             }), 1, 0);
 
             var back = MakeToolbarPrimaryButton("← Quay lại HNL QLTC", 180);
@@ -629,7 +625,7 @@ namespace QLTCAnPhu
             menu.Items.Add(computer);
 
             var sync = new ToolStripMenuItem("Đồng bộ nâng cao");
-            sync.DropDownItems.Add("Trung tâm đồng bộ", null, delegate { OpenSyncCenter(); });
+            sync.DropDownItems.Add("Hàng đợi tệp trên máy", null, delegate { OpenSyncCenter(); });
             sync.DropDownItems.Add("Quét lại dữ liệu HNL trên máy", null, delegate { RefreshLocalIndex(true); });
             menu.Items.Add(sync);
 
@@ -1015,18 +1011,54 @@ namespace QLTCAnPhu
             }
         }
 
+        // An explicit WebView reload destroys the current React in-memory form state.
+        // The native shell cannot prove whether Firebase, R2 or an open form is clean,
+        // so require an opt-in confirmation even when the local file queue is empty.
+        private void ConfirmNativeReload()
+        {
+            int localWaiting = -1;
+            if (localStore != null && localStore.IsReady && !localStore.IsOperationBusy)
+            {
+                try { localWaiting = localStore.CountQueuePending() + localStore.CountQueueReady(); }
+                catch (Exception) { localWaiting = -1; } // Fail closed: never claim Cloud is clean.
+            }
+
+            string queueNote = localWaiting < 0
+                ? "Chưa xác minh được hàng đợi tệp trên máy."
+                : localWaiting == 0
+                    ? "Không có tệp local chờ xử lý (KHÔNG có nghĩa Cloud đã đồng bộ)."
+                    : "Còn " + localWaiting + " tệp local đang chờ xử lý.";
+
+            DialogResult answer = MessageBox.Show(
+                this,
+                "Tải lại cửa sổ làm việc HNL QLTC?\n\n" +
+                "Nhật ký quân số, chứng từ kho hoặc form đang nhập CHƯA BẤM LƯU có thể bị mất.\n" +
+                "Nếu đang ngoại tuyến, trang có thể không tải lại được.\n" +
+                "Trạng thái Firebase/R2 chưa được xác minh bởi thanh công cụ Windows.\n\n" +
+                queueNote + "\n\nChỉ tiếp tục sau khi đã lưu dữ liệu và kiểm tra đồng bộ trong ứng dụng.",
+                "Xác nhận tải lại WebView2",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning,
+                MessageBoxDefaultButton.Button2);
+            if (answer != DialogResult.Yes) return;
+
+            ShowWebApp();
+            if (embeddedRuntime != null && embeddedRuntime.IsReady)
+                embeddedRuntime.Reload();
+        }
+
         private ContextMenuStrip BuildSyncMenu()
         {
             var menu = new ContextMenuStrip();
-            menu.Items.Add(new ToolStripMenuItem("Đang kiểm tra đồng bộ...") { Enabled = false });
+            menu.Items.Add(new ToolStripMenuItem("Đang kiểm tra hàng đợi tệp trên máy...") { Enabled = false });
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Đồng bộ ngay", null, delegate
+            menu.Items.Add("Quét tệp local & mở ứng dụng", null, delegate
             {
                 RefreshLocalIndex(false);
                 ShowWebApp();
                 RefreshSyncStatus();
             });
-            menu.Items.Add("Xem chi tiết", null, delegate { OpenSyncCenter(); });
+            menu.Items.Add("Xem chi tiết tệp local", null, delegate { OpenSyncCenter(); });
             menu.Opening += delegate { RefreshSyncMenuStatus(menu); };
             return menu;
         }
@@ -1041,17 +1073,25 @@ namespace QLTCAnPhu
             {
                 if (localStore.IsOperationBusy)
                 {
-                    menu.Items[0].Text = "↻ Đang cập nhật dữ liệu local...";
+                    menu.Items[0].Text = "↻ Đang cập nhật hàng đợi tệp local...";
                     return;
                 }
-                pending = localStore.CountQueuePending();
-                ready = localStore.CountQueueReady();
+                try
+                {
+                    pending = localStore.CountQueuePending();
+                    ready = localStore.CountQueueReady();
+                }
+                catch (Exception)
+                {
+                    menu.Items[0].Text = "⚠ Không thể đọc hàng đợi tệp local (Cloud chưa xác minh)";
+                    return;
+                }
             }
 
             int waiting = pending + ready;
             menu.Items[0].Text = waiting == 0
-                ? "✓ Tất cả đã đồng bộ"
-                : "⚠ Còn " + waiting + " mục đang chờ";
+                ? "✓ Tệp local: không còn mục chờ (Cloud chưa xác minh)"
+                : "⚠ Tệp local: còn " + waiting + " mục chờ (Cloud chưa xác minh)";
         }
 
         private void ShowSyncMenu()
@@ -1096,7 +1136,7 @@ namespace QLTCAnPhu
         {
             if (localStore == null || !localStore.IsReady)
             {
-                syncStatusLabel.Text = "Dữ liệu cục bộ: cần kiểm tra";
+                syncStatusLabel.Text = "Hàng đợi tệp local: chưa sẵn sàng • Cloud: chưa xác minh";
                 if (syncButton != null)
                 {
                     syncButton.Text = string.Empty;
@@ -1108,31 +1148,47 @@ namespace QLTCAnPhu
 
             if (localStore.IsOperationBusy)
             {
-                syncStatusLabel.Text = "Dữ liệu cục bộ: đang cập nhật nền...";
+                syncStatusLabel.Text = "Hàng đợi tệp local: đang cập nhật • Cloud: chưa xác minh";
                 if (syncButton != null)
                 {
                     syncButton.Text = string.Empty;
                     SetToolbarGlyph(syncButton, ToolbarGlyph.SyncWarning);
                     syncButton.Tag = "toolbar-icon-warning";
-                    chromeToolTip.SetToolTip(syncButton, "Đang cập nhật dữ liệu local ở nền");
+                    chromeToolTip.SetToolTip(syncButton, "Đang xử lý tệp local; không phản ánh trạng thái Firebase/R2");
                 }
                 return;
             }
 
-            int pending = localStore.CountQueuePending();
-            int ready = localStore.CountQueueReady();
+            int pending;
+            int ready;
+            try
+            {
+                pending = localStore.CountQueuePending();
+                ready = localStore.CountQueueReady();
+            }
+            catch (Exception)
+            {
+                syncStatusLabel.Text = "Không thể đọc hàng đợi local • Cloud: chưa xác minh";
+                if (syncButton != null)
+                {
+                    SetToolbarGlyph(syncButton, ToolbarGlyph.SyncWarning);
+                    syncButton.Tag = "toolbar-icon-warning";
+                    chromeToolTip.SetToolTip(syncButton, "Hàng đợi local gặp lỗi đọc; hãy mở Trung tâm đồng bộ");
+                }
+                return;
+            }
             int waiting = pending + ready;
             syncStatusLabel.Text = waiting == 0
-                ? "Dữ liệu cục bộ: Bình thường • Đồng bộ: Đã hoàn tất"
-                : "Dữ liệu cục bộ: Bình thường • Đồng bộ: Còn " + waiting + " mục";
+                ? "Hàng đợi tệp local: không còn mục chờ • Cloud: chưa xác minh"
+                : "Hàng đợi tệp local: còn " + waiting + " mục chờ • Cloud: chưa xác minh";
             if (syncButton != null)
             {
                 syncButton.Text = string.Empty;
                 SetToolbarGlyph(syncButton, waiting == 0 ? ToolbarGlyph.SyncOk : ToolbarGlyph.SyncWarning);
                 syncButton.Tag = waiting == 0 ? "toolbar-icon-success" : "toolbar-icon-warning";
                 chromeToolTip.SetToolTip(syncButton, waiting == 0
-                    ? "Tất cả dữ liệu local đã xử lý xong"
-                    : "Còn " + waiting + " mục đang chờ đồng bộ");
+                    ? "Không có tệp local chờ xử lý. Trạng thái Firebase/R2 chưa được xác minh ở đây."
+                    : "Còn " + waiting + " tệp local chờ xử lý. Kiểm tra trạng thái Cloud trong HNL QLTC.");
             }
         }
 

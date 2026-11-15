@@ -833,8 +833,8 @@ namespace QLTCAnPhu
                 }
 
                 int waiting = localStore.CountQueuePending() + localStore.CountQueueReady();
-                string syncText = waiting == 0 ? "Đã hoàn tất" : "Còn " + waiting + " mục";
-                browserLabel.Text = "Dữ liệu cục bộ: Bình thường • Đồng bộ: " + syncText + " • " + browserText;
+                string syncText = waiting == 0 ? "Không có tệp chờ" : "Còn " + waiting + " tệp chờ";
+                browserLabel.Text = "Hàng đợi local: " + syncText + " • Cloud chưa xác minh • " + browserText;
             }
 
             private void RefreshLocalIndex(bool showMessage)

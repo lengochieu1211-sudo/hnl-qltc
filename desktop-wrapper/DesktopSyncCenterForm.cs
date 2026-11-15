@@ -60,7 +60,7 @@ namespace QLTCAnPhu
 
             var quickActions = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Padding = new Padding(0, 6, 0, 4), Tag = "root" };
             rootPanel.Controls.Add(quickActions, 0, 1);
-            quickActions.Controls.Add(MakePrimaryButton("Đồng bộ ngay", delegate { Program.OpenHnlQltc(); RefreshAll(); }));
+            quickActions.Controls.Add(MakePrimaryButton("Mở HNL QLTC kiểm tra Cloud", delegate { Program.OpenHnlQltc(); RefreshAll(); }));
             detailsButton = MakeButton("Xem chi tiết", ToggleDetails);
             quickActions.Controls.Add(detailsButton);
             quickActions.Controls.Add(MakeButton("Làm mới", RefreshAll));
@@ -255,11 +255,11 @@ namespace QLTCAnPhu
             int waiting = stats.Pending + stats.Ready;
             if (waiting == 0 && stats.Retry == 0)
             {
-                summaryLabel.Text = "✓ Tất cả đã đồng bộ • 0 chờ • 0 lỗi • " + FormatBytes(stats.TotalBytes) + " local";
+                summaryLabel.Text = "✓ Tệp local: 0 chờ • 0 lỗi • " + FormatBytes(stats.TotalBytes) + " • Cloud chưa xác minh";
             }
             else
             {
-                summaryLabel.Text = "⚠ " + waiting + " chờ • " + stats.Retry + " lỗi/retry • " + stats.Completed + " đã hoàn tất • " + FormatBytes(stats.TotalBytes) + " local";
+                summaryLabel.Text = "⚠ Tệp local: " + waiting + " chờ • " + stats.Retry + " retry • " + stats.Completed + " hoàn tất • Cloud chưa xác minh";
             }
             UpdateSelectionLabel();
         }

@@ -255,7 +255,9 @@ const readTexts = (entities: Array<{ type: string; pairs: DxfPair[] }>): RawText
 
 const readLwPolyline = (entityPairs: DxfPair[]): DxfPoint[] => {
   const flag = getNumber(entityPairs, 70, 0);
-  if ((flag & 1) !== 1) return [];
+  // Bulge denotes an arc segment; its straight chord is not the true room
+  // boundary. Reject rather than write a wrong area into room progress.
+  if ((flag & 1) !== 1 || entityPairs.some((pair) => pair.code === 42 && (!Number.isFinite(Number(pair.value)) || Math.abs(Number(pair.value)) > 1e-9))) return [];
   const points: DxfPoint[] = [];
   let x: number | undefined;
   entityPairs.forEach((pair) => {
@@ -395,6 +397,9 @@ const readHatchBoundaryShapes = (entityPairs: DxfPair[]) => {
       return {
         points: outer.points,
         holes,
+        // All nested contours (including an island within a hole) must
+        // contribute to perimeter measurement even when area alternates sign.
+        loops: descendants.map((item) => item.points),
         areaDrawingUnits: Math.max(0, areaDrawingUnits),
       };
     });
@@ -412,6 +417,13 @@ const readShapes = (entities: Array<{ type: string; pairs: DxfPair[] }>, warning
     if (entity.type === 'HATCH') {
       const parsed = readHatchBoundaryShapes(entity.pairs);
       const layer = getString(entity.pairs, 8);
+      const unsafeBoundary = parsed.unsupportedPathCount > 0
+        || entity.pairs.some((pair) => pair.code === 42 && (!Number.isFinite(Number(pair.value)) || Math.abs(Number(pair.value)) > 1e-9))
+        || parsed.boundaries.some((boundary) => boundary.loops.some((loop) => !quantityIsSimpleBoundary(loop)));
+      if (unsafeBoundary) {
+        warnings.push(`Bỏ qua toàn bộ HATCH layer “${layer || '(không tên)'}”: có biên cong, tự cắt hoặc không đầy đủ; tránh ghi sai diện tích Căn / Phòng.`);
+        return;
+      }
       parsed.boundaries.forEach((boundary) => {
         shapes.push({
           source: 'HATCH',
@@ -422,7 +434,7 @@ const readShapes = (entities: Array<{ type: string; pairs: DxfPair[] }>, warning
         });
       });
       if (parsed.unsupportedPathCount > 0) {
-        warnings.push(`HATCH layer “${layer || '(không tên)'}” có ${parsed.unsupportedPathCount} boundary cung/spline hoặc không đọc được; hệ thống chỉ dùng boundary polygon/line an toàn.`);
+        warnings.push(`HATCH layer “${layer || '(không tên)'}” có ${parsed.unsupportedPathCount} boundary cung/spline hoặc không đọc được; hệ thống không dùng HATCH này để tránh sai diện tích.`);
       }
       if (parsed.innerLoopCount > 0) {
         warnings.push(`HATCH layer “${layer || '(không tên)'}” có ${parsed.innerLoopCount} island/hole; diện tích đã trừ phần rỗng, highlight dùng boundary ngoài để bạn kiểm tra trước khi lưu.`);
@@ -437,6 +449,10 @@ const readShapes = (entities: Array<{ type: string; pairs: DxfPair[] }>, warning
     const points = readLwPolyline(entity.pairs);
     if (points.length < 3) return;
     const layer = getString(entity.pairs, 8);
+    if (!quantityIsSimpleBoundary(points)) {
+      warnings.push(`Bỏ qua polyline kín layer “${layer || '(không tên)'}”: biên tự cắt hoặc không hợp lệ; cần kiểm tra AutoCAD.`);
+      return;
+    }
     const centroid = polygonCentroid(points);
     const area = polygonArea(points);
     const duplicate = shapes.some((shape) => {
@@ -664,6 +680,10 @@ export function renderDxfFloorPlanSvgDataUrl(input: string): DxfFloorPlanRenderR
         renderedEntities += 1;
       } else skippedEntities += 1;
     } else if (entity.type === 'LWPOLYLINE') {
+      // Do not replace a CAD arc-bulge with a misleading straight chord on
+      // the floor background. Surface a skipped count for manual review.
+      const hasCurve = entity.pairs.some((pair) => pair.code === 42 && (!Number.isFinite(Number(pair.value)) || Math.abs(Number(pair.value)) > 1e-9));
+      if (hasCurve) { skippedEntities += 1; continue; }
       const row = readLwPolylineAny(entity.pairs);
       if (row.points.length >= 2) {
         const points = row.points.map((point) => `${mapX(point.x).toFixed(2)},${mapY(point.y).toFixed(2)}`).join(' ');
@@ -678,6 +698,10 @@ export function renderDxfFloorPlanSvgDataUrl(input: string): DxfFloorPlanRenderR
         body.push(`<ellipse cx="${mapX(cx).toFixed(2)}" cy="${mapY(cy).toFixed(2)}" rx="${(r / spanX * 1000).toFixed(2)}" ry="${(r / spanY * 1000).toFixed(2)}" fill="none"/>`);
         renderedEntities += 1;
       } else skippedEntities += 1;
+    } else if (['ARC', 'INSERT', 'SPLINE', 'ELLIPSE', 'POLYLINE'].includes(entity.type)) {
+      // Not yet rendered on this conservative SVG backdrop. Quantity preview
+      // has a separate parser for some of these types.
+      skippedEntities += 1;
     }
   }
 
@@ -705,4 +729,286 @@ export function renderDxfFloorPlanSvgDataUrl(input: string): DxfFloorPlanRenderR
     extents: { minX, minY, maxX, maxY },
     layers: Array.from(layers).sort((a, b) => a.localeCompare(b, 'vi')),
   };
+}
+
+/**
+ * Read-only quantity survey for ASCII DXF model-space entities. Do not write
+ * these preview numbers to RoomProgress/Firestore without an explicit mapping
+ * and user confirmation. Every value keeps its underlying drawing unit.
+ */
+export interface DxfQuantityLayer {
+  layer: string;
+  areaDrawingUnits: number;
+  perimeterDrawingUnits: number;
+  lengthDrawingUnits: number;
+  areaM2?: number;
+  perimeterM?: number;
+  lengthM?: number;
+  hatchCount: number;
+  closedPolylineCount: number;
+  openPolylineCount: number;
+  lineCount: number;
+  arcCount: number;
+  circleCount: number;
+  blockCount: number;
+}
+
+export interface DxfQuantityTakeoffResult {
+  unitCode: number;
+  unitLabel: string;
+  layers: DxfQuantityLayer[];
+  skippedEntities: number;
+  warnings: string[];
+}
+
+const quantityEdgeKey = (a: DxfPoint, b: DxfPoint) => {
+  const token = (point: DxfPoint) => `${Math.round(point.x * 10000)},${Math.round(point.y * 10000)}`;
+  const p = token(a);
+  const q = token(b);
+  return p <= q ? `${p}:${q}` : `${q}:${p}`;
+};
+
+const quantityLoopPoints = (points: DxfPoint[]) => {
+  if (points.length < 2) return points;
+  const first = points[0];
+  const last = points[points.length - 1];
+  return first.x === last.x && first.y === last.y ? points.slice(0, -1) : points;
+};
+
+// Reject self-intersecting or degenerate closed boundaries instead of deriving
+// a confident area from the shoelace formula on malformed CAD geometry.
+const quantityIsSimpleBoundary = (original: DxfPoint[]) => {
+  const points = quantityLoopPoints(original);
+  const n = points.length;
+  if (n < 3 || n > 2000) return false;
+  for (let i = 0; i < n; i++) {
+    const a = points[i], b = points[(i + 1) % n];
+    if (![a.x, a.y, b.x, b.y].every(Number.isFinite) || Math.hypot(a.x - b.x, a.y - b.y) < 1e-9) return false;
+  }
+  const cross = (a: DxfPoint, b: DxfPoint, c: DxfPoint) =>
+    (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  const inRange = (x: number, a: number, b: number) => x >= Math.min(a, b) - 1e-9 && x <= Math.max(a, b) + 1e-9;
+  const onSegment = (a: DxfPoint, b: DxfPoint, c: DxfPoint) =>
+    Math.abs(cross(a, b, c)) <= 1e-9 && inRange(c.x, a.x, b.x) && inRange(c.y, a.y, b.y);
+  for (let i = 0; i < n; i++) {
+    const a = points[i], b = points[(i + 1) % n];
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue;
+      const c = points[j], d = points[(j + 1) % n];
+      const abC = cross(a, b, c), abD = cross(a, b, d);
+      const cdA = cross(c, d, a), cdB = cross(c, d, b);
+      if ((abC > 0 !== abD > 0 && cdA > 0 !== cdB > 0)
+        || onSegment(a, b, c) || onSegment(a, b, d) || onSegment(c, d, a) || onSegment(c, d, b)) {
+        return false;
+      }
+    }
+  }
+  return true;
+};
+
+const quantityBoundaryKey = (rawPoints: DxfPoint[]) => {
+  const points = quantityLoopPoints(rawPoints);
+  return points.map((point, index) => quantityEdgeKey(point, points[(index + 1) % points.length])).sort().join('|');
+};
+
+const quantityPolylineLength = (rawPoints: DxfPoint[], closed: boolean) => {
+  const points = closed ? quantityLoopPoints(rawPoints) : rawPoints;
+  let length = 0;
+  for (let i = 1; i < points.length; i++) {
+    length += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+  }
+  if (closed && points.length > 2) {
+    length += Math.hypot(points[0].x - points[points.length - 1].x, points[0].y - points[points.length - 1].y);
+  }
+  return length;
+};
+
+export function analyzeDxfQuantities(input: string): DxfQuantityTakeoffResult {
+  const pairs = toPairs(input);
+  if (pairs.length < 10) throw new Error('DXF quá ngắn hoặc không đúng định dạng ASCII.');
+  const unitCode = readInsUnits(pairs);
+  const unit = unitInfo(unitCode);
+  const entities = collectEntities(extractEntitiesSection(pairs));
+  const layers = new Map<string, DxfQuantityLayer>();
+  const warnings: string[] = [];
+  const warn = (message: string) => { if (warnings.length < 20) warnings.push(message); };
+  const seenAreas = new Map<string, Set<string>>();
+  const seenPerimeters = new Map<string, Set<string>>();
+  const seenLengths = new Map<string, Set<string>>();
+  let skippedEntities = 0;
+  let overlapCount = 0;
+  const layerRow = (name: string): DxfQuantityLayer => {
+    const layer = name || '0';
+    let row = layers.get(layer);
+    if (!row) {
+      row = {
+        layer, areaDrawingUnits: 0, perimeterDrawingUnits: 0, lengthDrawingUnits: 0,
+        hatchCount: 0, closedPolylineCount: 0, openPolylineCount: 0,
+        lineCount: 0, arcCount: 0, circleCount: 0, blockCount: 0,
+      };
+      layers.set(layer, row);
+    }
+    return row;
+  };
+  const unique = (registry: Map<string, Set<string>>, layer: string, key: string) => {
+    const set = registry.get(layer) || new Set<string>();
+    registry.set(layer, set);
+    if (set.has(key)) {
+      overlapCount++;
+      return false;
+    }
+    set.add(key);
+    return true;
+  };
+  const safeNumber = (value: number) => Number.isFinite(value) && value >= 0;
+  const segment = (row: DxfQuantityLayer, a: DxfPoint, b: DxfPoint) => {
+    const length = Math.hypot(b.x - a.x, b.y - a.y);
+    if (!safeNumber(length) || length <= 0) return false;
+    if (!unique(seenLengths, row.layer, quantityEdgeKey(a, b))) return false;
+    row.lengthDrawingUnits += length;
+    return true;
+  };
+
+  // HATCH is authoritative for area where it has complete straight boundaries.
+  // Process HATCH first, regardless of DXF entity order, to prevent double-counting
+  // a matching closed LWPOLYLINE on the same layer.
+  for (const entity of entities) {
+    if (entity.type !== 'HATCH') continue;
+    if (getNumber(entity.pairs, 67, 0) === 1) continue;
+    const layer = getString(entity.pairs, 8) || '0';
+    const parsed = readHatchBoundaryShapes(entity.pairs);
+    const curved = entity.pairs.some((pair) => pair.code === 42 && (!Number.isFinite(Number(pair.value)) || Math.abs(Number(pair.value)) > 1e-9));
+    if (curved || parsed.unsupportedPathCount || !parsed.boundaries.length || parsed.boundaries.some((boundary) => boundary.loops.some((loop) => !quantityIsSimpleBoundary(loop)))) {
+      skippedEntities++;
+      warn(`HATCH layer “${layer}” bị bỏ qua trong bảng KL: biên cong, tự cắt, quá phức tạp hoặc không đọc đầy đủ. Không ước tính diện tích.`);
+      continue;
+    }
+    const row = layerRow(layer);
+    for (const boundary of parsed.boundaries) {
+      const key = quantityBoundaryKey(boundary.points);
+      if (!unique(seenAreas, layer, key)) continue;
+      const area = boundary.areaDrawingUnits;
+      if (!safeNumber(area)) { skippedEntities++; continue; }
+      row.areaDrawingUnits += area;
+      row.hatchCount++;
+      const loops = boundary.loops;
+      for (const loop of loops) {
+        const loopKey = quantityBoundaryKey(loop);
+        if (unique(seenPerimeters, layer, loopKey)) row.perimeterDrawingUnits += quantityPolylineLength(loop, true);
+      }
+    }
+  }
+
+  for (const entity of entities) {
+    const type = entity.type;
+    if (!['LWPOLYLINE', 'LINE', 'ARC', 'CIRCLE', 'INSERT'].includes(type)) {
+      // Legacy POLYLINE / ELLIPSE / SPLINE / nested block geometry needs
+      // specialist parsing, not a guessed result.
+      if (['POLYLINE', 'ELLIPSE', 'SPLINE'].includes(type)) skippedEntities++;
+      continue;
+    }
+    if (getNumber(entity.pairs, 67, 0) === 1) continue;
+    const layout = getString(entity.pairs, 410);
+    if (layout && layout.toLowerCase() !== 'model') continue;
+    const row = layerRow(getString(entity.pairs, 8) || '0');
+    if (type === 'INSERT') {
+      // One entity = one inserted block reference. Nested block contents,
+      // anonymous/dynamic geometry and MINSERT arrays are not expanded.
+      const columns = getNumber(entity.pairs, 70, 1);
+      const rows = getNumber(entity.pairs, 71, 1);
+      if (columns !== 1 || rows !== 1) {
+        skippedEntities++;
+        warn(`BLOCK MINSERT trên layer “${row.layer}” cần kiểm tra riêng, chưa cộng số lượng tự động.`);
+        continue;
+      }
+      const blockName = getString(entity.pairs, 2);
+      if (!blockName) { skippedEntities++; continue; }
+      row.blockCount++;
+    } else if (type === 'LWPOLYLINE') {
+      const polyline = readLwPolylineAny(entity.pairs);
+      if (polyline.points.length < 2 || entity.pairs.some((pair) => pair.code === 42 && (!Number.isFinite(Number(pair.value)) || Math.abs(Number(pair.value)) > 1e-9))) {
+        skippedEntities++;
+        warn(`Polyline cong (bulge) hoặc thiếu đỉnh trên layer “${row.layer}” được bỏ qua; cần đo trong AutoCAD.`);
+        continue;
+      }
+      const { points, closed } = polyline;
+      if (closed && points.length >= 3) {
+        if (!quantityIsSimpleBoundary(points)) {
+          skippedEntities++;
+          warn(`Polyline kín trên layer “${row.layer}” có biên tự cắt hoặc quá phức tạp; bỏ qua cả chu vi và diện tích.`);
+          continue;
+        }
+        const key = quantityBoundaryKey(points);
+        if (!unique(seenPerimeters, row.layer, key)) continue;
+        const perimeter = quantityPolylineLength(points, true);
+        if (!safeNumber(perimeter)) { skippedEntities++; continue; }
+        row.closedPolylineCount++;
+        row.perimeterDrawingUnits += perimeter;
+        // Do not count boundary perimeter again as linear length.
+        if (unique(seenAreas, row.layer, key)) row.areaDrawingUnits += polygonArea(quantityLoopPoints(points));
+      } else {
+        row.openPolylineCount++;
+        for (let i = 1; i < points.length; i++) segment(row, points[i - 1], points[i]);
+      }
+    } else if (type === 'LINE') {
+      const a = { x: getNumber(entity.pairs, 10, NaN), y: getNumber(entity.pairs, 20, NaN) };
+      const b = { x: getNumber(entity.pairs, 11, NaN), y: getNumber(entity.pairs, 21, NaN) };
+      if (![a.x, a.y, b.x, b.y].every(Number.isFinite)) { skippedEntities++; continue; }
+      if (segment(row, a, b)) row.lineCount++;
+    } else if (type === 'ARC') {
+      const radius = getNumber(entity.pairs, 40, NaN);
+      const start = getNumber(entity.pairs, 50, NaN);
+      const end = getNumber(entity.pairs, 51, NaN);
+      if (![radius, start, end].every(Number.isFinite) || radius <= 0) { skippedEntities++; continue; }
+      const sweep = ((end - start) % 360 + 360) % 360;
+      if (!sweep) { skippedEntities++; continue; }
+      const cx = getNumber(entity.pairs, 10, NaN);
+      const cy = getNumber(entity.pairs, 20, NaN);
+      if (![cx, cy].every(Number.isFinite)) { skippedEntities++; continue; }
+      row.arcCount++;
+      row.lengthDrawingUnits += radius * sweep * Math.PI / 180;
+    } else if (type === 'CIRCLE') {
+      const r = getNumber(entity.pairs, 40, NaN);
+      const cx = getNumber(entity.pairs, 10, NaN);
+      const cy = getNumber(entity.pairs, 20, NaN);
+      if (![cx, cy].every(Number.isFinite) || !Number.isFinite(r) || r <= 0) { skippedEntities++; continue; }
+      row.circleCount++;
+      row.areaDrawingUnits += Math.PI * r * r;
+      row.perimeterDrawingUnits += 2 * Math.PI * r;
+    }
+  }
+
+  if (!unit.meterFactor) warnings.unshift('DXF chưa có đơn vị quy đổi được: chỉ hiển thị số đo theo đơn vị bản vẽ, không tự suy đoán mét hoặc m².');
+  if (overlapCount) warnings.push(`Đã tránh cộng trùng ${overlapCount} biên/đoạn thẳng cùng layer có hình học trùng nhau. Hãy đối chiếu nếu bản vẽ có đối tượng chồng nét có chủ ý.`);
+  if (skippedEntities) warnings.push(`Có ${skippedEntities} đối tượng chưa thể bóc tách tin cậy. Không dùng bảng này làm quyết toán khi chưa kiểm tra AutoCAD.`);
+  const rounded = Array.from(layers.values()).map((row): DxfQuantityLayer => ({
+    ...row,
+    areaDrawingUnits: round4(row.areaDrawingUnits),
+    perimeterDrawingUnits: round4(row.perimeterDrawingUnits),
+    lengthDrawingUnits: round4(row.lengthDrawingUnits),
+    areaM2: unit.meterFactor === undefined ? undefined : round4(row.areaDrawingUnits * unit.meterFactor ** 2),
+    perimeterM: unit.meterFactor === undefined ? undefined : round4(row.perimeterDrawingUnits * unit.meterFactor),
+    lengthM: unit.meterFactor === undefined ? undefined : round4(row.lengthDrawingUnits * unit.meterFactor),
+  }));
+  rounded.sort((a, b) => a.layer.localeCompare(b.layer, 'vi', { numeric: true }));
+  return { unitCode, unitLabel: unit.label, layers: rounded, skippedEntities, warnings };
+}
+
+/** CSV is a preview/export only. Guard against formula injection in spreadsheet apps. */
+export function exportDxfQuantitiesCsv(result: DxfQuantityTakeoffResult): string {
+  const quote = (input: string | number) => {
+    const value = String(input);
+    const safe = /^[\s]*[=+@\-\t\r\n]/.test(value) ? `'${value}` : value;
+    return `"${safe.replace(/"/g, '""')}"`;
+  };
+  const lines = [
+    ['Layer', 'Diện tích', 'Đơn vị DT', 'Chu vi', 'Đơn vị CV', 'Chiều dài', 'Đơn vị CD', 'Số Block', 'HATCH', 'Polyline kín', 'Polyline hở', 'LINE', 'ARC', 'CIRCLE'],
+    ...result.layers.map((row) => [
+      row.layer, row.areaM2 ?? row.areaDrawingUnits, row.areaM2 === undefined ? `${result.unitLabel}²` : 'm²',
+      row.perimeterM ?? row.perimeterDrawingUnits, row.perimeterM === undefined ? result.unitLabel : 'm',
+      row.lengthM ?? row.lengthDrawingUnits, row.lengthM === undefined ? result.unitLabel : 'm',
+      row.blockCount, row.hatchCount, row.closedPolylineCount, row.openPolylineCount, row.lineCount, row.arcCount, row.circleCount,
+    ]),
+  ];
+  return `\uFEFF${lines.map((cells) => cells.map(quote).join(',')).join('\r\n')}\r\n`;
 }

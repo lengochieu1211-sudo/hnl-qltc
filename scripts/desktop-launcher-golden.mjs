@@ -81,7 +81,26 @@ assert(webShell.includes('Tag = "toolbar-icon"') && webShell.includes('toolbarTa
 assert(webShell.includes('SetCompactChrome') && webShell.includes('CompactHeaderHeight = 28F') && webShell.includes('syncButton.Visible = !compact') && webShell.includes('reloadButton.Visible = !compact') && webShell.includes('moreButton.Visible = !compact') && webShell.includes('compactButton.Visible = true') && webShell.includes('footerPanel.Visible = false'), 'compact chrome really collapses to a slim expand affordance instead of only shaving a few pixels');
 assert(webShell.includes('Chế độ gọn (F11)') && webShell.includes('compactButton') && webShell.includes('Keys.F11'), 'compact chrome is accessible from a visible button, More menu and F11 shortcut');
 assert(!webShell.includes('MakeToolbarButton("‹"') && !webShell.includes('MakeToolbarButton("›"') && !webShell.includes('homeButton') && !webShell.includes('appButton'), 'native toolbar removes browser-like Back/Forward/Home/App duplication');
-assert(webShell.includes('ShowSyncMenu') && webShell.includes('syncButton = MakeToolbarButton(string.Empty, 30)') && webShell.includes('syncButton.Text = string.Empty') && webShell.includes('toolbar-icon-success') && webShell.includes('toolbar-icon-warning') && webShell.includes('ToolbarGlyph.SyncOk') && webShell.includes('ToolbarGlyph.SyncWarning') && webShell.includes('Đồng bộ ngay') && webShell.includes('Xem chi tiết'), 'native toolbar keeps sync icon-only in the same browser-style surface as reload/menu/collapse while status detail stays in tooltip/menu');
+assert(webShell.includes('ShowSyncMenu') && webShell.includes('syncButton = MakeToolbarButton(string.Empty, 30)') && webShell.includes('syncButton.Text = string.Empty') && webShell.includes('toolbar-icon-success') && webShell.includes('toolbar-icon-warning') && webShell.includes('ToolbarGlyph.SyncOk') && webShell.includes('ToolbarGlyph.SyncWarning') && webShell.includes('Quét tệp local & mở ứng dụng') && webShell.includes('Xem chi tiết tệp local'), 'native toolbar keeps sync icon-only in the same browser-style surface as reload/menu/collapse while status detail stays in tooltip/menu');
+const nativeReloadClick = webShell.slice(webShell.indexOf('reloadButton.Click += delegate {'), webShell.indexOf('navPanel.Controls.Add(reloadButton)'));
+assert(nativeReloadClick.includes('ConfirmNativeReload();') && !nativeReloadClick.includes('embeddedRuntime.Reload()'), 'reload button does not bypass the confirmation gate');
+const nativeReloadGuard = webShell.slice(webShell.indexOf('private void ConfirmNativeReload()'), webShell.indexOf('private ContextMenuStrip BuildSyncMenu()'));
+assert(nativeReloadGuard.indexOf('if (answer != DialogResult.Yes) return;') < nativeReloadGuard.indexOf('embeddedRuntime.Reload();'), 'explicit Yes is the only path to WebView2 Reload');
+assert(nativeReloadGuard.includes('localWaiting = -1') && nativeReloadGuard.includes('catch (Exception)') && nativeReloadGuard.includes('Cloud đã đồng bộ'), 'reload guard treats unreadable local queue as unknown rather than assuming cloud success');
+assert(webShell.includes('private void ConfirmNativeReload()')
+    && webShell.includes('reloadButton.Click += delegate { ConfirmNativeReload(); }')
+    && webShell.includes('MessageBoxButtons.YesNo')
+    && webShell.includes('MessageBoxDefaultButton.Button2')
+    && webShell.includes('if (answer != DialogResult.Yes) return;')
+    && webShell.includes('if (embeddedRuntime != null && embeddedRuntime.IsReady)')
+    && webShell.includes('embeddedRuntime.Reload();'), 'native reload requires safe opt-in and defaults to No before discarding React drafts');
+assert(webShell.includes('Tệp local: không còn mục chờ (Cloud chưa xác minh)')
+    && webShell.includes('Cloud: chưa xác minh')
+    && webShell.includes('Quét tệp local & mở ứng dụng')
+    && !webShell.includes('✓ Tất cả đã đồng bộ')
+    && !webShell.includes('Đồng bộ: Đã hoàn tất')
+    && !syncCenter.includes('✓ Tất cả đã đồng bộ')
+    && launcher.includes('Cloud chưa xác minh'), 'Windows native UI never reports local queue completion as Firebase/R2 cloud success');
 assert(webShell.includes('BuildSyncMenu') && webShell.includes('RefreshSyncMenuStatus') && !webShell.includes('menu.Closed += delegate { menu.Dispose(); }'), 'sync ContextMenuStrip is form-owned and is not disposed synchronously from its Closed event');
 assert(webShell.includes('syncMenu == null || syncMenu.IsDisposed') && webShell.includes('moreMenu == null || moreMenu.IsDisposed') && webShell.includes('catch (ObjectDisposedException)'), 'toolbar context menus recreate safely if a disposed instance is encountered');
 assert(webShell.includes('Công cụ máy tính') && webShell.includes('Đồng bộ nâng cao') && webShell.includes('Hỗ trợ & kỹ thuật') && webShell.includes('Giao diện'), 'More menu groups secondary and technical tools instead of exposing them on the main toolbar');
@@ -113,14 +132,14 @@ assert(webShell.includes('HNL_QLTC_WEBVIEW2_SMOKE_FILE') && webShell.includes('R
 assert(webShell.includes('HNL_QLTC_WEBVIEW2_PROBE_FILE') && webShell.includes('SCRIPT_TRIGGERED') && webShell.includes('POPUP_READY|') && webShell.includes('DOWNLOAD|'), 'embedded shell exposes CI-only popup/download runtime probes');
 assert(webViewRuntimeGolden.includes('WINDOWS EMBEDDED WEBVIEW2 RUNTIME GOLDEN PASS') && webViewRuntimeGolden.includes('Microsoft.Web.WebView2.Core.dll'), 'Windows runtime golden launches the real EXE and verifies embedded WebView2 extraction/readiness');
 assert(webViewRuntimeGolden.includes('POPUP_READY') && webViewRuntimeGolden.includes('DOWNLOAD') && webViewRuntimeGolden.includes('HNL_QLTC_WEBVIEW2_PROBE_FILE'), 'Windows runtime golden requires real embedded popup and download-routing probe evidence');
-assert(syncCenter.includes('Trung tâm đồng bộ') && syncCenter.includes('Đồng bộ ngay') && syncCenter.includes('Xem chi tiết') && syncCenter.includes('Ẩn chi tiết'), 'native Sync Center defaults to a compact summary with progressive disclosure');
+assert(syncCenter.includes('Trung tâm đồng bộ') && syncCenter.includes('Mở HNL QLTC kiểm tra Cloud') && syncCenter.includes('Xem chi tiết') && syncCenter.includes('Ẩn chi tiết'), 'native Sync Center defaults to a compact summary with progressive disclosure');
 assert(syncCenter.includes('Retry đã chọn') && syncCenter.includes('Mở file nguồn') && !syncCenter.includes('Mở DesktopBridge'), 'technical queue actions remain available only in detailed mode while DesktopBridge is hidden from normal Sync Center');
 assert(syncCenter.includes('DataGridView') && syncCenter.includes('Lịch sử') && syncCenter.includes('Tìm file/lỗi') && syncCenter.includes('Chọn tất cả'), 'native Sync Center keeps searchable multi-select queue/history behind the detail toggle');
 assert(localStore.includes('RetryQueueItem') && localStore.includes('RetryQueueItems') && localStore.includes('GetQueueRows') && localStore.includes('GetHistoryRows'), 'SQLite engine exposes controlled single and batch queue management APIs');
 assert(localStore.includes('operationGate') && localStore.includes('lock (operationGate)'), 'SQLite transaction and UI operations are serialized by an operation-level gate');
 assert(localStore.includes('EnumerateFilesSafe') && localStore.includes('FileAttributes.ReparsePoint'), 'workspace scanning tolerates inaccessible/transient folders and skips reparse cycles');
 assert(localStore.includes('RunRetentionMaintenanceIfDue') && localStore.includes('LIMIT 5000') && localStore.includes('AddDays(-90)') && localStore.includes('AddDays(-30)'), 'local queue/history retention is bounded and runs on a controlled schedule');
-assert(localStore.includes('GetQueueStats') && syncCenter.includes('FormatBytes') && syncCenter.includes('Tất cả đã đồng bộ') && syncCenter.includes('lỗi/retry'), 'Sync Center summarizes queue health in user-facing language');
+assert(localStore.includes('GetQueueStats') && syncCenter.includes('FormatBytes') && syncCenter.includes('Tệp local: 0 chờ') && syncCenter.includes('Cloud chưa xác minh'), 'Sync Center summarizes queue health in user-facing language');
 assert(syncCenter.includes('MultiSelect = true') && syncCenter.includes('RetryQueueItems(keys, 50)'), 'Sync Center supports capped multi-select retry');
 assert(localStore.includes('cloud_verified') && localStore.includes('manual_retry'), 'queue completion and manual retry are auditable');
 assert(localStore.includes('bridge_nonce') && localStore.includes('AttemptToken') && localStore.includes('BRIDGE') === false, 'SQLite bridge binds each ready queue item to a one-time attempt token without adding cloud transport');

@@ -82,11 +82,11 @@ import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
 import { PhotoAttachment, deleteEntityPhotos, getEntityPhotos, getPhotoDataUrl, isPhotoSharedCloudReady, savePhotoAttachment } from '../utils/photoStorage';
 import { safeSetLocalStorageItem } from '../utils/storage';
 import { getAsyncItem, removeAsyncItem } from '../utils/asyncStorage';
-import { saveWorkbookFile } from '../utils/fileExport';
+import { saveWorkbookFile, saveTextFile } from '../utils/fileExport';
 import { describePdfError, loadPdfDocument, renderPdfDocumentPageToImage } from '../utils/pdfToImage';
 import { getImageQualityProfile } from '../utils/imageQualitySettings';
 import { detectPdfRoomCandidatesFromDocument, DEFAULT_PDF_ROOM_NAME_PATTERN, PdfRoomCandidate } from '../utils/pdfRoomDetection';
-import type { DxfFloorPlanRenderResult, DxfRoomCandidate } from '../utils/dxfRoomDetection';
+import type { DxfFloorPlanRenderResult, DxfRoomCandidate, DxfRoomDetectionResult, DxfQuantityTakeoffResult } from '../utils/dxfRoomDetection';
 import { QuickSortBar } from './QuickSortBar';
 import { MoveOrderControls } from './MoveOrderControls';
 import { DataManagementMenu } from './DataManagementMenu';
@@ -433,6 +433,7 @@ interface PendingDxfRoomImport {
   unitLabel: string;
   warnings: string[];
   candidates: PendingDxfReviewCandidate[];
+  quantityTakeoff?: DxfQuantityTakeoffResult;
   cadFloorPlanDataUrl?: string;
   cadRenderedEntities?: number;
   cadSkippedEntities?: number;
@@ -3610,8 +3611,17 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const text = await file.text();
     // DXF parsing/rendering is a specialist path. Keep its ~700-line parser out of the
     // normal Floor Plan navigation chunk and load it only after the user selects a DXF.
-    const { detectRoomsFromDxf, renderDxfFloorPlanSvgDataUrl } = await import('../utils/dxfRoomDetection');
-    const result = detectRoomsFromDxf(text);
+    const { detectRoomsFromDxf, renderDxfFloorPlanSvgDataUrl, analyzeDxfQuantities } = await import('../utils/dxfRoomDetection');
+    // Read-only quantity preview. The existing room import remains separately gated.
+    const quantityTakeoff = analyzeDxfQuantities(text);
+    let result: DxfRoomDetectionResult | null = null;
+    try {
+      result = detectRoomsFromDxf(text);
+    } catch (error) {
+      // DXFs with only LINE/ARC/BLOCK still deserve an exportable survey.
+      // Do not swallow corruption or other unknown parser failures.
+      if (!(error instanceof Error) || !error.message.startsWith('Không tìm thấy HATCH boundary hoặc LWPOLYLINE kín')) throw error;
+    }
     let cadRender: DxfFloorPlanRenderResult | null = null;
     try {
       cadRender = renderDxfFloorPlanSvgDataUrl(text);
@@ -3627,7 +3637,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       catalogByExactName.set(key, [...(catalogByExactName.get(key) || []), work]);
     });
 
-    const candidates: PendingDxfReviewCandidate[] = result.candidates.map((candidate) => {
+    const candidates: PendingDxfReviewCandidate[] = (result?.candidates || []).map((candidate) => {
       const exactMatches = catalogByExactName.get(normalizeDxfCatalogName(candidate.layer)) || [];
       const mappedWork = exactMatches.length === 1 ? exactMatches[0] : undefined;
       const nameConflict = existingNames.has(normalizeDxfCatalogName(candidate.roomName));
@@ -3645,15 +3655,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       structureGroupId: target.structureGroupId,
       createFloor: Boolean(target.createFloor),
       fileName: file.name,
-      unitLabel: result.unitLabel,
+      unitLabel: quantityTakeoff.unitLabel,
+      quantityTakeoff,
       cadFloorPlanDataUrl: cadRender?.dataUrl,
       cadRenderedEntities: cadRender?.renderedEntities,
       cadSkippedEntities: cadRender?.skippedEntities,
       cadLayers: cadRender?.layers,
       useCadFloorPlan: Boolean(cadRender?.dataUrl) && !(floorPlans.find((item) => item.id === target.floorId)?.imageUrl),
-      dxfExtents: result.extents,
+      dxfExtents: result?.extents || cadRender?.extents,
       warnings: [
-        ...result.warnings,
+        ...(result?.warnings || []),
+        ...quantityTakeoff.warnings,
+        ...(!result ? ['DXF không có vùng phòng kín phù hợp: có thể xem/xuất thống kê layer nhưng không tạo Căn/Phòng.'] : []),
         ...(cadRender?.skippedEntities ? [`Mặt bằng CAD đã bỏ qua ${cadRender.skippedEntities} entity chưa hỗ trợ hoặc vượt giới hạn render an toàn.`] : []),
         ...(candidates.some((candidate) => !candidate.hasDetectedName)
           ? ['Có vùng chưa tìm thấy TEXT/MTEXT bên trong. Các dòng này mặc định chưa chọn; hãy đặt tên rồi chọn nếu đúng Căn / Phòng.']
@@ -3664,6 +3677,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       ],
       candidates,
     });
+  };
+
+  const downloadPendingDxfTakeoff = async () => {
+    const current = pendingDxfImport;
+    if (!current?.quantityTakeoff?.layers.length) return;
+    const { exportDxfQuantitiesCsv } = await import('../utils/dxfRoomDetection');
+    const fileBase = current.fileName.replace(/\.dxf$/i, '').replace(/[\\/:*?"<>|]/g, '_');
+    try {
+      await saveTextFile(exportDxfQuantitiesCsv(current.quantityTakeoff), `${fileBase}-CAD-KL-THEO-LAYER.csv`, 'text/csv;charset=utf-8');
+    } catch (error) {
+      alert(`Không thể xuất CSV bóc tách CAD: ${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   const updatePendingDxfCandidate = (candidateId: string, updates: Partial<PendingDxfReviewCandidate>) => {
@@ -10002,7 +10027,53 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               </label>
             </div>
 
-            <div className="flex-1 overflow-auto p-4">
+            <div className="flex-1 overflow-auto p-4 space-y-4">
+              {pendingDxfImport.quantityTakeoff && (
+                <section className="rounded-xl border border-sky-200 bg-sky-50/40 p-3 space-y-3" aria-label="Bóc tách khối lượng CAD theo layer">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div>
+                      <div className="text-xs font-black text-slate-900">Bóc tách CAD theo Layer (bản xem trước)</div>
+                      <p className="text-[10px] text-slate-600 mt-1">Diện tích m² · chu vi m · chiều dài m · số Block. Chỉ thống kê hình học nhận diện an toàn; chưa ghi khối lượng vào dự án.</p>
+                    </div>
+                    <button type="button" disabled={!pendingDxfImport.quantityTakeoff.layers.length} onClick={() => void downloadPendingDxfTakeoff()}
+                      className="rounded-lg bg-sky-700 text-white px-3 py-2 text-[11px] font-black disabled:opacity-50">
+                      Xuất CSV theo Layer
+                    </button>
+                  </div>
+                  <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                    <table className="min-w-[800px] w-full text-[11px] border-collapse">
+                      <thead className="bg-slate-100 text-slate-700">
+                        <tr>
+                          <th className="p-2 border-b text-left">Layer</th>
+                          <th className="p-2 border-b text-right">Diện tích</th>
+                          <th className="p-2 border-b text-right">Chu vi</th>
+                          <th className="p-2 border-b text-right">Chiều dài</th>
+                          <th className="p-2 border-b text-right">Số Block</th>
+                          <th className="p-2 border-b text-left">Nguồn đo</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pendingDxfImport.quantityTakeoff.layers.map((layer) => (
+                          <tr key={layer.layer}>
+                            <td className="p-2 border-b font-bold text-slate-800">{layer.layer}</td>
+                            <td className="p-2 border-b text-right tabular-nums">{formatDecimal(layer.areaM2 ?? layer.areaDrawingUnits)} {layer.areaM2 === undefined ? `${pendingDxfImport.unitLabel}²` : 'm²'}</td>
+                            <td className="p-2 border-b text-right tabular-nums">{formatDecimal(layer.perimeterM ?? layer.perimeterDrawingUnits)} {layer.perimeterM === undefined ? pendingDxfImport.unitLabel : 'm'}</td>
+                            <td className="p-2 border-b text-right tabular-nums">{formatDecimal(layer.lengthM ?? layer.lengthDrawingUnits)} {layer.lengthM === undefined ? pendingDxfImport.unitLabel : 'm'}</td>
+                            <td className="p-2 border-b text-right tabular-nums font-bold">{layer.blockCount}</td>
+                            <td className="p-2 border-b text-[10px] text-slate-600">
+                              HATCH {layer.hatchCount} · Polyline kín {layer.closedPolylineCount} · Polyline hở {layer.openPolylineCount} · Line {layer.lineCount} · Arc {layer.arcCount} · Tròn {layer.circleCount}
+                            </td>
+                          </tr>
+                        ))}
+                        {pendingDxfImport.quantityTakeoff.layers.length === 0 && (
+                          <tr><td colSpan={6} className="p-3 text-center text-slate-500">Không có đối tượng hình học hỗ trợ để đo.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-[10px] text-amber-800">Kết quả chỉ phục vụ kiểm tra trước khi bóc tách: đường cung trong Polyline, HATCH có biên không hợp lệ, Block lồng nhau và đối tượng trùng nét cần đối chiếu AutoCAD. Không tự động cộng vào hạng mục hoặc ghi Cloud.</p>
+                </section>
+              )}
               <div className="overflow-x-auto rounded-xl border border-slate-200">
                 <table className="min-w-[1120px] w-full text-[11px] border-collapse">
                   <thead className="sticky top-0 z-10 bg-slate-100 text-slate-700">
@@ -10093,7 +10164,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   Chỉ tạo tầng
                 </button>
               )}
-              <button type="button" onClick={applyPendingDxfRooms} className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-black">
+              <button type="button" onClick={applyPendingDxfRooms} disabled={!pendingDxfImport.candidates.length} className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-black disabled:opacity-50">
                 {pendingDxfImport.createFloor ? 'Tạo tầng + Căn / Phòng' : 'Tạo Căn / Phòng từ DXF'}
               </button>
             </div>

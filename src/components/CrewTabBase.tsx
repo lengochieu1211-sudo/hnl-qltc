@@ -21,7 +21,6 @@ import {
   FileText,
   AlertTriangle,
   CheckCircle2,
-  Settings,
   Download,
   Upload,
   FileSpreadsheet,
@@ -2516,14 +2515,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         // TEAM INFORMATION DIRECTORY SUB-TAB
         <div className="space-y-4">
           <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm">
-            <h3 className="text-xs font-bold text-slate-400 tracking-wider uppercase mb-1.5 flex items-center gap-1.5">
-              <Settings className="w-3.5 h-3.5 text-indigo-500" /> {canManageTeamDirectory ? 'Quản lý danh mục các Đội thi công' : 'Danh mục các Đội thi công'}
-            </h3>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Khai báo thông tin các đội thợ tại đây bao gồm Đội trưởng, Quân số định biên mặc định. Khi ghi nhận nhật ký hằng ngày, chỉ cần chọn tên đội thợ để hệ thống tự động điền các thông tin liên quan, rút ngắn thời gian làm báo cáo hằng ngày.
-            </p>
-
-            <div className="mt-3.5 pt-3 border-t border-slate-100">
+            <div>
               <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:flex sm:justify-between">
                 {canManageTeamDirectory && (
                   <AddSourceMenu
