@@ -200,7 +200,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/pr442-artifacts"
           git archive --format=zip -o "$RUNNER_TEMP/pr442-artifacts/HNL-QLTC-PR442-PROD-FULL-SOURCE.zip" HEAD
-          git archive --format=zip -o "$RUNNER_TEMP/pr442-artifacts/HNL-QLTC-PR442-PROD-PATCH.zip" "$SOURCE" $(git diff --name-only "$PREVIOUS" "$SOURCE")
+          git archive --format=zip -o "$RUNNER_TEMP/pr442-artifacts/HNL-QLTC-PR442-PROD-PATCH.zip" HEAD $(git diff --name-only "$PREVIOUS" HEAD)
           printf '%s\n' "HNL QLTC PR442 Hosting-only" "SOURCE=$SOURCE" "WORKFLOW_HEAD=$GITHUB_SHA" "PREVIOUS_MAIN=$PREVIOUS" "PROD_HOSTING=https://hnlqltc.web.app" "BACKUP_URL=$BACKUP_URL" "PREVIEW_URL=$PREVIEW_URL" "TEST=BUILD,TS,LINT,RULES,STABILITY,SECURITY,CREW_GOLDEN,HOSTING_SMOKE_PASS" > "$RUNNER_TEMP/pr442-artifacts/REPORT.txt"
           (cd "$RUNNER_TEMP/pr442-artifacts"; sha256sum * > SHA256SUMS.txt)
           unzip -tq "$RUNNER_TEMP/pr442-artifacts/HNL-QLTC-PR442-PROD-PATCH.zip"
