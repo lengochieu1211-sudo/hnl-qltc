@@ -792,10 +792,12 @@ console.log('HNL PC MODERN DARK SURFACES GOLDEN: PASS');
 
 // 2026-11-08: Team detail -> original daily crew record -> context Back.
 // Only view state may change; a team with explicit foreign teamId must not leak.
-assert.ok(crew.includes('data-hnl-open-team-crew-history="true"') &&
+assert.ok(!crew.includes('data-hnl-open-team-crew-history="true"') &&
+  !crew.includes('onClick={() => openTeamCrewLog(team, displayedTeamLogs[0])}') &&
   crew.includes('data-hnl-team-log-open={log.id}') &&
-  crew.includes('onClick={() => openTeamCrewLog(team, log)}'),
-  'Team log history must expose click-through actions to source crew records');
+  crew.includes('onClick={() => openTeamCrewLog(team, log)}') &&
+  crew.includes('Xem nhật ký →'),
+  'Team log history must open the selected record directly without a redundant first-record shortcut');
 assert.ok(crew.includes('existing.teamId && existing.teamId !== team.id') &&
   crew.includes('isTeamMatch(existing.teamName, team, existing.teamId)') &&
   crew.includes('item.dataset.crewRecordId === crewLogDrilldown.recordId'),
