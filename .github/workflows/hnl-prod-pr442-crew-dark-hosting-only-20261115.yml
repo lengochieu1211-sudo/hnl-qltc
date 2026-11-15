@@ -1,0 +1,215 @@
+name: HNL QLTC PR442 Crew + PC Dark - PROD Hosting only
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/hnl-prod-pr442-crew-dark-hosting-only-20261115.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hnl-prod-pr442-hosting-only
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ github.repository == 'lengochieu1211-sudo/hnl-qltc' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release-prod-pr442-hosting-only:') }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 75
+    env:
+      VITE_APP_ENV: PROD
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_FIREBASE_API_KEY: AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY
+      VITE_FIREBASE_AUTH_DOMAIN: hnlqltc.web.app
+      VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
+      VITE_FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
+      VITE_FIREBASE_MESSAGING_SENDER_ID: '119152410850'
+      VITE_FIREBASE_APP_ID: '1:119152410850:web:c2aee2135428af34ef5ebb'
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_HNL_AI_ENABLED: 'true'
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
+      VITE_GIT_COMMIT: 3cce5051d8bf6a079867e1f75381441fee988ca8
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Strict source and Hosting-only scope gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE=3cce5051d8bf6a079867e1f75381441fee988ca8
+          PREVIOUS=2a1786f457edb691face354da44e885f182a5970
+          WORKFLOW=.github/workflows/hnl-prod-pr442-crew-dark-hosting-only-20261115.yml
+          test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
+          test "$GITHUB_REF" = refs/heads/main
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = "3cce5051d8bf6a079867e1f75381441fee988ca8"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
+          test "$(git diff --name-only "$SOURCE" "$GITHUB_SHA")" = "$WORKFLOW"
+          test "$(git rev-parse "$SOURCE^")" = "$PREVIOUS"
+          echo "SOURCE=$SOURCE" >> "$GITHUB_ENV"
+          echo "PREVIOUS=$PREVIOUS" >> "$GITHUB_ENV"
+          EXPECTED_FILES="$(printf '%s\n' .github/workflows/crew-report-export-click-golden.yml scripts/crew-report-structure-golden.ts scripts/crew-task-description-golden.ts scripts/stability-gate.mjs scripts/ui-entry-ux-golden.ts scripts/ui-return-and-palette-golden.mjs src/components/CrewReportShareModal.tsx src/components/CrewTabBase.tsx src/styles/desktopWorkspace.css src/styles/desktopWorkspaceCompact.css src/utils/crewReportUtils.ts)"
+          test "$(git diff --name-only "$PREVIOUS" "$SOURCE")" = "$EXPECTED_FILES"
+          test "$(git rev-parse "$SOURCE:.github/workflows/crew-report-export-click-golden.yml")" = 1966a9aea03ca49b962fb07281845b329abc763d
+          test "$(git rev-parse "$SOURCE:scripts/crew-report-structure-golden.ts")" = bd16393485f76e7bc6d779af6413f4b37deab9f4
+          test "$(git rev-parse "$SOURCE:scripts/crew-task-description-golden.ts")" = 25e08e69c6aa62aee7d9091d166f5e3386eeb97a
+          test "$(git rev-parse "$SOURCE:scripts/stability-gate.mjs")" = 64cf77cdb58c4c9f3b3a66c977ca6b2b5d6580b1
+          test "$(git rev-parse "$SOURCE:scripts/ui-entry-ux-golden.ts")" = 5a4874835b59ca783ef81b8e86ba2b9e1000f8df
+          test "$(git rev-parse "$SOURCE:scripts/ui-return-and-palette-golden.mjs")" = f69a0ceba0a413a3757fa3bf05d319b267f11578
+          test "$(git rev-parse "$SOURCE:src/components/CrewReportShareModal.tsx")" = f85c6e735558cb6c02359d6f07e9c63ad8d4fcbc
+          test "$(git rev-parse "$SOURCE:src/components/CrewTabBase.tsx")" = bd30a66a47112b025a6493c492fb1b4f21f45433
+          test "$(git rev-parse "$SOURCE:src/styles/desktopWorkspace.css")" = 57af73f124c58cf3f13e00c673ebceef26a537c1
+          test "$(git rev-parse "$SOURCE:src/styles/desktopWorkspaceCompact.css")" = 1fbb5a4c9bb2907d2ef3dd74c2184914534d46b6
+          test "$(git rev-parse "$SOURCE:src/utils/crewReportUtils.ts")" = 364331837287673da3d6be50c9494f4972705c49
+          test "$(git rev-parse HEAD:.firebaserc)" = 74d90dc97f07bba6e9c9c18b9d78a3fc51418128
+          test "$(git rev-parse HEAD:firebase.prod.json)" = f1fd643bae6e7232300affe15c945ba4d579a962
+          test "$(git rev-parse HEAD:firestore.rules)" = 7cc080aa1b1ca87dea186c5037c7ab858d706689
+          test "$(git rev-parse HEAD:storage.rules)" = 4d0b6daa44cd1b79ba4c98e164b52fbd122d5fa1
+          test "$(git rev-parse HEAD:package.json)" = 66f34256215274d347c623350465e5a9a40ded93
+          test "$(git rev-parse HEAD:package-lock.json)" = 39849efdb4fed79fbff3e1303c6dcf785dbf2fdc
+          node - <<'NODE'
+          const f=require('./firebase.prod.json');
+          const r=JSON.parse(require('fs').readFileSync('.firebaserc','utf8'));
+          const p=require('./package.json'), q=require('./package-lock.json');
+          if(Object.keys(f).join(',')!=='hosting'||f.hosting.site!=='hnlqltc'||f.hosting.public!=='dist')throw Error('Wrong Hosting scope');
+          if(r.projects.default!=='com-example-qlct-61329'||p.version!=='6.3.0'||p.version!==q.version)throw Error('Project/lock mismatch');
+          NODE
+
+      - name: Locked build and regression gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          node --experimental-strip-types scripts/crew-task-description-golden.ts
+          npx tsx scripts/crew-report-structure-golden.ts
+          node scripts/prod-ios-safearea-scoped-golden.mjs
+          node scripts/prod-pc-sidebar-square-golden.mjs
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run test:stability
+          npm run security:audit
+          npm run build
+          test -s dist/index.html
+
+      - name: Backup existing LIVE and test candidate Preview
+        shell: bash
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+        run: |
+          set -euo pipefail
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}" || { echo 'Missing existing PROD Hosting service account'; exit 1; }
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/pr442-credentials.json"
+          umask 077
+          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          node - <<'NODE'
+          const a=require(process.env.GOOGLE_APPLICATION_CREDENTIALS);
+          if(a.type!=='service_account'||a.project_id!=='com-example-qlct-61329'||!a.private_key)throw Error('Wrong Firebase credentials');
+          NODE
+          BASE_URL=https://hnlqltc.web.app
+          curl --fail --silent --show-error --retry 3 "$BASE_URL/?before=$GITHUB_RUN_ID" -o "$RUNNER_TEMP/pr442-old.html"
+          grep -qi '<div id="root"' "$RUNNER_TEMP/pr442-old.html"
+          OLD_SHA="$(sha256sum "$RUNNER_TEMP/pr442-old.html" | cut -d' ' -f1)"
+          test -n "$OLD_SHA" || { echo 'Could not fingerprint existing PROD Hosting'; exit 1; }
+          echo "OLD_SHA=$OLD_SHA" >> "$GITHUB_ENV"
+          BACKUP="pr442-rollback-$GITHUB_RUN_ID"
+          PREVIEW="pr442-stage-$GITHUB_RUN_ID"
+          echo "BACKUP=$BACKUP" >> "$GITHUB_ENV"
+          echo "PREVIEW=$PREVIEW" >> "$GITHUB_ENV"
+          npx --yes firebase-tools@13.35.1 hosting:clone "hnlqltc:live" "hnlqltc:$BACKUP" --project com-example-qlct-61329 --non-interactive | tee "$RUNNER_TEMP/pr442-backup.log"
+          BACKUP_URL="$(grep -Eo 'https://hnlqltc--[A-Za-z0-9-]+\.web\.app' "$RUNNER_TEMP/pr442-backup.log" | head -1 || true)"
+          test -n "$BACKUP_URL" || { echo 'Backup URL unavailable; abort'; exit 1; }
+          curl --fail --silent --show-error "$BACKUP_URL/?verify=$GITHUB_RUN_ID" -o "$RUNNER_TEMP/pr442-backup.html"
+          test "$(sha256sum "$RUNNER_TEMP/pr442-backup.html" | cut -d' ' -f1)" = "$OLD_SHA" || { echo 'Backup byte mismatch'; exit 1; }
+          echo "BACKUP_URL=$BACKUP_URL" >> "$GITHUB_ENV"
+          npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$PREVIEW" --config firebase.prod.json --project com-example-qlct-61329 --expires 1d --non-interactive | tee "$RUNNER_TEMP/pr442-preview.log"
+          PREVIEW_URL="$(grep -Eo 'https://hnlqltc--[A-Za-z0-9-]+\.web\.app' "$RUNNER_TEMP/pr442-preview.log" | head -1 || true)"
+          test -n "$PREVIEW_URL" || { echo 'Preview URL unavailable'; exit 1; }
+          echo "PREVIEW_URL=$PREVIEW_URL" >> "$GITHUB_ENV"
+          ready=0
+          for i in $(seq 1 15); do
+            if curl --fail --silent --show-error --max-time 20 "$PREVIEW_URL/?verify=$GITHUB_RUN_ID-$i" -o "$RUNNER_TEMP/pr442-preview.html" && grep -qi '<div id="root"' "$RUNNER_TEMP/pr442-preview.html"; then ready=1; break; fi
+            sleep 4
+          done
+          test "$ready" = 1 || { echo 'Preview smoke failed'; exit 1; }
+          PREVIEW_SHA="$(sha256sum "$RUNNER_TEMP/pr442-preview.html" | cut -d' ' -f1)"
+          test "$PREVIEW_SHA" = "$(sha256sum dist/index.html | cut -d' ' -f1)" || { echo 'Preview HTML not equal to build output'; exit 1; }
+          test "$PREVIEW_SHA" != "$OLD_SHA" || { echo 'Preview unexpectedly identical to current LIVE'; exit 1; }
+          echo "PREVIEW_SHA=$PREVIEW_SHA" >> "$GITHUB_ENV"
+          ASSET="$(node - "$RUNNER_TEMP/pr442-preview.html" <<'NODE'
+          const fs=require('fs'), t=fs.readFileSync(process.argv[2],'utf8');
+          const m=t.match(/src="(\/assets\/[^"]+\.js)"/);
+          if(!m)throw Error('Missing preview JS asset');
+          process.stdout.write(m[1]);
+          NODE
+          )"
+          curl --fail --silent --show-error "$PREVIEW_URL$ASSET" -o "$RUNNER_TEMP/pr442-preview.js"
+          test "$(sha256sum "$RUNNER_TEMP/pr442-preview.js" | cut -d' ' -f1)" = "$(sha256sum "dist$ASSET" | cut -d' ' -f1)" || { echo 'JS asset mismatch'; exit 1; }
+
+      - name: Promote Hosting only; smoke and roll back on failure
+        shell: bash
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA" || { echo 'Main advanced; refusing deployment'; exit 1; }
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/pr442-credentials.json"
+          umask 077
+          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          curl --fail --silent --show-error --retry 3 "https://hnlqltc.web.app/?recheck=$GITHUB_RUN_ID" -o "$RUNNER_TEMP/pr442-recheck.html"
+          test "$(sha256sum "$RUNNER_TEMP/pr442-recheck.html" | cut -d' ' -f1)" = "$OLD_SHA" || { echo 'LIVE changed since backup; refusing deployment'; exit 1; }
+          npx --yes firebase-tools@13.35.1 hosting:clone "hnlqltc:$PREVIEW" hnlqltc:live --project com-example-qlct-61329 --non-interactive
+          verified=0
+          for i in $(seq 1 12); do
+            if curl --fail --silent --show-error --max-time 20 "https://hnlqltc.web.app/?pr442=$GITHUB_RUN_ID-$i" -o "$RUNNER_TEMP/pr442-live.html" && grep -qi '<div id="root"' "$RUNNER_TEMP/pr442-live.html" && test "$(sha256sum "$RUNNER_TEMP/pr442-live.html" | cut -d' ' -f1)" = "$PREVIEW_SHA"; then verified=1; break; fi
+            sleep 3
+          done
+          if [ "$verified" != 1 ]; then
+            echo 'PROD LIVE verification failed; restoring exact Hosting backup'
+            npx --yes firebase-tools@13.35.1 hosting:clone "hnlqltc:$BACKUP" hnlqltc:live --project com-example-qlct-61329 --non-interactive
+            exit 1
+          fi
+          echo 'PR442 PROD Hosting-only LIVE public smoke PASS. Signed-in multi-device runtime remains PENDING.'
+
+      - name: Package scoped release source and checkpoint evidence
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pr442-artifacts"
+          git archive --format=zip -o "$RUNNER_TEMP/pr442-artifacts/HNL-QLTC-PR442-PROD-FULL-SOURCE.zip" HEAD
+          git archive --format=zip -o "$RUNNER_TEMP/pr442-artifacts/HNL-QLTC-PR442-PROD-PATCH.zip" HEAD $(git diff --name-only "$PREVIOUS" HEAD)
+          printf '%s\n' "HNL QLTC PR442 Hosting-only" "SOURCE=$SOURCE" "WORKFLOW_HEAD=$GITHUB_SHA" "PREVIOUS_MAIN=$PREVIOUS" "PROD_HOSTING=https://hnlqltc.web.app" "BACKUP_URL=$BACKUP_URL" "PREVIEW_URL=$PREVIEW_URL" "TEST=BUILD,TS,LINT,RULES,STABILITY,SECURITY,CREW_GOLDEN,HOSTING_SMOKE_PASS" > "$RUNNER_TEMP/pr442-artifacts/REPORT.txt"
+          (cd "$RUNNER_TEMP/pr442-artifacts"; sha256sum * > SHA256SUMS.txt)
+          unzip -tq "$RUNNER_TEMP/pr442-artifacts/HNL-QLTC-PR442-PROD-PATCH.zip"
+          unzip -tq "$RUNNER_TEMP/pr442-artifacts/HNL-QLTC-PR442-PROD-FULL-SOURCE.zip"
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ success() }}
+        with:
+          name: HNL-QLTC-PR442-PROD-SOURCE-PATCH-REPORT
+          path: ${{ runner.temp }}/pr442-artifacts/*
+          if-no-files-found: error
+          retention-days: 30
