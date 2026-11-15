@@ -37,3 +37,70 @@ jobs:
           path: runtime-evidence/crew-*
           if-no-files-found: warn
           retention-days: 30
+
+      - name: PR442 gated exact-head FULL SOURCE / PATCH / REPORT (NO DEPLOY)
+        if: ${{ success() && github.event_name == 'pull_request' && github.event.pull_request.number == 442 }}
+        shell: bash
+        env:
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          BASE=2a1786f457edb691face354da44e885f182a5970
+          test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
+          test "$GITHUB_BASE_REF" = main
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$BASE" || { echo 'main moved: fail closed'; exit 1; }
+          git fetch --no-tags origin "$PR_HEAD" "$BASE"
+          mkdir -p runtime-evidence/pr442-handoff
+          cd runtime-evidence/pr442-handoff
+          git diff --name-only "$BASE" "$PR_HEAD" | LC_ALL=C sort > PATCH-FILES.txt
+          cat > EXPECTED-FILES.txt <<'FILES'
+          .github/workflows/crew-report-export-click-golden.yml
+          scripts/crew-report-structure-golden.ts
+          scripts/crew-task-description-golden.ts
+          scripts/stability-gate.mjs
+          scripts/ui-entry-ux-golden.ts
+          scripts/ui-return-and-palette-golden.mjs
+          src/components/CrewReportShareModal.tsx
+          src/components/CrewTabBase.tsx
+          src/styles/desktopWorkspace.css
+          src/styles/desktopWorkspaceCompact.css
+          src/utils/crewReportUtils.ts
+          FILES
+          cmp PATCH-FILES.txt EXPECTED-FILES.txt
+          for f in .firebaserc firebase.prod.json firestore.rules storage.rules package.json package-lock.json; do
+            test "$(git rev-parse "$BASE:$f")" = "$(git rev-parse "$PR_HEAD:$f")" || exit 1
+          done
+          # Never package tracked credentials. Public PEM and .env.*.example are legitimate source examples.
+          if git ls-tree -r --name-only "$PR_HEAD" | grep -Ei '(^|/)(\.env$|.*service-account.*\.json$|id_rsa$)|\.(p12|pfx|keystore)$'; then
+            echo 'Unexpected tracked credential filename'; exit 1
+          fi
+          if git grep -I -n -E 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|ghp_[[:alnum:]]{36}' "$PR_HEAD" -- .; then
+            echo 'Potential sensitive key in tracked source'; exit 1
+          fi
+          git archive --format=zip --output="HNL-QLTC-PR442-FULL-SOURCE-$PR_HEAD.zip" "$PR_HEAD"
+          mapfile -t scoped_files < PATCH-FILES.txt
+          git archive --format=zip --output="HNL-QLTC-PR442-PATCH-$PR_HEAD.zip" "$PR_HEAD" -- "${scoped_files[@]}"
+          unzip -t "HNL-QLTC-PR442-FULL-SOURCE-$PR_HEAD.zip" >/dev/null
+          unzip -t "HNL-QLTC-PR442-PATCH-$PR_HEAD.zip" >/dev/null
+          unzip -Z1 "HNL-QLTC-PR442-PATCH-$PR_HEAD.zip" | grep -v '/$' | LC_ALL=C sort > ZIP-FILES.txt
+          cmp ZIP-FILES.txt PATCH-FILES.txt
+          {
+            echo '# HNL QLTC PR442 – Scoped candidate handoff'
+            echo "Base PROD: $BASE"
+            echo "Exact candidate: $PR_HEAD"
+            echo 'Scope: PR396 Crew picker; PR388/390 PC dark; PR405 original crew journal; PR427 share filters; PR429 report >93 days.'
+            echo 'Status: CI candidate only, NOT DEPLOYED, NOT CERTIFIED. Physical runtime and backup verification pending.'
+            echo 'Firebase project/R2/Firestore Rules/package/lock unchanged. No real data writes.'
+            echo 'Changed files:'
+            cat PATCH-FILES.txt
+          } > REPORT.md
+          sha256sum "HNL-QLTC-PR442-FULL-SOURCE-$PR_HEAD.zip" "HNL-QLTC-PR442-PATCH-$PR_HEAD.zip" REPORT.md > SHA256SUMS.txt
+          echo 'PR442 exact-head source/patch/report archive verified'
+      - name: Upload PR442 candidate handoff artifact (NO DEPLOY)
+        if: ${{ success() && github.event_name == 'pull_request' && github.event.pull_request.number == 442 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-PR442-CANDIDATE-HANDOFF
+          path: runtime-evidence/pr442-handoff/
+          if-no-files-found: error
+          retention-days: 30
