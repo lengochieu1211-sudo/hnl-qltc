@@ -74,12 +74,12 @@ jobs:
           if git ls-tree -r --name-only "$PR_HEAD" | grep -Ei '(^|/)(\.env$|.*service-account.*\.json$|id_rsa$)|\.(p12|pfx|keystore)$'; then
             echo 'Unexpected tracked credential filename'; exit 1
           fi
-          if git grep -I -n -E 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|ghp_[[:alnum:]]{36}' "$PR_HEAD" -- .; then
+          if git -C "$GITHUB_WORKSPACE" grep -I -n -E 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|ghp_[[:alnum:]]{36}' "$PR_HEAD" -- .; then
             echo 'Potential sensitive key in tracked source'; exit 1
           fi
-          git archive --format=zip --output="HNL-QLTC-PR442-FULL-SOURCE-$PR_HEAD.zip" "$PR_HEAD"
+          git -C "$GITHUB_WORKSPACE" archive --format=zip --output="$PWD/HNL-QLTC-PR442-FULL-SOURCE-$PR_HEAD.zip" "$PR_HEAD"
           mapfile -t scoped_files < PATCH-FILES.txt
-          git archive --format=zip --output="HNL-QLTC-PR442-PATCH-$PR_HEAD.zip" "$PR_HEAD" -- "${scoped_files[@]}"
+          git -C "$GITHUB_WORKSPACE" archive --format=zip --output="$PWD/HNL-QLTC-PR442-PATCH-$PR_HEAD.zip" "$PR_HEAD" -- "${scoped_files[@]}"
           unzip -t "HNL-QLTC-PR442-FULL-SOURCE-$PR_HEAD.zip" >/dev/null
           unzip -t "HNL-QLTC-PR442-PATCH-$PR_HEAD.zip" >/dev/null
           unzip -Z1 "HNL-QLTC-PR442-PATCH-$PR_HEAD.zip" | grep -v '/$' | LC_ALL=C sort > ZIP-FILES.txt
