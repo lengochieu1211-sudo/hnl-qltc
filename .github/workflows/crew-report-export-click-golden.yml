@@ -1,7 +1,7 @@
 name: HNL Crew Report PNG/XLSX Click Golden
 on:
   pull_request:
-    branches: [dev]
+    branches: [dev, main]
     paths:
       - 'src/components/CrewReportShareModal.tsx'
       - 'src/utils/crewReportExcel.ts'
