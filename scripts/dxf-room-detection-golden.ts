@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { detectRoomsFromDxf, renderDxfFloorPlanSvgDataUrl, analyzeDxfQuantities, exportDxfQuantitiesCsv } from '../src/utils/dxfRoomDetection';
+import { buildCadLayerComparison, supportedCadMetrics, exportCadLayerComparisonCsv } from '../src/utils/cadLayerMapping';
 
 const dxf = [
   '0','SECTION','2','HEADER','9','$INSUNITS','70','4','0','ENDSEC',
@@ -117,3 +118,38 @@ assert.ok(riskySvg.skippedEntities >= 2, 'curved polyline and unsupported blocks
 
 
 console.log('DXF Layer Quantity Takeoff Golden: PASS');
+
+// Read-only layer-to-work-category comparison: no Firestore writes, no unit guessing.
+assert.deepEqual(supportedCadMetrics('m2'), ['area']);
+assert.deepEqual(supportedCadMetrics('m'), ['length', 'perimeter']);
+assert.deepEqual(supportedCadMetrics('cái'), ['block']);
+assert.deepEqual(supportedCadMetrics('tấm'), [], 'one block is not necessarily one board');
+const category = { id: 'work-a', workCategoryId: 'CAT-A', title: '=TRAN_CHIM', unit: 'm²', floor: 'Tầng 1', floorId: 'floor-a', category: 'Trần', planned: 10, actual: 0, unitPrice: 0, status: 'Chưa thi công' } as const;
+const comparison = buildCadLayerComparison(quantities,
+  { TRAN_CHIM: { workCategoryId: 'CAT-A', metric: 'area' } },
+  [category], [{ id: 'room-a', floorId: 'floor-a', roomName: 'A101', workCategoryId: 'CAT-A', workCategory: '=TRAN_CHIM',
+    categoryVolumes: { '=TRAN_CHIM': 10 }, categoryVolumeUnits: { '=TRAN_CHIM': 'm2' },
+  } as never], 'floor-a');
+assert.equal(comparison.length, 1);
+assert.equal(comparison[0].cadQuantity, 12);
+assert.equal(comparison[0].existingQuantity, 10);
+assert.equal(comparison[0].delta, 2);
+assert.equal(comparison[0].issues.length, 0);
+assert.ok(exportCadLayerComparisonCsv(comparison).includes("\"'=TRAN_CHIM\""), 'mapping CSV must neutralize Excel formulas');
+const mismatch = buildCadLayerComparison(quantities,
+  { TRAN_CHIM: { workCategoryId: 'CAT-A', metric: 'block' } }, [category], [], 'floor-a');
+assert.ok(mismatch[0].issues.some((issue) => issue.includes('không phù hợp')));
+assert.equal(mismatch[0].delta, undefined);
+const unknownUnits = buildCadLayerComparison(unitlessTakeoff,
+  { TRAN_CHIM: { workCategoryId: 'CAT-A', metric: 'area' } }, [category], [], 'floor-a');
+assert.equal(unknownUnits[0].cadQuantity, undefined, 'unitless CAD cannot create metric quantity');
+assert.equal(unknownUnits[0].delta, undefined);
+const wrongFloor = buildCadLayerComparison(quantities,
+  { TRAN_CHIM: { workCategoryId: 'CAT-A', metric: 'area' } }, [category], [], 'floor-other');
+assert.ok(wrongFloor[0].issues.some((issue) => issue.includes('tầng khác')));
+const mixed = buildCadLayerComparison(quantities,
+  { TRAN_CHIM: { workCategoryId: 'CAT-A', metric: 'area' }, NEP_BIEN: { workCategoryId: 'CAT-A', metric: 'length' } },
+  [category], [], 'floor-a');
+assert.ok(mixed[0].issues.some((issue) => issue.includes('nhiều cách đo')));
+assert.equal(mixed[0].cadQuantity, undefined, 'mixed or invalid units cannot produce a trusted CAD total');
+console.log('DXF Layer Mapping & Safe Comparison Golden: PASS');
