@@ -1345,6 +1345,21 @@ function AuthenticatedApp() {
     if (newProjectId === oldId) return;
     console.log('[SWITCH PROJECT]', oldId, '=>', newProjectId);
 
+    // Do not discard unsaved local revisions on a project switch. The existing
+    // project-scoped Cloud queue remains independent and is NOT treated as ACKed.
+    const hasUnsavedLocalRevisions = Object.values(localDirtyRevisionRef.current).some((revision) => Number(revision || 0) > 0)
+      || localMetadataDirtyRevisionRef.current > 0;
+    if (hasUnsavedLocalRevisions) {
+      if (!isHydrated || isLoadingProject || isRestoring || !isProjectRoleResolved) {
+        throw new Error('Dự án hiện tại chưa sẵn sàng lưu nháp. Chưa chuyển dự án để tránh mất dữ liệu.');
+      }
+      await saveCurrentProject(oldId);
+      if (Object.values(localDirtyRevisionRef.current).some((revision) => Number(revision || 0) > 0)
+        || localMetadataDirtyRevisionRef.current > 0) {
+        throw new Error('Vẫn còn thay đổi chưa lưu trên máy. Chưa chuyển dự án.');
+      }
+    }
+
     switchingProjectRef.current = true;
     setLocalFileHandle(null);
     setLocalFileName('');
@@ -8030,8 +8045,12 @@ function AuthenticatedApp() {
           activeProjectId={activeProjectId}
           onClose={() => setIsMultiProjectOverviewOpen(false)}
           onOpenProject={async (projectId) => {
-            await switchProject(projectId);
-            setIsMultiProjectOverviewOpen(false);
+            try {
+              await switchProject(projectId);
+              setIsMultiProjectOverviewOpen(false);
+            } catch (error) {
+              window.alert('Chưa chuyển dự án: ' + (error instanceof Error ? error.message : String(error)));
+            }
           }}
           onManageProjects={() => {
             setIsMultiProjectOverviewOpen(false);
@@ -8111,7 +8130,20 @@ function AuthenticatedApp() {
           projectName={projectName}
           online={isOnline}
           userRole={currentUserRole}
-          onOpenProjects={() => handleOpenProjectManager('projects')}
+          onOpenProjects={() => {
+            const hasPendingLocal = Object.values(localDirtyRevisionRef.current).some((revision) => Number(revision || 0) > 0)
+              || localMetadataDirtyRevisionRef.current > 0 || isSaving;
+            const hasPendingCloud = firestorePendingWriteCount > 0
+              || syncDiagnosticPendingData > 0 || syncDiagnosticPendingMetadata > 0
+              || Number(photoCloudStatus.pending || 0) > 0 || warehouseOrderSync.pendingCount > 0
+              || floorPlanImageSyncPendingRef.current.size > 0 || floorPlanImageSyncInFlightRef.current.size > 0;
+            if ((hasPendingLocal || hasPendingCloud || warehouseOrderSync.saveError) && !window.confirm(
+              'Dự án đang có thay đổi chưa hoàn tất lưu/đồng bộ.\n\n' +
+              'Hãy kiểm tra các bản nháp và trạng thái đồng bộ trước khi đổi dự án.\n' +
+              'Bấm OK để mở danh sách dự án (chưa chuyển ngay), hoặc Hủy để tiếp tục tại dự án hiện tại.'
+            )) return;
+            handleOpenProjectManager('projects');
+          }}
           onOpenReports={() => setIsExportPdfOpen(true)}
           onOpenNotifications={() => setIsNotificationCenterOpen(true)}
           onOpenSecurity={() => setIsSecurityModalOpen(true)}
