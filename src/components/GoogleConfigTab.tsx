@@ -325,11 +325,11 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       snapshotReadyCount: syncDiagnostics?.snapshotReadyCount ?? 0,
       dataCloudPhase: syncDiagnostics?.dataCloudPhase || 'unknown',
       pendingData: syncDiagnostics?.pendingData ?? 0,
-      pendingDriveUploads: photoDiagnosticsClean ? 0 : (syncDiagnostics?.pendingDriveUploads ?? 0),
+      pendingDriveUploads: photoDiagnosticsClean ? 0 : Math.max(Number(syncDiagnostics?.pendingDriveUploads || 0), Number(photoDiagnostics && !('error' in photoDiagnostics) ? photoDiagnostics.pending : 0)),
       lastSyncAt: syncDiagnostics?.lastSyncAt ?? 0,
       lastSyncError: photoDiagnosticsClean && /ảnh|photo|cloud\/r2/i.test(syncDiagnostics?.lastSyncError || '') ? '' : (syncDiagnostics?.lastSyncError || ''),
       duplicateProjectIds: syncDiagnostics?.duplicateProjectIds || [],
-      photoPending: photoDiagnosticsClean ? 0 : (syncDiagnostics?.photoPending ?? 0),
+      photoPending: photoDiagnosticsClean ? 0 : Math.max(Number(syncDiagnostics?.photoPending || 0), Number(photoDiagnostics && !('error' in photoDiagnostics) ? photoDiagnostics.pending : 0)),
       photoPhase: photoDiagnosticsClean ? 'idle' : (syncDiagnostics?.photoPhase || 'idle'),
       driveSyncStatus,
       recordCounts: syncDiagnostics?.recordCounts || {},
@@ -368,8 +368,8 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     Number(photoDiagnosticSnapshot?.active || 0) === Number(photoDiagnosticSnapshot?.ready || 0) &&
     diagnosticPhotoIssues.length === 0
   );
-  const displayedPhotoPending = photoSnapshotClean ? 0 : (syncDiagnostics?.photoPending ?? 0);
-  const displayedPendingDriveUploads = photoSnapshotClean ? 0 : (syncDiagnostics?.pendingDriveUploads ?? 0);
+  const displayedPhotoPending = photoSnapshotClean ? 0 : Math.max(Number(syncDiagnostics?.photoPending || 0), Number(photoDiagnosticSnapshot?.pending || 0));
+  const displayedPendingDriveUploads = photoSnapshotClean ? 0 : Math.max(Number(syncDiagnostics?.pendingDriveUploads || 0), Number(photoDiagnosticSnapshot?.pending || 0));
   const displayedPhotoPhase = photoSnapshotClean ? 'idle' : (syncDiagnostics?.photoPhase || 'idle');
   const displayedLastSyncError = photoSnapshotClean && /ảnh|photo|cloud\/r2/i.test(syncDiagnostics?.lastSyncError || '')
     ? ''
