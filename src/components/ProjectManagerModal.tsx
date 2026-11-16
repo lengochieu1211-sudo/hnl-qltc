@@ -2703,6 +2703,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         setActiveProject(id);
         window.location.reload();
       }
+    } catch (error) {
+      // Keep the existing project/modal if a pending draft cannot be saved.
+      setErrorMessage('Chưa chuyển dự án: ' + (error instanceof Error ? error.message : String(error)));
     } finally {
       setSwitchingProjectId(null);
     }
