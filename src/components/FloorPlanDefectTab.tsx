@@ -87,6 +87,7 @@ import { describePdfError, loadPdfDocument, renderPdfDocumentPageToImage } from 
 import { getImageQualityProfile } from '../utils/imageQualitySettings';
 import { detectPdfRoomCandidatesFromDocument, DEFAULT_PDF_ROOM_NAME_PATTERN, PdfRoomCandidate } from '../utils/pdfRoomDetection';
 import type { DxfFloorPlanRenderResult, DxfRoomCandidate, DxfRoomDetectionResult, DxfQuantityTakeoffResult } from '../utils/dxfRoomDetection';
+import { buildCadLayerComparison, supportedCadMetrics, exportCadLayerComparisonCsv, type CadLayerMappings, type CadQuantityMetric } from '../utils/cadLayerMapping';
 import { QuickSortBar } from './QuickSortBar';
 import { MoveOrderControls } from './MoveOrderControls';
 import { DataManagementMenu } from './DataManagementMenu';
@@ -434,6 +435,7 @@ interface PendingDxfRoomImport {
   warnings: string[];
   candidates: PendingDxfReviewCandidate[];
   quantityTakeoff?: DxfQuantityTakeoffResult;
+  layerMappings: CadLayerMappings;
   cadFloorPlanDataUrl?: string;
   cadRenderedEntities?: number;
   cadSkippedEntities?: number;
@@ -3251,6 +3253,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [quickEditMode, setQuickEditMode] = useState<'rooms' | 'defects'>('rooms');
   const [pendingDxfImport, setPendingDxfImport] = useState<PendingDxfRoomImport | null>(null);
 
+  const cadLayerComparisons = React.useMemo(() => pendingDxfImport?.quantityTakeoff
+    ? buildCadLayerComparison(pendingDxfImport.quantityTakeoff, pendingDxfImport.layerMappings, workVolumes, roomProgressList, pendingDxfImport.floorId)
+    : [], [pendingDxfImport, workVolumes, roomProgressList]);
+
   const quickFloorById = React.useMemo(
     () => showQuickEdit ? new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.id, floor] as const)) : new Map<string, FloorPlan>(),
     [showQuickEdit, floorPlans],
@@ -3649,7 +3655,20 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       };
     });
 
+    // Only preselect a category on an unambiguous exact layer-name match, with
+    // a compatible work unit. Mapping is volatile preview state, never Cloud data.
+    const layerMappings: CadLayerMappings = {};
+    for (const layer of quantityTakeoff.layers) {
+      const matches = catalogByExactName.get(normalizeDxfCatalogName(layer.layer)) || [];
+      if (matches.length !== 1) continue;
+      const work = matches[0];
+      const options = supportedCadMetrics(work.unit);
+      if (!options.length) continue;
+      layerMappings[layer.layer] = { workCategoryId: work.workCategoryId || work.id, metric: options[0] };
+    }
+
     setPendingDxfImport({
+      layerMappings,
       floorId: target.floorId,
       floorName: target.floorName,
       structureGroupId: target.structureGroupId,
@@ -3688,6 +3707,29 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       await saveTextFile(exportDxfQuantitiesCsv(current.quantityTakeoff), `${fileBase}-CAD-KL-THEO-LAYER.csv`, 'text/csv;charset=utf-8');
     } catch (error) {
       alert(`Không thể xuất CSV bóc tách CAD: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  const updatePendingDxfLayerMapping = (layer: string, workCategoryId: string, metric?: CadQuantityMetric) => {
+    setPendingDxfImport((current) => {
+      if (!current) return current;
+      const next = { ...current.layerMappings };
+      if (!workCategoryId) delete next[layer];
+      else {
+        const work = workVolumes.find((item) => (item.workCategoryId || item.id) === workCategoryId);
+        next[layer] = { workCategoryId, metric: metric || supportedCadMetrics(work?.unit || '')[0] || 'area' };
+      }
+      return { ...current, layerMappings: next };
+    });
+  };
+
+  const downloadCadLayerComparison = async () => {
+    if (!pendingDxfImport || cadLayerComparisons.length === 0) return;
+    const fileBase = pendingDxfImport.fileName.replace(/\.dxf$/i, '').replace(/[\\/:*?"<>|]/g, '_');
+    try {
+      await saveTextFile(exportCadLayerComparisonCsv(cadLayerComparisons), `${fileBase}-CAD-DOI-CHIEU-HANG-MUC.csv`, 'text/csv;charset=utf-8');
+    } catch (error) {
+      alert(`Không thể xuất CSV đối chiếu: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
@@ -3748,7 +3790,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       const work = candidate.workCategoryId
         ? workVolumes.find((item) => (item.workCategoryId || item.id) === candidate.workCategoryId || item.id === candidate.workCategoryId)
         : undefined;
-      const mappedArea = work && Number.isFinite(candidate.areaM2) ? Number(candidate.areaM2) : undefined;
+      const mappedArea = work && unitKey(work.unit) === 'm²' && Number.isFinite(candidate.areaM2) ? Number(candidate.areaM2) : undefined;
       return {
         id: createEntityId('ROOM'),
         floorId: floor.id,
@@ -3795,7 +3837,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       '• HATCH/Polyline → polygon highlight\n' +
       (pendingDxfImport.useCadFloorPlan ? '• CAD DXF → mặt bằng nền cùng hệ tọa độ highlight\n' : '') +
       '• TEXT/MTEXT → tên Căn / Phòng\n' +
-      '• Diện tích chỉ ghi m² khi DXF có đơn vị hợp lệ và đã gán Hạng mục\n' +
+      '• Nếu gán hạng mục m² và DXF có đơn vị hợp lệ, diện tích sẽ được lưu vào phòng mới (không chỉ xem trước)\n' +
+      '• Bảng đối chiếu layer phía trên KHÔNG ghi khối lượng vào dự án\n' +
       '• Không ghi đè Căn / Phòng đã tồn tại'
     );
     if (!confirmed) return;
@@ -10070,6 +10113,55 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         )}
                       </tbody>
                     </table>
+                  </div>
+                  <div className="border-t border-sky-200 pt-3 space-y-2">
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <div>
+                        <h4 className="text-xs font-black text-slate-900">Liên kết Layer → Hạng mục (chỉ xem trước)</h4>
+                        <p className="text-[10px] text-slate-600 mt-0.5">Đối chiếu với khối lượng phòng ở đúng tầng; không dùng tổng dự toán toàn dự án. Chưa có thao tác ghi khối lượng.</p>
+                      </div>
+                      <button type="button" onClick={() => void downloadCadLayerComparison()} disabled={!cadLayerComparisons.length}
+                        className="rounded-lg border border-sky-700 px-3 py-1.5 text-[11px] font-bold text-sky-800 disabled:opacity-50">Xuất CSV đối chiếu</button>
+                    </div>
+                    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                      <table className="min-w-[680px] w-full text-[11px]">
+                        <thead className="bg-slate-100"><tr><th className="p-2 text-left">Layer</th><th className="p-2 text-left">Hạng mục</th><th className="p-2 text-left">Đại lượng</th><th className="p-2 text-left">Đơn vị</th></tr></thead>
+                        <tbody>{pendingDxfImport.quantityTakeoff.layers.map((layer) => {
+                          const mapping = pendingDxfImport.layerMappings[layer.layer];
+                          const work = workVolumes.find((item) => (item.workCategoryId || item.id) === mapping?.workCategoryId);
+                          const metrics = supportedCadMetrics(work?.unit || '');
+                          return <tr key={layer.layer} className="border-t border-slate-100">
+                            <td className="p-2 font-semibold">{layer.layer}</td>
+                            <td className="p-2"><select aria-label={`Hạng mục cho layer ${layer.layer}`} value={mapping?.workCategoryId || ''}
+                              onChange={(event) => updatePendingDxfLayerMapping(layer.layer, event.target.value)}
+                              className="w-full min-w-[220px] rounded border border-slate-300 px-1.5 py-1">
+                              <option value="">— Chưa liên kết —</option>
+                              {workVolumes.map((category) => <option key={category.id} value={category.workCategoryId || category.id}>{category.title} ({category.unit})</option>)}
+                            </select></td>
+                            <td className="p-2"><select aria-label={`Đại lượng cho layer ${layer.layer}`} value={mapping?.metric || ''}
+                              disabled={!work || !metrics.length}
+                              onChange={(event) => updatePendingDxfLayerMapping(layer.layer, mapping?.workCategoryId || '', event.target.value as CadQuantityMetric)}
+                              className="w-full rounded border border-slate-300 px-1.5 py-1 disabled:opacity-50">
+                              {!metrics.length && <option value={mapping?.metric || ''}>Không tương thích</option>}
+                              {metrics.map((metric) => <option key={metric} value={metric}>{metric === 'area' ? 'Diện tích' : metric === 'length' ? 'Chiều dài' : metric === 'perimeter' ? 'Chu vi' : 'Số BLOCK'}</option>)}
+                            </select></td>
+                            <td className="p-2 whitespace-nowrap">{work?.unit || '—'}</td>
+                          </tr>;
+                        })}</tbody>
+                      </table>
+                    </div>
+                    {cadLayerComparisons.length > 0 && <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                      <table className="min-w-[760px] w-full text-[11px]">
+                        <thead className="bg-slate-100"><tr><th className="p-2 text-left">Hạng mục</th><th className="p-2 text-right">CAD</th><th className="p-2 text-right">Đã có cùng tầng</th><th className="p-2 text-right">Chênh lệch</th><th className="p-2 text-left">Kiểm tra</th></tr></thead>
+                        <tbody>{cadLayerComparisons.map((comparison) => <tr key={comparison.workCategoryId} className="border-t border-slate-100">
+                          <td className="p-2 font-semibold">{comparison.categoryName}<div className="text-[10px] font-normal text-slate-500">{comparison.layers.join(', ')}</div></td>
+                          <td className="p-2 text-right tabular-nums">{comparison.cadQuantity === undefined ? '—' : `${formatDecimal(comparison.cadQuantity)} ${comparison.unit}`}</td>
+                          <td className="p-2 text-right tabular-nums">{comparison.existingQuantity === undefined ? 'Chưa xác minh' : `${formatDecimal(comparison.existingQuantity)} ${comparison.unit}`}</td>
+                          <td className="p-2 text-right tabular-nums">{comparison.delta === undefined ? '—' : formatDecimal(comparison.delta)}</td>
+                          <td className="p-2 text-[10px] text-amber-800">{comparison.issues.length ? comparison.issues.join(' · ') : 'Đủ điều kiện so sánh sơ bộ; vẫn phải kiểm tra CAD gốc'}</td>
+                        </tr>)}</tbody>
+                      </table>
+                    </div>}
                   </div>
                   <p className="text-[10px] text-amber-800">Kết quả chỉ phục vụ kiểm tra trước khi bóc tách: đường cung trong Polyline, HATCH có biên không hợp lệ, Block lồng nhau và đối tượng trùng nét cần đối chiếu AutoCAD. Không tự động cộng vào hạng mục hoặc ghi Cloud.</p>
                 </section>
