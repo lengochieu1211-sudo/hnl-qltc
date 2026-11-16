@@ -1447,6 +1447,27 @@ async function verifyPhoneSafeAreaViewportMatrix(browser) {
       assert(metrics.logoLeft >= -1 && metrics.logoRight <= width + 1, `${label}: project logo clipped horizontally`);
       assert(metrics.navLeft >= -1 && metrics.navRight <= width + 1 && metrics.navTop >= -1 && metrics.navBottom <= height + 2, `${label}: nav outside viewport`);
       assert(metrics.overflow <= 12, `${label}: horizontal overflow ${metrics.overflow}px`);
+      // The screenshot may show only two KPI rows because the phone viewport is
+      // short. Prove the final Home card can scroll completely above fixed nav.
+      const homeScroll = await page.evaluate(async () => {
+        const home = document.querySelector('.hnl-home-dashboard');
+        const lastCard = home?.querySelector('section:last-of-type');
+        const nav = document.querySelector('[data-hnl-nav-surface="mobile"]');
+        if (!home || !lastCard || !nav) return null;
+        window.scrollTo(0, Math.max(document.body.scrollHeight, document.documentElement.scrollHeight));
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        const end = lastCard.getBoundingClientRect();
+        const bar = nav.getBoundingClientRect();
+        const result = {
+          scrollY: window.scrollY, homeBottom: end.bottom, navTop: bar.top,
+          viewport: window.innerHeight,
+        };
+        window.scrollTo(0, 0);
+        return result;
+      });
+      assert(homeScroll && homeScroll.scrollY > 0, `${label}: Home viewport could not scroll to bottom — ${JSON.stringify(homeScroll)}`);
+      assert(homeScroll.homeBottom <= homeScroll.navTop - 4, `${label}: final Home section hidden by fixed navigation — ${JSON.stringify(homeScroll)}`);
+      pass(`phone Home bottom scroll ${label}`, `last section clears nav by ${Math.round(homeScroll.navTop - homeScroll.homeBottom)}px`);
       pass(`phone viewport ${label}`, `${width}×${height} · header and nav visible`);
       if (label === 'iphone-13-390' || label === 'iphone-landscape-844') {
         await page.screenshot({ path: `runtime-evidence/safe-area-${label}.png`, fullPage: false });

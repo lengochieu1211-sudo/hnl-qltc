@@ -34,6 +34,7 @@ export const guideGroups: GuideGroup[] = [
       T('login','Đăng nhập tài khoản Google','Đăng nhập đúng tài khoản được mời vào dự án.',[
         'Mở Web DEV hoặc ứng dụng HNL QLTC, chọn Đăng nhập bằng Google.',
         'Chọn tài khoản Google đã được ADMIN cấp quyền; hoàn tất xác thực trên trang đăng nhập.',
+        'iPhone mở HNL từ biểu tượng màn hình chính: nếu chạm email trên trang Google mà không hiện bàn phím, hãy đóng HNL, khởi động lại iPhone rồi thử lại. Có thể đối chiếu bằng Safari; không xóa dữ liệu ngoại tuyến hoặc gỡ biểu tượng khi ảnh chưa đồng bộ.',
         'Đợi danh sách dự án và dữ liệu đồng bộ xuất hiện rồi mới thực hiện công việc.',
         'Nếu không thấy dự án, kiểm tra đúng email và nhờ ADMIN xác nhận lời mời; không tự tạo dữ liệu thay thế.'
       ],{desktopImage:image('login-desktop'),mobileImage:image('login-mobile'),example:'Tài khoản mới chưa được cấp quyền vẫn có thể đăng nhập nhưng chưa chắc thấy dự án.'}),
