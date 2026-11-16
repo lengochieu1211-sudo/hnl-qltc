@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bell, Building2, ChevronRight, ChevronsUpDown, FileBarChart2, LayoutDashboard, LockKeyhole, MonitorCog, Wifi, WifiOff } from 'lucide-react';
+import { Bell, Building2, ChevronRight, FileBarChart2, LayoutDashboard, LockKeyhole, MonitorCog, Wifi, WifiOff } from 'lucide-react';
 import { UndoRedoControls } from './UndoRedoControls';
 import type { TabType } from './BottomNav';
 
@@ -74,7 +74,6 @@ export const DesktopWorkspaceHeader: React.FC<DesktopWorkspaceHeaderProps> = ({
 
   const page = PAGES[activeTab];
   const roleLabel = userRole === 'ADMIN' ? 'Quản trị' : userRole === 'EDITOR' ? 'Biên tập' : 'Chỉ xem';
-  const displayedProjectName = projectName.trim() || 'Chưa chọn dự án';
   return (
     <section className="hnl-pc-workspace-heading" data-hnl-pc-workspace-title={activeTab} aria-label={`Không gian làm việc ${page.name}`}>
       <div className="hnl-pc-heading-top">
@@ -83,23 +82,14 @@ export const DesktopWorkspaceHeader: React.FC<DesktopWorkspaceHeaderProps> = ({
           <h1>{page.name}</h1>
           <p>{page.hint}</p>
           <div className="hnl-pc-context-row">
-            <button type="button" className="hnl-pc-project-switch" data-hnl-pc-project-switch="true" onClick={onOpenProjects}
-              title={`Chuyển dự án: ${displayedProjectName}`}
-              aria-label={`Dự án đang làm việc: ${displayedProjectName}. Mở danh sách chuyển dự án`}>
-              <span className="hnl-pc-project-switch-icon"><Building2 size={18} aria-hidden="true" /></span>
-              <span className="hnl-pc-project-switch-text">
-                <span className="hnl-pc-project-switch-label">DỰ ÁN ĐANG LÀM VIỆC</span>
-                <strong className="hnl-pc-project-switch-name">{displayedProjectName}</strong>
-              </span>
-              <span className="hnl-pc-project-switch-action"><ChevronsUpDown size={15} aria-hidden="true" /> Đổi</span>
-            </button>
+            <span className="hnl-pc-project-tag" title={projectName || 'Chưa chọn dự án'}><Building2 size={15} aria-hidden="true" /><strong className="hnl-pc-project-name">{projectName || 'Chưa chọn dự án'}</strong></span>
             <span className={`hnl-pc-status ${online ? 'is-online' : 'is-offline'}`}>{online ? <Wifi size={14} aria-hidden="true" /> : <WifiOff size={14} aria-hidden="true" />}{online ? 'Đã kết nối' : 'Ngoại tuyến'}</span>
             <span className="hnl-pc-role">{roleLabel}</span>
           </div>
         </div>
         <div className="hnl-pc-heading-actions" aria-label="Công cụ truy cập nhanh">
           <UndoRedoControls onUndo={onUndo} onRedo={onRedo} canUndo={canUndo} canRedo={canRedo} variant="light" />
-          {/* The project switch in the context row replaces the duplicate action here. */}
+          <button type="button" onClick={onOpenProjects}><Building2 size={17} aria-hidden="true" /> Dự án</button>
           <button type="button" onClick={onOpenReports}><FileBarChart2 size={17} aria-hidden="true" /> Báo cáo</button>
           <button type="button" onClick={onOpenNotifications}><Bell size={17} aria-hidden="true" /> Thông báo{notificationCount > 0 && <span className="hnl-pc-alert-count">{notificationCount > 99 ? '99+' : notificationCount}</span>}</button>
           <button type="button" onClick={onOpenSecurity}><LockKeyhole size={17} aria-hidden="true" /> Bảo mật</button>
