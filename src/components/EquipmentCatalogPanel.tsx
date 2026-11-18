@@ -9,6 +9,7 @@ import type { InventoryItem } from '../types';
 import type { WarehouseUnitRenameInput } from '../lib/warehouseUnitMigration';
 import { confirmAsync } from '../utils/confirmAsync';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
+import { parseOrderWeight } from '../utils/warehouseCatalogOrder';
 import { buildEquipmentTemplateSourceItems } from '../utils/equipmentTemplateSource';
 import {
   equipmentIdentityKey, EquipmentUnitMigrationRequiredError, saveEquipmentCatalogBatch, softDeleteEquipmentCatalogBatch,
@@ -46,6 +47,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
   const initialTargetHandled = React.useRef(false);
   const [targetNotFound, setTargetNotFound] = useState(false);
   const [edit, setEdit] = useState<EquipmentCatalogInput | null>(null);
+  const [kgPerUnitText, setKgPerUnitText] = useState('');
   const [editBaseline, setEditBaseline] = useState('');
   // A voucher-backed legacy item may not have a catalog ID; edit mode is explicit.
   const [editingExisting, setEditingExisting] = useState(false);
@@ -60,8 +62,8 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   useEffect(() => {
-    onDraftDirtyChange?.(edit !== null && JSON.stringify(edit) !== editBaseline);
-  }, [edit, editBaseline, onDraftDirtyChange]);
+    onDraftDirtyChange?.(edit !== null && (JSON.stringify(edit) !== editBaseline || kgPerUnitText !== (edit.kgPerUnit == null ? '' : String(edit.kgPerUnit))));
+  }, [edit, editBaseline, kgPerUnitText, onDraftDirtyChange]);
   useEffect(() => { onBusyChange?.(busy); }, [busy, onBusyChange]);
 
   useEffect(() => {
@@ -192,6 +194,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
     };
     setEdit(next);
     setEditBaseline(JSON.stringify(next));
+    setKgPerUnitText('');
     setCustomGroup(false);
     setOriginalEditUnit('');
     setNotice('');
@@ -202,6 +205,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
     const next = { ...item, displayName: item.displayName || item.name };
     setEdit(next);
     setEditBaseline(JSON.stringify(next));
+    setKgPerUnitText(item.kgPerUnit == null ? '' : String(item.kgPerUnit));
     setCustomGroup(false);
     setOriginalEditUnit(normalizeUnit(item.unit) || item.unit);
     setNotice('');
@@ -224,11 +228,17 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
 
   const save = async (addAnother: boolean) => {
     if (!edit || !canManage || status !== 'ready' || busy) return;
+    const parsedKgPerUnit = kgPerUnitText.trim() ? parseOrderWeight(kgPerUnitText.trim()) : null;
+    if (kgPerUnitText.trim() && (parsedKgPerUnit === null || parsedKgPerUnit <= 0)) {
+      setNotice('Khối lượng/đơn vị phải là số kg dương hợp lệ, ví dụ 0,65.');
+      return;
+    }
     const equipment = {
       ...edit,
       displayName: editingExisting ? String(edit.displayName ?? edit.name).trim() : String(edit.name || '').trim(),
       name: String(edit.name || '').trim(),
       category: String(edit.category || '').trim(),
+      kgPerUnit: parsedKgPerUnit,
       unit: normalizeUnit(edit.unit) || String(edit.unit || '').trim(),
     };
     if (!equipment.name || !equipment.displayName || !equipment.unit || !equipment.category) {
@@ -242,6 +252,10 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
     const existingRecord = equipment.id ? records.find(item => item.id === equipment.id) : undefined;
     const storedUnit = originalEditUnit || existingRecord?.unit || '';
     const changingUnit = editingExisting && Boolean(storedUnit) && !areSameUnit(storedUnit, equipment.unit);
+    if (changingUnit && parsedKgPerUnit !== (existingRecord?.kgPerUnit ?? null)) {
+      setNotice('Đổi ĐVT và đổi kg/đơn vị phải thực hiện riêng để tránh sai khối lượng: lưu ĐVT trước, rồi mở lại và lưu kg/đơn vị.');
+      return;
+    }
     const hasVouchersLocally = editingHasHistory;
     const equipmentMetadata = {
       displayName: equipment.displayName, category: equipment.category,
@@ -438,6 +452,14 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
           <input value={edit.unit} disabled={busy}
             onChange={event => setEdit(prev => prev ? { ...prev, unit: event.target.value } : prev)}
             placeholder="Cái, Bộ, Chiếc..." className={FIELD_CLASS} />
+        </label>
+        <label className="block text-xs font-bold text-slate-700">
+          Khối lượng/đơn vị (kg) · Không bắt buộc
+          <input type="text" inputMode="decimal" disabled={busy} value={kgPerUnitText}
+            onChange={event => setKgPerUnitText(event.target.value)}
+            placeholder="Ví dụ: 2,5 kg/Cái" className={FIELD_CLASS}
+            aria-label="Khối lượng mỗi đơn vị thiết bị tính bằng kg" />
+          <span className="mt-1 block text-[10px] font-normal text-slate-500">Tự lấy vào Đặt hàng; không cập nhật tồn kho.</span>
         </label>
         {([
           ['brand', 'Hãng sản xuất', 'Ví dụ: Bosch'],

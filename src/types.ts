@@ -244,6 +244,7 @@ export interface MaterialNorm {
   /** Optional display rank only; does not affect warehouse IDs or quantities. */
   order?: number;
   unit: string; // Tên đơn vị tính (Tấm, Thanh, Hộp, Bao, Bộ, m2...)
+  kgPerUnit?: number | null; // Khối lượng một ĐVT (kg), chỉ dùng lập đơn đặt hàng; không tính tồn kho.
   quotaQuantity: number; // Số lượng định mức công trình
   unitNormPerM2?: number; // Legacy field name: hao phí trên 1 đơn vị khối lượng nguồn (VD: 0.35 Tấm/m²)
   normBasisUnit?: string; // Đơn vị khối lượng nguồn áp dụng cho unitNormPerM2 (m², m, bộ...).
