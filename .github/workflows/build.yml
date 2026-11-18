@@ -73,6 +73,9 @@ jobs:
       - name: Vietnamese timezone and civil-date golden (no cloud changes)
         run: node scripts/date-timezone-regression-golden.mjs
 
+      - name: PC festival Golden (PC-only, OFF by default)
+        run: node scripts/festival-effects-golden.mjs
+
       - name: Stability Gate
         run: npm run test:stability
 
