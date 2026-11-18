@@ -12049,6 +12049,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         setShowManageFloorsModal(false);
                       }}
                       onKeyDown={(event) => {
+                        // The floor card contains the rename input and action buttons.
+                        // Handle card shortcuts only when the card itself is focused:
+                        // otherwise Space must insert a space into the floor name.
+                        if (event.target !== event.currentTarget) return;
                         if (event.key !== 'Enter' && event.key !== ' ') return;
                         event.preventDefault();
                         if (isEditingThis) return;
