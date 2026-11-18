@@ -166,6 +166,7 @@ import { HomeDashboard } from './components/HomeDashboard';
 import { DueDateToastNotifier } from './components/DueDateToastNotifier';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { SuperAdminCenter, SuperAdminUiSettings } from './components/SuperAdminCenter';
+import { normalizeFestivalEffectMode } from './utils/festivalEffectMode';
 import { BottomNav, TabType } from './components/BottomNav';
 import { isSuperAdminEmail } from './config/superAdmin';
 import { collectDueDateAlerts, DueDateAlertItem } from './utils/dueDateUtils';
@@ -338,6 +339,9 @@ export const saveProjectsList = (list: ProjectInfo[]) => {
   safeSetLocalStorageItem('construction_projects_list', next);
 };
 
+// Lazy-load holiday visuals only when enabled on a PC Home screen; mobile downloads nothing.
+const FestivalEffects = React.lazy(() => import('./components/FestivalEffects').then(module => ({ default: module.FestivalEffects })));
+
 const DEFAULT_SUPER_ADMIN_UI_SETTINGS: SuperAdminUiSettings = {
   scalePercent: 100,
   checklistVisibility: 'auto',
@@ -350,6 +354,7 @@ const DEFAULT_SUPER_ADMIN_UI_SETTINGS: SuperAdminUiSettings = {
   borderRadius: 'soft',
   appDisplayName: 'HNL QLTC',
   logoUrl: '',
+  festivalEffect: 'off',
 };
 
 const normalizeHexColor = (value: unknown, fallback: string): string => {
@@ -379,6 +384,7 @@ const normalizeSuperAdminUiSettings = (raw: any): SuperAdminUiSettings => {
     borderRadius: ['square', 'soft', 'round'].includes(String(raw?.borderRadius)) ? raw.borderRadius : 'soft',
     appDisplayName: String(raw?.appDisplayName || 'HNL QLTC').trim().slice(0, 40) || 'HNL QLTC',
     logoUrl: safeLogoUrl.slice(0, 1000),
+    festivalEffect: normalizeFestivalEffectMode(raw?.festivalEffect),
   };
 };
 
@@ -7971,6 +7977,11 @@ function AuthenticatedApp() {
 
   return (
     <div data-hnl-desktop-design={visibleTab !== 'home' ? desktopWorkspaceMode : 'classic'} data-hnl-pc-home-modern={visibleTab === 'home' && desktopWorkspaceMode === 'modern' ? 'true' : 'false'} data-hnl-desktop-native={isDesktopRuntime ? 'true' : 'false'} className={`min-h-screen bg-slate-100 text-slate-900 font-sans selection:bg-blue-200 ${isDesktopRuntime || chromeDesktopSite ? 'pl-[84px]' : 'lg:pl-[84px]'}`}>
+      {superAdminUiSettings.festivalEffect !== 'off' && activeTab === 'home' && !isMobileRuntime && !chromeDesktopSite && (
+        <React.Suspense fallback={null}>
+          <FestivalEffects mode={superAdminUiSettings.festivalEffect} enabled />
+        </React.Suspense>
+      )}
       {/* Mobile & Responsive Shell Frame */}
       <div
         data-hnl-app-shell="true"
