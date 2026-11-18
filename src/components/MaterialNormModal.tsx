@@ -37,6 +37,7 @@ import { UserRole, canManageMaterialNorms, canImportData } from '../utils/securi
 import { QuickSortBar } from './QuickSortBar';
 import { compareMaterialGroupPriority, catalogOrderRank, reorderVisibleCatalogItems } from '../utils/catalogDisplayOrder';
 import { COMMON_CATEGORIES } from '../utils/warehouseMaterialCategory';
+import { parseOrderWeight } from '../utils/warehouseCatalogOrder';
 export { COMMON_CATEGORIES } from '../utils/warehouseMaterialCategory';
 import { MoveOrderControls } from './MoveOrderControls';
 import { EquipmentCatalogPanel } from './EquipmentCatalogPanel';
@@ -179,6 +180,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   const [category, setCategory] = useState<string>(COMMON_CATEGORIES[0]);
   const [customCategory, setCustomCategory] = useState<string>('');
   const [materialName, setMaterialName] = useState<string>('');
+  const [kgPerUnitText, setKgPerUnitText] = useState('');
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!hasImportAccess) { e.target.value = ''; return; }
@@ -676,6 +678,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     setCustomCategory('');
     setWorkCategories([workCategoriesList[0] || WORK_CATEGORIES_LIST[0]]);
     setMaterialName('');
+    setKgPerUnitText('');
     setUnit(COMMON_UNITS[0]);
     setCustomUnit('');
     setQuotaQuantity(100);
@@ -722,6 +725,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       setWorkCategories([workCategoriesList[0] || WORK_CATEGORIES_LIST[0]]);
     }
     setMaterialName(norm.materialName);
+    setKgPerUnitText(norm.kgPerUnit == null ? '' : String(norm.kgPerUnit));
 
     if (COMMON_UNITS.includes(norm.unit)) {
       setUnit(norm.unit);
@@ -857,6 +861,12 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       return;
     }
 
+    const parsedKgPerUnit = kgPerUnitText.trim() ? parseOrderWeight(kgPerUnitText.trim()) : null;
+    if (kgPerUnitText.trim() && (parsedKgPerUnit === null || parsedKgPerUnit <= 0)) {
+      alert('Khối lượng/đơn vị phải là số kg dương. Ví dụ: 0,65 hoặc 12.5.');
+      return;
+    }
+
     if (unitNormPerM2Str.trim() && parseInteractiveNumericInput(unitNormPerM2Str) === null) {
       alert('Định mức vật tư / đơn vị có công thức hoặc số nhập không hợp lệ.');
       return;
@@ -966,6 +976,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       workCategoryNormsById: normCategoryNormsById,
       materialName: materialName.trim(),
       unit: finalUnit,
+      kgPerUnit: parsedKgPerUnit,
       quotaQuantity: derivedQuotaQuantity,
       unitNormPerM2: unitNormPerM2 ? Number(unitNormPerM2) : undefined,
       inputExpressions: Object.keys(inputExpressions).length ? inputExpressions : undefined,
@@ -979,6 +990,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       onAddNorm(normData);
       if (submitMode === 'continue') {
         setMaterialName('');
+        setKgPerUnitText('');
         setQuotaQuantity(100);
         setQuotaQuantityStr('100');
         setUnitNormPerM2('');
@@ -1445,6 +1457,17 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             </div>
 
             </div>
+
+            <label className="block text-xs font-bold text-slate-700">
+              Khối lượng/đơn vị (kg) · Không bắt buộc
+              <input type="text" inputMode="decimal" value={kgPerUnitText}
+                onChange={event => setKgPerUnitText(event.target.value)}
+                placeholder="Ví dụ: 0,65 kg/Thanh" aria-label="Khối lượng mỗi đơn vị vật tư tính bằng kg"
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold text-slate-800" />
+              <span className="mt-1 block text-[10px] font-normal text-slate-500">
+                Tự lấy vào Đặt hàng theo đúng tên + ĐVT; không ảnh hưởng định mức hoặc tồn kho.
+              </span>
+            </label>
 
             {/* Quotas Input Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:items-start">

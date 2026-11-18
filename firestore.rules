@@ -974,13 +974,15 @@ service cloud.firestore {
           && request.resource.data.model is string
           && request.resource.data.specifications is string
           && request.resource.data.notes is string
+          && (!('kgPerUnit' in request.resource.data) || request.resource.data.kgPerUnit == null
+            || (request.resource.data.kgPerUnit is number && request.resource.data.kgPerUnit > 0 && request.resource.data.kgPerUnit <= 1000000000000))
           && request.resource.data.revision == 1
           && request.resource.data.createdAt is number
           && request.resource.data.updatedAt is number
           && (!('order' in request.resource.data) || (request.resource.data.order is int && request.resource.data.order > 0))
           && request.resource.data.keys().hasOnly([
             'id','projectId','name','displayName','unit','category','brand','model',
-            'specifications','notes','revision','createdAt','updatedAt','order'
+            'specifications','notes','kgPerUnit','revision','createdAt','updatedAt','order'
           ]);
         allow update: if canAdminOperate(projectId)
           && request.resource.data.id == resource.data.id
@@ -990,6 +992,8 @@ service cloud.firestore {
           && request.resource.data.createdAt == resource.data.createdAt
           && request.resource.data.unit is string && request.resource.data.unit.size() > 0
           && request.resource.data.revision == resource.data.revision + 1
+          && (!('kgPerUnit' in request.resource.data) || request.resource.data.kgPerUnit == null
+            || (request.resource.data.kgPerUnit is number && request.resource.data.kgPerUnit > 0 && request.resource.data.kgPerUnit <= 1000000000000))
           && request.resource.data.updatedAt >= resource.data.updatedAt
           && (!('order' in request.resource.data) || (request.resource.data.order is int && request.resource.data.order > 0))
           // Only ADMIN can soft-delete/restore; never hard-delete catalog identities.
@@ -1005,7 +1009,7 @@ service cloud.firestore {
             || request.resource.data.deletedByUid == null
             || request.resource.data.deletedByUid == request.auth.uid)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'displayName','unit','category','brand','model','specifications','notes','revision','updatedAt',
+            'displayName','unit','category','brand','model','specifications','notes','kgPerUnit','revision','updatedAt',
             'deletedAt','deletedByUid','order'
           ]);
         allow delete: if false;

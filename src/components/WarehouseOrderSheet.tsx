@@ -10,6 +10,7 @@ import {
 import { compareWarehouseOrderDisplayItems } from '../utils/catalogDisplayOrder';
 import { formatAdaptiveDecimal, getNumberFormatPreset, useFormatSettings } from '../utils/numberUtils';
 import type {WarehouseOrderSync} from '../hooks/useWarehouseOrderSync';
+import { effectiveOrderMass } from '../utils/warehouseOrderCatalogMass';
 
 type Props={
   open:boolean;onClose:()=>void;projectId:string;projectName:string;projectLocation:string;contractorName:string;
@@ -65,19 +66,19 @@ export const WarehouseOrderSheet:React.FC<Props>=({open,onClose,projectId,projec
   const {draft,expectedDate,cloudError,saveError,pendingCount,conflicts,setValue,updateExpectedDate}=sync;
   const filtered=useMemo(()=>items.filter(x=>x.kind===kind && (!search.trim()||`${x.name} ${x.category} ${x.unit}`.toLocaleLowerCase('vi-VN').includes(search.trim().toLocaleLowerCase('vi-VN')))).sort(compareWarehouseOrderDisplayItems),[items,kind,search]);
   const selected=useMemo(()=>items.filter(x=>(draft[x.key]?.quantity||0)>0).sort(compareWarehouseOrderDisplayItems),[items,draft]);
-  const summary=useMemo(()=>orderWeightSummary(selected.map(row=>draft[row.key]||empty)),[selected,draft]);
+  const summary=useMemo(()=>orderWeightSummary(selected.map(row=>({quantity:draft[row.key]?.quantity||0,kgPerUnit:effectiveOrderMass(row,draft[row.key])}))),[selected,draft]);
   // The visible table covers the active kind/search only; keep its total scoped
   // to those visible rows, unlike the cross-tab exported order summary.
-  const visibleSummary=useMemo(()=>orderWeightSummary(filtered.map(row=>draft[row.key]||empty)),[filtered,draft]);
+  const visibleSummary=useMemo(()=>orderWeightSummary(filtered.map(row=>({quantity:draft[row.key]?.quantity||0,kgPerUnit:effectiveOrderMass(row,draft[row.key])}))),[filtered,draft]);
   const report:WarehouseReport=useMemo(()=>({
     title:'ĐƠN ĐẶT HÀNG VẬT TƯ / THIẾT BỊ',projectName,projectLocation,contractorName,
     subtitle:`${selected.length} dòng được chọn · Dự kiến hàng về: ${expectedDate ? expectedDate.split('-').reverse().join('/') : 'Chưa khai báo'} · Khối lượng ước tính theo kg/đơn vị`,
     filePrefix:'HNL-QLTC-DON-DAT-HANG',
     columns:[{label:'STT',width:37},{label:'Vật tư / thiết bị',width:230},{label:'ĐVT',width:55},{label:'SL đặt',width:69,numeric:true},{label:'KL/đv (kg)',width:82,numeric:true},{label:'Thành KL (kg)',width:95,numeric:true}],
     rows:selected.map((row,i)=>{
-      const v=draft[row.key]||empty;const valid=v.kgPerUnit!==null&&v.kgPerUnit>0;
-      const weight=valid?v.quantity*v.kgPerUnit!:null;
-      return [i+1,row.name,row.unit,v.quantity,valid?v.kgPerUnit!:'Chưa có',weight===null?'Chưa có':weight];
+      const v=draft[row.key]||empty;const mass=effectiveOrderMass(row,v);
+      const weight=mass!==null?v.quantity*mass:null;
+      return [i+1,row.name,row.unit,v.quantity,mass??'Chưa có',weight===null?'Chưa có':weight];
     }),
     // Export the summary as a REAL table row (PNG/PDF/XLSX), not a note.
     totalRow:['TỔNG CỘNG KHỐI LƯỢNG'+(summary.complete?'':' (CHƯA ĐỦ)'),'','', '', '',summary.kilograms],
@@ -113,13 +114,17 @@ export const WarehouseOrderSheet:React.FC<Props>=({open,onClose,projectId,projec
             {['Tên vật tư / thiết bị','ĐVT','Số lượng đặt','KL/đơn vị (kg)','Thành KL (kg)'].map(label=><th key={label} scope="col" className="border-b px-2 py-3 text-left font-bold whitespace-nowrap">{label}</th>)}
           </tr></thead>
           <tbody>{filtered.map(item=>{
-            const values=draft[item.key]||empty;const hasWeight=values.kgPerUnit!==null&&values.kgPerUnit>0;
+            const values=draft[item.key]||empty;const mass=effectiveOrderMass(item,values);const hasWeight=mass!==null;
+            const fromCatalog=values.kgPerUnit==null&&mass!==null;
             return <tr key={item.key} className="border-b border-slate-100 hover:bg-slate-50">
               <td className="min-w-[170px] max-w-[330px] px-2 py-2 font-semibold text-slate-800"><span className="block whitespace-normal break-words">{item.name}</span><span className="text-[10px] font-normal text-slate-500">{item.category}</span></td>
               <td className="px-2 py-2 text-slate-600">{item.unit}</td>
               <td className="px-2 py-2"><NumberField editable={canEdit} value={values.quantity} expression={values.quantityExpression} emptyAsBlank field="quantity" parseValue={parseOrderQuantity} label={`Số lượng đặt ${item.name}`} onCommit={(value,expression)=>setValue(item.key,'quantity',value,expression)}/></td>
-              <td className="px-2 py-2"><NumberField editable={canEdit} positive field="kgPerUnit" parseValue={parseOrderWeight} value={values.kgPerUnit} expression={values.kgPerUnitExpression} label={`Khối lượng mỗi ${item.unit} của ${item.name}`} onCommit={(value,expression)=>setValue(item.key,'kgPerUnit',value,expression)}/></td>
-              <td className="px-2 py-2 text-right font-bold tabular-nums text-indigo-700">{values.quantity>0?(hasWeight?vi(values.quantity*values.kgPerUnit!):'Chưa có'):'—'}</td>
+              <td className="px-2 py-2"><NumberField editable={canEdit} positive field="kgPerUnit" parseValue={parseOrderWeight} value={mass} expression={values.kgPerUnitExpression} label={`Khối lượng mỗi ${item.unit} của ${item.name}`} onCommit={(value,expression)=>{
+                if (fromCatalog && value===mass && !expression) return; // Browsing a derived value must not create a Cloud override.
+                setValue(item.key,'kgPerUnit',value,expression);
+              }}/>{fromCatalog&&<span className="text-[10px] text-emerald-700">Tự lấy từ danh mục</span>}</td>
+              <td className="px-2 py-2 text-right font-bold tabular-nums text-indigo-700">{values.quantity>0?(hasWeight?vi(values.quantity*mass!):'Chưa có'):'—'}</td>
             </tr>;
           })}{filtered.length===0&&<tr><td colSpan={5} className="p-5 text-center text-slate-500">Không có vật tư, thiết bị phù hợp.</td></tr>}</tbody>
           <tfoot data-hnl-warehouse-order-total="visible-weight" className="sticky bottom-0 bg-slate-100 font-extrabold text-slate-900">

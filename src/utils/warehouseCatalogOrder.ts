@@ -6,6 +6,7 @@ export type WarehouseOrderItem = {
   name: string;
   unit: string;
   category: string;
+  kgPerUnit?: number | null; // Master catalog fallback, NEVER order quantity or stock.
 };
 /** Values drive calculations; optional input expressions preserve what the operator typed.
  * Legacy drafts with numbers only remain valid and must never be overwritten. */

@@ -76,6 +76,9 @@ jobs:
       - name: PC festival Golden (PC-only, OFF by default)
         run: node scripts/festival-effects-golden.mjs
 
+      - name: Catalog kgPerUnit → Warehouse order Golden
+        run: node --experimental-strip-types scripts/warehouse-order-catalog-mass-golden.mjs
+
       - name: Stability Gate
         run: npm run test:stability
 

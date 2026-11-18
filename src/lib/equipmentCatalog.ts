@@ -16,6 +16,7 @@ export interface EquipmentCatalogRecord {
   model: string;
   specifications: string;
   notes: string;
+  kgPerUnit?: number | null; // Master mass per ONE existing unit; not warehouse quantity.
   /** Optional Cloud-synchronized display rank; no relation to inventory identity. */
   order?: number;
   revision: number;
@@ -27,7 +28,7 @@ export interface EquipmentCatalogRecord {
 }
 
 export type EquipmentCatalogInput = Pick<EquipmentCatalogRecord,
-  'name' | 'unit' | 'category' | 'brand' | 'model' | 'specifications' | 'notes' | 'displayName'>
+  'name' | 'unit' | 'category' | 'brand' | 'model' | 'specifications' | 'notes' | 'displayName' | 'kgPerUnit'>
   & { id?: string; revision?: number };
 
 const clean = (v: unknown, max = 500) => String(v ?? '').trim().slice(0, max);
@@ -80,6 +81,9 @@ export async function saveEquipmentCatalogBatch(projectId: string, entries: Equi
     if (!name || !unit) throw new Error('Tên và ĐVT thiết bị không được trống.');
     const displayName = clean(entry.displayName || name, 180);
     if (!displayName) throw new Error('Tên hiển thị thiết bị không được để trống.');
+    if (entry.kgPerUnit != null && (!Number.isFinite(entry.kgPerUnit) || entry.kgPerUnit <= 0 || entry.kgPerUnit > 1e12)) {
+      throw new Error('Khối lượng/đơn vị thiết bị phải là số kg dương hợp lệ.');
+    }
     const id = equipmentCatalogId(name);
     if (entry.id && entry.id !== id) throw new Error('Không được sửa mã hoặc tên thiết bị cũ qua bảng. Tạo thiết bị mới nếu là mặt hàng khác.');
     return {
@@ -89,6 +93,8 @@ export async function saveEquipmentCatalogBatch(projectId: string, entries: Equi
       model: clean(entry.model, 120),
       specifications: clean(entry.specifications, 1200),
       notes: clean(entry.notes, 1200),
+      // Quick-edit and legacy callers do not send mass: preserve existing value.
+      ...(Object.prototype.hasOwnProperty.call(entry, 'kgPerUnit') ? { kgPerUnit: entry.kgPerUnit ?? null } : {}),
       expectedRevision: entry.revision,
     };
   });

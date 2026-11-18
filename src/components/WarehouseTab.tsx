@@ -54,6 +54,7 @@ import { WarehouseReportActions } from './WarehouseReportActions';
 import { WarehouseOrderSheet } from './WarehouseOrderSheet';
 import type {WarehouseOrderSync} from '../hooks/useWarehouseOrderSync';
 import { warehouseOrderKey, evaluateWarehouseOrderInput, isWarehouseOrderExpression, type WarehouseOrderItem } from '../utils/warehouseCatalogOrder';
+import { consistentCatalogMass, effectiveOrderMass } from '../utils/warehouseOrderCatalogMass';
 import type { WarehouseReport } from '../utils/warehouseCatalogReport';
 import { buildWarehouseIssueScope } from '../utils/warehouseIssueScope';
 import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
@@ -1292,12 +1293,21 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   // Names are grouped by kind + normalized unit; ledger identities are untouched.
   const warehouseOrderItems = useMemo<WarehouseOrderItem[]>(() => {
     const unique = new Map<string, WarehouseOrderItem>();
+    // Group all matching material norms before choosing a mass; conflicting
+    // kg/ĐVT values must never be silently picked from the first matching norm.
+    const weightsByKey = new Map<string, Array<number | null | undefined>>();
     for (const norm of materialNorms) {
+      if (norm.deletedAt != null) continue;
       const name = String(norm.materialName || '').trim();
       const unit = normalizeUnit(norm.unit) || String(norm.unit || '').trim();
       if (!name || !unit) continue;
       const key = warehouseOrderKey('material', name, unit);
       if (!unique.has(key)) unique.set(key, {key, kind:'material', name, unit, category:norm.category || 'Vật tư'});
+      weightsByKey.set(key, [...(weightsByKey.get(key) || []), norm.kgPerUnit]);
+    }
+    for (const [key, weights] of weightsByKey) {
+      const value = unique.get(key);
+      if (value) value.kgPerUnit = consistentCatalogMass(weights);
     }
     for (const equipment of equipmentCatalog) {
       const name = String(equipment.name || '').trim();
@@ -1305,7 +1315,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       if (!name || !unit) continue;
       const key = warehouseOrderKey('equipment', name, unit);
       const master = equipmentMaster.find(row => equipmentIdentityKey(row.name) === equipmentIdentityKey(name));
-      if (!unique.has(key)) unique.set(key, {key, kind:'equipment', name:equipment.displayName || name, unit, category:master?.category || 'Thiết bị'});
+      if (!unique.has(key)) unique.set(key, {key, kind:'equipment', name:equipment.displayName || name, unit, category:master?.category || 'Thiết bị', kgPerUnit:master?.kgPerUnit});
     }
     return Array.from(unique.values());
   }, [materialNorms, equipmentCatalog, equipmentMaster]);
@@ -2069,8 +2079,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         category: item.category,
         unit: item.unit,
         quantity: current.quantityExpression || (current.quantity ? String(current.quantity) : ''),
-        kgPerUnit: current.kgPerUnitExpression || (current.kgPerUnit === null ? '' : String(current.kgPerUnit)),
-        totalKg: current.kgPerUnit !== null && current.kgPerUnit > 0 ? current.quantity * current.kgPerUnit : '',
+        kgPerUnit: current.kgPerUnitExpression || (effectiveOrderMass(item, current) === null ? '' : String(effectiveOrderMass(item, current))),
+        totalKg: effectiveOrderMass(item, current) !== null ? current.quantity * effectiveOrderMass(item, current)! : '',
       };
     });
   }, [showQuickEdit, quickEditMode, warehouseOrderItems, orderSync.draft]);
