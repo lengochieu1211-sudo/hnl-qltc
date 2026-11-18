@@ -82,7 +82,7 @@ export const DesktopWorkspaceHeader: React.FC<DesktopWorkspaceHeaderProps> = ({
           <h1>{page.name}</h1>
           <p>{page.hint}</p>
           <div className="hnl-pc-context-row">
-            <span className="hnl-pc-project-tag" title={projectName}><Building2 size={15} aria-hidden="true" /> {projectName || 'Chưa chọn dự án'}</span>
+            <span className="hnl-pc-project-tag" title={projectName || 'Chưa chọn dự án'}><Building2 size={15} aria-hidden="true" /><strong className="hnl-pc-project-name">{projectName || 'Chưa chọn dự án'}</strong></span>
             <span className={`hnl-pc-status ${online ? 'is-online' : 'is-offline'}`}>{online ? <Wifi size={14} aria-hidden="true" /> : <WifiOff size={14} aria-hidden="true" />}{online ? 'Đã kết nối' : 'Ngoại tuyến'}</span>
             <span className="hnl-pc-role">{roleLabel}</span>
           </div>
