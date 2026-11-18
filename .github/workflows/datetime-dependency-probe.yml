@@ -1,0 +1,46 @@
+name: HNL QLTC DEV dependency lockfile probe (NO DEPLOY)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/datetime-dependency-probe.yml'
+      - 'package-lock.json'
+      - 'package.json'
+      - 'src/**'
+      - 'scripts/**'
+permissions:
+  contents: read
+jobs:
+  dependency_probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Record existing audit
+        run: |
+          npm audit --omit=dev --audit-level=high > audit-before.txt 2>&1 || true
+      - name: Propose semver-compatible lockfile update without changing package.json
+        run: |
+          npm audit fix --package-lock-only --ignore-scripts > audit-fix-output.txt 2>&1 || true
+          git diff -- package.json > package-json.diff
+          git diff -- package-lock.json > package-lock.diff
+          sha256sum package.json package-lock.json > lockfile-sha256.txt
+          npm ci --ignore-scripts > npm-ci-after.txt 2>&1 || true
+          npm audit --omit=dev --audit-level=high > audit-after.txt 2>&1 || true
+      - name: Upload read-only remediation proposal
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-DEV-DATETIME-DEPENDENCY-PROPOSAL
+          path: |
+            package-lock.json
+            package-json.diff
+            package-lock.diff
+            audit-before.txt
+            audit-fix-output.txt
+            npm-ci-after.txt
+            audit-after.txt
+            lockfile-sha256.txt
+          retention-days: 7
+          if-no-files-found: error
