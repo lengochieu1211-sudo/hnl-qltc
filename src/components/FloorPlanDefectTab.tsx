@@ -3748,7 +3748,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       floorName: pendingDxfImport.floorName,
       structureGroupId: pendingDxfImport.structureGroupId,
       imageUrl: pendingDxfImport.useCadFloorPlan ? (pendingDxfImport.cadFloorPlanDataUrl || '') : '',
-      uploadedAt: new Date().toISOString().split('T')[0],
+      uploadedAt: toLocalDateInputValue(new Date()),
     } : null);
     if (!floor) {
       alert('Tầng đích không còn tồn tại. Hãy chọn lại DXF.');
@@ -3863,7 +3863,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         floorName: pendingDxfImport.floorName,
         structureGroupId: pendingDxfImport.structureGroupId,
         imageUrl: pendingDxfImport.useCadFloorPlan ? (pendingDxfImport.cadFloorPlanDataUrl || '') : '',
-        uploadedAt: new Date().toISOString().split('T')[0],
+        uploadedAt: toLocalDateInputValue(new Date()),
       });
     }
     setSelectedFloorId(pendingDxfImport.floorId);
@@ -4804,7 +4804,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       floorName,
       structureGroupId: normalizedStructureConfig.enabled ? newFloorStructureGroupId : undefined,
       imageUrl: '',
-      uploadedAt: new Date().toISOString().split('T')[0],
+      uploadedAt: toLocalDateInputValue(new Date()),
     });
 
     setQuickFloorNameInput('');
@@ -5076,7 +5076,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         floorName: `Mặt bằng PDF - ${floorNameClean}`,
         structureGroupId: normalizedStructureConfig.enabled ? newFloorStructureGroupId : undefined,
         imageUrl: planUrl,
-        uploadedAt: new Date().toISOString().split('T')[0],
+        uploadedAt: toLocalDateInputValue(new Date()),
       });
 
       // Do not create demo Căn / Phòng or fake progress from an uploaded drawing.
@@ -6018,7 +6018,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       floorName: pending.floorName,
       structureGroupId: pending.structureGroupId,
       imageUrl: pending.imageUrl,
-      uploadedAt: new Date().toISOString().split('T')[0],
+      uploadedAt: toLocalDateInputValue(new Date()),
     });
 
     const now = Date.now();
@@ -6136,7 +6136,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               console.warn('Smart PDF room detection failed; keeping normal PDF upload:', detectErr);
               // Detection is an optional accelerator. A valid PDF must still be usable
               // even when an unusual annotation/text layer cannot be analyzed.
-              onAddFloorPlan({ id: newFloorId, floorName: savedFloorName, structureGroupId: normalizedStructureConfig.enabled ? newFloorStructureGroupId : undefined, imageUrl: planUrl, uploadedAt: new Date().toISOString().split('T')[0] });
+              onAddFloorPlan({ id: newFloorId, floorName: savedFloorName, structureGroupId: normalizedStructureConfig.enabled ? newFloorStructureGroupId : undefined, imageUrl: planUrl, uploadedAt: toLocalDateInputValue(new Date()) });
               setSelectedFloorId(newFloorId);
               setShowAddFloorModal(false);
               setNewFloorName('');
@@ -6147,7 +6147,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             }
           }
 
-          onAddFloorPlan({ id: newFloorId, floorName: savedFloorName, structureGroupId: normalizedStructureConfig.enabled ? newFloorStructureGroupId : undefined, imageUrl: planUrl, uploadedAt: new Date().toISOString().split('T')[0] });
+          onAddFloorPlan({ id: newFloorId, floorName: savedFloorName, structureGroupId: normalizedStructureConfig.enabled ? newFloorStructureGroupId : undefined, imageUrl: planUrl, uploadedAt: toLocalDateInputValue(new Date()) });
           setSelectedFloorId(newFloorId);
           setShowAddFloorModal(false);
           setNewFloorName('');
@@ -6160,7 +6160,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
       const planUrl = await renderFloorPlanFile(file);
       if (!planUrl) return;
-      onAddFloorPlan({ id: newFloorId, floorName: savedFloorName, structureGroupId: normalizedStructureConfig.enabled ? newFloorStructureGroupId : undefined, imageUrl: planUrl, uploadedAt: new Date().toISOString().split('T')[0] });
+      onAddFloorPlan({ id: newFloorId, floorName: savedFloorName, structureGroupId: normalizedStructureConfig.enabled ? newFloorStructureGroupId : undefined, imageUrl: planUrl, uploadedAt: toLocalDateInputValue(new Date()) });
       setSelectedFloorId(newFloorId);
       setShowAddFloorModal(false);
       setNewFloorName('');

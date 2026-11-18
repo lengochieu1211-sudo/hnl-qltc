@@ -70,6 +70,9 @@ jobs:
           npx tsx scripts/warehouse-voucher-xlsx-style-golden.ts
           npx tsx scripts/dev-backup-voucher-a3-a4-matrix-golden.ts
 
+      - name: Vietnamese timezone and civil-date golden (no cloud changes)
+        run: node scripts/date-timezone-regression-golden.mjs
+
       - name: Stability Gate
         run: npm run test:stability
 

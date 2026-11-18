@@ -32,6 +32,7 @@ import { confirmAsync } from '../utils/confirmAsync';
 import { formatDecimal, formatAdaptiveDecimal, evaluateMathExpression, useFormatSettings } from '../utils/numberUtils';
 import { MathNumberInput } from './MathNumberInput';
 import { createEntityId, createDeterministicId } from '../utils/idUtils';
+import { toLocalDateInputValue } from '../utils/dateFormatter';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
 import { buildMaterialAliasMap, getMaterialIdentityKey, resolveNormMaterialId, normalizeMaterialNameKey } from '../utils/inventoryUtils';
 import { computeMaterialNeeds } from '../utils/materialNeedEngine';
@@ -788,7 +789,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
         quantity: Number(item.rawRemainingQty),
         location: `${floorName} - ${roomName || 'Căn / Phòng'}`,
         handler: assignedTeam || 'Đội thi công Căn / Phòng',
-        date: new Date().toISOString().split('T')[0],
+        date: toLocalDateInputValue(new Date()),
         sourceType: 'room-auto',
         sourceRoomId: roomItem.id,
         sourceFloorId: floorId,
@@ -833,7 +834,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
           quantity: cumulativeStableQty,
           location: `${floorName} - ${roomName || 'Căn / Phòng'}`,
           handler: assignedTeam || 'Đội thi công Căn / Phòng',
-          date: new Date().toISOString().split('T')[0],
+          date: toLocalDateInputValue(new Date()),
           notes: `Tự động xuất kho dự toán tổng hợp cho [${roomName || 'Căn / Phòng'}] gồm các hạng mục: ${catDetailsStr}`,
           sourceType: 'room-auto',
           sourceRoomId: roomItem.id,

@@ -61,6 +61,12 @@ export function parseLegacyTimestamp(ts: any, fallbackTime: number = Date.now())
     const num = Number(trimmed);
     if (!isNaN(num) && num > 0) return num;
 
+    // Zoned ISO timestamps are absolute instants, unlike date-only civil values.
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/i.test(trimmed)) {
+      const zoned = Date.parse(trimmed);
+      if (Number.isFinite(zoned) && zoned > 0) return zoned;
+    }
+
     // Legacy app records may be saved as HH:mm:ss DD/M/YYYY. Parse this form
     // explicitly before Date.parse so 11/8 is never reinterpreted as MM/DD.
     const timeFirstMatch = trimmed.match(/^(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?\s+(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
@@ -170,20 +176,26 @@ export function formatDate(dateInput: string | Date | number | null | undefined,
     const trimmed = String(dateInput).trim();
     if (!trimmed) return '';
 
-    // Check YYYY-MM-DD
-    const yyyymmddMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (yyyymmddMatch) {
-      const [_, year, month, day] = yyyymmddMatch;
-      d = new Date(Number(year), Number(month) - 1, Number(day));
+    // Zoned ISO timestamp: render LOCAL calendar date, not UTC prefix.
+    const isZonedIso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/i.test(trimmed);
+    if (isZonedIso) {
+      const instant = new Date(trimmed);
+      d = Number.isFinite(instant.getTime()) ? instant : null;
     } else {
-      // Check DD/MM/YYYY
-      const ddmmyyyyMatch = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
-      if (ddmmyyyyMatch) {
-        const [_, day, month, year] = ddmmyyyyMatch;
+      // A civil date without timezone must retain its calendar date.
+      const yyyymmddMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (yyyymmddMatch) {
+        const [_, year, month, day] = yyyymmddMatch;
         d = new Date(Number(year), Number(month) - 1, Number(day));
       } else {
-        const parsed = parseLegacyTimestamp(trimmed, Number.NaN);
-        d = Number.isFinite(parsed) ? new Date(parsed) : null;
+        const ddmmyyyyMatch = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+        if (ddmmyyyyMatch) {
+          const [_, day, month, year] = ddmmyyyyMatch;
+          d = new Date(Number(year), Number(month) - 1, Number(day));
+        } else {
+          const parsed = parseLegacyTimestamp(trimmed, Number.NaN);
+          d = Number.isFinite(parsed) ? new Date(parsed) : null;
+        }
       }
     }
   }

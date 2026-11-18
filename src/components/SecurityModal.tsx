@@ -42,7 +42,7 @@ import { signInWithGoogle, signOutFirebaseAccount, getCurrentFirebaseUser, fetch
 import { saveTextFile } from '../utils/fileExport';
 import { QuickSortBar } from './QuickSortBar';
 import { confirmAsync } from '../utils/confirmAsync';
-import { formatDateTime } from '../utils/dateFormatter';
+import { formatDateTime, toLocalDateInputValue } from '../utils/dateFormatter';
 import { isSuperAdminEmail } from '../config/superAdmin';
 import { ContactMenu } from './ContactMenu';
 import { MultiProjectAccessPanel } from './MultiProjectAccessPanel';
@@ -994,7 +994,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
   const handleExportLogsSafe = async () => {
     const json = JSON.stringify(auditLogs, null, 2);
-    await saveTextFile(json, `Nhat_Ky_Bao_Mat_${new Date().toISOString().split('T')[0]}.json`, 'application/json;charset=utf-8');
+    await saveTextFile(json, `Nhat_Ky_Bao_Mat_${toLocalDateInputValue(new Date())}.json`, 'application/json;charset=utf-8');
   };
 
   const handleClearLogs = () => {

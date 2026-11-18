@@ -9,6 +9,7 @@ import type { InventoryItem, InventoryItemKind } from '../types';
 import { db, getCurrentRealFirebaseUser, sanitizePayloadForCloud } from './firebase';
 import { getWarehouseMaterialKey } from '../utils/warehouseLedgerMath';
 import { areSameUnit, normalizeUnit } from '../utils/unitUtils';
+import { toLocalDateInputValue } from '../utils/dateFormatter';
 import { isExactWarehouseTransferReplay, isExactWarehouseReceiptReplay } from './warehouseTransferReplayGuard';
 
 export type WarehouseTransferStatus = 'pending' | 'received';
@@ -169,7 +170,7 @@ export async function receiveWarehouseProjectTransferAtomic(
       id: receiptId, type: 'in', itemKind: incoming.itemKind,
       ...(incoming.itemKind === 'material' && mapped.materialId ? { materialId: mapped.materialId } : {}),
       materialName: mapped.materialName.trim(), unit: normalizeUnit(mapped.unit) || mapped.unit,
-      quantity: incoming.quantity, date: new Date().toISOString().slice(0, 10),
+      quantity: incoming.quantity, date: toLocalDateInputValue(new Date()),
       handler: handler.trim(), location: 'Kho dự án nhận',
       notes: `Nhập điều chuyển từ dự án ${incoming.fromProjectId}, phiếu ${incoming.sourceTransactionId}. ${incoming.notes}`.trim(),
       sourceType: 'project-transfer-in', warehouseTransferId: transferId,

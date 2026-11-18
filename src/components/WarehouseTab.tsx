@@ -32,7 +32,7 @@ import {
   PackageSearch
 } from 'lucide-react';
 import { InventoryItem, InventoryIssuePurpose, InventoryItemKind, TransactionType, MaterialNorm, WorkVolume, RoomProgressItem, TeamInfo, FloorPlan } from '../types';
-import { formatDateDDMMYYYY, formatExcelDate } from '../utils/dateFormatter';
+import { formatDateDDMMYYYY, formatExcelDate, toLocalDateInputValue } from '../utils/dateFormatter';
 import { formatDecimal, evaluateMathExpression, hasMathExpression, useFormatSettings, parseVietnameseNumber, parseExcelNumber } from '../utils/numberUtils';
 import { confirmAsync } from '../utils/confirmAsync';
 import { calculateStockSummary, resolveNormMaterialId } from '../utils/inventoryUtils';
@@ -1036,7 +1036,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [quantityStr, setQuantityStr] = useState<string>('');
   const [location, setLocation] = useState('');
   const [handler, setHandler] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(toLocalDateInputValue(new Date()));
   const [notes, setNotes] = useState('');
   const [issuePurpose, setIssuePurpose] = useState<InventoryIssuePurpose>('project-work');
   const [issueStructureGroupId, setIssueStructureGroupId] = useState('');
@@ -1622,7 +1622,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setIssueTeamId('');
     setIssueWorkCategoryId('');
     setQuickAddMessage('');
-    setDate(new Date().toISOString().split('T')[0]);
+    setDate(toLocalDateInputValue(new Date()));
     setShowAddForm(true);
   };
 
@@ -1667,7 +1667,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setQuantityStr(item.inputExpressions?.quantity || String(item.quantity));
     setLocation(item.location || '');
     setHandler(item.handler || '');
-    setDate(item.date || new Date().toISOString().split('T')[0]);
+    setDate(item.date || toLocalDateInputValue(new Date()));
     setNotes(item.notes || '');
 
     setIssuePurpose(item.issuePurpose || (item.sourceRoomId || item.sourceFloorId || item.sourceTeamId || item.sourceWorkCategoryId || item.sourceStructureGroupId ? 'project-work' : 'other'));
@@ -3004,7 +3004,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           __recordId: '',
           __type: quickEditMode,
           itemKind: 'material',
-          date: new Date().toISOString().slice(0, 10),
+          date: toLocalDateInputValue(new Date()),
           materialName: warehouseMaterialOptions[0] || '',
           unit: materialNorms.find((norm) => norm.materialName === warehouseMaterialOptions[0])?.unit || '',
           quantity: 1,
