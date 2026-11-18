@@ -42,7 +42,7 @@ import { signInWithGoogle, signOutFirebaseAccount, getCurrentFirebaseUser, fetch
 import { saveTextFile } from '../utils/fileExport';
 import { QuickSortBar } from './QuickSortBar';
 import { confirmAsync } from '../utils/confirmAsync';
-import { formatDateTime, toLocalDateInputValue } from '../utils/dateFormatter';
+import { formatDateTime } from '../utils/dateFormatter';
 import { isSuperAdminEmail } from '../config/superAdmin';
 import { ContactMenu } from './ContactMenu';
 import { MultiProjectAccessPanel } from './MultiProjectAccessPanel';
