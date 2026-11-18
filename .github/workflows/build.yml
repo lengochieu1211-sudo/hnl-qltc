@@ -73,6 +73,9 @@ jobs:
       - name: Vietnamese timezone and civil-date golden (no cloud changes)
         run: node scripts/date-timezone-regression-golden.mjs
 
+      - name: Catalog kgPerUnit → Warehouse order Golden
+        run: node --experimental-strip-types scripts/warehouse-order-catalog-mass-golden.mjs
+
       - name: Stability Gate
         run: npm run test:stability
 
