@@ -199,6 +199,30 @@ try {
     order: 1.5, revision: 6, updatedAt: Date.now() + 80,
   }));
 
+  // Catalog mass metadata: legacy records remain readable, valid values preserve
+  // immutable identity/revision, and invalid values fail closed.
+  await expectAllowed('ADMIN adds valid kgPerUnit metadata to legacy equipment', () => updateDoc(equipmentRef, {
+    kgPerUnit: 0.65, revision: 7, updatedAt: Date.now() + 90,
+  }));
+  await expectDenied('ADMIN cannot set zero kgPerUnit', () => updateDoc(equipmentRef, {
+    kgPerUnit: 0, revision: 8, updatedAt: Date.now() + 100,
+  }));
+  await expectDenied('ADMIN cannot set negative kgPerUnit', () => updateDoc(equipmentRef, {
+    kgPerUnit: -1, revision: 8, updatedAt: Date.now() + 110,
+  }));
+  await expectDenied('ADMIN cannot set kgPerUnit string', () => updateDoc(equipmentRef, {
+    kgPerUnit: '0.65', revision: 8, updatedAt: Date.now() + 120,
+  }));
+  await expectDenied('ADMIN cannot set kgPerUnit beyond maximum', () => updateDoc(equipmentRef, {
+    kgPerUnit: 1000000000001, revision: 8, updatedAt: Date.now() + 130,
+  }));
+  await expectDenied('ADMIN cannot bypass revision guard with kgPerUnit', () => updateDoc(equipmentRef, {
+    kgPerUnit: 0.7, revision: 9, updatedAt: Date.now() + 140,
+  }));
+  await expectAllowed('ADMIN clears optional kgPerUnit without deleting equipment', () => updateDoc(equipmentRef, {
+    kgPerUnit: null, revision: 8, updatedAt: Date.now() + 150,
+  }));
+
   // One project-scoped draft per material/unit; no stock mutation.
   const orderKey = JSON.stringify(['material','thanh xương','cây']);
   const orderRef = doc(db, 'projects', pid, 'warehouse_order_drafts', encodeURIComponent(orderKey));
@@ -262,6 +286,9 @@ try {
   await signIn(editorEmail);
 
   await expectAllowed('EDITOR may read equipment master', () => getDoc(equipmentRef));
+  await expectDenied('EDITOR cannot change equipment kgPerUnit', () => updateDoc(equipmentRef, {
+    kgPerUnit: 0.55, revision: 9, updatedAt: Date.now() + 160,
+  }));
   await expectDenied('EDITOR cannot soft-delete equipment master', () => updateDoc(equipmentRef, {
     deletedAt: Date.now(), deletedByUid: editorUid, revision: 5, updatedAt: Date.now() + 60,
   }));
@@ -1060,6 +1087,9 @@ try {
 
   await signIn(viewerEmail);
   await expectAllowed('VIEWER may read equipment master', () => getDoc(equipmentRef));
+  await expectDenied('VIEWER cannot change equipment kgPerUnit', () => updateDoc(equipmentRef, {
+    kgPerUnit: 0.55, revision: 9, updatedAt: Date.now() + 170,
+  }));
   await expectDenied('VIEWER cannot restore or delete equipment master', () => updateDoc(equipmentRef, {
     deletedAt: Date.now(), deletedByUid: viewerUid, revision: 5, updatedAt: Date.now() + 70,
   }));
