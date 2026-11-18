@@ -1,59 +1,62 @@
-name: HNL QLTC DEV dependency scope probe (NO DEPLOY)
+name: HNL QLTC DEV dependency scope apply (NO DEPLOY)
 on:
   pull_request:
     paths:
       - '.github/workflows/datetime-dependency-probe.yml'
       - 'package-lock.json'
       - 'package.json'
-      - 'src/**'
-      - 'scripts/**'
 permissions:
-  contents: read
+  contents: write
 jobs:
-  dependency_scope_probe:
+  dependency_scope_apply:
+    if: github.event.pull_request.number == 451 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'audit/datetime-vn-20261118-test'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Baseline audit
-        run: npm audit --omit=dev --audit-level=high > audit-before.txt 2>&1 || true
-      - name: Propose moving only Vite build tooling into devDependencies
+      - name: Move build-only tools to devDependencies without changing versions
         run: |
           node --input-type=module -e '
           import fs from "node:fs";
-          const path="package.json";
-          const pkg=JSON.parse(fs.readFileSync(path,"utf8"));
-          const names=["vite","@vitejs/plugin-react","@tailwindcss/vite"];
-          for (const name of names) {
-            if (!pkg.dependencies[name]) throw new Error("Missing expected dependency "+name);
-            pkg.devDependencies[name]=pkg.dependencies[name];
+          const pkg=JSON.parse(fs.readFileSync("package.json","utf8"));
+          for (const name of ["vite","@vitejs/plugin-react","@tailwindcss/vite"]) {
+            const version=pkg.dependencies[name];
+            if (!version) {
+              if (pkg.devDependencies[name]) continue;
+              throw new Error("Missing expected dependency "+name);
+            }
+            pkg.devDependencies[name]=version;
             delete pkg.dependencies[name];
           }
           pkg.devDependencies=Object.fromEntries(Object.entries(pkg.devDependencies).sort(([a],[b])=>a.localeCompare(b)));
-          fs.writeFileSync(path,JSON.stringify(pkg,null,2)+"\n");
+          fs.writeFileSync("package.json", JSON.stringify(pkg,null,2)+"\n");
           '
           npm install --package-lock-only --ignore-scripts --no-audit
-          npm ci --ignore-scripts
-          npm audit --omit=dev --audit-level=high > audit-after-production.txt 2>&1 || true
-          npm audit --audit-level=high > audit-after-all.txt 2>&1 || true
-          git diff -- package.json > package-json.diff
-          git diff -- package-lock.json > package-lock.diff
-          sha256sum package.json package-lock.json > lockfile-sha256.txt
-      - name: Upload read-only remediation proposal
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: HNL-QLTC-DEV-DATETIME-DEPENDENCY-SCOPE-PROPOSAL
-          path: |
-            package.json
-            package-lock.json
-            package-json.diff
-            package-lock.diff
-            audit-before.txt
-            audit-after-production.txt
-            audit-after-all.txt
-            lockfile-sha256.txt
-          retention-days: 7
-          if-no-files-found: error
+          npm ci
+      - name: Verify security scope and application gates
+        run: |
+          npm audit --omit=dev --audit-level=high
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run build
+      - name: Commit only two manifests on existing TEST branch (no force, no deploy)
+        run: |
+          set -euo pipefail
+          EXPECTED="${{ github.event.pull_request.head.sha }}"
+          test "$(git rev-parse HEAD)" = "$EXPECTED"
+          CURRENT="$(git ls-remote origin refs/heads/audit/datetime-vn-20261118-test | cut -f1)"
+          test "$CURRENT" = "$EXPECTED" || { echo "Test branch moved: refusing push"; exit 1; }
+          if git diff --quiet -- package.json package-lock.json; then
+            echo "No manifest changes"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package.json package-lock.json
+          git commit -m "build(dev-test): classify Vite toolchain as build-only (no version change)"
+          git push origin HEAD:refs/heads/audit/datetime-vn-20261118-test
