@@ -13,6 +13,7 @@ import { HardDrive, RefreshCw } from 'lucide-react';
 import { safeSetLocalStorageItem } from './utils/storage';
 import { prepareFloorPlansForBackupRestore } from './utils/floorPlanBackupRestore';
 import { parseLegacyTimestamp, formatDateTime } from './utils/dateFormatter';
+import { vietnamBusinessDateInput } from './utils/vietnamBusinessDate';
 import { AppLockOverlay } from './components/AppLockOverlay';
 import { AppAuthGate } from './components/AppAuthGate';
 import { SecurityModal } from './components/SecurityModal';
@@ -7320,7 +7321,7 @@ function AuthenticatedApp() {
 
   const handleUpdateDefectStatus = (id: string, status: DefectStatus) => {
     if (!isProjectRoleResolved || !canEditDefectData(currentUserRole)) { console.warn('[RBAC] Tài khoản không có quyền cập nhật Defect.'); return; }
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = vietnamBusinessDateInput()
     updateAppData((prev) => ({
       ...prev,
       defects: prev.defects.map((d) =>
