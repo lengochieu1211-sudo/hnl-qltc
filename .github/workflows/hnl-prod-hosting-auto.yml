@@ -1,0 +1,224 @@
+# HNL QLTC - reusable, strictly Hosting-only PROD release.
+# Triggered after the existing Build workflow succeeds for a main push.
+# Manual fallback: Actions > HNL QLTC PROD Hosting-only Auto > Run workflow (main).
+# Never deploys Firestore/Storage Rules or Cloudflare R2/AI Workers.
+name: HNL QLTC PROD Hosting-only Auto
+
+on:
+  workflow_run:
+    workflows: ["Build"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hnl-qltc-prod-hosting-only-auto
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: >-
+      ${{
+        (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+        (github.event_name == 'workflow_run' &&
+         github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.event == 'push' &&
+         github.event.workflow_run.head_branch == 'main' &&
+         github.event.workflow_run.head_repository.full_name == 'lengochieu1211-sudo/hnl-qltc')
+      }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 90
+    env:
+      RELEASE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      VITE_APP_ENV: PROD
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      # Public Firebase Web config, already distributed in existing PROD web bundle.
+      # No private keys or service-account JSON are stored in repository.
+      VITE_FIREBASE_API_KEY: AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY
+      VITE_FIREBASE_AUTH_DOMAIN: hnlqltc.web.app
+      VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
+      VITE_FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
+      VITE_FIREBASE_MESSAGING_SENDER_ID: '119152410850'
+      VITE_FIREBASE_APP_ID: '1:119152410850:web:c2aee2135428af34ef5ebb'
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_HNL_AI_ENABLED: 'true'
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
+
+    steps:
+      - name: Checkout exact successful main commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Lock source, project, scope, dependencies and safe files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'lengochieu1211-sudo/hnl-qltc'
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$RELEASE_SHA" || { echo 'main moved: stale release rejected'; exit 1; }
+          git merge-base --is-ancestor 6e965a3840bbe9163e887a6dc85b12d0d861a7e7 HEAD || { echo 'PR452 source not present'; exit 1; }
+          test -f package.json && test -f package-lock.json && test -f firebase.prod.json && test -f .firebaserc
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));
+          const lock=JSON.parse(fs.readFileSync('package-lock.json','utf8'));
+          const hosting=JSON.parse(fs.readFileSync('firebase.prod.json','utf8'));
+          const rc=JSON.parse(fs.readFileSync('.firebaserc','utf8'));
+          if(pkg.version !== lock.version) throw Error('package.json / package-lock mismatch');
+          if(Object.keys(hosting).join(',') !== 'hosting') throw Error('firebase.prod.json must be Hosting-only');
+          if(hosting.hosting.site !== 'hnlqltc' || hosting.hosting.public !== 'dist') throw Error('Wrong PROD Hosting target');
+          if(rc.projects.default !== 'com-example-qlct-61329') throw Error('Wrong PROD Firebase project');
+          NODE
+          if git ls-files | grep -Ei '(^|/)(\.env\.(local|production|prod)$|[^/]*service[-_]?account[^/]*\.json$|[^/]*private[-_]?key[^/]*)$'; then
+            echo 'Sensitive filename in tracked repository: release rejected'; exit 1
+          fi
+
+      - name: Install Node and dependencies
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+
+      - name: Verify PR452 and cross-feature gates (no cloud writes)
+        run: |
+          set -euo pipefail
+          node scripts/prod-warehouse-defect-day-golden.mjs
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run test:stability
+          npm run security:audit
+          npm run build
+          test -s dist/index.html && test -s dist/sw-assets.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const m=JSON.parse(fs.readFileSync('dist/sw-assets.json','utf8'));
+          if(m.buildId !== process.env.VITE_BUILD_ID || !Array.isArray(m.assets) || !m.assets.length) throw Error('Wrong build manifest');
+          NODE
+
+      - name: Backup LIVE, deploy Preview, promote Hosting ONLY, verify, rollback on failure
+        id: publish
+        shell: bash
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}" || { echo 'Missing existing PROD Hosting service-account secret'; exit 1; }
+          umask 077
+          CREDENTIAL_FILE="$RUNNER_TEMP/hnl-prod-hosting-only-${GITHUB_RUN_ID}.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$CREDENTIAL_FILE"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$CREDENTIAL_FILE"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const x=JSON.parse(fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS,'utf8'));
+          if(x.type!=='service_account' || x.project_id!=='com-example-qlct-61329' || !x.private_key) throw Error('Invalid PROD credential/project');
+          NODE
+          BACKUP="hnl-auto-backup-${GITHUB_RUN_ID}"
+          PREVIEW="hnl-auto-stage-${GITHUB_RUN_ID}"
+          PROMOTION_STARTED=0
+          cleanup() {
+            code=$?
+            trap - EXIT
+            if [ "$code" -ne 0 ] && [ "$PROMOTION_STARTED" -eq 1 ]; then
+              echo 'Deployment verification failed: attempting Hosting-only rollback'
+              npx --yes firebase-tools@13.35.1 hosting:clone "hnlqltc:$BACKUP" hnlqltc:live --project com-example-qlct-61329 --non-interactive || echo 'ROLLBACK FAILED: operator intervention required'
+            fi
+            rm -f "$CREDENTIAL_FILE"
+            exit "$code"
+          }
+          trap cleanup EXIT
+
+          HOST='https://hnlqltc.web.app'
+          curl -fsSL --retry 5 "$HOST/?before=${GITHUB_RUN_ID}" -o "$RUNNER_TEMP/hnl-old.html"
+          grep -qi '<div id="root"' "$RUNNER_TEMP/hnl-old.html"
+          OLD_SHA="$(sha256sum "$RUNNER_TEMP/hnl-old.html" | cut -d' ' -f1)"
+          npx --yes firebase-tools@13.35.1 hosting:clone "hnlqltc:live" "hnlqltc:$BACKUP" --project com-example-qlct-61329 --non-interactive | tee "$RUNNER_TEMP/hnl-backup.log"
+          BACKUP_URL="$(grep -Eo 'https://hnlqltc--[A-Za-z0-9-]+\.web\.app' "$RUNNER_TEMP/hnl-backup.log" | head -1 || true)"
+          test -n "$BACKUP_URL" || { echo 'Backup URL missing; stop before promotion'; exit 1; }
+          curl -fsSL --retry 3 "$BACKUP_URL/?verify=${GITHUB_RUN_ID}" -o "$RUNNER_TEMP/hnl-backup.html"
+          test "$(sha256sum "$RUNNER_TEMP/hnl-backup.html" | cut -d' ' -f1)" = "$OLD_SHA"
+
+          npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$PREVIEW" --config firebase.prod.json --project com-example-qlct-61329 --expires 1d --non-interactive | tee "$RUNNER_TEMP/hnl-preview.log"
+          PREVIEW_URL="$(grep -Eo 'https://hnlqltc--[A-Za-z0-9-]+\.web\.app' "$RUNNER_TEMP/hnl-preview.log" | head -1 || true)"
+          test -n "$PREVIEW_URL" || { echo 'Preview URL missing; stop before promotion'; exit 1; }
+          curl -fsSL --retry 5 "$PREVIEW_URL/?verify=${GITHUB_RUN_ID}" -o "$RUNNER_TEMP/hnl-preview.html"
+          grep -qi '<div id="root"' "$RUNNER_TEMP/hnl-preview.html"
+          test "$(sha256sum "$RUNNER_TEMP/hnl-preview.html" | cut -d' ' -f1)" = "$(sha256sum dist/index.html | cut -d' ' -f1)"
+          curl -fsSL --retry 5 "$PREVIEW_URL/sw-assets.json?release=${GITHUB_RUN_ID}" -o "$RUNNER_TEMP/hnl-preview-manifest.json"
+          cmp -s "$RUNNER_TEMP/hnl-preview-manifest.json" dist/sw-assets.json || { echo 'Preview manifest mismatch'; exit 1; }
+          ASSET="$(node -e "let m=require(process.argv[1]);process.stdout.write(m.assets.find(a=>a.endsWith('.js'))||'')" "$RUNNER_TEMP/hnl-preview-manifest.json")"
+          test -n "$ASSET"
+          curl -fsSL --retry 3 "$PREVIEW_URL$ASSET" -o "$RUNNER_TEMP/hnl-preview-asset.js"
+          test "$(sha256sum "$RUNNER_TEMP/hnl-preview-asset.js" | cut -d' ' -f1)" = "$(sha256sum "dist$ASSET" | cut -d' ' -f1)"
+
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$RELEASE_SHA" || { echo 'main moved before promotion'; exit 1; }
+          curl -fsSL --retry 3 "$HOST/?recheck=${GITHUB_RUN_ID}" -o "$RUNNER_TEMP/hnl-recheck.html"
+          test "$(sha256sum "$RUNNER_TEMP/hnl-recheck.html" | cut -d' ' -f1)" = "$OLD_SHA" || { echo 'LIVE changed since backup'; exit 1; }
+
+          PROMOTION_STARTED=1
+          npx --yes firebase-tools@13.35.1 hosting:clone "hnlqltc:$PREVIEW" hnlqltc:live --project com-example-qlct-61329 --non-interactive
+          VERIFIED=0
+          for i in $(seq 1 12); do
+            if curl -fsSL --max-time 20 "$HOST/?verify=${GITHUB_RUN_ID}-${i}" -o "$RUNNER_TEMP/hnl-live.html" \
+              && grep -qi '<div id="root"' "$RUNNER_TEMP/hnl-live.html" \
+              && test "$(sha256sum "$RUNNER_TEMP/hnl-live.html" | cut -d' ' -f1)" = "$(sha256sum dist/index.html | cut -d' ' -f1)" \
+              && curl -fsSL --max-time 20 "$HOST/sw-assets.json?verify=${GITHUB_RUN_ID}-${i}" -o "$RUNNER_TEMP/hnl-live-manifest.json" \
+              && cmp -s "$RUNNER_TEMP/hnl-live-manifest.json" dist/sw-assets.json; then VERIFIED=1; break; fi
+            sleep 3
+          done
+          test "$VERIFIED" = 1 || { echo 'LIVE smoke failed'; exit 1; }
+          PROMOTION_STARTED=0
+          echo "BACKUP_URL=$BACKUP_URL" >> "$GITHUB_ENV"
+          echo "PREVIEW_URL=$PREVIEW_URL" >> "$GITHUB_ENV"
+          echo "RELEASE_SHA=$RELEASE_SHA" >> "$GITHUB_ENV"
+          echo 'Hosting-only PROD public smoke PASS. Authenticated runtime Golden NOT YET VERIFIED.'
+
+      - name: Package exact-source FULL/PATCH and audit report
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/hnl-prod-source"
+          mkdir -p "$OUT"
+          BASE='1b046b59235367eb28cc7525866cb23b85656d1e'
+          git merge-base --is-ancestor "$BASE" HEAD || { echo 'Patch base not ancestor'; exit 1; }
+          git archive --format=zip -o "$OUT/HNL-QLTC-PROD-FULL-SOURCE.zip" HEAD
+          git diff --name-only --diff-filter=ACMR "$BASE" HEAD > "$OUT/changed-files.txt"
+          git diff --name-only --diff-filter=D "$BASE" HEAD > "$OUT/deleted-files.txt"
+          mapfile -t MODIFIED < "$OUT/changed-files.txt"
+          test "${#MODIFIED[@]}" -gt 0 || { echo 'No patch files'; exit 1; }
+          git archive --format=zip -o "$OUT/HNL-QLTC-PROD-PATCH.zip" HEAD "${MODIFIED[@]}"
+          unzip -tq "$OUT/HNL-QLTC-PROD-FULL-SOURCE.zip"
+          unzip -tq "$OUT/HNL-QLTC-PROD-PATCH.zip"
+          printf '%s\n' \
+            'HNL QLTC PROD Hosting-only auto release' \
+            "REPO=$GITHUB_REPOSITORY" "SOURCE_SHA=$RELEASE_SHA" "BUILD_ID=$VITE_BUILD_ID" \
+            "PATCH_BASE_SHA=$BASE" "BACKUP_URL=$BACKUP_URL" "PREVIEW_URL=$PREVIEW_URL" \
+            'SCOPE=Firebase Hosting ONLY; no Firebase Rules, R2, Storage, AI Worker or data writes' \
+            'GATES=PR452 regression, TypeScript, Lint, Rules test, Stability, Security, Build, Preview hash, Public PROD smoke' \
+            'GOLDEN=Authenticated users/offline/reconnect/Windows/Android PENDING, not CERTIFIED' > "$OUT/REPORT.txt"
+          ( cd "$OUT" && sha256sum HNL-QLTC-PROD-FULL-SOURCE.zip HNL-QLTC-PROD-PATCH.zip REPORT.txt changed-files.txt deleted-files.txt > SHA256SUMS.txt )
+
+      - name: Publish audit and source archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-PROD-HOSTING-ONLY-${{ github.run_id }}
+          path: ${{ runner.temp }}/hnl-prod-source/*
+          retention-days: 30
+          if-no-files-found: error
