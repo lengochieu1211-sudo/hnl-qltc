@@ -16,6 +16,7 @@ import {
 import { UserRole } from '../utils/securityUtils';
 import { getDateFormatPreset } from '../utils/dateFormatter';
 import { confirmAsync } from '../utils/confirmAsync';
+import type { FestivalEffectMode } from '../utils/festivalEffectMode';
 
 export interface SuperAdminUiSettings {
   scalePercent: number;
@@ -29,6 +30,7 @@ export interface SuperAdminUiSettings {
   borderRadius: 'square' | 'soft' | 'round';
   appDisplayName: string;
   logoUrl: string;
+  festivalEffect: FestivalEffectMode;
 }
 
 interface SuperAdminCenterProps {
@@ -248,6 +250,22 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
                 <label className="space-y-1 block"><span className="text-[10px] font-bold text-slate-600">Cỡ chữ / tỷ lệ giao diện</span><select value={draftUi.scalePercent} onChange={(e) => updateDraft({ scalePercent: Number(e.target.value) })} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold"><option value={90}>90% · Nhỏ</option><option value={100}>100% · Tiêu chuẩn</option><option value={110}>110% · Lớn</option><option value={120}>120% · Rất lớn</option></select></label>
                 <label className="space-y-1 block"><span className="text-[10px] font-bold text-slate-600">Mật độ giao diện</span><select value={draftUi.density} onChange={(e) => updateDraft({ density: e.target.value as SuperAdminUiSettings['density'] })} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold"><option value="compact">Gọn</option><option value="standard">Tiêu chuẩn</option><option value="comfortable">Thoáng / dễ chạm</option></select></label>
                 <label className="space-y-1 block"><span className="text-[10px] font-bold text-slate-600">Bo góc</span><select value={draftUi.borderRadius} onChange={(e) => updateDraft({ borderRadius: e.target.value as SuperAdminUiSettings['borderRadius'] })} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold"><option value="square">Vuông</option><option value="soft">Mềm</option><option value="round">Bo tròn</option></select></label>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 p-3 space-y-3" data-hnl-pc-festival-settings="true">
+                <div className="flex items-center gap-2"><Palette className="w-4 h-4 text-blue-600"/><h4 className="text-xs font-black text-slate-800">Hiệu ứng lễ hội · chỉ PC</h4></div>
+                <label className="block space-y-1"><span className="text-[10px] font-bold text-slate-600">Hiệu ứng trên Trang chủ PC</span>
+                  <select value={draftUi.festivalEffect} onChange={(e) => updateDraft({ festivalEffect: e.target.value as FestivalEffectMode })}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold">
+                    <option value="off">Tắt (mặc định)</option>
+                    <option value="snow">Giáng sinh · tuyết rơi</option>
+                    <option value="apricot">Tết · hoa mai vàng</option>
+                    <option value="peach">Tết · hoa đào hồng</option>
+                    <option value="blossoms">Tết · hoa mai và hoa đào</option>
+                    <option value="fireworks">Tết Dương lịch / Tết Âm lịch · pháo hoa</option>
+                  </select>
+                </label>
+                <p className="text-[10px] leading-relaxed text-slate-500">Chỉ chọn một hiệu ứng tại một thời điểm. Chỉ chạy trên Trang chủ Web PC / Windows EXE, không dùng trên điện thoại hoặc APK. Tự dừng khi ẩn tab, bật tiết kiệm dữ liệu hoặc giảm chuyển động. Để xem toàn màn hình, lưu rồi mở Trang chủ PC. Không tự bật theo lịch.</p>
               </div>
 
               <div className="rounded-2xl border border-slate-200 p-3 space-y-3">

@@ -1,0 +1,10 @@
+/* PC Home only, pointer-transparent, composited decorative motion. */
+.hnl-festival-overlay{position:fixed;inset:0;z-index:18;pointer-events:none;overflow:hidden;contain:layout paint;isolation:isolate}
+.hnl-festival-snow{position:absolute;top:-15px;border-radius:50%;background:#fff;box-shadow:0 0 3px rgba(68,107,168,.65);opacity:0;will-change:transform;animation:hnl-snow-fall linear infinite}
+@keyframes hnl-snow-fall{0%{transform:translate3d(0,-15px,0);opacity:0}8%{opacity:.8}90%{opacity:.7}100%{transform:translate3d(32px,105vh,0);opacity:0}}
+.hnl-festival-flower{position:absolute;top:-30px;opacity:0;will-change:transform;animation:hnl-flower-grow linear infinite}
+@keyframes hnl-flower-grow{0%{opacity:0;transform:translate3d(0,-30px,0) scale(.35) rotate(-30deg)}14%{opacity:.85;transform:translate3d(8px,13vh,0) scale(1) rotate(15deg)}85%{opacity:.85}100%{opacity:0;transform:translate3d(-25px,100vh,0) scale(.6) rotate(135deg)}}
+.hnl-festival-burst{position:absolute;width:0;height:0;opacity:0;will-change:transform,opacity;animation:hnl-firework-burst 8s ease-out infinite}
+.hnl-festival-ray{position:absolute;left:-1px;top:-1px;width:2px;height:36px;border-radius:20px;transform-origin:50% 0!important;box-shadow:0 0 7px currentColor;opacity:.85}
+@keyframes hnl-firework-burst{0%,70%,100%{opacity:0;transform:scale(.04)}76%{opacity:.85;transform:scale(.6)}83%{opacity:.65;transform:scale(1)}90%{opacity:0;transform:scale(1.08)}}
+@media(prefers-reduced-motion:reduce){.hnl-festival-overlay{display:none!important}.hnl-festival-overlay *{animation:none!important}}
