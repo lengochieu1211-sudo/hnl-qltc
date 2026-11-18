@@ -24,10 +24,20 @@ assert.match(effects, /removeEventListener\('visibilitychange', update\)/, 'remo
 assert.match(css, /pointer-events:none/, 'effects must never block inputs');
 assert.match(css, /contain:layout paint/, 'effect containment');
 assert.match(css, /prefers-reduced-motion:reduce/, 'CSS reduced motion fallback');
-for (const forbidden of ['setDoc(', 'updateDoc(', 'deleteDoc(', 'fetch(', 'localStorage.setItem(', 'sessionStorage.setItem(']) {
+for (const forbidden of ['setDoc(', 'updateDoc(', 'deleteDoc(', 'fetch(', 'localStorage.setItem(', 'sessionStorage.setItem(', 'setInterval(', 'requestAnimationFrame(']) {
   assert.ok(!effects.includes(forbidden), `${forbidden} is forbidden in decoration renderer`);
 }
-assert.equal((effects.match(/length: 24/g) || []).length,1, 'snow budget should stay bounded');
-assert.equal((effects.match(/length: 15/g) || []).length,1, 'blossom budget should stay bounded');
-assert.equal((effects.match(/length: 5/g) || []).length,1, 'firework budget should stay bounded');
-console.log('FESTIVAL EFFECTS GOLDEN PASS: settings, PC-only, power, auth safety, CSS, budgets');
+// Realistic effects without introducing unbounded particles, canvas loops or assets.
+assert.match(effects, /length: 56/, 'snow should have a bounded, fuller density');
+assert.match(effects, /length: 15/, 'blossom budget must remain unchanged');
+assert.match(effects, /length: 8/, 'firework burst count must stay bounded');
+assert.match(effects, /length: 26/, 'rays per burst must stay bounded');
+assert.match(effects, /length: 16/, 'embers per burst must stay bounded');
+assert.match(effects, /depth === 0[^\n]+depth === 1/, 'snow must have multiple perspective depths');
+assert.match(css, /radial-gradient\(circle at 35% 30%/, 'snow needs a white core with contrast on white backgrounds');
+assert.match(css, /--snow-x25/, 'snow must sway while falling');
+assert.match(css, /\.hnl-festival-firework-flash/, 'firework core flash must exist');
+assert.match(css, /\.hnl-festival-ember/, 'firework fading embers must exist');
+assert.match(css, /drop-shadow/, 'fireworks need a visible halo on light surfaces');
+assert.doesNotMatch(css, /canvas|url\(/, 'render without canvas or remote resources');
+console.log('FESTIVAL EFFECTS GOLDEN PASS: settings, PC-only, power, auth safety, contrast, density, 3D snow and layered fireworks');
