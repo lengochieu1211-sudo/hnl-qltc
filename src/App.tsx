@@ -12,7 +12,7 @@ import { detectChromeDesktopSiteOnTouchDevice, canUsePcQuickEdit } from './utils
 import { HardDrive, RefreshCw } from 'lucide-react';
 import { safeSetLocalStorageItem } from './utils/storage';
 import { prepareFloorPlansForBackupRestore } from './utils/floorPlanBackupRestore';
-import { parseLegacyTimestamp, formatDateTime } from './utils/dateFormatter';
+import { parseLegacyTimestamp, formatDateTime, toLocalDateInputValue } from './utils/dateFormatter';
 import { AppLockOverlay } from './components/AppLockOverlay';
 import { AppAuthGate } from './components/AppAuthGate';
 import { SecurityModal } from './components/SecurityModal';
@@ -6871,7 +6871,7 @@ function AuthenticatedApp() {
         imageCloudSyncedAt: undefined,
         imageAssetId: null,
         imageAssetOwnerFloorId: null,
-        uploadedAt: new Date().toISOString().split('T')[0],
+        uploadedAt: toLocalDateInputValue(new Date()),
         updatedAt: imageRevision,
         revision: Math.max(Number((fp as any).revision || 0), 0) + 1,
         updatedByUid: uploaderUid || fp.updatedByUid,
@@ -6926,7 +6926,7 @@ function AuthenticatedApp() {
         imageUploadState: 'ready',
         imagePendingByUid: null,
         imageOutboxRevision: cloudRevision,
-        uploadedAt: sourcePlan.uploadedAt || new Date().toISOString().split('T')[0],
+        uploadedAt: sourcePlan.uploadedAt || toLocalDateInputValue(new Date()),
         updatedAt: now,
         revision: Math.max(Number((plan as any).revision || 0), 0) + 1,
         updatedByUid: uploaderUid || plan.updatedByUid,
@@ -7179,7 +7179,7 @@ function AuthenticatedApp() {
         id: newId,
         floorName: newFloorName,
         ...(duplicateStructureGroupId ? { structureGroupId: duplicateStructureGroupId } : {}),
-        uploadedAt: new Date().toISOString().split('T')[0],
+        uploadedAt: toLocalDateInputValue(new Date()),
         // A cloud-ready immutable drawing is safe to share between duplicated floors.
         // This is the same pointer model used by bulk apply: no duplicate upload, no
         // fake pending revision, and every floor still keeps its own business data.
@@ -7336,7 +7336,7 @@ function AuthenticatedApp() {
 
   const handleUpdateDefectStatus = (id: string, status: DefectStatus) => {
     if (!isProjectRoleResolved || !canEditDefectData(currentUserRole)) { console.warn('[RBAC] Tài khoản không có quyền cập nhật Defect.'); return; }
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = toLocalDateInputValue(new Date());
     updateAppData((prev) => ({
       ...prev,
       defects: prev.defects.map((d) =>

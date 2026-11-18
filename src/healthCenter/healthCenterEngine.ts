@@ -4,6 +4,7 @@ import type { HnlAiProjectSnapshot } from '../ai/data/projectSnapshot';
 import { auditProjectIntegrity } from '../ai/audit/projectAudit';
 import { normalizeEntityText } from '../ai/core/entityResolver';
 import { findAdditionalOrphanIssues } from './healthCenterOrphanScan';
+import { toLocalDateInputValue } from '../utils/dateFormatter';
 import type { ProjectStructureConfig } from '../utils/structureGroupUtils';
 import type { RuntimeDiagnosticEntry } from '../lib/runtimeDiagnostics';
 import { canonicalNormCategoryIds, getCanonicalRoomCategoryEntries, resolveAuthoritativeWorkVolumeRef, resolveWorkVolumeRef, validateInventoryOutProvenance, validateMaterialNormCatalog } from '../utils/linkageIntegrity';
@@ -98,24 +99,30 @@ function normalizeDate(value: unknown): string {
     const millis = value > 1e12 ? value : value > 1e9 ? value * 1000 : NaN;
     if (Number.isFinite(millis)) {
       const parsed = new Date(millis);
-      return Number.isFinite(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : '';
+      return Number.isFinite(parsed.getTime()) ? toLocalDateInputValue(parsed) : '';
     }
   }
   if (typeof value === 'object') {
     const seconds = Number((value as { seconds?: unknown }).seconds);
     if (Number.isFinite(seconds) && seconds > 0) {
       const parsed = new Date(seconds * 1000);
-      return Number.isFinite(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : '';
+      return Number.isFinite(parsed.getTime()) ? toLocalDateInputValue(parsed) : '';
     }
   }
   const raw = String(value).trim();
   if (!raw) return '';
+  // ISO timestamp with explicit zone represents an instant; its civil day
+  // must be calculated in Vietnam before comparing Defect due/completion dates.
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw)) {
+    const instant = new Date(raw);
+    return Number.isFinite(instant.getTime()) ? toLocalDateInputValue(instant) : '';
+  }
   const canonical = raw.match(/(?:^|\s)(\d{4})-(\d{2})-(\d{2})(?:[T\s]|$)/);
   if (canonical) return canonicalDateParts(Number(canonical[1]), Number(canonical[2]), Number(canonical[3]));
   const dmy = raw.match(/(?:^|\s)(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})(?:\s|$)/);
   if (dmy) return canonicalDateParts(Number(dmy[3]), Number(dmy[2]), Number(dmy[1]));
   const parsed = new Date(raw);
-  return Number.isFinite(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : '';
+  return Number.isFinite(parsed.getTime()) ? toLocalDateInputValue(parsed) : '';
 }
 
 function issueModule(issue: AiAuditIssue): HealthCenterModule {

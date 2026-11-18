@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { ViewportModalPortal } from './ViewportModalPortal';
 import { FileText, Download, Printer, X, CheckCircle2, Filter, Mail, Package, BarChart3, Building2, ClipboardCheck, FileSpreadsheet, Users, Copy, HelpCircle, Camera, Image as ImageIcon, ChevronDown } from 'lucide-react';
 import { InventoryItem, WorkVolume, DefectItem, ChecklistItem, FloorPlan, RoomProgressItem, MaterialNorm, CrewRecord, TeamInfo } from '../types';
-import { formatDateDDMMYYYY, formatDateTime, formatFloorName, parseLegacyTimestamp } from '../utils/dateFormatter';
+import { formatDateDDMMYYYY, formatDateTime, formatFloorName, parseLegacyTimestamp, toLocalDateInputValue } from '../utils/dateFormatter';
 import { getCrewShiftCounts } from '../utils/crewUtils';
 import { getRoomColorStyle } from '../utils/colorPalette';
 import { getDefectOverdueInfo, getDefectShortCode } from '../utils/defectUtils';
@@ -1541,7 +1541,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
       const htmlContent = getReportHtml();
       const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
       const safeProjectName = (projectName || 'Du_An').replace(/[^a-zA-Z0-9_-\s]/g, '').trim().replace(/\s+/g, '_');
-      const dateStr = new Date().toISOString().slice(0, 10);
+      const dateStr = toLocalDateInputValue(new Date());
       await downloadOrShareFile(`Bao_Cao_Tong_Hop_${safeProjectName}_${dateStr}.html`, blob, 'text/html');
     } catch (err) {
       console.error('Download HTML report error:', err);
@@ -1558,7 +1558,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     try {
       setAndroidReportBusy(true);
       const safeName = (projectName || 'Du_An').replace(/[^a-zA-Z0-9_-\s]/g,'').trim().replace(/\s+/g,'_');
-      const fileName='Bao_Cao_Tong_Hop_'+safeName+'_'+new Date().toISOString().slice(0,10)+'.html';
+      const fileName='Bao_Cao_Tong_Hop_'+safeName+'_'+toLocalDateInputValue(new Date())+'.html';
       await saveTextFileToDownloads(getReportHtml(),fileName,'text/html;charset=utf-8');
     } catch(e) {
       alert('Không lưu được HTML vào QLTC: '+(e instanceof Error?e.message:String(e)));
@@ -1574,7 +1574,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     }
     const htmlContent = getReportHtml();
     const androidSafeProjectName = (projectName || 'Du_An').replace(/[^a-zA-Z0-9_-\s]/g, '').trim().replace(/\s+/g, '_');
-    const androidDateStr = new Date().toISOString().slice(0, 10);
+    const androidDateStr = toLocalDateInputValue(new Date());
     if (saveHtmlPdf(htmlContent, `Bao_Cao_Tong_Hop_${androidSafeProjectName}_${androidDateStr}.pdf`)) {
       return;
     }

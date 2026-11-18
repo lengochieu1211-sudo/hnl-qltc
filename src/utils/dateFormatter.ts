@@ -22,31 +22,49 @@ export type DateFormatPreset = 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD' | 'DD-
 
 
 /**
- * Formats a Date as an HTML date-input value using the device's LOCAL calendar
- * fields. Do not use toISOString() here: UTC conversion can shift the date
- * backward/forward around midnight in non-UTC time zones.
+ * HNL's fixed business timezone. UTC timestamps remain unchanged in Firestore,
+ * Chat, expiry and sync; only civil dates / displayed time use Vietnam time.
+ * Reuse the formatter because creating an Intl formatter on every render is expensive.
  */
+export const BUSINESS_TIME_ZONE = 'Asia/Ho_Chi_Minh';
+const vietnamInstantFormatter = new Intl.DateTimeFormat('en-GB', {
+  timeZone: BUSINESS_TIME_ZONE,
+  year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+});
+
+const vietnamInstantParts = (date: Date) => {
+  const parts = Object.fromEntries(vietnamInstantFormatter.formatToParts(date).map(({ type, value }) => [type, value]));
+  return {
+    year: parts.year, month: parts.month, day: parts.day,
+    hour: parts.hour, minute: parts.minute,
+  };
+};
+
+/** YYYY-MM-DD business date in Vietnam, independent of device timezone. */
 export function toLocalDateInputValue(date: Date): string {
-  const year = String(date.getFullYear()).padStart(4, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
+  const { year, month, day } = vietnamInstantParts(date);
   return `${year}-${month}-${day}`;
 }
 
-/**
- * Adds calendar days in local time and returns YYYY-MM-DD for <input type="date">.
- */
+/** Beginning of a Vietnam business day as epoch milliseconds (UTC instant). */
+export function vietnamDateInputToDayStartMs(dateInput: string, fallbackTime = Date.now()): number {
+  const input = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(dateInput);
+  if (!input) return vietnamDateInputToDayStartMs(toLocalDateInputValue(new Date(fallbackTime)));
+  const [year, month, day] = input.slice(1).map(Number);
+  const dayUtc = Date.UTC(year, month - 1, day);
+  const checked = new Date(dayUtc);
+  if (checked.getUTCFullYear() !== year || checked.getUTCMonth() !== month - 1 || checked.getUTCDate() !== day) {
+    return vietnamDateInputToDayStartMs(toLocalDateInputValue(new Date(fallbackTime)));
+  }
+  // Vietnam has no daylight-saving transition in the application's supported era.
+  return dayUtc - 7 * 60 * 60 * 1000;
+}
+
+/** Adds civil calendar days in Vietnam, including across device DST boundaries. */
 export function addLocalCalendarDaysToDateInput(date: Date, days: number): string {
-  const next = new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate() + days,
-    12,
-    0,
-    0,
-    0,
-  );
-  return toLocalDateInputValue(next);
+  const [year, month, day] = toLocalDateInputValue(date).split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days, 12)).toISOString().slice(0, 10);
 }
 
 /**
@@ -60,6 +78,12 @@ export function parseLegacyTimestamp(ts: any, fallbackTime: number = Date.now())
     const trimmed = ts.trim();
     const num = Number(trimmed);
     if (!isNaN(num) && num > 0) return num;
+
+    // Zoned ISO timestamps are absolute instants, unlike date-only civil values.
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/i.test(trimmed)) {
+      const zoned = Date.parse(trimmed);
+      if (Number.isFinite(zoned) && zoned > 0) return zoned;
+    }
 
     // Legacy app records may be saved as HH:mm:ss DD/M/YYYY. Parse this form
     // explicitly before Date.parse so 11/8 is never reinterpreted as MM/DD.
@@ -162,6 +186,7 @@ export function formatDate(dateInput: string | Date | number | null | undefined,
   if (!dateInput) return '';
   
   let d: Date | null = null;
+  let businessDateOnly: { year: string; month: string; day: string } | null = null;
   if (dateInput instanceof Date) {
     d = dateInput;
   } else if (typeof dateInput === 'number') {
@@ -170,20 +195,28 @@ export function formatDate(dateInput: string | Date | number | null | undefined,
     const trimmed = String(dateInput).trim();
     if (!trimmed) return '';
 
-    // Check YYYY-MM-DD
-    const yyyymmddMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (yyyymmddMatch) {
-      const [_, year, month, day] = yyyymmddMatch;
-      d = new Date(Number(year), Number(month) - 1, Number(day));
+    // Zoned ISO timestamp: render LOCAL calendar date, not UTC prefix.
+    const isZonedIso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/i.test(trimmed);
+    if (isZonedIso) {
+      const instant = new Date(trimmed);
+      d = Number.isFinite(instant.getTime()) ? instant : null;
     } else {
-      // Check DD/MM/YYYY
-      const ddmmyyyyMatch = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
-      if (ddmmyyyyMatch) {
-        const [_, day, month, year] = ddmmyyyyMatch;
+      // A civil date without timezone must retain its calendar date.
+      const yyyymmddMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (yyyymmddMatch) {
+        const [_, year, month, day] = yyyymmddMatch;
+        businessDateOnly = { year, month, day };
         d = new Date(Number(year), Number(month) - 1, Number(day));
       } else {
-        const parsed = parseLegacyTimestamp(trimmed, Number.NaN);
-        d = Number.isFinite(parsed) ? new Date(parsed) : null;
+        const ddmmyyyyMatch = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+        if (ddmmyyyyMatch) {
+          const [_, day, month, year] = ddmmyyyyMatch;
+          businessDateOnly = { year, month, day };
+          d = new Date(Number(year), Number(month) - 1, Number(day));
+        } else {
+          const parsed = parseLegacyTimestamp(trimmed, Number.NaN);
+          d = Number.isFinite(parsed) ? new Date(parsed) : null;
+        }
       }
     }
   }
@@ -193,20 +226,21 @@ export function formatDate(dateInput: string | Date | number | null | undefined,
   }
 
   const preset = customPreset || getDateFormatPreset();
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = String(d.getFullYear());
+  // A date-only business field has no timezone to convert. An instant does.
+  const { year, month, day } = businessDateOnly || vietnamInstantParts(d);
+  const displayDay = day.padStart(2, '0');
+  const displayMonth = month.padStart(2, '0');
 
   switch (preset) {
     case 'MM/DD/YYYY':
-      return `${month}/${day}/${year}`;
+      return `${displayMonth}/${displayDay}/${year}`;
     case 'YYYY-MM-DD':
-      return `${year}-${month}-${day}`;
+      return `${year}-${displayMonth}-${displayDay}`;
     case 'DD-MM-YYYY':
-      return `${day}-${month}-${year}`;
+      return `${displayDay}-${displayMonth}-${year}`;
     case 'DD/MM/YYYY':
     default:
-      return `${day}/${month}/${year}`;
+      return `${displayDay}/${displayMonth}/${year}`;
   }
 }
 
@@ -228,8 +262,7 @@ export function formatDateTime(dateInput: string | Date | number | null | undefi
   if (isNaN(d.getTime())) return String(dateInput);
 
   const dateFormatted = formatDate(d);
-  const hours = String(d.getHours()).padStart(2, '0');
-  const minutes = String(d.getMinutes()).padStart(2, '0');
-  return `${dateFormatted} ${hours}:${minutes}`;
+  const { hour, minute } = vietnamInstantParts(d);
+  return `${dateFormatted} ${hour}:${minute}`;
 }
 

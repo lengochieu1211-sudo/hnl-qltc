@@ -50,7 +50,7 @@ import {
   smartMergeProjectData,
   ProjectImportCandidate
 } from '../utils/dataNormalizer';
-import { formatDateTime, parseLegacyTimestamp } from '../utils/dateFormatter';
+import { formatDateTime, parseLegacyTimestamp, toLocalDateInputValue } from '../utils/dateFormatter';
 import { useFormatSettings } from '../utils/numberUtils';
 import { detectOrphanProjectData, cleanupOrphanProjectData, OrphanScanResult, OrphanProjectInfo } from '../utils/projectReconciliation';
 import { isStorageKeyOwnedByProject, getProjectStorageKeys } from '../utils/projectStorageUtils';
@@ -602,7 +602,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         });
       });
       const jsonStr = JSON.stringify(exportData, null, 2);
-      await downloadOrShareFile(`Du_Lieu_Mo_Coi_Backup_${new Date().toISOString().split('T')[0]}.json`, jsonStr, 'application/json');
+      await downloadOrShareFile(`Du_Lieu_Mo_Coi_Backup_${toLocalDateInputValue(new Date())}.json`, jsonStr, 'application/json');
     } catch (e: any) {
       setErrorMessage(`Lỗi khi xuất tệp: ${e?.message || e}`);
     }
@@ -4032,7 +4032,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         <button 
                           onClick={() => setExportedFileInfo({
                             title: 'Chi tiết Sao Lưu Google Drive',
-                            fileName: `GoogleDrive_Backup_${new Date().toISOString().split('T')[0]}`,
+                            fileName: `GoogleDrive_Backup_${toLocalDateInputValue(new Date())}`,
                             fileSizeStr: 'Google Drive',
                             ...driveStatusMsg.stats
                           })}

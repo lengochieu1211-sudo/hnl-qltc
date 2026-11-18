@@ -42,7 +42,7 @@ import { signInWithGoogle, signOutFirebaseAccount, getCurrentFirebaseUser, fetch
 import { saveTextFile } from '../utils/fileExport';
 import { QuickSortBar } from './QuickSortBar';
 import { confirmAsync } from '../utils/confirmAsync';
-import { formatDateTime } from '../utils/dateFormatter';
+import { formatDateTime, toLocalDateInputValue, vietnamDateInputToDayStartMs } from '../utils/dateFormatter';
 import { isSuperAdminEmail } from '../config/superAdmin';
 import { ContactMenu } from './ContactMenu';
 import { MultiProjectAccessPanel } from './MultiProjectAccessPanel';
@@ -102,27 +102,12 @@ type AuditRangeMode = 'today' | 'yesterday' | '7d' | '30d' | 'date';
 const AUDIT_PAGE_SIZE = 80;
 const AUDIT_AUTO_MIN_ITEMS = 20;
 
-const toLocalDateInputValue = (value: Date) => {
-  const y = value.getFullYear();
-  const m = String(value.getMonth() + 1).padStart(2, '0');
-  const d = String(value.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-};
+// Business-day boundaries must be Vietnam midnight, not the user's device midnight.
+const localDayStartFromInput = (value: string, fallbackMs = Date.now()) =>
+  vietnamDateInputToDayStartMs(value, fallbackMs);
 
-const localDayStartFromInput = (value: string, fallbackMs = Date.now()) => {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
-  const date = match
-    ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
-    : new Date(fallbackMs);
-  date.setHours(0, 0, 0, 0);
-  return date.getTime();
-};
-
-const shiftLocalDays = (startMs: number, delta: number) => {
-  const date = new Date(startMs);
-  date.setDate(date.getDate() + delta);
-  return date.getTime();
-};
+// Vietnam has no DST; UTC milliseconds are safe for business calendar-day steps.
+const shiftLocalDays = (startMs: number, delta: number) => startMs + delta * 86_400_000;
 
 const resolveAuditRange = (mode: AuditRangeMode, selectedDate: string) => {
   const todayStart = localDayStartFromInput(toLocalDateInputValue(new Date()));
@@ -141,7 +126,7 @@ const resolveAuditRange = (mode: AuditRangeMode, selectedDate: string) => {
     return {
       startMs,
       endMs: shiftLocalDays(startMs, 1),
-      label: `Ngày ${new Date(startMs).toLocaleDateString('vi-VN')}`,
+      label: `Ngày ${new Date(startMs).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}`,
     };
   }
   return { startMs: todayStart, endMs: tomorrowStart, label: 'Hôm nay' };
@@ -994,7 +979,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
   const handleExportLogsSafe = async () => {
     const json = JSON.stringify(auditLogs, null, 2);
-    await saveTextFile(json, `Nhat_Ky_Bao_Mat_${new Date().toISOString().split('T')[0]}.json`, 'application/json;charset=utf-8');
+    await saveTextFile(json, `Nhat_Ky_Bao_Mat_${toLocalDateInputValue(new Date())}.json`, 'application/json;charset=utf-8');
   };
 
   const handleClearLogs = () => {

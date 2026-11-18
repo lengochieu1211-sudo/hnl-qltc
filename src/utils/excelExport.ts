@@ -5,7 +5,7 @@ import { isTeamMatch, calculateTeamStatistics } from './teamUtils';
 import { computeTeamMaterialReconciliation } from './teamMaterialReconciliation';
 import { computeTeamEquipmentIssues, computeUnassignedTeamEquipmentIssues } from './teamEquipmentIssues';
 import { calculateStockSummary, resolveNormMaterialId } from './inventoryUtils';
-import { formatDateDDMMYYYY, formatDateTime } from './dateFormatter';
+import { formatDateDDMMYYYY, formatDateTime, toLocalDateInputValue } from './dateFormatter';
 import { saveWorkbookFile } from './fileExport';
 import { getCrewShiftCounts } from './crewUtils';
 import { computeWorkVolumeDetailBreakdown } from './workVolumeComputation';
@@ -1169,7 +1169,7 @@ export function exportTeamStatisticsToExcel(params: {
       { 'THÔNG TIN BÁO CÁO': 'ĐỘI THI CÔNG', 'GIÁ TRỊ': team.name },
       { 'THÔNG TIN BÁO CÁO': 'ĐỘI TRƯỞNG', 'GIÁ TRỊ': team.leader || '-' },
       { 'THÔNG TIN BÁO CÁO': 'SỐ ĐIỆN THOẠI', 'GIÁ TRỊ': team.phone || '-' },
-      { 'THÔNG TIN BÁO CÁO': 'NGÀY XUẤT', 'GIÁ TRỊ': formatDateDDMMYYYY(new Date().toISOString().slice(0, 10)) },
+      { 'THÔNG TIN BÁO CÁO': 'NGÀY XUẤT', 'GIÁ TRỊ': formatDateDDMMYYYY(toLocalDateInputValue(new Date())) },
       { 'THÔNG TIN BÁO CÁO': '', 'GIÁ TRỊ': '' },
       { 'THÔNG TIN BÁO CÁO': 'CHỈ TIÊU THỐNG KÊ', 'GIÁ TRỊ': 'KẾT QUẢ' },
       { 'THÔNG TIN BÁO CÁO': 'Số tầng phụ trách', 'GIÁ TRỊ': Object.keys(stat.floorGroupMap || {}).length },

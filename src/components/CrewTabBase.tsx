@@ -32,7 +32,7 @@ import {
   Wrench
 } from 'lucide-react';
 import { CrewRecord, FloorPlan, TeamInfo, RoomProgressItem, DefectItem, CrewFloorWork, CrewFloorCategoryWork, AcceptanceStatus, RoomInspectionResult, WorkVolume, InventoryItem, MaterialNorm } from '../types';
-import { formatDateDDMMYYYY, formatExcelDate } from '../utils/dateFormatter';
+import { formatDateDDMMYYYY, formatExcelDate, toLocalDateInputValue, addLocalCalendarDaysToDateInput } from '../utils/dateFormatter';
 import { confirmAsync } from '../utils/confirmAsync';
 import { formatDecimal, evaluateMathExpression, useFormatSettings, parseExcelNumber } from '../utils/numberUtils';
 import { isTeamMatch, getTeamCategoriesForRoom, calculateTeamStatistics, isTeamWorkCompletedInRoom, FloorGroupDetail, getSubItemGroupWeight } from '../utils/teamUtils';
@@ -469,14 +469,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     return true;
   };
 
-  // Today's date YYYY-MM-DD
-  const getTodayString = () => {
-    const d = new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
+  // One shared Vietnam business date even when a device uses another timezone.
+  const getTodayString = () => toLocalDateInputValue(new Date());
 
   const [selectedDate, setSelectedDate] = useState<string>(getTodayString());
   // View one team's original daily log, without changing the saved project records.
@@ -1022,12 +1016,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
   // Navigate Date
   const handlePrevDay = () => {
-    const d = new Date(selectedDate);
-    d.setDate(d.getDate() - 1);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    setSelectedDate(`${year}-${month}-${day}`);
+    setSelectedDate(addLocalCalendarDaysToDateInput(new Date(`${selectedDate}T00:00:00Z`), -1));
   };
 
   const handleNextDay = () => {
@@ -1036,12 +1025,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       alert('Không thể chọn quân số của ngày hôm sau!');
       return;
     }
-    const d = new Date(selectedDate);
-    d.setDate(d.getDate() + 1);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    const nextDate = `${year}-${month}-${day}`;
+    const nextDate = addLocalCalendarDaysToDateInput(new Date(`${selectedDate}T00:00:00Z`), 1);
     if (nextDate > today) {
       alert('Không thể chọn quân số của ngày hôm sau!');
       return;
@@ -1422,12 +1406,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
   const handleOpenCopyDatePicker = () => {
     if (!canOperate) return;
-    const d = new Date(`${selectedDate}T12:00:00`);
-    d.setDate(d.getDate() - 1);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    setCopyDatePickerValue(`${year}-${month}-${day}`);
+    setCopyDatePickerValue(addLocalCalendarDaysToDateInput(new Date(`${selectedDate}T00:00:00Z`), -1));
     setShowCopyDatePicker((value) => !value);
   };
 
