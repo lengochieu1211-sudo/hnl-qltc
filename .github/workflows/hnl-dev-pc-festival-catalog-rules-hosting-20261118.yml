@@ -1,4 +1,4 @@
-name: HNL one-shot DEV festival/catalog kgPerUnit Rules + Hosting 2026-11-11 (NO PROD/R2/AI/Storage)
+name: HNL one-shot DEV festival/catalog kgPerUnit Rules + Hosting 2026-11-18 (NO PROD/R2/AI/Storage)
 on:
   push:
     branches:
@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: hnl-dev-pc-festival-catalog-20261118
+  group: hnl-qltc-dev-release
   cancel-in-progress: false
 jobs:
   deploy-dev-rules-hosting-only:
@@ -54,7 +54,7 @@ jobs:
           # main and dev intentionally diverged; guard exact untouched main HEAD instead.
           # NEVER merge or deploy PROD from this workflow.
           git diff --name-only "$BASE" "$GITHUB_SHA" > "$RUNNER_TEMP/changed.txt"
-          # Only this one-shot workflow may be added atop the CI-verified 1842179 DEV HEAD.
+          # Only this one-shot workflow may be added atop CI-verified 091d04a3 DEV HEAD.
           test "$(cat "$RUNNER_TEMP/changed.txt")" = '.github/workflows/hnl-dev-pc-festival-catalog-rules-hosting-20261118.yml'
           ! grep -E '(^\.firebaserc$|^firestore\.rules$|^storage\.rules$|^firebase\.json$|^firebase\.prod\.json$|^package(-lock)?\.json$|^cloudflare|worker\.js$|^\.env|^\.github/dev-release-approval\.json$)' "$RUNNER_TEMP/changed.txt"
           test "$DEV_PROJECT" = hnl-qltc-dev
@@ -208,6 +208,9 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$GITHUB_SHA"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "6e965a3840bbe9163e887a6dc85b12d0d861a7e7"
+          LIVE="$(curl -fsSL --retry 3 "$DEV_HOST/hnl-dev-release.json?hosting=$GITHUB_SHA")"
+          printf '%s' "$LIVE" | node -e "let s='';process.stdin.on('data',x=>s+=x).on('end',()=>{const j=JSON.parse(s);if(j.environment!=='DEV'||j.firebaseProjectId!=='hnl-qltc-dev'||j.gitCommit!=='06c8efba58b080add092303693bc29d335051f3a')throw Error('DEV live changed before Hosting publish')})"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/hnl-pc-festival-catalog-dev-credentials.json"
           test -s "$GOOGLE_APPLICATION_CREDENTIALS"
           npx --yes firebase-tools@13.35.1 deploy --only hosting --config "$GITHUB_WORKSPACE/hnl-dev-pc-festival-catalog-20261118.generated.json" --project hnl-qltc-dev --non-interactive
