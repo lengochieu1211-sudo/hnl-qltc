@@ -2,6 +2,7 @@ import { InventoryItem, MaterialNorm } from '../types';
 import { parseExcelNumber } from './numberUtils';
 import { normalizeUnit } from './unitUtils';
 import { createEntityId } from './idUtils';
+import { vietnamBusinessDateInput } from './vietnamBusinessDate';
 
 
 
@@ -212,7 +213,7 @@ export function parseInventoryExcel(rows: any[]): Partial<InventoryItem>[] {
     const unit = String(r['Đơn Vị Tính'] || r['Đơn vị tính'] || r['ĐVT'] || r['unit'] || 'Tấm').trim();
     const location = String(r['Vị Trí Lưu Kho / Hạng Mục'] || r['Vị trí'] || r['location'] || r['Kho'] || 'Kho chính').trim();
     const handler = String(r['Người Thực Hiện'] || r['Người nhận/giao'] || r['handler'] || '-').trim();
-    const dateStr = String(r['Ngày Lập Phiếu'] || r['Ngày'] || r['date'] || new Date().toISOString().split('T')[0]).trim();
+    const dateStr = String(r['Ngày Lập Phiếu'] || r['Ngày'] || r['date'] || vietnamBusinessDateInput()).trim();
     const id = r['Mã Phiếu'] || r['__recordId'] || r['id'] || createEntityId('INV');
     const materialId = r['__materialId'] || r['materialId'] || undefined;
 

@@ -72,6 +72,7 @@ import { UndoRedoControls } from './UndoRedoControls';
 import { getRoomColorStyle, ROOM_COLOR_PALETTE } from '../utils/colorPalette';
 import { getDefectOverdueInfo, getDefectShortCode } from '../utils/defectUtils';
 import { addLocalCalendarDaysToDateInput, formatDateDDMMYYYY, parseLegacyTimestamp, toLocalDateInputValue } from '../utils/dateFormatter';
+import { vietnamDefectCreatedAtInput } from '../utils/vietnamBusinessDate';
 import { useFormatSettings, parseExcelNumber, formatDecimal } from '../utils/numberUtils';
 import { createEntityId } from '../utils/idUtils';
 import { normalizeUnit, unitKey } from '../utils/unitUtils';
@@ -8974,7 +8975,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         style={{ left: `${x}%`, top: `${y}%`, touchAction: 'manipulation' }}
                         className="absolute -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-auto w-7 h-7 sm:w-6 sm:h-6 rounded-full bg-transparent cursor-pointer"
                         aria-label={`Mở Defect ${shortDefectCode}`}
-                        title={`${shortDefectCode} · ${defect.category} · Tạo: ${defect.createdAt ? formatDateDDMMYYYY(defect.createdAt) : 'Chưa ghi nhận'}${defect.description ? ` · ${defect.description}` : ''}`}
+                        title={`${shortDefectCode} · ${defect.category} · Tạo: ${defect.createdAt ? formatDateDDMMYYYY(vietnamDefectCreatedAtInput(defect.createdAt)) : 'Chưa ghi nhận'}${defect.description ? ` · ${defect.description}` : ''}`}
                       />
                       <div
                         onPointerDown={(e) => e.stopPropagation()}
@@ -8985,7 +8986,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         }}
                         style={{ left: `${markerX}%`, top: `${markerY}%` }}
                         className="absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer z-50 pointer-events-auto transition-transform hover:scale-110 active:scale-105"
-                        title={`${shortDefectCode} · ${defect.category} · Tạo: ${defect.createdAt ? formatDateDDMMYYYY(defect.createdAt) : 'Chưa ghi nhận'}${defect.description ? ` · ${defect.description}` : ''}`}
+                        title={`${shortDefectCode} · ${defect.category} · Tạo: ${defect.createdAt ? formatDateDDMMYYYY(vietnamDefectCreatedAtInput(defect.createdAt)) : 'Chưa ghi nhận'}${defect.description ? ` · ${defect.description}` : ''}`}
                       >
                         <div
                           style={{
@@ -9814,7 +9815,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             <span className="text-[10px] font-black text-slate-400 mr-1.5">[{getDefectShortCode(defect.id)}]</span>
                             <span className="text-xs font-extrabold text-slate-900 leading-snug">{defect.category}</span>
                             <p className="mt-0.5 text-[10px] font-semibold text-slate-500" data-hnl-defect-list-created-at="true">
-                              Ngày tạo: {defect.createdAt ? formatDateDDMMYYYY(defect.createdAt) : 'Chưa ghi nhận'}
+                              Ngày tạo: {defect.createdAt ? formatDateDDMMYYYY(vietnamDefectCreatedAtInput(defect.createdAt)) : 'Chưa ghi nhận'}
                             </p>
                           </div>
                         </div>
@@ -10846,7 +10847,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <span className="text-[10px] font-black text-slate-400">[{getDefectShortCode(activeDefectDetail.id)}]</span>
                   <h3 className="text-base font-extrabold text-slate-900">{activeDefectDetail.category}</h3>
                   <p className="mt-1 text-xs font-semibold text-slate-500" data-hnl-defect-created-at="true">
-                    Ngày tạo Defect: {activeDefectDetail.createdAt ? formatDateDDMMYYYY(activeDefectDetail.createdAt) : 'Chưa ghi nhận'}
+                    Ngày tạo Defect: {activeDefectDetail.createdAt ? formatDateDDMMYYYY(vietnamDefectCreatedAtInput(activeDefectDetail.createdAt)) : 'Chưa ghi nhận'}
                   </p>
                 </div>
                 <div className="flex items-center gap-1.5">
