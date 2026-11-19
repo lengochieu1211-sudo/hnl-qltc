@@ -58,7 +58,16 @@ assert.match(effects, /if \(!ready \|\| !enabled \|\| mode !== 'fireworks'\)/, '
 assert.match(effects, /stopAudio\(\)/, 'audio must be cleaned up');
 assert.match(sound, /new window\.AudioContext\(\)/, 'sound must use Web Audio');
 assert.match(effects, /const sound = createFestivalFireworkSound\(\)/, 'audio context must only be created via click');
-assert.doesNotMatch(sound, /fetch\(|localStorage|setDoc\(|updateDoc\(/, 'no remote assets or data writes');
+assert.match(sound, /import\.meta\.env\.BASE_URL/, 'recordings must be bundled local assets');
+assert.match(sound, /fetch\(assetUrl\.href/, 'recordings are lazy loaded only after opt-in');
+assert.match(sound, /controller\.abort\(\)/, 'cancel incomplete downloads on OFF');
+assert.doesNotMatch(sound, /createOscillator\(|createBuffer\(1/, 'no electronic oscillators or procedural noise');
+assert.doesNotMatch(sound, /https?:\/\/|localStorage|setDoc\(|updateDoc\(/, 'no third-party audio sources or data writes');
+for (const asset of ['rocket-real.mp3', 'crackle-real.mp3']) {
+  const bytes = readFileSync('public/audio/festival/' + asset);
+  assert.ok(bytes.length > 40000 && bytes.length < 200000, 'valid locally bundled CC0 audio: ' + asset);
+  assert.ok(bytes.subarray(0, 3).toString() === 'ID3' || (bytes[0] === 255 && (bytes[1] & 224) === 224), 'valid MP3 header: ' + asset);
+}
 assert.doesNotMatch(effects, /localStorage\.setItem\(|sessionStorage\.setItem\(/, 'audio state must not persist');
 assert.doesNotMatch(css, /canvas|url\(/, 'render without canvas or remote resources');
 console.log('FESTIVAL EFFECTS GOLDEN PASS: PC-only, original six-arm snow, rocket flight/explosion/embers, audio opt-in/cleanup, no persistence or writes');
