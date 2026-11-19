@@ -1,4 +1,9 @@
-/** Quiet, optional PC fireworks audio; only instantiated after a user click. */
+/**
+ * Optional PC-only fireworks sound: two verified CC0 outdoor field recordings.
+ * No oscillators or synthetic tones. Files are bundled in public/audio/festival,
+ * fetched only after the user presses the sound toggle (OFF by default).
+ * No Firestore access, persistence, or third-party runtime network requests.
+ */
 export interface FestivalFireworkSound {
   resume(): Promise<void>;
   launch(index: number): void;
@@ -6,97 +11,121 @@ export interface FestivalFireworkSound {
   stop(): void;
 }
 
+type RecordedClips = {
+  rocket: AudioBuffer;
+  crackle: AudioBuffer;
+};
+
 export function createFestivalFireworkSound(): FestivalFireworkSound | null {
   if (typeof window === 'undefined' || !window.AudioContext) return null;
   let ctx: AudioContext;
   try { ctx = new window.AudioContext(); } catch { return null; }
-  const master = ctx.createGain();
-  // Keep overlapping bursts modest, without external sound files or any network calls.
-  master.gain.value = 0.16;
-  master.connect(ctx.destination);
-  let stopped = false;
-  const noise = ctx.createBuffer(1, Math.max(1, Math.round(ctx.sampleRate * .7)), ctx.sampleRate);
-  const samples = noise.getChannelData(0);
-  let seed = 123456789;
-  for (let i = 0; i < samples.length; i += 1) {
-    seed = (Math.imul(seed, 1664525) + 1013904223) | 0;
-    samples[i] = ((seed >>> 0) / 2147483648) - 1;
-  }
 
-  const launch = (index: number) => {
-    if (stopped || ctx.state !== 'running') return;
-    const at = ctx.currentTime;
-    const oscillator = ctx.createOscillator();
-    const gain = ctx.createGain();
-    oscillator.type = 'sine';
-    oscillator.frequency.setValueAtTime(310 + index * 21, at);
-    oscillator.frequency.exponentialRampToValueAtTime(950 + index * 31, at + 1.45);
-    gain.gain.setValueAtTime(.0001, at);
-    gain.gain.exponentialRampToValueAtTime(.055, at + .08);
-    gain.gain.exponentialRampToValueAtTime(.0001, at + 1.7);
-    oscillator.connect(gain);
-    gain.connect(master);
-    oscillator.start(at);
-    oscillator.stop(at + 1.72);
+  const controller = new AbortController();
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -16;
+  limiter.ratio.value = 5;
+  limiter.attack.value = 0.003;
+  limiter.release.value = 0.18;
+  const master = ctx.createGain();
+  master.gain.value = 0.24; // Quiet, even when several fireworks overlap.
+  master.connect(limiter);
+  limiter.connect(ctx.destination);
+
+  let stopped = false;
+  let clips: RecordedClips | null = null;
+  let pending: Promise<void> | null = null;
+
+  const load = async (name: 'rocket-real.mp3' | 'crackle-real.mp3'): Promise<AudioBuffer> => {
+    // Vite serves public/ at BASE_URL; EXE and Web use their own same-origin assets.
+    const assetUrl = new URL(import.meta.env.BASE_URL + 'audio/festival/' + name, window.location.origin);
+    if (assetUrl.origin !== window.location.origin) throw new Error('Fireworks audio must be same-origin');
+    const response = await fetch(assetUrl.href, {
+      signal: controller.signal,
+      credentials: 'same-origin',
+      cache: 'force-cache',
+    });
+    if (!response.ok) throw new Error('Bundled fireworks recording unavailable: ' + response.status);
+    const bytes = await response.arrayBuffer();
+    if (bytes.byteLength < 2000 || bytes.byteLength > 1_000_000) throw new Error('Invalid fireworks recording');
+    if (stopped) throw new Error('Fireworks audio stopped');
+    return ctx.decodeAudioData(bytes);
   };
 
-  const burst = (index: number) => {
+  // Trim and fade real recorded segments, with slight variation in speed and depth.
+  // No oscillator/noise generator: every audible sample originates in the recordings.
+  const play = (
+    buffer: AudioBuffer, offset: number, limit: number, volume: number,
+    rate: number, delay = 0, lowpass = 5500,
+  ) => {
     if (stopped || ctx.state !== 'running') return;
-    const at = ctx.currentTime;
-    const crack = ctx.createBufferSource();
-    crack.buffer = noise;
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(1900 + index * 65, at);
-    filter.frequency.exponentialRampToValueAtTime(380, at + .5);
-    const crackGain = ctx.createGain();
-    crackGain.gain.setValueAtTime(.0001, at);
-    crackGain.gain.exponentialRampToValueAtTime(.22, at + .012);
-    crackGain.gain.exponentialRampToValueAtTime(.0001, at + .57);
-    crack.connect(filter);
-    filter.connect(crackGain);
-    crackGain.connect(master);
-    crack.start(at);
-    crack.stop(at + .58);
-
-    const boom = ctx.createOscillator();
-    const boomGain = ctx.createGain();
-    boom.type = 'triangle';
-    boom.frequency.setValueAtTime(105 + index * 3, at);
-    boom.frequency.exponentialRampToValueAtTime(47, at + .32);
-    boomGain.gain.setValueAtTime(.0001, at);
-    boomGain.gain.exponentialRampToValueAtTime(.13, at + .025);
-    boomGain.gain.exponentialRampToValueAtTime(.0001, at + .35);
-    boom.connect(boomGain);
-    boomGain.connect(master);
-    boom.start(at);
-    boom.stop(at + .36);
-
-    for (let j = 0; j < 3; j += 1) {
-      const t = at + .16 + j * .12;
-      const sparkle = ctx.createOscillator();
-      const volume = ctx.createGain();
-      sparkle.type = 'triangle';
-      sparkle.frequency.setValueAtTime(950 + ((index * 71 + j * 137) % 800), t);
-      sparkle.frequency.exponentialRampToValueAtTime(400 + j * 80, t + .075);
-      volume.gain.setValueAtTime(.0001, t);
-      volume.gain.exponentialRampToValueAtTime(.027, t + .008);
-      volume.gain.exponentialRampToValueAtTime(.0001, t + .09);
-      sparkle.connect(volume);
-      volume.connect(master);
-      sparkle.start(t);
-      sparkle.stop(t + .095);
-    }
+    const length = Math.min(limit, buffer.duration - offset);
+    if (length <= 0.08) return;
+    const start = ctx.currentTime + delay;
+    const duration = length / rate;
+    const source = ctx.createBufferSource();
+    const eq = ctx.createBiquadFilter();
+    const gain = ctx.createGain();
+    source.buffer = buffer;
+    source.playbackRate.value = rate;
+    eq.type = 'lowpass';
+    eq.frequency.value = lowpass;
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.linearRampToValueAtTime(volume, start + Math.min(0.018, duration * 0.12));
+    gain.gain.setValueAtTime(volume, start + Math.max(0.025, duration - 0.095));
+    gain.gain.linearRampToValueAtTime(0.0001, start + duration);
+    source.connect(eq);
+    eq.connect(gain);
+    gain.connect(master);
+    source.start(start, offset, length);
+    source.stop(start + duration + 0.02);
+    source.onended = () => {
+      source.disconnect();
+      eq.disconnect();
+      gain.disconnect();
+    };
   };
 
   return {
-    resume: () => stopped ? Promise.reject(new Error('Audio has been stopped')) : ctx.resume(),
-    launch,
-    burst,
+    resume: () => {
+      if (stopped) return Promise.reject(new Error('Fireworks audio stopped'));
+      if (!pending) {
+        // Resume while still inside the click's user-activation flow.
+        pending = ctx.resume().then(async () => {
+          const [rocket, crackle] = await Promise.all([
+            load('rocket-real.mp3'),
+            load('crackle-real.mp3'),
+          ]);
+          if (stopped) throw new Error('Fireworks audio stopped');
+          clips = { rocket, crackle };
+        });
+      }
+      return pending;
+    },
+    launch: (index: number) => {
+      if (!clips || stopped) return;
+      const rate = 0.82 + (index % 5) * 0.025;
+      // Original recorded rocket whistle occupies the first ~1.13 seconds.
+      play(clips.rocket, 0, 1.12, 0.64, rate, 0, 4300);
+    },
+    burst: (index: number) => {
+      if (!clips || stopped) return;
+      const rate = 0.91 + (index % 4) * 0.026;
+      const distance = index % 3;
+      // Recorded firework impact, tail and natural ambience (not an electronic boom).
+      play(clips.rocket, 1.13, 2.0, distance === 0 ? 0.75 : 0.62, rate, 0, distance === 0 ? 6000 : 3800);
+      // An occasional outdoor firecracker tail gives a natural multi-pop, never a chirp.
+      if (index % 3 === 0) {
+        play(clips.crackle, 0.15, 1.75, 0.23, 0.94 + (index % 2) * 0.035, 0.18, 4000);
+      }
+    },
     stop: () => {
       if (stopped) return;
       stopped = true;
+      controller.abort();
+      clips = null;
       master.disconnect();
+      limiter.disconnect();
       void ctx.close().catch(() => {});
     },
   };
