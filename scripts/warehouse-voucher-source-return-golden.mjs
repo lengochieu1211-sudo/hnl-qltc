@@ -21,18 +21,28 @@ for (const cmd of ['setCatalogHistory(previous.history)', 'setCatalogHistoryStar
 }
 assert.match(warehouse, /data-hnl-catalog-voucher-history-list="true"/, 'restore history inner scroll');
 assert.match(warehouse, /catalogHistoryViewportReturnRef\.current = \{/, 'save original history scroll and focus');
+assert.match(warehouse, /pageY: window\.scrollY/, 'capture Warehouse scroll before jumping to voucher');
+assert.match(warehouse, /window\.scrollTo\(\{ top: pending\.pageY, behavior: 'instant' \}\)/, 'restore Warehouse scroll behind source sheet');
 assert.match(warehouse, /target\?\.focus\(\{ preventScroll: true \}\)/, 'return focus to source voucher');
 assert.match(warehouse, /previous\.projectId !== currentProjectId/, 'cross-project catalog return prevented');
 
 // Crew detail return must persist on mobile remount and restore on PC without writing.
-assert.match(crew, /rememberCrewDetailForReturn\(\);\s*setSelectedTeamForDetail\(null\);\s*onOpenWarehouseVoucher\(voucherId\)/, 'crew source remembered before navigation');
-assert.match(crew, /viewport: \{ scrollTop: body\?\.scrollTop \|\| 0, openMaterialKeys \}/, 'persist crew body scroll + opened material rows');
+assert.match(crew, /rememberCrewDetailForReturn\(\);[\s\S]{0,270}onOpenWarehouseVoucher\(voucherId\)/, 'crew source snapshot remembered before opening voucher');
+const openTeamVoucher = crew.slice(crew.indexOf('const openTeamWarehouseVoucher'), crew.indexOf('const openRoomOnFloorPlan'));
+assert.doesNotMatch(openTeamVoucher, /setSelectedTeamForDetail\(null\)/, 'keep team modal mounted on PC when viewing voucher');
+assert.match(crew, /viewport: \{ scrollTop: body\?\.scrollTop \|\| 0, openMaterialKeys, openEquipmentKeys, pageY: window\.scrollY \}/, 'persist crew body scroll + opened material rows + source page');
+assert.match(crew, /activeSubTab, selectedDate, teamListSortBy, teamListSortOrder/, 'persist source Crew list tab and filters');
+assert.match(crew, /setActiveSubTab\(saved\.activeSubTab === 'teams' \? 'teams' : 'logs'\)/, 'mobile restores Crew list tab rather than defaulting to logs');
+assert.match(crew, /selectedTeamForDetail\?\.id === team\.id && detailModalTab === saved\.tab/, 'desktop keeps original modal as-is');
 assert.match(crew, /teamMaterialSortBy, teamMaterialSortOrder/, 'persist material sorting');
 assert.match(crew, /data-hnl-crew-team-modal-body="true"/, 'crew scroll restoration target');
 assert.match(crew, /data-hnl-team-material-voucher-details=\{line\.materialKey\}/, 'crew source material details restoration');
+assert.match(crew, /data-hnl-team-equipment-voucher-details=\{line\.equipmentKey\}/, 'crew source equipment details restoration');
 assert.match(crew, /tx\.sourceTeamId === selectedTeamForDetail\.id/, 'crew source only for exact team id');
 assert.match(crew, /if \(!saved\?\.restore\) return/, 'no unconditional session restore');
-assert.match(app, /navigateFromLink\('warehouse', 'crew-voucher'\)/, 'typed crew voucher return context');
+assert.match(app, /navigateFromLink\('warehouse', 'crew-voucher', 'crew'\)/, 'source is explicitly Crew even while another navigation is pending');
+assert.match(app, /if \(frame\.kind === 'crew-voucher'\) setWarehouseVoucherFocus\(null\)/, 'all Back paths discard single-use voucher request');
+assert.match(app, /if \(!preserveContextReturn\) \{\s*setContextReturnFrames\(\[\]\);\s*setWarehouseVoucherFocus\(null\)/, 'normal module navigation cannot re-open an obsolete source voucher');
 assert.match(app, /frame\.kind === 'crew-detail' \|\| frame\.kind === 'crew-voucher'/, 'crew modal session restoration triggered on Back');
 assert.match(app, /onReturnFromSourceVoucher=\{contextReturnFrames\.length > 0/, 'App only shows cross-module Back for recorded source');
 assert.match(app, /setWarehouseVoucherFocus\(null\); handleContextReturn\(\)/, 'clear single-use deep-link after return');

@@ -306,7 +306,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const catalogReturnItemKeyRef = useRef<string | null>(null);
   const catalogHistoryReturnRef = useRef<{ sheetTop: number; tableTop: number; focusKey: string; direction: TransactionType } | null>(null);
   const catalogVoucherJumpRef = useRef<string | null>(null);
-  const catalogHistoryViewportReturnRef = useRef<{ historyScrollTop: number; sheetScrollTop: number; voucherId: string } | null>(null);
+  const catalogHistoryViewportReturnRef = useRef<{ historyScrollTop: number; sheetScrollTop: number; voucherId: string; pageY: number } | null>(null);
   const [catalogVoucherReturn, setCatalogVoucherReturn] = useState<{
     projectId: string;
     voucherId: string;
@@ -316,6 +316,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     expandedDate: string | null;
     sheetScrollTop: number;
     historyScrollTop: number;
+    pageY: number;
     search: string;
     fromDate: string;
     toDate: string;
@@ -1494,6 +1495,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           const historyList = document.querySelector<HTMLElement>('[data-hnl-catalog-voucher-history-list]');
           if (body) body.scrollTop = pending.sheetScrollTop;
           if (historyList) historyList.scrollTop = pending.historyScrollTop;
+          // Scrolling to the source voucher moved the page behind this sheet.
+          // Restore the original Warehouse page too (important when closing the sheet).
+          window.scrollTo({ top: pending.pageY, behavior: 'instant' });
           const target = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-hnl-catalog-open-voucher]'))
             .find(button => button.dataset.hnlCatalogOpenVoucher === pending.voucherId);
           target?.focus({ preventScroll: true });
@@ -1774,6 +1778,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       projectId: currentProjectId, voucherId: current.id, history: catalogHistory,
       start: catalogHistoryStart, end: catalogHistoryEnd, expandedDate: expandedHistoryDate,
       sheetScrollTop: sheet?.scrollTop ?? 0, historyScrollTop: historyList?.scrollTop ?? 0,
+      pageY: window.scrollY,
       search: searchTerm, fromDate: warehouseFromDate, toDate: warehouseToDate,
       transactionType: filterType, kindFilter: inventoryKindFilter, expandedVoucherId: expandedInventoryId,
     });
@@ -1805,6 +1810,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     catalogHistoryViewportReturnRef.current = {
       historyScrollTop: previous.historyScrollTop,
       sheetScrollTop: previous.sheetScrollTop,
+      pageY: previous.pageY,
       voucherId: previous.voucherId,
     };
     catalogVoucherJumpRef.current = null;
