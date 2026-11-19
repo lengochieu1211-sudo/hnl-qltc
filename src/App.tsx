@@ -495,7 +495,10 @@ function AuthenticatedApp() {
   // Home -> Floor -> Crew -> Warehouse mounts only the final destination instead of
   // blocking the main thread with every intermediate screen.
   const navigateToTab = React.useCallback((tab: TabType, preserveContextReturn = false) => {
-    if (!preserveContextReturn) setContextReturnFrames([]);
+    if (!preserveContextReturn) {
+      setContextReturnFrames([]);
+      setWarehouseVoucherFocus(null); // Prevent stale source voucher reopening on a normal tab switch.
+    }
     const requestId = ++navigationRequestRef.current;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const sinceLastRequest = navigationLastRequestAtRef.current > 0
@@ -542,8 +545,8 @@ function AuthenticatedApp() {
     }, commitDelayMs);
   }, [isMobileRuntime]);
 
-  const navigateFromLink = React.useCallback((tab: TabType, kind: ContextReturnKind = 'tab') => {
-    const origin = navigationTargetRef.current || activeTabRef.current;
+  const navigateFromLink = React.useCallback((tab: TabType, kind: ContextReturnKind = 'tab', explicitOrigin?: TabType) => {
+    const origin = explicitOrigin || navigationTargetRef.current || activeTabRef.current;
     // A shortcut within the same module does not create an unusable return loop.
     if (origin !== tab || kind !== 'tab') {
       setContextReturnFrames((frames) => [...frames, {
@@ -7928,6 +7931,7 @@ function AuthenticatedApp() {
     const frame = contextReturnFrames[contextReturnFrames.length - 1];
     if (!frame) return;
     setContextReturnFrames((previous) => previous.slice(0, -1));
+    if (frame.kind === 'crew-voucher') setWarehouseVoucherFocus(null);
     if (frame.projectId !== activeProjectId) return;
     try {
       const storageKey = (frame.kind === 'crew-detail' || frame.kind === 'crew-voucher') ? 'qlct_crew_detail_return_v1'
@@ -8463,7 +8467,7 @@ function AuthenticatedApp() {
               onOpenWarehouseVoucher={(voucherId) => {
                 if (!isProjectRoleResolved || !inventory.some(item => item.id === voucherId && item.deletedAt == null)) return;
                 setWarehouseVoucherFocus(previous => ({ id: voucherId, projectId: activeProjectId, token: (previous?.token || 0) + 1 }));
-                navigateFromLink('warehouse', 'crew-voucher');
+                navigateFromLink('warehouse', 'crew-voucher', 'crew');
               }}
               onOpenExportPdf={() => setIsExportPdfOpen(true)}
               onExportExcel={handleExportExcel}

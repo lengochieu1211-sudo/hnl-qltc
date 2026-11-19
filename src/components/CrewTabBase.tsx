@@ -373,7 +373,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [dailyRecordSortOrder, setDailyRecordSortOrder] = useState<TeamSortOrder>('asc');
   const [teamListSortBy, setTeamListSortBy] = useState<'structure' | 'name' | 'leader' | 'count'>('structure');
   const [teamListSortOrder, setTeamListSortOrder] = useState<TeamSortOrder>('asc');
-  const teamReturnViewportRef = useRef<{ scrollTop: number; openMaterialKeys: string[] } | null>(null);
+  const teamReturnViewportRef = useRef<{ scrollTop: number; openMaterialKeys: string[]; pageY: number | null } | null>(null);
 
   const rememberCrewDetailForReturn = () => {
     if (!selectedTeamForDetail || !projectId) return;
@@ -387,7 +387,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         projectId, teamId: selectedTeamForDetail.id, tab: detailModalTab,
         defectFilter, teamDefectSortBy, teamDefectSortOrder,
         teamMaterialSortBy, teamMaterialSortOrder,
-        viewport: { scrollTop: body?.scrollTop || 0, openMaterialKeys },
+        activeSubTab, selectedDate, teamListSortBy, teamListSortOrder,
+        viewport: { scrollTop: body?.scrollTop || 0, openMaterialKeys, pageY: window.scrollY },
         createdAt: Date.now(), restore: false,
       }));
     } catch (_) { /* navigation still works when storage is unavailable */ }
@@ -407,7 +408,23 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       }
       const team = teams.find((item) => item.id === saved.teamId);
       if (!team) return; // Wait for authorized team data; never synthesize a team.
+      // On desktop the crew module is still mounted. Preserve the exact open modal,
+      // sort, expanded rows and scroll instead of tearing it down and rebuilding it.
+      if (selectedTeamForDetail?.id === team.id && detailModalTab === saved.tab) {
+        const viewport = saved.viewport;
+        teamReturnViewportRef.current = viewport && Number.isFinite(viewport.scrollTop)
+          ? { scrollTop: Math.max(0, viewport.scrollTop),
+              openMaterialKeys: Array.isArray(viewport.openMaterialKeys) ? viewport.openMaterialKeys.filter((key: unknown): key is string => typeof key === 'string') : [],
+              pageY: Number.isFinite(viewport.pageY) ? Math.max(0, viewport.pageY) : null }
+          : null;
+        sessionStorage.removeItem('qlct_crew_detail_return_v1');
+        return;
+      }
       setSelectedTeamForDetail(team);
+      setActiveSubTab(saved.activeSubTab === 'teams' ? 'teams' : 'logs');
+      if (typeof saved.selectedDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(saved.selectedDate)) setSelectedDate(saved.selectedDate);
+      if (['structure', 'name', 'leader', 'count'].includes(saved.teamListSortBy)) setTeamListSortBy(saved.teamListSortBy);
+      if (['asc', 'desc'].includes(saved.teamListSortOrder)) setTeamListSortOrder(saved.teamListSortOrder);
       setDetailModalTab(['rooms', 'materials', 'equipment', 'defects', 'logs'].includes(saved.tab) ? saved.tab : 'rooms');
       setDefectFilter(['all', 'open', 'resolved'].includes(saved.defectFilter) ? saved.defectFilter : 'all');
       if (['floor', 'room', 'status', 'due'].includes(saved.teamDefectSortBy)) setTeamDefectSortBy(saved.teamDefectSortBy);
@@ -417,11 +434,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       const savedViewport = saved.viewport;
       teamReturnViewportRef.current = savedViewport && Number.isFinite(savedViewport.scrollTop)
         ? { scrollTop: Math.max(0, savedViewport.scrollTop),
-            openMaterialKeys: Array.isArray(savedViewport.openMaterialKeys) ? savedViewport.openMaterialKeys.filter((key: unknown): key is string => typeof key === 'string') : [] }
+            openMaterialKeys: Array.isArray(savedViewport.openMaterialKeys) ? savedViewport.openMaterialKeys.filter((key: unknown): key is string => typeof key === 'string') : [],
+            pageY: Number.isFinite(savedViewport.pageY) ? Math.max(0, savedViewport.pageY) : null }
         : null;
       sessionStorage.removeItem('qlct_crew_detail_return_v1');
     } catch (_) { try { sessionStorage.removeItem('qlct_crew_detail_return_v1'); } catch (_) {} }
-  }, [isActive, projectId, teams]);
+  }, [isActive, projectId, teams, selectedTeamForDetail?.id, detailModalTab]);
 
   useEffect(() => {
     if (!isActive || !selectedTeamForDetail || !teamReturnViewportRef.current) return;
@@ -429,21 +447,26 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       const body = document.querySelector<HTMLElement>('[data-hnl-crew-team-modal-body]');
       const saved = teamReturnViewportRef.current;
       if (!body || !saved) return;
-      for (const detail of Array.from(body.querySelectorAll<HTMLDetailsElement>('[data-hnl-team-material-voucher-details]'))) {
+      const details = Array.from(body.querySelectorAll<HTMLDetailsElement>('[data-hnl-team-material-voucher-details]'));
+      if (detailModalTab === 'materials' && saved.openMaterialKeys.length > 0 && details.length === 0) return;
+      for (const detail of details) {
         detail.open = saved.openMaterialKeys.includes(detail.dataset.hnlTeamMaterialVoucherDetails || '');
       }
       body.scrollTop = saved.scrollTop;
+      if (saved.pageY !== null) window.scrollTo({ top: saved.pageY, behavior: 'instant' });
       teamReturnViewportRef.current = null;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [isActive, selectedTeamForDetail, detailModalTab]);
+  }, [isActive, selectedTeamForDetail, detailModalTab, selectedTeamMaterialReconciliation, selectedTeamEquipmentIssues]);
 
   const openTeamWarehouseVoucher = (voucherId: string) => {
     if (!roleResolved || !selectedTeamForDetail || !onOpenWarehouseVoucher) return;
     if (!inventory.some(tx => tx.id === voucherId && tx.type === 'out' && tx.deletedAt == null
       && tx.sourceTeamId === selectedTeamForDetail.id)) return;
     rememberCrewDetailForReturn();
-    setSelectedTeamForDetail(null);
+    // Do not clear the source team/modal: desktop hides (but retains) its component
+    // when Warehouse becomes active. Mobile unmounts and rehydrates from the guarded
+    // session snapshot when returning. This avoids blank or reset team details on Back.
     onOpenWarehouseVoucher(voucherId);
   };
 

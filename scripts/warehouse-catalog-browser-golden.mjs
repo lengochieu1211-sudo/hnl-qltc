@@ -63,6 +63,23 @@ assert((await history.innerText()).includes('12 Tấm'),label+': IN count');
 assert(!(await history.innerText()).includes('P0-OUT-20261013-003'),label+': IN/OUT mixed');
 const r=await history.boundingBox();assert(r&&r.y<size.height-90,label+': offscreen');
 assert.equal(await sheet.locator('[data-hnl-catalog-in-history]').count(),0,label+': catalog still obscures history');
+// Real two-way source voucher navigation. Test the exact *state after clicking Back*,
+// not only source-code markers (the earlier Golden missed this regression).
+const firstFrom=history.locator('input[type="date"]').first();
+await firstFrom.fill('2026-10-13');
+const pageYBefore=await page.evaluate(()=>window.scrollY);
+await history.locator('[data-hnl-catalog-open-voucher="P0-IN-20261013-001"]').click();
+await sheet.waitFor({state:'hidden'});
+const sourceCard=page.locator('[data-hnl-voucher-return-origin="catalog-history"]');
+await sourceCard.waitFor({state:'visible'});
+assert((await sourceCard.innerText()).includes('Chi tiết nhập kho'),label+': missing source-aware Back on IN voucher');
+await sourceCard.getByRole('button',{name:/Quay lại Chi tiết nhập kho/}).click();
+await sheet.waitFor({state:'visible'});
+await history.waitFor({state:'visible'});
+assert.equal(await history.locator('input[type="date"]').first().inputValue(),'2026-10-13',label+': Back lost original inbound history date filter');
+await history.getByText('Mã phiếu: P0-IN-20261013-001').waitFor({state:'visible'});
+assert(Math.abs(await page.evaluate(()=>window.scrollY)-pageYBefore)<=2,label+': Back left Warehouse scrolled to voucher behind sheet');
+// Nested Back must still find the exact Catalog rather than the Warehouse home.
 await sheet.getByRole('button',{name:/Danh mục kho/}).last().click();
 await sheet.locator('[data-hnl-catalog-out-history^="material:"]').first().click();
 await history.getByText('Mã phiếu: P0-OUT-20261013-003').waitFor({state:'visible'});
