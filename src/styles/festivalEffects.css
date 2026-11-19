@@ -23,20 +23,47 @@
 .hnl-festival-flower{position:absolute;top:-30px;opacity:0;will-change:transform;animation:hnl-flower-grow linear infinite}
 @keyframes hnl-flower-grow{0%{opacity:0;transform:translate3d(0,-30px,0) scale(.35) rotate(-30deg)}14%{opacity:.85;transform:translate3d(8px,13vh,0) scale(1) rotate(15deg)}85%{opacity:.85}100%{opacity:0;transform:translate3d(-25px,100vh,0) scale(.6) rotate(135deg)}}
 
-/* Fireworks: eight staggered bursts, separate white flash, tapered rays and ember halo.
-   Only the parent burst animates: children do not create individual JS/CSS frame loops. */
-.hnl-festival-burst{position:absolute;width:0;height:0;opacity:0;will-change:transform,opacity;animation:hnl-firework-burst ease-out infinite;filter:drop-shadow(0 0 3px var(--firework-main))}
-.hnl-festival-firework-flash{position:absolute;left:-7px;top:-7px;width:14px;height:14px;border-radius:50%;background:radial-gradient(circle,#fff 0 27%,var(--firework-shine) 40%,var(--firework-main) 55%,transparent 81%);box-shadow:0 0 12px 2px var(--firework-shine),0 0 16px 3px var(--firework-main)}
+/* Fireworks: eight fixed-budget timelines. A rocket rises before its uneven luminous burst.
+   Only flight, explosion, spark fall and central flash are animated per burst. */
+.hnl-festival-burst{position:absolute;width:0;height:0;filter:drop-shadow(0 0 3px var(--firework-main))}
+.hnl-festival-rocket{position:absolute;left:-2px;top:-12px;width:4px;height:19px;opacity:0;border-radius:50% 50% 35% 35%;pointer-events:none;background:linear-gradient(to bottom,transparent 0%,#fff 32%,var(--firework-shine) 51%,var(--firework-main) 86%,transparent);box-shadow:0 0 5px 2px var(--firework-main),0 0 11px 3px var(--firework-shine);will-change:transform,opacity;animation:hnl-firework-flight linear infinite}
+@keyframes hnl-firework-flight{
+  0%{opacity:0;transform:translate3d(0,58vh,0) scale(.5)}
+  2%{opacity:1;transform:translate3d(0,53vh,0) scale(.75)}
+  15%{opacity:.95;transform:translate3d(var(--rocket-sway),21vh,0) scale(1)}
+  26%{opacity:1;transform:translate3d(0,2vh,0) scale(.7)}
+  30%,100%{opacity:0;transform:translate3d(0,0,0) scale(.1)}
+}
+.hnl-festival-explosion{position:absolute;width:0;height:0;opacity:0;will-change:transform,opacity;animation:hnl-firework-burst ease-out infinite}
+.hnl-festival-firework-flash{position:absolute;left:-7px;top:-7px;width:14px;height:14px;border-radius:50%;background:radial-gradient(circle,#fff 0 27%,var(--firework-shine) 40%,var(--firework-main) 55%,transparent 81%);box-shadow:0 0 12px 2px var(--firework-shine),0 0 16px 3px var(--firework-main);animation:hnl-firework-flash linear infinite}
 .hnl-festival-ray{position:absolute;left:-1px;bottom:0;width:var(--ray-width);height:var(--ray-length);border-radius:100% 100% 35% 35%;transform-origin:50% 100%;transform:rotate(var(--ray-angle)) translateY(calc(-1 * var(--ray-distance)));background:linear-gradient(to bottom,transparent 0%,var(--firework-shine) 20%,#fff 35%,var(--firework-main) 77%,transparent 100%);box-shadow:0 0 3px 1px var(--firework-main),0 0 6px var(--firework-shine)}
 .hnl-festival-ray::before{content:"";position:absolute;top:0;left:-1px;width:4.4px;height:4.4px;border-radius:50%;background:var(--firework-shine);box-shadow:0 0 3px 1px var(--firework-main)}
+.hnl-festival-ember-field{position:absolute;left:0;top:0;opacity:.9;will-change:transform,opacity;animation:hnl-firework-embers ease-out infinite}
 .hnl-festival-ember{position:absolute;left:0;top:0;border-radius:50%;transform:translate3d(var(--ember-x),var(--ember-y),0);background:var(--firework-shine);box-shadow:0 0 0 .6px var(--firework-main),0 0 6px 2px var(--firework-main)}
 @keyframes hnl-firework-burst{
-  0%,26%,100%{opacity:0;transform:scale(.04)}
-  30%{opacity:.95;transform:scale(calc(var(--firework-scale) * .18))}
-  37%{opacity:1;transform:scale(calc(var(--firework-scale) * .48))}
-  47%{opacity:.96;transform:scale(calc(var(--firework-scale) * .84))}
-  57%{opacity:.76;transform:scale(var(--firework-scale))}
-  67%{opacity:.38;transform:translate3d(0,8px,0) scale(calc(var(--firework-scale) * 1.12))}
-  74%{opacity:0;transform:translate3d(0,14px,0) scale(calc(var(--firework-scale) * 1.18))}
+  0%,29%,100%{opacity:0;transform:scale(.03)}
+  30%{opacity:.98;transform:scale(calc(var(--firework-scale) * .1))}
+  36%{opacity:1;transform:scale(calc(var(--firework-scale) * .52))}
+  47%{opacity:.95;transform:scale(calc(var(--firework-scale) * .9))}
+  58%{opacity:.73;transform:translate3d(0,4px,0) scale(var(--firework-scale))}
+  70%{opacity:.34;transform:translate3d(0,18px,0) scale(calc(var(--firework-scale) * 1.1))}
+  81%{opacity:0;transform:translate3d(0,29px,0) scale(calc(var(--firework-scale) * 1.14))}
 }
+@keyframes hnl-firework-embers{
+  0%,29%{opacity:0;transform:translate3d(0,0,0)}
+  34%{opacity:1;transform:translate3d(0,0,0)}
+  52%{opacity:.88;transform:translate3d(0,8px,0)}
+  75%,100%{opacity:0;transform:translate3d(0,25px,0)}
+}
+@keyframes hnl-firework-flash{
+  0%,29%{opacity:0}
+  30%{opacity:1}
+  34%{opacity:.65}
+  39%,100%{opacity:0}
+}
+.hnl-festival-audio-control{position:fixed;right:18px;bottom:18px;z-index:20;pointer-events:auto}
+.hnl-festival-audio-toggle{display:flex;align-items:center;gap:7px;border:1px solid #64748b;border-radius:999px;background:rgba(15,23,42,.91);color:#fff;padding:9px 14px;font-size:12px;font-weight:700;line-height:1.3;cursor:pointer;box-shadow:0 3px 12px #0f172a33;user-select:none}
+.hnl-festival-audio-toggle:hover{background:#1e40af}
+.hnl-festival-audio-toggle:focus-visible{outline:3px solid #f59e0b;outline-offset:3px}
+.hnl-festival-audio-toggle:disabled{opacity:.65;cursor:not-allowed}
 @media(prefers-reduced-motion:reduce){.hnl-festival-overlay{display:none!important}.hnl-festival-overlay *{animation:none!important}}

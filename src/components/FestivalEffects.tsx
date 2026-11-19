@@ -1,5 +1,6 @@
-import React, { useEffect, useState, type CSSProperties } from 'react';
+import React, { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { isFestivalPcRuntime, type FestivalEffectMode } from '../utils/festivalEffectMode';
+import { createFestivalFireworkSound, type FestivalFireworkSound } from '../utils/festivalFireworkAudio';
 import '../styles/festivalEffects.css';
 
 /** Decorative-only PC layer. All particles are deterministic; no timers, assets or data writes. */
@@ -50,7 +51,7 @@ const FIREWORK_COLORS = [
   { main: '#2066b4', shine: '#dce8ff' },
 ] as const;
 
-// More frequent, overlapping fireworks, but only eight parent transforms are animated.
+// Bounded staggered rocket + explosion pairs; the snow and flower renderers are unchanged.
 const BURSTS = Array.from({ length: 8 }, (_, index) => ({
   left: 10 + variation(index, 10) * 80,
   top: 12 + variation(index, 11) * 43,
@@ -109,6 +110,19 @@ function Flower({ yellow }: { yellow: boolean }) {
 
 export const FestivalEffects: React.FC<{ mode: FestivalEffectMode; enabled: boolean }> = ({ mode, enabled }) => {
   const [ready, setReady] = useState(false);
+  // Per-session, opt-in only. Audio never touches Firestore, storage, or shared UI settings.
+  const [audioEnabled, setAudioEnabled] = useState(false);
+  const [audioSupported, setAudioSupported] = useState(true);
+  const soundRef = useRef<FestivalFireworkSound | null>(null);
+  const timersRef = useRef<Set<number>>(new Set());
+
+  const stopAudio = useCallback(() => {
+    timersRef.current.forEach(timeout => window.clearTimeout(timeout));
+    timersRef.current.clear();
+    soundRef.current?.stop();
+    soundRef.current = null;
+  }, []);
+
   useEffect(() => {
     if (!enabled || mode === 'off' || typeof window === 'undefined') { setReady(false); return; }
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -126,49 +140,119 @@ export const FestivalEffects: React.FC<{ mode: FestivalEffectMode; enabled: bool
       reducedMotion.removeEventListener?.('change', update);
     };
   }, [mode, enabled]);
+
+  useEffect(() => {
+    // Changing mode, hiding a tab, resizing to mobile or reduced-motion must stop all sound.
+    if (!ready || !enabled || mode !== 'fireworks') {
+      stopAudio();
+      setAudioEnabled(false);
+    }
+  }, [ready, mode, enabled, stopAudio]);
+  useEffect(() => () => stopAudio(), [stopAudio]);
+
+  const toggleAudio = () => {
+    if (soundRef.current) {
+      stopAudio();
+      setAudioEnabled(false);
+      return;
+    }
+    // This click is the only place that can create/resume an AudioContext.
+    const sound = createFestivalFireworkSound();
+    if (!sound) { setAudioSupported(false); return; }
+    soundRef.current = sound;
+    void sound.resume().then(() => {
+      if (soundRef.current === sound) setAudioEnabled(true);
+    }).catch(() => {
+      if (soundRef.current === sound) {
+        stopAudio();
+        setAudioEnabled(false);
+        setAudioSupported(false);
+      }
+    });
+  };
+
+  const onRocketLoop = (index: number, event: React.AnimationEvent<HTMLSpanElement>) => {
+    if (event.target !== event.currentTarget || event.animationName !== 'hnl-firework-flight') return;
+    const sound = soundRef.current;
+    if (!audioEnabled || !sound || document.hidden) return;
+    sound.launch(index);
+    // Explosion enters its peak at 30% of the shared 7.2s CSS cycle.
+    const timeout = window.setTimeout(() => {
+      timersRef.current.delete(timeout);
+      if (soundRef.current === sound && !document.hidden) sound.burst(index);
+    }, 2160);
+    timersRef.current.add(timeout);
+  };
+
   if (!ready || !enabled || mode === 'off') return null;
   const isBloom = ['apricot', 'peach', 'blossoms'].includes(mode);
   return (
-    <div className="hnl-festival-overlay" data-hnl-festival={mode} aria-hidden="true">
-      {mode === 'snow' && SNOW.map((flake, index) => (
-        <span key={index} className={`hnl-festival-snow hnl-festival-snow--depth-${flake.depth}`} style={{
-          left: `${flake.left}%`, width: flake.size, height: flake.size,
-          animationDelay: `${flake.delay}s`, animationDuration: `${flake.duration}s`,
-          '--snow-x25': `${flake.drift25}px`, '--snow-x50': `${flake.drift50}px`,
-          '--snow-x75': `${flake.drift75}px`, '--snow-x100': `${flake.drift100}px`,
-          '--snow-turn': `${flake.angle}deg`,
-        } as ParticleStyle}><Snowflake /></span>
-      ))}
-      {isBloom && BLOSSOMS.filter(p => mode === 'blossoms' || (mode === 'apricot' ? p.apricot : !p.apricot))
-        .map((p, index) => (
-          <span key={index} className="hnl-festival-flower" style={{
-            left: `${p.left}%`, width: p.size, height: p.size,
-            animationDelay: `${p.delay}s`, animationDuration: `${p.duration}s`,
-          }}><Flower yellow={p.apricot} /></span>
+    <>
+      <div className="hnl-festival-overlay" data-hnl-festival={mode} aria-hidden="true">
+        {mode === 'snow' && SNOW.map((flake, index) => (
+          <span key={index} className={`hnl-festival-snow hnl-festival-snow--depth-${flake.depth}`} style={{
+            left: `${flake.left}%`, width: flake.size, height: flake.size,
+            animationDelay: `${flake.delay}s`, animationDuration: `${flake.duration}s`,
+            '--snow-x25': `${flake.drift25}px`, '--snow-x50': `${flake.drift50}px`,
+            '--snow-x75': `${flake.drift75}px`, '--snow-x100': `${flake.drift100}px`,
+            '--snow-turn': `${flake.angle}deg`,
+          } as ParticleStyle}><Snowflake /></span>
         ))}
-      {mode === 'fireworks' && BURSTS.map((burst, index) => (
-        <span key={index} className="hnl-festival-burst" style={{
-          left: `${burst.left}%`, top: `${burst.top}%`,
-          animationDelay: `${burst.delay}s`, animationDuration: `${burst.duration}s`,
-          '--firework-scale': `${burst.scale}`, '--firework-main': burst.colors.main,
-          '--firework-shine': burst.colors.shine,
-        } as ParticleStyle}>
-          <span className="hnl-festival-firework-flash" />
-          {FIREWORK_RAYS.map((ray, rayIndex) => (
-            <span key={rayIndex} className="hnl-festival-ray" style={{
-              '--ray-angle': `${(ray.angle + variation(index * 29 + rayIndex, 29) * 19) % 360}deg`,
-              '--ray-distance': `${ray.distance * burst.scale}px`, '--ray-length': `${ray.length}px`,
-              '--ray-width': `${ray.width}px`,
-            } as ParticleStyle} />
+        {isBloom && BLOSSOMS.filter(p => mode === 'blossoms' || (mode === 'apricot' ? p.apricot : !p.apricot))
+          .map((p, index) => (
+            <span key={index} className="hnl-festival-flower" style={{
+              left: `${p.left}%`, width: p.size, height: p.size,
+              animationDelay: `${p.delay}s`, animationDuration: `${p.duration}s`,
+            }}><Flower yellow={p.apricot} /></span>
           ))}
-          {FIREWORK_EMBERS.map((ember, emberIndex) => (
-            <span key={emberIndex} className="hnl-festival-ember" style={{
-              '--ember-x': `${ember.x}px`, '--ember-y': `${ember.y}px`,
-              width: ember.size, height: ember.size,
+        {mode === 'fireworks' && BURSTS.map((burst, index) => (
+          <span key={index} className="hnl-festival-burst" style={{
+            left: `${burst.left}%`, top: `${burst.top}%`,
+            '--firework-scale': `${burst.scale}`, '--firework-main': burst.colors.main,
+            '--firework-shine': burst.colors.shine,
+          } as ParticleStyle}>
+            <span className="hnl-festival-rocket" onAnimationIteration={event => onRocketLoop(index, event)} style={{
+              animationDelay: `${burst.delay}s`, animationDuration: `${burst.duration}s`,
+              '--rocket-sway': `${Math.round((variation(index, 31) - .5) * 30)}px`,
             } as ParticleStyle} />
-          ))}
-        </span>
-      ))}
-    </div>
+            <span className="hnl-festival-explosion" style={{
+              animationDelay: `${burst.delay}s`, animationDuration: `${burst.duration}s`,
+            }}>
+              <span className="hnl-festival-firework-flash" style={{
+                animationDelay: `${burst.delay}s`, animationDuration: `${burst.duration}s`,
+              }} />
+              {FIREWORK_RAYS.map((ray, rayIndex) => (
+                <span key={rayIndex} className="hnl-festival-ray" style={{
+                  '--ray-angle': `${(ray.angle + variation(index * 29 + rayIndex, 29) * 19) % 360}deg`,
+                  '--ray-distance': `${ray.distance * burst.scale}px`, '--ray-length': `${ray.length}px`,
+                  '--ray-width': `${ray.width}px`,
+                } as ParticleStyle} />
+              ))}
+              <span className="hnl-festival-ember-field" style={{
+                animationDelay: `${burst.delay}s`, animationDuration: `${burst.duration}s`,
+              }}>
+                {FIREWORK_EMBERS.map((ember, emberIndex) => (
+                  <span key={emberIndex} className="hnl-festival-ember" style={{
+                    '--ember-x': `${ember.x}px`, '--ember-y': `${ember.y}px`,
+                    width: ember.size, height: ember.size,
+                  } as ParticleStyle} />
+                ))}
+              </span>
+            </span>
+          </span>
+        ))}
+      </div>
+      {mode === 'fireworks' && (
+        <div className="hnl-festival-audio-control" data-hnl-fireworks-audio="true">
+          <button type="button" className="hnl-festival-audio-toggle" aria-pressed={audioEnabled}
+            aria-label={audioSupported ? `Âm thanh pháo hoa: ${audioEnabled ? 'Bật' : 'Tắt'}` : 'Trình duyệt không hỗ trợ âm thanh pháo hoa'}
+            title="Âm thanh pháo hoa chỉ bật khi bạn nhấn nút"
+            disabled={!audioSupported} onClick={toggleAudio}>
+            <span aria-hidden="true">{audioEnabled ? '🔊' : '🔇'}</span>
+            <span>{audioSupported ? `Âm thanh: ${audioEnabled ? 'Bật' : 'Tắt'}` : 'Âm thanh không khả dụng'}</span>
+          </button>
+        </div>
+      )}
+    </>
   );
 };
