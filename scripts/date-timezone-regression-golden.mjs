@@ -52,3 +52,39 @@ assert.match(security, /vietnamDateInputToDayStartMs\(value, fallbackMs\)/);
 assert.match(security, /Asia\/Ho_Chi_Minh/);
 console.log('PASS date-timezone-regression-golden (86 assertions, 4 TZ + crew/audit guards)');
 
+
+
+/** Defect completion and overdue dates are civil VN days even on non-VN PCs. */
+const defectEntry = new URL('../src/utils/defectUtils.ts', import.meta.url).href;
+const defectScript = [
+  "import assert from 'node:assert/strict';",
+  "import {getDefectOverdueInfo} from " + JSON.stringify(defectEntry) + ";",
+  "const now=new Date('2026-11-17T17:02:00Z');",
+  "const calc=(dueDate,completedAt,status='Đã khắc phục')=>getDefectOverdueInfo({id:'D-1',dueDate,completedAt,status},now);",
+  "assert.equal(calc('2026-11-18','2026-11-18').daysDiff,0);",
+  "assert.equal(calc('2026-11-18','18/11/2026').daysDiff,0);",
+  "assert.equal(calc('2026-11-18','2026-11-17T17:00:00Z').daysDiff,0);",
+  "assert.equal(calc('2026-11-18','2026-11-17T16:59:59Z').daysDiff,-1);",
+  "assert.equal(calc('2026-11-17','2026-11-17T17:00:00Z').daysDiff,1);",
+  "assert.equal(calc('2026-03-08','2026-03-09').daysDiff,1);",
+  "assert.equal(calc('2026-11-18',undefined,'Đang sửa').daysDiff,0);",
+  "assert.equal(calc('2026-11-17',undefined,'Đang sửa').daysDiff,1);",
+  "assert.equal(calc('2026-11-19',undefined,'Đang sửa').daysDiff,-1);",
+  "assert.match(calc('2026-11-17','2026-11-18').shortText,/Trễ 1 ngày/);",
+  "assert.equal(calc('2026-11-18','2026-11-18').statusText,'✅ Hoàn thành đúng hạn');",
+  "assert.equal(calc('2026-02-30','2026-03-01').shortText,'Kiểm tra ngày');",
+  "assert.equal(getDefectOverdueInfo({id:'D-2',status:'Đã nghiệm thu'},now).daysDiff,0);",
+  "console.log('PASS Defect business date / late badges '+process.env.TZ);",
+].join('\n');
+for (const tz of ['Asia/Ho_Chi_Minh', 'UTC', 'America/Los_Angeles', 'Pacific/Auckland']) {
+  const test = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', defectScript], {
+    encoding: 'utf8', env: {...process.env, TZ: tz},
+  });
+  assert.equal(test.status, 0, 'Defect device timezone '+tz+': '+test.stdout+'\n'+test.stderr);
+  process.stdout.write(test.stdout);
+}
+const defectSource = readFileSync(new URL('../src/utils/defectUtils.ts', import.meta.url), 'utf8');
+assert.match(defectSource, /defectBusinessDayNumber/, 'Defect must normalize completed/due dates to Vietnam');
+assert.doesNotMatch(defectSource, /new Date\(dYear, dMonth - 1, dDay\)/, 'Defect may not construct local-midnight deadlines');
+assert.doesNotMatch(defectSource, /new Date\(parsed\.getFullYear\(\), parsed\.getMonth\(\), parsed\.getDate\(\)\)/, 'Defect may not re-interpret completedAt in device timezone');
+console.log('PASS Defect P2 cross-timezone regression (53 assertions + source guards)');
