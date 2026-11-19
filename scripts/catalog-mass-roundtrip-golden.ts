@@ -32,7 +32,8 @@ assert.match(warehouse,/syncGroupColumns=\{quickEditMode === 'norms' \? \[.*'kgP
 assert.match(warehouse,/kgPerUnit:\s*\(\(\) =>/,'quick equipment save must persist edited mass');
 assert.match(warehouse,/kgPerUnit:\s*norm\.kgPerUnit \?\? ''/);
 assert.match(warehouse,/totalKg:/,'quick stock must show derived mass');
-assert.match(warehouse,/kgConflict: activeMasses\.size > 1/,'catalog warns conflicting norms');
+assert.match(warehouse,/kgConflict: activeMasses\.size > 1/,'catalog retains conflict detection for orders');
+assert.doesNotMatch(warehouse,/<th scope="col" className="px-2 py-0 text-right">KL\/đơn vị \(kg\)<\/th>/,'catalog list should not show auxiliary kg column');
 assert.match(warehouse,/assertConsistentMaterialCatalogMass\(newNorms\)/,'Excel import checks duplicates');
 assert.match(norm,/readCatalogMassFromExcel/);
 assert.match(norm,/assertConsistentMaterialCatalogMass\(newNorms\)/);

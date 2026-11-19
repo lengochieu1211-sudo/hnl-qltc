@@ -72,7 +72,7 @@ import {
 } from '../utils/structureGroupUtils';
 
 type MaterialNeedSortKey = 'default' | 'material' | 'category' | 'unit' | 'remaining' | 'deficit' | 'stock';
-type WarehouseCatalogSortKey = 'name' | 'category' | 'unit' | 'kgPerUnit' | 'totalIn' | 'totalOut' | 'normQuantity' | 'currentStock';
+type WarehouseCatalogSortKey = 'name' | 'category' | 'unit' | 'totalIn' | 'totalOut' | 'normQuantity' | 'currentStock';
 
 interface WarehouseTabProps {
   isActive?: boolean;
@@ -93,6 +93,7 @@ interface WarehouseTabProps {
   onSyncSheets?: () => void;
   materialNorms: MaterialNorm[];
   returnToCatalogToken?: number;
+  focusVoucher?: { id: string; projectId: string; token: number } | null;
   onOpenNormModal: (tab?: 'material' | 'equipment', target?: { name: string; unit: string }, fromWarehouseCatalog?: boolean) => void;
   onOpenExportPdf?: () => void;
   onExportExcel?: () => void;
@@ -186,6 +187,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   onSyncSheets,
   materialNorms,
   returnToCatalogToken = 0,
+  focusVoucher = null,
   onOpenNormModal,
   onOpenExportPdf,
   onExportExcel,
@@ -1412,22 +1414,22 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     filePrefix:`HNL-QLTC-DANH-MUC-KHO-${warehouseCatalogTab.toUpperCase()}`,
     columns:warehouseCatalogTab === 'material' ? [
       {label:'STT',width:32},{label:'Tên vật tư / thiết bị',width:210},
-      {label:'Chủng loại',width:120},{label:'ĐVT',width:50},{label:'KL/đơn vị (kg)',width:90,numeric:true},
+      {label:'Chủng loại',width:120},{label:'ĐVT',width:50},
       {label:'Tổng nhập',width:66,numeric:true},{label:'Tổng xuất',width:66,numeric:true},
       {label:'Nhu cầu ĐM',width:76,numeric:true},{label:'Tồn kho',width:70,numeric:true},
       {label:'Nhập / ĐM (%)',width:79,numeric:true},
     ] : [
       {label:'STT',width:32},{label:'Tên thiết bị',width:210},
-      {label:'Nhóm thiết bị',width:120},{label:'ĐVT',width:50},{label:'KL/đơn vị (kg)',width:90,numeric:true},
+      {label:'Nhóm thiết bị',width:120},{label:'ĐVT',width:50},
       {label:'Tổng nhập',width:66,numeric:true},{label:'Tổng xuất',width:66,numeric:true},
       {label:'Tồn kho',width:70,numeric:true},
     ],
     rows:warehouseCatalogStockRows.map((item,index)=>warehouseCatalogTab === 'material' ? [
-      index+1,item.name,item.category,item.unit,item.kgPerUnit ?? '—',item.totalIn,item.totalOut,
+      index+1,item.name,item.category,item.unit,item.totalIn,item.totalOut,
       Number(item.normQuantity||0),item.currentStock,
       Number(item.normQuantity)>0
         ?Math.round(item.totalIn/Number(item.normQuantity)*10000)/100:'—',
-    ] : [index+1,item.name,item.category,item.unit,item.kgPerUnit ?? '—',item.totalIn,item.totalOut,item.currentStock]),
+    ] : [index+1,item.name,item.category,item.unit,item.totalIn,item.totalOut,item.currentStock]),
     // Material-only formulas: H = E - F; I = E / G x 100. Equipment has no norms.
     catalogStockFormulas:warehouseCatalogTab === 'material',
     footer:`${warehouseCatalogStockRows.length} dòng. Số liệu đọc từ danh mục và phiếu kho hiện có; không điều chỉnh tồn.`,
@@ -1699,6 +1701,24 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     });
     return () => window.cancelAnimationFrame(frame);
   }, [showWarehouseCatalog, filteredInventory]);
+
+  const handledExternalVoucherTokenRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!isActive || !focusVoucher || focusVoucher.projectId !== currentProjectId
+      || handledExternalVoucherTokenRef.current === focusVoucher.token) return;
+    const voucher = inventory.find(item => item.id === focusVoucher.id && item.deletedAt == null);
+    if (!roleResolved || !voucher) return;
+    handledExternalVoucherTokenRef.current = focusVoucher.token;
+    catalogVoucherJumpRef.current = voucher.id;
+    setShowWarehouseCatalog(false);
+    setCatalogHistory(null);
+    setFilterType('all');
+    setInventoryKindFilter('all');
+    setSearchTerm(voucher.id);
+    setWarehouseFromDate('');
+    setWarehouseToDate('');
+    setExpandedInventoryId(voucher.id);
+  }, [isActive, focusVoucher, currentProjectId, roleResolved, inventory]);
 
   const openCatalogHistoryVoucher = (entry: InventoryItem) => {
     // Protect against stale history rows and ID collisions after reconnect/project change.
@@ -2998,7 +3018,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               { key: 'name', label: warehouseCatalogTab === 'equipment' ? 'Tên thiết bị' : 'Tên vật tư', kind: 'alpha', defaultOrder: 'asc' },
               { key: 'category', label: warehouseCatalogTab === 'equipment' ? 'Nhóm thiết bị' : 'Chủng loại vật tư', kind: 'alpha', defaultOrder: 'asc' },
               { key: 'unit', label: 'ĐVT', kind: 'alpha', defaultOrder: 'asc' },
-              { key: 'kgPerUnit', label: 'KL/đơn vị (kg)', kind: 'number', defaultOrder: 'desc' },
               { key: 'totalIn', label: 'Nhập', kind: 'number', defaultOrder: 'desc' },
               { key: 'totalOut', label: 'Xuất', kind: 'number', defaultOrder: 'desc' },
               ...(warehouseCatalogTab === 'material'
@@ -3023,7 +3042,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   <th scope="col" className="px-2 py-0 text-left">Tên {warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'vật tư'}</th>
                   <th scope="col" className="px-2 py-0 text-left">{warehouseCatalogTab === 'equipment' ? 'Nhóm thiết bị' : 'Chủng loại vật tư'}</th>
                   <th scope="col" className="px-2 py-0 text-left">ĐVT</th>
-                  <th scope="col" className="px-2 py-0 text-right">KL/đơn vị (kg)</th>
                   <th scope="col" className="px-2 py-0 text-right">Nhập</th>
                   <th scope="col" className="px-2 py-0 text-right">Xuất</th>
                   {warehouseCatalogTab === 'material' && <th scope="col" className="px-2 py-0 text-right">Nhu cầu định mức</th>}
@@ -3033,7 +3051,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {warehouseCatalogStockRows.length === 0 ? (
-                  <tr><td colSpan={warehouseCatalogTab === 'material' ? 9 : 7} className="px-3 py-8 text-center text-xs text-slate-500">
+                  <tr><td colSpan={warehouseCatalogTab === 'material' ? 8 : 6} className="px-3 py-8 text-center text-xs text-slate-500">
                     {warehouseCatalogTab === 'equipment' ? 'Chưa có thiết bị. Bạn có thể thêm trước trong Vật tư & Thiết bị.' : 'Không có vật tư phù hợp.'}
                   </td></tr>
                 ) : warehouseCatalogStockRows.map((item) => (
@@ -3063,7 +3081,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     </td>
                     <td className="px-2 py-0 text-slate-500">{item.category}</td>
                     <td className="px-2 py-0 text-slate-600">{item.unit}</td>
-                    <td className="px-2 py-0 text-right" title={item.kgConflict ? 'Nhiều định mức khai báo kg/ĐVT không thống nhất; không tự lấy vào Đặt hàng' : 'Khối lượng mỗi đơn vị, không ảnh hưởng tồn kho'}>{item.kgConflict ? '⚠ Trùng KL' : item.kgPerUnit == null ? '—' : formatDecimal(item.kgPerUnit)}</td>
                     <td className="px-2 py-0 text-right">
                       <button type="button" data-hnl-catalog-in-history={item.key}
                         onClick={() => { rememberCatalogHistoryOrigin(item.key, 'in'); setCatalogHistory({ kind: warehouseCatalogTab, name: 'sourceName' in item ? item.sourceName : item.name, displayName: item.name, unit: item.unit, type: 'in', expectedTotal: item.totalIn }); setCatalogHistoryStart(''); setCatalogHistoryEnd(''); setExpandedHistoryDate(null); }}
