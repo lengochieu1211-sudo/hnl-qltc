@@ -457,7 +457,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       teamReturnViewportRef.current = null;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [isActive, selectedTeamForDetail, detailModalTab, selectedTeamMaterialReconciliation, selectedTeamEquipmentIssues]);
+  }, [isActive, selectedTeamForDetail, detailModalTab, inventory, materialNorms, workVolumes, roomProgressList, teams]);
 
   const openTeamWarehouseVoucher = (voucherId: string) => {
     if (!roleResolved || !selectedTeamForDetail || !onOpenWarehouseVoucher) return;
