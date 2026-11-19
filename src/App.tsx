@@ -663,6 +663,7 @@ function AuthenticatedApp() {
   const [materialNormInitialTarget, setMaterialNormInitialTarget] = useState<{ name: string; unit: string } | undefined>();
   const [materialNormFromWarehouseCatalog, setMaterialNormFromWarehouseCatalog] = useState(false);
   const [warehouseCatalogReturnToken, setWarehouseCatalogReturnToken] = useState(0);
+  const [warehouseVoucherFocus, setWarehouseVoucherFocus] = useState<{ id: string; projectId: string; token: number } | null>(null);
   const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
   const [projectManagerInitialTab, setProjectManagerInitialTab] = useState<'projects' | 'sync'>('projects');
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
@@ -8248,6 +8249,7 @@ function AuthenticatedApp() {
               onSyncSheets={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleSyncAll : undefined}
               materialNorms={computedMaterialNorms}
               returnToCatalogToken={warehouseCatalogReturnToken}
+              focusVoucher={warehouseVoucherFocus}
               onOpenNormModal={(tab = 'material', target, fromWarehouseCatalog = false) => {
                 setMaterialNormFromWarehouseCatalog(fromWarehouseCatalog);
                 setMaterialNormInitialTab(tab);
@@ -8273,10 +8275,11 @@ function AuthenticatedApp() {
               onImportInventory={handleImportInventory}
               onImportNorms={handleImportNorms}
               onRenameWarehouseUnit={handleRenameWarehouseUnit}
-              onCreateMaterialCatalog={({ materialName, unit, category }) => handleAddNorm({
+              onCreateMaterialCatalog={({ materialName, unit, category, kgPerUnit }) => handleAddNorm({
                 materialName,
                 unit,
                 category,
+                ...(kgPerUnit !== undefined ? { kgPerUnit } : {}),
                 quotaQuantity: 0,
                 unitNormPerM2: 0,
                 workCategories: [],
@@ -8451,6 +8454,11 @@ function AuthenticatedApp() {
               onDeleteCrewRecord={handleDeleteCrewRecord}
               onDeleteMultipleCrewRecords={handleDeleteMultipleCrewRecords}
               onCopyCrewRecordsFromDate={handleCopyCrewRecordsFromDate}
+              onOpenWarehouseVoucher={(voucherId) => {
+                if (!isProjectRoleResolved || !inventory.some(item => item.id === voucherId && item.deletedAt == null)) return;
+                setWarehouseVoucherFocus(previous => ({ id: voucherId, projectId: activeProjectId, token: (previous?.token || 0) + 1 }));
+                navigateFromLink('warehouse');
+              }}
               onOpenExportPdf={() => setIsExportPdfOpen(true)}
               onExportExcel={handleExportExcel}
               teams={teams}

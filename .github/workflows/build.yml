@@ -81,7 +81,11 @@ jobs:
         run: node scripts/festival-effects-golden.mjs
 
       - name: Catalog kgPerUnit → Warehouse order Golden
-        run: node --experimental-strip-types scripts/warehouse-order-catalog-mass-golden.mjs
+        run: node --experimental-strip-types scripts/warehouse-order-catalog-mass-golden.mjs && npx tsx scripts/catalog-mass-roundtrip-golden.ts
+      - name: Warehouse catalog history voucher link Golden
+        run: node scripts/warehouse-catalog-voucher-link-golden.mjs
+      - name: Crew team material/equipment source voucher Golden
+        run: node scripts/team-source-voucher-golden.mjs
 
       - name: Stability Gate
         run: npm run test:stability

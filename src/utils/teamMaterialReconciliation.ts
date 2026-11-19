@@ -14,6 +14,8 @@ export interface TeamMaterialReconciliationLine {
   expectedAssignedQty: number;
   expectedConstructedQty: number;
   issuedQty: number;
+  /** Exact warehouse OUT voucher IDs for the selected team. */
+  voucherIds?: string[];
   varianceQty: number;
   issuedVsConstructedPercent?: number;
   /** A catalog conflict makes expected quantities/variance unsafe to present. */
@@ -130,7 +132,7 @@ export function computeTeamMaterialReconciliation(params: {
     if (tx.issuePurpose === 'external-project' || tx.issuePurpose === 'other') return;
     const materialId = tx.materialId ? (aliasMap.get(String(tx.materialId)) || String(tx.materialId)) : undefined;
     const key = canonicalKey(materialId, tx.materialName, tx.unit);
-    const existing = lines.get(key) || {
+    const existing: TeamMaterialReconciliationLine = lines.get(key) || {
       materialKey: key,
       materialId,
       materialName: tx.materialName,
@@ -142,6 +144,7 @@ export function computeTeamMaterialReconciliation(params: {
       varianceQty: 0,
     };
     existing.issuedQty += Math.max(0, Number(tx.quantity) || 0);
+    existing.voucherIds = [...(existing.voucherIds || []), tx.id];
     lines.set(key, existing);
   });
 

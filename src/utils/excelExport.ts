@@ -10,6 +10,10 @@ import { saveWorkbookFile } from './fileExport';
 import { getCrewShiftCounts } from './crewUtils';
 import { computeWorkVolumeDetailBreakdown } from './workVolumeComputation';
 import { normalizeMathExpression } from './numberUtils';
+import type { EquipmentCatalogRecord } from '../lib/equipmentCatalog';
+import { consistentCatalogMass } from './warehouseOrderCatalogMass';
+import { normalizeUnit } from './unitUtils';
+import { normalizeLinkText } from './linkageIntegrity';
 import {
   getStructureGroupName,
   normalizeStructureGroupConfig,
@@ -216,6 +220,8 @@ function applyWarehouseStockFormulas(
   const stockCol = findWorksheetHeaderColumn(ws, 'Tồn Kho Thực Tế');
   const planCol = findWorksheetHeaderColumn(ws, 'Định Mức Tổng Kế Hoạch');
   const remainingPlanCol = findWorksheetHeaderColumn(ws, 'Còn Cần Theo Kế Hoạch');
+  const kgCol = findWorksheetHeaderColumn(ws, 'KL/đơn vị (kg)');
+  const kgStockCol = findWorksheetHeaderColumn(ws, 'KL tồn (kg)');
   if (totalInCol === null || totalOutCol === null || planCol === null) return;
 
   rows.forEach((row, index) => {
@@ -231,6 +237,16 @@ function applyWarehouseStockFormulas(
       `${totalInCell}-${totalOutCell}`,
       row['Tồn Kho Thực Tế'],
     );
+    if (kgCol !== null && kgStockCol !== null) {
+      const kgCell = `${XLSX.utils.encode_col(kgCol)}${sheetRow}`;
+      const stockCell = stockCol !== null ? `${XLSX.utils.encode_col(stockCol)}${sheetRow}` : '';
+      const mass = Number(row['KL/đơn vị (kg)']);
+      if (mass > 0 && stockCell) {
+        setCachedNumericFormula(ws,rowZeroBased,kgStockCol,
+          `IF(AND(ISNUMBER(${kgCell}),${kgCell}>0,ISNUMBER(${stockCell})),${kgCell}*${stockCell},"")`,
+          row['KL tồn (kg)']);
+      }
+    }
     setCachedNumericFormula(
       ws,
       rowZeroBased,
@@ -997,13 +1013,21 @@ export function exportMaterialNormTemplate(materialNorms?: MaterialNorm[]) {
     'Tên Hạng Mục Thi Công': n.workCategory || (n.workCategories ? n.workCategories.join(', ') : ''),
     'Tên Vật Tư': n.materialName,
     'Đơn Vị Tính': n.unit,
+    'KL/đơn vị (kg)': n.kgPerUnit ?? '',
     'Số Lượng Định Mức': n.quotaQuantity,
     'Định Mức Tiêu Hao (1m2)': n.unitNormPerM2 || 0,
     'ĐVT Khối Lượng Nguồn': n.normBasisUnit || 'm²',
     'Ghi Chú': n.notes || ''
   }));
 
-  const ws = XLSX.utils.json_to_sheet(templateData);
+  const templateHeaders = [
+    'STT', '__normId', '__materialId', '__workCategoryId', '__workCategoryIds',
+    '__workCategoryNormsById', '__inputExpressions', 'Phân Loại', 'Tên Hạng Mục Thi Công',
+    'Tên Vật Tư', 'Đơn Vị Tính', 'KL/đơn vị (kg)', 'Số Lượng Định Mức',
+    'Định Mức Tiêu Hao (1m2)', 'ĐVT Khối Lượng Nguồn', 'Ghi Chú',
+  ];
+  const ws = templateData.length ? XLSX.utils.json_to_sheet(templateData, { header: templateHeaders })
+    : XLSX.utils.aoa_to_sheet([templateHeaders]);
   applyMaterialNormInputFormulas(ws, materialNorms || []);
   autoFitColumns(ws);
   XLSX.utils.book_append_sheet(wb, ws, 'Dinh Muc Vat Tu');
@@ -1592,6 +1616,7 @@ export function exportWarehouseUpdateTemplate(
     roomProgressList?: RoomProgressItem[];
     teams?: TeamInfo[];
     structureConfig?: ProjectStructureConfig;
+    equipmentMaster?: EquipmentCatalogRecord[];
   },
 ) {
   const wb = XLSX.utils.book_new();
@@ -1717,6 +1742,7 @@ export function exportWarehouseUpdateTemplate(
       'Tên Hạng Mục Thi Công': workCatStr || '',
       'Tên Vật Tư': n.materialName,
       'Đơn Vị Tính': n.unit || 'Tấm',
+      'KL/đơn vị (kg)': n.kgPerUnit ?? '',
       'Số Lượng Định Mức': n.quotaQuantity || 0,
       'Định Mức Hao Phí / m2': n.unitNormPerM2 || 0,
       'ĐVT Khối Lượng Nguồn': n.normBasisUnit || 'm²',
@@ -1727,7 +1753,7 @@ export function exportWarehouseUpdateTemplate(
   const normHeaders = [
     'STT', '__normId', '__materialId', '__workCategoryId', '__workCategoryIds',
     '__workCategoryNormsById', '__inputExpressions', 'Chủng Loại', 'Tên Hạng Mục Thi Công', 'Tên Vật Tư',
-    'Đơn Vị Tính', 'Số Lượng Định Mức', 'Định Mức Hao Phí / m2',
+    'Đơn Vị Tính', 'KL/đơn vị (kg)', 'Số Lượng Định Mức', 'Định Mức Hao Phí / m2',
     'ĐVT Khối Lượng Nguồn', 'Ghi Chú',
   ];
   const wsNorms = templateNormData.length > 0
@@ -1738,8 +1764,28 @@ export function exportWarehouseUpdateTemplate(
   wsNorms['!cols'] = (wsNorms['!cols'] || []).map((col, index) =>
     index >= 1 && index <= 5 ? { ...col, hidden: true } : col
   );
-  wsNorms['!autofilter'] = { ref: `A1:O${Math.max(2, templateNormData.length + 1)}` };
+  wsNorms['!autofilter'] = { ref: `A1:P${Math.max(2, templateNormData.length + 1)}` };
   XLSX.utils.book_append_sheet(wb, wsNorms, 'Định Mức Vật Tư');
+
+  // 3b. Equipment master metadata; do not conflate with warehouse voucher quantity.
+  const equipmentHeaders = [
+    '__catalogId','__catalogRevision','Tên định danh thiết bị','Tên thiết bị','Đơn Vị Tính',
+    'Nhóm thiết bị','KL/đơn vị (kg)','Hãng','Model','Thông số kỹ thuật','Ghi Chú',
+  ];
+  const equipmentRows = (context?.equipmentMaster || []).filter(item => item.deletedAt == null).map(item => ({
+    '__catalogId':item.id,'__catalogRevision':item.revision,
+    'Tên định danh thiết bị':item.name,'Tên thiết bị':item.displayName || item.name,
+    'Đơn Vị Tính':item.unit,'Nhóm thiết bị':item.category,
+    'KL/đơn vị (kg)':item.kgPerUnit ?? '',
+    'Hãng':item.brand || '', 'Model':item.model || '',
+    'Thông số kỹ thuật':item.specifications || '', 'Ghi Chú':item.notes || '',
+  }));
+  const wsEquipment = equipmentRows.length
+    ? XLSX.utils.json_to_sheet(equipmentRows,{header:equipmentHeaders})
+    : XLSX.utils.aoa_to_sheet([equipmentHeaders]);
+  autoFitColumns(wsEquipment);
+  wsEquipment['!cols']=(wsEquipment['!cols']||[]).map((col,i)=>i<2?{...col,hidden:true}:col);
+  XLSX.utils.book_append_sheet(wb,wsEquipment,'Danh Mục Thiết Bị');
 
   // 4. Sheet "Hạng Mục Thi Công (Chỉ xem)" — reference-only here; edit it in WorkVolume.
   const workVolumeData = (workVolumes || []).map((item, idx) => ({
@@ -1775,6 +1821,22 @@ export function exportWarehouseUpdateTemplate(
 
   // 5. Sheet "Tồn Kho Hiện Tại" (Calculated using unified calculateStockSummary)
   const stockSummaries = calculateStockSummary(inventory || [], materialNorms || []);
+  const stockMasses = new Map<string, number | null>();
+  (materialNorms || []).filter(norm => norm.deletedAt == null).forEach(norm => {
+    const key = `${normalizeLinkText(norm.materialName)}|${normalizeLinkText(normalizeUnit(norm.unit) || norm.unit)}`;
+    const matching = (materialNorms || []).filter(candidate => candidate.deletedAt == null
+      && `${normalizeLinkText(candidate.materialName)}|${normalizeLinkText(normalizeUnit(candidate.unit) || candidate.unit)}` === key);
+    stockMasses.set(key, consistentCatalogMass(matching.map(item => item.kgPerUnit)));
+  });
+  const massFor = (s: (typeof stockSummaries)[number]): number | null => {
+    if(s.itemKind === 'equipment') {
+      const record=context?.equipmentMaster?.find(item=>item.deletedAt == null
+        && normalizeLinkText(item.name) === normalizeLinkText(s.materialName)
+        && (normalizeUnit(item.unit)||item.unit) === (normalizeUnit(s.unit)||s.unit));
+      return record?.kgPerUnit ?? null;
+    }
+    return stockMasses.get(`${normalizeLinkText(s.materialName)}|${normalizeLinkText(normalizeUnit(s.unit)||s.unit)}`) ?? null;
+  };
   const stockData = stockSummaries.map((s, idx) => ({
     'STT': idx + 1,
     '__itemKind': s.itemKind,
@@ -1783,6 +1845,8 @@ export function exportWarehouseUpdateTemplate(
     'Chủng Loại': s.category,
     'Tên Vật Tư / Thiết Bị': s.materialName,
     'Đơn Vị Tính': s.unit,
+    'KL/đơn vị (kg)': massFor(s) ?? '',
+    'KL tồn (kg)': massFor(s) != null ? s.currentStock * massFor(s)! : '',
     'Tổng Nhập Kho': s.totalIn,
     'Tổng Xuất Kho': s.totalOut,
     'Tồn Kho Thực Tế': s.currentStock,
@@ -1793,7 +1857,7 @@ export function exportWarehouseUpdateTemplate(
 
   const stockHeaders = [
     'STT', '__itemKind', '__materialId', 'Loại Hàng', 'Chủng Loại',
-    'Tên Vật Tư / Thiết Bị', 'Đơn Vị Tính', 'Tổng Nhập Kho', 'Tổng Xuất Kho',
+    'Tên Vật Tư / Thiết Bị', 'Đơn Vị Tính', 'KL/đơn vị (kg)', 'KL tồn (kg)', 'Tổng Nhập Kho', 'Tổng Xuất Kho',
     'Tồn Kho Thực Tế', 'Định Mức Tổng Kế Hoạch', 'Còn Cần Theo Kế Hoạch', 'Trạng Thái Tồn Kho',
   ];
   const wsStock = stockData.length > 0

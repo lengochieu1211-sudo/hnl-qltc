@@ -116,6 +116,8 @@ interface CrewTabProps {
   onCopyCrewRecordsFromDate: (sourceDate: string, targetDate: string) => void;
   onOpenExportPdf?: () => void;
   onExportExcel?: () => void;
+  /** Open a current-project source voucher by immutable ID; navigation only. */
+  onOpenWarehouseVoucher?: (voucherId: string) => void;
   teams?: TeamInfo[];
   onUpdateTeams?: (teams: TeamInfo[], options?: { quickEditUpsertIds: string[] }) => void;
 }
@@ -241,6 +243,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   onCopyCrewRecordsFromDate,
   onOpenExportPdf,
   onExportExcel,
+  onOpenWarehouseVoucher,
   teams: propTeams,
   onUpdateTeams,
 }) => {
@@ -4122,7 +4125,27 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                   </td>
                                   <td className="p-2 text-right font-semibold">{line.integrityWarning ? 'Chưa xác định' : `${formatDecimal(line.expectedAssignedQty)} ${line.unit}`}</td>
                                   <td className="p-2 text-right font-extrabold text-indigo-700">{line.integrityWarning ? 'Chưa xác định' : `${formatDecimal(line.expectedConstructedQty)} ${line.unit}`}</td>
-                                  <td className="p-2 text-right font-extrabold text-cyan-700">{formatDecimal(line.issuedQty)} {line.unit}</td>
+                                  <td className="p-2 text-right font-extrabold text-cyan-700">
+                                    {formatDecimal(line.issuedQty)} {line.unit}
+                                    {(line.voucherIds?.length || 0) > 0 && (
+                                      <details className="mt-1 text-left text-[10px] font-normal text-slate-600">
+                                        <summary className="cursor-pointer font-bold text-cyan-700">Xem {line.voucherIds?.length} phiếu xuất</summary>
+                                        <div className="mt-1 space-y-1">
+                                          {line.voucherIds?.map(id => {
+                                            const voucher = structureScopedInventory.find(item => item.id === id && item.type === 'out' && item.deletedAt == null);
+                                            return voucher ? <button type="button" key={id}
+                                              data-hnl-team-material-voucher={id}
+                                              disabled={!roleResolved || !onOpenWarehouseVoucher}
+                                              onClick={() => onOpenWarehouseVoucher?.(id)}
+                                              className="block w-full rounded-md border border-cyan-200 bg-cyan-50 p-1.5 text-left font-semibold text-cyan-800 hover:bg-cyan-100 disabled:opacity-60"
+                                              title={`Mở phiếu xuất kho ${id}`}>
+                                              {formatDateDDMMYYYY(voucher.date)} · {formatDecimal(voucher.quantity)} {voucher.unit} · {id}
+                                            </button> : null;
+                                          })}
+                                        </div>
+                                      </details>
+                                    )}
+                                  </td>
                                   <td className={`p-2 text-right font-extrabold ${over ? 'text-rose-700' : under ? 'text-amber-700' : 'text-emerald-700'}`}>
                                     {line.integrityWarning ? 'Chưa xác định' : `${line.varianceQty > 0 ? '+' : ''}${formatDecimal(line.varianceQty)} ${line.unit}`}
                                   </td>
@@ -4177,6 +4200,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                           {voucher.handler && <span> · {voucher.handler}</span>}
                                           {voucher.notes && <div className="mt-0.5 text-slate-500">{voucher.notes}</div>}
                                           <div className="mt-0.5 text-[10px] text-slate-500 select-text" title={voucher.id}>Mã phiếu: {voucher.id}</div>
+                                          <button type="button" data-hnl-team-equipment-voucher={voucher.id}
+                                            disabled={!roleResolved || !onOpenWarehouseVoucher}
+                                            onClick={() => onOpenWarehouseVoucher?.(voucher.id)}
+                                            className="mt-1 min-h-8 rounded-md border border-blue-200 bg-blue-50 px-2 font-bold text-blue-700 hover:bg-blue-100 disabled:opacity-60">
+                                            Xem phiếu xuất gốc
+                                          </button>
                                         </div>
                                       ))}
                                     </div>
