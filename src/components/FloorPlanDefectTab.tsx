@@ -12049,6 +12049,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         setShowManageFloorsModal(false);
                       }}
                       onKeyDown={(event) => {
+                        // Children (rename input/checkbox/buttons) own their keyboard input.
+                        // Only use Space and Enter to activate the focused floor card itself.
+                        if (event.target !== event.currentTarget) return;
                         if (event.key !== 'Enter' && event.key !== ' ') return;
                         event.preventDefault();
                         if (isEditingThis) return;
