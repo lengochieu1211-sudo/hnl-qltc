@@ -1,5 +1,5 @@
 import { DesktopWorkspaceMetrics } from './DesktopWorkspaceMetrics';
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { assertSafeExcelImportFile } from '../utils/excelImportUtils';
 import { 
