@@ -91,6 +91,21 @@ const CrewPhotoCount: React.FC<{ projectId?: string; recordId: string }> = ({ pr
   );
 };
 
+/** Ephemeral UI snapshot for exact return from an issued warehouse voucher. No Firestore write. */
+export interface CrewVoucherOrigin {
+  projectId: string;
+  teamId: string;
+  tab: 'rooms' | 'materials' | 'equipment' | 'defects' | 'logs';
+  activeSubTab: 'logs' | 'teams';
+  defectFilter: 'all' | 'open' | 'resolved';
+  teamDefectSortBy: 'floor' | 'room' | 'status' | 'due';
+  teamDefectSortOrder: 'asc' | 'desc';
+  teamMaterialSortBy: 'name' | 'issued' | 'expected' | 'variance';
+  teamMaterialSortOrder: 'asc' | 'desc';
+  viewport: { scrollTop: number; openMaterialKeys: string[]; openEquipmentKeys: string[]; pageScrollY: number };
+}
+export type CrewVoucherReturnRequest = CrewVoucherOrigin & { token: number };
+
 interface CrewTabProps {
   isActive?: boolean;
   quickEditEnabled?: boolean;
@@ -117,7 +132,9 @@ interface CrewTabProps {
   onOpenExportPdf?: () => void;
   onExportExcel?: () => void;
   /** Open a current-project source voucher by immutable ID; navigation only. */
-  onOpenWarehouseVoucher?: (voucherId: string) => void;
+  onOpenWarehouseVoucher?: (voucherId: string, origin: CrewVoucherOrigin) => void;
+  voucherReturnRequest?: CrewVoucherReturnRequest | null;
+  onVoucherReturnRestored?: (token: number) => void;
   teams?: TeamInfo[];
   onUpdateTeams?: (teams: TeamInfo[], options?: { quickEditUpsertIds: string[] }) => void;
 }
@@ -244,6 +261,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   onOpenExportPdf,
   onExportExcel,
   onOpenWarehouseVoucher,
+  voucherReturnRequest = null,
+  onVoucherReturnRestored,
   teams: propTeams,
   onUpdateTeams,
 }) => {
@@ -373,24 +392,30 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [dailyRecordSortOrder, setDailyRecordSortOrder] = useState<TeamSortOrder>('asc');
   const [teamListSortBy, setTeamListSortBy] = useState<'structure' | 'name' | 'leader' | 'count'>('structure');
   const [teamListSortOrder, setTeamListSortOrder] = useState<TeamSortOrder>('asc');
-  const teamReturnViewportRef = useRef<{ scrollTop: number; openMaterialKeys: string[] } | null>(null);
+  const teamReturnViewportRef = useRef<CrewVoucherOrigin['viewport'] | null>(null);
+
+  const captureCrewVoucherOrigin = (): CrewVoucherOrigin | null => {
+    if (!selectedTeamForDetail || !projectId) return null;
+    const body = document.querySelector<HTMLElement>('[data-hnl-crew-team-modal-body]');
+    const openMaterialKeys = Array.from(body?.querySelectorAll<HTMLDetailsElement>('[data-hnl-team-material-voucher-details]') || [])
+      .filter(detail => detail.open).map(detail => detail.dataset.hnlTeamMaterialVoucherDetails || '').filter(Boolean);
+    const openEquipmentKeys = Array.from(body?.querySelectorAll<HTMLDetailsElement>('[data-hnl-team-equipment-voucher-details]') || [])
+      .filter(detail => detail.open).map(detail => detail.dataset.hnlTeamEquipmentVoucherDetails || '').filter(Boolean);
+    return {
+      projectId, teamId: selectedTeamForDetail.id, tab: detailModalTab, activeSubTab,
+      defectFilter, teamDefectSortBy, teamDefectSortOrder, teamMaterialSortBy, teamMaterialSortOrder,
+      viewport: { scrollTop: body?.scrollTop || 0, openMaterialKeys, openEquipmentKeys, pageScrollY: window.scrollY },
+    };
+  };
 
   const rememberCrewDetailForReturn = () => {
-    if (!selectedTeamForDetail || !projectId) return;
+    const snapshot = captureCrewVoucherOrigin();
+    if (!snapshot) return;
     try {
-      const body = document.querySelector<HTMLElement>('[data-hnl-crew-team-modal-body]');
-      const openMaterialKeys = Array.from(body?.querySelectorAll<HTMLDetailsElement>('[data-hnl-team-material-voucher-details]') || [])
-        .filter(details => details.open)
-        .map(details => details.dataset.hnlTeamMaterialVoucherDetails || '')
-        .filter(Boolean);
       sessionStorage.setItem('qlct_crew_detail_return_v1', JSON.stringify({
-        projectId, teamId: selectedTeamForDetail.id, tab: detailModalTab,
-        defectFilter, teamDefectSortBy, teamDefectSortOrder,
-        teamMaterialSortBy, teamMaterialSortOrder,
-        viewport: { scrollTop: body?.scrollTop || 0, openMaterialKeys },
-        createdAt: Date.now(), restore: false,
+        ...snapshot, createdAt: Date.now(), restore: false,
       }));
-    } catch (_) { /* navigation still works when storage is unavailable */ }
+    } catch (_) { /* Navigation still works with App-held snapshot when storage is blocked. */ }
   };
 
   // Mobile unmounts inactive modules. Recreate only the requested, same-project modal.
@@ -408,6 +433,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       const team = teams.find((item) => item.id === saved.teamId);
       if (!team) return; // Wait for authorized team data; never synthesize a team.
       setSelectedTeamForDetail(team);
+      if (['logs', 'teams'].includes(saved.activeSubTab)) setActiveSubTab(saved.activeSubTab);
       setDetailModalTab(['rooms', 'materials', 'equipment', 'defects', 'logs'].includes(saved.tab) ? saved.tab : 'rooms');
       setDefectFilter(['all', 'open', 'resolved'].includes(saved.defectFilter) ? saved.defectFilter : 'all');
       if (['floor', 'room', 'status', 'due'].includes(saved.teamDefectSortBy)) setTeamDefectSortBy(saved.teamDefectSortBy);
@@ -416,35 +442,67 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       if (['asc', 'desc'].includes(saved.teamMaterialSortOrder)) setTeamMaterialSortOrder(saved.teamMaterialSortOrder);
       const savedViewport = saved.viewport;
       teamReturnViewportRef.current = savedViewport && Number.isFinite(savedViewport.scrollTop)
-        ? { scrollTop: Math.max(0, savedViewport.scrollTop),
-            openMaterialKeys: Array.isArray(savedViewport.openMaterialKeys) ? savedViewport.openMaterialKeys.filter((key: unknown): key is string => typeof key === 'string') : [] }
+        ? {
+            scrollTop: Math.max(0, savedViewport.scrollTop),
+            openMaterialKeys: Array.isArray(savedViewport.openMaterialKeys) ? savedViewport.openMaterialKeys.filter((key: unknown): key is string => typeof key === 'string') : [],
+            openEquipmentKeys: Array.isArray(savedViewport.openEquipmentKeys) ? savedViewport.openEquipmentKeys.filter((key: unknown): key is string => typeof key === 'string') : [],
+            pageScrollY: Number.isFinite(savedViewport.pageScrollY) ? Math.max(0, savedViewport.pageScrollY) : window.scrollY,
+          }
         : null;
       sessionStorage.removeItem('qlct_crew_detail_return_v1');
     } catch (_) { try { sessionStorage.removeItem('qlct_crew_detail_return_v1'); } catch (_) {} }
   }, [isActive, projectId, teams]);
+
+  // App owns the return snapshot while a phone unmounts the Crew tab. Do not rely on
+  // sessionStorage (private mode / WebView can block it), and do not refetch Firestore.
+  const handledVoucherReturnRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!isActive || !roleResolved || !voucherReturnRequest
+      || voucherReturnRequest.projectId !== projectId
+      || handledVoucherReturnRef.current === voucherReturnRequest.token) return;
+    const team = teams.find(item => item.id === voucherReturnRequest.teamId && item.deletedAt == null);
+    if (!team) return; // Wait for authorized team state; never resurrect a deleted team.
+    handledVoucherReturnRef.current = voucherReturnRequest.token;
+    setActiveSubTab(voucherReturnRequest.activeSubTab);
+    setSelectedTeamForDetail(team);
+    setDetailModalTab(voucherReturnRequest.tab);
+    setDefectFilter(voucherReturnRequest.defectFilter);
+    setTeamDefectSortBy(voucherReturnRequest.teamDefectSortBy);
+    setTeamDefectSortOrder(voucherReturnRequest.teamDefectSortOrder);
+    setTeamMaterialSortBy(voucherReturnRequest.teamMaterialSortBy);
+    setTeamMaterialSortOrder(voucherReturnRequest.teamMaterialSortOrder);
+    teamReturnViewportRef.current = voucherReturnRequest.viewport;
+    onVoucherReturnRestored?.(voucherReturnRequest.token);
+  }, [isActive, roleResolved, voucherReturnRequest, projectId, teams, onVoucherReturnRestored]);
 
   useEffect(() => {
     if (!isActive || !selectedTeamForDetail || !teamReturnViewportRef.current) return;
     const frame = window.requestAnimationFrame(() => {
       const body = document.querySelector<HTMLElement>('[data-hnl-crew-team-modal-body]');
       const saved = teamReturnViewportRef.current;
-      if (!body || !saved) return;
-      for (const detail of Array.from(body.querySelectorAll<HTMLDetailsElement>('[data-hnl-team-material-voucher-details]'))) {
-        detail.open = saved.openMaterialKeys.includes(detail.dataset.hnlTeamMaterialVoucherDetails || '');
-      }
+      if (!body || !saved) return; // Do not consume the snapshot before modal is rendered.
+      const materials = Array.from(body.querySelectorAll<HTMLDetailsElement>('[data-hnl-team-material-voucher-details]'));
+      const equipment = Array.from(body.querySelectorAll<HTMLDetailsElement>('[data-hnl-team-equipment-voucher-details]'));
+      if ((detailModalTab === 'materials' && saved.openMaterialKeys.length > 0 && materials.length === 0)
+        || (detailModalTab === 'equipment' && saved.openEquipmentKeys.length > 0 && equipment.length === 0)) return;
+      for (const detail of materials) detail.open = saved.openMaterialKeys.includes(detail.dataset.hnlTeamMaterialVoucherDetails || '');
+      for (const detail of equipment) detail.open = saved.openEquipmentKeys.includes(detail.dataset.hnlTeamEquipmentVoucherDetails || '');
       body.scrollTop = saved.scrollTop;
+      window.scrollTo(0, saved.pageScrollY);
       teamReturnViewportRef.current = null;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [isActive, selectedTeamForDetail, detailModalTab]);
+  }, [isActive, selectedTeamForDetail, detailModalTab, inventory.length, teams.length]);
 
   const openTeamWarehouseVoucher = (voucherId: string) => {
     if (!roleResolved || !selectedTeamForDetail || !onOpenWarehouseVoucher) return;
     if (!inventory.some(tx => tx.id === voucherId && tx.type === 'out' && tx.deletedAt == null
       && tx.sourceTeamId === selectedTeamForDetail.id)) return;
+    const origin = captureCrewVoucherOrigin();
+    if (!origin) return;
     rememberCrewDetailForReturn();
-    setSelectedTeamForDetail(null);
-    onOpenWarehouseVoucher(voucherId);
+    // Keep the existing modal alive on desktop; mobile restores from the App-owned origin.
+    onOpenWarehouseVoucher(voucherId, origin);
   };
 
   const openRoomOnFloorPlan = (room: RoomProgressItem) => {
@@ -4230,7 +4288,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                 <td className="p-2 text-right font-extrabold text-blue-700">{formatDecimal(line.issuedQty)}</td>
                                 <td className="p-2 text-right text-slate-700">{line.voucherCount}</td>
                                 <td className="p-2">
-                                  <details className="text-[11px] text-slate-600">
+                                  <details data-hnl-team-equipment-voucher-details={line.equipmentKey} className="text-[11px] text-slate-600">
                                     <summary className="cursor-pointer font-bold text-blue-700">Xem {line.voucherCount} phiếu</summary>
                                     <div className="mt-2 space-y-1">
                                       {line.vouchers.map((voucher) => (

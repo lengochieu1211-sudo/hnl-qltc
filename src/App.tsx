@@ -3,6 +3,7 @@ import {useWarehouseOrderSync} from './hooks/useWarehouseOrderSync';
 import { getHnlPrimaryThemeColors } from './utils/hnlPrimaryTheme';
 import { GlobalConfirmModal } from './components/GlobalConfirmModal';
 import { ContextBackButton } from './components/ContextBackButton';
+import type { CrewVoucherOrigin, CrewVoucherReturnRequest } from './components/CrewTabBase';
 import { captureScopedUndoStep, applyScopedUndoStep, type ScopedUndoStep } from './utils/undoRedoScoped';
 import { assertP21DemoFullProjectSaveBoundary, p21DemoLocalMutationError, p21DemoHistoryMutationError } from './utils/p21DemoWriterBoundary';
 import { ROOM_SIDECAR_DEMO_MODE } from './lib/roomSidecarDemoMode';
@@ -664,6 +665,14 @@ function AuthenticatedApp() {
   const [materialNormFromWarehouseCatalog, setMaterialNormFromWarehouseCatalog] = useState(false);
   const [warehouseCatalogReturnToken, setWarehouseCatalogReturnToken] = useState(0);
   const [warehouseVoucherFocus, setWarehouseVoucherFocus] = useState<{ id: string; projectId: string; token: number } | null>(null);
+  const [crewVoucherOrigin, setCrewVoucherOrigin] = useState<CrewVoucherOrigin | null>(null);
+  const [crewVoucherReturnRequest, setCrewVoucherReturnRequest] = useState<CrewVoucherReturnRequest | null>(null);
+  // A project switch must never carry a source voucher or crew modal into another project.
+  useEffect(() => {
+    setWarehouseVoucherFocus(null);
+    setCrewVoucherOrigin(null);
+    setCrewVoucherReturnRequest(null);
+  }, [activeProjectId]);
   const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
   const [projectManagerInitialTab, setProjectManagerInitialTab] = useState<'projects' | 'sync'>('projects');
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
@@ -7929,6 +7938,17 @@ function AuthenticatedApp() {
     if (!frame) return;
     setContextReturnFrames((previous) => previous.slice(0, -1));
     if (frame.projectId !== activeProjectId) return;
+    if (frame.kind === 'crew-voucher') {
+      // Both the contextual header and voucher-card Back must take this same
+      // path. A mounted PC crew modal survives; mobile restores from App state.
+      setWarehouseVoucherFocus(null);
+      if (crewVoucherOrigin?.projectId === activeProjectId) {
+        setCrewVoucherReturnRequest(previous => ({
+          ...crewVoucherOrigin,
+          token: (previous?.token || 0) + 1,
+        }));
+      }
+    }
     try {
       const storageKey = (frame.kind === 'crew-detail' || frame.kind === 'crew-voucher') ? 'qlct_crew_detail_return_v1'
         : frame.kind === 'volume-detail' ? 'qlct_volume_detail_return_v1' : '';
@@ -8254,7 +8274,7 @@ function AuthenticatedApp() {
               onReturnFromSourceVoucher={contextReturnFrames.length > 0
                 && contextReturnFrames[contextReturnFrames.length - 1].kind === 'crew-voucher'
                 && contextReturnFrames[contextReturnFrames.length - 1].projectId === activeProjectId
-                ? () => { setWarehouseVoucherFocus(null); handleContextReturn(); }
+                ? handleContextReturn
                 : undefined}
               onOpenNormModal={(tab = 'material', target, fromWarehouseCatalog = false) => {
                 setMaterialNormFromWarehouseCatalog(fromWarehouseCatalog);
@@ -8460,10 +8480,18 @@ function AuthenticatedApp() {
               onDeleteCrewRecord={handleDeleteCrewRecord}
               onDeleteMultipleCrewRecords={handleDeleteMultipleCrewRecords}
               onCopyCrewRecordsFromDate={handleCopyCrewRecordsFromDate}
-              onOpenWarehouseVoucher={(voucherId) => {
-                if (!isProjectRoleResolved || !inventory.some(item => item.id === voucherId && item.deletedAt == null)) return;
+              onOpenWarehouseVoucher={(voucherId, origin) => {
+                if (!isProjectRoleResolved || origin.projectId !== activeProjectId
+                  || !inventory.some(item => item.id === voucherId && item.type === 'out'
+                    && item.sourceTeamId === origin.teamId && item.deletedAt == null)) return;
+                setCrewVoucherOrigin(origin);
+                setCrewVoucherReturnRequest(null);
                 setWarehouseVoucherFocus(previous => ({ id: voucherId, projectId: activeProjectId, token: (previous?.token || 0) + 1 }));
                 navigateFromLink('warehouse', 'crew-voucher');
+              }}
+              voucherReturnRequest={crewVoucherReturnRequest}
+              onVoucherReturnRestored={(token) => {
+                setCrewVoucherReturnRequest(current => current?.token === token ? null : current);
               }}
               onOpenExportPdf={() => setIsExportPdfOpen(true)}
               onExportExcel={handleExportExcel}
