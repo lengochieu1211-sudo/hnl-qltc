@@ -1,5 +1,5 @@
 import { DefectItem } from '../types';
-import { parseLegacyTimestamp } from './dateFormatter';
+import { parseLegacyTimestamp, toLocalDateInputValue } from './dateFormatter';
 
 export interface DefectOverdueInfo {
   isOverdue: boolean;
@@ -28,7 +28,39 @@ export function getDefectShortCode(id?: string): string {
   return compact ? `DF-${compact}` : 'DF';
 }
 
-export function getDefectOverdueInfo(defect: DefectItem): DefectOverdueInfo {
+
+/** Defect date-only fields are Vietnam calendar days, never device-local instants. */
+const DEFECT_DAY_MS = 86_400_000;
+const defectBusinessDayNumber = (value: string): number | null => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  let civil = raw;
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw)) {
+    // A zoned timestamp is an instant: convert to Vietnam civil day.
+    const instant = new Date(raw);
+    if (!Number.isFinite(instant.getTime())) return null;
+    civil = toLocalDateInputValue(instant);
+  } else {
+    const ymd = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T\s]|$)/.exec(raw);
+    const dmy = /(?:^|\s)(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?:\s|$)/.exec(raw);
+    if (ymd) civil = [ymd[1], ymd[2].padStart(2, '0'), ymd[3].padStart(2, '0')].join('-');
+    else if (dmy) civil = [dmy[3], dmy[2].padStart(2, '0'), dmy[1].padStart(2, '0')].join('-');
+    else {
+      const timestamp = parseLegacyTimestamp(raw, Number.NaN);
+      if (!Number.isFinite(timestamp)) return null;
+      civil = toLocalDateInputValue(new Date(timestamp));
+    }
+  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(civil);
+  if (!match) return null;
+  const year = Number(match[1]), month = Number(match[2]), day = Number(match[3]);
+  const utc = Date.UTC(year, month - 1, day);
+  const checked = new Date(utc);
+  if (checked.getUTCFullYear() !== year || checked.getUTCMonth() !== month - 1 || checked.getUTCDate() !== day) return null;
+  return Math.floor(utc / DEFECT_DAY_MS);
+};
+
+export function getDefectOverdueInfo(defect: DefectItem, now: Date = new Date()): DefectOverdueInfo {
   const isFinished = defect.status === 'Đã khắc phục' || defect.status === 'Đã nghiệm thu';
 
   if (!defect.dueDate) {
@@ -52,24 +84,18 @@ export function getDefectOverdueInfo(defect: DefectItem): DefectOverdueInfo {
     };
   }
 
-  // Calculate day difference between due date and target date
-  const dueDateStr = defect.dueDate.split('T')[0];
-  const [dYear, dMonth, dDay] = dueDateStr.split('-').map(Number);
-  const dueDayObj = new Date(dYear, dMonth - 1, dDay);
+  // Compare integer Vietnam civil day indices, independent of device TZ and DST.
+  const dueDay = defectBusinessDayNumber(defect.dueDate);
+  const todayDay = defectBusinessDayNumber(toLocalDateInputValue(now));
+  if (dueDay === null || todayDay === null) return {
+    isOverdue: false, daysDiff: 0, statusText: '📅 Ngày deadline không hợp lệ', shortText: 'Kiểm tra ngày',
+    badgeClass: 'bg-slate-100 text-slate-600 border-slate-200', badgeColor: 'slate',
+  };
 
   if (isFinished) {
-    // If finished, compare completedAt with dueDate
-    let compDayObj = new Date();
-    if (defect.completedAt) {
-      const completedTs = parseLegacyTimestamp(defect.completedAt, Number.NaN);
-      if (Number.isFinite(completedTs)) {
-        const parsed = new Date(completedTs);
-        compDayObj = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
-      }
-    }
-
-    const diffMs = compDayObj.getTime() - dueDayObj.getTime();
-    const daysLate = Math.round(diffMs / (1000 * 3600 * 24));
+    // Date-only completedAt retains its business date; zoned instants use VN day.
+    const completedDay = defect.completedAt ? defectBusinessDayNumber(defect.completedAt) : null;
+    const daysLate = (completedDay ?? todayDay) - dueDay;
 
     if (daysLate > 0) {
       return {
@@ -93,11 +119,7 @@ export function getDefectOverdueInfo(defect: DefectItem): DefectOverdueInfo {
   }
 
   // Active defect (Mới phát hiện / Đang sửa)
-  const now = new Date();
-  const todayObj = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-  const diffMs = todayObj.getTime() - dueDayObj.getTime();
-  const daysOverdue = Math.round(diffMs / (1000 * 3600 * 24));
+  const daysOverdue = todayDay - dueDay;
 
   if (daysOverdue > 0) {
     return {
