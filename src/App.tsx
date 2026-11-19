@@ -8273,10 +8273,11 @@ function AuthenticatedApp() {
               onImportInventory={handleImportInventory}
               onImportNorms={handleImportNorms}
               onRenameWarehouseUnit={handleRenameWarehouseUnit}
-              onCreateMaterialCatalog={({ materialName, unit, category }) => handleAddNorm({
+              onCreateMaterialCatalog={({ materialName, unit, category, kgPerUnit }) => handleAddNorm({
                 materialName,
                 unit,
                 category,
+                ...(kgPerUnit !== undefined ? { kgPerUnit } : {}),
                 quotaQuantity: 0,
                 unitNormPerM2: 0,
                 workCategories: [],

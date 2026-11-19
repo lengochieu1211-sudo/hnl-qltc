@@ -183,20 +183,23 @@ export async function buildWarehouseReportFiles(report:WarehouseReport,format:Wa
       ws['A'+totalExcel]={t:'str',f:`IF(COUNTIF(F${first}:F${last},"Chưa có")>0,"TỔNG CỘNG KHỐI LƯỢNG (CHƯA ĐỦ)","TỔNG CỘNG KHỐI LƯỢNG")`,v:String(report.totalRow?.[0]||'TỔNG CỘNG KHỐI LƯỢNG')};
     }
     if(report.catalogStockFormulas){
-      // Catalog has 9 columns: E total received, F total issued, G norm,
-      // H = current stock, I = received/norm (%). Only H/I are derived.
-      // Numeric cached values are kept for viewers that do not recalculate.
-      if(cols!==9)throw new Error('Sai số cột Excel Danh mục kho.');
+      // Header-addressed formulas: extra KL/đơn vị columns must not shift stock/ratio references.
+      const col=(label:string)=>report.columns.findIndex(c=>c.label===label);
+      const received=col('Tổng nhập'),issued=col('Tổng xuất'),quota=col('Nhu cầu ĐM');
+      const stock=col('Tồn kho'),ratio=col('Nhập / ĐM (%)');
+      if([received,issued,quota,stock,ratio].some(i=>i<0))throw new Error('Thiếu cột Excel Danh mục kho.');
+      const letter=(i:number)=>XLSX.utils.encode_col(i);
       const first=headerIndex+2;
       for(let i=0;i<report.rows.length;i++){
-        const r=first+i,row=report.rows[i];
-        const stock=Number(row[4])-Number(row[5]);
-        const norm=typeof row[6]==='number'?row[6]:0;
-        const ratio=norm>0?Number((Number(row[4])/norm*100).toFixed(2)):null;
-        ws['H'+r]={t:'n',f:`IF(AND(ISNUMBER(E${r}),ISNUMBER(F${r})),E${r}-F${r},"Chưa có")`,v:Number.isFinite(stock)?stock:0};
-        ws['I'+r]=ratio===null
-          ?{t:'str',f:`IF(AND(ISNUMBER(E${r}),ISNUMBER(G${r}),G${r}>0),ROUND(E${r}/G${r}*100,2),"—")`,v:'—'}
-          :{t:'n',f:`IF(AND(ISNUMBER(E${r}),ISNUMBER(G${r}),G${r}>0),ROUND(E${r}/G${r}*100,2),"—")`,v:ratio};
+        const rowNum=first+i,row=report.rows[i];
+        const input=(index:number)=>`${letter(index)}${rowNum}`;
+        const inCell=input(received),outCell=input(issued),quotaCell=input(quota);
+        const stockValue=Number(row[received])-Number(row[issued]);
+        const plan=typeof row[quota]==='number'?Number(row[quota]):0;
+        const percentage=plan>0?Number((Number(row[received])/plan*100).toFixed(2)):null;
+        ws[input(stock)]={t:'n',f:`IF(AND(ISNUMBER(${inCell}),ISNUMBER(${outCell})),${inCell}-${outCell},"Chưa có")`,v:Number.isFinite(stockValue)?stockValue:0};
+        const calc=`IF(AND(ISNUMBER(${inCell}),ISNUMBER(${quotaCell}),${quotaCell}>0),ROUND(${inCell}/${quotaCell}*100,2),"—")`;
+        ws[input(ratio)]=percentage===null?{t:'str',f:calc,v:'—'}:{t:'n',f:calc,v:percentage};
       }
     }
     ws['!rows']=rows.map((_,r)=>({hpt:r===0?37:r===headerIndex?42:r>headerIndex&&r<=headerIndex+report.rows.length?Math.max(26,Math.min(88,Math.ceil(Math.max(...rows[r].map(v=>String(v).length))/48)*17+13)):29}));

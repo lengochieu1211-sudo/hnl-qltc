@@ -55,6 +55,7 @@ import { WarehouseOrderSheet } from './WarehouseOrderSheet';
 import type {WarehouseOrderSync} from '../hooks/useWarehouseOrderSync';
 import { warehouseOrderKey, evaluateWarehouseOrderInput, isWarehouseOrderExpression, type WarehouseOrderItem } from '../utils/warehouseCatalogOrder';
 import { consistentCatalogMass, effectiveOrderMass } from '../utils/warehouseOrderCatalogMass';
+import { assertConsistentMaterialCatalogMass, readCatalogMassFromExcel } from '../utils/catalogMassRoundTrip';
 import type { WarehouseReport } from '../utils/warehouseCatalogReport';
 import { buildWarehouseIssueScope } from '../utils/warehouseIssueScope';
 import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
@@ -71,7 +72,7 @@ import {
 } from '../utils/structureGroupUtils';
 
 type MaterialNeedSortKey = 'default' | 'material' | 'category' | 'unit' | 'remaining' | 'deficit' | 'stock';
-type WarehouseCatalogSortKey = 'name' | 'category' | 'unit' | 'totalIn' | 'totalOut' | 'normQuantity' | 'currentStock';
+type WarehouseCatalogSortKey = 'name' | 'category' | 'unit' | 'kgPerUnit' | 'totalIn' | 'totalOut' | 'normQuantity' | 'currentStock';
 
 interface WarehouseTabProps {
   isActive?: boolean;
@@ -102,7 +103,7 @@ interface WarehouseTabProps {
   workVolumes?: WorkVolume[];
   onImportInventory?: (inventory: InventoryItem[]) => void | Promise<void>;
   onImportNorms?: (norms: MaterialNorm[]) => void;
-  onCreateMaterialCatalog?: (input: { materialName: string; unit: string; category: string }) => string | null | Promise<string | null>;
+  onCreateMaterialCatalog?: (input: { materialName: string; unit: string; category: string; kgPerUnit?: number | null }) => string | null | Promise<string | null>;
   onRenameWarehouseUnit?: (input: Omit<WarehouseUnitRenameInput, 'projectId'>) => Promise<{ norms: number; vouchers: number }>;
   onImportWorkVolumes?: (volumes: WorkVolume[]) => void;
   roomProgressList?: RoomProgressItem[];
@@ -960,6 +961,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               workCategoryNormsById: importedWorkCategoryNormsById || existingNorm?.workCategoryNormsById,
               materialName: materialNameStr,
               unit: normalizedImportedUnit,
+              kgPerUnit: readCatalogMassFromExcel(
+                row['KL/đơn vị (kg)'] ?? row['Khối lượng/đơn vị (kg)'] ?? row['kgPerUnit'],
+                existingNorm?.kgPerUnit, rIdx + 2,
+              ),
               quotaQuantity: quotaQuantityNum,
               unitNormPerM2: generalNormFormulaValue !== null ? generalNormFormulaValue : (unitNormPerM2Num ? parseExcelNumber(unitNormPerM2Num) : undefined),
               inputExpressions: Object.keys(nextInputExpressions).length ? nextInputExpressions : undefined,
@@ -977,11 +982,70 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           });
         }
 
+        // Equipment metadata Excel: no implied 1:1 unit conversion, no voucher changes.
+        // Keep it isolated from Norm/Voucher writes so a failed Cloud transaction cannot
+        // leave the file half-imported. The older sheets remain backward compatible.
+        const equipmentChanges: EquipmentCatalogInput[] = [];
+        const equipmentSheetName = workbook.SheetNames.find(name =>
+          normalizeLinkText(name) === normalizeLinkText('Danh Mục Thiết Bị'));
+        if (equipmentSheetName) {
+          const equipmentRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[equipmentSheetName]);
+          if (equipmentRows.length > 50) throw new Error('Sheet Thiết bị tối đa 50 dòng mỗi lần để bảo vệ giao dịch Cloud; hãy chia file.');
+          const seenEquipment = new Set<string>();
+          equipmentRows.forEach((row, i) => {
+            const name = String(row['Tên định danh thiết bị'] ?? row['name'] ?? '').trim();
+            if (!name) return;
+            const key = equipmentIdentityKey(name);
+            if (seenEquipment.has(key)) throw new Error(`Sheet Thiết bị dòng ${i + 2}: tên thiết bị trùng.`);
+            seenEquipment.add(key);
+            const existing = equipmentMaster.find(item => equipmentIdentityKey(item.name) === key);
+            const id = String(row['__catalogId'] ?? '').trim();
+            const revisionText = String(row['__catalogRevision'] ?? '').trim();
+            if (existing && (id !== existing.id || revisionText !== String(existing.revision))) {
+              throw new Error(`Sheet Thiết bị dòng ${i + 2}: ID/revision đã thay đổi hoặc bị xóa. Hãy xuất Excel mới để tránh ghi đè.`);
+            }
+            if (!existing && (id || revisionText)) throw new Error(`Sheet Thiết bị dòng ${i + 2}: ID/revision lạ, không thể nhập.`);
+            const unit = normalizeUnit(String(row['Đơn Vị Tính'] ?? '').trim()) || String(row['Đơn Vị Tính'] ?? '').trim();
+            if (!unit || (existing && !areSameUnit(existing.unit,unit))) {
+              throw new Error(`Sheet Thiết bị dòng ${i + 2}: không được đổi ĐVT bằng Excel. Sử dụng Đổi ĐVT an toàn trong ứng dụng.`);
+            }
+            const next: EquipmentCatalogInput = {
+              id: existing?.id,
+              revision: existing?.revision,
+              name,unit,
+              displayName: String(row['Tên thiết bị'] ?? name).trim(),
+              category: String(row['Nhóm thiết bị'] ?? 'Thiết bị').trim(),
+              kgPerUnit: readCatalogMassFromExcel(
+                row['KL/đơn vị (kg)'] ?? row['Khối lượng/đơn vị (kg)'] ?? row['kgPerUnit'],
+                existing?.kgPerUnit, i + 2,
+              ),
+              brand: String(row['Hãng'] ?? '').trim(),
+              model: String(row['Model'] ?? '').trim(),
+              specifications: String(row['Thông số kỹ thuật'] ?? '').trim(),
+              notes: String(row['Ghi Chú'] ?? '').trim(),
+            };
+            if (!next.displayName || !next.category) throw new Error(`Sheet Thiết bị dòng ${i + 2}: thiếu tên hiển thị hoặc nhóm.`);
+            if (existing && (['displayName','category','brand','model','specifications','notes'] as const)
+              .every(key => String(next[key] ?? '') === String(existing[key] ?? ''))
+              && (next.kgPerUnit ?? null) === (existing.kgPerUnit ?? null)) return;
+            equipmentChanges.push(next);
+          });
+        }
+        if (normsUpdatedCount + normsAddedCount > 0) assertConsistentMaterialCatalogMass(newNorms);
+        if (equipmentChanges.length > 0) {
+          if (!hasNormManageAccess || !equipmentMasterReady || !currentProjectId) {
+            throw new Error('Chỉnh Danh Mục Thiết Bị qua Excel chỉ dành cho ADMIN, cần xác minh danh mục Cloud trước.');
+          }
+          if (inCount + outCount + normsUpdatedCount + normsAddedCount > 0) {
+            throw new Error('Để tránh lưu Excel một phần, hãy nhập riêng Sheet Danh Mục Thiết Bị và các Sheet Phiếu kho/Định mức.');
+          }
+        }
+
         // Sheet "Hạng Mục Thi Công (Chỉ xem)" is intentionally reference-only.
         // Hạng mục/Khối lượng has one authoritative editing surface: WorkVolumeTab.
         // Do not mutate WorkVolume from Kho/Định mức Excel.
 
-        const totalItemsFound = inCount + outCount + normsUpdatedCount + normsAddedCount;
+        const totalItemsFound = inCount + outCount + normsUpdatedCount + normsAddedCount + equipmentChanges.length;
 
         if (totalItemsFound === 0) {
           alert(
@@ -1003,11 +1067,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           `📥 NHẬP KHO: ${inCount} phiếu nhập\n` +
           `📤 XUẤT KHO: ${outCount} phiếu xuất\n` +
           `📋 ĐỊNH MỨC VẬT TƯ: ${normsUpdatedCount} cập nhật, ${normsAddedCount} mới\n` +
+          `⚙️ DANH MỤC THIẾT BỊ: ${equipmentChanges.length} dòng đổi thông số\n` +
           `🏗️ HẠNG MỤC THI CÔNG: chỉ tham chiếu, không sửa từ file này\n\n` +
           `Bạn có đồng ý áp dụng các thay đổi này vào hệ thống không?`;
 
         const confirmUpdate = await confirmAsync(confirmMsg);
         if (confirmUpdate) {
+          if (equipmentChanges.length > 0) await saveEquipmentCatalogBatch(currentProjectId, equipmentChanges);
           if (onImportInventory && (inCount > 0 || outCount > 0)) {
             await onImportInventory(importedInventoryRows);
           }
@@ -1046,6 +1112,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [issueTeamId, setIssueTeamId] = useState('');
   const [issueWorkCategoryId, setIssueWorkCategoryId] = useState('');
   const [quickAddMessage, setQuickAddMessage] = useState('');
+  const [newMaterialKgText, setNewMaterialKgText] = useState('');
+  useEffect(() => { if (!showAddForm) setNewMaterialKgText(''); }, [showAddForm]);
   const materialSearchRef = useRef<HTMLInputElement>(null);
 
   const liveQuantityCalc = useMemo(() => {
@@ -1260,8 +1328,22 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         normalizeMaterialSearch(stock.materialName) === normalizeMaterialSearch('sourceName' in item ? item.sourceName : item.name) &&
         normalizeMaterialSearch(normalizeUnit(stock.unit) || stock.unit) === normalizedUnit
       );
+      const originalName = 'sourceName' in item ? item.sourceName : item.name;
+      const materialMasses = expectedKind === 'material'
+        ? materialNorms.filter(n => n.deletedAt == null
+          && normalizeMaterialSearch(n.materialName) === normalizeMaterialSearch('sourceName' in item ? item.sourceName : item.name)
+          && normalizeMaterialSearch(normalizeUnit(n.unit) || n.unit) === normalizedUnit).map(n => n.kgPerUnit)
+        : [];
+      const equipmentMass = expectedKind === 'equipment'
+        ? equipmentMaster.find(row => equipmentIdentityKey(row.name) === equipmentIdentityKey(originalName)
+          && (normalizeUnit(row.unit) || row.unit) === (normalizeUnit(item.unit) || item.unit))?.kgPerUnit
+        : undefined;
+      const kgPerUnit = expectedKind === 'material' ? consistentCatalogMass(materialMasses) : equipmentMass ?? null;
+      const activeMasses = new Set(materialMasses.filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0));
       return {
         ...item,
+        kgPerUnit,
+        kgConflict: activeMasses.size > 1,
         totalIn: Number(summary?.totalIn || 0),
         totalOut: Number(summary?.totalOut || 0),
         normQuantity: expectedKind === 'material' ? Number(summary?.normQuantity || 0) : null,
@@ -1287,7 +1369,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       if (aValue !== bValue) return direction * (aValue - bValue);
       return naturalCompare(a.name, b.name);
     });
-  }, [warehouseCatalogRows, warehouseCatalogTab, warehouseCatalogSortBy, warehouseCatalogSortOrder, stockSummaries]);
+  }, [warehouseCatalogRows, warehouseCatalogTab, warehouseCatalogSortBy, warehouseCatalogSortOrder, stockSummaries, materialNorms, equipmentMaster]);
 
   // Build order choices independently of the active Catalog search/tab.
   // Names are grouped by kind + normalized unit; ledger identities are untouched.
@@ -1329,22 +1411,22 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     filePrefix:`HNL-QLTC-DANH-MUC-KHO-${warehouseCatalogTab.toUpperCase()}`,
     columns:warehouseCatalogTab === 'material' ? [
       {label:'STT',width:32},{label:'Tên vật tư / thiết bị',width:210},
-      {label:'Chủng loại',width:120},{label:'ĐVT',width:50},
+      {label:'Chủng loại',width:120},{label:'ĐVT',width:50},{label:'KL/đơn vị (kg)',width:90,numeric:true},
       {label:'Tổng nhập',width:66,numeric:true},{label:'Tổng xuất',width:66,numeric:true},
       {label:'Nhu cầu ĐM',width:76,numeric:true},{label:'Tồn kho',width:70,numeric:true},
       {label:'Nhập / ĐM (%)',width:79,numeric:true},
     ] : [
       {label:'STT',width:32},{label:'Tên thiết bị',width:210},
-      {label:'Nhóm thiết bị',width:120},{label:'ĐVT',width:50},
+      {label:'Nhóm thiết bị',width:120},{label:'ĐVT',width:50},{label:'KL/đơn vị (kg)',width:90,numeric:true},
       {label:'Tổng nhập',width:66,numeric:true},{label:'Tổng xuất',width:66,numeric:true},
       {label:'Tồn kho',width:70,numeric:true},
     ],
     rows:warehouseCatalogStockRows.map((item,index)=>warehouseCatalogTab === 'material' ? [
-      index+1,item.name,item.category,item.unit,item.totalIn,item.totalOut,
+      index+1,item.name,item.category,item.unit,item.kgPerUnit ?? '—',item.totalIn,item.totalOut,
       Number(item.normQuantity||0),item.currentStock,
       Number(item.normQuantity)>0
         ?Math.round(item.totalIn/Number(item.normQuantity)*10000)/100:'—',
-    ] : [index+1,item.name,item.category,item.unit,item.totalIn,item.totalOut,item.currentStock]),
+    ] : [index+1,item.name,item.category,item.unit,item.kgPerUnit ?? '—',item.totalIn,item.totalOut,item.currentStock]),
     // Material-only formulas: H = E - F; I = E / G x 100. Equipment has no norms.
     catalogStockFormulas:warehouseCatalogTab === 'material',
     footer:`${warehouseCatalogStockRows.length} dòng. Số liệu đọc từ danh mục và phiếu kho hiện có; không điều chỉnh tồn.`,
@@ -1804,6 +1886,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         alert('Vui lòng chọn chủng loại vật tư có sẵn hoặc nhập tên chủng loại mới trước khi lưu phiếu.');
         return;
       }
+      const newMaterialKgPerUnit = newMaterialKgText.trim() ? evaluateWarehouseOrderInput(newMaterialKgText, 'kgPerUnit') : null;
+      if (newMaterialKgText.trim() && (newMaterialKgPerUnit === null || newMaterialKgPerUnit <= 0)) {
+        alert('KL/đơn vị (kg) phải là số dương hợp lệ, ví dụ 0,65. Phiếu chưa được lưu.');
+        return;
+      }
       // Lock through the catalog creation await; rapid double-click must not mint two norm IDs.
       inventorySaveInFlightRef.current = true;
       try {
@@ -1811,6 +1898,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           materialName: finalMaterialName,
           unit: normalizedFinalUnit,
           category: finalMaterialCategory,
+          kgPerUnit: newMaterialKgPerUnit,
         });
       } catch (error) {
         inventorySaveInFlightRef.current = false;
@@ -1951,6 +2039,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         materialName: norm.materialName,
         category: norm.category,
         unit: norm.unit,
+        kgPerUnit: norm.kgPerUnit ?? '',
         workCategory: work?.title || legacyName,
         normSource: hasSpecific ? 'Riêng theo hạng mục' : 'Dùng định mức chung',
         specificNorm: hasSpecific
@@ -1972,6 +2061,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       materialName: norm.materialName,
       category: norm.category,
       unit: norm.unit,
+      kgPerUnit: norm.kgPerUnit ?? '',
       workCategory: '',
       normSource: 'Định mức chung',
       specificNorm: '',
@@ -2033,6 +2123,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         // one actual voucher unit, never a fabricated 1:1 conversion.
         unit: master?.unit || item.unit,
         category: master?.category || 'Thiết bị',
+        kgPerUnit: master?.kgPerUnit ?? '',
         brand: master?.brand || '', model: master?.model || '',
         specifications: master?.specifications || '', notes: master?.notes || '',
       }];
@@ -2048,9 +2139,18 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     totalIn: item.totalIn,
     totalOut: item.totalOut,
     currentStock: item.currentStock,
+    kgPerUnit: (() => {
+      const match = warehouseOrderItems.find(row => row.key === warehouseOrderKey(item.itemKind === 'equipment' ? 'equipment' : 'material', item.materialName, item.unit));
+      return match?.kgPerUnit ?? '';
+    })(),
+    totalKg: (() => {
+      const mass = warehouseOrderItems.find(row => row.key === warehouseOrderKey(
+        item.itemKind === 'equipment' ? 'equipment' : 'material', item.materialName, item.unit))?.kgPerUnit;
+      return mass == null ? '' : item.currentStock * mass;
+    })(),
     normQuantity: item.itemKind === 'material' ? item.normQuantity : '',
     remainingNeed: item.itemKind === 'material' ? item.remainingNeed : '',
-  })) : [], [showQuickEdit, stockSummaries]);
+  })) : [], [showQuickEdit, stockSummaries, warehouseOrderItems]);
 
   const warehouseMaterialOptions = useMemo(() => showQuickEdit ? Array.from(new Set([
     ...materialNorms.map((norm) => norm.materialName),
@@ -2110,6 +2210,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       { key: 'displayName', label: 'Tên hiển thị (sửa được)', editable: hasNormManageAccess, width: 220 },
       { key: 'unit', label: 'ĐVT (sửa 1:1 an toàn)', editable: hasNormManageAccess, required: true, width: 150 },
       { key: 'category', label: 'Nhóm thiết bị', editable: hasNormManageAccess, width: 165 },
+      { key: 'kgPerUnit', label: 'KL/đơn vị (kg)', editable: hasNormManageAccess, type: 'number', allowExpression: true, width: 165,
+        validate: (value) => { const raw = String(value ?? '').trim(); if (!raw) return null;
+          const n = evaluateWarehouseOrderInput(raw, 'kgPerUnit');
+          return n === null || n <= 0 ? 'KL/đơn vị phải là số kg dương hợp lệ' : null;
+        } },
       { key: 'brand', label: 'Hãng', editable: hasNormManageAccess, width: 160 },
       { key: 'model', label: 'Model / Mã hiệu', editable: hasNormManageAccess, width: 160 },
       { key: 'specifications', label: 'Thông số kỹ thuật', editable: hasNormManageAccess, width: 265 },
@@ -2119,6 +2224,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       { key: 'materialName', label: 'Tên vật tư', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), required: true, width: 220 },
       { key: 'category', label: 'Chủng loại vật tư', editable: (row) => hasNormManageAccess && Boolean(row.__groupPrimary), required: true, width: 170 },
       { key: 'unit', label: 'ĐVT (đổi tại Danh mục)', editable: false, required: true, width: 120 },
+      { key: 'kgPerUnit', label: 'KL/đơn vị (kg)', editable: hasNormManageAccess, type: 'number', allowExpression: true, width: 165,
+        validate: (value) => { const raw = String(value ?? '').trim(); if (!raw) return null;
+          const n = evaluateWarehouseOrderInput(raw, 'kgPerUnit');
+          return n === null || n <= 0 ? 'KL/đơn vị phải là số kg dương hợp lệ' : null;
+        } },
+
       {
         key: 'workCategory',
         label: 'Hạng mục thi công',
@@ -2147,6 +2258,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       { key: 'totalIn', label: 'Tổng nhập', editable: false, type: 'number', width: 110 },
       { key: 'totalOut', label: 'Tổng xuất', editable: false, type: 'number', width: 110 },
       { key: 'currentStock', label: 'Tồn kho', editable: false, type: 'number', width: 110 },
+      { key: 'kgPerUnit', label: 'KL/đơn vị (kg) 🔒', editable: false, type: 'number', width: 155 },
+      { key: 'totalKg', label: 'KL tồn (kg) 🔒', editable: false, type: 'number', width: 155 },
       { key: 'normQuantity', label: 'Nhu cầu định mức', editable: false, type: 'number', width: 155 },
       { key: 'remainingNeed', label: 'Còn cần theo định mức', editable: false, type: 'number', width: 145 },
     ];
@@ -2258,6 +2371,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         alert('Có thiết bị đổi ĐVT trong nhiều dòng chỉnh sửa. Để tránh lưu một phần dữ liệu, hãy lưu riêng từng thiết bị cần đổi ĐVT; các dòng chỉ sửa thông tin có thể lưu chung.');
         return false;
       }
+      for (const row of changedUnitRows) {
+        if (dirtyCellKeys.has(`${row.__rowKey}::kgPerUnit`)) {
+          throw new Error('Đổi ĐVT và đổi KL/đơn vị phải thực hiện riêng. Hãy lưu ĐVT trước, mở lại rồi sửa kg/đơn vị.');
+        }
+      }
       const drafts: EquipmentCatalogInput[] = changedRows.map(row => {
         const name = String(row.name || '').trim();
         const unit = normalizeUnit(String(row.unit || '').trim()) || String(row.unit || '').trim();
@@ -2270,6 +2388,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           name, displayName: String(row.displayName || name).trim(), unit, category: String(row.category || 'Thiết bị'),
           brand: String(row.brand || ''), model: String(row.model || ''),
           specifications: String(row.specifications || ''), notes: String(row.notes || ''),
+          kgPerUnit: (() => { const raw = String(row.kgPerUnit ?? '').trim();
+            const parsed = raw ? evaluateWarehouseOrderInput(raw, 'kgPerUnit') : null;
+            if (raw && (parsed === null || parsed <= 0)) throw new Error(`KL/đơn vị của “${name}” không hợp lệ.`);
+            return parsed;
+          })(),
         };
       });
       if (changedUnitRows.length) {
@@ -2407,6 +2530,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           }
         }
 
+        const massRaw = String(primary.kgPerUnit ?? '').trim();
+        const kgPerUnit = massRaw ? evaluateWarehouseOrderInput(massRaw, 'kgPerUnit') : null;
+        if (massRaw && (kgPerUnit === null || kgPerUnit <= 0)) throw new Error(`KL/đơn vị của “${nextMaterialName}” không hợp lệ.`);
         const generalRaw = String(primary.generalNorm ?? '').trim();
         const generalNorm = generalRaw === '' ? undefined : evaluateMathExpression(generalRaw);
         if (generalRaw !== '' && (generalNorm === null || generalNorm < 0)) throw new Error('ĐM chung không hợp lệ.');
@@ -2431,6 +2557,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           category: nextCategory,
           unit: nextUnit,
           quotaQuantity,
+          kgPerUnit,
           unitNormPerM2: generalNorm ?? undefined,
           inputExpressions: Object.keys(inputExpressions).length ? inputExpressions : undefined,
           notes: String(primary.notes || '').trim() || undefined,
@@ -2442,6 +2569,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         });
       }
 
+      assertConsistentMaterialCatalogMass(Array.from(byId.values()));
       const confirmed = await confirmAsync(
         `Lưu thay đổi Định mức cho ${affectedNormIds.size} vật tư?\n\n`
         + 'Tên/Chủng loại vật tư/ĐVT/ĐM chung/Nhu cầu định mức/Ghi chú được lấy từ dòng đại diện; các dòng con chỉ quản lý liên kết Hạng mục và ĐM riêng. materialId được giữ nguyên.'
@@ -2701,6 +2829,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 roomProgressList,
                 teams,
                 structureConfig: normalizedStructureConfig,
+                equipmentMaster,
               }))}
               onImportFile={hasImportAccess ? handleFileChangeExcel : undefined}
               onDownloadTemplate={() => import('../utils/excelExport').then(({ exportWarehouseUpdateTemplate }) => exportWarehouseUpdateTemplate(materialNorms, workVolumes || [], [], undefined, {
@@ -2708,6 +2837,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 roomProgressList,
                 teams,
                 structureConfig: normalizedStructureConfig,
+                equipmentMaster,
               }))}
               exportLabel="Xuất dữ liệu Kho để chỉnh sửa"
               importLabel="Nhập dữ liệu Kho đã chỉnh sửa"
@@ -2820,6 +2950,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               { key: 'name', label: warehouseCatalogTab === 'equipment' ? 'Tên thiết bị' : 'Tên vật tư', kind: 'alpha', defaultOrder: 'asc' },
               { key: 'category', label: warehouseCatalogTab === 'equipment' ? 'Nhóm thiết bị' : 'Chủng loại vật tư', kind: 'alpha', defaultOrder: 'asc' },
               { key: 'unit', label: 'ĐVT', kind: 'alpha', defaultOrder: 'asc' },
+              { key: 'kgPerUnit', label: 'KL/đơn vị (kg)', kind: 'number', defaultOrder: 'desc' },
               { key: 'totalIn', label: 'Nhập', kind: 'number', defaultOrder: 'desc' },
               { key: 'totalOut', label: 'Xuất', kind: 'number', defaultOrder: 'desc' },
               ...(warehouseCatalogTab === 'material'
@@ -2844,6 +2975,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   <th scope="col" className="px-2 py-0 text-left">Tên {warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'vật tư'}</th>
                   <th scope="col" className="px-2 py-0 text-left">{warehouseCatalogTab === 'equipment' ? 'Nhóm thiết bị' : 'Chủng loại vật tư'}</th>
                   <th scope="col" className="px-2 py-0 text-left">ĐVT</th>
+                  <th scope="col" className="px-2 py-0 text-right">KL/đơn vị (kg)</th>
                   <th scope="col" className="px-2 py-0 text-right">Nhập</th>
                   <th scope="col" className="px-2 py-0 text-right">Xuất</th>
                   {warehouseCatalogTab === 'material' && <th scope="col" className="px-2 py-0 text-right">Nhu cầu định mức</th>}
@@ -2853,7 +2985,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {warehouseCatalogStockRows.length === 0 ? (
-                  <tr><td colSpan={warehouseCatalogTab === 'material' ? 8 : 6} className="px-3 py-8 text-center text-xs text-slate-500">
+                  <tr><td colSpan={warehouseCatalogTab === 'material' ? 9 : 7} className="px-3 py-8 text-center text-xs text-slate-500">
                     {warehouseCatalogTab === 'equipment' ? 'Chưa có thiết bị. Bạn có thể thêm trước trong Vật tư & Thiết bị.' : 'Không có vật tư phù hợp.'}
                   </td></tr>
                 ) : warehouseCatalogStockRows.map((item) => (
@@ -2883,6 +3015,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     </td>
                     <td className="px-2 py-0 text-slate-500">{item.category}</td>
                     <td className="px-2 py-0 text-slate-600">{item.unit}</td>
+                    <td className="px-2 py-0 text-right" title={item.kgConflict ? 'Nhiều định mức khai báo kg/ĐVT không thống nhất; không tự lấy vào Đặt hàng' : 'Khối lượng mỗi đơn vị, không ảnh hưởng tồn kho'}>{item.kgConflict ? '⚠ Trùng KL' : item.kgPerUnit == null ? '—' : formatDecimal(item.kgPerUnit)}</td>
                     <td className="px-2 py-0 text-right">
                       <button type="button" data-hnl-catalog-in-history={item.key}
                         onClick={() => { rememberCatalogHistoryOrigin(item.key, 'in'); setCatalogHistory({ kind: warehouseCatalogTab, name: 'sourceName' in item ? item.sourceName : item.name, displayName: item.name, unit: item.unit, type: 'in', expectedTotal: item.totalIn }); setCatalogHistoryStart(''); setCatalogHistoryEnd(''); setExpandedHistoryDate(null); }}
@@ -2974,7 +3107,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         canAddRows={quickEditMode === 'norms' ? hasNormManageAccess : quickEditMode === 'equipment' ? hasNormManageAccess && equipmentMasterReady : quickEditMode === 'in' || quickEditMode === 'out' ? hasImportAccess : false}
         canDeleteRows={quickEditMode === 'norms' ? hasNormManageAccess : quickEditMode === 'in' || quickEditMode === 'out' ? hasDeleteAccess : false}
         requiresAnchorForInsert={quickEditMode === 'norms'}
-        syncGroupColumns={quickEditMode === 'norms' ? ['materialName', 'category', 'unit', 'generalNorm', 'notes'] : []}
+        syncGroupColumns={quickEditMode === 'norms' ? ['materialName', 'category', 'unit', 'kgPerUnit', 'generalNorm', 'notes'] : []}
         spreadsheetSelection
         getRowDeleteBlockReason={(row, currentRows) => {
           if (quickEditMode !== 'norms') return null;
@@ -2990,7 +3123,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         }}
         createEmptyRow={(index, anchorRow) => (quickEditMode === 'order-material' || quickEditMode === 'order-equipment' || quickEditMode === 'stock') ? null : quickEditMode === 'equipment' ? ({
           __rowKey: `new-equipment-${Date.now()}-${index}`, __new: true,
-          name: '', unit: 'Cái', category: 'Thiết bị', brand: '', model: '',
+          name: '', unit: 'Cái', category: 'Thiết bị', kgPerUnit: '', brand: '', model: '',
           specifications: '', notes: '',
         }) : quickEditMode === 'norms' ? (anchorRow ? ({
           __rowKey: `new-norm-${String(anchorRow.__normId || anchorRow.__groupKey || 'unknown')}-${Date.now()}-${index}`,
@@ -3002,6 +3135,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           materialName: String(anchorRow.materialName || ''),
           category: String(anchorRow.category || ''),
           unit: String(anchorRow.unit || ''),
+          kgPerUnit: anchorRow.kgPerUnit ?? '',
           workCategory: '',
           normSource: 'Dùng định mức chung',
           specificNorm: '',
@@ -4449,6 +4583,14 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   )}
                 </div>
               </div>
+
+              {isNewMaterialDefinition && <label className="block text-xs font-semibold text-slate-700 lg:col-span-2">
+                KL/đơn vị (kg) · Không bắt buộc
+                <input type="text" inputMode="decimal" className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5"
+                  value={newMaterialKgText} onChange={e => setNewMaterialKgText(e.target.value)}
+                  placeholder="Ví dụ: 0,65" aria-label="Khối lượng mỗi đơn vị vật tư mới tính bằng kg" />
+                <span className="mt-1 block text-[10px] text-slate-500">Chỉ thêm vào Danh mục và Đặt hàng, không tác động số lượng nhập/xuất.</span>
+              </label>}
 
               {formQuotaWarning && (
                 <div className={`p-2.5 rounded-xl border text-[11px] font-medium leading-relaxed lg:col-span-6 ${

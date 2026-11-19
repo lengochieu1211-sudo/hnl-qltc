@@ -596,6 +596,7 @@ export const EquipmentCatalogPanel: React.FC<Props> = ({
                 {item.category || 'Thiết bị'}{item.brand ? ' · ' + item.brand : ''}{item.model ? ' · ' + item.model : ''}
               </p>
               {item.specifications && <p className="break-words text-[11px] text-slate-600">{item.specifications}</p>}
+               <p className="text-[11px] text-indigo-700">KL/đơn vị: <strong>{item.kgPerUnit == null ? 'Chưa khai báo' : `${item.kgPerUnit} kg/${item.unit}`}</strong></p>
               {!item.id && <p className="text-[10px] text-amber-700">Phiếu lịch sử: chưa có thông số thiết bị</p>}
             </div>
             {canManage && <div className="flex shrink-0 items-start gap-1">

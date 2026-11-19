@@ -38,6 +38,7 @@ import { QuickSortBar } from './QuickSortBar';
 import { compareMaterialGroupPriority, catalogOrderRank, reorderVisibleCatalogItems } from '../utils/catalogDisplayOrder';
 import { COMMON_CATEGORIES } from '../utils/warehouseMaterialCategory';
 import { parseOrderWeight } from '../utils/warehouseCatalogOrder';
+import { assertConsistentMaterialCatalogMass, readCatalogMassFromExcel } from '../utils/catalogMassRoundTrip';
 export { COMMON_CATEGORIES } from '../utils/warehouseMaterialCategory';
 import { MoveOrderControls } from './MoveOrderControls';
 import { EquipmentCatalogPanel } from './EquipmentCatalogPanel';
@@ -445,6 +446,10 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               workCategoryNormsById: importedWorkCategoryNormsById || existingNorm?.workCategoryNormsById,
               materialName: materialNameStr,
               unit: normalizedImportedUnit,
+              kgPerUnit: readCatalogMassFromExcel(
+                row['KL/đơn vị (kg)'] ?? row['Khối lượng/đơn vị (kg)'] ?? row['kgPerUnit'],
+                existingNorm?.kgPerUnit, rIdx + 2,
+              ),
               quotaQuantity: quotaQuantityNum,
               unitNormPerM2: generalNormFormulaValue !== null ? generalNormFormulaValue : (unitNormPerM2Num || undefined),
               inputExpressions: Object.keys(nextInputExpressions).length ? nextInputExpressions : undefined,
@@ -466,6 +471,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
         // Hạng mục/Khối lượng has one authoritative editing surface: WorkVolumeTab.
         // Do not mutate WorkVolume from Kho/Định mức Excel.
 
+        if (normsUpdatedCount + normsAddedCount > 0) assertConsistentMaterialCatalogMass(newNorms);
         const totalItemsFound = inCount + outCount + normsUpdatedCount + normsAddedCount;
 
         if (totalItemsFound === 0) {
@@ -1305,6 +1311,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                         <div>
                           <p className="text-[10px] text-slate-400 font-semibold uppercase">Đơn vị tính</p>
                           <p className="font-bold text-slate-800">{norm.unit}</p>
+                          <p className="text-[10px] text-indigo-700">KL/đơn vị: {norm.kgPerUnit == null ? '—' : `${formatAdaptiveDecimal(norm.kgPerUnit)} kg`}</p>
                         </div>
                         <div>
                           <p className="text-[10px] text-slate-400 font-semibold uppercase">Nhu cầu vật tư theo định mức</p>
