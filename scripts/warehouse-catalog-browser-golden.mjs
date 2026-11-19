@@ -63,10 +63,39 @@ assert((await history.innerText()).includes('12 Tấm'),label+': IN count');
 assert(!(await history.innerText()).includes('P0-OUT-20261013-003'),label+': IN/OUT mixed');
 const r=await history.boundingBox();assert(r&&r.y<size.height-90,label+': offscreen');
 assert.equal(await sheet.locator('[data-hnl-catalog-in-history]').count(),0,label+': catalog still obscures history');
+
+// Actual button click + return (not a source-regex mock). Verify the right entry,
+// not just the presence of a Back label. Run at PC, standard phone and small phone.
+const inboundVoucherId='P0-IN-20261013-001';
+await sheet.locator('[data-hnl-catalog-open-voucher="'+inboundVoucherId+'"]').click();
+await sheet.waitFor({state:'hidden'});
+const voucherIdButton=page.locator('[data-hnl-warehouse-voucher-id="'+inboundVoucherId+'"]');
+await voucherIdButton.waitFor({state:'visible'});
+const catalogReturn=page.locator('[data-hnl-voucher-return-origin="catalog-history"]');
+await catalogReturn.waitFor({state:'visible'});
+assert.match(await catalogReturn.innerText(),/Quay lại Chi tiết nhập kho/,label+': incorrect Back source');
+await catalogReturn.locator('[data-hnl-context-back-button="true"]').click();
+await sheet.waitFor({state:'visible'});
+await sheet.locator('[data-hnl-catalog-history="readonly"]').waitFor({state:'visible'});
+await sheet.locator('[data-hnl-catalog-open-voucher="'+inboundVoucherId+'"]').waitFor({state:'visible'});
+assert((await sheet.locator('[data-hnl-catalog-history="readonly"]').innerText()).includes('Mã phiếu: '+inboundVoucherId),
+  label+': Back did not restore the exact inbound detail');
+assert.equal(await sheet.locator('[data-hnl-catalog-in-history]').count(),0,label+': Back incorrectly returned to catalog table');
+checks.push({viewport:label,flow:'catalog-in-voucher-return',result:'PASS'});
+
 await sheet.getByRole('button',{name:/Danh mục kho/}).last().click();
 await sheet.locator('[data-hnl-catalog-out-history^="material:"]').first().click();
 await history.getByText('Mã phiếu: P0-OUT-20261013-003').waitFor({state:'visible'});
 assert((await history.innerText()).includes('5 Tấm'),label+': OUT count');
+await sheet.locator('[data-hnl-catalog-open-voucher="P0-OUT-20261013-003"]').click();
+await sheet.waitFor({state:'hidden'});
+const outBack=page.locator('[data-hnl-voucher-return-origin="catalog-history"]');
+await outBack.waitFor({state:'visible'});
+assert.match(await outBack.innerText(),/Quay lại Chi tiết xuất kho/,label+': incorrect OUT Back source');
+await outBack.locator('[data-hnl-context-back-button="true"]').click();
+await sheet.waitFor({state:'visible'});
+await sheet.locator('[data-hnl-catalog-open-voucher="P0-OUT-20261013-003"]').waitFor({state:'visible'});
+checks.push({viewport:label,flow:'catalog-out-voucher-return',result:'PASS'});
 await sheet.getByRole('button',{name:/Danh mục kho/}).last().click();
 await sheet.getByRole('button',{name:'Thiết bị',exact:true}).click();
 await sheet.locator('[data-hnl-catalog-in-history^="equipment:"]').first().click();
