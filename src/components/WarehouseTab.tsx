@@ -300,6 +300,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const catalogTableScrollReturnRef = useRef<{ top: number; left: number } | null>(null);
   const catalogReturnItemKeyRef = useRef<string | null>(null);
   const catalogHistoryReturnRef = useRef<{ sheetTop: number; tableTop: number; focusKey: string; direction: TransactionType } | null>(null);
+  const catalogVoucherJumpRef = useRef<string | null>(null);
   const rememberCatalogHistoryOrigin = (focusKey: string, direction: TransactionType) => {
     const sheet = document.querySelector<HTMLElement>('[data-hnl-settings-sheet-scrollbody="warehouse-catalog"]');
     const table = document.querySelector<HTMLElement>('[data-hnl-warehouse-catalog-scroll="true"]');
@@ -1682,6 +1683,43 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     });
   }, [inventory, filterType, inventoryKindFilter, searchTerm, warehouseFromDate, warehouseToDate, inventorySortBy, inventorySortOrder]);
 
+  // Deep-link from catalog history to the exact already-loaded voucher (no extra Firestore read).
+  // The list remains read-only for VIEWER; its existing Edit action enforces RBAC + transfer rules.
+  useEffect(() => {
+    if (showWarehouseCatalog || !catalogVoucherJumpRef.current) return;
+    const targetId = catalogVoucherJumpRef.current;
+    if (!filteredInventory.some(item => item.id === targetId)) return;
+    const frame = window.requestAnimationFrame(() => {
+      const target = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-hnl-warehouse-voucher-id]'))
+        .find(button => button.dataset.hnlWarehouseVoucherId === targetId);
+      if (!target) return;
+      target.scrollIntoView({ block: 'center', behavior: 'auto' });
+      target.focus({ preventScroll: true });
+      catalogVoucherJumpRef.current = null;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [showWarehouseCatalog, filteredInventory]);
+
+  const openCatalogHistoryVoucher = (entry: InventoryItem) => {
+    // Protect against stale history rows and ID collisions after reconnect/project change.
+    const current = inventory.find(item => item.id === entry.id && item.deletedAt == null
+      && item.type === entry.type && (item.itemKind === 'equipment' ? 'equipment' : 'material') === (entry.itemKind === 'equipment' ? 'equipment' : 'material'));
+    if (!roleResolved || !current) {
+      alert('Phiếu không còn trong dữ liệu dự án hiện tại. Hãy đồng bộ lại trước khi xem.');
+      return;
+    }
+    catalogVoucherJumpRef.current = current.id;
+    setSearchTerm(current.id);
+    setFilterType('all');
+    setInventoryKindFilter('all');
+    setWarehouseFromDate('');
+    setWarehouseToDate('');
+    setExpandedInventoryId(current.id);
+    setShowWarehouseCatalog(false);
+    setCatalogHistory(null);
+    catalogHistoryReturnRef.current = null;
+  };
+
   const openCreateInventory = (kind: InventoryItemKind = 'material') => {
     if (!hasEditAccess) return;
     setEditingInventory(null);
@@ -2890,6 +2928,16 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                       {entries.map(entry => <div key={entry.id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 p-2 text-xs">
                         <div className="min-w-0 space-y-1"><p className="break-all font-semibold text-slate-700">Mã phiếu: {entry.id}</p><p className="text-slate-600">{entry.handler || 'Chưa ghi người thực hiện'}{entry.location ? ` · ${entry.location}` : ''}</p>{entry.notes && <p className="break-words text-slate-500">{entry.notes}</p>}</div>
                         <span className="font-extrabold text-slate-800">{formatDecimal(entry.quantity)} {entry.unit}</span>
+                        <div className="col-span-2 flex justify-end">
+                          <button type="button" data-hnl-catalog-open-voucher={entry.id}
+                            disabled={!roleResolved}
+                            onClick={() => openCatalogHistoryVoucher(entry)}
+                            className="min-h-9 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-[11px] font-bold text-indigo-700 hover:bg-indigo-100 focus-visible:outline-2 focus-visible:outline-indigo-600 disabled:opacity-50"
+                            aria-label={`Xem phiếu gốc ${entry.id}`}
+                            title="Mở đúng phiếu trong danh sách kho; chỉ người có quyền mới được sửa">
+                            Xem phiếu gốc
+                          </button>
+                        </div>
                       </div>)}
                     </div>}
                   </div>
@@ -3756,7 +3804,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               className={`bg-white rounded-2xl p-3.5 border transition-all duration-150 space-y-2 hover:border-slate-300 ${
                 selectedItemIds.includes(item.id)
                   ? 'border-indigo-300 bg-indigo-50/10 shadow-xs'
-                  : 'border-slate-200 shadow-sm'
+                  : expandedInventoryId === item.id
+                    ? 'border-indigo-400 ring-1 ring-indigo-200 shadow-sm'
+                    : 'border-slate-200 shadow-sm'
               }`}
             >
               <div className="flex items-start gap-2.5">
