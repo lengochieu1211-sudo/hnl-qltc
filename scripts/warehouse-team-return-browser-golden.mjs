@@ -54,6 +54,9 @@ try {
     await details.waitFor({ state: 'visible' });
     assert.equal(await details.evaluate(element => element.open), true, label + ': Back collapsed material voucher list');
     await tabs.getByRole('button', { name: /Thiết bị đã cấp/ }).click();
+    const equipmentDetails = page.locator('[data-hnl-team-equipment-voucher-details]').first();
+    await equipmentDetails.locator('summary').click();
+    assert.equal(await equipmentDetails.evaluate(element => element.open), true, label + ': original equipment vouchers not expanded');
     await page.locator('[data-hnl-team-equipment-voucher="RETURN-EQUIP-OUT-1"]').click();
     const backEquipment = page.locator('[data-hnl-voucher-return-origin="crew-statistics"]');
     await backEquipment.waitFor({ state: 'visible' });
@@ -62,6 +65,9 @@ try {
     assert.equal(await outerTeams.getAttribute('aria-pressed'), 'true', label + ': Back from equipment lost Teams list');
     assert.equal(await tabs.getByRole('button', { name: /Thiết bị đã cấp/ }).getAttribute('aria-pressed'), 'true',
       label + ': Back from equipment lost selected equipment tab');
+    await equipmentDetails.waitFor({ state: 'visible' });
+    assert.equal(await equipmentDetails.evaluate(element => element.open), true,
+      label + ': Back collapsed the equipment source voucher list');
     assert((await page.locator('[data-hnl-team-equipment-report="project-wide"]').innerText()).includes('Đội kiểm tra Quay lại'),
       label + ': returned to wrong team');
     const shot = 'runtime-evidence/team-voucher-return-' + label + '.png';
