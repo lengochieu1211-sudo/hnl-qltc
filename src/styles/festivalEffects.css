@@ -1,10 +1,39 @@
-/* PC Home only, pointer-transparent, composited decorative motion. */
+/* Decorative PC Home layer; no hit testing, external resources or JavaScript frames. */
 .hnl-festival-overlay{position:fixed;inset:0;z-index:18;pointer-events:none;overflow:hidden;contain:layout paint;isolation:isolate}
-.hnl-festival-snow{position:absolute;top:-15px;border-radius:50%;background:#fff;box-shadow:0 0 3px rgba(68,107,168,.65);opacity:0;will-change:transform;animation:hnl-snow-fall linear infinite}
-@keyframes hnl-snow-fall{0%{transform:translate3d(0,-15px,0);opacity:0}8%{opacity:.8}90%{opacity:.7}100%{transform:translate3d(32px,105vh,0);opacity:0}}
+
+/* White-core snow needs a soft blue-grey rim to stay visible on WHITE dashboards. */
+.hnl-festival-snow{position:absolute;top:-24px;border-radius:50%;opacity:0;will-change:transform,opacity;animation:hnl-snow-fall linear infinite;background:radial-gradient(circle at 35% 30%,#fff 0 31%,#ecf4ff 52%,#a9bcd2 83%,#7890ac 100%);box-shadow:0 0 0 .5px rgba(60,89,127,.42),0 1px 3px rgba(40,63,100,.25),0 0 6px rgba(218,233,255,.4)}
+.hnl-festival-snow--depth-0{--snow-opacity:.62;box-shadow:0 0 0 .35px rgba(65,92,126,.3),0 0 2px rgba(72,99,136,.3)}
+.hnl-festival-snow--depth-1{--snow-opacity:.84}
+.hnl-festival-snow--depth-2{--snow-opacity:.95;box-shadow:0 0 0 .7px rgba(60,86,122,.48),0 2px 5px rgba(45,69,105,.34),0 0 8px rgba(217,233,255,.54)}
+@keyframes hnl-snow-fall{
+  0%{transform:translate3d(0,-25px,0);opacity:0}
+  8%{opacity:var(--snow-opacity)}
+  25%{transform:translate3d(var(--snow-x25),25vh,0)}
+  50%{transform:translate3d(var(--snow-x50),54vh,0)}
+  75%{transform:translate3d(var(--snow-x75),82vh,0)}
+  92%{opacity:var(--snow-opacity)}
+  100%{transform:translate3d(var(--snow-x100),112vh,0);opacity:0}
+}
+
+/* Original apricot/peach motion is deliberately unchanged. */
 .hnl-festival-flower{position:absolute;top:-30px;opacity:0;will-change:transform;animation:hnl-flower-grow linear infinite}
 @keyframes hnl-flower-grow{0%{opacity:0;transform:translate3d(0,-30px,0) scale(.35) rotate(-30deg)}14%{opacity:.85;transform:translate3d(8px,13vh,0) scale(1) rotate(15deg)}85%{opacity:.85}100%{opacity:0;transform:translate3d(-25px,100vh,0) scale(.6) rotate(135deg)}}
-.hnl-festival-burst{position:absolute;width:0;height:0;opacity:0;will-change:transform,opacity;animation:hnl-firework-burst 8s ease-out infinite}
-.hnl-festival-ray{position:absolute;left:-1px;top:-1px;width:2px;height:36px;border-radius:20px;transform-origin:50% 0!important;box-shadow:0 0 7px currentColor;opacity:.85}
-@keyframes hnl-firework-burst{0%,70%,100%{opacity:0;transform:scale(.04)}76%{opacity:.85;transform:scale(.6)}83%{opacity:.65;transform:scale(1)}90%{opacity:0;transform:scale(1.08)}}
+
+/* Fireworks: eight staggered bursts, separate white flash, tapered rays and ember halo.
+   Only the parent burst animates: children do not create individual JS/CSS frame loops. */
+.hnl-festival-burst{position:absolute;width:0;height:0;opacity:0;will-change:transform,opacity;animation:hnl-firework-burst ease-out infinite;filter:drop-shadow(0 0 3px var(--firework-main))}
+.hnl-festival-firework-flash{position:absolute;left:-7px;top:-7px;width:14px;height:14px;border-radius:50%;background:radial-gradient(circle,#fff 0 27%,var(--firework-shine) 40%,var(--firework-main) 55%,transparent 81%);box-shadow:0 0 12px 2px var(--firework-shine),0 0 16px 3px var(--firework-main)}
+.hnl-festival-ray{position:absolute;left:-1px;bottom:0;width:var(--ray-width);height:var(--ray-length);border-radius:100% 100% 35% 35%;transform-origin:50% 100%;transform:rotate(var(--ray-angle)) translateY(calc(-1 * var(--ray-distance)));background:linear-gradient(to bottom,transparent 0%,var(--firework-shine) 20%,#fff 35%,var(--firework-main) 77%,transparent 100%);box-shadow:0 0 3px 1px var(--firework-main),0 0 6px var(--firework-shine)}
+.hnl-festival-ray::before{content:"";position:absolute;top:0;left:-1px;width:4.4px;height:4.4px;border-radius:50%;background:var(--firework-shine);box-shadow:0 0 3px 1px var(--firework-main)}
+.hnl-festival-ember{position:absolute;left:0;top:0;border-radius:50%;transform:translate3d(var(--ember-x),var(--ember-y),0);background:var(--firework-shine);box-shadow:0 0 0 .6px var(--firework-main),0 0 6px 2px var(--firework-main)}
+@keyframes hnl-firework-burst{
+  0%,26%,100%{opacity:0;transform:scale(.04)}
+  30%{opacity:.95;transform:scale(calc(var(--firework-scale) * .18))}
+  37%{opacity:1;transform:scale(calc(var(--firework-scale) * .48))}
+  47%{opacity:.96;transform:scale(calc(var(--firework-scale) * .84))}
+  57%{opacity:.76;transform:scale(var(--firework-scale))}
+  67%{opacity:.38;transform:translate3d(0,8px,0) scale(calc(var(--firework-scale) * 1.12))}
+  74%{opacity:0;transform:translate3d(0,14px,0) scale(calc(var(--firework-scale) * 1.18))}
+}
 @media(prefers-reduced-motion:reduce){.hnl-festival-overlay{display:none!important}.hnl-festival-overlay *{animation:none!important}}
