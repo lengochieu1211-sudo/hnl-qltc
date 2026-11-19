@@ -49,6 +49,7 @@ import { equipmentIdentityKey, EquipmentUnitMigrationRequiredError, saveEquipmen
 import type { WarehouseUnitRenameInput } from '../lib/warehouseUnitMigration';
 import { createWarehouseProjectTransferAtomic, receiveWarehouseProjectTransferAtomic, amendWarehouseProjectTransferAtomic, subscribeIncomingWarehouseTransfers, type WarehouseIncomingTransfer } from '../lib/warehouseProjectTransfer';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
+import { ContextBackButton } from './ContextBackButton';
 import { WarehouseVoucherShareSheet } from './WarehouseVoucherShareSheet';
 import { WarehouseReportActions } from './WarehouseReportActions';
 import { WarehouseOrderSheet } from './WarehouseOrderSheet';
@@ -94,6 +95,7 @@ interface WarehouseTabProps {
   materialNorms: MaterialNorm[];
   returnToCatalogToken?: number;
   focusVoucher?: { id: string; projectId: string; token: number } | null;
+  onReturnFromSourceVoucher?: () => void;
   onOpenNormModal: (tab?: 'material' | 'equipment', target?: { name: string; unit: string }, fromWarehouseCatalog?: boolean) => void;
   onOpenExportPdf?: () => void;
   onExportExcel?: () => void;
@@ -188,6 +190,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   materialNorms,
   returnToCatalogToken = 0,
   focusVoucher = null,
+  onReturnFromSourceVoucher,
   onOpenNormModal,
   onOpenExportPdf,
   onExportExcel,
@@ -303,6 +306,27 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const catalogReturnItemKeyRef = useRef<string | null>(null);
   const catalogHistoryReturnRef = useRef<{ sheetTop: number; tableTop: number; focusKey: string; direction: TransactionType } | null>(null);
   const catalogVoucherJumpRef = useRef<string | null>(null);
+  const catalogHistoryViewportReturnRef = useRef<{ historyScrollTop: number; sheetScrollTop: number; voucherId: string } | null>(null);
+  const [catalogVoucherReturn, setCatalogVoucherReturn] = useState<{
+    projectId: string;
+    voucherId: string;
+    history: NonNullable<typeof catalogHistory>;
+    start: string;
+    end: string;
+    expandedDate: string | null;
+    sheetScrollTop: number;
+    historyScrollTop: number;
+    search: string;
+    fromDate: string;
+    toDate: string;
+    transactionType: typeof filterType;
+    kindFilter: typeof inventoryKindFilter;
+    expandedVoucherId: string | null;
+  } | null>(null);
+  useEffect(() => {
+    setCatalogVoucherReturn(null);
+    catalogHistoryViewportReturnRef.current = null;
+  }, [currentProjectId]);
   const rememberCatalogHistoryOrigin = (focusKey: string, direction: TransactionType) => {
     const sheet = document.querySelector<HTMLElement>('[data-hnl-settings-sheet-scrollbody="warehouse-catalog"]');
     const table = document.querySelector<HTMLElement>('[data-hnl-warehouse-catalog-scroll="true"]');
@@ -1463,6 +1487,20 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   useEffect(() => {
     if (!showWarehouseCatalog) return;
     if (catalogHistory) {
+      const pending = catalogHistoryViewportReturnRef.current;
+      if (pending) {
+        const frame = window.requestAnimationFrame(() => {
+          const body = document.querySelector<HTMLElement>('[data-hnl-settings-sheet-scrollbody="warehouse-catalog"]');
+          const historyList = document.querySelector<HTMLElement>('[data-hnl-catalog-voucher-history-list]');
+          if (body) body.scrollTop = pending.sheetScrollTop;
+          if (historyList) historyList.scrollTop = pending.historyScrollTop;
+          const target = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-hnl-catalog-open-voucher]'))
+            .find(button => button.dataset.hnlCatalogOpenVoucher === pending.voucherId);
+          target?.focus({ preventScroll: true });
+          catalogHistoryViewportReturnRef.current = null;
+        });
+        return () => window.cancelAnimationFrame(frame);
+      }
       const scrollBody = document.querySelector<HTMLElement>('[data-hnl-settings-sheet-scrollbody="warehouse-catalog"]');
       if (scrollBody) scrollBody.scrollTop = 0;
       return;
@@ -1710,6 +1748,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     if (!roleResolved || !voucher) return;
     handledExternalVoucherTokenRef.current = focusVoucher.token;
     catalogVoucherJumpRef.current = voucher.id;
+    setCatalogVoucherReturn(null);
     setShowWarehouseCatalog(false);
     setCatalogHistory(null);
     setFilterType('all');
@@ -1728,6 +1767,16 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       alert('Phiếu không còn trong dữ liệu dự án hiện tại. Hãy đồng bộ lại trước khi xem.');
       return;
     }
+    if (!catalogHistory) return;
+    const sheet = document.querySelector<HTMLElement>('[data-hnl-settings-sheet-scrollbody="warehouse-catalog"]');
+    const historyList = document.querySelector<HTMLElement>('[data-hnl-catalog-voucher-history-list]');
+    setCatalogVoucherReturn({
+      projectId: currentProjectId, voucherId: current.id, history: catalogHistory,
+      start: catalogHistoryStart, end: catalogHistoryEnd, expandedDate: expandedHistoryDate,
+      sheetScrollTop: sheet?.scrollTop ?? 0, historyScrollTop: historyList?.scrollTop ?? 0,
+      search: searchTerm, fromDate: warehouseFromDate, toDate: warehouseToDate,
+      transactionType: filterType, kindFilter: inventoryKindFilter, expandedVoucherId: expandedInventoryId,
+    });
     catalogVoucherJumpRef.current = current.id;
     setSearchTerm(current.id);
     setFilterType('all');
@@ -1737,7 +1786,30 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setExpandedInventoryId(current.id);
     setShowWarehouseCatalog(false);
     setCatalogHistory(null);
-    catalogHistoryReturnRef.current = null;
+  };
+
+  const returnFromCatalogVoucher = () => {
+    const previous = catalogVoucherReturn;
+    if (!previous || previous.projectId !== currentProjectId) return;
+    // UI-only restore. Keep original catalog-grid return token to support a second Back.
+    setSearchTerm(previous.search);
+    setWarehouseFromDate(previous.fromDate);
+    setWarehouseToDate(previous.toDate);
+    setFilterType(previous.transactionType);
+    setInventoryKindFilter(previous.kindFilter);
+    setExpandedInventoryId(previous.expandedVoucherId);
+    setCatalogHistory(previous.history);
+    setCatalogHistoryStart(previous.start);
+    setCatalogHistoryEnd(previous.end);
+    setExpandedHistoryDate(previous.expandedDate);
+    catalogHistoryViewportReturnRef.current = {
+      historyScrollTop: previous.historyScrollTop,
+      sheetScrollTop: previous.sheetScrollTop,
+      voucherId: previous.voucherId,
+    };
+    catalogVoucherJumpRef.current = null;
+    setShowWarehouseCatalog(true);
+    setCatalogVoucherReturn(null);
   };
 
   const openCreateInventory = (kind: InventoryItemKind = 'material') => {
@@ -2937,7 +3009,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 <label className="text-xs font-semibold text-slate-600">Từ ngày<input type="date" value={catalogHistoryStart} max={catalogHistoryEnd || undefined} onChange={(e) => setCatalogHistoryStart(e.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white p-2 text-slate-900" /></label>
                 <label className="text-xs font-semibold text-slate-600">Đến ngày<input type="date" value={catalogHistoryEnd} min={catalogHistoryStart || undefined} onChange={(e) => setCatalogHistoryEnd(e.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white p-2 text-slate-900" /></label>
               </div>
-              <div className="max-h-64 space-y-2 overflow-y-auto">
+              <div data-hnl-catalog-voucher-history-list="true" className="max-h-64 space-y-2 overflow-y-auto">
                 {catalogHistoryDates.length === 0 ? <p className="text-xs text-slate-500">Không có giao dịch phù hợp khoảng ngày đã chọn.</p> : catalogHistoryDates.map(([date, entries]) => (
                   <div key={date} className="rounded-lg border border-slate-200">
                     <button type="button" aria-expanded={activeCatalogHistoryDate === date} onClick={() => setExpandedHistoryDate(current => (current === null ? catalogHistoryDates[0]?.[0] : current) === date ? '' : date)} className="flex w-full items-center justify-between gap-2 rounded-lg bg-slate-50 p-2 text-left text-xs font-bold text-slate-800">
@@ -3826,6 +3898,18 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     : 'border-slate-200 shadow-sm'
               }`}
             >
+              {expandedInventoryId === item.id && catalogVoucherReturn?.projectId === currentProjectId && catalogVoucherReturn.voucherId === item.id && (
+                <div data-hnl-voucher-return-origin="catalog-history" className="border-b border-indigo-100 pb-2">
+                  <ContextBackButton label={catalogVoucherReturn.history.type === 'in' ? 'Chi tiết nhập kho' : 'Chi tiết xuất kho'}
+                    onClick={returnFromCatalogVoucher} />
+                </div>
+              )}
+              {expandedInventoryId === item.id && focusVoucher?.projectId === currentProjectId
+                && focusVoucher.id === item.id && onReturnFromSourceVoucher && (
+                <div data-hnl-voucher-return-origin="crew-statistics" className="border-b border-indigo-100 pb-2">
+                  <ContextBackButton label="Thống kê Căn/Phòng & Defect" onClick={onReturnFromSourceVoucher} />
+                </div>
+              )}
               <div className="flex items-start gap-2.5">
                 {hasDeleteAccess && <input
                   type="checkbox"

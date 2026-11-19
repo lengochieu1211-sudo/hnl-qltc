@@ -373,13 +373,21 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [dailyRecordSortOrder, setDailyRecordSortOrder] = useState<TeamSortOrder>('asc');
   const [teamListSortBy, setTeamListSortBy] = useState<'structure' | 'name' | 'leader' | 'count'>('structure');
   const [teamListSortOrder, setTeamListSortOrder] = useState<TeamSortOrder>('asc');
+  const teamReturnViewportRef = useRef<{ scrollTop: number; openMaterialKeys: string[] } | null>(null);
 
   const rememberCrewDetailForReturn = () => {
     if (!selectedTeamForDetail || !projectId) return;
     try {
+      const body = document.querySelector<HTMLElement>('[data-hnl-crew-team-modal-body]');
+      const openMaterialKeys = Array.from(body?.querySelectorAll<HTMLDetailsElement>('[data-hnl-team-material-voucher-details]') || [])
+        .filter(details => details.open)
+        .map(details => details.dataset.hnlTeamMaterialVoucherDetails || '')
+        .filter(Boolean);
       sessionStorage.setItem('qlct_crew_detail_return_v1', JSON.stringify({
         projectId, teamId: selectedTeamForDetail.id, tab: detailModalTab,
         defectFilter, teamDefectSortBy, teamDefectSortOrder,
+        teamMaterialSortBy, teamMaterialSortOrder,
+        viewport: { scrollTop: body?.scrollTop || 0, openMaterialKeys },
         createdAt: Date.now(), restore: false,
       }));
     } catch (_) { /* navigation still works when storage is unavailable */ }
@@ -404,9 +412,40 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       setDefectFilter(['all', 'open', 'resolved'].includes(saved.defectFilter) ? saved.defectFilter : 'all');
       if (['floor', 'room', 'status', 'due'].includes(saved.teamDefectSortBy)) setTeamDefectSortBy(saved.teamDefectSortBy);
       if (['asc', 'desc'].includes(saved.teamDefectSortOrder)) setTeamDefectSortOrder(saved.teamDefectSortOrder);
+      if (['name', 'issued', 'expected', 'variance'].includes(saved.teamMaterialSortBy)) setTeamMaterialSortBy(saved.teamMaterialSortBy);
+      if (['asc', 'desc'].includes(saved.teamMaterialSortOrder)) setTeamMaterialSortOrder(saved.teamMaterialSortOrder);
+      const savedViewport = saved.viewport;
+      teamReturnViewportRef.current = savedViewport && Number.isFinite(savedViewport.scrollTop)
+        ? { scrollTop: Math.max(0, savedViewport.scrollTop),
+            openMaterialKeys: Array.isArray(savedViewport.openMaterialKeys) ? savedViewport.openMaterialKeys.filter((key: unknown): key is string => typeof key === 'string') : [] }
+        : null;
       sessionStorage.removeItem('qlct_crew_detail_return_v1');
     } catch (_) { try { sessionStorage.removeItem('qlct_crew_detail_return_v1'); } catch (_) {} }
   }, [isActive, projectId, teams]);
+
+  useEffect(() => {
+    if (!isActive || !selectedTeamForDetail || !teamReturnViewportRef.current) return;
+    const frame = window.requestAnimationFrame(() => {
+      const body = document.querySelector<HTMLElement>('[data-hnl-crew-team-modal-body]');
+      const saved = teamReturnViewportRef.current;
+      if (!body || !saved) return;
+      for (const detail of Array.from(body.querySelectorAll<HTMLDetailsElement>('[data-hnl-team-material-voucher-details]'))) {
+        detail.open = saved.openMaterialKeys.includes(detail.dataset.hnlTeamMaterialVoucherDetails || '');
+      }
+      body.scrollTop = saved.scrollTop;
+      teamReturnViewportRef.current = null;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [isActive, selectedTeamForDetail, detailModalTab]);
+
+  const openTeamWarehouseVoucher = (voucherId: string) => {
+    if (!roleResolved || !selectedTeamForDetail || !onOpenWarehouseVoucher) return;
+    if (!inventory.some(tx => tx.id === voucherId && tx.type === 'out' && tx.deletedAt == null
+      && tx.sourceTeamId === selectedTeamForDetail.id)) return;
+    rememberCrewDetailForReturn();
+    setSelectedTeamForDetail(null);
+    onOpenWarehouseVoucher(voucherId);
+  };
 
   const openRoomOnFloorPlan = (room: RoomProgressItem) => {
     const request = {
@@ -3826,7 +3865,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Modal Body */}
-              <div className="p-4 overflow-y-auto flex-1 space-y-3">
+              <div data-hnl-crew-team-modal-body="true" className="p-4 overflow-y-auto flex-1 space-y-3">
                 {/* SUB TAB 1: ROOMS / APARTMENTS */}
                 {detailModalTab === 'rooms' && (
                   <div>
@@ -4128,7 +4167,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                   <td className="p-2 text-right font-extrabold text-cyan-700">
                                     {formatDecimal(line.issuedQty)} {line.unit}
                                     {(line.voucherIds?.length || 0) > 0 && (
-                                      <details className="mt-1 text-left text-[10px] font-normal text-slate-600">
+                                      <details data-hnl-team-material-voucher-details={line.materialKey} className="mt-1 text-left text-[10px] font-normal text-slate-600">
                                         <summary className="cursor-pointer font-bold text-cyan-700">Xem {line.voucherIds?.length} phiếu xuất</summary>
                                         <div className="mt-1 space-y-1">
                                           {line.voucherIds?.map(id => {
@@ -4136,7 +4175,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                             return voucher ? <button type="button" key={id}
                                               data-hnl-team-material-voucher={id}
                                               disabled={!roleResolved || !onOpenWarehouseVoucher}
-                                              onClick={() => onOpenWarehouseVoucher?.(id)}
+                                              onClick={() => openTeamWarehouseVoucher(id)}
                                               className="block w-full rounded-md border border-cyan-200 bg-cyan-50 p-1.5 text-left font-semibold text-cyan-800 hover:bg-cyan-100 disabled:opacity-60"
                                               title={`Mở phiếu xuất kho ${id}`}>
                                               {formatDateDDMMYYYY(voucher.date)} · {formatDecimal(voucher.quantity)} {voucher.unit} · {id}
@@ -4202,7 +4241,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                           <div className="mt-0.5 text-[10px] text-slate-500 select-text" title={voucher.id}>Mã phiếu: {voucher.id}</div>
                                           <button type="button" data-hnl-team-equipment-voucher={voucher.id}
                                             disabled={!roleResolved || !onOpenWarehouseVoucher}
-                                            onClick={() => onOpenWarehouseVoucher?.(voucher.id)}
+                                            onClick={() => openTeamWarehouseVoucher(voucher.id)}
                                             className="mt-1 min-h-8 rounded-md border border-blue-200 bg-blue-50 px-2 font-bold text-blue-700 hover:bg-blue-100 disabled:opacity-60">
                                             Xem phiếu xuất gốc
                                           </button>

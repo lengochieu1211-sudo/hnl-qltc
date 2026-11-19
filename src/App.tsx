@@ -235,7 +235,7 @@ const ExportPdfModal = React.lazy(() => loadExportPdfModal().then(m => ({ defaul
 const MaterialNormModal = React.lazy(() => loadMaterialNormModal().then(m => ({ default: m.MaterialNormModal })));
 
 const PRIMARY_TAB_IDS: TabType[] = ['home', 'floorplan', 'crew', 'warehouse', 'volume', 'config'];
-type ContextReturnKind = 'tab' | 'notifications' | 'health-center' | 'crew-detail' | 'volume-detail';
+type ContextReturnKind = 'tab' | 'notifications' | 'health-center' | 'crew-detail' | 'crew-voucher' | 'volume-detail';
 interface ContextReturnFrame { tab: TabType; projectId: string; kind: ContextReturnKind; }
 const CONTEXT_TAB_LABEL: Record<TabType, string> = {
   home: 'Trang chủ', warehouse: 'Kho', volume: 'Khối lượng',
@@ -7930,7 +7930,7 @@ function AuthenticatedApp() {
     setContextReturnFrames((previous) => previous.slice(0, -1));
     if (frame.projectId !== activeProjectId) return;
     try {
-      const storageKey = frame.kind === 'crew-detail' ? 'qlct_crew_detail_return_v1'
+      const storageKey = (frame.kind === 'crew-detail' || frame.kind === 'crew-voucher') ? 'qlct_crew_detail_return_v1'
         : frame.kind === 'volume-detail' ? 'qlct_volume_detail_return_v1' : '';
       if (storageKey) {
         const saved = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
@@ -8126,7 +8126,8 @@ function AuthenticatedApp() {
                 ? 'Trung tâm thông báo'
                 : contextReturnFrames[contextReturnFrames.length - 1].kind === 'health-center'
                   ? 'Trung tâm kiểm tra dữ liệu'
-                  : contextReturnFrames[contextReturnFrames.length - 1].kind === 'crew-detail' ? 'Thống kê Quân số'
+                  : contextReturnFrames[contextReturnFrames.length - 1].kind === 'crew-voucher' ? 'Thống kê Căn/Phòng & Defect'
+                    : contextReturnFrames[contextReturnFrames.length - 1].kind === 'crew-detail' ? 'Thống kê Quân số'
                   : contextReturnFrames[contextReturnFrames.length - 1].kind === 'volume-detail' ? 'Chi tiết khối lượng'
                     : CONTEXT_TAB_LABEL[contextReturnFrames[contextReturnFrames.length - 1].tab]}
               onClick={handleContextReturn}
@@ -8250,6 +8251,11 @@ function AuthenticatedApp() {
               materialNorms={computedMaterialNorms}
               returnToCatalogToken={warehouseCatalogReturnToken}
               focusVoucher={warehouseVoucherFocus}
+              onReturnFromSourceVoucher={contextReturnFrames.length > 0
+                && contextReturnFrames[contextReturnFrames.length - 1].kind === 'crew-voucher'
+                && contextReturnFrames[contextReturnFrames.length - 1].projectId === activeProjectId
+                ? () => { setWarehouseVoucherFocus(null); handleContextReturn(); }
+                : undefined}
               onOpenNormModal={(tab = 'material', target, fromWarehouseCatalog = false) => {
                 setMaterialNormFromWarehouseCatalog(fromWarehouseCatalog);
                 setMaterialNormInitialTab(tab);
@@ -8457,7 +8463,7 @@ function AuthenticatedApp() {
               onOpenWarehouseVoucher={(voucherId) => {
                 if (!isProjectRoleResolved || !inventory.some(item => item.id === voucherId && item.deletedAt == null)) return;
                 setWarehouseVoucherFocus(previous => ({ id: voucherId, projectId: activeProjectId, token: (previous?.token || 0) + 1 }));
-                navigateFromLink('warehouse');
+                navigateFromLink('warehouse', 'crew-voucher');
               }}
               onOpenExportPdf={() => setIsExportPdfOpen(true)}
               onExportExcel={handleExportExcel}
