@@ -40,7 +40,8 @@ for (const token of [
   "{itemKind === 'material' && (<label className=\"space-y-1\">",
   "'Đội nhận thiết bị' : 'Đội thi công'",
   'data-hnl-equipment-project-wide="true"',
-  "warehouseCatalogTab === 'material' ? 8 : 6",
+  "warehouseCatalogTab === 'material' ? 9 : 7",
+  "KL/đơn vị (kg)",
   "catalogStockFormulas:warehouseCatalogTab === 'material'",
   "'Thiết bị toàn dự án'",
 ]) assert.ok(ui.includes(token), `equipment project-wide UI marker missing: ${token}`);
