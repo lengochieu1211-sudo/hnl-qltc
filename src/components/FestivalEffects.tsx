@@ -10,7 +10,7 @@ const variation = (index: number, salt: number): number => {
 
 type ParticleStyle = CSSProperties & Record<`--${string}`, string>;
 
-// Three visual depths: distant powder, mid-distance flakes and a few nearby flakes.
+// Three visual depths of six-branched snow crystals, legible on light and dark backgrounds.
 // One compositor-friendly transform/opacity animation per particle, and no JS animation loop.
 const SNOW = Array.from({ length: 56 }, (_, index) => {
   const depth = index % 5 < 2 ? 0 : index % 5 < 4 ? 1 : 2;
@@ -20,7 +20,8 @@ const SNOW = Array.from({ length: 56 }, (_, index) => {
   return {
     depth,
     left: 1 + variation(index, 1) * 98,
-    size: (depth === 0 ? 2.1 : depth === 1 ? 4.2 : 7.2) + variation(index, 5) * (depth === 0 ? 2.3 : depth === 1 ? 2.8 : 3.7),
+    size: (depth === 0 ? 10 : depth === 1 ? 16 : 25) + variation(index, 5) * (depth === 0 ? 4 : depth === 1 ? 6 : 8),
+    angle: Math.round(variation(index, 8) * 60),
     duration,
     delay: -variation(index, 6) * duration,
     drift25: Math.round(drift * 0.25 + sway),
@@ -75,6 +76,24 @@ const FIREWORK_EMBERS = Array.from({ length: 16 }, (_, index) => {
   };
 });
 
+/** Six-arm crystal, not a circular particle. SVG ensures consistent ❄ geometry across browsers. */
+const SNOW_ARMS = [0, 60, 120, 180, 240, 300] as const;
+const SNOW_ARM_PATH = 'M24 24V4 M18.5 10L24 15.5L29.5 10 M20.5 18.5L24 22L27.5 18.5';
+function Snowflake() {
+  return (
+    <svg className="hnl-festival-crystal" viewBox="0 0 48 48" focusable="false" aria-hidden="true">
+      <g fill="none" strokeLinecap="round" strokeLinejoin="round">
+        {SNOW_ARMS.map(angle => (
+          <g key={angle} transform={`rotate(${angle} 24 24)`}>
+            <path className="hnl-festival-crystal-outline" d={SNOW_ARM_PATH} />
+            <path className="hnl-festival-crystal-core" d={SNOW_ARM_PATH} />
+          </g>
+        ))}
+      </g>
+    </svg>
+  );
+}
+
 function Flower({ yellow }: { yellow: boolean }) {
   return (
     <svg width="100%" height="100%" viewBox="0 0 40 40" focusable="false" aria-hidden="true">
@@ -117,7 +136,8 @@ export const FestivalEffects: React.FC<{ mode: FestivalEffectMode; enabled: bool
           animationDelay: `${flake.delay}s`, animationDuration: `${flake.duration}s`,
           '--snow-x25': `${flake.drift25}px`, '--snow-x50': `${flake.drift50}px`,
           '--snow-x75': `${flake.drift75}px`, '--snow-x100': `${flake.drift100}px`,
-        } as ParticleStyle} />
+          '--snow-turn': `${flake.angle}deg`,
+        } as ParticleStyle}><Snowflake /></span>
       ))}
       {isBloom && BLOSSOMS.filter(p => mode === 'blossoms' || (mode === 'apricot' ? p.apricot : !p.apricot))
         .map((p, index) => (

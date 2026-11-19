@@ -1,11 +1,14 @@
 /* Decorative PC Home layer; no hit testing, external resources or JavaScript frames. */
 .hnl-festival-overlay{position:fixed;inset:0;z-index:18;pointer-events:none;overflow:hidden;contain:layout paint;isolation:isolate}
 
-/* White-core snow needs a soft blue-grey rim to stay visible on WHITE dashboards. */
-.hnl-festival-snow{position:absolute;top:-24px;border-radius:50%;opacity:0;will-change:transform,opacity;animation:hnl-snow-fall linear infinite;background:radial-gradient(circle at 35% 30%,#fff 0 31%,#ecf4ff 52%,#a9bcd2 83%,#7890ac 100%);box-shadow:0 0 0 .5px rgba(60,89,127,.42),0 1px 3px rgba(40,63,100,.25),0 0 6px rgba(218,233,255,.4)}
-.hnl-festival-snow--depth-0{--snow-opacity:.62;box-shadow:0 0 0 .35px rgba(65,92,126,.3),0 0 2px rgba(72,99,136,.3)}
+/* True six-armed snowflakes; no round-dot gradients or circular particle backgrounds. */
+.hnl-festival-snow{position:absolute;top:-40px;opacity:0;will-change:transform,opacity;animation:hnl-snow-fall linear infinite}
+.hnl-festival-crystal{display:block;width:100%;height:100%;overflow:visible;transform:rotate(var(--snow-turn,0deg));filter:drop-shadow(0 1px 1px rgba(51,76,111,.24))}
+.hnl-festival-crystal-outline{stroke:#6b88ac;stroke-width:3.3}
+.hnl-festival-crystal-core{stroke:#fafdff;stroke-width:1.8}
+.hnl-festival-snow--depth-0{--snow-opacity:.67}
 .hnl-festival-snow--depth-1{--snow-opacity:.84}
-.hnl-festival-snow--depth-2{--snow-opacity:.95;box-shadow:0 0 0 .7px rgba(60,86,122,.48),0 2px 5px rgba(45,69,105,.34),0 0 8px rgba(217,233,255,.54)}
+.hnl-festival-snow--depth-2{--snow-opacity:1}
 @keyframes hnl-snow-fall{
   0%{transform:translate3d(0,-25px,0);opacity:0}
   8%{opacity:var(--snow-opacity)}
