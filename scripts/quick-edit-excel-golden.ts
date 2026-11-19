@@ -271,7 +271,8 @@ assert.match(warehouse, /data-hnl-catalog-out-history=\{item\.key\}/, 'Catalog o
 assert.match(warehouse, /data-hnl-catalog-history="readonly"/, 'Catalog history must be view-only');
 assert.match(warehouse, /data-hnl-catalog-history-view="visible"/, 'Catalog history must replace table');
 assert.match(warehouse, /activeCatalogHistoryDate/, 'Newest date must auto-expand');
-assert.match(warehouse, /if \(catalogHistory\)[\s\S]{0,220}scrollBody\.scrollTop = 0/, 'Opening warehouse history resets only the detail scroll');
+assert.match(warehouse, /if \(catalogHistory\)[\s\S]{0,1300}scrollBody\.scrollTop = 0/, 'Opening a fresh warehouse history resets detail scroll while returning from voucher restores the saved viewport');
+assert.match(warehouse, /if \(pending\) \{[\s\S]{0,900}historyList\.scrollTop = pending\.historyScrollTop/, 'Back from voucher restores the original inner history scroll');
 assert.match(warehouse, /if \(sheet\) sheet\.scrollTop = origin\.sheetTop/, 'Returning from history restores the catalog scroll position');
 assert.match(warehouse, /if \(table\) table\.scrollTop = origin\.tableTop/, 'Returning from history restores the table scroll position');
 assert.match(warehouse, /normalizeMaterialSearch\('sourceName' in item \? item\.sourceName : item\.name\)/, 'Equipment aliases must resolve original ledger identity');

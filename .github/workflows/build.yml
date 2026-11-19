@@ -86,6 +86,8 @@ jobs:
         run: node scripts/warehouse-catalog-voucher-link-golden.mjs
       - name: Crew team material/equipment source voucher Golden
         run: node scripts/team-source-voucher-golden.mjs
+      - name: Warehouse and crew voucher source Return Golden
+        run: node scripts/warehouse-voucher-source-return-golden.mjs
 
       - name: Stability Gate
         run: npm run test:stability
