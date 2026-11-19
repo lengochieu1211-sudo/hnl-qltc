@@ -63,10 +63,39 @@ assert((await history.innerText()).includes('12 Tấm'),label+': IN count');
 assert(!(await history.innerText()).includes('P0-OUT-20261013-003'),label+': IN/OUT mixed');
 const r=await history.boundingBox();assert(r&&r.y<size.height-90,label+': offscreen');
 assert.equal(await sheet.locator('[data-hnl-catalog-in-history]').count(),0,label+': catalog still obscures history');
+
+// Actual button click + return (not a source-regex mock). Verify the right entry,
+// not just the presence of a Back label. Run at PC, standard phone and small phone.
+const inboundVoucherId='P0-IN-20261013-001';
+await sheet.locator('[data-hnl-catalog-open-voucher="'+inboundVoucherId+'"]').click();
+await sheet.waitFor({state:'hidden'});
+const voucherIdButton=page.locator('[data-hnl-warehouse-voucher-id="'+inboundVoucherId+'"]');
+await voucherIdButton.waitFor({state:'visible'});
+const catalogReturn=page.locator('[data-hnl-voucher-return-origin="catalog-history"]');
+await catalogReturn.waitFor({state:'visible'});
+assert.match(await catalogReturn.innerText(),/Quay lại Chi tiết nhập kho/,label+': incorrect Back source');
+await catalogReturn.locator('[data-hnl-context-back-button="true"]').click();
+await sheet.waitFor({state:'visible'});
+await sheet.locator('[data-hnl-catalog-history="readonly"]').waitFor({state:'visible'});
+await sheet.locator('[data-hnl-catalog-open-voucher="'+inboundVoucherId+'"]').waitFor({state:'visible'});
+assert((await sheet.locator('[data-hnl-catalog-history="readonly"]').innerText()).includes('Mã phiếu: '+inboundVoucherId),
+  label+': Back did not restore the exact inbound detail');
+assert.equal(await sheet.locator('[data-hnl-catalog-in-history]').count(),0,label+': Back incorrectly returned to catalog table');
+checks.push({viewport:label,flow:'catalog-in-voucher-return',result:'PASS'});
+
 await sheet.getByRole('button',{name:/Danh mục kho/}).last().click();
 await sheet.locator('[data-hnl-catalog-out-history^="material:"]').first().click();
 await history.getByText('Mã phiếu: P0-OUT-20261013-003').waitFor({state:'visible'});
 assert((await history.innerText()).includes('5 Tấm'),label+': OUT count');
+await sheet.locator('[data-hnl-catalog-open-voucher="P0-OUT-20261013-003"]').click();
+await sheet.waitFor({state:'hidden'});
+const outBack=page.locator('[data-hnl-voucher-return-origin="catalog-history"]');
+await outBack.waitFor({state:'visible'});
+assert.match(await outBack.innerText(),/Quay lại Chi tiết xuất kho/,label+': incorrect OUT Back source');
+await outBack.locator('[data-hnl-context-back-button="true"]').click();
+await sheet.waitFor({state:'visible'});
+await sheet.locator('[data-hnl-catalog-open-voucher="P0-OUT-20261013-003"]').waitFor({state:'visible'});
+checks.push({viewport:label,flow:'catalog-out-voucher-return',result:'PASS'});
 await sheet.getByRole('button',{name:/Danh mục kho/}).last().click();
 await sheet.getByRole('button',{name:'Thiết bị',exact:true}).click();
 await sheet.locator('[data-hnl-catalog-in-history^="equipment:"]').first().click();
@@ -149,6 +178,53 @@ assert.equal(await sheet.getByRole('button',{name:'Thiết bị',exact:true}).co
   label+': back returns to equipment catalog instead of default material tab');
 const shot=`runtime-evidence/catalog-click-${label}.png`;await page.screenshot({path:shot});checks.push({viewport:label,result:'PASS',screenshot:shot});await ctx.close();
 }
+// Cross-module source-voucher click-through: real CrewTab + WarehouseTab components,
+// including mobile unmount/remount. No Cloud writes; fixture write handlers throw.
+for(const size of [{width:1280,height:800},{width:393,height:852}]){
+ const label='crew-return-'+size.width+'x'+size.height;
+ const ctx=await browser.newContext({viewport:size,locale:'vi-VN',isMobile:size.width<500,hasTouch:size.width<500});
+ const page=await ctx.newPage();
+ page.on('pageerror',e=>errors.push(label+': '+e.message));
+ await page.goto(url.replace('/index.html','/crew-return.html'),{waitUntil:'domcontentloaded'});
+ const directory=page.locator('#crew-subtab-navigation button').last();
+ await directory.waitFor({state:'visible',timeout:15000});await directory.click();
+ const team=page.locator('[title="Bấm để xem chi tiết thống kê căn & defect"]').first();
+ await team.waitFor({state:'visible',timeout:15000});await team.click();
+ const modal=page.locator('[data-hnl-crew-team-modal-body="true"]');await modal.waitFor({state:'visible'});
+ await page.getByRole('button',{name:/Vật tư đối chiếu/}).click();
+ const materialDetails=page.locator('[data-hnl-team-material-voucher-details]').first();
+ await materialDetails.waitFor({state:'visible'});
+ await materialDetails.locator('summary').click();
+ const materialVoucher=page.locator('[data-hnl-team-material-voucher="FLOW-OUT-MAT-001"]');
+ await materialVoucher.waitFor({state:'visible'});await materialVoucher.click();
+ await page.locator('[data-hnl-fixture-active-tab="warehouse"]').waitFor({state:'visible'});
+ const crewBack=page.locator('[data-hnl-voucher-return-origin="crew-statistics"]');
+ await crewBack.waitFor({state:'visible',timeout:15000});
+ await crewBack.locator('[data-hnl-context-back-button="true"]').click();
+ await page.locator('[data-hnl-fixture-active-tab="crew"]').waitFor({state:'visible'});
+ await modal.waitFor({state:'visible',timeout:15000});
+ assert.equal(await page.getByRole('button',{name:/Vật tư đối chiếu/}).getAttribute('aria-pressed'),'true',label+': material tab did not restore');
+ assert.equal(await page.locator('[data-hnl-team-material-voucher-details]').first().evaluate(el=>el.open),true,label+': original material voucher list collapsed');
+
+ await page.locator('[data-hnl-crew-equipment-tab="true"]').click();
+ const equipmentDetails=page.locator('[data-hnl-team-equipment-voucher-details]').first();
+ await equipmentDetails.waitFor({state:'visible'});
+ await equipmentDetails.locator('summary').click();
+ const equipmentVoucher=page.locator('[data-hnl-team-equipment-voucher="FLOW-OUT-EQUIP-002"]');
+ await equipmentVoucher.waitFor({state:'visible'});await equipmentVoucher.click();
+ await page.locator('[data-hnl-fixture-active-tab="warehouse"]').waitFor({state:'visible'});
+ const equipmentBack=page.locator('[data-hnl-voucher-return-origin="crew-statistics"]');
+ await equipmentBack.waitFor({state:'visible',timeout:15000});
+ await equipmentBack.locator('[data-hnl-context-back-button="true"]').click();
+ await page.locator('[data-hnl-fixture-active-tab="crew"]').waitFor({state:'visible'});
+ await modal.waitFor({state:'visible',timeout:15000});
+ assert.equal(await page.locator('[data-hnl-crew-equipment-tab="true"]').getAttribute('aria-pressed'),'true',label+': equipment tab did not restore');
+ assert.equal(await page.locator('[data-hnl-team-equipment-voucher-details]').first().evaluate(el=>el.open),true,label+': original equipment voucher list collapsed');
+ checks.push({viewport:label,flow:'crew-material-equipment-voucher-return',result:'PASS'});
+ await page.screenshot({path:`runtime-evidence/catalog-click-${label}.png`}).catch(()=>{});
+ await ctx.close();
+}
+
 // Source-level guard for matching icons; browser equipment editor cannot load
 // Firestore documents in this intentionally projectless UI fixture.
 const equipmentSource=fs.readFileSync('src/components/EquipmentCatalogPanel.tsx','utf8');
