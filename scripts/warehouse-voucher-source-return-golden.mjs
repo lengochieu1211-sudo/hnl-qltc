@@ -30,13 +30,14 @@ assert.match(warehouse, /previous\.projectId !== currentProjectId/, 'cross-proje
 assert.match(crew, /rememberCrewDetailForReturn\(\);[\s\S]{0,270}onOpenWarehouseVoucher\(voucherId\)/, 'crew source snapshot remembered before opening voucher');
 const openTeamVoucher = crew.slice(crew.indexOf('const openTeamWarehouseVoucher'), crew.indexOf('const openRoomOnFloorPlan'));
 assert.doesNotMatch(openTeamVoucher, /setSelectedTeamForDetail\(null\)/, 'keep team modal mounted on PC when viewing voucher');
-assert.match(crew, /viewport: \{ scrollTop: body\?\.scrollTop \|\| 0, openMaterialKeys, pageY: window\.scrollY \}/, 'persist crew body scroll + opened material rows + source page');
+assert.match(crew, /viewport: \{ scrollTop: body\?\.scrollTop \|\| 0, openMaterialKeys, openEquipmentKeys, pageY: window\.scrollY \}/, 'persist crew body scroll + opened material rows + source page');
 assert.match(crew, /activeSubTab, selectedDate, teamListSortBy, teamListSortOrder/, 'persist source Crew list tab and filters');
 assert.match(crew, /setActiveSubTab\(saved\.activeSubTab === 'teams' \? 'teams' : 'logs'\)/, 'mobile restores Crew list tab rather than defaulting to logs');
 assert.match(crew, /selectedTeamForDetail\?\.id === team\.id && detailModalTab === saved\.tab/, 'desktop keeps original modal as-is');
 assert.match(crew, /teamMaterialSortBy, teamMaterialSortOrder/, 'persist material sorting');
 assert.match(crew, /data-hnl-crew-team-modal-body="true"/, 'crew scroll restoration target');
 assert.match(crew, /data-hnl-team-material-voucher-details=\{line\.materialKey\}/, 'crew source material details restoration');
+assert.match(crew, /data-hnl-team-equipment-voucher-details=\{line\.equipmentKey\}/, 'crew source equipment details restoration');
 assert.match(crew, /tx\.sourceTeamId === selectedTeamForDetail\.id/, 'crew source only for exact team id');
 assert.match(crew, /if \(!saved\?\.restore\) return/, 'no unconditional session restore');
 assert.match(app, /navigateFromLink\('warehouse', 'crew-voucher', 'crew'\)/, 'source is explicitly Crew even while another navigation is pending');
