@@ -335,7 +335,19 @@ assert(
     roomHighlightUiForPc.includes('data-hnl-room-add-subitem-inline="true"') &&
     roomHighlightUiForPc.indexOf('data-hnl-room-add-subitem-inline="true"') < roomHighlightUiForPc.indexOf('Interactive Input Volume directly in the list') &&
     roomHighlightUiForPc.includes('w-full sm:w-auto sm:inline-flex'),
-  'Add-subitem action must share the main volume row on PC (left of quantity) and wrap safely on mobile'
+  'Add-subitem action must be immediately left of main volume on PC and wrap safely on mobile'
+);
+assert(
+  roomHighlightUiForPc.includes('data-hnl-room-category-title-row="true"') &&
+    roomHighlightUiForPc.includes('xl:w-auto xl:flex-1 xl:min-w-0') &&
+    roomHighlightUiForPc.includes('data-hnl-room-category-inline-actions="true"'),
+  'On PC, main work category must be on the left with Add-subitem and main quantity to its right'
+);
+assert(
+  roomHighlightUiForPc.includes('data-hnl-room-preset-inline-row="true"') &&
+    roomHighlightUiForPc.includes('lg:flex-row lg:items-end') &&
+    roomHighlightUiForPc.includes('w-full lg:w-auto px-3 py-2 bg-indigo-600'),
+  'Nạp thêm vào căn này must be right of the preset selection on PC while mobile stacks cleanly'
 );
 assert(workVolumeUi.includes('lg:max-w-[1100px]') && workVolumeUi.includes('left-0 lg:left-[84px]'), 'Work Volume editor must use desktop width while reserving the left rail');
 assert(warehouse.includes('lg:max-w-[1100px]') && warehouse.includes('left-0 lg:left-[84px]'), 'Warehouse editor must use desktop width while reserving the left rail');

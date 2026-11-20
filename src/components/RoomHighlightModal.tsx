@@ -1459,39 +1459,43 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               </div>
             </div>
 
-            {/* Select Preset Category */}
+            {/* Desktop: preset selector and Add-to-room action share one row.
+                Unlike per-category Add sub-item, this action appends a complete preset to the room. */}
             <div className="space-y-2">
-              <label className="text-[11px] font-extrabold text-indigo-900 block leading-tight">
-                Chọn bộ mẫu hạng mục thi công áp dụng:
-              </label>
-              <select
-                value={presetSelection}
-                onChange={(e) => setPresetSelection(e.target.value)}
-                className="w-full min-w-0 border border-indigo-200 rounded-xl p-2.5 text-xs font-bold text-slate-800 bg-white focus:ring-2 focus:ring-indigo-500 shadow-2xs truncate"
-              >
-                {presetWorkCategories.map((catName) => (
-                  <option key={catName} value={catName}>
-                    {catName}
-                  </option>
-                ))}
-              </select>
+              <div data-hnl-room-preset-inline-row="true" className="flex flex-col gap-2 lg:flex-row lg:items-end">
+                <div className="min-w-0 flex-1 space-y-2">
+                  <label className="text-[11px] font-extrabold text-indigo-900 block leading-tight">
+                    Chọn bộ mẫu hạng mục thi công áp dụng:
+                  </label>
+                  <select
+                    value={presetSelection}
+                    onChange={(e) => setPresetSelection(e.target.value)}
+                    className="w-full min-w-0 border border-indigo-200 rounded-xl p-2.5 text-xs font-bold text-slate-800 bg-white focus:ring-2 focus:ring-indigo-500 shadow-2xs truncate"
+                  >
+                    {presetWorkCategories.map((catName) => (
+                      <option key={catName} value={catName}>
+                        {catName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div data-hnl-pc-v35-actions="room-preset" className="flex flex-col gap-2 lg:shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => presetSelection && handleApplyPreset(presetSelection)}
+                    disabled={!presetSelection}
+                    className="w-full lg:w-auto px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl text-xs shadow-2xs active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5" />
+                    <span>Nạp Thêm Vào Căn Này</span>
+                  </button>
+                </div>
+              </div>
               {presetWorkCategories.length === 0 && (
                 <p className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
                   Chưa có hạng mục đang hoạt động. Hãy tạo hạng mục ở tab Khối lượng trước; ứng dụng không tự phục hồi hạng mục đã xóa.
                 </p>
               )}
-
-              <div data-hnl-pc-v35-actions="room-preset" className="flex flex-col sm:flex-row gap-2 pt-0.5">
-                <button
-                  type="button"
-                  onClick={() => presetSelection && handleApplyPreset(presetSelection)}
-                  disabled={!presetSelection}
-                  className="flex-1 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl text-xs shadow-2xs active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                >
-                  <PlusCircle className="w-3.5 h-3.5" />
-                  <span>Nạp Thêm Vào Căn Này</span>
-                </button>
-              </div>
             </div>
           </div>}
 
@@ -1659,7 +1663,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                 <div key={`${catName}-${catIdx}`} className="space-y-3 bg-slate-50/70 p-3 rounded-2xl border border-slate-100">
                   {/* Category Header */}
                   <div className="flex flex-col border-b border-slate-200 pb-2 mb-1 gap-2.5">
-                    <div className="flex flex-col gap-2 w-full min-w-0">
+                    <div data-hnl-room-category-title-row="true" className="flex flex-col gap-2 w-full min-w-0 xl:flex-row xl:items-center">
                       {/* Select to swap category */}
                       <select
                         disabled={structureReadOnly}
@@ -1703,7 +1707,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             }
                           }
                         }}
-                        className="w-full font-black text-[13px] text-indigo-950 bg-indigo-50/80 hover:bg-indigo-100 border border-indigo-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-3xs"
+                        className="w-full xl:w-auto xl:flex-1 xl:min-w-0 font-black text-[13px] text-indigo-950 bg-indigo-50/80 hover:bg-indigo-100 border border-indigo-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-3xs"
                       >
                         {!activeWorkCategoryNameMap.has(catName.trim().toLocaleLowerCase('vi-VN')) && (
                           <option value="" disabled>⚠️ Đã xóa: {catName} — chọn hạng mục mới</option>
@@ -1713,7 +1717,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                         ))}
                       </select>
 
-                      <div data-hnl-room-category-inline-actions="true" className="flex flex-wrap items-center justify-between gap-2 mt-0.5">
+                      <div data-hnl-room-category-inline-actions="true" className="flex w-full xl:w-auto xl:shrink-0 flex-wrap items-center justify-between gap-2 mt-0.5 xl:mt-0">
                         {/* Desktop: add a sub-item to the LEFT of the main category quantity.
                             Narrow mobile can wrap without shrinking the expression input. */}
                         {!structureReadOnly && (
