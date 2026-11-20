@@ -49,18 +49,29 @@ export const DesktopWorkspaceHeader: React.FC<DesktopWorkspaceHeaderProps> = ({
   onOpenProjects, onOpenReports, onOpenNotifications, onOpenSecurity,
   notificationCount, onUndo, onRedo, canUndo, canRedo,
 }) => {
+  const roleLabel = userRole === 'ADMIN' ? 'Quản trị' : userRole === 'EDITOR' ? 'Biên tập' : 'Chỉ xem';
+
   // Home keeps its existing dashboard layout; modern PC only replaces the duplicated
-  // dark global banner with a compact action row, using the same guarded callbacks.
+  // dark global banner with a sleek sticky topbar using the same guarded callbacks.
   if (activeTab === 'home') {
     if (mode === 'classic') return null;
     return (
       <div className="hnl-pc-home-actions" data-hnl-pc-home-actions="true" aria-label="Công cụ Trang chủ PC">
-        <UndoRedoControls onUndo={onUndo} onRedo={onRedo} canUndo={canUndo} canRedo={canRedo} variant="light" />
-        <button type="button" onClick={onOpenProjects}><Building2 size={16} aria-hidden="true" /> Dự án</button>
-        <button type="button" onClick={onOpenReports}><FileBarChart2 size={16} aria-hidden="true" /> Báo cáo</button>
-        <button type="button" onClick={onOpenNotifications}><Bell size={16} aria-hidden="true" /> Thông báo{notificationCount > 0 && <span className="hnl-pc-alert-count">{notificationCount > 99 ? '99+' : notificationCount}</span>}</button>
-        <button type="button" onClick={onOpenSecurity}><LockKeyhole size={16} aria-hidden="true" /> Bảo mật</button>
-        <button type="button" onClick={() => onChangeMode('classic')} title="Chỉ đổi giao diện PC, không đổi dữ liệu"><MonitorCog size={16} aria-hidden="true" /> PC cũ</button>
+        <div className="hnl-pc-home-context">
+          <span className="hnl-pc-home-title">Trang chủ</span>
+          <span className="hnl-pc-topbar-sep" aria-hidden="true" />
+          <span className="hnl-pc-project-tag" title={projectName || 'Chưa chọn dự án'}><Building2 size={14} aria-hidden="true" /><strong className="hnl-pc-project-name">{projectName || 'Chưa chọn dự án'}</strong></span>
+          <span className={`hnl-pc-status ${online ? 'is-online' : 'is-offline'}`}>{online ? <Wifi size={13} aria-hidden="true" /> : <WifiOff size={13} aria-hidden="true" />}{online ? 'Đã kết nối' : 'Ngoại tuyến'}</span>
+          <span className="hnl-pc-role">{roleLabel}</span>
+        </div>
+        <div className="hnl-pc-home-toolbar">
+          <UndoRedoControls onUndo={onUndo} onRedo={onRedo} canUndo={canUndo} canRedo={canRedo} variant="light" />
+          <button type="button" onClick={onOpenProjects}><Building2 size={15} aria-hidden="true" /> Dự án</button>
+          <button type="button" onClick={onOpenReports}><FileBarChart2 size={15} aria-hidden="true" /> Báo cáo</button>
+          <button type="button" onClick={onOpenNotifications}><Bell size={15} aria-hidden="true" /> Thông báo{notificationCount > 0 && <span className="hnl-pc-alert-count">{notificationCount > 99 ? '99+' : notificationCount}</span>}</button>
+          <button type="button" onClick={onOpenSecurity}><LockKeyhole size={15} aria-hidden="true" /> Bảo mật</button>
+          <button type="button" className="hnl-pc-mode-switch" onClick={() => onChangeMode('classic')} title="Chỉ đổi giao diện PC, không đổi dữ liệu"><MonitorCog size={15} aria-hidden="true" /> PC cũ</button>
+        </div>
       </div>
     );
   }
@@ -73,27 +84,29 @@ export const DesktopWorkspaceHeader: React.FC<DesktopWorkspaceHeaderProps> = ({
   );
 
   const page = PAGES[activeTab];
-  const roleLabel = userRole === 'ADMIN' ? 'Quản trị' : userRole === 'EDITOR' ? 'Biên tập' : 'Chỉ xem';
   return (
     <section className="hnl-pc-workspace-heading" data-hnl-pc-workspace-title={activeTab} aria-label={`Không gian làm việc ${page.name}`}>
       <div className="hnl-pc-heading-top">
         <div className="hnl-pc-heading-main">
           <div className="hnl-pc-breadcrumb"><LayoutDashboard size={14} aria-hidden="true" /> HNL QLTC <ChevronRight size={13} aria-hidden="true" /> {page.group} <ChevronRight size={13} aria-hidden="true" /> <strong>{page.name}</strong></div>
-          <h1>{page.name}</h1>
-          <p>{page.hint}</p>
-          <div className="hnl-pc-context-row">
-            <span className="hnl-pc-project-tag" title={projectName || 'Chưa chọn dự án'}><Building2 size={15} aria-hidden="true" /><strong className="hnl-pc-project-name">{projectName || 'Chưa chọn dự án'}</strong></span>
-            <span className={`hnl-pc-status ${online ? 'is-online' : 'is-offline'}`}>{online ? <Wifi size={14} aria-hidden="true" /> : <WifiOff size={14} aria-hidden="true" />}{online ? 'Đã kết nối' : 'Ngoại tuyến'}</span>
-            <span className="hnl-pc-role">{roleLabel}</span>
+          <div className="hnl-pc-title-line">
+            <h1 title={page.hint}>{page.name}</h1>
+            <span className="hnl-pc-topbar-sep" aria-hidden="true" />
+            <div className="hnl-pc-context-row">
+              <span className="hnl-pc-project-tag" title={projectName || 'Chưa chọn dự án'}><Building2 size={14} aria-hidden="true" /><strong className="hnl-pc-project-name">{projectName || 'Chưa chọn dự án'}</strong></span>
+              <span className={`hnl-pc-status ${online ? 'is-online' : 'is-offline'}`}>{online ? <Wifi size={13} aria-hidden="true" /> : <WifiOff size={13} aria-hidden="true" />}{online ? 'Đã kết nối' : 'Ngoại tuyến'}</span>
+              <span className="hnl-pc-role">{roleLabel}</span>
+            </div>
           </div>
+          <p className="hnl-pc-heading-hint">{page.hint}</p>
         </div>
         <div className="hnl-pc-heading-actions" aria-label="Công cụ truy cập nhanh">
           <UndoRedoControls onUndo={onUndo} onRedo={onRedo} canUndo={canUndo} canRedo={canRedo} variant="light" />
-          <button type="button" onClick={onOpenProjects}><Building2 size={17} aria-hidden="true" /> Dự án</button>
-          <button type="button" onClick={onOpenReports}><FileBarChart2 size={17} aria-hidden="true" /> Báo cáo</button>
-          <button type="button" onClick={onOpenNotifications}><Bell size={17} aria-hidden="true" /> Thông báo{notificationCount > 0 && <span className="hnl-pc-alert-count">{notificationCount > 99 ? '99+' : notificationCount}</span>}</button>
-          <button type="button" onClick={onOpenSecurity}><LockKeyhole size={17} aria-hidden="true" /> Bảo mật</button>
-          <button type="button" className="hnl-pc-mode-switch" onClick={() => onChangeMode('classic')} title="Chỉ khôi phục bố cục PC, không thay đổi dữ liệu"><MonitorCog size={17} aria-hidden="true" /> PC cũ</button>
+          <button type="button" onClick={onOpenProjects}><Building2 size={15} aria-hidden="true" /> Dự án</button>
+          <button type="button" onClick={onOpenReports}><FileBarChart2 size={15} aria-hidden="true" /> Báo cáo</button>
+          <button type="button" onClick={onOpenNotifications}><Bell size={15} aria-hidden="true" /> Thông báo{notificationCount > 0 && <span className="hnl-pc-alert-count">{notificationCount > 99 ? '99+' : notificationCount}</span>}</button>
+          <button type="button" onClick={onOpenSecurity}><LockKeyhole size={15} aria-hidden="true" /> Bảo mật</button>
+          <button type="button" className="hnl-pc-mode-switch" onClick={() => onChangeMode('classic')} title="Chỉ khôi phục bố cục PC, không thay đổi dữ liệu"><MonitorCog size={15} aria-hidden="true" /> PC cũ</button>
         </div>
       </div>
     </section>
