@@ -644,8 +644,14 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     const resolvedByName = resolveWorkVolumeRef({
       workVolumes, workCategoryName: category, floorId, floorName,
     });
-    const resolved = resolvedById?.state === 'resolved' || resolvedById?.state === 'floor-mismatch'
-      ? resolvedById : resolvedByName;
+    // An old room ID may point to a renamed/other category. If the visible
+    // category name has catalog matches but not the same ID title, use the
+    // visible category rather than displaying an unrelated unit.
+    const idMatchesVisibleCategory = (resolvedById?.matches || []).some((item) =>
+      item.title.trim().toLocaleLowerCase('vi-VN') === key);
+    const nameExists = Boolean(resolvedByName.matches?.length);
+    const useLinkedId = Boolean(resolvedById && (!nameExists || idMatchesVisibleCategory));
+    const resolved = useLinkedId ? resolvedById! : resolvedByName;
     // Strict floor resolution first, then DEV-compatible fallback when every exact
     // catalog match agrees on its unit. Never choose a random conflicting floor.
     const matchingUnits = Array.from(new Set((resolved.matches || [])
