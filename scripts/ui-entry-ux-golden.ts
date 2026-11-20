@@ -359,9 +359,9 @@ assert(
   'Room color control must return below the name at full width, matching the original PC and mobile layout'
 );
 assert(
-  roomHighlightUiForPc.includes('hidden lg:inline">Nạp bộ mẫu</span>') &&
-    roomHighlightUiForPc.includes('hidden lg:inline">Chọn bộ mẫu:</span>') &&
-    roomHighlightUiForPc.includes('hidden lg:inline">Nạp thêm</span>') &&
+  roomHighlightUiForPc.includes('hidden lg:inline">Nạp hạng mục thi công</span>') &&
+    roomHighlightUiForPc.includes('hidden lg:inline">Chọn mẫu hạng mục thi công:</span>') &&
+    roomHighlightUiForPc.includes('hidden lg:inline">Nạp vào Căn / Phòng</span>') &&
     roomHighlightUiForPc.includes('hidden lg:inline">Hạng mục thi công ({subItems.length})</span>') &&
     roomHighlightUiForPc.includes('lg:hidden text-[11px] text-indigo-700/90 font-medium') &&
     roomHighlightUiForPc.includes('lg:hidden text-[10.5px] text-slate-500 font-medium'),

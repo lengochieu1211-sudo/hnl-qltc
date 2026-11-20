@@ -1452,7 +1452,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               <div className="min-w-0 flex-1">
                 <h4 className="font-black text-indigo-950 text-xs uppercase tracking-wide leading-snug break-words">
                   <span className="lg:hidden">Nạp mẫu hạng mục thi công</span>
-                  <span className="hidden lg:inline">Nạp bộ mẫu</span>
+                  <span className="hidden lg:inline">Nạp hạng mục thi công</span>
                 </h4>
                 <p className="lg:hidden text-[11px] text-indigo-700/90 font-medium">
                   Nạp tự động các bộ công đoạn. Bạn có thể nạp thêm nhiều bộ khác nhau vào cùng 1 căn (VD: Trần Tiêu Chuẩn + Trần Chống Ẩm...).
@@ -1467,7 +1467,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                 <div className="min-w-0 flex-1 space-y-2">
                   <label className="text-[11px] font-extrabold text-indigo-900 block leading-tight">
                     <span className="lg:hidden">Chọn bộ mẫu hạng mục thi công áp dụng:</span>
-                    <span className="hidden lg:inline">Chọn bộ mẫu:</span>
+                    <span className="hidden lg:inline">Chọn mẫu hạng mục thi công:</span>
                   </label>
                   <select
                     value={presetSelection}
@@ -1490,7 +1490,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                   >
                     <PlusCircle className="w-3.5 h-3.5" />
                     <span className="lg:hidden">Nạp Thêm Vào Căn Này</span>
-                    <span className="hidden lg:inline">Nạp thêm</span>
+                    <span className="hidden lg:inline">Nạp vào Căn / Phòng</span>
                   </button>
                 </div>
               </div>
