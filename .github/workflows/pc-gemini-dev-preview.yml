@@ -133,6 +133,59 @@ jobs:
           URL="$(cat PC-GEMINI-DEV-PREVIEW-URL.txt)"
           case "$URL" in https://hnl-qltc-dev--pc-gemini-dev-20261120*.web.app*) ;; *) echo 'Unexpected preview URL host'; exit 1;; esac
           curl -fLsS --max-time 30 "$URL" | grep -qi '<html'
+      - name: Package exact-HEAD source and patch (no data writes)
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="$HNL_PREVIEW_BASE_DEV_SHA"
+          HEAD="$(git rev-parse HEAD)"
+          test "$HEAD" = "$GITHUB_SHA"
+          mkdir -p deliverables
+          mapfile -t CHANGED < <(git diff --name-only "$BASE" "$HEAD")
+          test "$HEAD" != "$BASE"
+          test "\${CHANGED[0]:-}" != ""
+          # Refuse to package common private-key or real environment files.
+          git ls-files | node -e '
+          let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{
+          const bad=s.split("\n").filter(p=>/(^|\/)\.env($|\.(local|production|dev|development)$)|\.(pem|p12|p8|key|jks|keystore)$|(^|\/)(service-account|firebase-adminsdk)[^/]*\.json$/i.test(p));
+          if(bad.length){console.error("Sensitive tracked file paths detected; refusing source export:",bad.length);process.exit(1)}
+          });'
+          git archive --format=zip --prefix=HNL-QLTC-PREVIEW-FULL/ \
+            --output=deliverables/HNL-QLTC-GEMINI-PC-FULL-SOURCE.zip "$HEAD"
+          git archive --format=zip --prefix=HNL-QLTC-PREVIEW-PATCH/ \
+            --output=deliverables/HNL-QLTC-GEMINI-PC-PATCH.zip "$HEAD" "\${CHANGED[@]}"
+          {
+            echo "# HNL QLTC - Gemini PC Preview - Exact source handoff"
+            echo ""
+            echo "- Branch: preview/pc-gemini-dev-20261120"
+            echo "- Exact HEAD: $HEAD"
+            echo "- Source baseline DEV: $BASE"
+            echo "- Runtime: NOT CERTIFIED; full manual ADMIN/EDITOR/VIEWER golden and offline/R2 synchronization pending."
+            echo "- GitHub CI stage: TypeScript, lint, Firebase Rules, RBAC, UI regressions and build completed before packaging."
+            echo "- Deploy scope: DEV Hosting preview channel only. PROD/Firebase Rules/R2 untouched."
+            echo "- Legacy PR474 R2 source ZIP was NOT used."
+            echo ""
+            echo "## Changed files relative to source baseline"
+            printf -- "- %s\n" "\${CHANGED[@]}"
+            echo ""
+            echo "## Unchanged policy"
+            echo "Do not merge or deploy PROD without separate approval and full Runtime Golden."
+          } > deliverables/REPORT.md
+          (cd deliverables && sha256sum HNL-QLTC-GEMINI-PC-FULL-SOURCE.zip HNL-QLTC-GEMINI-PC-PATCH.zip REPORT.md > SHA256SUMS.txt)
+          unzip -tqq deliverables/HNL-QLTC-GEMINI-PC-FULL-SOURCE.zip
+          unzip -tqq deliverables/HNL-QLTC-GEMINI-PC-PATCH.zip
+          test "$(unzip -Z1 deliverables/HNL-QLTC-GEMINI-PC-FULL-SOURCE.zip | wc -l)" -gt 100
+          test "$(unzip -Z1 deliverables/HNL-QLTC-GEMINI-PC-PATCH.zip | wc -l)" -ge 7
+          echo "FULL/PATCH ZIP integrity and exact HEAD PASS"
+      - name: Upload exact Preview source bundle
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pc-gemini-exact-source-${{ github.sha }}
+          path: deliverables/
+          retention-days: 30
+          if-no-files-found: error
       - name: Upload preview URL and evidence
         if: always()
         uses: actions/upload-artifact@v4
