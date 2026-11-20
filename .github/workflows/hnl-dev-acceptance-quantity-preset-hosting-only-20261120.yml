@@ -1,4 +1,4 @@
-name: HNL DEV Acceptance Quantities and Safe Preset Hosting-only 20261120 (NO PROD/Rules/R2/AI)
+name: HNL DEV PC Room Two-Column Hosting-only Release 20261120 (NO PROD/Rules/R2/AI)
 on:
   push:
     branches:
@@ -41,8 +41,8 @@ jobs:
           FIREBASE_DEV_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
         run: |
           set -euo pipefail
-          BASE=25aabd2e160448dbff1a799e0e85af5a4860bd14
-          LIVE_EXPECTED=0937d0bc637495510105e04c0265a26069b9c4f7
+          BASE=db32d379d4c7efbe86f59c25e8cf26b6cdc9e867
+          LIVE_EXPECTED=05584d4c88aab6e274fcbb36c73ed051187a8051
           test "$(git rev-parse HEAD^)" = "$BASE" || { echo '::error::Approval source parent mismatch'; exit 1; }
           test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
           test "$GITHUB_REF" = refs/heads/dev
@@ -50,19 +50,23 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$GITHUB_SHA"
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = ec79ffc801ecf059b37c82b9f4a9acf503108bf9 || { echo "::error::PROD main HEAD changed"; exit 1; }
-          # Exact reviewed PR470 source and full immutable tree; no rollback.
-          test "$(git rev-parse "$BASE^{tree}")" = d797b2450e5ce20fda8b3e43268e1ace147f32ec
+          # Exact approved current DEV source and immutable tree; no rollback.
+          test "$(git rev-parse "$BASE^{tree}")" = 0c42d895aa39710c0fdc4e1ede1c6c200ff155aa
           test "$(git rev-parse "$BASE:src/components/FloorPlanDefectTab.tsx")" = 65c736fd2b958118cac32fa64ad46f8d6d10085f
-          test "$(git rev-parse "$BASE:src/components/RoomHighlightModal.tsx")" = b14973d84534d4258a19ac1114aa0d8b6ab00a4e
-          test "$(git rev-parse "$BASE:src/components/SecurityModal.tsx")" = 583927c9d3b608cd9f6312b6b8eefb157ac53706
+          test "$(git rev-parse "$BASE:src/components/RoomHighlightModal.tsx")" = f7e92a005ba0446ac5dc597784565e4fab830b95
+          test "$(git rev-parse "$BASE:src/components/SecurityModal.tsx")" = c271239c4ced86c93256906c28e9b6dd928ebd99
           ! grep -Fq 'Nạp thay thế (xóa cũ)' src/components/RoomHighlightModal.tsx
           grep -Fq 'Nạp Thêm Vào Căn Này' src/components/RoomHighlightModal.tsx
           grep -Fq 'data-hnl-subitem-quantity' src/components/RoomHighlightModal.tsx
           grep -Fq 'Highlight hạng mục con' src/components/FloorPlanDefectTab.tsx
+          grep -Fq 'data-hnl-room-team-contact-row="true"' src/components/RoomHighlightModal.tsx
+          grep -Fq 'data-hnl-room-pc-status-column="true"' src/components/RoomHighlightModal.tsx
+          grep -Fq 'xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,1fr)]' src/components/RoomHighlightModal.tsx
+          test "$(git rev-parse "$BASE:scripts/ui-entry-ux-golden.ts")" = 3af3db083211ba3fd0c83797348f785f292b8dab
           test "$(git rev-parse "$BASE:src/types.ts")" = bfed21c5206d6add5acd33a84bb382d4817219b3
           test "$(git rev-parse "$BASE:src/utils/roomCategoryUnit.ts")" = 4df44a45bad5ac87badb1f1ddf18668cd7c62189
-          test "$(git rev-parse "$BASE:src/utils/subItemHighlightGeometry.ts")" = 3ed5c7213381108dd694f7716f09fe2900488bec
-          test "$(git rev-parse "$BASE:scripts/subitem-highlight-advanced-golden.mjs")" = 7c007fe811205aa4057d0f1cf97c3da8812dd2bd
+          test "$(git rev-parse "$BASE:src/utils/subItemHighlightGeometry.ts")" = aa8c909f58448747927989d111f230a336976b70
+          test "$(git rev-parse "$BASE:scripts/subitem-highlight-advanced-golden.mjs")" = 447076b0a4bdc38424914e69040425cf517d14e2
           test "$(git rev-parse "$BASE:scripts/ui-return-and-palette-golden.mjs")" = 10732575316fd43c3491eb6d5167417964205ccb
           # Dedicated one-file DEV Hosting release; no application/Rules/R2 data changes.
           git diff --name-only "$BASE" "$GITHUB_SHA" > "$RUNNER_TEMP/changed.txt"
@@ -181,10 +185,11 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$GITHUB_SHA"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = ec79ffc801ecf059b37c82b9f4a9acf503108bf9
           # Do not overwrite a concurrent or unrecognized DEV website publication.
           LIVE_JSON="$(curl -fsSL --retry 3 "$DEV_HOST/hnl-dev-release.json?preflight=$GITHUB_SHA")"
           LIVE_SHA="$(printf '%s' "$LIVE_JSON" | node -e "let s='';process.stdin.on('data',b=>s+=b).on('end',()=>{const j=JSON.parse(s);if(j.firebaseProjectId!=='hnl-qltc-dev'||j.environment!=='DEV')process.exit(2);process.stdout.write(j.gitCommit||'')})")"
-          test "$LIVE_SHA" = 0937d0bc637495510105e04c0265a26069b9c4f7 || { echo "::error::DEV live moved since preflight; refusing overwrite: $LIVE_SHA"; exit 1; }
+          test "$LIVE_SHA" = 05584d4c88aab6e274fcbb36c73ed051187a8051 || { echo "::error::DEV live moved since preflight; refusing overwrite: $LIVE_SHA"; exit 1; }
           node - <<'NODE'
           const fs=require('fs');
           const base=JSON.parse(fs.readFileSync('firebase.json','utf8'));
@@ -202,8 +207,9 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$GITHUB_SHA"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = ec79ffc801ecf059b37c82b9f4a9acf503108bf9
           LIVE_SHA="$(curl -fsSL --retry 3 "$DEV_HOST/hnl-dev-release.json?deploy=$GITHUB_SHA" | node -e "let s='';process.stdin.on('data',b=>s+=b).on('end',()=>{const j=JSON.parse(s);if(j.firebaseProjectId!=='hnl-qltc-dev'||j.environment!=='DEV')process.exit(2);process.stdout.write(j.gitCommit||'')})")"
-          test "$LIVE_SHA" = 0937d0bc637495510105e04c0265a26069b9c4f7 || { echo "::error::Concurrent DEV Hosting update detected; refuse deploy"; exit 1; }
+          test "$LIVE_SHA" = 05584d4c88aab6e274fcbb36c73ed051187a8051 || { echo "::error::Concurrent DEV Hosting update detected; refuse deploy"; exit 1; }
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/hnl-acceptance-ui-dev-credentials.json"
           test -s "$GOOGLE_APPLICATION_CREDENTIALS"
           npx --yes firebase-tools@13.35.1 deploy --only hosting --config "$GITHUB_WORKSPACE/hnl-dev-acceptance-ui-20261120.generated.json" --project hnl-qltc-dev --non-interactive
@@ -234,7 +240,7 @@ jobs:
           const fs=require('fs'),crypto=require('crypto'),j=require(process.argv[2]);
           const hash=crypto.createHash('sha256').update(fs.readFileSync(process.argv[3])).digest('hex');
           if(hash!==j.entrySha256)throw Error('DEV LIVE JS bytes do not match certified build');
-          console.log('HNL DEV acceptance quantity/preset LIVE exact Git HEAD + JS SHA256 PASS; PROD untouched');
+          console.log('HNL DEV PC 2-column LIVE exact Git HEAD + JS SHA256 PASS; PROD untouched');
           NODE
           # Read back real CC0 audio bytes from LIVE, not just the SPA shell.
           for name in rocket-real.mp3 crackle-real.mp3; do
@@ -246,7 +252,7 @@ jobs:
         if: success()
         shell: bash
         env:
-          BASELINE_SHA: d1f550f988935388bd36d9026bc74009978f8751
+          BASELINE_SHA: 05584d4c88aab6e274fcbb36c73ed051187a8051
         run: |
           set -euo pipefail
           mkdir -p handoff
@@ -264,7 +270,7 @@ jobs:
               f.write('Approved source: '+base+'\nReleased commit: '+head+'\n')
               f.write('Hosting: hnl-qltc-dev.web.app; no PROD/Rules/R2/AI deployment\n')
               f.write('Source: exact GitHub archive; patch includes changes since approved app source\n')
-              f.write('User changes: hide replace preset; preserve additive import and individual deletion; show subitem quantity and PC UI improvements.\n')
+              f.write('User changes: PC two-column room acceptance; Contact left of team selector; progress/inspection same column; prior compact PIN and live area quantity retained.\n')
               f.write('CI and Hosting manifest/JS checksum verified in workflow steps; device interaction requires separate Runtime Golden.\n')
           with open('handoff/SHA256SUMS.txt','w') as f:
               for name in ['FULL_SOURCE.zip','PATCH.zip','changed-files.txt','REPORT.md']:
