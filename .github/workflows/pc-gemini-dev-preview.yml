@@ -1,0 +1,141 @@
+name: HNL QLTC - Gemini PC UI - Canonical DEV Isolated Preview
+
+on:
+  push:
+    branches: ["preview/pc-gemini-dev-20261120"]
+    paths-ignore: ["README.md", "docs/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pc-gemini-dev-20261120
+  cancel-in-progress: false
+
+jobs:
+  build-and-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_HNL_AI_ENABLED: 'true'
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev.web.app
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
+      HNL_PREVIEW_BASE_DEV_SHA: 4b8235bcf7336a7f5836552d26680781b0de76c2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Ref, source and DEV-only security guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REPOSITORY}" = 'lengochieu1211-sudo/hnl-qltc'
+          test "${GITHUB_REF}" = 'refs/heads/preview/pc-gemini-dev-20261120'
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git rev-parse HEAD^)" = '4b8235bcf7336a7f5836552d26680781b0de76c2'
+          # The preview commit is an overlay onto DEV, never a replacement of business source.
+          git diff --name-only HEAD^ HEAD > "${RUNNER_TEMP}/preview-files.txt"
+          node - <<'NODE_GUARD'
+          const fs=require('fs');
+          const allowed=new Set(['src/main.tsx','src/components/BottomNav.tsx','src/components/DesktopWorkspaceHeader.tsx','src/styles/desktopWorkspacePro.css','scripts/pc-gemini-preview-regression.mjs','.github/workflows/pc-gemini-dev-preview.yml','PC-GEMINI-DEV-PREVIEW-README.md']);
+          const paths=fs.readFileSync(process.env.RUNNER_TEMP+'/preview-files.txt','utf8').trim().split('\n').filter(Boolean);
+          if(!paths.length||paths.some(p=>!allowed.has(p)))throw Error('Unexpected/non-PC change in Gemini preview commit: '+paths.join(','));
+          console.log('Only approved PC presentation and preview gate files changed:',paths.length);
+          NODE_GUARD
+          test "${VITE_APP_ENV}" = DEV
+          test "${VITE_ENABLE_LEGACY_DRIVE_WRITE}" = false
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}"
+          node -e "const c=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);if(c.type!=='service_account'||c.project_id!=='hnl-qltc-dev')process.exit(1)"
+          printf '%s' "${FIREBASE_SERVICE_ACCOUNT}" > "${RUNNER_TEMP}/dev-sa.json"
+          chmod 600 "${RUNNER_TEMP}/dev-sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=${RUNNER_TEMP}/dev-sa.json" >> "${GITHUB_ENV}"
+      - name: Read real DEV Firebase Web configuration (never PROD)
+        shell: bash
+        run: |
+          set -euo pipefail
+          CLI='npx --yes firebase-tools@13.35.1'
+          $CLI apps:list WEB --project hnl-qltc-dev --json > "${RUNNER_TEMP}/dev-apps.json"
+          APP_ID="$(node -e "const j=require(process.env.RUNNER_TEMP+'/dev-apps.json');const a=Array.isArray(j.result)?j.result:[];process.stdout.write(String(a.find(x=>x.platform==='WEB')?.appId||''))")"
+          test -n "${APP_ID}"
+          $CLI apps:sdkconfig WEB "${APP_ID}" --project hnl-qltc-dev --json > "${RUNNER_TEMP}/dev-sdk.json"
+          node - <<'NODE'
+          const fs=require('fs'); const data=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/dev-sdk.json','utf8'));
+          const keys=['apiKey','appId','messagingSenderId','projectId','storageBucket','authDomain'], vals={};
+          function walk(v){if(!v)return;if(typeof v==='string'){try{walk(JSON.parse(v))}catch{};for(const k of keys){const m=v.match(new RegExp(k + String.raw`\s*:\s*["']([^"']+)["']`));if(m&&!vals[k])vals[k]=m[1]};return}if(Array.isArray(v)){v.forEach(walk);return}if(typeof v==='object'){for(const [k,x]of Object.entries(v)){if(keys.includes(k)&&typeof x==='string'&&!vals[k])vals[k]=x;walk(x)}}}
+          walk(data);vals.authDomain='hnl-qltc-dev.web.app';
+          if(vals.projectId!=='hnl-qltc-dev'||keys.some(k=>!vals[k]))throw Error('Missing or invalid DEV Firebase Web config');
+          const names={apiKey:'VITE_FIREBASE_API_KEY',appId:'VITE_FIREBASE_APP_ID',messagingSenderId:'VITE_FIREBASE_MESSAGING_SENDER_ID',projectId:'VITE_FIREBASE_PROJECT_ID',storageBucket:'VITE_FIREBASE_STORAGE_BUCKET',authDomain:'VITE_FIREBASE_AUTH_DOMAIN'};
+          for(const [k,name] of Object.entries(names))fs.appendFileSync(process.env.GITHUB_ENV,name+'='+vals[k]+'\n');
+          NODE
+      - name: Static and regression gates
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run test:rbac
+          npm run test:ui-entry-ux
+          npm run test:room-highlight-transform
+          HNL_REQUIRE_CANONICAL_DEV=1 node scripts/pc-gemini-preview-regression.mjs
+          node scripts/ui-return-and-palette-golden.mjs
+          npm run build
+          test -f dist/index.html
+      - name: Confirm PROD backends are absent in deployed assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${VITE_FIREBASE_PROJECT_ID}" = hnl-qltc-dev
+          test "${VITE_FIREBASE_PROJECT_ID}" != 'com-example-qlct-61329'
+          test "${VITE_APP_ENV}" = DEV
+          test "${VITE_R2_GATEWAY_URL}" = 'https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev'
+          ! grep -R -q 'hnl-qltc-r2-gateway\.lengochieu1211\.workers\.dev' dist/assets
+      - name: Deploy ONLY isolated DEV preview channel (30 days)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE_HOSTING'
+          const fs=require('fs');const config=JSON.parse(fs.readFileSync('firebase.json','utf8'));
+          if(!config.hosting || config.hosting.public!=='dist')throw Error('Expected dist Hosting configuration missing');
+          fs.writeFileSync('preview-hosting-only.json',JSON.stringify({hosting:config.hosting}));
+          NODE_HOSTING
+          npx --yes firebase-tools@13.35.1 hosting:channel:deploy pc-gemini-dev-20261120 \
+            --project hnl-qltc-dev --config preview-hosting-only.json --expires 30d --non-interactive --json \
+            > "${RUNNER_TEMP}/preview.json"
+          node - <<'NODE'
+          const fs=require('fs');const j=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/preview.json','utf8'));
+          let urls=[];function walk(v){if(!v)return;if(typeof v==='string'){urls.push(...v.match(/https:\/\/[^\s"']+/g)||[]);return}if(Array.isArray(v))v.forEach(walk);else if(typeof v==='object')Object.values(v).forEach(walk)}walk(j);
+          const url=urls.find(x=>x.includes('hnl-qltc-dev--pc-gemini-dev-20261120')&&x.startsWith('https://'));
+          if(!url)throw Error('DEV preview channel URL not returned; refuse false success');
+          const clean=url.replace(/[\],}]+$/,'').replace(/\/$/,'');
+          fs.writeFileSync('PC-GEMINI-DEV-PREVIEW-URL.txt',clean+'\n');
+          console.log('ISOLATED DEV PC PREVIEW:',clean);
+          NODE
+      - name: Verify preview HTML URL (read-only)
+        if: success()
+        run: |
+          set -euo pipefail
+          URL="$(cat PC-GEMINI-DEV-PREVIEW-URL.txt)"
+          case "$URL" in https://hnl-qltc-dev--pc-gemini-dev-20261120*.web.app*) ;; *) echo 'Unexpected preview URL host'; exit 1;; esac
+          curl -fLsS --max-time 30 "$URL" | grep -qi '<html'
+      - name: Upload preview URL and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pc-gemini-dev-20261120-${{ github.sha }}
+          path: PC-GEMINI-DEV-PREVIEW-URL.txt
+          retention-days: 30
+          if-no-files-found: warn

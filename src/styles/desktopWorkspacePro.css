@@ -1,0 +1,1166 @@
+/* ============================================================================
+ * HNL QLTC — PC Enterprise Pro Workspace (V4)
+ * Presentation & layout ONLY. Strictly scoped to modern PC (>=1024px or
+ * browser desktop mode >=960px). Zero changes to mobile (<960px), classic PC,
+ * business handlers, Firestore/R2, RBAC, or FloorPlan canvas geometry.
+ * ============================================================================ */
+
+/* Gemini-only presentation must not add any global mobile selectors.
+   The pre-existing app CSS continues to own all layouts below 1024px. */
+@media (min-width: 1024px) {
+  .hnl-pc-sidebar-brand,
+  .hnl-pc-account-expanded-meta,
+  .hnl-pc-account-chevron,
+  .hnl-pc-home-context {
+    display: none;
+  }
+}
+
+@media (min-width: 1024px) {
+  /* --------------------------------------------------------------------------
+   * 1. Design Tokens (Light + Dark) & Dynamic Collapsible Sidebar Width
+   * -------------------------------------------------------------------------- */
+  html[data-hnl-pc-workspace="modern"] {
+    --hnl-pc-sidebar-w: 228px;
+    --pc-pro-canvas: #f4f6f9;
+    --pc-pro-surface: #ffffff;
+    --pc-pro-surface-subtle: #f8fafc;
+    --pc-pro-surface-hover: #f1f5f9;
+    --pc-pro-border: #e2e8f0;
+    --pc-pro-border-strong: #cbd5e1;
+    --pc-pro-ink: #0f172a;
+    --pc-pro-ink-secondary: #334155;
+    --pc-pro-muted: #64748b;
+    --pc-pro-topbar-bg: rgba(255, 255, 255, 0.92);
+    --pc-pro-shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+    --pc-pro-shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.05);
+    --pc-pro-shadow-md: 0 12px 32px rgba(15, 23, 42, 0.12);
+    --pc-pro-radius-sm: 7px;
+    --pc-pro-radius-md: 10px;
+    --pc-pro-radius-lg: 12px;
+    --pc-pro-accent: var(--hnl-primary-action, #2563eb);
+    --pc-pro-accent-soft: color-mix(in srgb, var(--pc-pro-accent) 10%, transparent);
+    --pc-pro-accent-border: color-mix(in srgb, var(--pc-pro-accent) 24%, var(--pc-pro-border));
+  }
+
+  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] {
+    --hnl-pc-sidebar-w: 72px;
+  }
+
+  html[data-hnl-theme="dark"][data-hnl-pc-workspace="modern"] {
+    --pc-pro-canvas: #0b1120;
+    --pc-pro-surface: #111827;
+    --pc-pro-surface-subtle: #1e293b;
+    --pc-pro-surface-hover: #263449;
+    --pc-pro-border: #1e293b;
+    --pc-pro-border-strong: #334155;
+    --pc-pro-ink: #f1f5f9;
+    --pc-pro-ink-secondary: #cbd5e1;
+    --pc-pro-muted: #94a3b8;
+    --pc-pro-topbar-bg: rgba(15, 23, 42, 0.92);
+    --pc-pro-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.25);
+    --pc-pro-shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.3);
+    --pc-pro-shadow-md: 0 16px 40px rgba(0, 0, 0, 0.45);
+    --pc-pro-accent-soft: color-mix(in srgb, var(--pc-pro-accent) 18%, transparent);
+  }
+
+  /* --------------------------------------------------------------------------
+   * 2. App Shell Frame & Canvas Synchronization
+   * -------------------------------------------------------------------------- */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"],
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-home-modern="true"] {
+    padding-left: var(--hnl-pc-sidebar-w) !important;
+    background: var(--pc-pro-canvas) !important;
+    transition: padding-left 0.18s ease;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-app-shell="true"] {
+    background: var(--pc-pro-canvas) !important;
+    border-left: 0 !important;
+    border-right: 0 !important;
+    box-shadow: none !important;
+  }
+
+  /* --------------------------------------------------------------------------
+   * 3. Collapsible Enterprise Left Sidebar
+   * -------------------------------------------------------------------------- */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] {
+    width: var(--hnl-pc-sidebar-w) !important;
+    background: var(--pc-pro-surface) !important;
+    border-right: 1px solid var(--pc-pro-border) !important;
+    box-shadow: var(--pc-pro-shadow-xs) !important;
+    color: var(--pc-pro-ink-secondary) !important;
+    transition: width 0.18s ease;
+  }
+
+  /* Brand Header (56px height aligned with sticky topbar) */
+  html[data-hnl-pc-workspace="modern"] .hnl-pc-sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 56px;
+    min-height: 56px;
+    padding: 0 12px 0 14px;
+    border-bottom: 1px solid var(--pc-pro-border);
+    flex-shrink: 0;
+  }
+
+  html[data-hnl-pc-workspace="modern"] .hnl-pc-sidebar-brand-mark {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: var(--pc-pro-surface-subtle);
+    border: 1px solid var(--pc-pro-border);
+    flex-shrink: 0;
+  }
+
+  html[data-hnl-pc-workspace="modern"] .hnl-pc-sidebar-brand-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+    line-height: 1.15;
+  }
+
+  html[data-hnl-pc-workspace="modern"] .hnl-pc-sidebar-brand-text strong {
+    font-size: 13.5px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--pc-pro-ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  html[data-hnl-pc-workspace="modern"] .hnl-pc-sidebar-brand-text span {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--pc-pro-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 1px;
+  }
+
+  html[data-hnl-pc-workspace="modern"] .hnl-pc-sidebar-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--pc-pro-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background-color 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+  }
+
+  html[data-hnl-pc-workspace="modern"] .hnl-pc-sidebar-toggle:hover {
+    background: var(--pc-pro-surface-hover);
+    color: var(--pc-pro-ink);
+    border-color: var(--pc-pro-border);
+  }
+
+  /* Collapsed brand layout */
+  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] .hnl-pc-sidebar-brand {
+    justify-content: center;
+    padding: 0 8px;
+    gap: 0;
+  }
+
+  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] .hnl-pc-sidebar-brand-mark,
+  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] .hnl-pc-sidebar-brand-text {
+    display: none;
+  }
+
+  /* Account Menu Card inside Sidebar */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-account-menu="true"] {
+    padding: 10px 10px 10px !important;
+    border-bottom: 1px solid var(--pc-pro-border) !important;
+    align-items: stretch !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-account-menu="true"] > button[data-hnl-account-trigger="true"] {
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 10px !important;
+    padding: 7px 8px !important;
+    border-radius: 9px !important;
+    background: var(--pc-pro-surface-subtle);
+    border: 1px solid var(--pc-pro-border);
+    text-align: left;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-account-menu="true"] > button[data-hnl-account-trigger="true"]:hover {
+    background: var(--pc-pro-surface-hover) !important;
+    border-color: var(--pc-pro-border-strong);
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-account-menu="true"] > button > span:first-child {
+    width: 34px !important;
+    height: 34px !important;
+    border-width: 1.5px !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] .hnl-pc-account-compact-label {
+    display: none !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] .hnl-pc-account-expanded-meta {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+    line-height: 1.2;
+  }
+
+  html[data-hnl-pc-workspace="modern"] .hnl-pc-account-name {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--pc-pro-ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  html[data-hnl-pc-workspace="modern"] .hnl-pc-account-role {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--pc-pro-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 1px;
+  }
+
+  html[data-hnl-pc-workspace="modern"] .hnl-pc-account-chevron {
+    display: block;
+  }
+
+  /* Account popover dynamically aligned right next to sidebar */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-account-popover="true"] {
+    left: calc(var(--hnl-pc-sidebar-w) + 10px) !important;
+    top: 12px !important;
+    border-radius: 12px !important;
+    border-color: var(--pc-pro-border) !important;
+    box-shadow: var(--pc-pro-shadow-md) !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] [data-hnl-desktop-account-menu="true"] {
+    padding: 10px 8px !important;
+    align-items: center !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] [data-hnl-desktop-account-menu="true"] > button[data-hnl-account-trigger="true"] {
+    justify-content: center !important;
+    padding: 5px !important;
+    width: 44px !important;
+    height: 44px !important;
+    gap: 0 !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] .hnl-pc-account-expanded-meta,
+  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] .hnl-pc-account-chevron {
+    display: none !important;
+  }
+
+  /* Primary Navigation List — Expanded Mode */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] {
+    justify-content: flex-start !important;
+    align-items: stretch !important;
+    gap: 3px !important;
+    padding: 10px 10px !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button {
+    position: relative;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    width: 100% !important;
+    height: 38px !important;
+    min-height: 38px !important;
+    padding: 0 11px !important;
+    gap: 10px !important;
+    margin-inline: 0 !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+    --tw-ring-shadow: 0 0 #0000 !important;
+    color: var(--pc-pro-ink-secondary);
+    transition: background-color 0.14s ease, color 0.14s ease;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button:hover,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button:hover {
+    background: var(--pc-pro-surface-hover) !important;
+    color: var(--pc-pro-ink) !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button svg,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button svg {
+    width: 18px !important;
+    height: 18px !important;
+    flex-shrink: 0;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button > span:last-child,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button > span:last-child {
+    width: auto !important;
+    flex: 1;
+    text-align: left !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    line-height: 1.3 !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Active item with crisp left indicator pill */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] button[data-hnl-nav-active="true"] {
+    background: var(--pc-pro-accent-soft) !important;
+    color: var(--hnl-primary-on-light, var(--pc-pro-accent)) !important;
+  }
+
+  html[data-hnl-theme="dark"][data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] button[data-hnl-nav-active="true"] {
+    color: var(--hnl-primary-on-dark, #93c5fd) !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] button[data-hnl-nav-active="true"]::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 7px;
+    bottom: 7px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: var(--pc-pro-accent);
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] button[data-hnl-nav-active="true"] > span:last-child {
+    font-weight: 700 !important;
+  }
+
+  /* Move nav badges neatly to the right edge when expanded */
+  html[data-hnl-pc-workspace="modern"]:not([data-hnl-pc-sidebar="collapsed"]) [data-hnl-nav-surface="desktop"] .hnl-pc-nav-icon-wrap {
+    position: static !important;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  html[data-hnl-pc-workspace="modern"]:not([data-hnl-pc-sidebar="collapsed"]) [data-hnl-nav-surface="desktop"] [data-hnl-nav-badge] {
+    position: absolute !important;
+    top: 50% !important;
+    right: 10px !important;
+    transform: translateY(-50%);
+    border: 0 !important;
+    padding: 1px 6px !important;
+    font-size: 10px !important;
+    font-weight: 750 !important;
+    line-height: 16px !important;
+    min-width: 20px;
+  }
+
+  /* Footer Nav (Hệ thống, Cài đặt) */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] {
+    padding: 10px 10px 12px !important;
+    border-top: 1px solid var(--pc-pro-border) !important;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  /* Collapsed Sidebar Icon Rail (72px) */
+  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"],
+  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] {
+    align-items: center !important;
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button,
+  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button {
+    width: 44px !important;
+    height: 42px !important;
+    min-height: 42px !important;
+    padding: 0 !important;
+    justify-content: center !important;
+    gap: 0 !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button > span:last-child,
+  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button > span:last-child {
+    display: none !important;
+  }
+
+  /* --------------------------------------------------------------------------
+   * 4. Sticky Enterprise Topbar (All Modules + Home)
+   * -------------------------------------------------------------------------- */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-workspace-heading,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-home-modern="true"] .hnl-pc-home-actions {
+    position: sticky;
+    top: 0;
+    z-index: 35;
+    margin: 0 !important;
+    padding: 10px 24px !important;
+    min-height: 56px;
+    border-radius: 0 !important;
+    border: 0 !important;
+    border-bottom: 1px solid var(--pc-pro-border) !important;
+    background: var(--pc-pro-topbar-bg) !important;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: none !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-top {
+    display: flex !important;
+    flex-wrap: nowrap;
+    align-items: center !important;
+    justify-content: space-between;
+    gap: 14px;
+    min-height: 36px;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-main {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] .hnl-pc-title-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-main h1 {
+    margin: 0 !important;
+    font-size: 16.5px !important;
+    font-weight: 750 !important;
+    line-height: 1.2 !important;
+    letter-spacing: -0.02em !important;
+    color: var(--pc-pro-ink);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* Hide verbose subtitle in sticky topbar to keep a crisp single-row bar (kept in title tooltip) */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-hint {
+    display: none !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] .hnl-pc-topbar-sep {
+    width: 1px;
+    height: 18px;
+    background: var(--pc-pro-border-strong);
+    flex-shrink: 0;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-context-row,
+  html[data-hnl-pc-workspace="modern"] .hnl-pc-home-context {
+    display: flex !important;
+    align-items: center;
+    gap: 6px;
+    margin-top: 0 !important;
+    min-width: 0;
+  }
+
+  html[data-hnl-pc-workspace="modern"] .hnl-pc-home-actions {
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between !important;
+    gap: 14px;
+  }
+
+  html[data-hnl-pc-workspace="modern"] .hnl-pc-home-title {
+    font-size: 16.5px;
+    font-weight: 750;
+    letter-spacing: -0.02em;
+    color: var(--pc-pro-ink);
+    white-space: nowrap;
+  }
+
+  html[data-hnl-pc-workspace="modern"] .hnl-pc-home-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  html[data-hnl-pc-workspace="modern"] :is(.hnl-pc-context-row, .hnl-pc-home-context) > span:not(.hnl-pc-home-title):not(.hnl-pc-topbar-sep) {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 26px;
+    padding: 0 9px !important;
+    border-radius: 6px !important;
+    border: 1px solid var(--pc-pro-border) !important;
+    background: var(--pc-pro-surface-subtle) !important;
+    font-size: 11.5px !important;
+    font-weight: 600 !important;
+    color: var(--pc-pro-ink-secondary);
+    white-space: nowrap;
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  html[data-hnl-pc-workspace="modern"] :is(.hnl-pc-context-row, .hnl-pc-home-context) > span.hnl-pc-project-tag {
+    color: var(--hnl-primary-on-light, var(--pc-pro-accent)) !important;
+    background: var(--pc-pro-accent-soft) !important;
+    border-color: var(--pc-pro-accent-border) !important;
+  }
+
+  html[data-hnl-theme="dark"][data-hnl-pc-workspace="modern"] :is(.hnl-pc-context-row, .hnl-pc-home-context) > span.hnl-pc-project-tag {
+    color: var(--hnl-primary-on-dark, #93c5fd) !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] .hnl-pc-project-name {
+    font-size: 11.5px !important;
+    font-weight: 700 !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] .hnl-pc-status.is-online {
+    color: #059669 !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] .hnl-pc-status.is-offline {
+    color: #d97706 !important;
+  }
+
+  /* Unified Topbar Action Buttons */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-actions,
+  html[data-hnl-pc-workspace="modern"] .hnl-pc-home-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px !important;
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-actions button,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-home-modern="true"] .hnl-pc-home-toolbar > button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    min-height: 32px !important;
+    padding: 0 10px !important;
+    border-radius: var(--pc-pro-radius-sm) !important;
+    border: 1px solid var(--pc-pro-border) !important;
+    background: var(--pc-pro-surface) !important;
+    color: var(--pc-pro-ink-secondary) !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    white-space: nowrap;
+    cursor: pointer;
+    box-shadow: var(--pc-pro-shadow-xs);
+    transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-actions button:hover,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-home-modern="true"] .hnl-pc-home-toolbar > button:hover {
+    background: var(--pc-pro-surface-hover) !important;
+    border-color: var(--pc-pro-border-strong) !important;
+    color: var(--pc-pro-ink) !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] :is(.hnl-pc-heading-actions, .hnl-pc-home-toolbar) .hnl-pc-mode-switch {
+    background: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+    color: var(--pc-pro-muted) !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] :is(.hnl-pc-heading-actions, .hnl-pc-home-toolbar) .hnl-pc-mode-switch:hover {
+    background: var(--pc-pro-surface-hover) !important;
+    border-color: var(--pc-pro-border) !important;
+    color: var(--pc-pro-ink) !important;
+  }
+
+  /* --------------------------------------------------------------------------
+   * 5. Main Content Area & Unified Container Rhythm
+   * -------------------------------------------------------------------------- */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] main[data-hnl-pc-workspace="true"] {
+    padding: 0 0 36px !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] main[data-hnl-pc-workspace="true"] [data-hnl-workspace-module],
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] :is(
+    [data-hnl-pc-module="settings-center"],
+    [data-hnl-pc-module="chat-projects"],
+    [data-hnl-pc-module="ai-workspace"],
+    [data-hnl-pc-module="system-center"]
+  ) {
+    max-width: 1580px !important;
+    padding: 16px 24px 44px !important;
+    margin: 0 auto;
+  }
+
+  /* --------------------------------------------------------------------------
+   * 6. Sleek Enterprise KPI Strip (DesktopWorkspaceMetrics)
+   * -------------------------------------------------------------------------- */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview {
+    display: grid !important;
+    grid-template-columns: minmax(220px, 1fr) minmax(0, 3fr) !important;
+    gap: 12px !important;
+    margin: 0 0 14px !important;
+    align-items: stretch;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro {
+    border-radius: var(--pc-pro-radius-md) !important;
+    border: 1px solid var(--pc-pro-border) !important;
+    background: var(--pc-pro-surface) !important;
+    padding: 12px 16px !important;
+    box-shadow: var(--pc-pro-shadow-xs) !important;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro::before {
+    width: 3px !important;
+    background: var(--pc-pro-accent) !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-eyebrow {
+    font-size: 10px !important;
+    font-weight: 750 !important;
+    letter-spacing: 0.08em !important;
+    text-transform: uppercase;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro h3 {
+    font-size: 14px !important;
+    font-weight: 750 !important;
+    margin-top: 3px !important;
+    color: var(--pc-pro-ink) !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro p {
+    font-size: 11.5px !important;
+    line-height: 1.4 !important;
+    margin-top: 3px !important;
+    color: var(--pc-pro-muted) !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric-grid {
+    gap: 12px !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric {
+    position: relative;
+    border-radius: var(--pc-pro-radius-md) !important;
+    border: 1px solid var(--pc-pro-border) !important;
+    border-top-width: 1px !important;
+    background: var(--pc-pro-surface) !important;
+    padding: 12px 16px !important;
+    box-shadow: var(--pc-pro-shadow-xs) !important;
+    transition: border-color 0.14s ease, box-shadow 0.14s ease;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric:hover {
+    border-color: var(--pc-pro-border-strong) !important;
+    box-shadow: var(--pc-pro-shadow-sm) !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric--success {
+    border-top-color: var(--pc-pro-border) !important;
+    border-left: 3px solid #10b981 !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric--warning {
+    border-top-color: var(--pc-pro-border) !important;
+    border-left: 3px solid #f59e0b !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric-label {
+    font-size: 11.5px !important;
+    font-weight: 650 !important;
+    color: var(--pc-pro-muted) !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric-value {
+    font-size: clamp(20px, 1.8vw, 24px) !important;
+    font-weight: 800 !important;
+    letter-spacing: -0.03em !important;
+    font-variant-numeric: tabular-nums;
+    margin-top: 4px !important;
+    line-height: 1.15;
+    color: var(--pc-pro-ink) !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric small {
+    font-size: 11px !important;
+    color: var(--pc-pro-muted) !important;
+    margin-top: 3px !important;
+  }
+
+  /* --------------------------------------------------------------------------
+   * 7. Command Bars, Filter Decks & Inline Section Dividers
+   * -------------------------------------------------------------------------- */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] [data-hnl-pc-region="commands"] {
+    padding: 8px 12px !important;
+    border-radius: var(--pc-pro-radius-md) !important;
+    border: 1px solid var(--pc-pro-border) !important;
+    background: var(--pc-pro-surface) !important;
+    box-shadow: var(--pc-pro-shadow-xs) !important;
+    gap: 8px !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] [data-hnl-pc-region="commands"] :is(button, [data-hnl-secondary-action-group] > button) {
+    min-height: 34px !important;
+    padding: 6px 12px !important;
+    border-radius: var(--pc-pro-radius-sm) !important;
+    font-size: 12px !important;
+    font-weight: 650 !important;
+  }
+
+  /* Crisp Single-Line Enterprise Section Dividers (01, 02, 03...) */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-band {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    margin: 18px 0 10px !important;
+    padding: 0 0 8px !important;
+    border-bottom: 1px solid var(--pc-pro-border) !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-index {
+    width: 22px !important;
+    height: 22px !important;
+    border-radius: 6px !important;
+    font-size: 10.5px !important;
+    font-weight: 800 !important;
+    background: var(--pc-pro-accent-soft) !important;
+    border: 1px solid var(--pc-pro-accent-border) !important;
+    color: var(--hnl-primary-on-light, var(--pc-pro-accent)) !important;
+  }
+
+  html[data-hnl-theme="dark"][data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-index {
+    color: var(--hnl-primary-on-dark, #93c5fd) !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-copy {
+    flex-direction: row !important;
+    align-items: baseline !important;
+    flex-wrap: wrap;
+    gap: 8px !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-copy strong {
+    font-size: 13.5px !important;
+    font-weight: 750 !important;
+    color: var(--pc-pro-ink) !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-copy small {
+    font-size: 11.5px !important;
+    color: var(--pc-pro-muted) !important;
+  }
+
+  /* --------------------------------------------------------------------------
+   * 8. Unified Surface Cards, Filter Panels, Subtabs & Tables
+   * -------------------------------------------------------------------------- */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] :is(
+    [data-hnl-warehouse-filter-layout],
+    [data-hnl-volume-filter-sort],
+    [data-hnl-pc-region="stock-summary"],
+    [data-hnl-pc-region="inspection"],
+    [data-hnl-pc-region="records"],
+    [data-hnl-pc-v3-inner="warehouse-voucher-filter"],
+    [data-hnl-pc-v3-inner="warehouse-vouchers"],
+    [data-hnl-pc-v3-inner="volume-filter-panel"],
+    [data-hnl-pc-v3-inner="crew-records"],
+    [data-hnl-pc-v3-inner="floor-drawing"],
+    [data-hnl-pc-v3-inner="floor-defects"],
+    [data-hnl-pc-module="settings-center"] > div.bg-white,
+    [data-hnl-pc-module="ai-workspace"] > section,
+    [data-hnl-pc-module="chat-projects"] > div.bg-white,
+    [data-hnl-pc-module="chat-room"]
+  ) {
+    border-radius: var(--pc-pro-radius-md) !important;
+    border-color: var(--pc-pro-border) !important;
+    box-shadow: var(--pc-pro-shadow-xs) !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] :is(
+    [data-hnl-pc-region="stock-summary"],
+    [data-hnl-pc-region="inspection"],
+    [data-hnl-pc-region="records"],
+    [data-hnl-pc-v3-inner="warehouse-vouchers"],
+    [data-hnl-pc-v3-inner="crew-records"],
+    [data-hnl-pc-v3-inner="floor-defects"]
+  ) {
+    padding: 16px !important;
+  }
+
+  /* Refined Segmented Sub-tabs */
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-nested-nav],
+    [data-hnl-pc-region="subtabs"],
+    [data-hnl-pc-region="floor-tabs"],
+    [data-hnl-pc-v32-region="catalog-tabs"],
+    [data-hnl-pc-v32-region="template-tabs"]
+  ) {
+    border-radius: 9px !important;
+    padding: 4px !important;
+    gap: 4px !important;
+    box-shadow: var(--pc-pro-shadow-xs) !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-nested-nav],
+    [data-hnl-pc-region="subtabs"],
+    [data-hnl-pc-region="floor-tabs"],
+    [data-hnl-pc-v32-region="catalog-tabs"],
+    [data-hnl-pc-v32-region="template-tabs"]
+  ) > button {
+    min-height: 34px !important;
+    border-radius: 7px !important;
+    font-size: 12px !important;
+    font-weight: 650 !important;
+  }
+
+  /* Crisp Enterprise Tables */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] table thead th {
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.03em !important;
+    color: var(--pc-pro-muted);
+    background: var(--pc-pro-surface-subtle) !important;
+    border-bottom: 1px solid var(--pc-pro-border) !important;
+    padding-top: 9px !important;
+    padding-bottom: 9px !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] table tbody td {
+    font-size: 12.5px !important;
+    border-bottom-color: var(--pc-pro-border);
+  }
+
+  /* Modals & Feature Sheets */
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-module="project-manager"] > div:not(.relative),
+    [data-hnl-pc-module="security-center"] > div,
+    [data-hnl-pc-module="notification-center"] > div,
+    [data-hnl-pc-v32-window] > div,
+    [data-hnl-settings-sheet]
+  ) {
+    border-radius: 14px !important;
+    border: 1px solid var(--pc-pro-border) !important;
+    box-shadow: var(--pc-pro-shadow-md) !important;
+  }
+
+  /* AI Workspace Hero polish */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-pc-module="ai-workspace"] > .hnl-ai-hero {
+    border-top: 3px solid var(--pc-pro-accent) !important;
+    padding: 18px 20px !important;
+    border-radius: var(--pc-pro-radius-md) !important;
+  }
+}
+
+/* Mid-width desktop (1024px–1279px): allow topbar context to stay clean without overflow */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-workspace-heading,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-home-modern="true"] .hnl-pc-home-actions {
+    padding: 8px 16px !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-top,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-home-modern="true"] .hnl-pc-home-actions {
+    flex-wrap: wrap !important;
+    row-gap: 8px;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Respect reduced motion preferences */
+@media (min-width: 1024px) and (prefers-reduced-motion: reduce) {
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"],
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-home-modern="true"],
+  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] {
+    transition: none !important;
+  }
+}
+/* ============================================================================
+ * 9. Deep Sub-Tabs, Inner Panes, Create/Edit Forms & Operational Dialogs
+ * Covers 100% of nested sub-tabs, editors, catalogs, and portaled sheets
+ * while strictly preserving FloorPlan canvas geometry, handlers & mobile/classic.
+ * ============================================================================ */
+@media (min-width: 1024px) {
+  /* --- 9.1 Deep Sub-Tab Bars (Crew team detail, AI modes, Warehouse catalog, Grid, Security/Notification) --- */
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v3-inner="warehouse-catalog-tabs"],
+    [data-hnl-pc-deep-tabs="crew-team-detail"],
+    [data-hnl-pc-deep-tabs="ai-modes"],
+    [data-hnl-pc-v32-region="grid-tabs"],
+    [data-hnl-security-primary-tabs="true"],
+    [data-hnl-notification-primary-tabs="true"]
+  ) {
+    border-radius: 9px !important;
+    border: 1px solid var(--pc-pro-border) !important;
+    background: var(--pc-pro-surface-subtle) !important;
+    padding: 4px !important;
+    gap: 4px !important;
+    box-shadow: none !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v3-inner="warehouse-catalog-tabs"],
+    [data-hnl-pc-deep-tabs="crew-team-detail"],
+    [data-hnl-pc-deep-tabs="ai-modes"],
+    [data-hnl-pc-v32-region="grid-tabs"],
+    [data-hnl-security-primary-tabs="true"],
+    [data-hnl-notification-primary-tabs="true"]
+  ) > button {
+    min-height: 34px !important;
+    border-radius: 7px !important;
+    font-size: 12px !important;
+    font-weight: 650 !important;
+    padding: 6px 12px !important;
+    transition: background-color 0.14s ease, color 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
+  }
+
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v3-inner="warehouse-catalog-tabs"],
+    [data-hnl-pc-deep-tabs="crew-team-detail"],
+    [data-hnl-pc-v32-region="grid-tabs"],
+    [data-hnl-security-primary-tabs="true"],
+    [data-hnl-notification-primary-tabs="true"]
+  ) > button:is([aria-selected="true"], [aria-pressed="true"], [data-state="active"]) {
+    background: var(--pc-pro-surface) !important;
+    color: var(--hnl-primary-on-light, var(--pc-pro-accent)) !important;
+    border: 1px solid var(--pc-pro-accent-border) !important;
+    box-shadow: var(--pc-pro-shadow-xs) !important;
+  }
+
+  html[data-hnl-theme="dark"][data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v3-inner="warehouse-catalog-tabs"],
+    [data-hnl-pc-deep-tabs="crew-team-detail"],
+    [data-hnl-pc-v32-region="grid-tabs"],
+    [data-hnl-security-primary-tabs="true"],
+    [data-hnl-notification-primary-tabs="true"]
+  ) > button:is([aria-selected="true"], [aria-pressed="true"], [data-state="active"]) {
+    color: var(--hnl-primary-on-dark, #93c5fd) !important;
+  }
+
+  /* --- 9.2 Warehouse Deep Panes (Catalog search, grid, history, stock cards, voucher grid) --- */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-search"] {
+    border-radius: var(--pc-pro-radius-md) !important;
+    border: 1px solid var(--pc-pro-border) !important;
+    background: var(--pc-pro-surface-subtle) !important;
+    padding: 10px 12px !important;
+    gap: 10px !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-grid"] {
+    border-radius: var(--pc-pro-radius-md) !important;
+    border: 1px solid var(--pc-pro-border) !important;
+    background: var(--pc-pro-surface) !important;
+    padding: 4px !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-grid"] thead th {
+    background: var(--pc-pro-surface-subtle) !important;
+    border-bottom: 1px solid var(--pc-pro-border-strong) !important;
+    color: var(--pc-pro-muted) !important;
+    font-size: 11px !important;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-history"] {
+    border-radius: var(--pc-pro-radius-md) !important;
+    border: 1px solid var(--pc-pro-border) !important;
+    background: var(--pc-pro-surface) !important;
+    padding: 14px 16px !important;
+    box-shadow: var(--pc-pro-shadow-xs) !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-stock-cards"] > .space-y-2 {
+    gap: 10px !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-stock-cards"] > .space-y-2 > * {
+    border-radius: var(--pc-pro-radius-md) !important;
+    border-color: var(--pc-pro-border) !important;
+    box-shadow: var(--pc-pro-shadow-xs) !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-voucher-card-grid"] {
+    gap: 12px !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-voucher-card-grid"] > * {
+    border-radius: var(--pc-pro-radius-md) !important;
+    border-color: var(--pc-pro-border) !important;
+    box-shadow: var(--pc-pro-shadow-xs) !important;
+  }
+
+  /* --- 9.3 Work Volume & Checklist Deep Panes --- */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="volume"] [data-hnl-pc-region="progress"] {
+    border-radius: var(--pc-pro-radius-md) !important;
+    border: 1px solid var(--pc-pro-border) !important;
+    background: var(--pc-pro-surface) !important;
+    padding: 16px 18px !important;
+    box-shadow: var(--pc-pro-shadow-xs) !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="volume-cards"] {
+    gap: 12px !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="volume-cards"] > .grid,
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="volume-cards"] > .space-y-3 {
+    gap: 12px !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="volume-breakdown-filter"] {
+    background: var(--pc-pro-surface-subtle) !important;
+    border-bottom: 1px solid var(--pc-pro-border) !important;
+    padding: 12px 16px !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="checklist-items"] {
+    gap: 12px !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="checklist-items"] > div.border:not(.border-dashed) {
+    border-radius: var(--pc-pro-radius-md) !important;
+    border-color: var(--pc-pro-border) !important;
+    padding: 14px 16px !important;
+    box-shadow: var(--pc-pro-shadow-xs) !important;
+  }
+
+  /* --- 9.4 All Deep Create/Edit Forms (Warehouse, Volume, Crew, Checklist, Defect) --- */
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v3-form="warehouse"],
+    [data-hnl-pc-v3-form="volume"],
+    [data-hnl-pc-v3-form="crew-log"],
+    [data-hnl-pc-v3-form="crew-team"],
+    [data-hnl-pc-v3-form="checklist-create"],
+    [data-hnl-pc-v3-form="checklist-edit"],
+    [data-hnl-pc-v3-form="defect-create"]
+  ) {
+    background: var(--pc-pro-surface) !important;
+    border-radius: var(--pc-pro-radius-md) !important;
+    border-color: var(--pc-pro-border) !important;
+    column-gap: 16px !important;
+    row-gap: 14px !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form] :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+    select,
+    textarea
+  ) {
+    min-height: 36px !important;
+    border-radius: var(--pc-pro-radius-sm) !important;
+    border-color: var(--pc-pro-border-strong) !important;
+    background-color: var(--pc-pro-surface) !important;
+    color: var(--pc-pro-ink) !important;
+    font-size: 12.5px !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form] label {
+    font-size: 11.5px !important;
+    font-weight: 650 !important;
+    color: var(--pc-pro-ink-secondary) !important;
+  }
+
+  /* --- 9.5 All 7 Operational Dialogs & 17 Nested Regions (V3.2 Windows) --- */
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v32-window="material-norm"],
+    [data-hnl-pc-v32-window="quick-grid"],
+    [data-hnl-pc-v32-window="source-picker"],
+    [data-hnl-pc-v32-window="report-export"],
+    [data-hnl-pc-v32-window="crew-share"],
+    [data-hnl-pc-v32-window="conflict-merge"],
+    [data-hnl-pc-v32-window="room-editor"]
+  ) > div {
+    border-radius: 14px !important;
+    border: 1px solid var(--pc-pro-border) !important;
+    box-shadow: var(--pc-pro-shadow-md) !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v32-region="equipment-toolbar"],
+    [data-hnl-pc-v32-region="grid-toolbar"],
+    [data-hnl-pc-v32-region="source-basket"],
+    [data-hnl-pc-v32-region="report-actions"]
+  ) {
+    border-radius: var(--pc-pro-radius-md) !important;
+    border: 1px solid var(--pc-pro-border) !important;
+    background: var(--pc-pro-surface-subtle) !important;
+    padding: 12px 14px !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v32-region="equipment-editor"],
+    [data-hnl-pc-v32-region="norm-editor"],
+    [data-hnl-pc-v32-region="template-manager"],
+    [data-hnl-pc-v32-region="report-filters"],
+    [data-hnl-pc-v32-region="merge-strategy"],
+    [data-hnl-pc-v32-region="room-form"]
+  ) {
+    border-radius: var(--pc-pro-radius-md) !important;
+    border: 1px solid var(--pc-pro-border) !important;
+    background: var(--pc-pro-surface) !important;
+    padding: 14px 16px !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v32-region="equipment-catalog"],
+    [data-hnl-pc-v32-region="grid-scroll"],
+    [data-hnl-pc-v32-region="source-selection"],
+    [data-hnl-pc-v32-region="source-results"],
+    [data-hnl-pc-v32-region="crew-report-body"],
+    [data-hnl-pc-v32-region="crew-share-actions"]
+  ) {
+    min-width: 0;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="room-form"] :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+    select,
+    textarea
+  ),
+  html[data-hnl-pc-workspace="modern"] :is(
+    [data-hnl-pc-v32-region="equipment-editor"],
+    [data-hnl-pc-v32-region="norm-editor"],
+    [data-hnl-pc-v32-region="report-filters"]
+  ) :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+    min-height: 36px !important;
+    border-radius: var(--pc-pro-radius-sm) !important;
+    border-color: var(--pc-pro-border-strong) !important;
+    font-size: 12.5px !important;
+  }
+
+  /* Settings Feature Sheets Header & Body */
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet] > header {
+    min-height: 60px !important;
+    padding: 12px 20px !important;
+    border-bottom: 1px solid var(--pc-pro-border) !important;
+  }
+
+  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet-scrollbody] > div {
+    padding: 18px 22px 24px !important;
+  }
+}

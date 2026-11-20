@@ -6,6 +6,7 @@ import './index.css';
 import './styles/desktopWorkspace.css';
 import './styles/desktopWorkspaceDeep.css';
 import './styles/desktopWorkspaceCompact.css';
+import './styles/desktopWorkspacePro.css';
 import { registerServiceWorker } from './serviceWorkerRegistration';
 import { cleanupTransientLocalStorage, estimateLocalStorageBytes } from './utils/storage';
 import { migrateAndCleanLocalStorage } from './utils/migrateStorage';
