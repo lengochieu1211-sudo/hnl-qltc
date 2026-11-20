@@ -1,0 +1,103 @@
+name: HNL QLTC DEV UI exact source handoff 20261120 (READ ONLY)
+on:
+  push:
+    branches: [dev]
+    paths:
+      - .github/workflows/hnl-dev-ui-source-handoff-20261120.yml
+
+permissions:
+  contents: read
+
+jobs:
+  archive-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact DEV snapshot and refuse unrelated changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
+          test "$GITHUB_REF" = refs/heads/dev
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$GITHUB_SHA"
+          test "$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA")" = '.github/workflows/hnl-dev-ui-source-handoff-20261120.yml'
+          git merge-base --is-ancestor 05584d4c88aab6e274fcbb36c73ed051187a8051 "$GITHUB_SHA"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = ec79ffc801ecf059b37c82b9f4a9acf503108bf9
+          test -f package.json && test -f package-lock.json
+          test -d .github/workflows && test -f firebase.json && test -f .firebaserc
+          git diff --exit-code 05584d4c88aab6e274fcbb36c73ed051187a8051 "$GITHUB_SHA" -- package.json package-lock.json firebase.json .firebaserc firestore.rules storage.rules
+      - name: Create FULL SOURCE + PATCH + REPORT + SHA256 (no deploy)
+        shell: bash
+        env:
+          BASELINE_SHA: 05584d4c88aab6e274fcbb36c73ed051187a8051
+        run: |
+          set -euo pipefail
+          mkdir -p handoff
+          git archive --format=zip --output=handoff/FULL_SOURCE.zip "$GITHUB_SHA"
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess, zipfile
+          base = os.environ['BASELINE_SHA']
+          head = os.environ['GITHUB_SHA']
+          tracked = [v.decode() for v in subprocess.check_output(['git', 'ls-files', '-z']).split(bytes([0])) if v]
+          def secret_filename(name):
+              leaf = name.rsplit('/', 1)[-1].lower()
+              if leaf.startswith('.env') and not leaf.endswith(('.example', '.sample')): return True
+              if leaf in ('id_rsa', 'id_ed25519', 'credentials.json', 'serviceaccountkey.json'): return True
+              if leaf.endswith(('.key', '.p12', '.pfx')): return True
+              return leaf.endswith('.pem') and name != 'scripts/p2115-firestore-backup-public.pem'
+          unsafe = [name for name in tracked if secret_filename(name)]
+          if unsafe: raise SystemExit('TRACKED_SECRETS_BLOCKED: '+repr(unsafe))
+          raw = subprocess.check_output(['git', 'diff', '--name-only', '--diff-filter=ACMR', '-z', base, head])
+          files = [p.decode() for p in raw.split(bytes([0])) if p]
+          with zipfile.ZipFile('handoff/PATCH.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
+              for name in files:
+                  archive.writestr(name, subprocess.check_output(['git', 'show', head+':'+name]))
+          deleted = subprocess.check_output(['git', 'diff', '--name-only', '--diff-filter=D', base, head], text=True)
+          pathlib.Path('handoff/changed-files.txt').write_text('\n'.join(files)+'\n', encoding='utf8')
+          pathlib.Path('handoff/deleted-files.txt').write_text(deleted, encoding='utf8')
+          notes = [
+              '# HNL QLTC – DEV UI source handoff (2026-11-20)',
+              '',
+              'Repository: lengochieu1211-sudo/hnl-qltc',
+              'Branch: dev',
+              'Source baseline: '+base,
+              'Exact HEAD: '+head,
+              'PROD main unchanged: ec79ffc801ecf059b37c82b9f4a9acf503108bf9',
+              'Mode: READ ONLY packaging; NO Hosting/Rules/R2/Firebase deploy.',
+              '',
+              'Changed files: '+str(len(files)),
+              *('- '+name for name in files),
+              '',
+              'Features: compact PC Security tabs and short PIN note; single live sub-item quantity;',
+              'area-mode region removal falls back to 100% main category quantity;',
+              'legacy manual and finalized stage quantities remain protected;',
+              'regression test added to standard Build CI.',
+              '',
+              'Verification: source exact SHA/tree and ZIP integrity in this workflow.',
+              'CI/runtime results require reading separate exact-HEAD GitHub Actions jobs.',
+              'NOT CERTIFIED without actual Web/Windows/Android runtime golden.',
+              ''
+          ]
+          pathlib.Path('handoff/REPORT.md').write_text('\n'.join(notes), encoding='utf8')
+          with open('handoff/SHA256SUMS.txt', 'w', encoding='utf8') as output:
+              for name in ['FULL_SOURCE.zip','PATCH.zip','REPORT.md','changed-files.txt','deleted-files.txt']:
+                  data = pathlib.Path('handoff', name).read_bytes()
+                  output.write(hashlib.sha256(data).hexdigest()+'  '+name+'\n')
+          for name in ['FULL_SOURCE.zip','PATCH.zip']:
+              with zipfile.ZipFile(pathlib.Path('handoff',name)) as archive:
+                  corrupted = archive.testzip()
+                  if corrupted: raise SystemExit('ZIP_CORRUPTED: '+name+': '+corrupted)
+                  if name == 'FULL_SOURCE.zip' and len(archive.namelist()) < 600: raise SystemExit('FULL_SOURCE_INCOMPLETE')
+          print('FULL_SOURCE_AND_PATCH_ZIP_INTEGRITY_PASS',head,len(files))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-DEV-UI-FULL-PATCH-REPORT-20261120
+          path: handoff/
+          if-no-files-found: error
+          retention-days: 7
