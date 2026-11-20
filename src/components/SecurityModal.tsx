@@ -1576,7 +1576,12 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
           {/* TAB 1: PIN LOCK */}
           {activeTab === 'pin' && (
             <div className="space-y-4">
-              
+              {/* Compact security explanation without the previous large notice card. */}
+              <p className="text-[10px] leading-snug text-slate-500">
+                PIN được lưu theo dạng bảo mật một chiều. Không có mã PIN chung hoặc PIN đặc biệt để mở khóa.
+                Quên PIN? Đặt lại bằng Google.
+              </p>
+
               {/* Status banner */}
               <div className={`p-3.5 rounded-2xl border flex items-center justify-between ${
                 pinConfig.enabled && pinConfig.pinHash
