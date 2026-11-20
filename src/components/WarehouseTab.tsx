@@ -49,8 +49,8 @@ import { equipmentIdentityKey, EquipmentUnitMigrationRequiredError, saveEquipmen
 import type { WarehouseUnitRenameInput } from '../lib/warehouseUnitMigration';
 import { createWarehouseProjectTransferAtomic, receiveWarehouseProjectTransferAtomic, amendWarehouseProjectTransferAtomic, subscribeIncomingWarehouseTransfers, type WarehouseIncomingTransfer } from '../lib/warehouseProjectTransfer';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
-import { ContextBackButton } from './ContextBackButton';
 import { WarehouseVoucherShareSheet } from './WarehouseVoucherShareSheet';
+import { WarehouseVoucherDetailSheet } from './WarehouseVoucherDetailSheet';
 import { WarehouseReportActions } from './WarehouseReportActions';
 import { WarehouseOrderSheet } from './WarehouseOrderSheet';
 import type {WarehouseOrderSync} from '../hooks/useWarehouseOrderSync';
@@ -95,6 +95,7 @@ interface WarehouseTabProps {
   materialNorms: MaterialNorm[];
   returnToCatalogToken?: number;
   focusVoucher?: { id: string; projectId: string; token: number } | null;
+  onContextReturn?: () => void;
   onOpenNormModal: (tab?: 'material' | 'equipment', target?: { name: string; unit: string }, fromWarehouseCatalog?: boolean) => void;
   onOpenExportPdf?: () => void;
   onExportExcel?: () => void;
@@ -189,6 +190,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   materialNorms,
   returnToCatalogToken = 0,
   focusVoucher = null,
+  onContextReturn,
   onOpenNormModal,
   onOpenExportPdf,
   onExportExcel,
@@ -270,6 +272,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [showWarehouseCatalog, setShowWarehouseCatalog] = useState(false);
   const [showWarehouseOrder, setShowWarehouseOrder] = useState(false);
   const [voucherShareOpen, setVoucherShareOpen] = useState(false);
+  const [singleVoucherExportId, setSingleVoucherExportId] = useState<string | null>(null);
+  const [journalVoucherId, setJournalVoucherId] = useState<string | null>(null);
   // Draft images remain in-memory, never in R2/Firestore until the ledger commits.
   const [pendingVoucherPhotos, setPendingVoucherPhotos] = useState<File[]>([]);
   const [photoVoucher, setPhotoVoucher] = useState<(Pick<InventoryItem, 'id' | 'type' | 'materialName'> & { projectId: string; initialFiles?: File[]; retryFiles?: File[] }) | null>(null);
@@ -278,6 +282,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setPendingVoucherPhotos([]);
     setShowAddForm(false);
     setEditingInventory(null);
+    setJournalVoucherId(null);
+    setSingleVoucherExportId(null);
+    setVoucherShareOpen(false);
     // Filters from another project must not hide this project's warehouse vouchers.
     setShowWarehouseOrder(false);
     setSearchTerm('');
@@ -1785,6 +1792,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       sheetScrollTop: sheet?.scrollTop ?? 0, historyScrollTop: historyList?.scrollTop ?? 0,
     };
     handledExternalVoucherTokenRef.current = focusVoucher.token;
+    setJournalVoucherId(null);
     catalogVoucherJumpRef.current = voucher.id;
     setCatalogVoucherReturn(null);
     setShowWarehouseCatalog(false);
@@ -1854,6 +1862,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       return;
     }
     if (!catalogHistory) return;
+    setJournalVoucherId(null);
     const sheet = document.querySelector<HTMLElement>('[data-hnl-settings-sheet-scrollbody="warehouse-catalog"]');
     const historyList = document.querySelector<HTMLElement>('[data-hnl-catalog-voucher-history-list]');
     setCatalogVoucherReturn({
@@ -1898,6 +1907,28 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     catalogVoucherJumpRef.current = null;
     setShowWarehouseCatalog(true);
     setCatalogVoucherReturn(null);
+  };
+
+  // A voucher deep link opens its original, read-only document immediately.
+  // Never make users hunt for the voucher in the Warehouse search/card grid.
+  const directVoucherId = !isActive ? null : focusVoucher?.projectId === currentProjectId
+    ? focusVoucher.id
+    : catalogVoucherReturn?.projectId === currentProjectId
+      ? catalogVoucherReturn.voucherId
+      : journalVoucherId;
+  const directVoucher = roleResolved && directVoucherId
+    ? inventory.find(item => item.id === directVoucherId && item.deletedAt == null) || null : null;
+  const directVoucherFromCrew = Boolean(isActive && focusVoucher?.projectId === currentProjectId);
+  const directVoucherFromCatalog = !directVoucherFromCrew && Boolean(catalogVoucherReturn?.projectId === currentProjectId);
+  const closeDirectVoucher = () => {
+    if (directVoucherFromCrew) onContextReturn?.();
+    else if (directVoucherFromCatalog) returnFromCatalogVoucher();
+    else setJournalVoucherId(null);
+  };
+  const openDirectVoucherExport = () => {
+    if (!directVoucher || !roleResolved) return;
+    setSingleVoucherExportId(directVoucher.id);
+    setVoucherShareOpen(true);
   };
 
   const openCreateInventory = (kind: InventoryItemKind = 'material') => {
@@ -3917,7 +3948,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             Nhật ký nhập/xuất ({filteredInventory.length})
           </h3>
           {roleResolved && <button type="button" data-hnl-warehouse-export-open="all"
-            onClick={() => setVoucherShareOpen(true)}
+            onClick={() => { setSingleVoucherExportId(null); setVoucherShareOpen(true); }}
             className="min-h-10 rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-xs font-bold text-indigo-700">
             Chia sẻ phiếu nhập/xuất kho
           </button>}
@@ -3986,12 +4017,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     : 'border-slate-200 shadow-sm'
               }`}
             >
-              {expandedInventoryId === item.id && catalogVoucherReturn?.projectId === currentProjectId && catalogVoucherReturn.voucherId === item.id && (
-                <div data-hnl-voucher-return-origin="catalog-history" className="border-b border-indigo-100 pb-2">
-                  <ContextBackButton label={catalogVoucherReturn.history.type === 'in' ? 'Chi tiết nhập kho' : 'Chi tiết xuất kho'}
-                    onClick={returnFromCatalogVoucher} />
-                </div>
-              )}
               <div className="flex items-start gap-2.5">
                 {hasDeleteAccess && <input
                   type="checkbox"
@@ -4111,6 +4136,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     </div>
                   )}
                   <div className="flex flex-wrap justify-end gap-3 pt-1">
+                    {roleResolved && <button type="button" data-hnl-journal-open-voucher={item.id}
+                      onClick={() => setJournalVoucherId(item.id)}
+                      className="inline-flex min-h-9 items-center rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 text-[11px] font-bold text-indigo-700 hover:bg-indigo-100">
+                      Xem phiếu {item.type === 'in' ? 'nhập' : 'xuất'}
+                    </button>}
                     {currentProjectId && roleResolved && (
                       <div data-hnl-warehouse-photo-voucher={item.id} data-hnl-warehouse-photo-status={item.id} className="mr-auto min-w-0 max-w-full">
                         {/* Same read-only, full-screen photo count/viewer as Crew. Never open editing from this badge. */}
@@ -4153,8 +4183,21 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         )}
       </div>
 
+      {directVoucherId && !voucherShareOpen && <WarehouseVoucherDetailSheet
+        voucher={directVoucher}
+        projectId={currentProjectId}
+        projectName={projectName}
+        projectLocation={projectLocation}
+        contractorName={contractorName}
+        teamName={teams.find(team => team.id === directVoucher?.sourceTeamId)?.name}
+        backLabel={directVoucherFromCrew ? 'Thống kê đội' : directVoucherFromCatalog
+          ? (catalogVoucherReturn?.history.type === 'in' ? 'Chi tiết nhập kho' : 'Chi tiết xuất kho') : 'Nhật ký kho'}
+        onBack={closeDirectVoucher}
+        onShare={directVoucher && roleResolved ? openDirectVoucherExport : undefined}
+      />}
       {voucherShareOpen && <WarehouseVoucherShareSheet
         open={voucherShareOpen}
+        initialVoucherId={singleVoucherExportId || undefined}
         inventory={inventory}
         projectName={projectName}
         projectLocation={projectLocation}

@@ -82,17 +82,21 @@ async function prepareVoucherFiles(rows: InventoryItem[], format: VoucherFormat,
   const fileName = safeFile('PHIEU_KHO_' + rows.length + '_DONG_' + pages.length + '_TRANG.pdf');
   return [{ id: 'voucher-pdf', fileName, mimeType: 'application/pdf', blob, dataUrl: await toDataUrl(blob) }];
 }
-export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='',projectLocation='',contractorName=''}:{
-  open:boolean;onClose:()=>void;inventory:InventoryItem[];projectName?:string;projectLocation?:string;contractorName?:string;
+export function WarehouseVoucherShareSheet({open,onClose,inventory,initialVoucherId,projectName='',projectLocation='',contractorName=''}:{
+  open:boolean;onClose:()=>void;inventory:InventoryItem[];initialVoucherId?:string;projectName?:string;projectLocation?:string;contractorName?:string;
 }) {
+  // An exact voucher opened from Crew/Catalog must be selected even when its date
+  // is not today. The generic Export entry retains its existing today/all defaults.
+  const initialVoucher=inventory.find(item=>item.id===initialVoucherId && item.deletedAt==null);
+  const initialDate=initialVoucher?warehouseVoucherIsoDate(initialVoucher.date):localDay();
   // One shared export entry point: users explicitly select one, many or all items.
-  const [period,setPeriod]=useState<Period>('today');
-  const [start,setStart]=useState(localDay());
-  const [end,setEnd]=useState(localDay());
-  const [kind,setKind]=useState<Kind>('all');
-  const [direction,setDirection]=useState<Direction>('all');
-  const [pick,setPick]=useState<Pick>('all');
-  const [checked,setChecked]=useState<string[]>([]);
+  const [period,setPeriod]=useState<Period>(initialVoucher?'range':'today');
+  const [start,setStart]=useState(initialDate);
+  const [end,setEnd]=useState(initialDate);
+  const [kind,setKind]=useState<Kind>(initialVoucher?.itemKind==='equipment'?'equipment':'all');
+  const [direction,setDirection]=useState<Direction>(initialVoucher?.type||'all');
+  const [pick,setPick]=useState<Pick>(initialVoucher?'one':'all');
+  const [checked,setChecked]=useState<string[]>(initialVoucher?[initialVoucher.id]:[]);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [message,setMessage]=useState('');
@@ -110,7 +114,9 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
     setPrepared(null);setMenu(null);
   },[options]);
   const [prepared,setPrepared]=useState<{format:VoucherFormat;signature:string;files:VoucherFile[]}|null>(null);
-  const visible=useMemo(()=>selectWarehouseVouchers(inventory,{period,start,end,kind,direction}),[inventory,period,start,end,kind,direction]);
+  const visible=useMemo(()=>initialVoucherId
+    ? inventory.filter(row=>row.id===initialVoucherId && row.deletedAt==null).slice(0,1)
+    : selectWarehouseVouchers(inventory,{period,start,end,kind,direction}),[inventory,initialVoucherId,period,start,end,kind,direction]);
   const chosen=useMemo(()=>pick==='all'?visible:pick==='one'
     ?visible.filter(v=>v.id===checked.find(id=>visible.some(x=>x.id===id))).slice(0,1)
     :visible.filter(v=>checked.includes(v.id)),[pick,visible,checked]);
@@ -174,7 +180,8 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
   return <SettingsFeatureSheet open={open} onClose={onClose} sheetKey="warehouse-voucher-share" icon={FileText}
     title="Chia sẻ phiếu nhập/xuất kho" description="Chọn Ảnh, Excel hoặc PDF. Phiếu chỉ đọc, không ảnh hưởng tồn kho.">
     <div data-hnl-warehouse-voucher-share="readonly" className="space-y-4">
-      <p className="text-xs text-slate-500">Bộ lọc chia sẻ độc lập với tìm kiếm ở Nhật ký. Mặc định chỉ lấy phiếu hôm nay; chọn Khoảng ngày nếu cần các phiếu cũ.</p>
+      <p className="text-xs text-slate-500">{initialVoucherId ? `Đang xuất đúng phiếu gốc: ${initialVoucherId}. Không chọn thêm phiếu khác.` : 'Bộ lọc chia sẻ độc lập với tìm kiếm ở Nhật ký. Mặc định chỉ lấy phiếu hôm nay; chọn Khoảng ngày nếu cần các phiếu cũ.'}</p>
+      <div className={initialVoucherId ? 'hidden' : 'space-y-3'}>
       <p className="text-xs font-bold text-slate-700">Khoảng ngày</p>
       <div className="flex flex-wrap gap-2">{([['today','Hôm nay'],['yesterday','Hôm qua'],['range','Khoảng ngày']] as const).map(([v,label])=>
         <button type="button" key={v} className={choice(period===v)} aria-pressed={period===v} onClick={()=>{setPeriod(v);setChecked([]);}}>{label}</button>)}</div>
@@ -199,6 +206,8 @@ export function WarehouseVoucherShareSheet({open,onClose,inventory,projectName='
           <span className="min-w-0 flex-1 break-words"><b>{formatDateDDMMYYYY(row.date)} · {row.type==='in'?'Nhập':'Xuất'}</b> · {row.materialName}<span className="block break-all text-slate-500">{row.id}</span></span>
           <span className="shrink-0 font-semibold">{formatDecimal(row.quantity)} {row.unit}</span>
         </label>)}</div>}
+      </div>
+      {initialVoucherId && <p className="text-xs font-bold text-slate-700">Đã chọn {chosen.length} phiếu gốc để xuất/chia sẻ.</p>}
       <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700" data-hnl-voucher-layout="multirow-paper">
         {chosen.length} dòng vật tư/thiết bị → {pages.length} trang {options.paperSize}. Các dòng cùng ngày, loại nhập/xuất,
         kho và người thực hiện được xếp chung một phiếu; mã tham chiếu gốc vẫn được giữ trong bảng.

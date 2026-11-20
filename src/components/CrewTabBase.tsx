@@ -4224,7 +4224,18 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                   <td className="p-2 text-right font-extrabold text-indigo-700">{line.integrityWarning ? 'Chưa xác định' : `${formatDecimal(line.expectedConstructedQty)} ${line.unit}`}</td>
                                   <td className="p-2 text-right font-extrabold text-cyan-700">
                                     {formatDecimal(line.issuedQty)} {line.unit}
-                                    {(line.voucherIds?.length || 0) > 0 && (
+                                    {line.voucherIds?.length === 1 && (() => {
+                                      const id = line.voucherIds[0];
+                                      const voucher = structureScopedInventory.find(item => item.id === id && item.type === 'out' && item.deletedAt == null);
+                                      return voucher ? <button type="button" key={id}
+                                        data-hnl-team-material-voucher={id}
+                                        disabled={!roleResolved || !onOpenWarehouseVoucher}
+                                        onClick={() => openTeamWarehouseVoucher(id)}
+                                        className="mt-1 block min-h-9 w-full rounded-lg border border-cyan-200 bg-cyan-50 px-2 py-1.5 text-left text-[11px] font-bold text-cyan-800 hover:bg-cyan-100 disabled:opacity-60">
+                                        Xem phiếu xuất · {formatDateDDMMYYYY(voucher.date)} · {formatDecimal(voucher.quantity)} {voucher.unit}
+                                      </button> : null;
+                                    })()}
+                                    {(line.voucherIds?.length || 0) > 1 && (
                                       <details data-hnl-team-material-voucher-details={line.materialKey} className="mt-1 text-left text-[10px] font-normal text-slate-600">
                                         <summary className="cursor-pointer font-bold text-cyan-700">Xem {line.voucherIds?.length} phiếu xuất</summary>
                                         <div className="mt-1 space-y-1">
@@ -4288,7 +4299,14 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                 <td className="p-2 text-right font-extrabold text-blue-700">{formatDecimal(line.issuedQty)}</td>
                                 <td className="p-2 text-right text-slate-700">{line.voucherCount}</td>
                                 <td className="p-2">
-                                  <details data-hnl-team-equipment-voucher-details={line.equipmentKey} className="text-[11px] text-slate-600">
+                                  {line.voucherCount === 1 && line.vouchers.length === 1 ? (
+                                    <button type="button" data-hnl-team-equipment-voucher={line.vouchers[0].id}
+                                      disabled={!roleResolved || !onOpenWarehouseVoucher}
+                                      onClick={() => openTeamWarehouseVoucher(line.vouchers[0].id)}
+                                      className="min-h-9 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-left text-[11px] font-bold text-blue-700 hover:bg-blue-100 disabled:opacity-60">
+                                      Xem phiếu xuất gốc · {formatDateDDMMYYYY(line.vouchers[0].date)}
+                                    </button>
+                                  ) : <details data-hnl-team-equipment-voucher-details={line.equipmentKey} className="text-[11px] text-slate-600">
                                     <summary className="cursor-pointer font-bold text-blue-700">Xem {line.voucherCount} phiếu</summary>
                                     <div className="mt-2 space-y-1">
                                       {line.vouchers.map((voucher) => (
@@ -4306,7 +4324,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                         </div>
                                       ))}
                                     </div>
-                                  </details>
+                                  </details>}
                                 </td>
                               </tr>
                             ))}
