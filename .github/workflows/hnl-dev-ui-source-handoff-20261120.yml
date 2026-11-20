@@ -34,7 +34,7 @@ jobs:
       - name: Create FULL SOURCE + PATCH + REPORT + SHA256 (no deploy)
         shell: bash
         env:
-          BASELINE_SHA: 05584d4c88aab6e274fcbb36c73ed051187a8051
+          BASELINE_SHA: 909ce0a200393341fa46d64d933bc2a461be7f2a
         run: |
           set -euo pipefail
           mkdir -p handoff
@@ -73,10 +73,10 @@ jobs:
               'Changed files: '+str(len(files)),
               *('- '+name for name in files),
               '',
-              'Features: compact PC Security tabs and short PIN note; single live sub-item quantity;',
-              'area-mode region removal falls back to 100% main category quantity;',
-              'legacy manual and finalized stage quantities remain protected;',
-              'regression test added to standard Build CI.',
+              'Features: PC room modal now uses 2 columns, contact button left of selected team;',
+              'progress, inspection and deadline stacked in a single PC column;',
+              'mobile keeps dropdown-first and contact-below layout; role and data unaffected;',
+              'new PC UX regression included in main CI. No cloud writes or schema changes.',
               '',
               'Verification: source exact SHA/tree and ZIP integrity in this workflow.',
               'CI/runtime results require reading separate exact-HEAD GitHub Actions jobs.',
@@ -97,7 +97,7 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: HNL-QLTC-DEV-UI-FULL-PATCH-REPORT-20261120
+          name: HNL-QLTC-DEV-ROOM-PC-2COL-FULL-PATCH-REPORT-20261120
           path: handoff/
           if-no-files-found: error
           retention-days: 7
