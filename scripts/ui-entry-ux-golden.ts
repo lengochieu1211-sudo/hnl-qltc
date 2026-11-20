@@ -367,6 +367,11 @@ assert(
     roomHighlightUiForPc.includes('lg:hidden text-[10.5px] text-slate-500 font-medium'),
   'Desktop compact text must hide long explanations while preserving mobile copy unchanged'
 );
+assert(
+  roomHighlightUiForPc.includes('flex items-start lg:items-center gap-2 border-b border-indigo-100/80 pb-2') &&
+    roomHighlightUiForPc.includes('p-1.5 bg-indigo-600 text-white rounded-lg shrink-0 mt-0.5 lg:mt-0 shadow-2xs'),
+  'PC room preset heading and ListChecks icon must align vertically at center, while mobile retains original top alignment'
+);
 assert(workVolumeUi.includes('lg:max-w-[1100px]') && workVolumeUi.includes('left-0 lg:left-[84px]'), 'Work Volume editor must use desktop width while reserving the left rail');
 assert(warehouse.includes('lg:max-w-[1100px]') && warehouse.includes('left-0 lg:left-[84px]'), 'Warehouse editor must use desktop width while reserving the left rail');
 assert(roomHighlightUiForPc.includes('lg:max-w-[1200px]') && roomHighlightUiForPc.includes('left-0 lg:left-[84px]'), 'Room inspection editor must use the wide desktop/EXE sheet without covering the navigation rail');

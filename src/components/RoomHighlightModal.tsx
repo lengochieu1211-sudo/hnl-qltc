@@ -1445,8 +1445,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
           {/* CATEGORY PRESETS SECTION */}
           {!structureReadOnly && <div className="bg-indigo-50/80 p-3.5 rounded-2xl border border-indigo-200/90 space-y-3">
-            <div className="flex items-start gap-2 border-b border-indigo-100/80 pb-2">
-              <div className="p-1.5 bg-indigo-600 text-white rounded-lg shrink-0 mt-0.5 shadow-2xs">
+            <div className="flex items-start lg:items-center gap-2 border-b border-indigo-100/80 pb-2">
+              <div className="p-1.5 bg-indigo-600 text-white rounded-lg shrink-0 mt-0.5 lg:mt-0 shadow-2xs">
                 <ListChecks className="w-4 h-4" />
               </div>
               <div className="min-w-0 flex-1">
