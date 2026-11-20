@@ -271,7 +271,16 @@ export interface Point2D {
   y: number;
 }
 
+/** Advanced floor-plan highlights: 0–100% within the existing room bounding box.
+ * This optional representation never replaces the original room geometry. */
+export interface HighlightRegionRect { x: number; y: number; width: number; height: number; }
+
 export interface RoomSubItem {
+  /** Optional independent highlight areas for this stage (union of rectangles). */
+  highlightRegions?: HighlightRegionRect[];
+  /** Manual remains default for all legacy stages. */
+  highlightVolumeMode?: 'manual' | 'area';
+  highlightColor?: string;
   id: string;
   name: string; // Tên công đoạn / hạng mục con (VD: Thi công khung, Thi công tấm mặt 1, Thi công tấm mặt 2...)
   category?: string; // Hạng mục thi công tổng (VD: Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn)
@@ -287,6 +296,8 @@ export interface RoomSubItem {
 }
 
 export interface RoomProgressItem {
+  /** Optional area of each main category; missing means the whole room. */
+  categoryHighlightRegions?: Record<string, HighlightRegionRect>;
   id: string;
   floorId: string; // ID mặt bằng tầng
   floorName?: string; // Tên tầng tương ứng

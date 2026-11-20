@@ -104,6 +104,7 @@ import { buildDefectShareText, resolveDefectTeam } from '../utils/defectContactU
 import { isPointInsideRoom, reconcileDefectLinkage, resolveDefectLinkageFromSelection } from '../utils/defectLinkageUtils';
 import { MIN_ROOM_HIGHLIGHT_PERCENT, getPreciseRoomHighlightRect, getRoomHighlightBounds, mirrorRoomHighlight, resizeRoomHighlightSide, resizeRoomHighlightToBounds, rotateRoomHighlight, snapRotationDelta } from '../utils/roomHighlightGeometry';
 import { snapRoomPointOrthogonal } from '../utils/roomHighlightSnap';
+import { getSubHighlightFloorRect, normalizeHighlightRect } from '../utils/subItemHighlightGeometry';
 import { CAD_GRID_STEP, applyCadDrawingGuide, getCadDrawingHotkey } from '../utils/roomHighlightCadShortcuts';
 import { findRoomObjectSnap, type RoomSnapCandidate } from '../utils/roomHighlightObjectSnap';
 import { placeFloorPlanDisplayPopover } from '../utils/floorPlanDisplayPopover';
@@ -764,18 +765,21 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   // V6.2.20: navigation/display controls are UI-only and never write Firestore.
   const [showMiniMap, setShowMiniMap] = useState(false);
   const [showLayerPanel, setShowLayerPanel] = useState(false);
+  const [visibleSubHighlightName, setVisibleSubHighlightName] = useState(''); // Local display filter only.
+
   const [mapLayers, setMapLayers] = useState(() => {
     try {
       const raw = localStorage.getItem(getDraftKey('construction_floorplan_layers'));
       const parsed = raw ? JSON.parse(raw) : {};
       return {
         roomRegions: parsed.roomRegions !== false,
+        subItemRegions: parsed.subItemRegions === true,
         roomLabels: parsed.roomLabels !== false,
         defects: parsed.defects !== false,
         resolvedDefects: parsed.resolvedDefects !== false,
       };
     } catch {
-      return { roomRegions: true, roomLabels: true, defects: true, resolvedDefects: true };
+      return { roomRegions: true, subItemRegions: false, roomLabels: true, defects: true, resolvedDefects: true };
     }
   });
   // Legacy device-only locks still protect old geometry; explicit Cloud flags override them.
@@ -849,12 +853,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       const parsed = raw ? JSON.parse(raw) : {};
       setMapLayers({
         roomRegions: parsed.roomRegions !== false,
+        subItemRegions: parsed.subItemRegions === true,
         roomLabels: parsed.roomLabels !== false,
         defects: parsed.defects !== false,
         resolvedDefects: parsed.resolvedDefects !== false,
       });
     } catch {
-      setMapLayers({ roomRegions: true, roomLabels: true, defects: true, resolvedDefects: true });
+      setMapLayers({ roomRegions: true, subItemRegions: false, roomLabels: true, defects: true, resolvedDefects: true });
     }
     requestAnimationFrame(() => { projectUiSettingsHydratingRef.current = false; });
   }, [currentProjectId]);
@@ -8250,6 +8255,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <div className="grid grid-cols-1 gap-1.5">
                   {([
                     ['roomRegions', 'Vùng Căn / Phòng'],
+                    ['subItemRegions', 'Highlight hạng mục phụ (mở rộng)'],
                     ['roomLabels', 'Tên Căn / Phòng'],
                     ['defects', 'Marker Defect'],
                     ['resolvedDefects', 'Defect đã hoàn thành'],
@@ -8265,6 +8271,20 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     </label>
                   ))}
                 </div>
+                {mapLayers.subItemRegions && (
+                  <label className="mt-2 block text-[10.5px] font-bold text-slate-700">
+                    Hiển thị hạng mục phụ
+                    <select aria-label="Lọc lớp highlight theo hạng mục phụ" value={visibleSubHighlightName}
+                      onChange={event => setVisibleSubHighlightName(event.target.value)}
+                      className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-[11px] text-slate-800">
+                      <option value="">Tất cả vùng phụ</option>
+                      {Array.from(new Set(floorRooms.flatMap(room => (room.subItems || [])
+                        .filter(sub => (sub.highlightRegions || []).length > 0).map(sub => sub.name)))).sort((a,b) => a.localeCompare(b, 'vi')).map(name => (
+                          <option key={name} value={name}>{name}</option>
+                        ))}
+                    </select>
+                  </label>
+                )}
                 <p className="mt-2 text-[9px] leading-snug text-slate-500">Chỉ thay đổi hiển thị trên máy này, không xóa dữ liệu và không ghi Firebase.</p>
               </div>
             )}
@@ -8606,6 +8626,47 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       onContextMenu={(e) => handleContextMenuOnRoom(e, room)}
                     />
                   );
+                })}
+                {/* Optional stage areas are paint-only overlays: never alter room hit testing,
+                    room geometry, stage quantities or Defect coordinates. */}
+                {mapLayers.subItemRegions && displayedFloorRooms.map((room) => {
+                  if (room.isPolyline || !(room.width > 0 && room.height > 0)) return null;
+                  const coloredStages = (room.subItems || []).filter(sub => (sub.highlightRegions || []).length > 0 &&
+                    (!visibleSubHighlightName || sub.name === visibleSubHighlightName));
+                  if (!coloredStages.length) return null;
+                  const roomClipId = `hnl-stage-room-${room.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+                  return <g key={`advanced-stage-${room.id}`} data-hnl-floor-subitem-highlight="true" pointerEvents="none">
+                    <defs>
+                      <clipPath id={roomClipId}>
+                        {room.points?.length && room.points.length >= 3 ?
+                          <polygon points={room.points.map(p => `${p.x},${p.y}`).join(' ')} /> :
+                          <rect x={room.x} y={room.y} width={room.width} height={room.height} />}
+                      </clipPath>
+                    </defs>
+                    <g clipPath={`url(#${roomClipId})`}>
+                      {coloredStages.map((stage, index) => {
+                        const cat = stage.category || room.workCategory || '';
+                        const mainRect = room.categoryHighlightRegions?.[cat];
+                        const mainClipId = `hnl-stage-main-${room.id.replace(/[^a-zA-Z0-9_-]/g, '-')}-${index}`;
+                        const visibleMain = mainRect ? normalizeHighlightRect(mainRect) : null;
+                        const c = stage.highlightColor || ['#2563eb', '#f59e0b', '#16a34a', '#9333ea', '#dc2626', '#0891b2'][index % 6];
+                        return <g key={stage.id}>
+                          {visibleMain && <defs><clipPath id={mainClipId}>
+                            <rect {...getSubHighlightFloorRect(room, visibleMain)} />
+                          </clipPath></defs>}
+                          <g clipPath={visibleMain ? `url(#${mainClipId})` : undefined}>
+                            {(stage.highlightRegions || []).map((region, regionIndex) => {
+                              const valid = normalizeHighlightRect(region);
+                              if (!valid) return null;
+                              return <rect key={`${stage.id}-${regionIndex}`} {...getSubHighlightFloorRect(room, valid)}
+                                fill={c} fillOpacity={0.28} stroke={c} strokeWidth={1.7}
+                                vectorEffect="non-scaling-stroke" />;
+                            })}
+                          </g>
+                        </g>;
+                      })}
+                    </g>
+                  </g>;
                 })}
               </svg>
                   );
@@ -10305,6 +10366,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         initialPoints={newRoomPoints}
         floorId={activeFloor?.id || 'fp-1'}
         floorName={activeFloor?.floorName || 'Tầng 1'}
+        floorPlanImageUrl={activeFloor?.imageUrl}
         checklistItems={checklistItems}
         onSaveRoom={onSaveRoomProgress}
         structureReadOnly={!canManageStructure}
