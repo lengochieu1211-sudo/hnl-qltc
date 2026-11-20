@@ -37,3 +37,5 @@ assert.ok(compact.includes('@media (min-width: 960px) and (max-width: 1023px)'),
 for (const [name,body] of [['base',base], ['compact',compact], ['deep',deep]])
   assert.ok(!/min-width:\s*1024px\)\s*and\s*\(max-width:\s*1023px/.test(body), `impossible media query in ${name}`);
 
+
+console.log('GEMINI PC DEV INTEGRATION PASS: callbacks, old mode, desktop-only style and mobile bridge preserved');
