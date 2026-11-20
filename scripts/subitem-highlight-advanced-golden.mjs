@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { getRoomWorkCategoryUnit } from '../src/utils/roomCategoryUnit.ts';
+import { getRoomMapStageLabels, getRoomMapConstructionIcon, getRoomMapInspectionIcon } from '../src/utils/roomMapStageLabels.ts';
 import { computeSubHighlightAreaRatio as ratio, isAreaHighlightUnit, getSubHighlightFloorRect, getEffectiveStageHighlightRegions } from '../src/utils/subItemHighlightGeometry.ts';
 
 const base = { x: 10, y: 15, width: 40, height: 30 };
@@ -84,6 +85,47 @@ assert.match(room, /Đã hoàn thành.*Đạt nghiệm thu/);
 // per-project user preference of false must still keep the layer hidden.
 assert.equal((floor.match(/subItemRegions: parsed\.subItemRegions !== false/g) || []).length, 2);
 assert.equal((floor.match(/subItemRegions: true, roomLabels: true/g) || []).length, 2);
+// A room may have arbitrary stages; the map must never use legacy Khung/Tấm
+// when real subItems exist. Display helpers are read-only and do not mutate records.
+const roomForMap = {
+  workCategory: 'Ty + Sắt hộp',
+  frameStatus: 'Đã hoàn thành', boardStatus: 'Đã hoàn thành',
+  frameInspectionStatus: 'Đạt nghiệm thu', boardInspectionStatus: 'Đạt nghiệm thu',
+  targetFrameDate: '2026-11-01', targetBoardDate: '2026-11-02',
+  subItems: [
+    { id: 'stage-1', name: 'Lắp ty ren', category: 'Ty + Sắt hộp', status: 'Đang làm', inspectionStatus: 'Chưa nghiệm thu', targetDate: '2026-12-01' },
+    { id: 'stage-2', name: 'Lắp thanh hộp', category: 'Ty + Sắt hộp', status: 'Đã hoàn thành', inspectionStatus: 'Đạt nghiệm thu' },
+    { id: 'stage-3', name: 'Điều chỉnh cao độ', category: 'Khác', status: 'Chưa làm', inspectionStatus: 'Chưa đạt (Cần sửa)' },
+  ],
+};
+const roomBeforeRead = JSON.stringify(roomForMap);
+const mapRows = getRoomMapStageLabels(roomForMap);
+assert.deepEqual(mapRows.map(stage => stage.name), ['Lắp ty ren', 'Lắp thanh hộp', 'Điều chỉnh cao độ']);
+assert.deepEqual(mapRows.map(stage => stage.status), ['Đang làm', 'Đã hoàn thành', 'Chưa làm']);
+assert.deepEqual(mapRows.map(stage => stage.inspectionStatus), ['Chưa nghiệm thu', 'Đạt nghiệm thu', 'Chưa đạt (Cần sửa)']);
+assert.equal(mapRows[0].targetDate, '2026-12-01');
+assert.equal(mapRows[2].category, 'Khác');
+assert.equal(JSON.stringify(roomForMap), roomBeforeRead, 'Map summary must not mutate acceptance data');
+assert.deepEqual(getRoomMapStageLabels({ ...roomForMap, subItems: [] }).map(stage => stage.name), ['Khung', 'Tấm']);
+assert.deepEqual(getRoomMapStageLabels({ ...roomForMap, subItems: undefined }).map(stage => stage.status), ['Đã hoàn thành', 'Đã hoàn thành']);
+assert.deepEqual(getRoomMapStageLabels({ ...roomForMap, subItems: [{id:'only',name:'Trám khe',status:'Đang làm'}] }).map(stage => stage.name), ['Trám khe']);
+const repeated = getRoomMapStageLabels({ ...roomForMap, subItems: [{id:'same',name:'A',status:'Chưa làm'}, {id:'same',name:'B',status:'Đã hoàn thành'}] });
+assert.equal(new Set(repeated.map(stage => stage.key)).size, 2, 'Repeated legacy stage IDs still need distinct presentation keys');
+assert.equal(getRoomMapStageLabels({ ...roomForMap, subItems: [{id:'blank',name:'  ',status:'Chưa làm'}] })[0].name, 'Hạng mục con 1');
+assert.equal(getRoomMapStageLabels({ ...roomForMap, subItems: Array.from({length:20}, (_,i) => ({id:String(i),name:`Công đoạn ${i+1}`,status:'Chưa làm'})) }).length, 20);
+assert.equal(getRoomMapConstructionIcon('Đang làm'), '🚧');
+assert.equal(getRoomMapConstructionIcon('Đã hoàn thành'), '✅');
+assert.equal(getRoomMapConstructionIcon('Chưa làm'), '⏳');
+assert.equal(getRoomMapInspectionIcon('Đạt nghiệm thu'), '🏆');
+assert.equal(getRoomMapInspectionIcon('Chưa đạt (Cần sửa)'), '⚠️');
+assert.equal(getRoomMapInspectionIcon('Chưa nghiệm thu'), '⏳');
+assert.match(floor, /getRoomMapStageLabels\(room\)/);
+assert.match(floor, /data-hnl-room-map-stage-list="true"/);
+assert.match(floor, /data-hnl-room-map-stage-row="true"/);
+assert.match(floor, /data-hnl-room-map-stage-badges="true"/);
+assert.equal((floor.match(/roomMapStages\.map\(\(stage\) =>/g) || []).length, 2, 'Both map overlay modes must display dynamic stages');
+const roomMapLabelsUi = floor.slice(floor.indexOf('{/* MINIMALIST OR FULL TEXT BADGES OVERLAY */}'), floor.indexOf('{/* MODE 2: DEFECT PIN OVERLAYS */}'));
+assert.doesNotMatch(roomMapLabelsUi, /room\.(frameStatus|boardStatus|frameInspectionStatus|boardInspectionStatus)/, 'Map room labels must not use legacy statuses when sub-items exist');
 assert.match(floor, /data-hnl-floor-subitem-highlight="true"/);
 assert.match(floor, /pointerEvents="none"/);
 assert.match(types, /highlightRegions\?: HighlightRegionRect\[\]/);
