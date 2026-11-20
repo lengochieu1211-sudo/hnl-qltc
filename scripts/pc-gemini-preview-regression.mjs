@@ -28,6 +28,9 @@ for (const k of ['onOpenProjects','onOpenReports','onOpenNotifications','onOpenS
   assert.ok(header.includes(k), `missing existing header callback: ${k}`);
 for (const k of ['setActiveTab', 'onPreloadTab', 'showChecklist', 'showAi', 'showSuperAdmin', 'onLockNow', 'onSignOut', 'onClick={() => activate(tab.id)}', 'data-hnl-sidebar-collapsed'])
   assert.ok(nav.includes(k), `missing existing navigation callback: ${k}`);
+const classicReturnIndex = header.indexOf("if (mode === 'classic') return (");
+const homeHeaderIndex = header.indexOf("if (activeTab === 'home') {");
+assert.ok(classicReturnIndex >= 0 && homeHeaderIndex >= 0 && classicReturnIndex < homeHeaderIndex, 'PC classic home must expose return-to-modern control');
 assert.ok(nav.includes('aria-expanded={!sidebarCollapsed}'), 'sidebar collapse exposes accessible state');
 assert.ok(nav.includes('localStorage.getItem(SIDEBAR_STORAGE_KEY)'), 'sidebar preference works without changing project data');
 
