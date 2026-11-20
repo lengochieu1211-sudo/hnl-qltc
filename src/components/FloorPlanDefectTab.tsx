@@ -8278,8 +8278,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       onChange={event => setVisibleSubHighlightName(event.target.value)}
                       className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-[11px] text-slate-800">
                       <option value="">Tất cả vùng phụ</option>
-                      {Array.from(new Set(floorRooms.flatMap(room => (room.subItems || [])
-                        .filter(sub => (sub.highlightRegions || []).length > 0).map(sub => sub.name)))).sort((a,b) => a.localeCompare(b, 'vi')).map(name => (
+                      {Array.from(new Set<string>(floorRooms.flatMap(room => (room.subItems || [])
+                        .filter(sub => (sub.highlightRegions || []).length > 0).map(sub => String(sub.name || ''))))).sort((a,b) => a.localeCompare(b, 'vi')).map(name => (
                           <option key={name} value={name}>{name}</option>
                         ))}
                     </select>
