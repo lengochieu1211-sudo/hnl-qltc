@@ -216,7 +216,9 @@ for(const size of [{width:1280,height:800},{width:393,height:852}]){
  assert.equal(await page.getByRole('button',{name:/Vật tư đối chiếu/}).getAttribute('aria-pressed'),'true',label+': material tab did not restore');
  assert.equal(await page.locator('[data-hnl-team-material-voucher-details]').first().evaluate(el=>el.open),true,label+': original material voucher list collapsed');
  // Revisiting Warehouse normally must never retain the temporary voucher-ID search.
- await page.locator('[data-hnl-fixture-open-warehouse="true"]').click();
+ // Fixture-only tab navigation is programmatic: the intentionally retained Crew
+ // modal overlays these artificial tabs; voucher and Back actions still use real clicks.
+ await page.locator('[data-hnl-fixture-open-warehouse="true"]').evaluate(button=>button.click());
  await warehouseSearch.waitFor({state:'visible'});
  assert.equal(await warehouseSearch.inputValue(),size.width>=500?'Tấm':'',label+': material voucher ID leaked into Warehouse Search');
  await warehouseSearch.fill('');
@@ -238,7 +240,7 @@ for(const size of [{width:1280,height:800},{width:393,height:852}]){
  await modal.waitFor({state:'visible',timeout:15000});
  assert.equal(await page.locator('[data-hnl-crew-equipment-tab="true"]').getAttribute('aria-pressed'),'true',label+': equipment tab did not restore');
  assert.equal(await page.locator('[data-hnl-team-equipment-voucher-details]').first().evaluate(el=>el.open),true,label+': original equipment voucher list collapsed');
- await page.locator('[data-hnl-fixture-open-warehouse="true"]').click();
+ await page.locator('[data-hnl-fixture-open-warehouse="true"]').evaluate(button=>button.click());
  await warehouseSearch.waitFor({state:'visible'});
  assert.equal(await warehouseSearch.inputValue(),'',label+': equipment voucher ID leaked into Warehouse Search after header Back');
  checks.push({viewport:label,flow:'crew-material-equipment-voucher-return-with-no-stale-search',result:'PASS'});
