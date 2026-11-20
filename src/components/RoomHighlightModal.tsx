@@ -245,7 +245,6 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   const [volumeUnit, setVolumeUnit] = useState<string>('m²');
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [deletingSubItemId, setDeletingSubItemId] = useState<string | null>(null);
-  const [showConfirmReplaceModal, setShowConfirmReplaceModal] = useState(false);
   const [availableTeams, setAvailableTeams] = useState<TeamInfo[]>([]);
   const [showColorPicker, setShowColorPicker] = useState<boolean>(false);
   const [showDimensionSettings, setShowDimensionSettings] = useState<boolean>(false);
@@ -394,8 +393,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     }
   }, [roomItem, initialPos, initialRect, initialPoints, isOpen]);
 
-  // Handler to change work category preset (mode: 'append' to add more categories to the room, 'replace' to reset)
-  const handleApplyPreset = (catName: string, mode: 'replace' | 'append' = 'append') => {
+  // Add preset sub-items without replacing the room's saved construction and acceptance history.
+  const handleApplyPreset = (catName: string) => {
     const normalizedCategory = String(catName || '').trim();
     if (!normalizedCategory) return;
     catName = normalizedCategory;
@@ -432,27 +431,16 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       };
     });
 
-    if (mode === 'replace') {
-      // Replacing all stages also resets their optional drawing layers.
-      setCategoryHighlightRegions({});
-      setHighlightCategory(catName);
-      setHighlightTarget('main');
-      setSubItems(newItems);
-      const vol = Number(workVolume) || 0;
-      setCategoryVolumes({ [catName]: vol });
-      setVolumeStrings({ [catName]: formatDecimal(vol) });
-    } else {
-      setSubItems(prev => [...prev, ...newItems]);
-      const existingVol = categoryVolumes[catName] !== undefined ? categoryVolumes[catName] : (Number(workVolume) || 0);
-      setCategoryVolumes(prev => ({
-        ...prev,
-        [catName]: existingVol
-      }));
-      setVolumeStrings(prev => ({
-        ...prev,
-        [catName]: formatDecimal(existingVol)
-      }));
-    }
+    setSubItems(prev => [...prev, ...newItems]);
+    const existingVol = categoryVolumes[catName] !== undefined ? categoryVolumes[catName] : (Number(workVolume) || 0);
+    setCategoryVolumes(prev => ({
+      ...prev,
+      [catName]: existingVol
+    }));
+    setVolumeStrings(prev => ({
+      ...prev,
+      [catName]: formatDecimal(existingVol)
+    }));
   };
 
   const projectWorkCategoryTitles = React.useMemo(() => {
@@ -1478,27 +1466,12 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               <div data-hnl-pc-v35-actions="room-preset" className="flex flex-col sm:flex-row gap-2 pt-0.5">
                 <button
                   type="button"
-                  onClick={() => presetSelection && handleApplyPreset(presetSelection, 'append')}
+                  onClick={() => presetSelection && handleApplyPreset(presetSelection)}
                   disabled={!presetSelection}
                   className="flex-1 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl text-xs shadow-2xs active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5"
                 >
                   <PlusCircle className="w-3.5 h-3.5" />
                   <span>Nạp Thêm Vào Căn Này</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!presetSelection) return;
-                    if (subItems.length > 0) {
-                      setShowConfirmReplaceModal(true);
-                    } else {
-                      handleApplyPreset(presetSelection, 'replace');
-                    }
-                  }}
-                  className="px-3 py-2 bg-white hover:bg-indigo-100 text-indigo-900 border border-indigo-300 font-extrabold rounded-xl text-xs active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1 shrink-0"
-                  title="Thay thế toàn bộ danh sách hạng mục hiện tại bằng mẫu này"
-                >
-                  <span>⚡ Nạp thay thế (xóa cũ)</span>
                 </button>
               </div>
             </div>
@@ -2550,41 +2523,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
         </form>
       </div>
 
-      {/* CONFIRM REPLACE PRESET MODAL */}
-      {showConfirmReplaceModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[250] flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl p-5 max-w-xs w-full space-y-4 border border-rose-100 shadow-2xl text-center">
-            <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto">
-              <AlertCircle className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-slate-900">Xác Nhận Thay Thế Mẫu</h3>
-              <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
-                Bạn có chắc chắn muốn nạp mẫu này và <strong className="text-rose-600 font-bold">XÓA TOÀN BỘ</strong> các hạng mục cũ đang có trong Căn / Phòng không?
-              </p>
-            </div>
-            <div className="flex gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowConfirmReplaceModal(false)}
-                className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs"
-              >
-                Hủy Bỏ
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  handleApplyPreset(presetSelection, 'replace');
-                  setShowConfirmReplaceModal(false);
-                }}
-                className="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs shadow-xs"
-              >
-                Đồng ý xóa &amp; thay thế
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+
     </div>
   );
 };
