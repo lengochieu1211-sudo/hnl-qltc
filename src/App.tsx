@@ -8142,7 +8142,8 @@ function AuthenticatedApp() {
         <OfflineSyncBanner onAutoSync={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleSyncAll : undefined} isSyncing={isSyncing} userRole={currentUserRole} roleResolved={isProjectRoleResolved} roleSource={projectRoleSource} firestorePendingWriteCount={firestorePendingWriteCount} firebaseOnly={FIREBASE_ONLY_RUNTIME} verifiedSnapshotFallback={businessDataSource === 'verified-offline-snapshot'} />
 
         {/* Contextual return is shown only after following a link, never on primary-tab navigation. */}
-        {contextReturnFrames.length > 0 && contextReturnFrames[contextReturnFrames.length - 1].projectId === activeProjectId && (
+        {contextReturnFrames.length > 0 && contextReturnFrames[contextReturnFrames.length - 1].projectId === activeProjectId
+          && !(activeTab === 'warehouse' && warehouseVoucherFocus?.projectId === activeProjectId) && (
           <div className="sticky top-0 z-[65] border-b border-indigo-100 bg-slate-50/95 px-4 py-2 shadow-sm backdrop-blur-sm" data-hnl-cross-module-return="true">
             <ContextBackButton
               label={contextReturnFrames[contextReturnFrames.length - 1].kind === 'notifications'
@@ -8274,6 +8275,7 @@ function AuthenticatedApp() {
               materialNorms={computedMaterialNorms}
               returnToCatalogToken={warehouseCatalogReturnToken}
               focusVoucher={warehouseVoucherFocus}
+              onContextReturn={handleContextReturn}
               onOpenNormModal={(tab = 'material', target, fromWarehouseCatalog = false) => {
                 setMaterialNormFromWarehouseCatalog(fromWarehouseCatalog);
                 setMaterialNormInitialTab(tab);

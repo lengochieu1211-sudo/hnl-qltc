@@ -11,6 +11,8 @@ assert.match(source, /setWarehouseFromDate\(''\)/, 'date filters must not hide i
 assert.match(source, /setWarehouseToDate\(''\)/, 'date filters must not hide it');
 assert.match(source, /setExpandedInventoryId\(current\.id\)/, 'highlight exact voucher card');
 assert.match(source, /data-hnl-warehouse-voucher-id=\{item\.id\}/, 'target must exist');
+assert.match(source, /directVoucherId && !voucherShareOpen && <WarehouseVoucherDetailSheet/, 'open actual read-only voucher on first click');
+assert.match(source, /data-hnl-journal-open-voucher=\{item\.id\}/, 'journal has direct document action');
 assert.match(source, /target\.focus\(\{ preventScroll: true \}\)/, 'keyboard focus moves to correct voucher');
 assert.match(source, /if \(!hasEditAccess\) return;[\s\S]*?if \(item\.warehouseTransferId\) \{[\s\S]*?canAmendTransfer\(item\)/, 'Edit remains permission and transfer gated');
 assert.match(source, /\{hasEditAccess && onUpdateInventory && \(!item\.warehouseTransferId \|\| canAmendTransfer\(item\)\)/, 'VIEWER cannot edit');

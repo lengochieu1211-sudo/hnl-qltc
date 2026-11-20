@@ -4,14 +4,18 @@ const read = path => readFileSync(path, 'utf8');
 const warehouse = read('src/components/WarehouseTab.tsx');
 const crew = read('src/components/CrewTabBase.tsx');
 const app = read('src/App.tsx');
+const detail = read('src/components/WarehouseVoucherDetailSheet.tsx');
 
-// Exactly one Back action per navigation context: the App header for Crew,
-// the voucher card for Warehouse catalog history (no cross-module App frame).
-assert.match(warehouse, /expandedInventoryId === item\.id && catalogVoucherReturn\?\.projectId === currentProjectId/, 'catalog return button must be on expanded voucher');
-assert.match(warehouse, /data-hnl-voucher-return-origin="catalog-history"/, 'catalog voucher renders a single Back');
-assert.match(warehouse, /<ContextBackButton label=\{catalogVoucherReturn\.history\.type === 'in' \? 'Chi tiết nhập kho' : 'Chi tiết xuất kho'\}/, 'catalog return matches in/out source');
-assert.equal((warehouse.match(/<ContextBackButton\b/g) || []).length, 1, 'Warehouse card has exactly one conditional Back button');
-assert.doesNotMatch(warehouse, /data-hnl-voucher-return-origin="crew-statistics"|onReturnFromSourceVoucher/, 'Crew voucher must not render a duplicate lower Back');
+// The direct voucher sheet owns the only visible Back: it replaces the earlier
+// card Back and the cross-module sticky header is hidden while the sheet is open.
+assert.match(warehouse, /directVoucherId && !voucherShareOpen && <WarehouseVoucherDetailSheet/, 'exact voucher sheet opens for deep links');
+assert.match(warehouse, /directVoucherFromCrew \? 'Thống kê đội'/, 'crew back label');
+assert.match(warehouse, /directVoucherFromCatalog[\s\S]{0,150}catalogVoucherReturn\?\.history\.type/, 'catalog Back type label');
+assert.match(detail, /<ContextBackButton label=\{backLabel\} onClick=\{onBack\}/, 'one Back in direct voucher sheet');
+assert.equal((detail.match(/<ContextBackButton\b/g) || []).length, 1, 'only one Back in detail sheet');
+assert.equal((warehouse.match(/<ContextBackButton\b/g) || []).length, 0, 'no duplicate card Back');
+assert.doesNotMatch(warehouse, /data-hnl-voucher-return-origin="crew-statistics"|onReturnFromSourceVoucher/, 'no duplicate Crew Back');
+assert.match(app, /!\(activeTab === 'warehouse' && warehouseVoucherFocus\?\.projectId === activeProjectId\)/, 'hide App header Back under direct voucher modal');
 assert.match(app, /data-hnl-cross-module-return="true"/, 'App retains shared header Back');
 assert.match(app, /frame\.kind === 'crew-voucher'/, 'Crew navigation returns from header through contextual stack');
 assert.equal((app.match(/<ContextBackButton\b/g) || []).length, 1, 'App header has exactly one shared Back control');
@@ -59,11 +63,21 @@ assert.match(crewReturnRestore, /previous\.projectId !== currentProjectId/, 'Cre
 assert.match(warehouse, /crewVoucherCatalogReopenRef\.current = previous\.showCatalog && !isActive/, 'do not reopen catalog portal over Crew on PC');
 assert.match(warehouse, /if \(focusVoucher \|\| !crewVoucherWarehouseOriginRef\.current\) return/, 'restore only after App clears source focus');
 assert.match(app, /setCrewVoucherReturnRequest\(\{[\s\S]{0,120}token: \+\+crewVoucherReturnSequenceRef\.current/, 'App retains mobile return request without sessionStorage');
-assert.match(app, /<ContextBackButton[\s\S]{0,900}onClick=\{handleContextReturn\}/, 'Crew voucher returns through the single App header Back');
+assert.match(app, /onContextReturn=\{handleContextReturn\}/, 'Crew voucher returns via one modal Back to App contextual stack');
 assert.match(crew, /const handledVoucherReturnRef = useRef/, 'mobile return is idempotent per request token');
 assert.match(crew, /voucherReturnRequest\.projectId !== projectId/, 'never restore a crew modal from another project');
 assert.match(crew, /onVoucherReturnRestored\?\.\(voucherReturnRequest\.token\)/, 'consume App-held return request once');
 assert.match(warehouse, /hasEditAccess && onUpdateInventory && \(!item\.warehouseTransferId \|\| canAmendTransfer\(item\)\)/, 'original voucher Edit RBAC and transfer guard unchanged');
+assert.match(crew, /line\.voucherIds\?\.length === 1/, 'single material voucher directly clickable');
+assert.match(crew, /line\.voucherCount === 1 && line\.vouchers\.length === 1/, 'single equipment voucher directly clickable');
+assert.match(warehouse, /initialVoucherId=\{singleVoucherExportId \|\| undefined\}/, 'exact voucher export preset forwarded');
+assert.match(warehouse, /data-hnl-journal-open-voucher=\{item\.id\}/, 'journal voucher opens a direct document');
+assert.match(detail, /role="dialog" aria-modal="true"/, 'read-only modal is accessible');
+assert.match(detail, /readOnly compactViewerButton/, 'receipt photos remain read-only');
+assert.doesNotMatch(detail, /onDeleteInventory|onUpdateInventory|onAddInventory|setDoc\(|updateDoc\(|deleteDoc\(/, 'direct voucher must not write ledger data');
+const share = read('src/components/WarehouseVoucherShareSheet.tsx');
+assert.match(share, /initialVoucher=inventory\.find\(item=>item\.id===initialVoucherId && item\.deletedAt==null\)/, 'exact voucher export source ID');
+assert.match(share, /useState<Pick>\(initialVoucher\?'one':'all'\)/, 'one-voucher export needs no second selection');
 
 // UI-only callbacks and no Firestore mutation.
 const navigator = warehouse.slice(warehouse.indexOf('const returnFromCatalogVoucher'),warehouse.indexOf('const openCreateInventory'));

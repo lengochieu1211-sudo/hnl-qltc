@@ -2,7 +2,6 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { CrewTab, type CrewVoucherOrigin, type CrewVoucherReturnRequest } from '../../../src/components/CrewTabBase';
 import { WarehouseTab } from '../../../src/components/WarehouseTab';
-import { ContextBackButton } from '../../../src/components/ContextBackButton';
 import { DEFAULT_STRUCTURE_CONFIG } from '../../../src/utils/structureGroupUtils';
 import type { InventoryItem, MaterialNorm, TeamInfo } from '../../../src/types';
 import type { WarehouseOrderSync } from '../../../src/hooks/useWarehouseOrderSync';
@@ -45,7 +44,6 @@ function ReturnFixture(){
    <button data-hnl-fixture-open-crew="true" onClick={()=>setTab('crew')}>Mở Đội</button>
    <button data-hnl-fixture-open-warehouse="true" onClick={()=>{setFocus(null);setTab('warehouse');}}>Mở Kho</button>
   </div>
-  {tab==='warehouse' && focus && <div data-hnl-fixture-header-back="true"><ContextBackButton label="Thống kê Căn/Phòng & Defect" onClick={returnToCrew}/></div>}
   {(tab==='crew'||!mobile)&&<div style={{display:tab==='crew'?'block':'none'}} data-hnl-fixture-crew="true">
    <CrewTab isActive={tab==='crew'} quickEditEnabled={false} projectId={projectId} roleResolved userRole="VIEWER"
     crewRecords={[]} floorPlans={[]} structureConfig={DEFAULT_STRUCTURE_CONFIG}
@@ -58,7 +56,7 @@ function ReturnFixture(){
    <WarehouseTab isActive={tab==='warehouse'} currentProjectId={projectId} quickEditEnabled={false}
     orderSync={orderSync} inventory={inventory} materialNorms={norms} structureConfig={DEFAULT_STRUCTURE_CONFIG}
     userRole="VIEWER" roleResolved onAddInventory={forbidden} onDeleteInventory={forbidden}
-    onOpenNormModal={forbidden} focusVoucher={focus}/>
+    onOpenNormModal={forbidden} focusVoucher={focus} onContextReturn={returnToCrew}/>
   </div>}
  </div>;
 }

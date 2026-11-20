@@ -69,13 +69,13 @@ assert.equal(await sheet.locator('[data-hnl-catalog-in-history]').count(),0,labe
 const inboundVoucherId='P0-IN-20261013-001';
 await sheet.locator('[data-hnl-catalog-open-voucher="'+inboundVoucherId+'"]').click();
 await sheet.waitFor({state:'hidden'});
-const voucherIdButton=page.locator('[data-hnl-warehouse-voucher-id="'+inboundVoucherId+'"]');
-await voucherIdButton.waitFor({state:'visible'});
-const catalogReturn=page.locator('[data-hnl-voucher-return-origin="catalog-history"]');
-await catalogReturn.waitFor({state:'visible'});
+const directIn=page.locator('[data-hnl-warehouse-direct-voucher="true"]');
+await directIn.waitFor({state:'visible'});
+assert.equal(await directIn.locator('[data-hnl-warehouse-direct-voucher-id="'+inboundVoucherId+'"]').count(),1,label+': did not open exact inbound voucher directly');
 assert.equal(await page.locator('[data-hnl-context-back-button="true"]').count(),1,label+': duplicate inbound voucher Back');
-assert.match(await catalogReturn.innerText(),/Quay lại Chi tiết nhập kho/,label+': incorrect Back source');
-await catalogReturn.locator('[data-hnl-context-back-button="true"]').click();
+assert.match(await directIn.innerText(),/PHIẾU NHẬP KHO/,label+': missing inbound voucher');
+assert.match(await directIn.innerText(),/Quay lại Chi tiết nhập kho/,label+': incorrect Back source');
+await directIn.locator('[data-hnl-context-back-button="true"]').click();
 await sheet.waitFor({state:'visible'});
 await sheet.locator('[data-hnl-catalog-history="readonly"]').waitFor({state:'visible'});
 await sheet.locator('[data-hnl-catalog-open-voucher="'+inboundVoucherId+'"]').waitFor({state:'visible'});
@@ -90,11 +90,13 @@ await history.getByText('Mã phiếu: P0-OUT-20261013-003').waitFor({state:'visi
 assert((await history.innerText()).includes('5 Tấm'),label+': OUT count');
 await sheet.locator('[data-hnl-catalog-open-voucher="P0-OUT-20261013-003"]').click();
 await sheet.waitFor({state:'hidden'});
-const outBack=page.locator('[data-hnl-voucher-return-origin="catalog-history"]');
-await outBack.waitFor({state:'visible'});
+const directOut=page.locator('[data-hnl-warehouse-direct-voucher="true"]');
+await directOut.waitFor({state:'visible'});
+assert.equal(await directOut.locator('[data-hnl-warehouse-direct-voucher-id="P0-OUT-20261013-003"]').count(),1,label+': wrong outbound voucher');
 assert.equal(await page.locator('[data-hnl-context-back-button="true"]').count(),1,label+': duplicate outbound voucher Back');
-assert.match(await outBack.innerText(),/Quay lại Chi tiết xuất kho/,label+': incorrect OUT Back source');
-await outBack.locator('[data-hnl-context-back-button="true"]').click();
+assert.match(await directOut.innerText(),/PHIẾU XUẤT KHO/,label+': missing outbound voucher');
+assert.match(await directOut.innerText(),/Quay lại Chi tiết xuất kho/,label+': wrong OUT Back source');
+await directOut.locator('[data-hnl-context-back-button="true"]').click();
 await sheet.waitFor({state:'visible'});
 await sheet.locator('[data-hnl-catalog-open-voucher="P0-OUT-20261013-003"]').waitFor({state:'visible'});
 checks.push({viewport:label,flow:'catalog-out-voucher-return',result:'PASS'});
@@ -200,21 +202,21 @@ for(const size of [{width:1280,height:800},{width:393,height:852}]){
  await team.waitFor({state:'visible',timeout:15000});await team.click();
  const modal=page.locator('[data-hnl-crew-team-modal-body="true"]');await modal.waitFor({state:'visible'});
  await page.getByRole('button',{name:/Vật tư đối chiếu/}).click();
- const materialDetails=page.locator('[data-hnl-team-material-voucher-details]').first();
- await materialDetails.waitFor({state:'visible'});
- await materialDetails.locator('summary').click();
+ // One voucher is one click: no nested <details> must be opened first.
+ assert.equal(await page.locator('[data-hnl-team-material-voucher-details]').count(),0,label+': single material voucher has extra disclosure');
  const materialVoucher=page.locator('[data-hnl-team-material-voucher="FLOW-OUT-MAT-001"]');
  await materialVoucher.waitFor({state:'visible'});await materialVoucher.click();
  await page.locator('[data-hnl-fixture-active-tab="warehouse"]').waitFor({state:'visible'});
- const crewBack=page.locator('[data-hnl-fixture-header-back] [data-hnl-context-back-button="true"]');
- await crewBack.waitFor({state:'visible',timeout:15000});
+ const directMaterial=page.locator('[data-hnl-warehouse-direct-voucher="true"]');
+ await directMaterial.waitFor({state:'visible',timeout:15000});
+ assert.equal(await directMaterial.locator('[data-hnl-warehouse-direct-voucher-id="FLOW-OUT-MAT-001"]').count(),1,label+': did not open material voucher directly');
+ const crewBack=directMaterial.locator('[data-hnl-context-back-button="true"]');
  assert.equal(await page.locator('[data-hnl-context-back-button="true"]').count(),1,label+': Crew voucher has duplicate Back buttons');
- assert.equal(await page.locator('[data-hnl-voucher-return-origin="crew-statistics"]').count(),0,label+': duplicate Back inside voucher card');
  await crewBack.click();
  await page.locator('[data-hnl-fixture-active-tab="crew"]').waitFor({state:'visible'});
  await modal.waitFor({state:'visible',timeout:15000});
  assert.equal(await page.getByRole('button',{name:/Vật tư đối chiếu/}).getAttribute('aria-pressed'),'true',label+': material tab did not restore');
- assert.equal(await page.locator('[data-hnl-team-material-voucher-details]').first().evaluate(el=>el.open),true,label+': original material voucher list collapsed');
+ assert.equal(await page.locator('[data-hnl-team-material-voucher="FLOW-OUT-MAT-001"]').count(),1,label+': material direct link was not restored');
  // Revisiting Warehouse normally must never retain the temporary voucher-ID search.
  // Fixture-only tab navigation is programmatic: the intentionally retained Crew
  // modal overlays these artificial tabs; voucher and Back actions still use real clicks.
@@ -234,21 +236,20 @@ for(const size of [{width:1280,height:800},{width:393,height:852}]){
    await modal.waitFor({state:'visible',timeout:15000});
  }
  await page.locator('[data-hnl-crew-equipment-tab="true"]').click();
- const equipmentDetails=page.locator('[data-hnl-team-equipment-voucher-details]').first();
- await equipmentDetails.waitFor({state:'visible'});
- await equipmentDetails.locator('summary').click();
+ assert.equal(await page.locator('[data-hnl-team-equipment-voucher-details]').count(),0,label+': single equipment voucher has extra disclosure');
  const equipmentVoucher=page.locator('[data-hnl-team-equipment-voucher="FLOW-OUT-EQUIP-002"]');
  await equipmentVoucher.waitFor({state:'visible'});await equipmentVoucher.click();
  await page.locator('[data-hnl-fixture-active-tab="warehouse"]').waitFor({state:'visible'});
- const equipmentBack=page.locator('[data-hnl-fixture-header-back] [data-hnl-context-back-button="true"]');
- await equipmentBack.waitFor({state:'visible',timeout:15000});
+ const directEquipment=page.locator('[data-hnl-warehouse-direct-voucher="true"]');
+ await directEquipment.waitFor({state:'visible',timeout:15000});
+ assert.equal(await directEquipment.locator('[data-hnl-warehouse-direct-voucher-id="FLOW-OUT-EQUIP-002"]').count(),1,label+': did not open equipment voucher directly');
+ const equipmentBack=directEquipment.locator('[data-hnl-context-back-button="true"]');
  assert.equal(await page.locator('[data-hnl-context-back-button="true"]').count(),1,label+': Equipment voucher has duplicate Back buttons');
- assert.equal(await page.locator('[data-hnl-voucher-return-origin="crew-statistics"]').count(),0,label+': duplicate equipment Back inside voucher');
  await equipmentBack.click();
  await page.locator('[data-hnl-fixture-active-tab="crew"]').waitFor({state:'visible'});
  await modal.waitFor({state:'visible',timeout:15000});
  assert.equal(await page.locator('[data-hnl-crew-equipment-tab="true"]').getAttribute('aria-pressed'),'true',label+': equipment tab did not restore');
- assert.equal(await page.locator('[data-hnl-team-equipment-voucher-details]').first().evaluate(el=>el.open),true,label+': original equipment voucher list collapsed');
+ assert.equal(await page.locator('[data-hnl-team-equipment-voucher="FLOW-OUT-EQUIP-002"]').count(),1,label+': equipment direct link was not restored');
  await page.locator('[data-hnl-fixture-open-warehouse="true"]').evaluate(button=>button.click());
  await warehouseSearch.waitFor({state:'visible'});
  assert.equal(await warehouseSearch.inputValue(),'',label+': equipment voucher ID leaked into Warehouse Search after header Back');
