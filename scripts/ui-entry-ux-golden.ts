@@ -325,9 +325,9 @@ assert(
   'Room inspection must keep the team selector below the sub-item title and share a compact row with contact on PC'
 );
 assert(
-  roomHighlightUiForPc.includes('order-2 xl:order-1 flex justify-end xl:shrink-0') &&
-    roomHighlightUiForPc.includes('order-1 xl:order-2 w-full min-w-0 xl:flex-1'),
-  'Contact must be left of the full-width team selector on PC while keeping the existing mobile vertical order'
+  roomHighlightUiForPc.includes('order-2 flex justify-end xl:shrink-0') &&
+    roomHighlightUiForPc.includes('order-1 w-full min-w-0 xl:flex-1'),
+  'Contact must be right of the full-width team selector on PC while keeping the existing mobile vertical order'
 );
 
 assert(workVolumeUi.includes('lg:max-w-[1100px]') && workVolumeUi.includes('left-0 lg:left-[84px]'), 'Work Volume editor must use desktop width while reserving the left rail');

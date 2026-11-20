@@ -1908,7 +1908,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                               <select
                                 value={item.assignedTeam || ''}
                                 onChange={(e) => handleUpdateSubItem(item.id, { assignedTeam: e.target.value })}
-                                className="order-1 xl:order-2 w-full min-w-0 xl:flex-1 font-bold border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:ring-1 focus:ring-indigo-500 outline-none bg-white"
+                                className="order-1 w-full min-w-0 xl:flex-1 font-bold border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:ring-1 focus:ring-indigo-500 outline-none bg-white"
                               >
                                 <option value="">-- Chọn đội (Quân số) --</option>
                                 {displayTeams.map((t) => (
@@ -1924,7 +1924,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                 const matchingTeam = displayTeams.find(t => t.name === item.assignedTeam);
                                 if (matchingTeam?.phone) {
                                   return (
-                                    <div className="order-2 xl:order-1 flex justify-end xl:shrink-0">
+                                    <div className="order-2 flex justify-end xl:shrink-0">
                                       <ContactMenu
                                         target={{ name: matchingTeam.leader || matchingTeam.name, phone: matchingTeam.phone }}
                                         context={{ type: 'room', shareText: `HNL QLTC – Liên hệ đội thi công\nĐội: ${matchingTeam.name}\nĐội trưởng: ${matchingTeam.leader || 'Chưa cập nhật'}\nSĐT: ${matchingTeam.phone}` }}

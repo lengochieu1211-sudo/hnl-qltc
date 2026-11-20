@@ -53,8 +53,8 @@ assert.match(room, /showAdvancedHighlights, setShowAdvancedHighlights/);
 assert.match(room, /highlightVolumeMode === 'area'/);
 assert.match(room, /data-hnl-subitem-quantity/);
 assert.match(room, /data-hnl-room-team-contact-row="true"/);
-assert.match(room, /order-1 xl:order-2/); // team select on right on PC
-assert.match(room, /order-2 xl:order-1/); // ContactMenu on left on PC
+assert.match(room, /order-1 w-full min-w-0 xl:flex-1/); // team selector on left on PC and first on mobile
+assert.match(room, /order-2 flex justify-end xl:shrink-0/); // ContactMenu on right on PC and below on mobile
 assert.match(room, /data-hnl-room-pc-status-column="true"/);
 assert.equal(room.split('xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,1fr)]').length - 1, 2);
 assert.match(room, /Tiến độ · Nghiệm thu · Hạn hoàn thành/);
