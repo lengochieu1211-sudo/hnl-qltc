@@ -35,7 +35,7 @@ import { createEntityId, createDeterministicId } from '../utils/idUtils';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
 import { buildMaterialAliasMap, getMaterialIdentityKey, resolveNormMaterialId, normalizeMaterialNameKey } from '../utils/inventoryUtils';
 import { computeMaterialNeeds } from '../utils/materialNeedEngine';
-import { validateInventoryOutProvenance } from '../utils/linkageIntegrity';
+import { resolveWorkVolumeRef, validateInventoryOutProvenance } from '../utils/linkageIntegrity';
 import { MoveOrderControls } from './MoveOrderControls';
 import { ContactMenu } from './ContactMenu';
 
@@ -627,6 +627,33 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     const normalizedCat = cat.trim().toLocaleLowerCase('vi-VN');
     const matched = workVolumes.find((v) => v.id === cat || v.title.trim().toLocaleLowerCase('vi-VN') === normalizedCat);
     return normalizeUnit(matched?.unit || volumeUnit || 'm²') || 'm²';
+  };
+
+  // UI-only: resolve the unit of this exact main category on the room's floor.
+  // Never use this label to change quantity, save metadata, or convert existing units.
+  const getCategoryDisplayUnit = (category: string) => {
+    const isIdKey = workVolumes.some((item) => item.id === category || item.workCategoryId === category);
+    const resolved = resolveWorkVolumeRef({
+      workVolumes,
+      workCategoryId: isIdKey ? category : undefined,
+      workCategoryName: isIdKey ? undefined : category,
+      floorId,
+      floorName,
+    });
+    const catalogUnit = resolved.state === 'resolved' ? normalizeUnit(resolved.work?.unit || '') : '';
+    const savedUnit = normalizeUnit(
+      roomItem?.categoryVolumeUnits?.[category]
+      || (roomItem?.workCategory === category ? roomItem.volumeUnit : '')
+      || '',
+    );
+    const mismatch = Boolean(savedUnit && catalogUnit && !areSameUnit(savedUnit, catalogUnit));
+    const unit = mismatch ? savedUnit : catalogUnit || savedUnit || normalizeUnit(volumeUnit || 'm²') || 'm²';
+    const warning = mismatch
+      ? `Dữ liệu phòng: ${savedUnit}; danh mục: ${catalogUnit}. Chưa quy đổi khối lượng.`
+      : (resolved.state === 'floor-mismatch' || resolved.state === 'ambiguous')
+        ? 'Chưa xác định duy nhất đơn vị hạng mục trên tầng này; đang giữ đơn vị phòng.'
+        : '';
+    return { unit, warning };
   };
 
   const currentRoomAutoIssuedMap = React.useMemo(() => {
@@ -1622,7 +1649,13 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             }}
                             className="w-20 text-center font-black text-xs text-emerald-950 bg-white border border-emerald-300 rounded focus:ring-1 focus:ring-emerald-500 outline-none px-1.5 py-0.5"
                           />
-                          <span className="text-[10px] font-black text-emerald-800">{getCategorySourceUnit(catName)}</span>
+                          {(() => {
+                            const display = getCategoryDisplayUnit(catName);
+                            return <span className="text-[10px] font-black text-emerald-800">
+                              {display.unit}
+                              {display.warning && <span className="ml-1 text-[9px] font-semibold text-amber-700" title={display.warning}>⚠ {display.warning}</span>}
+                            </span>;
+                          })()}
 
                           {!structureReadOnly && activeCategories.length > 1 && (
                             <MoveOrderControls
