@@ -48,7 +48,10 @@ assert.match(room, /showAdvancedHighlights, setShowAdvancedHighlights/);
 assert.match(room, /highlightVolumeMode === 'area'/);
 assert.match(room, /structureReadOnly && roomItem/);
 assert.match(room, /Đã hoàn thành.*Đạt nghiệm thu/);
-assert.match(floor, /subItemRegions: parsed\.subItemRegions === true/); // default OFF
+// An unconfigured project displays persisted stage regions by default, while an explicit
+// per-project user preference of false must still keep the layer hidden.
+assert.equal((floor.match(/subItemRegions: parsed\\.subItemRegions !== false/g) || []).length, 2);
+assert.equal((floor.match(/subItemRegions: true, roomLabels: true/g) || []).length, 2);
 assert.match(floor, /data-hnl-floor-subitem-highlight="true"/);
 assert.match(floor, /pointerEvents="none"/);
 assert.match(types, /highlightRegions\?: HighlightRegionRect\[\]/);
