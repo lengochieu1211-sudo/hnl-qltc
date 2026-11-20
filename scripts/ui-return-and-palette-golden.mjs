@@ -240,8 +240,9 @@ const floorSvgDrawing = floorPlan.slice(
   floorPlan.indexOf('{/* SVG OVERLAY FOR HIGHLIGHT SHAPES & LIVE DRAWINGS */}'),
   floorPlan.indexOf('{/* INTERACTIVE DRAG & RESIZE HANDLES OVERLAY */}')
 );
-assert.equal((floorSvgDrawing.match(/<rect\b/g) || []).length, 3,
-  'Pending draft, two-point preview, and saved room each render a rectangle');
+const originalRoomDrawing = floorSvgDrawing.split('{/* Optional stage areas are paint-only overlays:')[0];
+assert.equal((originalRoomDrawing.match(/<rect\b/g) || []).length, 3,
+  'Pending draft, two-point preview, and saved room each render a rectangle independently of optional stage overlays');
 assert.ok(!/\brx\s*=|\bry\s*=/.test(floorSvgDrawing),
   'Rectangular room overlays have four square corners');
 assert.ok(floorPlan.includes('bg-amber-400/30 backdrop-blur-[1px]') &&
