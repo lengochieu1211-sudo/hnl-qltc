@@ -51,10 +51,17 @@ export const DesktopWorkspaceHeader: React.FC<DesktopWorkspaceHeaderProps> = ({
 }) => {
   const roleLabel = userRole === 'ADMIN' ? 'Quản trị' : userRole === 'EDITOR' ? 'Biên tập' : 'Chỉ xem';
 
+  if (mode === 'classic') return (
+    <div className="hnl-pc-classic-return" data-hnl-pc-mode-toggle="classic">
+      <MonitorCog size={16} aria-hidden="true" />
+      <span>Đang dùng bố cục PC cũ</span>
+      <button type="button" onClick={() => onChangeMode('modern')}>Thử giao diện PC mới</button>
+    </div>
+  );
+
   // Home keeps its existing dashboard layout; modern PC only replaces the duplicated
   // dark global banner with a sleek sticky topbar using the same guarded callbacks.
   if (activeTab === 'home') {
-    if (mode === 'classic') return null;
     return (
       <div className="hnl-pc-home-actions" data-hnl-pc-home-actions="true" aria-label="Công cụ Trang chủ PC">
         <div className="hnl-pc-home-context">
@@ -75,14 +82,6 @@ export const DesktopWorkspaceHeader: React.FC<DesktopWorkspaceHeaderProps> = ({
       </div>
     );
   }
-  if (mode === 'classic') return (
-    <div className="hnl-pc-classic-return" data-hnl-pc-mode-toggle="classic">
-      <MonitorCog size={16} aria-hidden="true" />
-      <span>Đang dùng bố cục PC cũ</span>
-      <button type="button" onClick={() => onChangeMode('modern')}>Thử giao diện PC mới</button>
-    </div>
-  );
-
   const page = PAGES[activeTab];
   return (
     <section className="hnl-pc-workspace-heading" data-hnl-pc-workspace-title={activeTab} aria-label={`Không gian làm việc ${page.name}`}>
