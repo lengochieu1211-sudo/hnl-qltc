@@ -92,6 +92,9 @@ jobs:
       - name: Warehouse and crew voucher source Return Golden
         run: node scripts/warehouse-voucher-source-return-golden.mjs
 
+      - name: Gemini PC-only DEV integration source Golden (no deploy)
+        run: node scripts/pc-gemini-dev-integration-golden.mjs
+
       - name: Stability Gate
         run: npm run test:stability
 

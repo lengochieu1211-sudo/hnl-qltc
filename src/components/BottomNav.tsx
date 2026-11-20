@@ -7,6 +7,8 @@ import {
   MessageCircle,
   MoreHorizontal,
   PackageCheck,
+  PanelLeftClose,
+  PanelLeftOpen,
   Settings,
   ShieldCheck,
   Sparkles,
@@ -36,6 +38,8 @@ interface BottomNavProps {
   onSignOut?: () => Promise<void>;
 }
 
+const SIDEBAR_STORAGE_KEY = 'hnl_pc_sidebar_collapsed_v1';
+
 export const BottomNav: React.FC<BottomNavProps> = ({
   activeTab,
   forceDesktopRail = false,
@@ -57,10 +61,37 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   const { t } = useLanguage();
   const [showMore, setShowMore] = useState(false);
   const [pressedTab, setPressedTab] = useState<TabType | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_STORAGE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     if (pressedTab === activeTab) setPressedTab(null);
   }, [activeTab, pressedTab]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    document.documentElement.dataset.hnlPcSidebar = sidebarCollapsed ? 'collapsed' : 'expanded';
+    return () => {
+      delete document.documentElement.dataset.hnlPcSidebar;
+    };
+  }, [sidebarCollapsed]);
+
+  const toggleSidebarCollapsed = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SIDEBAR_STORAGE_KEY, next ? '1' : '0');
+      } catch {
+        /* ignore private storage errors */
+      }
+      return next;
+    });
+  };
 
   const desktopTabs = [
     { id: 'home' as TabType, label: 'Trang chủ', icon: LayoutDashboard },
@@ -106,6 +137,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 
   const renderBadge = (badge?: number, badgeLabel?: string) => badge !== undefined && badge > 0 ? (
     <span
+      data-hnl-nav-badge="chat"
       className="absolute -top-1.5 -right-2 rounded-full border border-white bg-rose-600 px-1 text-[8px] font-black leading-4 text-white min-w-4 text-center"
       title={`${badge} ${badgeLabel || 'thông báo'}`}
     >
@@ -115,8 +147,28 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 
   return (
     <>
-      {/* PC/Laptop: same light navigation language as the mobile bottom bar, moved to the left rail. */}
-      <aside data-hnl-nav-surface="desktop" className={`fixed inset-y-0 left-0 z-50 w-[84px] flex-col border-r border-slate-200 bg-white text-slate-700 shadow-sm ${forceDesktopRail ? 'flex' : 'hidden lg:flex'}`}>
+      {/* PC/Laptop: collapsible enterprise sidebar in modern mode, 84px rail preserved in classic mode. */}
+      <aside data-hnl-nav-surface="desktop" data-hnl-sidebar-collapsed={sidebarCollapsed ? 'true' : 'false'} className={`fixed inset-y-0 left-0 z-50 w-[84px] flex-col border-r border-slate-200 bg-white text-slate-700 shadow-sm ${forceDesktopRail ? 'flex' : 'hidden lg:flex'}`}>
+        <div className="hnl-pc-sidebar-brand" data-hnl-pc-sidebar-brand="true">
+          <div className="hnl-pc-sidebar-brand-mark" aria-hidden="true">
+            <img src="/icon-192.png" alt="" className="h-6 w-6 rounded-md object-contain" />
+          </div>
+          <div className="hnl-pc-sidebar-brand-text">
+            <strong>HNL QLTC</strong>
+            <span>Quản lý thi công</span>
+          </div>
+          <button
+            type="button"
+            className="hnl-pc-sidebar-toggle"
+            onClick={toggleSidebarCollapsed}
+            title={sidebarCollapsed ? 'Mở rộng thanh điều hướng' : 'Thu gọn thanh điều hướng'}
+            aria-label={sidebarCollapsed ? 'Mở rộng thanh điều hướng' : 'Thu gọn thanh điều hướng'}
+            aria-expanded={!sidebarCollapsed}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" aria-hidden="true" /> : <PanelLeftClose className="h-4 w-4" aria-hidden="true" />}
+          </button>
+        </div>
+
         {onOpenAccount && onLockNow && onSignOut && (
           <DesktopAccountMenu
             userRole={userRole}
@@ -137,6 +189,8 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 key={tab.id}
                 type="button"
                 data-hnl-nav-tab={tab.id}
+                data-hnl-nav-active={active ? 'true' : 'false'}
+                aria-current={active ? 'page' : undefined}
                 onPointerEnter={() => onPreloadTab?.(tab.id)}
                 onPointerDown={() => previewTab(tab.id)}
                 onPointerCancel={() => setPressedTab((current) => current === tab.id ? null : current)}
@@ -146,10 +200,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 aria-label={tab.label}
                 className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-lg px-1 transition active:scale-[0.97] active:opacity-80 ${active ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}
               >
-                <span className="relative">
+                <span className="relative hnl-pc-nav-icon-wrap">
                   <Icon className={`h-5 w-5 ${active ? 'scale-110' : 'group-hover:scale-105'} transition-transform`} />
                   {tab.badge !== undefined && tab.badge > 0 ? (
-                    <span className="absolute -top-1.5 -right-2 min-w-4 rounded-full border border-slate-900 bg-rose-600 px-1 text-center text-[8px] font-black leading-4 text-white" title={`${tab.badge} ${tab.badgeLabel || 'Defect chưa nghiệm thu'}`}>D{tab.badge}</span>
+                    <span data-hnl-nav-badge="defect" className="absolute -top-1.5 -right-2 min-w-4 rounded-full border border-slate-900 bg-rose-600 px-1 text-center text-[8px] font-black leading-4 text-white" title={`${tab.badge} ${tab.badgeLabel || 'Defect chưa nghiệm thu'}`}>D{tab.badge}</span>
                   ) : null}
                 </span>
                 <span className="block w-[68px] shrink-0 whitespace-nowrap text-center text-[9px] font-bold leading-3">{tab.label}</span>
@@ -158,17 +212,17 @@ export const BottomNav: React.FC<BottomNavProps> = ({
           })}
 
           {showChecklist && (
-            <button type="button" data-hnl-nav-tab="checklist" onPointerEnter={() => onPreloadTab?.('checklist')} onPointerDown={() => previewTab('checklist')} onClick={() => activate('checklist')} style={navButtonStyle} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-lg px-1 transition active:scale-[0.97] active:opacity-80 ${activeTab === 'checklist' || pressedTab === 'checklist' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title="Checklist">
+            <button type="button" data-hnl-nav-tab="checklist" data-hnl-nav-active={activeTab === 'checklist' || pressedTab === 'checklist' ? 'true' : 'false'} aria-current={activeTab === 'checklist' || pressedTab === 'checklist' ? 'page' : undefined} onPointerEnter={() => onPreloadTab?.('checklist')} onPointerDown={() => previewTab('checklist')} onClick={() => activate('checklist')} style={navButtonStyle} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-lg px-1 transition active:scale-[0.97] active:opacity-80 ${activeTab === 'checklist' || pressedTab === 'checklist' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title="Checklist">
               <ClipboardCheck className="h-5 w-5" /><span className="text-[9px] font-bold">Checklist</span>
             </button>
           )}
 
-          <button type="button" data-hnl-nav-tab="chat" onPointerEnter={() => onPreloadTab?.('chat')} onPointerDown={() => previewTab('chat')} onClick={() => activate('chat')} style={navButtonStyle} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-lg px-1 transition active:scale-[0.97] active:opacity-80 ${activeTab === 'chat' || pressedTab === 'chat' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title="Trao đổi">
-            <span className="relative"><MessageCircle className="h-5 w-5" />{renderBadge(chatBadgeCount, 'tin chưa đọc')}</span><span className="text-[9px] font-bold">Trao đổi</span>
+          <button type="button" data-hnl-nav-tab="chat" data-hnl-nav-active={activeTab === 'chat' || pressedTab === 'chat' ? 'true' : 'false'} aria-current={activeTab === 'chat' || pressedTab === 'chat' ? 'page' : undefined} onPointerEnter={() => onPreloadTab?.('chat')} onPointerDown={() => previewTab('chat')} onClick={() => activate('chat')} style={navButtonStyle} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-lg px-1 transition active:scale-[0.97] active:opacity-80 ${activeTab === 'chat' || pressedTab === 'chat' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title="Trao đổi">
+            <span className="relative hnl-pc-nav-icon-wrap"><MessageCircle className="h-5 w-5" />{renderBadge(chatBadgeCount, 'tin chưa đọc')}</span><span className="text-[9px] font-bold">Trao đổi</span>
           </button>
 
           {showAi && (
-            <button type="button" data-hnl-nav-tab="ai" onPointerEnter={() => onPreloadTab?.('ai')} onPointerDown={() => previewTab('ai')} onClick={() => activate('ai')} style={navButtonStyle} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-lg px-1 transition active:scale-[0.97] active:opacity-80 ${activeTab === 'ai' || pressedTab === 'ai' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title="Trợ lý HNL AI">
+            <button type="button" data-hnl-nav-tab="ai" data-hnl-nav-active={activeTab === 'ai' || pressedTab === 'ai' ? 'true' : 'false'} aria-current={activeTab === 'ai' || pressedTab === 'ai' ? 'page' : undefined} onPointerEnter={() => onPreloadTab?.('ai')} onPointerDown={() => previewTab('ai')} onClick={() => activate('ai')} style={navButtonStyle} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-lg px-1 transition active:scale-[0.97] active:opacity-80 ${activeTab === 'ai' || pressedTab === 'ai' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title="Trợ lý HNL AI">
               <Sparkles className="h-5 w-5" /><span className="text-[9px] font-bold">HNL AI</span>
             </button>
           )}
@@ -176,11 +230,11 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 
         <div data-hnl-desktop-footer="true" className="space-y-1 border-t border-slate-200 px-1.5 py-2">
           {showSuperAdmin && (
-            <button type="button" data-hnl-nav-tab="superadmin" onPointerEnter={() => onPreloadTab?.('superadmin')} onPointerDown={() => previewTab('superadmin')} onClick={() => activate('superadmin')} style={navButtonStyle} className={`flex min-h-[58px] w-full flex-col items-center justify-center gap-1 rounded-lg transition active:scale-[0.97] active:opacity-80 ${activeTab === 'superadmin' || pressedTab === 'superadmin' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-200' : 'text-amber-700 hover:bg-amber-50'}`} title="Quản trị hệ thống">
+            <button type="button" data-hnl-nav-tab="superadmin" data-hnl-nav-active={activeTab === 'superadmin' || pressedTab === 'superadmin' ? 'true' : 'false'} aria-current={activeTab === 'superadmin' || pressedTab === 'superadmin' ? 'page' : undefined} onPointerEnter={() => onPreloadTab?.('superadmin')} onPointerDown={() => previewTab('superadmin')} onClick={() => activate('superadmin')} style={navButtonStyle} className={`flex min-h-[58px] w-full flex-col items-center justify-center gap-1 rounded-lg transition active:scale-[0.97] active:opacity-80 ${activeTab === 'superadmin' || pressedTab === 'superadmin' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-200' : 'text-amber-700 hover:bg-amber-50'}`} title="Quản trị hệ thống">
               <ShieldCheck className="h-5 w-5" /><span className="text-[8.5px] font-bold">Hệ thống</span>
             </button>
           )}
-          <button type="button" data-hnl-nav-tab="config" onPointerEnter={() => onPreloadTab?.('config')} onPointerDown={() => previewTab('config')} onClick={() => activate('config')} style={navButtonStyle} className={`flex min-h-[58px] w-full flex-col items-center justify-center gap-1 rounded-lg transition active:scale-[0.97] active:opacity-80 ${activeTab === 'config' || pressedTab === 'config' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title={t('config')}>
+          <button type="button" data-hnl-nav-tab="config" data-hnl-nav-active={activeTab === 'config' || pressedTab === 'config' ? 'true' : 'false'} aria-current={activeTab === 'config' || pressedTab === 'config' ? 'page' : undefined} onPointerEnter={() => onPreloadTab?.('config')} onPointerDown={() => previewTab('config')} onClick={() => activate('config')} style={navButtonStyle} className={`flex min-h-[58px] w-full flex-col items-center justify-center gap-1 rounded-lg transition active:scale-[0.97] active:opacity-80 ${activeTab === 'config' || pressedTab === 'config' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title={t('config')}>
             <Settings className="h-5 w-5" /><span className="text-[9px] font-bold">{t('config')}</span>
           </button>
         </div>
