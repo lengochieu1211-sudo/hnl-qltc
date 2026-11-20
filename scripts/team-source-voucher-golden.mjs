@@ -10,7 +10,7 @@ assert.match(norm, /tx\.type !== 'out' \|\| tx\.sourceTeamId !== team\.id/, 'mat
 assert.match(crew, /data-hnl-team-material-voucher=\{id\}/, 'material source voucher buttons');
 assert.match(crew, /data-hnl-team-equipment-voucher=\{voucher\.id\}/, 'equipment source voucher buttons');
 assert.match(crew, /disabled=\{!roleResolved \|\| !onOpenWarehouseVoucher\}/, 'unresolved roles cannot navigate');
-assert.match(app, /setWarehouseVoucherFocus\(previous => \(\{ id: voucherId, projectId: activeProjectId/, 'source navigation project scoped');
+assert.match(app, /setWarehouseVoucherFocus\(\{ id: voucherId, projectId: activeProjectId, token: \+\+warehouseVoucherFocusSequenceRef\.current \}\)/, 'source navigation project scoped with unique token');
 assert.match(warehouse, /focusVoucher\.projectId !== currentProjectId/, 'cross-project request blocked');
 assert.match(warehouse, /inventory\.find\(item => item\.id === focusVoucher\.id && item\.deletedAt == null\)/, 'read exact active voucher');
 assert.match(warehouse, /setSearchTerm\(voucher\.id\)/, 'filter by immutable ID');

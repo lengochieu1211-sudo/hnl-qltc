@@ -95,7 +95,6 @@ interface WarehouseTabProps {
   materialNorms: MaterialNorm[];
   returnToCatalogToken?: number;
   focusVoucher?: { id: string; projectId: string; token: number } | null;
-  onReturnFromSourceVoucher?: () => void;
   onOpenNormModal: (tab?: 'material' | 'equipment', target?: { name: string; unit: string }, fromWarehouseCatalog?: boolean) => void;
   onOpenExportPdf?: () => void;
   onExportExcel?: () => void;
@@ -190,7 +189,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   materialNorms,
   returnToCatalogToken = 0,
   focusVoucher = null,
-  onReturnFromSourceVoucher,
   onOpenNormModal,
   onOpenExportPdf,
   onExportExcel,
@@ -324,9 +322,33 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     kindFilter: typeof inventoryKindFilter;
     expandedVoucherId: string | null;
   } | null>(null);
+  // Crew -> source voucher is temporary navigation, not an actual Warehouse filter.
+  // Keep the user's existing Warehouse view so the voucher ID never sticks in Search.
+  const crewVoucherWarehouseOriginRef = useRef<{
+    projectId: string;
+    search: string;
+    fromDate: string;
+    toDate: string;
+    transactionType: typeof filterType;
+    kindFilter: typeof inventoryKindFilter;
+    expandedVoucherId: string | null;
+    showCatalog: boolean;
+    history: typeof catalogHistory;
+    historyStart: string;
+    historyEnd: string;
+    expandedDate: string | null;
+    catalogReturn: typeof catalogVoucherReturn;
+    sheetScrollTop: number;
+    historyScrollTop: number;
+  } | null>(null);
+  const crewVoucherCatalogScrollRestoreRef = useRef<{ sheet: number; history: number } | null>(null);
+  const crewVoucherCatalogReopenRef = useRef(false);
   useEffect(() => {
     setCatalogVoucherReturn(null);
     catalogHistoryViewportReturnRef.current = null;
+    crewVoucherWarehouseOriginRef.current = null;
+    crewVoucherCatalogScrollRestoreRef.current = null;
+    crewVoucherCatalogReopenRef.current = false;
   }, [currentProjectId]);
   const rememberCatalogHistoryOrigin = (focusKey: string, direction: TransactionType) => {
     const sheet = document.querySelector<HTMLElement>('[data-hnl-settings-sheet-scrollbody="warehouse-catalog"]');
@@ -1750,6 +1772,18 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       || handledExternalVoucherTokenRef.current === focusVoucher.token) return;
     const voucher = inventory.find(item => item.id === focusVoucher.id && item.deletedAt == null);
     if (!roleResolved || !voucher) return;
+    // Capture once per navigation before writing the temporary voucher-ID search.
+    // The same restoration applies to header Back and voucher-card Back, since both
+    // clear focusVoucher through App's single contextual-return handler.
+    const sheet = document.querySelector<HTMLElement>('[data-hnl-settings-sheet-scrollbody="warehouse-catalog"]');
+    const historyList = document.querySelector<HTMLElement>('[data-hnl-catalog-voucher-history-list]');
+    crewVoucherWarehouseOriginRef.current = {
+      projectId: currentProjectId, search: searchTerm, fromDate: warehouseFromDate, toDate: warehouseToDate,
+      transactionType: filterType, kindFilter: inventoryKindFilter, expandedVoucherId: expandedInventoryId,
+      showCatalog: showWarehouseCatalog, history: catalogHistory, historyStart: catalogHistoryStart,
+      historyEnd: catalogHistoryEnd, expandedDate: expandedHistoryDate, catalogReturn: catalogVoucherReturn,
+      sheetScrollTop: sheet?.scrollTop ?? 0, historyScrollTop: historyList?.scrollTop ?? 0,
+    };
     handledExternalVoucherTokenRef.current = focusVoucher.token;
     catalogVoucherJumpRef.current = voucher.id;
     setCatalogVoucherReturn(null);
@@ -1762,6 +1796,54 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setWarehouseToDate('');
     setExpandedInventoryId(voucher.id);
   }, [isActive, focusVoucher, currentProjectId, roleResolved, inventory]);
+
+  useEffect(() => {
+    // App clears focus on either source-aware Back. Restore only the same project's
+    // local UI; do not mutate the inventory ledger, Firestore, or a different project.
+    if (focusVoucher || !crewVoucherWarehouseOriginRef.current) return;
+    const previous = crewVoucherWarehouseOriginRef.current;
+    crewVoucherWarehouseOriginRef.current = null;
+    if (previous.projectId !== currentProjectId) return;
+    setSearchTerm(previous.search);
+    setWarehouseFromDate(previous.fromDate);
+    setWarehouseToDate(previous.toDate);
+    setFilterType(previous.transactionType);
+    setInventoryKindFilter(previous.kindFilter);
+    setExpandedInventoryId(previous.expandedVoucherId);
+    setCatalogHistory(previous.history);
+    setCatalogHistoryStart(previous.historyStart);
+    setCatalogHistoryEnd(previous.historyEnd);
+    setExpandedHistoryDate(previous.expandedDate);
+    setCatalogVoucherReturn(previous.catalogReturn);
+    crewVoucherCatalogScrollRestoreRef.current = previous.showCatalog
+      ? { sheet: previous.sheetScrollTop, history: previous.historyScrollTop } : null;
+    // The catalog is a portal to document.body. Never reopen it over the Crew
+    // screen; defer until the user actually returns to the Warehouse tab.
+    crewVoucherCatalogReopenRef.current = previous.showCatalog && !isActive;
+    setShowWarehouseCatalog(previous.showCatalog && isActive);
+    catalogVoucherJumpRef.current = null;
+  }, [focusVoucher, currentProjectId, isActive]);
+
+  useEffect(() => {
+    if (!isActive || focusVoucher || !crewVoucherCatalogReopenRef.current) return;
+    crewVoucherCatalogReopenRef.current = false;
+    setShowWarehouseCatalog(true);
+  }, [isActive, focusVoucher]);
+
+  useEffect(() => {
+    if (!isActive || !showWarehouseCatalog || !crewVoucherCatalogScrollRestoreRef.current) return;
+    const frame = window.requestAnimationFrame(() => {
+      const previous = crewVoucherCatalogScrollRestoreRef.current;
+      if (!previous) return;
+      const sheet = document.querySelector<HTMLElement>('[data-hnl-settings-sheet-scrollbody="warehouse-catalog"]');
+      if (!sheet) return;
+      sheet.scrollTop = previous.sheet;
+      const historyList = document.querySelector<HTMLElement>('[data-hnl-catalog-voucher-history-list]');
+      if (historyList) historyList.scrollTop = previous.history;
+      crewVoucherCatalogScrollRestoreRef.current = null;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [isActive, showWarehouseCatalog, catalogHistory]);
 
   const openCatalogHistoryVoucher = (entry: InventoryItem) => {
     // Protect against stale history rows and ID collisions after reconnect/project change.
@@ -3908,12 +3990,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 <div data-hnl-voucher-return-origin="catalog-history" className="border-b border-indigo-100 pb-2">
                   <ContextBackButton label={catalogVoucherReturn.history.type === 'in' ? 'Chi tiết nhập kho' : 'Chi tiết xuất kho'}
                     onClick={returnFromCatalogVoucher} />
-                </div>
-              )}
-              {expandedInventoryId === item.id && focusVoucher?.projectId === currentProjectId
-                && focusVoucher.id === item.id && onReturnFromSourceVoucher && (
-                <div data-hnl-voucher-return-origin="crew-statistics" className="border-b border-indigo-100 pb-2">
-                  <ContextBackButton label="Thống kê Căn/Phòng & Defect" onClick={onReturnFromSourceVoucher} />
                 </div>
               )}
               <div className="flex items-start gap-2.5">

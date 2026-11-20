@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { CrewTab, type CrewVoucherOrigin, type CrewVoucherReturnRequest } from '../../../src/components/CrewTabBase';
 import { WarehouseTab } from '../../../src/components/WarehouseTab';
+import { ContextBackButton } from '../../../src/components/ContextBackButton';
 import { DEFAULT_STRUCTURE_CONFIG } from '../../../src/utils/structureGroupUtils';
 import type { InventoryItem, MaterialNorm, TeamInfo } from '../../../src/types';
 import type { WarehouseOrderSync } from '../../../src/hooks/useWarehouseOrderSync';
@@ -26,18 +27,25 @@ function ReturnFixture(){
  const [origin,setOrigin]=React.useState<CrewVoucherOrigin|null>(null);
  const [returnRequest,setReturnRequest]=React.useState<CrewVoucherReturnRequest|null>(null);
  const [focus,setFocus]=React.useState<{id:string;projectId:string;token:number}|null>(null);
+ const focusSequence=React.useRef(0);
+ const returnSequence=React.useRef(0);
  const openVoucher=(id:string,source:CrewVoucherOrigin)=>{
    if(source.projectId!==projectId || source.teamId!==team.id || !inventory.some(row=>row.id===id&&row.type==='out'&&row.sourceTeamId===team.id))return;
-   setOrigin(source);setReturnRequest(null);setFocus({id,projectId,token:Date.now()});setTab('warehouse');
+   setOrigin(source);setReturnRequest(null);setFocus({id,projectId,token:++focusSequence.current});setTab('warehouse');
  };
  const returnToCrew=()=>{
    if(!origin || origin.projectId!==projectId)return;
    setFocus(null);
-   setReturnRequest(prev=>({...origin,token:(prev?.token||0)+1}));
+   setReturnRequest({...origin,token:++returnSequence.current});
    setTab('crew');
  };
  return <div>
   <div data-hnl-fixture-active-tab={tab} className="p-1 text-xs">{tab}</div>
+  <div className="flex gap-2 p-2">
+   <button data-hnl-fixture-open-crew="true" onClick={()=>setTab('crew')}>Mở Đội</button>
+   <button data-hnl-fixture-open-warehouse="true" onClick={()=>{setFocus(null);setTab('warehouse');}}>Mở Kho</button>
+  </div>
+  {tab==='warehouse' && focus && <div data-hnl-fixture-header-back="true"><ContextBackButton label="Thống kê Căn/Phòng & Defect" onClick={returnToCrew}/></div>}
   {(tab==='crew'||!mobile)&&<div style={{display:tab==='crew'?'block':'none'}} data-hnl-fixture-crew="true">
    <CrewTab isActive={tab==='crew'} quickEditEnabled={false} projectId={projectId} roleResolved userRole="VIEWER"
     crewRecords={[]} floorPlans={[]} structureConfig={DEFAULT_STRUCTURE_CONFIG}
@@ -46,11 +54,11 @@ function ReturnFixture(){
     onCopyCrewRecordsFromDate={forbidden} onOpenWarehouseVoucher={openVoucher}
     voucherReturnRequest={returnRequest} onVoucherReturnRestored={token=>setReturnRequest(prev=>prev?.token===token?null:prev)} />
   </div>}
-  {tab==='warehouse'&&<div data-hnl-fixture-warehouse="true">
-   <WarehouseTab isActive currentProjectId={projectId} quickEditEnabled={false}
+  {(tab==='warehouse'||!mobile)&&<div style={{display:tab==='warehouse'?'block':'none'}} data-hnl-fixture-warehouse="true">
+   <WarehouseTab isActive={tab==='warehouse'} currentProjectId={projectId} quickEditEnabled={false}
     orderSync={orderSync} inventory={inventory} materialNorms={norms} structureConfig={DEFAULT_STRUCTURE_CONFIG}
     userRole="VIEWER" roleResolved onAddInventory={forbidden} onDeleteInventory={forbidden}
-    onOpenNormModal={forbidden} focusVoucher={focus} onReturnFromSourceVoucher={returnToCrew}/>
+    onOpenNormModal={forbidden} focusVoucher={focus}/>
   </div>}
  </div>;
 }
