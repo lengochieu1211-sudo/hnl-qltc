@@ -23,7 +23,13 @@ const forbidden=()=>{throw new Error('Fixture is read-only: no stock or crew wri
 function ReturnFixture(){
  const mobile=window.innerWidth<500;
  const editorMode=new URLSearchParams(window.location.search).get('editor')==='1';
- const [rows,setRows]=React.useState<InventoryItem[]>(inventory);
+ // An editor may revise an existing OUT voucher only against real positive stock.
+ // These IN rows belong to the fixture, not Firestore/PROD; VIEWER tests are unchanged.
+ const [rows,setRows]=React.useState<InventoryItem[]>(() => editorMode ? [
+   ...inventory,
+   {id:'FLOW-IN-MAT-STOCK',itemKind:'material',type:'in',materialId:'MAT-RETURN',materialName:'Tấm thạch cao Golden Return',unit:'Tấm',quantity:100,date:'2026-11-16',location:'Kho',handler:'Nhập thử'},
+   {id:'FLOW-IN-EQUIP-STOCK',itemKind:'equipment',type:'in',materialName:'Máy bắn vít Golden Return',unit:'Cái',quantity:5,date:'2026-11-16',location:'Kho',handler:'Nhập thử'},
+ ] : inventory);
  const [savedCount,setSavedCount]=React.useState(0);
  const updateVoucher=(id:string,changes:Omit<InventoryItem,'id'>)=>{
    if(!editorMode)throw Error('VIEWER must not edit a voucher');
