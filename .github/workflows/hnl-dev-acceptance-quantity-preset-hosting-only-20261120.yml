@@ -41,7 +41,7 @@ jobs:
           FIREBASE_DEV_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
         run: |
           set -euo pipefail
-          BASE=d1f550f988935388bd36d9026bc74009978f8751
+          BASE=25aabd2e160448dbff1a799e0e85af5a4860bd14
           LIVE_EXPECTED=0937d0bc637495510105e04c0265a26069b9c4f7
           test "$(git rev-parse HEAD^)" = "$BASE" || { echo '::error::Approval source parent mismatch'; exit 1; }
           test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
@@ -51,7 +51,7 @@ jobs:
           test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$GITHUB_SHA"
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = ec79ffc801ecf059b37c82b9f4a9acf503108bf9 || { echo "::error::PROD main HEAD changed"; exit 1; }
           # Exact reviewed PR470 source and full immutable tree; no rollback.
-          test "$(git rev-parse "$BASE^{tree}")" = ea19e488c3da6323f153fd2abdb909916ac65308
+          test "$(git rev-parse "$BASE^{tree}")" = d797b2450e5ce20fda8b3e43268e1ace147f32ec
           test "$(git rev-parse "$BASE:src/components/FloorPlanDefectTab.tsx")" = 65c736fd2b958118cac32fa64ad46f8d6d10085f
           test "$(git rev-parse "$BASE:src/components/RoomHighlightModal.tsx")" = b14973d84534d4258a19ac1114aa0d8b6ab00a4e
           test "$(git rev-parse "$BASE:src/components/SecurityModal.tsx")" = 583927c9d3b608cd9f6312b6b8eefb157ac53706
@@ -62,7 +62,7 @@ jobs:
           test "$(git rev-parse "$BASE:src/types.ts")" = bfed21c5206d6add5acd33a84bb382d4817219b3
           test "$(git rev-parse "$BASE:src/utils/roomCategoryUnit.ts")" = 4df44a45bad5ac87badb1f1ddf18668cd7c62189
           test "$(git rev-parse "$BASE:src/utils/subItemHighlightGeometry.ts")" = 3ed5c7213381108dd694f7716f09fe2900488bec
-          test "$(git rev-parse "$BASE:scripts/subitem-highlight-advanced-golden.mjs")" = 1c3c75449ead7f3729fcfd27ebeffc5ccdf0592e
+          test "$(git rev-parse "$BASE:scripts/subitem-highlight-advanced-golden.mjs")" = 7c007fe811205aa4057d0f1cf97c3da8812dd2bd
           test "$(git rev-parse "$BASE:scripts/ui-return-and-palette-golden.mjs")" = 10732575316fd43c3491eb6d5167417964205ccb
           # Dedicated one-file DEV Hosting release; no application/Rules/R2 data changes.
           git diff --name-only "$BASE" "$GITHUB_SHA" > "$RUNNER_TEMP/changed.txt"
@@ -254,21 +254,21 @@ jobs:
           python3 - <<'PY'
           import hashlib, os, subprocess, zipfile
           base=os.environ['BASELINE_SHA']; head=os.environ['GITHUB_SHA']
-          names=subprocess.check_output(['git','diff','--name-only','--diff-filter=ACMR','-z',base,head]).split(b'\\0')
+          names=subprocess.check_output(['git','diff','--name-only','--diff-filter=ACMR','-z',base,head]).split(bytes([0]))
           changed=[name.decode() for name in names if name]
           with zipfile.ZipFile('handoff/PATCH.zip','w',zipfile.ZIP_DEFLATED) as z:
               for name in changed: z.writestr(name,subprocess.check_output(['git','show',head+':'+name]))
-          with open('handoff/changed-files.txt','w') as f: f.write('\\n'.join(changed)+'\\n')
+          with open('handoff/changed-files.txt','w') as f: f.write('\n'.join(changed)+'\n')
           with open('handoff/REPORT.md','w') as f:
-              f.write('# HNL QLTC DEV Hosting-only release\\n')
-              f.write('Approved source: '+base+'\\nReleased commit: '+head+'\\n')
-              f.write('Hosting: hnl-qltc-dev.web.app; no PROD/Rules/R2/AI deployment\\n')
-              f.write('Source: exact GitHub archive; patch includes changes since approved app source\\n')
-              f.write('User changes: hide replace preset; preserve additive import and individual deletion; show subitem quantity and PC UI improvements.\\n')
-              f.write('CI and Hosting manifest/JS checksum verified in workflow steps; device interaction requires separate Runtime Golden.\\n')
+              f.write('# HNL QLTC DEV Hosting-only release\n')
+              f.write('Approved source: '+base+'\nReleased commit: '+head+'\n')
+              f.write('Hosting: hnl-qltc-dev.web.app; no PROD/Rules/R2/AI deployment\n')
+              f.write('Source: exact GitHub archive; patch includes changes since approved app source\n')
+              f.write('User changes: hide replace preset; preserve additive import and individual deletion; show subitem quantity and PC UI improvements.\n')
+              f.write('CI and Hosting manifest/JS checksum verified in workflow steps; device interaction requires separate Runtime Golden.\n')
           with open('handoff/SHA256SUMS.txt','w') as f:
               for name in ['FULL_SOURCE.zip','PATCH.zip','changed-files.txt','REPORT.md']:
-                  f.write(hashlib.sha256(open('handoff/'+name,'rb').read()).hexdigest()+'  '+name+'\\n')
+                  f.write(hashlib.sha256(open('handoff/'+name,'rb').read()).hexdigest()+'  '+name+'\n')
           for name in ['FULL_SOURCE.zip','PATCH.zip']:
               with zipfile.ZipFile('handoff/'+name) as z:
                   if z.testzip() is not None: raise SystemExit('CORRUPTED_ZIP')
