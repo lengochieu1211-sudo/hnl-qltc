@@ -629,29 +629,51 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     return normalizeUnit(matched?.unit || volumeUnit || 'm²') || 'm²';
   };
 
-  // UI-only: resolve the unit of this exact main category on the room's floor.
-  // Never use this label to change quantity, save metadata, or convert existing units.
+  // Display-only unit resolution: the catalog is authoritative for this label.
+  // The room's historical quantity, categoryVolumeUnits and inventory stay unchanged.
   const getCategoryDisplayUnit = (category: string) => {
+    const key = category.trim().toLocaleLowerCase('vi-VN');
     const isIdKey = workVolumes.some((item) => item.id === category || item.workCategoryId === category);
-    const resolved = resolveWorkVolumeRef({
-      workVolumes,
-      workCategoryId: isIdKey ? category : undefined,
-      workCategoryName: isIdKey ? undefined : category,
-      floorId,
-      floorName,
+    // An existing room has a stable category ID, even if its catalog floor scope drifted.
+    const roomCategoryId = roomItem?.workCategory?.trim().toLocaleLowerCase('vi-VN') === key
+      ? roomItem?.workCategoryId : undefined;
+    const catalogId = isIdKey ? category : roomCategoryId;
+    const resolvedById = catalogId ? resolveWorkVolumeRef({
+      workVolumes, workCategoryId: catalogId, floorId, floorName,
+    }) : null;
+    const resolvedByName = resolveWorkVolumeRef({
+      workVolumes, workCategoryName: category, floorId, floorName,
     });
-    const catalogUnit = resolved.state === 'resolved' ? normalizeUnit(resolved.work?.unit || '') : '';
+    // An old room ID may point to a renamed/other category. If the visible
+    // category name has catalog matches but not the same ID title, use the
+    // visible category rather than displaying an unrelated unit.
+    const idMatchesVisibleCategory = (resolvedById?.matches || []).some((item) =>
+      item.title.trim().toLocaleLowerCase('vi-VN') === key);
+    const nameExists = Boolean(resolvedByName.matches?.length);
+    const useLinkedId = Boolean(resolvedById && (!nameExists || idMatchesVisibleCategory));
+    const resolved = useLinkedId ? resolvedById! : resolvedByName;
+    // Strict floor resolution first, then DEV-compatible fallback when every exact
+    // catalog match agrees on its unit. Never choose a random conflicting floor.
+    const matchingUnits = Array.from(new Set((resolved.matches || [])
+      .map((item) => normalizeUnit(item.unit))
+      .filter(Boolean)));
+    const catalogUnit = resolved.state === 'resolved'
+      ? normalizeUnit(resolved.work?.unit) || (matchingUnits.length === 1 ? matchingUnits[0] : '')
+      : (matchingUnits.length === 1 ? matchingUnits[0] : '');
     const savedUnit = normalizeUnit(
       roomItem?.categoryVolumeUnits?.[category]
-      || (roomItem?.workCategory === category ? roomItem.volumeUnit : '')
+      || (roomItem?.workCategory?.trim().toLocaleLowerCase('vi-VN') === key ? roomItem.volumeUnit : '')
       || '',
     );
-    const mismatch = Boolean(savedUnit && catalogUnit && !areSameUnit(savedUnit, catalogUnit));
-    const unit = mismatch ? savedUnit : catalogUnit || savedUnit || normalizeUnit(volumeUnit || 'm²') || 'm²';
-    const warning = mismatch
-      ? `Dữ liệu phòng: ${savedUnit}; danh mục: ${catalogUnit}. Chưa quy đổi khối lượng.`
-      : (resolved.state === 'floor-mismatch' || resolved.state === 'ambiguous')
-        ? 'Chưa xác định duy nhất đơn vị hạng mục trên tầng này; đang giữ đơn vị phòng.'
+    const currentVolume = Number(categoryVolumes[category] ?? (roomItem?.workCategory?.trim().toLocaleLowerCase('vi-VN') === key ? workVolume : 0)) || 0;
+    const mismatch = Boolean(catalogUnit && savedUnit && !areSameUnit(catalogUnit, savedUnit));
+    const unit = catalogUnit || savedUnit || normalizeUnit(volumeUnit || 'm²') || 'm²';
+    // Keep warnings compact: no alarming floor warning when the catalog has a
+    // unique unit; only signal actual stored-unit conflicts with nonzero quantity.
+    const warning = mismatch && currentVolume !== 0
+      ? `Đơn vị đang lưu: ${savedUnit}; đơn vị hạng mục chính: ${catalogUnit}. Không tự quy đổi ${currentVolume}.`
+      : !catalogUnit && matchingUnits.length > 1
+        ? 'Trên các tầng có nhiều đơn vị khác nhau; không tự đoán đơn vị.'
         : '';
     return { unit, warning };
   };
@@ -1653,7 +1675,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             const display = getCategoryDisplayUnit(catName);
                             return <span className="text-[10px] font-black text-emerald-800">
                               {display.unit}
-                              {display.warning && <span className="ml-1 text-[9px] font-semibold text-amber-700" title={display.warning}>⚠ {display.warning}</span>}
+                              {display.warning && <span className="ml-1 text-[9px] font-semibold text-amber-700" title={display.warning} aria-label={display.warning}>⚠</span>}
                             </span>;
                           })()}
 
