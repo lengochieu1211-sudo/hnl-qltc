@@ -665,6 +665,9 @@ function AuthenticatedApp() {
   const [materialNormFromWarehouseCatalog, setMaterialNormFromWarehouseCatalog] = useState(false);
   const [warehouseCatalogReturnToken, setWarehouseCatalogReturnToken] = useState(0);
   const [warehouseVoucherFocus, setWarehouseVoucherFocus] = useState<{ id: string; projectId: string; token: number } | null>(null);
+  // Desktop keeps Warehouse/Crew mounted: a one-shot token must never repeat after Back.
+  const warehouseVoucherFocusSequenceRef = useRef(0);
+  const crewVoucherReturnSequenceRef = useRef(0);
   const [crewVoucherOrigin, setCrewVoucherOrigin] = useState<CrewVoucherOrigin | null>(null);
   const [crewVoucherReturnRequest, setCrewVoucherReturnRequest] = useState<CrewVoucherReturnRequest | null>(null);
   // A project switch must never carry a source voucher or crew modal into another project.
@@ -7943,10 +7946,10 @@ function AuthenticatedApp() {
       // path. A mounted PC crew modal survives; mobile restores from App state.
       setWarehouseVoucherFocus(null);
       if (crewVoucherOrigin?.projectId === activeProjectId) {
-        setCrewVoucherReturnRequest(previous => ({
+        setCrewVoucherReturnRequest({
           ...crewVoucherOrigin,
-          token: (previous?.token || 0) + 1,
-        }));
+          token: ++crewVoucherReturnSequenceRef.current,
+        });
       }
     }
     try {
@@ -8271,11 +8274,6 @@ function AuthenticatedApp() {
               materialNorms={computedMaterialNorms}
               returnToCatalogToken={warehouseCatalogReturnToken}
               focusVoucher={warehouseVoucherFocus}
-              onReturnFromSourceVoucher={contextReturnFrames.length > 0
-                && contextReturnFrames[contextReturnFrames.length - 1].kind === 'crew-voucher'
-                && contextReturnFrames[contextReturnFrames.length - 1].projectId === activeProjectId
-                ? handleContextReturn
-                : undefined}
               onOpenNormModal={(tab = 'material', target, fromWarehouseCatalog = false) => {
                 setMaterialNormFromWarehouseCatalog(fromWarehouseCatalog);
                 setMaterialNormInitialTab(tab);
@@ -8486,7 +8484,7 @@ function AuthenticatedApp() {
                     && item.sourceTeamId === origin.teamId && item.deletedAt == null)) return;
                 setCrewVoucherOrigin(origin);
                 setCrewVoucherReturnRequest(null);
-                setWarehouseVoucherFocus(previous => ({ id: voucherId, projectId: activeProjectId, token: (previous?.token || 0) + 1 }));
+                setWarehouseVoucherFocus({ id: voucherId, projectId: activeProjectId, token: ++warehouseVoucherFocusSequenceRef.current });
                 navigateFromLink('warehouse', 'crew-voucher');
               }}
               voucherReturnRequest={crewVoucherReturnRequest}

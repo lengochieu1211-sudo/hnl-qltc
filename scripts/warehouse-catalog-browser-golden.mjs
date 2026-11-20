@@ -73,6 +73,7 @@ const voucherIdButton=page.locator('[data-hnl-warehouse-voucher-id="'+inboundVou
 await voucherIdButton.waitFor({state:'visible'});
 const catalogReturn=page.locator('[data-hnl-voucher-return-origin="catalog-history"]');
 await catalogReturn.waitFor({state:'visible'});
+assert.equal(await page.locator('[data-hnl-context-back-button="true"]').count(),1,label+': duplicate inbound voucher Back');
 assert.match(await catalogReturn.innerText(),/Quay lại Chi tiết nhập kho/,label+': incorrect Back source');
 await catalogReturn.locator('[data-hnl-context-back-button="true"]').click();
 await sheet.waitFor({state:'visible'});
@@ -91,6 +92,7 @@ await sheet.locator('[data-hnl-catalog-open-voucher="P0-OUT-20261013-003"]').cli
 await sheet.waitFor({state:'hidden'});
 const outBack=page.locator('[data-hnl-voucher-return-origin="catalog-history"]');
 await outBack.waitFor({state:'visible'});
+assert.equal(await page.locator('[data-hnl-context-back-button="true"]').count(),1,label+': duplicate outbound voucher Back');
 assert.match(await outBack.innerText(),/Quay lại Chi tiết xuất kho/,label+': incorrect OUT Back source');
 await outBack.locator('[data-hnl-context-back-button="true"]').click();
 await sheet.waitFor({state:'visible'});
@@ -186,6 +188,12 @@ for(const size of [{width:1280,height:800},{width:393,height:852}]){
  const page=await ctx.newPage();
  page.on('pageerror',e=>errors.push(label+': '+e.message));
  await page.goto(url.replace('/index.html','/crew-return.html'),{waitUntil:'domcontentloaded'});
+ const warehouseSearch=page.getByPlaceholder('Tìm vật tư, vị trí, người giao, mã phiếu, ngày (17/10/2026)...');
+ // Warm and retain the Warehouse tab on PC; only mobile unmounts inactive tabs.
+ await page.locator('[data-hnl-fixture-open-warehouse="true"]').click();
+ await warehouseSearch.waitFor({state:'visible'});
+ if(size.width>=500) await warehouseSearch.fill('Tấm');
+ await page.locator('[data-hnl-fixture-open-crew="true"]').click();
  const directory=page.locator('#crew-subtab-navigation button').last();
  await directory.waitFor({state:'visible',timeout:15000});await directory.click();
  const team=page.locator('[title="Bấm để xem chi tiết thống kê căn & defect"]').first();
@@ -198,14 +206,33 @@ for(const size of [{width:1280,height:800},{width:393,height:852}]){
  const materialVoucher=page.locator('[data-hnl-team-material-voucher="FLOW-OUT-MAT-001"]');
  await materialVoucher.waitFor({state:'visible'});await materialVoucher.click();
  await page.locator('[data-hnl-fixture-active-tab="warehouse"]').waitFor({state:'visible'});
- const crewBack=page.locator('[data-hnl-voucher-return-origin="crew-statistics"]');
+ const crewBack=page.locator('[data-hnl-fixture-header-back] [data-hnl-context-back-button="true"]');
  await crewBack.waitFor({state:'visible',timeout:15000});
- await crewBack.locator('[data-hnl-context-back-button="true"]').click();
+ assert.equal(await page.locator('[data-hnl-context-back-button="true"]').count(),1,label+': Crew voucher has duplicate Back buttons');
+ assert.equal(await page.locator('[data-hnl-voucher-return-origin="crew-statistics"]').count(),0,label+': duplicate Back inside voucher card');
+ await crewBack.click();
  await page.locator('[data-hnl-fixture-active-tab="crew"]').waitFor({state:'visible'});
  await modal.waitFor({state:'visible',timeout:15000});
  assert.equal(await page.getByRole('button',{name:/Vật tư đối chiếu/}).getAttribute('aria-pressed'),'true',label+': material tab did not restore');
  assert.equal(await page.locator('[data-hnl-team-material-voucher-details]').first().evaluate(el=>el.open),true,label+': original material voucher list collapsed');
-
+ // Revisiting Warehouse normally must never retain the temporary voucher-ID search.
+ // Fixture-only tab navigation is programmatic: the intentionally retained Crew
+ // modal overlays these artificial tabs; voucher and Back actions still use real clicks.
+ await page.locator('[data-hnl-fixture-open-warehouse="true"]').evaluate(button=>button.click());
+ await warehouseSearch.waitFor({state:'visible'});
+ assert.equal(await warehouseSearch.inputValue(),size.width>=500?'Tấm':'',label+': material voucher ID leaked into Warehouse Search');
+ await warehouseSearch.fill('');
+ await page.locator('[data-hnl-fixture-open-crew="true"]').click();
+ // On phones, an unrelated manual main-tab switch intentionally unmounts Crew.
+ // Reopen the team after checking Warehouse Search. Voucher Back above already
+ // asserted automatic restoration with no extra manual step.
+ if(size.width<500){
+   const directoryAgain=page.locator('#crew-subtab-navigation button').last();
+   await directoryAgain.waitFor({state:'visible',timeout:15000});await directoryAgain.click();
+   const teamAgain=page.locator('[title="Bấm để xem chi tiết thống kê căn & defect"]').first();
+   await teamAgain.waitFor({state:'visible',timeout:15000});await teamAgain.click();
+   await modal.waitFor({state:'visible',timeout:15000});
+ }
  await page.locator('[data-hnl-crew-equipment-tab="true"]').click();
  const equipmentDetails=page.locator('[data-hnl-team-equipment-voucher-details]').first();
  await equipmentDetails.waitFor({state:'visible'});
@@ -213,14 +240,19 @@ for(const size of [{width:1280,height:800},{width:393,height:852}]){
  const equipmentVoucher=page.locator('[data-hnl-team-equipment-voucher="FLOW-OUT-EQUIP-002"]');
  await equipmentVoucher.waitFor({state:'visible'});await equipmentVoucher.click();
  await page.locator('[data-hnl-fixture-active-tab="warehouse"]').waitFor({state:'visible'});
- const equipmentBack=page.locator('[data-hnl-voucher-return-origin="crew-statistics"]');
+ const equipmentBack=page.locator('[data-hnl-fixture-header-back] [data-hnl-context-back-button="true"]');
  await equipmentBack.waitFor({state:'visible',timeout:15000});
- await equipmentBack.locator('[data-hnl-context-back-button="true"]').click();
+ assert.equal(await page.locator('[data-hnl-context-back-button="true"]').count(),1,label+': Equipment voucher has duplicate Back buttons');
+ assert.equal(await page.locator('[data-hnl-voucher-return-origin="crew-statistics"]').count(),0,label+': duplicate equipment Back inside voucher');
+ await equipmentBack.click();
  await page.locator('[data-hnl-fixture-active-tab="crew"]').waitFor({state:'visible'});
  await modal.waitFor({state:'visible',timeout:15000});
  assert.equal(await page.locator('[data-hnl-crew-equipment-tab="true"]').getAttribute('aria-pressed'),'true',label+': equipment tab did not restore');
  assert.equal(await page.locator('[data-hnl-team-equipment-voucher-details]').first().evaluate(el=>el.open),true,label+': original equipment voucher list collapsed');
- checks.push({viewport:label,flow:'crew-material-equipment-voucher-return',result:'PASS'});
+ await page.locator('[data-hnl-fixture-open-warehouse="true"]').evaluate(button=>button.click());
+ await warehouseSearch.waitFor({state:'visible'});
+ assert.equal(await warehouseSearch.inputValue(),'',label+': equipment voucher ID leaked into Warehouse Search after header Back');
+ checks.push({viewport:label,flow:'crew-material-equipment-voucher-return-with-no-stale-search',result:'PASS'});
  await page.screenshot({path:`runtime-evidence/catalog-click-${label}.png`}).catch(()=>{});
  await ctx.close();
 }
