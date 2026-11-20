@@ -144,7 +144,7 @@ jobs:
           mkdir -p deliverables
           mapfile -t CHANGED < <(git diff --name-only "$BASE" "$HEAD")
           test "$HEAD" != "$BASE"
-          test "\${CHANGED[0]:-}" != ""
+          test "${CHANGED[0]:-}" != ""
           # Refuse to package common private-key or real environment files.
           git ls-files | node -e '
           let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{
@@ -154,7 +154,7 @@ jobs:
           git archive --format=zip --prefix=HNL-QLTC-PREVIEW-FULL/ \
             --output=deliverables/HNL-QLTC-GEMINI-PC-FULL-SOURCE.zip "$HEAD"
           git archive --format=zip --prefix=HNL-QLTC-PREVIEW-PATCH/ \
-            --output=deliverables/HNL-QLTC-GEMINI-PC-PATCH.zip "$HEAD" "\${CHANGED[@]}"
+            --output=deliverables/HNL-QLTC-GEMINI-PC-PATCH.zip "$HEAD" "${CHANGED[@]}"
           {
             echo "# HNL QLTC - Gemini PC Preview - Exact source handoff"
             echo ""
@@ -167,7 +167,7 @@ jobs:
             echo "- Legacy PR474 R2 source ZIP was NOT used."
             echo ""
             echo "## Changed files relative to source baseline"
-            printf -- "- %s\n" "\${CHANGED[@]}"
+            printf -- "- %s\n" "${CHANGED[@]}"
             echo ""
             echo "## Unchanged policy"
             echo "Do not merge or deploy PROD without separate approval and full Runtime Golden."
