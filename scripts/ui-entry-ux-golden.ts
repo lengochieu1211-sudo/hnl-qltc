@@ -313,16 +313,21 @@ assert(
   'Crew add/edit modal must fit the real viewport height and scroll only its body on laptop/EXE'
 );
 assert(
-  roomHighlightUiForPc.includes('xl:grid-cols-[minmax(0,1.55fr)_minmax(260px,0.85fr)_minmax(330px,1fr)]'),
-  'PC/laptop room inspection rows must use the aligned three-region desktop layout'
+  roomHighlightUiForPc.split('xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,1fr)]').length - 1 === 2 &&
+    roomHighlightUiForPc.includes('Tiến độ · Nghiệm thu · Hạn hoàn thành') &&
+    roomHighlightUiForPc.includes('data-hnl-room-pc-status-column="true"'),
+  'PC/laptop room inspection must use two aligned columns with progress, acceptance, and deadline stacked on the right'
 );
 assert(
-  roomHighlightUiForPc.includes('Team stays directly below the sub-item name on PC/laptop/EXE') && roomHighlightUiForPc.includes('Hạng mục con &amp; đội thi công'),
-  'PC/laptop room inspection must place the construction team directly below the sub-item name so long team names remain visible'
+  roomHighlightUiForPc.includes('Team stays directly below the sub-item name on PC/laptop/EXE') &&
+    roomHighlightUiForPc.includes('Hạng mục con &amp; đội thi công') &&
+    roomHighlightUiForPc.includes('data-hnl-room-team-contact-row="true"'),
+  'Room inspection must keep the team selector below the sub-item title and share a compact row with contact on PC'
 );
 assert(
-  roomHighlightUiForPc.includes('className="mt-1.5 flex justify-end"') && roomHighlightUiForPc.includes('className="w-full font-bold border border-slate-200 rounded-lg'),
-  'Room inspection Contact action must sit below the full-width team selector instead of squeezing the team name'
+  roomHighlightUiForPc.includes('order-2 xl:order-1 flex justify-end xl:shrink-0') &&
+    roomHighlightUiForPc.includes('order-1 xl:order-2 w-full min-w-0 xl:flex-1'),
+  'Contact must be left of the full-width team selector on PC while keeping the existing mobile vertical order'
 );
 
 assert(workVolumeUi.includes('lg:max-w-[1100px]') && workVolumeUi.includes('left-0 lg:left-[84px]'), 'Work Volume editor must use desktop width while reserving the left rail');
