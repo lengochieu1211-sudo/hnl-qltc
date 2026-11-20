@@ -223,7 +223,16 @@ for(const size of [{width:1280,height:800},{width:393,height:852}]){
  assert.equal(await warehouseSearch.inputValue(),size.width>=500?'Tấm':'',label+': material voucher ID leaked into Warehouse Search');
  await warehouseSearch.fill('');
  await page.locator('[data-hnl-fixture-open-crew="true"]').click();
-
+ // On phones, an unrelated manual main-tab switch intentionally unmounts Crew.
+ // Reopen the team after checking Warehouse Search. Voucher Back above already
+ // asserted automatic restoration with no extra manual step.
+ if(size.width<500){
+   const directoryAgain=page.locator('#crew-subtab-navigation button').last();
+   await directoryAgain.waitFor({state:'visible',timeout:15000});await directoryAgain.click();
+   const teamAgain=page.locator('[title="Bấm để xem chi tiết thống kê căn & defect"]').first();
+   await teamAgain.waitFor({state:'visible',timeout:15000});await teamAgain.click();
+   await modal.waitFor({state:'visible',timeout:15000});
+ }
  await page.locator('[data-hnl-crew-equipment-tab="true"]').click();
  const equipmentDetails=page.locator('[data-hnl-team-equipment-voucher-details]').first();
  await equipmentDetails.waitFor({state:'visible'});
