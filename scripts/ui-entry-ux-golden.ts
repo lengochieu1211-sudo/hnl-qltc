@@ -333,11 +333,11 @@ assert(
 assert(
   roomHighlightUiForPc.includes('data-hnl-room-category-inline-actions="true"') &&
     roomHighlightUiForPc.includes('data-hnl-room-add-subitem-inline="true"') &&
-    roomHighlightUiForPc.indexOf('data-hnl-room-add-subitem-inline="true"') < roomHighlightUiForPc.indexOf('Interactive Input Volume directly in the list') &&
-    roomHighlightUiForPc.includes('hidden xl:inline-flex px-3 py-1.5') &&
+    roomHighlightUiForPc.indexOf('data-hnl-room-add-subitem-inline="true"') > roomHighlightUiForPc.indexOf('Interactive Input Volume directly in the list') &&
+    roomHighlightUiForPc.includes('hidden lg:inline-flex px-3 py-1.5') &&
     roomHighlightUiForPc.includes('data-hnl-room-add-subitem-mobile="true"') &&
-    roomHighlightUiForPc.includes('xl:hidden w-full lg:w-auto'),
-  'Add-subitem action must be left of main volume on PC, while mobile keeps its separate button'
+    roomHighlightUiForPc.includes('lg:hidden w-full lg:w-auto'),
+  'Add-subitem action must be right of main volume on PC, while mobile keeps its separate button'
 );
 assert(
   roomHighlightUiForPc.includes('data-hnl-room-category-title-row="true"') &&
@@ -352,11 +352,20 @@ assert(
   'Nạp thêm vào căn này must be right of the preset selection on PC while mobile stacks cleanly'
 );
 assert(
-  roomHighlightUiForPc.includes('data-hnl-room-name-color-row="true"') &&
-    roomHighlightUiForPc.includes('flex flex-col gap-3 lg:flex-row lg:items-end') &&
-    roomHighlightUiForPc.includes('data-hnl-room-color-option="true"') &&
-    roomHighlightUiForPc.includes('lg:w-[250px] lg:shrink-0'),
-  'Room name and color control must align on PC with color to the right; mobile stays stacked'
+  !roomHighlightUiForPc.includes('data-hnl-room-name-color-row="true"') &&
+    roomHighlightUiForPc.includes('Custom Highlight Color Option (Collapsible)') &&
+    roomHighlightUiForPc.includes('className="bg-slate-50/90 rounded-2xl border border-slate-200 overflow-hidden"') &&
+    !roomHighlightUiForPc.includes('lg:w-[250px] lg:shrink-0'),
+  'Room color control must return below the name at full width, matching the original PC and mobile layout'
+);
+assert(
+  roomHighlightUiForPc.includes('hidden lg:inline">Nạp bộ mẫu</span>') &&
+    roomHighlightUiForPc.includes('hidden lg:inline">Chọn bộ mẫu:</span>') &&
+    roomHighlightUiForPc.includes('hidden lg:inline">Nạp thêm</span>') &&
+    roomHighlightUiForPc.includes('hidden lg:inline">Hạng mục thi công ({subItems.length})</span>') &&
+    roomHighlightUiForPc.includes('lg:hidden text-[11px] text-indigo-700/90 font-medium') &&
+    roomHighlightUiForPc.includes('lg:hidden text-[10.5px] text-slate-500 font-medium'),
+  'Desktop compact text must hide long explanations while preserving mobile copy unchanged'
 );
 assert(workVolumeUi.includes('lg:max-w-[1100px]') && workVolumeUi.includes('left-0 lg:left-[84px]'), 'Work Volume editor must use desktop width while reserving the left rail');
 assert(warehouse.includes('lg:max-w-[1100px]') && warehouse.includes('left-0 lg:left-[84px]'), 'Warehouse editor must use desktop width while reserving the left rail');

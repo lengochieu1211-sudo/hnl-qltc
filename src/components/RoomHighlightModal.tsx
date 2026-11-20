@@ -1357,10 +1357,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
             </div>
           )}
           
-          {/* PC: room name LEFT, compact color control RIGHT. Keep mobile stacked. */}
-          <div data-hnl-room-name-color-row="true" className="flex flex-col gap-3 lg:flex-row lg:items-end">
           {/* Room / Apartment Name */}
-          <div className="min-w-0 flex-1">
+          <div>
             <label className="block font-bold text-slate-800 mb-1">Tên Căn / Phòng *</label>
             <input
               type="text"
@@ -1374,7 +1372,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
           </div>
 
           {/* Custom Highlight Color Option (Collapsible) */}
-          {!structureReadOnly && <div data-hnl-room-color-option="true" className="bg-slate-50/90 rounded-2xl border border-slate-200 overflow-hidden lg:w-[250px] lg:shrink-0">
+          {!structureReadOnly && <div className="bg-slate-50/90 rounded-2xl border border-slate-200 overflow-hidden">
             <button
               type="button"
               onClick={() => setShowColorPicker(!showColorPicker)}
@@ -1440,7 +1438,6 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               </div>
             )}
           </div>}
-          </div>
 
 
 
@@ -1454,9 +1451,10 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               </div>
               <div className="min-w-0 flex-1">
                 <h4 className="font-black text-indigo-950 text-xs uppercase tracking-wide leading-snug break-words">
-                  Nạp mẫu hạng mục thi công
+                  <span className="lg:hidden">Nạp mẫu hạng mục thi công</span>
+                  <span className="hidden lg:inline">Nạp bộ mẫu</span>
                 </h4>
-                <p className="text-[11px] text-indigo-700/90 font-medium">
+                <p className="lg:hidden text-[11px] text-indigo-700/90 font-medium">
                   Nạp tự động các bộ công đoạn. Bạn có thể nạp thêm nhiều bộ khác nhau vào cùng 1 căn (VD: Trần Tiêu Chuẩn + Trần Chống Ẩm...).
                 </p>
               </div>
@@ -1468,7 +1466,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               <div data-hnl-room-preset-inline-row="true" className="flex flex-col gap-2 lg:flex-row lg:items-end">
                 <div className="min-w-0 flex-1 space-y-2">
                   <label className="text-[11px] font-extrabold text-indigo-900 block leading-tight">
-                    Chọn bộ mẫu hạng mục thi công áp dụng:
+                    <span className="lg:hidden">Chọn bộ mẫu hạng mục thi công áp dụng:</span>
+                    <span className="hidden lg:inline">Chọn bộ mẫu:</span>
                   </label>
                   <select
                     value={presetSelection}
@@ -1490,7 +1489,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                     className="w-full lg:w-auto px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl text-xs shadow-2xs active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5"
                   >
                     <PlusCircle className="w-3.5 h-3.5" />
-                    <span>Nạp Thêm Vào Căn Này</span>
+                    <span className="lg:hidden">Nạp Thêm Vào Căn Này</span>
+                    <span className="hidden lg:inline">Nạp thêm</span>
                   </button>
                 </div>
               </div>
@@ -1508,9 +1508,10 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               <div className="min-w-0 flex-1">
                 <h4 className="font-extrabold text-slate-900 text-xs flex items-center gap-1.5 uppercase tracking-wider">
                   <Sparkles className="w-4 h-4 text-indigo-600" />
-                  Danh sách hạng mục thi công trong Căn / Phòng ({subItems.length} hạng mục)
+                  <span className="lg:hidden">Danh sách hạng mục thi công trong Căn / Phòng ({subItems.length} hạng mục)</span>
+                  <span className="hidden lg:inline">Hạng mục thi công ({subItems.length})</span>
                 </h4>
-                <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
+                <p className="lg:hidden text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
                   💡 Mỗi hạng mục có thể phân công cho các đội thi công khác nhau từ danh sách Quân số.
                 </p>
               </div>
@@ -1644,7 +1645,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                     </div>
                   </div>
                 ) : (
-                  <p className="text-[10px] text-slate-400 italic">
+                  <p className="lg:hidden text-[10px] text-slate-400 italic">
                     💡 Hãy tick chọn các hạng mục bên dưới để cập nhật nhanh/hàng loạt (tiến độ, nghiệm thu, phân công đội, hạn xong...).
                   </p>
                 )}
@@ -1721,19 +1722,6 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                       </select>
 
                       <div data-hnl-room-category-inline-actions="true" className="flex w-full xl:w-auto xl:shrink-0 flex-wrap items-center justify-between gap-2 mt-0.5 xl:mt-0">
-                        {/* Desktop only: add a sub-item LEFT of main category quantity.
-                            On mobile, retain its original separate action below the category. */}
-                        {!structureReadOnly && (
-                          <button
-                            data-hnl-room-add-subitem-inline="true"
-                            type="button"
-                            onClick={() => handleAddSubItem(catName)}
-                            className="hidden xl:inline-flex px-3 py-1.5 bg-white hover:bg-indigo-50 text-indigo-600 border border-indigo-200 border-dashed hover:border-indigo-300 font-bold rounded-xl text-[11px] flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-3xs active:scale-98"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>Thêm hạng mục con</span>
-                          </button>
-                        )}
                         {/* Interactive Input Volume directly in the list */}
                         <div className="flex items-center gap-1.5 shrink-0 bg-emerald-50/70 border border-emerald-100 rounded-xl px-2.5 py-1">
                           <span className="text-[10px] font-extrabold text-emerald-800">Khối lượng:</span>
@@ -1794,6 +1782,19 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             />
                           )}
                         </div>
+                        {/* PC only: Add sub-item to the RIGHT of the main category volume.
+                            Mobile/tablet keep the separate button below. */}
+                        {!structureReadOnly && (
+                          <button
+                            data-hnl-room-add-subitem-inline="true"
+                            type="button"
+                            onClick={() => handleAddSubItem(catName)}
+                            className="hidden lg:inline-flex px-3 py-1.5 bg-white hover:bg-indigo-50 text-indigo-600 border border-indigo-200 border-dashed hover:border-indigo-300 font-bold rounded-xl text-[11px] items-center justify-center gap-1.5 transition-all cursor-pointer shadow-3xs active:scale-98"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Thêm hạng mục con</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1804,7 +1805,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                       data-hnl-room-add-subitem-mobile="true"
                       type="button"
                       onClick={() => handleAddSubItem(catName)}
-                      className="xl:hidden w-full lg:w-auto lg:inline-flex lg:px-4 py-2 bg-white hover:bg-indigo-50 text-indigo-600 border border-indigo-200 border-dashed hover:border-indigo-300 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-3xs active:scale-98 mb-2"
+                      className="lg:hidden w-full lg:w-auto lg:px-4 py-2 bg-white hover:bg-indigo-50 text-indigo-600 border border-indigo-200 border-dashed hover:border-indigo-300 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-3xs active:scale-98 mb-2"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       <span>Thêm hạng mục con</span>

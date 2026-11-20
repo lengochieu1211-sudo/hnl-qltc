@@ -60,15 +60,14 @@ assert.match(room, /xl:w-auto xl:flex-1 xl:min-w-0/);
 assert.match(room, /data-hnl-room-preset-inline-row="true"/);
 assert.match(room, /lg:flex-row lg:items-end/);
 assert.match(room, /data-hnl-room-add-subitem-inline="true"/);
-assert.ok(room.indexOf('data-hnl-room-add-subitem-inline="true"') < room.indexOf('Interactive Input Volume directly in the list'));
+assert.ok(room.indexOf('data-hnl-room-add-subitem-inline="true"') > room.indexOf('Interactive Input Volume directly in the list'));
 assert.equal(room.split('onClick={() => handleAddSubItem(catName)}').length - 1, 2); // mutually exclusive viewport actions
 assert.match(room, /data-hnl-room-add-subitem-mobile="true"/);
-assert.match(room, /hidden xl:inline-flex px-3 py-1.5/);
-assert.match(room, /xl:hidden w-full lg:w-auto/);
-assert.match(room, /data-hnl-room-name-color-row="true"/);
-assert.match(room, /lg:flex-row lg:items-end/);
-assert.match(room, /data-hnl-room-color-option="true"/);
-assert.match(room, /lg:w-\[250px\] lg:shrink-0/);
+assert.match(room, /hidden lg:inline-flex px-3 py-1.5/);
+assert.match(room, /lg:hidden w-full lg:w-auto/);
+assert.doesNotMatch(room, /data-hnl-room-name-color-row="true"|lg:w-\[250px\] lg:shrink-0/);
+assert.match(room, /\{\/\* Custom Highlight Color Option \(Collapsible\) \*\/\}/);
+assert.match(room, /className="bg-slate-50\/90 rounded-2xl border border-slate-200 overflow-hidden"/);
 assert.match(room, /order-1 w-full min-w-0 xl:flex-1/); // team selector on left on PC and first on mobile
 assert.match(room, /order-2 flex justify-end xl:shrink-0/); // ContactMenu on right on PC and below on mobile
 assert.match(room, /data-hnl-room-pc-status-column="true"/);
