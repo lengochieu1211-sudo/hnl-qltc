@@ -1622,7 +1622,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             }}
                             className="w-20 text-center font-black text-xs text-emerald-950 bg-white border border-emerald-300 rounded focus:ring-1 focus:ring-emerald-500 outline-none px-1.5 py-0.5"
                           />
-                          <span className="text-[10px] font-black text-emerald-800">{volumeUnit || 'm²'}</span>
+                          <span className="text-[10px] font-black text-emerald-800">{getCategorySourceUnit(catName)}</span>
 
                           {!structureReadOnly && activeCategories.length > 1 && (
                             <MoveOrderControls
