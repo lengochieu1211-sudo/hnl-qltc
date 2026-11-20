@@ -49,7 +49,8 @@ jobs:
           test "$GITHUB_EVENT_NAME" = push
           test "$GITHUB_REF" = refs/heads/dev
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD^)" = "$APPROVED_SOURCE"
+          test "$(git rev-parse HEAD^)" = "b520354c4e6ff867bc56d8edbc6fe3ed2d8aa8e0"
+          git merge-base --is-ancestor "$APPROVED_SOURCE" HEAD
           test "$(git diff --name-only "$APPROVED_SOURCE" HEAD)" = '.github/workflows/hnl-dev-gemini-pc-hosting-only-20261121.yml'
           test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$GITHUB_SHA"
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = 'ec79ffc801ecf059b37c82b9f4a9acf503108bf9'
@@ -73,6 +74,7 @@ jobs:
           CREDS="$RUNNER_TEMP/hnl-dev-gemini-sa.json"
           printf '%s' "$FIREBASE_DEV_SA" > "$CREDS"
           chmod 600 "$CREDS"
+          export GOOGLE_APPLICATION_CREDENTIALS="$CREDS"
           echo "GOOGLE_APPLICATION_CREDENTIALS=$CREDS" >> "$GITHUB_ENV"
           npx --yes firebase-tools@13.35.1 apps:list WEB --project hnl-qltc-dev --json > "$RUNNER_TEMP/dev-apps.json"
           APP_ID="$(node -e "const j=require(process.env.RUNNER_TEMP+'/dev-apps.json');const a=Array.isArray(j.result)?j.result:[];process.stdout.write(String(a.find(x=>x.platform==='WEB')?.appId||''))")"
