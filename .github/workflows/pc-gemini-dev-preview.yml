@@ -148,7 +148,8 @@ jobs:
           # Refuse to package common private-key or real environment files.
           git ls-files | node -e '
           let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{
-          const bad=s.split("\n").filter(p=>/(^|\/)\.env($|\.(local|production|dev|development)$)|\.(pem|p12|p8|key|jks|keystore)$|(^|\/)(service-account|firebase-adminsdk)[^/]*\.json$/i.test(p));
+          const candidates=s.split("\n").filter(p=>/(^|\/)\.env($|\.(local|production|dev|development)$)|\.(pem|p12|p8|key|jks|keystore)$|(^|\/)(service-account|firebase-adminsdk)[^/]*\.json$/i.test(p));
+          const bad=candidates.filter(p=>{if(p!=="scripts/p2115-firestore-backup-public.pem")return true;const pem=require("fs").readFileSync(p,"utf8").trim();return !/^-----BEGIN PUBLIC KEY-----[\s\S]*-----END PUBLIC KEY-----$/.test(pem);});
           if(bad.length){console.error("Sensitive tracked file paths detected; refusing source export:",bad.length);process.exit(1)}
           });'
           git archive --format=zip --prefix=HNL-QLTC-PREVIEW-FULL/ \
