@@ -33,6 +33,7 @@ import { formatDecimal, formatAdaptiveDecimal, evaluateMathExpression, useFormat
 import { MathNumberInput } from './MathNumberInput';
 import { createEntityId, createDeterministicId } from '../utils/idUtils';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
+import { resolveRoomCategoryDisplayUnit } from '../utils/roomCategoryDisplayUnit';
 import { buildMaterialAliasMap, getMaterialIdentityKey, resolveNormMaterialId, normalizeMaterialNameKey } from '../utils/inventoryUtils';
 import { computeMaterialNeeds } from '../utils/materialNeedEngine';
 import { validateInventoryOutProvenance } from '../utils/linkageIntegrity';
@@ -1622,7 +1623,26 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             }}
                             className="w-20 text-center font-black text-xs text-emerald-950 bg-white border border-emerald-300 rounded focus:ring-1 focus:ring-emerald-500 outline-none px-1.5 py-0.5"
                           />
-                          <span className="text-[10px] font-black text-emerald-800">{volumeUnit || 'm²'}</span>
+                          {(() => {
+                            const savedUnit = roomItem?.categoryVolumeUnits?.[catName] ||
+                              (roomItem?.workCategory?.trim().toLocaleLowerCase('vi-VN') === catName.trim().toLocaleLowerCase('vi-VN') ? roomItem?.volumeUnit : undefined);
+                            const display = resolveRoomCategoryDisplayUnit({
+                              category: catName,
+                              workVolumes,
+                              floorId,
+                              floorName,
+                              workCategoryId: roomItem?.workCategory?.trim().toLocaleLowerCase('vi-VN') === catName.trim().toLocaleLowerCase('vi-VN') ? roomItem?.workCategoryId : undefined,
+                              storedUnit: savedUnit,
+                              fallbackUnit: volumeUnit,
+                            });
+                            return (
+                              <span className="text-[10px] font-black text-emerald-800"
+                                title={display.savedUnitDiffers ? `Đơn vị danh mục: ${display.unit}; đơn vị đang lưu: ${savedUnit}. Không tự quy đổi khối lượng.` : undefined}>
+                                {display.unit}
+                                {display.savedUnitDiffers && <span aria-label="Đơn vị lưu khác đơn vị danh mục" className="ml-1 text-amber-700">⚠</span>}
+                              </span>
+                            );
+                          })()}
 
                           {!structureReadOnly && activeCategories.length > 1 && (
                             <MoveOrderControls
