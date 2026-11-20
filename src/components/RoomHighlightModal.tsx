@@ -1788,17 +1788,16 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                     <span>Thêm hạng mục con</span>
                   </button>}
 
-                  <div className="hidden xl:grid xl:grid-cols-[minmax(0,1.55fr)_minmax(260px,0.85fr)_minmax(330px,1fr)] gap-3 px-3 py-2 rounded-xl border border-slate-200 bg-slate-100/80 text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
+                  <div className="hidden xl:grid xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,1fr)] gap-3 px-3 py-2 rounded-xl border border-slate-200 bg-slate-100/80 text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
                     <div>Hạng mục con &amp; đội thi công</div>
-                    <div>Tiến độ</div>
-                    <div>Nghiệm thu &amp; hạn hoàn thành</div>
+                    <div>Tiến độ · Nghiệm thu · Hạn hoàn thành</div>
                   </div>
 
                   <div className="space-y-3">
                     {itemsInCat.map((item) => {
                       const originalIndex = subItems.findIndex(s => s.id === item.id);
                       return (
-                        <div key={`${item.id}-${originalIndex}`} className="bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2.5 xl:space-y-0 xl:grid xl:grid-cols-[minmax(0,1.55fr)_minmax(260px,0.85fr)_minmax(330px,1fr)] xl:gap-3 xl:items-start overflow-x-hidden">
+                        <div key={`${item.id}-${originalIndex}`} className="bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2.5 xl:space-y-0 xl:grid xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,1fr)] xl:gap-3 xl:items-start overflow-x-hidden">
                           <div className="min-w-0 space-y-2 xl:min-h-[104px]">
                             <div className="flex items-center justify-between gap-1.5 min-w-0">
                             <div className="flex items-center gap-2 shrink-0">
@@ -1905,10 +1904,11 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                   );
                                 })()}
                               </div>
+                              <div data-hnl-room-team-contact-row="true" className="flex min-w-0 flex-col gap-1.5 xl:flex-row xl:items-center">
                               <select
                                 value={item.assignedTeam || ''}
                                 onChange={(e) => handleUpdateSubItem(item.id, { assignedTeam: e.target.value })}
-                                className="w-full font-bold border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:ring-1 focus:ring-indigo-500 outline-none bg-white min-w-0"
+                                className="order-1 xl:order-2 w-full min-w-0 xl:flex-1 font-bold border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:ring-1 focus:ring-indigo-500 outline-none bg-white"
                               >
                                 <option value="">-- Chọn đội (Quân số) --</option>
                                 {displayTeams.map((t) => (
@@ -1924,7 +1924,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                 const matchingTeam = displayTeams.find(t => t.name === item.assignedTeam);
                                 if (matchingTeam?.phone) {
                                   return (
-                                    <div className="mt-1.5 flex justify-end">
+                                    <div className="order-2 xl:order-1 flex justify-end xl:shrink-0">
                                       <ContactMenu
                                         target={{ name: matchingTeam.leader || matchingTeam.name, phone: matchingTeam.phone }}
                                         context={{ type: 'room', shareText: `HNL QLTC – Liên hệ đội thi công\nĐội: ${matchingTeam.name}\nĐội trưởng: ${matchingTeam.leader || 'Chưa cập nhật'}\nSĐT: ${matchingTeam.phone}` }}
@@ -1935,11 +1935,13 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                 }
                                 return null;
                               })()}
+                              </div>
                             </div>
                           </div>
 
+                          <div data-hnl-room-pc-status-column="true" className="min-w-0 space-y-2 xl:space-y-2.5">
                           {/* Status buttons: Thi công */}
-                          <div className="xl:min-h-[104px]">
+                          <div>
                             <span className="text-[10.5px] font-bold text-slate-500 block mb-1">▶ Tiến độ thi công:</span>
                             <div data-hnl-pc-v36-room-status="item" className="grid grid-cols-3 gap-1.5 mb-1.5">
                               {(['Chưa làm', 'Đang làm', 'Đã hoàn thành'] as AcceptanceStatus[]).map((st) => (
@@ -1964,7 +1966,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                           </div>
 
                           {/* Status buttons: Nghiệm thu */}
-                          <div className="pt-1.5 border-t border-slate-100 xl:border-t-0 xl:pt-0 xl:min-h-[104px]">
+                          <div className="pt-2 border-t border-slate-200">
                             <span className="text-[10.5px] font-bold text-indigo-700 block mb-1">▶ Nghiệm thu hạng mục này:</span>
                             <div data-hnl-pc-v36-room-status="item" className="grid grid-cols-3 gap-1.5 mb-1.5">
                               {(['Chưa nghiệm thu', 'Đạt nghiệm thu', 'Chưa đạt (Cần sửa)'] as RoomInspectionResult[]).map((st) => (
@@ -2002,6 +2004,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                 className="flex-1 text-[10.5px] border border-slate-200 rounded-lg px-2 py-1 focus:ring-1 focus:ring-indigo-500 outline-none"
                               />
                             </div>
+                          </div>
                           </div>
                         </div>
                       );

@@ -52,6 +52,14 @@ assert.match(room, /volumeUnit: getCategorySourceUnit\(effectiveWorkCategory\)/)
 assert.match(room, /showAdvancedHighlights, setShowAdvancedHighlights/);
 assert.match(room, /highlightVolumeMode === 'area'/);
 assert.match(room, /data-hnl-subitem-quantity/);
+assert.match(room, /data-hnl-room-team-contact-row="true"/);
+assert.match(room, /order-1 xl:order-2/); // team select on right on PC
+assert.match(room, /order-2 xl:order-1/); // ContactMenu on left on PC
+assert.match(room, /data-hnl-room-pc-status-column="true"/);
+assert.equal((room.match(/xl:grid-cols-\\[minmax\\(0,1\\.15fr\\)_minmax\\(360px,1fr\\)\\]/g) || []).length, 2);
+assert.match(room, /Tiến độ · Nghiệm thu · Hạn hoàn thành/);
+assert.match(room, /\['Chưa làm', 'Đang làm', 'Đã hoàn thành'\]/);
+assert.match(room, /\['Chưa nghiệm thu', 'Đạt nghiệm thu', 'Chưa đạt \\(Cần sửa\\)'\]/);
 assert.doesNotMatch(room, /KL hiện có:|KL dự kiến khi lưu:/);
 assert.match(room, /getEffectiveStageHighlightRegions\(stage\)/);
 assert.match(room, /Preserve auto mode: no sub-region means 100%/);
