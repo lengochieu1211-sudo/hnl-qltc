@@ -1,4 +1,4 @@
-name: HNL DEV PC Room Two-Column Hosting-only Release 20261120 (NO PROD/Rules/R2/AI)
+name: HNL DEV Final PC Layout Hosting-only Release 20261120 (NO PROD/Rules/R2/AI)
 on:
   push:
     branches:
@@ -41,8 +41,8 @@ jobs:
           FIREBASE_DEV_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
         run: |
           set -euo pipefail
-          BASE=db32d379d4c7efbe86f59c25e8cf26b6cdc9e867
-          LIVE_EXPECTED=05584d4c88aab6e274fcbb36c73ed051187a8051
+          BASE=8d77c58b4ed49d0cfdea912cd20252fd184959ce
+          LIVE_EXPECTED=c2a9ef4e8c3b6734ad05e7170262cf260b5a9169
           test "$(git rev-parse HEAD^)" = "$BASE" || { echo '::error::Approval source parent mismatch'; exit 1; }
           test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
           test "$GITHUB_REF" = refs/heads/dev
@@ -51,9 +51,9 @@ jobs:
           test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$GITHUB_SHA"
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = ec79ffc801ecf059b37c82b9f4a9acf503108bf9 || { echo "::error::PROD main HEAD changed"; exit 1; }
           # Exact approved current DEV source and immutable tree; no rollback.
-          test "$(git rev-parse "$BASE^{tree}")" = 0c42d895aa39710c0fdc4e1ede1c6c200ff155aa
+          test "$(git rev-parse "$BASE^{tree}")" = fd493429378f6fc325ca697b21b6fd863fa2deee
           test "$(git rev-parse "$BASE:src/components/FloorPlanDefectTab.tsx")" = 65c736fd2b958118cac32fa64ad46f8d6d10085f
-          test "$(git rev-parse "$BASE:src/components/RoomHighlightModal.tsx")" = f7e92a005ba0446ac5dc597784565e4fab830b95
+          test "$(git rev-parse "$BASE:src/components/RoomHighlightModal.tsx")" = 48af050258ec88d558620823d6c80e0a74b375b6
           test "$(git rev-parse "$BASE:src/components/SecurityModal.tsx")" = c271239c4ced86c93256906c28e9b6dd928ebd99
           ! grep -Fq 'Nạp thay thế (xóa cũ)' src/components/RoomHighlightModal.tsx
           grep -Fq 'Nạp Thêm Vào Căn Này' src/components/RoomHighlightModal.tsx
@@ -62,11 +62,21 @@ jobs:
           grep -Fq 'data-hnl-room-team-contact-row="true"' src/components/RoomHighlightModal.tsx
           grep -Fq 'data-hnl-room-pc-status-column="true"' src/components/RoomHighlightModal.tsx
           grep -Fq 'xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,1fr)]' src/components/RoomHighlightModal.tsx
-          test "$(git rev-parse "$BASE:scripts/ui-entry-ux-golden.ts")" = 3af3db083211ba3fd0c83797348f785f292b8dab
+          grep -Fq 'data-hnl-room-name-color-row="true"' src/components/RoomHighlightModal.tsx
+          grep -Fq 'data-hnl-room-color-option="true"' src/components/RoomHighlightModal.tsx
+          grep -Fq 'data-hnl-room-category-title-row="true"' src/components/RoomHighlightModal.tsx
+          grep -Fq 'data-hnl-room-add-subitem-inline="true"' src/components/RoomHighlightModal.tsx
+          grep -Fq 'data-hnl-room-add-subitem-mobile="true"' src/components/RoomHighlightModal.tsx
+          grep -Fq 'hidden xl:inline-flex' src/components/RoomHighlightModal.tsx
+          grep -Fq 'xl:hidden w-full lg:w-auto' src/components/RoomHighlightModal.tsx
+          grep -Fq 'order-2 flex justify-end xl:shrink-0' src/components/RoomHighlightModal.tsx
+          grep -Fq 'data-hnl-room-preset-inline-row="true"' src/components/RoomHighlightModal.tsx
+          grep -Fq 'lg:flex-row lg:items-end' src/components/RoomHighlightModal.tsx
+          test "$(git rev-parse "$BASE:scripts/ui-entry-ux-golden.ts")" = 6916dec5b8a502bb2383c10cbfdb7e4b07f50c28
           test "$(git rev-parse "$BASE:src/types.ts")" = bfed21c5206d6add5acd33a84bb382d4817219b3
           test "$(git rev-parse "$BASE:src/utils/roomCategoryUnit.ts")" = 4df44a45bad5ac87badb1f1ddf18668cd7c62189
           test "$(git rev-parse "$BASE:src/utils/subItemHighlightGeometry.ts")" = aa8c909f58448747927989d111f230a336976b70
-          test "$(git rev-parse "$BASE:scripts/subitem-highlight-advanced-golden.mjs")" = 447076b0a4bdc38424914e69040425cf517d14e2
+          test "$(git rev-parse "$BASE:scripts/subitem-highlight-advanced-golden.mjs")" = 291eeffec32ed9df2424e7f7cb7d7442eba94eda
           test "$(git rev-parse "$BASE:scripts/ui-return-and-palette-golden.mjs")" = 10732575316fd43c3491eb6d5167417964205ccb
           # Dedicated one-file DEV Hosting release; no application/Rules/R2 data changes.
           git diff --name-only "$BASE" "$GITHUB_SHA" > "$RUNNER_TEMP/changed.txt"
@@ -127,6 +137,7 @@ jobs:
           node --experimental-strip-types scripts/warehouse-handler-account-golden.mjs
           node scripts/ui-return-and-palette-golden.mjs
           node --experimental-strip-types scripts/subitem-highlight-advanced-golden.mjs
+          npx tsx scripts/ui-entry-ux-golden.ts
           node --experimental-strip-types scripts/room-highlight-small-region-golden.mjs
           node --experimental-strip-types scripts/p216-room-sidecar-ui-golden.mjs
           node --experimental-strip-types scripts/pc-chat-room-height-golden.mjs
@@ -189,7 +200,7 @@ jobs:
           # Do not overwrite a concurrent or unrecognized DEV website publication.
           LIVE_JSON="$(curl -fsSL --retry 3 "$DEV_HOST/hnl-dev-release.json?preflight=$GITHUB_SHA")"
           LIVE_SHA="$(printf '%s' "$LIVE_JSON" | node -e "let s='';process.stdin.on('data',b=>s+=b).on('end',()=>{const j=JSON.parse(s);if(j.firebaseProjectId!=='hnl-qltc-dev'||j.environment!=='DEV')process.exit(2);process.stdout.write(j.gitCommit||'')})")"
-          test "$LIVE_SHA" = 05584d4c88aab6e274fcbb36c73ed051187a8051 || { echo "::error::DEV live moved since preflight; refusing overwrite: $LIVE_SHA"; exit 1; }
+          test "$LIVE_SHA" = c2a9ef4e8c3b6734ad05e7170262cf260b5a9169 || { echo "::error::DEV live moved since preflight; refusing overwrite: $LIVE_SHA"; exit 1; }
           node - <<'NODE'
           const fs=require('fs');
           const base=JSON.parse(fs.readFileSync('firebase.json','utf8'));
@@ -209,7 +220,7 @@ jobs:
           test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$GITHUB_SHA"
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = ec79ffc801ecf059b37c82b9f4a9acf503108bf9
           LIVE_SHA="$(curl -fsSL --retry 3 "$DEV_HOST/hnl-dev-release.json?deploy=$GITHUB_SHA" | node -e "let s='';process.stdin.on('data',b=>s+=b).on('end',()=>{const j=JSON.parse(s);if(j.firebaseProjectId!=='hnl-qltc-dev'||j.environment!=='DEV')process.exit(2);process.stdout.write(j.gitCommit||'')})")"
-          test "$LIVE_SHA" = 05584d4c88aab6e274fcbb36c73ed051187a8051 || { echo "::error::Concurrent DEV Hosting update detected; refuse deploy"; exit 1; }
+          test "$LIVE_SHA" = c2a9ef4e8c3b6734ad05e7170262cf260b5a9169 || { echo "::error::Concurrent DEV Hosting update detected; refuse deploy"; exit 1; }
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/hnl-acceptance-ui-dev-credentials.json"
           test -s "$GOOGLE_APPLICATION_CREDENTIALS"
           npx --yes firebase-tools@13.35.1 deploy --only hosting --config "$GITHUB_WORKSPACE/hnl-dev-acceptance-ui-20261120.generated.json" --project hnl-qltc-dev --non-interactive
@@ -240,7 +251,7 @@ jobs:
           const fs=require('fs'),crypto=require('crypto'),j=require(process.argv[2]);
           const hash=crypto.createHash('sha256').update(fs.readFileSync(process.argv[3])).digest('hex');
           if(hash!==j.entrySha256)throw Error('DEV LIVE JS bytes do not match certified build');
-          console.log('HNL DEV PC 2-column LIVE exact Git HEAD + JS SHA256 PASS; PROD untouched');
+          console.log('HNL DEV final PC layout LIVE Git HEAD + JS SHA256 PASS; PROD untouched');
           NODE
           # Read back real CC0 audio bytes from LIVE, not just the SPA shell.
           for name in rocket-real.mp3 crackle-real.mp3; do
@@ -252,7 +263,7 @@ jobs:
         if: success()
         shell: bash
         env:
-          BASELINE_SHA: 05584d4c88aab6e274fcbb36c73ed051187a8051
+          BASELINE_SHA: c2a9ef4e8c3b6734ad05e7170262cf260b5a9169
         run: |
           set -euo pipefail
           mkdir -p handoff
@@ -270,7 +281,7 @@ jobs:
               f.write('Approved source: '+base+'\nReleased commit: '+head+'\n')
               f.write('Hosting: hnl-qltc-dev.web.app; no PROD/Rules/R2/AI deployment\n')
               f.write('Source: exact GitHub archive; patch includes changes since approved app source\n')
-              f.write('User changes: PC two-column room acceptance; Contact left of team selector; progress/inspection same column; prior compact PIN and live area quantity retained.\n')
+              f.write('User changes: PC-only room name LEFT/color RIGHT; category LEFT, add-subitem and main quantity RIGHT; Contact RIGHT of team; preset Add button RIGHT; progress/inspection same column. Mobile stacked and separate add-subitem action preserved.\n')
               f.write('CI and Hosting manifest/JS checksum verified in workflow steps; device interaction requires separate Runtime Golden.\n')
           with open('handoff/SHA256SUMS.txt','w') as f:
               for name in ['FULL_SOURCE.zip','PATCH.zip','changed-files.txt','REPORT.md']:
