@@ -330,6 +330,13 @@ assert(
   'Contact must be right of the full-width team selector on PC while keeping the existing mobile vertical order'
 );
 
+assert(
+  roomHighlightUiForPc.includes('data-hnl-room-category-inline-actions="true"') &&
+    roomHighlightUiForPc.includes('data-hnl-room-add-subitem-inline="true"') &&
+    roomHighlightUiForPc.indexOf('data-hnl-room-add-subitem-inline="true"') < roomHighlightUiForPc.indexOf('Interactive Input Volume directly in the list') &&
+    roomHighlightUiForPc.includes('w-full sm:w-auto sm:inline-flex'),
+  'Add-subitem action must share the main volume row on PC (left of quantity) and wrap safely on mobile'
+);
 assert(workVolumeUi.includes('lg:max-w-[1100px]') && workVolumeUi.includes('left-0 lg:left-[84px]'), 'Work Volume editor must use desktop width while reserving the left rail');
 assert(warehouse.includes('lg:max-w-[1100px]') && warehouse.includes('left-0 lg:left-[84px]'), 'Warehouse editor must use desktop width while reserving the left rail');
 assert(roomHighlightUiForPc.includes('lg:max-w-[1200px]') && roomHighlightUiForPc.includes('left-0 lg:left-[84px]'), 'Room inspection editor must use the wide desktop/EXE sheet without covering the navigation rail');

@@ -53,6 +53,10 @@ assert.match(room, /showAdvancedHighlights, setShowAdvancedHighlights/);
 assert.match(room, /highlightVolumeMode === 'area'/);
 assert.match(room, /data-hnl-subitem-quantity/);
 assert.match(room, /data-hnl-room-team-contact-row="true"/);
+assert.match(room, /data-hnl-room-category-inline-actions="true"/);
+assert.match(room, /data-hnl-room-add-subitem-inline="true"/);
+assert.ok(room.indexOf('data-hnl-room-add-subitem-inline="true"') < room.indexOf('Interactive Input Volume directly in the list'));
+assert.equal(room.split('onClick={() => handleAddSubItem(catName)}').length - 1, 1);
 assert.match(room, /order-1 w-full min-w-0 xl:flex-1/); // team selector on left on PC and first on mobile
 assert.match(room, /order-2 flex justify-end xl:shrink-0/); // ContactMenu on right on PC and below on mobile
 assert.match(room, /data-hnl-room-pc-status-column="true"/);
