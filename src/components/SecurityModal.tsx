@@ -1484,17 +1484,17 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
         </div>
 
         {/* Tabs */}
-        <div data-hnl-security-primary-tabs="true" className={`grid ${entryPoint === 'account' || entryPoint === 'switch' ? (canReadAudit ? 'grid-cols-4' : 'grid-cols-3') : (canReadAudit ? 'grid-cols-3' : 'grid-cols-2')} gap-1 p-1 bg-slate-100 rounded-xl mt-2.5 shrink-0 lg:mt-0 lg:flex lg:items-center lg:flex-nowrap lg:gap-1 lg:self-stretch`}>
+        <div data-hnl-security-primary-tabs="true" className={`grid ${entryPoint === 'account' || entryPoint === 'switch' ? (canReadAudit ? 'grid-cols-4' : 'grid-cols-3') : (canReadAudit ? 'grid-cols-3' : 'grid-cols-2')} gap-1 p-1 bg-slate-100 rounded-xl mt-2.5 shrink-0 lg:mt-0 lg:flex lg:items-center lg:flex-nowrap lg:gap-1 lg:self-center lg:py-0.5`}>
           {(entryPoint === 'account' || entryPoint === 'switch') && (
             <button type="button" data-hnl-security-tab="account" onClick={() => setActiveTab('account')}
-              className={`py-2 px-1 rounded-lg font-bold text-[11px] flex items-center justify-center gap-1 transition-all ${activeTab === 'account' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}>
+              className={`py-2 lg:py-1 px-1 lg:px-2 rounded-lg font-bold text-[11px] flex items-center justify-center gap-1 transition-all ${activeTab === 'account' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}>
               <UserCheck className="w-3.5 h-3.5 shrink-0" /> Tài khoản
             </button>
           )}
           <button
             type="button"
             onClick={() => setActiveTab('pin')}
-            className={`py-2 px-1 sm:px-2 rounded-lg font-bold text-[11px] sm:text-xs flex items-center justify-center gap-1 transition-all cursor-pointer ${
+            className={`py-2 lg:py-1 px-1 sm:px-2 lg:px-2 rounded-lg font-bold text-[11px] sm:text-xs flex items-center justify-center gap-1 transition-all cursor-pointer ${
               activeTab === 'pin'
                 ? 'bg-white text-indigo-700 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
@@ -1507,7 +1507,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
           <button
             type="button"
             onClick={() => setActiveTab('rbac')}
-            className={`py-2 px-1 sm:px-2 rounded-lg font-bold text-[11px] sm:text-xs flex items-center justify-center gap-1 transition-all cursor-pointer ${
+            className={`py-2 lg:py-1 px-1 sm:px-2 lg:px-2 rounded-lg font-bold text-[11px] sm:text-xs flex items-center justify-center gap-1 transition-all cursor-pointer ${
               activeTab === 'rbac'
                 ? 'bg-white text-indigo-700 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
@@ -1521,7 +1521,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
             <button
               type="button"
               onClick={() => setActiveTab('audit')}
-              className={`py-2 px-1 sm:px-2 rounded-lg font-bold text-[11px] sm:text-xs flex items-center justify-center gap-1 transition-all cursor-pointer ${
+              className={`py-2 lg:py-1 px-1 sm:px-2 lg:px-2 rounded-lg font-bold text-[11px] sm:text-xs flex items-center justify-center gap-1 transition-all cursor-pointer ${
                 activeTab === 'audit'
                   ? 'bg-white text-indigo-700 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -1577,17 +1577,6 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
           {activeTab === 'pin' && (
             <div className="space-y-4">
               
-              {/* Security Policy Notice */}
-              <div className="p-3 bg-indigo-50/80 border border-indigo-200 rounded-2xl text-[11px] text-indigo-900 space-y-1">
-                <div className="font-extrabold flex items-center gap-1.5 text-indigo-950">
-                  <Shield className="w-4 h-4 text-indigo-600" />
-                  <span>NGUYÊN TẮC BẢO MẬT MÃ PIN &amp; QUÊN PIN:</span>
-                </div>
-                <p className="leading-relaxed text-[10.5px] opacity-90">
-                  Mã PIN chỉ dùng để khóa ứng dụng trên thiết bị này. PIN được lưu theo dạng bảo mật một chiều nên hệ thống không lưu nguyên số và không thể xem lại PIN cũ. <strong>Không có mã PIN chung hoặc PIN đặc biệt để mở khóa.</strong> Nếu quên PIN, chọn <strong>“Quên PIN? Đặt lại bằng Google”</strong>, đăng nhập đúng tài khoản Google để xác minh rồi tạo PIN mới.
-                </p>
-              </div>
-
               {/* Status banner */}
               <div className={`p-3.5 rounded-2xl border flex items-center justify-between ${
                 pinConfig.enabled && pinConfig.pinHash

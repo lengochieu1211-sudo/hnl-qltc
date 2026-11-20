@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { getRoomWorkCategoryUnit } from '../src/utils/roomCategoryUnit.ts';
-import { computeSubHighlightAreaRatio as ratio, isAreaHighlightUnit, getSubHighlightFloorRect } from '../src/utils/subItemHighlightGeometry.ts';
+import { computeSubHighlightAreaRatio as ratio, isAreaHighlightUnit, getSubHighlightFloorRect, getEffectiveStageHighlightRegions } from '../src/utils/subItemHighlightGeometry.ts';
 
 const base = { x: 10, y: 15, width: 40, height: 30 };
 const full = { x: 0, y: 0, width: 100, height: 100 };
@@ -19,6 +19,11 @@ q(base, undefined, [half, half, half], 50); // duplicate region does not inflate
 q(base, half, [full], 100); // main 50% of room, stage covers all main => 100%
 q(base, half, [{ x: 50, y:0, width:50,height:100 }], 0); // outside main => zero
 q(base, half, [{ x: 25, y:0, width:50,height:100 }], 50); // main intersection only
+q(base, undefined, getEffectiveStageHighlightRegions({ highlightVolumeMode: 'area' }), 100); // cleared subregion = full MAIN
+q(base, half, getEffectiveStageHighlightRegions({ highlightVolumeMode: 'area', highlightRegions: [] }), 100); // custom main preserved
+q(base, undefined, getEffectiveStageHighlightRegions({ highlightVolumeMode: 'area', highlightRegions: [half] }), 50);
+q(base, undefined, getEffectiveStageHighlightRegions({ highlightVolumeMode: 'manual' }), 0); // legacy manual unchanged
+assert.deepEqual(getEffectiveStageHighlightRegions({ highlightVolumeMode: 'manual' }), []);
 q(base, undefined, [{x:0,y:0,width:200,height:200}], 100); // clipped to room
 q({ ...base, points:[{x:10,y:15},{x:50,y:15},{x:10,y:45}] }, undefined, [half], 75); // triangular room
 assert.equal(ratio({ ...base, isPolyline:true }, undefined, [full]).valid, false);
@@ -46,6 +51,10 @@ assert.match(room, /getCategorySourceUnit\(catName\)/);
 assert.match(room, /volumeUnit: getCategorySourceUnit\(effectiveWorkCategory\)/);
 assert.match(room, /showAdvancedHighlights, setShowAdvancedHighlights/);
 assert.match(room, /highlightVolumeMode === 'area'/);
+assert.match(room, /data-hnl-subitem-quantity/);
+assert.doesNotMatch(room, /KL hiện có:|KL dự kiến khi lưu:/);
+assert.match(room, /getEffectiveStageHighlightRegions\(stage\)/);
+assert.match(room, /Preserve auto mode: no sub-region means 100%/);
 assert.match(room, /structureReadOnly && roomItem/);
 assert.match(room, /Đã hoàn thành.*Đạt nghiệm thu/);
 // An unconfigured project displays persisted stage regions by default, while an explicit

@@ -3,11 +3,21 @@
  * Coordinates are percentages of the room's bounding rectangle (0..100),
  * not pixel/floor coordinates. Ordinary room highlighting is unaffected.
  */
-import type { Point2D, RoomProgressItem, HighlightRegionRect } from '../types';
+import type { Point2D, RoomProgressItem, HighlightRegionRect, RoomSubItem } from '../types';
 
 const FINITE = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
 const TOL = 1e-8;
 export const WHOLE_ROOM_REGION: HighlightRegionRect = { x: 0, y: 0, width: 100, height: 100 };
+
+/** An area-based stage without a separate region uses 100% of its MAIN category area.
+ * Legacy/manual stages with no regions still have no calculated quantity.
+ * This is a read-only calculation fallback: it never writes an invented region to the room. */
+export function getEffectiveStageHighlightRegions(
+  stage: Pick<RoomSubItem, 'highlightRegions' | 'highlightVolumeMode'>,
+): HighlightRegionRect[] {
+  if (stage.highlightRegions?.length) return stage.highlightRegions;
+  return stage.highlightVolumeMode === 'area' ? [WHOLE_ROOM_REGION] : [];
+}
 
 export function normalizeHighlightRect(rect: HighlightRegionRect): HighlightRegionRect | null {
   if (!rect || ![rect.x, rect.y, rect.width, rect.height].every(FINITE)) return null;

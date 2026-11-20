@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { RoomProgressItem, RoomSubItem, HighlightRegionRect, AcceptanceStatus, RoomInspectionResult, Point2D, TeamInfo, ChecklistItem, MaterialNorm, InventoryItem, WorkVolume } from '../types';
 import { ROOM_COLOR_PALETTE } from '../utils/colorPalette';
-import { WHOLE_ROOM_REGION, computeSubHighlightAreaRatio, isAreaHighlightUnit, normalizeHighlightRect } from '../utils/subItemHighlightGeometry';
+import { WHOLE_ROOM_REGION, computeSubHighlightAreaRatio, getEffectiveStageHighlightRegions, isAreaHighlightUnit, normalizeHighlightRect } from '../utils/subItemHighlightGeometry';
 import { confirmAsync } from '../utils/confirmAsync';
 import { formatDecimal, formatAdaptiveDecimal, evaluateMathExpression, useFormatSettings } from '../utils/numberUtils';
 import { MathNumberInput } from './MathNumberInput';
@@ -359,6 +359,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
             id: createEntityId(`sub-init-${idx}`),
             name: displaySubName,
             category: defaultCat,
+            highlightVolumeMode: isAreaHighlightUnit(getRoomWorkCategoryUnit(defaultCat, workVolumes, floorId) || 'm²') ? 'area' : 'manual',
             status: 'Chưa làm',
             inspectionStatus: 'Chưa nghiệm thu',
             targetDate: '',
@@ -422,6 +423,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
         id: createEntityId(`sub-preset-${idx}`),
         name: displaySubName,
         category: catName,
+        highlightVolumeMode: isAreaHighlightUnit(getRoomWorkCategoryUnit(catName, workVolumes, floorId) || volumeUnit) ? 'area' : 'manual',
         status: 'Chưa làm',
         inspectionStatus: 'Chưa nghiệm thu',
         targetDate: '',
@@ -475,6 +477,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       const names = getSubItemsForCategory(defaultCat);
       setSubItems(names.map((name, idx) => ({
         id: createEntityId(`sub-init-late-${idx}`),
+        highlightVolumeMode: isAreaHighlightUnit(getRoomWorkCategoryUnit(defaultCat, workVolumes, floorId) || 'm²') ? 'area' : 'manual',
         name: name.toLowerCase().startsWith('thi công') || name.toLowerCase().startsWith('sơn') || name.toLowerCase().startsWith('bả') ? name : `Thi công ${name}`,
         category: defaultCat,
         status: 'Chưa làm',
@@ -657,9 +660,9 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
   const getHighlightRoom = () => ({ x, y, width, height, points, isPolyline });
   const getStageHighlightResult = (cat: string, stage: RoomSubItem) =>
-    computeSubHighlightAreaRatio(getHighlightRoom(), categoryHighlightRegions[cat], stage.highlightRegions || []);
+    computeSubHighlightAreaRatio(getHighlightRoom(), categoryHighlightRegions[cat], getEffectiveStageHighlightRegions(stage));
   const canDeriveStageHighlightQuantity = (cat: string, stage: RoomSubItem): boolean =>
-    isAreaHighlightUnit(getCategorySourceUnit(cat)) && getCategoryVolume(cat) > 0 &&
+    isAreaHighlightUnit(getCategorySourceUnit(cat)) && getCategoryVolume(cat) >= 0 &&
     stage.status !== 'Đã hoàn thành' && stage.inspectionStatus !== 'Đạt nghiệm thu';
 
   const getHighlightPointFromPointer = (event: React.PointerEvent<SVGSVGElement>): Point2D => {
@@ -707,8 +710,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     } else {
       setSubItems(prev => prev.map(stage => {
         if (stage.id !== highlightTarget) return stage;
-        const { highlightRegions: _regions, highlightVolumeMode: _mode, ...unchanged } = stage;
-        return unchanged;
+        const { highlightRegions: _regions, ...unchanged } = stage;
+        return unchanged; // Preserve auto mode: no sub-region means 100% of the main category.
       }));
     }
   };
@@ -968,6 +971,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       ...prev,
       {
         id: createEntityId('sub-custom'),
+        highlightVolumeMode: isAreaHighlightUnit(getRoomWorkCategoryUnit(catName || workCategory, workVolumes, floorId) || volumeUnit) ? 'area' : 'manual',
         name: `Hạng mục ${prev.length + 1}`,
         status: 'Chưa làm',
         inspectionStatus: 'Chưa nghiệm thu',
@@ -997,7 +1001,22 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       ? Object.fromEntries(Object.entries(patch).filter(([key]) => ['status', 'inspectionStatus', 'targetDate', 'assignedTeam', 'teamId'].includes(key))) as Partial<RoomSubItem>
       : patch;
     if (Object.keys(effectivePatch).length === 0) return;
-    setSubItems(prev => prev.map(item => item.id === id ? applyProgressPatch(item, effectivePatch) : item));
+    setSubItems(prev => prev.map(item => {
+      if (item.id !== id) return item;
+      const next = applyProgressPatch(item, effectivePatch);
+      const wasFinal = item.status === 'Đã hoàn thành' || item.inspectionStatus === 'Đạt nghiệm thu';
+      const nowFinal = next.status === 'Đã hoàn thành' || next.inspectionStatus === 'Đạt nghiệm thu';
+      const cat = item.category || workCategory || '';
+      if (!wasFinal && nowFinal && item.highlightVolumeMode === 'area' && canDeriveStageHighlightQuantity(cat, item)) {
+        const result = getStageHighlightResult(cat, item);
+        if (result.valid) return {
+          ...next,
+          workVolume: Math.round(getCategoryVolume(cat) * result.ratio * 10000) / 10000,
+          volumeUnit: getCategorySourceUnit(cat),
+        };
+      }
+      return next;
+    }));
   };
 
   // Delete sub item
@@ -1130,8 +1149,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       // Already-finalized, previously saved area quantities remain frozen.
       if ((stage.status === 'Đã hoàn thành' || stage.inspectionStatus === 'Đạt nghiệm thu') &&
           Number.isFinite(Number(stage.workVolume))) return false;
-      return !canDeriveStageHighlightQuantity(cat, stage) || !(stage.highlightRegions?.length) ||
-        !getStageHighlightResult(cat, stage).valid;
+      return !canDeriveStageHighlightQuantity(cat, stage) || !getStageHighlightResult(cat, stage).valid;
     });
     if (invalidAutoStage) {
       alert(`Không thể tự tính “${invalidAutoStage.name}”: cần khối lượng hạng mục chính theo m², vùng highlight hợp lệ và hạng mục chưa chốt hoàn thành/nghiệm thu. Hãy chọn chế độ thủ công nếu cần giữ dữ liệu hiện tại.`);
@@ -1851,9 +1869,41 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
                             {/* Team stays directly below the sub-item name on PC/laptop/EXE so long team names remain visible. */}
                             <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-[10.5px]">
-                              <div className="flex items-center gap-1.5 mb-1.5">
-                                <User className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                                <span className="font-bold text-slate-600">Đội thi công:</span>
+                              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 mb-1.5">
+                                <div className="flex items-center gap-1.5">
+                                  <User className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                  <span className="font-bold text-slate-600">Đội thi công:</span>
+                                </div>
+                                {(() => {
+                                  const finalized = item.status === 'Đã hoàn thành' || item.inspectionStatus === 'Đạt nghiệm thu';
+                                  const auto = item.highlightVolumeMode === 'area' && !finalized;
+                                  const result = auto ? getStageHighlightResult(catName, item) : null;
+                                  const canAuto = auto && canDeriveStageHighlightQuantity(catName, item) && result?.valid;
+                                  const displayedVolume = canAuto && result
+                                    ? Math.round(getCategoryVolume(catName) * result.ratio * 10000) / 10000
+                                    : item.workVolume;
+                                  const validNumber = displayedVolume !== undefined && displayedVolume !== null &&
+                                    String(displayedVolume).trim() !== '' && Number.isFinite(Number(displayedVolume));
+                                  const unit = canAuto ? getCategorySourceUnit(catName) : (item.volumeUnit || getCategorySourceUnit(catName));
+                                  const tooltip = canAuto
+                                    ? 'Tự tính trực tiếp theo KL chính và vùng Highlight; chỉ ghi khi nhấn Lưu. Không có vùng phụ = 100% vùng chính.'
+                                    : finalized ? 'Khối lượng đã chốt; không tự tính lại.' : 'Khối lượng thủ công hoặc đã lưu.';
+                                  return (
+                                    <span data-hnl-subitem-quantity={item.id}
+                                      className="inline-flex min-w-0 items-center gap-1 whitespace-nowrap rounded-lg border border-emerald-100 bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-950"
+                                      title={tooltip}>
+                                      <span className="font-semibold">KL:</span>
+                                      <strong className="tabular-nums">{validNumber ? `${formatDecimal(Number(displayedVolume))} ${unit}` : 'Chưa có'}</strong>
+                                      {canAuto && <span className="text-sky-700" title="Tự tính theo vùng">↻</span>}
+                                      {!structureReadOnly && roomItem?.id && (
+                                        <button type="button" aria-label={`Vẽ vùng highlight cho ${item.name}`}
+                                          onClick={() => { setShowAdvancedHighlights(true); setHighlightCategory(catName); setHighlightTarget(item.id); setAppendHighlightRegion(false); }}
+                                          className="ml-0.5 border-l border-emerald-200 pl-1 font-bold text-indigo-700 hover:text-indigo-900"
+                                          title="Xem hoặc vẽ vùng Highlight">Vùng</button>
+                                      )}
+                                    </span>
+                                  );
+                                })()}
                               </div>
                               <select
                                 value={item.assignedTeam || ''}
@@ -1884,36 +1934,6 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                   );
                                 }
                                 return null;
-                              })()}
-                            </div>
-                            {/* Quantity is read-only here: calculation remains opt-in and commits only on Save. */}
-                            <div data-hnl-subitem-quantity={item.id} className="rounded-lg border border-emerald-100 bg-emerald-50/60 px-2.5 py-2 text-[10.5px] space-y-1.5">
-                              {(() => {
-                                const isFinal = item.status === 'Đã hoàn thành' || item.inspectionStatus === 'Đạt nghiệm thu';
-                                const hasVolume = item.workVolume !== undefined && item.workVolume !== null && String(item.workVolume).trim() !== '' && Number.isFinite(Number(item.workVolume));
-                                const savedUnit = item.volumeUnit || getCategorySourceUnit(catName);
-                                const isAreaMode = item.highlightVolumeMode === 'area';
-                                const ratio = isAreaMode && !isFinal ? getStageHighlightResult(catName, item) : null;
-                                const canPreview = Boolean(ratio?.valid) && Boolean(item.highlightRegions?.length) &&
-                                  isAreaHighlightUnit(getCategorySourceUnit(catName)) && getCategoryVolume(catName) > 0;
-                                const previewValue = canPreview && ratio
-                                  ? Math.round(getCategoryVolume(catName) * ratio.ratio * 10000) / 10000 : null;
-                                return <>
-                                  <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                                    <span className="font-semibold text-emerald-900">KL hiện có:</span>
-                                    <strong className="text-emerald-950 tabular-nums">{hasVolume ? `${formatDecimal(Number(item.workVolume))} ${savedUnit}` : 'Chưa có'}</strong>
-                                    {isFinal && <span className="text-[9.5px] font-bold text-slate-600">· Đã chốt, không tự tính lại</span>}
-                                  </div>
-                                  {isAreaMode && !isFinal && <div className="font-bold text-sky-800">
-                                    {previewValue !== null ? `KL dự kiến khi lưu: ${formatDecimal(previewValue)} ${getCategorySourceUnit(catName)}`
-                                      : 'KL dự kiến: chưa đủ điều kiện tự tính theo vùng'}
-                                  </div>}
-                                  {!structureReadOnly && roomItem?.id && <button type="button"
-                                    onClick={() => { setShowAdvancedHighlights(true); setHighlightCategory(catName); setHighlightTarget(item.id); setAppendHighlightRegion(false); }}
-                                    className="text-[10px] font-bold text-indigo-700 underline underline-offset-2 hover:text-indigo-900">
-                                    Xem / vẽ vùng highlight
-                                  </button>}
-                                </>;
                               })()}
                             </div>
                           </div>
@@ -2110,7 +2130,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                     </button>}
                     <button type="button" onClick={clearHighlightRegion}
                       className="rounded-lg bg-rose-50 px-3 py-2 font-bold text-[11px] text-rose-700 hover:bg-rose-100">
-                      {highlightTarget === 'main' ? 'Xóa vùng tổng tùy chỉnh' : 'Xóa vùng phụ (về thủ công)'}
+                      {highlightTarget === 'main' ? 'Xóa vùng tổng tùy chỉnh' : 'Xóa vùng phụ (dùng vùng chính)'}
                     </button>
                   </div>
                   {selectedHighlightStage && (
@@ -2124,13 +2144,13 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                           }}
                           className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-bold text-slate-800">
                           <option value="manual">Thủ công (như cũ)</option>
-                          <option value="area" disabled={!canDeriveStageHighlightQuantity(highlightSelectedCategory, selectedHighlightStage) || !(selectedHighlightStage.highlightRegions?.length)}>Tự tính theo vùng (m²)</option>
+                          <option value="area" disabled={!canDeriveStageHighlightQuantity(highlightSelectedCategory, selectedHighlightStage)}>Tự tính theo vùng (m²)</option>
                         </select>
                       </div>
                       <p className="text-[10.5px] text-slate-500">
                         {selectedHighlightStage.highlightVolumeMode === 'area'
-                          ? 'Khi nhấn Lưu, KL phụ = KL chính × tỷ lệ diện tích giao nhau (không đếm trùng các vùng phụ).'
-                          : 'Khối lượng phụ hiện có được giữ nguyên. Có thể bật tự tính khi đã vẽ vùng và hạng mục chính dùng m².'}
+                          ? 'KL tự tính theo tỷ lệ vùng phụ; không có vùng phụ thì bằng 100% KL chính. Ghi dữ liệu khi Lưu.'
+                          : 'KL nhập tay giữ nguyên. Có thể chọn tự tính theo vùng chính hoặc vùng phụ khi đơn vị là m².'}
                       </p>
                       {!isAreaHighlightUnit(getCategorySourceUnit(highlightSelectedCategory)) && (
                         <p className="text-[10.5px] font-bold text-amber-800">Đơn vị m/bộ/cái không được tự tính bằng tỷ lệ diện tích.</p>
