@@ -11,10 +11,12 @@ assert.match(source, /setWarehouseFromDate\(''\)/, 'date filters must not hide i
 assert.match(source, /setWarehouseToDate\(''\)/, 'date filters must not hide it');
 assert.match(source, /setExpandedInventoryId\(current\.id\)/, 'highlight exact voucher card');
 assert.match(source, /data-hnl-warehouse-voucher-id=\{item\.id\}/, 'target must exist');
-assert.match(source, /directVoucherId && !voucherShareOpen && <WarehouseVoucherDetailSheet/, 'open actual read-only voucher on first click');
+assert.match(source, /handledDirectVoucherEditorKeyRef\.current = directVoucherEditorKey;[\s\S]{0,230}openEditInventory\(directVoucher\)/, 'open original editable voucher form directly for authorized users');
+assert.match(source, /directVoucherId && !voucherShareOpen && !showAddForm && !transferEditItem/, 'show read-only original receipt only without edit permission');
+assert.match(source, /directVoucher\.warehouseTransferId \? canAmendTransfer\(directVoucher\)/, 'transfer vouchers require atomic two-project amendment');
 assert.match(source, /data-hnl-journal-open-voucher=\{item\.id\}/, 'journal has direct document action');
 assert.match(source, /target\.focus\(\{ preventScroll: true \}\)/, 'keyboard focus moves to correct voucher');
-assert.match(source, /if \(!hasEditAccess\) return;[\s\S]*?if \(item\.warehouseTransferId\) \{[\s\S]*?canAmendTransfer\(item\)/, 'Edit remains permission and transfer gated');
+assert.match(source, /if \(!hasEditAccess \|\| item\.deletedAt != null[\s\S]*?if \(item\.warehouseTransferId\) \{[\s\S]*?canAmendTransfer\(item\)/, 'Edit remains permission, nondeleted and transfer gated');
 assert.match(source, /\{hasEditAccess && onUpdateInventory && \(!item\.warehouseTransferId \|\| canAmendTransfer\(item\)\)/, 'VIEWER cannot edit');
 assert.doesNotMatch(source.slice(source.indexOf('const openCatalogHistoryVoucher'),source.indexOf('const openCreateInventory')), /onUpdateInventory\(|onAddInventory\(|setDoc\(|updateDoc\(/, 'view/navigation must not write data');
 console.log('WAREHOUSE CATALOG VOUCHER LINK GOLDEN PASS: exact ID, view-only navigation, existing edit RBAC');

@@ -22,6 +22,20 @@ const forbidden=()=>{throw new Error('Fixture is read-only: no stock or crew wri
 
 function ReturnFixture(){
  const mobile=window.innerWidth<500;
+ const editorMode=new URLSearchParams(window.location.search).get('editor')==='1';
+ // An editor may revise an existing OUT voucher only against real positive stock.
+ // These IN rows belong to the fixture, not Firestore/PROD; VIEWER tests are unchanged.
+ const [rows,setRows]=React.useState<InventoryItem[]>(() => editorMode ? [
+   ...inventory,
+   {id:'FLOW-IN-MAT-STOCK',itemKind:'material',type:'in',materialId:'MAT-RETURN',materialName:'Tấm thạch cao Golden Return',unit:'Tấm',quantity:100,date:'2026-11-16',location:'Kho',handler:'Nhập thử'},
+   {id:'FLOW-IN-EQUIP-STOCK',itemKind:'equipment',type:'in',materialName:'Máy bắn vít Golden Return',unit:'Cái',quantity:5,date:'2026-11-16',location:'Kho',handler:'Nhập thử'},
+ ] : inventory);
+ const [savedCount,setSavedCount]=React.useState(0);
+ const updateVoucher=(id:string,changes:Omit<InventoryItem,'id'>)=>{
+   if(!editorMode)throw Error('VIEWER must not edit a voucher');
+   setRows(previous=>previous.map(row=>row.id===id?{...row,...changes,id}:row));
+   setSavedCount(count=>count+1);
+ };
  const [tab,setTab]=React.useState<'crew'|'warehouse'>('crew');
  const [origin,setOrigin]=React.useState<CrewVoucherOrigin|null>(null);
  const [returnRequest,setReturnRequest]=React.useState<CrewVoucherReturnRequest|null>(null);
@@ -29,7 +43,7 @@ function ReturnFixture(){
  const focusSequence=React.useRef(0);
  const returnSequence=React.useRef(0);
  const openVoucher=(id:string,source:CrewVoucherOrigin)=>{
-   if(source.projectId!==projectId || source.teamId!==team.id || !inventory.some(row=>row.id===id&&row.type==='out'&&row.sourceTeamId===team.id))return;
+   if(source.projectId!==projectId || source.teamId!==team.id || !rows.some(row=>row.id===id&&row.type==='out'&&row.sourceTeamId===team.id))return;
    setOrigin(source);setReturnRequest(null);setFocus({id,projectId,token:++focusSequence.current});setTab('warehouse');
  };
  const returnToCrew=()=>{
@@ -40,22 +54,24 @@ function ReturnFixture(){
  };
  return <div>
   <div data-hnl-fixture-active-tab={tab} className="p-1 text-xs">{tab}</div>
+  <div data-hnl-fixture-saved-count="true" className="hidden">{savedCount}</div>
   <div className="flex gap-2 p-2">
    <button data-hnl-fixture-open-crew="true" onClick={()=>setTab('crew')}>Mở Đội</button>
    <button data-hnl-fixture-open-warehouse="true" onClick={()=>{setFocus(null);setTab('warehouse');}}>Mở Kho</button>
   </div>
   {(tab==='crew'||!mobile)&&<div style={{display:tab==='crew'?'block':'none'}} data-hnl-fixture-crew="true">
-   <CrewTab isActive={tab==='crew'} quickEditEnabled={false} projectId={projectId} roleResolved userRole="VIEWER"
+   <CrewTab isActive={tab==='crew'} quickEditEnabled={false} projectId={projectId} roleResolved userRole={editorMode?'EDITOR':'VIEWER'}
     crewRecords={[]} floorPlans={[]} structureConfig={DEFAULT_STRUCTURE_CONFIG}
-    roomProgressList={[]} defects={[]} workVolumes={[]} inventory={inventory} materialNorms={norms}
+    roomProgressList={[]} defects={[]} workVolumes={[]} inventory={rows} materialNorms={norms}
     teams={[team]} onAddCrewRecord={forbidden} onUpdateCrewRecord={forbidden} onDeleteCrewRecord={forbidden}
     onCopyCrewRecordsFromDate={forbidden} onOpenWarehouseVoucher={openVoucher}
     voucherReturnRequest={returnRequest} onVoucherReturnRestored={token=>setReturnRequest(prev=>prev?.token===token?null:prev)} />
   </div>}
   {(tab==='warehouse'||!mobile)&&<div style={{display:tab==='warehouse'?'block':'none'}} data-hnl-fixture-warehouse="true">
    <WarehouseTab isActive={tab==='warehouse'} currentProjectId={projectId} quickEditEnabled={false}
-    orderSync={orderSync} inventory={inventory} materialNorms={norms} structureConfig={DEFAULT_STRUCTURE_CONFIG}
-    userRole="VIEWER" roleResolved onAddInventory={forbidden} onDeleteInventory={forbidden}
+    orderSync={orderSync} inventory={rows} materialNorms={norms} structureConfig={DEFAULT_STRUCTURE_CONFIG}
+    userRole={editorMode?'EDITOR':'VIEWER'} roleResolved onAddInventory={forbidden} onDeleteInventory={forbidden}
+    onUpdateInventory={editorMode?updateVoucher:undefined}
     onOpenNormModal={forbidden} focusVoucher={focus} onContextReturn={returnToCrew}/>
   </div>}
  </div>;

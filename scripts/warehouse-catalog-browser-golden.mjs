@@ -258,6 +258,34 @@ for(const size of [{width:1280,height:800},{width:393,height:852}]){
  await ctx.close();
 }
 
+// Authorized users must land on the ORIGINAL editable Nhập/Xuất warehouse form,
+// not on the separate read-only detail preview. Use in-memory fixture updates only.
+for(const [label,size] of [['desktop-editor',{width:1280,height:800}],['phone-editor',{width:393,height:852}]]){
+ const ctx=await browser.newContext({viewport:size});
+ const page=await ctx.newPage();
+ page.on('pageerror',e=>errors.push(label+': '+e.message));
+ await page.goto(url.replace('/index.html','/crew-return.html?editor=1'),{waitUntil:'domcontentloaded'});
+ await page.locator('[data-hnl-fixture-open-crew="true"]').click();
+ await page.locator('#crew-subtab-navigation button').last().click();
+ await page.locator('[title="Bấm để xem chi tiết thống kê căn & defect"]').first().click();
+ await page.getByRole('button',{name:/Vật tư đối chiếu/}).click();
+ await page.locator('[data-hnl-team-material-voucher="FLOW-OUT-MAT-001"]').click();
+ await page.locator('[data-hnl-fixture-active-tab="warehouse"]').waitFor({state:'visible'});
+ const editor=page.locator('[data-hnl-original-voucher-editor="FLOW-OUT-MAT-001"]');
+ await editor.waitFor({state:'visible',timeout:15000});
+ assert.equal(await page.locator('[data-hnl-warehouse-direct-voucher="true"]').count(),0,label+': edit allowed but readonly preview opened');
+ assert.equal(await page.locator('[data-hnl-context-back-button="true"]').count(),1,label+': editor has duplicate Back controls');
+ assert.equal(await page.locator('[data-hnl-fixture-saved-count="true"]').textContent(),'0',label+': merely opening editor wrote warehouse data');
+ assert.equal(await editor.locator('input[type="text"]').count()>0,true,label+': original editable voucher fields missing');
+ await editor.getByPlaceholder('Ghi chú xuất cho tổ đội nào, hóa đơn đi kèm...').fill('Đã kiểm tra và chỉnh sửa từ phiếu gốc');
+ await editor.getByRole('button',{name:'Lưu thay đổi'}).click();
+ await page.locator('[data-hnl-fixture-active-tab="crew"]').waitFor({state:'visible',timeout:15000});
+ assert.equal(await page.locator('[data-hnl-fixture-saved-count="true"]').textContent(),'1',label+': exact existing voucher did not save once');
+ assert.equal(await page.locator('[data-hnl-original-voucher-editor]').count(),0,label+': editor remained open after saved Back');
+ checks.push({viewport:label,flow:'original-warehouse-editor-prepopulated-one-back-and-one-save',result:'PASS'});
+ await ctx.close();
+}
+
 // Source-level guard for matching icons; browser equipment editor cannot load
 // Firestore documents in this intentionally projectless UI fixture.
 const equipmentSource=fs.readFileSync('src/components/EquipmentCatalogPanel.tsx','utf8');

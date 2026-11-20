@@ -8,12 +8,19 @@ const detail = read('src/components/WarehouseVoucherDetailSheet.tsx');
 
 // The direct voucher sheet owns the only visible Back: it replaces the earlier
 // card Back and the cross-module sticky header is hidden while the sheet is open.
-assert.match(warehouse, /directVoucherId && !voucherShareOpen && <WarehouseVoucherDetailSheet/, 'exact voucher sheet opens for deep links');
+assert.match(warehouse, /directVoucherId && !voucherShareOpen && !showAddForm && !transferEditItem/, 'read-only sheet only when no original editor active');
+assert.match(warehouse, /const directVoucherCanEdit = Boolean\(directVoucher && hasEditAccess/, 'only verified project editors can open original warehouse editor');
+assert.match(warehouse, /handledDirectVoucherEditorKeyRef\.current = directVoucherEditorKey;[\s\S]{0,230}openEditInventory\(directVoucher\)/, 'source voucher opens existing editor on first navigation');
+assert.match(warehouse, /data-hnl-original-voucher-editor=\{directVoucherId && editingInventory\?\.id === directVoucherId/, 'original edit form exposes exact opened voucher ID');
+assert.match(warehouse, /editingInventory && \(!onUpdateInventory \|\| editingInventory\.deletedAt != null/, 'edit refuses missing update handler or deleted voucher (no accidental insert)');
+assert.match(warehouse, /directVoucherId && editingInventory\?\.id === directVoucherId \?[\s\S]{0,120}<ContextBackButton label=\{directVoucherBackLabel\} onClick=\{closeOriginalVoucherForm\}/, 'one Back from original edit form');
+assert.match(warehouse, /if \(directVoucherId && editingInventory\?\.id === directVoucherId\) closeDirectVoucher\(\)/, 'after successful edit return to original source');
+assert.match(warehouse, /directVoucher\.warehouseTransferId \? canAmendTransfer\(directVoucher\)/, 'two-project transfers do not bypass atomic amendment permissions');
 assert.match(warehouse, /directVoucherFromCrew \? 'Thống kê đội'/, 'crew back label');
 assert.match(warehouse, /directVoucherFromCatalog[\s\S]{0,150}catalogVoucherReturn\?\.history\.type/, 'catalog Back type label');
 assert.match(detail, /<ContextBackButton label=\{backLabel\} onClick=\{onBack\}/, 'one Back in direct voucher sheet');
 assert.equal((detail.match(/<ContextBackButton\b/g) || []).length, 1, 'only one Back in detail sheet');
-assert.equal((warehouse.match(/<ContextBackButton\b/g) || []).length, 0, 'no duplicate card Back');
+assert.equal((warehouse.match(/<ContextBackButton\b/g) || []).length, 2, 'one Back in original editor, one in transfer correction; never rendered together');
 assert.doesNotMatch(warehouse, /data-hnl-voucher-return-origin="crew-statistics"|onReturnFromSourceVoucher/, 'no duplicate Crew Back');
 assert.match(app, /!\(activeTab === 'warehouse' && warehouseVoucherFocus\?\.projectId === activeProjectId\)/, 'hide App header Back under direct voucher modal');
 assert.match(app, /data-hnl-cross-module-return="true"/, 'App retains shared header Back');
@@ -68,6 +75,7 @@ assert.match(crew, /const handledVoucherReturnRef = useRef/, 'mobile return is i
 assert.match(crew, /voucherReturnRequest\.projectId !== projectId/, 'never restore a crew modal from another project');
 assert.match(crew, /onVoucherReturnRestored\?\.\(voucherReturnRequest\.token\)/, 'consume App-held return request once');
 assert.match(warehouse, /hasEditAccess && onUpdateInventory && \(!item\.warehouseTransferId \|\| canAmendTransfer\(item\)\)/, 'original voucher Edit RBAC and transfer guard unchanged');
+assert.match(warehouse, /readOnly compactViewerButton/, 'receipt photos retain read-only viewer unless using separate authorized attachment workflow');
 assert.match(crew, /line\.voucherIds\?\.length === 1/, 'single material voucher directly clickable');
 assert.match(crew, /line\.voucherCount === 1 && line\.vouchers\.length === 1/, 'single equipment voucher directly clickable');
 assert.match(warehouse, /initialVoucherId=\{singleVoucherExportId \|\| undefined\}/, 'exact voucher export preset forwarded');

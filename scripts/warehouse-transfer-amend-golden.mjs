@@ -86,8 +86,12 @@ assert.ok(amend.includes('grid grid-cols-1 gap-3 lg:grid-cols-6 lg:gap-4'), 'PC 
 assert.equal((amend.match(/lg:col-span-2/g) || []).length, 3, 'quantity/date/handler must form three PC columns');
 assert.equal((amend.match(/lg:col-span-3/g) || []).length, 2, 'note/reason must form two PC columns');
 assert.ok(amend.includes('aria-label="Đóng form điều chỉnh phiếu điều chuyển"'), 'missing top-right accessible X button');
-assert.equal((amend.match(/disabled=\{transferEditBusy\} onClick=\{\(\) => setTransferEditItem\(null\)\}/g) || []).length, 2,
-  'both X and Cancel must be blocked while saving');
+assert.ok(amend.includes('disabled={transferEditBusy} onClick={() => setTransferEditItem(null)}'),
+  'ordinary X is disabled while saving');
+assert.ok(amend.includes('<ContextBackButton label={directVoucherBackLabel} disabled={transferEditBusy}'),
+  'contextual Back is disabled while saving');
+assert.ok(amend.includes('disabled={transferEditBusy} onClick={() => {'),
+  'Cancel is disabled while saving');
 assert.ok(amend.includes('lg:flex lg:justify-end lg:gap-3'), 'PC footer buttons should align to the right');
 assert.ok(amend.includes('min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain'), 'body should scroll while header/footer remain visible');
 assert.equal((amend.match(/onSubmit=\{async \(event\) => \{/g) || []).length, 1, 'keep exactly one existing form submit handler');

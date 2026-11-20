@@ -51,6 +51,7 @@ import { createWarehouseProjectTransferAtomic, receiveWarehouseProjectTransferAt
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import { WarehouseVoucherShareSheet } from './WarehouseVoucherShareSheet';
 import { WarehouseVoucherDetailSheet } from './WarehouseVoucherDetailSheet';
+import { ContextBackButton } from './ContextBackButton';
 import { WarehouseReportActions } from './WarehouseReportActions';
 import { WarehouseOrderSheet } from './WarehouseOrderSheet';
 import type {WarehouseOrderSync} from '../hooks/useWarehouseOrderSync';
@@ -274,6 +275,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [voucherShareOpen, setVoucherShareOpen] = useState(false);
   const [singleVoucherExportId, setSingleVoucherExportId] = useState<string | null>(null);
   const [journalVoucherId, setJournalVoucherId] = useState<string | null>(null);
+  // A voucher deep-link opens the existing editable warehouse form once per
+  // navigation. Do not reopen it after Save/Back or on unrelated re-renders.
+  const handledDirectVoucherEditorKeyRef = useRef<string | null>(null);
   // Draft images remain in-memory, never in R2/Firestore until the ledger commits.
   const [pendingVoucherPhotos, setPendingVoucherPhotos] = useState<File[]>([]);
   const [photoVoucher, setPhotoVoucher] = useState<(Pick<InventoryItem, 'id' | 'type' | 'materialName'> & { projectId: string; initialFiles?: File[]; retryFiles?: File[] }) | null>(null);
@@ -283,6 +287,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setShowAddForm(false);
     setEditingInventory(null);
     setJournalVoucherId(null);
+    handledDirectVoucherEditorKeyRef.current = null;
     setSingleVoucherExportId(null);
     setVoucherShareOpen(false);
     // Filters from another project must not hide this project's warehouse vouchers.
@@ -1920,6 +1925,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     ? inventory.find(item => item.id === directVoucherId && item.deletedAt == null) || null : null;
   const directVoucherFromCrew = Boolean(isActive && focusVoucher?.projectId === currentProjectId);
   const directVoucherFromCatalog = !directVoucherFromCrew && Boolean(catalogVoucherReturn?.projectId === currentProjectId);
+  const directVoucherBackLabel = directVoucherFromCrew ? 'Thống kê đội' : directVoucherFromCatalog
+    ? (catalogVoucherReturn?.history.type === 'in' ? 'Chi tiết nhập kho' : 'Chi tiết xuất kho') : 'Nhật ký kho';
+  const directVoucherCanEdit = Boolean(directVoucher && hasEditAccess &&
+    (directVoucher.warehouseTransferId ? canAmendTransfer(directVoucher) : onUpdateInventory));
+  const directVoucherEditorKey = directVoucherId
+    ? `${currentProjectId}:${directVoucherFromCrew ? `crew:${focusVoucher?.token}`
+      : directVoucherFromCatalog ? 'catalog' : 'journal'}:${directVoucherId}` : null;
   const closeDirectVoucher = () => {
     if (directVoucherFromCrew) onContextReturn?.();
     else if (directVoucherFromCatalog) returnFromCatalogVoucher();
@@ -1968,7 +1980,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   };
 
   const openEditInventory = (item: InventoryItem) => {
-    if (!hasEditAccess) return;
+    if (!hasEditAccess || item.deletedAt != null || !inventory.some(row => row.id === item.id && row.deletedAt == null)) return;
+    // Only the existing same-project update/atomic-transfer path may edit; never
+    // convert a missing update handler into an accidental new stock transaction.
+    if (!item.warehouseTransferId && !onUpdateInventory) return;
     if (item.warehouseTransferId) {
       if (!canAmendTransfer(item)) {
         alert('Chỉ ADMIN có quyền trên cả dự án gửi và nhận mới được điều chỉnh phiếu liên kết.');
@@ -2028,9 +2043,37 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setShowAddForm(true);
   };
 
+  useEffect(() => {
+    if (!directVoucherId || !isActive) {
+      handledDirectVoucherEditorKeyRef.current = null;
+      return;
+    }
+    if (!directVoucherCanEdit || !directVoucher || !directVoucherEditorKey
+      || handledDirectVoucherEditorKeyRef.current === directVoucherEditorKey) return;
+    handledDirectVoucherEditorKeyRef.current = directVoucherEditorKey;
+    // Reuse the exact form used by the warehouse voucher's existing Edit action.
+    // Transfer vouchers deliberately route to the two-project atomic amend form.
+    openEditInventory(directVoucher);
+  }, [isActive, directVoucherEditorKey, directVoucherId, directVoucher,
+    directVoucherCanEdit, onUpdateInventory]);
+
+  const closeOriginalVoucherForm = () => {
+    if (pendingVoucherPhotos.length > 0 && !window.confirm('Hủy phiếu chưa lưu và bỏ các ảnh đã chọn?')) return;
+    const isDeepLinkedEdit = Boolean(directVoucherId && editingInventory?.id === directVoucherId);
+    setPendingVoucherPhotos([]);
+    setShowAddForm(false);
+    setEditingInventory(null);
+    if (isDeepLinkedEdit) closeDirectVoucher();
+  };
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!hasEditAccess || inventorySaveInFlightRef.current) return;
+    if (editingInventory && (!onUpdateInventory || editingInventory.deletedAt != null
+      || !inventory.some(item => item.id === editingInventory.id && item.deletedAt == null))) {
+      alert('Phiếu đã thay đổi hoặc không còn quyền sửa. Hãy đồng bộ trước khi tiếp tục.');
+      return;
+    }
     if (type === 'out' && issuePurpose === 'project-transfer') {
       if (!currentProjectId || !destinationProjectId || !transferableProjects.some(p => p.id === destinationProjectId)) {
         alert('Chọn dự án đích đang có quyền ghi, khác dự án hiện tại.');
@@ -2250,6 +2293,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         setQuickAddMessage('');
         setNotes('');
         alert(editingInventory ? 'Đã cập nhật phiếu kho thành công!' : `Đã thêm phiếu ${type === 'in' ? 'nhập kho' : 'xuất kho'} thành công!`);
+        if (directVoucherId && editingInventory?.id === directVoucherId) closeDirectVoucher();
       }
     } catch (err: any) {
       alert(`Không thể ghi giao dịch kho: ${err?.message || String(err)}`);
@@ -4183,15 +4227,16 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         )}
       </div>
 
-      {directVoucherId && !voucherShareOpen && <WarehouseVoucherDetailSheet
+      {directVoucherId && !voucherShareOpen && !showAddForm && !transferEditItem
+        && !(directVoucherCanEdit && handledDirectVoucherEditorKeyRef.current !== directVoucherEditorKey)
+        && <WarehouseVoucherDetailSheet
         voucher={directVoucher}
         projectId={currentProjectId}
         projectName={projectName}
         projectLocation={projectLocation}
         contractorName={contractorName}
         teamName={teams.find(team => team.id === directVoucher?.sourceTeamId)?.name}
-        backLabel={directVoucherFromCrew ? 'Thống kê đội' : directVoucherFromCatalog
-          ? (catalogVoucherReturn?.history.type === 'in' ? 'Chi tiết nhập kho' : 'Chi tiết xuất kho') : 'Nhật ký kho'}
+        backLabel={directVoucherBackLabel}
         onBack={closeDirectVoucher}
         onShare={directVoucher && roleResolved ? openDirectVoucherExport : undefined}
       />}
@@ -4239,7 +4284,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         </div>
       )}
       {hasDeleteAccess && transferEditItem && (
-        <div className="fixed inset-0 z-[96] flex items-center justify-center bg-slate-950/60 p-3 lg:left-[84px] lg:p-4" role="dialog"
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/60 p-3 lg:left-[84px] lg:p-4" role="dialog"
           aria-modal="true" aria-label="Điều chỉnh phiếu điều chuyển liên dự án">
           <form data-hnl-warehouse-transfer-amend-form="true"
             className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white text-xs shadow-xl lg:max-h-[calc(100dvh-2rem)] lg:max-w-[1100px]"
@@ -4265,6 +4310,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 });
                 setTransferEditItem(null);
                 alert('Đã điều chỉnh đồng bộ phiếu xuất/nhập và tồn kho cả hai dự án.');
+                if (directVoucherId && transferEditItem.id === directVoucherId) closeDirectVoucher();
               } catch (error) {
                 alert('Không thể điều chỉnh: ' + (error instanceof Error ? error.message : String(error)));
               } finally {
@@ -4273,9 +4319,15 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             }}>
             <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5 lg:px-6 lg:py-4">
               <h3 className="min-w-0 text-base font-bold text-slate-900">Điều chỉnh phiếu điều chuyển</h3>
-              <button type="button" aria-label="Đóng form điều chỉnh phiếu điều chuyển" title="Đóng"
-                disabled={transferEditBusy} onClick={() => setTransferEditItem(null)}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 font-bold text-slate-500 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50">✕</button>
+              {directVoucherId && transferEditItem.id === directVoucherId ?
+                <ContextBackButton label={directVoucherBackLabel} disabled={transferEditBusy} onClick={() => {
+                  if (transferEditBusy) return;
+                  setTransferEditItem(null);
+                  closeDirectVoucher();
+                }} /> :
+                <button type="button" aria-label="Đóng form điều chỉnh phiếu điều chuyển" title="Đóng"
+                  disabled={transferEditBusy} onClick={() => setTransferEditItem(null)}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 font-bold text-slate-500 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50">✕</button>}
             </div>
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5 lg:px-6 lg:py-5">
               <div className="space-y-1.5 rounded-xl border border-slate-100 bg-slate-50 p-3 lg:p-4">
@@ -4313,8 +4365,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               <p className="text-[11px] text-slate-600">Nếu đã nhập, số lượng chỉ giảm khi kho nhận còn đủ tồn. Giao dịch sẽ thất bại an toàn nếu dữ liệu thay đổi trên thiết bị khác hoặc thiếu quyền ADMIN ở một trong hai dự án.</p>
             </div>
             <div className="grid shrink-0 grid-cols-2 gap-2 border-t border-slate-100 px-4 py-3 sm:px-5 lg:flex lg:justify-end lg:gap-3 lg:px-6 lg:py-4">
-              <button type="button" disabled={transferEditBusy} onClick={() => setTransferEditItem(null)}
-                className="min-h-11 min-w-0 rounded-xl border border-slate-300 px-2 py-2 text-xs font-bold leading-4 text-slate-700 lg:min-w-[128px]">Hủy</button>
+              <button type="button" disabled={transferEditBusy} onClick={() => {
+                const isDirectTransfer = directVoucherId === transferEditItem.id;
+                setTransferEditItem(null);
+                if (isDirectTransfer) closeDirectVoucher();
+              }} className="min-h-11 min-w-0 rounded-xl border border-slate-300 px-2 py-2 text-xs font-bold leading-4 text-slate-700 lg:min-w-[128px]">Hủy</button>
               <button type="submit" disabled={transferEditBusy}
                 className="min-h-11 min-w-0 rounded-xl bg-blue-600 px-2 py-2 text-xs font-bold leading-4 whitespace-normal text-white disabled:opacity-50 lg:min-w-[240px]">
                 {transferEditBusy ? 'Đang đối chiếu…' : 'Lưu đồng bộ hai dự án'}
@@ -4367,25 +4422,24 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
       {/* Add Form Modal */}
       {hasEditAccess && showAddForm && (
-        <div className="hnl-ios-safe-modal fixed inset-y-0 right-0 left-0 lg:left-[84px] bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div className={`hnl-ios-safe-modal fixed inset-y-0 right-0 left-0 lg:left-[84px] bg-slate-900/60 backdrop-blur-xs ${directVoucherId && editingInventory?.id === directVoucherId ? 'z-[110]' : 'z-50'} flex items-end sm:items-center justify-center p-0 sm:p-4`}>
           <div className="hnl-ios-safe-dialog bg-white w-full sm:max-w-2xl lg:max-w-[1100px] rounded-t-3xl sm:rounded-2xl max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-200">
             <div className="shrink-0 flex items-center justify-between border-b border-slate-100 px-5 lg:px-6 pt-5 lg:pt-6 pb-3">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <PackageCheck className="w-5 h-5 text-blue-600" />
-                {editingInventory ? 'Chỉnh sửa phiếu kho' : 'Tạo phiếu nhập / xuất kho'}
+                {directVoucherId && editingInventory?.id === directVoucherId
+                  ? `PHIẾU ${editingInventory.type === 'in' ? 'NHẬP' : 'XUẤT'} KHO · ${editingInventory.id}`
+                  : editingInventory ? 'Chỉnh sửa phiếu kho' : 'Tạo phiếu nhập / xuất kho'}
               </h3>
-              <button
-                onClick={() => {
-                  if (pendingVoucherPhotos.length > 0 && !window.confirm('Hủy phiếu chưa lưu và bỏ các ảnh đã chọn?')) return;
-                  setPendingVoucherPhotos([]); setShowAddForm(false); setEditingInventory(null);
-                }}
-                className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-500 hover:bg-slate-200"
-              >
-                ✕
-              </button>
+              {directVoucherId && editingInventory?.id === directVoucherId ?
+                <ContextBackButton label={directVoucherBackLabel} onClick={closeOriginalVoucherForm} /> :
+                <button type="button" onClick={closeOriginalVoucherForm}
+                  className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-500 hover:bg-slate-200">✕</button>}
             </div>
 
-            <form data-hnl-pc-v3-form="warehouse" onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 lg:px-6 pb-5 lg:pb-6 pt-4 grid grid-cols-1 lg:grid-cols-6 gap-3 text-xs">
+            <form data-hnl-pc-v3-form="warehouse"
+              data-hnl-original-voucher-editor={directVoucherId && editingInventory?.id === directVoucherId ? directVoucherId : undefined}
+              onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 lg:px-6 pb-5 lg:pb-6 pt-4 grid grid-cols-1 lg:grid-cols-6 gap-3 text-xs">
               {/* Warehouse item kind: share a desktop row with voucher type, stacked on touch layouts. */}
               <div data-hnl-v35-voucher-group="item-kind" className="lg:col-span-3 min-w-0">
                 <label className="block text-slate-700 font-bold mb-1">Loại hàng</label>
