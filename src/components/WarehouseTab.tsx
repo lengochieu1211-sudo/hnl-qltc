@@ -4196,7 +4196,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         onShare={directVoucher && roleResolved ? openDirectVoucherExport : undefined}
       />}
       {voucherShareOpen && <WarehouseVoucherShareSheet
-        key={singleVoucherExportId || 'all'}
         open={voucherShareOpen}
         initialVoucherId={singleVoucherExportId || undefined}
         inventory={inventory}
