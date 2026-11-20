@@ -35,6 +35,7 @@ import { MathNumberInput } from './MathNumberInput';
 import { createEntityId, createDeterministicId } from '../utils/idUtils';
 import { toLocalDateInputValue } from '../utils/dateFormatter';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
+import { getRoomWorkCategoryUnit } from '../utils/roomCategoryUnit';
 import { buildMaterialAliasMap, getMaterialIdentityKey, resolveNormMaterialId, normalizeMaterialNameKey } from '../utils/inventoryUtils';
 import { computeMaterialNeeds } from '../utils/materialNeedEngine';
 import { validateInventoryOutProvenance } from '../utils/linkageIntegrity';
@@ -318,7 +319,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       setSelectedColor(roomItem.color || '');
       setIsPolyline(!!roomItem.isPolyline);
       setWorkVolume(roomItem.workVolume !== undefined && roomItem.workVolume !== null ? roomItem.workVolume : '');
-      setVolumeUnit(roomItem.volumeUnit || 'm²');
+      setVolumeUnit(normalizeUnit(getRoomWorkCategoryUnit(cat, workVolumes, floorId) || roomItem.volumeUnit || 'm²') || 'm²');
 
       // Load categoryVolumes
       if (roomItem.categoryVolumes) {
@@ -389,7 +390,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       setNotes('');
       setAssignedTeam('');
       setWorkVolume('');
-      setVolumeUnit('m²');
+      setVolumeUnit(normalizeUnit(getRoomWorkCategoryUnit(defaultCat, workVolumes, floorId) || 'm²') || 'm²');
     }
   }, [roomItem, initialPos, initialRect, initialPoints, isOpen]);
 
@@ -399,6 +400,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     if (!normalizedCategory) return;
     catName = normalizedCategory;
     setWorkCategory(catName);
+    setVolumeUnit(normalizeUnit(getRoomWorkCategoryUnit(catName, workVolumes, floorId) || volumeUnit || 'm²') || 'm²');
     
     // Find all material norms matching this category
     const matchingNorms = materialNorms ? materialNorms.filter(norm => {
@@ -425,7 +427,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
         inspectionStatus: 'Chưa nghiệm thu',
         targetDate: '',
         workVolume: undefined,
-        volumeUnit: 'm²',
+        volumeUnit: normalizeUnit(getRoomWorkCategoryUnit(catName, workVolumes, floorId) || volumeUnit || 'm²') || 'm²',
         assignedTeam: assignedTeam || '',
       };
     });
@@ -564,7 +566,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
         ? Number(categoryVolumes[oldId]) || 0
         : (orphan.source === 'room' ? Number(workVolume) || 0 : 0);
     const confirmed = await confirmAsync(
-      `Gán lại hạng mục mồ côi:\n\n“${orphan.label}” → “${target}”\n\nHạng mục con liên quan: ${affectedSubItems}\nKhối lượng chuyển: ${formatDecimal(sourceVolume)} ${volumeUnit || 'm²'}\n\nTiến độ, nghiệm thu và đội thi công được giữ nguyên. Không xóa lịch sử. Tiếp tục?`
+      `Gán lại hạng mục mồ côi:\n\n“${orphan.label}” → “${target}”\n\nHạng mục con liên quan: ${affectedSubItems}\nKhối lượng chuyển: ${formatDecimal(sourceVolume)} ${getRoomWorkCategoryUnit(orphan.workCategoryName || workCategory, workVolumes, floorId) || volumeUnit || 'm²'}\n\nTiến độ, nghiệm thu và đội thi công được giữ nguyên. Không xóa lịch sử. Tiếp tục?`
     );
     if (!confirmed) return;
 
@@ -661,9 +663,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   }, [categoryVolumes, workVolumes, workCategory, workVolume]);
 
   const getCategorySourceUnit = (cat: string) => {
-    const normalizedCat = cat.trim().toLocaleLowerCase('vi-VN');
-    const matched = workVolumes.find((v) => v.id === cat || v.title.trim().toLocaleLowerCase('vi-VN') === normalizedCat);
-    return normalizeUnit(roomItem?.categoryVolumeUnits?.[cat] || matched?.unit || volumeUnit || 'm²') || 'm²';
+    const catalogUnit = getRoomWorkCategoryUnit(cat, workVolumes, floorId);
+    return normalizeUnit(catalogUnit || roomItem?.categoryVolumeUnits?.[cat] || volumeUnit || 'm²') || 'm²';
   };
 
   const getHighlightRoom = () => ({ x, y, width, height, points, isPolyline });
@@ -1175,10 +1176,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
         .map((sub) => normalizeUnit(sub.volumeUnit || ''))
         .filter(Boolean);
       const uniqueSubUnits = Array.from(new Set(explicitSubUnits));
-      const linkedVolume = workVolumes.find((v) => v.title.trim().toLocaleLowerCase('vi-VN') === cat.trim().toLocaleLowerCase('vi-VN'));
-      acc[cat] = uniqueSubUnits.length === 1
-        ? uniqueSubUnits[0]
-        : (normalizeUnit(linkedVolume?.unit || volumeUnit) || linkedVolume?.unit || volumeUnit || 'm²');
+      const catalogUnit = getRoomWorkCategoryUnit(cat, workVolumes, floorId);
+      acc[cat] = normalizeUnit(catalogUnit || (uniqueSubUnits.length === 1 ? uniqueSubUnits[0] : '') || roomItem?.categoryVolumeUnits?.[cat] || volumeUnit || 'm²') || 'm²';
       return acc;
     }, {});
 
@@ -1194,7 +1193,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       ...(Object.keys(categoryHighlightRegions).length || Object.keys(roomItem?.categoryHighlightRegions || {}).length ? { categoryHighlightRegions } : {}),
       subItems: finalSubItems,
       workVolume: parsedVol !== undefined && !isNaN(parsedVol) ? parsedVol : undefined,
-      volumeUnit: normalizeUnit(volumeUnit) || 'm²',
+      volumeUnit: getCategorySourceUnit(effectiveWorkCategory),
       x,
       y,
       width,
@@ -1773,7 +1772,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             }}
                             className="w-20 text-center font-black text-xs text-emerald-950 bg-white border border-emerald-300 rounded focus:ring-1 focus:ring-emerald-500 outline-none px-1.5 py-0.5"
                           />
-                          <span className="text-[10px] font-black text-emerald-800">{volumeUnit || 'm²'}</span>
+                          <span className="text-[10px] font-black text-emerald-800">{getCategorySourceUnit(catName)}</span>
 
                           {!structureReadOnly && activeCategories.length > 1 && (
                             <MoveOrderControls

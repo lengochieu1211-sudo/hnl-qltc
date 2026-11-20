@@ -1,6 +1,7 @@
 /** DEV-only geometry/UI regression for optional sub-item highlights. */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { getRoomWorkCategoryUnit } from '../src/utils/roomCategoryUnit.ts';
 import { computeSubHighlightAreaRatio as ratio, isAreaHighlightUnit, getSubHighlightFloorRect } from '../src/utils/subItemHighlightGeometry.ts';
 
 const base = { x: 10, y: 15, width: 40, height: 30 };
@@ -23,6 +24,17 @@ q({ ...base, points:[{x:10,y:15},{x:50,y:15},{x:10,y:45}] }, undefined, [half], 
 assert.equal(ratio({ ...base, isPolyline:true }, undefined, [full]).valid, false);
 assert.equal(ratio({ ...base, width:0 }, undefined, [full]).valid, false);
 assert.deepEqual(getSubHighlightFloorRect(base,half), {x:10,y:15,width:20,height:30});
+const catalog = [
+  { id: 'ceiling', title: 'Trần', unit: 'm2', floorId: 'F1' },
+  { id: 'skirting', title: 'Len', unit: 'm', floorId: 'F1' },
+  { id: 'door', title: 'Cửa thăm', unit: 'Bộ', floorId: 'F1' },
+  { id: 'ceiling-upper', title: 'Trần', unit: 'm3', floorId: 'F2' },
+];
+assert.equal(getRoomWorkCategoryUnit('Trần', catalog, 'F1'), 'm2');
+assert.equal(getRoomWorkCategoryUnit('Trần', catalog, 'F2'), 'm3');
+assert.equal(getRoomWorkCategoryUnit('Len', catalog, 'F1'), 'm');
+assert.equal(getRoomWorkCategoryUnit('Cửa thăm', catalog, 'F1'), 'Bộ');
+assert.equal(getRoomWorkCategoryUnit('Xóa lâu rồi', catalog, 'F1'), '');
 assert.equal(isAreaHighlightUnit('m²'),true);
 assert.equal(isAreaHighlightUnit('m2'),true);
 for (const unit of ['m','cái','bộ','kg']) assert.equal(isAreaHighlightUnit(unit),false);
@@ -30,6 +42,8 @@ const room = fs.readFileSync(new URL('../src/components/RoomHighlightModal.tsx',
 const floor = fs.readFileSync(new URL('../src/components/FloorPlanDefectTab.tsx', import.meta.url), 'utf8');
 const types = fs.readFileSync(new URL('../src/types.ts', import.meta.url), 'utf8');
 assert.match(room, /data-hnl-room-highlight-advanced="true"/);
+assert.match(room, /getCategorySourceUnit\(catName\)/);
+assert.match(room, /volumeUnit: getCategorySourceUnit\(effectiveWorkCategory\)/);
 assert.match(room, /showAdvancedHighlights, setShowAdvancedHighlights/);
 assert.match(room, /highlightVolumeMode === 'area'/);
 assert.match(room, /structureReadOnly && roomItem/);
