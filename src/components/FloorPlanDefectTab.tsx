@@ -773,13 +773,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       const parsed = raw ? JSON.parse(raw) : {};
       return {
         roomRegions: parsed.roomRegions !== false,
-        subItemRegions: parsed.subItemRegions === true,
+        subItemRegions: parsed.subItemRegions !== false,
         roomLabels: parsed.roomLabels !== false,
         defects: parsed.defects !== false,
         resolvedDefects: parsed.resolvedDefects !== false,
       };
     } catch {
-      return { roomRegions: true, subItemRegions: false, roomLabels: true, defects: true, resolvedDefects: true };
+      return { roomRegions: true, subItemRegions: true, roomLabels: true, defects: true, resolvedDefects: true };
     }
   });
   // Legacy device-only locks still protect old geometry; explicit Cloud flags override them.
@@ -853,13 +853,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       const parsed = raw ? JSON.parse(raw) : {};
       setMapLayers({
         roomRegions: parsed.roomRegions !== false,
-        subItemRegions: parsed.subItemRegions === true,
+        subItemRegions: parsed.subItemRegions !== false,
         roomLabels: parsed.roomLabels !== false,
         defects: parsed.defects !== false,
         resolvedDefects: parsed.resolvedDefects !== false,
       });
     } catch {
-      setMapLayers({ roomRegions: true, subItemRegions: false, roomLabels: true, defects: true, resolvedDefects: true });
+      setMapLayers({ roomRegions: true, subItemRegions: true, roomLabels: true, defects: true, resolvedDefects: true });
     }
     requestAnimationFrame(() => { projectUiSettingsHydratingRef.current = false; });
   }, [currentProjectId]);
@@ -8255,7 +8255,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <div className="grid grid-cols-1 gap-1.5">
                   {([
                     ['roomRegions', 'Vùng Căn / Phòng'],
-                    ['subItemRegions', 'Highlight hạng mục phụ (mở rộng)'],
+                    ['subItemRegions', 'Highlight hạng mục con'],
                     ['roomLabels', 'Tên Căn / Phòng'],
                     ['defects', 'Marker Defect'],
                     ['resolvedDefects', 'Defect đã hoàn thành'],

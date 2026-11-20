@@ -1413,7 +1413,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
 
   return (
     <div data-hnl-pc-v3-center="security-center" data-hnl-pc-module="security-center" className="fixed inset-0 bg-slate-900/65 backdrop-blur-xs z-[200] flex items-center justify-center p-3 md:p-4 animate-in fade-in duration-200">
-      <div className="bg-white w-full max-w-lg rounded-2xl p-4 md:p-6 shadow-2xl relative border border-slate-100 flex flex-col max-h-[92vh] overflow-hidden">
+      <div className="bg-white w-full max-w-lg lg:max-w-5xl rounded-2xl p-4 md:p-6 shadow-2xl relative border border-slate-100 flex flex-col max-h-[92vh] overflow-hidden">
         
         {/* Header */}
         <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 shrink-0">
@@ -1439,8 +1439,10 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
           </button>
         </div>
 
+        {/* Desktop: account + actions in one row; preserve stacked mobile UI. */}
+        <div className="shrink-0 lg:flex lg:items-stretch lg:gap-2.5 lg:min-w-0 lg:pt-2.5">
         {/* Google/Firebase account lives in Security Center, not in the global header. */}
-        <div className="mt-2.5 shrink-0 rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+        <div className="mt-2.5 lg:mt-0 lg:flex-1 lg:min-w-0 shrink-0 rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2.5">
               <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${cloudUser ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
@@ -1482,7 +1484,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
         </div>
 
         {/* Tabs */}
-        <div data-hnl-security-primary-tabs="true" className={`grid ${entryPoint === 'account' || entryPoint === 'switch' ? (canReadAudit ? 'grid-cols-4' : 'grid-cols-3') : (canReadAudit ? 'grid-cols-3' : 'grid-cols-2')} gap-1 p-1 bg-slate-100 rounded-xl mt-2.5 shrink-0`}>
+        <div data-hnl-security-primary-tabs="true" className={`grid ${entryPoint === 'account' || entryPoint === 'switch' ? (canReadAudit ? 'grid-cols-4' : 'grid-cols-3') : (canReadAudit ? 'grid-cols-3' : 'grid-cols-2')} gap-1 p-1 bg-slate-100 rounded-xl mt-2.5 shrink-0 lg:mt-0 lg:flex lg:items-center lg:flex-nowrap lg:gap-1 lg:self-stretch`}>
           {(entryPoint === 'account' || entryPoint === 'switch') && (
             <button type="button" data-hnl-security-tab="account" onClick={() => setActiveTab('account')}
               className={`py-2 px-1 rounded-lg font-bold text-[11px] flex items-center justify-center gap-1 transition-all ${activeTab === 'account' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}>
@@ -1529,6 +1531,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
               <span className="truncate">Nhật ký</span>
             </button>
           )}
+        </div>
         </div>
 
         {/* Tab Content */}

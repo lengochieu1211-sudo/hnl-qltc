@@ -1791,7 +1791,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                   {!structureReadOnly && <button
                     type="button"
                     onClick={() => handleAddSubItem(catName)}
-                    className="w-full py-2 bg-white hover:bg-indigo-50 text-indigo-600 border border-indigo-200 border-dashed hover:border-indigo-300 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-3xs active:scale-98 mb-2"
+                    className="w-full lg:w-auto lg:inline-flex lg:px-4 py-2 bg-white hover:bg-indigo-50 text-indigo-600 border border-indigo-200 border-dashed hover:border-indigo-300 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-3xs active:scale-98 mb-2"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>Thêm hạng mục con</span>
@@ -1911,6 +1911,36 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                   );
                                 }
                                 return null;
+                              })()}
+                            </div>
+                            {/* Quantity is read-only here: calculation remains opt-in and commits only on Save. */}
+                            <div data-hnl-subitem-quantity={item.id} className="rounded-lg border border-emerald-100 bg-emerald-50/60 px-2.5 py-2 text-[10.5px] space-y-1.5">
+                              {(() => {
+                                const isFinal = item.status === 'Đã hoàn thành' || item.inspectionStatus === 'Đạt nghiệm thu';
+                                const hasVolume = item.workVolume !== undefined && item.workVolume !== null && String(item.workVolume).trim() !== '' && Number.isFinite(Number(item.workVolume));
+                                const savedUnit = item.volumeUnit || getCategorySourceUnit(catName);
+                                const isAreaMode = item.highlightVolumeMode === 'area';
+                                const ratio = isAreaMode && !isFinal ? getStageHighlightResult(catName, item) : null;
+                                const canPreview = Boolean(ratio?.valid) && Boolean(item.highlightRegions?.length) &&
+                                  isAreaHighlightUnit(getCategorySourceUnit(catName)) && getCategoryVolume(catName) > 0;
+                                const previewValue = canPreview && ratio
+                                  ? Math.round(getCategoryVolume(catName) * ratio.ratio * 10000) / 10000 : null;
+                                return <>
+                                  <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                                    <span className="font-semibold text-emerald-900">KL hiện có:</span>
+                                    <strong className="text-emerald-950 tabular-nums">{hasVolume ? `${formatDecimal(Number(item.workVolume))} ${savedUnit}` : 'Chưa có'}</strong>
+                                    {isFinal && <span className="text-[9.5px] font-bold text-slate-600">· Đã chốt, không tự tính lại</span>}
+                                  </div>
+                                  {isAreaMode && !isFinal && <div className="font-bold text-sky-800">
+                                    {previewValue !== null ? `KL dự kiến khi lưu: ${formatDecimal(previewValue)} ${getCategorySourceUnit(catName)}`
+                                      : 'KL dự kiến: chưa đủ điều kiện tự tính theo vùng'}
+                                  </div>}
+                                  {!structureReadOnly && roomItem?.id && <button type="button"
+                                    onClick={() => { setShowAdvancedHighlights(true); setHighlightCategory(catName); setHighlightTarget(item.id); setAppendHighlightRegion(false); }}
+                                    className="text-[10px] font-bold text-indigo-700 underline underline-offset-2 hover:text-indigo-900">
+                                    Xem / vẽ vùng highlight
+                                  </button>}
+                                </>;
                               })()}
                             </div>
                           </div>
