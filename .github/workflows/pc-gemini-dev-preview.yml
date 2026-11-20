@@ -33,6 +33,8 @@ jobs:
       HNL_PREVIEW_BASE_DEV_SHA: 4b8235bcf7336a7f5836552d26680781b0de76c2
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Read DEV ancestor to verify allowed files; shallow checkout hid HEAD^.
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -45,9 +47,9 @@ jobs:
           test "${GITHUB_REPOSITORY}" = 'lengochieu1211-sudo/hnl-qltc'
           test "${GITHUB_REF}" = 'refs/heads/preview/pc-gemini-dev-20261120'
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
-          test "$(git rev-parse HEAD^)" = '4b8235bcf7336a7f5836552d26680781b0de76c2'
+          git merge-base --is-ancestor '4b8235bcf7336a7f5836552d26680781b0de76c2' HEAD
           # The preview commit is an overlay onto DEV, never a replacement of business source.
-          git diff --name-only HEAD^ HEAD > "${RUNNER_TEMP}/preview-files.txt"
+          git diff --name-only '4b8235bcf7336a7f5836552d26680781b0de76c2' HEAD > "${RUNNER_TEMP}/preview-files.txt"
           node - <<'NODE_GUARD'
           const fs=require('fs');
           const allowed=new Set(['src/main.tsx','src/components/BottomNav.tsx','src/components/DesktopWorkspaceHeader.tsx','src/styles/desktopWorkspacePro.css','scripts/pc-gemini-preview-regression.mjs','.github/workflows/pc-gemini-dev-preview.yml','PC-GEMINI-DEV-PREVIEW-README.md']);
