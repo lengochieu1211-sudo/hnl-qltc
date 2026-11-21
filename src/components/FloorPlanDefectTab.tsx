@@ -8193,7 +8193,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               !isDefectPinPlacementMode && !isRoomCreationDrawing && drawTool === 'none' && (viewMode === 'all' || viewMode === 'highlight') && (
               <FloorMetricCalibration
                 key={`${currentProjectId}:${activeFloor.id}`} floor={activeFloor}
-                imageContainer={imageContainerRef.current} rotation={rotation} rooms={floorRooms}
+                imageContainer={imageContainerRef.current} rotation={rotation} zoomScale={zoomScale} rooms={floorRooms}
                 canSave={canManageStructure} onActiveChange={setIsMetricCalibrating}
                 onSave={(floorId, calibration)=>onUpdateFloorPlan(floorId,{highlightMetricCalibration:calibration})}
                 objectSnapEnabled={objectSnapEnabled} objectSnapMidpoints={objectSnapMidpoints}

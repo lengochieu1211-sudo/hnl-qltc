@@ -10,6 +10,7 @@ interface Props {
   floor: FloorPlan;
   imageContainer: HTMLElement | null;
   rotation: number;
+  zoomScale: number;
   rooms: RoomProgressItem[];
   canSave: boolean;
   onSave: (floorId: string, calibration: FloorMetricCalibrationData) => void;
@@ -27,13 +28,17 @@ const floorPoint = (point: Point2D) => ({ x: Math.min(100,Math.max(0,point.x)), 
  * No stored quantity is mutated by calibrating.
  */
 export const FloorMetricCalibration: React.FC<Props> = ({
-  floor, imageContainer, rotation, rooms, canSave, onSave, onActiveChange,
+  floor, imageContainer, rotation, zoomScale, rooms, canSave, onSave, onActiveChange,
   objectSnapEnabled, objectSnapMidpoints, cadGridSnap, cadOrtho, cadPolar,
 }) => {
   const [active, setActive] = useState(false);
   const [points, setPoints] = useState<Point2D[]>([]);
   const [distanceInput, setDistanceInput] = useState('10');
   const [notice, setNotice] = useState('');
+  // Same inverse-zoom behavior as polygon drawing points. These are only visual
+  // markers: keep the SVG pointer target full-size for precise mouse/touch input.
+  const pointDisplayScale = 1 / Math.max(1, zoomScale);
+
   const image = imageContainer?.querySelector('img');
   const dimensions = { width: image?.naturalWidth || 0, height: image?.naturalHeight || 0 };
   const saved = getValidFloorMetricCalibration(floor, dimensions);
@@ -109,8 +114,12 @@ export const FloorMetricCalibration: React.FC<Props> = ({
         style={{touchAction:'none',pointerEvents:'auto'}} viewBox="0 0 100 100" preserveAspectRatio="none"
         onPointerDown={clickPoint} onClick={(event)=>{event.stopPropagation();event.preventDefault();}}
         onContextMenu={(event)=>{event.stopPropagation();event.preventDefault();}}>
-        {points.length===2 && <line x1={points[0].x} y1={points[0].y} x2={points[1].x} y2={points[1].y} stroke="#2dd4bf" strokeWidth="0.5" />}
-        {points.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r="0.7" stroke="white" strokeWidth="0.2" fill="#0d9488" />)}
+        {points.length===2 && <line x1={points[0].x} y1={points[0].y} x2={points[1].x} y2={points[1].y}
+          stroke="#f59e0b" strokeWidth={0.4 * pointDisplayScale} pointerEvents="none" />}
+        <g data-hnl-metric-small-points="true" pointerEvents="none">
+          {points.map((p,i)=><circle key={i} cx={p.x} cy={p.y}
+            r={0.45 * pointDisplayScale} stroke="#0f172a" strokeWidth={0.16 * pointDisplayScale} fill="#f59e0b" />)}
+        </g>
       </svg>,imageContainer)}
   </>;
 };
