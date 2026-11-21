@@ -274,10 +274,14 @@ export interface Point2D {
 /** Advanced floor-plan highlights: 0–100% within the existing room bounding box.
  * This optional representation never replaces the original room geometry. */
 export interface HighlightRegionRect { x: number; y: number; width: number; height: number; }
+/** Opt-in geometric overlay in room-local percent coordinates; old rect records stay valid. */
+export type HighlightRegionShape = HighlightRegionRect | { kind: 'polygon'; drawMode: 'polygon' | 'freehand'; points: Point2D[] };
 
 export interface RoomSubItem {
   /** Optional independent highlight areas for this stage (union of rectangles). */
   highlightRegions?: HighlightRegionRect[];
+  /** Optional advanced shape overlays. Legacy highlightRegions stay intact. */
+  highlightShapes?: HighlightRegionShape[];
   /** Manual remains default for all legacy stages. */
   highlightVolumeMode?: 'manual' | 'area';
   highlightColor?: string;
@@ -298,6 +302,13 @@ export interface RoomSubItem {
 export interface RoomProgressItem {
   /** Optional area of each main category; missing means the whole room. */
   categoryHighlightRegions?: Record<string, HighlightRegionRect>;
+  /** Per-category independent TOTAL quantity and highlighted TOTAL zone. */
+  categoryHighlightTotalVolumes?: Record<string, number>;
+  categoryHighlightTotalShapes?: Record<string, HighlightRegionShape[]>;
+  /** Optional main-category polygons; legacy categoryHighlightRegions remain readable. */
+  categoryHighlightShapes?: Record<string, HighlightRegionShape[]>;
+  /** Automatic quantity for main category is opt-in; historical manual values remain. */
+  categoryHighlightAutoMode?: Record<string, boolean>;
   id: string;
   floorId: string; // ID mặt bằng tầng
   floorName?: string; // Tên tầng tương ứng

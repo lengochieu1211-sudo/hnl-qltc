@@ -64,6 +64,12 @@ jobs:
       - name: Advanced room highlight quantity and no-region fallback (no deploy)
         run: node --experimental-strip-types scripts/subitem-highlight-advanced-golden.mjs
 
+      - name: Independent total geometry and 3-mode highlight (DEV only, no deploy)
+        run: node --experimental-strip-types scripts/highlight-total-geometry-golden.mjs
+      - name: Independent total UI and layer safety (DEV only, no deploy)
+        run: node scripts/highlight-total-ui-safety-golden.mjs
+
+
       - name: 10-group targeted QA regression (source-only, no deploy)
         run: |
           node scripts/dev-backup-defect-card-date-golden.mjs
