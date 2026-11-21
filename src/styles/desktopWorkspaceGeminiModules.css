@@ -1,0 +1,71 @@
+/* HNL QLTC: the existing PC header button switches three modes.
+ * Deep workspace reflow below is EXCLUSIVELY for explicitly selected Gemini PC.
+ * Classic, original bright PROD, mobile and APK keep original DOM/handlers. */
+@media (min-width: 1024px) {
+  .hnl-pc-mode-menu { position:relative; display:inline-flex; flex:0 0 auto; min-width:0; overflow:visible; }
+  .hnl-pc-mode-menu > .hnl-pc-mode-trigger { display:inline-flex; align-items:center; justify-content:center; gap:7px; white-space:nowrap; min-height:34px; padding:6px 10px; border:1px solid var(--pc-pro-border,#cbd5e1); border-radius:9px; background:var(--pc-pro-surface,#fff); color:var(--pc-pro-ink,#0f172a); font-size:12px; font-weight:750; cursor:pointer; }
+  .hnl-pc-mode-menu > .hnl-pc-mode-trigger:hover, .hnl-pc-mode-menu > .hnl-pc-mode-trigger[aria-expanded="true"] { background:var(--pc-pro-surface-hover,#eef2ff); border-color:var(--hnl-primary-action,#2563eb); }
+  .hnl-pc-mode-dropdown { position:absolute; right:0; top:calc(100% + 8px); z-index:100; display:grid; gap:3px; width:min(300px,calc(100vw - 32px)); max-height:min(360px,75vh); overflow-y:auto; padding:6px; border-radius:12px; border:1px solid var(--pc-pro-border,#cbd5e1); background:var(--pc-pro-surface,#fff); box-shadow:0 18px 48px rgba(15,23,42,.2); color:var(--pc-pro-ink,#0f172a); }
+  .hnl-pc-mode-dropdown > .hnl-pc-mode-option { display:flex!important; align-items:center!important; justify-content:space-between!important; width:100%; gap:8px; min-height:54px!important; padding:9px 11px!important; border:1px solid transparent!important; border-radius:8px!important; background:transparent!important; color:inherit!important; text-align:left!important; white-space:normal!important; cursor:pointer; }
+  .hnl-pc-mode-dropdown > .hnl-pc-mode-option:hover, .hnl-pc-mode-dropdown > .hnl-pc-mode-option[aria-checked="true"] { background:var(--pc-pro-surface-hover,#eff6ff)!important; border-color:var(--pc-pro-border,#dbeafe)!important; }
+  .hnl-pc-mode-option-copy { display:flex; flex-direction:column; align-items:flex-start; gap:3px; min-width:0; }
+  .hnl-pc-mode-option-copy strong { font-size:12px; line-height:1.2; font-weight:750; }
+  .hnl-pc-mode-option-copy small { font-size:10.5px; line-height:1.3; font-weight:450; color:var(--pc-pro-muted,#64748b); }
+  .hnl-pc-mode-option-check { flex-shrink:0; color:var(--hnl-primary-action,#2563eb); }
+  /* Traditional Home keeps its original dark global header; menu floats at its edge. */
+  .hnl-pc-classic-home-mode { position:absolute; right:20px; top:72px; z-index:72; display:flex; justify-content:flex-end; }
+  .hnl-pc-classic-home-mode .hnl-pc-mode-menu > .hnl-pc-mode-trigger { background:#fff; color:#0f172a; }
+  html[data-hnl-theme="dark"]:not([data-hnl-pc-workspace-pro="gemini"]) .hnl-pc-mode-dropdown { background:#1e293b; color:#f1f5f9; border-color:#475569; }
+  html[data-hnl-theme="dark"]:not([data-hnl-pc-workspace-pro="gemini"]) .hnl-pc-mode-option-copy small { color:#cbd5e1; }
+}
+@media (max-width: 1023px) {
+  .hnl-pc-classic-home-mode { display:none!important; }
+  html:not([data-hnl-browser-desktop="true"]) .hnl-pc-mode-menu { display:none!important; }
+}
+/* Distinct internal module layouts: 1280+ wide PC only. */
+@media (min-width: 1280px) {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module] { width:100%; max-width:1720px!important; }
+
+  /* Kho: stock overview as two-column catalog board, filter workstation, full voucher desk. */
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="warehouse"] [data-hnl-pc-v3-inner="warehouse-stock-cards"] > .space-y-2 { display:grid!important; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; gap:10px!important; max-height:380px!important; overflow-y:auto; padding:2px 4px 4px 2px; }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="warehouse"] [data-hnl-pc-v3-inner="warehouse-voucher-filter"] { display:grid; grid-template-columns:minmax(0,1fr); gap:10px; padding:16px 18px!important; background:var(--pc-pro-surface)!important; border:1px solid var(--pc-pro-border)!important; border-radius:14px!important; }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="warehouse"] [data-hnl-warehouse-primary-toolbar="type-search-dates"] { grid-template-columns:minmax(260px,1fr) minmax(360px,1.4fr) minmax(260px,.95fr)!important; gap:12px!important; align-items:end!important; }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="warehouse"] [data-hnl-pc-v3-inner="warehouse-vouchers"] { padding:18px!important; background:var(--pc-pro-surface)!important; border:1px solid var(--pc-pro-border)!important; border-radius:14px!important; }
+
+  /* Quân số: independent date/action control deck and multi-column records. */
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="crew"] [data-hnl-pc-region="commands"] { padding:14px!important; border-radius:14px!important; background:var(--pc-pro-surface)!important; border:1px solid var(--pc-pro-border)!important; }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="crew"] [data-hnl-pc-v3-inner="crew-records"] { border:1px solid var(--pc-pro-border)!important; border-radius:14px!important; background:var(--pc-pro-surface)!important; padding:18px!important; }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="crew"] [data-hnl-pc-v3-inner="crew-records"] > .grid { grid-template-columns:repeat(2,minmax(0,1fr))!important; align-items:stretch; gap:14px!important; }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="crew"] [data-crew-record-id] { height:100%; min-width:0; display:flex; flex-direction:column; }
+
+  /* Mặt bằng: view-mode tools and canvas title form one wide row.
+     Do not change drawing canvas transforms/zoom/pan implementation. */
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="floorplan"] [data-hnl-pc-v35-section-row="floor-drawing"] { display:grid!important; grid-template-columns:minmax(330px,.9fr) minmax(0,1.2fr); gap:14px!important; align-items:center; }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="floorplan"] [data-hnl-pc-v35-view-modes="floorplan"] { min-height:66px; align-content:center; }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="floorplan"] [data-hnl-pc-v3-inner="floor-drawing"] { padding:18px!important; min-width:0; border-radius:14px!important; border-color:var(--pc-pro-border)!important; }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="floorplan"] [data-hnl-pc-v3-inner="floor-defects"] { padding:18px!important; border:1px solid var(--pc-pro-border)!important; background:var(--pc-pro-surface)!important; border-radius:14px!important; }
+
+  /* Checklist: actual inspection item cards become a two-column PC board. */
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="checklist"] [data-hnl-pc-v3-inner="checklist-items"] { display:grid!important; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px!important; align-items:stretch; }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="checklist"] [data-hnl-pc-v3-inner="checklist-items"] > .border-dashed { grid-column:1/-1; }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="checklist"] [data-hnl-pc-v3-inner="checklist-items"] > .bg-white:not(.border-dashed) { height:100%; min-width:0; }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="checklist"] [data-hnl-pc-region="inspection"] { padding:18px 22px!important; border-radius:14px!important; }
+}
+/* Khối lượng: sticky overview column beside independent category filters and cards. */
+@media (min-width: 1440px) {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="volume"] { display:grid!important; grid-template-columns:minmax(0,1.75fr) minmax(310px,.85fr); column-gap:18px; row-gap:16px; align-items:start; }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="volume"] > * { grid-column:1/-1; min-width:0; margin-block:0!important; }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="volume"] > [data-hnl-pc-region="progress"] { grid-column:2; grid-row:3/span 3; align-self:start; position:sticky; top:74px; max-height:calc(100dvh - 86px); overflow-y:auto; z-index:2; }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="volume"] > [data-hnl-v3-section="01"] { grid-column:1; grid-row:3; }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="volume"] > [data-hnl-pc-v3-inner="volume-filter-panel"] { grid-column:1; grid-row:4; }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="volume"] > [data-hnl-pc-v3-inner="volume-cards"] { grid-column:1; grid-row:5; }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="volume"] [data-hnl-pc-v3-inner="volume-cards"] > .grid { grid-template-columns:minmax(0,1fr)!important; }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="volume"] [data-hnl-pc-region="progress"] > .grid { grid-template-columns:minmax(0,1fr)!important; }
+}
+/* Large PC: information-dense three-column grids without horizontal overflow. */
+@media (min-width: 1600px) {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="warehouse"] [data-hnl-pc-v3-inner="warehouse-stock-cards"] > .space-y-2 { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="warehouse"] [data-hnl-pc-v3-inner="warehouse-voucher-card-grid"] { grid-template-columns:repeat(3,minmax(0,1fr))!important; }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="crew"] [data-hnl-pc-v3-inner="crew-records"] > .grid { grid-template-columns:repeat(3,minmax(0,1fr))!important; }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="floorplan"] [data-hnl-pc-v3-inner="floor-defects"] .grid.items-start { grid-template-columns:repeat(3,minmax(0,1fr))!important; }
+}
