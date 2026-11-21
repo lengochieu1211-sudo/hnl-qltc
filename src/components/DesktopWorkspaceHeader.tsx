@@ -2,12 +2,13 @@ import React from 'react';
 import { Bell, Building2, ChevronRight, FileBarChart2, LayoutDashboard, LockKeyhole, MonitorCog, Wifi, WifiOff } from 'lucide-react';
 import { UndoRedoControls } from './UndoRedoControls';
 import type { TabType } from './BottomNav';
+import { LegacyDesktopWorkspaceHeader } from './DesktopWorkspaceHeaderLegacy';
 
 /**
  * PC presentation only. All business actions are delegated to App's existing handlers.
  * Never read/write Firestore here or replicate application permissions.
  */
-export type DesktopWorkspaceMode = 'modern' | 'classic';
+export type DesktopWorkspaceMode = 'modern' | 'classic' | 'gemini';
 
 const PAGES: Record<TabType, { name: string; hint: string; group: string }> = {
   home: { name: 'Trang chủ', hint: 'Tổng quan công trường', group: 'Tổng quan' },
@@ -44,11 +45,15 @@ export interface DesktopWorkspaceHeaderProps {
   canRedo: boolean;
 }
 
-export const DesktopWorkspaceHeader: React.FC<DesktopWorkspaceHeaderProps> = ({
+export const DesktopWorkspaceHeader: React.FC<DesktopWorkspaceHeaderProps> = (props) => {
+  const {
   activeTab, mode, onChangeMode, projectName, online, userRole,
   onOpenProjects, onOpenReports, onOpenNotifications, onOpenSecurity,
   notificationCount, onUndo, onRedo, canUndo, canRedo,
-}) => {
+  } = props;
+  // Preserve both pre-Gemini PC modes by rendering their original header verbatim.
+  if (mode !== 'gemini') return <LegacyDesktopWorkspaceHeader {...props} />;
+
   const roleLabel = userRole === 'ADMIN' ? 'Quản trị' : userRole === 'EDITOR' ? 'Biên tập' : 'Chỉ xem';
 
   // Home keeps its existing dashboard layout; modern PC only replaces the duplicated
