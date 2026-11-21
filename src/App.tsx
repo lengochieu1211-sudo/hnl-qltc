@@ -8200,28 +8200,6 @@ function AuthenticatedApp() {
           canRedo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && future.length > 0}
         />
 
-        {/* PC-only workspace selector. Keep the pre-Gemini PC modes intact and
-            never render extra controls in Android APK or ordinary mobile Web. */}
-        {(!isMobileRuntime || isDesktopRuntime || chromeDesktopSite) && (
-          <div data-hnl-pc-mode-selector="true" className="flex items-center justify-end gap-2 border-b border-slate-200 bg-slate-50 px-4 py-1.5 text-xs text-slate-600">
-            <label htmlFor="hnl-pc-workspace-selector" className="font-semibold">Giao diện PC</label>
-            <select
-              id="hnl-pc-workspace-selector"
-              aria-label="Chọn một trong ba giao diện PC"
-              value={desktopWorkspaceModeChoice}
-              onChange={(event) => {
-                const next = event.target.value;
-                if (next === 'classic' || next === 'modern' || next === 'gemini') updateDesktopWorkspaceMode(next);
-              }}
-              className="max-w-[230px] rounded-lg border border-slate-300 bg-white px-2 py-1.5 font-semibold text-slate-800 focus:outline-2 focus:outline-offset-2 focus:outline-blue-600"
-            >
-              <option value="classic">PC truyền thống · có thanh đen</option>
-              <option value="modern">PC sáng · như PROD</option>
-              <option value="gemini">PC Gemini</option>
-            </select>
-          </div>
-        )}
-
         {/* Tab Content */}
         <main
           data-hnl-pc-workspace={visibleTab !== 'home' ? 'true' : 'false'}
