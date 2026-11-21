@@ -8649,7 +8649,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     <defs><clipPath id={clipId}>
                       {room.points?.length && room.points.length >= 3
                         ? <polygon points={room.points.map(p=>`${p.x},${p.y}`).join(' ')} />
-                        : <rect x={room.x} y={room.y} width={room.width} height={room.height} />}
+                        : <polygon points={`${room.x},${room.y} ${room.x + room.width},${room.y} ${room.x + room.width},${room.y + room.height} ${room.x},${room.y + room.height}`} />}
                     </clipPath></defs>
                     <g clipPath={`url(#${clipId})`}>
                     {cats.flatMap(cat => {
