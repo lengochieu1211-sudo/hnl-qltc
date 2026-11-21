@@ -7,6 +7,7 @@ import './styles/desktopWorkspace.css';
 import './styles/desktopWorkspaceDeep.css';
 import './styles/desktopWorkspaceCompact.css';
 import './styles/desktopWorkspacePro.css';
+import './styles/desktopWorkspaceGeminiModules.css';
 import { registerServiceWorker } from './serviceWorkerRegistration';
 import { cleanupTransientLocalStorage, estimateLocalStorageBytes } from './utils/storage';
 import { migrateAndCleanLocalStorage } from './utils/migrateStorage';

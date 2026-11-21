@@ -1,6 +1,7 @@
 import React from 'react';
-import { Bell, Building2, ChevronRight, FileBarChart2, LayoutDashboard, LockKeyhole, MonitorCog, Wifi, WifiOff } from 'lucide-react';
+import { Bell, Building2, ChevronRight, FileBarChart2, LayoutDashboard, LockKeyhole, Wifi, WifiOff } from 'lucide-react';
 import { UndoRedoControls } from './UndoRedoControls';
+import { DesktopPcModeMenu } from './DesktopPcModeMenu';
 import type { TabType } from './BottomNav';
 import { LegacyDesktopWorkspaceHeader } from './DesktopWorkspaceHeaderLegacy';
 
@@ -75,19 +76,11 @@ export const DesktopWorkspaceHeader: React.FC<DesktopWorkspaceHeaderProps> = (pr
           <button type="button" onClick={onOpenReports}><FileBarChart2 size={15} aria-hidden="true" /> Báo cáo</button>
           <button type="button" onClick={onOpenNotifications}><Bell size={15} aria-hidden="true" /> Thông báo{notificationCount > 0 && <span className="hnl-pc-alert-count">{notificationCount > 99 ? '99+' : notificationCount}</span>}</button>
           <button type="button" onClick={onOpenSecurity}><LockKeyhole size={15} aria-hidden="true" /> Bảo mật</button>
-          <button type="button" className="hnl-pc-mode-switch" onClick={() => onChangeMode('classic')} title="Chỉ đổi giao diện PC, không đổi dữ liệu"><MonitorCog size={15} aria-hidden="true" /> PC cũ</button>
+          <DesktopPcModeMenu mode={mode} onChangeMode={onChangeMode} />
         </div>
       </div>
     );
   }
-  if (mode === 'classic') return (
-    <div className="hnl-pc-classic-return" data-hnl-pc-mode-toggle="classic">
-      <MonitorCog size={16} aria-hidden="true" />
-      <span>Đang dùng bố cục PC cũ</span>
-      <button type="button" onClick={() => onChangeMode('modern')}>Thử giao diện PC mới</button>
-    </div>
-  );
-
   const page = PAGES[activeTab];
   return (
     <section className="hnl-pc-workspace-heading" data-hnl-pc-workspace-title={activeTab} aria-label={`Không gian làm việc ${page.name}`}>
@@ -111,7 +104,7 @@ export const DesktopWorkspaceHeader: React.FC<DesktopWorkspaceHeaderProps> = (pr
           <button type="button" onClick={onOpenReports}><FileBarChart2 size={15} aria-hidden="true" /> Báo cáo</button>
           <button type="button" onClick={onOpenNotifications}><Bell size={15} aria-hidden="true" /> Thông báo{notificationCount > 0 && <span className="hnl-pc-alert-count">{notificationCount > 99 ? '99+' : notificationCount}</span>}</button>
           <button type="button" onClick={onOpenSecurity}><LockKeyhole size={15} aria-hidden="true" /> Bảo mật</button>
-          <button type="button" className="hnl-pc-mode-switch" onClick={() => onChangeMode('classic')} title="Chỉ khôi phục bố cục PC, không thay đổi dữ liệu"><MonitorCog size={15} aria-hidden="true" /> PC cũ</button>
+          <DesktopPcModeMenu mode={mode} onChangeMode={onChangeMode} />
         </div>
       </div>
     </section>
