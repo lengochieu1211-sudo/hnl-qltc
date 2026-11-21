@@ -26,9 +26,10 @@ import {
   Check,
   Pencil
 } from 'lucide-react';
-import { RoomProgressItem, RoomSubItem, HighlightRegionRect, AcceptanceStatus, RoomInspectionResult, Point2D, TeamInfo, ChecklistItem, MaterialNorm, InventoryItem, WorkVolume } from '../types';
+import { RoomProgressItem, RoomSubItem, HighlightRegionRect, HighlightRegionShape, AcceptanceStatus, RoomInspectionResult, Point2D, TeamInfo, ChecklistItem, MaterialNorm, InventoryItem, WorkVolume } from '../types';
 import { ROOM_COLOR_PALETTE } from '../utils/colorPalette';
 import { WHOLE_ROOM_REGION, computeSubHighlightAreaRatio, getEffectiveStageHighlightRegions, isAreaHighlightUnit, normalizeHighlightRect } from '../utils/subItemHighlightGeometry';
+import { calculateHighlightTotalRatio, getHighlightStageShapes, highlightShapeToPolygon, validateHighlightShape } from '../utils/highlightTotalGeometry';
 import { confirmAsync } from '../utils/confirmAsync';
 import { formatDecimal, formatAdaptiveDecimal, evaluateMathExpression, useFormatSettings } from '../utils/numberUtils';
 import { MathNumberInput } from './MathNumberInput';
@@ -162,6 +163,14 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   // Optional, opt-in advanced highlighting. Legacy rooms and all ordinary stages
   // remain manual; opening this section never changes saved quantities.
   const [categoryHighlightRegions, setCategoryHighlightRegions] = useState<Record<string, HighlightRegionRect>>({});
+  // Optional, room-local total quantity/geometry; absent fields preserve original legacy math.
+  const [categoryHighlightTotalVolumes, setCategoryHighlightTotalVolumes] = useState<Record<string, number>>({});
+  const [categoryHighlightTotalShapes, setCategoryHighlightTotalShapes] = useState<Record<string, HighlightRegionShape[]>>({});
+  const [categoryHighlightShapes, setCategoryHighlightShapes] = useState<Record<string, HighlightRegionShape[]>>({});
+  const [categoryHighlightAutoMode, setCategoryHighlightAutoMode] = useState<Record<string, boolean>>({});
+  const [highlightDrawTool, setHighlightDrawTool] = useState<'2point' | 'polygon' | 'freehand'>('2point');
+  const [polygonDraft, setPolygonDraft] = useState<Point2D[]>([]);
+  const [freehandDraft, setFreehandDraft] = useState<Point2D[]>([]);
   const [showAdvancedHighlights, setShowAdvancedHighlights] = useState(false);
   const [highlightCategory, setHighlightCategory] = useState('');
   const [highlightTarget, setHighlightTarget] = useState('main');
@@ -219,6 +228,14 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       delete next[oldName];
       return next;
     });
+    for (const setMap of [setCategoryHighlightTotalVolumes, setCategoryHighlightTotalShapes, setCategoryHighlightShapes, setCategoryHighlightAutoMode] as const) {
+      setMap((prev: any) => {
+        if (!Object.prototype.hasOwnProperty.call(prev, oldName)) return prev;
+        const next = { ...prev, [trimmed]: prev[oldName] };
+        delete next[oldName];
+        return next;
+      });
+    }
     setHighlightCategory(prev => prev === oldName ? trimmed : prev);
 
     // 3. Update workCategory if matches
@@ -267,10 +284,17 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     setIsConfirmingDelete(false);
     setShowAdvancedHighlights(false);
     setHighlightDraft(null);
+    setPolygonDraft([]);
+    setFreehandDraft([]);
+    setHighlightDrawTool('2point');
     highlightPointerStartRef.current = null;
-    setHighlightTarget('main');
+    setHighlightTarget('total');
     setAppendHighlightRegion(false);
     setCategoryHighlightRegions(roomItem?.categoryHighlightRegions || {});
+    setCategoryHighlightTotalVolumes(roomItem?.categoryHighlightTotalVolumes || {});
+    setCategoryHighlightTotalShapes(roomItem?.categoryHighlightTotalShapes || {});
+    setCategoryHighlightShapes(roomItem?.categoryHighlightShapes || {});
+    setCategoryHighlightAutoMode(roomItem?.categoryHighlightAutoMode || {});
     setHighlightCategory(roomItem?.workCategory || Object.keys(roomItem?.categoryVolumes || {})[0] || '');
     setSelectedSubItemIds([]);
     setOrphanRepairTargets({});
@@ -659,10 +683,31 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   };
 
   const getHighlightRoom = () => ({ x, y, width, height, points, isPolyline });
-  const getStageHighlightResult = (cat: string, stage: RoomSubItem) =>
-    computeSubHighlightAreaRatio(getHighlightRoom(), categoryHighlightRegions[cat], getEffectiveStageHighlightRegions(stage));
+  const hasIndependentTotal = (cat: string) => Object.prototype.hasOwnProperty.call(categoryHighlightTotalVolumes, cat);
+  const getHighlightTotalQuantity = (cat: string) => hasIndependentTotal(cat)
+    ? categoryHighlightTotalVolumes[cat] : getCategoryVolume(cat);
+  const getHighlightTotalShapes = (cat: string): HighlightRegionShape[] => categoryHighlightTotalShapes[cat] || [];
+  const getHighlightMainShapes = (cat: string): HighlightRegionShape[] =>
+    categoryHighlightShapes[cat]?.length ? categoryHighlightShapes[cat] :
+      (categoryHighlightRegions[cat] ? [categoryHighlightRegions[cat]] : []);
+  const getStageHighlightResult = (cat: string, stage: RoomSubItem) => {
+    if (hasIndependentTotal(cat)) {
+      return calculateHighlightTotalRatio({
+        room: getHighlightRoom(), total: getHighlightTotalShapes(cat),
+        main: getHighlightMainShapes(cat), sub: getHighlightStageShapes(stage),
+      });
+    }
+    if (stage.highlightShapes?.length) {
+      return calculateHighlightTotalRatio({ room: getHighlightRoom(), main: getHighlightMainShapes(cat), sub: stage.highlightShapes });
+    }
+    return computeSubHighlightAreaRatio(getHighlightRoom(), categoryHighlightRegions[cat], getEffectiveStageHighlightRegions(stage));
+  };
+  const getMainHighlightResult = (cat: string) => calculateHighlightTotalRatio({
+    room: getHighlightRoom(), total: getHighlightTotalShapes(cat), main: getHighlightMainShapes(cat),
+  });
   const canDeriveStageHighlightQuantity = (cat: string, stage: RoomSubItem): boolean =>
-    isAreaHighlightUnit(getCategorySourceUnit(cat)) && getCategoryVolume(cat) >= 0 &&
+    isAreaHighlightUnit(getCategorySourceUnit(cat)) && Number.isFinite(getHighlightTotalQuantity(cat)) && getHighlightTotalQuantity(cat) >= 0 &&
+    (hasIndependentTotal(cat) || !(stage.highlightShapes?.length)) &&
     stage.status !== 'Đã hoàn thành' && stage.inspectionStatus !== 'Đạt nghiệm thu';
 
   const getHighlightPointFromPointer = (event: React.PointerEvent<SVGSVGElement>): Point2D => {
@@ -672,67 +717,90 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       y: Math.min(100, Math.max(0, (event.clientY - bounds.top) / Math.max(1, bounds.height) * 100)),
     };
   };
+  // All new shapes use one geometry store; old highlightRegions remain readable.
+  const canEditAdvancedHighlight = () => {
+    if (roomItem?.inspectionStatus === 'Đạt nghiệm thu' ||
+      (highlightTarget !== 'total' && highlightTarget !== 'main' &&
+        subItems.some(item => item.id === highlightTarget && (item.status === 'Đã hoàn thành' || item.inspectionStatus === 'Đạt nghiệm thu')))) {
+      alert('Vùng đã nghiệm thu/hoàn thành: không tự ý sửa hình học hoặc khối lượng. Hãy thực hiện điều chỉnh nghiệm thu có kiểm soát trước.');
+      return false;
+    }
+    return true;
+  };
+  const addHighlightShape = (shape: HighlightRegionShape) => {
+    if (!canEditAdvancedHighlight() || !validateHighlightShape(shape)) return;
+    roomDraftDirtyRef.current = true;
+    if (highlightTarget === 'total') {
+      setCategoryHighlightTotalShapes(prev => ({ ...prev,
+        [highlightSelectedCategory]: appendHighlightRegion ? [...(prev[highlightSelectedCategory] || []), shape].slice(0,24) : [shape] }));
+    } else if (highlightTarget === 'main') {
+      setCategoryHighlightShapes(prev => ({ ...prev,
+        [highlightSelectedCategory]: appendHighlightRegion ? [...(prev[highlightSelectedCategory] || []), shape].slice(0,24) : [shape] }));
+    } else {
+      setSubItems(prev => prev.map(stage => stage.id !== highlightTarget ? stage : {
+        ...stage,
+        highlightShapes: appendHighlightRegion ? [...getHighlightStageShapes(stage), shape].slice(0,24) : [shape],
+        highlightVolumeMode: canDeriveStageHighlightQuantity(highlightSelectedCategory, stage) ? 'area' : 'manual',
+        highlightColor: stage.highlightColor || HIGHLIGHT_COLORS[Math.max(0, prev.findIndex(s => s.id === stage.id)) % HIGHLIGHT_COLORS.length],
+      }));
+    }
+    setAppendHighlightRegion(false);
+    setPolygonDraft([]);
+    setFreehandDraft([]);
+  };
+  const finishHighlightPolygon = () => {
+    if (polygonDraft.length >= 3) addHighlightShape({kind:'polygon', drawMode:'polygon', points:polygonDraft});
+    setPolygonDraft([]);
+  };
   const handleHighlightPointerUp = (event: React.PointerEvent<SVGSVGElement>) => {
+    if (highlightDrawTool === 'polygon') return;
     const start = highlightPointerStartRef.current;
     if (!start) return;
     const end = getHighlightPointFromPointer(event);
     highlightPointerStartRef.current = null;
     setHighlightDraft(null);
     try { event.currentTarget.releasePointerCapture(event.pointerId); } catch { /* pointer already gone */ }
+    if (highlightDrawTool === 'freehand') {
+      const stroke = [...freehandDraft, end];
+      if (stroke.length >= 3) addHighlightShape({kind:'polygon', drawMode:'freehand', points:stroke});
+      setFreehandDraft([]);
+      return;
+    }
     const region = normalizeHighlightRect({
       x: Math.min(start.x, end.x), y: Math.min(start.y, end.y),
       width: Math.abs(end.x - start.x), height: Math.abs(end.y - start.y),
     });
-    if (!region) return; // A tap is not a drawing action.
-    roomDraftDirtyRef.current = true;
-    if (highlightTarget === 'main') {
-      setCategoryHighlightRegions(prev => ({ ...prev, [highlightSelectedCategory]: region }));
-    } else {
-      setSubItems(prev => prev.map((stage) => {
-        if (stage.id !== highlightTarget) return stage;
-        const regions = appendHighlightRegion ? [...(stage.highlightRegions || []), region] : [region];
-        return {
-          ...stage,
-          highlightRegions: regions.slice(0, 24),
-          highlightVolumeMode: canDeriveStageHighlightQuantity(highlightSelectedCategory, stage) ? 'area' : 'manual',
-          highlightColor: stage.highlightColor || HIGHLIGHT_COLORS[Math.max(0, prev.findIndex(s => s.id === stage.id)) % HIGHLIGHT_COLORS.length],
-        };
-      }));
-    }
-    setAppendHighlightRegion(false);
+    if (region) addHighlightShape(region);
   };
   const clearHighlightRegion = () => {
+    if (!canEditAdvancedHighlight()) return;
     roomDraftDirtyRef.current = true;
-    if (highlightTarget === 'main') {
-      setCategoryHighlightRegions(prev => {
-        const next = { ...prev }; delete next[highlightSelectedCategory]; return next;
-      });
+    if (highlightTarget === 'total') {
+      setCategoryHighlightTotalShapes(prev => {const next = {...prev}; delete next[highlightSelectedCategory]; return next;});
+    } else if (highlightTarget === 'main') {
+      setCategoryHighlightShapes(prev => {const next = {...prev}; delete next[highlightSelectedCategory]; return next;});
+      setCategoryHighlightRegions(prev => {const next = {...prev}; delete next[highlightSelectedCategory]; return next;});
     } else {
       setSubItems(prev => prev.map(stage => {
         if (stage.id !== highlightTarget) return stage;
-        const { highlightRegions: _regions, ...unchanged } = stage;
+        const { highlightRegions: _legacy, highlightShapes: _shapes, ...unchanged } = stage;
         return unchanged; // Preserve auto mode: no sub-region means 100% of the main category.
       }));
     }
   };
   const selectWholeHighlight = () => {
+    if (!canEditAdvancedHighlight()) return;
     roomDraftDirtyRef.current = true;
-    if (highlightTarget === 'main') {
-      setCategoryHighlightRegions(prev => {
-        const next = { ...prev }; delete next[highlightSelectedCategory]; return next;
-      });
-    } else {
-      setSubItems(prev => prev.map((stage) => stage.id === highlightTarget ? {
-        ...stage,
-        highlightRegions: [WHOLE_ROOM_REGION],
-        highlightVolumeMode: canDeriveStageHighlightQuantity(highlightSelectedCategory, stage) ? 'area' : 'manual',
-      } : stage));
-    }
+    if (highlightTarget === 'total' || highlightTarget === 'main') clearHighlightRegion();
+    else setSubItems(prev => prev.map(stage => stage.id === highlightTarget ? {
+      ...stage,
+      highlightShapes: [WHOLE_ROOM_REGION],
+      highlightVolumeMode: canDeriveStageHighlightQuantity(highlightSelectedCategory, stage) ? 'area' : 'manual',
+    } : stage));
   };
   const highlightSelectedCategory = activeCategories.includes(highlightCategory) ? highlightCategory : (activeCategories[0] || '');
   const highlightedStages = subItems.filter(stage => (stage.category || workCategory || 'Chưa phân nhóm') === highlightSelectedCategory);
   const selectedHighlightStage = highlightedStages.find(stage => stage.id === highlightTarget);
-  const mainHighlightArea = categoryHighlightRegions[highlightSelectedCategory];
   const draftHighlightRect = highlightDraft ? normalizeHighlightRect({
     x: Math.min(highlightDraft.start.x, highlightDraft.end.x), y: Math.min(highlightDraft.start.y, highlightDraft.end.y),
     width: Math.abs(highlightDraft.end.x - highlightDraft.start.x), height: Math.abs(highlightDraft.end.y - highlightDraft.start.y),
@@ -1011,7 +1079,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
         const result = getStageHighlightResult(cat, item);
         if (result.valid) return {
           ...next,
-          workVolume: Math.round(getCategoryVolume(cat) * result.ratio * 10000) / 10000,
+          workVolume: Math.round(getHighlightTotalQuantity(cat) * result.ratio * 10000) / 10000,
           volumeUnit: getCategorySourceUnit(cat),
         };
       }
@@ -1156,6 +1224,22 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       return;
     }
 
+    const invalidAutoMain = activeCategories.find(cat => roomItem?.inspectionStatus !== 'Đạt nghiệm thu' && categoryHighlightAutoMode[cat] &&
+      (!hasIndependentTotal(cat) || !isAreaHighlightUnit(getCategorySourceUnit(cat)) ||
+        !Number.isFinite(getHighlightTotalQuantity(cat)) || getHighlightTotalQuantity(cat) < 0 || !getMainHighlightResult(cat).valid));
+    if (invalidAutoMain) {
+      alert(`Không thể tự tính hạng mục chính “${invalidAutoMain}”: cần nhập KL vùng tổng m² hợp lệ và vẽ vùng tổng/chính hợp lệ.`);
+      return;
+    }
+    // Recompute only explicitly opted-in categories. Never overwrite old/manual numbers.
+    const finalCategoryVolumes = { ...categoryVolumes };
+    activeCategories.forEach(cat => {
+      if (!categoryHighlightAutoMode[cat] || roomItem?.inspectionStatus === 'Đạt nghiệm thu') return;
+      const catalog = workVolumes.find(v => v.title.trim().toLocaleLowerCase('vi-VN') === cat.trim().toLocaleLowerCase('vi-VN'));
+      const storageKey = Object.prototype.hasOwnProperty.call(categoryVolumes, cat) ? cat :
+        catalog && Object.prototype.hasOwnProperty.call(categoryVolumes, catalog.id) ? catalog.id : cat;
+      finalCategoryVolumes[storageKey] = Math.round(getHighlightTotalQuantity(cat) * getMainHighlightResult(cat).ratio * 10000) / 10000;
+    });
     const finalSubItems = subItems.map(s => {
       const sCat = s.category || effectiveWorkCategory || '';
       const matchingSubVol = workVolumes.find(v => v.title.trim().toLowerCase() === sCat.trim().toLowerCase());
@@ -1168,7 +1252,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       return {
         ...s,
         ...(s.highlightVolumeMode === 'area' && s.status !== 'Đã hoàn thành' && s.inspectionStatus !== 'Đạt nghiệm thu' ? {
-          workVolume: Math.round(getCategoryVolume(sCat) * getStageHighlightResult(sCat, s).ratio * 10000) / 10000,
+          workVolume: Math.round(getHighlightTotalQuantity(sCat) * getStageHighlightResult(sCat, s).ratio * 10000) / 10000,
           volumeUnit: getCategorySourceUnit(sCat),
         } : {}),
         workCategoryId: subWorkCategoryId,
@@ -1194,11 +1278,17 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       roomName: roomName.trim(),
       workCategory: effectiveWorkCategory,
       workCategoryId: finalWorkCategoryId,
-      categoryVolumes,
+      categoryVolumes: finalCategoryVolumes,
       categoryVolumeUnits,
+      ...(Object.keys(categoryHighlightTotalVolumes).length || roomItem?.categoryHighlightTotalVolumes ? { categoryHighlightTotalVolumes } : {}),
+      ...(Object.keys(categoryHighlightTotalShapes).length || roomItem?.categoryHighlightTotalShapes ? { categoryHighlightTotalShapes } : {}),
+      ...(Object.keys(categoryHighlightShapes).length || roomItem?.categoryHighlightShapes ? { categoryHighlightShapes } : {}),
+      ...(Object.keys(categoryHighlightAutoMode).length || roomItem?.categoryHighlightAutoMode ? { categoryHighlightAutoMode } : {}),
       ...(Object.keys(categoryHighlightRegions).length || Object.keys(roomItem?.categoryHighlightRegions || {}).length ? { categoryHighlightRegions } : {}),
       subItems: finalSubItems,
-      workVolume: parsedVol !== undefined && !isNaN(parsedVol) ? parsedVol : undefined,
+      workVolume: categoryHighlightAutoMode[effectiveWorkCategory] && roomItem?.inspectionStatus !== 'Đạt nghiệm thu'
+        ? Math.round(getHighlightTotalQuantity(effectiveWorkCategory) * getMainHighlightResult(effectiveWorkCategory).ratio * 10000) / 10000
+        : (parsedVol !== undefined && !isNaN(parsedVol) ? parsedVol : undefined),
       volumeUnit: getCategorySourceUnit(effectiveWorkCategory),
       x,
       y,
@@ -1903,13 +1993,13 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                   const result = auto ? getStageHighlightResult(catName, item) : null;
                                   const canAuto = auto && canDeriveStageHighlightQuantity(catName, item) && result?.valid;
                                   const displayedVolume = canAuto && result
-                                    ? Math.round(getCategoryVolume(catName) * result.ratio * 10000) / 10000
+                                    ? Math.round(getHighlightTotalQuantity(catName) * result.ratio * 10000) / 10000
                                     : item.workVolume;
                                   const validNumber = displayedVolume !== undefined && displayedVolume !== null &&
                                     String(displayedVolume).trim() !== '' && Number.isFinite(Number(displayedVolume));
                                   const unit = canAuto ? getCategorySourceUnit(catName) : (item.volumeUnit || getCategorySourceUnit(catName));
                                   const tooltip = canAuto
-                                    ? 'Tự tính trực tiếp theo KL chính và vùng Highlight; chỉ ghi khi nhấn Lưu. Không có vùng phụ = 100% vùng chính.'
+                                    ? 'Tính tức thời theo KL vùng tổng nếu đã thiết lập; chỉ ghi khi nhấn Lưu. Không có vùng con = phủ toàn vùng chính.'
                                     : finalized ? 'Khối lượng đã chốt; không tự tính lại.' : 'Khối lượng thủ công hoặc đã lưu.';
                                   return (
                                     <span data-hnl-subitem-quantity={item.id}
@@ -2062,36 +2152,90 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                     <label className="block text-[11px] font-bold text-slate-700">
                       Hạng mục chính
                       <select data-hnl-ui-only="true" aria-label="Chọn hạng mục chính để tô vùng" value={highlightSelectedCategory}
-                        onChange={e => { setHighlightCategory(e.target.value); setHighlightTarget('main'); setAppendHighlightRegion(false); }}
+                        onChange={e => { setHighlightCategory(e.target.value); setHighlightTarget('main'); setAppendHighlightRegion(false); setPolygonDraft([]); setFreehandDraft([]); }}
                         className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-800">
                         {activeCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                       </select>
                     </label>
                     <label className="block text-[11px] font-bold text-slate-700">
                       Vùng muốn vẽ
-                      <select data-hnl-ui-only="true" aria-label="Chọn hạng mục phụ hoặc vùng tổng" value={highlightTarget === 'main' || highlightedStages.some(stage => stage.id === highlightTarget) ? highlightTarget : 'main'}
-                        onChange={e => { setHighlightTarget(e.target.value); setAppendHighlightRegion(false); }}
+                      <select data-hnl-ui-only="true" aria-label="Chọn vùng tổng, hạng mục chính hoặc hạng mục con" value={highlightTarget === 'main' || highlightTarget === 'total' || highlightedStages.some(stage => stage.id === highlightTarget) ? highlightTarget : 'total'}
+                        onChange={e => { setHighlightTarget(e.target.value); setAppendHighlightRegion(false); setPolygonDraft([]); setFreehandDraft([]); }}
                         className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-800">
-                        <option value="main">Vùng tổng hạng mục chính</option>
+                        <option value="total">Vùng tổng độc lập</option>
+                        <option value="main">Vùng hạng mục chính</option>
                         {highlightedStages.map(stage => <option key={stage.id} value={stage.id}>{stage.name}</option>)}
                       </select>
                     </label>
                   </div>
+                  <div className="rounded-xl border border-sky-200 bg-white p-3 space-y-2" data-hnl-highlight-independent-total="true">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <label className="text-[11px] font-extrabold text-slate-800">
+                        Khối lượng vùng tổng riêng (m²)
+                        <input type="number" inputMode="decimal" min="0" step="any"
+                          aria-label="Nhập khối lượng vùng tổng độc lập"
+                          value={hasIndependentTotal(highlightSelectedCategory) ? categoryHighlightTotalVolumes[highlightSelectedCategory] : ''}
+                          onChange={event => {
+                            roomDraftDirtyRef.current = true;
+                            const next = event.target.value;
+                            setCategoryHighlightTotalVolumes(prev => {
+                              const data = { ...prev };
+                              if (!next.trim()) delete data[highlightSelectedCategory];
+                              else if (Number.isFinite(Number(next)) && Number(next) >= 0) data[highlightSelectedCategory] = Number(next);
+                              return data;
+                            });
+                          }}
+                          disabled={!isAreaHighlightUnit(getCategorySourceUnit(highlightSelectedCategory)) || roomItem?.inspectionStatus === 'Đạt nghiệm thu'}
+                          placeholder="Để trống = phép tính cũ"
+                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs text-slate-900" />
+                      </label>
+                      <div className="space-y-2 text-[11px] text-slate-700">
+                        <label className="flex items-center gap-2 font-bold">
+                          <input type="checkbox" checked={categoryHighlightAutoMode[highlightSelectedCategory] === true}
+                            disabled={!hasIndependentTotal(highlightSelectedCategory) || !isAreaHighlightUnit(getCategorySourceUnit(highlightSelectedCategory)) || roomItem?.inspectionStatus === 'Đạt nghiệm thu'}
+                            onChange={event => { roomDraftDirtyRef.current = true; setCategoryHighlightAutoMode(prev => ({ ...prev, [highlightSelectedCategory]: event.target.checked })); }}/>
+                          Tự tính KL hạng mục chính theo vùng tổng
+                        </label>
+                        <span className="block text-[10px] text-slate-500">Bỏ trống giữ nguyên KL cũ. Vùng tổng mặc định phủ toàn phòng, lớp hiển thị trên mặt bằng mặc định ẩn.</span>
+                        {roomItem?.inspectionStatus === 'Đạt nghiệm thu' && <span className="block font-bold text-amber-800">Phòng đã nghiệm thu: không tự ghi đè KL chính.</span>}
+                        {!isAreaHighlightUnit(getCategorySourceUnit(highlightSelectedCategory)) && <span className="text-amber-700">Đơn vị m/bộ/cái không dùng phép tính theo diện tích.</span>}
+                      </div>
+                    </div>
+                    {hasIndependentTotal(highlightSelectedCategory) && (() => {
+                      const stat = getMainHighlightResult(highlightSelectedCategory);
+                      return <div className="flex flex-wrap gap-2 text-[11px] font-bold">
+                        <span className="rounded bg-blue-50 px-2 py-1 text-blue-800">Tổng: {formatDecimal(getHighlightTotalQuantity(highlightSelectedCategory))} m²</span>
+                        <span className="rounded bg-sky-50 px-2 py-1 text-sky-900">Hạng mục chính: {stat.valid ? `${formatDecimal(stat.percent)}% = ${formatDecimal(getHighlightTotalQuantity(highlightSelectedCategory) * stat.ratio)} m²` : stat.reason}</span>
+                      </div>;
+                    })()}
+                  </div>
                   <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                    <span className="rounded-lg bg-sky-100 px-2 py-1 text-sky-800 font-bold">KL chính: {formatDecimal(getCategoryVolume(highlightSelectedCategory))} {getCategorySourceUnit(highlightSelectedCategory)}</span>
+                    <span className="rounded-lg bg-sky-100 px-2 py-1 text-sky-800 font-bold">KL chính đang lưu: {formatDecimal(getCategoryVolume(highlightSelectedCategory))} {getCategorySourceUnit(highlightSelectedCategory)}</span>
                     {selectedHighlightStage && (() => {
                       const stat = getStageHighlightResult(highlightSelectedCategory, selectedHighlightStage);
                       return <>
                         <span className="rounded-lg bg-amber-100 px-2 py-1 font-bold text-amber-900">{stat.valid ? `${formatDecimal(stat.percent)}% vùng tổng` : stat.reason}</span>
                         {isAreaHighlightUnit(getCategorySourceUnit(highlightSelectedCategory)) && stat.valid && (
                           <span className="rounded-lg bg-emerald-100 px-2 py-1 font-bold text-emerald-800">
-                            KL dự kiến: {formatDecimal(getCategoryVolume(highlightSelectedCategory) * stat.ratio)} m²
+                            KL tính lại khi Lưu: {formatDecimal(getHighlightTotalQuantity(highlightSelectedCategory) * stat.ratio)} m²
                           </span>
                         )}
                       </>;
                     })()}
                   </div>
-                  <div className="text-[10.5px] text-slate-600">Chạm rồi kéo trực tiếp trên sơ đồ để vẽ hình chữ nhật. Vùng tô chỉ là lớp phụ, không sửa biên căn/phòng.</div>
+                  <div className="flex flex-wrap gap-2" data-hnl-highlight-three-draw-tools="true">
+                    {([['2point', 'Chữ nhật · 2 điểm'], ['polygon', 'Đa giác · chấm điểm'], ['freehand', 'Vẽ tự do · kéo nét']] as const).map(([tool, label]) =>
+                      <button type="button" key={tool} onClick={() => { setHighlightDrawTool(tool); setHighlightDraft(null); setPolygonDraft([]); setFreehandDraft([]); highlightPointerStartRef.current = null; }}
+                        aria-pressed={highlightDrawTool === tool} className={`rounded-lg border px-3 py-2 text-[11px] font-bold ${highlightDrawTool === tool ? 'bg-blue-700 text-white border-blue-700' : 'bg-white border-slate-200 text-slate-800'}`}>{label}</button>)}
+                  </div>
+                  <div className="text-[10.5px] text-slate-600">
+                    Chữ nhật: kéo 2 điểm. Đa giác: chấm các góc rồi bấm “Kết thúc đa giác”. Vẽ tự do: kéo quanh vùng muốn tô. Không thay đổi biên căn/phòng.
+                  </div>
+                  {highlightDrawTool === 'polygon' && polygonDraft.length > 0 && <div className="flex items-center gap-2">
+                    <button type="button" onClick={finishHighlightPolygon} disabled={polygonDraft.length < 3}
+                      className="rounded-lg bg-blue-700 px-3 py-2 text-[11px] font-bold text-white disabled:opacity-50">Kết thúc đa giác ({polygonDraft.length} điểm)</button>
+                    <button type="button" onClick={() => setPolygonDraft([])} className="rounded-lg bg-slate-200 px-3 py-2 text-[11px] font-bold">Hủy nét</button>
+                  </div>}
                   <div className="flex justify-center">
                     <svg data-hnl-advanced-highlight-canvas="true" role="img"
                       aria-label="Vẽ highlight nâng cao trên vùng căn phòng"
@@ -2101,15 +2245,26 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                       onPointerDown={event => {
                         event.preventDefault();
                         const p = getHighlightPointFromPointer(event);
+                        if (highlightDrawTool === 'polygon') {
+                          setPolygonDraft(prev => prev.length < 128 ? [...prev, p] : prev);
+                          return;
+                        }
                         highlightPointerStartRef.current = p;
-                        setHighlightDraft({ start: p, end: p });
+                        if (highlightDrawTool === 'freehand') setFreehandDraft([p]);
+                        else setHighlightDraft({ start: p, end: p });
                         event.currentTarget.setPointerCapture(event.pointerId);
                       }}
                       onPointerMove={event => {
-                        if (highlightPointerStartRef.current) setHighlightDraft({ start: highlightPointerStartRef.current, end: getHighlightPointFromPointer(event) });
+                        if (!highlightPointerStartRef.current) return;
+                        const p = getHighlightPointFromPointer(event);
+                        if (highlightDrawTool === 'freehand') {
+                          setFreehandDraft(prev => prev.length >= 120 ||
+                            (prev.length && Math.hypot(prev[prev.length-1].x-p.x,prev[prev.length-1].y-p.y)<1.5)
+                            ? prev : [...prev,p]);
+                        } else setHighlightDraft({ start: highlightPointerStartRef.current, end: p });
                       }}
                       onPointerUp={handleHighlightPointerUp}
-                      onPointerCancel={() => { highlightPointerStartRef.current = null; setHighlightDraft(null); }}>
+                      onPointerCancel={() => { highlightPointerStartRef.current = null; setHighlightDraft(null); setFreehandDraft([]); }}>
                       <defs>
                         <clipPath id={highlightSvgClipId}>
                           {advancedRoomShape?.length && advancedRoomShape.length >= 3 ?
@@ -2125,19 +2280,28 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             width={10000 / width} height={10000 / height}
                             preserveAspectRatio="none" opacity={0.72} />
                         )}
-                        {mainHighlightArea && <rect {...mainHighlightArea} fill="#0284c7" fillOpacity={0.17} stroke="#0284c7" strokeWidth={0.8} strokeDasharray="2 1" />}
+                        {getHighlightTotalShapes(highlightSelectedCategory).flatMap((shape,index) => {
+                          const p = highlightShapeToPolygon(shape);
+                          return p ? [<polygon key={`total-${index}`} points={p.map(q=>`${q.x},${q.y}`).join(' ')} fill="#64748b" fillOpacity={0.07} stroke="#64748b" strokeWidth={0.6} strokeDasharray="2 1" />] : [];
+                        })}
+                        {getHighlightMainShapes(highlightSelectedCategory).flatMap((shape,index) => {
+                          const p = highlightShapeToPolygon(shape);
+                          return p ? [<polygon key={`main-${index}`} points={p.map(q=>`${q.x},${q.y}`).join(' ')} fill="#0284c7" fillOpacity={0.14} stroke="#0284c7" strokeWidth={0.7} />] : [];
+                        })}
                         {highlightedStages.flatMap((stage, index) => {
                           const color = stage.highlightColor || HIGHLIGHT_COLORS[index % HIGHLIGHT_COLORS.length];
-                          return (stage.highlightRegions || []).map((r, index2) => {
-                            const effective = normalizeHighlightRect(r);
-                            if (!effective) return null;
-                            return <rect key={`${stage.id}-${index2}`} {...effective} fill={color}
+                          const shapes: HighlightRegionShape[] = stage.highlightShapes?.length ? stage.highlightShapes : (stage.highlightRegions || []);
+                          return shapes.flatMap((r,index2) => {
+                            const p = highlightShapeToPolygon(r);
+                            return p ? [<polygon key={`${stage.id}-${index2}`} points={p.map(q=>`${q.x},${q.y}`).join(' ')} fill={color}
                               fillOpacity={highlightTarget === stage.id ? 0.48 : 0.17}
-                              stroke={color} strokeWidth={highlightTarget === stage.id ? 1.1 : 0.4} />;
+                              stroke={color} strokeWidth={highlightTarget === stage.id ? 1.1 : 0.4} />] : [];
                           });
                         })}
-                        {draftHighlightRect && <rect {...draftHighlightRect} fill="#0ea5e9" fillOpacity={0.26}
+                        {draftHighlightRect && highlightDrawTool === '2point' && <rect {...draftHighlightRect} fill="#0ea5e9" fillOpacity={0.26}
                           stroke="#0284c7" strokeWidth={0.8} strokeDasharray="2 1" />}
+                        {polygonDraft.length > 0 && <polyline points={polygonDraft.map(p=>`${p.x},${p.y}`).join(' ')} fill="none" stroke="#0284c7" strokeWidth={1.4} strokeDasharray="2 1" />}
+                        {freehandDraft.length > 0 && <polyline points={freehandDraft.map(p=>`${p.x},${p.y}`).join(' ')} fill="none" stroke="#0284c7" strokeWidth={1.3} />}
                       </g>
                       {advancedRoomShape?.length && advancedRoomShape.length >= 3 ?
                         <polygon points={advancedRoomShape.map(p => `${p.x},${p.y}`).join(' ')}
@@ -2148,16 +2312,16 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                   <div className="flex flex-wrap gap-2">
                     <button type="button" onClick={selectWholeHighlight}
                       className="rounded-lg bg-sky-100 px-3 py-2 font-bold text-[11px] text-sky-900 hover:bg-sky-200">
-                      {highlightTarget === 'main' ? 'Dùng toàn phòng làm vùng tổng' : 'Phủ toàn bộ vùng tổng'}
+                      {highlightTarget === 'total' ? 'Vùng tổng = toàn phòng' : highlightTarget === 'main' ? 'Vùng chính = toàn vùng tổng' : 'Phủ toàn bộ vùng chính'}
                     </button>
-                    {highlightTarget !== 'main' && <button type="button" data-hnl-ui-only="true" onClick={() => setAppendHighlightRegion(true)}
-                      disabled={(selectedHighlightStage?.highlightRegions?.length || 0) >= 24}
+                    <button type="button" data-hnl-ui-only="true" onClick={() => setAppendHighlightRegion(true)}
+                      disabled={(highlightTarget === 'total' ? getHighlightTotalShapes(highlightSelectedCategory).length : highlightTarget === 'main' ? getHighlightMainShapes(highlightSelectedCategory).length : (selectedHighlightStage?.highlightShapes?.length || selectedHighlightStage?.highlightRegions?.length || 0)) >= 24}
                       className={`rounded-lg px-3 py-2 font-bold text-[11px] ${appendHighlightRegion ? 'bg-amber-200 text-amber-900' : 'bg-slate-100 text-slate-700'}`}>
                       {appendHighlightRegion ? 'Kéo để thêm vùng rời…' : 'Thêm vùng rời'}
-                    </button>}
+                    </button>
                     <button type="button" onClick={clearHighlightRegion}
                       className="rounded-lg bg-rose-50 px-3 py-2 font-bold text-[11px] text-rose-700 hover:bg-rose-100">
-                      {highlightTarget === 'main' ? 'Xóa vùng tổng tùy chỉnh' : 'Xóa vùng phụ (dùng vùng chính)'}
+                      {highlightTarget === 'total' ? 'Xóa vùng tổng tùy chỉnh' : highlightTarget === 'main' ? 'Xóa vùng chính' : 'Xóa vùng con (dùng vùng chính)'}
                     </button>
                   </div>
                   {selectedHighlightStage && (
@@ -2176,7 +2340,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                       </div>
                       <p className="text-[10.5px] text-slate-500">
                         {selectedHighlightStage.highlightVolumeMode === 'area'
-                          ? 'KL tự tính theo tỷ lệ vùng phụ; không có vùng phụ thì bằng 100% KL chính. Ghi dữ liệu khi Lưu.'
+                          ? 'KL tự tính theo tỷ lệ diện tích trên vùng tổng (nếu đã nhập KL tổng riêng). Không có vùng con thì phủ toàn vùng chính. Ghi dữ liệu khi Lưu.'
                           : 'KL nhập tay giữ nguyên. Có thể chọn tự tính theo vùng chính hoặc vùng phụ khi đơn vị là m².'}
                       </p>
                       {!isAreaHighlightUnit(getCategorySourceUnit(highlightSelectedCategory)) && (
@@ -2188,7 +2352,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                     </div>
                   )}
                   <p className="text-[10px] leading-relaxed text-slate-500">
-                    Mỗi công đoạn có thể phủ trùng diện tích với công đoạn khác; không cộng các công đoạn thành KL chính. Vùng phụ chỉ được tính trong vùng tổng và biên phòng. Bật lớp “Hạng mục phụ” trên thanh Lớp của mặt bằng để quan sát riêng.
+                    Mỗi công đoạn có thể phủ trùng với công đoạn khác; không cộng công đoạn thành KL chính. KL con lấy tỷ lệ diện tích trên vùng tổng độc lập và bị giới hạn trong vùng chính/biên phòng. Bật lớp “Hạng mục con” trên mặt bằng để xem riêng. Hạng mục đã nghiệm thu giữ KL chốt.
                   </p>
                 </div>
               )}

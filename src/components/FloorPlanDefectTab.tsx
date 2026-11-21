@@ -105,7 +105,7 @@ import { buildDefectShareText, resolveDefectTeam } from '../utils/defectContactU
 import { isPointInsideRoom, reconcileDefectLinkage, resolveDefectLinkageFromSelection } from '../utils/defectLinkageUtils';
 import { MIN_ROOM_HIGHLIGHT_PERCENT, getPreciseRoomHighlightRect, getRoomHighlightBounds, mirrorRoomHighlight, resizeRoomHighlightSide, resizeRoomHighlightToBounds, rotateRoomHighlight, snapRotationDelta } from '../utils/roomHighlightGeometry';
 import { snapRoomPointOrthogonal } from '../utils/roomHighlightSnap';
-import { getSubHighlightFloorRect, normalizeHighlightRect } from '../utils/subItemHighlightGeometry';
+import { getHighlightShapeFloorPoints } from '../utils/highlightTotalGeometry';
 import { CAD_GRID_STEP, applyCadDrawingGuide, getCadDrawingHotkey } from '../utils/roomHighlightCadShortcuts';
 import { findRoomObjectSnap, type RoomSnapCandidate } from '../utils/roomHighlightObjectSnap';
 import { placeFloorPlanDisplayPopover } from '../utils/floorPlanDisplayPopover';
@@ -778,9 +778,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         roomLabels: parsed.roomLabels !== false,
         defects: parsed.defects !== false,
         resolvedDefects: parsed.resolvedDefects !== false,
+        totalHighlightRegions: parsed.totalHighlightRegions === true,
+        mainHighlightRegions: parsed.mainHighlightRegions === true,
       };
     } catch {
-      return { roomRegions: true, subItemRegions: true, roomLabels: true, defects: true, resolvedDefects: true };
+      return { roomRegions: true, subItemRegions: true, roomLabels: true, defects: true, resolvedDefects: true, totalHighlightRegions: false, mainHighlightRegions: false };
     }
   });
   // Legacy device-only locks still protect old geometry; explicit Cloud flags override them.
@@ -858,9 +860,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         roomLabels: parsed.roomLabels !== false,
         defects: parsed.defects !== false,
         resolvedDefects: parsed.resolvedDefects !== false,
+        totalHighlightRegions: parsed.totalHighlightRegions === true,
+        mainHighlightRegions: parsed.mainHighlightRegions === true,
       });
     } catch {
-      setMapLayers({ roomRegions: true, subItemRegions: true, roomLabels: true, defects: true, resolvedDefects: true });
+      setMapLayers({ roomRegions: true, subItemRegions: true, roomLabels: true, defects: true, resolvedDefects: true, totalHighlightRegions: false, mainHighlightRegions: false });
     }
     requestAnimationFrame(() => { projectUiSettingsHydratingRef.current = false; });
   }, [currentProjectId]);
@@ -8257,6 +8261,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   {([
                     ['roomRegions', 'Vùng Căn / Phòng'],
                     ['subItemRegions', 'Highlight hạng mục con'],
+                    ['mainHighlightRegions', 'Highlight hạng mục chính'],
+                    ['totalHighlightRegions', 'Highlight vùng tổng (ẩn mặc định)'],
                     ['roomLabels', 'Tên Căn / Phòng'],
                     ['defects', 'Marker Defect'],
                     ['resolvedDefects', 'Defect đã hoàn thành'],
@@ -8280,7 +8286,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-[11px] text-slate-800">
                       <option value="">Tất cả vùng phụ</option>
                       {Array.from(new Set<string>(floorRooms.flatMap(room => (room.subItems || [])
-                        .filter(sub => (sub.highlightRegions || []).length > 0).map(sub => String(sub.name || ''))))).sort((a,b) => a.localeCompare(b, 'vi')).map(name => (
+                        .filter(sub => (sub.highlightRegions || []).length > 0 || (sub.highlightShapes || []).length > 0).map(sub => String(sub.name || ''))))).sort((a,b) => a.localeCompare(b, 'vi')).map(name => (
                           <option key={name} value={name}>{name}</option>
                         ))}
                     </select>
@@ -8628,11 +8634,46 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     />
                   );
                 })}
+                {/* Independent optional total/main regions are presentation-only and hidden by
+                    default; never intercept room / CAD geometry tools or Defect markers. */}
+                {(mapLayers.totalHighlightRegions || mapLayers.mainHighlightRegions) && displayedFloorRooms.map(room => {
+                  if (room.isPolyline || room.width <= 0 || room.height <= 0) return null;
+                  const cats = Array.from(new Set([
+                    ...Object.keys(room.categoryHighlightTotalShapes || {}),
+                    ...Object.keys(room.categoryHighlightShapes || {}),
+                    ...Object.keys(room.categoryHighlightRegions || {}),
+                  ]));
+                  if (!cats.length) return null;
+                  const clipId = `hnl-main-room-${room.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+                  return <g key={`main-total-${room.id}`} data-hnl-floor-main-total-highlight="true" pointerEvents="none">
+                    <defs><clipPath id={clipId}>
+                      {room.points?.length && room.points.length >= 3
+                        ? <polygon points={room.points.map(p=>`${p.x},${p.y}`).join(' ')} />
+                        : <polygon points={`${room.x},${room.y} ${room.x + room.width},${room.y} ${room.x + room.width},${room.y + room.height} ${room.x},${room.y + room.height}`} />}
+                    </clipPath></defs>
+                    <g clipPath={`url(#${clipId})`}>
+                    {cats.flatMap(cat => {
+                      const main = room.categoryHighlightShapes?.[cat]?.length ? room.categoryHighlightShapes[cat] :
+                        (room.categoryHighlightRegions?.[cat] ? [room.categoryHighlightRegions[cat]] : []);
+                      const shapes = [
+                        ...(mapLayers.totalHighlightRegions ? (room.categoryHighlightTotalShapes?.[cat] || []).map(shape => ({shape,color:'#64748b',label:'total'})) : []),
+                        ...(mapLayers.mainHighlightRegions ? main.map(shape => ({shape,color:'#0284c7',label:'main'})) : []),
+                      ];
+                      return shapes.flatMap(({shape,color,label},i) => {
+                        const points = getHighlightShapeFloorPoints(room,shape);
+                        return points ? [<polygon key={`${cat}-${label}-${i}`} points={points.map(p=>`${p.x},${p.y}`).join(' ')}
+                          fill={color} fillOpacity={0.1} stroke={color} strokeWidth={1.8}
+                          strokeDasharray={label==='total' ? '5 3' : undefined} vectorEffect="non-scaling-stroke" />] : [];
+                      });
+                    })}
+                    </g>
+                  </g>;
+                })}
                 {/* Optional stage areas are paint-only overlays: never alter room hit testing,
                     room geometry, stage quantities or Defect coordinates. */}
                 {mapLayers.subItemRegions && displayedFloorRooms.map((room) => {
                   if (room.isPolyline || !(room.width > 0 && room.height > 0)) return null;
-                  const coloredStages = (room.subItems || []).filter(sub => (sub.highlightRegions || []).length > 0 &&
+                  const coloredStages = (room.subItems || []).filter(sub => ((sub.highlightRegions || []).length > 0 || (sub.highlightShapes || []).length > 0) &&
                     (!visibleSubHighlightName || sub.name === visibleSubHighlightName));
                   if (!coloredStages.length) return null;
                   const roomClipId = `hnl-stage-room-${room.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
@@ -8647,22 +8688,36 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     <g clipPath={`url(#${roomClipId})`}>
                       {coloredStages.map((stage, index) => {
                         const cat = stage.category || room.workCategory || '';
-                        const mainRect = room.categoryHighlightRegions?.[cat];
-                        const mainClipId = `hnl-stage-main-${room.id.replace(/[^a-zA-Z0-9_-]/g, '-')}-${index}`;
-                        const visibleMain = mainRect ? normalizeHighlightRect(mainRect) : null;
+                        const mainRects = room.categoryHighlightRegions?.[cat];
+                        const mainShapes = room.categoryHighlightShapes?.[cat]?.length
+                          ? room.categoryHighlightShapes[cat] : (mainRects ? [mainRects] : []);
+                        const totalShapes = room.categoryHighlightTotalShapes?.[cat] || [];
+                        const roomKey = room.id.replace(/[^a-zA-Z0-9_-]/g, '-');
+                        const mainClipId = `hnl-stage-main-${roomKey}-${index}`;
+                        const totalClipId = `hnl-stage-total-${roomKey}-${index}`;
                         const c = stage.highlightColor || ['#2563eb', '#f59e0b', '#16a34a', '#9333ea', '#dc2626', '#0891b2'][index % 6];
+                        const shapes = stage.highlightShapes?.length ? stage.highlightShapes : (stage.highlightRegions || []);
                         return <g key={stage.id}>
-                          {visibleMain && <defs><clipPath id={mainClipId}>
-                            <rect {...getSubHighlightFloorRect(room, visibleMain)} />
-                          </clipPath></defs>}
-                          <g clipPath={visibleMain ? `url(#${mainClipId})` : undefined}>
-                            {(stage.highlightRegions || []).map((region, regionIndex) => {
-                              const valid = normalizeHighlightRect(region);
-                              if (!valid) return null;
-                              return <rect key={`${stage.id}-${regionIndex}`} {...getSubHighlightFloorRect(room, valid)}
-                                fill={c} fillOpacity={0.28} stroke={c} strokeWidth={1.7}
-                                vectorEffect="non-scaling-stroke" />;
+                          {mainShapes.length > 0 && <defs><clipPath id={mainClipId}>
+                            {mainShapes.flatMap((shape,i) => {
+                              const p = getHighlightShapeFloorPoints(room,shape);
+                              return p ? [<polygon key={i} points={p.map(q=>`${q.x},${q.y}`).join(' ')} />] : [];
                             })}
+                          </clipPath></defs>}
+                          {totalShapes.length > 0 && <defs><clipPath id={totalClipId}>
+                            {totalShapes.flatMap((shape,i) => {
+                              const p = getHighlightShapeFloorPoints(room,shape);
+                              return p ? [<polygon key={i} points={p.map(q=>`${q.x},${q.y}`).join(' ')} />] : [];
+                            })}
+                          </clipPath></defs>}
+                          <g clipPath={totalShapes.length ? `url(#${totalClipId})` : undefined}>
+                            <g clipPath={mainShapes.length ? `url(#${mainClipId})` : undefined}>
+                              {shapes.flatMap((shape,i) => {
+                                const p = getHighlightShapeFloorPoints(room,shape);
+                                return p ? [<polygon key={`${stage.id}-${i}`} points={p.map(q=>`${q.x},${q.y}`).join(' ')}
+                                  fill={c} fillOpacity={0.28} stroke={c} strokeWidth={1.7} vectorEffect="non-scaling-stroke" />] : [];
+                              })}
+                            </g>
                           </g>
                         </g>;
                       })}
