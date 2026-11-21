@@ -1330,6 +1330,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   // Room Highlight Modal State
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
   const [countLaunchStageId, setCountLaunchStageId] = useState<string | null>(null);
+  const [cach2DrawLaunch, setCach2DrawLaunch] = useState<{roomId:string;category:string;target:string;token:number}|null>(null);
+  const [metricCalibrationLaunch, setMetricCalibrationLaunch] = useState<{floorId:string;token:number}|null>(null);
   const [isCountDrawing, setIsCountDrawing] = useState(false);
   const [isShapeDrawing, setIsShapeDrawing] = useState(false);
   const [pendingCountRoomReturn, setPendingCountRoomReturn] = useState<{roomId:string;updatedAt:number}|null>(null);
@@ -7305,6 +7307,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <span className="text-sm leading-none shrink-0">📦</span>
                   <span>Vẽ chữ nhật</span>
                 </button>
+                <button type="button" data-hnl-cach2-calibrate-toolbar="true"
+                  disabled={!activeFloor || isCountDrawing || isShapeDrawing || isRoomCreationDrawing || drawTool !== 'none' || isDefectPinPlacementMode}
+                  aria-pressed={isMetricCalibrating}
+                  onClick={() => activeFloor && setMetricCalibrationLaunch({floorId:activeFloor.id,token:Date.now()})}
+                  title="Chọn hai điểm chuẩn trên ảnh mặt bằng tầng rồi nhập chiều dài thực tế (m)"
+                  className="text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 shrink-0 border border-teal-300 bg-teal-50 text-teal-950 hover:bg-teal-100 disabled:opacity-40">
+                  <span>📏</span><span>Hiệu chuẩn tỷ lệ</span>
+                </button>
               </div>
 
               {renderMapDisplaySettings(false)}
@@ -8193,7 +8203,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               !isDefectPinPlacementMode && !isRoomCreationDrawing && drawTool === 'none' && (viewMode === 'all' || viewMode === 'highlight') && (
               <FloorMetricCalibration
                 key={`${currentProjectId}:${activeFloor.id}`} floor={activeFloor}
-                imageContainer={imageContainerRef.current} rotation={rotation} zoomScale={zoomScale} rooms={floorRooms}
+                imageContainer={imageContainerRef.current} rotation={rotation} zoomScale={zoomScale} launch={metricCalibrationLaunch} rooms={floorRooms}
                 canSave={canManageStructure} onActiveChange={setIsMetricCalibrating}
                 onSave={(floorId, calibration)=>onUpdateFloorPlan(floorId,{highlightMetricCalibration:calibration})}
                 objectSnapEnabled={objectSnapEnabled} objectSnapMidpoints={objectSnapMidpoints}
@@ -8216,7 +8226,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 cadOrtho={cadOrtho}
                 cadPolar={cadPolar}
                 disabled={isCountDrawing}
-                onOpenChange={setIsShapeDrawing}
+                launch={cach2DrawLaunch}
+                onOpenChange={(active) => { setIsShapeDrawing(active); if (!active) setCach2DrawLaunch(null); }}
                 onSaveShapes={onSaveDirectHighlightShapes}
                 onShowLayer={(layer) => setMapLayers((prev) => ({ ...prev, [layer]: true }))}
               />
@@ -10516,6 +10527,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         floorPlanImageUrl={activeFloor?.imageUrl}
         checklistItems={checklistItems}
         onSaveRoom={onSaveRoomProgress}
+        onStartDrawOnMap={(room, category, target) => {
+          setSelectedRoomForDragId(room.id);
+          setSelectedRoomIds([room.id]);
+          setCountLaunchStageId(null);
+          setViewMode('highlight');
+          setIsRoomModalOpen(false);
+          setCach2DrawLaunch({roomId:room.id,category,target,token:Date.now()});
+        }}
         onStartCountOnMap={(room, stageId) => {
           setSelectedRoomForDragId(room.id);
           setSelectedRoomIds([room.id]);

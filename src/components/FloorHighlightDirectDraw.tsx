@@ -51,11 +51,13 @@ interface Props {
   cadGridSnap: boolean;
   cadOrtho: boolean;
   cadPolar: boolean;
+  /** One-shot navigation from the room form; geometries are still saved separately. */
+  launch?: { roomId: string; category: string; target: string; token: number } | null;
 }
 
 export const FloorHighlightDirectDraw: React.FC<Props> = ({
   room, floor, imageContainer, rotation, onSaveShapes, onShowLayer, isLocked, disabled=false, onOpenChange,
-  objectSnapEnabled, objectSnapMidpoints, cadGridSnap, cadOrtho, cadPolar,
+  objectSnapEnabled, objectSnapMidpoints, cadGridSnap, cadOrtho, cadPolar, launch,
 }) => {
   const [open, setOpen] = useState(false);
   const [lineMode, setLineMode] = useState(false);
@@ -122,6 +124,21 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
   };
   const changeTarget = (next: Target) => { clearWork(); setTarget(next); setReplaceExisting(false); };
   const changeCategory = (next: string) => { clearWork(); setCategory(next); setTarget('main'); setReplaceExisting(false); };
+  React.useEffect(() => {
+    if (!launch || launch.roomId !== room.id || !imageContainer || disabled || locked) return;
+    const chosenCategory = categories.includes(launch.category) ? launch.category : (categories[0] || '');
+    const chosenTarget = launch.target === 'main' || (room.subItems || []).some(s => s.id === launch.target && getDirectStageCategory(s, room) === chosenCategory)
+      ? launch.target : 'main';
+    setCategory(chosenCategory);
+    setTarget(chosenTarget);
+    setLineMode(false);
+    setDraft([]); setCorners([]); setMeasurePath([]); setNotice('');
+    baselineRef.current = { revision: room.revision, updatedAt: room.updatedAt };
+    setOpen(true); onOpenChange?.(true);
+    // Opening is keyed exclusively by the deliberate navigation token.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [launch?.token, room.id, imageContainer]);
+
   const toggle = () => {
     if (open) { clearWork(); baselineRef.current = null; setOpen(false); onOpenChange?.(false); return; }
     if (disabled) return;

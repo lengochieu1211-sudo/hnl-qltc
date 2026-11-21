@@ -11,6 +11,7 @@ interface Props {
   imageContainer: HTMLElement | null;
   rotation: number;
   zoomScale: number;
+  launch?: { floorId: string; token: number } | null;
   rooms: RoomProgressItem[];
   canSave: boolean;
   onSave: (floorId: string, calibration: FloorMetricCalibrationData) => void;
@@ -28,7 +29,7 @@ const floorPoint = (point: Point2D) => ({ x: Math.min(100,Math.max(0,point.x)), 
  * No stored quantity is mutated by calibrating.
  */
 export const FloorMetricCalibration: React.FC<Props> = ({
-  floor, imageContainer, rotation, zoomScale, rooms, canSave, onSave, onActiveChange,
+  floor, imageContainer, rotation, zoomScale, launch, rooms, canSave, onSave, onActiveChange,
   objectSnapEnabled, objectSnapMidpoints, cadGridSnap, cadOrtho, cadPolar,
 }) => {
   const [active, setActive] = useState(false);
@@ -63,6 +64,11 @@ export const FloorMetricCalibration: React.FC<Props> = ({
     setPoints([]); setNotice('Chạm hai đầu đoạn có chiều dài thực tế đã biết.');
     setActive(true); onActiveChange?.(true);
   };
+  useEffect(() => {
+    if (launch?.floorId === floor.id && launch.token > 0) open();
+    // Triggered only by toolbar click, not by image/zoom updates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [launch?.token]);
   const clickPoint = (event: React.PointerEvent<SVGSVGElement>) => {
     event.preventDefault(); event.stopPropagation();
     if (!imageContainer || event.button > 0) return;
@@ -85,7 +91,7 @@ export const FloorMetricCalibration: React.FC<Props> = ({
     close();
   };
   return <>
-    <div data-hnl-floor-metric-calibration="true" className="absolute left-2 top-14 z-[85] pointer-events-auto w-[min(328px,calc(100vw-32px))]">
+    {(active || notice) && <div data-hnl-floor-metric-calibration="true" className="absolute left-2 top-14 z-[85] pointer-events-auto w-[min(328px,calc(100vw-32px))]">
       <div className="rounded-xl border border-teal-400/50 bg-slate-950/95 p-2 text-white shadow-xl text-[11px]">
         <div className="flex justify-between items-center gap-2">
           <span className="font-extrabold">Cách 2 · Hiệu chuẩn tỷ lệ</span>
@@ -108,7 +114,7 @@ export const FloorMetricCalibration: React.FC<Props> = ({
           </div>
         </div>}
       </div>
-    </div>
+    </div>}
     {active && imageContainer && createPortal(
       <svg data-hnl-floor-metric-calibration-canvas="true" className="absolute inset-0 w-full h-full z-[78] cursor-crosshair"
         style={{touchAction:'none',pointerEvents:'auto'}} viewBox="0 0 100 100" preserveAspectRatio="none"

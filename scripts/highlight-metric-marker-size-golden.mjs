@@ -13,7 +13,7 @@ const checks = [
   ['save still only existing callback', /onSave\(floor\.id,draft\)/],
 ];
 for (const [label,re] of checks) assert.match(component,re,label);
-assert.match(parent,/rotation=\{rotation\} zoomScale=\{zoomScale\} rooms=\{floorRooms\}/);
+assert.match(parent,/rotation=\{rotation\} zoomScale=\{zoomScale\} (?:launch=\{metricCalibrationLaunch\} )?rooms=\{floorRooms\}/);
 assert.doesNotMatch(component,/r="0\.7"/);
 assert.doesNotMatch(component,/setWorkVolume|updateDoc|writeBatch|transaction|firebase\//);
 assert.match(component,/pointerEvents="none"/);
