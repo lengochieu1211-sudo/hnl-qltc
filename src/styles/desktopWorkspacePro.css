@@ -8,6 +8,7 @@
 /* Gemini-only presentation must not add any global mobile selectors.
    The pre-existing app CSS continues to own all layouts below 1024px. */
 @media (min-width: 1024px) {
+  /* Retain pre-Gemini 84px navigation in BOTH existing PC modes. */
   .hnl-pc-sidebar-brand,
   .hnl-pc-account-expanded-meta,
   .hnl-pc-account-chevron,
@@ -20,7 +21,7 @@
   /* --------------------------------------------------------------------------
    * 1. Design Tokens (Light + Dark) & Dynamic Collapsible Sidebar Width
    * -------------------------------------------------------------------------- */
-  html[data-hnl-pc-workspace="modern"] {
+  html[data-hnl-pc-workspace-pro="gemini"] {
     --hnl-pc-sidebar-w: 228px;
     --pc-pro-canvas: #f4f6f9;
     --pc-pro-surface: #ffffff;
@@ -43,11 +44,11 @@
     --pc-pro-accent-border: color-mix(in srgb, var(--pc-pro-accent) 24%, var(--pc-pro-border));
   }
 
-  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] {
+  html[data-hnl-pc-workspace-pro="gemini"][data-hnl-pc-sidebar="collapsed"] {
     --hnl-pc-sidebar-w: 72px;
   }
 
-  html[data-hnl-theme="dark"][data-hnl-pc-workspace="modern"] {
+  html[data-hnl-theme="dark"][data-hnl-pc-workspace-pro="gemini"] {
     --pc-pro-canvas: #0b1120;
     --pc-pro-surface: #111827;
     --pc-pro-surface-subtle: #1e293b;
@@ -67,14 +68,14 @@
   /* --------------------------------------------------------------------------
    * 2. App Shell Frame & Canvas Synchronization
    * -------------------------------------------------------------------------- */
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"],
-  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-home-modern="true"] {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"],
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-pc-home-modern="true"] {
     padding-left: var(--hnl-pc-sidebar-w) !important;
     background: var(--pc-pro-canvas) !important;
     transition: padding-left 0.18s ease;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-app-shell="true"] {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-app-shell="true"] {
     background: var(--pc-pro-canvas) !important;
     border-left: 0 !important;
     border-right: 0 !important;
@@ -84,7 +85,7 @@
   /* --------------------------------------------------------------------------
    * 3. Collapsible Enterprise Left Sidebar
    * -------------------------------------------------------------------------- */
-  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-nav-surface="desktop"] {
     width: var(--hnl-pc-sidebar-w) !important;
     background: var(--pc-pro-surface) !important;
     border-right: 1px solid var(--pc-pro-border) !important;
@@ -94,7 +95,7 @@
   }
 
   /* Brand Header (56px height aligned with sticky topbar) */
-  html[data-hnl-pc-workspace="modern"] .hnl-pc-sidebar-brand {
+  html[data-hnl-pc-workspace-pro="gemini"] .hnl-pc-sidebar-brand {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -105,7 +106,7 @@
     flex-shrink: 0;
   }
 
-  html[data-hnl-pc-workspace="modern"] .hnl-pc-sidebar-brand-mark {
+  html[data-hnl-pc-workspace-pro="gemini"] .hnl-pc-sidebar-brand-mark {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -117,7 +118,7 @@
     flex-shrink: 0;
   }
 
-  html[data-hnl-pc-workspace="modern"] .hnl-pc-sidebar-brand-text {
+  html[data-hnl-pc-workspace-pro="gemini"] .hnl-pc-sidebar-brand-text {
     display: flex;
     flex-direction: column;
     min-width: 0;
@@ -125,7 +126,7 @@
     line-height: 1.15;
   }
 
-  html[data-hnl-pc-workspace="modern"] .hnl-pc-sidebar-brand-text strong {
+  html[data-hnl-pc-workspace-pro="gemini"] .hnl-pc-sidebar-brand-text strong {
     font-size: 13.5px;
     font-weight: 800;
     letter-spacing: -0.02em;
@@ -135,7 +136,7 @@
     text-overflow: ellipsis;
   }
 
-  html[data-hnl-pc-workspace="modern"] .hnl-pc-sidebar-brand-text span {
+  html[data-hnl-pc-workspace-pro="gemini"] .hnl-pc-sidebar-brand-text span {
     font-size: 10.5px;
     font-weight: 600;
     color: var(--pc-pro-muted);
@@ -145,7 +146,7 @@
     margin-top: 1px;
   }
 
-  html[data-hnl-pc-workspace="modern"] .hnl-pc-sidebar-toggle {
+  html[data-hnl-pc-workspace-pro="gemini"] .hnl-pc-sidebar-toggle {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -160,32 +161,32 @@
     transition: background-color 0.14s ease, color 0.14s ease, border-color 0.14s ease;
   }
 
-  html[data-hnl-pc-workspace="modern"] .hnl-pc-sidebar-toggle:hover {
+  html[data-hnl-pc-workspace-pro="gemini"] .hnl-pc-sidebar-toggle:hover {
     background: var(--pc-pro-surface-hover);
     color: var(--pc-pro-ink);
     border-color: var(--pc-pro-border);
   }
 
   /* Collapsed brand layout */
-  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] .hnl-pc-sidebar-brand {
+  html[data-hnl-pc-workspace-pro="gemini"][data-hnl-pc-sidebar="collapsed"] .hnl-pc-sidebar-brand {
     justify-content: center;
     padding: 0 8px;
     gap: 0;
   }
 
-  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] .hnl-pc-sidebar-brand-mark,
-  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] .hnl-pc-sidebar-brand-text {
+  html[data-hnl-pc-workspace-pro="gemini"][data-hnl-pc-sidebar="collapsed"] .hnl-pc-sidebar-brand-mark,
+  html[data-hnl-pc-workspace-pro="gemini"][data-hnl-pc-sidebar="collapsed"] .hnl-pc-sidebar-brand-text {
     display: none;
   }
 
   /* Account Menu Card inside Sidebar */
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-account-menu="true"] {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-account-menu="true"] {
     padding: 10px 10px 10px !important;
     border-bottom: 1px solid var(--pc-pro-border) !important;
     align-items: stretch !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-account-menu="true"] > button[data-hnl-account-trigger="true"] {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-account-menu="true"] > button[data-hnl-account-trigger="true"] {
     flex-direction: row !important;
     align-items: center !important;
     justify-content: flex-start !important;
@@ -197,22 +198,22 @@
     text-align: left;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-account-menu="true"] > button[data-hnl-account-trigger="true"]:hover {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-account-menu="true"] > button[data-hnl-account-trigger="true"]:hover {
     background: var(--pc-pro-surface-hover) !important;
     border-color: var(--pc-pro-border-strong);
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-account-menu="true"] > button > span:first-child {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-account-menu="true"] > button > span:first-child {
     width: 34px !important;
     height: 34px !important;
     border-width: 1.5px !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] .hnl-pc-account-compact-label {
+  html[data-hnl-pc-workspace-pro="gemini"] .hnl-pc-account-compact-label {
     display: none !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] .hnl-pc-account-expanded-meta {
+  html[data-hnl-pc-workspace-pro="gemini"] .hnl-pc-account-expanded-meta {
     display: flex;
     flex-direction: column;
     min-width: 0;
@@ -220,7 +221,7 @@
     line-height: 1.2;
   }
 
-  html[data-hnl-pc-workspace="modern"] .hnl-pc-account-name {
+  html[data-hnl-pc-workspace-pro="gemini"] .hnl-pc-account-name {
     font-size: 12.5px;
     font-weight: 700;
     color: var(--pc-pro-ink);
@@ -229,7 +230,7 @@
     text-overflow: ellipsis;
   }
 
-  html[data-hnl-pc-workspace="modern"] .hnl-pc-account-role {
+  html[data-hnl-pc-workspace-pro="gemini"] .hnl-pc-account-role {
     font-size: 10.5px;
     font-weight: 600;
     color: var(--pc-pro-muted);
@@ -239,12 +240,12 @@
     margin-top: 1px;
   }
 
-  html[data-hnl-pc-workspace="modern"] .hnl-pc-account-chevron {
+  html[data-hnl-pc-workspace-pro="gemini"] .hnl-pc-account-chevron {
     display: block;
   }
 
   /* Account popover dynamically aligned right next to sidebar */
-  html[data-hnl-pc-workspace="modern"] [data-hnl-account-popover="true"] {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-account-popover="true"] {
     left: calc(var(--hnl-pc-sidebar-w) + 10px) !important;
     top: 12px !important;
     border-radius: 12px !important;
@@ -252,12 +253,12 @@
     box-shadow: var(--pc-pro-shadow-md) !important;
   }
 
-  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] [data-hnl-desktop-account-menu="true"] {
+  html[data-hnl-pc-workspace-pro="gemini"][data-hnl-pc-sidebar="collapsed"] [data-hnl-desktop-account-menu="true"] {
     padding: 10px 8px !important;
     align-items: center !important;
   }
 
-  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] [data-hnl-desktop-account-menu="true"] > button[data-hnl-account-trigger="true"] {
+  html[data-hnl-pc-workspace-pro="gemini"][data-hnl-pc-sidebar="collapsed"] [data-hnl-desktop-account-menu="true"] > button[data-hnl-account-trigger="true"] {
     justify-content: center !important;
     padding: 5px !important;
     width: 44px !important;
@@ -265,21 +266,21 @@
     gap: 0 !important;
   }
 
-  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] .hnl-pc-account-expanded-meta,
-  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] .hnl-pc-account-chevron {
+  html[data-hnl-pc-workspace-pro="gemini"][data-hnl-pc-sidebar="collapsed"] .hnl-pc-account-expanded-meta,
+  html[data-hnl-pc-workspace-pro="gemini"][data-hnl-pc-sidebar="collapsed"] .hnl-pc-account-chevron {
     display: none !important;
   }
 
   /* Primary Navigation List — Expanded Mode */
-  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] {
     justify-content: flex-start !important;
     align-items: stretch !important;
     gap: 3px !important;
     padding: 10px 10px !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button,
-  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button,
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button {
     position: relative;
     display: flex !important;
     flex-direction: row !important;
@@ -298,21 +299,21 @@
     transition: background-color 0.14s ease, color 0.14s ease;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button:hover,
-  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button:hover {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button:hover,
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button:hover {
     background: var(--pc-pro-surface-hover) !important;
     color: var(--pc-pro-ink) !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button svg,
-  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button svg {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button svg,
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button svg {
     width: 18px !important;
     height: 18px !important;
     flex-shrink: 0;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button > span:last-child,
-  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button > span:last-child {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button > span:last-child,
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button > span:last-child {
     width: auto !important;
     flex: 1;
     text-align: left !important;
@@ -325,16 +326,16 @@
   }
 
   /* Active item with crisp left indicator pill */
-  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] button[data-hnl-nav-active="true"] {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-nav-surface="desktop"] button[data-hnl-nav-active="true"] {
     background: var(--pc-pro-accent-soft) !important;
     color: var(--hnl-primary-on-light, var(--pc-pro-accent)) !important;
   }
 
-  html[data-hnl-theme="dark"][data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] button[data-hnl-nav-active="true"] {
+  html[data-hnl-theme="dark"][data-hnl-pc-workspace-pro="gemini"] [data-hnl-nav-surface="desktop"] button[data-hnl-nav-active="true"] {
     color: var(--hnl-primary-on-dark, #93c5fd) !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] button[data-hnl-nav-active="true"]::before {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-nav-surface="desktop"] button[data-hnl-nav-active="true"]::before {
     content: '';
     position: absolute;
     left: 0;
@@ -345,18 +346,18 @@
     background: var(--pc-pro-accent);
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] button[data-hnl-nav-active="true"] > span:last-child {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-nav-surface="desktop"] button[data-hnl-nav-active="true"] > span:last-child {
     font-weight: 700 !important;
   }
 
   /* Move nav badges neatly to the right edge when expanded */
-  html[data-hnl-pc-workspace="modern"]:not([data-hnl-pc-sidebar="collapsed"]) [data-hnl-nav-surface="desktop"] .hnl-pc-nav-icon-wrap {
+  html[data-hnl-pc-workspace-pro="gemini"]:not([data-hnl-pc-sidebar="collapsed"]) [data-hnl-nav-surface="desktop"] .hnl-pc-nav-icon-wrap {
     position: static !important;
     display: inline-flex;
     align-items: center;
   }
 
-  html[data-hnl-pc-workspace="modern"]:not([data-hnl-pc-sidebar="collapsed"]) [data-hnl-nav-surface="desktop"] [data-hnl-nav-badge] {
+  html[data-hnl-pc-workspace-pro="gemini"]:not([data-hnl-pc-sidebar="collapsed"]) [data-hnl-nav-surface="desktop"] [data-hnl-nav-badge] {
     position: absolute !important;
     top: 50% !important;
     right: 10px !important;
@@ -370,7 +371,7 @@
   }
 
   /* Footer Nav (Hệ thống, Cài đặt) */
-  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] {
     padding: 10px 10px 12px !important;
     border-top: 1px solid var(--pc-pro-border) !important;
     display: flex;
@@ -379,15 +380,15 @@
   }
 
   /* Collapsed Sidebar Icon Rail (72px) */
-  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"],
-  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] {
+  html[data-hnl-pc-workspace-pro="gemini"][data-hnl-pc-sidebar="collapsed"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"],
+  html[data-hnl-pc-workspace-pro="gemini"][data-hnl-pc-sidebar="collapsed"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] {
     align-items: center !important;
     padding-left: 8px !important;
     padding-right: 8px !important;
   }
 
-  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button,
-  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button {
+  html[data-hnl-pc-workspace-pro="gemini"][data-hnl-pc-sidebar="collapsed"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button,
+  html[data-hnl-pc-workspace-pro="gemini"][data-hnl-pc-sidebar="collapsed"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button {
     width: 44px !important;
     height: 42px !important;
     min-height: 42px !important;
@@ -396,16 +397,16 @@
     gap: 0 !important;
   }
 
-  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button > span:last-child,
-  html[data-hnl-pc-workspace="modern"][data-hnl-pc-sidebar="collapsed"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button > span:last-child {
+  html[data-hnl-pc-workspace-pro="gemini"][data-hnl-pc-sidebar="collapsed"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-primary-nav="true"] > button > span:last-child,
+  html[data-hnl-pc-workspace-pro="gemini"][data-hnl-pc-sidebar="collapsed"] [data-hnl-nav-surface="desktop"] [data-hnl-desktop-footer="true"] > button > span:last-child {
     display: none !important;
   }
 
   /* --------------------------------------------------------------------------
    * 4. Sticky Enterprise Topbar (All Modules + Home)
    * -------------------------------------------------------------------------- */
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-workspace-heading,
-  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-home-modern="true"] .hnl-pc-home-actions {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-workspace-heading,
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-pc-home-modern="true"] .hnl-pc-home-actions {
     position: sticky;
     top: 0;
     z-index: 35;
@@ -421,7 +422,7 @@
     box-shadow: none !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-top {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-top {
     display: flex !important;
     flex-wrap: nowrap;
     align-items: center !important;
@@ -430,19 +431,19 @@
     min-height: 36px;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-main {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-main {
     flex: 1 1 auto !important;
     min-width: 0 !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] .hnl-pc-title-line {
+  html[data-hnl-pc-workspace-pro="gemini"] .hnl-pc-title-line {
     display: flex;
     align-items: center;
     gap: 10px;
     min-width: 0;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-main h1 {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-main h1 {
     margin: 0 !important;
     font-size: 16.5px !important;
     font-weight: 750 !important;
@@ -454,19 +455,19 @@
   }
 
   /* Hide verbose subtitle in sticky topbar to keep a crisp single-row bar (kept in title tooltip) */
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-hint {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-hint {
     display: none !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] .hnl-pc-topbar-sep {
+  html[data-hnl-pc-workspace-pro="gemini"] .hnl-pc-topbar-sep {
     width: 1px;
     height: 18px;
     background: var(--pc-pro-border-strong);
     flex-shrink: 0;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-context-row,
-  html[data-hnl-pc-workspace="modern"] .hnl-pc-home-context {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-context-row,
+  html[data-hnl-pc-workspace-pro="gemini"] .hnl-pc-home-context {
     display: flex !important;
     align-items: center;
     gap: 6px;
@@ -474,14 +475,14 @@
     min-width: 0;
   }
 
-  html[data-hnl-pc-workspace="modern"] .hnl-pc-home-actions {
+  html[data-hnl-pc-workspace-pro="gemini"] .hnl-pc-home-actions {
     display: flex !important;
     align-items: center;
     justify-content: space-between !important;
     gap: 14px;
   }
 
-  html[data-hnl-pc-workspace="modern"] .hnl-pc-home-title {
+  html[data-hnl-pc-workspace-pro="gemini"] .hnl-pc-home-title {
     font-size: 16.5px;
     font-weight: 750;
     letter-spacing: -0.02em;
@@ -489,14 +490,14 @@
     white-space: nowrap;
   }
 
-  html[data-hnl-pc-workspace="modern"] .hnl-pc-home-toolbar {
+  html[data-hnl-pc-workspace-pro="gemini"] .hnl-pc-home-toolbar {
     display: flex;
     align-items: center;
     gap: 6px;
     flex-shrink: 0;
   }
 
-  html[data-hnl-pc-workspace="modern"] :is(.hnl-pc-context-row, .hnl-pc-home-context) > span:not(.hnl-pc-home-title):not(.hnl-pc-topbar-sep) {
+  html[data-hnl-pc-workspace-pro="gemini"] :is(.hnl-pc-context-row, .hnl-pc-home-context) > span:not(.hnl-pc-home-title):not(.hnl-pc-topbar-sep) {
     display: inline-flex;
     align-items: center;
     gap: 5px;
@@ -514,32 +515,32 @@
     text-overflow: ellipsis;
   }
 
-  html[data-hnl-pc-workspace="modern"] :is(.hnl-pc-context-row, .hnl-pc-home-context) > span.hnl-pc-project-tag {
+  html[data-hnl-pc-workspace-pro="gemini"] :is(.hnl-pc-context-row, .hnl-pc-home-context) > span.hnl-pc-project-tag {
     color: var(--hnl-primary-on-light, var(--pc-pro-accent)) !important;
     background: var(--pc-pro-accent-soft) !important;
     border-color: var(--pc-pro-accent-border) !important;
   }
 
-  html[data-hnl-theme="dark"][data-hnl-pc-workspace="modern"] :is(.hnl-pc-context-row, .hnl-pc-home-context) > span.hnl-pc-project-tag {
+  html[data-hnl-theme="dark"][data-hnl-pc-workspace-pro="gemini"] :is(.hnl-pc-context-row, .hnl-pc-home-context) > span.hnl-pc-project-tag {
     color: var(--hnl-primary-on-dark, #93c5fd) !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] .hnl-pc-project-name {
+  html[data-hnl-pc-workspace-pro="gemini"] .hnl-pc-project-name {
     font-size: 11.5px !important;
     font-weight: 700 !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] .hnl-pc-status.is-online {
+  html[data-hnl-pc-workspace-pro="gemini"] .hnl-pc-status.is-online {
     color: #059669 !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] .hnl-pc-status.is-offline {
+  html[data-hnl-pc-workspace-pro="gemini"] .hnl-pc-status.is-offline {
     color: #d97706 !important;
   }
 
   /* Unified Topbar Action Buttons */
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-actions,
-  html[data-hnl-pc-workspace="modern"] .hnl-pc-home-toolbar {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-actions,
+  html[data-hnl-pc-workspace-pro="gemini"] .hnl-pc-home-toolbar {
     display: flex;
     align-items: center;
     justify-content: flex-end;
@@ -548,8 +549,8 @@
     flex-shrink: 0;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-actions button,
-  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-home-modern="true"] .hnl-pc-home-toolbar > button {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-actions button,
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-pc-home-modern="true"] .hnl-pc-home-toolbar > button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -569,21 +570,21 @@
     transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-actions button:hover,
-  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-home-modern="true"] .hnl-pc-home-toolbar > button:hover {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-actions button:hover,
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-pc-home-modern="true"] .hnl-pc-home-toolbar > button:hover {
     background: var(--pc-pro-surface-hover) !important;
     border-color: var(--pc-pro-border-strong) !important;
     color: var(--pc-pro-ink) !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] :is(.hnl-pc-heading-actions, .hnl-pc-home-toolbar) .hnl-pc-mode-switch {
+  html[data-hnl-pc-workspace-pro="gemini"] :is(.hnl-pc-heading-actions, .hnl-pc-home-toolbar) .hnl-pc-mode-switch {
     background: transparent !important;
     border-color: transparent !important;
     box-shadow: none !important;
     color: var(--pc-pro-muted) !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] :is(.hnl-pc-heading-actions, .hnl-pc-home-toolbar) .hnl-pc-mode-switch:hover {
+  html[data-hnl-pc-workspace-pro="gemini"] :is(.hnl-pc-heading-actions, .hnl-pc-home-toolbar) .hnl-pc-mode-switch:hover {
     background: var(--pc-pro-surface-hover) !important;
     border-color: var(--pc-pro-border) !important;
     color: var(--pc-pro-ink) !important;
@@ -592,12 +593,12 @@
   /* --------------------------------------------------------------------------
    * 5. Main Content Area & Unified Container Rhythm
    * -------------------------------------------------------------------------- */
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] main[data-hnl-pc-workspace="true"] {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] main[data-hnl-pc-workspace="true"] {
     padding: 0 0 36px !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] main[data-hnl-pc-workspace="true"] [data-hnl-workspace-module],
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] :is(
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] main[data-hnl-pc-workspace="true"] [data-hnl-workspace-module],
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] :is(
     [data-hnl-pc-module="settings-center"],
     [data-hnl-pc-module="chat-projects"],
     [data-hnl-pc-module="ai-workspace"],
@@ -611,7 +612,7 @@
   /* --------------------------------------------------------------------------
    * 6. Sleek Enterprise KPI Strip (DesktopWorkspaceMetrics)
    * -------------------------------------------------------------------------- */
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview {
     display: grid !important;
     grid-template-columns: minmax(220px, 1fr) minmax(0, 3fr) !important;
     gap: 12px !important;
@@ -619,7 +620,7 @@
     align-items: stretch;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro {
     border-radius: var(--pc-pro-radius-md) !important;
     border: 1px solid var(--pc-pro-border) !important;
     background: var(--pc-pro-surface) !important;
@@ -630,37 +631,37 @@
     justify-content: center;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro::before {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro::before {
     width: 3px !important;
     background: var(--pc-pro-accent) !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-eyebrow {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-eyebrow {
     font-size: 10px !important;
     font-weight: 750 !important;
     letter-spacing: 0.08em !important;
     text-transform: uppercase;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro h3 {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro h3 {
     font-size: 14px !important;
     font-weight: 750 !important;
     margin-top: 3px !important;
     color: var(--pc-pro-ink) !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro p {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview-intro p {
     font-size: 11.5px !important;
     line-height: 1.4 !important;
     margin-top: 3px !important;
     color: var(--pc-pro-muted) !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric-grid {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric-grid {
     gap: 12px !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric {
     position: relative;
     border-radius: var(--pc-pro-radius-md) !important;
     border: 1px solid var(--pc-pro-border) !important;
@@ -671,28 +672,28 @@
     transition: border-color 0.14s ease, box-shadow 0.14s ease;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric:hover {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric:hover {
     border-color: var(--pc-pro-border-strong) !important;
     box-shadow: var(--pc-pro-shadow-sm) !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric--success {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric--success {
     border-top-color: var(--pc-pro-border) !important;
     border-left: 3px solid #10b981 !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric--warning {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric--warning {
     border-top-color: var(--pc-pro-border) !important;
     border-left: 3px solid #f59e0b !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric-label {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric-label {
     font-size: 11.5px !important;
     font-weight: 650 !important;
     color: var(--pc-pro-muted) !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric-value {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric-value {
     font-size: clamp(20px, 1.8vw, 24px) !important;
     font-weight: 800 !important;
     letter-spacing: -0.03em !important;
@@ -702,7 +703,7 @@
     color: var(--pc-pro-ink) !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric small {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-metric small {
     font-size: 11px !important;
     color: var(--pc-pro-muted) !important;
     margin-top: 3px !important;
@@ -711,7 +712,7 @@
   /* --------------------------------------------------------------------------
    * 7. Command Bars, Filter Decks & Inline Section Dividers
    * -------------------------------------------------------------------------- */
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] [data-hnl-pc-region="commands"] {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] [data-hnl-pc-region="commands"] {
     padding: 8px 12px !important;
     border-radius: var(--pc-pro-radius-md) !important;
     border: 1px solid var(--pc-pro-border) !important;
@@ -720,7 +721,7 @@
     gap: 8px !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] [data-hnl-pc-region="commands"] :is(button, [data-hnl-secondary-action-group] > button) {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] [data-hnl-pc-region="commands"] :is(button, [data-hnl-secondary-action-group] > button) {
     min-height: 34px !important;
     padding: 6px 12px !important;
     border-radius: var(--pc-pro-radius-sm) !important;
@@ -729,7 +730,7 @@
   }
 
   /* Crisp Single-Line Enterprise Section Dividers (01, 02, 03...) */
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-band {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-band {
     display: flex !important;
     align-items: center !important;
     gap: 8px !important;
@@ -738,7 +739,7 @@
     border-bottom: 1px solid var(--pc-pro-border) !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-index {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-index {
     width: 22px !important;
     height: 22px !important;
     border-radius: 6px !important;
@@ -749,24 +750,24 @@
     color: var(--hnl-primary-on-light, var(--pc-pro-accent)) !important;
   }
 
-  html[data-hnl-theme="dark"][data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-index {
+  html[data-hnl-theme="dark"][data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-index {
     color: var(--hnl-primary-on-dark, #93c5fd) !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-copy {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-copy {
     flex-direction: row !important;
     align-items: baseline !important;
     flex-wrap: wrap;
     gap: 8px !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-copy strong {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-copy strong {
     font-size: 13.5px !important;
     font-weight: 750 !important;
     color: var(--pc-pro-ink) !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-copy small {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-v3-section-copy small {
     font-size: 11.5px !important;
     color: var(--pc-pro-muted) !important;
   }
@@ -774,7 +775,7 @@
   /* --------------------------------------------------------------------------
    * 8. Unified Surface Cards, Filter Panels, Subtabs & Tables
    * -------------------------------------------------------------------------- */
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] :is(
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] :is(
     [data-hnl-warehouse-filter-layout],
     [data-hnl-volume-filter-sort],
     [data-hnl-pc-region="stock-summary"],
@@ -796,7 +797,7 @@
     box-shadow: var(--pc-pro-shadow-xs) !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] :is(
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] :is(
     [data-hnl-pc-region="stock-summary"],
     [data-hnl-pc-region="inspection"],
     [data-hnl-pc-region="records"],
@@ -808,7 +809,7 @@
   }
 
   /* Refined Segmented Sub-tabs */
-  html[data-hnl-pc-workspace="modern"] :is(
+  html[data-hnl-pc-workspace-pro="gemini"] :is(
     [data-hnl-nested-nav],
     [data-hnl-pc-region="subtabs"],
     [data-hnl-pc-region="floor-tabs"],
@@ -821,7 +822,7 @@
     box-shadow: var(--pc-pro-shadow-xs) !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] :is(
+  html[data-hnl-pc-workspace-pro="gemini"] :is(
     [data-hnl-nested-nav],
     [data-hnl-pc-region="subtabs"],
     [data-hnl-pc-region="floor-tabs"],
@@ -835,7 +836,7 @@
   }
 
   /* Crisp Enterprise Tables */
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] table thead th {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] table thead th {
     font-size: 11px !important;
     font-weight: 700 !important;
     text-transform: uppercase;
@@ -847,13 +848,13 @@
     padding-bottom: 9px !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] table tbody td {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] [data-hnl-workspace-module] table tbody td {
     font-size: 12.5px !important;
     border-bottom-color: var(--pc-pro-border);
   }
 
   /* Modals & Feature Sheets */
-  html[data-hnl-pc-workspace="modern"] :is(
+  html[data-hnl-pc-workspace-pro="gemini"] :is(
     [data-hnl-pc-module="project-manager"] > div:not(.relative),
     [data-hnl-pc-module="security-center"] > div,
     [data-hnl-pc-module="notification-center"] > div,
@@ -866,7 +867,7 @@
   }
 
   /* AI Workspace Hero polish */
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-pc-module="ai-workspace"] > .hnl-ai-hero {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] [data-hnl-pc-module="ai-workspace"] > .hnl-ai-hero {
     border-top: 3px solid var(--pc-pro-accent) !important;
     padding: 18px 20px !important;
     border-radius: var(--pc-pro-radius-md) !important;
@@ -875,27 +876,27 @@
 
 /* Mid-width desktop (1024px–1279px): allow topbar context to stay clean without overflow */
 @media (min-width: 1024px) and (max-width: 1279px) {
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-workspace-heading,
-  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-home-modern="true"] .hnl-pc-home-actions {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-workspace-heading,
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-pc-home-modern="true"] .hnl-pc-home-actions {
     padding: 8px 16px !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-top,
-  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-home-modern="true"] .hnl-pc-home-actions {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-heading-top,
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-pc-home-modern="true"] .hnl-pc-home-actions {
     flex-wrap: wrap !important;
     row-gap: 8px;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] .hnl-pc-v2-overview {
     grid-template-columns: 1fr !important;
   }
 }
 
 /* Respect reduced motion preferences */
 @media (min-width: 1024px) and (prefers-reduced-motion: reduce) {
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"],
-  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-home-modern="true"],
-  html[data-hnl-pc-workspace="modern"] [data-hnl-nav-surface="desktop"] {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"],
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-pc-home-modern="true"],
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-nav-surface="desktop"] {
     transition: none !important;
   }
 }
@@ -906,7 +907,7 @@
  * ============================================================================ */
 @media (min-width: 1024px) {
   /* --- 9.1 Deep Sub-Tab Bars (Crew team detail, AI modes, Warehouse catalog, Grid, Security/Notification) --- */
-  html[data-hnl-pc-workspace="modern"] :is(
+  html[data-hnl-pc-workspace-pro="gemini"] :is(
     [data-hnl-pc-v3-inner="warehouse-catalog-tabs"],
     [data-hnl-pc-deep-tabs="crew-team-detail"],
     [data-hnl-pc-deep-tabs="ai-modes"],
@@ -922,7 +923,7 @@
     box-shadow: none !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] :is(
+  html[data-hnl-pc-workspace-pro="gemini"] :is(
     [data-hnl-pc-v3-inner="warehouse-catalog-tabs"],
     [data-hnl-pc-deep-tabs="crew-team-detail"],
     [data-hnl-pc-deep-tabs="ai-modes"],
@@ -938,7 +939,7 @@
     transition: background-color 0.14s ease, color 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
   }
 
-  html[data-hnl-pc-workspace="modern"] :is(
+  html[data-hnl-pc-workspace-pro="gemini"] :is(
     [data-hnl-pc-v3-inner="warehouse-catalog-tabs"],
     [data-hnl-pc-deep-tabs="crew-team-detail"],
     [data-hnl-pc-v32-region="grid-tabs"],
@@ -951,7 +952,7 @@
     box-shadow: var(--pc-pro-shadow-xs) !important;
   }
 
-  html[data-hnl-theme="dark"][data-hnl-pc-workspace="modern"] :is(
+  html[data-hnl-theme="dark"][data-hnl-pc-workspace-pro="gemini"] :is(
     [data-hnl-pc-v3-inner="warehouse-catalog-tabs"],
     [data-hnl-pc-deep-tabs="crew-team-detail"],
     [data-hnl-pc-v32-region="grid-tabs"],
@@ -962,7 +963,7 @@
   }
 
   /* --- 9.2 Warehouse Deep Panes (Catalog search, grid, history, stock cards, voucher grid) --- */
-  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-search"] {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-pc-v3-inner="warehouse-catalog-search"] {
     border-radius: var(--pc-pro-radius-md) !important;
     border: 1px solid var(--pc-pro-border) !important;
     background: var(--pc-pro-surface-subtle) !important;
@@ -970,14 +971,14 @@
     gap: 10px !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-grid"] {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-pc-v3-inner="warehouse-catalog-grid"] {
     border-radius: var(--pc-pro-radius-md) !important;
     border: 1px solid var(--pc-pro-border) !important;
     background: var(--pc-pro-surface) !important;
     padding: 4px !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-catalog-grid"] thead th {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-pc-v3-inner="warehouse-catalog-grid"] thead th {
     background: var(--pc-pro-surface-subtle) !important;
     border-bottom: 1px solid var(--pc-pro-border-strong) !important;
     color: var(--pc-pro-muted) !important;
@@ -986,7 +987,7 @@
     letter-spacing: 0.03em;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="warehouse-history"] {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-pc-v3-inner="warehouse-history"] {
     border-radius: var(--pc-pro-radius-md) !important;
     border: 1px solid var(--pc-pro-border) !important;
     background: var(--pc-pro-surface) !important;
@@ -994,28 +995,28 @@
     box-shadow: var(--pc-pro-shadow-xs) !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-stock-cards"] > .space-y-2 {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-stock-cards"] > .space-y-2 {
     gap: 10px !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-stock-cards"] > .space-y-2 > * {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-stock-cards"] > .space-y-2 > * {
     border-radius: var(--pc-pro-radius-md) !important;
     border-color: var(--pc-pro-border) !important;
     box-shadow: var(--pc-pro-shadow-xs) !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-voucher-card-grid"] {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-voucher-card-grid"] {
     gap: 12px !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-voucher-card-grid"] > * {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="warehouse-voucher-card-grid"] > * {
     border-radius: var(--pc-pro-radius-md) !important;
     border-color: var(--pc-pro-border) !important;
     box-shadow: var(--pc-pro-shadow-xs) !important;
   }
 
   /* --- 9.3 Work Volume & Checklist Deep Panes --- */
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="volume"] [data-hnl-pc-region="progress"] {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] [data-hnl-workspace-module="volume"] [data-hnl-pc-region="progress"] {
     border-radius: var(--pc-pro-radius-md) !important;
     border: 1px solid var(--pc-pro-border) !important;
     background: var(--pc-pro-surface) !important;
@@ -1023,26 +1024,26 @@
     box-shadow: var(--pc-pro-shadow-xs) !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="volume-cards"] {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="volume-cards"] {
     gap: 12px !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="volume-cards"] > .grid,
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="volume-cards"] > .space-y-3 {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="volume-cards"] > .grid,
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="volume-cards"] > .space-y-3 {
     gap: 12px !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-inner="volume-breakdown-filter"] {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-pc-v3-inner="volume-breakdown-filter"] {
     background: var(--pc-pro-surface-subtle) !important;
     border-bottom: 1px solid var(--pc-pro-border) !important;
     padding: 12px 16px !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="checklist-items"] {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="checklist-items"] {
     gap: 12px !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="checklist-items"] > div.border:not(.border-dashed) {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-desktop-design="modern"] [data-hnl-pc-v3-inner="checklist-items"] > div.border:not(.border-dashed) {
     border-radius: var(--pc-pro-radius-md) !important;
     border-color: var(--pc-pro-border) !important;
     padding: 14px 16px !important;
@@ -1050,7 +1051,7 @@
   }
 
   /* --- 9.4 All Deep Create/Edit Forms (Warehouse, Volume, Crew, Checklist, Defect) --- */
-  html[data-hnl-pc-workspace="modern"] :is(
+  html[data-hnl-pc-workspace-pro="gemini"] :is(
     [data-hnl-pc-v3-form="warehouse"],
     [data-hnl-pc-v3-form="volume"],
     [data-hnl-pc-v3-form="crew-log"],
@@ -1066,7 +1067,7 @@
     row-gap: 14px !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form] :is(
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-pc-v3-form] :is(
     input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
     select,
     textarea
@@ -1079,14 +1080,14 @@
     font-size: 12.5px !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v3-form] label {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-pc-v3-form] label {
     font-size: 11.5px !important;
     font-weight: 650 !important;
     color: var(--pc-pro-ink-secondary) !important;
   }
 
   /* --- 9.5 All 7 Operational Dialogs & 17 Nested Regions (V3.2 Windows) --- */
-  html[data-hnl-pc-workspace="modern"] :is(
+  html[data-hnl-pc-workspace-pro="gemini"] :is(
     [data-hnl-pc-v32-window="material-norm"],
     [data-hnl-pc-v32-window="quick-grid"],
     [data-hnl-pc-v32-window="source-picker"],
@@ -1100,7 +1101,7 @@
     box-shadow: var(--pc-pro-shadow-md) !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] :is(
+  html[data-hnl-pc-workspace-pro="gemini"] :is(
     [data-hnl-pc-v32-region="equipment-toolbar"],
     [data-hnl-pc-v32-region="grid-toolbar"],
     [data-hnl-pc-v32-region="source-basket"],
@@ -1112,7 +1113,7 @@
     padding: 12px 14px !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] :is(
+  html[data-hnl-pc-workspace-pro="gemini"] :is(
     [data-hnl-pc-v32-region="equipment-editor"],
     [data-hnl-pc-v32-region="norm-editor"],
     [data-hnl-pc-v32-region="template-manager"],
@@ -1126,7 +1127,7 @@
     padding: 14px 16px !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] :is(
+  html[data-hnl-pc-workspace-pro="gemini"] :is(
     [data-hnl-pc-v32-region="equipment-catalog"],
     [data-hnl-pc-v32-region="grid-scroll"],
     [data-hnl-pc-v32-region="source-selection"],
@@ -1137,12 +1138,12 @@
     min-width: 0;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-pc-v32-region="room-form"] :is(
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-pc-v32-region="room-form"] :is(
     input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
     select,
     textarea
   ),
-  html[data-hnl-pc-workspace="modern"] :is(
+  html[data-hnl-pc-workspace-pro="gemini"] :is(
     [data-hnl-pc-v32-region="equipment-editor"],
     [data-hnl-pc-v32-region="norm-editor"],
     [data-hnl-pc-v32-region="report-filters"]
@@ -1154,13 +1155,13 @@
   }
 
   /* Settings Feature Sheets Header & Body */
-  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet] > header {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-settings-sheet] > header {
     min-height: 60px !important;
     padding: 12px 20px !important;
     border-bottom: 1px solid var(--pc-pro-border) !important;
   }
 
-  html[data-hnl-pc-workspace="modern"] [data-hnl-settings-sheet-scrollbody] > div {
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-settings-sheet-scrollbody] > div {
     padding: 18px 22px 24px !important;
   }
 }

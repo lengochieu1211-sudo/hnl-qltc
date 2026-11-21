@@ -427,22 +427,27 @@ function AuthenticatedApp() {
     userAgent: navigator.userAgent || '', chromeDesktopSite, isDesktopRuntime,
   });
   // Local-only PC UI preference. It never changes user/project data, Firebase or R2.
-  const [desktopWorkspaceMode, setDesktopWorkspaceMode] = useState<DesktopWorkspaceMode>(() => {
+  const [desktopWorkspaceModeChoice, setDesktopWorkspaceMode] = useState<DesktopWorkspaceMode>(() => {
     try {
       const userChoice = localStorage.getItem('hnl_desktop_workspace_mode_v1');
       if (userChoice === 'modern' || userChoice === 'classic') return userChoice;
+      if (userChoice === 'gemini') return 'gemini';
       return (isDesktopRuntime || window.innerWidth >= 1024 || chromeDesktopSite) ? 'modern' : 'classic';
     } catch { return (isDesktopRuntime || (typeof window !== 'undefined' && window.innerWidth >= 1024) || chromeDesktopSite) ? 'modern' : 'classic'; }
   });
+  // Original modes retain identical CSS and localStorage behavior; Gemini is opt-in.
+  const desktopWorkspaceMode = desktopWorkspaceModeChoice === 'gemini' ? 'modern' : desktopWorkspaceModeChoice;
   useEffect(() => {
     if (typeof document === 'undefined') return undefined;
     document.documentElement.dataset.hnlPcWorkspace = desktopWorkspaceMode;
+    document.documentElement.dataset.hnlPcWorkspacePro = desktopWorkspaceModeChoice === 'gemini' ? 'gemini' : 'off';
     document.documentElement.dataset.hnlBrowserDesktop = chromeDesktopSite ? 'true' : 'false';
     return () => {
       delete document.documentElement.dataset.hnlPcWorkspace;
+      delete document.documentElement.dataset.hnlPcWorkspacePro;
       delete document.documentElement.dataset.hnlBrowserDesktop;
     };
-  }, [desktopWorkspaceMode, chromeDesktopSite]);
+  }, [desktopWorkspaceMode, desktopWorkspaceModeChoice, chromeDesktopSite]);
 
   const updateDesktopWorkspaceMode = (next: DesktopWorkspaceMode) => {
     setDesktopWorkspaceMode(next);
@@ -8162,7 +8167,7 @@ function AuthenticatedApp() {
         {/* Shared PC workspace: presentation only; all actions call existing App handlers. */}
         <DesktopWorkspaceHeader
           activeTab={visibleTab}
-          mode={desktopWorkspaceMode}
+          mode={desktopWorkspaceModeChoice}
           onChangeMode={updateDesktopWorkspaceMode}
           projectName={projectName}
           online={isOnline}
@@ -8194,6 +8199,28 @@ function AuthenticatedApp() {
           canUndo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && past.length > 0}
           canRedo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && future.length > 0}
         />
+
+        {/* PC-only workspace selector. Keep the pre-Gemini PC modes intact and
+            never render extra controls in Android APK or ordinary mobile Web. */}
+        {(!isMobileRuntime || isDesktopRuntime || chromeDesktopSite) && (
+          <div data-hnl-pc-mode-selector="true" className="flex items-center justify-end gap-2 border-b border-slate-200 bg-slate-50 px-4 py-1.5 text-xs text-slate-600">
+            <label htmlFor="hnl-pc-workspace-selector" className="font-semibold">Giao diện PC</label>
+            <select
+              id="hnl-pc-workspace-selector"
+              aria-label="Chọn một trong ba giao diện PC"
+              value={desktopWorkspaceModeChoice}
+              onChange={(event) => {
+                const next = event.target.value;
+                if (next === 'classic' || next === 'modern' || next === 'gemini') updateDesktopWorkspaceMode(next);
+              }}
+              className="max-w-[230px] rounded-lg border border-slate-300 bg-white px-2 py-1.5 font-semibold text-slate-800 focus:outline-2 focus:outline-offset-2 focus:outline-blue-600"
+            >
+              <option value="classic">PC truyền thống · có thanh đen</option>
+              <option value="modern">PC sáng · như PROD</option>
+              <option value="gemini">PC Gemini</option>
+            </select>
+          </div>
+        )}
 
         {/* Tab Content */}
         <main

@@ -95,6 +95,9 @@ jobs:
       - name: Gemini PC-only DEV integration source Golden (no deploy)
         run: node scripts/pc-gemini-dev-integration-golden.mjs
 
+      - name: Three independent PC mode Golden (old black / old bright / Gemini)
+        run: node scripts/pc-three-workspaces-golden.mjs
+
       - name: Stability Gate
         run: npm run test:stability
 
