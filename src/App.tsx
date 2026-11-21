@@ -159,6 +159,8 @@ import {
   CrewRecord,
   TeamInfo
 } from './types';
+import { canApplyDirectHighlightShapes, withDirectHighlightShapes } from './utils/floorHighlightDirectShapes';
+import type { DirectHighlightSaveRequest } from './utils/floorHighlightDirectShapes';
 import { GoogleAuthHeader } from './components/GoogleAuthHeader';
 import { OfflineSyncBanner } from './components/OfflineSyncBanner';
 import { ProjectManagerModal } from './components/ProjectManagerModal';
@@ -7445,6 +7447,24 @@ function AuthenticatedApp() {
     return next;
   };
 
+  // Direct map editor is a scoped geometry update, not a full stale-room save.
+  // Revalidate the role, room revision, lock and acceptance inside the latest
+  // App snapshot. Other fields, legacy geometry, status and quantities survive.
+  const handleSaveDirectHighlightShapes = (request: DirectHighlightSaveRequest) => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
+    updateAppData((prev) => {
+      const existing = prev.roomProgressList.find((room) => room.id === request.roomId);
+      if (!canApplyDirectHighlightShapes(existing, request) || !existing) return prev;
+      const changed = withDirectHighlightShapes(existing, request.category, request.target, request.shapes);
+      return {
+        ...prev,
+        roomProgressList: prev.roomProgressList.map((room) => room.id === request.roomId ? {
+          ...changed, updatedAt: Date.now(),
+        } : room),
+      };
+    });
+  };
+
   const handleSaveRoomProgress = (
     room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }
   ) => {
@@ -8412,6 +8432,7 @@ function AuthenticatedApp() {
               onDeleteDefect={handleDeleteDefect}
               onDeleteMultipleDefects={handleDeleteMultipleDefects}
               onSaveRoomProgress={handleSaveRoomProgress}
+              onSaveDirectHighlightShapes={handleSaveDirectHighlightShapes}
               onBatchSaveRooms={handleBatchSaveRooms}
               onCommitPositionLocks={handleCommitPositionLocks}
               onApplyRoomExcelImport={handleApplyRoomExcelImport}

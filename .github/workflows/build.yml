@@ -68,6 +68,8 @@ jobs:
         run: node --experimental-strip-types scripts/highlight-total-geometry-golden.mjs
       - name: Independent total UI and layer safety (DEV only, no deploy)
         run: node scripts/highlight-total-ui-safety-golden.mjs
+      - name: Direct map highlight total/main/sub safe-save golden (DEV only, no deploy)
+        run: node --experimental-strip-types scripts/floor-highlight-direct-golden.mjs
 
 
       - name: 10-group targeted QA regression (source-only, no deploy)
