@@ -70,6 +70,7 @@ import {
 } from '../utils/structureGroupUtils';
 import { UndoRedoControls } from './UndoRedoControls';
 import { getRoomColorStyle, ROOM_COLOR_PALETTE } from '../utils/colorPalette';
+import { getRoomMapStageLabels, getRoomMapConstructionIcon, getRoomMapInspectionIcon } from '../utils/roomMapStageLabels';
 import { getDefectOverdueInfo, getDefectShortCode } from '../utils/defectUtils';
 import { addLocalCalendarDaysToDateInput, formatDateDDMMYYYY, parseLegacyTimestamp, toLocalDateInputValue } from '../utils/dateFormatter';
 import { vietnamDefectCreatedAtInput } from '../utils/vietnamBusinessDate';
@@ -8734,6 +8735,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   const isPassed = room.inspectionStatus === 'Đạt nghiệm thu';
                   const isFailed = room.inspectionStatus === 'Chưa đạt (Cần sửa)';
                   const isHovered = hoveredRoomId === room.id;
+                  // Saved subItems are authoritative for map labels; legacy fallback only if absent.
+                  const roomMapStages = getRoomMapStageLabels(room);
+                  const hasMultipleStageCategories = new Set(roomMapStages.map(stage => stage.category).filter(Boolean)).size > 1;
 
                   // Compute center point for label positioning
                   let cx = room.x + room.width / 2;
@@ -8790,41 +8794,29 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                                 {isPassed ? '🏆 Đạt' : isFailed ? '⚠️ Sửa' : '⏳ Chờ'}
                               </span>
                             </div>
-                            <div className="flex flex-col gap-1 text-[9px] pt-0.5">
-                              <div className="flex flex-col gap-0.5 bg-slate-900/80 p-1 rounded border border-slate-700/50">
-                                <div className="flex items-center justify-between gap-1">
-                                  <span className="text-emerald-400 font-bold">Khung:</span>
-                                  <span>TC: {room.frameStatus === 'Đã hoàn thành' ? '✅' : '🚧'}</span>
-                                  <span className={room.frameInspectionStatus === 'Đạt nghiệm thu' ? 'text-emerald-300 font-bold' : 'text-slate-400'}>
-                                    NT: {room.frameInspectionStatus === 'Đạt nghiệm thu' ? '🏆' : room.frameInspectionStatus === 'Chưa đạt (Cần sửa)' ? '⚠️' : '⏳'}
-                                  </span>
-                                </div>
-                                {room.targetFrameDate && (
-                                  <div className="text-[8px] text-slate-400 font-medium flex items-center justify-between">
-                                    <span>Hạn: {formatDateDDMMYYYY(room.targetFrameDate)}</span>
-                                    {room.frameStatus !== 'Đã hoàn thành' && new Date(room.targetFrameDate).getTime() - new Date().getTime() <= 3 * 24 * 60 * 60 * 1000 && (
-                                      <span className="text-amber-400 animate-pulse font-bold">⚠️ Sắp đến</span>
-                                    )}
+                            <div data-hnl-room-map-stage-list="true" className="flex flex-col gap-1 text-[10px] pt-0.5">
+                              {roomMapStages.map((stage) => (
+                                <div key={stage.key} data-hnl-room-map-stage-row="true" className="flex flex-col gap-0.5 rounded border border-slate-700/50 bg-slate-900/80 p-1.5">
+                                  <div className="flex items-start gap-2">
+                                    <span className="min-w-0 flex-1 break-words font-bold text-indigo-200" title={stage.name}>{stage.name}</span>
+                                    <span className="shrink-0 whitespace-nowrap">TC: {getRoomMapConstructionIcon(stage.status)}</span>
+                                    <span className={`shrink-0 whitespace-nowrap ${stage.inspectionStatus === 'Đạt nghiệm thu' ? 'text-emerald-300' : stage.inspectionStatus === 'Chưa đạt (Cần sửa)' ? 'text-rose-300' : 'text-slate-400'}`}>
+                                      NT: {getRoomMapInspectionIcon(stage.inspectionStatus)}
+                                    </span>
                                   </div>
-                                )}
-                              </div>
-                              <div className="flex flex-col gap-0.5 bg-slate-900/80 p-1 rounded border border-slate-700/50">
-                                <div className="flex items-center justify-between gap-1">
-                                  <span className="text-blue-400 font-bold">Tấm:</span>
-                                  <span>TC: {room.boardStatus === 'Đã hoàn thành' ? '✅' : '🚧'}</span>
-                                  <span className={room.boardInspectionStatus === 'Đạt nghiệm thu' ? 'text-blue-300 font-bold' : 'text-slate-400'}>
-                                    NT: {room.boardInspectionStatus === 'Đạt nghiệm thu' ? '🏆' : room.boardInspectionStatus === 'Chưa đạt (Cần sửa)' ? '⚠️' : '⏳'}
-                                  </span>
+                                  {hasMultipleStageCategories && stage.category && (
+                                    <span className="break-words text-[9px] font-medium text-slate-400">{stage.category}</span>
+                                  )}
+                                  {stage.targetDate && (
+                                    <div className="flex items-center justify-between gap-1 text-[9px] font-medium text-slate-400">
+                                      <span>Hạn: {formatDateDDMMYYYY(stage.targetDate)}</span>
+                                      {stage.status !== 'Đã hoàn thành' && new Date(stage.targetDate).getTime() - Date.now() <= 3 * 24 * 60 * 60 * 1000 && (
+                                        <span className="font-bold text-amber-400">⚠️ Sắp đến</span>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
-                                {room.targetBoardDate && (
-                                  <div className="text-[8px] text-slate-400 font-medium flex items-center justify-between">
-                                    <span>Hạn: {formatDateDDMMYYYY(room.targetBoardDate)}</span>
-                                    {room.boardStatus !== 'Đã hoàn thành' && new Date(room.targetBoardDate).getTime() - new Date().getTime() <= 3 * 24 * 60 * 60 * 1000 && (
-                                      <span className="text-rose-400 animate-pulse font-bold">⚠️ Sắp đến</span>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
+                              ))}
                             </div>
                           </div>
                         )}
@@ -8868,25 +8860,23 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           </span>
                         )}
                       </div>
-                      <div className="flex gap-1 text-[8px] font-bold">
-                        <span className={`px-1 py-0.2 rounded border ${
-                          room.frameInspectionStatus === 'Đạt nghiệm thu'
-                            ? 'bg-emerald-800 text-emerald-100 border-emerald-500'
-                            : room.frameStatus === 'Đã hoàn thành'
-                            ? 'bg-emerald-950 text-emerald-200 border-emerald-700'
-                            : 'bg-slate-900 text-slate-300 border-slate-700'
-                        }`}>
-                          Khung: {room.frameInspectionStatus === 'Đạt nghiệm thu' ? '🏆' : room.frameStatus === 'Đã hoàn thành' ? '✓' : '⏳'}
-                        </span>
-                        <span className={`px-1 py-0.2 rounded border ${
-                          room.boardInspectionStatus === 'Đạt nghiệm thu'
-                            ? 'bg-blue-800 text-blue-100 border-blue-500'
-                            : room.boardStatus === 'Đã hoàn thành'
-                            ? 'bg-blue-950 text-blue-200 border-blue-700'
-                            : 'bg-slate-900 text-slate-300 border-slate-700'
-                        }`}>
-                          Tấm: {room.boardInspectionStatus === 'Đạt nghiệm thu' ? '🏆' : room.boardStatus === 'Đã hoàn thành' ? '✓' : '⏳'}
-                        </span>
+                      <div data-hnl-room-map-stage-badges="true" className="flex max-w-[260px] flex-wrap justify-center gap-1 text-[8px] font-bold">
+                        {roomMapStages.map((stage) => (
+                          <span
+                            key={stage.key}
+                            title={`${stage.category ? `${stage.category} · ` : ''}${stage.name} · TC: ${stage.status} · NT: ${stage.inspectionStatus || 'Chưa nghiệm thu'}`}
+                            className={`max-w-full break-words rounded border px-1 py-0.5 ${
+                              stage.inspectionStatus === 'Đạt nghiệm thu' ? 'border-emerald-500 bg-emerald-900 text-emerald-100'
+                                : stage.inspectionStatus === 'Chưa đạt (Cần sửa)' ? 'border-rose-500 bg-rose-950 text-rose-100'
+                                  : stage.status === 'Đã hoàn thành' ? 'border-blue-700 bg-blue-950 text-blue-200'
+                                    : 'border-slate-700 bg-slate-900 text-slate-300'
+                            }`}
+                          >
+                            {stage.name}: {stage.inspectionStatus === 'Chưa đạt (Cần sửa)' || stage.inspectionStatus === 'Đạt nghiệm thu'
+                              ? getRoomMapInspectionIcon(stage.inspectionStatus)
+                              : getRoomMapConstructionIcon(stage.status)}
+                          </span>
+                        ))}
                       </div>
                     </div>
                   );
