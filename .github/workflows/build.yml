@@ -76,6 +76,8 @@ jobs:
         run: node --experimental-strip-types scripts/highlight-metric-cach2-golden.mjs
       - name: Cách 2 UI / data safety golden (DEV only, no deploy)
         run: node scripts/highlight-metric-cach2-ui-golden.mjs
+      - name: Cách 2 calibration marker visual size golden (DEV only, no deploy)
+        run: node scripts/highlight-metric-marker-size-golden.mjs
 
 
       - name: 10-group targeted QA regression (source-only, no deploy)
