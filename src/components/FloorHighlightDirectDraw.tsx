@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { HighlightRegionShape, Point2D, RoomProgressItem } from '../types';
+import type { FloorPlan, HighlightRegionShape, Point2D, RoomProgressItem } from '../types';
+import { measureHighlightAreaM2, measureHighlightLengthM, measureWallAreaM2 } from '../utils/highlightMetricGeometry';
 import { getDirectStageCategory, getSavedDirectHighlightShapes, getDirectHighlightCategoryNames, mapDirectHighlightPointerToFloor, getDirectHighlightDrawPoint } from '../utils/floorHighlightDirectShapes';
 import type { DirectHighlightSaveRequest } from '../utils/floorHighlightDirectShapes';
 import {
@@ -36,6 +37,7 @@ const toPolygon = (points: Point2D[], mode: 'polygon' | 'freehand'): HighlightRe
 
 interface Props {
   room: RoomProgressItem;
+  floor?: FloorPlan;
   imageContainer: HTMLElement | null;
   rotation: number;
   onSaveShapes: (request: DirectHighlightSaveRequest) => void;
@@ -52,12 +54,17 @@ interface Props {
 }
 
 export const FloorHighlightDirectDraw: React.FC<Props> = ({
-  room, imageContainer, rotation, onSaveShapes, onShowLayer, isLocked, disabled=false, onOpenChange,
+  room, floor, imageContainer, rotation, onSaveShapes, onShowLayer, isLocked, disabled=false, onOpenChange,
   objectSnapEnabled, objectSnapMidpoints, cadGridSnap, cadOrtho, cadPolar,
 }) => {
   const [open, setOpen] = useState(false);
+  const [lineMode, setLineMode] = useState(false);
+  const [measurePath, setMeasurePath] = useState<Point2D[]>([]);
+  const [wallHeight, setWallHeight] = useState('3');
+  const [wallFaces, setWallFaces] = useState('1');
+  const [wallOpenings, setWallOpenings] = useState('0');
   const [category, setCategory] = useState(() => getDirectHighlightCategoryNames(room)[0] || '');
-  const [target, setTarget] = useState<Target>('total');
+  const [target, setTarget] = useState<Target>('main');
   const [tool, setTool] = useState<DrawTool>('2point');
   const [draft, setDraft] = useState<HighlightRegionShape[]>([]);
   const [corners, setCorners] = useState<Point2D[]>([]);
@@ -72,7 +79,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
   const categories = useMemo(() => getDirectHighlightCategoryNames(room), [room]);
   const currentCategory = categories.includes(category) ? category : (categories[0] || '');
   const stages = (room.subItems || []).filter((stage) => getDirectStageCategory(stage, room) === currentCategory);
-  const currentTarget: Target = target === 'total' || target === 'main' || stages.some((stage) => stage.id === target) ? target : 'total';
+  const currentTarget: Target = target === 'main' || stages.some((stage) => stage.id === target) ? target : 'main';
   const targetStage = stages.find((stage) => stage.id === currentTarget);
   const locked = isLocked || room.positionLocked === true || room.inspectionStatus === 'Đạt nghiệm thu' ||
     Boolean(targetStage && (targetStage.status === 'Đã hoàn thành' || targetStage.inspectionStatus === 'Đạt nghiệm thu'));
@@ -88,17 +95,33 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
   const previewRatio = useMemo(() => calculateHighlightTotalRatio({
     room, total: selectedCategoryTotal, main: selectedCategoryMain, sub: selectedCategorySub,
   }), [room, currentCategory, currentTarget, candidateShapes]);
-  const totalQuantity = room.categoryHighlightTotalVolumes?.[currentCategory];
-  const previewQuantity = previewRatio.valid && typeof totalQuantity === 'number' && Number.isFinite(totalQuantity)
-    ? (totalQuantity * previewRatio.ratio).toLocaleString('vi-VN', { maximumFractionDigits: 2 })
-    : null;
+  const imageElement = imageContainer?.querySelector('img');
+  const imageDimensions = { width: imageElement?.naturalWidth || 0, height: imageElement?.naturalHeight || 0 };
+  // Intersection/union area may require an O(edges²) sweep: never recompute on hover.
+  const measuredRegion = useMemo(() => {
+    if (currentTarget === 'main') return candidateShapes;
+    const sub = currentTarget === targetStage?.id ? candidateShapes
+      : getSavedDirectHighlightShapes(room, currentCategory, currentTarget);
+    return sub.length ? sub : getSavedDirectHighlightShapes(room, currentCategory, 'main');
+  }, [room, currentCategory, currentTarget, targetStage?.id, candidateShapes]);
+  const metricPreview = useMemo(() => floor ? measureHighlightAreaM2({
+    floor, image: imageDimensions, room, shapes: measuredRegion,
+  }) : { valid: false as const, reason: 'Chưa chọn mặt bằng.' },
+  [floor, imageDimensions.width, imageDimensions.height, room, measuredRegion]);
+  const activeUnit = targetStage?.volumeUnit || (currentTarget === 'main'
+    ? (room.categoryVolumeUnits?.[currentCategory] || room.volumeUnit || 'm²') : 'm²');
+  const isAreaUnit = ['m2','m²'].includes(activeUnit.trim().toLowerCase().replace(/\s/g,''));
+  const linePreview = floor ? measureHighlightLengthM({floor, image:imageDimensions, floorPath:measurePath})
+    : {valid:false as const, reason:'Chưa chọn mặt bằng.'};
+  const wallAreaPreview = linePreview.valid ? measureWallAreaM2(linePreview.value,
+    Number(wallHeight.replace(',','.')), Number(wallFaces), Number(wallOpenings.replace(',','.'))) : null;
 
   const clearWork = () => {
-    setDraft([]); setCorners([]); setFreehand([]); setHover(null); setNotice(''); setSnapMarker(null);
+    setDraft([]); setCorners([]); setFreehand([]); setMeasurePath([]); setHover(null); setNotice(''); setSnapMarker(null);
     freehandRef.current = []; activePointerRef.current = null;
   };
   const changeTarget = (next: Target) => { clearWork(); setTarget(next); setReplaceExisting(false); };
-  const changeCategory = (next: string) => { clearWork(); setCategory(next); setTarget('total'); setReplaceExisting(false); };
+  const changeCategory = (next: string) => { clearWork(); setCategory(next); setTarget('main'); setReplaceExisting(false); };
   const toggle = () => {
     if (open) { clearWork(); baselineRef.current = null; setOpen(false); onOpenChange?.(false); return; }
     if (disabled) return;
@@ -136,6 +159,13 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
     if (locked || event.button > 0 || !imageContainer) return;
     const { point, marker } = getPoint(event);
     setSnapMarker(marker);
+    if (lineMode) {
+      setMeasurePath(prev => prev.length >= 128 ? prev : [...prev, {
+        x: room.x + point.x * room.width / 100,
+        y: room.y + point.y * room.height / 100,
+      }]);
+      return;
+    }
     if (tool === '2point') {
       if (corners.length === 1) addShape(toRect(corners[0], point));
       else setCorners([point]);
@@ -154,7 +184,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
     const { point, marker } = getPoint(event);
     setSnapMarker(marker);
     setHover(point);
-    if (tool !== 'freehand' || activePointerRef.current !== event.pointerId) return;
+    if (lineMode || tool !== 'freehand' || activePointerRef.current !== event.pointerId) return;
     const prev = freehandRef.current;
     if (prev.length < POINT_LIMIT && distance(prev[prev.length - 1], point) >= 0.5) {
       freehandRef.current = [...prev, point]; setFreehand(freehandRef.current);
@@ -171,7 +201,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
     else { setFreehand([]); setNotice('Cần khoanh vùng kín bằng ít nhất 3 điểm.'); }
   };
   const save = () => {
-    if (!draft.length || !currentCategory || locked || !baselineRef.current) return;
+    if (lineMode || !draft.length || !currentCategory || locked || !baselineRef.current) return;
     if (missingTarget) { setNotice('Hạng mục đã thay đổi. Chọn lại vùng trước khi lưu.'); return; }
     if (baselineRef.current.revision !== room.revision || baselineRef.current.updatedAt !== room.updatedAt) {
       setNotice('Phòng đã thay đổi trong lúc vẽ. Hủy chế độ vẽ, mở lại để lấy dữ liệu mới; chưa lưu gì.'); return;
@@ -221,35 +251,61 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
             </select>
           </label>
           <label className="block font-bold">Vùng cần vẽ
-            <select aria-label="Vùng tổng, chính hoặc con trên mặt bằng" className="mt-1 w-full rounded-lg bg-white text-slate-900 p-2" value={currentTarget}
+            <select aria-label="Vùng hạng mục chính hoặc con trên mặt bằng" className="mt-1 w-full rounded-lg bg-white text-slate-900 p-2" value={currentTarget}
               onChange={(event) => changeTarget(event.target.value)}>
-              <option value="total">Vùng tổng</option><option value="main">Hạng mục chính</option>
+              <option value="main">Hạng mục chính</option>
               {stages.map((stage) => <option key={stage.id} value={stage.id}>{stage.name}</option>)}
             </select>
           </label>
           <div className="flex gap-1" role="group" aria-label="Công cụ vẽ trực tiếp">
             {(['2point', 'polygon', 'freehand'] as const).map((value) => <button key={value} type="button" aria-pressed={tool === value}
-              onClick={() => { clearWork(); setTool(value); }}
+              onClick={() => { clearWork(); setLineMode(false); setTool(value); }}
               className={`flex-1 rounded-md border p-1.5 font-bold ${tool === value ? 'bg-sky-600 border-sky-300' : 'border-slate-600'}`}>
               {value === '2point' ? '2 điểm' : value === 'polygon' ? 'Đa giác' : 'Tự do'}
             </button>)}
           </div>
+          <button type="button" data-hnl-cach2-line-mode="true" aria-pressed={lineMode}
+            disabled={draft.length > 0} onClick={() => { setLineMode(v=>!v); setMeasurePath([]); setCorners([]); }}
+            className={`w-full rounded-md border p-1.5 text-left font-bold ${lineMode?'border-teal-300 bg-teal-800':'border-slate-600 bg-slate-800'}`}>
+            Đo tuyến m / vách m² (tham khảo, không lưu KL)
+          </button>
+          {lineMode && <div className="space-y-1 text-[10px]" data-hnl-cach2-length-preview="true">
+            <div>Chạm lần lượt các điểm theo tuyến. {measurePath.length} điểm. Tuyến không tự chuyển thành vùng khép kín.</div>
+            <div className="font-bold text-teal-200">{linePreview.valid
+              ? `Chiều dài thực tế: ${linePreview.value.toLocaleString('vi-VN',{maximumFractionDigits:2})} m`
+              : linePreview.reason}</div>
+            <div className="grid grid-cols-3 gap-1">
+              <label>Cao vách (m)<input aria-label="Chiều cao vách mét" value={wallHeight} onChange={e=>setWallHeight(e.target.value)} inputMode="decimal" className="w-full rounded bg-white text-slate-900 p-1" /></label>
+              <label>Số mặt<input aria-label="Số mặt vách" value={wallFaces} onChange={e=>setWallFaces(e.target.value)} inputMode="numeric" className="w-full rounded bg-white text-slate-900 p-1" /></label>
+              <label>Ô trống (m²)<input aria-label="Diện tích ô trống" value={wallOpenings} onChange={e=>setWallOpenings(e.target.value)} inputMode="decimal" className="w-full rounded bg-white text-slate-900 p-1" /></label>
+            </div>
+            {wallAreaPreview && <div className="font-bold text-emerald-200">{wallAreaPreview.valid
+              ? `Diện tích vách: ${wallAreaPreview.value.toLocaleString('vi-VN',{maximumFractionDigits:2})} m²`
+              : wallAreaPreview.reason}</div>}
+            <button type="button" onClick={()=>setMeasurePath(prev=>prev.slice(0,-1))} disabled={!measurePath.length} className="rounded bg-slate-700 px-2 py-1 disabled:opacity-50">Lùi 1 điểm</button>
+          </div>}
           <div data-hnl-direct-highlight-cad-settings="true" className="text-[10px] text-sky-200">
             Bắt điểm có sẵn: OSNAP {objectSnapEnabled ? (objectSnapMidpoints ? '(góc + trung điểm)' : '(góc)') : 'tắt'} · Lưới {cadGridSnap ? 'bật' : 'tắt'} · Vuông góc {cadOrtho ? 'bật' : 'tắt'} · Góc {cadPolar ? 'bật' : 'tắt'}.
             {tool === 'freehand' ? ' Nét tự do giữ nguyên, không hút từng điểm.' : ''}
           </div>
-          <div className="text-[10px] text-slate-200">{tool === '2point' ? 'Chạm 2 góc đối diện.' : tool === 'polygon' ? `Chấm các đỉnh rồi bấm Chốt (${corners.length} điểm).` : 'Nhấn giữ và rê để khoanh vùng.'} Dữ liệu chưa ghi khi đang vẽ.</div>
+          <div className="text-[10px] text-slate-200">{lineMode ? 'Đang đo tuyến m: chưa lưu kết quả vào khối lượng.' : tool === '2point' ? 'Chạm 2 góc đối diện.' : tool === 'polygon' ? `Chấm các đỉnh rồi bấm Chốt (${corners.length} điểm).` : 'Nhấn giữ và rê để khoanh vùng.'} Dữ liệu chưa ghi khi đang vẽ.</div>
           {tool === 'polygon' && <div className="flex gap-1">
             <button type="button" disabled={corners.length < 3} onClick={() => addShape(toPolygon(corners, 'polygon'))} className="rounded-lg bg-emerald-700 disabled:opacity-50 px-2 py-1">Chốt đa giác</button>
             <button type="button" disabled={!corners.length} onClick={() => setCorners((prev) => prev.slice(0, -1))} className="rounded-lg bg-slate-700 px-2 py-1">Lùi 1 điểm</button>
           </div>}
           <label className="flex items-center gap-2 text-amber-200"><input type="checkbox" checked={replaceExisting}
             onChange={(event) => { clearWork(); setReplaceExisting(event.target.checked); }} />Thay thế các vùng cũ (cần xác nhận)</label>
-          <div className="text-[10px]">Có {oldShapes.length} vùng cũ · {draft.length} vùng nháp · {previewRatio.valid ? `${previewRatio.percent}% vùng tổng` : previewRatio.reason}{previewQuantity !== null ? ` · KL tham khảo ${previewQuantity} m² (chưa ghi)` : ''}</div>
+          <div data-hnl-cach2-area-preview="true" className="text-[10px]">
+            Có {oldShapes.length} vùng cũ · {draft.length} vùng nháp.
+            {isAreaUnit ? (metricPreview.valid
+              ? ` KL tự tính: ${metricPreview.value.toLocaleString('vi-VN', {maximumFractionDigits:2})} m² (tham khảo, không ghi KL)`
+              : ` ${metricPreview.reason}`)
+              : ' Hạng mục đơn vị khác m²: không suy khối lượng từ diện tích. Tuyến m cần đo riêng.'}
+          </div>
           {locked && <span className="text-amber-300 font-bold">Phòng/hạng mục bị khóa hoặc đã nghiệm thu; không cho lưu.</span>}
           {notice && <div role="status" className="text-amber-200 break-words">{notice}</div>}
           <div className="flex gap-2">
-            <button type="button" disabled={!draft.length || locked || missingTarget} onClick={save} className="rounded-lg bg-emerald-700 disabled:opacity-50 px-3 py-1.5 font-bold">Lưu vùng</button>
+            <button type="button" disabled={lineMode || !draft.length || locked || missingTarget} onClick={save} className="rounded-lg bg-emerald-700 disabled:opacity-50 px-3 py-1.5 font-bold">Lưu vùng</button>
             <button type="button" onClick={clearWork} className="rounded-lg bg-slate-700 px-3 py-1.5">Xóa nháp</button>
             <button type="button" onClick={toggle} className="rounded-lg bg-slate-700 px-3 py-1.5">Hủy</button>
           </div>
@@ -269,8 +325,10 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
         onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); }}>
         {existingShapes.map((points, i) => <polygon key={`existing-${i}`} points={points.map(p => `${p.x},${p.y}`).join(' ')} fill={rgba(currentTarget)} fillOpacity={0.12} stroke={rgba(currentTarget)} strokeWidth="0.45" strokeDasharray="1.5,0.8" />)}
         {visibleShapes.map((points, i) => <polygon key={`draft-${i}`} points={points.map(p => `${p.x},${p.y}`).join(' ')} fill="#f59e0b" fillOpacity={0.30} stroke="#f59e0b" strokeWidth="0.65" />)}
-        {activePreview.length > 0 && <polyline points={toFloorSvg(activePreview)} fill="none" stroke="#f59e0b" strokeWidth="0.55" strokeDasharray="1.5,0.7" />}
-        {activePreview.map((point,i) => <circle key={i} cx={room.x + room.width * point.x / 100} cy={room.y + room.height * point.y / 100} r="0.6" fill="#f59e0b" />)}
+        {measurePath.length > 0 && <polyline data-hnl-cach2-floor-line="true" points={measurePath.map(p=>`${p.x},${p.y}`).join(' ')} fill="none" stroke="#2dd4bf" strokeWidth="0.55" strokeDasharray="1,0.4" />}
+        {measurePath.map((p,i)=><circle key={`line-${i}`} cx={p.x} cy={p.y} r="0.55" stroke="white" strokeWidth="0.16" fill="#0d9488" />)}
+        {!lineMode && activePreview.length > 0 && <polyline points={toFloorSvg(activePreview)} fill="none" stroke="#f59e0b" strokeWidth="0.55" strokeDasharray="1.5,0.7" />}
+        {!lineMode && activePreview.map((point,i) => <circle key={i} cx={room.x + room.width * point.x / 100} cy={room.y + room.height * point.y / 100} r="0.6" fill="#f59e0b" />)}
         {snapMarker && <g pointerEvents="none" data-hnl-direct-highlight-snap-marker={snapMarker.kind}>
           <circle cx={snapMarker.point.x} cy={snapMarker.point.y} r="1.0" fill="none" stroke="#22d3ee" strokeWidth="0.35" />
           <circle cx={snapMarker.point.x} cy={snapMarker.point.y} r="0.32" fill="#22d3ee" />
