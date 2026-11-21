@@ -70,6 +70,8 @@ jobs:
         run: node scripts/highlight-total-ui-safety-golden.mjs
       - name: Direct map highlight total/main/sub safe-save golden (DEV only, no deploy)
         run: node --experimental-strip-types scripts/floor-highlight-direct-golden.mjs
+      - name: Stage ĐVT Cái count-points and manual quantity golden (DEV only, no deploy)
+        run: node --experimental-strip-types scripts/highlight-count-points-golden.mjs
 
 
       - name: 10-group targeted QA regression (source-only, no deploy)

@@ -284,6 +284,11 @@ export interface RoomSubItem {
   highlightShapes?: HighlightRegionShape[];
   /** Manual remains default for all legacy stages. */
   highlightVolumeMode?: 'manual' | 'area';
+  /** Optional per-stage count markers, in room-local percent coordinates; legacy workVolume stays authoritative. */
+  highlightCountPoints?: { id: string; x: number; y: number; count?: number }[];
+  highlightCountMode?: 'manual' | 'points';
+  /** Display scope only; does not convert square metres into units. */
+  highlightCountRegionMode?: 'main' | 'own' | 'none';
   highlightColor?: string;
   id: string;
   name: string; // Tên công đoạn / hạng mục con (VD: Thi công khung, Thi công tấm mặt 1, Thi công tấm mặt 2...)

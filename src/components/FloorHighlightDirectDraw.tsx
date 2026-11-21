@@ -41,6 +41,8 @@ interface Props {
   onSaveShapes: (request: DirectHighlightSaveRequest) => void;
   onShowLayer: (layer: 'totalHighlightRegions' | 'mainHighlightRegions' | 'subItemRegions') => void;
   isLocked: boolean;
+  disabled?: boolean;
+  onOpenChange?: (active:boolean)=>void;
   // The same CAD/OSNAP settings already used by the normal room drawing tools.
   objectSnapEnabled: boolean;
   objectSnapMidpoints: boolean;
@@ -50,7 +52,7 @@ interface Props {
 }
 
 export const FloorHighlightDirectDraw: React.FC<Props> = ({
-  room, imageContainer, rotation, onSaveShapes, onShowLayer, isLocked,
+  room, imageContainer, rotation, onSaveShapes, onShowLayer, isLocked, disabled=false, onOpenChange,
   objectSnapEnabled, objectSnapMidpoints, cadGridSnap, cadOrtho, cadPolar,
 }) => {
   const [open, setOpen] = useState(false);
@@ -98,12 +100,13 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
   const changeTarget = (next: Target) => { clearWork(); setTarget(next); setReplaceExisting(false); };
   const changeCategory = (next: string) => { clearWork(); setCategory(next); setTarget('total'); setReplaceExisting(false); };
   const toggle = () => {
-    if (open) { clearWork(); baselineRef.current = null; setOpen(false); return; }
+    if (open) { clearWork(); baselineRef.current = null; setOpen(false); onOpenChange?.(false); return; }
+    if (disabled) return;
     if (locked || !imageContainer || room.width <= 0 || room.height <= 0 || room.isPolyline) {
       setNotice('Không thể vẽ: vùng phòng không hợp lệ, đang khóa hoặc đã nghiệm thu.'); return;
     }
     baselineRef.current = { revision: room.revision, updatedAt: room.updatedAt };
-    setOpen(true); clearWork();
+    setOpen(true); onOpenChange?.(true); clearWork();
   };
   const addShape = (shape: HighlightRegionShape) => {
     if (!validateHighlightShape(shape)) { setNotice('Vùng vẽ không hợp lệ hoặc quá nhỏ.'); return; }
@@ -186,12 +189,12 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
       target: currentTarget, shapes: candidateShapes,
     });
     onShowLayer(currentTarget === 'total' ? 'totalHighlightRegions' : currentTarget === 'main' ? 'mainHighlightRegions' : 'subItemRegions');
-    clearWork(); setOpen(false); baselineRef.current = null;
+    clearWork(); setOpen(false); onOpenChange?.(false); baselineRef.current = null;
   };
   useEffect(() => {
     if (!open) return;
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { clearWork(); setOpen(false); baselineRef.current = null; }
+      if (event.key === 'Escape') { clearWork(); setOpen(false); onOpenChange?.(false); baselineRef.current = null; }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
@@ -199,7 +202,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
 
   const toFloorSvg = (points: Point2D[]): string => points.map((p) => `${room.x + room.width * p.x / 100},${room.y + room.height * p.y / 100}`).join(' ');
   const activePreview = corners.length ? corners.concat(hover && tool !== 'freehand' ? [hover] : []) : freehand;
-  const hasDrawPermission = !locked && room.width > 0 && room.height > 0 && !room.isPolyline;
+  const hasDrawPermission = !locked && !disabled && room.width > 0 && room.height > 0 && !room.isPolyline;
   return <>
     <div data-hnl-direct-highlight-toolbar="true" className="absolute right-2 top-14 z-[80] pointer-events-auto max-w-[calc(100%-16px)]">
       <div className="rounded-xl border border-sky-400/50 bg-slate-950/95 p-2 text-white shadow-2xl w-[min(340px,calc(100vw-32px))] text-[11px]">

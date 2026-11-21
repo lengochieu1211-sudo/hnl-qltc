@@ -182,6 +182,7 @@ import { confirmAsync } from './utils/confirmAsync';
 import { normalizeImportedData } from './utils/dataNormalizer';
 import { reconcileBackupSnapshot } from './utils/backupSnapshot';
 import { computeDerivedWorkVolumes } from './utils/workVolumeComputation';
+import { applyHighlightCount, canSaveHighlightCount, type HighlightCountSaveRequest } from './utils/highlightCountPoints';
 import { compareWorkVolumeManualOrder, reorderVisibleWorkVolumes } from './utils/catalogDisplayOrder';
 import { canonicalNormCategoryIds, canonicalWorkCategoryId, resolveUniqueMaterialIdentity, resolveWorkVolumeRef, validateInventoryOutProvenance, validateMaterialNormCatalog, validateWorkVolumeCatalog } from './utils/linkageIntegrity';
 import { reconcileMaterialNormWorkCategoryLinks } from './utils/projectReconciliation';
@@ -7465,6 +7466,19 @@ function AuthenticatedApp() {
     });
   };
 
+  // Point count is an explicit stage-scoped save. No historical room quantity,
+  // other stage, acceptance or drawing geometry may be rewritten by this action.
+  const handleSaveHighlightCount = (request: HighlightCountSaveRequest) => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
+    updateAppData((prev) => {
+      const existing = prev.roomProgressList.find(room => room.id === request.roomId);
+      if (!existing || !canSaveHighlightCount(existing, request)) return prev;
+      const patched = applyHighlightCount(existing, request);
+      return { ...prev, roomProgressList: prev.roomProgressList.map(room => room.id === request.roomId
+        ? { ...patched, updatedAt: Math.max(Date.now(), existing.updatedAt + 1) } : room) };
+    });
+  };
+
   const handleSaveRoomProgress = (
     room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }
   ) => {
@@ -8433,6 +8447,7 @@ function AuthenticatedApp() {
               onDeleteMultipleDefects={handleDeleteMultipleDefects}
               onSaveRoomProgress={handleSaveRoomProgress}
               onSaveDirectHighlightShapes={handleSaveDirectHighlightShapes}
+              onSaveHighlightCount={handleSaveHighlightCount}
               onBatchSaveRooms={handleBatchSaveRooms}
               onCommitPositionLocks={handleCommitPositionLocks}
               onApplyRoomExcelImport={handleApplyRoomExcelImport}

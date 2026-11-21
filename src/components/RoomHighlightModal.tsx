@@ -36,6 +36,7 @@ import { MathNumberInput } from './MathNumberInput';
 import { createEntityId, createDeterministicId } from '../utils/idUtils';
 import { toLocalDateInputValue } from '../utils/dateFormatter';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
+import { totalCountPoints } from '../utils/highlightCountPoints';
 import { getRoomWorkCategoryUnit } from '../utils/roomCategoryUnit';
 import { buildMaterialAliasMap, getMaterialIdentityKey, resolveNormMaterialId, normalizeMaterialNameKey } from '../utils/inventoryUtils';
 import { computeMaterialNeeds } from '../utils/materialNeedEngine';
@@ -66,6 +67,8 @@ interface RoomHighlightModalProps {
   onSaveRoom: (room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }) => void | Promise<void>;
   onDeleteRoom?: (id: string) => void;
   onStartRedraw2Point?: (room: RoomProgressItem, tool: 'freehand' | 'polygon' | '2point') => void;
+  /** Save room draft first, then open the stage's count editor on the real floor map. */
+  onStartCountOnMap?: (room: RoomProgressItem, stageId: string) => void;
   structureReadOnly?: boolean;
   focusOrphanRepair?: boolean;
 }
@@ -139,10 +142,12 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   onSaveRoom,
   onDeleteRoom,
   onStartRedraw2Point,
+  onStartCountOnMap,
   structureReadOnly = false,
   focusOrphanRepair = false,
 }) => {
   const roomDraftDirtyRef = React.useRef(false);
+  const countStageAfterSaveRef = React.useRef<string | null>(null);
   useEffect(() => { roomDraftDirtyRef.current = false; }, [isOpen, roomItem?.id, floorId]);
   const closeRoomWithDraftGuard = (label: string) => {
     if (roomDraftDirtyRef.current && !window.confirm(`${label}? Các thay đổi chưa nhấn Lưu sẽ không được lưu. Tiếp tục?`)) return;
@@ -706,7 +711,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     room: getHighlightRoom(), total: getHighlightTotalShapes(cat), main: getHighlightMainShapes(cat),
   });
   const canDeriveStageHighlightQuantity = (cat: string, stage: RoomSubItem): boolean =>
-    isAreaHighlightUnit(getCategorySourceUnit(cat)) && Number.isFinite(getHighlightTotalQuantity(cat)) && getHighlightTotalQuantity(cat) >= 0 &&
+    isAreaHighlightUnit(stage.volumeUnit || getCategorySourceUnit(cat)) && stage.highlightCountMode !== 'points' && Number.isFinite(getHighlightTotalQuantity(cat)) && getHighlightTotalQuantity(cat) >= 0 &&
     (hasIndependentTotal(cat) || !(stage.highlightShapes?.length)) &&
     stage.status !== 'Đã hoàn thành' && stage.inspectionStatus !== 'Đạt nghiệm thu';
 
@@ -1153,6 +1158,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     if (savingRoomRef.current) return;
     e.preventDefault();
+    const countStageAfterSave = countStageAfterSaveRef.current;
+    countStageAfterSaveRef.current = null;
     if (!roomName.trim()) {
       alert('Vui lòng nhập tên hoặc mã Căn / Phòng!');
       return;
@@ -1344,6 +1351,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     }
 
     onClose();
+    if (countStageAfterSave && roomItem && onStartCountOnMap) onStartCountOnMap(roomItem, countStageAfterSave);
     } catch (err) {
       alert(`Không thể lưu tiến độ: ${err instanceof Error ? err.message : String(err)}. Dữ liệu chưa được ghi. Vui lòng tải lại và đối chiếu.`);
     } finally {
@@ -1989,7 +1997,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                 </div>
                                 {(() => {
                                   const finalized = item.status === 'Đã hoàn thành' || item.inspectionStatus === 'Đạt nghiệm thu';
-                                  const auto = item.highlightVolumeMode === 'area' && !finalized;
+                                  const auto = item.highlightVolumeMode === 'area' && item.highlightCountMode !== 'points' && !finalized;
                                   const result = auto ? getStageHighlightResult(catName, item) : null;
                                   const canAuto = auto && canDeriveStageHighlightQuantity(catName, item) && result?.valid;
                                   const displayedVolume = canAuto && result
@@ -2008,6 +2016,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                       <span className="font-semibold">KL:</span>
                                       <strong className="tabular-nums">{validNumber ? `${formatDecimal(Number(displayedVolume))} ${unit}` : 'Chưa có'}</strong>
                                       {canAuto && <span className="text-sky-700" title="Tự tính theo vùng">↻</span>}
+                                      {normalizeUnit(item.volumeUnit || getCategorySourceUnit(catName)) === 'Cái' && <span title="Tổng điểm đánh dấu" className="text-teal-700 font-bold"> · {totalCountPoints(item.highlightCountPoints || [])} cái đếm</span>}
                                       {!structureReadOnly && roomItem?.id && (
                                         <button type="button" aria-label={`Vẽ vùng highlight cho ${item.name}`}
                                           onClick={() => { setShowAdvancedHighlights(true); setHighlightCategory(catName); setHighlightTarget(item.id); setAppendHighlightRegion(false); }}
@@ -2018,6 +2027,34 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                   );
                                 })()}
                               </div>
+                              {/* ĐVT Cái: count positions are stored separately from m² highlights and Defects. */}
+                              {!structureReadOnly && <div className="mt-1 flex flex-wrap items-center gap-2 text-[10.5px]">
+                                <label className="font-bold text-slate-600">ĐVT con:
+                                  <select aria-label={`Đơn vị hạng mục con ${item.name}`} data-hnl-sub-count-unit="true"
+                                    disabled={item.status === 'Đã hoàn thành' || item.inspectionStatus === 'Đạt nghiệm thu' || roomItem?.inspectionStatus === 'Đạt nghiệm thu'}
+                                    className="ml-1 rounded border border-slate-200 px-1 py-1 bg-white text-slate-800"
+                                    value={normalizeUnit(item.volumeUnit || getCategorySourceUnit(catName))}
+                                    onChange={event => {
+                                      const next = event.target.value;
+                                      if (!window.confirm('Đổi đơn vị sẽ KHÔNG tự quy đổi khối lượng cũ. Tiếp tục?')) return;
+                                      handleUpdateSubItem(item.id, { volumeUnit: next, highlightVolumeMode: 'manual', highlightCountMode: 'manual' });
+                                    }}>
+                                    {Array.from(new Set([normalizeUnit(item.volumeUnit || getCategorySourceUnit(catName)), 'm²', 'm', 'Cái', 'Bộ', 'Tấm', 'Thanh', 'm³'].filter(Boolean))).map(u =>
+                                      <option key={u} value={u}>{u}</option>)}
+                                  </select>
+                                </label>
+                                {normalizeUnit(item.volumeUnit || getCategorySourceUnit(catName)) === 'Cái' && <>
+                                  <span className="rounded-md border border-teal-200 bg-teal-50 px-1.5 py-1 font-bold text-teal-800">
+                                    {item.highlightCountMode === 'points' ? 'Đếm theo điểm' : 'Nhập tay'} · {totalCountPoints(item.highlightCountPoints || [])} cái tự đếm
+                                  </span>
+                                  {onStartCountOnMap && roomItem?.id && <button type="button" data-hnl-ui-only="true"
+                                    disabled={item.status === 'Đã hoàn thành' || item.inspectionStatus === 'Đạt nghiệm thu' || roomItem.inspectionStatus === 'Đạt nghiệm thu'}
+                                    onClick={() => { countStageAfterSaveRef.current = item.id; formRef.current?.requestSubmit(); }}
+                                    className="rounded-lg border border-teal-300 bg-teal-100 px-2 py-1 font-bold text-teal-900 disabled:opacity-40">
+                                    Lưu biểu mẫu & Đánh dấu trên mặt bằng
+                                  </button>}
+                                </>}
+                              </div>}
                               <div data-hnl-room-team-contact-row="true" className="flex min-w-0 flex-col gap-1.5 xl:flex-row xl:items-center">
                               <select
                                 value={item.assignedTeam || ''}
