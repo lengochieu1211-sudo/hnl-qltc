@@ -161,6 +161,7 @@ import {
 } from './types';
 import { canApplyDirectHighlightShapes, withDirectHighlightShapes } from './utils/floorHighlightDirectShapes';
 import type { DirectHighlightSaveRequest } from './utils/floorHighlightDirectShapes';
+import { floorMetricSourceKey } from './utils/highlightMetricGeometry';
 import { GoogleAuthHeader } from './components/GoogleAuthHeader';
 import { OfflineSyncBanner } from './components/OfflineSyncBanner';
 import { ProjectManagerModal } from './components/ProjectManagerModal';
@@ -6853,7 +6854,18 @@ function AuthenticatedApp() {
     if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     updateAppData((prev) => ({
       ...prev,
-      floorPlans: prev.floorPlans.map((fp) => (fp.id === id ? { ...fp, ...updates } : fp)),
+      floorPlans: prev.floorPlans.map((fp) => {
+        if (fp.id !== id) return fp;
+        // Cách 2: refuse a calibration prepared against an outdated floor image.
+        // This is a local guard only; remote multi-user CAS remains a separate gate.
+        if (updates.highlightMetricCalibration && (
+          updates.highlightMetricCalibration.floorId !== fp.id ||
+          updates.highlightMetricCalibration.sourceKey !== floorMetricSourceKey(fp))) return fp;
+        return updates.highlightMetricCalibration
+          ? { ...fp, ...updates, updatedAt: Math.max(Date.now(), Number(fp.updatedAt || 0) + 1),
+              revision: Math.max(0, Number(fp.revision || 0)) + 1 }
+          : { ...fp, ...updates };
+      }),
     }));
   };
 

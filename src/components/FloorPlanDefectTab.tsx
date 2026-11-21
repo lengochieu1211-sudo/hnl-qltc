@@ -70,6 +70,7 @@ import {
 } from '../utils/structureGroupUtils';
 import { UndoRedoControls } from './UndoRedoControls';
 import { FloorHighlightDirectDraw } from './FloorHighlightDirectDraw';
+import { FloorMetricCalibration } from './FloorMetricCalibration';
 import { FloorHighlightCountPoints } from './FloorHighlightCountPoints';
 import type { HighlightCountSaveRequest } from '../utils/highlightCountPoints';
 import type { DirectHighlightSaveRequest } from '../utils/floorHighlightDirectShapes';
@@ -3110,6 +3111,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   }, [isFullscreen, showFullscreenDisplaySettings]);
   useEffect(() => { if (!isFullscreen || drawTool !== 'none') setShowFullscreenDisplaySettings(false); }, [isFullscreen, drawTool]);
   const [imgAspect, setImgAspect] = useState<number>(1.414);
+  const [isMetricCalibrating, setIsMetricCalibrating] = useState(false);
   const [rotation, setRotation] = useState<number>(0);
   const parentRef = useRef<HTMLDivElement>(null);
   const [parentSize, setParentSize] = useState({ w: 0, h: 0 });
@@ -8186,14 +8188,27 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               </div>
             )}
 
-            {/* DEV: draw total/main/sub regions directly on the selected room without editing quantities. */}
+            {/* Cách 2: floor-source-bound metric calibration, optional; old quantities unchanged. */}
+            {activeFloor && onUpdateFloorPlan && !isCountDrawing && !isShapeDrawing &&
+              !isDefectPinPlacementMode && !isRoomCreationDrawing && drawTool === 'none' && (viewMode === 'all' || viewMode === 'highlight') && (
+              <FloorMetricCalibration
+                key={`${currentProjectId}:${activeFloor.id}`} floor={activeFloor}
+                imageContainer={imageContainerRef.current} rotation={rotation} rooms={floorRooms}
+                canSave={canManageStructure} onActiveChange={setIsMetricCalibrating}
+                onSave={(floorId, calibration)=>onUpdateFloorPlan(floorId,{highlightMetricCalibration:calibration})}
+                objectSnapEnabled={objectSnapEnabled} objectSnapMidpoints={objectSnapMidpoints}
+                cadGridSnap={cadGridSnap} cadOrtho={cadOrtho} cadPolar={cadPolar}
+              />)}
+
+            {/* DEV Cách 2: main/sub regions only in new drawing UI; preserve legacy total records. */}
             {canManageStructure && onSaveDirectHighlightShapes && selectedRoomObject && !isRoomModalOpen && !isRoomCreationDrawing && drawTool === 'none' &&
-              !isDefectPinPlacementMode && !relocatingDefectId && (viewMode === 'all' || viewMode === 'highlight') && (
+              !isDefectPinPlacementMode && !relocatingDefectId && !isMetricCalibrating && (viewMode === 'all' || viewMode === 'highlight') && (
               <FloorHighlightDirectDraw
                 key={`${currentProjectId}:${activeFloor?.id || ''}:${selectedRoomObject.id}`}
                 room={selectedRoomObject}
                 imageContainer={imageContainerRef.current}
                 rotation={rotation}
+                floor={activeFloor}
                 isLocked={lockedRoomIds.has(selectedRoomObject.id)}
                 objectSnapEnabled={objectSnapEnabled}
                 objectSnapMidpoints={objectSnapMidpoints}
@@ -8209,7 +8224,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
             {/* Optional ĐVT Cái stage markers; independent of area highlights and Defect pins. */}
             {canManageStructure && onSaveHighlightCount && selectedRoomObject && !isRoomModalOpen && !isRoomCreationDrawing && drawTool === 'none' &&
-              !isDefectPinPlacementMode && !relocatingDefectId && (viewMode === 'all' || viewMode === 'highlight') && (
+              !isDefectPinPlacementMode && !relocatingDefectId && !isMetricCalibrating && (viewMode === 'all' || viewMode === 'highlight') && (
               <FloorHighlightCountPoints
                 room={selectedRoomObject}
                 imageContainer={imageContainerRef.current}

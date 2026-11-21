@@ -89,6 +89,18 @@ export interface WorkVolume {
   deletedBy?: string | null;
 }
 
+export interface FloorMetricCalibration {
+  floorId: string;
+  sourceKey: string;
+  sourceWidthPx: number;
+  sourceHeightPx: number;
+  first: Point2D;  // Original, unrotated image percentages (0..100)
+  second: Point2D;
+  actualMetres: number;
+  metresPerPixel: number;
+  updatedAt: number;
+}
+
 export interface FloorPlan {
   id: string;
   floorName: string;
@@ -104,6 +116,8 @@ export interface FloorPlan {
   imageMimeType?: string;
   imageFileSize?: number;
   imageRevision?: number;
+  /** Cách 2: optional source-bound image calibration; invalidated by changed binary/revision. */
+  highlightMetricCalibration?: FloorMetricCalibration;
   imageCloudRevision?: number;
   imageCloudSyncedAt?: number;
   /** Durable shared binary identity. Multiple floors may reference the same immutable asset. */
