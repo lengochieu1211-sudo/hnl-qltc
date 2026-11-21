@@ -78,6 +78,8 @@ jobs:
         run: node scripts/highlight-metric-cach2-ui-golden.mjs
       - name: Cách 2 calibration marker visual size golden (DEV only, no deploy)
         run: node scripts/highlight-metric-marker-size-golden.mjs
+      - name: Cách 2 room-form to floor-map launch golden (DEV only, no deploy)
+        run: node scripts/highlight-cach2-room-entry-golden.mjs
 
 
       - name: 10-group targeted QA regression (source-only, no deploy)

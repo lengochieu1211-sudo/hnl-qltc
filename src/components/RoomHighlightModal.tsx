@@ -69,6 +69,8 @@ interface RoomHighlightModalProps {
   onStartRedraw2Point?: (room: RoomProgressItem, tool: 'freehand' | 'polygon' | '2point') => void;
   /** Save room draft first, then open the stage's count editor on the real floor map. */
   onStartCountOnMap?: (room: RoomProgressItem, stageId: string) => void;
+  /** Open the existing full floor map for Cách 2 measurement; never writes quantity here. */
+  onStartDrawOnMap?: (room: RoomProgressItem, category: string, target: string) => void;
   structureReadOnly?: boolean;
   focusOrphanRepair?: boolean;
 }
@@ -143,6 +145,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   onDeleteRoom,
   onStartRedraw2Point,
   onStartCountOnMap,
+  onStartDrawOnMap,
   structureReadOnly = false,
   focusOrphanRepair = false,
 }) => {
@@ -153,6 +156,18 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     if (roomDraftDirtyRef.current && !window.confirm(`${label}? Các thay đổi chưa nhấn Lưu sẽ không được lưu. Tiếp tục?`)) return;
     roomDraftDirtyRef.current = false;
     onClose();
+  };
+
+  // The legacy independent-total drawing editor remains in source for historic records,
+  // but must not be exposed alongside the calibrated Cách 2 editor.
+  const legacyHighlightEditorVisible = false;
+  const launchCach2 = (category: string, target: string) => {
+    if (!roomItem?.id || !onStartDrawOnMap || structureReadOnly) return;
+    // Never silently discard an unsaved draft or auto-save old legacy quantities.
+    if (roomDraftDirtyRef.current && !window.confirm('Mở mặt bằng sẽ bỏ các thay đổi chưa lưu trong biểu mẫu. Hãy nhấn Lưu trước nếu muốn giữ. Tiếp tục?')) return;
+    roomDraftDirtyRef.current = false;
+    onClose();
+    onStartDrawOnMap(roomItem, category, target);
   };
 
   const activeDefaultInspector = defaultInspectorName || '';
@@ -388,7 +403,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
             id: createEntityId(`sub-init-${idx}`),
             name: displaySubName,
             category: defaultCat,
-            highlightVolumeMode: isAreaHighlightUnit(getRoomWorkCategoryUnit(defaultCat, workVolumes, floorId) || 'm²') ? 'area' : 'manual',
+            highlightVolumeMode: 'manual',
             status: 'Chưa làm',
             inspectionStatus: 'Chưa nghiệm thu',
             targetDate: '',
@@ -452,7 +467,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
         id: createEntityId(`sub-preset-${idx}`),
         name: displaySubName,
         category: catName,
-        highlightVolumeMode: isAreaHighlightUnit(getRoomWorkCategoryUnit(catName, workVolumes, floorId) || volumeUnit) ? 'area' : 'manual',
+        highlightVolumeMode: 'manual',
         status: 'Chưa làm',
         inspectionStatus: 'Chưa nghiệm thu',
         targetDate: '',
@@ -506,7 +521,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       const names = getSubItemsForCategory(defaultCat);
       setSubItems(names.map((name, idx) => ({
         id: createEntityId(`sub-init-late-${idx}`),
-        highlightVolumeMode: isAreaHighlightUnit(getRoomWorkCategoryUnit(defaultCat, workVolumes, floorId) || 'm²') ? 'area' : 'manual',
+        highlightVolumeMode: 'manual',
         name: name.toLowerCase().startsWith('thi công') || name.toLowerCase().startsWith('sơn') || name.toLowerCase().startsWith('bả') ? name : `Thi công ${name}`,
         category: defaultCat,
         status: 'Chưa làm',
@@ -1044,7 +1059,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       ...prev,
       {
         id: createEntityId('sub-custom'),
-        highlightVolumeMode: isAreaHighlightUnit(getRoomWorkCategoryUnit(catName || workCategory, workVolumes, floorId) || volumeUnit) ? 'area' : 'manual',
+        highlightVolumeMode: 'manual',
         name: `Hạng mục ${prev.length + 1}`,
         status: 'Chưa làm',
         inspectionStatus: 'Chưa nghiệm thu',
@@ -2018,10 +2033,11 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                       {canAuto && <span className="text-sky-700" title="Tự tính theo vùng">↻</span>}
                                       {normalizeUnit(item.volumeUnit || getCategorySourceUnit(catName)) === 'Cái' && <span title="Tổng điểm đánh dấu" className="text-teal-700 font-bold"> · {totalCountPoints(item.highlightCountPoints || [])} cái đếm</span>}
                                       {!structureReadOnly && roomItem?.id && (
-                                        <button type="button" aria-label={`Vẽ vùng highlight cho ${item.name}`}
-                                          onClick={() => { setShowAdvancedHighlights(true); setHighlightCategory(catName); setHighlightTarget(item.id); setAppendHighlightRegion(false); }}
-                                          className="ml-0.5 border-l border-emerald-200 pl-1 font-bold text-indigo-700 hover:text-indigo-900"
-                                          title="Xem hoặc vẽ vùng Highlight">Vùng</button>
+                                        <button type="button" data-hnl-ui-only="true" aria-label={`Vẽ vùng highlight cho ${item.name}`}
+                                          disabled={item.status === 'Đã hoàn thành' || item.inspectionStatus === 'Đạt nghiệm thu' || roomItem.inspectionStatus === 'Đạt nghiệm thu' || roomItem.positionLocked === true}
+                                          onClick={() => launchCach2(catName, item.id)}
+                                          className="ml-0.5 border-l border-emerald-200 pl-1 font-bold text-indigo-700 hover:text-indigo-900 disabled:opacity-40"
+                                          title="Mở mặt bằng để vẽ/đo theo Cách 2">Mặt bằng</button>
                                       )}
                                     </span>
                                   );
@@ -2168,8 +2184,24 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
           </div>
 
-          {/* Advanced room/stage highlight editor – opt-in; ordinary form remains unchanged. */}
-          {!structureReadOnly && roomItem?.id && (
+          {/* Cách 2: floor-wide calibration is shared by all rooms on this drawing. */}
+          {!structureReadOnly && roomItem?.id && onStartDrawOnMap && (
+            <section data-hnl-cach2-room-portal="true" className="rounded-2xl border border-teal-200 bg-teal-50/70 p-3.5 space-y-2">
+              <strong className="block text-xs text-teal-950">📐 Highlight &amp; khối lượng · Cách 2</strong>
+              <p className="text-[10.5px] leading-relaxed text-teal-900">Vẽ và đo trực tiếp trên ảnh mặt bằng tầng, dùng tỷ lệ chuẩn từ 2 điểm. Chỉ xem kết quả đo m/m²; không tự ghi đè khối lượng, nghiệm thu hoặc vùng cũ.</p>
+              <div className="flex flex-wrap gap-2">
+                {activeCategories.map(cat => <button key={cat} type="button" data-hnl-ui-only="true" data-hnl-open-cach2-main={cat}
+                  disabled={roomItem.inspectionStatus === 'Đạt nghiệm thu' || roomItem.positionLocked === true}
+                  onClick={() => launchCach2(cat, 'main')}
+                  className="rounded-lg border border-teal-300 bg-white px-2.5 py-2 text-[11px] font-bold text-teal-900 disabled:opacity-40">
+                  Mở mặt bằng · {cat}
+                </button>)}
+              </div>
+              <p className="text-[10px] text-teal-800">Muốn vẽ hạng mục con: bấm “Mặt bằng” ngay cạnh KL của hạng mục tương ứng ở phía trên. Hiệu chuẩn tỷ lệ ở thanh công cụ vẽ trên mặt bằng tầng.</p>
+            </section>
+          )}
+          {/* Legacy Cách 1 records remain readable/preserved, but editor is hidden. */}
+          {legacyHighlightEditorVisible && !structureReadOnly && roomItem?.id && (
             <section data-hnl-room-highlight-advanced="true" className="rounded-2xl border border-sky-200 bg-sky-50/50 overflow-hidden">
               <button type="button" data-hnl-ui-only="true" aria-expanded={showAdvancedHighlights}
                 onClick={() => setShowAdvancedHighlights(prev => !prev)}
