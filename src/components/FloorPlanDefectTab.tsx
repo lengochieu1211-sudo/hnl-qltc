@@ -70,6 +70,8 @@ import {
 } from '../utils/structureGroupUtils';
 import { UndoRedoControls } from './UndoRedoControls';
 import { FloorHighlightDirectDraw } from './FloorHighlightDirectDraw';
+import { FloorHighlightCountPoints } from './FloorHighlightCountPoints';
+import type { HighlightCountSaveRequest } from '../utils/highlightCountPoints';
 import type { DirectHighlightSaveRequest } from '../utils/floorHighlightDirectShapes';
 import { getRoomColorStyle, ROOM_COLOR_PALETTE } from '../utils/colorPalette';
 import { getRoomMapStageLabels, getRoomMapConstructionIcon, getRoomMapInspectionIcon } from '../utils/roomMapStageLabels';
@@ -375,6 +377,7 @@ interface FloorPlanDefectTabProps {
   onDeleteMultipleDefects?: (ids: string[]) => void;
   onSaveRoomProgress: (room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }) => void;
   onSaveDirectHighlightShapes?: (request: DirectHighlightSaveRequest) => void;
+  onSaveHighlightCount?: (request: HighlightCountSaveRequest) => void;
   onBatchSaveRooms?: (rooms: RoomProgressItem[]) => void;
   onCommitPositionLocks?: (kind: 'room' | 'defect', entries: Array<{ id: string; expectedLocked: boolean }>, locked: boolean) => Promise<void>;
   onApplyRoomExcelImport?: (rooms: RoomProgressItem[], deleteIds: string[]) => void;
@@ -689,6 +692,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   onDeleteMultipleDefects,
   onSaveRoomProgress,
   onSaveDirectHighlightShapes,
+  onSaveHighlightCount,
   onBatchSaveRooms,
   onCommitPositionLocks,
   onApplyRoomExcelImport,
@@ -784,9 +788,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         resolvedDefects: parsed.resolvedDefects !== false,
         totalHighlightRegions: parsed.totalHighlightRegions === true,
         mainHighlightRegions: parsed.mainHighlightRegions === true,
+        countPoints: parsed.countPoints !== false,
       };
     } catch {
-      return { roomRegions: true, subItemRegions: true, roomLabels: true, defects: true, resolvedDefects: true, totalHighlightRegions: false, mainHighlightRegions: false };
+      return { roomRegions: true, subItemRegions: true, roomLabels: true, defects: true, resolvedDefects: true, totalHighlightRegions: false, mainHighlightRegions: false, countPoints: true };
     }
   });
   // Legacy device-only locks still protect old geometry; explicit Cloud flags override them.
@@ -866,9 +871,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         resolvedDefects: parsed.resolvedDefects !== false,
         totalHighlightRegions: parsed.totalHighlightRegions === true,
         mainHighlightRegions: parsed.mainHighlightRegions === true,
+        countPoints: parsed.countPoints !== false,
       });
     } catch {
-      setMapLayers({ roomRegions: true, subItemRegions: true, roomLabels: true, defects: true, resolvedDefects: true, totalHighlightRegions: false, mainHighlightRegions: false });
+      setMapLayers({ roomRegions: true, subItemRegions: true, roomLabels: true, defects: true, resolvedDefects: true, totalHighlightRegions: false, mainHighlightRegions: false, countPoints: true });
     }
     requestAnimationFrame(() => { projectUiSettingsHydratingRef.current = false; });
   }, [currentProjectId]);
@@ -1322,6 +1328,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   // Room Highlight Modal State
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
+  const [countLaunchStageId, setCountLaunchStageId] = useState<string | null>(null);
+  const [isCountDrawing, setIsCountDrawing] = useState(false);
+  const [isShapeDrawing, setIsShapeDrawing] = useState(false);
+  const [pendingCountRoomReturn, setPendingCountRoomReturn] = useState<{roomId:string;updatedAt:number}|null>(null);
   const [selectedRoomForEdit, setSelectedRoomForEdit] = useState<RoomProgressItem | null>(null);
   const [healthCenterOrphanRepairRoomId, setHealthCenterOrphanRepairRoomId] = useState<string | null>(null);
   const [newRoomClickPos, setNewRoomClickPos] = useState<{ x: number; y: number } | undefined>(undefined);
@@ -3993,6 +4003,17 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   }, [displayedFloorRooms, roomSortBy, roomSortOrder]);
 
   const selectedRoomObject = displayedFloorRooms.find((r) => r.id === selectedRoomForDragId || selectedRoomIds.includes(r.id));
+  // Avoid reopening the Room form with a stale subItems snapshot immediately
+  // after submitting count points. Await the new room snapshot before navigation.
+  useEffect(() => {
+    if (!pendingCountRoomReturn) return;
+    const updated = roomProgressList.find(r => r.id === pendingCountRoomReturn.roomId);
+    if (!updated || updated.updatedAt === pendingCountRoomReturn.updatedAt) return;
+    setSelectedRoomForEdit(updated);
+    setIsRoomModalOpen(true);
+    setPendingCountRoomReturn(null);
+  }, [pendingCountRoomReturn, roomProgressList]);
+
   const selectedDefectForFocus = floorDefects.find((d) => selectedDefectIds.includes(d.id)) || null;
   const selectedRoomIdsForAction = selectedRoomIds.length > 0
     ? selectedRoomIds
@@ -8179,8 +8200,38 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 cadGridSnap={cadGridSnap}
                 cadOrtho={cadOrtho}
                 cadPolar={cadPolar}
+                disabled={isCountDrawing}
+                onOpenChange={setIsShapeDrawing}
                 onSaveShapes={onSaveDirectHighlightShapes}
                 onShowLayer={(layer) => setMapLayers((prev) => ({ ...prev, [layer]: true }))}
+              />
+            )}
+
+            {/* Optional ĐVT Cái stage markers; independent of area highlights and Defect pins. */}
+            {canManageStructure && onSaveHighlightCount && selectedRoomObject && !isRoomModalOpen && !isRoomCreationDrawing && drawTool === 'none' &&
+              !isDefectPinPlacementMode && !relocatingDefectId && (viewMode === 'all' || viewMode === 'highlight') && (
+              <FloorHighlightCountPoints
+                room={selectedRoomObject}
+                imageContainer={imageContainerRef.current}
+                rotation={rotation}
+                locked={lockedRoomIds.has(selectedRoomObject.id)}
+                launchStageId={countLaunchStageId}
+                onActiveChange={(active)=>{setIsCountDrawing(active);if(!active)setCountLaunchStageId(null);}}
+                onReturnToRoom={(afterSave) => {
+                  if (afterSave) {
+                    setPendingCountRoomReturn({roomId:selectedRoomObject.id,updatedAt:selectedRoomObject.updatedAt});
+                  } else {
+                    setSelectedRoomForEdit(roomProgressList.find(r=>r.id===selectedRoomObject.id)||selectedRoomObject);
+                    setIsRoomModalOpen(true);
+                  }
+                }}
+                otherDrawingActive={isShapeDrawing}
+                objectSnapEnabled={objectSnapEnabled}
+                objectSnapMidpoints={objectSnapMidpoints}
+                cadGridSnap={cadGridSnap}
+                cadOrtho={cadOrtho}
+                cadPolar={cadPolar}
+                onSave={(request)=>{onSaveHighlightCount(request);setMapLayers(prev=>({...prev,countPoints:true}));}}
               />
             )}
 
@@ -8285,6 +8336,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     ['roomRegions', 'Vùng Căn / Phòng'],
                     ['subItemRegions', 'Highlight hạng mục con'],
                     ['mainHighlightRegions', 'Highlight hạng mục chính'],
+                    ['countPoints', 'Dấu đếm hạng mục con (Cái)'],
                     ['totalHighlightRegions', 'Highlight vùng tổng (ẩn mặc định)'],
                     ['roomLabels', 'Tên Căn / Phòng'],
                     ['defects', 'Marker Defect'],
@@ -8692,6 +8744,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     </g>
                   </g>;
                 })}
+                {/* Saved ĐVT Cái markers: paint-only; never intercept room selection or Defect pins. */}
+                {mapLayers.countPoints && !isCountDrawing && displayedFloorRooms.flatMap(room =>
+                  (room.isPolyline || room.width<=0 || room.height<=0 ? [] : (room.subItems||[]).flatMap(stage =>
+                    (stage.highlightCountPoints||[]).filter(marker => Number.isFinite(marker.x) && Number.isFinite(marker.y) && marker.x>=0 && marker.x<=100 && marker.y>=0 && marker.y<=100)
+                      .map(marker => {
+                        const cx=room.x+room.width*marker.x/100,cy=room.y+room.height*marker.y/100;
+                        return <g key={`count-${room.id}-${stage.id}-${marker.id}`} pointerEvents="none" data-hnl-count-saved-marker="true">
+                          <circle cx={cx} cy={cy} r="0.85" stroke="white" strokeWidth="0.15" fill={stage.highlightColor||'#0f766e'} />
+                          <text x={cx} y={cy+0.3} fontSize="0.65" textAnchor="middle" fontWeight="bold" fill="white">{marker.count??1}</text>
+                        </g>;
+                      })
+                  )))}
                 {/* Optional stage areas are paint-only overlays: never alter room hit testing,
                     room geometry, stage quantities or Defect coordinates. */}
                 {mapLayers.subItemRegions && displayedFloorRooms.map((room) => {
@@ -10437,6 +10501,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         floorPlanImageUrl={activeFloor?.imageUrl}
         checklistItems={checklistItems}
         onSaveRoom={onSaveRoomProgress}
+        onStartCountOnMap={(room, stageId) => {
+          setSelectedRoomForDragId(room.id);
+          setSelectedRoomIds([room.id]);
+          setCountLaunchStageId(stageId);
+          setViewMode('highlight');
+          setIsRoomModalOpen(false);
+        }}
         structureReadOnly={!canManageStructure}
         focusOrphanRepair={Boolean(selectedRoomForEdit?.id && healthCenterOrphanRepairRoomId === selectedRoomForEdit.id)}
         onDeleteRoom={canManageStructure ? onDeleteRoomProgress : undefined}
