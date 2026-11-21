@@ -427,27 +427,27 @@ function AuthenticatedApp() {
     userAgent: navigator.userAgent || '', chromeDesktopSite, isDesktopRuntime,
   });
   // Local-only PC UI preference. It never changes user/project data, Firebase or R2.
-  const [desktopWorkspaceMode, setDesktopWorkspaceMode] = useState<DesktopWorkspaceMode>(() => {
+  const [desktopWorkspaceModeChoice, setDesktopWorkspaceMode] = useState<DesktopWorkspaceMode>(() => {
     try {
       const userChoice = localStorage.getItem('hnl_desktop_workspace_mode_v1');
-      if (userChoice === 'modern' || userChoice === 'classic' || userChoice === 'gemini') return userChoice;
+      if (userChoice === 'modern' || userChoice === 'classic') return userChoice;
+      if (userChoice === 'gemini') return 'gemini';
       return (isDesktopRuntime || window.innerWidth >= 1024 || chromeDesktopSite) ? 'modern' : 'classic';
     } catch { return (isDesktopRuntime || (typeof window !== 'undefined' && window.innerWidth >= 1024) || chromeDesktopSite) ? 'modern' : 'classic'; }
   });
-  // Existing PC themes keep their original 'classic'/'modern' CSS identities.
-  // Gemini is an opt-in presentation layer on top of the original bright PC shell.
-  const desktopWorkspaceCssMode = desktopWorkspaceMode === 'gemini' ? 'modern' : desktopWorkspaceMode;
+  // Original modes retain identical CSS and localStorage behavior; Gemini is opt-in.
+  const desktopWorkspaceMode = desktopWorkspaceModeChoice === 'gemini' ? 'modern' : desktopWorkspaceModeChoice;
   useEffect(() => {
     if (typeof document === 'undefined') return undefined;
-    document.documentElement.dataset.hnlPcWorkspace = desktopWorkspaceCssMode;
-    document.documentElement.dataset.hnlPcWorkspacePro = desktopWorkspaceMode === 'gemini' ? 'gemini' : 'off';
+    document.documentElement.dataset.hnlPcWorkspace = desktopWorkspaceMode;
+    document.documentElement.dataset.hnlPcWorkspacePro = desktopWorkspaceModeChoice === 'gemini' ? 'gemini' : 'off';
     document.documentElement.dataset.hnlBrowserDesktop = chromeDesktopSite ? 'true' : 'false';
     return () => {
       delete document.documentElement.dataset.hnlPcWorkspace;
       delete document.documentElement.dataset.hnlPcWorkspacePro;
       delete document.documentElement.dataset.hnlBrowserDesktop;
     };
-  }, [desktopWorkspaceMode, desktopWorkspaceCssMode, chromeDesktopSite]);
+  }, [desktopWorkspaceMode, desktopWorkspaceModeChoice, chromeDesktopSite]);
 
   const updateDesktopWorkspaceMode = (next: DesktopWorkspaceMode) => {
     setDesktopWorkspaceMode(next);
@@ -8005,7 +8005,7 @@ function AuthenticatedApp() {
   };
 
   return (
-    <div data-hnl-desktop-design={visibleTab !== 'home' ? desktopWorkspaceCssMode : 'classic'} data-hnl-pc-home-modern={visibleTab === 'home' && desktopWorkspaceCssMode === 'modern' ? 'true' : 'false'} data-hnl-desktop-native={isDesktopRuntime ? 'true' : 'false'} className={`min-h-screen bg-slate-100 text-slate-900 font-sans selection:bg-blue-200 ${isDesktopRuntime || chromeDesktopSite ? 'pl-[84px]' : 'lg:pl-[84px]'}`}>
+    <div data-hnl-desktop-design={visibleTab !== 'home' ? desktopWorkspaceMode : 'classic'} data-hnl-pc-home-modern={visibleTab === 'home' && desktopWorkspaceMode === 'modern' ? 'true' : 'false'} data-hnl-desktop-native={isDesktopRuntime ? 'true' : 'false'} className={`min-h-screen bg-slate-100 text-slate-900 font-sans selection:bg-blue-200 ${isDesktopRuntime || chromeDesktopSite ? 'pl-[84px]' : 'lg:pl-[84px]'}`}>
       {superAdminUiSettings.festivalEffect !== 'off' && activeTab === 'home' && !isMobileRuntime && !chromeDesktopSite && (
         <React.Suspense fallback={null}>
           <FestivalEffects mode={superAdminUiSettings.festivalEffect} enabled />
@@ -8167,7 +8167,7 @@ function AuthenticatedApp() {
         {/* Shared PC workspace: presentation only; all actions call existing App handlers. */}
         <DesktopWorkspaceHeader
           activeTab={visibleTab}
-          mode={desktopWorkspaceMode}
+          mode={desktopWorkspaceModeChoice}
           onChangeMode={updateDesktopWorkspaceMode}
           projectName={projectName}
           online={isOnline}
@@ -8208,7 +8208,7 @@ function AuthenticatedApp() {
             <select
               id="hnl-pc-workspace-selector"
               aria-label="Chọn một trong ba giao diện PC"
-              value={desktopWorkspaceMode}
+              value={desktopWorkspaceModeChoice}
               onChange={(event) => {
                 const next = event.target.value;
                 if (next === 'classic' || next === 'modern' || next === 'gemini') updateDesktopWorkspaceMode(next);
