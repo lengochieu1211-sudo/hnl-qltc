@@ -1,0 +1,237 @@
+name: HNL QLTC DEV Metric Small Marker Hosting-only 20261121
+on:
+  push:
+    branches: [dev]
+    paths:
+      - .github/workflows/hnl-dev-metric-small-marker-hosting-only-20261121.yml
+permissions:
+  contents: read
+concurrency:
+  group: hnl-qltc-dev-release
+  cancel-in-progress: false
+jobs:
+  dev-gemini-hosting:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
+      VITE_HNL_AI_ENABLED: 'true'
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev.web.app
+      VITE_GIT_COMMIT: ${{ github.sha }}
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      FIREBASE_DEV_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: One-shot source authorization and immutable PROD / backend guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          APPROVED_SOURCE=c84186b035b87a7b95e3316ad1267e77f008056f
+          PREVIOUS_DEV=08a9e93377f2d27bc03c7155640fe6733fa34df8
+          test "$GITHUB_REPOSITORY" = 'lengochieu1211-sudo/hnl-qltc'
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_REF" = refs/heads/dev
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = "$APPROVED_SOURCE"
+          git merge-base --is-ancestor "$APPROVED_SOURCE" HEAD
+          test "$(git diff --name-only "$APPROVED_SOURCE" HEAD)" = '.github/workflows/hnl-dev-metric-small-marker-hosting-only-20261121.yml'
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$GITHUB_SHA"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = 'ad2df144f597d7e054a6f7aebd3abd6d6f7247f3'
+          git merge-base --is-ancestor "$PREVIOUS_DEV" "$APPROVED_SOURCE"
+          git diff --exit-code "$PREVIOUS_DEV" "$APPROVED_SOURCE" -- package.json package-lock.json .firebaserc firebase.json firestore.rules storage.rules src/components/BottomNav.tsx src/components/WarehouseTab.tsx src/components/WorkVolumeTab.tsx src/components/CrewTabBase.tsx src/components/ChecklistTab.tsx src/main.tsx src/utils/roomMapStageLabels.ts src/utils/materialNeedEngine.ts src/utils/linkageIntegrity.ts
+          EXPECTED="$(printf '%s\n' '.github/workflows/build.yml' 'scripts/highlight-metric-marker-size-golden.mjs' 'src/components/FloorMetricCalibration.tsx' 'src/components/FloorPlanDefectTab.tsx' | LC_ALL=C sort)"
+          ACTUAL="$(git diff --name-only "$PREVIOUS_DEV" "$APPROVED_SOURCE" | LC_ALL=C sort)"
+          test "$EXPECTED" = "$ACTUAL" || { echo "::error::Unexpected direct highlight source delta"; exit 1; }
+          test "$VITE_APP_ENV" = DEV
+          test "$VITE_ENABLE_LEGACY_DRIVE_WRITE" = false
+          test -n "$FIREBASE_DEV_SA"
+          node - <<'NODE'
+          const a=JSON.parse(process.env.FIREBASE_DEV_SA);
+          if(a.type!=='service_account'||a.project_id!=='hnl-qltc-dev'||!a.private_key||!a.client_email)throw Error('Reject missing/wrong DEV credentials');
+          NODE
+          node scripts/pc-gemini-dev-integration-golden.mjs
+          node scripts/pc-three-workspaces-golden.mjs
+          node scripts/desktop-workspace-v32-golden.mjs
+          node --experimental-strip-types scripts/highlight-total-geometry-golden.mjs
+          node scripts/highlight-total-ui-safety-golden.mjs
+          node --experimental-strip-types scripts/subitem-highlight-advanced-golden.mjs
+          node --experimental-strip-types scripts/floor-highlight-direct-golden.mjs
+          node --experimental-strip-types scripts/highlight-count-points-golden.mjs
+          node --experimental-strip-types scripts/highlight-metric-cach2-golden.mjs
+          node scripts/highlight-metric-cach2-ui-golden.mjs
+          node scripts/highlight-metric-marker-size-golden.mjs
+      - name: Read existing Firebase DEV SDK credentials (no PROD)
+        shell: bash
+        run: |
+          set -euo pipefail
+          CREDS="$RUNNER_TEMP/hnl-dev-count-cai-sa.json"
+          printf '%s' "$FIREBASE_DEV_SA" > "$CREDS"
+          chmod 600 "$CREDS"
+          export GOOGLE_APPLICATION_CREDENTIALS="$CREDS"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$CREDS" >> "$GITHUB_ENV"
+          npx --yes firebase-tools@13.35.1 apps:list WEB --project hnl-qltc-dev --json > "$RUNNER_TEMP/dev-apps.json"
+          APP_ID="$(node -e "const j=require(process.env.RUNNER_TEMP+'/dev-apps.json');const a=Array.isArray(j.result)?j.result:[];process.stdout.write(String(a.find(x=>x.platform==='WEB')?.appId||''))")"
+          test -n "$APP_ID"
+          npx --yes firebase-tools@13.35.1 apps:sdkconfig WEB "$APP_ID" --project hnl-qltc-dev --json > "$RUNNER_TEMP/dev-sdk.json"
+          node - <<'NODE'
+          const fs=require('fs');const data=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/dev-sdk.json','utf8'));
+          const keys=['apiKey','appId','messagingSenderId','projectId','storageBucket','authDomain'];const vals={};
+          function walk(v){if(!v)return;if(typeof v==='string'){try{walk(JSON.parse(v))}catch{};for(const k of keys){const m=v.match(new RegExp(k+String.raw`\s*:\s*["']([^"']+)["']`));if(m&&!vals[k])vals[k]=m[1]};return}if(Array.isArray(v)){v.forEach(walk);return}if(typeof v==='object'){for(const [k,x] of Object.entries(v)){if(keys.includes(k)&&typeof x==='string'&&!vals[k])vals[k]=x;walk(x)}}}
+          walk(data);vals.authDomain='hnl-qltc-dev.web.app';
+          if(vals.projectId!=='hnl-qltc-dev'||keys.some(k=>!vals[k]))throw Error('Missing DEV web SDK fields');
+          const names={apiKey:'VITE_FIREBASE_API_KEY',appId:'VITE_FIREBASE_APP_ID',messagingSenderId:'VITE_FIREBASE_MESSAGING_SENDER_ID',projectId:'VITE_FIREBASE_PROJECT_ID',storageBucket:'VITE_FIREBASE_STORAGE_BUCKET',authDomain:'VITE_FIREBASE_AUTH_DOMAIN'};
+          for(const [k,name] of Object.entries(names))fs.appendFileSync(process.env.GITHUB_ENV,name+'='+vals[k]+'\n');
+          NODE
+      - name: TypeScript, lint, RBAC, Rules emulator, PC Golden, stability, build
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const a=require('./package.json'),b=require('./package-lock.json');if(a.name!==b.name||a.version!==b.version)process.exit(1)"
+          npm ci
+          node scripts/pc-gemini-dev-integration-golden.mjs
+          node scripts/pc-three-workspaces-golden.mjs
+          node scripts/desktop-workspace-v32-golden.mjs
+          node --experimental-strip-types scripts/highlight-total-geometry-golden.mjs
+          node scripts/highlight-total-ui-safety-golden.mjs
+          node --experimental-strip-types scripts/subitem-highlight-advanced-golden.mjs
+          node --experimental-strip-types scripts/floor-highlight-direct-golden.mjs
+          node --experimental-strip-types scripts/highlight-count-points-golden.mjs
+          node --experimental-strip-types scripts/highlight-metric-cach2-golden.mjs
+          node scripts/highlight-metric-cach2-ui-golden.mjs
+          node scripts/highlight-metric-marker-size-golden.mjs
+          npm run typecheck
+          npm run lint
+          npm run test:rbac
+          npm run test:rules
+          npm run test:stability
+          npm run build
+          test -s dist/index.html
+          test "$VITE_FIREBASE_PROJECT_ID" = 'hnl-qltc-dev'
+          ! grep -R -q 'hnl-qltc-r2-gateway\.lengochieu1211\.workers\.dev' dist/assets
+          rm -f dist/server.cjs dist/server.cjs.map
+      - name: Preflight DEV live source and generate Hosting-only deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$GITHUB_SHA"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = 'ad2df144f597d7e054a6f7aebd3abd6d6f7247f3'
+          curl -fsSL --retry 3 'https://hnl-qltc-dev.web.app/hnl-dev-release.json?metric_small_preflight=1' > "$RUNNER_TEMP/previous-live.json"
+          node - "$RUNNER_TEMP/previous-live.json" <<'NODE'
+          const j=require(process.argv[2]);
+          if(j.gitCommit!=='08a9e93377f2d27bc03c7155640fe6733fa34df8'||j.firebaseProjectId!=='hnl-qltc-dev'||j.environment!=='DEV')throw Error('Live DEV changed, refusing overwrite: '+String(j.gitCommit));
+          NODE
+          node - <<'NODE'
+          const fs=require('fs'),crypto=require('crypto');
+          const b=JSON.parse(fs.readFileSync('firebase.json','utf8'));
+          if(!b.hosting||b.hosting.public!=='dist')throw Error('Unexpected Hosting root');
+          fs.writeFileSync('hnl-metric-small-marker-dev-hosting-only.json',JSON.stringify({hosting:{...b.hosting,site:'hnl-qltc-dev'}}));
+          const html=fs.readFileSync('dist/index.html');
+          const match=html.toString().match(/src="(\/assets\/[^"]+\.js)"/);
+          if(!match)throw Error('Missing hashed JS entry');
+          const hash=(p)=>crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+          fs.writeFileSync('dist/hnl-dev-release.json',JSON.stringify({
+            schema:1,environment:'DEV',firebaseProjectId:'hnl-qltc-dev',
+            gitCommit:process.env.GITHUB_SHA,buildId:process.env.GITHUB_RUN_ID+'-'+process.env.GITHUB_RUN_ATTEMPT,
+            indexSha256:hash('dist/index.html'),entryPath:match[1],entrySha256:hash('dist'+match[1])
+          },null,2));
+          NODE
+      - name: Deploy existing DEV Hosting ONLY (no PROD / Firestore / Storage Rules / R2)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$GITHUB_SHA"
+          curl -fsSL --retry 3 'https://hnl-qltc-dev.web.app/hnl-dev-release.json?metric_small_deploy=1' > "$RUNNER_TEMP/live-recheck.json"
+          node - "$RUNNER_TEMP/live-recheck.json" <<'NODE'
+          const j=require(process.argv[2]);if(j.gitCommit!=='08a9e93377f2d27bc03c7155640fe6733fa34df8'||j.firebaseProjectId!=='hnl-qltc-dev'||j.environment!=='DEV')throw Error('Concurrent live DEV update; refusing');
+          NODE
+          npx --yes firebase-tools@13.35.1 deploy --only hosting --project hnl-qltc-dev --config hnl-metric-small-marker-dev-hosting-only.json --non-interactive
+      - name: Read back DEV live exact HEAD, entrypoint SHA256 and static HTML
+        shell: bash
+        run: |
+          set -euo pipefail
+          ok=0
+          for i in $(seq 1 24); do
+            if curl -fsSL "https://hnl-qltc-dev.web.app/hnl-dev-release.json?metric_small_head=$GITHUB_SHA" > "$RUNNER_TEMP/actual-live.json"; then
+              if node - "$RUNNER_TEMP/actual-live.json" <<'NODE'
+          const j=require(process.argv[2]);if(j.gitCommit!==process.env.GITHUB_SHA||j.firebaseProjectId!=='hnl-qltc-dev'||j.environment!=='DEV')process.exit(1);
+          NODE
+              then ok=1;break;fi
+            fi
+            sleep 5
+          done
+          test "$ok" = 1
+          curl -fsSL 'https://hnl-qltc-dev.web.app/' > "$RUNNER_TEMP/actual-index.html"
+          grep -qi '<html' "$RUNNER_TEMP/actual-index.html"
+          node - "$RUNNER_TEMP/actual-live.json" <<'NODE'
+          const fs=require('fs'),crypto=require('crypto'),j=require(process.argv[2]);
+          const hash=(p)=>crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+          if(hash('dist/index.html')!==j.indexSha256)throw Error('Local index mismatch');
+          NODE
+          ASSET="$(node -e "process.stdout.write(require(process.argv[1]).entryPath)" "$RUNNER_TEMP/actual-live.json")"
+          curl -fsSL "https://hnl-qltc-dev.web.app$ASSET" > "$RUNNER_TEMP/actual-entry.js"
+          node - "$RUNNER_TEMP/actual-live.json" "$RUNNER_TEMP/actual-entry.js" <<'NODE'
+          const fs=require('fs'),crypto=require('crypto'),j=require(process.argv[2]);
+          const h=crypto.createHash('sha256').update(fs.readFileSync(process.argv[3])).digest('hex');
+          if(h!==j.entrySha256)throw Error('Live entrypoint checksum differs');
+          console.log('METRIC SMALL MARKER DEV LIVE EXACT HEAD AND ENTRY SHA256 PASS',j.gitCommit);
+          NODE
+      - name: Package exact DEV HEAD FULL, PATCH, REPORT, SHA256
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p deliverables
+          node - <<'NODE'
+          const fs=require('fs'),cp=require('child_process');
+          const names=cp.execFileSync('git',['ls-files','-z']).toString().split('\0').filter(Boolean);
+          const bad=names.filter(p=>{
+            if(p==='scripts/p2115-firestore-backup-public.pem')return !/^-----BEGIN PUBLIC KEY-----[\s\S]*-----END PUBLIC KEY-----$/.test(fs.readFileSync(p,'utf8').trim());
+            return /(^|\/)\.env($|\.(local|production|dev|development)$)|\.(pem|p12|p8|key|jks|keystore)$|(^|\/)(service-account|firebase-adminsdk)[^/]*\.json$/i.test(p);
+          });if(bad.length)throw Error('Sensitive files tracked; refuse archive');
+          NODE
+          git archive --format=zip --prefix=HNL-QLTC-GEMINI-DEV-FULL/ --output=deliverables/FULL_SOURCE.zip "$GITHUB_SHA"
+          python3 - <<'PY'
+          import subprocess,zipfile,hashlib,os
+          base='08a9e93377f2d27bc03c7155640fe6733fa34df8';head=os.environ['GITHUB_SHA']
+          paths=[p.decode() for p in subprocess.check_output(['git','diff','--name-only','--diff-filter=ACMR','-z',base,head]).split(b'\x00') if p]
+          with zipfile.ZipFile('deliverables/PATCH.zip','w',zipfile.ZIP_DEFLATED) as z:
+              for path in paths:z.writestr(path,subprocess.check_output(['git','show',head+':'+path]))
+          report='\n'.join(['# HNL QLTC METRIC SMALL MARKER DEV release','',f'Exact HEAD: {head}',f'Canonical DEV baseline: {base}','Project: hnl-qltc-dev; site: hnl-qltc-dev.web.app','Scope: Cách 2 small calibration points, stable metric measurement + DEV Hosting-only','NO PROD, Firestore Rules, R2 or business-data writes','CI/typecheck/lint/Rules/RBAC/stability/build PASS; live HEAD/JS SHA256 PASS','Authenticated multi-account and offline photo Runtime Golden remains NOT TESTED', '', 'Changed files:']+['- '+x for x in paths])+'\n'
+          open('deliverables/REPORT.md','w').write(report)
+          for name in ['FULL_SOURCE.zip','PATCH.zip']:
+              with zipfile.ZipFile('deliverables/'+name) as z:
+                  if z.testzip() is not None:raise SystemExit('BAD_ZIP '+name)
+          with open('deliverables/SHA256SUMS.txt','w') as f:
+              for name in ['FULL_SOURCE.zip','PATCH.zip','REPORT.md']:
+                  f.write(hashlib.sha256(open('deliverables/'+name,'rb').read()).hexdigest()+'  '+name+'\n')
+          print('EXACT_DEV_SOURCE_PACKAGING_PASS',head,len(paths))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: HNL-QLTC-METRIC-SMALL-MARKER-DEV-${{ github.sha }}
+          path: deliverables/
+          retention-days: 30
+          if-no-files-found: error
+      - name: Scrub temporary DEV credentials
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/hnl-dev-count-cai-sa.json" hnl-metric-small-marker-dev-hosting-only.json
