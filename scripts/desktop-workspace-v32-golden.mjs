@@ -60,11 +60,11 @@ assert.ok(css.includes('[data-hnl-pc-home-modern="true"] [data-hnl-global-header
 assert.ok(css.includes('html[data-hnl-browser-desktop="true"] [data-hnl-pc-home-modern="true"] [data-hnl-global-header]{display:none!important}'), 'Chrome desktop-site Home must hide redundant dark header');
 assert.ok(css.includes('.hnl-pc-home-actions{display:none'), 'Home toolbar must be hidden by default on ordinary mobile and classic');
 assert.ok(header.includes('data-hnl-pc-home-actions="true"'), 'Home modern PC has compact replacement controls');
-assert.ok(header.includes("if (mode === 'classic') return null"), 'classic Home retains global header');
+assert.ok(read('src/components/DesktopWorkspaceHeaderLegacy.tsx').includes("if (mode === 'classic') return ("), 'classic Home retains global header with PC mode switch access');
 assert.ok(!header.includes('<nav className="hnl-pc-quick-nav"'), 'do not render duplicated horizontal module tabs');
 assert.ok(header.includes('<UndoRedoControls onUndo={onUndo} onRedo={onRedo}'), 'original Undo/Redo remains accessible without dark header');
 assert.ok(app.includes('onUndo={handleUndo}') && app.includes('canUndo={isProjectRoleResolved'), 'original undo permission/data guards preserved');
-for (const route of ['onOpenProjects', 'onOpenReports', 'onOpenNotifications', 'onOpenSecurity', "onChangeMode('classic')"]) {
+for (const route of ['onOpenProjects', 'onOpenReports', 'onOpenNotifications', 'onOpenSecurity', 'DesktopPcModeMenu']) {
   assert.ok(header.includes(route), `PC contextual action must remain accessible: ${route}`);
 }
 assert.ok(read('src/components/HomeDashboard.tsx').includes('hnl-home-dashboard'), 'Home module unchanged');
