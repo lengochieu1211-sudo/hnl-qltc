@@ -934,6 +934,7 @@ async function verifyModernPcWorkspace(page, label, switchFromClassic = false) {
     const switcher = page.locator('[data-hnl-pc-mode-toggle="classic"] button').first();
     await switcher.waitFor({ state: 'visible', timeout: 10000 });
     await switcher.click();
+    await page.getByRole('menuitemradio', { name: /PC sáng/ }).click();
   }
   await page.waitForFunction(() =>
     document.querySelector('[data-hnl-desktop-design]')?.getAttribute('data-hnl-desktop-design') === 'modern',
@@ -963,7 +964,7 @@ async function verifyModernPcWorkspace(page, label, switchFromClassic = false) {
   assert(state.contextHeaderVisible, `${label}: modern context header missing`);
   assert(state.quickNavHidden, `${label}: duplicated horizontal top-level tabs still visible`);
   assert(state.railVisible && state.railWidth >= 83 && state.railWidth <= 85, `${label}: original 84px rail lost: ${state.railWidth}`);
-  assert(['Dự án','Báo cáo','Thông báo','Bảo mật','PC cũ'].every((name) => state.actionLabels.some((label) => label.includes(name))),
+  assert(['Dự án','Báo cáo','Thông báo','Bảo mật','Giao diện PC'].every((name) => state.actionLabels.some((label) => label.includes(name))),
     `${label}: missing contextual action: ${JSON.stringify(state.actionLabels)}`);
   assert(state.undoRedo === 2, `${label}: Undo/Redo handlers not available in contextual toolbar`);
   assert(state.overflow <= 12, `${label}: modern PC horizontal overflow ${state.overflow}px`);
@@ -971,6 +972,7 @@ async function verifyModernPcWorkspace(page, label, switchFromClassic = false) {
   pass(`${label} V3.2 real modern PC compact navigation`, `84px rail · no black header · no duplicated tabs · ${state.actionLabels.length} actions`);
   if (switchFromClassic) {
     await page.locator('.hnl-pc-heading-actions .hnl-pc-mode-switch').click();
+    await page.getByRole('menuitemradio', { name: /PC truyền thống/ }).click();
     await page.waitForFunction(() =>
       document.querySelector('[data-hnl-desktop-design]')?.getAttribute('data-hnl-desktop-design') === 'classic',
     null, { timeout: 10000 });
