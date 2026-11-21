@@ -2033,7 +2033,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                       {canAuto && <span className="text-sky-700" title="Tự tính theo vùng">↻</span>}
                                       {normalizeUnit(item.volumeUnit || getCategorySourceUnit(catName)) === 'Cái' && <span title="Tổng điểm đánh dấu" className="text-teal-700 font-bold"> · {totalCountPoints(item.highlightCountPoints || [])} cái đếm</span>}
                                       {!structureReadOnly && roomItem?.id && (
-                                        <button type="button" aria-label={`Vẽ vùng highlight cho ${item.name}`}
+                                        <button type="button" data-hnl-ui-only="true" aria-label={`Vẽ vùng highlight cho ${item.name}`}
                                           disabled={item.status === 'Đã hoàn thành' || item.inspectionStatus === 'Đạt nghiệm thu' || roomItem.inspectionStatus === 'Đạt nghiệm thu' || roomItem.positionLocked === true}
                                           onClick={() => launchCach2(catName, item.id)}
                                           className="ml-0.5 border-l border-emerald-200 pl-1 font-bold text-indigo-700 hover:text-indigo-900 disabled:opacity-40"
@@ -2190,7 +2190,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               <strong className="block text-xs text-teal-950">📐 Highlight &amp; khối lượng · Cách 2</strong>
               <p className="text-[10.5px] leading-relaxed text-teal-900">Vẽ và đo trực tiếp trên ảnh mặt bằng tầng, dùng tỷ lệ chuẩn từ 2 điểm. Chỉ xem kết quả đo m/m²; không tự ghi đè khối lượng, nghiệm thu hoặc vùng cũ.</p>
               <div className="flex flex-wrap gap-2">
-                {activeCategories.map(cat => <button key={cat} type="button" data-hnl-open-cach2-main={cat}
+                {activeCategories.map(cat => <button key={cat} type="button" data-hnl-ui-only="true" data-hnl-open-cach2-main={cat}
                   disabled={roomItem.inspectionStatus === 'Đạt nghiệm thu' || roomItem.positionLocked === true}
                   onClick={() => launchCach2(cat, 'main')}
                   className="rounded-lg border border-teal-300 bg-white px-2.5 py-2 text-[11px] font-bold text-teal-900 disabled:opacity-40">

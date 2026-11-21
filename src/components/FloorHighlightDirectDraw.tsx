@@ -125,7 +125,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
   const changeTarget = (next: Target) => { clearWork(); setTarget(next); setReplaceExisting(false); };
   const changeCategory = (next: string) => { clearWork(); setCategory(next); setTarget('main'); setReplaceExisting(false); };
   React.useEffect(() => {
-    if (!launch || launch.roomId !== room.id || !imageContainer || disabled || locked) return;
+    if (!launch || launch.roomId !== room.id || !imageContainer || disabled || locked || room.isPolyline || room.width <= 0 || room.height <= 0) return;
     const chosenCategory = categories.includes(launch.category) ? launch.category : (categories[0] || '');
     const chosenTarget = launch.target === 'main' || (room.subItems || []).some(s => s.id === launch.target && getDirectStageCategory(s, room) === chosenCategory)
       ? launch.target : 'main';

@@ -13,6 +13,8 @@ assert.match(modal, /onStartDrawOnMap\?: \(room: RoomProgressItem, category: str
 assert.match(modal, /onStartDrawOnMap\(roomItem, category, target\)/);
 assert.match(modal, /Mở mặt bằng · \{cat\}/);
 assert.match(modal, /launchCach2\(catName, item\.id\)/);
+assert.match(modal, /data-hnl-ui-only="true" data-hnl-open-cach2-main=\{cat\}/);
+assert.match(draw, /room\.isPolyline \|\| room\.width <= 0 \|\| room\.height <= 0/);
 assert.match(modal, /roomDraftDirtyRef\.current && !window\.confirm\(/);
 assert.match(modal, /highlightVolumeMode: 'manual'/);
 // The map editor can open on the selected stage, never silently save a volume.
