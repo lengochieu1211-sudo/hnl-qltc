@@ -45,6 +45,23 @@
   html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="floorplan"] [data-hnl-pc-v3-inner="floor-drawing"] { padding:18px!important; min-width:0; border-radius:14px!important; border-color:var(--pc-pro-border)!important; }
   html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="floorplan"] [data-hnl-pc-v3-inner="floor-defects"] { padding:18px!important; border:1px solid var(--pc-pro-border)!important; background:var(--pc-pro-surface)!important; border-radius:14px!important; }
 
+  /* Cài đặt: project profile becomes a real two-column editor only in Gemini.
+     Inputs and SAVE handlers remain intact; Viewer disabled controls stay disabled. */
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-pc-module="settings-center"] > .bg-white > form {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 15px 18px !important;
+    align-items: start;
+  }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-pc-module="settings-center"] > .bg-white > form > .grid,
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-pc-module="settings-center"] > .bg-white > form > button[type="submit"] {
+    grid-column: 1 / -1;
+  }
+  html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-pc-module="settings-center"] > .bg-white > form :is(input, select, textarea) {
+    min-height: 38px;
+    min-width: 0;
+  }
+
   /* Checklist: actual inspection item cards become a two-column PC board. */
   html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="checklist"] [data-hnl-pc-v3-inner="checklist-items"] { display:grid!important; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px!important; align-items:stretch; }
   html[data-hnl-pc-workspace-pro="gemini"] [data-hnl-workspace-module="checklist"] [data-hnl-pc-v3-inner="checklist-items"] > .border-dashed { grid-column:1/-1; }
