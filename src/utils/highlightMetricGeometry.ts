@@ -67,7 +67,7 @@ export function measureHighlightAreaM2(args: {
   shapes: HighlightRegionShape[]; clipToMain?: HighlightRegionShape[];
 }): MetricMeasure {
   const calibration = getValidFloorMetricCalibration(args.floor, args.image);
-  if (!calibration.valid) return calibration;
+  if ('reason' in calibration) return { valid: false, reason: calibration.reason };
   if (!args.shapes?.length) return { valid: false, reason: 'Chưa vẽ vùng cần đo.' };
   const calc = calculateHighlightTotalRatio({ room: args.room, main: args.shapes, sub: args.clipToMain?.length ? args.clipToMain : undefined });
   if (!calc.valid) return { valid: false, reason: calc.reason || 'Vùng vẽ không hợp lệ.' };
@@ -85,7 +85,7 @@ export function measureHighlightLengthM(args: {
   floor: FloorPlan; image: ImageDimensions; floorPath: Point2D[];
 }): MetricMeasure {
   const calibration = getValidFloorMetricCalibration(args.floor, args.image);
-  if (!calibration.valid) return calibration;
+  if ('reason' in calibration) return { valid: false, reason: calibration.reason };
   if (!Array.isArray(args.floorPath) || args.floorPath.length < 2 || args.floorPath.length > 128 ||
     !args.floorPath.every(inFloor)) return { valid: false, reason: 'Tuyến đo m không hợp lệ.' };
   let distancePx = 0;

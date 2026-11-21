@@ -273,7 +273,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
             <div>Chạm lần lượt các điểm theo tuyến. {measurePath.length} điểm. Tuyến không tự chuyển thành vùng khép kín.</div>
             <div className="font-bold text-teal-200">{linePreview.valid
               ? `Chiều dài thực tế: ${linePreview.value.toLocaleString('vi-VN',{maximumFractionDigits:2})} m`
-              : linePreview.reason}</div>
+              : ('reason' in linePreview ? linePreview.reason : 'Chưa đo được tuyến.')}</div>
             <div className="grid grid-cols-3 gap-1">
               <label>Cao vách (m)<input aria-label="Chiều cao vách mét" value={wallHeight} onChange={e=>setWallHeight(e.target.value)} inputMode="decimal" className="w-full rounded bg-white text-slate-900 p-1" /></label>
               <label>Số mặt<input aria-label="Số mặt vách" value={wallFaces} onChange={e=>setWallFaces(e.target.value)} inputMode="numeric" className="w-full rounded bg-white text-slate-900 p-1" /></label>
@@ -281,7 +281,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
             </div>
             {wallAreaPreview && <div className="font-bold text-emerald-200">{wallAreaPreview.valid
               ? `Diện tích vách: ${wallAreaPreview.value.toLocaleString('vi-VN',{maximumFractionDigits:2})} m²`
-              : wallAreaPreview.reason}</div>}
+              : ('reason' in wallAreaPreview ? wallAreaPreview.reason : 'Không tính được diện tích vách.')}</div>}
             <button type="button" onClick={()=>setMeasurePath(prev=>prev.slice(0,-1))} disabled={!measurePath.length} className="rounded bg-slate-700 px-2 py-1 disabled:opacity-50">Lùi 1 điểm</button>
           </div>}
           <div data-hnl-direct-highlight-cad-settings="true" className="text-[10px] text-sky-200">
@@ -299,7 +299,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
             Có {oldShapes.length} vùng cũ · {draft.length} vùng nháp.
             {isAreaUnit ? (metricPreview.valid
               ? ` KL tự tính: ${metricPreview.value.toLocaleString('vi-VN', {maximumFractionDigits:2})} m² (tham khảo, không ghi KL)`
-              : ` ${metricPreview.reason}`)
+              : ` ${'reason' in metricPreview ? metricPreview.reason : 'Chưa có kết quả đo'}`)
               : ' Hạng mục đơn vị khác m²: không suy khối lượng từ diện tích. Tuyến m cần đo riêng.'}
           </div>
           {locked && <span className="text-amber-300 font-bold">Phòng/hạng mục bị khóa hoặc đã nghiệm thu; không cho lưu.</span>}

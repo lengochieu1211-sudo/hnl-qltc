@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { FloorPlan, FloorMetricCalibration, Point2D, RoomProgressItem } from '../types';
+import type { FloorPlan, FloorMetricCalibration as FloorMetricCalibrationData, Point2D, RoomProgressItem } from '../types';
 import { mapDirectHighlightPointerToFloor } from '../utils/floorHighlightDirectShapes';
 import { findRoomObjectSnap } from '../utils/roomHighlightObjectSnap';
 import { applyCadDrawingGuide } from '../utils/roomHighlightCadShortcuts';
@@ -12,7 +12,7 @@ interface Props {
   rotation: number;
   rooms: RoomProgressItem[];
   canSave: boolean;
-  onSave: (floorId: string, calibration: FloorMetricCalibration) => void;
+  onSave: (floorId: string, calibration: FloorMetricCalibrationData) => void;
   onActiveChange?: (active: boolean) => void;
   objectSnapEnabled: boolean;
   objectSnapMidpoints: boolean;
@@ -87,7 +87,7 @@ export const FloorMetricCalibration: React.FC<Props> = ({
           {canSave && <button type="button" aria-pressed={active} onClick={open} className="bg-teal-700 px-2 py-1.5 rounded-lg font-bold">{active ? 'Hủy đo' : 'Chọn 2 điểm'}</button>}
         </div>
         <div className="mt-1 text-[10px] text-slate-200" role="status">
-          {saved.valid ? `Đã hiệu chuẩn: 1 px ≈ ${saved.value.metresPerPixel.toLocaleString('vi-VN',{maximumFractionDigits:5})} m` : saved.reason}
+          {saved.valid ? `Đã hiệu chuẩn: 1 px ≈ ${saved.value.metresPerPixel.toLocaleString('vi-VN',{maximumFractionDigits:5})} m` : ('reason' in saved ? saved.reason : 'Chưa hiệu chuẩn.')}
         </div>
         {active && <div className="mt-2 border-t border-slate-700 pt-2 space-y-2">
           <div className="text-teal-100">Đã chọn {points.length}/2 điểm. OSNAP {objectSnapEnabled?'bật':'tắt'}. Kéo/zoom trước khi chọn điểm nếu cần.</div>
