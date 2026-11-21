@@ -718,8 +718,17 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     };
   };
   // All new shapes use one geometry store; old highlightRegions remain readable.
+  const canEditAdvancedHighlight = () => {
+    if (roomItem?.inspectionStatus === 'Đạt nghiệm thu' ||
+      (highlightTarget !== 'total' && highlightTarget !== 'main' &&
+        subItems.some(item => item.id === highlightTarget && (item.status === 'Đã hoàn thành' || item.inspectionStatus === 'Đạt nghiệm thu')))) {
+      alert('Vùng đã nghiệm thu/hoàn thành: không tự ý sửa hình học hoặc khối lượng. Hãy thực hiện điều chỉnh nghiệm thu có kiểm soát trước.');
+      return false;
+    }
+    return true;
+  };
   const addHighlightShape = (shape: HighlightRegionShape) => {
-    if (!validateHighlightShape(shape)) return;
+    if (!canEditAdvancedHighlight() || !validateHighlightShape(shape)) return;
     roomDraftDirtyRef.current = true;
     if (highlightTarget === 'total') {
       setCategoryHighlightTotalShapes(prev => ({ ...prev,
@@ -764,6 +773,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     if (region) addHighlightShape(region);
   };
   const clearHighlightRegion = () => {
+    if (!canEditAdvancedHighlight()) return;
     roomDraftDirtyRef.current = true;
     if (highlightTarget === 'total') {
       setCategoryHighlightTotalShapes(prev => {const next = {...prev}; delete next[highlightSelectedCategory]; return next;});
@@ -779,6 +789,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     }
   };
   const selectWholeHighlight = () => {
+    if (!canEditAdvancedHighlight()) return;
     roomDraftDirtyRef.current = true;
     if (highlightTarget === 'total' || highlightTarget === 'main') clearHighlightRegion();
     else setSubItems(prev => prev.map(stage => stage.id === highlightTarget ? {
@@ -1213,23 +1224,17 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       return;
     }
 
-    const invalidAutoMain = activeCategories.find(cat => categoryHighlightAutoMode[cat] &&
+    const invalidAutoMain = activeCategories.find(cat => roomItem?.inspectionStatus !== 'Đạt nghiệm thu' && categoryHighlightAutoMode[cat] &&
       (!hasIndependentTotal(cat) || !isAreaHighlightUnit(getCategorySourceUnit(cat)) ||
         !Number.isFinite(getHighlightTotalQuantity(cat)) || getHighlightTotalQuantity(cat) < 0 || !getMainHighlightResult(cat).valid));
     if (invalidAutoMain) {
       alert(`Không thể tự tính hạng mục chính “${invalidAutoMain}”: cần nhập KL vùng tổng m² hợp lệ và vẽ vùng tổng/chính hợp lệ.`);
       return;
     }
-    // Accepted room totals are legally meaningful: never silently rewrite main
-    // quantities while the overall room inspection is already signed off.
-    if (roomItem?.inspectionStatus === 'Đạt nghiệm thu' && activeCategories.some(cat => categoryHighlightAutoMode[cat])) {
-      alert('Căn/phòng đã đạt nghiệm thu: không được tự ghi đè KL hạng mục chính. Hãy xử lý điều chỉnh nghiệm thu theo quy trình trước khi tính lại.');
-      return;
-    }
     // Recompute only explicitly opted-in categories. Never overwrite old/manual numbers.
     const finalCategoryVolumes = { ...categoryVolumes };
     activeCategories.forEach(cat => {
-      if (!categoryHighlightAutoMode[cat]) return;
+      if (!categoryHighlightAutoMode[cat] || roomItem?.inspectionStatus === 'Đạt nghiệm thu') return;
       const catalog = workVolumes.find(v => v.title.trim().toLocaleLowerCase('vi-VN') === cat.trim().toLocaleLowerCase('vi-VN'));
       const storageKey = Object.prototype.hasOwnProperty.call(categoryVolumes, cat) ? cat :
         catalog && Object.prototype.hasOwnProperty.call(categoryVolumes, catalog.id) ? catalog.id : cat;
@@ -1281,7 +1286,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       ...(Object.keys(categoryHighlightAutoMode).length || roomItem?.categoryHighlightAutoMode ? { categoryHighlightAutoMode } : {}),
       ...(Object.keys(categoryHighlightRegions).length || Object.keys(roomItem?.categoryHighlightRegions || {}).length ? { categoryHighlightRegions } : {}),
       subItems: finalSubItems,
-      workVolume: categoryHighlightAutoMode[effectiveWorkCategory]
+      workVolume: categoryHighlightAutoMode[effectiveWorkCategory] && roomItem?.inspectionStatus !== 'Đạt nghiệm thu'
         ? Math.round(getHighlightTotalQuantity(effectiveWorkCategory) * getMainHighlightResult(effectiveWorkCategory).ratio * 10000) / 10000
         : (parsedVol !== undefined && !isNaN(parsedVol) ? parsedVol : undefined),
       volumeUnit: getCategorySourceUnit(effectiveWorkCategory),
@@ -2180,7 +2185,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                               return data;
                             });
                           }}
-                          disabled={!isAreaHighlightUnit(getCategorySourceUnit(highlightSelectedCategory))}
+                          disabled={!isAreaHighlightUnit(getCategorySourceUnit(highlightSelectedCategory)) || roomItem?.inspectionStatus === 'Đạt nghiệm thu'}
                           placeholder="Để trống = phép tính cũ"
                           className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs text-slate-900" />
                       </label>
