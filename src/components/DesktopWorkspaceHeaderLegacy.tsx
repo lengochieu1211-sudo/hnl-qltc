@@ -1,6 +1,7 @@
 import React from 'react';
 import { Bell, Building2, ChevronRight, FileBarChart2, LayoutDashboard, LockKeyhole, MonitorCog, Wifi, WifiOff } from 'lucide-react';
 import { UndoRedoControls } from './UndoRedoControls';
+import { DesktopPcModeMenu } from './DesktopPcModeMenu';
 import type { TabType } from './BottomNav';
 
 /**
@@ -31,7 +32,11 @@ export const LegacyDesktopWorkspaceHeader: React.FC<DesktopWorkspaceHeaderProps>
   // Home keeps its existing dashboard layout; modern PC only replaces the duplicated
   // dark global banner with a compact action row, using the same guarded callbacks.
   if (activeTab === 'home') {
-    if (mode === 'classic') return null;
+    if (mode === 'classic') return (
+      <div className="hnl-pc-classic-home-mode" data-hnl-pc-classic-home-switch="true">
+        <DesktopPcModeMenu mode={mode} onChangeMode={onChangeMode} />
+      </div>
+    );
     return (
       <div className="hnl-pc-home-actions" data-hnl-pc-home-actions="true" aria-label="Công cụ Trang chủ PC">
         <UndoRedoControls onUndo={onUndo} onRedo={onRedo} canUndo={canUndo} canRedo={canRedo} variant="light" />
@@ -39,7 +44,7 @@ export const LegacyDesktopWorkspaceHeader: React.FC<DesktopWorkspaceHeaderProps>
         <button type="button" onClick={onOpenReports}><FileBarChart2 size={16} aria-hidden="true" /> Báo cáo</button>
         <button type="button" onClick={onOpenNotifications}><Bell size={16} aria-hidden="true" /> Thông báo{notificationCount > 0 && <span className="hnl-pc-alert-count">{notificationCount > 99 ? '99+' : notificationCount}</span>}</button>
         <button type="button" onClick={onOpenSecurity}><LockKeyhole size={16} aria-hidden="true" /> Bảo mật</button>
-        <button type="button" onClick={() => onChangeMode('classic')} title="Chỉ đổi giao diện PC, không đổi dữ liệu"><MonitorCog size={16} aria-hidden="true" /> PC cũ</button>
+        <DesktopPcModeMenu mode={mode} onChangeMode={onChangeMode} />
       </div>
     );
   }
@@ -47,7 +52,7 @@ export const LegacyDesktopWorkspaceHeader: React.FC<DesktopWorkspaceHeaderProps>
     <div className="hnl-pc-classic-return" data-hnl-pc-mode-toggle="classic">
       <MonitorCog size={16} aria-hidden="true" />
       <span>Đang dùng bố cục PC cũ</span>
-      <button type="button" onClick={() => onChangeMode('modern')}>Thử giao diện PC mới</button>
+      <DesktopPcModeMenu mode={mode} onChangeMode={onChangeMode} />
     </div>
   );
 
@@ -72,7 +77,7 @@ export const LegacyDesktopWorkspaceHeader: React.FC<DesktopWorkspaceHeaderProps>
           <button type="button" onClick={onOpenReports}><FileBarChart2 size={17} aria-hidden="true" /> Báo cáo</button>
           <button type="button" onClick={onOpenNotifications}><Bell size={17} aria-hidden="true" /> Thông báo{notificationCount > 0 && <span className="hnl-pc-alert-count">{notificationCount > 99 ? '99+' : notificationCount}</span>}</button>
           <button type="button" onClick={onOpenSecurity}><LockKeyhole size={17} aria-hidden="true" /> Bảo mật</button>
-          <button type="button" className="hnl-pc-mode-switch" onClick={() => onChangeMode('classic')} title="Chỉ khôi phục bố cục PC, không thay đổi dữ liệu"><MonitorCog size={17} aria-hidden="true" /> PC cũ</button>
+          <DesktopPcModeMenu mode={mode} onChangeMode={onChangeMode} />
         </div>
       </div>
     </section>
