@@ -69,6 +69,8 @@ import {
   type ProjectStructureConfig,
 } from '../utils/structureGroupUtils';
 import { UndoRedoControls } from './UndoRedoControls';
+import { FloorHighlightDirectDraw } from './FloorHighlightDirectDraw';
+import type { DirectHighlightSaveRequest } from '../utils/floorHighlightDirectShapes';
 import { getRoomColorStyle, ROOM_COLOR_PALETTE } from '../utils/colorPalette';
 import { getRoomMapStageLabels, getRoomMapConstructionIcon, getRoomMapInspectionIcon } from '../utils/roomMapStageLabels';
 import { getDefectOverdueInfo, getDefectShortCode } from '../utils/defectUtils';
@@ -372,6 +374,7 @@ interface FloorPlanDefectTabProps {
   onDeleteDefect: (id: string) => void;
   onDeleteMultipleDefects?: (ids: string[]) => void;
   onSaveRoomProgress: (room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }) => void;
+  onSaveDirectHighlightShapes?: (request: DirectHighlightSaveRequest) => void;
   onBatchSaveRooms?: (rooms: RoomProgressItem[]) => void;
   onCommitPositionLocks?: (kind: 'room' | 'defect', entries: Array<{ id: string; expectedLocked: boolean }>, locked: boolean) => Promise<void>;
   onApplyRoomExcelImport?: (rooms: RoomProgressItem[], deleteIds: string[]) => void;
@@ -685,6 +688,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   onDeleteDefect,
   onDeleteMultipleDefects,
   onSaveRoomProgress,
+  onSaveDirectHighlightShapes,
   onBatchSaveRooms,
   onCommitPositionLocks,
   onApplyRoomExcelImport,
@@ -8159,6 +8163,25 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   </>
                 ) : null}
               </div>
+            )}
+
+            {/* DEV: draw total/main/sub regions directly on the selected room without editing quantities. */}
+            {canManageStructure && onSaveDirectHighlightShapes && selectedRoomObject && !isRoomModalOpen && !isRoomCreationDrawing && drawTool === 'none' &&
+              !isDefectPinPlacementMode && !relocatingDefectId && (viewMode === 'all' || viewMode === 'highlight') && (
+              <FloorHighlightDirectDraw
+                key={`${currentProjectId}:${activeFloor?.id || ''}:${selectedRoomObject.id}`}
+                room={selectedRoomObject}
+                imageContainer={imageContainerRef.current}
+                rotation={rotation}
+                isLocked={lockedRoomIds.has(selectedRoomObject.id)}
+                objectSnapEnabled={objectSnapEnabled}
+                objectSnapMidpoints={objectSnapMidpoints}
+                cadGridSnap={cadGridSnap}
+                cadOrtho={cadOrtho}
+                cadPolar={cadPolar}
+                onSaveShapes={onSaveDirectHighlightShapes}
+                onShowLayer={(layer) => setMapLayers((prev) => ({ ...prev, [layer]: true }))}
+              />
             )}
 
             {/* Copy / Paste Feedback Toast Banner */}
