@@ -8211,7 +8211,6 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             {canManageStructure && onSaveHighlightCount && selectedRoomObject && !isRoomModalOpen && !isRoomCreationDrawing && drawTool === 'none' &&
               !isDefectPinPlacementMode && !relocatingDefectId && (viewMode === 'all' || viewMode === 'highlight') && (
               <FloorHighlightCountPoints
-                key={`${currentProjectId}:${activeFloor?.id || ''}:${selectedRoomObject.id}:counts`}
                 room={selectedRoomObject}
                 imageContainer={imageContainerRef.current}
                 rotation={rotation}

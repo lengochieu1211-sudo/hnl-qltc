@@ -43,6 +43,7 @@ export function FloorHighlightCountPoints({
   const [history,setHistory]=useState<CountPoint[][]>([]);
   const baseline=useRef<{updatedAt:number;revision?:number;stageId:string}|null>(null);
   const dragRef=useRef<{pointerId:number;markerId:string}|null>(null);
+  const renderedRoomId=useRef(room.id);
   const currentId=stages.some(s=>s.id===stageId)?stageId:stages[0]?.id||'';
   const current=stages.find(s=>s.id===currentId);
   const saved=current?.highlightCountPoints||[];
@@ -69,6 +70,12 @@ export function FloorHighlightCountPoints({
     setOpen(false);onActiveChange?.(false);baseline.current=null;setNotice('');
     if(returnToRoom)onReturnToRoom?.();
   };
+  useEffect(()=>{
+    if(renderedRoomId.current===room.id)return;
+    renderedRoomId.current=room.id;
+    setOpen(false);setStageId('');setPoints([]);setHistory([]);
+    baseline.current=null;onActiveChange?.(false);
+  },[room.id]);
   useEffect(()=>{
     if(!launchStageId || !stages.some(s=>s.id===launchStageId) || finalized)return;
     initialize(launchStageId);setOpen(true);onActiveChange?.(true);
