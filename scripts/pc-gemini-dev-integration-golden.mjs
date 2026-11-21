@@ -19,7 +19,7 @@ const deep = read('src/styles/desktopWorkspaceDeep.css');
 assert.ok(main.includes("import './styles/desktopWorkspacePro.css';"), 'Gemini stylesheet imported after base PC CSS');
 assert.ok(app.includes('forceDesktopRail={isDesktopRuntime || chromeDesktopSite}'), 'Chrome Desktop Site/PC bridge preserved');
 assert.ok(app.includes("userChoice === 'modern' || userChoice === 'classic'"), 'classic/modern selection preserved');
-for (const k of ['onOpenProjects','onOpenReports','onOpenNotifications','onOpenSecurity', 'onUndo','onRedo',"onChangeMode('classic')", "onChangeMode('modern')"])
+for (const k of ['onOpenProjects','onOpenReports','onOpenNotifications','onOpenSecurity', 'onUndo','onRedo', 'DesktopPcModeMenu'])
   assert.ok(header.includes(k), `missing existing header callback: ${k}`);
 for (const k of ['setActiveTab', 'onPreloadTab', 'showChecklist', 'showAi', 'showSuperAdmin', 'onLockNow', 'onSignOut', 'onClick={() => activate(tab.id)}', 'data-hnl-sidebar-collapsed'])
   assert.ok(nav.includes(k), `missing existing navigation callback: ${k}`);
