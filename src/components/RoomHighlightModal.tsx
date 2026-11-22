@@ -192,6 +192,9 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   const [polygonDraft, setPolygonDraft] = useState<Point2D[]>([]);
   const [freehandDraft, setFreehandDraft] = useState<Point2D[]>([]);
   const [showAdvancedHighlights, setShowAdvancedHighlights] = useState(false);
+  // Cách 2 is a launcher, not a permanently expanded editor in every room form.
+  const [showCach2RoomPortal, setShowCach2RoomPortal] = useState(false);
+  useEffect(() => { if (isOpen) setShowCach2RoomPortal(false); }, [isOpen, roomItem?.id]);
   const [highlightCategory, setHighlightCategory] = useState('');
   const [highlightTarget, setHighlightTarget] = useState('main');
   const [appendHighlightRegion, setAppendHighlightRegion] = useState(false);
@@ -1885,6 +1888,11 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             className="w-20 text-center font-black text-xs text-emerald-950 bg-white border border-emerald-300 rounded focus:ring-1 focus:ring-emerald-500 outline-none px-1.5 py-0.5"
                           />
                           <span className="text-[10px] font-black text-emerald-800">{getCategorySourceUnit(catName)}</span>
+                          {!structureReadOnly && roomItem?.id && onStartDrawOnMap && <button type="button" data-hnl-ui-only="true" data-hnl-main-quantity-map={catName}
+                            disabled={roomItem.inspectionStatus === 'Đạt nghiệm thu' || roomItem.positionLocked === true}
+                            onClick={() => launchCach2(catName, 'main')}
+                            title={`Đo vẽ khối lượng của hạng mục chính: ${catName}`}
+                            className="shrink-0 border-l border-emerald-200 pl-1.5 text-[10px] font-extrabold text-indigo-700 hover:text-indigo-900 disabled:opacity-40">📐 Mặt bằng</button>}
 
                           {!structureReadOnly && activeCategories.length > 1 && (
                             <MoveOrderControls
@@ -2037,7 +2045,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                           disabled={item.status === 'Đã hoàn thành' || item.inspectionStatus === 'Đạt nghiệm thu' || roomItem.inspectionStatus === 'Đạt nghiệm thu' || roomItem.positionLocked === true}
                                           onClick={() => launchCach2(catName, item.id)}
                                           className="ml-0.5 border-l border-emerald-200 pl-1 font-bold text-indigo-700 hover:text-indigo-900 disabled:opacity-40"
-                                          title="Mở mặt bằng để vẽ/đo theo Cách 2">Mặt bằng</button>
+                                          title="Đo vẽ khối lượng hạng mục con trên mặt bằng">Mặt bằng</button>
                                       )}
                                     </span>
                                   );
@@ -2186,9 +2194,16 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
           {/* Cách 2: floor-wide calibration is shared by all rooms on this drawing. */}
           {!structureReadOnly && roomItem?.id && onStartDrawOnMap && (
-            <section data-hnl-cach2-room-portal="true" className="rounded-2xl border border-teal-200 bg-teal-50/70 p-3.5 space-y-2">
-              <strong className="block text-xs text-teal-950">📐 Highlight &amp; khối lượng · Cách 2</strong>
-              <p className="text-[10.5px] leading-relaxed text-teal-900">Vẽ và đo trực tiếp trên ảnh mặt bằng tầng, dùng tỷ lệ chuẩn từ 2 điểm. Chỉ xem kết quả đo m/m²; không tự ghi đè khối lượng, nghiệm thu hoặc vùng cũ.</p>
+            <section data-hnl-cach2-room-portal="true" className="rounded-2xl border border-teal-200 bg-teal-50/70 overflow-hidden">
+              <button type="button" data-hnl-cach2-room-portal-toggle="true" data-hnl-ui-only="true"
+                aria-expanded={showCach2RoomPortal} aria-controls="hnl-cach2-room-portal-content"
+                onClick={() => setShowCach2RoomPortal(v => !v)}
+                className="w-full px-3 py-2.5 flex items-center justify-between text-left gap-2 text-xs font-extrabold text-teal-950 hover:bg-teal-100/70">
+                <span>📐 Đo vẽ khối lượng</span>
+                {showCach2RoomPortal ? <ChevronUp className="w-4 h-4 shrink-0" /> : <ChevronDown className="w-4 h-4 shrink-0" />}
+              </button>
+              {showCach2RoomPortal && <div id="hnl-cach2-room-portal-content" className="border-t border-teal-200 p-3 space-y-2">
+              <p className="text-[10.5px] leading-relaxed text-teal-900">Đo tỷ lệ 2 điểm → chọn hạng mục → vẽ vùng → xem KL. ĐVT không phải m² có thể nhập tay; lưu KL đo cần xác nhận.</p>
               <div className="flex flex-wrap gap-2">
                 {activeCategories.map(cat => <button key={cat} type="button" data-hnl-ui-only="true" data-hnl-open-cach2-main={cat}
                   disabled={roomItem.inspectionStatus === 'Đạt nghiệm thu' || roomItem.positionLocked === true}
@@ -2197,7 +2212,16 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                   Mở mặt bằng · {cat}
                 </button>)}
               </div>
-              <p className="text-[10px] text-teal-800">Muốn vẽ hạng mục con: bấm “Mặt bằng” ngay cạnh KL của hạng mục tương ứng ở phía trên. Hiệu chuẩn tỷ lệ ở thanh công cụ vẽ trên mặt bằng tầng.</p>
+              <div data-hnl-room-subitem-map-launchers="true" className="space-y-1 rounded-lg bg-white/60 p-2">
+                <div className="text-[10px] font-bold text-teal-900">Vẽ riêng hạng mục con (tùy chọn)</div>
+                {(subItems || []).map(stage => <button key={stage.id} type="button" data-hnl-ui-only="true"
+                  disabled={roomItem.positionLocked === true || roomItem.inspectionStatus === 'Đạt nghiệm thu' || stage.status === 'Đã hoàn thành' || stage.inspectionStatus === 'Đạt nghiệm thu'}
+                  onClick={() => launchCach2(stage.category || workCategory, stage.id)}
+                  className="mr-1 mb-1 max-w-full truncate rounded-md border border-teal-200 bg-white px-2 py-1.5 text-[10px] text-teal-900 disabled:opacity-40">
+                  📐 {stage.name}
+                </button>)}
+              </div>
+              </div>}
             </section>
           )}
           {/* Legacy Cách 1 records remain readable/preserved, but editor is hidden. */}

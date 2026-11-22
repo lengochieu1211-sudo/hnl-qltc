@@ -8,12 +8,12 @@ import {
 const rect = { x: 0, y: 0, width: 80, height: 50 };
 const stage = { id: 'stageA', name: 'Thi công tấm', category: 'Trần chìm',
   status: 'Chưa làm', inspectionStatus: 'Chưa nghiệm thu', workVolume: 9, volumeUnit: 'm²',
-  highlightVolumeMode: 'area', highlightShapes: [rect] };
+  highlightVolumeMode: 'manual', highlightShapes: [rect] };
 const room = {
   id:'roomA',floorId:'floorA',roomName:'Căn 1',workCategory:'Trần chìm',
   updatedAt:1000,revision:7, x:0,y:0,width:50,height:50,
   categoryVolumeUnits:{'Trần chìm':'m²'}, categoryVolumes:{'Trần chìm':10},
-  categoryHighlightAutoMode:{'Trần chìm':true}, categoryHighlightTotalVolumes:{'Trần chìm':88},
+  categoryHighlightAutoMode:{'Trần chìm':false}, categoryHighlightTotalVolumes:{'Trần chìm':88},
   categoryHighlightTotalShapes:{'Trần chìm':[rect]}, categoryHighlightRegions:{'Trần chìm':rect},
   subItems:[stage,{id:'stageB',name:'Nghiệm thu',category:'Trần chìm',status:'Đã hoàn thành',workVolume:3}],
   workVolume:10, inspectionStatus:'Chưa nghiệm thu',
@@ -42,16 +42,35 @@ assert.equal(canApplyDirectHighlightQuantity(room,{...main,shapes:[rect]}),true,
 const changedMain = withDirectHighlightQuantity(room,main);
 assert.equal(changedMain.categoryVolumes['Trần chìm'],12.75);
 assert.equal(changedMain.workVolume,12.75,'primary-category field used by form kept consistent');
-assert.equal(changedMain.categoryHighlightAutoMode['Trần chìm'],false,'old auto formula no longer overwrites explicit measured quantity');
+assert.equal(changedMain.categoryHighlightAutoMode['Trần chìm'],false,'manual target retains explicit manual mode');
 assert.deepEqual(changedMain.categoryHighlightTotalVolumes,room.categoryHighlightTotalVolumes,'legacy total untouched');
 assert.deepEqual(changedMain.categoryHighlightTotalShapes,room.categoryHighlightTotalShapes,'legacy shapes retained');
 assert.deepEqual(changedMain.subItems,room.subItems,'sibling stages untouched');
 const changedSub = withDirectHighlightQuantity(room,sub);
 assert.equal(changedSub.subItems[0].workVolume,6.125);
-assert.equal(changedSub.subItems[0].highlightVolumeMode,'manual','old auto formula no longer overwrites explicit measured quantity');
+assert.equal(changedSub.subItems[0].highlightVolumeMode,'manual','manual stage remains manual');
 assert.strictEqual(changedSub.subItems[1],room.subItems[1],'sibling remains same reference');
 assert.equal(changedSub.categoryVolumes['Trần chìm'],10,'main unchanged when stage committed');
 assert.deepEqual(room,snap,'pure functions do not mutate input/history');
+// Legacy auto/shared region source is a meaningful ongoing policy: never
+// auto-disable it or accept an incompatible quantity that the form will later overwrite.
+const legacyAuto = {...room,
+  categoryHighlightAutoMode: {'Trần chìm': true},
+  categoryHighlightTotalVolumes: {'Trần chìm': 100},
+  subItems: [{...stage, highlightVolumeMode: 'area'}, room.subItems[1]],
+};
+const derivedMain = {...main,measuredQuantity:{value:100,unit:'m²'}};
+const derivedSub = {...sub,measuredQuantity:{value:100,unit:'m²'}};
+assert.equal(canApplyDirectHighlightQuantity(legacyAuto,derivedMain),true,'matching shared total may be confirmed');
+assert.equal(canApplyDirectHighlightQuantity(legacyAuto,derivedSub),true,'matching stage auto source may be confirmed');
+assert.equal(canApplyDirectHighlightQuantity(legacyAuto,main),false,'inconsistent main measure must not erase auto linkage');
+assert.equal(canApplyDirectHighlightQuantity(legacyAuto,sub),false,'inconsistent stage measure must not erase auto linkage');
+assert.equal(withDirectHighlightQuantity(legacyAuto,derivedMain).categoryHighlightAutoMode['Trần chìm'],true,'main auto mode kept');
+assert.equal(withDirectHighlightQuantity(legacyAuto,derivedSub).subItems[0].highlightVolumeMode,'area','sub auto mode kept');
+assert.deepEqual(legacyAuto.categoryHighlightTotalVolumes,{'Trần chìm':100},'shared source total never rewritten implicitly');
+assert.deepEqual(legacyAuto.categoryHighlightTotalShapes,room.categoryHighlightTotalShapes,'legacy shapes retained');
+assert.equal(canApplyDirectHighlightQuantity({...legacyAuto,categoryHighlightTotalVolumes:{}},derivedMain),false,'missing source blocks ambiguous auto update');
+
 const drawRequest={roomId:room.id,expectedUpdatedAt:room.updatedAt,expectedRevision:room.revision,
   category:'Trần chìm',target:'stageA',shapes:[rect]};
 assert.equal(canApplyDirectHighlightShapes(room,drawRequest),true);
@@ -70,6 +89,7 @@ for(const expected of ["runTransaction(db, async", "await transaction.get(roomRe
   assert.ok(backend.includes(expected),`server CAS ${expected}`);
 }
 assert.ok(app.includes('await commitDirectHighlightCas(projectId, request)'), 'on-save waits for Firestore ack');
+assert.ok(backend.includes('canApplyDirectHighlightQuantity(current, request)'), 'server transaction repeats shared auto source guard');
 assert.ok(app.includes('Number(localDirtyRevisionRef.current.roomProgressList || 0) > 0'), 'queued general autosave must settle');
 assert.ok(!ui.includes('setCategoryVolumes('),'drawing never silently modifies state');
 assert.ok(tab.includes('setSelectedRoomForEdit(null)'), 'form draft not reused when returning from map');

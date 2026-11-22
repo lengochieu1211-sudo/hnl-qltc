@@ -1334,6 +1334,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [metricCalibrationLaunch, setMetricCalibrationLaunch] = useState<{floorId:string;token:number}|null>(null);
   const [isCountDrawing, setIsCountDrawing] = useState(false);
   const [isShapeDrawing, setIsShapeDrawing] = useState(false);
+  const [cach2DrawTool, setCach2DrawTool] = useState<'2point' | 'polygon' | 'freehand'>('2point');
   const [pendingCountRoomReturn, setPendingCountRoomReturn] = useState<{roomId:string;updatedAt:number}|null>(null);
   const [selectedRoomForEdit, setSelectedRoomForEdit] = useState<RoomProgressItem | null>(null);
   const [healthCenterOrphanRepairRoomId, setHealthCenterOrphanRepairRoomId] = useState<string | null>(null);
@@ -4085,7 +4086,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         entries.forEach((entry) => locked ? next.add(entry.id) : next.delete(entry.id));
         return next;
       });
-      setCopyNotification('Đã lưu khóa vị trí phòng lên Firestore.');
+      // Successful Firestore commit is reflected by the Khóa / Mở khóa button state.
+      // Avoid overlaying the map tools with a redundant success toast.
     } catch (error) {
       setCopyNotification('Chưa lưu được khóa phòng: ' + (error instanceof Error ? error.message : String(error)));
     } finally {
@@ -7235,9 +7237,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
           {/* Dedicated Drawing & View Controls Toolbar */}
           {canManageStructure && (viewMode === 'highlight' || viewMode === 'all') && (
-            <details className="group bg-slate-50/90 rounded-xl border border-slate-200/80">
-              <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-bold text-slate-700 flex items-center justify-between">
-                <span>Công cụ vẽ vùng Căn / Phòng</span>
+            <details open={isShapeDrawing ? true : undefined} className="group bg-slate-50/90 rounded-xl border border-slate-200/80">
+              <summary onClick={(event) => { if (isShapeDrawing) event.preventDefault(); }} className="cursor-pointer select-none px-3 py-2 text-[11px] font-bold text-slate-700 flex items-center justify-between">
+                <span>{isShapeDrawing ? 'Đo vẽ khối lượng' : 'Công cụ vẽ vùng Căn / Phòng'}</span>
                 <span className="text-slate-400 group-open:hidden">Mở</span>
                 <span className="text-slate-400 hidden group-open:inline">Thu gọn</span>
               </summary>
@@ -7249,6 +7251,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <button
                   type="button"
                   onClick={async () => {
+                    if (isShapeDrawing) { setCach2DrawTool('2point'); return; }
                     setIsRoomPinPlacementMode(false); setIsDefectPinPlacementMode(false);
                     setDrawTool(drawTool === 'freehand' ? 'none' : 'freehand');
                     setDrawStartPos(null);
@@ -7256,20 +7259,21 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     setPolygonPoints([]);
                   }}
                   className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap ${
-                    drawTool === 'freehand'
+                    (isShapeDrawing ? cach2DrawTool === '2point' : drawTool === 'freehand')
                       ? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300'
                       : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/90 shadow-2xs'
                   }`}
                   title="Nhấn giữ & kéo chuột/ngón tay để vẽ tự do trên mặt bằng"
                 >
                   <Pencil className="w-3.5 h-3.5 shrink-0" />
-                  <span>Vẽ tự do</span>
+                  <span>{isShapeDrawing ? '2 điểm' : 'Vẽ tự do'}</span>
                 </button>
 
                 {/* Tool 2: Line / Polygon Point-by-Point (2 or more points) */}
                 <button
                   type="button"
                   onClick={async () => {
+                    if (isShapeDrawing) { setCach2DrawTool('polygon'); return; }
                     setIsRoomPinPlacementMode(false); setIsDefectPinPlacementMode(false);
                     setDrawTool(drawTool === 'polygon' ? 'none' : 'polygon');
                     setDrawStartPos(null);
@@ -7277,20 +7281,21 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     setPolygonPoints([]);
                   }}
                   className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap ${
-                    drawTool === 'polygon'
+                    (isShapeDrawing ? cach2DrawTool === 'polygon' : drawTool === 'polygon')
                       ? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300'
                       : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/90 shadow-2xs'
                   }`}
                   title="Chấm 2 hoặc nhiều điểm để vẽ đường thẳng / đa giác, rồi bấm [Xác nhận]"
                 >
                   <Sparkles className="w-3.5 h-3.5 shrink-0" />
-                  <span>Vẽ đa giác</span>
+                  <span>{isShapeDrawing ? 'Đa giác' : 'Vẽ đa giác'}</span>
                 </button>
 
                 {/* Tool 3: 2-Point Rectangle */}
                 <button
                   type="button"
                   onClick={async () => {
+                    if (isShapeDrawing) { setCach2DrawTool('freehand'); return; }
                     setIsRoomPinPlacementMode(false); setIsDefectPinPlacementMode(false);
                     setDrawTool(drawTool === '2point' ? 'none' : '2point');
                     setDrawStartPos(null);
@@ -7298,14 +7303,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     setPolygonPoints([]);
                   }}
                   className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap ${
-                    drawTool === '2point'
+                    (isShapeDrawing ? cach2DrawTool === 'freehand' : drawTool === '2point')
                       ? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300'
                       : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/90 shadow-2xs'
                   }`}
                   title="Bấm 2 điểm đối góc để tạo khung hình chữ nhật"
                 >
                   <span className="text-sm leading-none shrink-0">📦</span>
-                  <span>Vẽ chữ nhật</span>
+                  <span>{isShapeDrawing ? 'Tự do' : 'Vẽ chữ nhật'}</span>
                 </button>
                 <button type="button" data-hnl-cach2-calibrate-toolbar="true"
                   disabled={!activeFloor || isCountDrawing || isShapeDrawing || isRoomCreationDrawing || drawTool !== 'none' || isDefectPinPlacementMode}
@@ -7313,7 +7318,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   onClick={() => activeFloor && setMetricCalibrationLaunch({floorId:activeFloor.id,token:Date.now()})}
                   title="Chọn hai điểm chuẩn trên ảnh mặt bằng tầng rồi nhập chiều dài thực tế (m)"
                   className="text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 shrink-0 border border-teal-300 bg-teal-50 text-teal-950 hover:bg-teal-100 disabled:opacity-40">
-                  <span>📏</span><span>Hiệu chuẩn tỷ lệ</span>
+                  <span>📏</span><span>Đo tỷ lệ</span>
                 </button>
               </div>
 
@@ -7666,60 +7671,71 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         <button
                           type="button"
                           onClick={async () => {
+                            if (isShapeDrawing) { setCach2DrawTool('2point'); return; }
                             setDrawTool(drawTool === 'freehand' ? 'none' : 'freehand');
                             setDrawStartPos(null);
                             setDrawHoverPos(null);
                             setPolygonPoints([]);
                           }}
                           className={`min-h-9 text-[11px] font-extrabold px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all shrink-0 ${
-                            drawTool === 'freehand'
+                            (isShapeDrawing ? cach2DrawTool === '2point' : drawTool === 'freehand')
                               ? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300'
                               : 'bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700'
                           }`}
                           title="Nhấn giữ & kéo chuột/ngón tay để vẽ tự do"
                         >
                           <Pencil className="w-3.5 h-3.5" />
-                          <span>Vẽ tự do</span>
+                          <span>{isShapeDrawing ? '2 điểm' : 'Vẽ tự do'}</span>
                         </button>
 
                         {/* Tool 2: Polygon / Line (2+ Points) */}
                         <button
                           type="button"
                           onClick={async () => {
+                            if (isShapeDrawing) { setCach2DrawTool('polygon'); return; }
                             setDrawTool(drawTool === 'polygon' ? 'none' : 'polygon');
                             setDrawStartPos(null);
                             setDrawHoverPos(null);
                             setPolygonPoints([]);
                           }}
                           className={`min-h-9 text-[11px] font-extrabold px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all shrink-0 cursor-pointer ${
-                            drawTool === 'polygon'
+                            (isShapeDrawing ? cach2DrawTool === 'polygon' : drawTool === 'polygon')
                               ? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300'
                               : 'bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700'
                           }`}
                           title="Chấm ít nhất 2 điểm để vẽ đường hoặc đa giác, sau đó xác nhận"
                         >
                           <Sparkles className="w-3.5 h-3.5" />
-                          <span>Vẽ đa giác</span>
+                          <span>{isShapeDrawing ? 'Đa giác' : 'Vẽ đa giác'}</span>
                         </button>
 
                         {/* Tool 3: 2-Point Rectangle */}
                         <button
                           type="button"
                           onClick={async () => {
+                            if (isShapeDrawing) { setCach2DrawTool('freehand'); return; }
                             setDrawTool(drawTool === '2point' ? 'none' : '2point');
                             setDrawStartPos(null);
                             setDrawHoverPos(null);
                             setPolygonPoints([]);
                           }}
                           className={`min-h-9 text-[11px] font-extrabold px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all shrink-0 cursor-pointer ${
-                            drawTool === '2point'
+                            (isShapeDrawing ? cach2DrawTool === 'freehand' : drawTool === '2point')
                               ? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300'
                               : 'bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700'
                           }`}
                           title="Bấm 2 điểm tạo khung chữ nhật"
                         >
                           <span className="text-sm leading-none shrink-0">📦</span>
-                          <span>Vẽ chữ nhật</span>
+                          <span>{isShapeDrawing ? 'Tự do' : 'Vẽ chữ nhật'}</span>
+                        </button>
+                        <button type="button" data-hnl-metric-calibrate-fullscreen="true"
+                          disabled={!activeFloor || isCountDrawing || isShapeDrawing || isRoomCreationDrawing || drawTool !== 'none' || isDefectPinPlacementMode}
+                          aria-pressed={isMetricCalibrating}
+                          onClick={() => activeFloor && setMetricCalibrationLaunch({floorId:activeFloor.id,token:Date.now()})}
+                          title="Chọn hai điểm chuẩn rồi nhập chiều dài thực tế, ví dụ 5 m"
+                          className="min-h-9 rounded-xl border border-teal-500 bg-slate-800 px-2.5 text-[11px] font-bold text-teal-200 disabled:opacity-40 shrink-0">
+                          📏 Đo tỷ lệ
                         </button>
 
                         <button type="button" ref={fullscreenDisplayTriggerRef} aria-expanded={showFullscreenDisplaySettings}
@@ -7730,9 +7746,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           ⚙️ Hiển thị {showFullscreenDisplaySettings ? '▴' : '▾'}
                         </button>
 
-                        {/* Add Room */}
+                        {/* Room creation and Cách 2 edit are mutually exclusive. */}
                         <button
                           type="button"
+                          disabled={isShapeDrawing}
+                          title={isShapeDrawing ? 'Tắt Đo vẽ khối lượng trước khi tạo Căn / Phòng' : 'Tạo Căn / Phòng'}
                           onClick={() => {
                             setIsDefectPinPlacementMode(false);
                             setDrawTool('none');
@@ -7742,7 +7760,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             setNewRoomPoints(undefined);
                             setIsRoomPinPlacementMode((active) => !active);
                           }}
-                          className={`min-h-9 text-[11px] font-bold px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-xs shrink-0 ${
+                          className={`min-h-9 text-[11px] font-bold px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-xs shrink-0 disabled:opacity-40 ${
                             isRoomPinPlacementMode
                               ? 'bg-indigo-600 hover:bg-indigo-700 text-white ring-2 ring-indigo-300'
                               : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
@@ -8079,7 +8097,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             )}
 
             {/* Quick Floating Room Operations Bar (Top Left) */}
-            {canManageStructure && !isRoomCreationDrawing && (selectedRoomObject || copiedRoomsState.length > 0) && (
+            {canManageStructure && !isShapeDrawing && !isRoomCreationDrawing && (selectedRoomObject || copiedRoomsState.length > 0) && (
               <div className={`${isFullscreen ? 'relative mx-2 mb-1 max-w-[calc(100%-16px)] self-start' : 'absolute top-2 left-2 max-w-[calc(100%-16px)]'} z-40 pointer-events-auto flex items-center gap-1.5 bg-slate-900/95 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-slate-700 shadow-2xl text-white animate-in fade-in slide-in-from-top-2 overflow-x-auto no-scrollbar shrink`}>
                 {selectedRoomObject ? (
                   <>
@@ -8228,7 +8246,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 disabled={isCountDrawing}
                 isFullscreen={isFullscreen}
                 launch={cach2DrawLaunch}
-                onOpenChange={(active) => { setIsShapeDrawing(active); if (!active) setCach2DrawLaunch(null); }}
+                selectedTool={cach2DrawTool}
+                onOpenChange={(active) => {
+                  setIsShapeDrawing(active);
+                  if (active) setDrawTool('none');
+                  else { setCach2DrawLaunch(null); setCach2DrawTool('2point'); }
+                }}
                 onSaveShapes={onSaveDirectHighlightShapes}
                 onShowLayer={(layer) => setMapLayers((prev) => ({ ...prev, [layer]: true }))}
               />
@@ -8640,7 +8663,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           points={room.points.map((p) => `${p.x},${p.y}`).join(' ')}
                           fill="none"
                           stroke={isSelectedForDrag ? '#f59e0b' : strokeColor}
-                          strokeWidth={(isSelectedForDrag ? 2.6 : 2) * savedRoomStrokeScale}
+                          strokeWidth={(isShapeDrawing ? 1.15 : isSelectedForDrag ? 2.6 : 2) * savedRoomStrokeScale}
                           vectorEffect="non-scaling-stroke"
                           strokeDasharray={isSelectedForDrag ? '2,1' : undefined}
                           strokeLinecap="round"
@@ -8677,7 +8700,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       points={room.points!.map((p) => `${p.x},${p.y}`).join(' ')}
                       fill={fillColor}
                       stroke={isSelectedForDrag ? '#f59e0b' : strokeColor}
-                      strokeWidth={(isSelectedForDrag ? 2.6 : 2) * savedRoomStrokeScale}
+                      strokeWidth={(isShapeDrawing ? 1.15 : isSelectedForDrag ? 2.6 : 2) * savedRoomStrokeScale}
                       vectorEffect="non-scaling-stroke"
                       strokeDasharray={isSelectedForDrag ? '2,1' : undefined}
                       className="pointer-events-auto cursor-pointer transition-all hover:fill-opacity-75"
@@ -8710,7 +8733,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       height={room.height}
                       fill={fillColor}
                       stroke={isSelectedForDrag ? '#f59e0b' : strokeColor}
-                      strokeWidth={(isSelectedForDrag ? 2.6 : 2) * savedRoomStrokeScale}
+                      strokeWidth={(isShapeDrawing ? 1.15 : isSelectedForDrag ? 2.6 : 2) * savedRoomStrokeScale}
                       vectorEffect="non-scaling-stroke"
                       strokeDasharray={isSelectedForDrag ? '2,1' : undefined}
                       className="pointer-events-auto cursor-pointer transition-all hover:fill-opacity-75"
@@ -8843,7 +8866,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 })()}
 
             {/* INTERACTIVE DRAG & RESIZE HANDLES OVERLAY */}
-            {canManageStructure && mapLayers.roomRegions && (viewMode === 'all' || viewMode === 'highlight') && (
+            {canManageStructure && mapLayers.roomRegions && !isShapeDrawing && (viewMode === 'all' || viewMode === 'highlight') && (
               <>
                 {displayedFloorRooms.map((room) => {
                   const isSelectedForDrag = selectedRoomForDragId === room.id || selectedRoomIds.includes(room.id) || (drawTool === 'drag' && hoveredRoomId === room.id);

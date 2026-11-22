@@ -2237,7 +2237,7 @@ export async function commitDirectHighlightCas(projectId: string, request: Direc
     const allowed = 'measuredQuantity' in request
       ? canApplyDirectHighlightQuantity(current, request)
       : canApplyDirectHighlightShapes(current, request);
-    if (!allowed) throw new Error('Dữ liệu phòng/hạng mục đã thay đổi, bị khóa hoặc nghiệm thu. Tải lại trước khi thử lưu; chưa ghi đè.');
+    if (!allowed) throw new Error('Dữ liệu phòng/hạng mục thay đổi, bị khóa, nghiệm thu hoặc giá trị đo không khớp vùng tổng tự tính. Hãy kiểm tra chế độ/vùng nguồn trong Căn/Phòng; chưa ghi đè.');
     if (quantityRequest) {
       if (!floorSnap?.exists()) throw new Error('Không tìm thấy mặt bằng nguồn đo trên Firestore.');
       const latestFloor = floorSnap.data() as FloorPlan;

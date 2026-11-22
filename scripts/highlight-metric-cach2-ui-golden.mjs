@@ -40,7 +40,7 @@ assert.match(direct, /relative mx-2 mb-1 self-start z-\[80\]/);
 assert.match(direct, /max-h-\[40dvh\] overflow-y-auto/);
 assert.match(direct, /absolute right-2 top-14 z-\[80\]/);
 assert.match(direct, /\$\{open \? 'w-\[min\(340px,calc\(100vw-32px\)\)\]' : 'w-fit'\}/);
-assert.match(direct, /aria-label=\{open \? 'Tắt vẽ Highlight Cách 2' : 'Bật vẽ Highlight Cách 2'\}/);
+assert.match(direct, /aria-label=\{open \? 'Tắt Đo vẽ khối lượng' : 'Bật Đo vẽ khối lượng'\}/);
 assert.match(floor, /isFullscreen=\{isFullscreen\}\s+launch=\{cach2DrawLaunch\}/);
 const roomBar = floor.indexOf('Quick Floating Room Operations Bar (Top Left)');
 const directDock = floor.indexOf('<FloorHighlightDirectDraw');

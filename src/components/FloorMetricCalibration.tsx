@@ -34,7 +34,7 @@ export const FloorMetricCalibration: React.FC<Props> = ({
 }) => {
   const [active, setActive] = useState(false);
   const [points, setPoints] = useState<Point2D[]>([]);
-  const [distanceInput, setDistanceInput] = useState('10');
+  const [distanceInput, setDistanceInput] = useState('5');
   const [notice, setNotice] = useState('');
   // Same inverse-zoom behavior as polygon drawing points. These are only visual
   // markers: keep the SVG pointer target full-size for precise mouse/touch input.
@@ -61,7 +61,7 @@ export const FloorMetricCalibration: React.FC<Props> = ({
     if (!canSave || !imageContainer || dimensions.width <= 1 || dimensions.height <= 1) {
       setNotice('Chưa có ảnh mặt bằng sẵn sàng để hiệu chuẩn.'); return;
     }
-    setPoints([]); setNotice('Chạm hai đầu đoạn có chiều dài thực tế đã biết.');
+    setPoints([]); setNotice('Chọn 2 điểm có khoảng cách đã biết (ví dụ 5 m).');
     setActive(true); onActiveChange?.(true);
   };
   useEffect(() => {
@@ -94,7 +94,7 @@ export const FloorMetricCalibration: React.FC<Props> = ({
     {(active || notice) && <div data-hnl-floor-metric-calibration="true" className="absolute left-2 top-14 z-[85] pointer-events-auto w-[min(328px,calc(100vw-32px))]">
       <div className="rounded-xl border border-teal-400/50 bg-slate-950/95 p-2 text-white shadow-xl text-[11px]">
         <div className="flex justify-between items-center gap-2">
-          <span className="font-extrabold">Cách 2 · Hiệu chuẩn tỷ lệ</span>
+          <span className="font-extrabold">Đo tỷ lệ mặt bằng</span>
           {canSave && <button type="button" aria-pressed={active} onClick={open} className="bg-teal-700 px-2 py-1.5 rounded-lg font-bold">{active ? 'Hủy đo' : 'Chọn 2 điểm'}</button>}
         </div>
         <div className="mt-1 text-[10px] text-slate-200" role="status">
