@@ -8866,7 +8866,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 })()}
 
             {/* INTERACTIVE DRAG & RESIZE HANDLES OVERLAY */}
-            {canManageStructure && !isShapeDrawing && mapLayers.roomRegions && (viewMode === 'all' || viewMode === 'highlight') && (
+            {canManageStructure && mapLayers.roomRegions && !isShapeDrawing && (viewMode === 'all' || viewMode === 'highlight') && (
               <>
                 {displayedFloorRooms.map((room) => {
                   const isSelectedForDrag = selectedRoomForDragId === room.id || selectedRoomIds.includes(room.id) || (drawTool === 'drag' && hoveredRoomId === room.id);
