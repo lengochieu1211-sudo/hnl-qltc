@@ -25,7 +25,7 @@ assert.match(modal, /roomDraftDirtyRef\.current && !window\.confirm\(/);
 assert.match(modal, /highlightVolumeMode: 'manual'/);
 // The map editor can open on the selected stage, never silently save a volume.
 assert.match(tab, /onStartDrawOnMap=\{\(room, category, target\) => \{/);
-assert.match(tab, /setCach2DrawLaunch\(\{roomId:room\.id,category,target,token:Date\.now\(\)\}\)/);
+assert.match(tab, /setCach2DrawLaunch\(\{roomId:liveRoom\.id,category:resolvedCategory,target,token:Date\.now\(\)\}\)/);
 assert.match(tab, /launch=\{cach2DrawLaunch\}/);
 assert.match(draw, /launch\?: \{ roomId: string; category: string; target: string; token: number \} \| null/);
 assert.match(draw, /setTarget\(chosenTarget\)/);
