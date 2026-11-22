@@ -43,7 +43,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APPROVED_SOURCE=4ed184dde12d336c4ab57533c2e0a0fb0e934f75
+          APPROVED_SOURCE=309dd4d91cd97f5f2b6439f5caf8663a7e921c09
           PREVIOUS_DEV=2eb6262ee9040f898e292434adfb1cea46a50a2f
           test "$GITHUB_REPOSITORY" = 'lengochieu1211-sudo/hnl-qltc'
           test "$GITHUB_EVENT_NAME" = push
@@ -56,7 +56,7 @@ jobs:
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = 'ad2df144f597d7e054a6f7aebd3abd6d6f7247f3'
           git merge-base --is-ancestor "$PREVIOUS_DEV" "$APPROVED_SOURCE"
           git diff --exit-code "$PREVIOUS_DEV" "$APPROVED_SOURCE" -- package.json package-lock.json .firebaserc firebase.json firebase.prod.json firestore.rules storage.rules .github/dev-release-approval.json cloudflare/
-          EXPECTED="$(printf '%s\n' 'scripts/highlight-cach2-cas-quantity-golden.mjs' 'scripts/highlight-cach2-compact-controls-golden.mjs' 'scripts/highlight-cach2-room-entry-golden.mjs' 'scripts/highlight-metric-cach2-ui-golden.mjs' 'scripts/metric-drawing-ui-20261122-golden.mjs' 'scripts/room-position-lock-quiet-success-golden.mjs' 'src/components/FloorHighlightDirectDraw.tsx' 'src/components/FloorMetricCalibration.tsx' 'src/components/FloorPlanDefectTab.tsx' 'src/components/RoomHighlightModal.tsx' 'src/lib/firebaseBase.ts' 'src/utils/floorHighlightDirectShapes.ts' | LC_ALL=C sort)"
+          EXPECTED="$(printf '%s\n' '.github/workflows/hnl-dev-pr488-metric-v4-hosting-only-20261122.yml' 'scripts/highlight-cach2-cas-quantity-golden.mjs' 'scripts/highlight-cach2-compact-controls-golden.mjs' 'scripts/highlight-cach2-room-entry-golden.mjs' 'scripts/highlight-metric-cach2-ui-golden.mjs' 'scripts/metric-drawing-ui-20261122-golden.mjs' 'scripts/room-position-lock-quiet-success-golden.mjs' 'src/components/FloorHighlightDirectDraw.tsx' 'src/components/FloorMetricCalibration.tsx' 'src/components/FloorPlanDefectTab.tsx' 'src/components/RoomHighlightModal.tsx' 'src/lib/firebaseBase.ts' 'src/utils/floorHighlightDirectShapes.ts' | LC_ALL=C sort)"
           ACTUAL="$(git diff --name-only "$PREVIOUS_DEV" "$APPROVED_SOURCE" | LC_ALL=C sort)"
           test "$EXPECTED" = "$ACTUAL" || { echo "::error::Unexpected direct highlight source delta"; exit 1; }
           test "$VITE_APP_ENV" = DEV
