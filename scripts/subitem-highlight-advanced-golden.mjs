@@ -59,7 +59,9 @@ assert.match(room, /data-hnl-room-category-title-row="true"/);
 assert.match(room, /xl:flex-row xl:items-center/);
 assert.match(room, /xl:w-auto xl:flex-1 xl:min-w-0/);
 assert.match(room, /data-hnl-room-preset-inline-row="true"/);
-assert.match(room, /lg:flex-row lg:items-end/);
+assert.match(room, /lg:flex-row lg:items-center/);
+assert.match(room, /data-hnl-room-work-categories="true"/);
+assert.doesNotMatch(room, /Vẽ riêng hạng mục con/);
 assert.match(room, /data-hnl-room-add-subitem-inline="true"/);
 assert.ok(room.indexOf('data-hnl-room-add-subitem-inline="true"') > room.indexOf('Interactive Input Volume directly in the list'));
 assert.equal(room.split('onClick={() => handleAddSubItem(catName)}').length - 1, 2); // mutually exclusive viewport actions
