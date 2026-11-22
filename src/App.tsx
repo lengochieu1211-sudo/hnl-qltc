@@ -140,7 +140,7 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   }
   return merged;
 }
-import { subscribeToProjectRealtime, saveProjectDiffsToCloud, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, subscribeCurrentUserPinResetRealtime, signOutGoogle, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, subscribeProjectSharedSettings, fetchProjectSharedSettingsSnapshot, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud, updateProjectPresence } from './lib/firebase';
+import { subscribeToProjectRealtime, saveProjectDiffsToCloud, commitDirectHighlightCas, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, subscribeCurrentUserPinResetRealtime, signOutGoogle, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, subscribeProjectSharedSettings, fetchProjectSharedSettingsSnapshot, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud, updateProjectPresence } from './lib/firebase';
 import { REALTIME_STATE_KEYS, STATE_KEY_TO_CLOUD_NAME } from './config/realtimeCollections';
 import { hasPendingChatOutboxForCurrentUser } from './lib/chatService';
 import { FIREBASE_ONLY_RUNTIME, LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED, LEGACY_LOCAL_IMPORT_ENABLED } from './config/runtimeArchitecture';
@@ -159,8 +159,8 @@ import {
   CrewRecord,
   TeamInfo
 } from './types';
-import { canApplyDirectHighlightShapes, withDirectHighlightShapes } from './utils/floorHighlightDirectShapes';
-import type { DirectHighlightSaveRequest } from './utils/floorHighlightDirectShapes';
+import { canApplyDirectHighlightShapes, canApplyDirectHighlightQuantity } from './utils/floorHighlightDirectShapes';
+import type { DirectHighlightCommitRequest } from './utils/floorHighlightDirectShapes';
 import { floorMetricSourceKey } from './utils/highlightMetricGeometry';
 import { GoogleAuthHeader } from './components/GoogleAuthHeader';
 import { OfflineSyncBanner } from './components/OfflineSyncBanner';
@@ -7463,19 +7463,43 @@ function AuthenticatedApp() {
   // Direct map editor is a scoped geometry update, not a full stale-room save.
   // Revalidate the role, room revision, lock and acceptance inside the latest
   // App snapshot. Other fields, legacy geometry, status and quantities survive.
-  const handleSaveDirectHighlightShapes = (request: DirectHighlightSaveRequest) => {
-    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
-    updateAppData((prev) => {
-      const existing = prev.roomProgressList.find((room) => room.id === request.roomId);
-      if (!canApplyDirectHighlightShapes(existing, request) || !existing) return prev;
-      const changed = withDirectHighlightShapes(existing, request.category, request.target, request.shapes);
-      return {
-        ...prev,
-        roomProgressList: prev.roomProgressList.map((room) => room.id === request.roomId ? {
-          ...changed, updatedAt: Date.now(),
-        } : room),
+  const handleSaveDirectHighlightShapes = async (request: DirectHighlightCommitRequest): Promise<void> => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) {
+      throw new Error('Chỉ ADMIN được lưu Highlight Cách 2.');
+    }
+    if (!FIREBASE_ONLY_RUNTIME || !isOnline || !cloudInitialReady || projectRoleSource !== 'cloud' || !projectRoleAllowed ||
+        businessDataSource !== 'cloud' || activeProjectIdRef.current !== activeProjectId) {
+      throw new Error('Cần tải xong dữ liệu Firestore và có kết nối mạng để lưu an toàn. Bản nháp chưa bị xóa.');
+    }
+    // The generic autosave is local-first. It must never race with this scoped transaction.
+    if (Number(localDirtyRevisionRef.current.roomProgressList || 0) > 0) {
+      throw new Error('Phòng còn thao tác chưa đồng bộ. Chờ lưu xong và mở lại trình vẽ trước khi xác nhận.');
+    }
+    const existing = present.roomProgressList.find((r) => r.id === request.roomId);
+    const safe = 'measuredQuantity' in request
+      ? canApplyDirectHighlightQuantity(existing, request)
+      : canApplyDirectHighlightShapes(existing, request);
+    if (!safe || !existing || request.target === 'total') throw new Error('Dữ liệu phòng/hạng mục đã đổi hoặc đã nghiệm thu. Chưa lưu gì.');
+    const projectId = activeProjectId;
+    setDataCloudStatus({ phase: 'syncing', message: 'Đang kiểm tra phiên bản và xác nhận Cách 2 trên Firestore...' });
+    try {
+      let saved: RoomProgressItem | null = null;
+      await queueCloudSave(async () => { saved = await commitDirectHighlightCas(projectId, request); });
+      if (!saved || activeProjectIdRef.current !== projectId) throw new Error('Dự án đã chuyển trong lúc lưu. Hãy mở lại để xác minh.');
+      const acknowledged = saved as RoomProgressItem;
+      const updateAcknowledgedRoom = (rows: RoomProgressItem[]): RoomProgressItem[] => rows.map((r) =>
+        r.id === acknowledged.id && Number(r.revision || 0) <= Number(acknowledged.revision || 0) ? acknowledged : r);
+      // No updateAppData: that path increments revision and schedules a stale whole-room autosave.
+      setPresent((prev) => ({ ...prev, roomProgressList: updateAcknowledgedRoom(prev.roomProgressList) }));
+      if (lastSyncedPresentRef.current) lastSyncedPresentRef.current = {
+        ...lastSyncedPresentRef.current,
+        roomProgressList: updateAcknowledgedRoom(lastSyncedPresentRef.current.roomProgressList),
       };
-    });
+      setDataCloudStatus({ phase: 'synced', lastSyncAt: Date.now(), message: 'Firestore đã xác nhận Cách 2.' });
+    } catch (error) {
+      setDataCloudStatus({ phase: 'conflict', message: error instanceof Error ? error.message : String(error) });
+      throw error;
+    }
   };
 
   // Point count is an explicit stage-scoped save. No historical room quantity,
