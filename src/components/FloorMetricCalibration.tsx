@@ -61,7 +61,7 @@ export const FloorMetricCalibration: React.FC<Props> = ({
     if (!canSave || !imageContainer || dimensions.width <= 1 || dimensions.height <= 1) {
       setNotice('Chưa có ảnh mặt bằng sẵn sàng để hiệu chuẩn.'); return;
     }
-    setPoints([]); setNotice('Chọn 2 điểm có khoảng cách đã biết (ví dụ 5 m).');
+    setPoints([]); setNotice('Chọn 2 điểm chuẩn trên mặt bằng.');
     setActive(true); onActiveChange?.(true);
   };
   useEffect(() => {
@@ -101,7 +101,7 @@ export const FloorMetricCalibration: React.FC<Props> = ({
           {saved.valid ? `Đã hiệu chuẩn: 1 px ≈ ${saved.value.metresPerPixel.toLocaleString('vi-VN',{maximumFractionDigits:5})} m` : ('reason' in saved ? saved.reason : 'Chưa hiệu chuẩn.')}
         </div>
         {active && <div className="mt-2 border-t border-slate-700 pt-2 space-y-2">
-          <div className="text-teal-100">Đã chọn {points.length}/2 điểm. OSNAP {objectSnapEnabled?'bật':'tắt'}. Kéo/zoom trước khi chọn điểm nếu cần.</div>
+          <div className="text-teal-100">Đã chọn {points.length}/2 điểm.</div>
           <label className="block">Chiều dài thực tế (m)
             <input aria-label="Chiều dài hiệu chuẩn mét" type="text" inputMode="decimal" value={distanceInput}
               onChange={(e)=>setDistanceInput(e.target.value)} className="mt-1 w-full rounded-lg bg-white p-2 text-slate-900" />

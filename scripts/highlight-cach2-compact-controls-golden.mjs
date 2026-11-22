@@ -9,10 +9,32 @@ const room = read('src/components/RoomHighlightModal.tsx');
 // no second selector obscuring the plan and no room creation during Cách 2.
 assert.match(floor, /const \[cach2DrawTool, setCach2DrawTool\] = useState/);
 for(const mode of ['2point','polygon','freehand']) {
-  assert.equal(floor.match(new RegExp(`if \\(isShapeDrawing\\) \\{ setCach2DrawTool\\('${mode}'\\); return; \\}`, 'g'))?.length, 2,
+  assert.equal(floor.match(new RegExp(`if \\(isShapeDrawing\\) \\{ selectCach2ToolbarTool\\('${mode}'\\); return; \\}`, 'g'))?.length, 2,
     `Both mobile/fullscreen and ordinary toolbars must delegate ${mode}`);
 }
 assert.match(floor, /selectedTool=\{cach2DrawTool\}/);
+assert.match(floor, /if \(cach2DrawTool === tool\) setCach2CloseRequestToken\(\(token\) => token \+ 1\)/,
+  'Repeated tap must request closing, not reselect another mode');
+assert.match(floor, /closeRequestToken=\{cach2CloseRequestToken\}/,
+  'Parent toolbar must propagate close request to Cách 2 editor');
+assert.match(draw, /if \(\(draft\.length \|\| corners\.length \|\| freehand\.length \|\| measurePath\.length\) &&/,
+  'Must warn before discarding uncommitted drawing');
+assert.match(draw, /setOpen\(false\); onOpenChange\?\.\(false\)/,
+  'Close selected Highlight tool without auto-launching calibration');
+assert.equal((floor.match(/aria-pressed=\{isShapeDrawing \? cach2DrawTool ===/g) || []).length, 6,
+  'Three tools in both normal and fullscreen need accessible selected states');
+assert.doesNotMatch(floor, /setMetricCalibrationLaunch\(\{floorId:[^}]+\}\);?\s*return;/,
+  'Highlight mode toggling cannot trigger measurement calibration');
+
+const reclickHandler = floor.slice(floor.indexOf('const selectCach2ToolbarTool ='), floor.indexOf('const [pendingCountRoomReturn'));
+assert.doesNotMatch(reclickHandler, /setMetricCalibrationLaunch/,
+  'A re-click must never transfer focus into Đo tỷ lệ');
+assert.equal((floor.match(/title="Chọn 2 điểm chuẩn để đo tỷ lệ"/g) || []).length, 2,
+  'Both ordinary and fullscreen calibration tooltips must be compact');
+assert.doesNotMatch(floor, /border-teal-300 bg-teal-50|border-teal-500 bg-slate-800/,
+  'Calibration tool must not retain the differently colored teal button');
+assert.match(draw, /closeRequestToken=0/);
+assert.match(draw, /Tắt vẽ Highlight và bỏ phần chưa lưu\?/);
 assert.match(draw, /const tool: DrawTool = selectedTool \?\? '2point'/);
 assert.doesNotMatch(draw, /role="group" aria-label="Công cụ vẽ trực tiếp"/);
 assert.match(floor, /(?:!isShapeDrawing && mapLayers\.roomRegions|mapLayers\.roomRegions && !isShapeDrawing)/, 'room resize handles must not cover or intercept active Highlight');

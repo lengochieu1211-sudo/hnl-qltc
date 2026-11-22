@@ -52,6 +52,8 @@ interface Props {
   isFullscreen?: boolean;
   /** Shared selection from the floor-map drawing toolbar; does not change room geometry. */
   selectedTool?: DrawTool;
+  /** Parent toolbar selected-tool re-click; asks before discarding unsaved Highlight drafts. */
+  closeRequestToken?: number;
   onOpenChange?: (active:boolean)=>void;
   // The same CAD/OSNAP settings already used by the normal room drawing tools.
   objectSnapEnabled: boolean;
@@ -64,7 +66,7 @@ interface Props {
 }
 
 export const FloorHighlightDirectDraw: React.FC<Props> = ({
-  room, workVolumes = [], floor, imageContainer, rotation, onSaveShapes, highlightColors, onShowLayer, isLocked, disabled=false, isFullscreen=false, selectedTool, onOpenChange,
+  room, workVolumes = [], floor, imageContainer, rotation, onSaveShapes, highlightColors, onShowLayer, isLocked, disabled=false, isFullscreen=false, selectedTool, closeRequestToken=0, onOpenChange,
   objectSnapEnabled, objectSnapMidpoints, cadGridSnap, cadOrtho, cadPolar, launch,
 }) => {
   const [open, setOpen] = useState(false);
@@ -169,6 +171,16 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
     setDraft([]); setCorners([]); setFreehand([]); setMeasurePath([]); setHover(null); setNotice(''); setSnapMarker(null);
     freehandRef.current = []; activePointerRef.current = null;
   };
+  // Toolbar selection is owned by the parent, but unsaved drafts belong here.
+  // Only a deliberate re-click requests a close. Switching tools retains finished drafts.
+  useEffect(() => {
+    if (!closeRequestToken || !open || saving) return;
+    if ((draft.length || corners.length || freehand.length || measurePath.length) &&
+        !window.confirm('Tắt vẽ Highlight và bỏ phần chưa lưu?')) return;
+    clearWork(); baselineRef.current = null; setOpen(false); onOpenChange?.(false);
+    // A request token changes only on a second click of the currently selected tool.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [closeRequestToken]);
   const changeTarget = (next: Target) => { clearWork(); setTarget(next); setReplaceExisting(false); };
   const changeCategory = (next: string) => { clearWork(); setCategory(next); setTarget('main'); setReplaceExisting(false); };
   React.useEffect(() => {

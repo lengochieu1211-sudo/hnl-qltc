@@ -8,7 +8,7 @@ assert.match(tab, /data-hnl-cach2-calibrate-toolbar="true"/);
 assert.match(tab, /data-hnl-metric-calibrate-fullscreen="true"/);
 assert.match(tab, /📏 Đo tỷ lệ/);
 assert.match(cal, /distanceInput, setDistanceInput\] = useState\('5'\)/);
-assert.match(cal, /Chọn 2 điểm có khoảng cách đã biết/);
+assert.match(cal, /Chọn 2 điểm chuẩn trên mặt bằng/);
 assert.match(draw, /Đo vẽ KL · /);
 assert.doesNotMatch(modal, /Vẽ riêng hạng mục con/);
 assert.doesNotMatch(modal, /📐 Highlight &amp; khối lượng · Cách 2/);
