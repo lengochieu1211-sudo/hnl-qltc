@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { FloorPlan, HighlightRegionShape, Point2D, RoomProgressItem } from '../types';
-import { measureHighlightAreaM2, measureHighlightLengthM, measureWallAreaM2 } from '../utils/highlightMetricGeometry';
+import { getValidFloorMetricCalibration, measureHighlightAreaM2, measureHighlightLengthM, measureWallAreaM2 } from '../utils/highlightMetricGeometry';
 import { getDirectStageCategory, getSavedDirectHighlightShapes, getDirectHighlightCategoryNames, mapDirectHighlightPointerToFloor, getDirectHighlightDrawPoint } from '../utils/floorHighlightDirectShapes';
-import type { DirectHighlightSaveRequest } from '../utils/floorHighlightDirectShapes';
+import type { DirectHighlightCommitRequest, DirectHighlightQuantitySaveRequest } from '../utils/floorHighlightDirectShapes';
 import {
   calculateHighlightTotalRatio,
   getHighlightShapeFloorPoints,
@@ -40,10 +40,12 @@ interface Props {
   floor?: FloorPlan;
   imageContainer: HTMLElement | null;
   rotation: number;
-  onSaveShapes: (request: DirectHighlightSaveRequest) => void;
+  onSaveShapes: (request: DirectHighlightCommitRequest) => Promise<void>;
   onShowLayer: (layer: 'totalHighlightRegions' | 'mainHighlightRegions' | 'subItemRegions') => void;
   isLocked: boolean;
   disabled?: boolean;
+  /** Layout-only: dock under the room action toolbar in fullscreen, never overlay its buttons. */
+  isFullscreen?: boolean;
   onOpenChange?: (active:boolean)=>void;
   // The same CAD/OSNAP settings already used by the normal room drawing tools.
   objectSnapEnabled: boolean;
@@ -56,7 +58,7 @@ interface Props {
 }
 
 export const FloorHighlightDirectDraw: React.FC<Props> = ({
-  room, floor, imageContainer, rotation, onSaveShapes, onShowLayer, isLocked, disabled=false, onOpenChange,
+  room, floor, imageContainer, rotation, onSaveShapes, onShowLayer, isLocked, disabled=false, isFullscreen=false, onOpenChange,
   objectSnapEnabled, objectSnapMidpoints, cadGridSnap, cadOrtho, cadPolar, launch,
 }) => {
   const [open, setOpen] = useState(false);
@@ -74,6 +76,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
   const [freehand, setFreehand] = useState<Point2D[]>([]);
   const [replaceExisting, setReplaceExisting] = useState(false);
   const [notice, setNotice] = useState('');
+  const [saving, setSaving] = useState(false);
   const [snapMarker, setSnapMarker] = useState<{ point: Point2D; kind: 'vertex' | 'midpoint' } | null>(null);
   const freehandRef = useRef<Point2D[]>([]);
   const activePointerRef = useRef<number | null>(null);
@@ -113,6 +116,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
   const activeUnit = targetStage?.volumeUnit || (currentTarget === 'main'
     ? (room.categoryVolumeUnits?.[currentCategory] || room.volumeUnit || 'm²') : 'm²');
   const isAreaUnit = ['m2','m²'].includes(activeUnit.trim().toLowerCase().replace(/\s/g,''));
+  const isLengthUnit = activeUnit.trim().toLowerCase().replace(/\s/g,'') === 'm';
   const linePreview = floor ? measureHighlightLengthM({floor, image:imageDimensions, floorPath:measurePath})
     : {valid:false as const, reason:'Chưa chọn mặt bằng.'};
   const wallAreaPreview = linePreview.valid ? measureWallAreaM2(linePreview.value,
@@ -140,6 +144,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
   }, [launch?.token, room.id, imageContainer]);
 
   const toggle = () => {
+    if (saving) return;
     if (open) { clearWork(); baselineRef.current = null; setOpen(false); onOpenChange?.(false); return; }
     if (disabled) return;
     if (locked || !imageContainer || room.width <= 0 || room.height <= 0 || room.isPolyline) {
@@ -173,7 +178,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
   };
   const handleDown = (event: React.PointerEvent<SVGSVGElement>) => {
     event.stopPropagation(); event.preventDefault();
-    if (locked || event.button > 0 || !imageContainer) return;
+    if (saving || locked || event.button > 0 || !imageContainer) return;
     const { point, marker } = getPoint(event);
     setSnapMarker(marker);
     if (lineMode) {
@@ -217,8 +222,14 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
     if (pts.length >= 3) addShape(toPolygon(pts, 'freehand'));
     else { setFreehand([]); setNotice('Cần khoanh vùng kín bằng ít nhất 3 điểm.'); }
   };
-  const save = () => {
-    if (lineMode || !draft.length || !currentCategory || locked || !baselineRef.current) return;
+  const closeAfterServerAck = () => {
+    onShowLayer(currentTarget === 'total' ? 'totalHighlightRegions' : currentTarget === 'main' ? 'mainHighlightRegions' : 'subItemRegions');
+    clearWork(); setOpen(false); onOpenChange?.(false); baselineRef.current = null;
+  };
+  const isSameRoomDraft = () => Boolean(baselineRef.current &&
+    baselineRef.current.revision === room.revision && baselineRef.current.updatedAt === room.updatedAt);
+  const save = async () => {
+    if (saving || lineMode || !draft.length || !currentCategory || locked || !baselineRef.current) return;
     if (missingTarget) { setNotice('Hạng mục đã thay đổi. Chọn lại vùng trước khi lưu.'); return; }
     if (baselineRef.current.revision !== room.revision || baselineRef.current.updatedAt !== room.updatedAt) {
       setNotice('Phòng đã thay đổi trong lúc vẽ. Hủy chế độ vẽ, mở lại để lấy dữ liệu mới; chưa lưu gì.'); return;
@@ -230,34 +241,89 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
       setNotice(previewRatio.reason || 'Vùng hình học không hợp lệ; chưa lưu.'); return;
     }
     if (replaceExisting && oldShapes.length && !window.confirm('Thay các vùng đã lưu bằng vùng mới? Các khối lượng và trạng thái nghiệm thu vẫn giữ nguyên.')) return;
-    onSaveShapes({
+    setSaving(true); setNotice('Đang xác nhận phiên bản trên Firestore...');
+    try {
+      await onSaveShapes({
+        roomId: room.id, expectedUpdatedAt: baselineRef.current.updatedAt,
+        expectedRevision: baselineRef.current.revision, category: currentCategory,
+        target: currentTarget, shapes: candidateShapes,
+      });
+      closeAfterServerAck();
+    } catch (error) {
+      setNotice(`Chưa lưu vùng: ${error instanceof Error ? error.message : String(error)}. Bản nháp vẫn còn.`);
+    } finally { setSaving(false); }
+  };
+
+  /** Explicit opt-in only. Never update official quantities by drawing or previewing. */
+  const confirmMeasuredQuantity = async (kind: 'area' | 'length' | 'wall') => {
+    if (saving || locked || disabled || !floor || !isSameRoomDraft() || !baselineRef.current || missingTarget) {
+      setNotice('Bản vẽ hoặc dữ liệu phòng đã thay đổi. Mở lại công cụ trước khi xác nhận.'); return;
+    }
+    const calibration = getValidFloorMetricCalibration(floor, imageDimensions);
+    if (!calibration.valid) { setNotice('reason' in calibration ? calibration.reason : 'Cần hiệu chuẩn lại.'); return; }
+    const measure = kind === 'area' ? metricPreview : kind === 'length' ? linePreview : wallAreaPreview;
+    if (!measure || !measure.valid || measure.value <= 0) {
+      setNotice('Giá trị đo không hợp lệ, không thể cập nhật khối lượng.'); return;
+    }
+    if (kind === 'length' ? !isLengthUnit : !isAreaUnit) {
+      setNotice('Đơn vị hạng mục không khớp m hoặc m². Không tự chuyển đổi đơn vị.'); return;
+    }
+    if (kind === 'area' && (!candidateShapes.length || !previewRatio.valid || !candidateShapes.every(validateHighlightShape))) {
+      setNotice('Cần vùng vẽ hợp lệ trước khi chuyển diện tích thành khối lượng.'); return;
+    }
+    const value = Math.round(measure.value * 1000) / 1000;
+    if (!Number.isFinite(value) || value <= 0) { setNotice('Khối lượng làm tròn không hợp lệ.'); return; }
+    const oldQuantity = currentTarget === 'main'
+      ? (room.categoryVolumes?.[currentCategory] ?? (room.workCategory === currentCategory ? room.workVolume : undefined))
+      : targetStage?.workVolume;
+    const label = currentTarget === 'main' ? `hạng mục chính “${currentCategory}”` : `hạng mục con “${targetStage?.name || currentTarget}”`;
+    const unit = measure.unit;
+    if (!window.confirm(`XÁC NHẬN CẬP NHẬT KHỐI LƯỢNG CHÍNH THỨC\n${label}\n` +
+      `Giá trị cũ: ${oldQuantity ?? 'chưa nhập'} ${activeUnit}\nGiá trị đo mới: ${value} ${unit}\n` +
+      'Chỉ ADMIN được phép xác nhận. Hạng mục được chuyển về KL thủ công để không bị công thức Cách 1 cũ tính lại. Vùng và dữ liệu Cách 1 lịch sử vẫn giữ nguyên. Tiếp tục?')) return;
+    const request: DirectHighlightQuantitySaveRequest = {
       roomId: room.id, expectedUpdatedAt: baselineRef.current.updatedAt,
-      expectedRevision: baselineRef.current.revision, category: currentCategory,
-      target: currentTarget, shapes: candidateShapes,
-    });
-    onShowLayer(currentTarget === 'total' ? 'totalHighlightRegions' : currentTarget === 'main' ? 'mainHighlightRegions' : 'subItemRegions');
-    clearWork(); setOpen(false); onOpenChange?.(false); baselineRef.current = null;
+      expectedRevision: baselineRef.current.revision, category: currentCategory, target: currentTarget,
+      floorId: floor.id, expectedFloorSourceKey: calibration.value.sourceKey,
+      expectedCalibrationUpdatedAt: calibration.value.updatedAt,
+      measuredQuantity: {value, unit},
+      ...(kind === 'area' && draft.length ? {shapes: candidateShapes} : {}),
+    };
+    setSaving(true); setNotice('Đang đối chiếu phiên bản phòng và hiệu chuẩn trên Firestore...');
+    try {
+      await onSaveShapes(request);
+      closeAfterServerAck();
+    } catch (error) {
+      setNotice(`Chưa cập nhật KL: ${error instanceof Error ? error.message : String(error)}. Bản nháp và KL cũ giữ nguyên.`);
+    } finally { setSaving(false); }
   };
   useEffect(() => {
     if (!open) return;
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { clearWork(); setOpen(false); onOpenChange?.(false); baselineRef.current = null; }
+      if (event.key === 'Escape' && !saving) { clearWork(); setOpen(false); onOpenChange?.(false); baselineRef.current = null; }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [open]);
+  }, [open, saving]);
 
   const toFloorSvg = (points: Point2D[]): string => points.map((p) => `${room.x + room.width * p.x / 100},${room.y + room.height * p.y / 100}`).join(' ');
   const activePreview = corners.length ? corners.concat(hover && tool !== 'freehand' ? [hover] : []) : freehand;
   const hasDrawPermission = !locked && !disabled && room.width > 0 && room.height > 0 && !room.isPolyline;
   return <>
-    <div data-hnl-direct-highlight-toolbar="true" className="absolute right-2 top-14 z-[80] pointer-events-auto max-w-[calc(100%-16px)]">
-      <div className="rounded-xl border border-sky-400/50 bg-slate-950/95 p-2 text-white shadow-2xl w-[min(340px,calc(100vw-32px))] text-[11px]">
+    <div data-hnl-direct-highlight-toolbar="true" data-hnl-direct-highlight-layout={isFullscreen ? 'fullscreen-docked' : 'plan-floating'}
+      className={isFullscreen
+        // Fullscreen's top toolbar and room operations are normal-flow siblings.
+        // Keeping this dock in the same flow prevents the old absolute top-14 overlay.
+        ? 'relative mx-2 mb-1 self-start z-[80] pointer-events-auto max-w-[calc(100%-16px)] max-h-[40dvh] overflow-y-auto overscroll-contain shrink-0'
+        // Normal viewport: stay below the top-left room operations and above bottom zoom controls.
+        : 'absolute right-2 top-14 z-[80] pointer-events-auto max-w-[calc(100%-16px)] max-h-[calc(100%-7rem)] overflow-y-auto overscroll-contain'}>
+      <div className={`rounded-xl border border-sky-400/50 bg-slate-950/95 p-2 text-white shadow-2xl text-[11px] ${open ? 'w-[min(340px,calc(100vw-32px))]' : 'w-fit'}`}>
         <div className="flex items-center justify-between gap-2">
-          <span className="font-extrabold truncate">Vẽ Highlight · {room.roomName}</span>
-          <button type="button" disabled={!hasDrawPermission && !open} aria-pressed={open} onClick={toggle}
+          {open && <span className="font-extrabold truncate">Vẽ Highlight · {room.roomName}</span>}
+          <button type="button" disabled={saving || (!hasDrawPermission && !open)} aria-pressed={open} onClick={toggle}
+            aria-label={open ? 'Tắt vẽ Highlight Cách 2' : 'Bật vẽ Highlight Cách 2'}
             className={`shrink-0 px-3 py-1.5 rounded-lg font-bold ${open ? 'bg-rose-700' : 'bg-sky-600 disabled:bg-slate-700'}`}>
-            {open ? 'Tắt vẽ' : 'Bật vẽ'}
+            {open ? 'Tắt vẽ' : 'Bật vẽ Cách 2'}
           </button>
         </div>
         {open && <div className="mt-2 space-y-2 border-t border-slate-700 pt-2" data-hnl-direct-highlight-edit="true">
@@ -284,7 +350,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
           <button type="button" data-hnl-cach2-line-mode="true" aria-pressed={lineMode}
             disabled={draft.length > 0} onClick={() => { setLineMode(v=>!v); setMeasurePath([]); setCorners([]); }}
             className={`w-full rounded-md border p-1.5 text-left font-bold ${lineMode?'border-teal-300 bg-teal-800':'border-slate-600 bg-slate-800'}`}>
-            Đo tuyến m / vách m² (tham khảo, không lưu KL)
+            Đo tuyến m / vách m² (xem trước, xác nhận riêng)
           </button>
           {lineMode && <div className="space-y-1 text-[10px]" data-hnl-cach2-length-preview="true">
             <div>Chạm lần lượt các điểm theo tuyến. {measurePath.length} điểm. Tuyến không tự chuyển thành vùng khép kín.</div>
@@ -300,6 +366,12 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
               ? `Diện tích vách: ${wallAreaPreview.value.toLocaleString('vi-VN',{maximumFractionDigits:2})} m²`
               : ('reason' in wallAreaPreview ? wallAreaPreview.reason : 'Không tính được diện tích vách.')}</div>}
             <button type="button" onClick={()=>setMeasurePath(prev=>prev.slice(0,-1))} disabled={!measurePath.length} className="rounded bg-slate-700 px-2 py-1 disabled:opacity-50">Lùi 1 điểm</button>
+          </div>}
+          {lineMode && <div className="flex flex-wrap gap-1" data-hnl-cach2-confirm-line-quantity="true">
+            {isLengthUnit && <button type="button" disabled={saving || locked || missingTarget || !linePreview.valid}
+              onClick={() => void confirmMeasuredQuantity('length')} className="rounded bg-emerald-700 px-2 py-1 disabled:opacity-50 font-bold">Xác nhận KL tuyến (m)</button>}
+            {isAreaUnit && <button type="button" disabled={saving || locked || missingTarget || !wallAreaPreview?.valid}
+              onClick={() => void confirmMeasuredQuantity('wall')} className="rounded bg-emerald-700 px-2 py-1 disabled:opacity-50 font-bold">Xác nhận KL vách (m²)</button>}
           </div>}
           <div data-hnl-direct-highlight-cad-settings="true" className="text-[10px] text-sky-200">
             Bắt điểm có sẵn: OSNAP {objectSnapEnabled ? (objectSnapMidpoints ? '(góc + trung điểm)' : '(góc)') : 'tắt'} · Lưới {cadGridSnap ? 'bật' : 'tắt'} · Vuông góc {cadOrtho ? 'bật' : 'tắt'} · Góc {cadPolar ? 'bật' : 'tắt'}.
@@ -319,12 +391,18 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
               : ` ${'reason' in metricPreview ? metricPreview.reason : 'Chưa có kết quả đo'}`)
               : ' Hạng mục đơn vị khác m²: không suy khối lượng từ diện tích. Tuyến m cần đo riêng.'}
           </div>
+          {!lineMode && isAreaUnit && <button type="button" data-hnl-cach2-confirm-area-quantity="true"
+            disabled={saving || locked || missingTarget || !metricPreview.valid || !candidateShapes.length}
+            onClick={() => void confirmMeasuredQuantity('area')}
+            className="w-full rounded-lg bg-emerald-700 disabled:opacity-50 px-3 py-2 font-bold text-left">
+            Xác nhận cập nhật KL chính thức theo diện tích (m²)
+          </button>}
           {locked && <span className="text-amber-300 font-bold">Phòng/hạng mục bị khóa hoặc đã nghiệm thu; không cho lưu.</span>}
           {notice && <div role="status" className="text-amber-200 break-words">{notice}</div>}
           <div className="flex gap-2">
-            <button type="button" disabled={lineMode || !draft.length || locked || missingTarget} onClick={save} className="rounded-lg bg-emerald-700 disabled:opacity-50 px-3 py-1.5 font-bold">Lưu vùng</button>
-            <button type="button" onClick={clearWork} className="rounded-lg bg-slate-700 px-3 py-1.5">Xóa nháp</button>
-            <button type="button" onClick={toggle} className="rounded-lg bg-slate-700 px-3 py-1.5">Hủy</button>
+            <button type="button" disabled={saving || lineMode || !draft.length || locked || missingTarget} onClick={() => void save()} className="rounded-lg bg-emerald-700 disabled:opacity-50 px-3 py-1.5 font-bold">Lưu vùng</button>
+            <button type="button" disabled={saving} onClick={clearWork} className="rounded-lg bg-slate-700 px-3 py-1.5">Xóa nháp</button>
+            <button type="button" disabled={saving} onClick={toggle} className="rounded-lg bg-slate-700 px-3 py-1.5">Hủy</button>
           </div>
         </div>}
         {!open && !hasDrawPermission && <div className="text-amber-200 mt-1">Vùng phòng đang khóa, đã nghiệm thu hoặc không có diện tích.</div>}

@@ -73,7 +73,7 @@ import { FloorHighlightDirectDraw } from './FloorHighlightDirectDraw';
 import { FloorMetricCalibration } from './FloorMetricCalibration';
 import { FloorHighlightCountPoints } from './FloorHighlightCountPoints';
 import type { HighlightCountSaveRequest } from '../utils/highlightCountPoints';
-import type { DirectHighlightSaveRequest } from '../utils/floorHighlightDirectShapes';
+import type { DirectHighlightCommitRequest } from '../utils/floorHighlightDirectShapes';
 import { getRoomColorStyle, ROOM_COLOR_PALETTE } from '../utils/colorPalette';
 import { getRoomMapStageLabels, getRoomMapConstructionIcon, getRoomMapInspectionIcon } from '../utils/roomMapStageLabels';
 import { getDefectOverdueInfo, getDefectShortCode } from '../utils/defectUtils';
@@ -377,7 +377,7 @@ interface FloorPlanDefectTabProps {
   onDeleteDefect: (id: string) => void;
   onDeleteMultipleDefects?: (ids: string[]) => void;
   onSaveRoomProgress: (room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }) => void;
-  onSaveDirectHighlightShapes?: (request: DirectHighlightSaveRequest) => void;
+  onSaveDirectHighlightShapes?: (request: DirectHighlightCommitRequest) => Promise<void>;
   onSaveHighlightCount?: (request: HighlightCountSaveRequest) => void;
   onBatchSaveRooms?: (rooms: RoomProgressItem[]) => void;
   onCommitPositionLocks?: (kind: 'room' | 'defect', entries: Array<{ id: string; expectedLocked: boolean }>, locked: boolean) => Promise<void>;
@@ -8226,6 +8226,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 cadOrtho={cadOrtho}
                 cadPolar={cadPolar}
                 disabled={isCountDrawing}
+                isFullscreen={isFullscreen}
                 launch={cach2DrawLaunch}
                 onOpenChange={(active) => { setIsShapeDrawing(active); if (!active) setCach2DrawLaunch(null); }}
                 onSaveShapes={onSaveDirectHighlightShapes}
@@ -10533,6 +10534,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           setCountLaunchStageId(null);
           setViewMode('highlight');
           setIsRoomModalOpen(false);
+          // Discard the old form snapshot; re-open later from the latest Firestore-backed room.
+          setSelectedRoomForEdit(null);
           setCach2DrawLaunch({roomId:room.id,category,target,token:Date.now()});
         }}
         onStartCountOnMap={(room, stageId) => {

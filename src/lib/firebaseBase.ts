@@ -46,6 +46,10 @@ import { CURRENT_DATA_SCHEMA_VERSION, getPendingDataSchemaMigrations, readDataSc
 import { clearRememberedVerifiedAuthIdentity } from '../utils/offlineAccess';
 import { assertP21DemoFullProjectSaveBoundary, assertP21DemoWriterBoundary } from '../utils/p21DemoWriterBoundary';
 import type { ProjectStructureConfig } from '../utils/structureGroupUtils';
+import type { RoomProgressItem, FloorPlan } from '../types';
+import type { DirectHighlightCommitRequest } from '../utils/floorHighlightDirectShapes';
+import { canApplyDirectHighlightShapes, canApplyDirectHighlightQuantity, withDirectHighlightShapes, withDirectHighlightQuantity } from '../utils/floorHighlightDirectShapes';
+import { floorMetricSourceKey } from '../utils/highlightMetricGeometry';
 const env = (import.meta as any).env || {};
 const p21DemoWriterGates = {
   roomSidecarDemo: String(env.VITE_P21_ROOM_SIDECAR_DEMO || '') === 'P21_LOCAL_EMULATOR_ONLY',
@@ -2204,6 +2208,72 @@ export function subscribeProjectSharedSettings(projectId: string, onUpdate: (set
     snapshotUnsub?.();
     authUnsub();
   };
+}
+
+/**
+ * Cách 2 is a server-acknowledged CAS, separate from local-first diff autosave.
+ * Both room version and measured floor-source calibration are read in the SAME
+ * Firestore transaction. On conflict/offline/rule rejection nothing is written.
+ * No Firestore paths, schema, accepted fields, legacy geometry or IDs are changed.
+ */
+export async function commitDirectHighlightCas(projectId: string, request: DirectHighlightCommitRequest): Promise<RoomProgressItem> {
+  const user = getCurrentRealFirebaseUser();
+  if (!projectId || !user) throw new Error('Cần đăng nhập và kết nối Firestore để xác nhận Highlight Cách 2.');
+  if (typeof navigator !== 'undefined' && !navigator.onLine) throw new Error('Đang offline. Bản nháp được giữ; hãy kết nối lại trước khi xác nhận.');
+  const role = await fetchProjectUserRoleFromCloud(projectId, user);
+  if (role.verification !== 'verified' || !role.allowed || role.role !== 'ADMIN') {
+    throw new Error('Chỉ ADMIN có quyền đã được máy chủ xác minh mới được ghi Highlight và khối lượng.');
+  }
+  if (request.target === 'total') throw new Error('Cách 1 chỉ giữ để đọc dữ liệu lịch sử.');
+  const roomRef = doc(db, 'projects', projectId, 'rooms', request.roomId);
+  const quantityRequest = 'measuredQuantity' in request ? request : null;
+  const floorRef = quantityRequest ? doc(db, 'projects', projectId, 'floor_plans', quantityRequest.floorId) : null;
+  return runTransaction(db, async (transaction): Promise<RoomProgressItem> => {
+    const roomSnap = await transaction.get(roomRef);
+    // Reads precede writes in a Firestore transaction, including the floor calibration.
+    const floorSnap = floorRef ? await transaction.get(floorRef) : null;
+    if (!roomSnap.exists()) throw new Error('Căn/Phòng không còn tồn tại trên máy chủ. Chưa lưu.');
+    const current = roomSnap.data() as RoomProgressItem;
+    const allowed = 'measuredQuantity' in request
+      ? canApplyDirectHighlightQuantity(current, request)
+      : canApplyDirectHighlightShapes(current, request);
+    if (!allowed) throw new Error('Dữ liệu phòng/hạng mục đã thay đổi, bị khóa hoặc nghiệm thu. Tải lại trước khi thử lưu; chưa ghi đè.');
+    if (quantityRequest) {
+      if (!floorSnap?.exists()) throw new Error('Không tìm thấy mặt bằng nguồn đo trên Firestore.');
+      const latestFloor = floorSnap.data() as FloorPlan;
+      const calibration = latestFloor.highlightMetricCalibration;
+      if (latestFloor.id !== quantityRequest.floorId ||
+          floorMetricSourceKey(latestFloor) !== quantityRequest.expectedFloorSourceKey ||
+          !calibration || calibration.sourceKey !== quantityRequest.expectedFloorSourceKey ||
+          calibration.updatedAt !== quantityRequest.expectedCalibrationUpdatedAt ||
+          calibration.floorId !== latestFloor.id) {
+        throw new Error('Ảnh hoặc hiệu chuẩn mặt bằng đã thay đổi trên thiết bị khác. Cần đo lại; chưa cập nhật khối lượng.');
+      }
+    }
+    const next = quantityRequest ? withDirectHighlightQuantity(current, quantityRequest) : current;
+    const changed = request.shapes ? withDirectHighlightShapes(next, request.category, request.target, request.shapes) : next;
+    const updatedAt = Math.max(Date.now(), Number(current.updatedAt || 0) + 1);
+    const revision = Math.max(0, Number(current.revision || 0)) + 1;
+    const fields: Record<string, unknown> = {
+      revision, updatedAt, updatedByUid: user.uid,
+      updatedByEmail: normalizeEmail(user.email),
+      updatedByDeviceId: getDeviceId(), updatedByDeviceName: getDeviceName(),
+    };
+    if (request.shapes) {
+      if (request.target === 'main') fields.categoryHighlightShapes = changed.categoryHighlightShapes;
+      else fields.subItems = changed.subItems;
+    }
+    if (quantityRequest) {
+      if (request.target === 'main') {
+        fields.categoryVolumes = changed.categoryVolumes;
+        fields.categoryHighlightAutoMode = changed.categoryHighlightAutoMode;
+        if (current.workCategory === request.category) fields.workVolume = changed.workVolume;
+      }
+      else fields.subItems = changed.subItems;
+    }
+    transaction.update(roomRef, sanitizePayloadForCloud(fields));
+    return { ...changed, ...fields } as RoomProgressItem;
+  }, { maxAttempts: 3 });
 }
 
 /**

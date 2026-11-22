@@ -58,6 +58,64 @@ export interface DirectHighlightSaveRequest {
   shapes: HighlightRegionShape[];
 }
 
+/** Explicit user-approved quantity write. No automatic calculation may use this path. */
+export interface DirectHighlightQuantitySaveRequest extends Omit<DirectHighlightSaveRequest, 'shapes'> {
+  measuredQuantity: { value: number; unit: 'm' | 'm²' };
+  /** Bind measurement to the already-saved, same-source floor calibration. */
+  floorId: string;
+  expectedFloorSourceKey: string;
+  expectedCalibrationUpdatedAt: number;
+  /** A new uncommitted polygon may be saved atomically with an area quantity. */
+  shapes?: HighlightRegionShape[];
+}
+
+export type DirectHighlightCommitRequest = DirectHighlightSaveRequest | DirectHighlightQuantitySaveRequest;
+
+const isEditableDirectTarget = (room: RoomProgressItem | undefined, request: Omit<DirectHighlightSaveRequest, 'shapes'>): boolean => {
+  if (!room || room.id !== request.roomId || room.deletedAt || room.isPolyline || room.width <= 0 || room.height <= 0) return false;
+  if (room.updatedAt !== request.expectedUpdatedAt || room.revision !== request.expectedRevision) return false;
+  if (room.positionLocked === true || room.inspectionStatus === 'Đạt nghiệm thu') return false;
+  if (request.target === 'total' || !getDirectHighlightCategoryNames(room).includes(request.category)) return false;
+  if (request.target !== 'main') {
+    const stage = room.subItems?.find((item) => item.id === request.target && getDirectStageCategory(item, room) === request.category);
+    if (!stage || stage.status === 'Đã hoàn thành' || stage.inspectionStatus === 'Đạt nghiệm thu') return false;
+  }
+  return true;
+};
+
+/** Unit and accepted-progress validation is repeated on the server transaction's actual room. */
+export function canApplyDirectHighlightQuantity(room: RoomProgressItem | undefined, request: DirectHighlightQuantitySaveRequest): boolean {
+  if (!isEditableDirectTarget(room, request) || !room) return false;
+  const stage = request.target === 'main' ? undefined : room.subItems?.find((s) => s.id === request.target);
+  const storedUnit = String(stage?.volumeUnit || (request.target === 'main'
+    ? (room.categoryVolumeUnits?.[request.category] || room.volumeUnit || 'm²') : 'm²'))
+    .trim().toLowerCase().replace(/\s/g, '').replace('m2', 'm²');
+  if (storedUnit !== request.measuredQuantity?.unit) return false;
+  if (!Number.isFinite(request.measuredQuantity.value) || request.measuredQuantity.value <= 0 || request.measuredQuantity.value > 1_000_000_000) return false;
+  if (!request.floorId || request.floorId !== room.floorId || !request.expectedFloorSourceKey ||
+      !Number.isFinite(request.expectedCalibrationUpdatedAt) || request.expectedCalibrationUpdatedAt <= 0) return false;
+  if (request.shapes !== undefined && (!Array.isArray(request.shapes) || request.shapes.length < 1 ||
+      request.shapes.length > 24 || !request.shapes.every(validateHighlightShape))) return false;
+  // Never pair an open line measurement with geometry from an unrelated polygon draft.
+  if (request.measuredQuantity.unit === 'm' && request.shapes !== undefined) return false;
+  return true;
+}
+
+/** Patch ONLY the selected official quantity, preserving sibling subItems and accepted data. */
+export function withDirectHighlightQuantity(room: RoomProgressItem, request: DirectHighlightQuantitySaveRequest): RoomProgressItem {
+  if (request.target === 'main') return {
+    ...room, categoryVolumes: { ...room.categoryVolumes, [request.category]: request.measuredQuantity.value },
+    ...(room.workCategory === request.category ? { workVolume: request.measuredQuantity.value } : {}),
+    // Explicit Cách 2 confirmation supersedes the historical auto formula; drawings are retained.
+    categoryHighlightAutoMode: { ...room.categoryHighlightAutoMode, [request.category]: false },
+  };
+  return {
+    ...room,
+    subItems: (room.subItems || []).map((s) => s.id === request.target && getDirectStageCategory(s, room) === request.category
+      ? { ...s, workVolume: request.measuredQuantity.value, highlightVolumeMode: 'manual' as const } : s),
+  };
+}
+
 /** Revalidate against the newest in-memory room inside the App state updater. */
 export const canApplyDirectHighlightShapes = (room: RoomProgressItem | undefined, request: DirectHighlightSaveRequest): boolean => {
   if (!room || room.id !== request.roomId || room.deletedAt || room.isPolyline || room.width <= 0 || room.height <= 0) return false;

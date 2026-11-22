@@ -79,7 +79,7 @@ assert.match(warehouse, /readOnly compactViewerButton/, 'receipt photos retain r
 assert.match(crew, /line\.voucherIds\?\.length === 1/, 'single material voucher directly clickable');
 assert.match(crew, /line\.voucherCount === 1 && line\.vouchers\.length === 1/, 'single equipment voucher directly clickable');
 assert.match(warehouse, /initialVoucherId=\{singleVoucherExportId \|\| undefined\}/, 'exact voucher export preset forwarded');
-assert.match(warehouse, /data-hnl-journal-open-voucher=\{item\.id\}/, 'journal voucher opens a direct document');
+assert.doesNotMatch(warehouse, /data-hnl-journal-open-voucher=\{item\.id\}/, 'journal omits redundant read-only voucher button; use existing Edit action');
 assert.match(detail, /role="dialog" aria-modal="true"/, 'read-only modal is accessible');
 assert.match(detail, /readOnly compactViewerButton/, 'receipt photos remain read-only');
 assert.doesNotMatch(detail, /onDeleteInventory|onUpdateInventory|onAddInventory|setDoc\(|updateDoc\(|deleteDoc\(/, 'direct voucher must not write ledger data');
