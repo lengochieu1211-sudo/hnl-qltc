@@ -8226,6 +8226,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 cadOrtho={cadOrtho}
                 cadPolar={cadPolar}
                 disabled={isCountDrawing}
+                isFullscreen={isFullscreen}
                 launch={cach2DrawLaunch}
                 onOpenChange={(active) => { setIsShapeDrawing(active); if (!active) setCach2DrawLaunch(null); }}
                 onSaveShapes={onSaveDirectHighlightShapes}

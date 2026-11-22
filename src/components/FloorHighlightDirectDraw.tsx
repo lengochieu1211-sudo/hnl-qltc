@@ -44,6 +44,8 @@ interface Props {
   onShowLayer: (layer: 'totalHighlightRegions' | 'mainHighlightRegions' | 'subItemRegions') => void;
   isLocked: boolean;
   disabled?: boolean;
+  /** Layout-only: dock under the room action toolbar in fullscreen, never overlay its buttons. */
+  isFullscreen?: boolean;
   onOpenChange?: (active:boolean)=>void;
   // The same CAD/OSNAP settings already used by the normal room drawing tools.
   objectSnapEnabled: boolean;
@@ -56,7 +58,7 @@ interface Props {
 }
 
 export const FloorHighlightDirectDraw: React.FC<Props> = ({
-  room, floor, imageContainer, rotation, onSaveShapes, onShowLayer, isLocked, disabled=false, onOpenChange,
+  room, floor, imageContainer, rotation, onSaveShapes, onShowLayer, isLocked, disabled=false, isFullscreen=false, onOpenChange,
   objectSnapEnabled, objectSnapMidpoints, cadGridSnap, cadOrtho, cadPolar, launch,
 }) => {
   const [open, setOpen] = useState(false);
@@ -308,13 +310,20 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
   const activePreview = corners.length ? corners.concat(hover && tool !== 'freehand' ? [hover] : []) : freehand;
   const hasDrawPermission = !locked && !disabled && room.width > 0 && room.height > 0 && !room.isPolyline;
   return <>
-    <div data-hnl-direct-highlight-toolbar="true" className="absolute right-2 top-14 z-[80] pointer-events-auto max-w-[calc(100%-16px)]">
-      <div className="rounded-xl border border-sky-400/50 bg-slate-950/95 p-2 text-white shadow-2xl w-[min(340px,calc(100vw-32px))] text-[11px]">
+    <div data-hnl-direct-highlight-toolbar="true" data-hnl-direct-highlight-layout={isFullscreen ? 'fullscreen-docked' : 'plan-floating'}
+      className={isFullscreen
+        // Fullscreen's top toolbar and room operations are normal-flow siblings.
+        // Keeping this dock in the same flow prevents the old absolute top-14 overlay.
+        ? 'relative mx-2 mb-1 self-start z-[80] pointer-events-auto max-w-[calc(100%-16px)] max-h-[40dvh] overflow-y-auto overscroll-contain shrink-0'
+        // Normal viewport: stay below the top-left room operations and above bottom zoom controls.
+        : 'absolute right-2 top-14 z-[80] pointer-events-auto max-w-[calc(100%-16px)] max-h-[calc(100%-7rem)] overflow-y-auto overscroll-contain'}>
+      <div className={`rounded-xl border border-sky-400/50 bg-slate-950/95 p-2 text-white shadow-2xl text-[11px] ${open ? 'w-[min(340px,calc(100vw-32px))]' : 'w-fit'}`}>
         <div className="flex items-center justify-between gap-2">
-          <span className="font-extrabold truncate">Vẽ Highlight · {room.roomName}</span>
+          {open && <span className="font-extrabold truncate">Vẽ Highlight · {room.roomName}</span>}
           <button type="button" disabled={saving || (!hasDrawPermission && !open)} aria-pressed={open} onClick={toggle}
+            aria-label={open ? 'Tắt vẽ Highlight Cách 2' : 'Bật vẽ Highlight Cách 2'}
             className={`shrink-0 px-3 py-1.5 rounded-lg font-bold ${open ? 'bg-rose-700' : 'bg-sky-600 disabled:bg-slate-700'}`}>
-            {open ? 'Tắt vẽ' : 'Bật vẽ'}
+            {open ? 'Tắt vẽ' : 'Bật vẽ Cách 2'}
           </button>
         </div>
         {open && <div className="mt-2 space-y-2 border-t border-slate-700 pt-2" data-hnl-direct-highlight-edit="true">
