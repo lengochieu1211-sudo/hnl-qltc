@@ -364,8 +364,8 @@ assert(
     roomHighlightUiForPc.includes('<span>Thêm vào phòng</span>') &&
     roomHighlightUiForPc.includes('<span>Chọn tất cả ({subItems.length})</span>') &&
     roomHighlightUiForPc.includes('className="sr-only">Chọn hạng mục thi công</label>') &&
-    !roomHighlightUiForPc.includes('Nạp hạng mục\\n') &&
-    !roomHighlightUiForPc.includes('Chọn mẫu\\n') &&
+    !roomHighlightUiForPc.includes('Nạp hạng mục') &&
+    !roomHighlightUiForPc.includes('Chọn mẫu') &&
     !roomHighlightUiForPc.includes('hidden lg:inline">Nạp hạng mục thi công</span>') &&
     !roomHighlightUiForPc.includes('lg:hidden text-[11px] text-indigo-700/90 font-medium') &&
     !roomHighlightUiForPc.includes('lg:hidden text-[10.5px] text-slate-500 font-medium'),

@@ -30,7 +30,7 @@ for (const obsolete of [
 const categoryArea = form.slice(form.indexOf('data-hnl-room-work-categories="true"'), form.indexOf('{/* Floor-wide metric calibration lives only on the map toolbar.'));
 assert.ok(categoryArea.includes('data-hnl-room-preset-inline-row="true"'), 'Presets must be inside the unified category section');
 assert.ok(categoryArea.indexOf('data-hnl-room-preset-inline-row="true"') < categoryArea.indexOf('Select All & Bulk Actions Toolbar'), 'Preset controls must precede the saved list');
-assert.equal((form.match(/<span>Hạng mục thi công \\(\\{subItems\\.length\\}\\)<\\/span>/g) || []).length, 1, 'Single visible section heading');
+assert.equal(form.split('<span>Hạng mục thi công ({subItems.length})</span>').length - 1, 1, 'Single visible section heading');
 assert.ok(categoryArea.includes('{!structureReadOnly && ('), 'Preset editing must preserve read-only permission gate');
 assert.ok(!form.includes('className="lg:hidden text-[11px] text-indigo-700/90 font-medium"'));
 assert.ok(!form.includes('className="lg:hidden text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight"'));
