@@ -14,7 +14,7 @@ assert.match(source, /data-hnl-warehouse-voucher-id=\{item\.id\}/, 'target must 
 assert.match(source, /handledDirectVoucherEditorKeyRef\.current = directVoucherEditorKey;[\s\S]{0,230}openEditInventory\(directVoucher\)/, 'open original editable voucher form directly for authorized users');
 assert.match(source, /directVoucherId && !voucherShareOpen && !showAddForm && !transferEditItem/, 'show read-only original receipt only without edit permission');
 assert.match(source, /directVoucher\.warehouseTransferId \? canAmendTransfer\(directVoucher\)/, 'transfer vouchers require atomic two-project amendment');
-assert.match(source, /data-hnl-journal-open-voucher=\{item\.id\}/, 'journal has direct document action');
+assert.doesNotMatch(source, /data-hnl-journal-open-voucher=\{item\.id\}/, 'journal omits redundant read-only voucher button; use existing Edit action');
 assert.match(source, /target\.focus\(\{ preventScroll: true \}\)/, 'keyboard focus moves to correct voucher');
 assert.match(source, /if \(!hasEditAccess \|\| item\.deletedAt != null[\s\S]*?if \(item\.warehouseTransferId\) \{[\s\S]*?canAmendTransfer\(item\)/, 'Edit remains permission, nondeleted and transfer gated');
 assert.match(source, /\{hasEditAccess && onUpdateInventory && \(!item\.warehouseTransferId \|\| canAmendTransfer\(item\)\)/, 'VIEWER cannot edit');

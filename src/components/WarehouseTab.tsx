@@ -4180,11 +4180,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     </div>
                   )}
                   <div className="flex flex-wrap justify-end gap-3 pt-1">
-                    {roleResolved && <button type="button" data-hnl-journal-open-voucher={item.id}
-                      onClick={() => setJournalVoucherId(item.id)}
-                      className="inline-flex min-h-9 items-center rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 text-[11px] font-bold text-indigo-700 hover:bg-indigo-100">
-                      Xem phiếu {item.type === 'in' ? 'nhập' : 'xuất'}
-                    </button>}
                     {currentProjectId && roleResolved && (
                       <div data-hnl-warehouse-photo-voucher={item.id} data-hnl-warehouse-photo-status={item.id} className="mr-auto min-w-0 max-w-full">
                         {/* Same read-only, full-screen photo count/viewer as Crew. Never open editing from this badge. */}
