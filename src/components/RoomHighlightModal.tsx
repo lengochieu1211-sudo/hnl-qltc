@@ -1559,69 +1559,55 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
 
 
-          {/* CATEGORY PRESETS SECTION */}
-          {!structureReadOnly && <div className="bg-indigo-50/80 p-3.5 rounded-2xl border border-indigo-200/90 space-y-3">
-            <div className="flex items-start lg:items-center gap-2 border-b border-indigo-100/80 pb-2">
-              <div className="p-1.5 bg-indigo-600 text-white rounded-lg shrink-0 mt-0.5 lg:mt-0 shadow-2xs">
+          {/* ROOM WORK CATEGORIES: single section for picking and managing work */}
+          <div data-hnl-room-work-categories="true" className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/90 space-y-3">
+            <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+              <div className="p-1.5 bg-indigo-600 text-white rounded-lg shrink-0 shadow-2xs">
                 <ListChecks className="w-4 h-4" />
               </div>
-              <div className="min-w-0 flex-1">
-                <h4 className="font-black text-indigo-950 text-xs uppercase tracking-wide leading-snug break-words">
-                  Nạp hạng mục
-                </h4>
-              </div>
+              <h4 className="min-w-0 font-extrabold text-slate-900 text-xs uppercase tracking-wide break-words">
+                <span>Hạng mục thi công ({subItems.length})</span>
+              </h4>
             </div>
 
-            {/* Desktop: preset selector and Add-to-room action share one row.
-                Unlike per-category Add sub-item, this action appends a complete preset to the room. */}
-            <div className="space-y-2">
-              <div data-hnl-room-preset-inline-row="true" className="flex flex-col gap-2 lg:flex-row lg:items-end">
-                <div className="min-w-0 flex-1 space-y-2">
-                  <label className="text-[11px] font-extrabold text-indigo-900 block leading-tight">
-                    Chọn mẫu
-                  </label>
-                  <select
-                    value={presetSelection}
-                    onChange={(e) => setPresetSelection(e.target.value)}
-                    className="w-full min-w-0 border border-indigo-200 rounded-xl p-2.5 text-xs font-bold text-slate-800 bg-white focus:ring-2 focus:ring-indigo-500 shadow-2xs truncate"
-                  >
-                    {presetWorkCategories.map((catName) => (
-                      <option key={catName} value={catName}>
-                        {catName}
-                      </option>
-                    ))}
-                  </select>
+            {/* Keep preset controls inside the same section; read-only users still see the saved list. */}
+            {!structureReadOnly && (
+              <div className="space-y-2">
+                <div data-hnl-room-preset-inline-row="true" className="flex flex-col gap-2 lg:flex-row lg:items-center">
+                  <div className="min-w-0 flex-1">
+                    <label htmlFor="hnl-room-work-category-preset" className="sr-only">Chọn hạng mục thi công</label>
+                    <select
+                      id="hnl-room-work-category-preset"
+                      value={presetSelection}
+                      onChange={(e) => setPresetSelection(e.target.value)}
+                      className="w-full min-w-0 border border-indigo-200 rounded-xl p-2.5 text-xs font-bold text-slate-800 bg-white focus:ring-2 focus:ring-indigo-500 shadow-2xs truncate"
+                    >
+                      {presetWorkCategories.map((catName) => (
+                        <option key={catName} value={catName}>
+                          {catName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div data-hnl-pc-v35-actions="room-preset" className="flex flex-col gap-2 lg:shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => presetSelection && handleApplyPreset(presetSelection)}
+                      disabled={!presetSelection}
+                      className="w-full lg:w-auto px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl text-xs shadow-2xs active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <PlusCircle className="w-3.5 h-3.5" />
+                      <span>Thêm vào phòng</span>
+                    </button>
+                  </div>
                 </div>
-                <div data-hnl-pc-v35-actions="room-preset" className="flex flex-col gap-2 lg:shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => presetSelection && handleApplyPreset(presetSelection)}
-                    disabled={!presetSelection}
-                    className="w-full lg:w-auto px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl text-xs shadow-2xs active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                  >
-                    <PlusCircle className="w-3.5 h-3.5" />
-                    <span>Thêm vào phòng</span>
-                  </button>
-                </div>
+                {presetWorkCategories.length === 0 && (
+                  <p className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
+                    Chưa có hạng mục đang hoạt động. Hãy tạo hạng mục ở tab Khối lượng trước; ứng dụng không tự phục hồi hạng mục đã xóa.
+                  </p>
+                )}
               </div>
-              {presetWorkCategories.length === 0 && (
-                <p className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
-                  Chưa có hạng mục đang hoạt động. Hãy tạo hạng mục ở tab Khối lượng trước; ứng dụng không tự phục hồi hạng mục đã xóa.
-                </p>
-              )}
-            </div>
-          </div>}
-
-          {/* DYNAMIC SUB-ITEMS LIST SECTION */}
-          <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/90 space-y-3">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div className="min-w-0 flex-1">
-                <h4 className="font-extrabold text-slate-900 text-xs flex items-center gap-1.5 uppercase tracking-wider">
-                  <Sparkles className="w-4 h-4 text-indigo-600" />
-                  <span>Hạng mục thi công ({subItems.length})</span>
-                </h4>
-              </div>
-            </div>
+            )}
 
             {/* Select All & Bulk Actions Toolbar */}
             {subItems.length > 0 && (
