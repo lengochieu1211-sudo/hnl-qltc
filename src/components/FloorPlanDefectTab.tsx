@@ -3921,7 +3921,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   // Read-only, deterministic floor-wide colors for both main and child stages.
   const highlightColorLegend = React.useMemo(() => buildFloorHighlightColorLegend(floorRooms), [floorRooms]);
-  const [showHighlightColorLegend, setShowHighlightColorLegend] = useState(true);
+  const [showHighlightColorLegend, setShowHighlightColorLegend] = useState(false);
   const visibleHighlightColorRows = highlightColorLegend.entries.filter((entry) =>
     entry.hasGeometry && (entry.kind === 'main' ? mapLayers.mainHighlightRegions : mapLayers.subItemRegions));
 
@@ -7266,6 +7266,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <button
                   type="button"
                   onClick={async () => {
+                    setMetricCalibrationLaunch(null); // Changing drawing tools must not replay a stale calibration launch.
                     if (isShapeDrawing) { selectCach2ToolbarTool('2point'); return; }
                     setIsRoomPinPlacementMode(false); setIsDefectPinPlacementMode(false);
                     setDrawTool(drawTool === 'freehand' ? 'none' : 'freehand');
@@ -7289,6 +7290,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <button
                   type="button"
                   onClick={async () => {
+                    setMetricCalibrationLaunch(null); // Changing drawing tools must not replay a stale calibration launch.
                     if (isShapeDrawing) { selectCach2ToolbarTool('polygon'); return; }
                     setIsRoomPinPlacementMode(false); setIsDefectPinPlacementMode(false);
                     setDrawTool(drawTool === 'polygon' ? 'none' : 'polygon');
@@ -7312,6 +7314,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <button
                   type="button"
                   onClick={async () => {
+                    setMetricCalibrationLaunch(null); // Changing drawing tools must not replay a stale calibration launch.
                     if (isShapeDrawing) { selectCach2ToolbarTool('freehand'); return; }
                     setIsRoomPinPlacementMode(false); setIsDefectPinPlacementMode(false);
                     setDrawTool(drawTool === '2point' ? 'none' : '2point');
@@ -7693,7 +7696,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         <button
                           type="button"
                           onClick={async () => {
-                            if (isShapeDrawing) { selectCach2ToolbarTool('2point'); return; }
+                            setMetricCalibrationLaunch(null); // Changing drawing tools must not replay a stale calibration launch.
+                    if (isShapeDrawing) { selectCach2ToolbarTool('2point'); return; }
                             setDrawTool(drawTool === 'freehand' ? 'none' : 'freehand');
                             setDrawStartPos(null);
                             setDrawHoverPos(null);
@@ -7715,7 +7719,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         <button
                           type="button"
                           onClick={async () => {
-                            if (isShapeDrawing) { selectCach2ToolbarTool('polygon'); return; }
+                            setMetricCalibrationLaunch(null); // Changing drawing tools must not replay a stale calibration launch.
+                    if (isShapeDrawing) { selectCach2ToolbarTool('polygon'); return; }
                             setDrawTool(drawTool === 'polygon' ? 'none' : 'polygon');
                             setDrawStartPos(null);
                             setDrawHoverPos(null);
@@ -7737,7 +7742,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         <button
                           type="button"
                           onClick={async () => {
-                            if (isShapeDrawing) { selectCach2ToolbarTool('freehand'); return; }
+                            setMetricCalibrationLaunch(null); // Changing drawing tools must not replay a stale calibration launch.
+                    if (isShapeDrawing) { selectCach2ToolbarTool('freehand'); return; }
                             setDrawTool(drawTool === '2point' ? 'none' : '2point');
                             setDrawStartPos(null);
                             setDrawHoverPos(null);
@@ -8251,7 +8257,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <FloorMetricCalibration
                 key={`${currentProjectId}:${activeFloor.id}`} floor={activeFloor}
                 imageContainer={imageContainerRef.current} rotation={rotation} zoomScale={zoomScale} launch={metricCalibrationLaunch} rooms={floorRooms}
-                canSave={canManageStructure} onActiveChange={setIsMetricCalibrating}
+                canSave={canManageStructure}
+                onLaunchHandled={(token) => setMetricCalibrationLaunch((launch) => launch?.token === token ? null : launch)}
+                onActiveChange={(active) => {
+                  setIsMetricCalibrating(active);
+                  if (!active) setMetricCalibrationLaunch(null);
+                }}
                 onSave={(floorId, calibration)=>onUpdateFloorPlan(floorId,{highlightMetricCalibration:calibration})}
                 objectSnapEnabled={objectSnapEnabled} objectSnapMidpoints={objectSnapMidpoints}
                 cadGridSnap={cadGridSnap} cadOrtho={cadOrtho} cadPolar={cadPolar}
@@ -8280,6 +8291,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 closeRequestToken={cach2CloseRequestToken}
                 onOpenChange={(active) => {
                   setIsShapeDrawing(active);
+                  setMetricCalibrationLaunch(null);
                   if (active) setDrawTool('none');
                   else { setCach2DrawLaunch(null); setCach2DrawTool('2point'); }
                 }}
@@ -8326,12 +8338,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             )}
 
             {/* Legend is anchored to the map viewport, not the zoomed SVG. */}
-            {(viewMode === 'all' || viewMode === 'highlight') && visibleHighlightColorRows.length > 0 && (
-              <div data-hnl-highlight-color-legend="true" className="absolute bottom-16 left-2 z-[55] pointer-events-auto w-[min(300px,calc(100%-24px))] max-w-[calc(100%-24px)] rounded-xl border border-slate-600 bg-slate-950/95 text-white shadow-xl text-[11px]">
+            {(viewMode === 'all' || viewMode === 'highlight') && visibleHighlightColorRows.length > 0 && showHighlightColorLegend && (
+              <div data-hnl-highlight-color-legend="true" className="absolute bottom-14 right-3 z-[55] pointer-events-auto w-[min(280px,calc(100%-24px))] max-w-[calc(100%-24px)] rounded-xl border border-slate-600 bg-slate-950/95 text-white shadow-xl text-[11px]">
                 <button type="button" aria-expanded={showHighlightColorLegend}
                   onClick={() => setShowHighlightColorLegend((value) => !value)}
                   className="w-full flex items-center justify-between gap-2 px-2.5 py-2 font-extrabold text-left">
-                  <span className="truncate">🎨 Chú giải màu Highlight ({visibleHighlightColorRows.length})</span>
+                  <span className="truncate">🎨 Màu Highlight ({visibleHighlightColorRows.length})</span>
                   <span aria-hidden="true">{showHighlightColorLegend ? '▴' : '▾'}</span>
                 </button>
                 {showHighlightColorLegend && (
@@ -8404,9 +8416,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               >
                 🗺 Mini
               </button>
+              {(viewMode === 'all' || viewMode === 'highlight') && visibleHighlightColorRows.length > 0 && (
+                <button type="button" data-hnl-highlight-color-legend-trigger="true"
+                  aria-label="Mở chú giải màu Highlight" aria-expanded={showHighlightColorLegend}
+                  onClick={() => { setShowLayerPanel(false); setShowHighlightColorLegend((open) => !open); }}
+                  className={`px-2 py-1 rounded-lg text-[10px] font-black shrink-0 ${showHighlightColorLegend ? 'bg-indigo-600 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-200'}`}
+                  title="Màu các hạng mục Highlight">
+                  🎨 Màu
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => setShowLayerPanel((prev) => !prev)}
+                onClick={() => { setShowHighlightColorLegend(false); setShowLayerPanel((prev) => !prev); }}
                 className={`px-2 py-1 rounded-lg text-[10px] font-black shrink-0 ${showLayerPanel ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 hover:bg-slate-700 text-slate-200'}`}
                 title="Ẩn/hiện nhanh các lớp trên mặt bằng"
               >
@@ -8603,9 +8624,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               points={pendingDraftHighlight.points.map((p) => `${p.x},${p.y}`).join(' ')}
                               fill="none"
                               stroke="#f59e0b"
-                              strokeWidth={2.5 * savedRoomStrokeScale}
+                              strokeWidth={1.5 * savedRoomStrokeScale}
                               vectorEffect="non-scaling-stroke"
-                              strokeDasharray="6 3"
+                              strokeDasharray="3 2"
                               strokeLinecap="round"
                               strokeLinejoin="round"
                               className="animate-pulse"
@@ -8615,9 +8636,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               points={pendingDraftHighlight.points.map((p) => `${p.x},${p.y}`).join(' ')}
                               fill="rgba(245, 158, 11, 0.45)"
                               stroke="#f59e0b"
-                              strokeWidth={2.3 * savedRoomStrokeScale}
+                              strokeWidth={1.5 * savedRoomStrokeScale}
                               vectorEffect="non-scaling-stroke"
-                              strokeDasharray="6 3"
+                              strokeDasharray="3 2"
                               className="animate-pulse"
                             />
                           )
@@ -8629,8 +8650,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             height={pendingDraftHighlight.rect.height}
                             fill="rgba(245, 158, 11, 0.45)"
                             stroke="#f59e0b"
-                            strokeWidth={1.2 * strokeScale}
-                            strokeDasharray="2,1"
+                            strokeWidth={1.5 * savedRoomStrokeScale}
+                            vectorEffect="non-scaling-stroke"
+                            strokeDasharray="3 2"
                             className="animate-pulse"
                           />
                         ) : null}
@@ -8646,9 +8668,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         height={Math.abs(drawHoverPos.y - drawStartPos.y)}
                         fill="rgba(99, 102, 241, 0.35)"
                         stroke="#2563eb"
-                        strokeWidth={2 * savedRoomStrokeScale}
+                        strokeWidth={1.5 * savedRoomStrokeScale}
                         vectorEffect="non-scaling-stroke"
-                        strokeDasharray="6 3"
+                        strokeDasharray="3 2"
                       />
                     )}
 
@@ -8658,9 +8680,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     points={freehandPoints.map((p) => `${p.x},${p.y}`).join(' ')}
                     fill="none"
                     stroke="#f59e0b"
-                    strokeWidth={2.3 * savedRoomStrokeScale}
+                    strokeWidth={1.5 * savedRoomStrokeScale}
                     vectorEffect="non-scaling-stroke"
-                    strokeDasharray="6 3"
+                    strokeDasharray="3 2"
                   />
                 )}
 
@@ -8689,9 +8711,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       }
                       fill="none"
                       stroke="#f59e0b"
-                      strokeWidth={2.3 * savedRoomStrokeScale}
+                      strokeWidth={1.5 * savedRoomStrokeScale}
                       vectorEffect="non-scaling-stroke"
-                      strokeDasharray="6 3"
+                      strokeDasharray="3 2"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     />

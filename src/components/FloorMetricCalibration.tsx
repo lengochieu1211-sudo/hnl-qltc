@@ -16,6 +16,8 @@ interface Props {
   canSave: boolean;
   onSave: (floorId: string, calibration: FloorMetricCalibrationData) => void;
   onActiveChange?: (active: boolean) => void;
+  /** Acknowledge a one-shot toolbar request before another tool can remount us. */
+  onLaunchHandled?: (token: number) => void;
   objectSnapEnabled: boolean;
   objectSnapMidpoints: boolean;
   cadGridSnap: boolean;
@@ -29,7 +31,7 @@ const floorPoint = (point: Point2D) => ({ x: Math.min(100,Math.max(0,point.x)), 
  * No stored quantity is mutated by calibrating.
  */
 export const FloorMetricCalibration: React.FC<Props> = ({
-  floor, imageContainer, rotation, zoomScale, launch, rooms, canSave, onSave, onActiveChange,
+  floor, imageContainer, rotation, zoomScale, launch, rooms, canSave, onSave, onActiveChange, onLaunchHandled,
   objectSnapEnabled, objectSnapMidpoints, cadGridSnap, cadOrtho, cadPolar,
 }) => {
   const [active, setActive] = useState(false);
@@ -65,7 +67,10 @@ export const FloorMetricCalibration: React.FC<Props> = ({
     setActive(true); onActiveChange?.(true);
   };
   useEffect(() => {
-    if (launch?.floorId === floor.id && launch.token > 0) open();
+    if (launch?.floorId === floor.id && launch.token > 0) {
+      onLaunchHandled?.(launch.token);
+      open();
+    }
     // Triggered only by toolbar click, not by image/zoom updates.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [launch?.token]);

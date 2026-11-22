@@ -56,7 +56,7 @@ assert.match(room, /onStartDrawOnMap\(roomItem, category, target\)/);
 // Screen geometry only: smaller marks, same editable pointer region,
 // server-ack and CAS confirmation retained.
 assert.match(draw, /r="0\.32" fill="#f59e0b"/);
-assert.match(draw, /strokeWidth="0\.32" \/>/);
+assert.match(draw, /strokeWidth="1\.5" strokeDasharray="3 2" vectorEffect="non-scaling-stroke" \/>/);
 assert.match(draw, /onPointerDown=\{handleDown\}/);
 assert.match(draw, /await onSaveShapes\(request\)/);
 assert.match(draw, /window\.confirm\(`XÁC NHẬN/);

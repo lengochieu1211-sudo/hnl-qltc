@@ -509,10 +509,10 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
         onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}
         onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); }}>
         {existingShapes.map((points, i) => <polygon key={`existing-${i}`} points={points.map(p => `${p.x},${p.y}`).join(' ')} fill={currentHighlightColor} fillOpacity={0.12} stroke={currentHighlightColor} strokeWidth="2" strokeDasharray={currentTarget === 'main' ? undefined : '5 3'} vectorEffect="non-scaling-stroke" />)}
-        {visibleShapes.map((points, i) => <polygon key={`draft-${i}`} points={points.map(p => `${p.x},${p.y}`).join(' ')} fill="#f59e0b" fillOpacity={0.30} stroke="#f59e0b" strokeWidth="0.32" />)}
-        {measurePath.length > 0 && <polyline data-hnl-cach2-floor-line="true" points={measurePath.map(p=>`${p.x},${p.y}`).join(' ')} fill="none" stroke="#2dd4bf" strokeWidth="2" strokeDasharray="6 3" vectorEffect="non-scaling-stroke" />}
+        {visibleShapes.map((points, i) => <polygon key={`draft-${i}`} points={points.map(p => `${p.x},${p.y}`).join(' ')} fill="#f59e0b" fillOpacity={0.30} stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="3 2" vectorEffect="non-scaling-stroke" />)}
+        {measurePath.length > 0 && <polyline data-hnl-cach2-floor-line="true" points={measurePath.map(p=>`${p.x},${p.y}`).join(' ')} fill="none" stroke="#2dd4bf" strokeWidth="1.5" strokeDasharray="3 2" vectorEffect="non-scaling-stroke" />}
         {measurePath.map((p,i)=><circle key={`line-${i}`} cx={p.x} cy={p.y} r="0.34" stroke="white" strokeWidth="0.12" fill="#0d9488" />)}
-        {!lineMode && activePreview.length > 0 && <polyline points={toFloorSvg(activePreview)} fill="none" stroke="#f59e0b" strokeWidth="2" strokeDasharray="6 3" vectorEffect="non-scaling-stroke" />}
+        {!lineMode && activePreview.length > 0 && <polyline points={toFloorSvg(activePreview)} fill="none" stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="3 2" vectorEffect="non-scaling-stroke" />}
         {!lineMode && activePreview.map((point,i) => <circle key={i} cx={room.x + room.width * point.x / 100} cy={room.y + room.height * point.y / 100} r="0.32" fill="#f59e0b" />)}
         {snapMarker && <g pointerEvents="none" data-hnl-direct-highlight-snap-marker={snapMarker.kind}>
           <circle cx={snapMarker.point.x} cy={snapMarker.point.y} r="0.55" fill="none" stroke="#22d3ee" strokeWidth="0.22" />

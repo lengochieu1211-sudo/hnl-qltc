@@ -1,3 +1,4 @@
+import './highlight-one-shot-calibration-legend-stroke-golden.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { buildFloorHighlightColorLegend, mainHighlightColorKey, childHighlightColorKey } from '../src/utils/highlightCategoryColors.ts';
@@ -32,7 +33,7 @@ assert.equal(new Set(lots.entries.map(e=>e.color.toLowerCase())).size,lots.entri
 const floor = readFileSync('src/components/FloorPlanDefectTab.tsx','utf8');
 const draw = readFileSync('src/components/FloorHighlightDirectDraw.tsx','utf8');
 assert.match(floor,/data-hnl-highlight-color-legend="true"/);
-assert.match(floor,/Chú giải màu Highlight/);
+assert.match(floor,/aria-label="Mở chú giải màu Highlight"/);
 assert.match(floor,/Con của: \{parentName\}/);
 assert.match(floor,/mainHighlightColorKey\(cat\)/);
 assert.match(floor,/childHighlightColorKey\(cat, stage.name\?\.trim\(\) \|\| stage.id\)/);
@@ -42,9 +43,9 @@ assert.match(draw,/currentHighlightColor/);
 const drawings = floor.slice(floor.indexOf('{/* Live Draft Highlight Pending Pulsing Shape */}'),floor.indexOf('{/* Saved room strokes use screen-pixel widths:'));
 for(const token of ['Live 2-Point Drawing Rectangle Preview','Live Freehand Drawing Line Preview','Live Polygon Point-by-Point Drawing Preview'])
   assert.ok(drawings.includes(token),token);
-const dashCount=(drawings.match(/strokeDasharray="6 3"/g)||[]).length;
+const dashCount=(drawings.match(/strokeDasharray="3 2"/g)||[]).length;
 const vectorCount=(drawings.match(/vectorEffect="non-scaling-stroke"/g)||[]).length;
-assert.ok(dashCount>=5 && vectorCount>=5,`all live drawing modes must use fixed pixel dash style: ${dashCount}/${vectorCount}`);
-assert.match(draw,/strokeDasharray="6 3" vectorEffect="non-scaling-stroke"/, 'map direct draw preview scales correctly');
+assert.ok(dashCount>=5 && vectorCount>=5,`all live drawing modes must use thin fixed pixel dash style: ${dashCount}/${vectorCount}`);
+assert.match(draw,/strokeDasharray="3 2" vectorEffect="non-scaling-stroke"/, 'map direct draw preview scales correctly');
 assert.match(floor,/strokeDasharray="5 3" vectorEffect="non-scaling-stroke"/, 'child saved area style distinct from solid main');
 console.log('HIGHLIGHT COLORS & FIXED ZOOM DASH GOLDEN PASS: unique main+child, saved overrides, deterministic legend, 2point/polygon/freehand fixed-size dashes');
