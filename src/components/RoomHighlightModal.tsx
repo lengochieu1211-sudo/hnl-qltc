@@ -193,8 +193,6 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   const [freehandDraft, setFreehandDraft] = useState<Point2D[]>([]);
   const [showAdvancedHighlights, setShowAdvancedHighlights] = useState(false);
   // Cách 2 is a launcher, not a permanently expanded editor in every room form.
-  const [showCach2RoomPortal, setShowCach2RoomPortal] = useState(false);
-  useEffect(() => { if (isOpen) setShowCach2RoomPortal(false); }, [isOpen, roomItem?.id]);
   const [highlightCategory, setHighlightCategory] = useState('');
   const [highlightTarget, setHighlightTarget] = useState('main');
   const [appendHighlightRegion, setAppendHighlightRegion] = useState(false);
@@ -2164,30 +2162,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
           </div>
 
-          {/* Floor-wide metric calibration lives only on the map toolbar.
-              Keep an optional, collapsed launcher for drawing subitem regions. */}
-          {!structureReadOnly && roomItem?.id && onStartDrawOnMap && (subItems || []).length > 0 && (
-            <section data-hnl-cach2-room-portal="true" className="rounded-2xl border border-teal-200 bg-teal-50/70 overflow-hidden">
-              <button type="button" data-hnl-cach2-room-portal-toggle="true" data-hnl-ui-only="true"
-                aria-expanded={showCach2RoomPortal} aria-controls="hnl-cach2-room-portal-content"
-                onClick={() => setShowCach2RoomPortal(v => !v)}
-                className="w-full px-3 py-2.5 flex items-center justify-between text-left gap-2 text-xs font-extrabold text-teal-950 hover:bg-teal-100/70">
-                <span>Vẽ riêng hạng mục con</span>
-                {showCach2RoomPortal ? <ChevronUp className="w-4 h-4 shrink-0" /> : <ChevronDown className="w-4 h-4 shrink-0" />}
-              </button>
-              {showCach2RoomPortal && <div id="hnl-cach2-room-portal-content" className="border-t border-teal-200 p-3 space-y-2">
-              <div data-hnl-room-subitem-map-launchers="true" className="space-y-1 rounded-lg bg-white/60 p-2">
-                <div className="text-[10px] font-bold text-teal-900">Chọn hạng mục con để mở mặt bằng vẽ vùng riêng</div>
-                {(subItems || []).map(stage => <button key={stage.id} type="button" data-hnl-ui-only="true"
-                  disabled={roomItem.positionLocked === true || roomItem.inspectionStatus === 'Đạt nghiệm thu' || stage.status === 'Đã hoàn thành' || stage.inspectionStatus === 'Đạt nghiệm thu'}
-                  onClick={() => launchCach2(stage.category || workCategory, stage.id)}
-                  className="mr-1 mb-1 max-w-full truncate rounded-md border border-teal-200 bg-white px-2 py-1.5 text-[10px] text-teal-900 disabled:opacity-40">
-                  📐 {stage.name}
-                </button>)}
-              </div>
-              </div>}
-            </section>
-          )}
+          {/* Metric calibration stays on the floor toolbar; each main/child item opens that map inline above. */}
           {/* Legacy Cách 1 records remain readable/preserved, but editor is hidden. */}
           {legacyHighlightEditorVisible && !structureReadOnly && roomItem?.id && (
             <section data-hnl-room-highlight-advanced="true" className="rounded-2xl border border-sky-200 bg-sky-50/50 overflow-hidden">

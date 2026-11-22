@@ -13,9 +13,10 @@ assert.match(draw, /setOpen\(true\)/);
 assert.match(room, /onClick=\{\(\) => launchCach2\(catName, 'main'\)\}/);
 assert.match(room, /onClick=\{\(\) => launchCach2\(catName, item.id\)\}/);
 
-// Keep the collapsed subitem launcher, not a second main-category or calibration wizard.
-assert.match(room, /showCach2RoomPortal, setShowCach2RoomPortal/);
-assert.match(room, /Vẽ riêng hạng mục con/);
+// Keep only inline main/child map launchers; remove the duplicate collapsible child launcher.
+assert.doesNotMatch(room, /showCach2RoomPortal/);
+assert.doesNotMatch(room, /Vẽ riêng hạng mục con/);
+assert.match(room, /aria-label=\{\`Vẽ vùng highlight cho \$\{item.name\}\`\}/);
 assert.doesNotMatch(room, /Đo tỷ lệ 2 điểm → chọn hạng mục/);
 assert.doesNotMatch(room, /data-hnl-open-cach2-main=/);
 

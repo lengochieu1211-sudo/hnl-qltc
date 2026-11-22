@@ -27,11 +27,14 @@ for (const obsolete of [
 ]) {
   assert.ok(!form.includes(obsolete), `Long/mobile-only note regressed: ${obsolete}`);
 }
-const categoryArea = form.slice(form.indexOf('data-hnl-room-work-categories="true"'), form.indexOf('{/* Floor-wide metric calibration lives only on the map toolbar.'));
+const categoryArea = form.slice(form.indexOf('data-hnl-room-work-categories="true"'), form.indexOf('{/* Legacy Cách 1 records remain readable/preserved'));
 assert.ok(categoryArea.includes('data-hnl-room-preset-inline-row="true"'), 'Presets must be inside the unified category section');
 assert.ok(categoryArea.indexOf('data-hnl-room-preset-inline-row="true"') < categoryArea.indexOf('Select All & Bulk Actions Toolbar'), 'Preset controls must precede the saved list');
 assert.equal(form.split('<span>Hạng mục thi công ({subItems.length})</span>').length - 1, 1, 'Single visible section heading');
 assert.ok(categoryArea.includes('{!structureReadOnly && ('), 'Preset editing must preserve read-only permission gate');
+assert.ok(!form.includes('data-hnl-cach2-room-portal'), 'Duplicated child draw panel must be removed');
+assert.ok(!form.includes('Vẽ riêng hạng mục con'), 'Duplicated child draw heading must be removed');
+assert.ok(form.includes('onClick={() => launchCach2(catName, item.id)}'), 'Inline child map launcher must remain');
 assert.ok(!form.includes('className="lg:hidden text-[11px] text-indigo-700/90 font-medium"'));
 assert.ok(!form.includes('className="lg:hidden text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight"'));
 assert.ok(form.includes('className="lg:hidden w-full lg:w-auto'), 'Mobile add-subitem button must remain');

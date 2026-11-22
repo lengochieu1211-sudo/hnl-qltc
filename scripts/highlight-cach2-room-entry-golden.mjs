@@ -8,11 +8,12 @@ const calibration = read('src/components/FloorMetricCalibration.tsx');
 // Existing Cách 1 is preserved for history, but must not render in the room editor.
 assert.match(modal, /const legacyHighlightEditorVisible = false;/);
 assert.match(modal, /\{legacyHighlightEditorVisible && !structureReadOnly && roomItem\?\.id && \(/);
-assert.match(modal, /data-hnl-cach2-room-portal="true"/);
+assert.doesNotMatch(modal, /data-hnl-cach2-room-portal="true"/);
 assert.match(modal, /onStartDrawOnMap\?: \(room: RoomProgressItem, category: string, target: string\) => void/);
 assert.match(modal, /onStartDrawOnMap\(roomItem, category, target\)/);
-assert.match(modal, /Vẽ riêng hạng mục con/);
+assert.doesNotMatch(modal, /Vẽ riêng hạng mục con/);
 assert.match(modal, /launchCach2\(catName, item\.id\)/);
+assert.match(modal, /data-hnl-main-quantity-map=\{catName\}/);
 assert.doesNotMatch(modal, /data-hnl-ui-only="true" data-hnl-open-cach2-main=\{cat\}/);
 assert.match(draw, /room\.isPolyline \|\| room\.width <= 0 \|\| room\.height <= 0/);
 assert.match(modal, /roomDraftDirtyRef\.current && !window\.confirm\(/);
