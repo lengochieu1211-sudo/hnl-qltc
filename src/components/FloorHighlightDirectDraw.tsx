@@ -117,8 +117,17 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
   const previewRatio = useMemo(() => calculateHighlightTotalRatio({
     room, total: selectedCategoryTotal, main: selectedCategoryMain, sub: selectedCategorySub,
   }), [room, currentCategory, currentTarget, candidateShapes]);
-  const imageElement = imageContainer?.querySelector('img');
-  const imageDimensions = { width: imageElement?.naturalWidth || 0, height: imageElement?.naturalHeight || 0 };
+  // Image loading may finish after the editor mounts (Android/R2). Subscribe to
+  // natural dimensions instead of depending on an unrelated parent re-render.
+  const [imageDimensions, setImageDimensions] = useState({width:0,height:0});
+  useEffect(() => {
+    const image = imageContainer?.querySelector('img');
+    if (!image) { setImageDimensions({width:0,height:0}); return; }
+    const readDimensions = () => setImageDimensions({width:image.naturalWidth || 0,height:image.naturalHeight || 0});
+    readDimensions();
+    image.addEventListener('load', readDimensions);
+    return () => image.removeEventListener('load', readDimensions);
+  }, [imageContainer, floor?.imageUrl]);
   // Intersection/union area may require an O(edges²) sweep: never recompute on hover.
   const measuredRegion = useMemo(() => {
     if (currentTarget === 'main') return candidateShapes;
@@ -144,6 +153,8 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
   const autoMode = autoByKey || autoByDisplayAlias;
   const isAreaUnit = ['m2','m²'].includes(activeUnit.trim().toLowerCase().replace(/\s/g,''));
   const isLengthUnit = activeUnit.trim().toLowerCase().replace(/\s/g,'') === 'm';
+  const calibrationStatus = floor ? getValidFloorMetricCalibration(floor, imageDimensions)
+    : {valid:false as const, reason:'Chưa chọn mặt bằng.'};
   const linePreview = floor ? measureHighlightLengthM({floor, image:imageDimensions, floorPath:measurePath})
     : {valid:false as const, reason:'Chưa chọn mặt bằng.'};
   const wallAreaPreview = linePreview.valid ? measureWallAreaM2(linePreview.value,
@@ -375,7 +386,11 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
               <span>KL đang lưu: <b className="text-emerald-200">{savedQuantity === undefined ? 'Chưa nhập' : Number(savedQuantity).toLocaleString('vi-VN', {maximumFractionDigits:3})} {activeUnit}</b></span>
               <span>Đo theo vùng: <b className="text-sky-200">{metricPreview.valid ? `${metricPreview.value.toLocaleString('vi-VN', {maximumFractionDigits:2})} m²` : 'Chưa có vùng đo hợp lệ'}</b></span>
             </div>
-            <div className="text-slate-300">Nguồn KL: {autoMode ? 'Tự tính theo vùng' : 'Theo giá trị đang lưu / nhập tay'} · {floor && getValidFloorMetricCalibration(floor, imageDimensions).valid ? 'Đã hiệu chuẩn tỷ lệ' : 'Chưa có tỷ lệ hợp lệ'}</div>
+            <div className="text-slate-300">Nguồn KL: {autoMode ? 'Tự tính theo vùng' : 'Theo giá trị đang lưu / nhập tay'} · {calibrationStatus.valid ? 'Đã hiệu chuẩn tỷ lệ' : 'Chưa có tỷ lệ hợp lệ'}</div>
+            {!calibrationStatus.valid && <div className="text-amber-200 font-bold" data-hnl-metric-calibration-warning="true">
+              {'reason' in calibrationStatus ? calibrationStatus.reason : 'Cần hiệu chuẩn tỷ lệ.'} Nhấn “Đo tỷ lệ” trên thanh công cụ mặt bằng trước khi tính m².
+            </div>}
+            {calibrationStatus.valid && <div className="text-slate-300">Vẽ vùng → xem khối lượng m² → nhấn “Lưu vùng + KL” và xác nhận để cập nhật khối lượng.</div>}
             {unresolvedAutoAlias && <div className="text-amber-300 font-bold">Khóa KL dùng ID nhưng chế độ tự tính dùng tên: chỉ xem, cần đối chiếu dữ liệu trước khi lưu.</div>}
           </div>
           {showOptions && <div className="space-y-1.5" data-hnl-direct-highlight-advanced="true">

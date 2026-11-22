@@ -165,9 +165,10 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     if (!roomItem?.id || !onStartDrawOnMap || structureReadOnly) return;
     // Never silently discard an unsaved draft or auto-save old legacy quantities.
     if (roomDraftDirtyRef.current && !window.confirm('Mở mặt bằng sẽ bỏ các thay đổi chưa lưu trong biểu mẫu. Hãy nhấn Lưu trước nếu muốn giữ. Tiếp tục?')) return;
-    roomDraftDirtyRef.current = false;
-    onClose();
+    // The map owner closes only the room form after validating the target.
+    // Generic onClose can trigger context-return navigation and unmount the map.
     onStartDrawOnMap(roomItem, category, target);
+    roomDraftDirtyRef.current = false;
   };
 
   const activeDefaultInspector = defaultInspectorName || '';

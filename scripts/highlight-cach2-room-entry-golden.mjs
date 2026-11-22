@@ -11,6 +11,11 @@ assert.match(modal, /\{legacyHighlightEditorVisible && !structureReadOnly && roo
 assert.doesNotMatch(modal, /data-hnl-cach2-room-portal="true"/);
 assert.match(modal, /onStartDrawOnMap\?: \(room: RoomProgressItem, category: string, target: string\) => void/);
 assert.match(modal, /onStartDrawOnMap\(roomItem, category, target\)/);
+const mapLaunch = modal.slice(modal.indexOf('const launchCach2 ='), modal.indexOf('const activeDefaultInspector'));
+assert.doesNotMatch(mapLaunch, /onClose\(\)/, 'Do not navigate away from map on draw');
+assert.match(tab, /setDrawTool\('none'\);[\s\S]*setCach2DrawLaunch\(\{roomId:liveRoom.id/, 'Release prior room drawing tool before launch');
+assert.match(tab, /resolveDirectHighlightLaunchCategory\(liveRoom, category, target, workVolumes\)/, 'Category key must be validated');
+assert.match(tab, /if \(sourceFloor.id !== selectedFloorId\) setSelectedFloorId\(sourceFloor.id\)/, 'Cross-floor launch selects its real floor');
 assert.doesNotMatch(modal, /Vẽ riêng hạng mục con/);
 assert.match(modal, /launchCach2\(catName, item\.id\)/);
 assert.match(modal, /data-hnl-main-quantity-map=\{catName\}/);

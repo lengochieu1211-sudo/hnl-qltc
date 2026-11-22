@@ -75,6 +75,7 @@ import { FloorMetricCalibration } from './FloorMetricCalibration';
 import { FloorHighlightCountPoints } from './FloorHighlightCountPoints';
 import type { HighlightCountSaveRequest } from '../utils/highlightCountPoints';
 import type { DirectHighlightCommitRequest } from '../utils/floorHighlightDirectShapes';
+import { resolveDirectHighlightLaunchCategory } from '../utils/floorHighlightDirectShapes';
 import { getRoomColorStyle, ROOM_COLOR_PALETTE } from '../utils/colorPalette';
 import { getRoomMapStageLabels, getRoomMapConstructionIcon, getRoomMapInspectionIcon } from '../utils/roomMapStageLabels';
 import { getDefectOverdueInfo, getDefectShortCode } from '../utils/defectUtils';
@@ -10554,14 +10555,49 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         checklistItems={checklistItems}
         onSaveRoom={onSaveRoomProgress}
         onStartDrawOnMap={(room, category, target) => {
-          setSelectedRoomForDragId(room.id);
-          setSelectedRoomIds([room.id]);
+          // Reject invalid targets visibly, while leaving the room form open.
+          const liveRoom = roomProgressList.find((item) => item.id === room.id && !item.deletedAt);
+          const sourceFloor = floorPlans.find((item) => item.id === liveRoom?.floorId);
+          if (!canManageStructure || !liveRoom) {
+            window.alert('Không thể mở vẽ: phòng không còn tồn tại hoặc tài khoản không có quyền.');
+            return;
+          }
+          if (!sourceFloor?.imageUrl) {
+            window.alert('Chưa có ảnh mặt bằng của tầng chứa phòng. Hãy tải mặt bằng trước khi đo vẽ.');
+            return;
+          }
+          if (liveRoom.positionLocked === true || lockedRoomIds.has(liveRoom.id) || liveRoom.inspectionStatus === 'Đạt nghiệm thu') {
+            window.alert('Phòng đang khóa hoặc đã nghiệm thu. Mở khóa/chỉnh trạng thái theo đúng quyền trước khi vẽ.');
+            return;
+          }
+          if (liveRoom.isPolyline || liveRoom.width <= 0 || liveRoom.height <= 0) {
+            window.alert('Vùng phòng là tuyến mở hoặc không có diện tích hợp lệ nên không thể đo m². Hãy dùng vùng phòng khép kín.');
+            return;
+          }
+          const resolvedCategory = resolveDirectHighlightLaunchCategory(liveRoom, category, target, workVolumes);
+          if (!resolvedCategory) {
+            window.alert('Không xác định được hạng mục để vẽ theo dữ liệu hiện có (ID/tên có thể không khớp). Chưa thay đổi dữ liệu.');
+            return;
+          }
+          const targetStage = target === 'main' ? undefined : liveRoom.subItems?.find((item) => item.id === target);
+          if (target !== 'main' && (!targetStage || targetStage.status === 'Đã hoàn thành' || targetStage.inspectionStatus === 'Đạt nghiệm thu')) {
+            window.alert('Hạng mục con không còn tồn tại, đã hoàn thành hoặc đã nghiệm thu; không thể sửa vùng.');
+            return;
+          }
+          // Only this map transition closes the form; never call its Back handler.
+          // The ordinary drawing mode otherwise blocks direct Highlight from mounting.
+          setDrawTool('none');
+          setIsRoomPinPlacementMode(false);
+          setIsDefectPinPlacementMode(false);
+          setRelocatingDefectId(null);
+          if (sourceFloor.id !== selectedFloorId) setSelectedFloorId(sourceFloor.id);
+          setSelectedRoomForDragId(liveRoom.id);
+          setSelectedRoomIds([liveRoom.id]);
           setCountLaunchStageId(null);
           setViewMode('highlight');
           setIsRoomModalOpen(false);
-          // Discard the old form snapshot; re-open later from the latest Firestore-backed room.
           setSelectedRoomForEdit(null);
-          setCach2DrawLaunch({roomId:room.id,category,target,token:Date.now()});
+          setCach2DrawLaunch({roomId:liveRoom.id,category:resolvedCategory,target,token:Date.now()});
         }}
         onStartCountOnMap={(room, stageId) => {
           setSelectedRoomForDragId(room.id);

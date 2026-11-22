@@ -18,6 +18,8 @@ assert.doesNotMatch(modal, /data-hnl-room-subitem-map-launchers="true"/, 'duplic
 assert.match(modal, /launchCach2\(catName, item\.id\)/, 'each stage has map action beside KL');
 assert.doesNotMatch(modal, /showCach2RoomPortal/, 'unused duplicate child draw panel state removed');
 assert.match(draw, /data-hnl-metric-quantity-mode="true"/);
+assert.match(draw, /image.addEventListener\('load', readDimensions\)/, 'Image load must refresh dimensions before measuring');
+assert.match(draw, /data-hnl-metric-calibration-warning="true"/, 'Missing invalid calibration must be explained');
 assert.match(draw, /Đo m² · xác nhận lưu/);
 assert.match(draw, /Nhập tay/);
 assert.match(draw, /kind === 'area' && \(!candidateShapes.length \|\| candidateShapes.length > LIMIT/);
