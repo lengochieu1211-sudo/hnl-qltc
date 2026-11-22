@@ -28,7 +28,7 @@ assert.match(room, /showCach2RoomPortal, setShowCach2RoomPortal\] = useState\(fa
 assert.match(room, /data-hnl-cach2-room-portal-toggle="true"/);
 assert.match(room, /aria-expanded=\{showCach2RoomPortal\}/);
 assert.match(room, /\{showCach2RoomPortal && <div id="hnl-cach2-room-portal-content"/);
-assert.match(room, /launchCach2\(cat, 'main'\)/);
+assert.doesNotMatch(room, /launchCach2\(cat, 'main'\)/);
 assert.match(room, /onStartDrawOnMap\(roomItem, category, target\)/);
 
 // Screen geometry only: smaller marks, same editable pointer region,

@@ -51,6 +51,45 @@ export const getDirectHighlightCategoryNames = (room: RoomProgressItem): string[
 ].filter((item): item is string => Boolean(item?.trim()))));
 
 
+/**
+ * Resolve a room-form category title to the ORIGINAL persisted key before
+ * selecting a direct drawing target. Imported categoryVolumes may be keyed by
+ * WorkVolume.id, while the room form deliberately renders WorkVolume.title.
+ * A mismatched category must never silently fall back to the first entry.
+ * This selector is read-only: it does not rename IDs, migrate legacy fields,
+ * or change any saved quantities.
+ */
+export const resolveDirectHighlightLaunchCategory = (
+  room: RoomProgressItem,
+  requestedLabel: string,
+  target: string,
+  catalog: ReadonlyArray<{ id: string; title: string }> = [],
+): string | null => {
+  const requested = requestedLabel.trim();
+  if (!requested) return null;
+  const names = getDirectHighlightCategoryNames(room);
+  const normalize = (value: string) => value.trim().toLocaleLowerCase('vi-VN');
+  const labelMatches = (key: string) => key === requested || catalog.some(
+    (entry) => entry.id === key && normalize(entry.title) === normalize(requested),
+  );
+  if (target !== 'main') {
+    const stage = room.subItems?.find((item) => item.id === target);
+    if (!stage) return null;
+    const stageCategory = getDirectStageCategory(stage, room);
+    return names.includes(stageCategory) && labelMatches(stageCategory) ? stageCategory : null;
+  }
+  // A MAIN quantity's existing storage key is authoritative. Do not create a
+  // second field under a display title when an imported ID key already exists.
+  const keys = Object.keys(room.categoryVolumes || {}).filter(labelMatches);
+  if (keys.length > 1) return null; // Ambiguous old keys: fail closed.
+  if (keys.length === 1) return names.includes(keys[0]) ? keys[0] : null;
+  // Geometries-only legacy category: match an exact key first, then the catalog.
+  if (names.includes(requested)) return requested;
+  const possible = names.filter(labelMatches);
+  return possible.length === 1 ? possible[0] : null;
+};
+
+
 export interface DirectHighlightSaveRequest {
   roomId: string;
   expectedUpdatedAt: number;

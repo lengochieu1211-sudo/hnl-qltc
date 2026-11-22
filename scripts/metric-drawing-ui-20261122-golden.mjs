@@ -10,7 +10,7 @@ assert.match(tab, /📏 Đo tỷ lệ/);
 assert.match(cal, /distanceInput, setDistanceInput\] = useState\('5'\)/);
 assert.match(cal, /Chọn 2 điểm có khoảng cách đã biết/);
 assert.match(draw, /Đo vẽ KL · /);
-assert.match(modal, /📐 Đo vẽ khối lượng/);
+assert.match(modal, /Vẽ riêng hạng mục con/);
 assert.doesNotMatch(modal, /📐 Highlight &amp; khối lượng · Cách 2/);
 assert.match(modal, /data-hnl-main-quantity-map=\{catName\}/, 'every main category row has its map action');
 assert.match(modal, /data-hnl-room-subitem-map-launchers="true"/, 'optional detailed child area present');

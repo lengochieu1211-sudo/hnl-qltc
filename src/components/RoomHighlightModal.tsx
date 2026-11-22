@@ -1567,12 +1567,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               </div>
               <div className="min-w-0 flex-1">
                 <h4 className="font-black text-indigo-950 text-xs uppercase tracking-wide leading-snug break-words">
-                  <span className="lg:hidden">Nạp mẫu hạng mục thi công</span>
-                  <span className="hidden lg:inline">Nạp hạng mục thi công</span>
+                  Nạp hạng mục
                 </h4>
-                <p className="lg:hidden text-[11px] text-indigo-700/90 font-medium">
-                  Nạp tự động các bộ công đoạn. Bạn có thể nạp thêm nhiều bộ khác nhau vào cùng 1 căn (VD: Trần Tiêu Chuẩn + Trần Chống Ẩm...).
-                </p>
               </div>
             </div>
 
@@ -1582,8 +1578,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               <div data-hnl-room-preset-inline-row="true" className="flex flex-col gap-2 lg:flex-row lg:items-end">
                 <div className="min-w-0 flex-1 space-y-2">
                   <label className="text-[11px] font-extrabold text-indigo-900 block leading-tight">
-                    <span className="lg:hidden">Chọn bộ mẫu hạng mục thi công áp dụng:</span>
-                    <span className="hidden lg:inline">Chọn mẫu hạng mục thi công:</span>
+                    Chọn mẫu
                   </label>
                   <select
                     value={presetSelection}
@@ -1605,8 +1600,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                     className="w-full lg:w-auto px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl text-xs shadow-2xs active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5"
                   >
                     <PlusCircle className="w-3.5 h-3.5" />
-                    <span className="lg:hidden">Nạp Thêm Vào Căn Này</span>
-                    <span className="hidden lg:inline">Nạp vào Căn / Phòng</span>
+                    <span>Thêm vào phòng</span>
                   </button>
                 </div>
               </div>
@@ -1624,12 +1618,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               <div className="min-w-0 flex-1">
                 <h4 className="font-extrabold text-slate-900 text-xs flex items-center gap-1.5 uppercase tracking-wider">
                   <Sparkles className="w-4 h-4 text-indigo-600" />
-                  <span className="lg:hidden">Danh sách hạng mục thi công trong Căn / Phòng ({subItems.length} hạng mục)</span>
-                  <span className="hidden lg:inline">Hạng mục thi công ({subItems.length})</span>
+                  <span>Hạng mục thi công ({subItems.length})</span>
                 </h4>
-                <p className="lg:hidden text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
-                  💡 Mỗi hạng mục có thể phân công cho các đội thi công khác nhau từ danh sách Quân số.
-                </p>
               </div>
             </div>
 
@@ -1650,7 +1640,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                       }}
                       className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                     />
-                    <span>Chọn tất cả hạng mục ({subItems.length})</span>
+                    <span>Chọn tất cả ({subItems.length})</span>
                   </label>
 
                   {!structureReadOnly && selectedSubItemIds.length > 0 && (
@@ -1760,11 +1750,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                       </div>
                     </div>
                   </div>
-                ) : (
-                  <p className="lg:hidden text-[10px] text-slate-400 italic">
-                    💡 Hãy tick chọn các hạng mục bên dưới để cập nhật nhanh/hàng loạt (tiến độ, nghiệm thu, phân công đội, hạn xong...).
-                  </p>
-                )}
+                ) : null}
               </div>
             )}
 
@@ -2192,28 +2178,20 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
           </div>
 
-          {/* Cách 2: floor-wide calibration is shared by all rooms on this drawing. */}
-          {!structureReadOnly && roomItem?.id && onStartDrawOnMap && (
+          {/* Floor-wide metric calibration lives only on the map toolbar.
+              Keep an optional, collapsed launcher for drawing subitem regions. */}
+          {!structureReadOnly && roomItem?.id && onStartDrawOnMap && (subItems || []).length > 0 && (
             <section data-hnl-cach2-room-portal="true" className="rounded-2xl border border-teal-200 bg-teal-50/70 overflow-hidden">
               <button type="button" data-hnl-cach2-room-portal-toggle="true" data-hnl-ui-only="true"
                 aria-expanded={showCach2RoomPortal} aria-controls="hnl-cach2-room-portal-content"
                 onClick={() => setShowCach2RoomPortal(v => !v)}
                 className="w-full px-3 py-2.5 flex items-center justify-between text-left gap-2 text-xs font-extrabold text-teal-950 hover:bg-teal-100/70">
-                <span>📐 Đo vẽ khối lượng</span>
+                <span>Vẽ riêng hạng mục con</span>
                 {showCach2RoomPortal ? <ChevronUp className="w-4 h-4 shrink-0" /> : <ChevronDown className="w-4 h-4 shrink-0" />}
               </button>
               {showCach2RoomPortal && <div id="hnl-cach2-room-portal-content" className="border-t border-teal-200 p-3 space-y-2">
-              <p className="text-[10.5px] leading-relaxed text-teal-900">Đo tỷ lệ 2 điểm → chọn hạng mục → vẽ vùng → xem KL. ĐVT không phải m² có thể nhập tay; lưu KL đo cần xác nhận.</p>
-              <div className="flex flex-wrap gap-2">
-                {activeCategories.map(cat => <button key={cat} type="button" data-hnl-ui-only="true" data-hnl-open-cach2-main={cat}
-                  disabled={roomItem.inspectionStatus === 'Đạt nghiệm thu' || roomItem.positionLocked === true}
-                  onClick={() => launchCach2(cat, 'main')}
-                  className="rounded-lg border border-teal-300 bg-white px-2.5 py-2 text-[11px] font-bold text-teal-900 disabled:opacity-40">
-                  Mở mặt bằng · {cat}
-                </button>)}
-              </div>
               <div data-hnl-room-subitem-map-launchers="true" className="space-y-1 rounded-lg bg-white/60 p-2">
-                <div className="text-[10px] font-bold text-teal-900">Vẽ riêng hạng mục con (tùy chọn)</div>
+                <div className="text-[10px] font-bold text-teal-900">Chọn hạng mục con để mở mặt bằng vẽ vùng riêng</div>
                 {(subItems || []).map(stage => <button key={stage.id} type="button" data-hnl-ui-only="true"
                   disabled={roomItem.positionLocked === true || roomItem.inspectionStatus === 'Đạt nghiệm thu' || stage.status === 'Đã hoàn thành' || stage.inspectionStatus === 'Đạt nghiệm thu'}
                   onClick={() => launchCach2(stage.category || workCategory, stage.id)}

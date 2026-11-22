@@ -14,4 +14,6 @@ assert.match(lock, /hasLegacyOnlyLock && !window\.confirm/, 'legacy-lock migrati
 assert.match(lock, /finally \{\s*setPositionLockBusy\(false\)/, 'busy state always reset');
 assert.match(src, /setCopyNotification\('Đã lưu khóa vị trí Defect lên Firestore.'/,'Defect behavior not part of this patch');
 assert.match(src, /\{selectedRoomsAreLocked \? 'Mở khóa' : 'Khóa'\}/, 'button is existing non-overlay success feedback');
+assert.match(src, /\{selectedRoomsAreLocked \? <Unlock className=\"w-3\.5 h-3\.5\" \/> : <Lock className=\"w-3\.5 h-3\.5\" \/>\}/, 'room lock button must use lock or unlock icon, not shield');
+assert.doesNotMatch(src, /<ShieldCheck className=\"w-3\.5 h-3\.5\" \/>/, 'old shield icon removed from room action');
 console.log('ROOM_POSITION_LOCK_QUIET_SUCCESS_GOLDEN PASS: cloud ack, state, RBAC, error, legacy');
