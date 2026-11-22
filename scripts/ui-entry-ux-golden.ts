@@ -359,13 +359,15 @@ assert(
   'Room color control must return below the name at full width, matching the original PC and mobile layout'
 );
 assert(
-  roomHighlightUiForPc.includes('hidden lg:inline">Nạp hạng mục thi công</span>') &&
-    roomHighlightUiForPc.includes('hidden lg:inline">Chọn mẫu hạng mục thi công:</span>') &&
-    roomHighlightUiForPc.includes('hidden lg:inline">Nạp vào Căn / Phòng</span>') &&
-    roomHighlightUiForPc.includes('hidden lg:inline">Hạng mục thi công ({subItems.length})</span>') &&
-    roomHighlightUiForPc.includes('lg:hidden text-[11px] text-indigo-700/90 font-medium') &&
-    roomHighlightUiForPc.includes('lg:hidden text-[10.5px] text-slate-500 font-medium'),
-  'Desktop compact text must hide long explanations while preserving mobile copy unchanged'
+  roomHighlightUiForPc.includes('Nạp hạng mục\n') &&
+    roomHighlightUiForPc.includes('Chọn mẫu\n') &&
+    roomHighlightUiForPc.includes('<span>Thêm vào phòng</span>') &&
+    roomHighlightUiForPc.includes('<span>Hạng mục thi công ({subItems.length})</span>') &&
+    roomHighlightUiForPc.includes('<span>Chọn tất cả ({subItems.length})</span>') &&
+    !roomHighlightUiForPc.includes('hidden lg:inline">Nạp hạng mục thi công</span>') &&
+    !roomHighlightUiForPc.includes('lg:hidden text-[11px] text-indigo-700/90 font-medium') &&
+    !roomHighlightUiForPc.includes('lg:hidden text-[10.5px] text-slate-500 font-medium'),
+  'Room controls must use the same concise copy on PC/mobile without mobile-only long notes'
 );
 assert(
   roomHighlightUiForPc.includes('flex items-start lg:items-center gap-2 border-b border-indigo-100/80 pb-2') &&
