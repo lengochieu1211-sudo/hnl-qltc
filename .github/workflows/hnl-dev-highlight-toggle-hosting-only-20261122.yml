@@ -43,7 +43,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APPROVED_SOURCE=39a66c193cbbb24830ee037ef90447e350bb57b8
+          APPROVED_SOURCE=eae5ae393f8c436427616dc3932cb41ccda911ce
+          PATCH_SOURCE=39a66c193cbbb24830ee037ef90447e350bb57b8
           PREVIOUS_DEV=d2482b3b56bb0d487a1cf79fd25fd58ffbfc8714
           test "$GITHUB_REPOSITORY" = 'lengochieu1211-sudo/hnl-qltc'
           test "$GITHUB_EVENT_NAME" = push
@@ -54,10 +55,12 @@ jobs:
           test "$(git diff --name-only "$APPROVED_SOURCE" HEAD)" = '.github/workflows/hnl-dev-highlight-toggle-hosting-only-20261122.yml'
           test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$GITHUB_SHA"
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = 'ad2df144f597d7e054a6f7aebd3abd6d6f7247f3'
-          git merge-base --is-ancestor "$PREVIOUS_DEV" "$APPROVED_SOURCE"
-          git diff --exit-code "$PREVIOUS_DEV" "$APPROVED_SOURCE" -- package.json package-lock.json .firebaserc firebase.json firebase.prod.json firestore.rules storage.rules .github/dev-release-approval.json cloudflare/
-          EXPECTED="$(printf '%s\n' 'scripts/highlight-cach2-compact-controls-golden.mjs' 'scripts/metric-drawing-ui-20261122-golden.mjs' 'src/components/FloorHighlightDirectDraw.tsx' 'src/components/FloorMetricCalibration.tsx' 'src/components/FloorPlanDefectTab.tsx' | LC_ALL=C sort)""
-          ACTUAL="$(git diff --name-only "$PREVIOUS_DEV" "$APPROVED_SOURCE" | LC_ALL=C sort)"
+          git merge-base --is-ancestor "$PREVIOUS_DEV" "$PATCH_SOURCE"
+          test "$(git rev-parse "$PATCH_SOURCE^")" = "$PREVIOUS_DEV"
+          test "$(git diff --name-only "$PATCH_SOURCE" "$APPROVED_SOURCE")" = '.github/workflows/hnl-dev-highlight-toggle-hosting-only-20261122.yml'
+          git diff --exit-code "$PREVIOUS_DEV" "$PATCH_SOURCE" -- package.json package-lock.json .firebaserc firebase.json firebase.prod.json firestore.rules storage.rules .github/dev-release-approval.json cloudflare/
+          EXPECTED="$(printf '%s\n' 'scripts/highlight-cach2-compact-controls-golden.mjs' 'scripts/metric-drawing-ui-20261122-golden.mjs' 'src/components/FloorHighlightDirectDraw.tsx' 'src/components/FloorMetricCalibration.tsx' 'src/components/FloorPlanDefectTab.tsx' | LC_ALL=C sort)"
+          ACTUAL="$(git diff --name-only "$PREVIOUS_DEV" "$PATCH_SOURCE" | LC_ALL=C sort)"
           test "$EXPECTED" = "$ACTUAL" || { echo "::error::Unexpected direct highlight source delta"; exit 1; }
           test "$VITE_APP_ENV" = DEV
           test "$VITE_ENABLE_LEGACY_DRIVE_WRITE" = false
