@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { FloorPlan, HighlightRegionShape, Point2D, RoomProgressItem } from '../types';
+import type { FloorPlan, HighlightRegionShape, Point2D, RoomProgressItem, WorkVolume } from '../types';
 import { getValidFloorMetricCalibration, measureHighlightAreaM2, measureHighlightLengthM, measureWallAreaM2 } from '../utils/highlightMetricGeometry';
-import { getDirectStageCategory, getSavedDirectHighlightShapes, getDirectHighlightCategoryNames, mapDirectHighlightPointerToFloor, getDirectHighlightDrawPoint } from '../utils/floorHighlightDirectShapes';
+import { getDirectStageCategory, getSavedDirectHighlightShapes, getDirectHighlightCategoryNames, resolveDirectHighlightLaunchCategory, mapDirectHighlightPointerToFloor, getDirectHighlightDrawPoint } from '../utils/floorHighlightDirectShapes';
 import type { DirectHighlightCommitRequest, DirectHighlightQuantitySaveRequest } from '../utils/floorHighlightDirectShapes';
 import {
   calculateHighlightTotalRatio,
@@ -37,6 +37,8 @@ const toPolygon = (points: Point2D[], mode: 'polygon' | 'freehand'): HighlightRe
 
 interface Props {
   room: RoomProgressItem;
+  /** WorkVolume titles identify the existing ID-backed room quantity keys. */
+  workVolumes?: WorkVolume[];
   floor?: FloorPlan;
   imageContainer: HTMLElement | null;
   rotation: number;
@@ -60,7 +62,7 @@ interface Props {
 }
 
 export const FloorHighlightDirectDraw: React.FC<Props> = ({
-  room, floor, imageContainer, rotation, onSaveShapes, onShowLayer, isLocked, disabled=false, isFullscreen=false, selectedTool, onOpenChange,
+  room, workVolumes = [], floor, imageContainer, rotation, onSaveShapes, onShowLayer, isLocked, disabled=false, isFullscreen=false, selectedTool, onOpenChange,
   objectSnapEnabled, objectSnapMidpoints, cadGridSnap, cadOrtho, cadPolar, launch,
 }) => {
   const [open, setOpen] = useState(false);
@@ -96,6 +98,8 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
   const baselineRef = useRef<{ revision?: number; updatedAt: number } | null>(null);
   const categories = useMemo(() => getDirectHighlightCategoryNames(room), [room]);
   const currentCategory = categories.includes(category) ? category : (categories[0] || '');
+  const categoryCatalog = workVolumes.find((item) => item.id === currentCategory);
+  const displayCategory = categoryCatalog?.title || currentCategory;
   const stages = (room.subItems || []).filter((stage) => getDirectStageCategory(stage, room) === currentCategory);
   const currentTarget: Target = target === 'main' || stages.some((stage) => stage.id === target) ? target : 'main';
   const targetStage = stages.find((stage) => stage.id === currentTarget);
@@ -127,7 +131,17 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
   }) : { valid: false as const, reason: 'Chưa chọn mặt bằng.' },
   [floor, imageDimensions.width, imageDimensions.height, room, measuredRegion]);
   const activeUnit = targetStage?.volumeUnit || (currentTarget === 'main'
-    ? (room.categoryVolumeUnits?.[currentCategory] || room.volumeUnit || 'm²') : 'm²');
+    ? (room.categoryVolumeUnits?.[currentCategory] || room.categoryVolumeUnits?.[displayCategory] || categoryCatalog?.unit || room.volumeUnit || 'm²') : 'm²');
+  const savedQuantity = currentTarget === 'main'
+    ? room.categoryVolumes?.[currentCategory] ?? (room.workCategory === currentCategory ? room.workVolume : undefined)
+    : targetStage?.workVolume;
+  const autoByKey = currentTarget === 'main' ? room.categoryHighlightAutoMode?.[currentCategory] === true : targetStage?.highlightVolumeMode === 'area';
+  const autoByDisplayAlias = currentTarget === 'main' && currentCategory !== displayCategory && room.categoryHighlightAutoMode?.[displayCategory] === true;
+  // When old auto policy uses a display name but the stored quantity uses an
+  // ID, require explicit reconciliation instead of accidentally writing to an
+  // incompatible source key. Geometry can still be viewed/read without writes.
+  const unresolvedAutoAlias = autoByDisplayAlias && !autoByKey;
+  const autoMode = autoByKey || autoByDisplayAlias;
   const isAreaUnit = ['m2','m²'].includes(activeUnit.trim().toLowerCase().replace(/\s/g,''));
   const isLengthUnit = activeUnit.trim().toLowerCase().replace(/\s/g,'') === 'm';
   const linePreview = floor ? measureHighlightLengthM({floor, image:imageDimensions, floorPath:measurePath})
@@ -143,7 +157,12 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
   const changeCategory = (next: string) => { clearWork(); setCategory(next); setTarget('main'); setReplaceExisting(false); };
   React.useEffect(() => {
     if (!launch || launch.roomId !== room.id || !imageContainer || disabled || locked || room.isPolyline || room.width <= 0 || room.height <= 0) return;
-    const chosenCategory = categories.includes(launch.category) ? launch.category : (categories[0] || '');
+    const chosenCategory = resolveDirectHighlightLaunchCategory(room, launch.category, launch.target, workVolumes);
+    if (!chosenCategory) {
+      setOpen(false); onOpenChange?.(false);
+      setNotice(`Không xác định được khóa lưu của hạng mục “${launch.category}”. Hãy kiểm tra ID/tên hoặc khóa trùng trong biểu mẫu; không tự chọn hạng mục khác.`);
+      return;
+    }
     const chosenTarget = launch.target === 'main' || (room.subItems || []).some(s => s.id === launch.target && getDirectStageCategory(s, room) === chosenCategory)
       ? launch.target : 'main';
     setCategory(chosenCategory);
@@ -242,7 +261,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
   const isSameRoomDraft = () => Boolean(baselineRef.current &&
     baselineRef.current.revision === room.revision && baselineRef.current.updatedAt === room.updatedAt);
   const save = async () => {
-    if (saving || lineMode || !draft.length || !currentCategory || locked || !baselineRef.current) return;
+    if (saving || lineMode || !draft.length || !currentCategory || locked || unresolvedAutoAlias || !baselineRef.current) return;
     if (missingTarget) { setNotice('Hạng mục đã thay đổi. Chọn lại vùng trước khi lưu.'); return; }
     if (baselineRef.current.revision !== room.revision || baselineRef.current.updatedAt !== room.updatedAt) {
       setNotice('Phòng đã thay đổi trong lúc vẽ. Hủy chế độ vẽ, mở lại để lấy dữ liệu mới; chưa lưu gì.'); return;
@@ -269,6 +288,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
 
   /** Explicit user confirmation: region edits do NOT change official quantity until server CAS succeeds. */
   const confirmMeasuredQuantity = async (kind: 'area' | 'length' | 'wall') => {
+    if (unresolvedAutoAlias) { setNotice('Khối lượng gốc dùng ID còn chế độ tự tính dùng tên. Cần đối chiếu nguồn tự tính trước khi lưu; dữ liệu cũ được giữ nguyên.'); return; }
     if (saving || locked || disabled || !floor || !isSameRoomDraft() || !baselineRef.current || missingTarget) {
       setNotice('Bản vẽ hoặc dữ liệu phòng đã thay đổi. Mở lại công cụ trước khi xác nhận.'); return;
     }
@@ -286,9 +306,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
     }
     const value = Math.round(measure.value * 1000) / 1000;
     if (!Number.isFinite(value) || value <= 0) { setNotice('Khối lượng làm tròn không hợp lệ.'); return; }
-    const oldQuantity = currentTarget === 'main'
-      ? (room.categoryVolumes?.[currentCategory] ?? (room.workCategory === currentCategory ? room.workVolume : undefined))
-      : targetStage?.workVolume;
+    const oldQuantity = savedQuantity;
     const label = currentTarget === 'main' ? `hạng mục chính “${currentCategory}”` : `hạng mục con “${targetStage?.name || currentTarget}”`;
     const unit = measure.unit;
     if (!window.confirm(`XÁC NHẬN CẬP NHẬT KHỐI LƯỢNG CHÍNH THỨC\n${label}\n` +
@@ -322,6 +340,10 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
   const toFloorSvg = (points: Point2D[]): string => points.map((p) => `${room.x + room.width * p.x / 100},${room.y + room.height * p.y / 100}`).join(' ');
   const activePreview = corners.length ? corners.concat(hover && tool !== 'freehand' ? [hover] : []) : freehand;
   const hasDrawPermission = !locked && !disabled && room.width > 0 && room.height > 0 && !room.isPolyline;
+  // The user opens this editor from the "Mặt bằng" action beside the target quantity.
+  // Do not render an extra launch button simply because a Căn/Phòng is selected.
+  // All hooks/effects (including the explicit launch token) remain active above.
+  if (!open) return null;
   return <>
     <div data-hnl-direct-highlight-toolbar="true" data-hnl-direct-highlight-layout={isFullscreen ? 'fullscreen-docked' : 'plan-floating'}
       className={isFullscreen
@@ -346,13 +368,21 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
         </div>
         {open && <div className="mt-1.5 space-y-1.5 border-t border-slate-700 pt-1.5" data-hnl-direct-highlight-edit="true">
           <div className="text-[10px] text-sky-200 truncate" title={currentCategory}>
-            {currentCategory || 'Chưa chọn hạng mục'} · {targetStage?.name || 'Hạng mục chính'} · {lineMode ? 'Đo tuyến' : tool === '2point' ? '2 điểm' : tool === 'polygon' ? 'Đa giác' : 'Tự do'}
+            {displayCategory || 'Chưa chọn hạng mục'} · {targetStage?.name || 'Hạng mục chính'} · {lineMode ? 'Đo tuyến' : tool === '2point' ? '2 điểm' : tool === 'polygon' ? 'Đa giác' : 'Tự do'}
+          </div>
+          <div data-hnl-direct-highlight-quantity-summary="true" className="rounded-lg border border-slate-700 bg-slate-900/75 px-2 py-1.5 space-y-0.5 text-[10px] leading-snug">
+            <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+              <span>KL đang lưu: <b className="text-emerald-200">{savedQuantity === undefined ? 'Chưa nhập' : Number(savedQuantity).toLocaleString('vi-VN', {maximumFractionDigits:3})} {activeUnit}</b></span>
+              <span>Đo theo vùng: <b className="text-sky-200">{metricPreview.valid ? `${metricPreview.value.toLocaleString('vi-VN', {maximumFractionDigits:2})} m²` : 'Chưa có vùng đo hợp lệ'}</b></span>
+            </div>
+            <div className="text-slate-300">Nguồn KL: {autoMode ? 'Tự tính theo vùng' : 'Theo giá trị đang lưu / nhập tay'} · {floor && getValidFloorMetricCalibration(floor, imageDimensions).valid ? 'Đã hiệu chuẩn tỷ lệ' : 'Chưa có tỷ lệ hợp lệ'}</div>
+            {unresolvedAutoAlias && <div className="text-amber-300 font-bold">Khóa KL dùng ID nhưng chế độ tự tính dùng tên: chỉ xem, cần đối chiếu dữ liệu trước khi lưu.</div>}
           </div>
           {showOptions && <div className="space-y-1.5" data-hnl-direct-highlight-advanced="true">
           <label className="block font-bold">Hạng mục chính
             <select aria-label="Hạng mục chính của vùng highlight" className="mt-1 w-full rounded-lg bg-white text-slate-900 p-2" value={currentCategory}
               onChange={(event) => changeCategory(event.target.value)}>
-              {categories.map((name) => <option key={name} value={name}>{name}</option>)}
+              {categories.map((name) => <option key={name} value={name}>{workVolumes.find((item) => item.id === name)?.title || name}</option>)}
             </select>
           </label>
           <label className="block font-bold">Vùng cần vẽ
@@ -419,7 +449,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
               : ' Hạng mục đơn vị khác m²: không suy khối lượng từ diện tích. Tuyến m cần đo riêng.'}
           </div>
           {!lineMode && isAreaUnit && quantityMode === 'measure' && <button type="button" data-hnl-cach2-confirm-area-quantity="true"
-            disabled={saving || locked || missingTarget || !metricPreview.valid || !candidateShapes.length}
+            disabled={saving || locked || missingTarget || unresolvedAutoAlias || !metricPreview.valid || !candidateShapes.length}
             onClick={() => void confirmMeasuredQuantity('area')}
             className="w-full rounded-lg bg-emerald-700 disabled:opacity-50 px-3 py-2 font-bold text-left">
             Lưu vùng + KL {metricPreview.valid ? `${metricPreview.value.toLocaleString('vi-VN', {maximumFractionDigits:2})} m²` : 'm²'}
@@ -427,7 +457,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
           {locked && <span className="text-amber-300 font-bold">Phòng/hạng mục bị khóa hoặc đã nghiệm thu; không cho lưu.</span>}
           {notice && <div role="status" className="text-amber-200 break-words">{notice}</div>}
           <div className="flex gap-2">
-            <button type="button" disabled={saving || lineMode || !draft.length || locked || missingTarget} onClick={() => void save()} className="rounded-lg bg-slate-700 disabled:opacity-50 px-3 py-1.5 font-bold">{isAreaUnit && quantityMode === 'measure' ? 'Chỉ lưu vùng' : 'Lưu vùng'}</button>
+            <button type="button" disabled={saving || lineMode || !draft.length || locked || unresolvedAutoAlias || missingTarget} onClick={() => void save()} className="rounded-lg bg-slate-700 disabled:opacity-50 px-3 py-1.5 font-bold">{isAreaUnit && quantityMode === 'measure' ? 'Chỉ lưu vùng' : 'Lưu vùng'}</button>
             <button type="button" disabled={saving} onClick={clearWork} className="rounded-lg bg-slate-700 px-3 py-1.5">Xóa nháp</button>
             <button type="button" disabled={saving} onClick={toggle} className="rounded-lg bg-slate-700 px-3 py-1.5">Hủy</button>
           </div>

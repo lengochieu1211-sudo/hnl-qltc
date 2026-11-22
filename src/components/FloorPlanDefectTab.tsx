@@ -25,7 +25,8 @@ import {
   Building2,
   CheckCircle2,
   Clock,
-  ShieldCheck,
+  Lock,
+  Unlock,
   Edit2,
   Edit3,
   Copy,
@@ -8150,7 +8151,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       className={`flex items-center gap-1 text-[11px] font-extrabold px-2 py-1 rounded-lg transition-colors border shadow-xs shrink-0 ${selectedRoomsAreLocked ? 'bg-amber-500 text-slate-950 border-amber-300' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-600'}`}
                       title={selectedRoomsAreLocked ? 'Mở khóa vị trí Căn / Phòng đang chọn' : 'Khóa vị trí để tránh kéo/resize nhầm'}
                     >
-                      <ShieldCheck className="w-3.5 h-3.5" />
+                      {selectedRoomsAreLocked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
                       <span>{selectedRoomsAreLocked ? 'Mở khóa' : 'Khóa'}</span>
                     </button>
 
@@ -8234,6 +8235,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <FloorHighlightDirectDraw
                 key={`${currentProjectId}:${activeFloor?.id || ''}:${selectedRoomObject.id}`}
                 room={selectedRoomObject}
+                workVolumes={workVolumes}
                 imageContainer={imageContainerRef.current}
                 rotation={rotation}
                 floor={activeFloor}

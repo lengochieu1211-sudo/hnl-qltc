@@ -11,9 +11,9 @@ assert.match(modal, /\{legacyHighlightEditorVisible && !structureReadOnly && roo
 assert.match(modal, /data-hnl-cach2-room-portal="true"/);
 assert.match(modal, /onStartDrawOnMap\?: \(room: RoomProgressItem, category: string, target: string\) => void/);
 assert.match(modal, /onStartDrawOnMap\(roomItem, category, target\)/);
-assert.match(modal, /Mở mặt bằng · \{cat\}/);
+assert.match(modal, /Vẽ riêng hạng mục con/);
 assert.match(modal, /launchCach2\(catName, item\.id\)/);
-assert.match(modal, /data-hnl-ui-only="true" data-hnl-open-cach2-main=\{cat\}/);
+assert.doesNotMatch(modal, /data-hnl-ui-only="true" data-hnl-open-cach2-main=\{cat\}/);
 assert.match(draw, /room\.isPolyline \|\| room\.width <= 0 \|\| room\.height <= 0/);
 assert.match(modal, /roomDraftDirtyRef\.current && !window\.confirm\(/);
 assert.match(modal, /highlightVolumeMode: 'manual'/);
