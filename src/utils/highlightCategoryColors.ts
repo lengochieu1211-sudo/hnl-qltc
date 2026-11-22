@@ -87,8 +87,10 @@ export function buildFloorHighlightColorLegend(rooms: ReadonlyArray<RoomProgress
     byKey.set(entry.key, color);
     used.add(color.toLowerCase());
   }
-  const entries: FloorHighlightColorEntry[] = ordered.map(({preferences: _preferences, ...rest}) => ({
-    ...rest, color: byKey.get(rest.key) || '#2563eb',
+  const entries: FloorHighlightColorEntry[] = ordered.map((entry) => ({
+    key: entry.key, kind: entry.kind, category: entry.category,
+    name: entry.name, hasGeometry: entry.hasGeometry,
+    color: byKey.get(entry.key) || '#2563eb',
   }));
   const colors: Record<string, string> = {};
   for (const entry of entries) colors[entry.key] = entry.color;

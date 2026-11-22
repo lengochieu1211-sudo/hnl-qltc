@@ -16,7 +16,7 @@ const a = buildFloorHighlightColorLegend([room1,room2]), b = buildFloorHighlight
 assert.deepEqual(a,b,'colors and legend do not depend on room ordering');
 assert.deepEqual([room1,room2],before,'pure display function cannot mutate saved rooms');
 const mainA=mainHighlightColorKey('TRẦN'),mainB=mainHighlightColorKey('VÁCH');
-const childA=childHighlightColorKey('TRẦN','Khung chì'),childB=childHighlightColorKey('TRẦN','Tấm chống ẩm'),childC=childHighlightColorKey('VÁCH','Khung vách');
+const childA=childHighlightColorKey('TRẦN','Khung chìm'),childB=childHighlightColorKey('TRẦN','Tấm chống ẩm'),childC=childHighlightColorKey('VÁCH','Khung vách');
 for(const key of [mainA,mainB,childA,childB,childC]) assert.ok(a.colors[key],key);
 assert.equal(a.colors[childB],'#e11d48','preserve explicit saved color if not duplicated');
 assert.equal(new Set(a.entries.map(e=>e.color.toLowerCase())).size,a.entries.length,'different main and child labels have distinct colors');
@@ -25,7 +25,7 @@ assert.equal(a.entries.find(e=>e.key===mainB).hasGeometry,true);
 const duplicate = structuredClone(room1);
 duplicate.subItems[0].highlightColor='#e11d48';
 const collision = buildFloorHighlightColorLegend([duplicate]);
-assert.notEqual(collision.colors[childHighlightColorKey('TRẦN','Khung chì')], collision.colors[childB], 'colliding custom overrides resolved for display only');
+assert.notEqual(collision.colors[childHighlightColorKey('TRẦN','Khung chìm')], collision.colors[childB], 'colliding custom overrides resolved for display only');
 const many = {id:'bulk',workCategory:'M0',subItems:Array.from({length:36},(_,i)=>({id:`stage${i}`,name:`stage_${i}`,category:'M0'}))};
 const lots = buildFloorHighlightColorLegend([many]);
 assert.equal(new Set(lots.entries.map(e=>e.color.toLowerCase())).size,lots.entries.length,'many categories are still distinguishable');
