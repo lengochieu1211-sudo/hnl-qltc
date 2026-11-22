@@ -347,7 +347,7 @@ assert(
 );
 assert(
   roomHighlightUiForPc.includes('data-hnl-room-preset-inline-row="true"') &&
-    roomHighlightUiForPc.includes('lg:flex-row lg:items-end') &&
+    roomHighlightUiForPc.includes('lg:flex-row lg:items-center') &&
     roomHighlightUiForPc.includes('w-full lg:w-auto px-3 py-2 bg-indigo-600'),
   'Nạp thêm vào căn này must be right of the preset selection on PC while mobile stacks cleanly'
 );
@@ -359,20 +359,23 @@ assert(
   'Room color control must return below the name at full width, matching the original PC and mobile layout'
 );
 assert(
-  roomHighlightUiForPc.includes('Nạp hạng mục\n') &&
-    roomHighlightUiForPc.includes('Chọn mẫu\n') &&
-    roomHighlightUiForPc.includes('<span>Thêm vào phòng</span>') &&
+  roomHighlightUiForPc.includes('data-hnl-room-work-categories="true"') &&
     roomHighlightUiForPc.includes('<span>Hạng mục thi công ({subItems.length})</span>') &&
+    roomHighlightUiForPc.includes('<span>Thêm vào phòng</span>') &&
     roomHighlightUiForPc.includes('<span>Chọn tất cả ({subItems.length})</span>') &&
+    roomHighlightUiForPc.includes('className="sr-only">Chọn hạng mục thi công</label>') &&
+    !roomHighlightUiForPc.includes('Nạp hạng mục') &&
+    !roomHighlightUiForPc.includes('Chọn mẫu') &&
     !roomHighlightUiForPc.includes('hidden lg:inline">Nạp hạng mục thi công</span>') &&
     !roomHighlightUiForPc.includes('lg:hidden text-[11px] text-indigo-700/90 font-medium') &&
     !roomHighlightUiForPc.includes('lg:hidden text-[10.5px] text-slate-500 font-medium'),
   'Room controls must use the same concise copy on PC/mobile without mobile-only long notes'
 );
 assert(
-  roomHighlightUiForPc.includes('flex items-start lg:items-center gap-2 border-b border-indigo-100/80 pb-2') &&
-    roomHighlightUiForPc.includes('p-1.5 bg-indigo-600 text-white rounded-lg shrink-0 mt-0.5 lg:mt-0 shadow-2xs'),
-  'PC room preset heading and ListChecks icon must align vertically at center, while mobile retains original top alignment'
+  roomHighlightUiForPc.includes('data-hnl-room-work-categories="true"') &&
+    roomHighlightUiForPc.includes('flex items-center gap-2 border-b border-slate-200 pb-2') &&
+    roomHighlightUiForPc.includes('p-1.5 bg-indigo-600 text-white rounded-lg shrink-0 shadow-2xs'),
+  'Unified work category heading and ListChecks icon must align on PC and mobile'
 );
 assert(workVolumeUi.includes('lg:max-w-[1100px]') && workVolumeUi.includes('left-0 lg:left-[84px]'), 'Work Volume editor must use desktop width while reserving the left rail');
 assert(warehouse.includes('lg:max-w-[1100px]') && warehouse.includes('left-0 lg:left-[84px]'), 'Warehouse editor must use desktop width while reserving the left rail');

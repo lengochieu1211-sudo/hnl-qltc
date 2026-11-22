@@ -165,8 +165,10 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     if (!roomItem?.id || !onStartDrawOnMap || structureReadOnly) return;
     // Never silently discard an unsaved draft or auto-save old legacy quantities.
     if (roomDraftDirtyRef.current && !window.confirm('Mở mặt bằng sẽ bỏ các thay đổi chưa lưu trong biểu mẫu. Hãy nhấn Lưu trước nếu muốn giữ. Tiếp tục?')) return;
-    roomDraftDirtyRef.current = false;
-    onClose();
+    // The map owner closes only the room form after validating the target.
+    // Generic onClose can trigger context-return navigation and unmount the map.
+    // A rejected launch leaves the form open; preserve unsaved-draft warnings.
+    // A successful launch closes the form and its isOpen effect resets this ref.
     onStartDrawOnMap(roomItem, category, target);
   };
 
@@ -193,8 +195,6 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   const [freehandDraft, setFreehandDraft] = useState<Point2D[]>([]);
   const [showAdvancedHighlights, setShowAdvancedHighlights] = useState(false);
   // Cách 2 is a launcher, not a permanently expanded editor in every room form.
-  const [showCach2RoomPortal, setShowCach2RoomPortal] = useState(false);
-  useEffect(() => { if (isOpen) setShowCach2RoomPortal(false); }, [isOpen, roomItem?.id]);
   const [highlightCategory, setHighlightCategory] = useState('');
   const [highlightTarget, setHighlightTarget] = useState('main');
   const [appendHighlightRegion, setAppendHighlightRegion] = useState(false);
@@ -1559,69 +1559,60 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
 
 
-          {/* CATEGORY PRESETS SECTION */}
-          {!structureReadOnly && <div className="bg-indigo-50/80 p-3.5 rounded-2xl border border-indigo-200/90 space-y-3">
-            <div className="flex items-start lg:items-center gap-2 border-b border-indigo-100/80 pb-2">
-              <div className="p-1.5 bg-indigo-600 text-white rounded-lg shrink-0 mt-0.5 lg:mt-0 shadow-2xs">
+          {/* ROOM WORK CATEGORIES: single section for picking and managing work */}
+          <div data-hnl-room-work-categories="true" className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/90 space-y-3">
+            {!structureReadOnly && roomItem?.id && (roomItem.positionLocked === true || roomItem.inspectionStatus === 'Đạt nghiệm thu') && (
+              <p data-hnl-highlight-draw-block-reason="true" className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10.5px] font-semibold text-amber-800">
+                {roomItem.positionLocked === true ? 'Phòng đang khóa vị trí. Mở khóa trước khi vẽ Highlight trên mặt bằng.' : 'Phòng đã đạt nghiệm thu; vùng và khối lượng được bảo vệ, không thể vẽ đè.'}
+              </p>
+            )}
+            <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+              <div className="p-1.5 bg-indigo-600 text-white rounded-lg shrink-0 shadow-2xs">
                 <ListChecks className="w-4 h-4" />
               </div>
-              <div className="min-w-0 flex-1">
-                <h4 className="font-black text-indigo-950 text-xs uppercase tracking-wide leading-snug break-words">
-                  Nạp hạng mục
-                </h4>
-              </div>
+              <h4 className="min-w-0 font-extrabold text-slate-900 text-xs uppercase tracking-wide break-words">
+                <span>Hạng mục thi công ({subItems.length})</span>
+              </h4>
             </div>
 
-            {/* Desktop: preset selector and Add-to-room action share one row.
-                Unlike per-category Add sub-item, this action appends a complete preset to the room. */}
-            <div className="space-y-2">
-              <div data-hnl-room-preset-inline-row="true" className="flex flex-col gap-2 lg:flex-row lg:items-end">
-                <div className="min-w-0 flex-1 space-y-2">
-                  <label className="text-[11px] font-extrabold text-indigo-900 block leading-tight">
-                    Chọn mẫu
-                  </label>
-                  <select
-                    value={presetSelection}
-                    onChange={(e) => setPresetSelection(e.target.value)}
-                    className="w-full min-w-0 border border-indigo-200 rounded-xl p-2.5 text-xs font-bold text-slate-800 bg-white focus:ring-2 focus:ring-indigo-500 shadow-2xs truncate"
-                  >
-                    {presetWorkCategories.map((catName) => (
-                      <option key={catName} value={catName}>
-                        {catName}
-                      </option>
-                    ))}
-                  </select>
+            {/* Keep preset controls inside the same section; read-only users still see the saved list. */}
+            {!structureReadOnly && (
+              <div className="space-y-2">
+                <div data-hnl-room-preset-inline-row="true" className="flex flex-col gap-2 lg:flex-row lg:items-center">
+                  <div className="min-w-0 flex-1">
+                    <label htmlFor="hnl-room-work-category-preset" className="sr-only">Chọn hạng mục thi công</label>
+                    <select
+                      id="hnl-room-work-category-preset"
+                      value={presetSelection}
+                      onChange={(e) => setPresetSelection(e.target.value)}
+                      className="w-full min-w-0 border border-indigo-200 rounded-xl p-2.5 text-xs font-bold text-slate-800 bg-white focus:ring-2 focus:ring-indigo-500 shadow-2xs truncate"
+                    >
+                      {presetWorkCategories.map((catName) => (
+                        <option key={catName} value={catName}>
+                          {catName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div data-hnl-pc-v35-actions="room-preset" className="flex flex-col gap-2 lg:shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => presetSelection && handleApplyPreset(presetSelection)}
+                      disabled={!presetSelection}
+                      className="w-full lg:w-auto px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl text-xs shadow-2xs active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <PlusCircle className="w-3.5 h-3.5" />
+                      <span>Thêm vào phòng</span>
+                    </button>
+                  </div>
                 </div>
-                <div data-hnl-pc-v35-actions="room-preset" className="flex flex-col gap-2 lg:shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => presetSelection && handleApplyPreset(presetSelection)}
-                    disabled={!presetSelection}
-                    className="w-full lg:w-auto px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl text-xs shadow-2xs active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                  >
-                    <PlusCircle className="w-3.5 h-3.5" />
-                    <span>Thêm vào phòng</span>
-                  </button>
-                </div>
+                {presetWorkCategories.length === 0 && (
+                  <p className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
+                    Chưa có hạng mục đang hoạt động. Hãy tạo hạng mục ở tab Khối lượng trước; ứng dụng không tự phục hồi hạng mục đã xóa.
+                  </p>
+                )}
               </div>
-              {presetWorkCategories.length === 0 && (
-                <p className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
-                  Chưa có hạng mục đang hoạt động. Hãy tạo hạng mục ở tab Khối lượng trước; ứng dụng không tự phục hồi hạng mục đã xóa.
-                </p>
-              )}
-            </div>
-          </div>}
-
-          {/* DYNAMIC SUB-ITEMS LIST SECTION */}
-          <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/90 space-y-3">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div className="min-w-0 flex-1">
-                <h4 className="font-extrabold text-slate-900 text-xs flex items-center gap-1.5 uppercase tracking-wider">
-                  <Sparkles className="w-4 h-4 text-indigo-600" />
-                  <span>Hạng mục thi công ({subItems.length})</span>
-                </h4>
-              </div>
-            </div>
+            )}
 
             {/* Select All & Bulk Actions Toolbar */}
             {subItems.length > 0 && (
@@ -2178,30 +2169,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
           </div>
 
-          {/* Floor-wide metric calibration lives only on the map toolbar.
-              Keep an optional, collapsed launcher for drawing subitem regions. */}
-          {!structureReadOnly && roomItem?.id && onStartDrawOnMap && (subItems || []).length > 0 && (
-            <section data-hnl-cach2-room-portal="true" className="rounded-2xl border border-teal-200 bg-teal-50/70 overflow-hidden">
-              <button type="button" data-hnl-cach2-room-portal-toggle="true" data-hnl-ui-only="true"
-                aria-expanded={showCach2RoomPortal} aria-controls="hnl-cach2-room-portal-content"
-                onClick={() => setShowCach2RoomPortal(v => !v)}
-                className="w-full px-3 py-2.5 flex items-center justify-between text-left gap-2 text-xs font-extrabold text-teal-950 hover:bg-teal-100/70">
-                <span>Vẽ riêng hạng mục con</span>
-                {showCach2RoomPortal ? <ChevronUp className="w-4 h-4 shrink-0" /> : <ChevronDown className="w-4 h-4 shrink-0" />}
-              </button>
-              {showCach2RoomPortal && <div id="hnl-cach2-room-portal-content" className="border-t border-teal-200 p-3 space-y-2">
-              <div data-hnl-room-subitem-map-launchers="true" className="space-y-1 rounded-lg bg-white/60 p-2">
-                <div className="text-[10px] font-bold text-teal-900">Chọn hạng mục con để mở mặt bằng vẽ vùng riêng</div>
-                {(subItems || []).map(stage => <button key={stage.id} type="button" data-hnl-ui-only="true"
-                  disabled={roomItem.positionLocked === true || roomItem.inspectionStatus === 'Đạt nghiệm thu' || stage.status === 'Đã hoàn thành' || stage.inspectionStatus === 'Đạt nghiệm thu'}
-                  onClick={() => launchCach2(stage.category || workCategory, stage.id)}
-                  className="mr-1 mb-1 max-w-full truncate rounded-md border border-teal-200 bg-white px-2 py-1.5 text-[10px] text-teal-900 disabled:opacity-40">
-                  📐 {stage.name}
-                </button>)}
-              </div>
-              </div>}
-            </section>
-          )}
+          {/* Metric calibration stays on the floor toolbar; each main/child item opens that map inline above. */}
           {/* Legacy Cách 1 records remain readable/preserved, but editor is hidden. */}
           {legacyHighlightEditorVisible && !structureReadOnly && roomItem?.id && (
             <section data-hnl-room-highlight-advanced="true" className="rounded-2xl border border-sky-200 bg-sky-50/50 overflow-hidden">

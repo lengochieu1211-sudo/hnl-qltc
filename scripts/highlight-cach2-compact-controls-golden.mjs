@@ -22,12 +22,12 @@ assert.match(draw, /aria-expanded=\{showOptions\}/);
 assert.match(draw, /\{showOptions && <div className="space-y-1\.5"/, 'large panel must be collapsed by default');
 assert.match(draw, /const \[showOptions, setShowOptions\] = useState\(false\)/);
 
-// A room form starts collapsed, exposes a deliberate toggle, and retains
-// the prior entry point for subItem/main geometry.
-assert.match(room, /showCach2RoomPortal, setShowCach2RoomPortal\] = useState\(false\)/);
-assert.match(room, /data-hnl-cach2-room-portal-toggle="true"/);
-assert.match(room, /aria-expanded=\{showCach2RoomPortal\}/);
-assert.match(room, /\{showCach2RoomPortal && <div id="hnl-cach2-room-portal-content"/);
+// Room draws only through the existing inline main/subitem map buttons;
+// removing the separate collapsible drawer does not remove drawing.
+assert.doesNotMatch(room, /showCach2RoomPortal/);
+assert.doesNotMatch(room, /data-hnl-cach2-room-portal-toggle="true"/);
+assert.match(room, /data-hnl-main-quantity-map=\{catName\}/);
+assert.match(room, /launchCach2\(catName, item\.id\)/);
 assert.doesNotMatch(room, /launchCach2\(cat, 'main'\)/);
 assert.match(room, /onStartDrawOnMap\(roomItem, category, target\)/);
 
@@ -39,4 +39,4 @@ assert.match(draw, /onPointerDown=\{handleDown\}/);
 assert.match(draw, /await onSaveShapes\(request\)/);
 assert.match(draw, /window\.confirm\(`XÁC NHẬN/);
 assert.match(read('src/App.tsx'), /await commitDirectHighlightCas\(projectId, request\)/);
-console.log('HIGHLIGHT_CACH2_COMPACT_CONTROLS_GOLDEN PASS: both toolbars, no duplicate, compact panel, room disclosure, smaller visual marks, CAS guard');
+console.log('HIGHLIGHT_CACH2_COMPACT_CONTROLS_GOLDEN PASS: both toolbars, no duplicate, compact panel, inline room map only, smaller visual marks, CAS guard');
