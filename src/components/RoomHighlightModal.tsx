@@ -167,8 +167,9 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     if (roomDraftDirtyRef.current && !window.confirm('Mở mặt bằng sẽ bỏ các thay đổi chưa lưu trong biểu mẫu. Hãy nhấn Lưu trước nếu muốn giữ. Tiếp tục?')) return;
     // The map owner closes only the room form after validating the target.
     // Generic onClose can trigger context-return navigation and unmount the map.
+    // A rejected launch leaves the form open; preserve unsaved-draft warnings.
+    // A successful launch closes the form and its isOpen effect resets this ref.
     onStartDrawOnMap(roomItem, category, target);
-    roomDraftDirtyRef.current = false;
   };
 
   const activeDefaultInspector = defaultInspectorName || '';
@@ -1560,6 +1561,11 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
           {/* ROOM WORK CATEGORIES: single section for picking and managing work */}
           <div data-hnl-room-work-categories="true" className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/90 space-y-3">
+            {!structureReadOnly && roomItem?.id && (roomItem.positionLocked === true || roomItem.inspectionStatus === 'Đạt nghiệm thu') && (
+              <p data-hnl-highlight-draw-block-reason="true" className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10.5px] font-semibold text-amber-800">
+                {roomItem.positionLocked === true ? 'Phòng đang khóa vị trí. Mở khóa trước khi vẽ Highlight trên mặt bằng.' : 'Phòng đã đạt nghiệm thu; vùng và khối lượng được bảo vệ, không thể vẽ đè.'}
+              </p>
+            )}
             <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
               <div className="p-1.5 bg-indigo-600 text-white rounded-lg shrink-0 shadow-2xs">
                 <ListChecks className="w-4 h-4" />

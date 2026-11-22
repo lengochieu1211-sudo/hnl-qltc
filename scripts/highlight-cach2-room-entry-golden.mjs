@@ -13,6 +13,8 @@ assert.match(modal, /onStartDrawOnMap\?: \(room: RoomProgressItem, category: str
 assert.match(modal, /onStartDrawOnMap\(roomItem, category, target\)/);
 const mapLaunch = modal.slice(modal.indexOf('const launchCach2 ='), modal.indexOf('const activeDefaultInspector'));
 assert.doesNotMatch(mapLaunch, /onClose\(\)/, 'Do not navigate away from map on draw');
+assert.doesNotMatch(mapLaunch, /roomDraftDirtyRef\.current = false/, 'Failed launch must preserve unsaved-draft warning');
+assert.match(modal, /data-hnl-highlight-draw-block-reason="true"/, 'A locked or accepted room needs visible explanation');
 assert.match(tab, /setDrawTool\('none'\);[\s\S]*setCach2DrawLaunch\(\{roomId:liveRoom.id/, 'Release prior room drawing tool before launch');
 assert.match(tab, /resolveDirectHighlightLaunchCategory\(liveRoom, category, target, workVolumes\)/, 'Category key must be validated');
 assert.match(tab, /if \(sourceFloor.id !== selectedFloorId\) setSelectedFloorId\(sourceFloor.id\)/, 'Cross-floor launch selects its real floor');
