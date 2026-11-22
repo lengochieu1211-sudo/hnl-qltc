@@ -2,7 +2,7 @@
 import type { HighlightRegionShape, Point2D, RoomProgressItem } from '../types';
 import { findRoomObjectSnap } from './roomHighlightObjectSnap.ts';
 import { applyCadDrawingGuide } from './roomHighlightCadShortcuts.ts';
-import { validateHighlightShape } from './highlightTotalGeometry.ts';
+import { calculateHighlightTotalRatio, getHighlightStageShapes, validateHighlightShape } from './highlightTotalGeometry.ts';
 
 export const getDirectStageCategory = (stage: { category?: string }, room: Pick<RoomProgressItem, 'workCategory'>): string =>
   stage.category || room.workCategory || 'Chưa phân nhóm';
@@ -46,6 +46,8 @@ export const getDirectHighlightCategoryNames = (room: RoomProgressItem): string[
   ...Object.keys(room.categoryHighlightTotalShapes || {}),
   ...Object.keys(room.categoryHighlightShapes || {}),
   ...Object.keys(room.categoryHighlightRegions || {}),
+  ...Object.keys(room.categoryVolumes || {}),
+  ...Object.keys(room.categoryVolumeUnits || {}),
 ].filter((item): item is string => Boolean(item?.trim()))));
 
 
@@ -83,6 +85,41 @@ const isEditableDirectTarget = (room: RoomProgressItem | undefined, request: Omi
   return true;
 };
 
+/**
+ * Existing auto/shared-total quantities are recalculated by RoomHighlightModal.
+ * Reject a direct metric value that would be overwritten by that source on the
+ * next form save. Never silently flip legacy auto modes to manual to hide drift.
+ * The caller may instead save the geometry only, or explicitly edit the legacy
+ * source total/mode in the room form with its existing confirmation semantics.
+ */
+export function isDirectMetricConsistentWithExistingAuto(room: RoomProgressItem, request: DirectHighlightQuantitySaveRequest): boolean {
+  const cat = request.category;
+  const stage = request.target === 'main' ? undefined : room.subItems?.find(s => s.id === request.target && getDirectStageCategory(s, room) === cat);
+  const usingAuto = request.target === 'main'
+    ? room.categoryHighlightAutoMode?.[cat] === true
+    : stage?.highlightVolumeMode === 'area';
+  if (!usingAuto) return true;
+  if (request.measuredQuantity.unit !== 'm²') return false;
+  const independentTotal = room.categoryHighlightTotalVolumes?.[cat];
+  if (!Number.isFinite(independentTotal) || independentTotal === undefined || independentTotal <= 0) return false;
+  const updated = request.shapes?.length
+    ? withDirectHighlightShapes(room, cat, request.target, request.shapes)
+    : room;
+  const main = getSavedDirectHighlightShapes(updated, cat, 'main');
+  const currentStage = request.target === 'main' ? undefined : updated.subItems?.find(s => s.id === request.target && getDirectStageCategory(s, updated) === cat);
+  const ratio = calculateHighlightTotalRatio({
+    room: updated,
+    total: updated.categoryHighlightTotalShapes?.[cat] || [],
+    main,
+    ...(currentStage ? { sub: getHighlightStageShapes(currentStage) } : {}),
+  });
+  if (!ratio.valid) return false;
+  // The form stores 4 decimals; direct measurement saves 3. Allow only
+  // the rounding envelope, not a change in formula source/meaning.
+  const recalculated = Math.round(independentTotal * ratio.ratio * 10000) / 10000;
+  return Math.abs(recalculated - request.measuredQuantity.value) <= 0.0011;
+}
+
 /** Unit and accepted-progress validation is repeated on the server transaction's actual room. */
 export function canApplyDirectHighlightQuantity(room: RoomProgressItem | undefined, request: DirectHighlightQuantitySaveRequest): boolean {
   if (!isEditableDirectTarget(room, request) || !room) return false;
@@ -98,6 +135,9 @@ export function canApplyDirectHighlightQuantity(room: RoomProgressItem | undefin
       request.shapes.length > 24 || !request.shapes.every(validateHighlightShape))) return false;
   // Never pair an open line measurement with geometry from an unrelated polygon draft.
   if (request.measuredQuantity.unit === 'm' && request.shapes !== undefined) return false;
+  // The exact legacy formula is reapplied at the next room form save. Never
+  // accept an incompatible direct quantity and quietly destroy that linkage.
+  if (!isDirectMetricConsistentWithExistingAuto(room, request)) return false;
   return true;
 }
 
@@ -106,13 +146,13 @@ export function withDirectHighlightQuantity(room: RoomProgressItem, request: Dir
   if (request.target === 'main') return {
     ...room, categoryVolumes: { ...room.categoryVolumes, [request.category]: request.measuredQuantity.value },
     ...(room.workCategory === request.category ? { workVolume: request.measuredQuantity.value } : {}),
-    // Explicit Cách 2 confirmation supersedes the historical auto formula; drawings are retained.
-    categoryHighlightAutoMode: { ...room.categoryHighlightAutoMode, [request.category]: false },
+    // Keep existing shared-total/auto policy. Manual changes are deliberate
+    // room-form actions, not side-effects of measuring a region.
   };
   return {
     ...room,
     subItems: (room.subItems || []).map((s) => s.id === request.target && getDirectStageCategory(s, room) === request.category
-      ? { ...s, workVolume: request.measuredQuantity.value, highlightVolumeMode: 'manual' as const } : s),
+      ? { ...s, workVolume: request.measuredQuantity.value } : s),
   };
 }
 

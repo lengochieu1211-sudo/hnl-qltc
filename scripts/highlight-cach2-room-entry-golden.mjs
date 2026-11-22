@@ -24,10 +24,11 @@ assert.match(tab, /launch=\{cach2DrawLaunch\}/);
 assert.match(draw, /launch\?: \{ roomId: string; category: string; target: string; token: number \} \| null/);
 assert.match(draw, /setTarget\(chosenTarget\)/);
 assert.match(draw, /baselineRef\.current = \{ revision: room\.revision, updatedAt: room\.updatedAt \}/);
-assert.match(draw, /KL tự tính:.*tham khảo, không ghi KL/);
+assert.match(draw, /KL tự tính:.*\(xem trước\)/);
 // Calibration is in drawing toolbar, 2-point overlay still unchanged.
 assert.match(tab, /data-hnl-cach2-calibrate-toolbar="true"/);
-assert.match(tab, /Hiệu chuẩn tỷ lệ/);
+assert.match(tab, /📏<\/span><span>Đo tỷ lệ<\/span>/);
+assert.match(draw, /onClick=\{\(\) => void confirmMeasuredQuantity\('area'\)\}/);
 assert.match(tab, /launch=\{metricCalibrationLaunch\}/);
 assert.match(calibration, /launch\?\.floorId === floor\.id/);
 assert.match(calibration, /onPointerDown=\{clickPoint\}/);

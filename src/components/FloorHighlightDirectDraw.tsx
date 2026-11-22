@@ -46,6 +46,8 @@ interface Props {
   disabled?: boolean;
   /** Layout-only: dock under the room action toolbar in fullscreen, never overlay its buttons. */
   isFullscreen?: boolean;
+  /** Shared selection from the floor-map drawing toolbar; does not change room geometry. */
+  selectedTool?: DrawTool;
   onOpenChange?: (active:boolean)=>void;
   // The same CAD/OSNAP settings already used by the normal room drawing tools.
   objectSnapEnabled: boolean;
@@ -58,7 +60,7 @@ interface Props {
 }
 
 export const FloorHighlightDirectDraw: React.FC<Props> = ({
-  room, floor, imageContainer, rotation, onSaveShapes, onShowLayer, isLocked, disabled=false, isFullscreen=false, onOpenChange,
+  room, floor, imageContainer, rotation, onSaveShapes, onShowLayer, isLocked, disabled=false, isFullscreen=false, selectedTool, onOpenChange,
   objectSnapEnabled, objectSnapMidpoints, cadGridSnap, cadOrtho, cadPolar, launch,
 }) => {
   const [open, setOpen] = useState(false);
@@ -69,7 +71,18 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
   const [wallOpenings, setWallOpenings] = useState('0');
   const [category, setCategory] = useState(() => getDirectHighlightCategoryNames(room)[0] || '');
   const [target, setTarget] = useState<Target>('main');
-  const [tool, setTool] = useState<DrawTool>('2point');
+  const tool: DrawTool = selectedTool ?? '2point';
+  const [showOptions, setShowOptions] = useState(false);
+  // UI-only choice: a measured m² quantity is written only on deliberate confirmation.
+  // Persisting a cross-category shared-source/auto policy needs a separate server-reviewed CAS design.
+  const [quantityMode, setQuantityMode] = useState<'measure' | 'manual'>('measure');
+  // The map-toolbar tools select Cách 2 geometry, never create a new room.
+  // A mode change keeps completed draft regions; only the unfinished gesture is cleared.
+  useEffect(() => {
+    setCorners([]); setFreehand([]); setHover(null); setSnapMarker(null);
+    freehandRef.current = []; activePointerRef.current = null;
+    setLineMode(false); setMeasurePath([]);
+  }, [selectedTool]);
   const [draft, setDraft] = useState<HighlightRegionShape[]>([]);
   const [corners, setCorners] = useState<Point2D[]>([]);
   const [hover, setHover] = useState<Point2D | null>(null);
@@ -138,7 +151,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
     setLineMode(false);
     setDraft([]); setCorners([]); setMeasurePath([]); setNotice('');
     baselineRef.current = { revision: room.revision, updatedAt: room.updatedAt };
-    setOpen(true); onOpenChange?.(true);
+    setOpen(true); setShowOptions(false); setQuantityMode('measure'); onOpenChange?.(true);
     // Opening is keyed exclusively by the deliberate navigation token.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [launch?.token, room.id, imageContainer]);
@@ -151,7 +164,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
       setNotice('Không thể vẽ: vùng phòng không hợp lệ, đang khóa hoặc đã nghiệm thu.'); return;
     }
     baselineRef.current = { revision: room.revision, updatedAt: room.updatedAt };
-    setOpen(true); onOpenChange?.(true); clearWork();
+    setOpen(true); setShowOptions(false); setQuantityMode('measure'); onOpenChange?.(true); clearWork();
   };
   const addShape = (shape: HighlightRegionShape) => {
     if (!validateHighlightShape(shape)) { setNotice('Vùng vẽ không hợp lệ hoặc quá nhỏ.'); return; }
@@ -254,7 +267,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
     } finally { setSaving(false); }
   };
 
-  /** Explicit opt-in only. Never update official quantities by drawing or previewing. */
+  /** Explicit user confirmation: region edits do NOT change official quantity until server CAS succeeds. */
   const confirmMeasuredQuantity = async (kind: 'area' | 'length' | 'wall') => {
     if (saving || locked || disabled || !floor || !isSameRoomDraft() || !baselineRef.current || missingTarget) {
       setNotice('Bản vẽ hoặc dữ liệu phòng đã thay đổi. Mở lại công cụ trước khi xác nhận.'); return;
@@ -268,7 +281,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
     if (kind === 'length' ? !isLengthUnit : !isAreaUnit) {
       setNotice('Đơn vị hạng mục không khớp m hoặc m². Không tự chuyển đổi đơn vị.'); return;
     }
-    if (kind === 'area' && (!candidateShapes.length || !previewRatio.valid || !candidateShapes.every(validateHighlightShape))) {
+    if (kind === 'area' && (!candidateShapes.length || candidateShapes.length > LIMIT || !previewRatio.valid || !candidateShapes.every(validateHighlightShape))) {
       setNotice('Cần vùng vẽ hợp lệ trước khi chuyển diện tích thành khối lượng.'); return;
     }
     const value = Math.round(measure.value * 1000) / 1000;
@@ -280,7 +293,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
     const unit = measure.unit;
     if (!window.confirm(`XÁC NHẬN CẬP NHẬT KHỐI LƯỢNG CHÍNH THỨC\n${label}\n` +
       `Giá trị cũ: ${oldQuantity ?? 'chưa nhập'} ${activeUnit}\nGiá trị đo mới: ${value} ${unit}\n` +
-      'Chỉ ADMIN được phép xác nhận. Hạng mục được chuyển về KL thủ công để không bị công thức Cách 1 cũ tính lại. Vùng và dữ liệu Cách 1 lịch sử vẫn giữ nguyên. Tiếp tục?')) return;
+      `${kind === 'area' && replaceExisting && oldShapes.length ? 'Các vùng cũ của đúng hạng mục này sẽ được thay thế. ' : ''}Chỉ ADMIN được xác nhận. Vùng cũ của hạng mục khác và dữ liệu lịch sử vẫn giữ nguyên. Tiếp tục?`)) return;
     const request: DirectHighlightQuantitySaveRequest = {
       roomId: room.id, expectedUpdatedAt: baselineRef.current.updatedAt,
       expectedRevision: baselineRef.current.revision, category: currentCategory, target: currentTarget,
@@ -294,7 +307,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
       await onSaveShapes(request);
       closeAfterServerAck();
     } catch (error) {
-      setNotice(`Chưa cập nhật KL: ${error instanceof Error ? error.message : String(error)}. Bản nháp và KL cũ giữ nguyên.`);
+      setNotice(`Chưa cập nhật KL: ${error instanceof Error ? error.message : String(error)}. Nếu hạng mục đang dùng vùng tổng tự tính, hãy kiểm tra lại nguồn vùng tổng trong Căn/Phòng; không tự đổi sang nhập tay. Bản nháp và KL cũ giữ nguyên.`);
     } finally { setSaving(false); }
   };
   useEffect(() => {
@@ -318,15 +331,24 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
         // Normal viewport: stay below the top-left room operations and above bottom zoom controls.
         : 'absolute right-2 top-14 z-[80] pointer-events-auto max-w-[calc(100%-16px)] max-h-[calc(100%-7rem)] overflow-y-auto overscroll-contain'}>
       <div className={`rounded-xl border border-sky-400/50 bg-slate-950/95 p-2 text-white shadow-2xl text-[11px] ${open ? 'w-[min(340px,calc(100vw-32px))]' : 'w-fit'}`}>
-        <div className="flex items-center justify-between gap-2">
-          {open && <span className="font-extrabold truncate">Vẽ Highlight · {room.roomName}</span>}
+        <div className="flex items-center justify-between gap-1.5">
+          {open && <span className="font-extrabold truncate min-w-0">Đo vẽ KL · {room.roomName}</span>}
+          {open && <button type="button" data-hnl-direct-highlight-options-toggle="true"
+            aria-expanded={showOptions} onClick={() => setShowOptions(v => !v)}
+            className="shrink-0 px-2 py-1.5 rounded-lg border border-slate-600 bg-slate-800">
+            {showOptions ? 'Thu gọn' : 'Tùy chọn ▾'}
+          </button>}
           <button type="button" disabled={saving || (!hasDrawPermission && !open)} aria-pressed={open} onClick={toggle}
-            aria-label={open ? 'Tắt vẽ Highlight Cách 2' : 'Bật vẽ Highlight Cách 2'}
+            aria-label={open ? 'Tắt Đo vẽ khối lượng' : 'Bật Đo vẽ khối lượng'}
             className={`shrink-0 px-3 py-1.5 rounded-lg font-bold ${open ? 'bg-rose-700' : 'bg-sky-600 disabled:bg-slate-700'}`}>
-            {open ? 'Tắt vẽ' : 'Bật vẽ Cách 2'}
+            {open ? 'Tắt vẽ' : 'Đo vẽ KL'}
           </button>
         </div>
-        {open && <div className="mt-2 space-y-2 border-t border-slate-700 pt-2" data-hnl-direct-highlight-edit="true">
+        {open && <div className="mt-1.5 space-y-1.5 border-t border-slate-700 pt-1.5" data-hnl-direct-highlight-edit="true">
+          <div className="text-[10px] text-sky-200 truncate" title={currentCategory}>
+            {currentCategory || 'Chưa chọn hạng mục'} · {targetStage?.name || 'Hạng mục chính'} · {lineMode ? 'Đo tuyến' : tool === '2point' ? '2 điểm' : tool === 'polygon' ? 'Đa giác' : 'Tự do'}
+          </div>
+          {showOptions && <div className="space-y-1.5" data-hnl-direct-highlight-advanced="true">
           <label className="block font-bold">Hạng mục chính
             <select aria-label="Hạng mục chính của vùng highlight" className="mt-1 w-full rounded-lg bg-white text-slate-900 p-2" value={currentCategory}
               onChange={(event) => changeCategory(event.target.value)}>
@@ -340,17 +362,11 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
               {stages.map((stage) => <option key={stage.id} value={stage.id}>{stage.name}</option>)}
             </select>
           </label>
-          <div className="flex gap-1" role="group" aria-label="Công cụ vẽ trực tiếp">
-            {(['2point', 'polygon', 'freehand'] as const).map((value) => <button key={value} type="button" aria-pressed={tool === value}
-              onClick={() => { clearWork(); setLineMode(false); setTool(value); }}
-              className={`flex-1 rounded-md border p-1.5 font-bold ${tool === value ? 'bg-sky-600 border-sky-300' : 'border-slate-600'}`}>
-              {value === '2point' ? '2 điểm' : value === 'polygon' ? 'Đa giác' : 'Tự do'}
-            </button>)}
-          </div>
+          </div>}
           <button type="button" data-hnl-cach2-line-mode="true" aria-pressed={lineMode}
             disabled={draft.length > 0} onClick={() => { setLineMode(v=>!v); setMeasurePath([]); setCorners([]); }}
             className={`w-full rounded-md border p-1.5 text-left font-bold ${lineMode?'border-teal-300 bg-teal-800':'border-slate-600 bg-slate-800'}`}>
-            Đo tuyến m / vách m² (xem trước, xác nhận riêng)
+            {lineMode ? '◉ Đang đo chiều dài / vách' : '📏 Đo chiều dài / vách'}
           </button>
           {lineMode && <div className="space-y-1 text-[10px]" data-hnl-cach2-length-preview="true">
             <div>Chạm lần lượt các điểm theo tuyến. {measurePath.length} điểm. Tuyến không tự chuyển thành vùng khép kín.</div>
@@ -373,34 +389,45 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
             {isAreaUnit && <button type="button" disabled={saving || locked || missingTarget || !wallAreaPreview?.valid}
               onClick={() => void confirmMeasuredQuantity('wall')} className="rounded bg-emerald-700 px-2 py-1 disabled:opacity-50 font-bold">Xác nhận KL vách (m²)</button>}
           </div>}
-          <div data-hnl-direct-highlight-cad-settings="true" className="text-[10px] text-sky-200">
+          {showOptions && <div data-hnl-direct-highlight-cad-settings="true" className="text-[10px] text-sky-200">
             Bắt điểm có sẵn: OSNAP {objectSnapEnabled ? (objectSnapMidpoints ? '(góc + trung điểm)' : '(góc)') : 'tắt'} · Lưới {cadGridSnap ? 'bật' : 'tắt'} · Vuông góc {cadOrtho ? 'bật' : 'tắt'} · Góc {cadPolar ? 'bật' : 'tắt'}.
             {tool === 'freehand' ? ' Nét tự do giữ nguyên, không hút từng điểm.' : ''}
-          </div>
+          </div>}
           <div className="text-[10px] text-slate-200">{lineMode ? 'Đang đo tuyến m: chưa lưu kết quả vào khối lượng.' : tool === '2point' ? 'Chạm 2 góc đối diện.' : tool === 'polygon' ? `Chấm các đỉnh rồi bấm Chốt (${corners.length} điểm).` : 'Nhấn giữ và rê để khoanh vùng.'} Dữ liệu chưa ghi khi đang vẽ.</div>
           {tool === 'polygon' && <div className="flex gap-1">
             <button type="button" disabled={corners.length < 3} onClick={() => addShape(toPolygon(corners, 'polygon'))} className="rounded-lg bg-emerald-700 disabled:opacity-50 px-2 py-1">Chốt đa giác</button>
             <button type="button" disabled={!corners.length} onClick={() => setCorners((prev) => prev.slice(0, -1))} className="rounded-lg bg-slate-700 px-2 py-1">Lùi 1 điểm</button>
           </div>}
-          <label className="flex items-center gap-2 text-amber-200"><input type="checkbox" checked={replaceExisting}
-            onChange={(event) => { clearWork(); setReplaceExisting(event.target.checked); }} />Thay thế các vùng cũ (cần xác nhận)</label>
+          {showOptions && <label className="flex items-center gap-2 text-amber-200"><input type="checkbox" checked={replaceExisting}
+            onChange={(event) => { clearWork(); setReplaceExisting(event.target.checked); }} />Thay thế các vùng cũ (cần xác nhận)</label>}
+          {!lineMode && <label className="flex flex-wrap items-center gap-2 text-[10px] font-bold" data-hnl-metric-quantity-mode="true">
+            Tính khối lượng
+            <select aria-label="Chế độ tính khối lượng theo vùng" value={isAreaUnit ? quantityMode : 'manual'}
+              disabled={!isAreaUnit || saving}
+              onChange={(event) => setQuantityMode(event.target.value as 'manual' | 'measure')}
+              className="rounded border border-slate-500 bg-slate-900 px-2 py-1 text-white">
+              <option value="measure">Đo m² · xác nhận lưu</option>
+              <option value="manual">Nhập tay</option>
+            </select>
+            {!isAreaUnit && <span className="font-normal text-amber-200">ĐVT {activeUnit} không quy đổi từ m²; nhập tay trong Căn/Phòng</span>}
+          </label>}
           <div data-hnl-cach2-area-preview="true" className="text-[10px]">
             Có {oldShapes.length} vùng cũ · {draft.length} vùng nháp.
             {isAreaUnit ? (metricPreview.valid
-              ? ` KL tự tính: ${metricPreview.value.toLocaleString('vi-VN', {maximumFractionDigits:2})} m² (tham khảo, không ghi KL)`
+              ? ` KL tự tính: ${metricPreview.value.toLocaleString('vi-VN', {maximumFractionDigits:2})} m² (xem trước)`
               : ` ${'reason' in metricPreview ? metricPreview.reason : 'Chưa có kết quả đo'}`)
               : ' Hạng mục đơn vị khác m²: không suy khối lượng từ diện tích. Tuyến m cần đo riêng.'}
           </div>
-          {!lineMode && isAreaUnit && <button type="button" data-hnl-cach2-confirm-area-quantity="true"
+          {!lineMode && isAreaUnit && quantityMode === 'measure' && <button type="button" data-hnl-cach2-confirm-area-quantity="true"
             disabled={saving || locked || missingTarget || !metricPreview.valid || !candidateShapes.length}
             onClick={() => void confirmMeasuredQuantity('area')}
             className="w-full rounded-lg bg-emerald-700 disabled:opacity-50 px-3 py-2 font-bold text-left">
-            Xác nhận cập nhật KL chính thức theo diện tích (m²)
+            Lưu vùng + KL {metricPreview.valid ? `${metricPreview.value.toLocaleString('vi-VN', {maximumFractionDigits:2})} m²` : 'm²'}
           </button>}
           {locked && <span className="text-amber-300 font-bold">Phòng/hạng mục bị khóa hoặc đã nghiệm thu; không cho lưu.</span>}
           {notice && <div role="status" className="text-amber-200 break-words">{notice}</div>}
           <div className="flex gap-2">
-            <button type="button" disabled={saving || lineMode || !draft.length || locked || missingTarget} onClick={() => void save()} className="rounded-lg bg-emerald-700 disabled:opacity-50 px-3 py-1.5 font-bold">Lưu vùng</button>
+            <button type="button" disabled={saving || lineMode || !draft.length || locked || missingTarget} onClick={() => void save()} className="rounded-lg bg-slate-700 disabled:opacity-50 px-3 py-1.5 font-bold">{isAreaUnit && quantityMode === 'measure' ? 'Chỉ lưu vùng' : 'Lưu vùng'}</button>
             <button type="button" disabled={saving} onClick={clearWork} className="rounded-lg bg-slate-700 px-3 py-1.5">Xóa nháp</button>
             <button type="button" disabled={saving} onClick={toggle} className="rounded-lg bg-slate-700 px-3 py-1.5">Hủy</button>
           </div>
@@ -418,15 +445,15 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
         onPointerCancel={(event) => { event.stopPropagation(); activePointerRef.current = null; freehandRef.current = []; setFreehand([]); }}
         onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}
         onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); }}>
-        {existingShapes.map((points, i) => <polygon key={`existing-${i}`} points={points.map(p => `${p.x},${p.y}`).join(' ')} fill={rgba(currentTarget)} fillOpacity={0.12} stroke={rgba(currentTarget)} strokeWidth="0.45" strokeDasharray="1.5,0.8" />)}
-        {visibleShapes.map((points, i) => <polygon key={`draft-${i}`} points={points.map(p => `${p.x},${p.y}`).join(' ')} fill="#f59e0b" fillOpacity={0.30} stroke="#f59e0b" strokeWidth="0.65" />)}
-        {measurePath.length > 0 && <polyline data-hnl-cach2-floor-line="true" points={measurePath.map(p=>`${p.x},${p.y}`).join(' ')} fill="none" stroke="#2dd4bf" strokeWidth="0.55" strokeDasharray="1,0.4" />}
-        {measurePath.map((p,i)=><circle key={`line-${i}`} cx={p.x} cy={p.y} r="0.55" stroke="white" strokeWidth="0.16" fill="#0d9488" />)}
-        {!lineMode && activePreview.length > 0 && <polyline points={toFloorSvg(activePreview)} fill="none" stroke="#f59e0b" strokeWidth="0.55" strokeDasharray="1.5,0.7" />}
-        {!lineMode && activePreview.map((point,i) => <circle key={i} cx={room.x + room.width * point.x / 100} cy={room.y + room.height * point.y / 100} r="0.6" fill="#f59e0b" />)}
+        {existingShapes.map((points, i) => <polygon key={`existing-${i}`} points={points.map(p => `${p.x},${p.y}`).join(' ')} fill={rgba(currentTarget)} fillOpacity={0.12} stroke={rgba(currentTarget)} strokeWidth="0.26" strokeDasharray="1.5,0.8" />)}
+        {visibleShapes.map((points, i) => <polygon key={`draft-${i}`} points={points.map(p => `${p.x},${p.y}`).join(' ')} fill="#f59e0b" fillOpacity={0.30} stroke="#f59e0b" strokeWidth="0.32" />)}
+        {measurePath.length > 0 && <polyline data-hnl-cach2-floor-line="true" points={measurePath.map(p=>`${p.x},${p.y}`).join(' ')} fill="none" stroke="#2dd4bf" strokeWidth="0.30" strokeDasharray="1,0.4" />}
+        {measurePath.map((p,i)=><circle key={`line-${i}`} cx={p.x} cy={p.y} r="0.34" stroke="white" strokeWidth="0.12" fill="#0d9488" />)}
+        {!lineMode && activePreview.length > 0 && <polyline points={toFloorSvg(activePreview)} fill="none" stroke="#f59e0b" strokeWidth="0.3" strokeDasharray="1.5,0.7" />}
+        {!lineMode && activePreview.map((point,i) => <circle key={i} cx={room.x + room.width * point.x / 100} cy={room.y + room.height * point.y / 100} r="0.32" fill="#f59e0b" />)}
         {snapMarker && <g pointerEvents="none" data-hnl-direct-highlight-snap-marker={snapMarker.kind}>
-          <circle cx={snapMarker.point.x} cy={snapMarker.point.y} r="1.0" fill="none" stroke="#22d3ee" strokeWidth="0.35" />
-          <circle cx={snapMarker.point.x} cy={snapMarker.point.y} r="0.32" fill="#22d3ee" />
+          <circle cx={snapMarker.point.x} cy={snapMarker.point.y} r="0.55" fill="none" stroke="#22d3ee" strokeWidth="0.22" />
+          <circle cx={snapMarker.point.x} cy={snapMarker.point.y} r="0.22" fill="#22d3ee" />
         </g>}
       </svg>, imageContainer)}
   </>;

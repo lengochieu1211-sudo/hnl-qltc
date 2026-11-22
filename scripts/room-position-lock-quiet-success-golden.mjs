@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+const src = readFileSync('src/components/FloorPlanDefectTab.tsx', 'utf8');
+const body = src.match(/const toggleSelectedRoomLock = async \(\) => \{([\s\S]*?)\n  \};\n\n  const toggleDefectLock/);
+assert.ok(body, 'room position-lock handler must remain');
+const lock = body[1];
+assert.match(lock, /await onCommitPositionLocks\('room', entries, locked\)/, 'server ack before UI state');
+assert.match(lock, /setLockedRoomIds\(\(prev\) =>/, 'successful commit must still update UI lock state');
+assert.doesNotMatch(lock, /setCopyNotification\(['"]Đã lưu khóa vị trí phòng lên Firestore/, 'success toast must not obscure controls');
+assert.match(lock, /setCopyNotification\('Chưa lưu được khóa phòng: '/, 'failed save must remain visible');
+assert.match(lock, /setCopyNotification\('Chưa kết nối được chức năng khóa vị trí Cloud.'/,'missing Cloud capability warning must remain visible');
+assert.match(lock, /if \(!canManageStructure \|\| positionLockBusy/, 'permission and concurrency gate must remain');
+assert.match(lock, /hasLegacyOnlyLock && !window\.confirm/, 'legacy-lock migration requires confirmation');
+assert.match(lock, /finally \{\s*setPositionLockBusy\(false\)/, 'busy state always reset');
+assert.match(src, /setCopyNotification\('Đã lưu khóa vị trí Defect lên Firestore.'/,'Defect behavior not part of this patch');
+assert.match(src, /\{selectedRoomsAreLocked \? 'Mở khóa' : 'Khóa'\}/, 'button is existing non-overlay success feedback');
+console.log('ROOM_POSITION_LOCK_QUIET_SUCCESS_GOLDEN PASS: cloud ack, state, RBAC, error, legacy');
