@@ -77,6 +77,7 @@ import type { HighlightCountSaveRequest } from '../utils/highlightCountPoints';
 import type { DirectHighlightCommitRequest } from '../utils/floorHighlightDirectShapes';
 import { resolveDirectHighlightLaunchCategory } from '../utils/floorHighlightDirectShapes';
 import { getRoomColorStyle, ROOM_COLOR_PALETTE } from '../utils/colorPalette';
+import { buildFloorHighlightColorLegend, mainHighlightColorKey, childHighlightColorKey } from '../utils/highlightCategoryColors';
 import { getRoomMapStageLabels, getRoomMapConstructionIcon, getRoomMapInspectionIcon } from '../utils/roomMapStageLabels';
 import { getDefectOverdueInfo, getDefectShortCode } from '../utils/defectUtils';
 import { addLocalCalendarDaysToDateInput, formatDateDDMMYYYY, parseLegacyTimestamp, toLocalDateInputValue } from '../utils/dateFormatter';
@@ -3911,6 +3912,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (!draggingRoomsPreview) return floorRooms;
     return floorRooms.map((r) => draggingRoomsPreview[r.id] || r);
   }, [floorRooms, draggingRoomsPreview]);
+
+  // Read-only, deterministic floor-wide colors for both main and child stages.
+  const highlightColorLegend = React.useMemo(() => buildFloorHighlightColorLegend(floorRooms), [floorRooms]);
+  const [showHighlightColorLegend, setShowHighlightColorLegend] = useState(true);
+  const visibleHighlightColorRows = highlightColorLegend.entries.filter((entry) =>
+    entry.hasGeometry && (entry.kind === 'main' ? mapLayers.mainHighlightRegions : mapLayers.subItemRegions));
 
   const getSavedRoomSnap = (point: Point2D, rect: DOMRect, pointerType?: string): RoomSnapCandidate | null => {
     if (!objectSnapEnabled || !isRoomCreationDrawing) return null;
@@ -8256,6 +8263,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   else { setCach2DrawLaunch(null); setCach2DrawTool('2point'); }
                 }}
                 onSaveShapes={onSaveDirectHighlightShapes}
+                highlightColors={highlightColorLegend.colors}
                 onShowLayer={(layer) => setMapLayers((prev) => ({ ...prev, [layer]: true }))}
               />
             )}
@@ -8293,6 +8301,35 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <div className="absolute top-12 left-1/2 -translate-x-1/2 z-[60] bg-slate-950/95 text-amber-300 text-xs font-black px-3 py-1.5 rounded-xl border border-amber-400/80 shadow-2xl animate-in fade-in zoom-in-95 flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-spin" />
                 <span>{copyNotification}</span>
+              </div>
+            )}
+
+            {/* Legend is anchored to the map viewport, not the zoomed SVG. */}
+            {(viewMode === 'all' || viewMode === 'highlight') && visibleHighlightColorRows.length > 0 && (
+              <div data-hnl-highlight-color-legend="true" className="absolute bottom-16 left-2 z-[55] pointer-events-auto w-[min(300px,calc(100%-24px))] max-w-[calc(100%-24px)] rounded-xl border border-slate-600 bg-slate-950/95 text-white shadow-xl text-[11px]">
+                <button type="button" aria-expanded={showHighlightColorLegend}
+                  onClick={() => setShowHighlightColorLegend((value) => !value)}
+                  className="w-full flex items-center justify-between gap-2 px-2.5 py-2 font-extrabold text-left">
+                  <span className="truncate">🎨 Chú giải màu Highlight ({visibleHighlightColorRows.length})</span>
+                  <span aria-hidden="true">{showHighlightColorLegend ? '▴' : '▾'}</span>
+                </button>
+                {showHighlightColorLegend && (
+                  <div className="max-h-[32dvh] overflow-y-auto overscroll-contain border-t border-slate-700 p-2 space-y-1.5">
+                    <div className="text-[10px] text-slate-300">Nét liền: hạng mục chính · Nét đứt: hạng mục con</div>
+                    {visibleHighlightColorRows.map((entry) => {
+                      const parentName = workVolumes.find((work) => work.id === entry.category)?.title || entry.category;
+                      return <div key={entry.key} className="flex items-start gap-2 rounded-md px-1 py-1 bg-slate-800/60" title={entry.kind === 'main' ? parentName : `${entry.name} · ${parentName}`}>
+                        <span aria-hidden="true" className="w-4 h-4 shrink-0 mt-px rounded-sm border-2"
+                          style={{backgroundColor:entry.color,borderColor:entry.kind === 'main' ? entry.color : '#ffffff', borderStyle:entry.kind === 'main' ? 'solid' : 'dashed'}} />
+                        <span className="min-w-0 leading-snug break-words">
+                          <span className="font-bold">{entry.kind === 'main' ? parentName : entry.name}</span>
+                          {entry.kind === 'child' && <span className="block text-[10px] text-slate-300">Con của: {parentName}</span>}
+                        </span>
+                      </div>;
+                    })}
+                    <div className="text-[10px] text-amber-200">Màu vàng khi đang vẽ là vùng nháp, chưa lưu.</div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -8545,8 +8582,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               points={pendingDraftHighlight.points.map((p) => `${p.x},${p.y}`).join(' ')}
                               fill="none"
                               stroke="#f59e0b"
-                              strokeWidth={1.8 * strokeScale}
-                              strokeDasharray="2,1"
+                              strokeWidth={2.5 * savedRoomStrokeScale}
+                              vectorEffect="non-scaling-stroke"
+                              strokeDasharray="6 3"
                               strokeLinecap="round"
                               strokeLinejoin="round"
                               className="animate-pulse"
@@ -8556,8 +8594,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               points={pendingDraftHighlight.points.map((p) => `${p.x},${p.y}`).join(' ')}
                               fill="rgba(245, 158, 11, 0.45)"
                               stroke="#f59e0b"
-                              strokeWidth={1.2 * strokeScale}
-                              strokeDasharray="2,1"
+                              strokeWidth={2.3 * savedRoomStrokeScale}
+                              vectorEffect="non-scaling-stroke"
+                              strokeDasharray="6 3"
                               className="animate-pulse"
                             />
                           )
@@ -8586,8 +8625,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         height={Math.abs(drawHoverPos.y - drawStartPos.y)}
                         fill="rgba(99, 102, 241, 0.35)"
                         stroke="#2563eb"
-                        strokeWidth={0.8 * strokeScale}
-                        strokeDasharray="2,2"
+                        strokeWidth={2 * savedRoomStrokeScale}
+                        vectorEffect="non-scaling-stroke"
+                        strokeDasharray="6 3"
                       />
                     )}
 
@@ -8597,8 +8637,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     points={freehandPoints.map((p) => `${p.x},${p.y}`).join(' ')}
                     fill="none"
                     stroke="#f59e0b"
-                    strokeWidth={1.2 * strokeScale}
-                    strokeDasharray="1,1"
+                    strokeWidth={2.3 * savedRoomStrokeScale}
+                    vectorEffect="non-scaling-stroke"
+                    strokeDasharray="6 3"
                   />
                 )}
 
@@ -8627,8 +8668,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       }
                       fill="none"
                       stroke="#f59e0b"
-                      strokeWidth={1.2 * strokeScale}
-                      strokeDasharray="1,1"
+                      strokeWidth={2.3 * savedRoomStrokeScale}
+                      vectorEffect="non-scaling-stroke"
+                      strokeDasharray="6 3"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     />
@@ -8785,7 +8827,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         (room.categoryHighlightRegions?.[cat] ? [room.categoryHighlightRegions[cat]] : []);
                       const shapes = [
                         ...(mapLayers.totalHighlightRegions ? (room.categoryHighlightTotalShapes?.[cat] || []).map(shape => ({shape,color:'#64748b',label:'total'})) : []),
-                        ...(mapLayers.mainHighlightRegions ? main.map(shape => ({shape,color:'#0284c7',label:'main'})) : []),
+                        ...(mapLayers.mainHighlightRegions ? main.map(shape => ({shape,color:highlightColorLegend.colors[mainHighlightColorKey(cat)] || '#2563eb',label:'main'})) : []),
                       ];
                       return shapes.flatMap(({shape,color,label},i) => {
                         const points = getHighlightShapeFloorPoints(room,shape);
@@ -8835,7 +8877,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         const roomKey = room.id.replace(/[^a-zA-Z0-9_-]/g, '-');
                         const mainClipId = `hnl-stage-main-${roomKey}-${index}`;
                         const totalClipId = `hnl-stage-total-${roomKey}-${index}`;
-                        const c = stage.highlightColor || ['#2563eb', '#f59e0b', '#16a34a', '#9333ea', '#dc2626', '#0891b2'][index % 6];
+                        const c = highlightColorLegend.colors[childHighlightColorKey(cat, stage.name?.trim() || stage.id)] || stage.highlightColor || '#16a34a';
                         const shapes = stage.highlightShapes?.length ? stage.highlightShapes : (stage.highlightRegions || []);
                         return <g key={stage.id}>
                           {mainShapes.length > 0 && <defs><clipPath id={mainClipId}>
@@ -8855,7 +8897,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               {shapes.flatMap((shape,i) => {
                                 const p = getHighlightShapeFloorPoints(room,shape);
                                 return p ? [<polygon key={`${stage.id}-${i}`} points={p.map(q=>`${q.x},${q.y}`).join(' ')}
-                                  fill={c} fillOpacity={0.28} stroke={c} strokeWidth={1.7} vectorEffect="non-scaling-stroke" />] : [];
+                                  fill={c} fillOpacity={0.28} stroke={c} strokeWidth={1.7} strokeDasharray="5 3" vectorEffect="non-scaling-stroke" />] : [];
                               })}
                             </g>
                           </g>

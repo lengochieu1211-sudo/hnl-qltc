@@ -82,6 +82,8 @@ jobs:
         run: node scripts/highlight-metric-marker-size-golden.mjs
       - name: Cách 2 room-form to floor-map launch golden (DEV only, no deploy)
         run: node scripts/highlight-cach2-room-entry-golden.mjs
+      - name: Main and child Highlight colors + zoom dash density Golden (no deploy)
+        run: node --experimental-strip-types scripts/highlight-colors-zoom-dash-golden.mjs
 
 
       - name: 10-group targeted QA regression (source-only, no deploy)

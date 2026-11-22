@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { FloorPlan, HighlightRegionShape, Point2D, RoomProgressItem, WorkVolume } from '../types';
 import { getValidFloorMetricCalibration, measureHighlightAreaM2, measureHighlightLengthM, measureWallAreaM2 } from '../utils/highlightMetricGeometry';
 import { getDirectStageCategory, getSavedDirectHighlightShapes, getDirectHighlightCategoryNames, resolveDirectHighlightLaunchCategory, mapDirectHighlightPointerToFloor, getDirectHighlightDrawPoint } from '../utils/floorHighlightDirectShapes';
+import { mainHighlightColorKey, childHighlightColorKey } from '../utils/highlightCategoryColors';
 import type { DirectHighlightCommitRequest, DirectHighlightQuantitySaveRequest } from '../utils/floorHighlightDirectShapes';
 import {
   calculateHighlightTotalRatio,
@@ -21,7 +22,7 @@ const LIMIT = 24;
 const POINT_LIMIT = 128;
 const clamp = (n: number) => Math.max(0, Math.min(100, n));
 const distance = (a: Point2D, b: Point2D) => Math.hypot(a.x - b.x, a.y - b.y);
-const rgba = (target: Target) => target === 'total' ? '#64748b' : target === 'main' ? '#0284c7' : '#16a34a';
+// Saved region colors come from the floor-wide legend (not a single hard-coded blue).
 
 const roomPoint = (floor: Point2D, room: RoomProgressItem): Point2D => ({
   x: clamp((floor.x - room.x) * 100 / room.width),
@@ -43,6 +44,7 @@ interface Props {
   imageContainer: HTMLElement | null;
   rotation: number;
   onSaveShapes: (request: DirectHighlightCommitRequest) => Promise<void>;
+  highlightColors: Readonly<Record<string, string>>;
   onShowLayer: (layer: 'totalHighlightRegions' | 'mainHighlightRegions' | 'subItemRegions') => void;
   isLocked: boolean;
   disabled?: boolean;
@@ -62,7 +64,7 @@ interface Props {
 }
 
 export const FloorHighlightDirectDraw: React.FC<Props> = ({
-  room, workVolumes = [], floor, imageContainer, rotation, onSaveShapes, onShowLayer, isLocked, disabled=false, isFullscreen=false, selectedTool, onOpenChange,
+  room, workVolumes = [], floor, imageContainer, rotation, onSaveShapes, highlightColors, onShowLayer, isLocked, disabled=false, isFullscreen=false, selectedTool, onOpenChange,
   objectSnapEnabled, objectSnapMidpoints, cadGridSnap, cadOrtho, cadPolar, launch,
 }) => {
   const [open, setOpen] = useState(false);
@@ -103,6 +105,9 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
   const stages = (room.subItems || []).filter((stage) => getDirectStageCategory(stage, room) === currentCategory);
   const currentTarget: Target = target === 'main' || stages.some((stage) => stage.id === target) ? target : 'main';
   const targetStage = stages.find((stage) => stage.id === currentTarget);
+  const currentHighlightColor = currentTarget === 'total' ? '#64748b'
+    : currentTarget === 'main' ? (highlightColors[mainHighlightColorKey(currentCategory)] || '#2563eb')
+    : (highlightColors[childHighlightColorKey(currentCategory, targetStage?.name?.trim() || targetStage?.id || currentTarget)] || '#16a34a');
   const locked = isLocked || room.positionLocked === true || room.inspectionStatus === 'Đạt nghiệm thu' ||
     Boolean(targetStage && (targetStage.status === 'Đã hoàn thành' || targetStage.inspectionStatus === 'Đạt nghiệm thu'));
   const oldShapes = useMemo(() => getSavedDirectHighlightShapes(room, currentCategory, currentTarget), [room, currentCategory, currentTarget]);
@@ -378,8 +383,9 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
           </button>
         </div>
         {open && <div className="mt-1.5 space-y-1.5 border-t border-slate-700 pt-1.5" data-hnl-direct-highlight-edit="true">
-          <div className="text-[10px] text-sky-200 truncate" title={currentCategory}>
-            {displayCategory || 'Chưa chọn hạng mục'} · {targetStage?.name || 'Hạng mục chính'} · {lineMode ? 'Đo tuyến' : tool === '2point' ? '2 điểm' : tool === 'polygon' ? 'Đa giác' : 'Tự do'}
+          <div data-hnl-highlight-active-color="true" className="flex items-center gap-2 text-[10px] text-sky-200 min-w-0" title={currentCategory}>
+            <span aria-hidden="true" className="w-3.5 h-3.5 rounded-sm shrink-0 border border-white/50" style={{backgroundColor:currentHighlightColor}} />
+            <span className="truncate">{displayCategory || 'Chưa chọn hạng mục'} · {targetStage?.name || 'Hạng mục chính'} · {lineMode ? 'Đo tuyến' : tool === '2point' ? '2 điểm' : tool === 'polygon' ? 'Đa giác' : 'Tự do'}</span>
           </div>
           <div data-hnl-direct-highlight-quantity-summary="true" className="rounded-lg border border-slate-700 bg-slate-900/75 px-2 py-1.5 space-y-0.5 text-[10px] leading-snug">
             <div className="flex flex-wrap gap-x-3 gap-y-0.5">
@@ -490,11 +496,11 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
         onPointerCancel={(event) => { event.stopPropagation(); activePointerRef.current = null; freehandRef.current = []; setFreehand([]); }}
         onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}
         onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); }}>
-        {existingShapes.map((points, i) => <polygon key={`existing-${i}`} points={points.map(p => `${p.x},${p.y}`).join(' ')} fill={rgba(currentTarget)} fillOpacity={0.12} stroke={rgba(currentTarget)} strokeWidth="0.26" strokeDasharray="1.5,0.8" />)}
+        {existingShapes.map((points, i) => <polygon key={`existing-${i}`} points={points.map(p => `${p.x},${p.y}`).join(' ')} fill={currentHighlightColor} fillOpacity={0.12} stroke={currentHighlightColor} strokeWidth="2" strokeDasharray={currentTarget === 'main' ? undefined : '5 3'} vectorEffect="non-scaling-stroke" />)}
         {visibleShapes.map((points, i) => <polygon key={`draft-${i}`} points={points.map(p => `${p.x},${p.y}`).join(' ')} fill="#f59e0b" fillOpacity={0.30} stroke="#f59e0b" strokeWidth="0.32" />)}
-        {measurePath.length > 0 && <polyline data-hnl-cach2-floor-line="true" points={measurePath.map(p=>`${p.x},${p.y}`).join(' ')} fill="none" stroke="#2dd4bf" strokeWidth="0.30" strokeDasharray="1,0.4" />}
+        {measurePath.length > 0 && <polyline data-hnl-cach2-floor-line="true" points={measurePath.map(p=>`${p.x},${p.y}`).join(' ')} fill="none" stroke="#2dd4bf" strokeWidth="2" strokeDasharray="6 3" vectorEffect="non-scaling-stroke" />}
         {measurePath.map((p,i)=><circle key={`line-${i}`} cx={p.x} cy={p.y} r="0.34" stroke="white" strokeWidth="0.12" fill="#0d9488" />)}
-        {!lineMode && activePreview.length > 0 && <polyline points={toFloorSvg(activePreview)} fill="none" stroke="#f59e0b" strokeWidth="0.3" strokeDasharray="1.5,0.7" />}
+        {!lineMode && activePreview.length > 0 && <polyline points={toFloorSvg(activePreview)} fill="none" stroke="#f59e0b" strokeWidth="2" strokeDasharray="6 3" vectorEffect="non-scaling-stroke" />}
         {!lineMode && activePreview.map((point,i) => <circle key={i} cx={room.x + room.width * point.x / 100} cy={room.y + room.height * point.y / 100} r="0.32" fill="#f59e0b" />)}
         {snapMarker && <g pointerEvents="none" data-hnl-direct-highlight-snap-marker={snapMarker.kind}>
           <circle cx={snapMarker.point.x} cy={snapMarker.point.y} r="0.55" fill="none" stroke="#22d3ee" strokeWidth="0.22" />
