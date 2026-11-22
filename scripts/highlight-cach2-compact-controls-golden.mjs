@@ -15,7 +15,7 @@ for(const mode of ['2point','polygon','freehand']) {
 assert.match(floor, /selectedTool=\{cach2DrawTool\}/);
 assert.match(draw, /const tool: DrawTool = selectedTool \?\? '2point'/);
 assert.doesNotMatch(draw, /role="group" aria-label="Công cụ vẽ trực tiếp"/);
-assert.match(floor, /!isShapeDrawing && mapLayers\.roomRegions/, 'room resize handles must not cover or intercept active Highlight');
+assert.match(floor, /(?:!isShapeDrawing && mapLayers\.roomRegions|mapLayers\.roomRegions && !isShapeDrawing)/, 'room resize handles must not cover or intercept active Highlight');
 assert.match(draw, /setOpen\(true\); setShowOptions\(false\); setQuantityMode\('measure'\); onOpenChange\?\.\(true\); clearWork\(\)/, 'manual launch must turn off room handles');
 assert.match(draw, /data-hnl-direct-highlight-options-toggle="true"/);
 assert.match(draw, /aria-expanded=\{showOptions\}/);
