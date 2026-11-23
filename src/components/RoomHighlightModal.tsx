@@ -690,10 +690,22 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   const metricArea = measureRoomHighlightAreaM2(floorPlan,metricRoomGeometry,metricImage);
   const metricLength = measureRoomHighlightLengthM(floorPlan,metricRoomGeometry,metricImage);
   const metricScaleValid = Boolean(floorPlan && metricImage && getValidFloorMetricCalibration(floorPlan,metricImage).valid);
+  // Historical categoryVolumes may be keyed by catalog ID instead of title.
+  // The existing manual editor has its own legacy reconciliation; the new take-metric
+  // action must fail closed here rather than create a second title-keyed quantity.
+  const hasLegacyMetricVolumeKey = (catName: string): boolean => {
+    const normalized = catName.trim().toLocaleLowerCase('vi-VN');
+    return workVolumes.some(item =>
+      item.title.trim().toLocaleLowerCase('vi-VN') === normalized &&
+      [item.id, item.workCategoryId].some(id => Boolean(
+        id && id !== catName && Object.prototype.hasOwnProperty.call(categoryVolumes, id)
+      ))
+    );
+  };
   const applyMeasuredVolume = (catName:string, unit:'m'|'m²', value:number) => {
     const resolved = getCategoryDisplayUnit(catName);
     if(structureReadOnly || roomItem?.positionLocked || roomItem?.inspectionStatus==='Đạt nghiệm thu' ||
-      resolved.warning || !areSameUnit(resolved.unit,unit) || !metricScaleValid || !Number.isFinite(value) || value<=0) return;
+      hasLegacyMetricVolumeKey(catName) || resolved.warning || !areSameUnit(resolved.unit,unit) || !metricScaleValid || !Number.isFinite(value) || value<=0) return;
     // Only change in-memory draft on an explicit button click. Existing Save workflow remains authoritative.
     const rounded = Math.round(value*1000)/1000;
     if(!window.confirm(`Lấy ${rounded.toLocaleString('vi-VN')} ${unit} vào ô Khối lượng hạng mục “${catName}”?\nChưa ghi dữ liệu cho đến khi bấm Lưu Căn / Phòng.`))return;
@@ -1711,16 +1723,17 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                           </span>
                           {!structureReadOnly && (()=>{
                             const resolved = getCategoryDisplayUnit(catName);
-                            const enabled = !resolved.warning && !roomItem?.positionLocked && roomItem?.inspectionStatus!=='Đạt nghiệm thu';
+                            const legacyIdKeyed = hasLegacyMetricVolumeKey(catName);
+                            const enabled = !legacyIdKeyed && !resolved.warning && !roomItem?.positionLocked && roomItem?.inspectionStatus!=='Đạt nghiệm thu';
                             const measure = normalizeUnit(resolved.unit)==='m' ? metricLength : metricArea;
                             const unit: 'm' | 'm²' = normalizeUnit(resolved.unit)==='m'?'m':'m²';
                             const isWallArea = unit==='m²' && /(vách|tường|wall|partition)/i.test(catName);
                             const compatible = normalizeUnit(resolved.unit)===unit && !isWallArea;
                             return <button type="button" data-hnl-prod-take-metric-volume="true"
-                              disabled={!enabled||!compatible||!measure.valid} title={!compatible?'Chỉ lấy trực tiếp cho ĐVT m hoặc m²':resolved.warning || ('reason' in measure?measure.reason:'Điền số đo vào ô nháp, chưa lưu')}
+                              disabled={!enabled||!compatible||!measure.valid} title={legacyIdKeyed?'Phòng cũ lưu khối lượng theo ID hạng mục; vui lòng đối chiếu trước khi lấy số đo, không tự tạo khối lượng trùng.':!compatible?'Chỉ lấy trực tiếp cho ĐVT m hoặc m²':resolved.warning || ('reason' in measure?measure.reason:(unit==='m'?metricLength.label:'Điền số đo vào ô nháp, chưa lưu'))}
                               onClick={()=>{if(measure.valid)applyMeasuredVolume(catName,unit,measure.value)}}
                               className="rounded-lg bg-teal-700 px-2 py-1 text-[10px] font-bold text-white disabled:bg-slate-200 disabled:text-slate-500">
-                              {unit==='m'?'Lấy chiều dài':'Lấy diện tích'}
+                              {unit==='m'?(isPolyline?'Lấy chiều dài':'Lấy chu vi'):'Lấy diện tích'}
                             </button>;
                           })()}
                           {!structureReadOnly && activeCategories.length > 1 && (
