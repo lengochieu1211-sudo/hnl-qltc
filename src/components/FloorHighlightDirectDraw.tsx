@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { FloorPlan, HighlightRegionShape, Point2D, RoomProgressItem, WorkVolume } from '../types';
 import { getValidFloorMetricCalibration, measureHighlightAreaM2, measureHighlightLengthM, measureWallAreaM2 } from '../utils/highlightMetricGeometry';
-import { getDirectStageCategory, getSavedDirectHighlightShapes, getDirectHighlightCategoryNames, resolveDirectHighlightLaunchCategory, mapDirectHighlightPointerToFloor, getDirectHighlightDrawPoint } from '../utils/floorHighlightDirectShapes';
+import { getDirectStageCategory, getSavedDirectHighlightShapes, getDirectHighlightCategoryNames, getDirectHighlightEffectiveUnit, resolveDirectHighlightLaunchCategory, mapDirectHighlightPointerToFloor, getDirectHighlightDrawPoint } from '../utils/floorHighlightDirectShapes';
 import { mainHighlightColorKey, childHighlightColorKey } from '../utils/highlightCategoryColors';
 import { getCalibratedHighlightRows } from '../utils/highlightMetricCategorySummary.ts';
 import { useFloorPlanToolPopover } from '../hooks/useFloorPlanToolPopover';
@@ -87,7 +87,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
   const fullscreenPopover = useFloorPlanToolPopover(open, isFullscreen, imageContainer,
     `[data-hnl-fullscreen-highlight-tool="${tool}"]`, 340, 0.73);
   const [showOptions, setShowOptions] = useState(false);
-  const [showAllCategoryMeasures, setShowAllCategoryMeasures] = useState(true);
+  const [showAllCategoryMeasures, setShowAllCategoryMeasures] = useState(false);
   // UI-only choice: a measured m² quantity is written only on deliberate confirmation.
   // Persisting a cross-category shared-source/auto policy needs a separate server-reviewed CAS design.
   const [quantityMode, setQuantityMode] = useState<'measure' | 'manual'>('measure');
@@ -161,8 +161,11 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
     [room, floor, imageDimensions.width, imageDimensions.height, workVolumes]);
   const calculatedRows = calibratedRows.filter((row) => row.areaM2 !== null);
   const formatted = (value: number) => value.toLocaleString('vi-VN', { maximumFractionDigits: 3 });
-  const activeUnit = targetStage?.volumeUnit || (currentTarget === 'main'
-    ? (room.categoryVolumeUnits?.[currentCategory] || room.categoryVolumeUnits?.[displayCategory] || categoryCatalog?.unit || room.volumeUnit || 'm²') : 'm²');
+  // The persisted category unit (including a child's inherited unit) is shared
+  // with the server-side guard. Unknown legacy aliases cannot silently become m².
+  const activeUnit = getDirectHighlightEffectiveUnit(room, currentCategory, currentTarget);
+  const unitLabel = activeUnit || 'Chưa xác định ĐVT';
+  const inheritedRegion = Boolean(targetStage && oldShapes.length === 0 && draft.length === 0);
   const savedQuantity = currentTarget === 'main'
     ? room.categoryVolumes?.[currentCategory] ?? (room.workCategory === currentCategory ? room.workVolume : undefined)
     : targetStage?.workVolume;
@@ -421,7 +424,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
           </button>
           <button type="button" disabled={saving || (!hasDrawPermission && !open)} aria-pressed={open} onClick={toggle}
             aria-label={open ? 'Tắt Đo vẽ khối lượng' : 'Bật Đo vẽ khối lượng'}
-            className={`shrink-0 px-3 py-1.5 rounded-lg font-bold ${open ? 'bg-rose-700' : 'bg-sky-600 disabled:bg-slate-700'}`}>
+            className={`shrink-0 px-2.5 py-1.5 rounded-lg font-bold ${open ? 'bg-rose-700' : 'bg-sky-600 disabled:bg-slate-700'}`}>
             {open ? 'Tắt vẽ' : 'Đo vẽ KL'}
           </button>
         </div>
@@ -432,10 +435,12 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
           </div>
           <div data-hnl-direct-highlight-quantity-summary="true" className="rounded-lg border border-slate-700 bg-slate-900/75 px-2 py-1.5 space-y-0.5 text-[10px] leading-snug">
             <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-              <span>KL đang lưu: <b className="text-emerald-200">{savedQuantity === undefined ? 'Chưa nhập' : Number(savedQuantity).toLocaleString('vi-VN', {maximumFractionDigits:3})} {activeUnit}</b></span>
+              <span>KL đang lưu: <b className="text-emerald-200">{savedQuantity === undefined ? 'Chưa nhập' : Number(savedQuantity).toLocaleString('vi-VN', {maximumFractionDigits:3})} {unitLabel}</b></span>
               <span>Đo theo vùng: <b className="text-sky-200">{metricPreview.valid ? `${metricPreview.value.toLocaleString('vi-VN', {maximumFractionDigits:2})} m²` : 'Chưa có vùng đo hợp lệ'}</b></span>
             </div>
             <div className="text-slate-300">Nguồn KL: {autoMode ? 'Tự tính theo vùng' : 'Theo giá trị đang lưu / nhập tay'} · {calibrationStatus.valid ? 'Đã hiệu chuẩn tỷ lệ' : 'Chưa có tỷ lệ hợp lệ'}</div>
+            {inheritedRegion && <div data-hnl-highlight-inherited-region="true" className="text-amber-200">Vùng con chưa vẽ riêng: số đo tham khảo vùng chính, không phải vùng con đã lưu.</div>}
+            {!activeUnit && <div data-hnl-highlight-unit-unknown="true" className="text-amber-200">Chưa xác định ĐVT gốc; kiểm tra ĐVT trong Căn/Phòng trước khi ghi KL.</div>}
             {!calibrationStatus.valid && <div className="text-amber-200 font-bold" data-hnl-metric-calibration-warning="true">
               {'reason' in calibrationStatus ? calibrationStatus.reason : 'Cần hiệu chuẩn tỷ lệ.'} Nhấn “Đo tỷ lệ” trên thanh công cụ mặt bằng trước khi tính m².
             </div>}
@@ -526,7 +531,11 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
             <button type="button" disabled={!corners.length} onClick={() => setCorners((prev) => prev.slice(0, -1))} className="rounded-lg bg-slate-700 px-2 py-1">Lùi 1 điểm</button>
           </div>}
           {showOptions && <label className="flex items-center gap-2 text-amber-200"><input type="checkbox" checked={replaceExisting}
-            onChange={(event) => { clearWork(); setReplaceExisting(event.target.checked); }} />Thay thế các vùng cũ (cần xác nhận)</label>}
+            onChange={(event) => {
+              if ((draft.length || corners.length || freehand.length || measurePath.length) &&
+                !window.confirm('Đổi chế độ thay vùng sẽ xóa các vùng nháp chưa lưu. Tiếp tục?')) return;
+              clearWork(); setReplaceExisting(event.target.checked);
+            }} />Thay thế các vùng cũ (cần xác nhận)</label>}
           {!lineMode && <label className="flex flex-wrap items-center gap-2 text-[10px] font-bold" data-hnl-metric-quantity-mode="true">
             Tính khối lượng
             <select aria-label="Chế độ tính khối lượng theo vùng" value={isAreaUnit ? quantityMode : 'manual'}
@@ -555,8 +564,11 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
           {notice && <div role="status" className="text-amber-200 break-words">{notice}</div>}
           <div className="flex gap-2">
             <button type="button" disabled={saving || lineMode || !draft.length || locked || unresolvedAutoAlias || missingTarget} onClick={() => void save()} className="rounded-lg bg-slate-700 disabled:opacity-50 px-3 py-1.5 font-bold">{isAreaUnit && quantityMode === 'measure' ? 'Chỉ lưu vùng' : 'Lưu vùng'}</button>
-            <button type="button" disabled={saving} onClick={clearWork} className="rounded-lg bg-slate-700 px-3 py-1.5">Xóa nháp</button>
-            <button type="button" disabled={saving} onClick={toggle} className="rounded-lg bg-slate-700 px-3 py-1.5">Hủy</button>
+            <button type="button" disabled={saving} onClick={() => {
+              if ((draft.length || corners.length || freehand.length || measurePath.length) &&
+                  !window.confirm('Xóa toàn bộ vùng nháp chưa lưu?')) return;
+              clearWork();
+            }} className="rounded-lg bg-slate-700 px-3 py-1.5">Xóa nháp</button>
           </div>
         </div>}
         {!open && !hasDrawPermission && <div className="text-amber-200 mt-1">Vùng phòng đang khóa, đã nghiệm thu hoặc không có diện tích.</div>}

@@ -12,8 +12,10 @@ assert.match(floor,/onLaunchHandled=\{\(token\) => setMetricCalibrationLaunch\(\
 assert.match(floor,/if \(!active\) setMetricCalibrationLaunch\(null\)/);
 assert.equal((floor.match(/setMetricCalibrationLaunch\(null\); \/\/ Changing drawing tools must not replay a stale calibration launch/g)||[]).length,6,
   'All 3 ordinary and 3 fullscreen drawing tools must clear stale calibration launch');
-assert.equal((floor.match(/onClick=\{\(\) => activeFloor && setMetricCalibrationLaunch/g)||[]).length,2,
-  'Only the two explicit calibration toolbar buttons can start a new launch');
+assert.equal((floor.match(/onClick=\{\(\) => activeFloor && setMetricCalibrationLaunch/g)||[]).length,1,
+  'Fullscreen calibration is launched by its explicit toolbar button');
+assert.equal((floor.match(/data-hnl-map-calibration-start=\"true\"/g)||[]).length,1,
+  'Normal/mobile calibration is launched only from its separate anchored popup');
 let pending=null;
 const launch=()=>pending={floorId:'f',token:123};
 const acknowledge=token=>{if(pending?.token===token)pending=null;};
