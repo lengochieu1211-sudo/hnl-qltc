@@ -575,6 +575,32 @@ html[data-hnl-theme="dark"] .hnl-crew-report-table tfoot td {
 }
 
 
+/* DEV Highlight: paired calibration/display triggers stay side by side on a phone.
+ * Both panels float below the buttons instead of shifting the floor plan. */
+@media (max-width: 639px) {
+  [data-hnl-map-measure-display-row="true"] > details { width: 100%; min-width: 0; }
+  [data-hnl-map-measure-display-row="true"] [data-hnl-map-display-popover="true"].hnl-mobile-map-display-panel,
+  [data-hnl-map-measure-display-row="true"] [data-hnl-map-calibration-popover="true"] {
+    position: absolute !important;
+    top: calc(100% + 4px) !important;
+    bottom: auto !important;
+    margin: 0 !important;
+    width: min(18rem, calc(100vw - 2rem)) !important;
+    max-height: min(65dvh, 36rem) !important;
+    box-sizing: border-box;
+    overflow-y: auto;
+    z-index: 95;
+  }
+  [data-hnl-map-measure-display-row="true"] [data-hnl-map-display-popover="true"].hnl-mobile-map-display-panel {
+    left: auto !important;
+    right: 0 !important;
+  }
+  [data-hnl-map-measure-display-row="true"] [data-hnl-map-calibration-popover="true"] {
+    left: 0 !important;
+    right: auto !important;
+  }
+}
+
 /* DEV 2026-11-09: distribute unused vertical rail space between visible tabs.
  * Footer stays fixed; when menu overflows, flex spacing safely collapses to start.
  * Only the desktop primary nav is affected, never phone/tablet navigation.

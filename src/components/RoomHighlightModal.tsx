@@ -1924,7 +1924,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                       <div className="font-bold">Mặt bằng · {catName}</div>
                       <div className="flex flex-wrap items-end gap-2">
                         <label className="flex-1 min-w-[180px] font-semibold">Vùng cần vẽ
-                          <select aria-label={`Chọn hạng mục con đã có của ${catName}`}
+                          <select data-hnl-ui-only="true" aria-label={`Chọn hạng mục con đã có của ${catName}`}
                             value={mapPickerTarget}
                             onChange={e => {setMapPickerTarget(e.target.value);setMapPickerMessage('');setMapPickerRenameTarget(null);setMapPickerRenameText('');}}
                             className="block mt-1 w-full rounded-lg border border-indigo-200 bg-white px-2 py-1.5 text-xs">
@@ -1934,7 +1934,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                           </select>
                         </label>
                         {mapPickerTarget !== 'new' && (
-                          <button type="button" onClick={() => {
+                          <button type="button" data-hnl-ui-only="true" onClick={() => {
                             const target = mapPickerTarget === 'main' || itemsInCat.some(stage => stage.id === mapPickerTarget)
                               ? mapPickerTarget : 'main';
                             launchCach2(catName, target);
@@ -1951,7 +1951,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                           stage.inspectionStatus !== 'Đạt nghiệm thu') && (
                         <div className="flex flex-wrap items-end gap-2">
                           {mapPickerRenameTarget !== mapPickerTarget ? (
-                            <button type="button" className="text-indigo-700 underline font-semibold"
+                            <button type="button" data-hnl-ui-only="true" className="text-indigo-700 underline font-semibold"
                               onClick={() => {
                                 const stage = itemsInCat.find(s => s.id === mapPickerTarget);
                                 setMapPickerRenameTarget(stage?.id || null);
@@ -1977,7 +1977,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                   setMapPickerRenameTarget(null);
                                   setMapPickerMessage('Đã sửa tên trên biểu mẫu, giữ ID và KL cũ. Nhấn Lưu trước khi vẽ tiếp.');
                                 }}>Áp dụng</button>
-                              <button type="button" onClick={() => setMapPickerRenameTarget(null)}
+                              <button type="button" data-hnl-ui-only="true" onClick={() => setMapPickerRenameTarget(null)}
                                 className="text-slate-600">Hủy</button>
                             </>
                           )}

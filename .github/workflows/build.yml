@@ -78,6 +78,8 @@ jobs:
         run: node scripts/highlight-metric-cach2-ui-golden.mjs
       - name: Cách 2 official quantities and revision CAS regression (DEV only, no deploy)
         run: node --experimental-strip-types scripts/highlight-cach2-cas-quantity-golden.mjs
+      - name: Highlight advanced DEV effective unit and draft safety (no deploy)
+        run: node --experimental-strip-types scripts/highlight-advanced-dev-safe-golden.mjs
       - name: Cách 2 calibration marker visual size golden (DEV only, no deploy)
         run: node scripts/highlight-metric-marker-size-golden.mjs
       - name: Cách 2 room-form to floor-map launch golden (DEV only, no deploy)

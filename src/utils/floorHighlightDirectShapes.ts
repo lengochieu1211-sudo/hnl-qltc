@@ -7,6 +7,21 @@ import { calculateHighlightTotalRatio, getHighlightStageShapes, validateHighligh
 export const getDirectStageCategory = (stage: { category?: string }, room: Pick<RoomProgressItem, 'workCategory'>): string =>
   stage.category || room.workCategory || 'Chưa phân nhóm';
 
+/** The same persisted unit is used by the drawing UI and the authoritative save guard.
+ * An empty child unit means "Theo ĐVT chính", NEVER an implicit m² conversion.
+ * Unknown secondary-category units fail closed until saved in the room form.
+ */
+export const getDirectHighlightEffectiveUnit = (
+  room: RoomProgressItem, category: string, target: string,
+): string => {
+  const categoryUnit = String(room.categoryVolumeUnits?.[category] ||
+    (room.workCategory === category ? room.volumeUnit || 'm²' : '')).trim();
+  if (target === 'main') return categoryUnit;
+  const stage = room.subItems?.find(item => item.id === target && getDirectStageCategory(item, room) === category);
+  if (!stage) return '';
+  return String(stage.volumeUnit || categoryUnit).trim();
+};
+
 /** Return saved shapes ONLY. Never include the computed whole-room fallback as a stored drawing. */
 export const getSavedDirectHighlightShapes = (room: RoomProgressItem, category: string, target: string): HighlightRegionShape[] => {
   if (target === 'total') return room.categoryHighlightTotalShapes?.[category] || [];
@@ -162,10 +177,9 @@ export function isDirectMetricConsistentWithExistingAuto(room: RoomProgressItem,
 /** Unit and accepted-progress validation is repeated on the server transaction's actual room. */
 export function canApplyDirectHighlightQuantity(room: RoomProgressItem | undefined, request: DirectHighlightQuantitySaveRequest): boolean {
   if (!isEditableDirectTarget(room, request) || !room) return false;
-  const stage = request.target === 'main' ? undefined : room.subItems?.find((s) => s.id === request.target);
-  const storedUnit = String(stage?.volumeUnit || (request.target === 'main'
-    ? (room.categoryVolumeUnits?.[request.category] || room.volumeUnit || 'm²') : 'm²'))
-    .trim().toLowerCase().replace(/\s/g, '').replace('m2', 'm²');
+  const storedUnit = getDirectHighlightEffectiveUnit(room, request.category, request.target)
+    .toLowerCase().replace(/\s/g, '').replace('m2', 'm²');
+  if (!storedUnit) return false; // Unknown unit must never be treated as a number of m².
   if (storedUnit !== request.measuredQuantity?.unit) return false;
   if (!Number.isFinite(request.measuredQuantity.value) || request.measuredQuantity.value <= 0 || request.measuredQuantity.value > 1_000_000_000) return false;
   if (!request.floorId || request.floorId !== room.floorId || !request.expectedFloorSourceKey ||
