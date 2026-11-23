@@ -172,9 +172,9 @@ jobs:
           # GitHub hosted Ubuntu has Google Chrome preinstalled. Avoid apt/browser
           # downloads that can fail for runner reasons unrelated to app runtime.
           if command -v google-chrome >/dev/null 2>&1; then
-            echo "QA_CHROME_EXECUTABLE=$(command -v google-chrome)" >> "$GITHUB_ENV"
+            export QA_CHROME_EXECUTABLE="$(command -v google-chrome)"
           elif command -v chromium >/dev/null 2>&1; then
-            echo "QA_CHROME_EXECUTABLE=$(command -v chromium)" >> "$GITHUB_ENV"
+            export QA_CHROME_EXECUTABLE="$(command -v chromium)"
           else
             npx playwright install chromium
           fi
