@@ -1,0 +1,121 @@
+name: HNL QLTC DEV Primary Login Precheck + Highlight Metric QA (NO DEPLOY)
+
+on:
+  push:
+    branches:
+      - qa/pr492-dev-primary-auth-smoke-20261123
+    paths:
+      - .github/workflows/qa-pr492-dev-primary-auth-smoke.yml
+
+permissions:
+  contents: read
+
+jobs:
+  read-only-dev:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      EXPECTED_DEV_SOURCE: ea9091a4158d19b9cd2e73f7bad156cebacd634d
+      DEV_SITE: https://hnl-qltc-dev.web.app
+      QA_NO_CLOUD_WRITES: 'true'
+    steps:
+      - name: Checkout DEV-derived QA branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Guard exact DEV source, no PROD, no deploy and no changed app source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/qa/pr492-dev-primary-auth-smoke-20261123'
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_DEV_SOURCE"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = '.github/workflows/qa-pr492-dev-primary-auth-smoke.yml'
+          test "$DEV_SITE" = 'https://hnl-qltc-dev.web.app'
+          test "$QA_NO_CLOUD_WRITES" = 'true'
+          test -z "$(git diff --name-only "$EXPECTED_DEV_SOURCE" HEAD -- src package.json package-lock.json firebase.json firebase.prod.json .firebaserc firestore.rules storage.rules)"
+          echo 'QA source is byte-identical to DEV; only read-only CI workflow is new.'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install exact dependencies and run real DEV source regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          node --experimental-strip-types scripts/highlight-metric-cach2-golden.mjs
+          node --experimental-strip-types scripts/highlight-cach2-cas-quantity-golden.mjs
+          node --experimental-strip-types scripts/highlight-one-shot-calibration-legend-stroke-golden.mjs
+          node --experimental-strip-types scripts/subitem-highlight-advanced-golden.mjs
+          node scripts/dev-emulator-autologin-boundary-golden.mjs
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+      - name: Anonymous PC / mobile DEV primary auth-domain and login preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p runtime-evidence/qa-pr492-dev-primary
+          CODE="$(curl --location --silent --show-error --retry 3 --output "$RUNNER_TEMP/dev-primary.html" --write-out '%{http_code}' "$DEV_SITE/?qa_pr492=${GITHUB_RUN_ID}")"
+          test "$CODE" = '200'
+          grep -q 'id="root"' "$RUNNER_TEMP/dev-primary.html"
+          npm install --no-save --package-lock=false playwright@1.55.0
+          if command -v google-chrome >/dev/null 2>&1; then
+            export QA_CHROME_EXECUTABLE="$(command -v google-chrome)"
+          elif command -v chromium >/dev/null 2>&1; then
+            export QA_CHROME_EXECUTABLE="$(command -v chromium)"
+          else
+            npx playwright install chromium
+          fi
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import {chromium} from 'playwright';
+          const dir='runtime-evidence/qa-pr492-dev-primary';
+          const site=process.env.DEV_SITE;
+          const browser=await chromium.launch({headless:true,...(process.env.QA_CHROME_EXECUTABLE?{executablePath:process.env.QA_CHROME_EXECUTABLE}:{})});
+          const report={source:process.env.EXPECTED_DEV_SOURCE,site,mode:'READ_ONLY_ANONYMOUS',loginAuthenticated:'NOT_TESTED',views:[],oauthPopup:{status:'NOT_TESTED'}};
+          try {
+            for(const view of [{name:'PC',width:1440,height:900},{name:'Mobile',width:390,height:844}]){
+              const ctx=await browser.newContext({viewport:{width:view.width,height:view.height},locale:'vi-VN'});
+              const page=await ctx.newPage();
+              const errors=[];page.on('pageerror',e=>errors.push(String(e.message).slice(0,220)));
+              const resp=await page.goto(site,{waitUntil:'domcontentloaded',timeout:60000});
+              await page.waitForTimeout(3000);
+              const dom=await page.evaluate(()=>({title:document.title,root:!!document.getElementById('root'),loginPrompt:document.body?.innerText?.includes('Đăng nhập với Google')||false,scrollWidth:document.documentElement.scrollWidth,viewWidth:innerWidth,bodyChars:document.body?.innerText?.length||0}));
+              await page.screenshot({path:`${dir}/${view.name}.png`,fullPage:true});
+              report.views.push({view:view.name,status:resp?.status(),...dom,jsErrors:errors});
+              if(resp?.status()!==200||!dom.root||!dom.loginPrompt||dom.bodyChars<20||errors.length||dom.scrollWidth>dom.viewWidth+2)throw Error('DEV primary anonymous smoke failed: '+JSON.stringify(report.views));
+              if(view.name==='PC'){
+                const login=page.getByRole('button',{name:/Đăng nhập với Google/});
+                if(await login.count()){
+                  const promise=page.waitForEvent('popup',{timeout:12500}).catch(()=>null);
+                  await login.first().click();
+                  const popup=await promise;
+                  if(popup){
+                    await popup.waitForLoadState('domcontentloaded',{timeout:12000}).catch(()=>{});
+                    const host=(()=>{try{return new URL(popup.url()).hostname}catch{return ''}})();
+                    report.oauthPopup={status:'POPUP_OPENED',host,authorizedDomainResult:'UNKNOWN_WITHOUT_INTERACTIVE_GOOGLE_LOGIN'};
+                    await popup.close().catch(()=>{});
+                  }else{
+                    const text=await page.locator('[data-hnl-auth-gate]').innerText().catch(()=> '');
+                    report.oauthPopup={status:'NO_POPUP',errorVisible:/(auth\/unauthorized-domain|popup blocked|popup-blocked|Google Sign-In Error)/i.test(text),errorExcerpt:text.slice(-250)};
+                  }
+                }
+              }
+              await ctx.close();
+            }
+            report.status='PASS_ANONYMOUS_ONLY';
+            console.log(JSON.stringify(report));
+          } catch(e){report.status='FAIL';report.error=String(e);throw e}
+          finally{fs.writeFileSync(`${dir}/report.json`,JSON.stringify(report,null,2));await browser.close()}
+          NODE
+      - name: Upload diagnostic evidence (no credentials, no tokens)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-PR492-DEV-PRIMARY-LOGIN-PRECHECK-${{ github.sha }}
+          path: runtime-evidence/qa-pr492-dev-primary/**
+          retention-days: 14
+          if-no-files-found: warn
