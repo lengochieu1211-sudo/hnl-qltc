@@ -169,11 +169,21 @@ jobs:
           test "$CODE" = 200
           grep -q 'id="root"' "$RUNNER_TEMP/preview.html"
           npm install --no-save --package-lock=false playwright@1.55.0
-          npx playwright install --with-deps chromium > "$RUNNER_TEMP/playwright-install.log" 2>&1
+          # GitHub hosted Ubuntu has Google Chrome preinstalled. Avoid apt/browser
+          # downloads that can fail for runner reasons unrelated to app runtime.
+          if command -v google-chrome >/dev/null 2>&1; then
+            echo "QA_CHROME_EXECUTABLE=$(command -v google-chrome)" >> "$GITHUB_ENV"
+          elif command -v chromium >/dev/null 2>&1; then
+            echo "QA_CHROME_EXECUTABLE=$(command -v chromium)" >> "$GITHUB_ENV"
+          else
+            npx playwright install chromium
+          fi
           node --input-type=module <<'NODE'
           import { chromium } from 'playwright';
           import fs from 'node:fs';
-          const url=process.env.PR492_BACKUP_PREVIEW_URL;const browser=await chromium.launch({headless:true});const results=[];
+          const url=process.env.PR492_BACKUP_PREVIEW_URL;
+          const args={headless:true,...(process.env.QA_CHROME_EXECUTABLE?{executablePath:process.env.QA_CHROME_EXECUTABLE}:{} )};
+          const browser=await chromium.launch(args);const results=[];
           try {
             for(const v of [{name:'PC',width:1440,height:900},{name:'Phone',width:390,height:844}]){
               const page=await browser.newPage({viewport:{width:v.width,height:v.height},deviceScaleFactor:1});
