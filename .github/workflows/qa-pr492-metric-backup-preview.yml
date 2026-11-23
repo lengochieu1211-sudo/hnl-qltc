@@ -1,0 +1,211 @@
+name: PR492 Isolated DEV Backup Preview (NO LIVE / NO PROD)
+
+on:
+  push:
+    branches:
+      - qa/pr492-metric-backup-preview-20261123
+    paths:
+      - .github/workflows/qa-pr492-metric-backup-preview.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-pr492-metric-dev-backup-preview
+  cancel-in-progress: false
+
+jobs:
+  preview-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      BACKUP_PROJECT: hnl-qltc-dev-backup
+      BACKUP_SITE: hnl-qltc-dev-backup
+      BACKUP_CHANNEL: qa-pr492-metric
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+      VITE_HNL_AI_ENABLED: 'false'
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_USE_FIREBASE_EMULATORS: 'false'
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_GIT_COMMIT: ${{ github.sha }}
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout exact QA preview commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Hard gate DEV Backup identity, ref, isolation
+        env:
+          FIREBASE_BACKUP_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV_BACKUP }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/qa/pr492-metric-backup-preview-20261123
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$BACKUP_PROJECT" = hnl-qltc-dev-backup
+          test "$BACKUP_SITE" = hnl-qltc-dev-backup
+          test "$BACKUP_CHANNEL" = qa-pr492-metric
+          test "$VITE_APP_ENV" = DEV
+          test "$VITE_ENABLE_LEGACY_DRIVE_WRITE" = false
+          test "$VITE_R2_GATEWAY_URL" = https://hnl-qltc-r2-gateway-dev-backup.lengochieu1211.workers.dev
+          test -f scripts/prod-scoped-room-metric-golden.mjs
+          test -s package-lock.json
+          if test -z "${FIREBASE_BACKUP_SERVICE_ACCOUNT:-}"; then
+            echo "::error::Missing existing DEV Backup service account. NO DEPLOY."
+            exit 1
+          fi
+          node - <<'NODE'
+          const j = JSON.parse(process.env.FIREBASE_BACKUP_SERVICE_ACCOUNT);
+          if(j.type!=='service_account' || j.project_id!=='hnl-qltc-dev-backup' || !j.private_key)
+            throw new Error('Wrong service account — refusing any deploy');
+          console.log('Existing DEV Backup credential identity PASS (no secrets printed)');
+          NODE
+          printf '%s' "$FIREBASE_BACKUP_SERVICE_ACCOUNT" > "$RUNNER_TEMP/pr492-backup-sa.json"
+          chmod 600 "$RUNNER_TEMP/pr492-backup-sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/pr492-backup-sa.json" >> "$GITHUB_ENV"
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Read existing DEV Backup SDK identity, never create Firebase app
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes firebase-tools@13.35.1 apps:list WEB --project "$BACKUP_PROJECT" --json > "$RUNNER_TEMP/pr492-apps.json"
+          APP_ID="$(node - "$RUNNER_TEMP/pr492-apps.json" <<'NODE'
+          const j=require(process.argv[2]);
+          const apps=Array.isArray(j.result)?j.result:[];
+          const app=apps.find(x=>x.platform==='WEB'||String(x.appId||'').includes(':web:'));
+          if(!app?.appId) throw Error('No existing DEV Backup web app');
+          process.stdout.write(app.appId);
+          NODE
+          )"
+          test -n "$APP_ID"
+          npx --yes firebase-tools@13.35.1 apps:sdkconfig WEB "$APP_ID" --project "$BACKUP_PROJECT" --json > "$RUNNER_TEMP/pr492-sdk.json"
+          node - "$RUNNER_TEMP/pr492-sdk.json" <<'NODE'
+          const fs=require('fs');const j=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          const keys=['apiKey','appId','messagingSenderId','projectId','authDomain','storageBucket'];
+          const cfg={};
+          function walk(v){
+            if(!v)return;
+            if(typeof v==='string'){
+              try{walk(JSON.parse(v))}catch{}
+              for(const k of keys){const m=v.match(new RegExp(k+'\\s*:\\s*["\\x27]([^"\\x27]+)["\\x27]'));if(m&&!cfg[k])cfg[k]=m[1];}
+            }else if(Array.isArray(v)){for(const x of v)walk(x);}
+            else if(typeof v==='object'){for(const [k,x] of Object.entries(v)){if(keys.includes(k)&&typeof x==='string'&&!cfg[k])cfg[k]=x;walk(x);}}
+          }
+          walk(j);
+          if(cfg.projectId!=='hnl-qltc-dev-backup'||!cfg.apiKey||!cfg.appId||!cfg.messagingSenderId)throw Error('DEV Backup SDK identity rejected');
+          cfg.authDomain='hnl-qltc-dev-backup.web.app';
+          cfg.storageBucket||='hnl-qltc-dev-backup.firebasestorage.app';
+          const map={apiKey:'API_KEY',appId:'APP_ID',messagingSenderId:'MESSAGING_SENDER_ID',projectId:'PROJECT_ID',authDomain:'AUTH_DOMAIN',storageBucket:'STORAGE_BUCKET'};
+          fs.appendFileSync(process.env.GITHUB_ENV,Object.entries(map).map(([k,n])=>'VITE_FIREBASE_'+n+'='+cfg[k]).join('\n')+'\n');
+          console.log('Verified existing DEV Backup SDK; projectId:',cfg.projectId);
+          NODE
+
+      - name: Build and check only QA code (no LIVE)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "let a=require('./package.json'),b=require('./package-lock.json');if(a.name!==b.name||a.version!==b.version)process.exit(1)"
+          npm ci
+          node --experimental-strip-types scripts/prod-scoped-room-metric-golden.mjs
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run security:audit
+          npm run build
+          test -s dist/index.html
+          if grep -R -q 'hnl-qltc-r2-gateway\.lengochieu1211\.workers\.dev' dist/assets; then
+            echo "::error::PROD R2 gateway in DEV Backup bundle"; exit 1
+          fi
+          grep -R -q 'hnl-qltc-r2-gateway-dev-backup' dist/assets
+          rm -f dist/server.cjs dist/server.cjs.map
+
+      - name: Publish ONLY ephemeral DEV Backup preview channel
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$BACKUP_PROJECT" = hnl-qltc-dev-backup
+          test "$BACKUP_SITE" = hnl-qltc-dev-backup
+          test "$BACKUP_CHANNEL" = qa-pr492-metric
+          test "$(node -p 'require("./package.json").name')" = qlct-an-phu
+          node - <<'NODE'
+          const fs=require('fs');
+          const base=JSON.parse(fs.readFileSync('firebase.prod.json','utf8'));
+          const host=base.hosting || {};
+          if(host.public!=='dist')throw Error('Invalid public build target');
+          // Explicit preview site prevents PROD Hosting alias from any existing firebase config.
+          fs.writeFileSync('pr492-backup-preview-only.json',JSON.stringify({hosting:{site:'hnl-qltc-dev-backup',public:'dist',ignore:host.ignore||[],headers:host.headers||[],rewrites:host.rewrites||[]}}));
+          NODE
+          node -e "const c=require('./pr492-backup-preview-only.json');if(c.hosting.site!=='hnl-qltc-dev-backup'||c.hosting.public!=='dist')process.exit(1)"
+          npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$BACKUP_CHANNEL" --project "$BACKUP_PROJECT" --config pr492-backup-preview-only.json --expires 1d --non-interactive --json > "$RUNNER_TEMP/pr492-preview-result.json"
+          node - <<'NODE'
+          const fs=require('fs'); const raw=fs.readFileSync(process.env.RUNNER_TEMP+'/pr492-preview-result.json','utf8');
+          const m=raw.match(/https:\/\/hnl-qltc-dev-backup--qa-pr492-metric-[a-z0-9-]+\.web\.app/g);
+          if(!m)throw Error('Missing DEV Backup preview URL');
+          fs.appendFileSync(process.env.GITHUB_ENV,'PR492_BACKUP_PREVIEW_URL='+m[0]+'\n');
+          fs.writeFileSync('PR492-QA-DEV-BACKUP-PREVIEW-REPORT.json',JSON.stringify({exactPreviewHead:process.env.GITHUB_SHA,projectId:'hnl-qltc-dev-backup',site:'hnl-qltc-dev-backup',channel:'qa-pr492-metric',url:m[0],prodModified:false,devLiveModified:false,backupLiveModified:false,firestoreRulesModified:false,r2Modified:false,authenticatedRuntimeGolden:'NOT_RUN'},null,2));
+          console.log('EPHEMERAL DEV BACKUP ONLY: '+m[0]);
+          NODE
+
+      - name: HTTP and PC/mobile anonymous smoke (NOT Runtime Golden)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PR492_BACKUP_PREVIEW_URL"
+          CODE="$(curl -L -sS --retry 3 -o "$RUNNER_TEMP/preview.html" -w '%{http_code}' "$PR492_BACKUP_PREVIEW_URL/?sha=$GITHUB_SHA")"
+          test "$CODE" = 200
+          grep -q 'id="root"' "$RUNNER_TEMP/preview.html"
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install --with-deps chromium > "$RUNNER_TEMP/playwright-install.log" 2>&1
+          node --input-type=module <<'NODE'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs';
+          const url=process.env.PR492_BACKUP_PREVIEW_URL;const browser=await chromium.launch({headless:true});const results=[];
+          try {
+            for(const v of [{name:'PC',width:1440,height:900},{name:'Phone',width:390,height:844}]){
+              const page=await browser.newPage({viewport:{width:v.width,height:v.height},deviceScaleFactor:1});
+              const errors=[];page.on('pageerror',e=>errors.push(String(e.message).slice(0,200)));
+              const response=await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000});
+              await page.waitForTimeout(2500);
+              const d=await page.evaluate(()=>({title:document.title,appRoot:!!document.getElementById('root'),bodyLength:document.body?.innerText?.length||0,scrollWidth:document.documentElement.scrollWidth,viewWidth:innerWidth}));
+              await page.screenshot({path:'PR492-QA-'+v.name+'.png',fullPage:true});
+              results.push({view:v.name,httpStatus:response?.status(),...d,pageErrors:errors});
+              await page.close();
+              if(!response?.ok()||!d.appRoot||d.bodyLength<10||errors.length)throw Error('Anonymous PC/mobile smoke failed: '+JSON.stringify(results));
+            }
+            fs.writeFileSync('PR492-QA-ANON-SMOKE.json',JSON.stringify(results,null,2));
+            console.log('Anonymous PC/mobile preview smoke PASS; authenticated runtime remains NOT RUN');
+          } finally{await browser.close();}
+          NODE
+
+      - name: Drop temporary credentials and Hosting config
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/pr492-backup-sa.json" pr492-backup-preview-only.json
+
+      - name: Archive isolated QA preview evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-PR492-QA-DEV-BACKUP-PREVIEW-${{ github.sha }}
+          path: |
+            PR492-QA-DEV-BACKUP-PREVIEW-REPORT.json
+            PR492-QA-ANON-SMOKE.json
+            PR492-QA-PC.png
+            PR492-QA-Phone.png
+          if-no-files-found: warn
+          retention-days: 14
