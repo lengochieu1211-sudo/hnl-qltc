@@ -1730,7 +1730,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             const isWallArea = unit==='m²' && /(vách|tường|wall|partition)/i.test(catName);
                             const compatible = normalizeUnit(resolved.unit)===unit && !isWallArea;
                             return <button type="button" data-hnl-prod-take-metric-volume="true"
-                              disabled={!enabled||!compatible||!measure.valid} title={legacyIdKeyed?'Phòng cũ lưu khối lượng theo ID hạng mục; vui lòng đối chiếu trước khi lấy số đo, không tự tạo khối lượng trùng.':!compatible?'Chỉ lấy trực tiếp cho ĐVT m hoặc m²':resolved.warning || ('reason' in measure?measure.reason:(unit==='m'?metricLength.label:'Điền số đo vào ô nháp, chưa lưu'))}
+                              disabled={!enabled||!compatible||!measure.valid} title={legacyIdKeyed?'Phòng cũ lưu khối lượng theo ID hạng mục; vui lòng đối chiếu trước khi lấy số đo, không tự tạo khối lượng trùng.':!compatible?'Chỉ lấy trực tiếp cho ĐVT m hoặc m²':resolved.warning || ('reason' in measure?measure.reason:(unit==='m'?measure.label:'Điền số đo vào ô nháp, chưa lưu'))}
                               onClick={()=>{if(measure.valid)applyMeasuredVolume(catName,unit,measure.value)}}
                               className="rounded-lg bg-teal-700 px-2 py-1 text-[10px] font-bold text-white disabled:bg-slate-200 disabled:text-slate-500">
                               {unit==='m'?(isPolyline?'Lấy chiều dài':'Lấy chu vi'):'Lấy diện tích'}
