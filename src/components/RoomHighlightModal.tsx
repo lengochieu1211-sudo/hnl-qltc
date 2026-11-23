@@ -26,7 +26,8 @@ import {
   Check,
   Pencil
 } from 'lucide-react';
-import { RoomProgressItem, RoomSubItem, AcceptanceStatus, RoomInspectionResult, Point2D, TeamInfo, ChecklistItem, MaterialNorm, InventoryItem, WorkVolume } from '../types';
+import { RoomProgressItem, RoomSubItem, AcceptanceStatus, RoomInspectionResult, Point2D, TeamInfo, ChecklistItem, MaterialNorm, InventoryItem, WorkVolume, FloorPlan } from '../types';
+import { measureRoomHighlightAreaM2, measureRoomHighlightLengthM, getValidFloorMetricCalibration } from '../utils/floorMetricGeometry';
 import { ROOM_COLOR_PALETTE } from '../utils/colorPalette';
 import { confirmAsync } from '../utils/confirmAsync';
 import { formatDecimal, formatAdaptiveDecimal, evaluateMathExpression, useFormatSettings } from '../utils/numberUtils';
@@ -44,6 +45,7 @@ interface RoomHighlightModalProps {
   onClose: () => void;
   contextReturnLabel?: string;
   roomItem: RoomProgressItem | null; // Null means creating a new room highlight
+  floorPlan?: FloorPlan; // Optional source-bound scale, does not modify room IDs or legacy fields
   initialPos?: { x: number; y: number };
   initialRect?: { x: number; y: number; width: number; height: number };
   initialPoints?: Point2D[];
@@ -115,6 +117,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   isOpen,
   onClose,
   roomItem,
+  floorPlan,
   initialPos,
   initialRect,
   initialPoints,
@@ -676,6 +679,28 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
         ? 'Trên các tầng có nhiều đơn vị khác nhau; không tự đoán đơn vị.'
         : '';
     return { unit, warning };
+  };
+
+  // Optional measurement preview. No quantity or storage mutation occurs here.
+  // When an image binary/revision changes, the DEV-compatible sourceKey invalidates scale.
+  const metricImage = floorPlan?.highlightMetricCalibration
+    ? {width:floorPlan.highlightMetricCalibration.sourceWidthPx,height:floorPlan.highlightMetricCalibration.sourceHeightPx}
+    : undefined;
+  const metricRoomGeometry = {x,y,width,height,points,isPolyline};
+  const metricArea = measureRoomHighlightAreaM2(floorPlan,metricRoomGeometry,metricImage);
+  const metricLength = measureRoomHighlightLengthM(floorPlan,metricRoomGeometry,metricImage);
+  const metricScaleValid = Boolean(floorPlan && metricImage && getValidFloorMetricCalibration(floorPlan,metricImage).valid);
+  const applyMeasuredVolume = (catName:string, unit:'m'|'m²', value:number) => {
+    const resolved = getCategoryDisplayUnit(catName);
+    if(structureReadOnly || roomItem?.positionLocked || roomItem?.inspectionStatus==='Đạt nghiệm thu' ||
+      resolved.warning || !areSameUnit(resolved.unit,unit) || !metricScaleValid || !Number.isFinite(value) || value<=0) return;
+    // Only change in-memory draft on an explicit button click. Existing Save workflow remains authoritative.
+    const rounded = Math.round(value*1000)/1000;
+    if(!window.confirm(`Lấy ${rounded.toLocaleString('vi-VN')} ${unit} vào ô Khối lượng hạng mục “${catName}”?\nChưa ghi dữ liệu cho đến khi bấm Lưu Căn / Phòng.`))return;
+    roomDraftDirtyRef.current=true;
+    setCategoryVolumes(prev=>({...prev,[catName]:rounded}));
+    setVolumeStrings(prev=>({...prev,[catName]:formatDecimal(rounded)}));
+    if(workCategory.trim().toLocaleLowerCase('vi-VN')===catName.trim().toLocaleLowerCase('vi-VN')) setWorkVolume(rounded);
   };
 
   const currentRoomAutoIssuedMap = React.useMemo(() => {
@@ -1679,6 +1704,25 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             </span>;
                           })()}
 
+                          <span data-hnl-prod-highlight-metric-preview="true" className="text-[9px] font-semibold text-teal-900" title="Kết quả đọc từ hình Highlight và tỷ lệ mặt bằng, chưa ghi vào khối lượng">
+                            {metricScaleValid
+                              ? `Đo: ${metricArea.valid?`${formatDecimal(metricArea.value)} m²`:'–'} · ${metricLength.valid?`${formatDecimal(metricLength.value)} m`:'–'}${isPolyline?' tuyến':' chu vi'}`
+                              : 'Chưa gán tỷ lệ'}
+                          </span>
+                          {!structureReadOnly && (()=>{
+                            const resolved = getCategoryDisplayUnit(catName);
+                            const enabled = !resolved.warning && !roomItem?.positionLocked && roomItem?.inspectionStatus!=='Đạt nghiệm thu';
+                            const measure = normalizeUnit(resolved.unit)==='m' ? metricLength : metricArea;
+                            const unit: 'm' | 'm²' = normalizeUnit(resolved.unit)==='m'?'m':'m²';
+                            const isWallArea = unit==='m²' && /(vách|tường|wall|partition)/i.test(catName);
+                            const compatible = normalizeUnit(resolved.unit)===unit && !isWallArea;
+                            return <button type="button" data-hnl-prod-take-metric-volume="true"
+                              disabled={!enabled||!compatible||!measure.valid} title={!compatible?'Chỉ lấy trực tiếp cho ĐVT m hoặc m²':resolved.warning || ('reason' in measure?measure.reason:'Điền số đo vào ô nháp, chưa lưu')}
+                              onClick={()=>{if(measure.valid)applyMeasuredVolume(catName,unit,measure.value)}}
+                              className="rounded-lg bg-teal-700 px-2 py-1 text-[10px] font-bold text-white disabled:bg-slate-200 disabled:text-slate-500">
+                              {unit==='m'?'Lấy chiều dài':'Lấy diện tích'}
+                            </button>;
+                          })()}
                           {!structureReadOnly && activeCategories.length > 1 && (
                             <MoveOrderControls
                               onMoveUp={() => handleMoveCategory(catName, 'up')}
@@ -1692,7 +1736,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                     </div>
                   </div>
 
-                  {/* "Thêm hạng mục con" button for this category */}
+                  {/* “Thêm hạng mục con” button for this category */}
                   {!structureReadOnly && <button
                     type="button"
                     onClick={() => handleAddSubItem(catName)}

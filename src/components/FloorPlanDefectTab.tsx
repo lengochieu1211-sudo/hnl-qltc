@@ -71,6 +71,7 @@ import {
 import { UndoRedoControls } from './UndoRedoControls';
 import { getRoomColorStyle, ROOM_COLOR_PALETTE } from '../utils/colorPalette';
 import { getRoomMapStageLabels, getRoomMapConstructionIcon, getRoomMapInspectionIcon } from '../utils/roomMapStageLabels';
+import { FloorMetricCalibrator } from './FloorMetricCalibrator';
 import { getDefectOverdueInfo, getDefectShortCode } from '../utils/defectUtils';
 import { addLocalCalendarDaysToDateInput, formatDateDDMMYYYY, parseLegacyTimestamp, toLocalDateInputValue } from '../utils/dateFormatter';
 import { vietnamDefectCreatedAtInput } from '../utils/vietnamBusinessDate';
@@ -1309,6 +1310,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   // Drawing Tools State ('freehand' | 'polygon' | '2point' | 'drag' | 'none')
   const [drawTool, setDrawTool] = useState<'freehand' | 'polygon' | '2point' | 'drag' | 'none'>('none');
+  const [isMetricCalibrating, setIsMetricCalibrating] = useState(false);
+  useEffect(()=>{setIsMetricCalibrating(false);},[selectedFloorId]);
   const [roomColorMode, setRoomColorMode] = useState<'palette' | 'status'>('palette');
   // Object Snap is optional and OFF by default. Preference is local to the project/device.
   const readSnapPref = (key: string) => {
@@ -7165,6 +7168,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <span className="text-sm leading-none shrink-0">📦</span>
                   <span>Vẽ chữ nhật</span>
                 </button>
+                <button type="button" data-hnl-prod-metric-toolbar="true"
+                  aria-pressed={isMetricCalibrating} disabled={!activeFloor?.imageUrl}
+                  onClick={() => {
+                    setDrawTool('none'); setIsRoomPinPlacementMode(false); setIsDefectPinPlacementMode(false);
+                    setDrawStartPos(null);setDrawHoverPos(null);setPolygonPoints([]);
+                    setIsMetricCalibrating(v=>!v);
+                  }}
+                  className={`text-xs font-bold px-2.5 py-1.5 rounded-xl border shrink-0 ${isMetricCalibrating?'bg-teal-700 text-white border-teal-500':'bg-white text-teal-800 border-teal-200 hover:bg-teal-50'}`}>
+                  📏 Đo tỷ lệ
+                </button>
               </div>
 
               {renderMapDisplaySettings(false)}
@@ -7570,6 +7583,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         >
                           <span className="text-sm leading-none shrink-0">📦</span>
                           <span>Vẽ chữ nhật</span>
+                        </button>
+                        <button type="button" data-hnl-prod-metric-fullscreen="true" aria-pressed={isMetricCalibrating}
+                          disabled={!activeFloor?.imageUrl}
+                          onClick={() => {
+                            setDrawTool('none');setIsRoomPinPlacementMode(false);setIsDefectPinPlacementMode(false);
+                            setDrawStartPos(null);setDrawHoverPos(null);setPolygonPoints([]);
+                            setIsMetricCalibrating(v=>!v);
+                          }}
+                          className={`min-h-9 rounded-xl border px-3 text-[11px] font-bold ${isMetricCalibrating?'bg-teal-700 text-white border-teal-500':'bg-slate-800 text-teal-200 border-slate-700'}`}>
+                          📏 Đo tỷ lệ
                         </button>
 
                         <button type="button" ref={fullscreenDisplayTriggerRef} aria-expanded={showFullscreenDisplaySettings}
@@ -8255,7 +8278,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       </div>
                     )}
 
-                {/* F7 CAD GRID: visual-only backdrop, never intercepts clicks, never writes room data. */}
+                    {activeFloor && <FloorMetricCalibrator
+                      key={activeFloor.id} floor={activeFloor} imageContainer={imageContainerRef.current}
+                      rotation={rotation} active={isMetricCalibrating} canSave={canManageStructure && Boolean(onUpdateFloorPlan)}
+                      onClose={()=>setIsMetricCalibrating(false)}
+                      onSave={(floorId,calibration)=>onUpdateFloorPlan?.(floorId,{highlightMetricCalibration:calibration})}
+                    />}
+                    {/* F7 CAD GRID: visual-only backdrop, never intercepts clicks, never writes room data. */}
                 {cadGridVisible && (viewMode === 'all' || viewMode === 'highlight') && (
                   <svg data-hnl-cad-grid="true" className="absolute inset-0 h-full w-full pointer-events-none z-[5]"
                     viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
@@ -10088,6 +10117,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         }}
         contextReturnLabel={contextReturnLabel}
         roomItem={selectedRoomForEdit}
+        floorPlan={activeFloor}
         initialPos={newRoomClickPos}
         initialRect={newRoomRect}
         initialPoints={newRoomPoints}
