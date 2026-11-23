@@ -80,6 +80,8 @@ jobs:
         run: node --experimental-strip-types scripts/highlight-cach2-cas-quantity-golden.mjs
       - name: Highlight advanced DEV effective unit and draft safety (no deploy)
         run: node --experimental-strip-types scripts/highlight-advanced-dev-safe-golden.mjs
+      - name: Floor map toolbar 5-button visual parity (DEV source-only)
+        run: node scripts/highlight-map-toolbar-trigger-visual-golden.mjs
       - name: Cách 2 calibration marker visual size golden (DEV only, no deploy)
         run: node scripts/highlight-metric-marker-size-golden.mjs
       - name: Cách 2 room-form to floor-map launch golden (DEV only, no deploy)
