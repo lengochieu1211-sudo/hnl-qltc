@@ -9,7 +9,9 @@ const required = [
   'presetWorkCategories.map', 'handleApplyPreset(presetSelection)',
   'setSelectedSubItemIds(subItems.map(s => s.id))',
   'applyProgressPatch', 'assignedTeam',
-  "onClick={() => launchCach2(catName, 'main')}",
+  "if (!itemsInCat.length) { launchCach2(catName, 'main'); return; }",
+  "data-hnl-main-highlight-stage-picker={catName}",
+  "launchCach2(catName, target)",
 ];
 for (const marker of required) {
   assert.ok(form.includes(marker), `Lost main stage/preset/bulk behavior: ${marker}`);

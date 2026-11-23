@@ -1,3 +1,6 @@
+import './highlight-exit-to-plan-golden.mjs';
+import './highlight-toolbar-metric-summary-golden.mjs';
+import './highlight-popover-substage-unit-golden.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 const read = path => readFileSync(path,'utf8');

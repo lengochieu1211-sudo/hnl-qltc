@@ -181,6 +181,19 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   const [workCategory, setWorkCategory] = useState('');
   const [presetSelection, setPresetSelection] = useState('');
   const [subItems, setSubItems] = useState<RoomSubItem[]>([]);
+  const [customUnitStageId, setCustomUnitStageId] = useState<string | null>(null);
+  const [customUnitText, setCustomUnitText] = useState('');
+  const [mapPickerCategory, setMapPickerCategory] = useState<string | null>(null);
+  const [mapPickerTarget, setMapPickerTarget] = useState('main');
+  const [mapPickerNewName, setMapPickerNewName] = useState('');
+  const [mapPickerRenameTarget, setMapPickerRenameTarget] = useState<string | null>(null);
+  const [mapPickerRenameText, setMapPickerRenameText] = useState('');
+  const [mapPickerMessage, setMapPickerMessage] = useState('');
+  useEffect(() => {
+    setMapPickerCategory(null); setMapPickerTarget('main');setMapPickerNewName('');
+    setMapPickerMessage('');setMapPickerRenameTarget(null);setMapPickerRenameText('');
+    setCustomUnitStageId(null);setCustomUnitText('');
+  }, [isOpen, roomItem?.id]);
   const [categoryVolumes, setCategoryVolumes] = useState<Record<string, number>>({});
   // Optional, opt-in advanced highlighting. Legacy rooms and all ordinary stages
   // remain manual; opening this section never changes saved quantities.
@@ -1058,6 +1071,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   // Handler to add custom sub item
   const handleAddSubItem = (catName?: string) => {
     if (structureReadOnly) return;
+    roomDraftDirtyRef.current = true;
     setSubItems(prev => [
       ...prev,
       {
@@ -1092,6 +1106,9 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       ? Object.fromEntries(Object.entries(patch).filter(([key]) => ['status', 'inspectionStatus', 'targetDate', 'assignedTeam', 'teamId'].includes(key))) as Partial<RoomSubItem>
       : patch;
     if (Object.keys(effectivePatch).length === 0) return;
+    if (!structureReadOnly && Object.keys(effectivePatch).some(key => key === 'name' || key === 'volumeUnit')) {
+      roomDraftDirtyRef.current = true;
+    }
     setSubItems(prev => prev.map(item => {
       if (item.id !== id) return item;
       const next = applyProgressPatch(item, effectivePatch);
@@ -1867,7 +1884,12 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                           <span className="text-[10px] font-black text-emerald-800">{getCategorySourceUnit(catName)}</span>
                           {!structureReadOnly && roomItem?.id && onStartDrawOnMap && <button type="button" data-hnl-ui-only="true" data-hnl-main-quantity-map={catName}
                             disabled={roomItem.inspectionStatus === 'Đạt nghiệm thu' || roomItem.positionLocked === true}
-                            onClick={() => launchCach2(catName, 'main')}
+                            onClick={() => {
+                              if (!itemsInCat.length) { launchCach2(catName, 'main'); return; }
+                              setMapPickerCategory(previous => previous === catName ? null : catName);
+                              setMapPickerTarget('main'); setMapPickerMessage(''); setMapPickerNewName('');
+                              setMapPickerRenameTarget(null); setMapPickerRenameText('');
+                            }}
                             title={`Đo vẽ khối lượng của hạng mục chính: ${catName}`}
                             className="shrink-0 border-l border-emerald-200 pl-1.5 text-[10px] font-extrabold text-indigo-700 hover:text-indigo-900 disabled:opacity-40">📐 Mặt bằng</button>}
 
@@ -1896,6 +1918,104 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                       </div>
                     </div>
                   </div>
+                  {mapPickerCategory === catName && !structureReadOnly && roomItem?.id && (
+                    <div data-hnl-main-highlight-stage-picker={catName}
+                      className="mx-1 mt-2 rounded-xl border border-indigo-200 bg-indigo-50/80 px-3 py-2 space-y-2 text-[11px] text-slate-800">
+                      <div className="font-bold">Mặt bằng · {catName}</div>
+                      <div className="flex flex-wrap items-end gap-2">
+                        <label className="flex-1 min-w-[180px] font-semibold">Vùng cần vẽ
+                          <select aria-label={`Chọn hạng mục con đã có của ${catName}`}
+                            value={mapPickerTarget}
+                            onChange={e => {setMapPickerTarget(e.target.value);setMapPickerMessage('');setMapPickerRenameTarget(null);setMapPickerRenameText('');}}
+                            className="block mt-1 w-full rounded-lg border border-indigo-200 bg-white px-2 py-1.5 text-xs">
+                            <option value="main">Hạng mục chính (vùng riêng)</option>
+                            {itemsInCat.map(stage => <option key={stage.id} value={stage.id}>{stage.name}</option>)}
+                            <option value="new">+ Nhập hạng mục con mới</option>
+                          </select>
+                        </label>
+                        {mapPickerTarget !== 'new' && (
+                          <button type="button" onClick={() => {
+                            const target = mapPickerTarget === 'main' || itemsInCat.some(stage => stage.id === mapPickerTarget)
+                              ? mapPickerTarget : 'main';
+                            launchCach2(catName, target);
+                          }}
+                            disabled={mapPickerTarget !== 'main' && itemsInCat.some(stage => stage.id === mapPickerTarget &&
+                              (stage.status === 'Đã hoàn thành' || stage.inspectionStatus === 'Đạt nghiệm thu'))}
+                            className="rounded-lg bg-indigo-700 px-3 py-1.5 font-bold text-white disabled:opacity-40">
+                            Vẽ tiếp vùng đã chọn
+                          </button>
+                        )}
+                      </div>
+                      {mapPickerTarget !== 'main' && mapPickerTarget !== 'new' &&
+                        itemsInCat.some(stage => stage.id === mapPickerTarget && stage.status !== 'Đã hoàn thành' &&
+                          stage.inspectionStatus !== 'Đạt nghiệm thu') && (
+                        <div className="flex flex-wrap items-end gap-2">
+                          {mapPickerRenameTarget !== mapPickerTarget ? (
+                            <button type="button" className="text-indigo-700 underline font-semibold"
+                              onClick={() => {
+                                const stage = itemsInCat.find(s => s.id === mapPickerTarget);
+                                setMapPickerRenameTarget(stage?.id || null);
+                                setMapPickerRenameText(stage?.name || '');
+                              }}>Sửa tên hạng mục con đã chọn</button>
+                          ) : (
+                            <>
+                              <label className="flex-1 min-w-[170px]">Tên mới (giữ nguyên ID)
+                                <input aria-label="Sửa tên hạng mục con đã có" maxLength={120}
+                                  value={mapPickerRenameText} onChange={e => setMapPickerRenameText(e.target.value)}
+                                  className="mt-1 w-full rounded-lg border border-indigo-200 bg-white px-2 py-1.5 text-xs" />
+                              </label>
+                              <button type="button" className="rounded-lg bg-indigo-700 px-3 py-1.5 text-white font-bold"
+                                onClick={() => {
+                                  const selected = itemsInCat.find(s => s.id === mapPickerTarget);
+                                  const nextName = mapPickerRenameText.trim();
+                                  if (!selected || !nextName) {setMapPickerMessage('Tên mới không hợp lệ.');return;}
+                                  if (itemsInCat.some(s => s.id !== selected.id &&
+                                    s.name.trim().toLocaleLowerCase('vi-VN') === nextName.toLocaleLowerCase('vi-VN'))) {
+                                    setMapPickerMessage('Tên đã có trong hạng mục chính này; không tạo trùng.');return;
+                                  }
+                                  handleUpdateSubItem(selected.id, {name:nextName});
+                                  setMapPickerRenameTarget(null);
+                                  setMapPickerMessage('Đã sửa tên trên biểu mẫu, giữ ID và KL cũ. Nhấn Lưu trước khi vẽ tiếp.');
+                                }}>Áp dụng</button>
+                              <button type="button" onClick={() => setMapPickerRenameTarget(null)}
+                                className="text-slate-600">Hủy</button>
+                            </>
+                          )}
+                        </div>
+                      )}
+                      {mapPickerTarget === 'new' && (
+                        <div className="flex flex-wrap items-end gap-2">
+                          <label className="flex-1 min-w-[170px]">Tên hạng mục con mới
+                            <input aria-label="Nhập tên hạng mục con mới" value={mapPickerNewName}
+                              onChange={e => setMapPickerNewName(e.target.value)} maxLength={120}
+                              className="mt-1 w-full rounded-lg border border-indigo-200 bg-white px-2 py-1.5 text-xs"
+                              placeholder="VD: Thi công khung" />
+                          </label>
+                          <button type="button" onClick={() => {
+                            const name = mapPickerNewName.trim();
+                            const matched = itemsInCat.find(stage => stage.name.trim().toLocaleLowerCase('vi-VN') === name.toLocaleLowerCase('vi-VN'));
+                            if (!name) {setMapPickerMessage('Cần nhập tên hạng mục con.');return;}
+                            if (matched) {
+                              setMapPickerTarget(matched.id);
+                              setMapPickerMessage('Hạng mục đã tồn tại: chọn lại vùng cũ, không tạo trùng ID.');return;
+                            }
+                            roomDraftDirtyRef.current = true;
+                            setSubItems(prev => [...prev, {
+                              id: createEntityId('sub-custom'), name, category: catName,
+                              highlightVolumeMode: 'manual', status: 'Chưa làm',
+                              inspectionStatus: 'Chưa nghiệm thu', targetDate: '',
+                            }]);
+                            setMapPickerTarget('main');setMapPickerNewName('');
+                            setMapPickerMessage('Đã thêm vào biểu mẫu. Nhấn Lưu trước, sau đó chọn Mặt bằng của hạng mục con để vẽ; chưa ghi dữ liệu lên máy chủ.');
+                          }} className="rounded-lg bg-emerald-700 px-3 py-1.5 font-bold text-white">
+                            Thêm vào biểu mẫu
+                          </button>
+                        </div>
+                      )}
+                      <div className="text-slate-600">Muốn sửa tên hạng mục con đã có: sửa trực tiếp ở dòng bên dưới rồi nhấn Lưu. ID, KL và nghiệm thu được giữ nguyên.</div>
+                      {mapPickerMessage && <div role="status" className="text-indigo-900 font-semibold">{mapPickerMessage}</div>}
+                    </div>
+                  )}
 
                   {/* Original mobile/tablet standalone Add-subitem action; PC uses the inline action. */}
                   {!structureReadOnly && (
@@ -2029,21 +2149,62 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                 })()}
                               </div>
                               {/* ĐVT Cái: count positions are stored separately from m² highlights and Defects. */}
-                              {!structureReadOnly && <div className="mt-1 flex flex-wrap items-center gap-2 text-[10.5px]">
+                              {!structureReadOnly && <div className="mt-3 pt-2 border-t border-slate-200 flex flex-wrap items-center gap-2 text-[10.5px]" data-hnl-sub-unit-spacing="true">
                                 <label className="font-bold text-slate-600">ĐVT con:
                                   <select aria-label={`Đơn vị hạng mục con ${item.name}`} data-hnl-sub-count-unit="true"
                                     disabled={item.status === 'Đã hoàn thành' || item.inspectionStatus === 'Đạt nghiệm thu' || roomItem?.inspectionStatus === 'Đạt nghiệm thu'}
-                                    className="ml-1 rounded border border-slate-200 px-1 py-1 bg-white text-slate-800"
-                                    value={normalizeUnit(item.volumeUnit || getCategorySourceUnit(catName))}
+                                    className="ml-1.5 rounded-lg border border-slate-200 px-2 py-1.5 bg-white text-slate-800"
+                                    value={!item.volumeUnit ? '__main__' :
+                                      ['m²','m','Cái','Bộ','Tấm','Thanh','m³','kg','Hộp','Bao','Cuộn'].includes(normalizeUnit(item.volumeUnit))
+                                        ? normalizeUnit(item.volumeUnit) : '__custom__'}
                                     onChange={event => {
                                       const next = event.target.value;
-                                      if (!window.confirm('Đổi đơn vị sẽ KHÔNG tự quy đổi khối lượng cũ. Tiếp tục?')) return;
-                                      handleUpdateSubItem(item.id, { volumeUnit: next, highlightVolumeMode: 'manual', highlightCountMode: 'manual' });
+                                      if (next === '__custom__') {
+                                        setCustomUnitStageId(item.id);
+                                        setCustomUnitText(item.volumeUnit || '');return;
+                                      }
+                                      const effectiveBefore = normalizeUnit(item.volumeUnit || getCategorySourceUnit(catName));
+                                      const effectiveAfter = normalizeUnit(next === '__main__' ? getCategorySourceUnit(catName) : next);
+                                      if (effectiveBefore !== effectiveAfter && !window.confirm('Đổi ĐVT không tự quy đổi KL đã lưu; chế độ tự tính hiện tại sẽ chuyển về nhập tay. Tiếp tục?')) return;
+                                      roomDraftDirtyRef.current = true;
+                                      handleUpdateSubItem(item.id, {
+                                        volumeUnit: next === '__main__' ? '' : next,
+                                        ...(effectiveBefore !== effectiveAfter ? { highlightVolumeMode:'manual', highlightCountMode:'manual' } : {}),
+                                      });
+                                      setCustomUnitStageId(null);
                                     }}>
-                                    {Array.from(new Set([normalizeUnit(item.volumeUnit || getCategorySourceUnit(catName)), 'm²', 'm', 'Cái', 'Bộ', 'Tấm', 'Thanh', 'm³'].filter(Boolean))).map(u =>
-                                      <option key={u} value={u}>{u}</option>)}
+                                    <option value="__main__">Theo ĐVT chính ({getCategorySourceUnit(catName)})</option>
+                                    {['m²','m','Cái','Bộ','Tấm','Thanh','m³','kg','Hộp','Bao','Cuộn'].map(unit =>
+                                      <option key={unit} value={unit}>{unit}</option>)}
+                                    <option value="__custom__">{item.volumeUnit && !['m²','m','Cái','Bộ','Tấm','Thanh','m³','kg','Hộp','Bao','Cuộn'].includes(normalizeUnit(item.volumeUnit))
+                                      ? `${item.volumeUnit} (tự nhập)` : 'Nhập đơn vị khác…'}</option>
                                   </select>
                                 </label>
+                                {customUnitStageId !== item.id && item.volumeUnit &&
+                                  !['m²','m','Cái','Bộ','Tấm','Thanh','m³','kg','Hộp','Bao','Cuộn'].includes(normalizeUnit(item.volumeUnit)) &&
+                                  item.status !== 'Đã hoàn thành' && item.inspectionStatus !== 'Đạt nghiệm thu' && (
+                                    <button type="button" className="text-indigo-700 underline font-bold"
+                                      onClick={() => {setCustomUnitStageId(item.id);setCustomUnitText(item.volumeUnit || '');}}>Sửa ĐVT</button>
+                                )}
+                                {customUnitStageId === item.id && (
+                                  <div className="flex items-center gap-1.5" data-hnl-sub-unit-custom-editor="true">
+                                    <input aria-label={`Nhập đơn vị tùy chỉnh cho ${item.name}`}
+                                      value={customUnitText} maxLength={24} onChange={e => setCustomUnitText(e.target.value)}
+                                      placeholder="VD: md, bộ, m²" className="w-28 rounded-lg border border-indigo-300 bg-white px-2 py-1.5 text-xs" />
+                                    <button type="button" className="rounded-lg bg-indigo-700 px-2 py-1.5 font-bold text-white"
+                                      onClick={() => {
+                                        const raw = normalizeUnit(customUnitText);
+                                        if (!raw || raw.length > 24) { window.alert('ĐVT phải có 1–24 ký tự.');return; }
+                                        const previous = normalizeUnit(item.volumeUnit || getCategorySourceUnit(catName));
+                                        if (previous !== raw && !window.confirm('Đổi ĐVT không tự quy đổi KL đã lưu; chế độ tự tính sẽ chuyển về nhập tay. Tiếp tục?')) return;
+                                        roomDraftDirtyRef.current = true;
+                                        handleUpdateSubItem(item.id, {volumeUnit:raw,
+                                          ...(previous !== raw ? {highlightVolumeMode:'manual',highlightCountMode:'manual'} : {}) });
+                                        setCustomUnitStageId(null);
+                                      }}>Áp dụng</button>
+                                    <button type="button" className="px-1 text-slate-500" onClick={() => setCustomUnitStageId(null)}>Hủy</button>
+                                  </div>
+                                )}
                                 {normalizeUnit(item.volumeUnit || getCategorySourceUnit(catName)) === 'Cái' && <>
                                   <span className="rounded-md border border-teal-200 bg-teal-50 px-1.5 py-1 font-bold text-teal-800">
                                     {item.highlightCountMode === 'points' ? 'Đếm theo điểm' : 'Nhập tay'} · {totalCountPoints(item.highlightCountPoints || [])} cái tự đếm

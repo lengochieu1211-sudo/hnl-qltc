@@ -5,12 +5,14 @@ import { mapDirectHighlightPointerToFloor } from '../utils/floorHighlightDirectS
 import { findRoomObjectSnap } from '../utils/roomHighlightObjectSnap';
 import { applyCadDrawingGuide } from '../utils/roomHighlightCadShortcuts';
 import { createFloorMetricCalibration, getValidFloorMetricCalibration } from '../utils/highlightMetricGeometry';
+import { useFloorPlanToolPopover } from '../hooks/useFloorPlanToolPopover';
 
 interface Props {
   floor: FloorPlan;
   imageContainer: HTMLElement | null;
   rotation: number;
   zoomScale: number;
+  isFullscreen?: boolean;
   launch?: { floorId: string; token: number } | null;
   rooms: RoomProgressItem[];
   canSave: boolean;
@@ -31,13 +33,15 @@ const floorPoint = (point: Point2D) => ({ x: Math.min(100,Math.max(0,point.x)), 
  * No stored quantity is mutated by calibrating.
  */
 export const FloorMetricCalibration: React.FC<Props> = ({
-  floor, imageContainer, rotation, zoomScale, launch, rooms, canSave, onSave, onActiveChange, onLaunchHandled,
+  floor, imageContainer, rotation, zoomScale, isFullscreen=false, launch, rooms, canSave, onSave, onActiveChange, onLaunchHandled,
   objectSnapEnabled, objectSnapMidpoints, cadGridSnap, cadOrtho, cadPolar,
 }) => {
   const [active, setActive] = useState(false);
   const [points, setPoints] = useState<Point2D[]>([]);
   const [distanceInput, setDistanceInput] = useState('5');
   const [notice, setNotice] = useState('');
+  const fullscreenPopover = useFloorPlanToolPopover(active || !!notice, isFullscreen, imageContainer,
+    '[data-hnl-metric-calibrate-fullscreen="true"]', 328, 0.55);
   // Same inverse-zoom behavior as polygon drawing points. These are only visual
   // markers: keep the SVG pointer target full-size for precise mouse/touch input.
   const pointDisplayScale = 1 / Math.max(1, zoomScale);
@@ -96,7 +100,9 @@ export const FloorMetricCalibration: React.FC<Props> = ({
     close();
   };
   return <>
-    {(active || notice) && <div data-hnl-floor-metric-calibration="true" className="absolute left-2 top-14 z-[85] pointer-events-auto w-[min(328px,calc(100vw-32px))]">
+    {(active || notice) && <div data-hnl-floor-metric-calibration="true"
+      style={isFullscreen ? fullscreenPopover : undefined}
+      className="absolute left-2 top-16 z-[85] pointer-events-auto w-[min(328px,calc(100vw-32px))] max-h-[calc(100dvh-6rem)] overflow-y-auto overscroll-contain">
       <div className="rounded-xl border border-teal-400/50 bg-slate-950/95 p-2 text-white shadow-xl text-[11px]">
         <div className="flex justify-between items-center gap-2">
           <span className="font-extrabold">Đo tỷ lệ mặt bằng</span>

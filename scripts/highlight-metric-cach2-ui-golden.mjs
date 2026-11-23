@@ -32,12 +32,12 @@ assert.match(app,/const handleSaveHighlightCount =/);
 assert.match(app,/const handleSaveDirectHighlightShapes =/);
 assert.match(app,/const handleUpdateDefect =/);
 assert.match(read('firestore.rules'),/match \/projects\/\{projectId\}/);
-// Regression: fullscreen has its own top controls and in-flow room operations.
-// The Highlight toggle must be docked AFTER those controls, not fixed over them.
+// Regression: fullscreen tool editor must float, NOT reflow the floor canvas.
+// Anchor it to its drawing trigger, with a bounded scroll area.
 assert.match(direct, /isFullscreen\?: boolean/);
 assert.match(direct, /data-hnl-direct-highlight-layout=\{isFullscreen \? 'fullscreen-docked' : 'plan-floating'\}/);
-assert.match(direct, /relative mx-2 mb-1 self-start z-\[80\]/);
-assert.match(direct, /max-h-\[40dvh\] overflow-y-auto/);
+assert.match(direct, /absolute left-2 top-16 z-\[85\]/);
+assert.match(direct, /max-h-\[calc\(100dvh-6rem\)\] overflow-y-auto/);
 assert.match(direct, /absolute right-2 top-14 z-\[80\]/);
 assert.match(direct, /\$\{open \? 'w-\[min\(340px,calc\(100vw-32px\)\)\]' : 'w-fit'\}/);
 assert.match(direct, /aria-label=\{open \? 'Tắt Đo vẽ khối lượng' : 'Bật Đo vẽ khối lượng'\}/);
@@ -46,6 +46,6 @@ const roomBar = floor.indexOf('Quick Floating Room Operations Bar (Top Left)');
 const directDock = floor.indexOf('<FloorHighlightDirectDraw');
 const zoomCanvas = floor.indexOf('Scrollable / Zoomable Inner Area');
 assert.ok(roomBar >= 0 && directDock > roomBar && zoomCanvas > directDock,
-  'Toolbar must be a normal-flow sibling between fullscreen room operations and the map canvas');
-console.log('CÁCH 2 TOOLBAR RESPONSIVE PASS — fullscreen dock does not overlay room actions, compact toggle and scrollable editor');
+  'Popover component remains scoped between room toolbar and map canvas without consuming layout height');
+console.log('CÁCH 2 TOOLBAR RESPONSIVE PASS — fullscreen absolute popover does not reflow map, compact toggle and scrollable editor');
 console.log('CÁCH 2 UI SAFETY PASS — no new TOTAL selector, no quantity auto writes, old count/Defect preserved, admin guard');

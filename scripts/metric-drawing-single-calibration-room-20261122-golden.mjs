@@ -10,7 +10,9 @@ const calibration = read('src/components/FloorMetricCalibration.tsx');
 assert.match(draw, /if \(!open\) return null;/);
 assert.match(draw, /launch.roomId !== room.id/);
 assert.match(draw, /setOpen\(true\)/);
-assert.match(room, /onClick=\{\(\) => launchCach2\(catName, 'main'\)\}/);
+assert.match(room, /if \(!itemsInCat\.length\) \{ launchCach2\(catName, 'main'\); return; \}/);
+assert.match(room, /data-hnl-main-highlight-stage-picker=\{catName\}/);
+assert.match(room, /launchCach2\(catName, target\)/);
 assert.match(room, /onClick=\{\(\) => launchCach2\(catName, item.id\)\}/);
 
 // Keep only inline main/child map launchers; remove the duplicate collapsible child launcher.
@@ -27,4 +29,4 @@ assert.match(floor, /setMetricCalibrationLaunch\(\{floorId:activeFloor.id,token:
 assert.match(floor, /<FloorMetricCalibration/);
 assert.match(calibration, /onSave\(floor.id,draft\)/);
 assert.doesNotMatch(draw+room, /onSave\(floor.id,draft\)/);
-console.log('PASS: only map toolbar calibrates; no passive room draw button; main/subitem map launch preserved');
+console.log('PASS: map toolbar calibration only; main/subitem target picker preserves existing stage IDs');
