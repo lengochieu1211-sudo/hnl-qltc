@@ -597,6 +597,18 @@ html[data-hnl-theme="dark"] .hnl-crew-report-table tfoot td {
   z-index: 95;
 }
 
+/* DEV: Tailwind `open:bg-indigo-600` is a DIFFERENT selector from `.bg-indigo-600`.
+ * The three drawing buttons inherit the HNL primary-blue compatibility mapping,
+ * but expanded <details> triggers previously kept the original Tailwind purple.
+ * Match selected drawing buttons by reading the SAME HNL theme tokens. Scope to
+ * the two normal-mode popup triggers, leaving popup content/fullscreen untouched. */
+[data-hnl-map-measure-display-row="true"] > details[open] {
+  background-color: var(--hnl-primary-action) !important;
+  color: #fff !important;
+  border-color: var(--hnl-primary-action) !important;
+  --tw-ring-color: color-mix(in srgb, var(--hnl-primary) 28%, transparent) !important;
+}
+
 /* DEV 2026-11-09: distribute unused vertical rail space between visible tabs.
  * Footer stays fixed; when menu overflows, flex spacing safely collapses to start.
  * Only the desktop primary nav is affected, never phone/tablet navigation.
