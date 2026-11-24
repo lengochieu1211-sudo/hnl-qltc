@@ -1,6 +1,8 @@
 /** QA-only actual App UI with isolated Auth + Firestore; no mocked save callbacks. */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {chromium} from 'playwright';
 import {initializeApp,deleteApp} from 'firebase/app';
@@ -13,7 +15,9 @@ assert.equal(process.env.FIREBASE_AUTH_EMULATOR_HOST,'127.0.0.1:9099');
 assert.equal(process.env.FIRESTORE_EMULATOR_HOST,'127.0.0.1:8080');
 for(const k of ['GOOGLE_APPLICATION_CREDENTIALS','FIREBASE_TOKEN','FIREBASE_SERVICE_ACCOUNT','CLOUDFLARE_API_TOKEN'])assert(!process.env[k]);
 const origin='http://127.0.0.1:4178',pid='qa-pr492-stage4',fid='FP-QA',rid='ROOM-AREA',lid='ROOM-LINE';
-const out='runtime-evidence/pr492-stage4-app';fs.mkdirSync(out,{recursive:true});
+// Keep live evidence outside Vite's watched project. Writing report.json inside it caused full page reloads mid-test.
+const out=fs.mkdtempSync(path.join(os.tmpdir(),'pr492-stage4-'));
+const artifactOut='runtime-evidence/pr492-stage4-app';
 const report={head:process.env.GITHUB_SHA,project,scope:'Full App UI + actual App persistence on local Emulator; no live OAuth/native device',status:'RUNNING',checks:[],blockedExternal:[],backendAttempts:[],errors:[]};
 const persist=()=>fs.writeFileSync(out+'/report.json',JSON.stringify(report,null,2));
 const step=async(name,fn)=>{report.currentStep=name;persist();console.log('RUN',name);try{await fn();report.checks.push({name,status:'PASS'});console.log('PASS',name)}catch(e){report.checks.push({name,status:'FAIL',error:String(e?.stack||e)});throw e}finally{persist()}};
@@ -78,12 +82,21 @@ try{
   await dismiss(p);await metric.click();assert.equal(await draft(metric),7);
   await accept(p);await metric.click();const value=await draft(metric);assert(Math.abs(value-100)<3,'area '+value);assert.equal((await read(viewer,'rooms',rid)).categoryVolumes['Trần QA'],7);
   await p.screenshot({path:out+'/area-draft.png'});await p.getByRole('button',{name:/Lưu thay đổi nghiệm thu/}).click();await expectVolume(viewer,rid,'Trần QA',value);report.area=value;
-  await modal(V.page,rid);const preview=V.page.locator('[data-hnl-prod-highlight-metric-preview]').first();await preview.waitFor();assert.equal(await V.page.locator('[data-hnl-prod-take-metric-volume]').count(),0);await V.page.screenshot({path:out+'/viewer-area.png'});
+  await modal(V.page,rid);const preview=V.page.locator('[data-hnl-prod-highlight-metric-preview]').first();await preview.waitFor();assert.equal(await V.page.locator('[data-hnl-prod-take-metric-volume]').count(),0);await wait(async()=>await draft(preview)===value,'VIEWER App receives saved area');await V.page.screenshot({path:out+'/viewer-area.png'});
  });
  await step('Reload App and verify persisted ADMIN quantity, no duplicate rooms',async()=>{
   await A.page.reload({waitUntil:'domcontentloaded'});await A.page.getByAltText('Tầng QA',{exact:true}).first().waitFor({timeout:45000});await modal(A.page,rid);const metric=A.page.locator('[data-hnl-prod-take-metric-volume]').first();await metric.waitFor();assert.equal(await draft(metric),report.area);const docs=await getDocsFromServer(collection(viewer.db,'projects',pid,'rooms'));assert.deepEqual(docs.docs.map(d=>d.id).sort(),[rid,lid].sort());
  });
+ await step('Actual mobile ADMIN line: offline Save stays local and reconnect persists once',async()=>{
+  const M=await open('ADMIN',true),p=M.page;await modal(p,lid);const metric=p.locator('[data-hnl-prod-take-metric-volume]').first();await metric.waitFor();assert.equal(await metric.innerText(),'Lấy chiều dài');assert.equal(await draft(metric),7);
+  const rect=await p.locator('[data-hnl-pc-v32-window="room-editor"] .hnl-ios-safe-dialog').boundingBox();assert(rect&&rect.x>=-1&&rect.x+rect.width<=391,'mobile dialog overflows');
+  await M.context.setOffline(true);await p.waitForFunction(()=>!navigator.onLine);await wait(async()=>await metric.isEnabled(),'verified offline role');
+  await accept(p);await metric.click();const value=await draft(metric);assert(Math.abs(value-10)<.25,'length '+value);assert.equal((await read(viewer,'rooms',lid)).categoryVolumes['Tuyến QA'],7);
+  await p.screenshot({path:out+'/mobile-line-offline-draft.png'});await p.getByRole('button',{name:/Lưu thay đổi nghiệm thu/}).click();await new Promise(r=>setTimeout(r,1200));assert.equal((await read(viewer,'rooms',lid)).categoryVolumes['Tuyến QA'],7,'offline server changed');
+  await M.context.setOffline(false);await p.waitForFunction(()=>navigator.onLine);await expectVolume(viewer,lid,'Tuyến QA',value);
+  const docs=await getDocsFromServer(collection(viewer.db,'projects',pid,'rooms'));assert.deepEqual(docs.docs.map(d=>d.id).sort(),[rid,lid].sort());report.length=value;await p.screenshot({path:out+'/mobile-line-reconnected.png'});
+ });
  await step('No attempted real backend and no uncaught browser errors',async()=>{assert.deepEqual(report.backendAttempts,[]);assert.deepEqual(report.errors,[])});
  report.status='PASS';
 }catch(e){report.status='FAIL';report.error=String(e?.stack||e);console.error(e);for(let i=0;i<pages.length;i++)await pages[i].screenshot({path:out+'/failure-'+i+'.png',timeout:5000}).catch(()=>{});}
-finally{persist();fs.writeFileSync(out+'/vite.log',logs);await browser?.close().catch(()=>{});if(server&&server.exitCode===null)server.kill('SIGTERM');for(const c of clients){await terminate(c.db).catch(()=>{});await deleteApp(c.app).catch(()=>{})}console.log('FINAL APP QA',report.status,report.checks.length);process.exitCode=report.status==='PASS'?0:1;setTimeout(()=>process.exit(process.exitCode),1000).unref()}
+finally{persist();fs.writeFileSync(out+'/vite.log',logs);await browser?.close().catch(()=>{});if(server&&server.exitCode===null){server.kill('SIGTERM');await new Promise(resolve=>{server.once('exit',resolve);setTimeout(resolve,2000)})}fs.mkdirSync(artifactOut,{recursive:true});fs.cpSync(out,artifactOut,{recursive:true});for(const c of clients){await terminate(c.db).catch(()=>{});await deleteApp(c.app).catch(()=>{})}console.log('FINAL APP QA',report.status,report.checks.length);process.exitCode=report.status==='PASS'?0:1;setTimeout(()=>process.exit(process.exitCode),1000).unref()}
