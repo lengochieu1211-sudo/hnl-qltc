@@ -49,7 +49,7 @@ try{
  server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','4178','--strictPort'],{env,stdio:['ignore','pipe','pipe']});server.stdout.on('data',c=>logs+=String(c));server.stderr.on('data',c=>logs+=String(c));
  await wait(async()=> (await fetch(origin)).ok,'Vite ready',45000);
  browser=await chromium.launch({headless:true,...(process.env.QA_CHROME_EXECUTABLE?{executablePath:process.env.QA_CHROME_EXECUTABLE}:{})});
- const open=async(role,mobile=false,legacySingleTab=false)=>{
+ const open=async(role,mobile=false,legacySingleTab=false,legacyReportKey='legacyMigration')=>{
   const context=await browser.newContext({viewport:mobile?{width:390,height:844}:{width:1440,height:900},locale:'vi-VN',hasTouch:mobile,isMobile:mobile,serviceWorkers:'block'});
   await context.route('**/*',async route=>{const url=route.request().url();if(url===img||url===replacement){await route.fulfill({contentType:'image/svg+xml',body:url===img?svg:svg.replace('#e6e9ee','#cbd5e1')});return}const u=new URL(url);if(['127.0.0.1','localhost'].includes(u.hostname)&&['4178','8080','9099','9199'].includes(u.port)){await route.continue();return}if(blocked.test(url))report.backendAttempts.push(url.split('?')[0]);report.blockedExternal.push(u.origin);await route.abort()});
   await context.addInitScript(({pid})=>{sessionStorage.setItem('active_project_id',pid);sessionStorage.setItem('qlct_active_tab_v1','floorplan')},{pid});
@@ -62,14 +62,14 @@ try{
       const body=await response.text();
       const old=/persistentLocalCache\(\s*\{\s*tabManager:\s*persistentMultipleTabManager\(\s*\)\s*\}\s*\)/;
       assert.equal((body.match(new RegExp(old.source,'g'))||[]).length,1,'expected exact multi-tab expression in transformed module');
-      report.legacyMigration={legacyModuleServed:true};persist();
+      report[legacyReportKey]={legacyModuleServed:true};persist();
       await route.fulfill({response,body:body.replace(old,'persistentLocalCache()')});
     };
     await context.route(pattern,handler);
     legacyRoute={pattern,handler};
   }
   const page=await context.newPage();pages.push(page);page.on('pageerror',e=>report.errors.push(role+': '+String(e)));
-  if(legacySingleTab)page.on('console',m=>{if(['warning','error'].includes(m.type())){(report.legacyMigration.startupWarnings??=[]).push(m.text().slice(0,1200));persist()}});
+  if(legacySingleTab)page.on('console',m=>{if(['warning','error'].includes(m.type())){(report[legacyReportKey].startupWarnings??=[]).push(m.text().slice(0,1200));persist()}});
   await page.goto(origin,{waitUntil:'domcontentloaded',timeout:45000});
   await page.locator('[data-hnl-auth-gate="signed-out"]').waitFor({timeout:40000});
   await page.evaluate(async(role)=>{const m=await import('/src/lib/firebaseBase.ts');if(!m.FIREBASE_EMULATOR_ENABLED)throw Error('emulator guard');await m.signInWithEmulatorTestAccount(role)},role);
@@ -429,6 +429,43 @@ try{
   const before=await read(viewer,'rooms',lid);
   await p.reload({waitUntil:'domcontentloaded'});await p.getByAltText('Tầng QA',{exact:true}).first().waitFor({timeout:45000});
   assert.deepEqual(await read(viewer,'rooms',lid),before);
+ });
+ await step('Mixed old and new clients: preserve old pending data and diagnose persistent-cache availability',async()=>{
+  const old=await open('ADMIN',true,true,'mixedClients'),p=old.page;
+  const before=await read(viewer,'rooms',lid),warnings=[];
+  const cache=page=>page.evaluate(async({pid,lid})=>{
+    const m=await import('/src/lib/firebaseBase.ts');if(!m.FIREBASE_EMULATOR_ENABLED)throw Error('not emulator');
+    const u=performance.getEntriesByType('resource').map(e=>e.name).find(x=>x.includes('/.vite/deps/firebase_firestore.js?'));
+    const sdk=await import(u);
+    const d=await sdk.getDocFromCache(sdk.doc(m.db,'projects',pid,'rooms',lid));
+    return {pending:d.metadata.hasPendingWrites,data:d.data(),indexManagerAvailable:!!sdk.getPersistentCacheIndexManager(m.db)};
+  },{pid,lid});
+  await wait(async()=>{const d=await cache(p);return !d.pending&&d.data?.revision===before.revision},'old client ready');
+  const oldCache=await cache(p);
+  await old.context.unroute(old.legacyRoute.pattern,old.legacyRoute.handler);
+  const peer=await old.context.newPage();pages.push(peer);
+  peer.on('console',m=>{if(/exclusive access|falling back to memory/i.test(m.text()))warnings.push(m.text().slice(0,1200))});
+  peer.on('pageerror',e=>report.errors.push('mixed client: '+String(e)));
+  await peer.goto(origin,{waitUntil:'domcontentloaded',timeout:45000});
+  await peer.getByAltText('Tầng QA',{exact:true}).first().waitFor({timeout:45000});
+  await wait(async()=>{const d=await cache(peer);return d.data?.revision===before.revision},'mixed peer can read current record');
+  const peerCache=await cache(peer);
+  Object.assign(report.mixedClients,{beforeRevision:before.revision,oldIndexManagerAvailable:oldCache.indexManagerAvailable,newIndexManagerAvailable:peerCache.indexManagerAvailable,cacheWarnings:warnings,scope:'No write attempted from potentially RAM-only peer; this is diagnostic, not offline-safety certification.'});persist();
+  const status=before.subItems.find(x=>x.id==='stage-line').status==='Đang làm'?'Chưa làm':'Đang làm';
+  await modal(p,lid);await old.context.setOffline(true);
+  try{
+    await p.waitForFunction(()=>!navigator.onLine);
+    await p.locator('[data-hnl-pc-v36-room-status="item"]').getByRole('button',{name:status,exact:false}).first().click();
+    await p.getByRole('button',{name:/Lưu thay đổi nghiệm thu/}).click();
+    const pending=await wait(async()=>{const d=await cache(p);return d.pending&&d.data?.revision===before.revision+1?d:false},'old pending while mixed peer open');
+    report.mixedClients.pendingRevision=pending.data.revision;persist();
+    assert.equal((await read(viewer,'rooms',lid)).revision,before.revision);
+    await peer.close();await old.context.setOffline(false);
+    const after=await wait(async()=>{const d=await read(viewer,'rooms',lid);return d?.revision===before.revision+1&&d.subItems?.some(i=>i.id==='stage-line'&&i.status===status)?d:false},'old pending recovered after closing mixed peer',75000);
+    for(const k of ['id','floorId','workVolume','categoryVolumes','categoryVolumeUnits','x','y','width','height','points'])assert.deepEqual(after[k],before[k]);
+    report.mixedClients.afterRevision=after.revision;
+    await p.screenshot({path:out+'/mixed-client-old-queue-recovered.png'});
+  }finally{await old.context.setOffline(false).catch(()=>{});persist()}
  });
  await step('No attempted real backend and no uncaught browser errors',async()=>{assert.deepEqual(report.backendAttempts,[]);assert.deepEqual(report.errors,[])});
  report.status='PASS';
