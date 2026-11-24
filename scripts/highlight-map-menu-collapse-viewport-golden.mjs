@@ -48,4 +48,47 @@ assert(!clamp.includes('right: 0 !important;'), 'No last-wins CSS forcing Displa
 assert(floor.includes('setMetricCalibrationLaunch({floorId:activeFloor.id,token:Date.now()})'));
 assert(floor.includes('renderMapDisplayControls(dark)'));
 assert(floor.includes('renderMapDisplayControls(true)'), 'Fullscreen Display controls unchanged');
+// Regression: Tailwind open:indigo bypassed HNL's .bg-indigo-600 => primary-blue remap.
+// Source-only class checks previously passed while actual open buttons stayed purple.
+assert.match(css, /\.bg-indigo-600 \{ background-color: var\(--hnl-primary-action\) !important; \}/,
+  'Three drawing buttons map to shared HNL primary blue, not Tailwind indigo');
+const selectedPopup = css.match(/\[data-hnl-map-measure-display-row="true"\] > details\[open\] \{([^}]+)\}/);
+assert(selectedPopup, 'Both normal-mode popup triggers must override Tailwind open:indigo');
+for (const entry of [
+  'background-color: var(--hnl-primary-action) !important;',
+  'color: #fff !important;',
+  'border-color: var(--hnl-primary-action) !important;',
+  '--tw-ring-color: color-mix(in srgb, var(--hnl-primary) 28%, transparent) !important;',
+]) assert(selectedPopup[1].includes(entry), `Popup selected color must match 3 drawing tools: ${entry}`);
+assert.match(floor,/data-hnl-map-measure-display-row="true"[\s\S]*data-hnl-map-calibration-inline="anchored-popover"/);
+assert(floor.includes('data-hnl-map-display-inline="anchored-popover"'));
+assert(!selectedPopup[1].includes('purple') && !selectedPopup[1].includes('#4f46e5'), 'No hardcoded purple');
+// PR499 follow-up: the *actual* two-point calibration panel is a separate React
+// component. Checking only the parent dropdown would miss its old teal-on-black
+// panel, especially when fullscreen. Match Display's normal/fullscreen surfaces.
+const calibrationPanel = read('src/components/FloorMetricCalibration.tsx');
+assert.match(calibrationPanel, /data-hnl-metric-calibration-panel="true"/);
+assert.match(calibrationPanel, /isFullscreen\s*\? 'border-slate-600 bg-slate-800 text-slate-100 shadow-2xl'\s*: 'border-slate-200 bg-white text-slate-700 shadow-xl'/,
+  'Calibration popover must match Display backgrounds/borders in both viewing modes');
+assert.doesNotMatch(calibrationPanel, /bg-slate-950\/95|border-teal-400\/50|bg-teal-700/,
+  'Do not reintroduce the old teal-on-black calibration panel');
+assert.match(calibrationPanel, /data-hnl-metric-calibration-close="true" aria-label="Đóng bảng Đo tỷ lệ"/);
+assert.match(calibrationPanel, /onClick=\{\(event\) => \{ event\.stopPropagation\(\); close\(\); \}\}/,
+  'X button closes the two-point calibration panel without saving');
+assert.match(calibrationPanel, /const close = \(\) => \{ setActive\(false\); onActiveChange\?\.\(false\); setPoints\(\[\]\); setNotice\(''\); \};/,
+  'X button clears only unsaved points and notice');
+assert.match(calibrationPanel, /onSave\(floor\.id,draft\);\s*close\(\);/,
+  'Existing saved calibration path is unchanged');
+assert.match(floor, /data-hnl-map-calibration-popover-close="true" aria-label="Đóng tùy chọn Đo tỷ lệ"/,
+  'Normal inline calibration dropdown has its own X button');
+assert.match(floor, /data-hnl-map-calibration-popover-close="true"[\s\S]{0,260}closest\('details'\)\?\.removeAttribute\('open'\)/,
+  'Normal X only dismisses its dropdown without launching/saving calibration');
+assert.match(floor, /data-hnl-fullscreen-display-popover="true"[\s\S]{0,350}border-slate-600 bg-slate-800 text-slate-100/,
+  'Fullscreen calibration uses same base surface as fullscreen Display');
+assert.match(floor, /data-hnl-map-display-popover="true"[\s\S]{0,350}border-slate-200 bg-white text-slate-700/,
+  'Normal calibration uses same base surface as normal Display');
+console.log('PASS HNL CALIBRATION PANEL PARITY: normal white and fullscreen slate-800 match Display, two X close actions, no saved data touched');
 console.log('PASS HNL MAP MENU COLLAPSE + VIEWPORT + 5 BUTTON COLORS: source-only, no data writes');
+
+assert.match(floor, /showFullscreenDisplaySettings \? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300 border-indigo-600'/, 'Fullscreen Display uses the same active color and ring as calibration');
+assert(floor.includes('!(isFullscreen && showFullscreenDisplaySettings) && (selectedRoomObject'), 'Hide room operations while fullscreen Display is open; keep room selection');
