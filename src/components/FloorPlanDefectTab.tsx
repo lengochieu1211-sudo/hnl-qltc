@@ -6576,14 +6576,32 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         }} className={`self-end rounded-lg px-2 py-1 text-[10px] font-bold ${dark ? 'bg-slate-700' : 'bg-slate-100'}`}>Mặc định 100%</button>
       </div>
   );
+  // Popovers are nested in a compact, wrapping toolbar. Clamp their anchored
+  // offset to the *visible viewport*, not to the trigger's row position.
+  // Keep position: absolute so opening a menu never resizes/reflows the map.
+  const alignMapToolbarPopover = (trigger: HTMLDetailsElement) => {
+    const panel = trigger.querySelector<HTMLElement>('[data-hnl-map-display-popover="true"], [data-hnl-map-calibration-popover="true"]');
+    if (!panel) return;
+    const rect = trigger.getBoundingClientRect();
+    const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+    const panelWidth = panel.getBoundingClientRect().width;
+    const margin = 12;
+    const minLeft = margin - rect.left;
+    const maxLeft = viewportWidth - margin - panelWidth - rect.left;
+    const desiredLeft = rect.width - panelWidth; // Prefer right-aligned, but never clip the left edge.
+    trigger.style.setProperty('--hnl-map-popover-left', `${Math.round(Math.min(maxLeft, Math.max(minLeft, desiredLeft)))}px`);
+  };
   const renderMapDisplaySettings = (dark = false) => (
     <details data-hnl-map-display-inline="anchored-popover" onToggle={event => {
-      if (event.currentTarget.open) document.querySelector<HTMLDetailsElement>('[data-hnl-map-calibration-inline="anchored-popover"]')?.removeAttribute('open');
-    }} className={`group relative w-auto min-w-0 shrink-0 rounded-xl border transition-all open:bg-indigo-600 open:text-white open:shadow-sm open:ring-2 open:ring-indigo-300 open:border-indigo-600 ${dark ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-200/90 bg-white text-slate-700 hover:bg-slate-100 shadow-2xs'}`}>
-      <summary className="text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap list-none" aria-label="Mở tùy chỉnh hiển thị mặt bằng">
-        <span aria-hidden="true" className="text-sm leading-none shrink-0">⚙️</span><span>Hiển thị</span><span className="text-[10px] leading-none transition-transform group-open:rotate-180">▾</span>
+      if (event.currentTarget.open) {
+        document.querySelector<HTMLDetailsElement>('[data-hnl-map-calibration-inline="anchored-popover"]')?.removeAttribute('open');
+        alignMapToolbarPopover(event.currentTarget);
+      }
+    }} className={`group/map-menu relative w-auto min-w-0 shrink-0 rounded-xl border transition-all open:bg-indigo-600 open:text-white open:font-black open:shadow-sm open:ring-2 open:ring-indigo-300 open:border-indigo-600 ${dark ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-200/90 bg-white text-slate-700 hover:bg-slate-100 shadow-2xs'}`}>
+      <summary className="text-xs font-bold group-open/map-menu:font-black px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap list-none" aria-label="Mở tùy chỉnh hiển thị mặt bằng">
+        <span aria-hidden="true" className="text-sm leading-none shrink-0">⚙️</span><span>Hiển thị</span><span className="text-[10px] leading-none transition-transform group-open/map-menu:rotate-180">▾</span>
       </summary>
-      <div data-hnl-map-display-popover="true" className={`hnl-mobile-map-display-panel absolute right-0 top-full z-[95] mt-1 w-[min(18rem,calc(100vw-2rem))] max-h-[min(70dvh,36rem)] overflow-y-auto overscroll-contain rounded-xl border shadow-xl ${dark ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-200 bg-white text-slate-700'}`}>
+      <div data-hnl-map-display-popover="true" className={`hnl-mobile-map-display-panel absolute left-0 right-auto top-full z-[95] mt-1 w-[min(18rem,calc(100vw-2rem))] max-h-[min(70dvh,36rem)] overflow-y-auto overscroll-contain rounded-xl border shadow-xl ${dark ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-200 bg-white text-slate-700'}`}>
         {renderMapDisplayControls(dark)}
       </div>
     </details>
@@ -7264,15 +7282,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           })()}
 
           {/* Dedicated Drawing & View Controls Toolbar */}
-          {canManageStructure && (viewMode === 'highlight' || viewMode === 'all') && (
-            <details open={isShapeDrawing ? true : undefined} className="group bg-slate-50/90 rounded-xl border border-slate-200/80">
+          {(viewMode === 'highlight' || viewMode === 'all' || viewMode === 'defect') && (
+            <details data-hnl-map-tools-collapsible="true" open={isShapeDrawing ? true : undefined} className="group/map-tools bg-slate-50/90 rounded-xl border border-slate-200/80">
               <summary onClick={(event) => { if (isShapeDrawing) event.preventDefault(); }} className="cursor-pointer select-none px-3 py-2 text-[11px] font-bold text-slate-700 flex items-center justify-between">
-                <span>{isShapeDrawing ? 'Đo vẽ khối lượng' : 'Công cụ vẽ vùng Căn / Phòng'}</span>
-                <span className="text-slate-400 group-open:hidden">Mở</span>
-                <span className="text-slate-400 hidden group-open:inline">Thu gọn</span>
+                <span>{canManageStructure && (viewMode === 'highlight' || viewMode === 'all') ? (isShapeDrawing ? 'Đo vẽ khối lượng' : 'Công cụ vẽ vùng Căn / Phòng') : 'Công cụ hiển thị mặt bằng'}</span>
+                <span className="text-slate-400 group-open/map-tools:hidden">Mở</span>
+                <span className="text-slate-400 hidden group-open/map-tools:inline">Thu gọn</span>
               </summary>
               <div className="p-2 border-t border-slate-200/80 flex flex-wrap items-center justify-start gap-2">
               {/* Group 1: 3 Drawing Tools */}
+              {canManageStructure && (viewMode === 'highlight' || viewMode === 'all') && (
               <div className="flex flex-wrap items-center gap-1.5">
 
                 {/* Tool 1: Freehand Drawing */}
@@ -7347,29 +7366,27 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <span>Vẽ chữ nhật</span>
                 </button>
               </div>
-
-              </div>
-            </details>
-          )}
-
-          {(viewMode === 'highlight' || viewMode === 'all' || viewMode === 'defect') && (
-            <div data-hnl-map-measure-display-row="true"
-              className="flex flex-wrap items-center gap-1.5 px-2 py-1">
+              )}
+              <div data-hnl-map-measure-display-row="true"
+                className="flex flex-wrap items-center gap-1.5">
               {canManageStructure && (viewMode === 'highlight' || viewMode === 'all') && (
                 <details data-hnl-map-calibration-inline="anchored-popover"
                   onToggle={event => {
-                    if (event.currentTarget.open) document.querySelector<HTMLDetailsElement>('[data-hnl-map-display-inline="anchored-popover"]')?.removeAttribute('open');
+                    if (event.currentTarget.open) {
+                      document.querySelector<HTMLDetailsElement>('[data-hnl-map-display-inline="anchored-popover"]')?.removeAttribute('open');
+                      alignMapToolbarPopover(event.currentTarget);
+                    }
                   }}
-                  className="group relative w-auto min-w-0 shrink-0 rounded-xl border border-slate-200/90 bg-white text-slate-700 hover:bg-slate-100 shadow-2xs transition-all open:bg-indigo-600 open:text-white open:border-indigo-600 open:shadow-sm open:ring-2 open:ring-indigo-300">
+                  className="group/map-menu relative w-auto min-w-0 shrink-0 rounded-xl border border-slate-200/90 bg-white text-slate-700 hover:bg-slate-100 shadow-2xs transition-all open:bg-indigo-600 open:text-white open:font-black open:border-indigo-600 open:shadow-sm open:ring-2 open:ring-indigo-300">
                   <summary data-hnl-cach2-calibrate-toolbar="true" role="button" title="Chọn 2 điểm chuẩn để đo tỷ lệ" aria-label="Mở đo tỷ lệ mặt bằng"
                     aria-disabled={!activeFloor || isCountDrawing || isShapeDrawing || isRoomCreationDrawing || drawTool !== 'none' || isDefectPinPlacementMode}
                     onClick={event => {
                       if (!activeFloor || isCountDrawing || isShapeDrawing || isRoomCreationDrawing || drawTool !== 'none' || isDefectPinPlacementMode) event.preventDefault();
                     }}
-                    className="text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap list-none group-aria-disabled:opacity-40">
-                    <span className="text-sm leading-none shrink-0">📏</span><span>Đo tỷ lệ</span><span className="text-[10px] leading-none transition-transform group-open:rotate-180">▾</span>
+                    className="text-xs font-bold group-open/map-menu:font-black px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap list-none aria-disabled:opacity-40">
+                    <span className="text-sm leading-none shrink-0">📏</span><span>Đo tỷ lệ</span><span className="text-[10px] leading-none transition-transform group-open/map-menu:rotate-180">▾</span>
                   </summary>
-                  <div data-hnl-map-calibration-popover="true" className="absolute left-0 top-full z-[95] mt-1 w-[min(19rem,calc(100vw-2rem))] max-h-[min(70dvh,36rem)] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-slate-800 shadow-xl space-y-2">
+                  <div data-hnl-map-calibration-popover="true" className="absolute left-0 right-auto top-full z-[95] mt-1 w-[min(18rem,calc(100vw-2rem))] max-h-[min(70dvh,36rem)] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-slate-700 shadow-xl space-y-2">
                     <div className="text-xs font-black">📏 Đo tỷ lệ · {activeFloor?.floorName || 'Chưa chọn tầng'}</div>
                     <p className="text-[11px] text-slate-600">Dùng chiều dài thực tế giữa 2 điểm trên ảnh mặt bằng để hiệu chuẩn. Không tự sửa KL đã lưu.</p>
                     <button type="button" data-hnl-map-calibration-start="true"
@@ -7378,14 +7395,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         event.currentTarget.closest('details')?.removeAttribute('open');
                         if (activeFloor) setMetricCalibrationLaunch({floorId:activeFloor.id,token:Date.now()});
                       }}
-                      className="min-h-11 w-full rounded-lg bg-teal-700 px-3 py-2 font-bold text-xs text-white disabled:opacity-40">
+                      className="min-h-11 w-full rounded-lg bg-indigo-600 hover:bg-indigo-700 px-3 py-2 font-bold text-xs text-white disabled:opacity-40">
                       Chọn 2 điểm và nhập chiều dài (m)
                     </button>
                   </div>
                 </details>
               )}
               {renderMapDisplaySettings(false)}
-            </div>
+              </div>
+              </div>
+            </details>
           )}
 
           {/* Active Drawing Tool Info Banner */}

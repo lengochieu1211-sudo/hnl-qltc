@@ -82,6 +82,8 @@ jobs:
         run: node --experimental-strip-types scripts/highlight-advanced-dev-safe-golden.mjs
       - name: Floor map toolbar 5-button visual parity (DEV source-only)
         run: node scripts/highlight-map-toolbar-trigger-visual-golden.mjs
+      - name: Collapsed map toolbar, popup viewport and five-button color regression (no deploy)
+        run: node scripts/highlight-map-menu-collapse-viewport-golden.mjs
       - name: Cách 2 calibration marker visual size golden (DEV only, no deploy)
         run: node scripts/highlight-metric-marker-size-golden.mjs
       - name: Cách 2 room-form to floor-map launch golden (DEV only, no deploy)
