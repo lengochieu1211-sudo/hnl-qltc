@@ -31,7 +31,8 @@ jobs:
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/qa/pr492-stage3-isolated-20261124
           git merge-base --is-ancestor aa9a26d60ae46a0b988f8ae5ce24c631a891b58f HEAD
-          git diff --exit-code aa9a26d60ae46a0b988f8ae5ce24c631a891b58f HEAD -- src package.json package-lock.json firestore.rules storage.rules firebase.json .firebaserc
+          # Stage6 allows only the scoped room modal change, all other app/infra unchanged.
+          git diff --exit-code aa9a26d60ae46a0b988f8ae5ce24c631a891b58f HEAD -- src package.json package-lock.json firestore.rules storage.rules firebase.json .firebaserc ':!src/components/RoomHighlightModal.tsx'
           test -z "${GOOGLE_APPLICATION_CREDENTIALS:-}${FIREBASE_TOKEN:-}${CLOUDFLARE_API_TOKEN:-}"
           node --check scripts/qa-pr492-stage4-app.mjs
       - uses: actions/setup-node@v4

@@ -96,6 +96,23 @@ try{
   await M.context.setOffline(false);await p.waitForFunction(()=>navigator.onLine);await expectVolume(viewer,lid,'Tuyến QA',value);
   const docs=await getDocsFromServer(collection(viewer.db,'projects',pid,'rooms'));assert.deepEqual(docs.docs.map(d=>d.id).sort(),[rid,lid].sort());report.length=value;await p.screenshot({path:out+'/mobile-line-reconnected.png'});
  });
+ await step('Offline saved progress survives page close and online restart without changing quantity',async()=>{
+  const M=await open('ADMIN',true),p=M.page;
+  await modal(p,lid);const before=await read(viewer,'rooms',lid);
+  const progress=p.locator('[data-hnl-pc-v36-room-status="item"]').getByRole('button',{name:/Đang làm/}).first();
+  await M.context.setOffline(true);await p.waitForFunction(()=>!navigator.onLine);
+  await progress.click();await p.getByRole('button',{name:/Lưu thay đổi nghiệm thu/}).click();
+  await p.locator('[data-hnl-pc-v32-window="room-editor"]').waitFor({state:'hidden'});
+  await new Promise(r=>setTimeout(r,1800));
+  assert.equal((await read(viewer,'rooms',lid)).frameStatus,before.frameStatus);
+  await p.close();await M.context.setOffline(false);
+  const restarted=await M.context.newPage();pages.push(restarted);restarted.on('pageerror',e=>report.errors.push('restart: '+String(e)));
+  await restarted.goto(origin,{waitUntil:'domcontentloaded',timeout:45000});await restarted.getByAltText('Tầng QA',{exact:true}).first().waitFor({timeout:45000});
+  const after=await wait(async()=>{const d=await read(viewer,'rooms',lid);return d?.subItems?.some(i=>i.id==='stage-line'&&i.status==='Đang làm')?d:false},'pending saved progress survives page restart',45000);
+  for(const k of ['id','floorId','categoryVolumes','categoryVolumeUnits','x','y','width','height','points'])assert.deepEqual(after[k],before[k]);
+  report.restartProgress=after.subItems.find(i=>i.id==='stage-line').status;
+  await restarted.screenshot({path:out+'/offline-restart-synced.png'});
+ });
  await step('Actual EDITOR updates progress without changing official volume, geometry or IDs',async()=>{
   const E=await open('EDITOR',true),p=E.page;
   assert.equal(await p.locator('[data-hnl-prod-metric-toolbar]').count(),0);
@@ -159,6 +176,15 @@ try{
   assert.equal(after.categoryVolumes['Trần QA'],report.area,'stale draft overwrote official quantity');
   assert(await p.locator('[data-hnl-pc-v32-window="room-editor"]').isVisible(),'stale save must not close modal');
   assert(dialogs.some(m=>/tỷ lệ|số đo|mặt bằng/i.test(m)),'explain why saving is blocked');
+  await p.locator('[data-hnl-prod-metric-stale-draft]').waitFor();
+  // Discard explicitly; ordinary manual quantity remains available in a fresh form.
+  await accept(p);await p.locator('[data-hnl-pc-v32-window="room-editor"]').getByTitle('Đóng',{exact:true}).click();
+  await p.locator('[data-hnl-pc-v32-window="room-editor"]').waitFor({state:'hidden'});
+  await modal(p,rid);const fresh=p.locator('[data-hnl-prod-highlight-metric-preview]').first();await fresh.waitFor();
+  assert.equal(await draft(fresh),report.area);assert.equal(await p.locator('[data-hnl-prod-metric-stale-draft]').count(),0);
+  const input=fresh.locator('xpath=..').locator('input');await input.fill(String(report.area+1));await input.blur();
+  await p.getByRole('button',{name:/Lưu thay đổi nghiệm thu/}).click();await expectVolume(viewer,rid,'Trần QA',report.area+1);
+  report.manualAfterDiscard=report.area+1;
  });
  await step('No attempted real backend and no uncaught browser errors',async()=>{assert.deepEqual(report.backendAttempts,[]);assert.deepEqual(report.errors,[])});
  report.status='PASS';

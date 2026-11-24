@@ -139,7 +139,12 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   focusOrphanRepair = false,
 }) => {
   const roomDraftDirtyRef = React.useRef(false);
-  useEffect(() => { roomDraftDirtyRef.current = false; }, [isOpen, roomItem?.id, floorId]);
+  // Session-only provenance. Never serialize a measured draft or change stored schema.
+  const [metricDraftStamp, setMetricDraftStamp] = useState<string | null>(null);
+  useEffect(() => {
+    roomDraftDirtyRef.current = false;
+    setMetricDraftStamp(null);
+  }, [isOpen, roomItem?.id, floorId]);
   const closeRoomWithDraftGuard = (label: string) => {
     if (roomDraftDirtyRef.current && !window.confirm(`${label}? Các thay đổi chưa nhấn Lưu sẽ không được lưu. Tiếp tục?`)) return;
     roomDraftDirtyRef.current = false;
@@ -690,6 +695,19 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   const metricArea = measureRoomHighlightAreaM2(floorPlan,metricRoomGeometry,metricImage);
   const metricLength = measureRoomHighlightLengthM(floorPlan,metricRoomGeometry,metricImage);
   const metricScaleValid = Boolean(floorPlan && metricImage && getValidFloorMetricCalibration(floorPlan,metricImage).valid);
+  const metricCalibration = floorPlan?.highlightMetricCalibration;
+  // Include actual calibration and geometry, not just source identity: a new scale
+  // on the same image must also invalidate a previously captured quantity.
+  const currentMetricDraftStamp = metricScaleValid && metricCalibration ? JSON.stringify([
+    metricCalibration.floorId, metricCalibration.sourceKey,
+    metricCalibration.sourceWidthPx, metricCalibration.sourceHeightPx,
+    metricCalibration.actualMetres, metricCalibration.metresPerPixel,
+    metricCalibration.first.x, metricCalibration.first.y,
+    metricCalibration.second.x, metricCalibration.second.y,
+    x,y,width,height,Boolean(isPolyline),points?.map(p=>[p.x,p.y]) || [],
+  ]) : null;
+  const metricDraftStale = metricDraftStamp !== null && metricDraftStamp !== currentMetricDraftStamp;
+  const metricDraftStaleMessage = 'Ảnh mặt bằng, tỷ lệ hoặc hình học đã thay đổi sau khi lấy số đo. Không thể lưu số đo nháp cũ. Hãy đóng Căn / Phòng, xác nhận bỏ bản nháp rồi mở lại để đối chiếu và lấy số đo mới.';
   // Historical categoryVolumes may be keyed by catalog ID instead of title.
   // The existing manual editor has its own legacy reconciliation; the new take-metric
   // action must fail closed here rather than create a second title-keyed quantity.
@@ -706,10 +724,12 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     const resolved = getCategoryDisplayUnit(catName);
     if(structureReadOnly || roomItem?.positionLocked || roomItem?.inspectionStatus==='Đạt nghiệm thu' ||
       hasLegacyMetricVolumeKey(catName) || resolved.warning || !areSameUnit(resolved.unit,unit) || !metricScaleValid || !Number.isFinite(value) || value<=0) return;
+    if (metricDraftStale || !currentMetricDraftStamp) { alert(metricDraftStaleMessage); return; }
     // Only change in-memory draft on an explicit button click. Existing Save workflow remains authoritative.
     const rounded = Math.round(value*1000)/1000;
     if(!window.confirm(`Lấy ${rounded.toLocaleString('vi-VN')} ${unit} vào ô Khối lượng hạng mục “${catName}”?\nChưa ghi dữ liệu cho đến khi bấm Lưu Căn / Phòng.`))return;
     roomDraftDirtyRef.current=true;
+    setMetricDraftStamp(currentMetricDraftStamp);
     setCategoryVolumes(prev=>({...prev,[catName]:rounded}));
     setVolumeStrings(prev=>({...prev,[catName]:formatDecimal(rounded)}));
     if(workCategory.trim().toLocaleLowerCase('vi-VN')===catName.trim().toLocaleLowerCase('vi-VN')) setWorkVolume(rounded);
@@ -800,6 +820,12 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
   const handleAutoIssueForRoom = async () => {
     if (isAutoIssuing) return;
+    // A measured draft is not official quantity yet. Do not let its estimates
+    // escape the form through inventory writes before explicit room Save.
+    if (metricDraftStamp !== null) {
+      alert(metricDraftStale ? metricDraftStaleMessage : 'Hãy lưu Căn / Phòng và mở lại trước khi xuất kho theo khối lượng vừa đo.');
+      return;
+    }
     if (!onAddInventory) {
       alert('Không có hàm tạo phiếu kho.');
       return;
@@ -1042,6 +1068,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     if (savingRoomRef.current) return;
     e.preventDefault();
+    if (metricDraftStale) { alert(metricDraftStaleMessage); return; }
     if (!roomName.trim()) {
       alert('Vui lòng nhập tên hoặc mã Căn / Phòng!');
       return;
@@ -1251,6 +1278,9 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
             if (button?.type === 'button') roomDraftDirtyRef.current = true;
           }}
           className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain space-y-3.5 pr-1 text-xs">
+          {metricDraftStale && (
+            <div role="alert" data-hnl-prod-metric-stale-draft="true" className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">{metricDraftStaleMessage}</div>
+          )}
           {structureReadOnly && (
             <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-[11px] font-semibold text-indigo-800">
               Kỹ sư chỉ cập nhật tiến độ, nghiệm thu, đội thi công, hạn hoàn thành và ghi chú. Tên Căn/Phòng, khối lượng và hình học mặt bằng do Admin quản lý.
@@ -1730,7 +1760,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             const isWallArea = unit==='m²' && /(vách|tường|wall|partition)/i.test(catName);
                             const compatible = normalizeUnit(resolved.unit)===unit && !isWallArea;
                             return <button type="button" data-hnl-prod-take-metric-volume="true"
-                              disabled={!enabled||!compatible||!measure.valid} title={legacyIdKeyed?'Phòng cũ lưu khối lượng theo ID hạng mục; vui lòng đối chiếu trước khi lấy số đo, không tự tạo khối lượng trùng.':!compatible?'Chỉ lấy trực tiếp cho ĐVT m hoặc m²':resolved.warning || ('reason' in measure?measure.reason:(unit==='m'?measure.label:'Điền số đo vào ô nháp, chưa lưu'))}
+                              disabled={metricDraftStale||!enabled||!compatible||!measure.valid} title={legacyIdKeyed?'Phòng cũ lưu khối lượng theo ID hạng mục; vui lòng đối chiếu trước khi lấy số đo, không tự tạo khối lượng trùng.':!compatible?'Chỉ lấy trực tiếp cho ĐVT m hoặc m²':resolved.warning || ('reason' in measure?measure.reason:(unit==='m'?measure.label:'Điền số đo vào ô nháp, chưa lưu'))}
                               onClick={()=>{if(measure.valid)applyMeasuredVolume(catName,unit,measure.value)}}
                               className="shrink-0 rounded-lg bg-teal-700 px-2 py-1 text-[10px] font-bold text-white disabled:bg-slate-200 disabled:text-slate-500">
                               {unit==='m'?(isPolyline?'Lấy chiều dài':'Lấy chu vi'):'Lấy diện tích'}
@@ -1991,8 +2021,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                     <button
                       type="button"
                       onClick={handleAutoIssueForRoom}
-                      disabled={!roomItem?.id || isAutoIssuing}
-                      title={!roomItem?.id ? 'Lưu Căn / Phòng trước để theo dõi chống xuất trùng' : 'Chỉ xuất phần vật tư còn thiếu so với định mức'}
+                      disabled={!roomItem?.id || isAutoIssuing || metricDraftStamp !== null}
+                      title={metricDraftStamp !== null ? 'Lưu Căn / Phòng và mở lại trước khi xuất kho theo số đo' : !roomItem?.id ? 'Lưu Căn / Phòng trước để theo dõi chống xuất trùng' : 'Chỉ xuất phần vật tư còn thiếu so với định mức'}
                       className="bg-emerald-600 disabled:bg-slate-300 disabled:cursor-not-allowed hover:bg-emerald-700 text-white font-extrabold text-[11px] px-3 py-1.5 rounded-xl shadow-xs active:scale-95 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
                     >
                       <ArrowUpRight className="w-3.5 h-3.5" />
