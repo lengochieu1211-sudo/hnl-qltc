@@ -1,0 +1,87 @@
+name: PR492 Stage4 native compile only NO DEPLOY
+on:
+  push:
+    branches: [qa/pr492-stage4-native-20261124]
+    paths: ['.github/workflows/qa-pr492-stage4-native.yml']
+permissions:
+  contents: read
+jobs:
+  native-compile:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [android, windows]
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_USE_FIREBASE_EMULATORS: 'true'
+      VITE_FIREBASE_EMULATOR_PROJECT_ID: demo-hnl-qltc-pr492
+      VITE_FIREBASE_EMULATOR_HOST: 127.0.0.1
+      VITE_BINARY_STORAGE_PROVIDER: firebase-storage
+      VITE_R2_GATEWAY_URL: ''
+      VITE_HNL_AI_ENABLED: 'false'
+      QLCT_WEB_URL: https://qa-pr492.invalid/?app=android&env=dev
+      QLCT_RELEASE_TAG: 6.3.0-pr492-qa-compile-only
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Refuse wrong branch, release credentials or app source drift
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -ne 'refs/heads/qa/pr492-stage4-native-20261124') { throw 'Not isolated QA' }
+          git merge-base --is-ancestor b4d3aa1981cf79e578f4ec87710a0389ab95edcb HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Wrong source' }
+          git diff --exit-code b4d3aa1981cf79e578f4ec87710a0389ab95edcb HEAD -- src android-wrapper desktop-wrapper package.json package-lock.json firestore.rules storage.rules
+          if ($LASTEXITCODE -ne 0) { throw 'App source drift' }
+          foreach ($k in @('GOOGLE_APPLICATION_CREDENTIALS','FIREBASE_TOKEN','CLOUDFLARE_API_TOKEN','QLCT_ANDROID_KEYSTORE_BASE64','QLCT_ANDROID_KEYSTORE_PASSWORD','QLCT_ANDROID_KEY_PASSWORD')) {
+            if ([Environment]::GetEnvironmentVariable($k)) { throw "Forbidden credential: $k" }
+          }
+          if (Test-Path android-wrapper/qlct-debug.keystore) { throw 'Unexpected preexisting keystore' }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'android'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - name: Compile Android APK with disposable local key (never install)
+        if: matrix.target == 'android'
+        shell: pwsh
+        run: |
+          node scripts/android-wrapper-golden.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Android wrapper golden failed' }
+          ./android-wrapper/build-apk.ps1
+          if (-not (Test-Path HNL-QLTC-Android.apk)) { throw 'Missing APK' }
+          New-Item -ItemType Directory -Force qa-native-evidence | Out-Null
+          Get-FileHash HNL-QLTC-Android.apk -Algorithm SHA256 | ConvertTo-Json | Set-Content qa-native-evidence/android-hash.json
+          Get-Item HNL-QLTC-Android.apk | Select-Object Name,Length | ConvertTo-Json | Set-Content qa-native-evidence/android-size.json
+          Remove-Item android-wrapper/qlct-debug.keystore -Force
+          Write-Host 'ANDROID COMPILE ONLY PASS; no install or real endpoint'
+      - name: Compile Windows launcher and installer (never launch)
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          node scripts/desktop-launcher-golden.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop wrapper golden failed' }
+          ./desktop-wrapper/build-launcher.ps1
+          ./desktop-wrapper/build-installer.ps1 -Channel PROD -LauncherPath './HNL-QLTC-Windows.exe' -OutputPath './HNL-QLTC-Setup.exe'
+          ./scripts/windows-installer-runtime-golden.ps1 -SetupPath './HNL-QLTC-Setup.exe' -LauncherPath './HNL-QLTC-Windows.exe' -Channel PROD
+          New-Item -ItemType Directory -Force qa-native-evidence | Out-Null
+          Get-FileHash HNL-QLTC-Windows.exe,HNL-QLTC-Setup.exe -Algorithm SHA256 | ConvertTo-Json | Set-Content qa-native-evidence/windows-hash.json
+          Get-Item HNL-QLTC-Windows.exe,HNL-QLTC-Setup.exe | Select-Object Name,Length | ConvertTo-Json | Set-Content qa-native-evidence/windows-size.json
+          Write-Host 'WINDOWS COMPILE ONLY PASS; launcher/installer NOT executed'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-compile-only-${{ matrix.target }}-${{ github.sha }}
+          path: qa-native-evidence/
+          if-no-files-found: warn
+          retention-days: 14
