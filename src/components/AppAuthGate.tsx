@@ -4,6 +4,7 @@ import { APP_VERSION } from '../config/appVersion';
 import { BUILD_METADATA } from '../config/buildMetadata';
 import {
   getCurrentRealFirebaseUser,
+  APP_ENVIRONMENT, FIREBASE_EMULATOR_ENABLED, signInWithEmulatorTestAccount,
   signInWithGoogle,
   subscribeToFirebaseAuthSettled,
 } from '../lib/firebase';
@@ -158,6 +159,17 @@ export const AppAuthGate: React.FC<AppAuthGateProps> = ({ children }) => {
           </div>
 
           <div className={`mt-10 rounded-[30px] border p-5 shadow-[0_20px_60px_rgba(15,23,42,0.10)] backdrop-blur-sm sm:p-6 ${dark ? 'border-slate-800 bg-slate-900/88' : 'border-white/90 bg-white/92'}`}>
+            {/* QA BRANCH ONLY. Disabled in PROD and any live Firebase project. */}
+            {APP_ENVIRONMENT === 'DEV' && FIREBASE_EMULATOR_ENABLED && (
+              <div data-hnl-pr492-emulator-auth="true" className="mb-3 border border-amber-400 p-2 text-xs">
+                <div className="font-bold">MÔI TRƯỜNG GIẢ LẬP – KHÔNG DỮ LIỆU THẬT</div>
+                {(['ADMIN', 'EDITOR', 'VIEWER'] as const).map(role => (
+                  <button type="button" key={role} data-hnl-pr492-test-login={role}
+                    onClick={() => {void signInWithEmulatorTestAccount(role).catch(error => setLoginError(String(error)));}}
+                    className="m-1 rounded bg-indigo-600 px-3 py-2 text-white">{role}</button>
+                ))}
+              </div>
+            )}
             <h2 className="text-center text-xl font-black tracking-[-0.025em]">Đăng nhập để tiếp tục</h2>
             <p className={`mx-auto mt-2 max-w-xs text-center text-[13px] leading-relaxed ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
               Dùng tài khoản Google đã được cấp quyền để mở đúng dự án.

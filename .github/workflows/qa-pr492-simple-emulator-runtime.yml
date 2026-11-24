@@ -1,0 +1,90 @@
+name: PR492 Simple PROD candidate – isolated emulator UI Golden (NO DEPLOY)
+on:
+  push:
+    branches: [qa/pr492-simple-prod-emulator-20261124]
+    paths:
+      - '.github/workflows/qa-pr492-simple-emulator-runtime.yml'
+permissions:
+  contents: read
+jobs:
+  qa-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    env:
+      QA_PR492_RUNTIME_EMULATOR_ONLY: 'true'
+      VITE_APP_ENV: DEV
+      VITE_USE_FIREBASE_EMULATORS: 'true'
+      VITE_FIREBASE_EMULATOR_PROJECT_ID: demo-hnl-qltc-pr492
+      VITE_HNL_AI_ENABLED: 'false'
+      VITE_BINARY_STORAGE_PROVIDER: firebase-storage
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Assert exact candidate ancestry, strict isolation, and no PROD changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/qa/pr492-simple-prod-emulator-20261124
+          test "$GITHUB_REPOSITORY" = lengochieu1211-sudo/hnl-qltc
+          test "$VITE_APP_ENV" = DEV
+          test "$VITE_USE_FIREBASE_EMULATORS" = true
+          test "$VITE_FIREBASE_EMULATOR_PROJECT_ID" = demo-hnl-qltc-pr492
+          test "$QA_PR492_RUNTIME_EMULATOR_ONLY" = true
+          git fetch --no-tags origin qa/prod-highlight-metric-only-20261123 --depth=20
+          git merge-base --is-ancestor 3613f5a907dc64ff1430c10f308bf0ab201c5098 HEAD
+          EXPECTED="$(printf '%s\n' '.github/workflows/qa-pr492-simple-emulator-runtime.yml' 'qa-pr492-metric-harness.html' 'scripts/qa-pr492-emulator-ui.mjs' 'scripts/qa-pr492-metric-harness.tsx' 'src/components/AppAuthGate.tsx' | sort)"
+          ACTUAL="$(git diff --name-only 3613f5a907dc64ff1430c10f308bf0ab201c5098 HEAD | sort)"
+          test "$EXPECTED" = "$ACTUAL" || { echo '::error::QA changed out-of-scope files'; exit 1; }
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          node - <<'NODE'
+          const fs=require('fs');const s=fs.readFileSync('src/components/AppAuthGate.tsx','utf8');
+          if(!s.includes("APP_ENVIRONMENT === 'DEV' && FIREBASE_EMULATOR_ENABLED"))throw Error('QA auth guard absent');
+          const j=JSON.parse(fs.readFileSync('package.json'));const l=JSON.parse(fs.readFileSync('package-lock.json'));
+          if(j.name!==l.name||j.version!==l.version)throw Error('Lock mismatch');
+          NODE
+      - name: Install exact dependencies and verify original PR492 geometry and Rules
+        run: |
+          set -euo pipefail
+          npm ci
+          node --experimental-strip-types scripts/prod-scoped-room-metric-golden.mjs
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run test:rbac
+      - name: Install Playwright node runtime
+        run: |
+          npm install --no-save --package-lock=false playwright@1.55.0
+      - name: Firebase Auth/Firestore Emulator, PC and mobile UI smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v google-chrome >/dev/null 2>&1; then
+            export QA_CHROME_EXECUTABLE="$(command -v google-chrome)"
+          elif command -v chromium >/dev/null 2>&1; then
+            export QA_CHROME_EXECUTABLE="$(command -v chromium)"
+          else
+            npx playwright install chromium
+          fi
+          npx --yes firebase-tools@13.35.1 emulators:exec --only auth,firestore \
+            --project demo-hnl-qltc-pr492 \
+            'node scripts/qa-pr492-emulator-ui.mjs'
+      - name: Upload audit screenshots and report (no real user data)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-PR492-SIMPLE-EMULATOR-GOLDEN-${{ github.sha }}
+          path: runtime-evidence/pr492-simple-emulator/**
+          retention-days: 14
+          if-no-files-found: warn
