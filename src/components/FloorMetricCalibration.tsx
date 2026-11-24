@@ -103,25 +103,37 @@ export const FloorMetricCalibration: React.FC<Props> = ({
     {(active || notice) && <div data-hnl-floor-metric-calibration="true"
       style={isFullscreen ? fullscreenPopover : undefined}
       className="absolute left-2 top-16 z-[85] pointer-events-auto w-[min(328px,calc(100vw-32px))] max-h-[calc(100dvh-6rem)] overflow-y-auto overscroll-contain">
-      <div className="rounded-xl border border-teal-400/50 bg-slate-950/95 p-2 text-white shadow-xl text-[11px]">
+      {/* Match the Display settings panel in BOTH floor viewing modes. The existing
+          calibration geometry, draft and persistence paths stay untouched. */}
+      <div data-hnl-metric-calibration-panel="true" className={`rounded-xl border p-2 text-[11px] ${isFullscreen
+        ? 'border-slate-600 bg-slate-800 text-slate-100 shadow-2xl'
+        : 'border-slate-200 bg-white text-slate-700 shadow-xl'}`}>
         <div className="flex justify-between items-center gap-2">
-          <span className="font-extrabold">Đo tỷ lệ mặt bằng</span>
-          {canSave && <button type="button" aria-pressed={active} onClick={open} className="bg-teal-700 px-2 py-1.5 rounded-lg font-bold">{active ? 'Hủy đo' : 'Chọn 2 điểm'}</button>}
+          <span className="font-extrabold">📏 Đo tỷ lệ mặt bằng</span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {canSave && <button type="button" aria-pressed={active} onClick={open}
+              className="rounded-lg bg-indigo-600 px-2 py-1.5 font-bold text-white hover:bg-indigo-700">{active ? 'Hủy đo' : 'Chọn 2 điểm'}</button>}
+            <button type="button" data-hnl-metric-calibration-close="true" aria-label="Đóng bảng Đo tỷ lệ"
+              title="Đóng bảng Đo tỷ lệ" onClick={(event) => { event.stopPropagation(); close(); }}
+              className={`rounded-lg px-2 py-1.5 font-bold ${isFullscreen
+                ? 'bg-slate-700 text-slate-100 hover:bg-slate-600'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>✕</button>
+          </div>
         </div>
-        <div className="mt-1 text-[10px] text-slate-200" role="status">
+        <div className={`mt-1 text-[10px] ${isFullscreen ? 'text-slate-200' : 'text-slate-600'}`} role="status">
           {saved.valid ? `Đã hiệu chuẩn: 1 px ≈ ${saved.value.metresPerPixel.toLocaleString('vi-VN',{maximumFractionDigits:5})} m` : ('reason' in saved ? saved.reason : 'Chưa hiệu chuẩn.')}
         </div>
-        {active && <div className="mt-2 border-t border-slate-700 pt-2 space-y-2">
-          <div className="text-teal-100">Đã chọn {points.length}/2 điểm.</div>
+        {active && <div className={`mt-2 border-t pt-2 space-y-2 ${isFullscreen ? 'border-slate-600' : 'border-slate-200'}`}>
+          <div className={isFullscreen ? 'text-indigo-200' : 'text-indigo-700'}>Đã chọn {points.length}/2 điểm.</div>
           <label className="block">Chiều dài thực tế (m)
             <input aria-label="Chiều dài hiệu chuẩn mét" type="text" inputMode="decimal" value={distanceInput}
               onChange={(e)=>setDistanceInput(e.target.value)} className="mt-1 w-full rounded-lg bg-white p-2 text-slate-900" />
           </label>
-          {draft && <div className="text-emerald-200">Tỷ lệ dự kiến: {draft.metresPerPixel.toLocaleString('vi-VN',{maximumFractionDigits:6})} m/px</div>}
-          {notice && <div className="text-amber-200">{notice}</div>}
+          {draft && <div className={isFullscreen ? 'text-emerald-200' : 'text-emerald-700'}>Tỷ lệ dự kiến: {draft.metresPerPixel.toLocaleString('vi-VN',{maximumFractionDigits:6})} m/px</div>}
+          {notice && <div className={isFullscreen ? 'text-amber-200' : 'text-amber-700'}>{notice}</div>}
           <div className="flex gap-2">
-            <button type="button" disabled={!draft} onClick={save} className="bg-emerald-700 disabled:opacity-50 rounded-lg px-2 py-1.5 font-bold">Xác nhận lưu tỷ lệ</button>
-            <button type="button" onClick={()=>setPoints([])} className="bg-slate-700 rounded-lg px-2 py-1.5">Chọn lại</button>
+            <button type="button" disabled={!draft} onClick={save} className="bg-emerald-700 text-white disabled:opacity-50 rounded-lg px-2 py-1.5 font-bold">Xác nhận lưu tỷ lệ</button>
+            <button type="button" onClick={()=>setPoints([])} className={`rounded-lg px-2 py-1.5 ${isFullscreen ? 'bg-slate-700 text-slate-100' : 'bg-slate-100 text-slate-700'}`}>Chọn lại</button>
           </div>
         </div>}
       </div>
