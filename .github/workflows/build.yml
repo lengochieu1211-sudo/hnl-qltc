@@ -51,6 +51,9 @@ jobs:
       - name: Room sub-item map labels Golden (read-only)
         run: node --experimental-strip-types scripts/room-map-stage-labels-golden.mjs
 
+      - name: PROD scoped room Highlight calibration and area/length safety Golden (no deploy)
+        run: node --experimental-strip-types scripts/prod-scoped-room-metric-golden.mjs
+
       - name: PROD Warehouse and Defect Vietnam business day golden (no deploy)
         run: node scripts/prod-warehouse-defect-day-golden.mjs
 

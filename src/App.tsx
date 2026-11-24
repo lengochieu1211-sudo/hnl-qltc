@@ -183,6 +183,7 @@ import { compareWorkVolumeManualOrder, reorderVisibleWorkVolumes } from './utils
 import { canonicalNormCategoryIds, canonicalWorkCategoryId, resolveUniqueMaterialIdentity, resolveWorkVolumeRef, validateInventoryOutProvenance, validateMaterialNormCatalog, validateWorkVolumeCatalog } from './utils/linkageIntegrity';
 import { reconcileMaterialNormWorkCategoryLinks } from './utils/projectReconciliation';
 import { createEntityId, createShortToken } from './utils/idUtils';
+import { floorMetricSourceKey } from './utils/floorMetricGeometry';
 import { normalizeUnit, areSameUnit } from './utils/unitUtils';
 import { buildMaterialAliasMap, resolveNormMaterialId, normalizeMaterialNameKey } from './utils/inventoryUtils';
 import { DEFAULT_STRUCTURE_CONFIG, moveFloorsToStructureGroup, normalizeStructureGroupConfig, resolveFloorStructureGroupId, type ProjectStructureConfig } from './utils/structureGroupUtils';
@@ -6811,7 +6812,15 @@ function AuthenticatedApp() {
     if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     updateAppData((prev) => ({
       ...prev,
-      floorPlans: prev.floorPlans.map((fp) => (fp.id === id ? { ...fp, ...updates } : fp)),
+      floorPlans: prev.floorPlans.map((fp) => {
+        if(fp.id!==id)return fp;
+        if(updates.highlightMetricCalibration){
+          const c=updates.highlightMetricCalibration;
+          // Fail closed when an image was replaced between the two clicks and Save.
+          if(c.floorId!==fp.id || c.sourceKey!==floorMetricSourceKey(fp))return fp;
+        }
+        return {...fp,...updates};
+      }),
     }));
   };
 
