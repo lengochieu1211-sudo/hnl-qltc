@@ -360,6 +360,76 @@ try{
   report.mockGoogleProvider={provider:fake.provider,unauthorizedReadDenied:true,oldProjectUIHidden:true};
   await upgraded.screenshot({path:out+'/mock-google-outsider.png'});
  });
+ await step('Abrupt renderer crash preserves a pending business revision',async()=>{
+  const session=await open('ADMIN',true),p=session.page;
+  const before=await read(viewer,'rooms',lid);
+  const status=before.subItems.find(x=>x.id==='stage-line').status==='Đang làm'?'Chưa làm':'Đang làm';
+  const snapshot=page=>page.evaluate(async({pid,lid})=>{
+    const m=await import('/src/lib/firebaseBase.ts');if(!m.FIREBASE_EMULATOR_ENABLED)throw Error('not emulator');
+    const u=performance.getEntriesByType('resource').map(e=>e.name).find(x=>x.includes('/.vite/deps/firebase_firestore.js?'));
+    const sdk=await import(u);const d=await sdk.getDocFromCache(sdk.doc(m.db,'projects',pid,'rooms',lid));
+    return {pending:d.metadata.hasPendingWrites,data:d.data()};
+  },{pid,lid});
+  await wait(async()=>{const d=await snapshot(p);return !d.pending&&d.data?.revision===before.revision},'crash fixture cache ready');
+  await modal(p,lid);
+  await session.context.setOffline(true);
+  try{
+    await p.waitForFunction(()=>!navigator.onLine);
+    await p.locator('[data-hnl-pc-v36-room-status="item"]').getByRole('button',{name:status,exact:false}).first().click();
+    await p.getByRole('button',{name:/Lưu thay đổi nghiệm thu/}).click();
+    const pending=await wait(async()=>{const d=await snapshot(p);return d.pending&&d.data?.revision===before.revision+1?d:false},'pending before renderer crash');
+    assert.equal((await read(viewer,'rooms',lid)).revision,before.revision);
+    report.crash={beforeRevision:before.revision,pendingRevision:pending.data.revision};persist();
+    const cdp=await session.context.newCDPSession(p);
+    const crashed=new Promise(resolve=>p.once('crash',()=>resolve(true)));
+    const command=cdp.send('Page.crash').catch(()=>{});
+    assert(await Promise.race([crashed,new Promise(resolve=>setTimeout(()=>resolve(false),10000))]),'renderer crash was not observed');
+    await p.close().catch(()=>{});await command;
+    await session.context.setOffline(false);
+    // A crashed client cannot release its lease normally. Wait for the SDK's
+    // lease expiry, not a destructive reset of storage or a forced takeover.
+    await new Promise(resolve=>setTimeout(resolve,10000));
+    const recovered=await session.context.newPage();pages.push(recovered);
+    const warnings=[];recovered.on('console',m=>{if(/exclusive access|falling back to memory/i.test(m.text()))warnings.push(m.text())});
+    recovered.on('pageerror',e=>report.errors.push('crash recovery: '+String(e)));
+    await recovered.goto(origin,{waitUntil:'domcontentloaded',timeout:45000});
+    await recovered.getByAltText('Tầng QA',{exact:true}).first().waitFor({timeout:45000});
+    const after=await wait(async()=>{const d=await read(viewer,'rooms',lid);return d?.revision===before.revision+1&&d.subItems?.some(i=>i.id==='stage-line'&&i.status===status)?d:false},'crash recovery commit',75000);
+    for(const k of ['id','floorId','workVolume','categoryVolumes','categoryVolumeUnits','x','y','width','height','points'])assert.deepEqual(after[k],before[k]);
+    assert.deepEqual(warnings,[]);Object.assign(report.crash,{afterRevision:after.revision,cacheWarnings:warnings});
+    await recovered.screenshot({path:out+'/renderer-crash-recovered.png'});
+  }finally{await session.context.setOffline(false).catch(()=>{});persist()}
+ });
+ await step('Browser localStorage pressure preserves SDK keys and existing business copy',async()=>{
+  const session=await open('ADMIN',true),p=session.page;
+  // Only disposable QA-origin keys are added/removed. Never remove a real app key.
+  const evidence=await p.evaluate(async()=>{
+    const {FIREBASE_EMULATOR_ENABLED}=await import('/src/lib/firebaseBase.ts');if(!FIREBASE_EMULATOR_ENABLED)throw Error('not emulator');
+    const {safeSetLocalStorageItem}=await import('/src/utils/storage.ts');
+    const key='qa-stage11-pressure-',protectedKey='construction_room_progress_qa_pressure';
+    if(localStorage.getItem(protectedKey)!==null)throw Error('fixture key already exists');
+    const raw='[{"id":"qa-only","revision":42}]';
+    localStorage.setItem(protectedKey,raw);
+    const keys=Array.from({length:localStorage.length},(_,i)=>localStorage.key(i)).filter(k=>k&&(/^(firestore_|firebase:authUser:)/.test(k)||k===protectedKey));
+    const preserved=Object.fromEntries(keys.map(k=>[k,localStorage.getItem(k)]));
+    let count=0,quota=false;
+    try{
+      // Fill synchronously within one task so the SDK cannot race the snapshots.
+      for(;count<120;count++){try{localStorage.setItem(key+count,'x'.repeat(65536))}catch(e){if(e.name!=='QuotaExceededError')throw e;quota=true;break}}
+      if(!quota)throw Error('real quota was not reached');
+      const result=safeSetLocalStorageItem(key+'attempt','y'.repeat(131072));
+      if(result)throw Error('expected sustained quota failure');
+      for(const k of keys)if(localStorage.getItem(k)!==preserved[k])throw Error('protected key changed: '+k);
+      return {quota,protectedCount:keys.length,bytesAttempted:count*65536,failedSafely:true};
+    }finally{for(let i=0;i<count;i++)localStorage.removeItem(key+i);localStorage.removeItem(key+'attempt');localStorage.removeItem(protectedKey)}
+  });
+  assert(evidence.quota&&evidence.failedSafely&&evidence.protectedCount>0);
+  report.realQuota=evidence;persist();
+  // Demonstrates recovery after freeing only synthetic keys, not SDK writes during full quota.
+  const before=await read(viewer,'rooms',lid);
+  await p.reload({waitUntil:'domcontentloaded'});await p.getByAltText('Tầng QA',{exact:true}).first().waitFor({timeout:45000});
+  assert.deepEqual(await read(viewer,'rooms',lid),before);
+ });
  await step('No attempted real backend and no uncaught browser errors',async()=>{assert.deepEqual(report.backendAttempts,[]);assert.deepEqual(report.errors,[])});
  report.status='PASS';
 }catch(e){report.status='FAIL';report.error=String(e?.stack||e);console.error(e);for(let i=0;i<pages.length;i++)await pages[i].screenshot({path:out+'/failure-'+i+'.png',timeout:5000}).catch(()=>{});}
