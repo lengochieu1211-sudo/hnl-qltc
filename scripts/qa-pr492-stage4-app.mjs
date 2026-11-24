@@ -82,7 +82,7 @@ try{
   await dismiss(p);await metric.click();assert.equal(await draft(metric),7);
   await accept(p);await metric.click();const value=await draft(metric);assert(Math.abs(value-100)<3,'area '+value);assert.equal((await read(viewer,'rooms',rid)).categoryVolumes['Trần QA'],7);
   await p.screenshot({path:out+'/area-draft.png'});await p.getByRole('button',{name:/Lưu thay đổi nghiệm thu/}).click();await expectVolume(viewer,rid,'Trần QA',value);report.area=value;
-  await modal(V.page,rid);const preview=V.page.locator('[data-hnl-prod-highlight-metric-preview]').first();await preview.waitFor();assert.equal(await V.page.locator('[data-hnl-prod-take-metric-volume]').count(),0);await wait(async()=>await draft(preview)===value,'VIEWER App receives saved area');await V.page.screenshot({path:out+'/viewer-area.png'});
+  await modal(V.page,rid);const preview=V.page.locator('[data-hnl-prod-highlight-metric-preview]').first();await preview.waitFor();assert.equal(await V.page.locator('[data-hnl-prod-take-metric-volume]').count(),0);await wait(async()=>{if(await draft(preview)===value)return true;await modal(V.page,rid);return await draft(preview)===value},'VIEWER current realtime room state without reload');await V.page.screenshot({path:out+'/viewer-area.png'});
  });
  await step('Reload App and verify persisted ADMIN quantity, no duplicate rooms',async()=>{
   await A.page.reload({waitUntil:'domcontentloaded'});await A.page.getByAltText('Tầng QA',{exact:true}).first().waitFor({timeout:45000});await modal(A.page,rid);const metric=A.page.locator('[data-hnl-prod-take-metric-volume]').first();await metric.waitFor();assert.equal(await draft(metric),report.area);const docs=await getDocsFromServer(collection(viewer.db,'projects',pid,'rooms'));assert.deepEqual(docs.docs.map(d=>d.id).sort(),[rid,lid].sort());
@@ -174,7 +174,7 @@ try{
   const browserCache=async(page)=>page.evaluate(async({pid,lid})=>{
     const {db,FIREBASE_EMULATOR_ENABLED}=await import('/src/lib/firebaseBase.ts');
     if(!FIREBASE_EMULATOR_ENABLED)throw Error('not emulator');
-    const sdk=await import('/node_modules/.vite/deps/firebase_firestore.js');
+    const resource=performance.getEntriesByType('resource').map(e=>e.name).find(n=>n.includes('/.vite/deps/firebase_firestore.js?'));if(!resource)throw Error('Firestore module resource not loaded');const sdk=await import(resource);
     const snap=await sdk.getDocFromCache(sdk.doc(db,'projects',pid,'rooms',lid));
     return {exists:snap.exists(),pending:snap.metadata.hasPendingWrites,data:snap.data()};
   },{pid,lid});
