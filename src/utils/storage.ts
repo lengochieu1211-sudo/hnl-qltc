@@ -64,24 +64,15 @@ export function isQuotaExceededError(err: unknown): boolean {
  * Clear ONLY ephemeral/cache keys. Never remove project business data, IndexedDB data,
  * photos, backup versions, auth/member data or project metadata.
  *
- * In V6.2.10 Firestore no longer uses persistentLocalCache, so these `firestore_*`
- * WebStorage entries are stale coordination/client-state markers left by older builds.
- * Actual QLCT business records live in QLCT IndexedDB/Cloud. Chat additionally keeps a
- * dedicated IndexedDB outbox before sending, so pending chat is not dependent on these
- * WebStorage markers.
+ * Firestore uses persistent IndexedDB and shared WebStorage coordination. Never
+ * remove SDK-owned keys: another live tab may own the lease or pending mutations.
+ * Only the retired application pending-counter key is eligible for cleanup.
  */
 export function cleanupTransientLocalStorage(): { removed: number; bytesFreedApprox: number } {
   if (typeof localStorage === 'undefined') return { removed: 0, bytesFreedApprox: 0 };
 
   const transientMatchers: Array<(key: string, value: string) => boolean> = [
     (key) => key === 'construction_offline_pending',
-    // Firestore WebStorage shared-client state from persistent-cache builds.
-    (key) => key.startsWith('firestore_clients_'),
-    (key) => key.startsWith('firestore_mutations_'),
-    (key) => key.startsWith('firestore_targets_'),
-    (key) => key.startsWith('firestore_online_state_'),
-    (key) => key.startsWith('firestore_sequence_number_'),
-    (key) => key.startsWith('firestore_zombie_'),
   ];
 
   const keys: string[] = [];

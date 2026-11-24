@@ -199,7 +199,28 @@ try{
     const after=await wait(async()=>{const d=await read(viewer,'rooms',lid);report.restart.serverLast=d;return d?.subItems?.some(i=>i.id==='stage-line'&&i.status==='Đang làm')?d:false},'pending saved progress survives page restart',45000);
     for(const k of ['id','floorId','categoryVolumes','categoryVolumeUnits','x','y','width','height','points'])assert.deepEqual(after[k],before[k]);
     report.restartProgress=after.subItems.find(i=>i.id==='stage-line').status;
-    await restarted.screenshot({path:out+'/offline-restart-synced.png'});
+    assert.equal(after.revision,before.revision+1,'restart must commit exactly one revision');
+    assert(!logs.some(x=>/exclusive access to the persistence layer|falling back to memory|falling back to memory cache/i.test(x.text)), 'Firestore silently fell back to RAM');
+    // Keep the restored origin/profile and open a second tab, without clearing any storage.
+    const peer=await M.context.newPage();pages.push(peer);watchConsole(peer);peer.on('pageerror',e=>report.errors.push('peer: '+String(e)));
+    await peer.goto(origin,{waitUntil:'domcontentloaded',timeout:45000});await peer.getByAltText('Tầng QA',{exact:true}).first().waitFor({timeout:45000});
+    await wait(async()=>{const c=await browserCache(peer);return c.exists&&!c.pending&&c.data?.revision===after.revision},'second tab reads committed revision',30000);
+    assert(!logs.some(x=>/exclusive access to the persistence layer|falling back to memory/i.test(x.text)), 'second tab fell back to RAM');
+    await modal(restarted,lid);
+    const reset=restarted.locator('[data-hnl-pc-v36-room-status="item"]').getByRole('button',{name:'Chưa làm',exact:true}).first();
+    await reset.waitFor();
+    await M.context.setOffline(true);await restarted.waitForFunction(()=>!navigator.onLine);
+    await reset.click();await restarted.getByRole('button',{name:/Lưu thay đổi nghiệm thu/}).click();
+    const shared=await wait(async()=>{const c=await browserCache(peer);return c.pending&&c.data?.subItems?.some(i=>i.id==='stage-line'&&i.status==='Chưa làm')?c:false},'peer receives pending mutation',30000);
+    report.restart.peerPending=shared;
+    assert.equal((await read(viewer,'rooms',lid)).revision,after.revision);
+    await restarted.close();await M.context.setOffline(false);
+    const handed=await wait(async()=>{const d=await read(viewer,'rooms',lid);return d?.revision===after.revision+1&&d.subItems?.some(i=>i.id==='stage-line'&&i.status==='Chưa làm')?d:false},'remaining tab commits pending mutation',45000);
+    for(const k of ['id','floorId','categoryVolumes','categoryVolumeUnits','x','y','width','height','points'])assert.deepEqual(handed[k],after[k]);
+    report.restart.peerHandoffRevision=handed.revision;
+    assert(!logs.some(x=>/exclusive access to the persistence layer|falling back to memory/i.test(x.text)), 'lease handoff fell back to RAM');
+    await peer.screenshot({path:out+'/two-tab-handoff-synced.png'});
+    // Restarted page has been closed after the lease-handoff check.
   }finally{await M.context.setOffline(false).catch(()=>{});persist()}
  });
  await step('No attempted real backend and no uncaught browser errors',async()=>{assert.deepEqual(report.backendAttempts,[]);assert.deepEqual(report.errors,[])});

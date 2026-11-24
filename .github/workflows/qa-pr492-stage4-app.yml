@@ -5,6 +5,10 @@ on:
     paths:
       - '.github/workflows/qa-pr492-stage4-app.yml'
       - 'scripts/qa-pr492-stage4-app.mjs'
+      - 'src/lib/firebaseBase.ts'
+      - 'src/utils/storage.ts'
+      - 'src/components/ErrorBoundary.tsx'
+      - 'scripts/qa-pr492-storage-coordination.mjs'
 permissions:
   contents: read
 jobs:
@@ -31,8 +35,8 @@ jobs:
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/qa/pr492-stage3-isolated-20261124
           git merge-base --is-ancestor aa9a26d60ae46a0b988f8ae5ce24c631a891b58f HEAD
-          # Stage6 allows only the scoped room modal change, all other app/infra unchanged.
-          git diff --exit-code aa9a26d60ae46a0b988f8ae5ce24c631a891b58f HEAD -- src package.json package-lock.json firestore.rules storage.rules firebase.json .firebaserc ':!src/components/RoomHighlightModal.tsx'
+          # Stage7 allows only scoped room modal and cache coordination fixes; infra unchanged.
+          git diff --exit-code aa9a26d60ae46a0b988f8ae5ce24c631a891b58f HEAD -- src package.json package-lock.json firestore.rules storage.rules firebase.json .firebaserc ':!src/components/RoomHighlightModal.tsx' ':!src/lib/firebaseBase.ts' ':!src/utils/storage.ts' ':!src/components/ErrorBoundary.tsx'
           test -z "${GOOGLE_APPLICATION_CREDENTIALS:-}${FIREBASE_TOKEN:-}${CLOUDFLARE_API_TOKEN:-}"
           node --check scripts/qa-pr492-stage4-app.mjs
       - uses: actions/setup-node@v4
@@ -43,6 +47,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - run: node --experimental-strip-types scripts/qa-pr492-storage-coordination.mjs
       - run: npm ci --no-audit --no-fund
       - run: npm install --no-save --package-lock=false playwright@1.55.0
       - name: Real App browser against isolated Auth and Firestore

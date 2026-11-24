@@ -2,6 +2,7 @@ import { initializeApp, getApps } from 'firebase/app';
 import { 
   initializeFirestore, 
   persistentLocalCache,
+  persistentMultipleTabManager,
   connectFirestoreEmulator,
   doc, 
   setDoc, 
@@ -167,26 +168,14 @@ export const firebaseApp = !getApps().length ? initializeApp(firebaseConfig) : g
 const app = firebaseApp;
 const dbId = firebaseConfig.firestoreDatabaseId;
 
-// V6.2.9: Firestore multi-tab persistence uses localStorage coordination keys such as
-// `firestore_mutations_*`. When the origin localStorage is close to its browser quota,
-// Firestore 12.x can throw an INTERNAL ASSERTION FAILED / QuotaExceededError before the
-// app has a chance to recover. Multi-device sync does NOT require multi-tab persistence.
-// Use the default single-tab persistent IndexedDB cache instead, which keeps offline data
-// but avoids the WebStorage mutation-coordination path that caused the crash in the video.
-try {
-  const localBytes = estimateLocalStorageBytes();
-  if (localBytes > 3 * 1024 * 1024) {
-    const cleaned = cleanupTransientLocalStorage();
-    if (cleaned.removed > 0) {
-      console.warn('[Storage pressure] Cleared transient cache before Firestore init:', cleaned);
-    }
-  }
-} catch (_) {}
-
+// Preserve SDK-owned localStorage coordination markers across tab startup/reload.
+// Bootstrap migrates legacy bulky application payloads before Firestore initialization.
+// The SDK must manage its own IndexedDB lease and shared-client state.
 // V6.3.0 Firebase-only migration: Firestore's official persistent IndexedDB cache
 // becomes the runtime offline database. The custom localforage business arrays remain
 // read-only migration compatibility until Golden verification proves they can be
-// removed. Using persistentLocalCache() avoids creating a second authoritative DB.
+// removed. The official multi-tab cache keeps the existing app/database identity and
+// lets Firestore coordinate lease handoff without clearing IndexedDB.
 try {
   const cleaned = cleanupTransientLocalStorage();
   const remaining = estimateLocalStorageBytes();
@@ -198,7 +187,7 @@ try {
 let dbInstance: any;
 try {
   dbInstance = initializeFirestore(app, {
-    localCache: persistentLocalCache(),
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
     experimentalAutoDetectLongPolling: true,
   }, dbId);
 } catch (e) {

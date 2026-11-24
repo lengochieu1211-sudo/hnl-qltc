@@ -82,11 +82,11 @@ export class ErrorBoundary extends React.Component<Props, State> {
   };
 
   handleClearAndReload = async () => {
-    if (await confirmAsync('Khôi phục ứng dụng về trạng thái mặc định ban đầu? Tất cả bộ nhớ đệm tạm sẽ được làm sạch.')) {
+    if (await confirmAsync('Dọn bộ nhớ đệm tạm an toàn và tải lại ứng dụng? Dữ liệu đăng nhập, dữ liệu chờ đồng bộ và bộ nhớ Firestore sẽ được giữ nguyên.')) {
       try {
-        localStorage.clear();
+        cleanupTransientLocalStorage();
       } catch (err) {
-        console.error('Failed to clear localStorage:', err);
+        console.error('Failed to clean transient localStorage:', err);
       }
       window.location.reload();
     }
