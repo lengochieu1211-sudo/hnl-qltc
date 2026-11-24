@@ -1,0 +1,94 @@
+name: QA Basic Highlight release - isolated no deploy
+on:
+  push:
+    branches: ['qa/highlight-basic-release']
+permissions:
+  contents: read
+jobs:
+  qa:
+    if: github.ref == 'refs/heads/qa/highlight-basic-release'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CI: 'true'
+      DEV_AUTO_TEST_ENV: isolated-emulator
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_USE_FIREBASE_EMULATORS: 'true'
+      VITE_FIREBASE_EMULATOR_PROJECT_ID: demo-hnl-qltc-dev
+      VITE_BINARY_STORAGE_PROVIDER: firebase-storage
+      VITE_HNL_AI_ENABLED: 'false'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      GCLOUD_PROJECT: demo-hnl-qltc-dev
+      FIREBASE_PROJECT_ID: demo-hnl-qltc-dev
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install locked dependencies
+        run: npm ci
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Lint
+        if: success() || failure()
+        run: npm run lint
+      - name: Stability and cross-module regression
+        if: success() || failure()
+        run: npm run test:stability
+      - name: Highlight and draft regression
+        if: success() || failure()
+        shell: bash
+        run: |
+          set +e
+          failed=0
+          for script in scripts/room-highlight-basic-release-golden.mjs scripts/highlight-*-golden.mjs scripts/floor-highlight-direct-golden.mjs scripts/subitem-highlight-advanced-golden.mjs scripts/metric-drawing-*-20261122-golden.mjs scripts/room-highlight-compact-copy-golden.mjs scripts/room-highlight-small-region-golden.mjs scripts/p2184-dev-backup-display-popover-golden.mjs; do
+            echo "Running $script"
+            node --experimental-strip-types "$script" || failed=1
+          done
+          exit "$failed"
+      - name: Firebase Rules local emulator
+        if: success() || failure()
+        run: npm run test:rules
+      - name: Security audit
+        if: success() || failure()
+        run: npm run security:audit
+      - name: Build emulator-only bundle
+        if: success() || failure()
+        run: npm run build:emulator
+      - name: Install browser dependency without modifying lockfile
+        if: success() || failure()
+        run: |
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install --with-deps chromium
+          git diff --exit-code -- package.json package-lock.json
+      - name: Previously blocked regression
+        if: success() || failure()
+        run: |
+          set +e
+          failed=0
+          node scripts/dev-backup-room-highlight-stroke-golden.mjs || failed=1
+          npx --no-install tsx scripts/linkage-calculation-golden.ts || failed=1
+          npx --no-install tsx scripts/material-need-golden.ts || failed=1
+          exit "$failed"
+      - name: Browser three-account local emulator smoke
+        if: success() || failure()
+        run: |
+          node scripts/dev-emulator-autologin-boundary-golden.mjs
+          npx --yes firebase-tools@13.35.1 emulators:exec --only auth,firestore,storage --project demo-hnl-qltc-dev "node scripts/dev-emulator-autologin-browser-golden.mjs"
+      - name: Save isolated runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-BASIC-HIGHLIGHT-QA-runtime
+          path: runtime-evidence/dev-emulator-auto-login/**
+          if-no-files-found: warn
+          retention-days: 14
