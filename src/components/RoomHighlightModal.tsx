@@ -1660,7 +1660,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
                       <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                         {/* Interactive Input Volume directly in the list */}
-                        <div className="flex items-center gap-1.5 shrink-0 bg-emerald-50/70 border border-emerald-100 rounded-xl px-2.5 py-1">
+                        <div className="flex flex-wrap items-center gap-1.5 min-w-0 max-w-full bg-emerald-50/70 border border-emerald-100 rounded-xl px-2.5 py-1">
                           <span className="text-[10px] font-extrabold text-emerald-800">Khối lượng:</span>
                           <ExpressionDisplayInput
                             type="text"
@@ -1716,7 +1716,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             </span>;
                           })()}
 
-                          <span data-hnl-prod-highlight-metric-preview="true" className="text-[9px] font-semibold text-teal-900" title="Kết quả đọc từ hình Highlight và tỷ lệ mặt bằng, chưa ghi vào khối lượng">
+                          <span data-hnl-prod-highlight-metric-preview="true" className="min-w-0 break-words text-[9px] font-semibold text-teal-900" title="Kết quả đọc từ hình Highlight và tỷ lệ mặt bằng, chưa ghi vào khối lượng">
                             {metricScaleValid
                               ? `Đo: ${metricArea.valid?`${formatDecimal(metricArea.value)} m²`:'–'} · ${metricLength.valid?`${formatDecimal(metricLength.value)} m`:'–'}${isPolyline?' tuyến':' chu vi'}`
                               : 'Chưa gán tỷ lệ'}
@@ -1732,7 +1732,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             return <button type="button" data-hnl-prod-take-metric-volume="true"
                               disabled={!enabled||!compatible||!measure.valid} title={legacyIdKeyed?'Phòng cũ lưu khối lượng theo ID hạng mục; vui lòng đối chiếu trước khi lấy số đo, không tự tạo khối lượng trùng.':!compatible?'Chỉ lấy trực tiếp cho ĐVT m hoặc m²':resolved.warning || ('reason' in measure?measure.reason:(unit==='m'?measure.label:'Điền số đo vào ô nháp, chưa lưu'))}
                               onClick={()=>{if(measure.valid)applyMeasuredVolume(catName,unit,measure.value)}}
-                              className="rounded-lg bg-teal-700 px-2 py-1 text-[10px] font-bold text-white disabled:bg-slate-200 disabled:text-slate-500">
+                              className="shrink-0 rounded-lg bg-teal-700 px-2 py-1 text-[10px] font-bold text-white disabled:bg-slate-200 disabled:text-slate-500">
                               {unit==='m'?(isPolyline?'Lấy chiều dài':'Lấy chu vi'):'Lấy diện tích'}
                             </button>;
                           })()}
