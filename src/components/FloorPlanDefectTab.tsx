@@ -72,6 +72,7 @@ import {
 import { UndoRedoControls } from './UndoRedoControls';
 import { FloorHighlightDirectDraw } from './FloorHighlightDirectDraw';
 import { FloorMetricCalibration } from './FloorMetricCalibration';
+import { ADVANCED_HIGHLIGHT_ENABLED, measureBasicRoomHighlight } from '../utils/roomHighlightBasicMetric';
 import { FloorHighlightCountPoints } from './FloorHighlightCountPoints';
 import type { HighlightCountSaveRequest } from '../utils/highlightCountPoints';
 import type { DirectHighlightCommitRequest } from '../utils/floorHighlightDirectShapes';
@@ -3925,7 +3926,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const highlightColorLegend = React.useMemo(() => buildFloorHighlightColorLegend(floorRooms), [floorRooms]);
   const [showHighlightColorLegend, setShowHighlightColorLegend] = useState(false);
   const visibleHighlightColorRows = highlightColorLegend.entries.filter((entry) =>
-    entry.hasGeometry && (entry.kind === 'main' ? mapLayers.mainHighlightRegions : mapLayers.subItemRegions));
+    ADVANCED_HIGHLIGHT_ENABLED && entry.hasGeometry && (entry.kind === 'main' ? mapLayers.mainHighlightRegions : mapLayers.subItemRegions));
 
   const getSavedRoomSnap = (point: Point2D, rect: DOMRect, pointerType?: string): RoomSnapCandidate | null => {
     if (!objectSnapEnabled || !isRoomCreationDrawing) return null;
@@ -8327,7 +8328,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               />)}
 
             {/* DEV Cách 2: main/sub regions only in new drawing UI; preserve legacy total records. */}
-            {canManageStructure && onSaveDirectHighlightShapes && selectedRoomObject && !isRoomModalOpen && !isRoomCreationDrawing && drawTool === 'none' &&
+            {ADVANCED_HIGHLIGHT_ENABLED && canManageStructure && onSaveDirectHighlightShapes && selectedRoomObject && !isRoomModalOpen && !isRoomCreationDrawing && drawTool === 'none' &&
               !isDefectPinPlacementMode && !relocatingDefectId && !isMetricCalibrating && (viewMode === 'all' || viewMode === 'highlight') && (
               <FloorHighlightDirectDraw
                 key={`${currentProjectId}:${activeFloor?.id || ''}:${selectedRoomObject.id}`}
@@ -8368,7 +8369,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             )}
 
             {/* Optional ĐVT Cái stage markers; independent of area highlights and Defect pins. */}
-            {canManageStructure && onSaveHighlightCount && selectedRoomObject && !isRoomModalOpen && !isRoomCreationDrawing && drawTool === 'none' &&
+            {ADVANCED_HIGHLIGHT_ENABLED && canManageStructure && onSaveHighlightCount && selectedRoomObject && !isRoomModalOpen && !isRoomCreationDrawing && drawTool === 'none' &&
               !isDefectPinPlacementMode && !relocatingDefectId && !isMetricCalibrating && (viewMode === 'all' || viewMode === 'highlight') && (
               <FloorHighlightCountPoints
                 room={selectedRoomObject}
@@ -8539,7 +8540,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     ['roomLabels', 'Tên Căn / Phòng'],
                     ['defects', 'Marker Defect'],
                     ['resolvedDefects', 'Defect đã hoàn thành'],
-                  ] as const).map(([key, label]) => (
+                  ] as const).filter(([key]) => ADVANCED_HIGHLIGHT_ENABLED || !['subItemRegions', 'mainHighlightRegions', 'countPoints', 'totalHighlightRegions'].includes(key)).map(([key, label]) => (
                     <label key={key} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-100 cursor-pointer">
                       <span className="font-bold">{label}</span>
                       <input
@@ -8551,7 +8552,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     </label>
                   ))}
                 </div>
-                {mapLayers.subItemRegions && (
+                {ADVANCED_HIGHLIGHT_ENABLED && mapLayers.subItemRegions && (
                   <label className="mt-2 block text-[10.5px] font-bold text-slate-700">
                     Hiển thị hạng mục phụ
                     <select aria-label="Lọc lớp highlight theo hạng mục phụ" value={visibleSubHighlightName}
@@ -8915,7 +8916,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 })}
                 {/* Independent optional total/main regions are presentation-only and hidden by
                     default; never intercept room / CAD geometry tools or Defect markers. */}
-                {(mapLayers.totalHighlightRegions || mapLayers.mainHighlightRegions) && displayedFloorRooms.map(room => {
+                {ADVANCED_HIGHLIGHT_ENABLED && (mapLayers.totalHighlightRegions || mapLayers.mainHighlightRegions) && displayedFloorRooms.map(room => {
                   if (room.isPolyline || room.width <= 0 || room.height <= 0) return null;
                   const cats = Array.from(new Set([
                     ...Object.keys(room.categoryHighlightTotalShapes || {}),
@@ -8949,7 +8950,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   </g>;
                 })}
                 {/* Saved ĐVT Cái markers: paint-only; never intercept room selection or Defect pins. */}
-                {mapLayers.countPoints && !isCountDrawing && displayedFloorRooms.flatMap(room =>
+                {ADVANCED_HIGHLIGHT_ENABLED && mapLayers.countPoints && !isCountDrawing && displayedFloorRooms.flatMap(room =>
                   (room.isPolyline || room.width<=0 || room.height<=0 ? [] : (room.subItems||[]).flatMap(stage =>
                     (stage.highlightCountPoints||[]).filter(marker => Number.isFinite(marker.x) && Number.isFinite(marker.y) && marker.x>=0 && marker.x<=100 && marker.y>=0 && marker.y<=100)
                       .map(marker => {
@@ -8962,7 +8963,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   )))}
                 {/* Optional stage areas are paint-only overlays: never alter room hit testing,
                     room geometry, stage quantities or Defect coordinates. */}
-                {mapLayers.subItemRegions && displayedFloorRooms.map((room) => {
+                {ADVANCED_HIGHLIGHT_ENABLED && mapLayers.subItemRegions && displayedFloorRooms.map((room) => {
                   if (room.isPolyline || !(room.width > 0 && room.height > 0)) return null;
                   const coloredStages = (room.subItems || []).filter(sub => ((sub.highlightRegions || []).length > 0 || (sub.highlightShapes || []).length > 0) &&
                     (!visibleSubHighlightName || sub.name === visibleSubHighlightName));
@@ -10705,7 +10706,24 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         floorPlanImageUrl={activeFloor?.imageUrl}
         checklistItems={checklistItems}
         onSaveRoom={onSaveRoomProgress}
+        onMeasureBasicRoom={(room, unit) => {
+          const liveRoom = roomProgressList.find(item => item.id === room.id && !item.deletedAt);
+          const sourceFloor = floorPlans.find(item => item.id === liveRoom?.floorId);
+          if (!canManageStructure || !liveRoom || lockedRoomIds.has(liveRoom.id) ||
+              liveRoom.updatedAt !== room.updatedAt || liveRoom.revision !== room.revision ||
+              liveRoom.floorId !== room.floorId) {
+            return { valid: false, reason: 'Phòng đã thay đổi, đang khóa hoặc tài khoản không có quyền. Hãy mở lại phòng.' };
+          }
+          const img = imageContainerRef.current?.querySelector('img');
+          if (!sourceFloor?.imageUrl || activeFloor?.id !== sourceFloor.id ||
+              !img?.complete || img.getAttribute('src') !== sourceFloor.imageUrl || !img.naturalWidth || !img.naturalHeight) {
+            return { valid: false, reason: 'Chưa tải xong đúng ảnh mặt bằng của phòng.' };
+          }
+          return measureBasicRoomHighlight({ floor: sourceFloor, room: liveRoom, unit,
+            image: { width: img.naturalWidth, height: img.naturalHeight } });
+        }}
         onStartDrawOnMap={(room, category, target) => {
+          if (!ADVANCED_HIGHLIGHT_ENABLED) return;
           // Reject invalid targets visibly, while leaving the room form open.
           const liveRoom = roomProgressList.find((item) => item.id === room.id && !item.deletedAt);
           const sourceFloor = floorPlans.find((item) => item.id === liveRoom?.floorId);
@@ -10751,6 +10769,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           setCach2DrawLaunch({roomId:liveRoom.id,category:resolvedCategory,target,token:Date.now()});
         }}
         onStartCountOnMap={(room, stageId) => {
+          if (!ADVANCED_HIGHLIGHT_ENABLED) return;
           setSelectedRoomForDragId(room.id);
           setSelectedRoomIds([room.id]);
           setCountLaunchStageId(stageId);

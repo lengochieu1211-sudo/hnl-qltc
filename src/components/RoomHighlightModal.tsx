@@ -38,6 +38,8 @@ import { toLocalDateInputValue } from '../utils/dateFormatter';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
 import { totalCountPoints } from '../utils/highlightCountPoints';
 import { getRoomWorkCategoryUnit } from '../utils/roomCategoryUnit';
+import { ADVANCED_HIGHLIGHT_ENABLED, getBasicRoomMetricUnit } from '../utils/roomHighlightBasicMetric';
+import type { MetricMeasure } from '../utils/highlightMetricGeometry';
 import { buildMaterialAliasMap, getMaterialIdentityKey, resolveNormMaterialId, normalizeMaterialNameKey } from '../utils/inventoryUtils';
 import { computeMaterialNeeds } from '../utils/materialNeedEngine';
 import { validateInventoryOutProvenance } from '../utils/linkageIntegrity';
@@ -71,6 +73,7 @@ interface RoomHighlightModalProps {
   onStartCountOnMap?: (room: RoomProgressItem, stageId: string) => void;
   /** Open the existing full floor map for Cách 2 measurement; never writes quantity here. */
   onStartDrawOnMap?: (room: RoomProgressItem, category: string, target: string) => void;
+  onMeasureBasicRoom?: (room: RoomProgressItem, unit: string) => MetricMeasure;
   structureReadOnly?: boolean;
   focusOrphanRepair?: boolean;
 }
@@ -146,12 +149,14 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   onStartRedraw2Point,
   onStartCountOnMap,
   onStartDrawOnMap,
+  onMeasureBasicRoom,
   structureReadOnly = false,
   focusOrphanRepair = false,
 }) => {
   const roomDraftDirtyRef = React.useRef(false);
   const countStageAfterSaveRef = React.useRef<string | null>(null);
-  useEffect(() => { roomDraftDirtyRef.current = false; }, [isOpen, roomItem?.id, floorId]);
+  const basicMeasuredRef = React.useRef<Record<string, { unit: 'm²' | 'm'; value: number; key: string }>>({});
+  useEffect(() => { roomDraftDirtyRef.current = false; basicMeasuredRef.current = {}; }, [isOpen, roomItem?.id, floorId]);
   const closeRoomWithDraftGuard = (label: string) => {
     if (roomDraftDirtyRef.current && !window.confirm(`${label}? Các thay đổi chưa nhấn Lưu sẽ không được lưu. Tiếp tục?`)) return;
     roomDraftDirtyRef.current = false;
@@ -162,7 +167,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   // but must not be exposed alongside the calibrated Cách 2 editor.
   const legacyHighlightEditorVisible = false;
   const launchCach2 = (category: string, target: string) => {
-    if (!roomItem?.id || !onStartDrawOnMap || structureReadOnly) return;
+    if (!ADVANCED_HIGHLIGHT_ENABLED || !roomItem?.id || !onStartDrawOnMap || structureReadOnly) return;
     // Never silently discard an unsaved draft or auto-save old legacy quantities.
     if (roomDraftDirtyRef.current && !window.confirm('Mở mặt bằng sẽ bỏ các thay đổi chưa lưu trong biểu mẫu. Hãy nhấn Lưu trước nếu muốn giữ. Tiếp tục?')) return;
     // The map owner closes only the room form after validating the target.
@@ -718,6 +723,45 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     return normalizeUnit(catalogUnit || roomItem?.categoryVolumeUnits?.[cat] || volumeUnit || 'm²') || 'm²';
   };
 
+  const getCategoryInputKey = (cat: string) => {
+    const catalog = workVolumes.find(v => v.title.trim().toLocaleLowerCase('vi-VN') === cat.trim().toLocaleLowerCase('vi-VN'));
+    return Object.prototype.hasOwnProperty.call(categoryVolumes, cat) ? cat :
+      catalog && Object.prototype.hasOwnProperty.call(categoryVolumes, catalog.id) ? catalog.id : cat;
+  };
+  // Do not infer m² from a missing unit or another category's unit.
+  const getBasicMeasureUnit = (cat: string) => {
+    const name = cat.trim().toLocaleLowerCase('vi-VN');
+    const matches = workVolumes.filter(v => v.id === cat || v.workCategoryId === cat || v.title.trim().toLocaleLowerCase('vi-VN') === name);
+    const scoped = matches.filter(v => v.floorId === floorId || v.floorIds?.includes(floorId));
+    const candidates = scoped.length ? scoped : matches;
+    const catalogUnits = [...new Set(candidates.map(v => normalizeUnit(v.unit || '')).filter(Boolean))];
+    const savedUnit = roomItem?.categoryVolumeUnits?.[cat] || roomItem?.categoryVolumeUnits?.[getCategoryInputKey(cat)] ||
+      (roomItem?.workCategory === cat ? roomItem.volumeUnit : '');
+    // Refuse ambiguous or conflicting units instead of changing an old quantity's meaning.
+    if (catalogUnits.length > 1) return null;
+    const catalogUnit = catalogUnits[0];
+    if (catalogUnit && savedUnit && !areSameUnit(catalogUnit, savedUnit)) return null;
+    return getBasicRoomMetricUnit(catalogUnit || savedUnit || '');
+  };
+  const calculateBasicRoomQuantity = (cat: string) => {
+    if (ADVANCED_HIGHLIGHT_ENABLED || !roomItem?.id || !onMeasureBasicRoom || structureReadOnly ||
+        roomItem.positionLocked || roomItem.inspectionStatus === 'Đạt nghiệm thu') return;
+    const unit = getBasicMeasureUnit(cat);
+    if (!unit) { window.alert('Chưa xác định ĐVT m² hoặc m của hạng mục chính.'); return; }
+    const result = onMeasureBasicRoom(roomItem, unit);
+    if (result.valid === false) { window.alert(result.reason); return; }
+    // Match the existing room-form number precision; never write on measurement click.
+    const value = Math.round(result.value * 100) / 100;
+    if (value <= 0 || !Number.isFinite(value)) { window.alert('Kết quả quá nhỏ hoặc không hợp lệ.'); return; }
+    if (!window.confirm(`Dùng ${formatDecimal(value)} ${unit} từ biên Highlight căn/phòng cho “${cat}”? Chỉ cập nhật ô khối lượng, chưa lưu.`)) return;
+    roomDraftDirtyRef.current = true;
+    const key = getCategoryInputKey(cat);
+    // Keep the original category key (ID or title), not a duplicate quantity.
+    basicMeasuredRef.current[cat] = { unit, value, key };
+    setCategoryVolumes(prev => ({ ...prev, [key]: value }));
+    setVolumeStrings(prev => ({ ...prev, [cat]: formatDecimal(value), [key]: formatDecimal(value) }));
+    if (workCategory.trim().toLocaleLowerCase('vi-VN') === cat.trim().toLocaleLowerCase('vi-VN')) setWorkVolume(value);
+  };
   const getHighlightRoom = () => ({ x, y, width, height, points, isPolyline });
   const hasIndependentTotal = (cat: string) => Object.prototype.hasOwnProperty.call(categoryHighlightTotalVolumes, cat);
   const getHighlightTotalQuantity = (cat: string) => hasIndependentTotal(cat)
@@ -1115,7 +1159,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       const wasFinal = item.status === 'Đã hoàn thành' || item.inspectionStatus === 'Đạt nghiệm thu';
       const nowFinal = next.status === 'Đã hoàn thành' || next.inspectionStatus === 'Đạt nghiệm thu';
       const cat = item.category || workCategory || '';
-      if (!wasFinal && nowFinal && item.highlightVolumeMode === 'area' && canDeriveStageHighlightQuantity(cat, item)) {
+      if (ADVANCED_HIGHLIGHT_ENABLED && !wasFinal && nowFinal && item.highlightVolumeMode === 'area' && canDeriveStageHighlightQuantity(cat, item)) {
         const result = getStageHighlightResult(cat, item);
         if (result.valid) return {
           ...next,
@@ -1218,6 +1262,19 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       return;
     }
 
+    // Recheck the same room, current calibration and unit before the ordinary save.
+    // Do not treat a changed floor/room or a revoked role as an accepted measurement.
+    if (!ADVANCED_HIGHLIGHT_ENABLED) {
+      for (const [cat, measurement] of Object.entries(basicMeasuredRef.current)) {
+        const measured = roomItem && onMeasureBasicRoom && onMeasureBasicRoom(roomItem, measurement.unit);
+        if (structureReadOnly || !activeCategories.includes(cat) || getBasicMeasureUnit(cat) !== measurement.unit ||
+            !measured || measured.valid === false || Math.round(measured.value * 100) / 100 !== measurement.value ||
+            categoryVolumes[measurement.key] !== measurement.value) {
+          window.alert('Khối lượng đo của “' + cat + '” không còn khớp mặt bằng, phòng hoặc ĐVT hiện tại. Hãy tính lại hoặc nhập tay trước khi lưu.');
+          return;
+        }
+      }
+    }
     const invalidVolumeFormula = Object.entries(volumeStrings).find(([, raw]) => {
       const text = String(raw || '').trim();
       return Boolean(text) && evaluateMathExpression(text) === null;
@@ -1254,7 +1311,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     // No implicit recompute of old/manual quantities. Only opted-in area stages
     // derive their amounts, and accepted/completed stages are never auto-rewritten.
     const invalidAutoStage = subItems.find(stage => {
-      if (stage.highlightVolumeMode !== 'area') return false;
+      if (!ADVANCED_HIGHLIGHT_ENABLED || stage.highlightVolumeMode !== 'area') return false;
       const cat = stage.category || effectiveWorkCategory;
       // Already-finalized, previously saved area quantities remain frozen.
       if ((stage.status === 'Đã hoàn thành' || stage.inspectionStatus === 'Đạt nghiệm thu') &&
@@ -1266,7 +1323,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       return;
     }
 
-    const invalidAutoMain = activeCategories.find(cat => roomItem?.inspectionStatus !== 'Đạt nghiệm thu' && categoryHighlightAutoMode[cat] &&
+    const invalidAutoMain = activeCategories.find(cat => ADVANCED_HIGHLIGHT_ENABLED && roomItem?.inspectionStatus !== 'Đạt nghiệm thu' && categoryHighlightAutoMode[cat] &&
       (!hasIndependentTotal(cat) || !isAreaHighlightUnit(getCategorySourceUnit(cat)) ||
         !Number.isFinite(getHighlightTotalQuantity(cat)) || getHighlightTotalQuantity(cat) < 0 || !getMainHighlightResult(cat).valid));
     if (invalidAutoMain) {
@@ -1276,7 +1333,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     // Recompute only explicitly opted-in categories. Never overwrite old/manual numbers.
     const finalCategoryVolumes = { ...categoryVolumes };
     activeCategories.forEach(cat => {
-      if (!categoryHighlightAutoMode[cat] || roomItem?.inspectionStatus === 'Đạt nghiệm thu') return;
+      if (!ADVANCED_HIGHLIGHT_ENABLED || !categoryHighlightAutoMode[cat] || roomItem?.inspectionStatus === 'Đạt nghiệm thu') return;
       const catalog = workVolumes.find(v => v.title.trim().toLocaleLowerCase('vi-VN') === cat.trim().toLocaleLowerCase('vi-VN'));
       const storageKey = Object.prototype.hasOwnProperty.call(categoryVolumes, cat) ? cat :
         catalog && Object.prototype.hasOwnProperty.call(categoryVolumes, catalog.id) ? catalog.id : cat;
@@ -1293,7 +1350,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
       return {
         ...s,
-        ...(s.highlightVolumeMode === 'area' && s.status !== 'Đã hoàn thành' && s.inspectionStatus !== 'Đạt nghiệm thu' ? {
+        ...(ADVANCED_HIGHLIGHT_ENABLED && s.highlightVolumeMode === 'area' && s.status !== 'Đã hoàn thành' && s.inspectionStatus !== 'Đạt nghiệm thu' ? {
           workVolume: Math.round(getHighlightTotalQuantity(sCat) * getStageHighlightResult(sCat, s).ratio * 10000) / 10000,
           volumeUnit: getCategorySourceUnit(sCat),
         } : {}),
@@ -1309,7 +1366,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
         .filter(Boolean);
       const uniqueSubUnits = Array.from(new Set(explicitSubUnits));
       const catalogUnit = getRoomWorkCategoryUnit(cat, workVolumes, floorId);
-      acc[cat] = normalizeUnit(catalogUnit || (uniqueSubUnits.length === 1 ? uniqueSubUnits[0] : '') || roomItem?.categoryVolumeUnits?.[cat] || volumeUnit || 'm²') || 'm²';
+      acc[cat] = basicMeasuredRef.current[cat]?.unit || normalizeUnit(catalogUnit || (uniqueSubUnits.length === 1 ? uniqueSubUnits[0] : '') || roomItem?.categoryVolumeUnits?.[cat] || volumeUnit || 'm²') || 'm²';
       return acc;
     }, {});
 
@@ -1328,10 +1385,10 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       ...(Object.keys(categoryHighlightAutoMode).length || roomItem?.categoryHighlightAutoMode ? { categoryHighlightAutoMode } : {}),
       ...(Object.keys(categoryHighlightRegions).length || Object.keys(roomItem?.categoryHighlightRegions || {}).length ? { categoryHighlightRegions } : {}),
       subItems: finalSubItems,
-      workVolume: categoryHighlightAutoMode[effectiveWorkCategory] && roomItem?.inspectionStatus !== 'Đạt nghiệm thu'
+      workVolume: ADVANCED_HIGHLIGHT_ENABLED && categoryHighlightAutoMode[effectiveWorkCategory] && roomItem?.inspectionStatus !== 'Đạt nghiệm thu'
         ? Math.round(getHighlightTotalQuantity(effectiveWorkCategory) * getMainHighlightResult(effectiveWorkCategory).ratio * 10000) / 10000
         : (parsedVol !== undefined && !isNaN(parsedVol) ? parsedVol : undefined),
-      volumeUnit: getCategorySourceUnit(effectiveWorkCategory),
+      volumeUnit: basicMeasuredRef.current[effectiveWorkCategory]?.unit || getCategorySourceUnit(effectiveWorkCategory),
       x,
       y,
       width,
@@ -1833,56 +1890,51 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
                       <div data-hnl-room-category-inline-actions="true" className="flex w-full xl:w-auto xl:shrink-0 flex-wrap items-center justify-between gap-2 mt-0.5 xl:mt-0">
                         {/* Interactive Input Volume directly in the list */}
-                        <div className="flex items-center gap-1.5 shrink-0 bg-emerald-50/70 border border-emerald-100 rounded-xl px-2.5 py-1">
+                        <div className="flex flex-wrap items-center gap-1.5 min-w-0 max-w-full bg-emerald-50/70 border border-emerald-100 rounded-xl px-2.5 py-1">
                           <span className="text-[10px] font-extrabold text-emerald-800">Khối lượng:</span>
                           <ExpressionDisplayInput
                             type="text"
                             disabled={structureReadOnly}
                             placeholder="0"
-                            value={volumeStrings[catName] !== undefined ? volumeStrings[catName] : (categoryVolumes[catName] !== undefined ? formatDecimal(categoryVolumes[catName]) : '')}
+                            value={volumeStrings[catName] ?? volumeStrings[getCategoryInputKey(catName)] ?? (categoryVolumes[getCategoryInputKey(catName)] !== undefined ? formatDecimal(categoryVolumes[getCategoryInputKey(catName)]) : '')}
                             onChange={(e) => {
                               const typedVal = e.target.value;
-                              setVolumeStrings(prev => ({
-                                ...prev,
-                                [catName]: typedVal
-                              }));
+                              delete basicMeasuredRef.current[catName];
+                              const key = getCategoryInputKey(catName);
+                              setVolumeStrings(prev => ({ ...prev, [catName]: typedVal, [key]: typedVal }));
                               const parsed = evaluateMathExpression(typedVal);
                               const numericVal = parsed !== null ? parsed : (typedVal === '' ? 0 : Number(typedVal.replace(/,/g, '.')));
                               if (!isNaN(numericVal)) {
-                                setCategoryVolumes(prev => ({
-                                  ...prev,
-                                  [catName]: numericVal
-                                }));
+                                setCategoryVolumes(prev => ({ ...prev, [key]: numericVal }));
+                                if (workCategory.trim().toLocaleLowerCase('vi-VN') === catName.trim().toLocaleLowerCase('vi-VN')) setWorkVolume(numericVal);
                               }
                             }}
                             onBlur={() => {
-                              const typedVal = volumeStrings[catName] || '';
+                              if (basicMeasuredRef.current[catName]) return;
+                              const key = getCategoryInputKey(catName);
+                              const typedVal = volumeStrings[catName] ?? volumeStrings[key] ?? '';
                               const parsed = evaluateMathExpression(typedVal);
                               if (parsed !== null) {
-                                setCategoryVolumes(prev => ({
-                                  ...prev,
-                                  [catName]: parsed
-                                }));
-                                // Keep the user's raw expression. ExpressionDisplayInput
-                                // displays the computed value only while blurred.
+                                setCategoryVolumes(prev => ({ ...prev, [key]: parsed }));
+                                if (workCategory.trim().toLocaleLowerCase('vi-VN') === catName.trim().toLocaleLowerCase('vi-VN')) setWorkVolume(parsed);
                               } else {
                                 const numericVal = typedVal === '' ? 0 : Number(typedVal.replace(/,/g, '.'));
                                 if (!isNaN(numericVal)) {
-                                  setCategoryVolumes(prev => ({
-                                    ...prev,
-                                    [catName]: numericVal
-                                  }));
-                                  setVolumeStrings(prev => ({
-                                    ...prev,
-                                    [catName]: formatDecimal(numericVal)
-                                  }));
+                                  setCategoryVolumes(prev => ({ ...prev, [key]: numericVal }));
+                                  setVolumeStrings(prev => ({ ...prev, [catName]: formatDecimal(numericVal), [key]: formatDecimal(numericVal) }));
+                                  if (workCategory.trim().toLocaleLowerCase('vi-VN') === catName.trim().toLocaleLowerCase('vi-VN')) setWorkVolume(numericVal);
                                 }
                               }
                             }}
                             className="w-20 text-center font-black text-xs text-emerald-950 bg-white border border-emerald-300 rounded focus:ring-1 focus:ring-emerald-500 outline-none px-1.5 py-0.5"
                           />
-                          <span className="text-[10px] font-black text-emerald-800">{getCategorySourceUnit(catName)}</span>
-                          {!structureReadOnly && roomItem?.id && onStartDrawOnMap && <button type="button" data-hnl-ui-only="true" data-hnl-main-quantity-map={catName}
+                          <span className="text-[10px] font-black text-emerald-800">{getBasicMeasureUnit(catName) || getCategorySourceUnit(catName)}</span>
+                          {!ADVANCED_HIGHLIGHT_ENABLED && !structureReadOnly && roomItem?.id && onMeasureBasicRoom && getBasicMeasureUnit(catName) && <button type="button" data-hnl-basic-room-quantity={catName}
+                            disabled={roomItem.inspectionStatus === 'Đạt nghiệm thu' || roomItem.positionLocked === true}
+                            onClick={() => calculateBasicRoomQuantity(catName)}
+                            title="Tính từ biên Highlight căn/phòng theo tỷ lệ đã lưu; chưa ghi dữ liệu"
+                            className="shrink-0 border-l border-emerald-200 pl-1.5 text-[10px] font-extrabold text-indigo-700 hover:text-indigo-900 disabled:opacity-40">📐 {getBasicMeasureUnit(catName) === 'm²' ? 'Tính diện tích' : 'Tính chu vi'}</button>}
+                          {ADVANCED_HIGHLIGHT_ENABLED && !structureReadOnly && roomItem?.id && onStartDrawOnMap && <button type="button" data-hnl-ui-only="true" data-hnl-main-quantity-map={catName}
                             disabled={roomItem.inspectionStatus === 'Đạt nghiệm thu' || roomItem.positionLocked === true}
                             onClick={() => {
                               if (!itemsInCat.length) { launchCach2(catName, 'main'); return; }
@@ -1918,7 +1970,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                       </div>
                     </div>
                   </div>
-                  {mapPickerCategory === catName && !structureReadOnly && roomItem?.id && (
+                  {ADVANCED_HIGHLIGHT_ENABLED && mapPickerCategory === catName && !structureReadOnly && roomItem?.id && (
                     <div data-hnl-main-highlight-stage-picker={catName}
                       className="mx-1 mt-2 rounded-xl border border-indigo-200 bg-indigo-50/80 px-3 py-2 space-y-2 text-[11px] text-slate-800">
                       <div className="font-bold">Mặt bằng · {catName}</div>
@@ -2117,7 +2169,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                 </div>
                                 {(() => {
                                   const finalized = item.status === 'Đã hoàn thành' || item.inspectionStatus === 'Đạt nghiệm thu';
-                                  const auto = item.highlightVolumeMode === 'area' && item.highlightCountMode !== 'points' && !finalized;
+                                  const auto = ADVANCED_HIGHLIGHT_ENABLED && item.highlightVolumeMode === 'area' && item.highlightCountMode !== 'points' && !finalized;
                                   const result = auto ? getStageHighlightResult(catName, item) : null;
                                   const canAuto = auto && canDeriveStageHighlightQuantity(catName, item) && result?.valid;
                                   const displayedVolume = canAuto && result
@@ -2136,8 +2188,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                       <span className="font-semibold">KL:</span>
                                       <strong className="tabular-nums">{validNumber ? `${formatDecimal(Number(displayedVolume))} ${unit}` : 'Chưa có'}</strong>
                                       {canAuto && <span className="text-sky-700" title="Tự tính theo vùng">↻</span>}
-                                      {normalizeUnit(item.volumeUnit || getCategorySourceUnit(catName)) === 'Cái' && <span title="Tổng điểm đánh dấu" className="text-teal-700 font-bold"> · {totalCountPoints(item.highlightCountPoints || [])} cái đếm</span>}
-                                      {!structureReadOnly && roomItem?.id && (
+                                      {ADVANCED_HIGHLIGHT_ENABLED && normalizeUnit(item.volumeUnit || getCategorySourceUnit(catName)) === 'Cái' && <span title="Tổng điểm đánh dấu" className="text-teal-700 font-bold"> · {totalCountPoints(item.highlightCountPoints || [])} cái đếm</span>}
+                                      {ADVANCED_HIGHLIGHT_ENABLED && !structureReadOnly && roomItem?.id && (
                                         <button type="button" data-hnl-ui-only="true" aria-label={`Vẽ vùng highlight cho ${item.name}`}
                                           disabled={item.status === 'Đã hoàn thành' || item.inspectionStatus === 'Đạt nghiệm thu' || roomItem.inspectionStatus === 'Đạt nghiệm thu' || roomItem.positionLocked === true}
                                           onClick={() => launchCach2(catName, item.id)}
@@ -2205,7 +2257,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                     <button type="button" className="px-1 text-slate-500" onClick={() => setCustomUnitStageId(null)}>Hủy</button>
                                   </div>
                                 )}
-                                {normalizeUnit(item.volumeUnit || getCategorySourceUnit(catName)) === 'Cái' && <>
+                                {ADVANCED_HIGHLIGHT_ENABLED && normalizeUnit(item.volumeUnit || getCategorySourceUnit(catName)) === 'Cái' && <>
                                   <span className="rounded-md border border-teal-200 bg-teal-50 px-1.5 py-1 font-bold text-teal-800">
                                     {item.highlightCountMode === 'points' ? 'Đếm theo điểm' : 'Nhập tay'} · {totalCountPoints(item.highlightCountPoints || [])} cái tự đếm
                                   </span>
