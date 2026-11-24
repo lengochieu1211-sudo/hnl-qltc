@@ -23,9 +23,14 @@ export const FloorMetricCalibrator: React.FC<Props> = ({ floor,imageContainer,ro
   useEffect(()=>{
     const image = imageContainer?.querySelector('img');
     if (!image){setImageDimensions({width:0,height:0});return;}
-    const read = () => setImageDimensions({width:image.naturalWidth || 0,height:image.naturalHeight || 0});
-    read(); image.addEventListener('load',read);
-    return ()=>image.removeEventListener('load',read);
+    const clear = () => { setImageDimensions({width:0,height:0}); setPoints([]); };
+    const read = () => {
+      if (!image.complete || image.getAttribute('src') !== floor.imageUrl || !image.naturalWidth || !image.naturalHeight) { clear(); return; }
+      setImageDimensions({width:image.naturalWidth,height:image.naturalHeight});
+      setPoints([]);
+    };
+    read(); image.addEventListener('load',read); image.addEventListener('error',clear);
+    return ()=>{image.removeEventListener('load',read); image.removeEventListener('error',clear);};
   },[imageContainer,floor.id,floor.imageUrl,active]);
   useEffect(()=>{
     if (!active) return;
@@ -45,8 +50,14 @@ export const FloorMetricCalibrator: React.FC<Props> = ({ floor,imageContainer,ro
     const position=rotation===90?{x:y,y:1-x}:rotation===180?{x:1-x,y:1-y}:rotation===270?{x:1-y,y:x}:{x,y};
     return {x:clamp(position.x*100),y:clamp(position.y*100)};
   };
+  const imageStillReady = () => {
+    const image = imageContainer.querySelector('img');
+    return Boolean(image && image.complete && image.getAttribute('src') === floor.imageUrl &&
+      image.naturalWidth > 1 && image.naturalHeight > 1 &&
+      image.naturalWidth === imageDimensions.width && image.naturalHeight === imageDimensions.height);
+  };
   const save=()=>{
-    if(!canSave || !draft){setNotice('Chưa chọn đủ 2 điểm chuẩn hoặc số mét không hợp lệ.');return;}
+    if(!canSave || !draft || !imageStillReady()){setNotice('Chưa chọn đủ 2 điểm chuẩn hoặc số mét không hợp lệ.');return;}
     if(!window.confirm(`Xác nhận ${length} m cho tầng “${floor.floorName}”? Không sửa khối lượng đã nhập.`))return;
     onSave(floor.id,draft); onClose();
   };
@@ -63,7 +74,7 @@ export const FloorMetricCalibrator: React.FC<Props> = ({ floor,imageContainer,ro
     <svg data-hnl-prod-metric-canvas="true" className="absolute inset-0 z-[118] h-full w-full cursor-crosshair" viewBox="0 0 100 100" preserveAspectRatio="none"
       style={{touchAction:'none',pointerEvents:'auto'}} onPointerDown={event=>{
         event.preventDefault();event.stopPropagation();
-        if(event.button>0)return;
+        if(event.button>0 || !imageStillReady())return;
         const point=pointForEvent(event);if(point){setPoints(prev=>prev.length===2?[point]:[...prev,point]);setNotice('');}
       }} onPointerMove={event=>event.stopPropagation()} onPointerUp={event=>event.stopPropagation()}
       onClick={event=>{event.preventDefault();event.stopPropagation();}} onContextMenu={event=>event.preventDefault()}>
