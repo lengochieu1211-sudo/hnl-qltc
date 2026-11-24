@@ -76,6 +76,8 @@ function getOutline(room: RoomOutline): Point2D[] | null {
   if (![room.x, room.y, room.width, room.height].every(finite) ||
     (room.isPolyline ? (room.width < 0 || room.height < 0) : (room.width <= 0 || room.height <= 0)) || room.x < 0 || room.y < 0 ||
     room.x + room.width > 100.000001 || room.y + room.height > 100.000001) return null;
+  // An open line requires explicit vertices; a legacy bounding box is not a path.
+  if (room.isPolyline && !room.points?.length) return null;
   const corners = room.points?.length ? room.points : [
     { x: room.x, y: room.y }, { x: room.x + room.width, y: room.y },
     { x: room.x + room.width, y: room.y + room.height }, { x: room.x, y: room.y + room.height },
@@ -83,12 +85,25 @@ function getOutline(room: RoomOutline): Point2D[] | null {
   if (!corners.length || corners.length > 128 || !corners.every(pointOk)) return null;
   const outline: Point2D[] = [];
   for (const p of corners) if (!outline.length || !closePoint(outline[outline.length-1],p)) outline.push(p);
-  if (outline.length > 2 && closePoint(outline[0], outline[outline.length-1])) outline.pop();
+  if (!room.isPolyline && outline.length > 2 && closePoint(outline[0], outline[outline.length-1])) outline.pop();
   return outline;
 }
 
 function validPolygon(points: Point2D[]): boolean {
   if (points.length < 3) return false;
+  // Reject a collapsed closed outline before it can yield a misleading perimeter.
+  // Translate to the first vertex to reduce cancellation in the signed area.
+  const origin = points[0];
+  let twiceArea = 0;
+  let maxX = 0, maxY = 0;
+  for (let i = 1; i < points.length; i++) {
+    const p = points[i];
+    maxX = Math.max(maxX, Math.abs(p.x - origin.x));
+    maxY = Math.max(maxY, Math.abs(p.y - origin.y));
+    if (i + 1 < points.length) twiceArea += cross(origin, p, points[i + 1]);
+  }
+  const areaTolerance = Number.EPSILON * Math.max(1, maxX * maxY) * points.length * 8;
+  if (Math.abs(twiceArea) <= areaTolerance) return false;
   for (let i=0;i<points.length;i++) for(let j=i+1;j<points.length;j++) {
     if (j===i+1 || (i===0 && j===points.length-1)) continue;
     if (segmentsIntersect(points[i], points[(i+1)%points.length],points[j],points[(j+1)%points.length])) return false;
