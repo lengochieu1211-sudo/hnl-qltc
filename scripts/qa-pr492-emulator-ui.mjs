@@ -52,6 +52,7 @@ try{
      await page.goto(`http://127.0.0.1:4178/qa-pr492-metric-harness.html?scenario=${scenario}`,{waitUntil:'domcontentloaded',timeout:35000});
      await page.locator('[data-hnl-qa-ready="true"]').waitFor({timeout:25000});
      const metric=page.locator('[data-hnl-prod-take-metric-volume]');
+     let measured=null;
      if(scenario==='readonly')assert.equal(await metric.count(),0,'Readonly must have NO take button');
      else{
        await metric.first().waitFor({timeout:20000});
@@ -62,24 +63,34 @@ try{
          const label=(await metric.first().innerText()).trim();
          if(scenario==='area')assert.equal(label,'Lấy diện tích');
          if(scenario==='line')assert.equal(label,'Lấy chiều dài');
-         // A negative confirmation leaves official quantity and draft unchanged.
+         const readDraft=()=>metric.first().evaluate(btn=>btn.parentElement?.querySelector('input')?.value ?? null);
+         const normalizeDraft=value=>Number(String(value).replace(/\s/g,'').replace(',','.'));
+         assert.equal(normalizeDraft(await readDraft()),7,'Original manual quantity must remain 7');
+         await page.screenshot({path:`${out}/metric-${scenario}-before.png`,fullPage:false});
+         // A negative confirmation leaves official quantity and in-memory draft unchanged.
          page.once('dialog',dialog=>dialog.dismiss());await metric.first().click();
+         assert.equal(normalizeDraft(await readDraft()),7,'Cancel must retain original quantity');
          assert.equal(await page.evaluate(()=>window.__qa.savedRooms.length),0);
          page.once('dialog',dialog=>dialog.accept());await metric.first().click();
+         const expected=scenario==='area'?100:10;
+         const current=normalizeDraft(await readDraft());
+         assert.equal(current,expected,'Explicit take must copy exact measured area/length into DRAFT');
          assert.equal(await page.evaluate(()=>window.__qa.savedRooms.length),0,'Take metric alone wrote official data');
+         await page.screenshot({path:`${out}/metric-${scenario}-draft.png`,fullPage:false});
          // Actual form Save invokes the existing onSaveRoom callback.
          const save=page.getByRole('button',{name:/Lưu thay đổi nghiệm thu/});await save.click();
-         await page.waitForFunction(()=>window.__qa.savedRooms.length===1,{timeout:25000});
+         await page.waitForFunction(()=>window.__qa.savedRooms.length===1,null,{timeout:25000});
          const data=await page.evaluate(()=>({saved:window.__qa.savedRooms[0],base:window.__qa.baseRoom}));
          assert.equal(data.saved.id,'qa-room','Room ID must persist');
-         assert(data.saved.categoryVolumes['Trần QA']>7,'Measured quantity was not transferred');
+         assert.equal(data.saved.categoryVolumes['Trần QA'],expected,'Measured value must be written only through Save');
          assert.equal(data.base.categoryVolumes['Trần QA'],7,'Original room fixture mutated');
+         measured={old:7,draft:current,saved:expected,unit:scenario==='area'?'m²':'m'};
        }
      }
      assert.equal(errors.length,0,`${scenario} page errors: `+errors.join(';'));
      assert.equal(report.forbiddenRequests.length,0,'Fixture contacted live backend');
      await page.screenshot({path:`${out}/metric-${scenario}.png`,fullPage:false});
-     report.scenarios.push({scenario:`metric-${scenario}`,result:'PASS',mode:'in-memory-UI-only'});
+     report.scenarios.push({scenario:`metric-${scenario}`,result:'PASS',mode:'in-memory-UI-only',...(measured?{measured}:{})});
    }finally{await context.close()}
  }
  report.status='PASS';console.log('PASS: '+report.scenarios.length+' QA scenarios; no live Firebase/PROD requests');
