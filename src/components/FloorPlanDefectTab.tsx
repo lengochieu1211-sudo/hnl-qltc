@@ -7387,7 +7387,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     <span className="text-sm leading-none shrink-0">📏</span><span>Đo tỷ lệ</span><span className="text-[10px] leading-none transition-transform group-open/map-menu:rotate-180">▾</span>
                   </summary>
                   <div data-hnl-map-calibration-popover="true" className="absolute left-0 right-auto top-full z-[95] mt-1 w-[min(18rem,calc(100vw-2rem))] max-h-[min(70dvh,36rem)] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-slate-700 shadow-xl space-y-2">
-                    <div className="text-xs font-black">📏 Đo tỷ lệ · {activeFloor?.floorName || 'Chưa chọn tầng'}</div>
+                    <div className="flex items-center justify-between gap-2 text-xs font-black">
+                      <span>📏 Đo tỷ lệ · {activeFloor?.floorName || 'Chưa chọn tầng'}</span>
+                      <button type="button" data-hnl-map-calibration-popover-close="true" aria-label="Đóng tùy chọn Đo tỷ lệ"
+                        onClick={event => { event.stopPropagation(); event.currentTarget.closest('details')?.removeAttribute('open'); }}
+                        className="rounded-lg bg-slate-100 px-2 py-1 font-bold text-slate-700 hover:bg-slate-200">✕</button>
+                    </div>
                     <p className="text-[11px] text-slate-600">Dùng chiều dài thực tế giữa 2 điểm trên ảnh mặt bằng để hiệu chuẩn. Không tự sửa KL đã lưu.</p>
                     <button type="button" data-hnl-map-calibration-start="true"
                       disabled={!activeFloor || !onUpdateFloorPlan || isCountDrawing || isShapeDrawing || isRoomCreationDrawing || drawTool !== 'none' || isDefectPinPlacementMode}
@@ -7829,7 +7834,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           aria-controls="hnl-fullscreen-display-popover"
                           aria-label="Mở tùy chỉnh hiển thị mặt bằng"
                           onClick={toggleFullscreenDisplaySettings}
-                          className={`min-h-9 rounded-xl border border-slate-600 px-3 text-[11px] font-bold shrink-0 ${showFullscreenDisplaySettings ? 'bg-indigo-700 text-white' : 'bg-slate-800 text-slate-100'}`}>
+                          className={`min-h-9 rounded-xl border border-slate-600 px-3 text-[11px] font-bold shrink-0 ${showFullscreenDisplaySettings ? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300 border-indigo-600' : 'bg-slate-800 text-slate-100'}`}>
                           ⚙️ Hiển thị {showFullscreenDisplaySettings ? '▴' : '▾'}
                         </button>
 
@@ -8184,7 +8189,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             )}
 
             {/* Quick Floating Room Operations Bar (Top Left) */}
-            {canManageStructure && !isShapeDrawing && !isRoomCreationDrawing && (selectedRoomObject || copiedRoomsState.length > 0) && (
+            {canManageStructure && !isShapeDrawing && !isRoomCreationDrawing && !(isFullscreen && showFullscreenDisplaySettings) && (selectedRoomObject || copiedRoomsState.length > 0) && (
               <div className={`${isFullscreen ? 'relative mx-2 mb-1 max-w-[calc(100%-16px)] self-start' : 'absolute top-2 left-2 max-w-[calc(100%-16px)]'} z-40 pointer-events-auto flex items-center gap-1.5 bg-slate-900/95 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-slate-700 shadow-2xl text-white animate-in fade-in slide-in-from-top-2 overflow-x-auto no-scrollbar shrink`}>
                 {selectedRoomObject ? (
                   <>
