@@ -1,0 +1,107 @@
+name: PR492 Stage3 isolated QA
+on:
+  push:
+    branches: [qa/pr492-stage3-isolated-20261124]
+permissions:
+  contents: read
+concurrency:
+  group: pr492-stage3-isolated
+  cancel-in-progress: false
+jobs:
+  source-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_USE_FIREBASE_EMULATORS: 'true'
+      VITE_FIREBASE_EMULATOR_PROJECT_ID: demo-hnl-qltc-pr492
+      VITE_FIREBASE_EMULATOR_HOST: 127.0.0.1
+      VITE_FIREBASE_PROJECT_ID: demo-hnl-qltc-pr492
+      VITE_FIREBASE_API_KEY: demo-key
+      VITE_FIREBASE_AUTH_DOMAIN: demo-hnl-qltc-pr492.firebaseapp.com
+      VITE_FIREBASE_STORAGE_BUCKET: demo-hnl-qltc-pr492.appspot.com
+      VITE_BINARY_STORAGE_PROVIDER: firebase-storage
+      VITE_R2_GATEWAY_URL: ''
+      VITE_HNL_AI_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Confirm isolated candidate and unchanged infrastructure
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/qa/pr492-stage3-isolated-20261124
+          git merge-base --is-ancestor 52b8b145a159b669c870ce37d4ae45e370611c1d HEAD
+          git diff --name-only 52b8b145a159b669c870ce37d4ae45e370611c1d HEAD
+          git diff --exit-code 52b8b145a159b669c870ce37d4ae45e370611c1d HEAD -- firebase.json firebase.rules-ci.json firestore.rules storage.rules .firebaserc package.json package-lock.json
+          test "$(git hash-object src/utils/floorMetricGeometry.ts)" = a7c8df19331510976c26c789030e779e0f3e6191
+          test "$(git hash-object src/components/FloorMetricCalibrator.tsx)" = 3c0c93e0f9cc741de664c1caccf82a37656268d6
+          test "$(git hash-object src/components/FloorPlanDefectTab.tsx)" = e4908c8a1b3c4c9b4974eea7456c0615470d3b33
+          test -z "${GOOGLE_APPLICATION_CREDENTIALS:-}${FIREBASE_TOKEN:-}${CLOUDFLARE_API_TOKEN:-}"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Metric regression
+        run: node --experimental-strip-types scripts/prod-scoped-room-metric-golden.mjs
+      - name: Stability regression
+        run: npm run test:stability
+      - name: Firebase Rules isolated emulators
+        run: npm run test:rules
+      - name: Security audit
+        run: npm run security:audit
+      - name: Build (no deployment)
+        run: npm run build
+  firestore-sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      QA_PR492_RUNTIME_EMULATOR_ONLY: 'true'
+      GCLOUD_PROJECT: demo-hnl-qltc-pr492
+      GOOGLE_CLOUD_PROJECT: demo-hnl-qltc-pr492
+      FIREBASE_PROJECT_ID: demo-hnl-qltc-pr492
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: SDK Auth Firestore Rules realtime and offline (local only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/qa/pr492-stage3-isolated-20261124
+          test -z "${GOOGLE_APPLICATION_CREDENTIALS:-}${FIREBASE_TOKEN:-}${CLOUDFLARE_API_TOKEN:-}"
+          npx --yes firebase-tools@13.35.1 emulators:exec --config firebase.rules-ci.json --project demo-hnl-qltc-pr492 --only auth,firestore "node --experimental-strip-types scripts/qa-pr492-firestore-metric-golden.mjs"
+      - name: Upload emulator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr492-stage3-firestore-${{ github.sha }}
+          path: |
+            runtime-evidence/pr492-firestore-metric/report.json
+            firestore-debug.log
+            firebase-debug.log
+          if-no-files-found: warn
+          retention-days: 14
