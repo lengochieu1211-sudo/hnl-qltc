@@ -113,6 +113,17 @@ try{
   for(const k of ['id','floorId','roomName','workVolume','categoryVolumes','categoryVolumeUnits','x','y','width','height','points','isPolyline'])assert.deepEqual(after[k],before[k],k+' changed by EDITOR');
   report.editorProgress=after.subItems.find(i=>i.id==='stage-qa').status;
  });
+ let staleSession;
+ await step('Prepare a different valid metric draft while official quantity stays unchanged',async()=>{
+  const before=await read(admin,'floor_plans',fid);
+  const c=before.highlightMetricCalibration;assert(c);
+  await updateDoc(ref(admin,'floor_plans',fid),{highlightMetricCalibration:{...c,actualMetres:c.actualMetres*2,metresPerPixel:c.metresPerPixel*2,updatedAt:Date.now()},revision:before.revision+1,updatedAt:Date.now()});
+  staleSession=await open('ADMIN');const p=staleSession.page;await modal(p,rid);
+  const metric=p.locator('[data-hnl-prod-take-metric-volume]').first();
+  await metric.waitFor();await accept(p);await metric.click();
+  assert(Math.abs(await draft(metric)-report.area*4)<.01,'draft must differ from official quantity');
+  assert.equal((await read(viewer,'rooms',rid)).categoryVolumes['Trần QA'],report.area);
+ });
  await step('Concurrent replacement of source image resets two selected points and preserves saved official quantities',async()=>{
   const S=await open('ADMIN'),p=S.page;
   const toolbar=p.locator('[data-hnl-prod-metric-toolbar]'),group=toolbar.locator('xpath=ancestor::details[1]');
@@ -136,6 +147,18 @@ try{
   const preview=p.locator('[data-hnl-prod-highlight-metric-preview]').first();await preview.waitFor();assert.match(await preview.innerText(),/Chưa gán tỷ lệ/);assert(await p.locator('[data-hnl-prod-take-metric-volume]').first().isDisabled());
   await p.screenshot({path:out+'/replacement-invalid-metric.png'});
   report.replacement={sourceAsset:replaced.imageAssetId,clearedPoints:true,oldCalibrationPreservedButInvalid:true};
+ });
+ await step('Stale measured draft must not be committed after image replacement',async()=>{
+  const p=staleSession.page,preview=p.locator('[data-hnl-prod-highlight-metric-preview]').first();
+  await wait(async()=>/Chưa gán tỷ lệ/.test(await preview.innerText()),'stale session sees replacement');
+  assert(await p.locator('[data-hnl-prod-take-metric-volume]').first().isDisabled());
+  const dialogs=[];const handle=async d=>{dialogs.push(d.message());await d.dismiss()};p.on('dialog',handle);
+  try{await p.getByRole('button',{name:/Lưu thay đổi nghiệm thu/}).click();await new Promise(r=>setTimeout(r,2500));}finally{p.off('dialog',handle)}
+  const after=await read(viewer,'rooms',rid);report.staleDraft={before:report.area,after:after.categoryVolumes['Trần QA'],dialogs};
+  await p.screenshot({path:out+'/stale-draft-save.png'});
+  assert.equal(after.categoryVolumes['Trần QA'],report.area,'stale draft overwrote official quantity');
+  assert(await p.locator('[data-hnl-pc-v32-window="room-editor"]').isVisible(),'stale save must not close modal');
+  assert(dialogs.some(m=>/tỷ lệ|số đo|mặt bằng/i.test(m)),'explain why saving is blocked');
  });
  await step('No attempted real backend and no uncaught browser errors',async()=>{assert.deepEqual(report.backendAttempts,[]);assert.deepEqual(report.errors,[])});
  report.status='PASS';
