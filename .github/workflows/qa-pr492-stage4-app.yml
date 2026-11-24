@@ -49,6 +49,24 @@ jobs:
           set -euo pipefail
           if command -v google-chrome >/dev/null; then export QA_CHROME_EXECUTABLE="$(command -v google-chrome)"; else npx playwright install chromium; fi
           timeout --signal=TERM --kill-after=10s 600s npx --yes firebase-tools@13.35.1 --non-interactive emulators:exec --config firebase.rules-ci.json --project demo-hnl-qltc-pr492 --only auth,firestore,storage "node scripts/qa-pr492-stage4-app.mjs"
+      - name: Archive exact QA source and cumulative patch
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qa-source-handoff
+          git archive --format=zip -o qa-source-handoff/FULL-SOURCE.zip HEAD
+          git diff --name-only -z 52b8b145a159b669c870ce37d4ae45e370611c1d HEAD | xargs -0 git archive --format=zip -o qa-source-handoff/PATCH.zip HEAD
+          git diff --name-status 52b8b145a159b669c870ce37d4ae45e370611c1d HEAD > qa-source-handoff/changed-files.txt
+          git rev-parse HEAD > qa-source-handoff/HEAD.txt
+          (cd qa-source-handoff && sha256sum FULL-SOURCE.zip PATCH.zip > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr492-stage4-source-${{ github.sha }}
+          path: qa-source-handoff/
+          if-no-files-found: error
+          retention-days: 14
       - uses: actions/upload-artifact@v4
         if: always()
         with:
