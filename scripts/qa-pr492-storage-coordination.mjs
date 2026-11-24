@@ -13,3 +13,13 @@ assert.equal(safeSetLocalStorageItem('qa-pref','value'),true);
 for(const k of protectedKeys)assert.equal(store.get(k),'preserve:'+k);
 assert.equal(store.has('construction_offline_pending'),false);
 console.log('PASS: startup and quota cleanup preserve Firestore coordination, identity and business keys');
+
+// Sustained quota pressure must fail safely without removing SDK/auth/business keys.
+localStorage.setItem('construction_offline_pending','retired');
+const previousSet=localStorage.setItem;
+localStorage.setItem=()=>{throw Object.assign(new Error('quota sustained'),{name:'QuotaExceededError'})};
+assert.equal(safeSetLocalStorageItem('qa-pref-2','value'),false);
+for(const k of protectedKeys)assert.equal(store.get(k),'preserve:'+k);
+assert.equal(store.has('qa-pref-2'),false);
+localStorage.setItem=previousSet;
+console.log('PASS: sustained quota failure preserves protected keys');

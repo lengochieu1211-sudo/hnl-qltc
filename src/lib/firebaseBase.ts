@@ -3499,7 +3499,8 @@ export async function updateProjectPresence(projectId: string, module: string, r
   const lastLoginAt = Date.parse(user.metadata?.lastSignInTime || '');
   await setDoc(
     doc(db, 'projects', normalizedProjectId, 'presence', user.uid),
-    sanitizePayloadForCloud({
+    {
+      ...sanitizePayloadForCloud({
       projectId: normalizedProjectId,
       uid: user.uid,
       email: normalizeEmail(user.email),
@@ -3509,11 +3510,13 @@ export async function updateProjectPresence(projectId: string, module: string, r
       deviceId: getDeviceId(),
       deviceName: getDeviceName(),
       ...ctx,
-      lastSeen: serverTimestamp(),
       lastLoginAt: Number.isFinite(lastLoginAt) && lastLoginAt > 0 && lastLoginAt <= now + 60_000 ? lastLoginAt : 0,
       clientLastSeen: now,
       updatedAt: now,
-    }),
+      }),
+      // FieldValue must bypass the plain-object sanitizer; Rules require request.time.
+      lastSeen: serverTimestamp(),
+    },
     { merge: true },
   );
 }

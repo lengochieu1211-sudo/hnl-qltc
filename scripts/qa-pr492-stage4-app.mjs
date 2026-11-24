@@ -78,6 +78,22 @@ try{
  };
  let A,V;
  await step('Actual App authenticated ADMIN PC and VIEWER phone, project floor loaded',async()=>{A=await open('ADMIN');V=await open('VIEWER',true);assert.equal(await V.page.locator('[data-hnl-prod-metric-toolbar]').count(),0)});
+ await step('Actual Presence heartbeat commits server timestamp and cannot impersonate another UID',async()=>{
+  for(const [session,actor,role] of [[A,admin,'ADMIN'],[V,viewer,'VIEWER']]){
+    await session.page.evaluate(async({pid,role})=>{const m=await import('/src/lib/firebaseBase.ts');if(!m.FIREBASE_EMULATOR_ENABLED)throw Error('not emulator');await m.updateProjectPresence(pid,'floorplan',role)},{pid,role});
+    const d=await read(viewer,'presence',actor.uid);
+    assert.equal(d.uid,actor.uid);assert.equal(d.email,actor.email);assert.equal(d.projectId,pid);
+    assert.equal(typeof d.lastSeen?.toMillis,'function');assert(Math.abs(Date.now()-d.lastSeen.toMillis())<120000);
+  }
+  const before=await read(viewer,'presence',admin.uid);
+  const denied=await V.page.evaluate(async({pid,uid})=>{
+    const m=await import('/src/lib/firebaseBase.ts');if(!m.FIREBASE_EMULATOR_ENABLED)throw Error('not emulator');
+    const u=performance.getEntriesByType('resource').map(e=>e.name).find(x=>x.includes('/.vite/deps/firebase_firestore.js?'));
+    const sdk=await import(u);try{await sdk.updateDoc(sdk.doc(m.db,'projects',pid,'presence',uid),{module:'impersonation',lastSeen:sdk.serverTimestamp()});return false}catch(e){return e.code==='permission-denied'}
+  },{pid,uid:admin.uid});
+  assert(denied);const after=await read(viewer,'presence',admin.uid);assert.equal(after.module,before.module);
+  report.presence={adminAndViewerServerTimestamp:true,impersonationDenied:true};
+ });
  const modal=async(page,id)=>{await page.evaluate(({pid,id,fid})=>window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity',{detail:{entityType:'room',projectId:pid,entityId:id,floorId:fid}})),{pid,id,fid});await page.locator('[data-hnl-pc-v32-window="room-editor"]').waitFor({timeout:15000})};
  const dismiss=async(page)=>{page.once('dialog',d=>d.dismiss())};
  const accept=async(page)=>{page.once('dialog',d=>d.accept())};
