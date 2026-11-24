@@ -95,6 +95,14 @@ try{
   },{pid,uid:admin.uid});
   assert(denied);const after=await read(viewer,'presence',admin.uid);assert.equal(after.module,before.module);
   // An offline heartbeat must not join the durable business mutation queue.
+  // A transaction does not guarantee a presence document is in the local query cache.
+  // Seed the actual server-backed snapshot before asking for getDocFromCache offline.
+  await V.page.evaluate(async({pid,uid})=>{
+    const m=await import('/src/lib/firebaseBase.ts');if(!m.FIREBASE_EMULATOR_ENABLED)throw Error('not emulator');
+    const u=performance.getEntriesByType('resource').map(e=>e.name).find(x=>x.includes('/.vite/deps/firebase_firestore.js?'));
+    const sdk=await import(u);const d=await sdk.getDocFromServer(sdk.doc(m.db,'projects',pid,'presence',uid));
+    if(!d.exists()||d.metadata.hasPendingWrites)throw Error('presence server snapshot missing');
+  },{pid,uid:viewer.uid});
   await V.context.setOffline(true);
   try{
     await V.page.waitForFunction(()=>!navigator.onLine);
