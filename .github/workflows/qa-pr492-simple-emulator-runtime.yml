@@ -46,9 +46,9 @@ jobs:
           test "$VITE_FIREBASE_EMULATOR_PROJECT_ID" = demo-hnl-qltc-pr492
           test "$QA_PR492_RUNTIME_EMULATOR_ONLY" = true
           git fetch --no-tags origin qa/prod-highlight-metric-only-20261123 --depth=20
-          git merge-base --is-ancestor 3613f5a907dc64ff1430c10f308bf0ab201c5098 HEAD
+          git merge-base --is-ancestor 52b8b145a159b669c870ce37d4ae45e370611c1d HEAD
           EXPECTED="$(printf '%s\n' '.github/workflows/qa-pr492-simple-emulator-runtime.yml' 'qa-pr492-metric-harness.html' 'scripts/qa-pr492-emulator-ui.mjs' 'scripts/qa-pr492-metric-harness.tsx' 'src/components/AppAuthGate.tsx' | sort)"
-          ACTUAL="$(git diff --name-only 3613f5a907dc64ff1430c10f308bf0ab201c5098 HEAD | sort)"
+          ACTUAL="$(git diff --name-only 52b8b145a159b669c870ce37d4ae45e370611c1d HEAD | sort)"
           test "$EXPECTED" = "$ACTUAL" || { echo '::error::QA changed out-of-scope files'; exit 1; }
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           node - <<'NODE'

@@ -51,6 +51,20 @@ try{
      const errors=[];page.on('pageerror',e=>errors.push(String(e)));
      await page.goto(`http://127.0.0.1:4178/qa-pr492-metric-harness.html?scenario=${scenario}`,{waitUntil:'domcontentloaded',timeout:35000});
      await page.locator('[data-hnl-qa-ready="true"]').waitFor({timeout:25000});
+     const layout=await page.evaluate(()=>{
+       const viewport=window.innerWidth;
+       const root=document.querySelector('[data-hnl-pc-v32-window="room-editor"]');
+       const dialog=root?.querySelector('.hnl-ios-safe-dialog');
+       const action=root?.querySelector('[data-hnl-prod-take-metric-volume]');
+       const box=e=>{if(!e)return null;const r=e.getBoundingClientRect();return {left:r.left,right:r.right,width:r.width,clientWidth:e.clientWidth,scrollWidth:e.scrollWidth}};
+       return {viewport,documentScrollWidth:document.documentElement.scrollWidth,root:box(root),dialog:box(dialog),action:box(action)};
+     });
+     if(layout.viewport<=400){
+       assert(layout.dialog?.left>=-1 && layout.dialog?.right<=layout.viewport+1,
+         `Mobile modal outside viewport: ${JSON.stringify(layout)}`);
+       assert(layout.action?.left>=-1 && layout.action?.right<=layout.viewport+1,
+         `Mobile quantity action clipped: ${JSON.stringify(layout)}`);
+     }
      const metric=page.locator('[data-hnl-prod-take-metric-volume]');
      let measured=null;
      if(scenario==='readonly')assert.equal(await metric.count(),0,'Readonly must have NO take button');
@@ -90,7 +104,7 @@ try{
      assert.equal(errors.length,0,`${scenario} page errors: `+errors.join(';'));
      assert.equal(report.forbiddenRequests.length,0,'Fixture contacted live backend');
      await page.screenshot({path:`${out}/metric-${scenario}.png`,fullPage:false});
-     report.scenarios.push({scenario:`metric-${scenario}`,result:'PASS',mode:'in-memory-UI-only',...(measured?{measured}:{})});
+     report.scenarios.push({scenario:`metric-${scenario}`,result:'PASS',mode:'in-memory-UI-only',layout,...(measured?{measured}:{})});
    }finally{await context.close()}
  }
  report.status='PASS';console.log('PASS: '+report.scenarios.length+' QA scenarios; no live Firebase/PROD requests');
