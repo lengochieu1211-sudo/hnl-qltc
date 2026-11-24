@@ -68,7 +68,9 @@ try{
     await context.route(pattern,handler);
     legacyRoute={pattern,handler};
   }
-  const page=await context.newPage();pages.push(page);page.on('pageerror',e=>report.errors.push(role+': '+String(e)));await page.goto(origin,{waitUntil:'domcontentloaded',timeout:45000});
+  const page=await context.newPage();pages.push(page);page.on('pageerror',e=>report.errors.push(role+': '+String(e)));
+  if(legacySingleTab)page.on('console',m=>{if(['warning','error'].includes(m.type())){(report.legacyMigration.startupWarnings??=[]).push(m.text().slice(0,1200));persist()}});
+  await page.goto(origin,{waitUntil:'domcontentloaded',timeout:45000});
   await page.locator('[data-hnl-auth-gate="signed-out"]').waitFor({timeout:40000});
   await page.evaluate(async(role)=>{const m=await import('/src/lib/firebaseBase.ts');if(!m.FIREBASE_EMULATOR_ENABLED)throw Error('emulator guard');await m.signInWithEmulatorTestAccount(role)},role);
   await page.locator('[data-hnl-workspace-module="floorplan"]').waitFor({timeout:60000});
@@ -92,7 +94,21 @@ try{
     const sdk=await import(u);try{await sdk.updateDoc(sdk.doc(m.db,'projects',pid,'presence',uid),{module:'impersonation',lastSeen:sdk.serverTimestamp()});return false}catch(e){return e.code==='permission-denied'}
   },{pid,uid:admin.uid});
   assert(denied);const after=await read(viewer,'presence',admin.uid);assert.equal(after.module,before.module);
-  report.presence={adminAndViewerServerTimestamp:true,impersonationDenied:true};
+  // An offline heartbeat must not join the durable business mutation queue.
+  await V.context.setOffline(true);
+  try{
+    await V.page.waitForFunction(()=>!navigator.onLine);
+    const local=await V.page.evaluate(async({pid,uid})=>{
+      const m=await import('/src/lib/firebaseBase.ts');if(!m.FIREBASE_EMULATOR_ENABLED)throw Error('not emulator');
+      const u=performance.getEntriesByType('resource').map(e=>e.name).find(x=>x.includes('/.vite/deps/firebase_firestore.js?'));
+      const sdk=await import(u);await m.updateProjectPresence(pid,'qa-offline-heartbeat','VIEWER');
+      const d=await sdk.getDocFromCache(sdk.doc(m.db,'projects',pid,'presence',uid));
+      return {exists:d.exists(),pending:d.metadata.hasPendingWrites,module:d.data()?.module};
+    },{pid,uid:viewer.uid});
+    assert(local.exists&&!local.pending);assert.notEqual(local.module,'qa-offline-heartbeat');
+    assert.notEqual((await read(admin,'presence',viewer.uid)).module,'qa-offline-heartbeat');
+  }finally{await V.context.setOffline(false);await V.page.waitForFunction(()=>navigator.onLine)}
+  report.presence={adminAndViewerServerTimestamp:true,impersonationDenied:true,offlineNotQueued:true};
  });
  const modal=async(page,id)=>{await page.evaluate(({pid,id,fid})=>window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity',{detail:{entityType:'room',projectId:pid,entityId:id,floorId:fid}})),{pid,id,fid});await page.locator('[data-hnl-pc-v32-window="room-editor"]').waitFor({timeout:15000})};
  const dismiss=async(page)=>{page.once('dialog',d=>d.dismiss())};
@@ -270,7 +286,13 @@ try{
   // the served QA module is changed to the legacy persistentLocalCache() call.
   const old=await open('ADMIN',true,true),p=old.page;
   assert(report.legacyMigration?.legacyModuleServed,'legacy module was not served');
-  const warnings=[];const watch=page=>page.on('console',m=>{if(/exclusive access|falling back to memory/i.test(m.text()))warnings.push(m.text())});watch(p);
+  const warnings=[];const watch=page=>page.on('console',m=>{
+    if(['warning','error'].includes(m.type())){
+      (report.legacyMigration.runtimeWarnings??=[]).push(m.text().slice(0,1200));
+      if(/exclusive access|falling back to memory/i.test(m.text()))warnings.push(m.text());
+      persist();
+    }
+  });watch(p);
   const cache=async page=>page.evaluate(async({pid,lid})=>{
     const {db,FIREBASE_EMULATOR_ENABLED,auth}=await import('/src/lib/firebaseBase.ts');if(!FIREBASE_EMULATOR_ENABLED)throw Error('not emulator');
     const url=performance.getEntriesByType('resource').map(e=>e.name).find(u=>u.includes('/.vite/deps/firebase_firestore.js?'));
@@ -296,9 +318,16 @@ try{
     upgraded.on('pageerror',e=>report.errors.push('legacy migration: '+String(e)));
     await upgraded.goto(origin,{waitUntil:'domcontentloaded',timeout:45000});
     await upgraded.getByAltText('Tầng QA',{exact:true}).first().waitFor({timeout:45000});
-    const after=await wait(async()=>{const d=await read(viewer,'rooms',lid);return d?.revision===before.revision+1&&d.subItems?.some(i=>i.id==='stage-line'&&i.status==='Đang làm')?d:false},'legacy pending batch migrated and committed',45000);
+    const after=await wait(async()=>{
+      const d=await read(viewer,'rooms',lid);
+      report.legacyMigration.serverLast={revision:d?.revision,subItems:d?.subItems};
+      try{report.legacyMigration.lastBrowserCache=await cache(upgraded)}catch(e){report.legacyMigration.cacheReadError=String(e)}
+      persist();
+      return d?.revision===before.revision+1&&d.subItems?.some(i=>i.id==='stage-line'&&i.status==='Đang làm')?d:false;
+    },'legacy pending batch migrated and committed',75000);
     for(const k of ['id','floorId','workVolume','categoryVolumes','categoryVolumeUnits','x','y','width','height','points'])assert.deepEqual(after[k],before[k]);
-    assert.deepEqual(warnings,[]);Object.assign(report.legacyMigration,{afterRevision:after.revision,cacheWarnings:warnings});
+    const startupFallback=(report.legacyMigration.startupWarnings||[]).filter(x=>/exclusive access|falling back to memory/i.test(x));
+    assert.deepEqual([...startupFallback,...warnings],[]);Object.assign(report.legacyMigration,{afterRevision:after.revision,cacheWarnings:warnings});
     await upgraded.screenshot({path:out+'/legacy-single-tab-migrated.png'});
   }finally{await old.context.setOffline(false).catch(()=>{});persist()}
  });

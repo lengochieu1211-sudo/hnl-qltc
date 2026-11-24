@@ -3493,32 +3493,39 @@ export async function updateProjectPresence(projectId: string, module: string, r
   const normalizedProjectId = String(projectId || '').trim();
   const user = getCurrentRealFirebaseUser();
   if (!normalizedProjectId || !user || user.isAnonymous || !user.email) return;
-  const now = Date.now();
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
   const ctx = getClientAuditContext();
-  // Firebase Auth's account-level lastSignInTime is distinct from the heartbeat.
   const lastLoginAt = Date.parse(user.metadata?.lastSignInTime || '');
-  await setDoc(
-    doc(db, 'projects', normalizedProjectId, 'presence', user.uid),
-    {
+  const presenceRef = doc(db, 'projects', normalizedProjectId, 'presence', user.uid);
+  // Presence is ephemeral, not an offline business mutation. An online-only transaction
+  // avoids putting stale heartbeats ahead of durable room writes. Its read also prevents
+  // a concurrent device from committing an older client timestamp to the same UID row.
+  await runTransaction(db, async (tx) => {
+    const previous = await tx.get(presenceRef);
+    if (getCurrentRealFirebaseUser()?.uid !== user.uid) return;
+    const now = Date.now();
+    const prior = previous.data();
+    if ((typeof prior?.clientLastSeen === 'number' && prior.clientLastSeen > now) ||
+        (typeof prior?.updatedAt === 'number' && prior.updatedAt > now)) return;
+    tx.set(presenceRef, {
       ...sanitizePayloadForCloud({
-      projectId: normalizedProjectId,
-      uid: user.uid,
-      email: normalizeEmail(user.email),
-      displayName: user.displayName || '',
-      role: String(role || ''),
-      module: String(module || 'unknown').slice(0, 48),
-      deviceId: getDeviceId(),
-      deviceName: getDeviceName(),
-      ...ctx,
-      lastLoginAt: Number.isFinite(lastLoginAt) && lastLoginAt > 0 && lastLoginAt <= now + 60_000 ? lastLoginAt : 0,
-      clientLastSeen: now,
-      updatedAt: now,
+        projectId: normalizedProjectId,
+        uid: user.uid,
+        email: normalizeEmail(user.email),
+        displayName: user.displayName || '',
+        role: String(role || ''),
+        module: String(module || 'unknown').slice(0, 48),
+        deviceId: getDeviceId(),
+        deviceName: getDeviceName(),
+        ...ctx,
+        lastLoginAt: Number.isFinite(lastLoginAt) && lastLoginAt > 0 && lastLoginAt <= now + 60_000 ? lastLoginAt : 0,
+        clientLastSeen: now,
+        updatedAt: now,
       }),
       // FieldValue must bypass the plain-object sanitizer; Rules require request.time.
       lastSeen: serverTimestamp(),
-    },
-    { merge: true },
-  );
+    }, { merge: true });
+  });
 }
 
 export function subscribeProjectPresenceRealtime(
