@@ -16,7 +16,8 @@ const dir='runtime-evidence/pr492-firestore-metric'; mkdirSync(dir,{recursive:tr
 const report={projectId,scope:'Firebase SDK + real local emulator Rules only; no App UI or live Google OAuth',status:'RUNNING',checks:[]};
 const deadline=setTimeout(()=>{report.status='FAIL';report.error='Global timeout';writeFileSync(dir+'/report.json',JSON.stringify(report,null,2));process.exit(1)},120000);
 const apps=[]; let disableNetwork,enableNetwork,deleteApp,terminate;
-const step=async(name,fn)=>{try{await fn();report.checks.push({name,status:'PASS'});console.log('PASS',name)}catch(e){report.checks.push({name,status:'FAIL',error:String(e?.code||e?.message||e)});throw e}};
+const persist=()=>writeFileSync(dir+'/report.json',JSON.stringify(report,null,2)+'\n');
+const step=async(name,fn)=>{report.currentStep=name;persist();console.log('RUN',name);try{await fn();report.checks.push({name,status:'PASS'});console.log('PASS',name)}catch(e){report.checks.push({name,status:'FAIL',error:String(e?.code||e?.message||e)});throw e}finally{delete report.currentStep;persist()}};
 const deny=async(fn)=>{await assert.rejects(fn,e=>e?.code==='permission-denied'||e?.code==='firestore/permission-denied')};
 try{
   // Refuse an absent local emulator before SDK initialization.
@@ -102,4 +103,9 @@ try{
   });
   report.status='PASS';
 }catch(e){report.status='FAIL';report.error=String(e?.stack||e);process.exitCode=1;console.error(e)}
-finally{for(const {app,db} of apps){try{await enableNetwork?.(db);await terminate?.(db);await deleteApp?.(app)}catch(e){report.status='FAIL';report.cleanupError=String(e);process.exitCode=1}}clearTimeout(deadline);writeFileSync(dir+'/report.json',JSON.stringify(report,null,2)+'\n');}
+finally{for(const {app,db} of apps){try{await enableNetwork?.(db);await terminate?.(db);await deleteApp?.(app)}catch(e){report.status='FAIL';report.cleanupError=String(e);process.exitCode=1}}clearTimeout(deadline);persist();}
+// Only after all assertions and awaited cleanup finish: release lingering SDK handles.
+const finalExitCode=report.status==='PASS' ? 0 : 1;
+process.exitCode=finalExitCode;
+console.log('FINAL SDK REPORT', report.status, report.checks.length);
+setTimeout(()=>process.exit(finalExitCode),1000).unref();

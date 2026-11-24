@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: pr492-stage3-isolated
+  group: pr492-stage3-isolated-${{ github.sha }}
   cancel-in-progress: false
 jobs:
   source-gates:
@@ -93,7 +93,7 @@ jobs:
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/qa/pr492-stage3-isolated-20261124
           test -z "${GOOGLE_APPLICATION_CREDENTIALS:-}${FIREBASE_TOKEN:-}${CLOUDFLARE_API_TOKEN:-}"
-          npx --yes firebase-tools@13.35.1 emulators:exec --config firebase.rules-ci.json --project demo-hnl-qltc-pr492 --only auth,firestore "node --experimental-strip-types scripts/qa-pr492-firestore-metric-golden.mjs"
+          timeout --signal=TERM --kill-after=10s 240s npx --yes firebase-tools@13.35.1 --non-interactive emulators:exec --config firebase.rules-ci.json --project demo-hnl-qltc-pr492 --only auth,firestore "node --experimental-strip-types scripts/qa-pr492-firestore-metric-golden.mjs"
       - name: Upload emulator evidence
         if: always()
         uses: actions/upload-artifact@v4
