@@ -49,17 +49,32 @@ try{
  server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','4178','--strictPort'],{env,stdio:['ignore','pipe','pipe']});server.stdout.on('data',c=>logs+=String(c));server.stderr.on('data',c=>logs+=String(c));
  await wait(async()=> (await fetch(origin)).ok,'Vite ready',45000);
  browser=await chromium.launch({headless:true,...(process.env.QA_CHROME_EXECUTABLE?{executablePath:process.env.QA_CHROME_EXECUTABLE}:{})});
- const open=async(role,mobile=false)=>{
+ const open=async(role,mobile=false,legacySingleTab=false)=>{
   const context=await browser.newContext({viewport:mobile?{width:390,height:844}:{width:1440,height:900},locale:'vi-VN',hasTouch:mobile,isMobile:mobile,serviceWorkers:'block'});
   await context.route('**/*',async route=>{const url=route.request().url();if(url===img||url===replacement){await route.fulfill({contentType:'image/svg+xml',body:url===img?svg:svg.replace('#e6e9ee','#cbd5e1')});return}const u=new URL(url);if(['127.0.0.1','localhost'].includes(u.hostname)&&['4178','8080','9099','9199'].includes(u.port)){await route.continue();return}if(blocked.test(url))report.backendAttempts.push(url.split('?')[0]);report.blockedExternal.push(u.origin);await route.abort()});
   await context.addInitScript(({pid})=>{sessionStorage.setItem('active_project_id',pid);sessionStorage.setItem('qlct_active_tab_v1','floorplan')},{pid});
+  let legacyRoute=null;
+  if(legacySingleTab){
+    const pattern=/^http:\/\/127\.0\.0\.1:4178\/src\/lib\/firebaseBase\.ts(?:\?.*)?$/;
+    const handler=async route=>{
+      assert.equal(new URL(route.request().url()).origin,origin);
+      const response=await route.fetch({maxRedirects:0});
+      const body=await response.text();
+      const old=/persistentLocalCache\(\s*\{\s*tabManager:\s*persistentMultipleTabManager\(\s*\)\s*\}\s*\)/;
+      assert.equal((body.match(new RegExp(old.source,'g'))||[]).length,1,'expected exact multi-tab expression in transformed module');
+      report.legacyMigration={legacyModuleServed:true};persist();
+      await route.fulfill({response,body:body.replace(old,'persistentLocalCache()')});
+    };
+    await context.route(pattern,handler);
+    legacyRoute={pattern,handler};
+  }
   const page=await context.newPage();pages.push(page);page.on('pageerror',e=>report.errors.push(role+': '+String(e)));await page.goto(origin,{waitUntil:'domcontentloaded',timeout:45000});
   await page.locator('[data-hnl-auth-gate="signed-out"]').waitFor({timeout:40000});
   await page.evaluate(async(role)=>{const m=await import('/src/lib/firebaseBase.ts');if(!m.FIREBASE_EMULATOR_ENABLED)throw Error('emulator guard');await m.signInWithEmulatorTestAccount(role)},role);
   await page.locator('[data-hnl-workspace-module="floorplan"]').waitFor({timeout:60000});
   await page.getByAltText('Tầng QA',{exact:true}).first().waitFor({timeout:45000});
   await page.screenshot({path:out+'/'+role.toLowerCase()+'-floor.png'});
-  return {page,context};
+  return {page,context,legacyRoute};
  };
  let A,V;
  await step('Actual App authenticated ADMIN PC and VIEWER phone, project floor loaded',async()=>{A=await open('ADMIN');V=await open('VIEWER',true);assert.equal(await V.page.locator('[data-hnl-prod-metric-toolbar]').count(),0)});
@@ -233,55 +248,60 @@ try{
     // Restarted page has been closed after the lease-handoff check.
   }finally{await M.context.setOffline(false).catch(()=>{});persist()}
  });
+ let upgraded;
  await step('Migrate existing single-tab IndexedDB pending batch to multi-tab without clearing storage',async()=>{
-  // Use the exact browser SDK modules that the real Vite App already loaded.
-  const urls=await A.page.evaluate(()=>Object.fromEntries(['app','auth','firestore'].map(name=>[name,performance.getEntriesByType('resource').map(e=>e.name).find(u=>u.includes('/.vite/deps/firebase_'+name+'.js?'))])));
-  for(const key of ['app','auth','firestore'])assert(urls[key]&&new URL(urls[key]).origin===origin,'missing local Vite SDK '+key);
-  const context=await browser.newContext({viewport:{width:390,height:844},locale:'vi-VN',hasTouch:true,isMobile:true,serviceWorkers:'block'});
-  await context.route('**/*',async route=>{const url=route.request().url();if(url===img||url===replacement){await route.fulfill({contentType:'image/svg+xml',body:url===img?svg:svg.replace('#e6e9ee','#cbd5e1')});return}const u=new URL(url);if(['127.0.0.1','localhost'].includes(u.hostname)&&['4178','8080','9099','9199'].includes(u.port)){await route.continue();return}if(blocked.test(url))report.backendAttempts.push(url.split('?')[0]);report.blockedExternal.push(u.origin);await route.abort()});
-  await context.addInitScript(({pid})=>{sessionStorage.setItem('active_project_id',pid);sessionStorage.setItem('qlct_active_tab_v1','floorplan')},{pid});
-  const legacyUrl=origin+'/qa-legacy-cache.html';
-  await context.route(legacyUrl,route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Disposable legacy cache fixture</title>'}));
-  const old=await context.newPage();pages.push(old);await old.goto(legacyUrl);
+  // Real App, same Auth path and exact Firebase project/database identity. Only
+  // the served QA module is changed to the legacy persistentLocalCache() call.
+  const old=await open('ADMIN',true,true),p=old.page;
+  assert(report.legacyMigration?.legacyModuleServed,'legacy module was not served');
+  const warnings=[];const watch=page=>page.on('console',m=>{if(/exclusive access|falling back to memory/i.test(m.text()))warnings.push(m.text())});watch(p);
+  const cache=async page=>page.evaluate(async({pid,lid})=>{
+    const {db,FIREBASE_EMULATOR_ENABLED,auth}=await import('/src/lib/firebaseBase.ts');if(!FIREBASE_EMULATOR_ENABLED)throw Error('not emulator');
+    const url=performance.getEntriesByType('resource').map(e=>e.name).find(u=>u.includes('/.vite/deps/firebase_firestore.js?'));
+    if(!url)throw Error('missing exact SDK module');const sdk=await import(url);
+    const d=await sdk.getDocFromCache(sdk.doc(db,'projects',pid,'rooms',lid));
+    return {uid:auth.currentUser?.uid,pending:d.metadata.hasPendingWrites,data:d.data()};
+  },{pid,lid});
   const before=await read(viewer,'rooms',lid);
-  const pending=await old.evaluate(async({urls,project,pid,lid,revision})=>{
-    const apps=await import(urls.app),authSdk=await import(urls.auth),sdk=await import(urls.firestore);
-    const app=apps.initializeApp({apiKey:'demo-hnl-qltc-key',authDomain:project+'.firebaseapp.com',projectId:project,storageBucket:project+'.firebasestorage.app',messagingSenderId:'000000000000',appId:'1:000000000000:web:hnlqltcemulatordev',firestoreDatabaseId:'(default)'});
-    const auth=authSdk.getAuth(app);authSdk.connectAuthEmulator(auth,'http://127.0.0.1:9099',{disableWarnings:true});
-    await authSdk.setPersistence(auth,authSdk.browserLocalPersistence);
-    await authSdk.signInWithEmailAndPassword(auth,'admin@hnl.test','HNL-Emulator-123!');
-    // EXACT old configuration: default persistentLocalCache() (single-tab).
-    const db=sdk.initializeFirestore(app,{localCache:sdk.persistentLocalCache(),experimentalAutoDetectLongPolling:true},'(default)');
-    sdk.connectFirestoreEmulator(db,'127.0.0.1',8080);
-    const target=sdk.doc(db,'projects',pid,'rooms',lid);
-    const base=await sdk.getDocFromServer(target);if(base.data()?.revision!==revision)throw Error('legacy fixture stale');
-    await sdk.disableNetwork(db);
-    sdk.updateDoc(target,{revision:revision+1,updatedAt:Date.now(),frameStatus:'Đang làm'}).catch(()=>{});
-    for(let i=0;i<80;i++){const snap=await sdk.getDocFromCache(target);if(snap.metadata.hasPendingWrites&&snap.data()?.revision===revision+1)return {pending:true,revision:snap.data().revision,uid:auth.currentUser.uid};await new Promise(r=>setTimeout(r,100))}
-    throw Error('legacy mutation did not reach persistent SDK queue');
-  },{urls,project,pid,lid,revision:before.revision});
-  assert.equal(pending.uid,admin.uid);assert.equal((await read(viewer,'rooms',lid)).revision,before.revision);
-  report.legacyMigration={beforeRevision:before.revision,pending};persist();
-  // No terminate/clearIndexedDbPersistence or database deletion: close as an old app would.
-  await old.close();
-  const upgraded=await context.newPage();pages.push(upgraded);const warnings=[];upgraded.on('console',m=>{if(/exclusive access|falling back to memory/i.test(m.text()))warnings.push(m.text())});upgraded.on('pageerror',e=>report.errors.push('legacy migration: '+String(e)));
-  await upgraded.goto(origin,{waitUntil:'domcontentloaded',timeout:45000});await upgraded.getByAltText('Tầng QA',{exact:true}).first().waitFor({timeout:45000});
-  const after=await wait(async()=>{const d=await read(viewer,'rooms',lid);return d?.revision===before.revision+1&&d.frameStatus==='Đang làm'?d:false},'legacy pending batch migrated and committed',45000);
-  for(const k of ['id','floorId','categoryVolumes','categoryVolumeUnits','x','y','width','height','points'])assert.deepEqual(after[k],before[k]);
-  assert.deepEqual(warnings,[]);report.legacyMigration.afterRevision=after.revision;report.legacyMigration.cacheWarnings=warnings;
-  await upgraded.screenshot({path:out+'/legacy-single-tab-migrated.png'});
-  // Google-provider identity from an Auth Emulator mock ID token, never real Google.
+  try{
+    await wait(async()=>{const c=await cache(p);return c.uid===admin.uid&&!c.pending&&c.data?.revision===before.revision},'old client cache ready');
+    await modal(p,lid);
+    const progress=p.locator('[data-hnl-pc-v36-room-status="item"]').getByRole('button',{name:/Đang làm/}).first();
+    await old.context.setOffline(true);await p.waitForFunction(()=>!navigator.onLine);
+    await progress.click();await p.getByRole('button',{name:/Lưu thay đổi nghiệm thu/}).click();
+    const pending=await wait(async()=>{const c=await cache(p);return c.pending&&c.data?.revision===before.revision+1&&c.data?.subItems?.some(i=>i.id==='stage-line'&&i.status==='Đang làm')?c:false},'legacy persistent pending mutation');
+    assert.equal(pending.uid,admin.uid);assert.equal((await read(viewer,'rooms',lid)).revision,before.revision);
+    Object.assign(report.legacyMigration,{beforeRevision:before.revision,pending});persist();
+    await p.screenshot({path:out+'/legacy-single-tab-pending.png'});
+    // No storage deletion or terminate. Close old tab, remove only the QA HTTP override.
+    await p.close();await old.context.unroute(old.legacyRoute.pattern,old.legacyRoute.handler);
+    await old.context.setOffline(false);
+    upgraded=await old.context.newPage();pages.push(upgraded);watch(upgraded);
+    upgraded.on('pageerror',e=>report.errors.push('legacy migration: '+String(e)));
+    await upgraded.goto(origin,{waitUntil:'domcontentloaded',timeout:45000});
+    await upgraded.getByAltText('Tầng QA',{exact:true}).first().waitFor({timeout:45000});
+    const after=await wait(async()=>{const d=await read(viewer,'rooms',lid);return d?.revision===before.revision+1&&d.subItems?.some(i=>i.id==='stage-line'&&i.status==='Đang làm')?d:false},'legacy pending batch migrated and committed',45000);
+    for(const k of ['id','floorId','workVolume','categoryVolumes','categoryVolumeUnits','x','y','width','height','points'])assert.deepEqual(after[k],before[k]);
+    assert.deepEqual(warnings,[]);Object.assign(report.legacyMigration,{afterRevision:after.revision,cacheWarnings:warnings});
+    await upgraded.screenshot({path:out+'/legacy-single-tab-migrated.png'});
+  }finally{await old.context.setOffline(false).catch(()=>{});persist()}
+ });
+ await step('Mock Google-provider outsider cannot read prior account project',async()=>{
+  const url=await upgraded.evaluate(()=>performance.getEntriesByType('resource').map(e=>e.name).find(u=>u.includes('/.vite/deps/firebase_auth.js?')));
+  assert(url&&new URL(url).origin===origin);
   const fake=await upgraded.evaluate(async({url})=>{
     const m=await import('/src/lib/firebaseBase.ts');if(!m.FIREBASE_EMULATOR_ENABLED)throw Error('not emulator');
     const a=await import(url);await a.signOut(m.auth);
     const result=await a.signInWithCredential(m.auth,a.GoogleAuthProvider.credential(JSON.stringify({sub:'qa-oauth-outside-project',email:'oauth-outsider@hnl.test',email_verified:true})));
     return {email:result.user.email,provider:result.user.providerData.map(x=>x.providerId)};
-  },{url:urls.auth});
+  },{url});
   assert.equal(fake.email,'oauth-outsider@hnl.test');assert(fake.provider.includes('google.com'));
-  const denied=await upgraded.evaluate(async({url,pid,lid})=>{
+  const denied=await upgraded.evaluate(async({pid,lid})=>{
     const {db,FIREBASE_EMULATOR_ENABLED}=await import('/src/lib/firebaseBase.ts');if(!FIREBASE_EMULATOR_ENABLED)throw Error('not emulator');
-    const sdk=await import(url);try{await sdk.getDocFromServer(sdk.doc(db,'projects',pid,'rooms',lid));return false}catch(e){return String(e.code).includes('permission-denied')}
-  },{url:urls.firestore,pid,lid});
+    const u=performance.getEntriesByType('resource').map(e=>e.name).find(x=>x.includes('/.vite/deps/firebase_firestore.js?'));
+    if(!u)throw Error('missing exact SDK module');const sdk=await import(u);
+    try{await sdk.getDocFromServer(sdk.doc(db,'projects',pid,'rooms',lid));return false}catch(e){return String(e.code).includes('permission-denied')}
+  },{pid,lid});
   assert(denied,'mock Google account without membership must not read room');
   await wait(async()=>await upgraded.getByAltText('Tầng QA',{exact:true}).count()===0,'old account project UI must disappear',30000);
   report.mockGoogleProvider={provider:fake.provider,unauthorizedReadDenied:true,oldProjectUIHidden:true};
