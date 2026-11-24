@@ -111,8 +111,8 @@ export const FloorMetricCalibration: React.FC<Props> = ({
         <div className="flex justify-between items-center gap-2">
           <span className="font-extrabold">📏 Đo tỷ lệ mặt bằng</span>
           <div className="flex items-center gap-1.5 shrink-0">
-            {canSave && <button type="button" aria-pressed={active} onClick={open}
-              className="rounded-lg bg-indigo-600 px-2 py-1.5 font-bold text-white hover:bg-indigo-700">{active ? 'Hủy đo' : 'Chọn 2 điểm'}</button>}
+            {canSave && !active && <button type="button" onClick={open}
+              className="rounded-lg bg-indigo-600 px-2 py-1.5 font-bold text-white hover:bg-indigo-700">Chọn 2 điểm</button>}
             <button type="button" data-hnl-metric-calibration-close="true" aria-label="Đóng bảng Đo tỷ lệ"
               title="Đóng bảng Đo tỷ lệ" onClick={(event) => { event.stopPropagation(); close(); }}
               className={`rounded-lg px-2 py-1.5 font-bold ${isFullscreen
