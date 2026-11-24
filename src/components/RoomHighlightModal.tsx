@@ -1265,7 +1265,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     // Recheck the same room, current calibration and unit before the ordinary save.
     // Do not treat a changed floor/room or a revoked role as an accepted measurement.
     if (!ADVANCED_HIGHLIGHT_ENABLED) {
-      for (const [cat, measurement] of Object.entries(basicMeasuredRef.current)) {
+      for (const [cat, measurement] of Object.entries<{ unit: 'm²' | 'm'; value: number; key: string }>(basicMeasuredRef.current)) {
         const measured = roomItem && onMeasureBasicRoom && onMeasureBasicRoom(roomItem, measurement.unit);
         if (structureReadOnly || !activeCategories.includes(cat) || getBasicMeasureUnit(cat) !== measurement.unit ||
             !measured || measured.valid === false || Math.round(measured.value * 100) / 100 !== measurement.value ||
