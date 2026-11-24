@@ -63,7 +63,7 @@ try{
  const dismiss=async(page)=>{page.once('dialog',d=>d.dismiss())};
  const accept=async(page)=>{page.once('dialog',d=>d.accept())};
  await step('Actual two-point calibration: cancel does not write; Save persists to server',async()=>{
-  const p=A.page;await p.getByText('Công cụ vẽ vùng Căn / Phòng',{exact:true}).click();await p.locator('[data-hnl-prod-metric-toolbar]').click();const canvas=p.locator('[data-hnl-prod-metric-canvas]');await canvas.waitFor();await canvas.scrollIntoViewIfNeeded();const box=await canvas.boundingBox();assert(box&&box.width>100);
+  const p=A.page;const toolbar=p.locator('[data-hnl-prod-metric-toolbar]');const group=toolbar.locator('xpath=ancestor::details[1]');await group.waitFor();await p.getByAltText('Tầng QA',{exact:true}).first().evaluate(async img=>{await img.decode()});await wait(async()=>{if(await toolbar.isVisible())return true;if(!await group.evaluate(e=>e.open))await group.locator('summary').click({timeout:5000});return await toolbar.isVisible()},'drawing toolbar visible',20000);await toolbar.click();const canvas=p.locator('[data-hnl-prod-metric-canvas]');await canvas.waitFor();await canvas.scrollIntoViewIfNeeded();const box=await canvas.boundingBox();assert(box&&box.width>100);
   await p.getByLabel('Chiều dài chuẩn mét').fill('10');
   // Use bottom half away from the calibration card overlay.
   await canvas.click({position:{x:box.width*.5,y:box.height*.8}});await canvas.click({position:{x:box.width*.6,y:box.height*.8}});
