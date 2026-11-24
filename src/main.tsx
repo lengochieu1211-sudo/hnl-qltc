@@ -236,6 +236,21 @@ async function bootstrap() {
   const { prepareFirebaseAuthPersistence, completeFirebaseAuthRedirect } = await import('./lib/authPersistence');
   await prepareFirebaseAuthPersistence();
 
+  const { verifyFirestorePersistentCacheAtStartup } = await import('./lib/firebaseBase');
+  if (!(await verifyFirestorePersistentCacheAtStartup())) {
+    appendRuntimeDiagnostic({ level: 'warn', area: 'bootstrap', code: 'FIRESTORE_CACHE_STARTUP_BLOCKED', message: 'Bộ nhớ offline chưa sẵn sàng; giao diện nghiệp vụ không được mở.' });
+    createRoot(document.getElementById('root')!).render(
+      <main data-hnl-cache-startup-blocked="true" role="alert" className="min-h-screen flex flex-col items-center justify-center p-6 text-center">
+        <h1 className="text-xl font-bold mb-3">Chưa thể mở bộ nhớ offline an toàn</h1>
+        <p className="max-w-lg mb-3">Ứng dụng chưa xác nhận được bộ nhớ lưu bền vững. Để tránh mất thay đổi khi đóng ứng dụng, chức năng nghiệp vụ tạm thời bị khóa.</p>
+        <p className="max-w-lg mb-5">Đóng các tab hoặc phiên HNL QLTC cũ đang mở, chờ vài giây rồi thử lại. Không xóa dữ liệu trình duyệt hoặc gỡ ứng dụng.</p>
+        <button type="button" className="rounded-lg bg-blue-600 text-white px-5 py-3" onClick={() => window.location.reload()}>Thử lại bộ nhớ offline</button>
+      </main>,
+    );
+    notifyAndroidStartupReadyAfterPaint();
+    return;
+  }
+
   // P0 mobile Auth gate: a signInWithRedirect() round trip is not complete until the
   // returning page consumes getRedirectResult(). Do this before App mounts so both the
   // header login button and the permission-screen login button see the same restored

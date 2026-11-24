@@ -1,4 +1,4 @@
-import { initializeApp, getApps } from 'firebase/app';
+import { initializeApp, getApps, onLog } from 'firebase/app';
 import { 
   initializeFirestore, 
   persistentLocalCache,
@@ -184,6 +184,17 @@ try {
   }
 } catch (_) {}
 
+// Fail closed before App mounts if Firebase's lazy cache initialization falls back.
+let firestoreStartupCacheFailed = false;
+if (typeof window !== 'undefined') {
+  onLog((entry) => {
+    if (/firestore/i.test(entry.type) &&
+        /falling back to memory cache|failed to obtain exclusive access to the persistence layer/i.test(entry.message)) {
+      firestoreStartupCacheFailed = true;
+    }
+  }, { level: 'warn' });
+}
+
 let dbInstance: any;
 try {
   dbInstance = initializeFirestore(app, {
@@ -194,6 +205,7 @@ try {
   // A browser that cannot open IndexedDB must still start. This fallback is deliberately
   // memory-only and is surfaced in diagnostics; it must not silently re-enable the
   // custom business database as a second source of truth.
+  firestoreStartupCacheFailed = true;
   console.warn('Firestore persistent cache initialization warning; falling back to memory cache:', e);
   dbInstance = initializeFirestore(app, {
     experimentalAutoDetectLongPolling: true,
@@ -209,6 +221,29 @@ if (FIREBASE_EMULATOR_ENABLED) {
     port: FIRESTORE_EMULATOR_PORT,
     projectId: FIREBASE_EMULATOR_PROJECT_ID,
   });
+}
+
+/**
+ * Force lazy local cache initialization through a cache-only query before any
+ * business UI is mounted. Never send the probe to the server, write a document,
+ * clear persistence, or force ownership. A timeout/fallback blocks the workspace.
+ */
+export async function verifyFirestorePersistentCacheAtStartup(): Promise<boolean> {
+  if (firestoreStartupCacheFailed) return false;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      getDocsFromCache(query(collection(db, '__hnl_cache_probe__'), limit(1))),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error('Local cache startup timeout')), 15000);
+      }),
+    ]);
+    return !firestoreStartupCacheFailed;
+  } catch (_) {
+    return false;
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
 }
 
 export const auth = getAuth(app);

@@ -325,7 +325,19 @@ try{
     upgraded=await old.context.newPage();pages.push(upgraded);watch(upgraded);
     upgraded.on('pageerror',e=>report.errors.push('legacy migration: '+String(e)));
     await upgraded.goto(origin,{waitUntil:'domcontentloaded',timeout:45000});
-    await upgraded.getByAltText('Tầng QA',{exact:true}).first().waitFor({timeout:45000});
+    const gate=upgraded.locator('[data-hnl-cache-startup-blocked="true"]');
+    const floor=upgraded.getByAltText('Tầng QA',{exact:true}).first();
+    await wait(async()=>await gate.isVisible()||await floor.isVisible(),'legacy upgrade cache gate or floor',45000);
+    let guardedWarnings=[];
+    if(await gate.isVisible()){
+      assert.equal(await upgraded.locator('[data-hnl-workspace-module="floorplan"]').count(),0,'fallback must not mount the business workspace');
+      report.legacyMigration.startupBlocked=true;guardedWarnings=[...warnings];warnings.length=0;persist();
+      await upgraded.screenshot({path:out+'/cache-startup-blocked.png'});
+      await new Promise(resolve=>setTimeout(resolve,10000));
+      await upgraded.getByRole('button',{name:'Thử lại bộ nhớ offline'}).click();
+    }
+    await floor.waitFor({timeout:45000});
+    report.legacyMigration.guardedFallbackWarnings=guardedWarnings;
     const after=await wait(async()=>{
       const d=await read(viewer,'rooms',lid);
       report.legacyMigration.serverLast={revision:d?.revision,subItems:d?.subItems};
@@ -447,10 +459,12 @@ try{
   peer.on('console',m=>{if(/exclusive access|falling back to memory/i.test(m.text()))warnings.push(m.text().slice(0,1200))});
   peer.on('pageerror',e=>report.errors.push('mixed client: '+String(e)));
   await peer.goto(origin,{waitUntil:'domcontentloaded',timeout:45000});
-  await peer.getByAltText('Tầng QA',{exact:true}).first().waitFor({timeout:45000});
-  await wait(async()=>{const d=await cache(peer);return d.data?.revision===before.revision},'mixed peer can read current record');
-  const peerCache=await cache(peer);
-  Object.assign(report.mixedClients,{beforeRevision:before.revision,oldIndexManagerAvailable:oldCache.indexManagerAvailable,newIndexManagerAvailable:peerCache.indexManagerAvailable,cacheWarnings:warnings,scope:'No write attempted from potentially RAM-only peer; this is diagnostic, not offline-safety certification.'});persist();
+  const gate=peer.locator('[data-hnl-cache-startup-blocked="true"]');
+  await gate.waitFor({timeout:45000});
+  assert.equal(await peer.locator('[data-hnl-workspace-module="floorplan"]').count(),0,'unsafe peer must not mount workspace');
+  assert(warnings.some(x=>/exclusive access|falling back to memory/i.test(x)),'expected legacy single-tab lease conflict');
+  await peer.screenshot({path:out+'/mixed-client-blocked.png'});
+  Object.assign(report.mixedClients,{beforeRevision:before.revision,oldIndexManagerAvailable:oldCache.indexManagerAvailable,cacheWarnings:warnings,newWorkspaceBlocked:true,scope:'Unsafe RAM-only peer blocked before business UI mount.'});persist();
   const status=before.subItems.find(x=>x.id==='stage-line').status==='Đang làm'?'Chưa làm':'Đang làm';
   await modal(p,lid);await old.context.setOffline(true);
   try{
