@@ -8366,8 +8366,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             {/* Optional ĐVT Cái stage markers; independent of area highlights and Defect pins. */}
             {(canManageStructure || isCountDrawing) && onSaveHighlightCount && selectedRoomObject && !isRoomModalOpen && !isRoomCreationDrawing && drawTool === 'none' &&
               !isDefectPinPlacementMode && !relocatingDefectId && !isMetricCalibrating && (viewMode === 'all' || viewMode === 'highlight') && (
+              <React.Fragment key={JSON.stringify([highlightDraftUid,currentProjectId,selectedRoomObject.id])}>
               <FloorHighlightCountPoints
-                key={JSON.stringify([highlightDraftUid,currentProjectId,selectedRoomObject.id])}
                 draftScope={highlightDraftUid&&projectId?{uid:highlightDraftUid,projectId}:undefined}
                 room={selectedRoomObject}
                 imageContainer={imageContainerRef.current}
@@ -8387,6 +8387,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 cadPolar={cadPolar}
                 onSave={async(request)=>{const acknowledged=await onSaveHighlightCount(request);setMapLayers(prev=>({...prev,countPoints:true}));return acknowledged;}}
               />
+              </React.Fragment>
             )}
 
             {/* Copy / Paste Feedback Toast Banner */}

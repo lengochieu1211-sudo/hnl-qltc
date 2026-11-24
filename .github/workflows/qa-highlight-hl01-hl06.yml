@@ -73,9 +73,12 @@ jobs:
       - name: Previously blocked regression
         if: success() || failure()
         run: |
-          node scripts/dev-backup-room-highlight-stroke-golden.mjs
-          npx --no-install tsx scripts/linkage-calculation-golden.ts
-          npx --no-install tsx scripts/material-need-golden.ts
+          set +e
+          failed=0
+          node scripts/dev-backup-room-highlight-stroke-golden.mjs || failed=1
+          npx --no-install tsx scripts/linkage-calculation-golden.ts || failed=1
+          npx --no-install tsx scripts/material-need-golden.ts || failed=1
+          exit "$failed"
       - name: Browser three-account local emulator smoke
         if: success() || failure()
         run: |
